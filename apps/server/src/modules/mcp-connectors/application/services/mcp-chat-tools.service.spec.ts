@@ -28,6 +28,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 import type { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { HIGGSFIELD_MULTISHOT_AUDIO_MODEL } from "../../domain/higgsfield-models";
 import type { ConnectorOperationEventsRepository } from "../../infrastructure/persistence/connector-operation-events.repository";
@@ -316,6 +317,9 @@ function buildService({
 			async (input: { args: unknown }): Promise<unknown> => input.args,
 		),
 	};
+	const lifecycleEvents = {
+		enqueue: vi.fn().mockResolvedValue(null),
+	};
 	const service = new McpChatToolsService(
 		connectorOperationEventsRepository as unknown as ConnectorOperationEventsRepository,
 		connectionsRepository as unknown as McpConnectionsRepository,
@@ -325,6 +329,7 @@ function buildService({
 		connectorGenerationsRepository as unknown as ConnectorGenerationsRepository,
 		meteringService as unknown as MeteringService,
 		promptRefiner as unknown as HiggsfieldPromptRefinerService,
+		lifecycleEvents as unknown as LifecycleEventsService,
 	);
 
 	return {
@@ -333,6 +338,7 @@ function buildService({
 		connectorOperationEventsRepository,
 		connectorGenerationsRepository,
 		connectorsRepository,
+		lifecycleEvents,
 		meteringEvents,
 		meteringService,
 		promptRefiner,
@@ -3450,15 +3456,16 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					},
 				}),
 			);
-			const { connectorOperationEventsRepository, service } = buildService({
-				connectors: [
-					connector({
-						toolPolicy: {
-							allowlist: ["ads_get_ad_accounts", "campaign_create"],
-						},
-					}),
-				],
-			});
+			const { connectorOperationEventsRepository, lifecycleEvents, service } =
+				buildService({
+					connectors: [
+						connector({
+							toolPolicy: {
+								allowlist: ["ads_get_ad_accounts", "campaign_create"],
+							},
+						}),
+					],
+				});
 			const result = await service.resolveToolsForUser(
 				{ actorUserId: USER_ID, organizationId: "organization-1" },
 				"usage-event-1",
@@ -3470,7 +3477,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			await executeTool(
 				requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
-				{},
+				{ status: "ACTIVE" },
 			);
 
 			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
@@ -3498,6 +3505,66 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					toolName: "campaign_create",
 				}),
 			);
+			expect(lifecycleEvents.enqueue).toHaveBeenNthCalledWith(1, {
+				event: "ads_analysis_completed",
+				idempotencyKey: `ads_analysis_completed:${USER_ID}`,
+				userId: USER_ID,
+			});
+			expect(lifecycleEvents.enqueue).toHaveBeenNthCalledWith(2, {
+				event: "campaign_launched",
+				idempotencyKey: `campaign_launched:${USER_ID}`,
+				userId: USER_ID,
+			});
+		});
+
+		it("uses the executed arguments to distinguish launches from paused creates and budget edits", async () => {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("campaign_create"),
+						definition("ads_update_adset"),
+					],
+					toolImplementations: {
+						ads_update_adset: executableTool(() => ({ success: true })),
+						campaign_create: executableTool(() => ({ id: "campaign-1" })),
+					},
+				}),
+			);
+			const { lifecycleEvents, service } = buildService({
+				connectors: [
+					connector({
+						toolPolicy: {
+							allowlist: ["campaign_create", "ads_update_adset"],
+						},
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
+				{ status: "PAUSED" },
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_update_adset"),
+				{ daily_budget: 5000 },
+			);
+
+			expect(lifecycleEvents.enqueue).not.toHaveBeenCalled();
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_update_adset"),
+				{ status: "ACTIVE" },
+			);
+
+			expect(lifecycleEvents.enqueue).toHaveBeenCalledOnce();
+			expect(lifecycleEvents.enqueue).toHaveBeenCalledWith({
+				event: "campaign_launched",
+				idempotencyKey: `campaign_launched:${USER_ID}`,
+				userId: USER_ID,
+			});
 		});
 
 		it("classifies non-ads connector executions as other", async () => {
@@ -3554,15 +3621,16 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					},
 				}),
 			);
-			const { connectorOperationEventsRepository, service } = buildService({
-				connectors: [
-					connector({
-						toolPolicy: {
-							allowlist: ["campaign_get", "campaign_create"],
-						},
-					}),
-				],
-			});
+			const { connectorOperationEventsRepository, lifecycleEvents, service } =
+				buildService({
+					connectors: [
+						connector({
+							toolPolicy: {
+								allowlist: ["campaign_get", "campaign_create"],
+							},
+						}),
+					],
+				});
 			const result = await service.resolveToolsForUser({
 				actorUserId: USER_ID,
 			});
@@ -3589,6 +3657,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					status: "failed",
 				}),
 			);
+			expect(lifecycleEvents.enqueue).not.toHaveBeenCalled();
 			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
 				2,
 				expect.objectContaining({
@@ -3686,7 +3755,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 		});
 
-		it("does not await or surface an analytics insert failure", async () => {
+		it("awaits the analytics insert without surfacing its failure", async () => {
 			const pendingInsert = deferred<void>();
 			queueClient(
 				mockClient({
@@ -3696,9 +3765,51 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					},
 				}),
 			);
-			const { connectorOperationEventsRepository, service } = buildService();
+			const { connectorOperationEventsRepository, lifecycleEvents, service } =
+				buildService();
 			connectorOperationEventsRepository.insert.mockReturnValueOnce(
 				pendingInsert.promise,
+			);
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			let settled = false;
+			const execution = executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_get_ad_accounts"),
+				{},
+			).finally(() => {
+				settled = true;
+			});
+			await vi.waitFor(() => {
+				expect(
+					connectorOperationEventsRepository.insert,
+				).toHaveBeenCalledOnce();
+			});
+			expect(settled).toBe(false);
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledOnce();
+
+			pendingInsert.reject(new Error("analytics database unavailable"));
+			await expect(execution).resolves.toEqual({ accounts: [] });
+			expect(lifecycleEvents.enqueue).toHaveBeenCalledWith({
+				event: "ads_analysis_completed",
+				idempotencyKey: `ads_analysis_completed:${USER_ID}`,
+				userId: USER_ID,
+			});
+		});
+
+		it("keeps a successful provider result when lifecycle capture fails", async () => {
+			queueClient(
+				mockClient({
+					definitions: [definition("ads_get_ad_accounts")],
+					toolImplementations: {
+						ads_get_ad_accounts: executableTool(() => ({ accounts: [] })),
+					},
+				}),
+			);
+			const { lifecycleEvents, service } = buildService();
+			lifecycleEvents.enqueue.mockRejectedValue(
+				new Error("lifecycle outbox unavailable"),
 			);
 			const result = await service.resolveToolsForUser({
 				actorUserId: USER_ID,
@@ -3710,14 +3821,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					{},
 				),
 			).resolves.toEqual({ accounts: [] });
-			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledOnce();
-
-			pendingInsert.reject(new Error("analytics database unavailable"));
-			await vi.waitFor(() => {
-				expect(
-					connectorOperationEventsRepository.insert,
-				).toHaveBeenCalledOnce();
-			});
+			expect(lifecycleEvents.enqueue).toHaveBeenCalledOnce();
 		});
 
 		it("does not record when provider execution never starts", async () => {

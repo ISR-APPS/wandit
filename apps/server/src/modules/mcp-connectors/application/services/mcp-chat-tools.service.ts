@@ -21,6 +21,11 @@ import type { runConnectorGenerationTask } from "../../../../trigger/run-connect
 import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import {
+	type LifecycleEventName,
+	lifecycleEventIdempotencyKey,
+} from "../../../lifecycle-events/domain/lifecycle-event";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
@@ -40,6 +45,7 @@ import {
 	isAdsCreateToolName,
 	resultPayloads,
 } from "../../domain/ads-target-entity";
+import { isCampaignLaunch } from "../../domain/campaign-launch";
 import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
@@ -584,6 +590,8 @@ export class McpChatToolsService {
 		private readonly meteringService: MeteringService,
 		@Inject(HiggsfieldPromptRefinerService)
 		private readonly promptRefiner: HiggsfieldPromptRefinerService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async resolveToolsForUser(
@@ -1699,9 +1707,14 @@ export class McpChatToolsService {
 		}
 
 		const providerInput = {
-			...input,
+			args: input.input,
+			connectorSlug: input.connectorSlug,
 			invoke: () => input.invoke(input.input),
+			parentEventId: input.parentEventId,
+			retryProviderExecution: input.retryProviderExecution,
+			subject: input.subject,
 			targetEntityIds,
+			toolName: input.toolName,
 		};
 
 		// A cost preflight renders nothing — the inline generation tools that
@@ -1756,6 +1769,7 @@ export class McpChatToolsService {
 		try {
 			result = await this.invokeProviderTool({
 				...providerInput,
+				args: executeInput,
 				invoke: () => input.invoke(executeInput),
 			});
 		} catch (error) {
@@ -1942,6 +1956,7 @@ export class McpChatToolsService {
 	}
 
 	private async invokeProviderTool(input: {
+		args: unknown;
 		connectorSlug: string;
 		invoke: () => Promise<unknown>;
 		// Narrower than executeInlineConnectorTool's invoke: callers bind the
@@ -1959,7 +1974,12 @@ export class McpChatToolsService {
 				const result = await input.invoke();
 
 				if (isMcpErrorResult(result)) {
-					this.recordConnectorOperation(input, "failed", startedAt, result);
+					await this.recordConnectorOperation(
+						input,
+						"failed",
+						startedAt,
+						result,
+					);
 					return result;
 				}
 
@@ -1968,7 +1988,7 @@ export class McpChatToolsService {
 				// failed — a failed write never reset learning, so no target ids.
 				const platformFailure = adsPlatformFailure(input.connectorSlug, result);
 				if (platformFailure) {
-					this.recordConnectorOperation(
+					await this.recordConnectorOperation(
 						input,
 						"failed",
 						startedAt,
@@ -1992,14 +2012,14 @@ export class McpChatToolsService {
 							result,
 						)
 					: (input.targetEntityIds ?? []);
-				this.recordConnectorOperation(
+				await this.recordConnectorOperation(
 					{ ...input, targetEntityIds },
 					"succeeded",
 					startedAt,
 				);
 				return result;
 			} catch (error) {
-				this.recordConnectorOperation(input, "failed", startedAt, error);
+				await this.recordConnectorOperation(input, "failed", startedAt, error);
 				throw error;
 			}
 		};
@@ -2009,8 +2029,9 @@ export class McpChatToolsService {
 			: invokeOnce();
 	}
 
-	private recordConnectorOperation(
+	private async recordConnectorOperation(
 		input: {
+			args: unknown;
 			connectorSlug: string;
 			parentEventId?: string;
 			subject: MeteringSubject;
@@ -2021,7 +2042,12 @@ export class McpChatToolsService {
 		startedAt: number,
 		error?: unknown,
 		platformErrorCode?: string | null,
-	): void {
+	): Promise<void> {
+		const feature = connectorOperationFeature(
+			input.connectorSlug,
+			input.toolName,
+		);
+
 		try {
 			const sanitizedError =
 				status === "failed" ? sanitizeConnectorOperationError(error) : null;
@@ -2033,12 +2059,12 @@ export class McpChatToolsService {
 				input.targetEntityIds.length > 0
 					? input.targetEntityIds
 					: null;
-			const insert = this.connectorOperationEventsRepository.insert({
+			await this.connectorOperationEventsRepository.insert({
 				connectorSlug: input.connectorSlug,
 				durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
 				errorCode: platformErrorCode ?? sanitizedError?.errorCode ?? null,
 				errorMessage: sanitizedError?.errorMessage ?? null,
-				feature: connectorOperationFeature(input.connectorSlug, input.toolName),
+				feature,
 				organizationId: input.subject.organizationId ?? null,
 				parentEventId: input.parentEventId,
 				status,
@@ -2046,11 +2072,44 @@ export class McpChatToolsService {
 				toolName: input.toolName,
 				userId: input.subject.actorUserId,
 			});
-			void insert.catch(() => {
-				this.logger.warn("Connector operation event insert failed");
-			});
 		} catch {
 			this.logger.warn("Connector operation event insert failed");
+		}
+
+		if (status !== "succeeded") {
+			return;
+		}
+
+		if (feature === "ads_analysis") {
+			await this.enqueueAdsMilestone(
+				"ads_analysis_completed",
+				input.subject.actorUserId,
+			);
+		}
+
+		if (isCampaignLaunch(input.connectorSlug, input.toolName, input.args)) {
+			await this.enqueueAdsMilestone(
+				"campaign_launched",
+				input.subject.actorUserId,
+			);
+		}
+	}
+
+	private async enqueueAdsMilestone(
+		event: Extract<
+			LifecycleEventName,
+			"ads_analysis_completed" | "campaign_launched"
+		>,
+		userId: string,
+	): Promise<void> {
+		try {
+			await this.lifecycleEvents.enqueue({
+				event,
+				idempotencyKey: lifecycleEventIdempotencyKey(event, userId),
+				userId,
+			});
+		} catch {
+			this.logger.warn(`Lifecycle ${event} enqueue failed`);
 		}
 	}
 

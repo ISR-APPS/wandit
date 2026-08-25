@@ -105,6 +105,7 @@ export type MarketingAssetRunnerDependencies = {
 		asset: MarketingAssetJob,
 		document: MarketingAssetDocument,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredDocument: (
@@ -531,6 +532,7 @@ export async function runMarketingAssetGeneration(
 		claimed,
 		generated,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -567,6 +569,7 @@ async function recoverOrSettleGenerating(
 			asset,
 			recovered,
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -627,6 +630,7 @@ async function recoverStoredDocumentWithExistingSettlement(
 		asset,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {

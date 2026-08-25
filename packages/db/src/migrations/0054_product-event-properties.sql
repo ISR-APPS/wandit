@@ -1,0 +1,1 @@
+ALTER TABLE "product_events" ADD COLUMN "properties" jsonb DEFAULT '{}'::jsonb NOT NULL;

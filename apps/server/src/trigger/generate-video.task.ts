@@ -213,9 +213,9 @@ function withProgress(
 			}
 			return claimed;
 		},
-		markSucceeded: async (attempt, video, completedAt) => {
+		markSucceeded: async (attempt, video, completedAt, actorUserId) => {
 			progress.beginPublishing();
-			return runner.markSucceeded(attempt, video, completedAt);
+			return runner.markSucceeded(attempt, video, completedAt, actorUserId);
 		},
 	};
 }

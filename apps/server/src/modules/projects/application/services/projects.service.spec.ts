@@ -3,6 +3,7 @@ import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import type { ProjectScope } from "../../domain/project-scope";
@@ -54,14 +55,19 @@ function setup() {
 			Promise.resolve(input.fallbackTitle),
 		),
 	};
+	const lifecycleEvents = {
+		enqueue: vi.fn().mockResolvedValue(null),
+	};
 	const service = new ProjectsService(
 		projectsRepository as unknown as ProjectsRepository,
 		meteringService as unknown as MeteringService,
 		modelPricingService as unknown as ModelPricingService,
 		projectTitleService as unknown as ProjectTitleService,
+		lifecycleEvents as unknown as LifecycleEventsService,
 	);
 
 	return {
+		lifecycleEvents,
 		meteringService,
 		modelPricingService,
 		projectsRepository,
@@ -125,6 +131,7 @@ describe("ProjectsService", () => {
 
 	it("creates a project, chat, and first user message", async () => {
 		const {
+			lifecycleEvents,
 			meteringService,
 			projectsRepository,
 			projectTitleService,
@@ -168,6 +175,15 @@ describe("ProjectsService", () => {
 				model: expect.any(String),
 			},
 		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith({
+			event: "first_prompt_sent",
+			idempotencyKey: "first_prompt_sent:user_1",
+			userId: "user_1",
+		});
+		expect(
+			projectsRepository.createWithChatAndFirstMessage.mock
+				.invocationCallOrder[0],
+		).toBeLessThan(lifecycleEvents.enqueue.mock.invocationCallOrder[0] ?? 0);
 		expect(projectTitleService.generate).toHaveBeenCalledWith({
 			attachments: undefined,
 			fallbackTitle: "Create a fast landing page for a launch",
@@ -179,8 +195,30 @@ describe("ProjectsService", () => {
 		});
 	});
 
+	it("keeps a committed project successful when lifecycle enqueue fails", async () => {
+		const error = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const { lifecycleEvents, service } = setup();
+		lifecycleEvents.enqueue.mockRejectedValueOnce(
+			new Error("lifecycle unavailable"),
+		);
+
+		await expect(
+			service.create(personalScope, { prompt: "Build a storefront" }),
+		).resolves.toEqual({
+			chatId: expect.any(String),
+			projectId: expect.any(String),
+		});
+		expect(error).toHaveBeenCalledWith(
+			"First prompt lifecycle enqueue failed for user user_1: lifecycle unavailable",
+		);
+		error.mockRestore();
+	});
+
 	it("meters org-scoped creation against the org pool with the acting member", async () => {
-		const { meteringService, projectsRepository, service } = setup();
+		const { lifecycleEvents, meteringService, projectsRepository, service } =
+			setup();
 		const orgScope: ProjectScope = {
 			actorIsLimitExempt: false,
 			kind: "org",
@@ -202,6 +240,11 @@ describe("ProjectsService", () => {
 		expect(
 			projectsRepository.createWithChatAndFirstMessage,
 		).toHaveBeenCalledWith(expect.objectContaining({ scope: orgScope }));
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith({
+			event: "first_prompt_sent",
+			idempotencyKey: "first_prompt_sent:user_1",
+			userId: "user_1",
+		});
 	});
 
 	it("persists a generated title only while the derived name is unchanged", async () => {

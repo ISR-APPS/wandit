@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { APIError } from "better-auth/api";
 import { Resend } from "resend";
-
+import type { LifecycleEventName } from "../../../lifecycle-events/domain/lifecycle-event";
 import {
 	type EmailContent,
 	invitationEmail,
@@ -78,6 +78,22 @@ export class EmailService {
 			manualRequestEmail(data),
 			`offline subscription request: ${data.fullName}`,
 		);
+	}
+
+	async sendLifecycleEvent(input: {
+		event: LifecycleEventName;
+		email: string;
+		payload: Record<string, unknown>;
+	}): Promise<void> {
+		if (!this.resend) {
+			throw new Error("Lifecycle email delivery is unavailable");
+		}
+
+		const { error } = await this.resend.events.send(input);
+
+		if (error) {
+			throw error;
+		}
 	}
 
 	private async deliver(

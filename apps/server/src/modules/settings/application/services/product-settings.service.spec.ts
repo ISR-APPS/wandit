@@ -113,6 +113,7 @@ describe("ProductSettingsService", () => {
 		await expect(service.get()).resolves.toEqual({
 			emailAuthEnabled: false,
 			id: 1,
+			lifecycleEmailsEnabled: false,
 			manualGraceDays: 0,
 			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
@@ -220,6 +221,7 @@ describe("ProductSettingsService", () => {
 	it("exposes only the public switches", async () => {
 		const { repository, service } = setup();
 		repository.row = defaultRow({
+			lifecycleEmailsEnabled: true,
 			manualGraceDays: 7,
 			manualPaymentsEnabled: true,
 			paidSubscriptionsEnabled: true,
@@ -236,5 +238,6 @@ describe("ProductSettingsService", () => {
 			signupGrantEnabled: true,
 			topupsEnabled: false,
 		});
+		expect(await service.get()).toMatchObject({ lifecycleEmailsEnabled: true });
 	});
 });

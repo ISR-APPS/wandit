@@ -121,6 +121,11 @@ export const productSettings = pgTable(
 		// no token ⇒ verify can never succeed; ≤10-min token tail after a
 		// flip-off). Google sign-in is never affected.
 		emailAuthEnabled: boolean("email_auth_enabled").notNull().default(false),
+		// Lifecycle automation kill switch: capture always continues, while the
+		// dispatcher terminally drops queued rows when delivery is disabled.
+		lifecycleEmailsEnabled: boolean("lifecycle_emails_enabled")
+			.notNull()
+			.default(false),
 		// Offline payments kill switch: gates the "cash / transfer" tab in the plan
 		// picker and the manual-request endpoint. Admin grants/renewals of manual
 		// subscriptions never depend on it.

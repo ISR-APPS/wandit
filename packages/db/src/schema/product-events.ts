@@ -1,5 +1,6 @@
 import {
 	index,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -22,6 +23,10 @@ export const productEvents = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
 		kind: productEventKind("kind").notNull(),
+		properties: jsonb("properties")
+			.$type<{ method?: "card" | "offline" }>()
+			.notNull()
+			.default({}),
 		surface: text("surface").notNull(),
 		idempotencyKey: text("idempotency_key").notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true })

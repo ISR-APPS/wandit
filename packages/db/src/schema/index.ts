@@ -35,6 +35,8 @@ export * from "./lead-scrape-attempts";
 // Lead tables.
 export * from "./lead-sheet-syncs";
 export * from "./leads";
+// Lifecycle email automation outbox.
+export * from "./lifecycle-events";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import { userOwner } from "../../../credits/domain/credit-owner";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type {
 	BillingCheckoutAttemptRow,
 	BillingCheckoutAttemptsRepository,
@@ -134,6 +135,20 @@ function setup(
 			return {};
 		}),
 	};
+	const creditTransaction = { kind: "credit-transaction" };
+	const subscriptionCreditsRepository = {
+		withOwnerLock: vi.fn(
+			async (_owner: unknown, operation: (tx: object) => unknown) =>
+				operation(creditTransaction),
+		),
+	};
+	const lifecycleEvents = {
+		enqueue: vi.fn(async () => {
+			order.push("enqueue-lifecycle");
+
+			return null;
+		}),
+	};
 	const stripe = {
 		retrievePaymentIntent: vi.fn(async () => ({
 			id: "pi_topup",
@@ -171,44 +186,70 @@ function setup(
 		credits as unknown as CreditsService,
 		stripe as unknown as StripeProvider,
 		refunds as unknown as PaymentRefundsService,
-		{} as never,
+		subscriptionCreditsRepository as never,
 		{} as never,
 		attempts as unknown as BillingCheckoutAttemptsRepository,
 		{ findByProviderCustomerId: async () => null } as never,
 		reconciliationOutbox as never,
 		receipts as never,
+		lifecycleEvents as unknown as LifecycleEventsService,
 	);
 
 	return {
 		attempts,
+		creditTransaction,
 		credits,
 		customers,
+		lifecycleEvents,
 		order,
 		receipts,
 		reconciliationOutbox,
 		refunds,
 		service,
 		stripe,
+		subscriptionCreditsRepository,
 	};
 }
 
 describe("SubscriptionCreditsService top-up fulfillment", () => {
 	it("validates the persisted attempt and catalog facts before completing after the grant", async () => {
-		const { attempts, credits, order, refunds, service } = setup();
+		const {
+			attempts,
+			creditTransaction,
+			credits,
+			lifecycleEvents,
+			order,
+			refunds,
+			service,
+		} = setup();
 
 		await service.grantTopup(checkoutSession());
 
 		// 250-credit pack -> 25000 centi-credits at the grant boundary.
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 25_000, {
-			idempotencyKey: "topup:cs_topup",
-			meta: {
-				chargeId: "ch_topup",
-				packId: "topup_250",
-				paymentIntentId: "pi_topup",
-				reason: "topup_purchase",
-				sessionId: "cs_topup",
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			25_000,
+			{
+				idempotencyKey: "topup:cs_topup",
+				meta: {
+					chargeId: "ch_topup",
+					packId: "topup_250",
+					paymentIntentId: "pi_topup",
+					reason: "topup_purchase",
+					sessionId: "cs_topup",
+				},
 			},
-		});
+			creditTransaction,
+		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			{
+				event: "payment_completed",
+				idempotencyKey: "payment_completed:user_1",
+				payload: { interval: "topup" },
+				userId: "user_1",
+			},
+			creditTransaction,
+		);
 		expect(attempts.withUserLock).toHaveBeenCalledWith(
 			"user_1",
 			expect.any(Function),
@@ -221,6 +262,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		expect(order).toEqual([
 			"grant-credits",
 			"write-receipt",
+			"enqueue-lifecycle",
 			"enqueue-outbox",
 			"complete-attempt",
 			"reconcile-charge",
@@ -228,8 +270,31 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		]);
 	});
 
+	it("writes the receipt before propagating a lifecycle failure from the transaction", async () => {
+		const { creditTransaction, lifecycleEvents, order, receipts, service } =
+			setup();
+		lifecycleEvents.enqueue.mockImplementationOnce(async () => {
+			order.push("enqueue-lifecycle");
+			throw new Error("outbox unavailable");
+		});
+
+		await expect(service.grantTopup(checkoutSession())).rejects.toThrow(
+			"outbox unavailable",
+		);
+		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
+			expect.objectContaining({ sessionId: "cs_topup" }),
+			creditTransaction,
+		);
+		expect(order).toEqual([
+			"grant-credits",
+			"write-receipt",
+			"enqueue-lifecycle",
+		]);
+	});
+
 	it("writes a top-up cash receipt and a reconciliation outbox row keyed by the session", async () => {
-		const { receipts, reconciliationOutbox, service } = setup();
+		const { creditTransaction, receipts, reconciliationOutbox, service } =
+			setup();
 
 		await service.grantTopup(checkoutSession());
 
@@ -244,6 +309,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 				sessionId: "cs_topup",
 				userId: "user_1",
 			}),
+			creditTransaction,
 		);
 		expect(reconciliationOutbox.enqueue).toHaveBeenCalledWith({
 			chargeId: "ch_topup",

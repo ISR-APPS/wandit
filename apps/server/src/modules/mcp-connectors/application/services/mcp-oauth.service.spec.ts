@@ -5,6 +5,7 @@ import {
 import type { Auth } from "@wandit/auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { McpDcrClient } from "../../infrastructure/oauth/mcp-dcr.client";
 import type { PreregOauthClient } from "../../infrastructure/oauth/prereg-oauth.client";
 import type {
@@ -177,12 +178,16 @@ function buildService({
 			scope: "campaigns.read",
 		}),
 	};
+	const lifecycleEvents = {
+		enqueue: vi.fn().mockResolvedValue(null),
+	};
 	const service = new McpOauthService(
 		auth as unknown as Auth,
 		connectorsRepository as unknown as McpConnectorsRepository,
 		connectionsRepository as unknown as McpConnectionsRepository,
 		dcrClient as unknown as McpDcrClient,
 		preregClient as unknown as PreregOauthClient,
+		lifecycleEvents as unknown as LifecycleEventsService,
 	);
 
 	return {
@@ -190,6 +195,7 @@ function buildService({
 		connectorsRepository,
 		connectionsRepository,
 		dcrClient,
+		lifecycleEvents,
 		pending,
 		preregClient,
 		service,
@@ -306,8 +312,13 @@ describe("McpOauthService.handleCallback", () => {
 
 	it("accepts a standard DCR code, persists tokens, and consumes transient state", async () => {
 		const pending = dcrPendingConnection();
-		const { connectionsRepository, dcrClient, service, storedTransientState } =
-			buildService({ pending });
+		const {
+			connectionsRepository,
+			dcrClient,
+			lifecycleEvents,
+			service,
+			storedTransientState,
+		} = buildService({ pending });
 		dcrClient.exchangeCode.mockResolvedValue({
 			accessToken: "dcr-access-token",
 			expiresIn: 3600,
@@ -339,6 +350,15 @@ describe("McpOauthService.handleCallback", () => {
 			},
 		);
 		expect(connectionsRepository.clearPendingState).not.toHaveBeenCalled();
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith({
+			event: "ads_connected",
+			idempotencyKey: `ads_connected:${USER_ID}`,
+			payload: { connector: "tiktok-ads" },
+			userId: USER_ID,
+		});
+		expect(
+			connectionsRepository.saveTokens.mock.invocationCallOrder[0],
+		).toBeLessThan(lifecycleEvents.enqueue.mock.invocationCallOrder[0] ?? 0);
 		expect(storedTransientState).toEqual({
 			codeVerifier: null,
 			oauthState: null,
@@ -349,6 +369,105 @@ describe("McpOauthService.handleCallback", () => {
 		);
 		expect(redirect.searchParams.get("app_connected")).toBe("tiktok-ads");
 		expect(redirect.searchParams.has("access_token")).toBe(false);
+	});
+
+	it("captures Meta Ads connections and ignores non-ads connectors", async () => {
+		const metaPending = dcrPendingConnection();
+		metaPending.connector = {
+			...metaPending.connector,
+			name: "Meta Ads",
+			slug: "meta-ads",
+		};
+		const meta = buildService({ pending: metaPending });
+		meta.dcrClient.exchangeCode.mockResolvedValue({
+			accessToken: "meta-access-token",
+			expiresIn: null,
+			refreshToken: null,
+			scope: "ads_management",
+		});
+
+		await meta.service.handleCallback(
+			{ code: "authorization-code", state: STATE },
+			{ cookie: "better-auth.session=valid" },
+		);
+
+		expect(meta.lifecycleEvents.enqueue).toHaveBeenCalledWith({
+			event: "ads_connected",
+			idempotencyKey: `ads_connected:${USER_ID}`,
+			payload: { connector: "meta-ads" },
+			userId: USER_ID,
+		});
+
+		const otherPending = dcrPendingConnection();
+		otherPending.connector = {
+			...otherPending.connector,
+			name: "Other connector",
+			slug: "future-connector",
+		};
+		const other = buildService({ pending: otherPending });
+		other.dcrClient.exchangeCode.mockResolvedValue({
+			accessToken: "other-access-token",
+			expiresIn: null,
+			refreshToken: null,
+			scope: null,
+		});
+
+		await other.service.handleCallback(
+			{ code: "authorization-code", state: STATE },
+			{ cookie: "better-auth.session=valid" },
+		);
+
+		expect(other.connectionsRepository.saveTokens).toHaveBeenCalledOnce();
+		expect(other.lifecycleEvents.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("does not capture a connection when token persistence fails", async () => {
+		const pending = dcrPendingConnection();
+		const { connectionsRepository, dcrClient, lifecycleEvents, service } =
+			buildService({ pending });
+		dcrClient.exchangeCode.mockResolvedValue({
+			accessToken: "dcr-access-token",
+			expiresIn: 3600,
+			refreshToken: "dcr-refresh-token",
+			scope: "mcp:tt4b",
+		});
+		connectionsRepository.saveTokens.mockRejectedValue(
+			new Error("database unavailable"),
+		);
+
+		const redirect = parseRedirect(
+			await service.handleCallback(
+				{ code: "authorization-code", state: STATE },
+				{ cookie: "better-auth.session=valid" },
+			),
+		);
+
+		expect(redirect.searchParams.get("app_error")).toBe("exchange_failed");
+		expect(lifecycleEvents.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("keeps a successful connection when lifecycle capture fails", async () => {
+		const pending = dcrPendingConnection();
+		const { dcrClient, lifecycleEvents, service } = buildService({ pending });
+		dcrClient.exchangeCode.mockResolvedValue({
+			accessToken: "dcr-access-token",
+			expiresIn: 3600,
+			refreshToken: "dcr-refresh-token",
+			scope: "mcp:tt4b",
+		});
+		lifecycleEvents.enqueue.mockRejectedValue(
+			new Error("lifecycle outbox unavailable"),
+		);
+
+		const redirect = parseRedirect(
+			await service.handleCallback(
+				{ code: "authorization-code", state: STATE },
+				{ cookie: "better-auth.session=valid" },
+			),
+		);
+
+		expect(redirect.searchParams.get("app_connected")).toBe("tiktok-ads");
+		expect(redirect.searchParams.has("app_error")).toBe(false);
 	});
 
 	it("clears cached client info after a DCR exchange failure", async () => {

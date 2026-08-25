@@ -12,6 +12,7 @@ import type {
 	CreditsTransaction,
 	InsertCreditLedgerEntry,
 } from "../../../credits/infrastructure/persistence/credits.repository";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import type { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import {
@@ -607,6 +608,7 @@ function setup(initial = subscription()) {
 		markDoneForCharge: vi.fn(async () => 0),
 	};
 	const receipts = { insertIfAbsent: vi.fn(async () => null) };
+	const lifecycleEvents = { enqueue: vi.fn(async () => null) };
 	const refill = new SubscriptionRefillService(
 		repository as unknown as SubscriptionCreditsRepository,
 		credits,
@@ -648,12 +650,14 @@ function setup(initial = subscription()) {
 		{ findByProviderCustomerId: async () => null } as never,
 		reconciliationOutbox as never,
 		receipts as never,
+		lifecycleEvents as unknown as LifecycleEventsService,
 	);
 
 	return {
 		creditRepository,
 		credits,
 		invoices,
+		lifecycleEvents,
 		outboxRows,
 		paymentRefunds,
 		receipts,
@@ -780,6 +784,37 @@ describe("Subscription credit policy", () => {
 		expect(context.repository.slots[0]?.dueAt.toISOString()).toBe(
 			"2026-02-28T12:00:00.000Z",
 		);
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			{
+				event: "payment_completed",
+				idempotencyKey: `payment_completed:${USER_ID}`,
+				payload: { interval: "year" },
+				userId: USER_ID,
+			},
+			expect.anything(),
+		);
+
+		await context.service.grantForPaidInvoice(value);
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledOnce();
+	});
+
+	it("rolls back an initial invoice grant when payment lifecycle capture fails", async () => {
+		const context = setup();
+		const value = invoice({
+			id: "in_lifecycle_failure",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		addInvoice(context, value);
+		context.lifecycleEvents.enqueue.mockRejectedValueOnce(
+			new Error("outbox unavailable"),
+		);
+
+		await expect(context.service.grantForPaidInvoice(value)).rejects.toThrow(
+			"outbox unavailable",
+		);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+		expect(context.repository.applications).toHaveLength(0);
 	});
 
 	it("recovers funding references from the payments list when the retrieve lacks the payments expansion", async () => {
@@ -814,6 +849,13 @@ describe("Subscription credit policy", () => {
 		expect(application?.amountPaidMinor).toBe(2500);
 		expect(application?.currency).toBe("usd");
 		expect(application?.paidAt?.toISOString()).toBe(PERIOD_START.toISOString());
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: `payment_completed:${USER_ID}`,
+				payload: { interval: "month" },
+			}),
+			expect.anything(),
+		);
 	});
 
 	it("handles monthly upgrades immediately and leaves downgrades for renewal", async () => {
@@ -833,6 +875,7 @@ describe("Subscription credit policy", () => {
 		// 4_000 seeded + (500 - 250) * 100 upgrade delta.
 		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(29_000);
 		expect(upgrade.repository.slots).toHaveLength(0);
+		expect(upgrade.lifecycleEvents.enqueue).not.toHaveBeenCalled();
 
 		const downgrade = setup(subscription({ priceLookupKey: "pro_250_month" }));
 		downgrade.repository.seedApplication("pro_500_month");
@@ -859,6 +902,7 @@ describe("Subscription credit policy", () => {
 		await downgrade.service.grantForPaidInvoice(renewal);
 		// Carried min(36_000, 25_000 cap) + 25_000 cycle allotment.
 		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(50_000);
+		expect(downgrade.lifecycleEvents.enqueue).not.toHaveBeenCalled();
 	});
 
 	it("grants the full allotment with a capped refill for an anchor-reset same-interval upgrade", async () => {

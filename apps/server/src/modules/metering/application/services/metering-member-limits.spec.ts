@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
 import type { MeteringGateway } from "../../domain/metering";
 import { OPERATION_REGISTRY } from "../../domain/operation-registry";
@@ -62,6 +63,7 @@ function buildService(setup: LimitsSetup) {
 		{} as ModelPricingService,
 		{} as MeteringGateway,
 		limits,
+		{ enqueueCreditThresholds: vi.fn() } as unknown as LifecycleEventsService,
 	);
 
 	return { consumeCalls, credits, insertedEvents, limits, service };

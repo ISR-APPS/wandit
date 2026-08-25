@@ -175,6 +175,41 @@ export class CreditsRepository {
 	}
 
 	/**
+	 * Net lifetime personal consumption in integer centi-credits.
+	 *
+	 * Reservations are consume rows. Settlement/reconciliation/failure refunds
+	 * reverse those rows with narrowly keyed grants, so subtracting the matching
+	 * refunds keeps failed or over-reserved work from counting as credits used.
+	 * Organization rows are deliberately excluded even when user_id records the
+	 * acting member.
+	 */
+	async netConsumedCentiCredits(
+		userId: string,
+		client: CreditsDbClient = this.db,
+	): Promise<number> {
+		const result = await client.execute(sql`
+			select coalesce(-sum(${creditLedger.delta}), 0)::int as total
+			from ${creditLedger}
+			where ${creditLedger.userId} = ${userId}
+				and ${creditLedger.organizationId} is null
+				and (
+					${creditLedger.kind} = 'consume'
+					or (
+						${creditLedger.kind} = 'grant'
+						and (
+							${creditLedger.idempotencyKey} like 'settle-refund:%'
+							or ${creditLedger.idempotencyKey} like 'reconcile-refund:%'
+							or ${creditLedger.idempotencyKey} like 'refund:%'
+						)
+					)
+				)
+		`);
+		const row = result.rows[0] as { total?: unknown } | undefined;
+
+		return Number(row?.total ?? 0);
+	}
+
+	/**
 	 * Reserved add-back for the settled balance. While an ai_usage_events row
 	 * is in flight, its ledger dip equals exactly reserved_credits (every
 	 * ledger adjustment commits atomically with a status transition), so
