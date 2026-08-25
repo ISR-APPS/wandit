@@ -55,6 +55,7 @@
 		"syncNow": "Synchroniser",
 		"open": "Ouvrir la feuille",
 		"lastSynced": "Dernière synchro {time}",
+		"autoSync": "Synchronisation automatique toutes les {minutes} min",
 		"syncedToast": {
 			"zero": "{count} lead synchronisé",
 			"one": "{count} lead synchronisé",

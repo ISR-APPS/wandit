@@ -221,6 +221,7 @@
 			"sheets": {
 				"title": "Google Sheets",
 				"lastSync": "Dernière synchro {time}",
+				"autoSync": "Synchronisation automatique toutes les {minutes} min",
 				"justNow": "à l’instant",
 				"sync": "Synchroniser",
 				"syncing": "Synchro…",

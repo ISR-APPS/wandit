@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	buildLeadsCsv,
 	GOOGLE_SHEETS_SCOPE,
+	LEAD_SHEET_AUTO_SYNC_INTERVAL_MINUTES,
 	type Lead,
 	type LeadSource,
 	type LeadStatus,
@@ -572,8 +573,13 @@ export function LeadsView({ projectId, onToast }: LeadsViewProps) {
 						<Text className="font-sans-medium text-[13px] text-foreground">
 							{t("native.workspace.leadsView.sheets.title")}
 						</Text>
-						<Text numberOfLines={1} className="mt-px text-[11.5px] text-muted">
+						<Text numberOfLines={2} className="mt-px text-[11.5px] text-muted">
 							{sheetSubtitle}
+							{sheetConnected && sheetInfo?.autoSyncEnabled
+								? ` · ${t("native.workspace.leadsView.sheets.autoSync", {
+										minutes: LEAD_SHEET_AUTO_SYNC_INTERVAL_MINUTES,
+									})}`
+								: ""}
 						</Text>
 					</Pressable>
 					<Pressable
