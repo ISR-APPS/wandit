@@ -29,6 +29,7 @@ import {
 } from "better-auth/plugins";
 import { adminAccessControl, adminRoles } from "./admin-permissions";
 import { canonicalizeEmail } from "./email-canonical";
+import { emailMagicLinkUrl } from "./email-magic-link-url";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 
@@ -682,9 +683,21 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				storeToken: "hashed",
 				expiresIn: 60 * 10,
 				// Delivery only — admission gating happens in hooks.before.
-				sendMagicLink: async ({ email, url }) => {
+				sendMagicLink: async ({ email, url, token }) => {
 					const emailAuth = await requireEmailAuth();
-					await emailAuth.sendMagicLink({ email, url });
+					// The emailed link shows the web origin, not the raw API verify
+					// URL (see email-magic-link-url.ts).
+					await emailAuth.sendMagicLink({
+						email,
+						url: emailMagicLinkUrl({
+							verifyUrl: url,
+							token,
+							trustedWebOrigins: corsWebOrigins(
+								env.CORS_ORIGIN,
+								env.CORS_EXTRA_ORIGINS,
+							),
+						}),
+					});
 				},
 			}),
 			emailOTP({
