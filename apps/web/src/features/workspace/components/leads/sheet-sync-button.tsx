@@ -2,9 +2,13 @@
 // drives the whole flow: not connected → linkSocial full-page redirect to
 // the Google consent screen (the sheet-sync query refetches on focus when
 // the user lands back); connected without a sheet → first sync creates the
-// spreadsheet; sheet present → re-sync + open link + last-synced hint.
+// spreadsheet; sheet present → re-sync + open link + last-synced hint,
+// with the automatic-sync cadence exposed on the manual sync control.
 
-import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
+import {
+	GOOGLE_SHEETS_SCOPE,
+	LEAD_SHEET_AUTO_SYNC_INTERVAL_MINUTES,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
@@ -107,6 +111,18 @@ export function SheetSyncButton() {
 	if (sheet === null) {
 		return syncButton;
 	}
+	const syncControl = sheet.autoSyncEnabled ? (
+		<Tooltip>
+			<TooltipTrigger asChild>{syncButton}</TooltipTrigger>
+			<TooltipContent>
+				{t("leads.sheetSync.autoSync", {
+					minutes: LEAD_SHEET_AUTO_SYNC_INTERVAL_MINUTES,
+				})}
+			</TooltipContent>
+		</Tooltip>
+	) : (
+		syncButton
+	);
 
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
@@ -117,7 +133,7 @@ export function SheetSyncButton() {
 					})}
 				</span>
 			) : null}
-			{syncButton}
+			{syncControl}
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<Button asChild variant="outline" size="icon-sm">

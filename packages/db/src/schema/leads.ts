@@ -60,7 +60,7 @@ export const leads = pgTable(
 			.notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true })
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => sql`now()`)
 			.notNull(),
 	},
 	(table) => [
