@@ -163,8 +163,8 @@ Target: `zakareasb@gmail.com`. W1 and W2 were enabled for the test, then disable
 
 | Part | Where |
 |---|---|
-| Outbox table `lifecycle_events` (enum of the 15 names, `idempotency_key` unique, `dispatch_after`, `dispatched_at`, `dropped_at` + `drop_reason`, `attempts`, `last_error`) | `packages/db/src/schema/lifecycle-events.ts`, migration `0053_lifecycle-events.sql` |
-| `product_events.properties` jsonb (carries `method` for `upgrade_clicked`) | migration `0054_product-event-properties.sql` |
+| Outbox table `lifecycle_events` (enum of the 15 names, `idempotency_key` unique, `dispatch_after`, `dispatched_at`, `dropped_at` + `drop_reason`, `attempts`, `last_error`) | `packages/db/src/schema/lifecycle-events.ts`, migration `0054_lifecycle-emails.sql` |
+| `product_events.properties` jsonb (carries `method` for `upgrade_clicked`) | migration `0054_lifecycle-emails.sql` |
 | Kill switch `lifecycleEmailsEnabled` (default `false`) | `product_settings`, admin → Settings → Product controls |
 | Module `lifecycle-events` (global): domain rules, repository, `LifecycleEventsService.enqueue()` / `enqueueCreditThresholds()`, `LifecycleEventsDispatcher` | `apps/server/src/modules/lifecycle-events/` |
 | `EmailService.sendLifecycleEvent()` → `resend.events.send()` | `apps/server/src/modules/email/application/services/email.service.ts` |
@@ -203,7 +203,7 @@ Web: `upgrade_clicked` now fires only after a Stripe checkout session is created
 
 ### 7.4 Rollout
 
-1. Merge and deploy `apps/server`, `apps/worker`, `apps/web`, `apps/admin`. Run the migrations (`0053`, `0054`).
+1. Merge and deploy `apps/server`, `apps/worker`, `apps/web`, `apps/admin`. Run the migration (`0054_lifecycle-emails`).
 2. Make sure that `RESEND_API_KEY` is set in production (it already is for transactional email). No other env var.
 3. Deploy the Trigger.dev tasks (the sweep registers itself).
 4. Keep `lifecycleEmailsEnabled` **off** for a few days. Rows are recorded and then dropped as `disabled`; watch `select event, drop_reason, count(*) from lifecycle_events group by 1, 2` to check the hooks fire as expected.
