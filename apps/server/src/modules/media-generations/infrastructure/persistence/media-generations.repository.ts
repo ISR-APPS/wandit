@@ -32,6 +32,7 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import {
 	type ProjectScope,
 	projectScopePredicate,
@@ -217,6 +218,8 @@ export class MediaGenerationsRepository {
 		@Inject(DATABASE) private readonly db: Database,
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	// Generated-asset markers for the model-bound transcript: settled
@@ -683,39 +686,66 @@ export class MediaGenerationsRepository {
 		attemptId: string,
 		videoUrl: string,
 		videoMediaType: string,
-		userId: string,
 	): Promise<boolean> {
-		const [row] = await this.db
-			.update(mediaGenerationAttempts)
-			.set({
-				completedAt: new Date(),
-				error: null,
-				status: "succeeded",
-				videoMediaType,
-				videoUrl,
-			})
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attemptId),
-					eq(mediaGenerationAttempts.status, "generating"),
-				),
-			)
-			.returning({
-				kind: mediaGenerationAttempts.kind,
-				projectId: mediaGenerationAttempts.projectId,
-			});
+		const completion = await this.db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(mediaGenerationAttempts)
+				.set({
+					completedAt: new Date(),
+					error: null,
+					status: "succeeded",
+					videoMediaType,
+					videoUrl,
+				})
+				.where(
+					and(
+						eq(mediaGenerationAttempts.id, attemptId),
+						eq(mediaGenerationAttempts.status, "generating"),
+					),
+				)
+				.returning({
+					kind: mediaGenerationAttempts.kind,
+					projectId: mediaGenerationAttempts.projectId,
+				});
 
-		if (!row) {
+			if (!succeeded) {
+				return null;
+			}
+
+			const [usageEvent] = await transaction
+				.select({ userId: aiUsageEvents.userId })
+				.from(aiUsageEvents)
+				.where(eq(aiUsageEvents.idempotencyKey, `video:${attemptId}`))
+				.limit(1);
+			const actorUserId = usageEvent?.userId;
+
+			if (actorUserId) {
+				await this.lifecycleEvents.enqueue(
+					{
+						event: "video_generated",
+						idempotencyKey: `video_generated:${actorUserId}`,
+						userId: actorUserId,
+					},
+					transaction,
+				);
+			}
+
+			return { actorUserId, row: succeeded };
+		});
+
+		if (!completion) {
 			return false;
 		}
 
-		captureGenerationCompleted(
-			this.analyticsService,
-			userId,
-			analyticsKind(row.kind),
-			row.projectId,
-			attemptId,
-		);
+		if (completion.actorUserId) {
+			captureGenerationCompleted(
+				this.analyticsService,
+				completion.actorUserId,
+				analyticsKind(completion.row.kind),
+				completion.row.projectId,
+				attemptId,
+			);
+		}
 
 		return true;
 	}

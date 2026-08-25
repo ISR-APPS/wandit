@@ -185,6 +185,14 @@ describe("runImageGeneration", () => {
 			"enforce",
 			{ hasSourceImages: false },
 		);
+		expect(dependencies.claimQueued).toHaveBeenCalledWith(
+			expect.objectContaining({ id: ATTEMPT_ID }),
+			{
+				actorUserId: USER_ID,
+				runId: "run_1",
+				startedAt: new Date("2026-01-01T00:05:00Z"),
+			},
+		);
 		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
 		expect(dependencies.capture).toHaveBeenCalledTimes(2);
 		expect(dependencies.persistProgress).toHaveBeenCalledTimes(2);
@@ -209,6 +217,7 @@ describe("runImageGeneration", () => {
 			expect.objectContaining({ id: ATTEMPT_ID }),
 			makeImages(2),
 			expect.any(Date),
+			USER_ID,
 		);
 		expect(
 			vi.mocked(dependencies.settle).mock.invocationCallOrder[0],
@@ -417,6 +426,7 @@ describe("runImageGeneration", () => {
 			generating,
 			[makeImages(4)[0], makeImages(4)[2]],
 			expect.any(Date),
+			USER_ID,
 		);
 	});
 
@@ -435,6 +445,7 @@ describe("runImageGeneration", () => {
 			expect.anything(),
 			makeImages(2),
 			expect.any(Date),
+			USER_ID,
 		);
 	});
 
@@ -468,6 +479,11 @@ describe("runImageGeneration", () => {
 			"enforce",
 			{ hasSourceImages: false },
 		);
+		expect(dependencies.claimQueued).toHaveBeenCalledWith(queued, {
+			actorUserId: actingMemberId,
+			runId: "run_org_actor",
+			startedAt: new Date("2026-01-01T00:05:00Z"),
+		});
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			1,
 			expect.objectContaining({ id: ATTEMPT_ID, userId: USER_ID }),
@@ -475,6 +491,12 @@ describe("runImageGeneration", () => {
 			1,
 			undefined,
 			expect.any(Function),
+		);
+		expect(dependencies.markSucceeded).toHaveBeenCalledWith(
+			generating,
+			makeImages(2),
+			expect.any(Date),
+			actingMemberId,
 		);
 		expect(result).toEqual({
 			images: makeImages(2),
@@ -713,6 +735,7 @@ describe("runImageGeneration", () => {
 				},
 			],
 			expect.any(Date),
+			USER_ID,
 		);
 		expect(dependencies.fail).not.toHaveBeenCalled();
 		expect(dependencies.refund).not.toHaveBeenCalled();

@@ -13,6 +13,8 @@ import {
 	marketingAssetKey,
 	putPageHtml,
 } from "../infrastructure/storage/r2";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import {
 	createMarketingAssetBilling,
 	type MarketingAssetBilling,
@@ -139,6 +141,10 @@ function createBilling(db: TriggerDatabase): MarketingAssetBilling {
 }
 
 function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+
 	const loadAsset = async (
 		assetId: string,
 	): Promise<MarketingAssetJob | null> => {
@@ -180,35 +186,51 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		asset: MarketingAssetJob,
 		document: MarketingAssetDocument,
 		completedAt: Date,
+		actorUserId: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(marketingAssets)
-			.set({
-				completedAt,
-				error: null,
-				r2Key: document.r2Key,
-				status: "succeeded",
-			})
-			.where(
-				and(
-					eq(marketingAssets.id, asset.id),
-					eq(marketingAssets.projectId, asset.projectId),
-					eq(marketingAssets.status, "generating"),
-					sql`exists (
-						select 1
-						from ${projects}
-						where ${projects.id} = ${marketingAssets.projectId}
-							and ${projects.userId} = ${asset.userId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: marketingAssets.id });
+		const updated = await db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(marketingAssets)
+				.set({
+					completedAt,
+					error: null,
+					r2Key: document.r2Key,
+					status: "succeeded",
+				})
+				.where(
+					and(
+						eq(marketingAssets.id, asset.id),
+						eq(marketingAssets.projectId, asset.projectId),
+						eq(marketingAssets.status, "generating"),
+						sql`exists (
+							select 1
+							from ${projects}
+							where ${projects.id} = ${marketingAssets.projectId}
+								and ${projects.userId} = ${asset.userId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: marketingAssets.id });
+
+			if (succeeded && asset.assetType === "marketing-strategy") {
+				await lifecycleEvents.enqueue(
+					{
+						event: "marketing_strategy_generated",
+						idempotencyKey: `marketing_strategy_generated:${actorUserId}`,
+						userId: actorUserId,
+					},
+					transaction,
+				);
+			}
+
+			return succeeded;
+		});
 
 		if (updated) {
 			captureGenerationCompleted(
 				analytics,
-				asset.userId,
+				actorUserId,
 				"marketing_asset",
 				asset.projectId,
 				asset.id,

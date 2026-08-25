@@ -141,7 +141,6 @@ export class MediaGenerationsService {
 		row: MediaGenerationAttemptRow,
 		scope: ProjectScope,
 	): Promise<boolean> {
-		const userId = scope.userId;
 		for (const candidate of [
 			{ extension: "mp4", mediaType: "video/mp4" },
 			{ extension: "webm", mediaType: "video/webm" },
@@ -172,7 +171,6 @@ export class MediaGenerationsService {
 				storedMediaType.startsWith("video/")
 					? storedMediaType
 					: candidate.mediaType,
-				userId,
 			);
 
 			return true;

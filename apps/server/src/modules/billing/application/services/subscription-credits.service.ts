@@ -20,6 +20,8 @@ import {
 	userOwner,
 } from "../../../credits/domain/credit-owner";
 import type { CreditsTransaction } from "../../../credits/infrastructure/persistence/credits.repository";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
@@ -97,6 +99,8 @@ export class SubscriptionCreditsService {
 		private readonly reconciliationOutbox: FinancialReconciliationOutboxRepository,
 		@Inject(BillingTopupReceiptsRepository)
 		private readonly topupReceiptsRepository: BillingTopupReceiptsRepository,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async grantTopup(session: Stripe.Checkout.Session): Promise<void> {
@@ -282,33 +286,59 @@ export class SubscriptionCreditsService {
 
 		// The ledger takes centi-credits: convert the whole-credit pack amount
 		// exactly once at this grant boundary.
-		await this.creditsService.topup(owner, credits * 100, {
-			idempotencyKey: `topup:${session.id}`,
-			meta: this.withPaymentReferences(
-				{
-					packId,
-					reason: "topup_purchase",
-					sessionId: session.id,
-				},
-				paymentReferences,
-			),
-		});
+		await this.subscriptionCreditsRepository.withOwnerLock(
+			owner,
+			async (tx) => {
+				await this.creditsService.topup(
+					owner,
+					credits * 100,
+					{
+						idempotencyKey: `topup:${session.id}`,
+						meta: this.withPaymentReferences(
+							{
+								packId,
+								reason: "topup_purchase",
+								sessionId: session.id,
+							},
+							paymentReferences,
+						),
+					},
+					tx,
+				);
 
-		// Cash record + reconciliation outbox. CreditsService.topup owns its own
-		// transaction, so these are separate idempotent inserts: a crash between
-		// them leaves the webhook row failed and the replay completes the set.
-		await this.topupReceiptsRepository.insertIfAbsent({
-			amountCents: session.amount_total ?? expectedAmountTotal,
-			chargeId: paymentReferences.chargeId,
-			currency: session.currency?.toLowerCase() ?? "usd",
-			organizationId: metadataOrganizationId,
-			packId,
-			paidAt: this.checkoutSessionPaidAt(session),
-			paymentIntentId: paymentReferences.paymentIntentId,
-			sessionId: session.id,
-			userId,
-		});
+				await this.topupReceiptsRepository.insertIfAbsent(
+					{
+						amountCents: session.amount_total ?? expectedAmountTotal,
+						chargeId: paymentReferences.chargeId,
+						currency: session.currency?.toLowerCase() ?? "usd",
+						organizationId: metadataOrganizationId,
+						packId,
+						paidAt: this.checkoutSessionPaidAt(session),
+						paymentIntentId: paymentReferences.paymentIntentId,
+						sessionId: session.id,
+						userId,
+					},
+					tx,
+				);
 
+				await this.lifecycleEvents.enqueue(
+					{
+						event: "payment_completed",
+						idempotencyKey: lifecycleEventIdempotencyKey(
+							"payment_completed",
+							userId,
+						),
+						payload: { interval: "topup" },
+						userId,
+					},
+					tx,
+				);
+			},
+		);
+
+		// Reconciliation remains a separate idempotent insert. A later crash leaves
+		// the webhook failed so replay completes it, while the ledger, cash receipt,
+		// and payment lifecycle row above are already committed atomically.
 		if (paymentReferences.chargeId) {
 			await this.reconciliationOutbox.enqueue({
 				chargeId: paymentReferences.chargeId,
@@ -620,6 +650,21 @@ export class SubscriptionCreditsService {
 					{ ...applicationBase, creditsDelta: outcome.creditsDelta },
 					tx,
 				);
+
+				if (billingReason === "subscription_create") {
+					await this.lifecycleEvents.enqueue(
+						{
+							event: "payment_completed",
+							idempotencyKey: lifecycleEventIdempotencyKey(
+								"payment_completed",
+								canonical.userId,
+							),
+							payload: { interval: effectiveCurrentPlan.interval },
+							userId: canonical.userId,
+						},
+						tx,
+					);
+				}
 
 				if (paymentReferences.chargeId) {
 					await this.reconciliationOutbox.enqueue(

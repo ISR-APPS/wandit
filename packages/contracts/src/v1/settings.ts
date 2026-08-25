@@ -11,6 +11,9 @@ export const productSettingsSchema = z.object({
 	topupsEnabled: z.boolean(),
 	organizationsEnabled: z.boolean(),
 	emailAuthEnabled: z.boolean(),
+	// Admin-only: captures continue while disabled, but lifecycle email outbox
+	// rows are dropped instead of dispatched.
+	lifecycleEmailsEnabled: z.boolean(),
 	// Offline payments (cash on delivery / wire / CCP): shows the manual
 	// request tab in the plan picker and opens the manual-request endpoint.
 	manualPaymentsEnabled: z.boolean(),
@@ -48,6 +51,7 @@ export const patchProductSettingsBodySchema = z
 		topupsEnabled: z.boolean().optional(),
 		organizationsEnabled: z.boolean().optional(),
 		emailAuthEnabled: z.boolean().optional(),
+		lifecycleEmailsEnabled: z.boolean().optional(),
 		manualPaymentsEnabled: z.boolean().optional(),
 		manualGraceDays: z.int().min(0).max(30).optional(),
 		version: z.int().positive(),
@@ -60,6 +64,7 @@ export const patchProductSettingsBodySchema = z
 			settings.topupsEnabled !== undefined ||
 			settings.organizationsEnabled !== undefined ||
 			settings.emailAuthEnabled !== undefined ||
+			settings.lifecycleEmailsEnabled !== undefined ||
 			settings.manualPaymentsEnabled !== undefined ||
 			settings.manualGraceDays !== undefined,
 		{ message: "At least one setting must be provided" },

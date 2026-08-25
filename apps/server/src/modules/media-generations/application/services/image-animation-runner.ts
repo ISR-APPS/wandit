@@ -134,6 +134,7 @@ export type ImageAnimationRunnerDependencies = {
 		attempt: ImageAnimationAttempt,
 		video: ImageAnimationVideo,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredVideo: (
@@ -585,6 +586,7 @@ export async function runImageAnimation(
 		claimed,
 		generated,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -622,6 +624,7 @@ async function recoverOrSettleGenerating(
 			attempt,
 			recovered,
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -682,6 +685,7 @@ async function recoverStoredVideoWithExistingSettlement(
 		attempt,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {

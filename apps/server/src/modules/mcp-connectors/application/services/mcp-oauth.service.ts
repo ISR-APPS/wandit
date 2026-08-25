@@ -23,6 +23,8 @@ import type { FastifyRequest } from "fastify";
 
 import { toWebHeaders } from "../../../../infrastructure/http/fastify-headers";
 import { AUTH_INSTANCE } from "../../../auth";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { deriveStatus } from "../../domain/connection-status";
 import { McpDcrClient } from "../../infrastructure/oauth/mcp-dcr.client";
 import { PreregOauthClient } from "../../infrastructure/oauth/prereg-oauth.client";
@@ -61,6 +63,8 @@ export class McpOauthService {
 		@Inject(McpDcrClient) private readonly dcrClient: McpDcrClient,
 		@Inject(PreregOauthClient)
 		private readonly preregClient: PreregOauthClient,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async list(userId: string): Promise<McpConnectorListItem[]> {
@@ -348,6 +352,28 @@ export class McpOauthService {
 			refreshToken: tokens.refreshToken,
 			scope: tokens.scope,
 		});
+
+		await this.enqueueAdsConnected(pending.userId, pending.connector.slug);
+	}
+
+	private async enqueueAdsConnected(
+		userId: string,
+		connectorSlug: string,
+	): Promise<void> {
+		if (connectorSlug !== "meta-ads" && connectorSlug !== "tiktok-ads") {
+			return;
+		}
+
+		try {
+			await this.lifecycleEvents.enqueue({
+				event: "ads_connected",
+				idempotencyKey: lifecycleEventIdempotencyKey("ads_connected", userId),
+				payload: { connector: connectorSlug },
+				userId,
+			});
+		} catch {
+			this.logger.warn("Lifecycle ads_connected enqueue failed");
+		}
 	}
 
 	private async clearAfterExchangeFailure(pending: {

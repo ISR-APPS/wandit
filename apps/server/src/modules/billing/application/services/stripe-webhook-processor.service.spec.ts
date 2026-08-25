@@ -1107,6 +1107,7 @@ function setup(
 		enqueue: vi.fn(async () => null),
 		markDoneForCharge: vi.fn(async () => 0),
 	};
+	const lifecycleEvents = { enqueue: vi.fn(async () => null) };
 	const subscriptionRefill = new SubscriptionRefillService(
 		subscriptionCreditsRepository as unknown as SubscriptionCreditsRepository,
 		credits as unknown as CreditsService,
@@ -1125,6 +1126,7 @@ function setup(
 		{ findByProviderCustomerId: async () => null } as never,
 		reconciliationOutbox as never,
 		{ insertIfAbsent: vi.fn(async () => null) } as never,
+		lifecycleEvents as never,
 	);
 	const billingService = new BillingService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1170,6 +1172,7 @@ function setup(
 		changeIntents,
 		checkoutAttempts,
 		credits,
+		lifecycleEvents,
 		orderRefundHandler,
 		paymentProvider,
 		paymentRefunds,
@@ -1673,8 +1676,15 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 
 describe("StripeEventRouter checkout routing", () => {
 	it("completes a persisted payment-mode top-up attempt", async () => {
-		const { checkoutAttempts, credits, paymentRefunds, processor, stripe } =
-			setup();
+		const {
+			checkoutAttempts,
+			credits,
+			lifecycleEvents,
+			paymentRefunds,
+			processor,
+			stripe,
+			subscriptionCreditsRepository,
+		} = setup();
 		const reconcileChargeAfterGrant = vi.spyOn(
 			paymentRefunds,
 			"reconcileChargeAfterGrant",
@@ -1705,23 +1715,44 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 100_000, {
-			idempotencyKey: "topup:cs_1",
-			meta: {
-				chargeId: "ch_pi_1",
-				packId: "topup_1000",
-				paymentIntentId: "pi_1",
-				reason: "topup_purchase",
-				sessionId: "cs_1",
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			100_000,
+			{
+				idempotencyKey: "topup:cs_1",
+				meta: {
+					chargeId: "ch_pi_1",
+					packId: "topup_1000",
+					paymentIntentId: "pi_1",
+					reason: "topup_purchase",
+					sessionId: "cs_1",
+				},
 			},
-		});
+			subscriptionCreditsRepository.transactionClient,
+		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			{
+				event: "payment_completed",
+				idempotencyKey: "payment_completed:user_1",
+				payload: { interval: "topup" },
+				userId: "user_1",
+			},
+			subscriptionCreditsRepository.transactionClient,
+		);
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_1");
 		expect(reconcileChargeAfterGrant).toHaveBeenCalledWith("ch_pi_1");
 		expect(checkoutAttempts.row("attempt_topup_1")?.status).toBe("completed");
 	});
 
 	it("handles an explicitly purposed async success as a top-up", async () => {
-		const { checkoutAttempts, credits, processor, stripe } = setup();
+		const {
+			checkoutAttempts,
+			credits,
+			lifecycleEvents,
+			processor,
+			stripe,
+			subscriptionCreditsRepository,
+		} = setup();
 		checkoutAttempts.seed({
 			id: "attempt_topup_async",
 			packId: "topup_2500",
@@ -1748,16 +1779,28 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 250_000, {
-			idempotencyKey: "topup:cs_async",
-			meta: {
-				chargeId: "ch_pi_async",
-				packId: "topup_2500",
-				paymentIntentId: "pi_async",
-				reason: "topup_purchase",
-				sessionId: "cs_async",
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			250_000,
+			{
+				idempotencyKey: "topup:cs_async",
+				meta: {
+					chargeId: "ch_pi_async",
+					packId: "topup_2500",
+					paymentIntentId: "pi_async",
+					reason: "topup_purchase",
+					sessionId: "cs_async",
+				},
 			},
-		});
+			subscriptionCreditsRepository.transactionClient,
+		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: "payment_completed:user_1",
+				payload: { interval: "topup" },
+			}),
+			subscriptionCreditsRepository.transactionClient,
+		);
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_async");
 	});
 

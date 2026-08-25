@@ -25,6 +25,8 @@ import {
 	generateTextToVideo,
 	VIDEO_NEGATIVE_PROMPT,
 } from "../modules/ai-chat/agent/site-builder/generate-video";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
@@ -260,6 +262,10 @@ function createBilling(db: TriggerDatabase): ImageAnimationBilling {
 }
 
 function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageAnimationAttempt | null> => {
@@ -311,43 +317,73 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		attempt: ImageAnimationAttempt | MediaGenerationReconciliationAttempt,
 		video: ImageAnimationVideo,
 		completedAt: Date,
+		actorUserId?: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(mediaGenerationAttempts)
-			.set({
-				completedAt,
-				error: null,
-				status: "succeeded",
-				videoMediaType: video.mediaType,
-				videoUrl: video.url,
-			})
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attempt.id),
-					eq(mediaGenerationAttempts.projectId, attempt.projectId),
-					eq(mediaGenerationAttempts.status, "generating"),
-					sql`exists (
-						select 1
-						from ${projects}
-						where ${projects.id} = ${mediaGenerationAttempts.projectId}
-							and ${projects.userId} = ${attempt.userId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: mediaGenerationAttempts.id });
+		const completion = await db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(mediaGenerationAttempts)
+				.set({
+					completedAt,
+					error: null,
+					status: "succeeded",
+					videoMediaType: video.mediaType,
+					videoUrl: video.url,
+				})
+				.where(
+					and(
+						eq(mediaGenerationAttempts.id, attempt.id),
+						eq(mediaGenerationAttempts.projectId, attempt.projectId),
+						eq(mediaGenerationAttempts.status, "generating"),
+						sql`exists (
+							select 1
+							from ${projects}
+							where ${projects.id} = ${mediaGenerationAttempts.projectId}
+								and ${projects.userId} = ${attempt.userId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: mediaGenerationAttempts.id });
 
-		if (updated) {
+			let resolvedActorUserId = actorUserId;
+
+			if (succeeded && !resolvedActorUserId) {
+				const [usageEvent] = await transaction
+					.select({ userId: aiUsageEvents.userId })
+					.from(aiUsageEvents)
+					.where(eq(aiUsageEvents.idempotencyKey, `video:${attempt.id}`))
+					.limit(1);
+				resolvedActorUserId = usageEvent?.userId;
+			}
+
+			if (succeeded && resolvedActorUserId) {
+				await lifecycleEvents.enqueue(
+					{
+						event: "video_generated",
+						idempotencyKey: `video_generated:${resolvedActorUserId}`,
+						userId: resolvedActorUserId,
+					},
+					transaction,
+				);
+			}
+
+			// The scheduled stale reconciler has no queue payload, so recover its
+			// actor from the durable metering event. Billing-off attempts have
+			// no such row and deliberately skip rather than use projects.userId.
+			return { actorUserId: resolvedActorUserId, succeeded };
+		});
+
+		if (completion.succeeded) {
 			captureGenerationCompleted(
 				analytics,
-				attempt.userId,
+				completion.actorUserId ?? attempt.userId,
 				attempt.kind === "image-animation" ? "animation" : "video",
 				attempt.projectId,
 				attempt.id,
 			);
 		}
 
-		return Boolean(updated);
+		return Boolean(completion.succeeded);
 	};
 
 	const failFromStatus = async (

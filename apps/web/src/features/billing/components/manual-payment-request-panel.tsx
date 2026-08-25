@@ -3,6 +3,7 @@ import type {
 	BillingPlanCatalogItem,
 	CreditTier,
 	ManualSubscriptionRequest,
+	ProductEventSurface,
 	Subscription,
 } from "@wandit/contracts";
 import {
@@ -59,6 +60,7 @@ import {
 	useCreateManualSubscriptionRequest,
 } from "@/features/billing/api/billing.mutations";
 import { useManualSubscriptionRequestQuery } from "@/features/billing/api/billing.queries";
+import { recordOfflineCheckoutStart } from "@/features/billing/lib/checkout-product-events";
 import {
 	assembleManualSubscriptionRequestBody,
 	type ManualPaymentContactValues,
@@ -87,6 +89,7 @@ export type ManualPaymentRequestPanelProps = {
 	initialInterval?: BillingInterval;
 	initialTierCredits?: CreditTier;
 	onClose: () => void;
+	surface: ProductEventSurface;
 };
 
 export function ManualPaymentRequestPanel({
@@ -96,6 +99,7 @@ export function ManualPaymentRequestPanel({
 	initialInterval,
 	initialTierCredits,
 	onClose,
+	surface,
 }: ManualPaymentRequestPanelProps) {
 	const { locale, t } = useTranslation();
 	const copy = useDictionary().billing.planPicker;
@@ -275,7 +279,8 @@ export function ManualPaymentRequestPanel({
 				setFieldErrors({});
 				void createRequest
 					.mutateAsync(parsed.data)
-					.then((view) => {
+					.then(async (view) => {
+						await recordOfflineCheckoutStart(surface);
 						setSubmittedPhone(view.request?.phone ?? parsed.data.phone);
 					})
 					.catch((error) => {

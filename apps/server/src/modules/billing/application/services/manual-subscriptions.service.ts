@@ -37,6 +37,8 @@ import {
 	ownerFromIds,
 	userOwner,
 } from "../../../credits/domain/credit-owner";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
@@ -94,6 +96,8 @@ export class ManualSubscriptionsService {
 		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
 		@Inject(ProductSettingsService)
 		private readonly productSettingsService: ProductSettingsService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 		@Optional()
 		@Inject(AnalyticsService)
 		private readonly analyticsService?: AnalyticsService,
@@ -286,6 +290,19 @@ export class ManualSubscriptionsService {
 								reason: "manual_subscription_initial",
 								subscriptionId: subscription.id,
 							},
+						},
+						tx,
+					);
+
+					await this.lifecycleEvents.enqueue(
+						{
+							event: "payment_completed",
+							idempotencyKey: lifecycleEventIdempotencyKey(
+								"payment_completed",
+								input.userId,
+							),
+							payload: { interval: input.interval },
+							userId: input.userId,
 						},
 						tx,
 					);

@@ -10,31 +10,41 @@ import {
 const INPUT = {
 	idempotencyKey: "11111111-1111-4111-8111-111111111111",
 	kind: "upgrade_clicked",
+	properties: { method: "card" },
 	surface: "sidebar",
 	userId: "user_1",
 } satisfies InsertProductEvent;
 
-function setup() {
-	const onConflictDoNothing = vi.fn(async () => undefined);
+function setup(returningRows: { id: string }[] = [{ id: "event_1" }]) {
+	const returning = vi.fn(async () => returningRows);
+	const onConflictDoNothing = vi.fn(() => ({ returning }));
 	const values = vi.fn(() => ({ onConflictDoNothing }));
 	const insert = vi.fn(() => ({ values }));
 	const repository = new ProductEventsRepository({
 		insert,
 	} as unknown as Database);
 
-	return { insert, onConflictDoNothing, repository, values };
+	return { insert, onConflictDoNothing, repository, returning, values };
 }
 
 describe("ProductEventsRepository", () => {
-	it("inserts an event and ignores an idempotency-key conflict", async () => {
-		const { insert, onConflictDoNothing, repository, values } = setup();
+	it("inserts properties and reports a newly accepted event", async () => {
+		const { insert, onConflictDoNothing, repository, returning, values } =
+			setup();
 
-		await expect(repository.insert(INPUT)).resolves.toBeUndefined();
+		await expect(repository.insert(INPUT)).resolves.toBe(true);
 
 		expect(insert).toHaveBeenCalledWith(productEvents);
 		expect(values).toHaveBeenCalledWith(INPUT);
 		expect(onConflictDoNothing).toHaveBeenCalledWith({
 			target: productEvents.idempotencyKey,
 		});
+		expect(returning).toHaveBeenCalledWith({ id: productEvents.id });
+	});
+
+	it("reports an idempotency-key replay", async () => {
+		const { repository } = setup([]);
+
+		await expect(repository.insert(INPUT)).resolves.toBe(false);
 	});
 });

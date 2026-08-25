@@ -28,6 +28,11 @@ import { CreditsModule } from "../credits/credits.module";
 import { EmailService } from "../email/application/services/email.service";
 import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
 import { EmailModule } from "../email/email.module";
+import { LifecycleEventsService } from "../lifecycle-events/application/services/lifecycle-events.service";
+import {
+	EVENT_HOLD_MS,
+	lifecycleEventIdempotencyKey,
+} from "../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
@@ -61,6 +66,7 @@ const authProvider: Provider<Auth> = {
 		AffiliateAttributionService,
 		UtmAttributionService,
 		SignupGrantsService,
+		LifecycleEventsService,
 		DATABASE,
 		AnalyticsService,
 		ProductSettingsService,
@@ -72,6 +78,7 @@ const authProvider: Provider<Auth> = {
 		affiliateAttributionService: AffiliateAttributionService,
 		utmAttributionService: UtmAttributionService,
 		signupGrantsService: SignupGrantsService,
+		lifecycleEvents: LifecycleEventsService,
 		db: Database,
 		analytics: AnalyticsService,
 		productSettings: ProductSettingsService,
@@ -169,6 +176,22 @@ const authProvider: Provider<Auth> = {
 				}
 
 				analytics.capture(newUser.id, "user_signed_up");
+
+				try {
+					await lifecycleEvents.enqueue({
+						dispatchAfter: new Date(
+							Date.now() + EVENT_HOLD_MS.signup_completed,
+						),
+						event: "signup_completed",
+						idempotencyKey: lifecycleEventIdempotencyKey(
+							"signup_completed",
+							newUser.id,
+						),
+						userId: newUser.id,
+					});
+				} catch (error) {
+					logger.error("Signup lifecycle event enqueue failed", error);
+				}
 
 				try {
 					await signupGrantsService.handleUserCreated(newUser.id);
