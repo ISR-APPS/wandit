@@ -67,6 +67,16 @@ const DISCOVERY_DOORS = [
 	"run_platform_tool",
 	"search_platform_tools",
 ] as const;
+const HIGGSFIELD_CLIPPER_REDIRECT_MESSAGE =
+	"Do not call generate_video with the clipify or personal_clipper model. " +
+	"Personal Clipper is the tool `personal_clipper_create`: pass the exact " +
+	"YouTube URL(s) in `urls`. If any settings are not yet known, ask the user " +
+	"for `clips_num` (1–20), `clip_aspect` (9:16 | 1:1 | 16:9), and " +
+	"`subtitle_font` (Noto Sans | Noto Serif | Noto Sans Display | IBM Plex " +
+	"Sans | M PLUS Rounded 1c | Bebas Neue | Archivo Black | Unbounded | " +
+	"Inter | Montserrat | Bangers | Permanent Marker | Playfair Display | " +
+	"Caveat), then call `personal_clipper_create`. The job runs in the " +
+	"background for 10–30 minutes.";
 const INITIAL_BILLING_MODE = env.GENERATION_BILLING_MODE;
 const INITIAL_TRIGGER_SECRET_KEY = env.TRIGGER_SECRET_KEY;
 
@@ -903,15 +913,18 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 		});
 
-		it("exposes only the enrolled default Higgsfield capabilities", async () => {
+		it("exposes and enrolls only the default Higgsfield capabilities", async () => {
 			const enrolled = [
 				"generate_image",
 				"generate_video",
 				"generate_audio",
+				"personal_clipper_create",
 				"upscale_video",
 				"reframe",
 				"motion_control",
 				"show_marketing_studio",
+				"personal_clipper_status",
+				"personal_clipper_jobs",
 				"video_analysis_create",
 				"video_analysis_status",
 				"video_analysis_jobs",
@@ -922,16 +935,15 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"job_display",
 				"show_generations",
 			];
-			queueClient(
-				mockClient({
-					definitions: [
-						...enrolled.map((name) => definition(name)),
-						definition("voice_change"),
-						definition("media_confirm"),
-						definition("select_workspace"),
-					],
-				}),
-			);
+			const client = mockClient({
+				definitions: [
+					...enrolled.map((name) => definition(name)),
+					definition("voice_change"),
+					definition("media_confirm"),
+					definition("select_workspace"),
+				],
+			});
+			queueClient(client);
 			const { service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
@@ -943,14 +955,39 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			for (const name of enrolled) {
 				expect(result.tools).toHaveProperty(`mcp_higgsfield_${name}`);
 			}
-			expect(result.approvalMap).not.toHaveProperty(
-				"mcp_higgsfield_list_voices",
-			);
+			for (const name of [
+				"list_voices",
+				"personal_clipper_create",
+				"personal_clipper_jobs",
+				"personal_clipper_status",
+			]) {
+				expect(result.approvalMap).not.toHaveProperty(`mcp_higgsfield_${name}`);
+			}
 			expect(result.tools).not.toHaveProperty("mcp_higgsfield_voice_change");
 			expect(result.tools).not.toHaveProperty("mcp_higgsfield_media_confirm");
 			expect(result.tools).not.toHaveProperty(
 				"mcp_higgsfield_select_workspace",
 			);
+
+			const approval = result.approvalMap.run_platform_tool;
+			expect(approval).toBeTypeOf("function");
+			if (typeof approval !== "function") {
+				throw new Error("Expected a call-time approval function");
+			}
+			const jobsInput = {
+				connector: "higgsfield" as const,
+				params: { limit: 5 },
+				tool_name: "personal_clipper_jobs",
+			};
+			expect(approval(jobsInput)).toBe("not-applicable");
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				jobsInput,
+			);
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: { limit: 5 },
+				name: "personal_clipper_jobs",
+			});
 		});
 
 		it("keeps TikTok list/get plumbing internal under an explicit allowlist", async () => {
@@ -1564,14 +1601,18 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				throw new Error("Expected a call-time approval function");
 			}
 
-			expect(
-				approval({
-					connector: "higgsfield",
-					params: {},
-					tool_name: "generate_video",
-				}),
-			).toBe("not-applicable");
+			for (const toolName of ["generate_video", "personal_clipper_create"]) {
+				expect(
+					approval({
+						connector: "higgsfield",
+						params: {},
+						tool_name: toolName,
+					}),
+				).toBe("not-applicable");
+			}
 			for (const toolName of [
+				"personal_clipper_jobs",
+				"personal_clipper_status",
 				"show_marketing_studio",
 				"video_analysis_create",
 				"video_analysis_status",
@@ -1683,6 +1724,43 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 	});
 
 	describe("connector generation metering", () => {
+		it("runs Personal Clipper job reads through the provider without reserving credits", async () => {
+			const client = mockClient({
+				definitions: [definition("personal_clipper_jobs")],
+			});
+			const callTool = client.callTool as unknown as (
+				input: unknown,
+			) => unknown;
+			client.toolsFromDefinitions.mockReturnValue({
+				personal_clipper_jobs: executableTool((input) =>
+					callTool({
+						arguments: input,
+						name: "personal_clipper_jobs",
+					}),
+				),
+			});
+			queueClient(client);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_personal_clipper_jobs"),
+				{ limit: 5 },
+				toolExecutionOptions("call-clipper-jobs"),
+			);
+
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: { limit: 5 },
+				name: "personal_clipper_jobs",
+			});
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+		});
+
 		it("runs Marketing Studio and video analysis inline, auto-approved, and unbilled", async () => {
 			const toolNames = [
 				"show_marketing_studio",
@@ -2288,6 +2366,90 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectorGenerationsRepository.markAttemptTriggered,
 			).toHaveBeenCalledWith(GENERATION_ATTEMPT_ID, "trigger-run-1");
 			expect(meteringService.settle).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			"namespaced",
+			"generic",
+		] as const)("queues Personal Clipper through the %s tool with both reservations and exact args", async (surface) => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			const client = mockClient({
+				definitions: [definition("personal_clipper_create")],
+			});
+			queueClient(client);
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = {
+				clip_aspect: "9:16",
+				clips_num: 4,
+				subtitle_font: "Inter",
+				urls: ["https://www.youtube.com/watch?v=clipper-test"],
+			};
+
+			const queued = await executeTool(
+				requiredTool(
+					result.tools,
+					surface === "namespaced"
+						? "mcp_higgsfield_personal_clipper_create"
+						: "run_platform_tool",
+				),
+				surface === "namespaced"
+					? args
+					: {
+							connector: "higgsfield",
+							params: args,
+							tool_name: "personal_clipper_create",
+						},
+				toolExecutionOptions(`call-clipper-${surface}`),
+			);
+
+			expect(queued).toMatchObject({
+				attemptId: GENERATION_ATTEMPT_ID,
+				kind: "wandit_background_generation",
+				status: "queued",
+				tool: "personal_clipper_create",
+			});
+			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args,
+					toolName: "personal_clipper_create",
+				}),
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				1,
+				"connector",
+				{ actorUserId: USER_ID },
+				expect.objectContaining({
+					idempotencyKey: `connector:${GENERATION_ATTEMPT_ID}`,
+				}),
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				2,
+				"video",
+				{ actorUserId: USER_ID },
+				expect.objectContaining({
+					idempotencyKey: `video:${GENERATION_ATTEMPT_ID}`,
+					parentEventId: "usage-event-1",
+				}),
+			);
+			expect(triggerMocks.trigger).toHaveBeenCalledWith(
+				"run-connector-generation",
+				expect.objectContaining({
+					args,
+					attemptId: GENERATION_ATTEMPT_ID,
+					billing: expect.objectContaining({
+						child: expect.objectContaining({ operation: "video" }),
+						connector: expect.objectContaining({ operation: "connector" }),
+					}),
+				}),
+				expect.any(Object),
+			);
+			expect(client.callTool).not.toHaveBeenCalled();
 		});
 
 		it("pins omitted Higgsfield use_unlim false before storing a queued call", async () => {
@@ -3102,6 +3264,94 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(imageTool.description).toBe(
 				"Provider description for generate_image",
 			);
+		});
+	});
+
+	describe("higgsfield Clipify redirect", () => {
+		it("redirects a namespaced Clipify generation before the brief gate or any cost", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			const providerExecute = vi.fn(() => ({
+				content: [{ text: "generation", type: "text" }],
+			}));
+			const client = mockClient({
+				definitions: [definition("generate_video")],
+				toolImplementations: {
+					generate_video: executableTool(providerExecute),
+				},
+			});
+			queueClient(client);
+			const {
+				connectorGenerationsRepository,
+				meteringService,
+				promptRefiner,
+				service,
+			} = buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const redirect = (await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				{ params: { model: "  CLIPIFY  ", prompt: "clip it" } },
+				toolExecutionOptions("call-clipify-redirect"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(redirect.isError).toBe(true);
+			expect(redirect.content[0]?.text).toBe(
+				HIGGSFIELD_CLIPPER_REDIRECT_MESSAGE,
+			);
+			expect(client.callTool).not.toHaveBeenCalled();
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+		});
+
+		it("redirects personal_clipper through run_platform_tool without a Trigger key or any cost", async () => {
+			expect(env.TRIGGER_SECRET_KEY).toBeUndefined();
+			const client = mockClient({
+				definitions: [definition("generate_video")],
+			});
+			queueClient(client);
+			const {
+				connectorGenerationsRepository,
+				meteringService,
+				promptRefiner,
+				service,
+			} = buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const redirect = (await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: {
+						params: { model: "PeRsOnAl_ClIpPeR", prompt: "clip it" },
+					},
+					tool_name: "generate_video",
+				},
+				toolExecutionOptions("call-door-clipper-redirect"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(redirect.isError).toBe(true);
+			expect(redirect.content[0]?.text).toBe(
+				HIGGSFIELD_CLIPPER_REDIRECT_MESSAGE,
+			);
+			expect(client.callTool).not.toHaveBeenCalled();
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
 		});
 	});
 

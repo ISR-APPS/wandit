@@ -18,6 +18,7 @@ import {
 } from "ai";
 import {
 	createLlmModel,
+	gatewayRoutingForModel,
 	withLlmAttribution,
 } from "../../ai-provider/domain/llm-provider";
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
@@ -193,15 +194,33 @@ export function createChatToolCallRepair({
 		messages,
 		system,
 		toolCall,
+		tools,
 	}) => {
 		if (NoSuchToolError.isInstance(error)) {
 			return null;
 		}
 
+		// One provider call, one capture — whichever path reports it first.
+		let captured = false;
+		const captureOnce = async (capture: CapturedGeneration) => {
+			if (captured) {
+				return;
+			}
+			captured = true;
+			await captureSafely(capture);
+		};
+
 		try {
-			const schema = jsonSchema<Record<string, unknown>>(
-				await inputSchema({ toolName: toolCall.toolName }),
-			);
+			// The tool's own schema (zod for first-party tools) validates the
+			// repaired object, so a repair that still breaks a constraint fails
+			// here and returns null instead of being re-parsed — and re-rejected —
+			// by the SDK. MCP tools carry a JSON schema; the SDK-derived document
+			// is the fallback for those.
+			const schema =
+				tools[toolCall.toolName]?.inputSchema ??
+				jsonSchema<Record<string, unknown>>(
+					await inputSchema({ toolName: toolCall.toolName }),
+				);
 			const result = await generateObject({
 				instructions: instructions ?? system,
 				maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
@@ -209,14 +228,24 @@ export function createChatToolCallRepair({
 					...messages,
 					{
 						role: "user",
-						content: `Your previous ${toolCall.toolName} call was cut off before the JSON closed. Return the COMPLETE arguments as valid JSON that satisfies the tool schema.`,
+						content: repairInstruction(toolCall, error),
 					},
 				],
 				model,
+				// The provider call is metered the moment it ends — BEFORE schema
+				// validation. A repair the schema still rejects throws
+				// NoObjectGeneratedError, which carries no generation id, so the
+				// success/catch paths alone would leave that call unbilled.
+				onStepEnd: async ({ providerMetadata, usage }) => {
+					await captureOnce({
+						providerMetadata,
+						stepUsage: helperStepUsage("tool_call_repair", usage),
+					});
+				},
 				schema,
 			});
 
-			await captureSafely({
+			await captureOnce({
 				providerMetadata: result.providerMetadata,
 				stepUsage: helperStepUsage("tool_call_repair", result.usage),
 			});
@@ -226,7 +255,7 @@ export function createChatToolCallRepair({
 			const errorCapture = llmGenerationCaptureFromError(repairError);
 
 			if (errorCapture) {
-				await captureSafely({
+				await captureOnce({
 					providerMetadata: errorCapture.providerMetadata,
 					stepUsage: helperStepUsage("tool_call_repair", null),
 				});
@@ -235,6 +264,80 @@ export function createChatToolCallRepair({
 			return null;
 		}
 	};
+}
+
+const REPAIR_INPUT_MAX_CHARS = 16_000;
+
+/**
+ * The repair model must see WHAT it sent and WHY it was rejected: a truncated
+ * JSON body and a schema-constraint violation (too many items, a disallowed
+ * value) are different mistakes with different fixes.
+ */
+export function repairInstruction(
+	toolCall: { input: string; toolName: string },
+	error: unknown,
+): string {
+	const input =
+		toolCall.input.length > REPAIR_INPUT_MAX_CHARS
+			? `${toolCall.input.slice(0, REPAIR_INPUT_MAX_CHARS)}… [truncated]`
+			: toolCall.input;
+
+	return (
+		`Your previous ${toolCall.toolName} call was rejected. Its arguments were:\n` +
+		`${input}\n\nRejection reason:\n${describeToolInputError(error)}\n\n` +
+		"Return the COMPLETE arguments as valid JSON that satisfies the tool " +
+		"schema. Keep every valid field as it was; change only what the reason " +
+		"names."
+	);
+}
+
+type ValidationIssue = { message: string; path: PropertyKey[] };
+
+/**
+ * Zod issues when the cause chain carries them ("sourceImageUrls: Too big…"),
+ * else the deepest cause's message (a JSON parse error for a truncated body).
+ */
+function describeToolInputError(error: unknown): string {
+	let current: unknown = error;
+	let deepestMessage = error instanceof Error ? error.message : String(error);
+
+	for (let depth = 0; depth < 4; depth += 1) {
+		if (typeof current !== "object" || current === null) {
+			break;
+		}
+
+		const { cause, issues, message } = current as {
+			cause?: unknown;
+			issues?: unknown;
+			message?: unknown;
+		};
+
+		if (Array.isArray(issues)) {
+			const lines = issues
+				.filter(
+					(issue): issue is ValidationIssue =>
+						typeof issue === "object" &&
+						issue !== null &&
+						typeof (issue as { message?: unknown }).message === "string" &&
+						Array.isArray((issue as { path?: unknown }).path),
+				)
+				.map(({ message: text, path }) =>
+					path.length > 0 ? `${path.map(String).join(".")}: ${text}` : text,
+				);
+
+			if (lines.length > 0) {
+				return lines.join("\n");
+			}
+		}
+
+		if (typeof message === "string" && message.length > 0) {
+			deepestMessage = message;
+		}
+
+		current = cause;
+	}
+
+	return deepestMessage;
 }
 
 /**
@@ -347,6 +450,10 @@ export function createChatAgent(
 			{
 				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 				anthropic: { toolStreaming: false },
+				// Provider pin: an openai/* brain talks to OpenAI only — never the
+				// gateway's Azure/Bedrock fallbacks, whose stalls turned one failed
+				// turn into a 13-minute wait. Attribution is merged in below.
+				gateway: gatewayRoutingForModel(env.AI_CHAT_MODEL),
 				// Gemini thinking level — only Google models read this key; every
 				// other provider ignores it. MEDIUM: the launch-window compromise
 				// between snappy chat replies and brief quality (2026-07-26).

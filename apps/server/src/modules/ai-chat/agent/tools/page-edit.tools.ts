@@ -146,7 +146,10 @@ export function createPageEditTools(deps: PageEditToolsDeps): PageEditTools {
 				"introduce raw colors when a token fits. Feature additions or removals " +
 				"require read_section + replace_section. " +
 				"set-tokens values: colors are hex; radius is px, rem, " +
-				`or em; font-heading and font-body are curated font IDs: ${CURATED_FONT_IDS}.`,
+				`or em; font-heading and font-body are curated font IDs: ${CURATED_FONT_IDS}. ` +
+				"ops holds 1 to 20 ops — never send an empty list. set-link-href " +
+				"values must be absolute https/http URLs, tel:, mailto:, or a " +
+				"same-page anchor like #gallery; relative paths are rejected.",
 			inputSchema: applyElementOpsInputSchema,
 			outputSchema: applyElementOpsOutputSchema,
 			execute: async ({ ops }): Promise<ApplyElementOpsOutput> => {
