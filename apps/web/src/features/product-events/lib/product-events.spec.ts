@@ -51,13 +51,17 @@ describe("product event emitter", () => {
 		expect(getProductEventSessionState(false, undefined)).toBe("anonymous");
 	});
 
-	it("mirrors anonymous events to analytics without attempting persistence", () => {
+	it("mirrors anonymous events to analytics without attempting persistence", async () => {
 		const runtime = createRuntime();
 		const emitter = createProductEventEmitter(runtime);
 
-		emitter.upgradeClicked("marketing_pricing", "anonymous");
+		await emitter.upgradeClicked(
+			{ method: "card", surface: "marketing_pricing" },
+			"anonymous",
+		);
 
 		expect(runtime.capture).toHaveBeenCalledWith("upgrade_clicked", {
+			method: "card",
 			surface: "marketing_pricing",
 		});
 		expect(runtime.createIdempotencyKey).not.toHaveBeenCalled();
@@ -65,22 +69,32 @@ describe("product event emitter", () => {
 		expect(runtime.resolveHasSession).not.toHaveBeenCalled();
 	});
 
-	it("persists authenticated events with a fresh UUID on every click", () => {
+	it("persists authenticated events with a fresh UUID on every click", async () => {
 		const runtime = createRuntime();
 		const emitter = createProductEventEmitter(runtime);
 
-		emitter.upgradeClicked("workspace_header", "authenticated");
-		emitter.upgradeClicked("workspace_header", "authenticated");
+		await Promise.all([
+			emitter.upgradeClicked(
+				{ method: "card", surface: "workspace_header" },
+				"authenticated",
+			),
+			emitter.upgradeClicked(
+				{ method: "offline", surface: "workspace_header" },
+				"authenticated",
+			),
+		]);
 
 		expect(runtime.capture).toHaveBeenCalledTimes(2);
 		expect(runtime.persist).toHaveBeenNthCalledWith(1, {
 			idempotencyKey: FIRST_ID,
 			kind: "upgrade_clicked",
+			properties: { method: "card" },
 			surface: "workspace_header",
 		});
 		expect(runtime.persist).toHaveBeenNthCalledWith(2, {
 			idempotencyKey: SECOND_ID,
 			kind: "upgrade_clicked",
+			properties: { method: "offline" },
 			surface: "workspace_header",
 		});
 	});
@@ -107,7 +121,7 @@ describe("product event emitter", () => {
 		);
 	});
 
-	it("swallows analytics, storage, UUID, and persistence failures", () => {
+	it("swallows analytics, storage, UUID, and persistence failures", async () => {
 		const rejectedPersistence = createRuntime();
 		rejectedPersistence.capture.mockImplementation(() => {
 			throw new Error("analytics unavailable");
@@ -117,9 +131,12 @@ describe("product event emitter", () => {
 		);
 		const rejectedEmitter = createProductEventEmitter(rejectedPersistence);
 
-		expect(() =>
-			rejectedEmitter.upgradeClicked("sidebar", "authenticated"),
-		).not.toThrow();
+		await expect(
+			rejectedEmitter.upgradeClicked(
+				{ method: "card", surface: "sidebar" },
+				"authenticated",
+			),
+		).resolves.toBeUndefined();
 
 		const synchronousFailures = createRuntime();
 		synchronousFailures.getSessionStorage = () => {
@@ -166,11 +183,42 @@ describe("product event emitter", () => {
 		runtime.resolveHasSession.mockResolvedValueOnce(false);
 		const emitter = createProductEventEmitter(runtime);
 
-		emitter.upgradeClicked("marketing_pricing", "pending");
-		await Promise.resolve();
+		await emitter.upgradeClicked(
+			{ method: "card", surface: "marketing_pricing" },
+			"pending",
+		);
 
 		expect(runtime.capture).toHaveBeenCalledOnce();
 		expect(runtime.persist).not.toHaveBeenCalled();
+	});
+
+	it("waits for authenticated persistence before resolving checkout tracking", async () => {
+		const runtime = createRuntime();
+		let resolvePersistence: (() => void) | undefined;
+		runtime.persist.mockReturnValueOnce(
+			new Promise<void>((resolve) => {
+				resolvePersistence = resolve;
+			}),
+		);
+		const emitter = createProductEventEmitter(runtime);
+		let completed = false;
+
+		const completion = emitter
+			.upgradeClicked(
+				{ method: "card", surface: "billing_page" },
+				"authenticated",
+			)
+			.then(() => {
+				completed = true;
+			});
+
+		await Promise.resolve();
+		expect(runtime.persist).toHaveBeenCalledOnce();
+		expect(completed).toBe(false);
+
+		resolvePersistence?.();
+		await completion;
+		expect(completed).toBe(true);
 	});
 
 	it("falls back to in-memory dedup when session storage is unavailable", () => {

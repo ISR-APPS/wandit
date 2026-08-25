@@ -3,6 +3,7 @@ export const PRODUCT_SETTINGS_ID = 1 as const;
 export const DEFAULT_PRODUCT_SETTINGS = {
 	emailAuthEnabled: false,
 	id: PRODUCT_SETTINGS_ID,
+	lifecycleEmailsEnabled: false,
 	manualGraceDays: 0,
 	manualPaymentsEnabled: false,
 	organizationsEnabled: false,

@@ -47,6 +47,8 @@ import {
 	runSiteBuild,
 	type SiteBuildMeteringStep,
 } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
@@ -55,6 +57,7 @@ import {
 	TaggedBuildError,
 } from "../modules/pages/domain/build-failure";
 import { appendProjectBrandAsset } from "./generate-page-brand";
+import { enqueuePageGenerationLifecycleEvent } from "./generate-page-lifecycle";
 import { flushPageBuildGenerationsForSettlement } from "./generate-page-metering";
 import { triggerAnalytics } from "./init";
 import { createTriggerMetering } from "./metering.runtime";
@@ -97,6 +100,9 @@ export const generatePageTask = task({
 		// Fresh pool per run; ended in `finally` so the worker process can be
 		// reused without leaking Postgres connections.
 		const db = createDb();
+		const lifecycleEvents = new LifecycleEventsService(
+			new LifecycleEventsRepository(db),
+		);
 
 		try {
 			const [loaded] = await db
@@ -457,6 +463,13 @@ export const generatePageTask = task({
 
 					return { activated: !newerSucceeded, number: nextNumber };
 				});
+
+				await enqueuePageGenerationLifecycleEvent(
+					lifecycleEvents,
+					subject.actorUserId,
+					spec.pageKind,
+					logger,
+				);
 
 				captureGenerationCompleted(
 					triggerAnalytics,

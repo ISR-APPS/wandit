@@ -10,6 +10,7 @@ import {
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type {
@@ -74,8 +75,14 @@ const STALE_ROW = attemptRow({
 	title: "Product photo",
 });
 
-function setupStaleRecovery() {
-	const staleRow = { ...STALE_ROW };
+function setupStaleRecovery(
+	options: {
+		hasUsageEvent?: boolean;
+		staleRow?: Partial<ImageGenerationAttemptRow>;
+		usageActorUserId?: string;
+	} = {},
+) {
+	const staleRow = { ...STALE_ROW, ...options.staleRow };
 	const succeededRow = attemptRow({
 		...staleRow,
 		completedAt: new Date(),
@@ -98,9 +105,12 @@ function setupStaleRecovery() {
 		id: "usage_event_image",
 		operation: "image",
 		status: "reserved",
+		userId: options.usageActorUserId ?? "user_1",
 	} as Awaited<ReturnType<MeteringService["reserve"]>>;
 	const meteringService = {
-		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
+		findByIdempotencyKey: vi
+			.fn()
+			.mockResolvedValue(options.hasUsageEvent === false ? null : usageEvent),
 		refund: vi.fn(),
 		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
@@ -114,30 +124,42 @@ function setupStaleRecovery() {
 	const updateSet = vi.fn(() => ({
 		where: vi.fn(() => ({ returning: updateReturning })),
 	}));
+	const update = vi.fn(() => ({ set: updateSet }));
+	const tx = { update };
+	const transaction = vi.fn(
+		async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+	);
 	const db = {
 		select: vi.fn(() => ({
 			from: vi.fn(() => ({
 				where: vi.fn(() => ({ limit: selectLimit })),
 			})),
 		})),
-		update: vi.fn(() => ({ set: updateSet })),
+		transaction,
+		update,
 	};
 	const analytics = { capture: vi.fn() };
+	const lifecycleEventsService = { enqueue: vi.fn().mockResolvedValue(null) };
 	const service = new ImageGenerationsService(
 		repository as unknown as ImageGenerationsRepository,
 		{ settle: settlePlacement } as unknown as ImageGenerationPlacementService,
 		meteringService as unknown as MeteringService,
 		db as unknown as Database,
 		analytics as unknown as AnalyticsService,
+		lifecycleEventsService as unknown as LifecycleEventsService,
 	);
 
 	return {
 		db,
 		meteringService,
+		analytics,
+		lifecycleEventsService,
 		repository,
 		service,
 		settlePlacement,
+		tx,
 		updateSet,
+		usageEvent,
 	};
 }
 
@@ -152,7 +174,14 @@ beforeEach(() => {
 
 describe("ImageGenerationsService stale recovery billing", () => {
 	it("settles an existing per-image hold before publishing recovered images", async () => {
-		const { db, meteringService, service, updateSet } = setupStaleRecovery();
+		const {
+			db,
+			lifecycleEventsService,
+			meteringService,
+			service,
+			tx,
+			updateSet,
+		} = setupStaleRecovery();
 
 		await expect(service.attempt(SCOPE, STALE_ROW.id)).resolves.toMatchObject({
 			id: STALE_ROW.id,
@@ -173,6 +202,112 @@ describe("ImageGenerationsService stale recovery billing", () => {
 		expect(updateSet).toHaveBeenCalledWith(
 			expect.objectContaining({ status: "succeeded" }),
 		);
+		expect(lifecycleEventsService.enqueue).toHaveBeenCalledWith(
+			{
+				event: "image_generated",
+				idempotencyKey: "image_generated:user_1",
+				userId: "user_1",
+			},
+			tx,
+		);
+	});
+
+	it("uses the persisted queue actor instead of a different polling org member", async () => {
+		const { lifecycleEventsService, meteringService, service } =
+			setupStaleRecovery({
+				staleRow: { spec: { actorUserId: "queue_actor_1" } },
+			});
+		const scope: ProjectScope = {
+			actorIsLimitExempt: false,
+			kind: "org",
+			organizationId: "org_1",
+			userId: "polling_member_2",
+		};
+
+		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+		});
+		expect(lifecycleEventsService.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: "image_generated:queue_actor_1",
+				userId: "queue_actor_1",
+			}),
+			expect.anything(),
+		);
+		// Only the billing settlement lookup runs; actor resolution uses the row.
+		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledOnce();
+	});
+
+	it("uses the usage-event actor for a legacy metered org attempt", async () => {
+		const { lifecycleEventsService, meteringService, service } =
+			setupStaleRecovery({ usageActorUserId: "legacy_queue_actor_1" });
+		const scope: ProjectScope = {
+			actorIsLimitExempt: false,
+			kind: "org",
+			organizationId: "org_1",
+			userId: "polling_member_2",
+		};
+
+		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+		});
+		expect(lifecycleEventsService.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: "image_generated:legacy_queue_actor_1",
+				userId: "legacy_queue_actor_1",
+			}),
+			expect.anything(),
+		);
+		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not misattribute a legacy billing-off org recovery", async () => {
+		const { analytics, db, lifecycleEventsService, service, updateSet } =
+			setupStaleRecovery({ hasUsageEvent: false });
+		const scope: ProjectScope = {
+			actorIsLimitExempt: false,
+			kind: "org",
+			organizationId: "org_1",
+			userId: "polling_member_2",
+		};
+
+		await expect(service.attempt(scope, STALE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+		});
+		expect(db.transaction).toHaveBeenCalledOnce();
+		expect(updateSet).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "succeeded" }),
+		);
+		expect(lifecycleEventsService.enqueue).not.toHaveBeenCalled();
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("uses the personal scope as the safe legacy billing-off fallback", async () => {
+		const { lifecycleEventsService, service } = setupStaleRecovery({
+			hasUsageEvent: false,
+		});
+
+		await expect(service.attempt(SCOPE, STALE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+		});
+		expect(lifecycleEventsService.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: "image_generated:user_1",
+				userId: "user_1",
+			}),
+			expect.anything(),
+		);
+	});
+
+	it("propagates lifecycle persistence failure before recovered success commits", async () => {
+		const { analytics, lifecycleEventsService, service } = setupStaleRecovery();
+		const lifecycleError = new Error("lifecycle persistence unavailable");
+		lifecycleEventsService.enqueue.mockRejectedValueOnce(lifecycleError);
+
+		await expect(service.attempt(SCOPE, STALE_ROW.id)).rejects.toBe(
+			lifecycleError,
+		);
+		expect(analytics.capture).not.toHaveBeenCalled();
 	});
 
 	it("does not publish recovered images when existing settlement fails", async () => {
@@ -268,6 +403,7 @@ describe("ImageGenerationsService download", () => {
 			{} as MeteringService,
 			{} as Database,
 			{} as AnalyticsService,
+			{} as LifecycleEventsService,
 		);
 		vi.mocked(publicAssetKeyFromUrl).mockReturnValueOnce(
 			"images/project/result-3.png",
@@ -308,6 +444,7 @@ describe("ImageGenerationsService download", () => {
 			{} as MeteringService,
 			{} as Database,
 			{} as AnalyticsService,
+			{} as LifecycleEventsService,
 		);
 
 		await expect(service.download(SCOPE, ATTEMPT_ID, 1)).rejects.toBeInstanceOf(
@@ -339,6 +476,7 @@ describe("ImageGenerationsService attempt placement", () => {
 			} as unknown as MeteringService,
 			{} as Database,
 			{} as AnalyticsService,
+			{} as LifecycleEventsService,
 		);
 	});
 

@@ -35,6 +35,8 @@ import { editVideo } from "../modules/ai-chat/agent/site-builder/edit-video";
 import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import { SpeechService } from "../modules/generation/application/services/speech.service";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import {
 	createVideoBilling,
 	type VideoReservation,
@@ -184,6 +186,10 @@ export function createVideoWorkflowRuntime(
 }
 
 function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<VideoWorkflowAttempt | null> => {
@@ -269,33 +275,50 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		attempt: VideoWorkflowAttempt,
 		video: VideoWorkflowVideo,
 		completedAt: Date,
+		actorUserId: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(mediaGenerationAttempts)
-			.set({
-				completedAt,
-				error: null,
-				status: "succeeded",
-				videoMediaType: video.mediaType,
-				videoUrl: video.url,
-			})
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attempt.id),
-					eq(mediaGenerationAttempts.projectId, attempt.projectId),
-					eq(mediaGenerationAttempts.status, "generating"),
-					sql`exists (
-						select 1 from ${projects}
-						where ${projects.id} = ${mediaGenerationAttempts.projectId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: mediaGenerationAttempts.id });
+		const updated = await db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(mediaGenerationAttempts)
+				.set({
+					completedAt,
+					error: null,
+					status: "succeeded",
+					videoMediaType: video.mediaType,
+					videoUrl: video.url,
+				})
+				.where(
+					and(
+						eq(mediaGenerationAttempts.id, attempt.id),
+						eq(mediaGenerationAttempts.projectId, attempt.projectId),
+						eq(mediaGenerationAttempts.status, "generating"),
+						sql`exists (
+							select 1 from ${projects}
+							where ${projects.id} = ${mediaGenerationAttempts.projectId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: mediaGenerationAttempts.id });
+
+			if (succeeded) {
+				await lifecycleEvents.enqueue(
+					{
+						event: "video_generated",
+						idempotencyKey: `video_generated:${actorUserId}`,
+						userId: actorUserId,
+					},
+					transaction,
+				);
+			}
+
+			return succeeded;
+		});
+
 		if (updated) {
 			captureGenerationCompleted(
 				analytics,
-				attempt.userId,
+				actorUserId,
 				"video",
 				attempt.projectId,
 				attempt.id,

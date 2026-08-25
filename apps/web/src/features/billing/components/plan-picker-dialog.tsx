@@ -5,6 +5,7 @@ import type {
 	BillingTierPrice,
 	BillingTopupPack,
 	CreditTier,
+	ProductEventSurface,
 	Subscription,
 } from "@wandit/contracts";
 import { isManualSubscription } from "@wandit/contracts";
@@ -60,6 +61,7 @@ import {
 	resolvePlanPickerInterval,
 	resolvePlanPickerPaymentMethod,
 } from "@/features/billing/lib/billing-ui-policy";
+import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
 import { isRenewalDowngrade } from "@/features/billing/lib/plan-pricing";
 import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
 import {
@@ -86,6 +88,7 @@ export type PlanPickerDialogProps = {
 	initialPaymentMethod?: PlanPickerPaymentMethod;
 	requiredCredits?: number;
 	availableCredits?: number;
+	surface: ProductEventSurface;
 };
 
 type PickerStep = "select" | "preview" | "outcome";
@@ -103,6 +106,7 @@ export function PlanPickerDialog({
 	initialPaymentMethod,
 	requiredCredits,
 	availableCredits,
+	surface,
 }: PlanPickerDialogProps) {
 	const { t } = useTranslation();
 	const { data: session, isPending: isSessionPending } = useSession();
@@ -144,6 +148,7 @@ export function PlanPickerDialog({
 							initialTierCredits={initialTierCredits}
 							initialPaymentMethod={initialPaymentMethod}
 							defaultFullName={session?.user.name ?? ""}
+							surface={surface}
 							onClose={() => onOpenChange(false)}
 							onCreateTeam={() => {
 								onOpenChange(false);
@@ -172,6 +177,7 @@ function PlanPickerContent({
 	defaultFullName,
 	requiredCredits,
 	availableCredits,
+	surface,
 }: {
 	onClose: () => void;
 	onCreateTeam: () => void;
@@ -181,6 +187,7 @@ function PlanPickerContent({
 	defaultFullName: string;
 	requiredCredits?: number;
 	availableCredits?: number;
+	surface: ProductEventSurface;
 }) {
 	const { locale } = useTranslation();
 	const dictionary = useDictionary();
@@ -524,6 +531,7 @@ function PlanPickerContent({
 					tierCredits: tier.tierCredits,
 					interval,
 				})
+				.then(({ url }) => completeCardCheckoutStart(url, surface))
 				.catch((error) => setErrorMessage(getApiErrorMessage(error)));
 			return;
 		}
@@ -688,6 +696,7 @@ function PlanPickerContent({
 			initialInterval={selectedInterval ?? initialInterval}
 			initialTierCredits={selectedTierCredits ?? initialTierCredits}
 			onClose={onClose}
+			surface={surface}
 		/>
 	);
 	const showPaymentTabs = cardAvailable && offlineAvailable;

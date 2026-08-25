@@ -18,6 +18,7 @@ import { ProductEventsController } from "./product-events.controller";
 const INPUT = {
 	idempotencyKey: "11111111-1111-4111-8111-111111111111",
 	kind: "upgrade_clicked",
+	properties: { method: "card" },
 	surface: "workspace_header",
 } satisfies CreateProductEventRequest;
 
@@ -79,6 +80,30 @@ describe("ProductEventsController", () => {
 		const pipe = bodyPipe();
 
 		expect(pipe.transform(INPUT, { type: "body" })).toEqual(INPUT);
+		expect(
+			pipe.transform(
+				{
+					idempotencyKey: "22222222-2222-4222-8222-222222222222",
+					kind: "pricing_viewed",
+					surface: "marketing_pricing",
+				},
+				{ type: "body" },
+			),
+		).toEqual({
+			idempotencyKey: "22222222-2222-4222-8222-222222222222",
+			kind: "pricing_viewed",
+			surface: "marketing_pricing",
+		});
+		expect(() =>
+			pipe.transform(
+				{
+					idempotencyKey: "33333333-3333-4333-8333-333333333333",
+					kind: "upgrade_clicked",
+					surface: "sidebar",
+				},
+				{ type: "body" },
+			),
+		).toThrow(BadRequestException);
 		expect(() =>
 			pipe.transform(
 				{
