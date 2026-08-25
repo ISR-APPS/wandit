@@ -15,6 +15,7 @@ import {
 	Injectable,
 	Logger,
 	NotFoundException,
+	ServiceUnavailableException,
 } from "@nestjs/common";
 import type { Auth } from "@wandit/auth";
 import {
@@ -35,6 +36,8 @@ import {
 } from "../../infrastructure/google/google-sheets.client";
 import { toLeadDto } from "../../infrastructure/mappers/lead.mapper";
 import {
+	LeadSheetSyncBusyError,
+	LeadSheetSyncLockLostError,
 	type LeadSheetSyncRow,
 	LeadSheetSyncsRepository,
 } from "../../infrastructure/persistence/lead-sheet-syncs.repository";
@@ -45,6 +48,23 @@ const SYNC_PAGE_SIZE = 1_000;
 // the batchUpdate wrapper while avoiding an arbitrary row cap that burns the
 // per-user write quota on large exports.
 const MAX_WRITE_PAYLOAD_BYTES = 1_500_000;
+
+export class GoogleAccessTokenError extends ConflictException {
+	constructor(error: unknown) {
+		super(
+			"Could not get Google access — reconnect Google Sheets and try again",
+			{ cause: error },
+		);
+		this.name = "GoogleAccessTokenError";
+	}
+}
+
+export class LeadSheetSyncStaleError extends Error {
+	constructor() {
+		super("The lead sheet changed since it was scheduled");
+		this.name = "LeadSheetSyncStaleError";
+	}
+}
 
 @Injectable()
 export class LeadSheetSyncService {
@@ -80,7 +100,35 @@ export class LeadSheetSyncService {
 		projectId: string,
 	): Promise<LeadSheetSyncState> {
 		const project = await this.getAccessibleProject(scope, projectId);
+		let updated: LeadSheetSyncRow;
 
+		try {
+			updated = await this.syncProject(scope, project, "wait");
+		} catch (error) {
+			if (error instanceof LeadSheetSyncBusyError) {
+				throw new ServiceUnavailableException(
+					"A sync of this sheet is already running — try again in a moment",
+				);
+			}
+
+			if (error instanceof LeadSheetSyncLockLostError) {
+				throw new ServiceUnavailableException(
+					"The sync lost its lock — try again in a moment",
+				);
+			}
+
+			throw error;
+		}
+
+		return { connected: true, sheet: toSheetDto(updated) };
+	}
+
+	async syncProject(
+		scope: ProjectScope,
+		project: { id: string; name: string },
+		lockMode: "try" | "wait",
+		expected?: { lastSyncedAt: Date | null },
+	): Promise<LeadSheetSyncRow> {
 		const account = await this.syncsRepository.findGoogleAccount(scope.userId);
 		if (!isSheetsConnected(account)) {
 			throw new ConflictException(
@@ -90,52 +138,102 @@ export class LeadSheetSyncService {
 
 		const accessToken = await this.mintAccessToken(scope.userId);
 		const title = `Wandit Leads — ${project.name}`;
-		let syncedLeadCount: number;
 
-		try {
-			let sync = await this.syncsRepository.findByProject(projectId);
+		return this.syncsRepository.withProjectSyncLock(
+			project.id,
+			lockMode,
+			async () => {
+				let syncedLeadCount: number;
+				let lastSyncedAt: Date;
+				let sync = await this.syncsRepository.findByProject(project.id);
 
-			if (!sync) {
-				sync = await this.createSpreadsheet(accessToken, projectId, title);
-			}
-
-			try {
-				syncedLeadCount = await this.rewriteSpreadsheet(
-					accessToken,
-					sync.spreadsheetId,
-					scope,
-					projectId,
-				);
-			} catch (error) {
-				// 404 = the merchant deleted our spreadsheet in Drive. The pointer
-				// is stale, not the sync — recreate once and stage the full rewrite
-				// in the fresh spreadsheet.
-				if (!(error instanceof GoogleSheetsApiError) || error.status !== 404) {
-					throw error;
+				if (
+					expected !== undefined &&
+					(sync === null ||
+						sync.syncedByUserId !== scope.userId ||
+						(sync.lastSyncedAt?.getTime() ?? null) !==
+							(expected.lastSyncedAt?.getTime() ?? null))
+				) {
+					throw new LeadSheetSyncStaleError();
 				}
 
-				sync = await this.createSpreadsheet(accessToken, projectId, title);
-				syncedLeadCount = await this.rewriteSpreadsheet(
-					accessToken,
-					sync.spreadsheetId,
-					scope,
-					projectId,
+				if (
+					expected !== undefined &&
+					!(await this.syncsRepository.isSyncActorAuthorized(
+						project.id,
+						scope.userId,
+					))
+				) {
+					throw new LeadSheetSyncStaleError();
+				}
+
+				try {
+					if (!sync) {
+						sync = await this.createSpreadsheet(
+							accessToken,
+							project.id,
+							title,
+							scope.userId,
+						);
+					}
+
+					// Changes made after this point must remain due for the next sweep,
+					// even if they happen while pages are being exported to Google.
+					lastSyncedAt = await this.syncsRepository.now();
+
+					try {
+						syncedLeadCount = await this.rewriteSpreadsheet(
+							accessToken,
+							sync.spreadsheetId,
+							scope,
+							project.id,
+						);
+					} catch (error) {
+						// 404 = the merchant deleted our spreadsheet in Drive. The pointer
+						// is stale, not the sync — recreate once and stage the full rewrite
+						// in the fresh spreadsheet.
+						if (
+							!(error instanceof GoogleSheetsApiError) ||
+							error.status !== 404
+						) {
+							throw error;
+						}
+
+						sync = await this.createSpreadsheet(
+							accessToken,
+							project.id,
+							title,
+							scope.userId,
+						);
+						syncedLeadCount = await this.rewriteSpreadsheet(
+							accessToken,
+							sync.spreadsheetId,
+							scope,
+							project.id,
+						);
+					}
+				} catch (error) {
+					throw this.mapGoogleError(error, project.id);
+				}
+
+				const updated = await this.syncsRepository.recordSyncResult(
+					project.id,
+					{
+						lastSyncedAt,
+						syncedByUserId: scope.userId,
+						syncedLeadCount,
+					},
 				);
-			}
-		} catch (error) {
-			throw this.mapGoogleError(error, projectId);
-		}
 
-		const updated = await this.syncsRepository.recordSyncResult(
-			projectId,
-			syncedLeadCount,
+				if (!updated) {
+					throw new Error(
+						"Lead sheet sync row vanished while recording result",
+					);
+				}
+
+				return updated;
+			},
 		);
-
-		if (!updated) {
-			throw new Error("Lead sheet sync row vanished while recording result");
-		}
-
-		return { connected: true, sheet: toSheetDto(updated) };
 	}
 
 	private async rewriteSpreadsheet(
@@ -291,9 +389,7 @@ export class LeadSheetSyncService {
 			return tokens.accessToken;
 		} catch (error) {
 			this.logger.warn(`Google access token mint failed: ${String(error)}`);
-			throw new ConflictException(
-				"Could not get Google access — reconnect Google Sheets and try again",
-			);
+			throw new GoogleAccessTokenError(error);
 		}
 	}
 
@@ -301,11 +397,16 @@ export class LeadSheetSyncService {
 		accessToken: string,
 		projectId: string,
 		title: string,
+		syncedByUserId: string,
 	): Promise<LeadSheetSyncRow> {
 		return this.sheetsClient
 			.createSpreadsheet(accessToken, title)
 			.then((created) =>
-				this.syncsRepository.upsertSpreadsheet(projectId, created),
+				this.syncsRepository.upsertSpreadsheet(
+					projectId,
+					created,
+					syncedByUserId,
+				),
 			);
 	}
 
@@ -320,14 +421,19 @@ export class LeadSheetSyncService {
 			if (error.status === 401 || error.status === 403) {
 				return new ConflictException(
 					`Google refused the sync: ${error.message}`,
+					{ cause: error },
 				);
 			}
 
-			return new BadGatewayException("Google Sheets sync failed");
+			return new BadGatewayException("Google Sheets sync failed", {
+				cause: error,
+			});
 		}
 
 		this.logger.error(`Sheets sync failed for project ${projectId}`, error);
-		return new BadGatewayException("Google Sheets sync failed");
+		return new BadGatewayException("Google Sheets sync failed", {
+			cause: error,
+		});
 	}
 }
 
@@ -344,12 +450,15 @@ function stagedRowPayloadBytes(row: string[]): number {
 
 // connected = the drive.file grant is on the account AND we can still mint a
 // token for it (refresh token stored, or the access token is not yet expired).
-function isSheetsConnected(
-	account: {
-		accessTokenExpiresAt: Date | null;
-		refreshToken: string | null;
-		scope: string | null;
-	} | null,
+export function isSheetsConnected(
+	account:
+		| {
+				accessTokenExpiresAt: Date | null;
+				refreshToken: string | null;
+				scope: string | null;
+		  }
+		| null
+		| undefined,
 ): boolean {
 	if (!account?.scope) {
 		return false;
@@ -377,6 +486,7 @@ function toSheetDto(row: LeadSheetSyncRow | null): LeadSheetSyncState["sheet"] {
 	}
 
 	return {
+		autoSyncEnabled: row.syncedByUserId !== null,
 		lastSyncedAt: row.lastSyncedAt ? row.lastSyncedAt.toISOString() : null,
 		spreadsheetUrl: row.spreadsheetUrl,
 		syncedLeadCount: row.syncedLeadCount,

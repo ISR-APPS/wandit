@@ -28,11 +28,16 @@ export {
 export { PgDialect } from "drizzle-orm/pg-core";
 
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool, type PoolConfig } from "pg";
+import { Client, Pool, type PoolConfig } from "pg";
 
 import * as schema from "./schema";
 
 export type DbPoolOptions = Pick<PoolConfig, "idleTimeoutMillis" | "max">;
+
+// For session-scoped locks that must not pin a pooled connection.
+export function createDedicatedClient(): Client {
+	return new Client({ connectionString: env.DATABASE_URL });
+}
 
 // Create a typed database client around a node-postgres pool.
 export function createDb(options: DbPoolOptions = {}) {

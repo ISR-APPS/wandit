@@ -15,7 +15,12 @@ import { isoDateTimeSchema } from "./shared/primitives";
 // call and the server-side scope check can never drift apart.
 export const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
+// Shared by the Trigger cron pattern and the UI copy.
+export const LEAD_SHEET_AUTO_SYNC_INTERVAL_MINUTES = 30;
+
 export const leadSheetSchema = z.object({
+	// One release cycle of tolerance for clients built ahead of the server.
+	autoSyncEnabled: z.boolean().default(false),
 	lastSyncedAt: isoDateTimeSchema.nullable(),
 	spreadsheetUrl: z.url(),
 	syncedLeadCount: z.int().min(0),
@@ -25,7 +30,8 @@ export type LeadSheet = z.infer<typeof leadSheetSchema>;
 
 // connected = the user's Google account currently holds the drive.file scope
 // AND the server can mint an access token for it (refresh token present or
-// access token still fresh). sheet is null until the first sync creates it.
+// access token still fresh). sheet is null until the first sync creates it;
+// sheet.autoSyncEnabled means the row remembers which Google account owns it.
 export const leadSheetSyncStateSchema = z.object({
 	connected: z.boolean(),
 	sheet: leadSheetSchema.nullable(),
