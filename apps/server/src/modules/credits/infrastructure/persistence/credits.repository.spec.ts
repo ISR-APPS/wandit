@@ -73,6 +73,46 @@ function render(query: unknown) {
 	return { params: rendered.params, statement: normalizeSql(rendered.sql) };
 }
 
+describe("CreditsRepository.netConsumedCentiCredits", () => {
+	it("counts personal consumes net of metering refunds in one query", async () => {
+		const repository = new CreditsRepository(db as Database);
+		const { client, executed } = fakeClient({ total: "2500" });
+
+		await expect(
+			repository.netConsumedCentiCredits("user-1", client),
+		).resolves.toBe(2500);
+		expect(executed).toHaveLength(1);
+
+		const { params, statement } = render(executed[0]);
+
+		expect(statement).toContain(
+			'select coalesce(-sum("credit_ledger"."delta"), 0)::int as total',
+		);
+		expect(statement).toContain('"credit_ledger"."user_id" = $1');
+		expect(statement).toContain('"credit_ledger"."organization_id" is null');
+		expect(statement).toContain('"credit_ledger"."kind" = \'consume\'');
+		expect(statement).toContain(
+			'"credit_ledger"."idempotency_key" like \'settle-refund:%\'',
+		);
+		expect(statement).toContain(
+			'"credit_ledger"."idempotency_key" like \'reconcile-refund:%\'',
+		);
+		expect(statement).toContain(
+			'"credit_ledger"."idempotency_key" like \'refund:%\'',
+		);
+		expect(params).toEqual(["user-1"]);
+	});
+
+	it("returns zero for an empty personal ledger", async () => {
+		const repository = new CreditsRepository(db as Database);
+		const { client } = fakeClient({ total: null });
+
+		await expect(
+			repository.netConsumedCentiCredits("user-1", client),
+		).resolves.toBe(0);
+	});
+});
+
 describe("CreditsRepository.getSettledBalanceSnapshot", () => {
 	it("adds each bucket's open hold back from ONE statement", async () => {
 		const repository = new CreditsRepository(db as Database);

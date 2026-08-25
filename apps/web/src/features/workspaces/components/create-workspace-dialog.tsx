@@ -29,13 +29,9 @@ import {
 } from "@wandit/ui/components/select";
 import { useMemo, useState } from "react";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { useSession } from "@/features/auth/lib/session";
 import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import {
-	emitUpgradeClicked,
-	getProductEventSessionState,
-} from "@/features/product-events";
+import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
 import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
@@ -65,11 +61,6 @@ export function CreateWorkspaceDialog({
 	const { switchWorkspace } = useWorkspace();
 	const plansQuery = useBillingPlansQuery();
 	const checkout = useCreateBillingCheckout();
-	const { data: session, isPending: isSessionPending } = useSession();
-	const sessionState = getProductEventSessionState(
-		isSessionPending,
-		session?.user.id,
-	);
 
 	const [name, setName] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -131,14 +122,13 @@ export function CreateWorkspaceDialog({
 			}
 
 			try {
-				emitUpgradeClicked("create_workspace", sessionState);
-				await checkout.mutateAsync({
+				const { url } = await checkout.mutateAsync({
 					plan: "business",
 					tierCredits: (selectedTier?.tierCredits ??
 						200) as CreateBillingCheckoutBody["tierCredits"],
 					interval,
 				});
-				// Success navigates to Stripe; no further UI state needed.
+				await completeCardCheckoutStart(url, "create_workspace");
 			} catch {
 				// The workspace exists — only payment failed to start. Distinct
 				// copy so the user retries checkout instead of re-creating.

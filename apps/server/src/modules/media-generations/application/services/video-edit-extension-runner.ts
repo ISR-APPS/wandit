@@ -138,6 +138,7 @@ export type VideoWorkflowRunnerDependencies = {
 		attempt: VideoWorkflowAttempt,
 		video: VideoWorkflowVideo,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredVideo: (
@@ -370,6 +371,7 @@ async function continueAttempt(
 		active,
 		executed.video,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 	if (!persisted) {
 		const current = await dependencies.loadAttempt(active.id);
@@ -406,6 +408,7 @@ async function recoverFinal(
 		attempt,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 	if (!persisted) {
 		const current = await dependencies.loadAttempt(attempt.id);

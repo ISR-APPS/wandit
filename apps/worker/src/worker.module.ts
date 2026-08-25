@@ -9,6 +9,8 @@ import { ConfigModule } from "@nestjs/config";
 import { createProviderMeteringGateway } from "../../server/src/modules/ai-provider/infrastructure/metering-provider-gateway";
 import { CreditsService } from "../../server/src/modules/credits/application/services/credits.service";
 import { CreditsRepository } from "../../server/src/modules/credits/infrastructure/persistence/credits.repository";
+import { LifecycleEventsService } from "../../server/src/modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../../server/src/modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { MeteringService } from "../../server/src/modules/metering/application/services/metering.service";
 import { ModelPricingService } from "../../server/src/modules/metering/application/services/model-pricing.service";
 import { METERING_GATEWAY } from "../../server/src/modules/metering/domain/metering";
@@ -43,6 +45,8 @@ import { PublishProcessor } from "./processors/publish.processor";
 		CreditsRepository,
 		CreditsService,
 		LeadProcessingProcessor,
+		LifecycleEventsRepository,
+		LifecycleEventsService,
 		MediaGenerationProcessor,
 		MeteringRepository,
 		MeteringService,

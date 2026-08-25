@@ -32,6 +32,12 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 }));
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
+const ORG_SCOPE: ProjectScope = {
+	actorIsLimitExempt: false,
+	kind: "org",
+	organizationId: "org_1",
+	userId: "acting_member_1",
+};
 
 const BASE_ROW: MediaGenerationAttemptRow = {
 	actualDurationMs: null,
@@ -396,7 +402,7 @@ describe("MediaGenerationsService", () => {
 		);
 	});
 
-	it("recovers a stored video before expiring a stale generation", async () => {
+	it("recovers an org video for the polling actor before expiring it", async () => {
 		const { meteringService, repository, service } = setup();
 		const staleRow = {
 			...BASE_ROW,
@@ -417,7 +423,9 @@ describe("MediaGenerationsService", () => {
 		repository.markGeneratingAttemptSucceeded.mockResolvedValue(true);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+		await expect(
+			service.attempt(ORG_SCOPE, BASE_ROW.id),
+		).resolves.toMatchObject({
 			status: "succeeded",
 			videoMediaType: "video/mp4",
 		});
@@ -425,11 +433,14 @@ describe("MediaGenerationsService", () => {
 			BASE_ROW.id,
 			expect.stringContaining("vid-1.mp4"),
 			"video/mp4",
-			"user_1",
 		);
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			`video:${BASE_ROW.id}`,
-			{ actorUserId: "user_1" },
+			{
+				actorIsLimitExempt: false,
+				actorUserId: "acting_member_1",
+				organizationId: "org_1",
+			},
 		);
 		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_1",

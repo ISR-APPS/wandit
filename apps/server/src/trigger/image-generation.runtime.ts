@@ -21,6 +21,8 @@ import type {
 import { generateStandaloneImage } from "../modules/image-generations/application/services/image-generator";
 import { createStoredImagesRecovery } from "../modules/image-generations/application/services/stored-images-recovery";
 import { ImageGenerationsRepository } from "../modules/image-generations/infrastructure/persistence/image-generations.repository";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { PageEditsService } from "../modules/pages/application/services/page-edits.service";
 import { PagesRepository } from "../modules/pages/infrastructure/persistence/pages.repository";
 import { createTriggerMetering } from "./metering.runtime";
@@ -62,7 +64,10 @@ export function createImageGenerationRuntime(
 	analytics: AnalyticsCapture,
 ): ImageGenerationRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db, analytics);
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+	const persistence = createPersistence(db, analytics, lifecycleEvents);
 	const deferredWork: Array<() => Promise<void>> = [];
 	const pagesRepository = new PagesRepository(db, analytics);
 	const pageEditsService = new PageEditsService(pagesRepository);
@@ -147,7 +152,11 @@ function createBilling(db: TriggerDatabase): ImageGenerationBilling {
 	});
 }
 
-function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+function createPersistence(
+	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
+	lifecycleEvents: LifecycleEventsService,
+) {
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageGenerationAttemptState | null> => {
@@ -163,12 +172,16 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 
 	const claimQueued = async (
 		attempt: ImageGenerationAttemptState,
-		input: { runId: string; startedAt: Date },
+		input: { actorUserId: string; runId: string; startedAt: Date },
 	): Promise<ImageGenerationAttemptState | null> => {
 		const [claimed] = await db
 			.update(imageGenerationAttempts)
 			.set({
 				error: null,
+				spec: sql`coalesce(
+					${imageGenerationAttempts.spec},
+					'{}'::jsonb
+				) || jsonb_build_object('actorUserId', ${input.actorUserId})`,
 				startedAt: input.startedAt,
 				status: "generating",
 				triggerRunId: input.runId,
@@ -189,42 +202,60 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		attempt: ImageGenerationAttemptState,
 		images: GeneratedImageResult[],
 		completedAt: Date,
+		actorUserId: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(imageGenerationAttempts)
-			.set({
-				completedAt,
-				error: null,
-				images,
-				status: "succeeded",
-			})
-			.where(
-				and(
-					eq(imageGenerationAttempts.id, attempt.id),
-					eq(imageGenerationAttempts.projectId, attempt.projectId),
-					eq(imageGenerationAttempts.status, "generating"),
-					sql`exists (
-						select 1
-						from ${projects}
-						where ${projects.id} = ${imageGenerationAttempts.projectId}
-							and ${projects.userId} = ${attempt.userId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: imageGenerationAttempts.id });
+		const updated = await db.transaction(async (tx) => {
+			const [completed] = await tx
+				.update(imageGenerationAttempts)
+				.set({
+					completedAt,
+					error: null,
+					images,
+					status: "succeeded",
+				})
+				.where(
+					and(
+						eq(imageGenerationAttempts.id, attempt.id),
+						eq(imageGenerationAttempts.projectId, attempt.projectId),
+						eq(imageGenerationAttempts.status, "generating"),
+						sql`exists (
+							select 1
+							from ${projects}
+							where ${projects.id} = ${imageGenerationAttempts.projectId}
+								and ${projects.userId} = ${attempt.userId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: imageGenerationAttempts.id });
+
+			if (!completed) {
+				return false;
+			}
+
+			await lifecycleEvents.enqueue(
+				{
+					event: "image_generated",
+					idempotencyKey: `image_generated:${actorUserId}`,
+					userId: actorUserId,
+				},
+				tx,
+			);
+
+			return true;
+		});
 
 		if (updated) {
 			captureGenerationCompleted(
 				analytics,
-				attempt.userId,
+				actorUserId,
 				"image",
 				attempt.projectId,
 				attempt.id,
 			);
 		}
 
-		return Boolean(updated);
+		return updated;
 	};
 
 	const failFromStatus = async (

@@ -106,6 +106,14 @@ export class CreditsService {
 		return this.creditsRepository.getBalance(owner);
 	}
 
+	/** Net lifetime consumption for a personal owner, in centi-credits. */
+	netConsumedCentiCredits(
+		userId: string,
+		transaction?: CreditsTransaction,
+	): Promise<number> {
+		return this.creditsRepository.netConsumedCentiCredits(userId, transaction);
+	}
+
 	/**
 	 * Balance plus the reserved add-back, all integer centi-credits. While a
 	 * usage event stays reserved its ledger dip equals its reserved_credits, so
@@ -942,31 +950,36 @@ export class CreditsService {
 		owner: CreditOwner,
 		amount: number,
 		options: CreditWriteOptions = {},
+		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withOwnerLock(owner, async (tx) => {
-			const row = await this.creditsRepository.insertLedgerEntry(
-				{
-					bucket: "topup",
-					delta: amount,
-					idempotencyKey: options.idempotencyKey,
-					kind: "topup",
-					meta: this.withTopupFingerprint(options.meta, owner, amount),
-					...ownerColumns(owner),
-				},
-				tx,
-			);
+		return this.creditsRepository.withOwnerLock(
+			owner,
+			async (tx) => {
+				const row = await this.creditsRepository.insertLedgerEntry(
+					{
+						bucket: "topup",
+						delta: amount,
+						idempotencyKey: options.idempotencyKey,
+						kind: "topup",
+						meta: this.withTopupFingerprint(options.meta, owner, amount),
+						...ownerColumns(owner),
+					},
+					tx,
+				);
 
-			// The insert returns the WINNING row after ON CONFLICT: a replayed key
-			// with a different amount or owner must conflict loudly, never silently
-			// hand back the old row as if this request had been applied.
-			if (options.idempotencyKey) {
-				this.assertTopupReplayMatches(row, owner, amount);
-			}
+				// The insert returns the WINNING row after ON CONFLICT: a replayed key
+				// with a different amount or owner must conflict loudly, never silently
+				// hand back the old row as if this request had been applied.
+				if (options.idempotencyKey) {
+					this.assertTopupReplayMatches(row, owner, amount);
+				}
 
-			return row;
-		});
+				return row;
+			},
+			transaction,
+		);
 	}
 
 	async expirePlanRemainder(

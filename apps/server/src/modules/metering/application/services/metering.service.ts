@@ -11,6 +11,7 @@ import {
 	subjectPayer,
 } from "../../../credits/domain/credit-owner";
 import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
 import { isRefundedFailureStepUsage } from "../../domain/gateway-metering";
 import {
@@ -164,6 +165,8 @@ export class MeteringService {
 		private readonly gateway: MeteringGateway,
 		@Inject(OrganizationLimitsRepository)
 		private readonly organizationLimits: OrganizationLimitsRepository,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async findByIdempotencyKey(
@@ -1967,6 +1970,8 @@ export class MeteringService {
 						`AI usage event ${event.id} lost its completion evidence transition`,
 					);
 				}
+
+				await this.enqueueCreditThresholds(event, transaction);
 			}
 		}
 
@@ -2287,12 +2292,36 @@ export class MeteringService {
 			);
 		}
 
+		if (phase === "settle" || delta > 0) {
+			await this.enqueueCreditThresholds(event, transaction);
+		}
+
 		return {
 			actorIsLimitExempt,
 			finalCredits: targetCredits,
 			memberLimitBreach,
 			sanityCeiling,
 		};
+	}
+
+	private async enqueueCreditThresholds(
+		event: AiUsageEvent,
+		transaction: MeteringTransaction,
+	): Promise<void> {
+		if (event.organizationId !== null) {
+			return;
+		}
+
+		const netConsumedCentiCredits = await this.credits.netConsumedCentiCredits(
+			event.userId,
+			transaction,
+		);
+
+		await this.lifecycleEvents.enqueueCreditThresholds(
+			event.userId,
+			netConsumedCentiCredits,
+			transaction,
+		);
 	}
 
 	/**

@@ -17,10 +17,6 @@ import {
 import { useAuthModal, useSession } from "@/features/auth";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import {
-	emitUpgradeClicked,
-	getProductEventSessionState,
-} from "@/features/product-events";
-import {
 	WorkspaceBillingNoticeDialog,
 	type WorkspaceBillingNoticeKind,
 } from "@/features/workspaces/components/workspace-billing-notice-dialog";
@@ -52,17 +48,14 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
-	const { data: session, isPending: isSessionPending } = useSession();
+	const { data: session } = useSession();
 	const sessionUserId = session?.user.id;
-	const sessionState = getProductEventSessionState(
-		isSessionPending,
-		sessionUserId,
-	);
 	const { open: openAuth } = useAuthModal();
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const [open, setOpen] = useState(false);
 	const [intent, setIntent] = useState<UpgradeModalIntent | null>(null);
 	const [selection, setSelection] = useState<PlanPickerSelection | null>(null);
+	const [surface, setSurface] = useState<ProductEventSurface>("plan_picker");
 	const [notice, setNotice] = useState<{
 		kind: WorkspaceBillingNoticeKind;
 		limitCredits?: number;
@@ -91,15 +84,14 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 
 				setIntent(nextIntent);
 				setSelection(null);
+				setSurface("plan_picker");
 				setOpen(true);
 			}),
 		[actorCanManageBilling, isPersonal, queryClient],
 	);
 
 	const openPlanPicker = useCallback(
-		(surface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
-			emitUpgradeClicked(surface, sessionState);
-
+		(nextSurface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
 			if (!sessionUserId) {
 				openAuth({ next: "/billing" });
 				return;
@@ -107,9 +99,10 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 
 			setIntent(null);
 			setSelection(nextSelection ?? null);
+			setSurface(nextSurface);
 			setOpen(true);
 		},
-		[openAuth, sessionState, sessionUserId],
+		[openAuth, sessionUserId],
 	);
 
 	const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -131,6 +124,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 				initialPaymentMethod={selection?.paymentMethod}
 				open={open}
 				onOpenChange={handleOpenChange}
+				surface={surface}
 				requiredCredits={intent?.requiredCredits}
 				availableCredits={intent?.availableCredits}
 			/>
