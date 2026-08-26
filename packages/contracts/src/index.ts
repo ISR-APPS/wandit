@@ -19,6 +19,8 @@ export * from "./v1/admin";
 export * from "./v1/admin-analytics";
 // Admin monthly-cost contracts.
 export * from "./v1/admin-costs";
+// Admin feedback contracts.
+export * from "./v1/admin-feedback";
 // Affiliate capture and admin contracts.
 export * from "./v1/affiliates";
 // AI SDK chat tool and stream contracts.

@@ -36,9 +36,10 @@ import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 // the AdminGuard: non-staff sessions get 404; staff permissions are enforced
 // per docs/api-security.md.
 
-function optionalCsvEnum<const Values extends readonly [string, ...string[]]>(
-	values: Values,
-) {
+// Other admin contract files reuse this CSV enum parser.
+export function optionalCsvEnum<
+	const Values extends readonly [string, ...string[]],
+>(values: Values) {
 	return z
 		.string()
 		.optional()
@@ -1304,6 +1305,9 @@ export type AdminManualBillingStats = z.infer<
 export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
 export const adminRoutes = {
+	feedback: "/api/v1/admin/feedback",
+	feedbackStats: "/api/v1/admin/feedback/stats",
+	feedbackItem: (feedbackId: string) => `/api/v1/admin/feedback/${feedbackId}`,
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
 	userProjects: (userId: string) => `/api/v1/admin/users/${userId}/projects`,

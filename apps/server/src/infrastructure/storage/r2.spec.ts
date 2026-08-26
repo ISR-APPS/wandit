@@ -43,6 +43,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 
 import {
 	downloadObjectToFile,
+	feedbackScreenshotKey,
 	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isUserUploadUrl,
 	isWanditHostedUrl,
@@ -93,6 +94,17 @@ describe("variantKey", () => {
 		// A user file that merely looks numeric must survive the filter.
 		expect(VARIANT_FILENAME_PATTERN.test("uploads/u/i/photo-w960.webp")).toBe(
 			false,
+		);
+	});
+});
+
+describe("feedbackScreenshotKey", () => {
+	it("keeps one admin screenshot beneath its feedback row", () => {
+		expect(feedbackScreenshotKey("feedback-id", "png")).toBe(
+			"feedback/feedback-id/screenshot.png",
+		);
+		expect(feedbackScreenshotKey("feedback-id", "jpg")).toBe(
+			"feedback/feedback-id/screenshot.jpg",
 		);
 	});
 });
