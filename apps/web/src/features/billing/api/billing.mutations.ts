@@ -36,9 +36,6 @@ export function useCreateBillingCheckout() {
 	return useMutation({
 		mutationFn: (body: CreateBillingCheckoutBody) =>
 			createBillingCheckout(body),
-		onSuccess: ({ url }) => {
-			window.location.assign(url);
-		},
 	});
 }
 

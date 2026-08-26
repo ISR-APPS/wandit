@@ -245,6 +245,7 @@
 			"sheets": {
 				"title": "Google Sheets",
 				"lastSync": "آخر مزامنة {time}",
+				"autoSync": "مزامنة تلقائية كل {minutes} دقيقة",
 				"justNow": "الآن",
 				"sync": "مزامنة",
 				"syncing": "جارٍ المزامنة…",

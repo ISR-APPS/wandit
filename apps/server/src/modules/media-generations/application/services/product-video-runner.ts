@@ -110,6 +110,7 @@ export type ProductVideoRunnerDependencies = {
 		attempt: ProductVideoAttempt,
 		video: ProductVideo,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredVideo: (
@@ -405,6 +406,7 @@ async function continueAttempt(
 		claimed,
 		generated,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 	if (!persisted) {
 		const current = await dependencies.loadAttempt(claimed.id);
@@ -476,6 +478,7 @@ async function recoverFinal(
 		attempt,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 	if (!persisted) {
 		const current = await dependencies.loadAttempt(attempt.id);

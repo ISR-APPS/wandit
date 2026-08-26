@@ -55,6 +55,7 @@
 		"syncNow": "Sync now",
 		"open": "Open sheet",
 		"lastSynced": "Last synced {time}",
+		"autoSync": "Syncs automatically every {minutes} min",
 		"syncedToast": {
 			"zero": "{count} leads synced",
 			"one": "1 lead synced",

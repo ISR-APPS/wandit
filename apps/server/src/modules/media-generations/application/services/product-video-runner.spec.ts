@@ -234,6 +234,7 @@ describe("runProductVideo", () => {
 			claimed,
 			expect.objectContaining({ status: "generated" }),
 			NOW,
+			USER_ID,
 		);
 		expect(report).toHaveBeenCalledWith(
 			expect.objectContaining({ stage: "rendering" }),

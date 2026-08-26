@@ -5,6 +5,7 @@ import {
 	siteVideoKey,
 } from "../infrastructure/storage/r2";
 import { productVideo } from "../modules/ai-chat/agent/site-builder/product-video";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import type { ProductVideoAttempt } from "../modules/media-generations/application/services/product-video-runner";
 import { createProductVideoRuntime } from "./product-video.runtime";
 
@@ -45,6 +46,30 @@ const BASE_ATTEMPT: ProductVideoAttempt = {
 	videoUrl: null,
 };
 
+const enqueueLifecycleEvent = vi.spyOn(
+	LifecycleEventsService.prototype,
+	"enqueue",
+);
+
+function successfulUpdateDatabase() {
+	const returning = vi.fn().mockResolvedValue([{ id: BASE_ATTEMPT.id }]);
+	const where = vi.fn(() => ({ returning }));
+	const set = vi.fn(() => ({ where }));
+	const update = vi.fn(() => ({ set }));
+	const transactionClient = { update };
+	const transaction = vi.fn(
+		async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+			callback(transactionClient),
+	);
+
+	return {
+		db: { transaction } as unknown as Parameters<
+			typeof createProductVideoRuntime
+		>[0],
+		transactionClient,
+	};
+}
+
 function runtime() {
 	return createProductVideoRuntime(
 		{} as Parameters<typeof createProductVideoRuntime>[0],
@@ -67,6 +92,7 @@ function runtimeWithLoadedRow(row: Record<string, unknown>) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	enqueueLifecycleEvent.mockResolvedValue(null);
 	vi.mocked(getObjectContentType).mockResolvedValue(null);
 	vi.mocked(productVideo).mockResolvedValue({
 		mediaType: "video/mp4",
@@ -78,6 +104,42 @@ beforeEach(() => {
 });
 
 describe("product-video Trigger runtime", () => {
+	it("persists video_generated for the queue actor in the success transaction", async () => {
+		const { db, transactionClient } = successfulUpdateDatabase();
+		const capture = vi.fn();
+		const triggerRuntime = createProductVideoRuntime(db, { capture });
+
+		await expect(
+			triggerRuntime.runner.markSucceeded(
+				{
+					...BASE_ATTEMPT,
+					organizationId: "org_1",
+					userId: "project_creator_1",
+				},
+				{
+					mediaType: "video/mp4",
+					url: "https://assets.example.com/product-video.mp4",
+				},
+				new Date("2026-08-24T12:00:00.000Z"),
+				"acting_member_1",
+			),
+		).resolves.toBe(true);
+
+		expect(enqueueLifecycleEvent).toHaveBeenCalledExactlyOnceWith(
+			{
+				event: "video_generated",
+				idempotencyKey: "video_generated:acting_member_1",
+				userId: "acting_member_1",
+			},
+			transactionClient,
+		);
+		expect(capture).toHaveBeenCalledWith(
+			"acting_member_1",
+			"generation_completed",
+			expect.any(Object),
+		);
+	});
+
 	it("checks only deterministic final video recovery keys", async () => {
 		await expect(
 			runtime().runner.recoverStoredVideo({
