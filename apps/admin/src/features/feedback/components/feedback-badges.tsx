@@ -1,14 +1,13 @@
 import { BugIcon } from "@phosphor-icons/react/Bug";
 import { ChatCircleTextIcon } from "@phosphor-icons/react/ChatCircleText";
-import { HeartIcon } from "@phosphor-icons/react/Heart";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 
 import { Badge } from "@/components/ui/badge";
+import type { FeedbackCategory } from "@/features/feedback/api/feedback.dto";
 import { titleCaseFeedbackValue } from "@/features/feedback/lib/feedback";
 import type {
 	FeedbackPriority,
 	FeedbackStatus,
-	FeedbackType,
 } from "@/features/feedback/types";
 import { cn } from "@/lib/utils";
 
@@ -25,18 +24,15 @@ const typeConfig = {
 		className:
 			"border-amber-500/15 bg-amber-500/10 text-amber-800 dark:text-amber-300",
 	},
-	experience: {
-		label: "Experience",
+	other: {
+		label: "Other",
 		icon: ChatCircleTextIcon,
 		className: "border-sky-500/15 bg-sky-500/10 text-sky-800 dark:text-sky-300",
 	},
-	praise: {
-		label: "Praise",
-		icon: HeartIcon,
-		className:
-			"border-emerald-500/15 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
-	},
-} as const;
+} as const satisfies Record<
+	FeedbackCategory,
+	{ label: string; icon: typeof BugIcon; className: string }
+>;
 
 const statusClasses: Record<FeedbackStatus, string> = {
 	new: "border-primary/20 bg-primary/8 text-primary",
@@ -55,8 +51,8 @@ const priorityClasses: Record<FeedbackPriority, string> = {
 	low: "border-transparent bg-transparent text-muted-foreground",
 };
 
-function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
-	const config = typeConfig[type];
+function FeedbackTypeBadge({ type }: { type: FeedbackCategory | null }) {
+	const config = typeConfig[type ?? "other"];
 
 	return (
 		<Badge variant="outline" className={cn("font-medium", config.className)}>
