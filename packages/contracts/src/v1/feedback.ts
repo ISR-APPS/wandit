@@ -2,13 +2,13 @@
  * Shared contract for in-app user feedback.
  *
  * The web widget collects a message plus debug context (screenshot, session
- * replay URL, last error id) and posts it here. The server turns the payload
- * into a Linear issue and returns the created issue identifier.
+ * replay URL, last error id) and posts it here. The server stores the feedback,
+ * mirrors it to Linear, and returns the stored row and Linear identifiers.
  */
 // Zod validates runtime JSON and also gives us TypeScript types.
 import { z } from "zod";
 
-import { isoDateTimeSchema } from "./shared/primitives";
+import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // A PNG or JPEG data URL. The cap keeps the JSON body inside the server's
 // 4 MiB route body limit with room for the rest of the payload.
@@ -65,10 +65,13 @@ export const createFeedbackRequestSchema = z.object({
 // TypeScript type created from the schema above.
 export type CreateFeedbackRequest = z.infer<typeof createFeedbackRequestSchema>;
 
-// Response after the server creates the Linear issue.
+// Response after the server stores the feedback and tries the Linear mirror.
 export const createFeedbackResponseSchema = z.object({
-	// Linear issue identifier, for example "ISRECOM-123".
-	issueId: z.string(),
+	// Stored feedback row id.
+	feedbackId: uuidSchema,
+	// Linear identifier. Null when Linear is not configured or the mirror fails.
+	// The feedback row is still stored.
+	issueId: z.string().nullable(),
 });
 
 // TypeScript type created from the schema above.

@@ -3,45 +3,41 @@ import { BugIcon } from "@phosphor-icons/react/Bug";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { TrayIcon } from "@phosphor-icons/react/Tray";
 
-import type { FeedbackItem } from "@/features/feedback/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { FeedbackStats } from "@/features/feedback/api/feedback.dto";
 import { cn } from "@/lib/utils";
 
-function FeedbackSummary({ items }: { items: FeedbackItem[] }) {
-	const needsTriage = items.filter((item) => item.status === "new").length;
-	const openBugs = items.filter(
-		(item) => item.type === "bug" && item.status !== "resolved",
-	).length;
-	const elevated = items.filter(
-		(item) =>
-			item.status !== "resolved" &&
-			(item.priority === "urgent" || item.priority === "high"),
-	).length;
-	const resolved = items.filter((item) => item.status === "resolved").length;
-
+function FeedbackSummary({
+	stats,
+	isLoading,
+}: {
+	stats: FeedbackStats | undefined;
+	isLoading: boolean;
+}) {
 	const metrics = [
 		{
 			label: "Needs triage",
-			value: needsTriage,
+			value: stats?.byStatus.new ?? 0,
 			description: "Unreviewed conversations",
 			icon: TrayIcon,
 			accent: true,
 		},
 		{
 			label: "Open bugs",
-			value: openBugs,
-			description: "Across editor and assets",
+			value: stats?.openBugs ?? 0,
+			description: "Bug reports not yet resolved",
 			icon: BugIcon,
 		},
 		{
 			label: "High priority",
-			value: elevated,
-			description: "Urgent or high signals",
+			value: stats?.highPriorityOpen ?? 0,
+			description: "Urgent or high, still open",
 			icon: BellRingingIcon,
 		},
 		{
-			label: "Resolved this week",
-			value: resolved,
-			description: "Closed in this mock view",
+			label: "Resolved (7 days)",
+			value: stats?.resolvedLast7Days ?? 0,
+			description: "Closed in the last week",
 			icon: CheckCircleIcon,
 		},
 	];
@@ -75,9 +71,13 @@ function FeedbackSummary({ items }: { items: FeedbackItem[] }) {
 							<p className="truncate text-muted-foreground text-xs">
 								{metric.label}
 							</p>
-							<p className="mt-0.5 font-mono font-semibold text-xl tabular-nums tracking-tight">
-								{metric.value}
-							</p>
+							{isLoading ? (
+								<Skeleton className="mt-1 h-6 w-9" />
+							) : (
+								<p className="mt-0.5 font-mono font-semibold text-xl tabular-nums tracking-tight">
+									{metric.value}
+								</p>
+							)}
 							<p className="mt-1 truncate text-muted-foreground text-xs">
 								{metric.description}
 							</p>
