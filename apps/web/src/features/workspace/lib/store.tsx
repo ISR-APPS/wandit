@@ -212,8 +212,11 @@ export function WorkspaceProvider({
 		setChatOpen(nextOpen);
 	}, [chatOpen, persistChatOpen]);
 
+	// Copy-then-sort instead of toSorted(): toSorted needs Chrome 110 / Safari 16
+	// / Firefox 115 and is never polyfilled by the Vite build, so older Android
+	// Chrome crashes the whole workspace route with "toSorted is not a function".
 	const versions = useMemo(
-		() => (versionsQuery.data ?? []).toSorted((a, b) => a.number - b.number),
+		() => [...(versionsQuery.data ?? [])].sort((a, b) => a.number - b.number),
 		[versionsQuery.data],
 	);
 
