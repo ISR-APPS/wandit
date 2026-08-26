@@ -1,6 +1,7 @@
 import {
 	Body,
 	Controller,
+	Delete,
 	Get,
 	Inject,
 	Param,
@@ -16,6 +17,7 @@ import {
 	type AdminUpdateFeedbackInput,
 	adminListFeedbackQuerySchema,
 	adminUpdateFeedbackInputSchema,
+	type DeleteAdminFeedbackResponse,
 	uuidSchema,
 } from "@wandit/contracts";
 
@@ -63,5 +65,14 @@ export class FeedbackAdminController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminFeedbackDetail> {
 		return this.service.update(feedbackId, body, admin.id);
+	}
+
+	@Delete(":feedbackId")
+	@AdminPermission({ feedback: ["manage"] })
+	remove(
+		@Param("feedbackId", new ZodValidationPipe(uuidSchema)) feedbackId: string,
+		@CurrentUser() admin: AuthUser,
+	): Promise<DeleteAdminFeedbackResponse> {
+		return this.service.remove(feedbackId, admin.id);
 	}
 }

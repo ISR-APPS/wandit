@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./cors-origins": "./src/cors-origins.ts",
+		"./cookie-same-site": "./src/cookie-same-site.ts",
 		"./llm-routing": "./src/llm-routing.ts",
 		"./server": "./src/server.ts",
 		"./web": "./src/web.ts",

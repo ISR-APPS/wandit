@@ -4,9 +4,10 @@ import {
 	adminListFeedbackResponseSchema,
 	adminRoutes,
 	adminUpdateFeedbackInputSchema,
+	deleteAdminFeedbackResponseSchema,
 } from "@wandit/contracts";
 
-import { apiGet, apiPatch } from "@/lib/api-client";
+import { apiDelete, apiGet, apiPatch } from "@/lib/api-client";
 
 import type {
 	AdminListFeedbackResponse,
@@ -50,6 +51,14 @@ export async function getFeedbackStats(): Promise<FeedbackStats> {
 	const payload = await apiGet<unknown>(adminRoutes.feedbackStats);
 
 	return adminFeedbackStatsSchema.parse(payload);
+}
+
+export async function deleteFeedback(feedbackId: string) {
+	const payload = await apiDelete<unknown>(
+		adminRoutes.feedbackItem(feedbackId),
+	);
+
+	return deleteAdminFeedbackResponseSchema.parse(payload);
 }
 
 export async function updateFeedback({

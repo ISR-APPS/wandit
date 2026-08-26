@@ -48,7 +48,7 @@ export function formatStoryLinkConversionRate(
 export function sortStoryLinksArchivedLast<T extends SortableStoryLink>(
 	links: readonly T[],
 ): T[] {
-	return links.toSorted((left, right) => {
+	return [...links].sort((left, right) => {
 		const archivedOrder =
 			Number(left.archivedAt !== null) - Number(right.archivedAt !== null);
 		if (archivedOrder !== 0) {

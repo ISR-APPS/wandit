@@ -149,8 +149,12 @@ describe("createImageGenerationRuntime", () => {
 			specExpression as Parameters<PgDialect["sqlToQuery"]>[0],
 		);
 		expect(rendered.sql).toContain("coalesce");
-		expect(rendered.sql).toContain("|| jsonb_build_object('actorUserId'");
-		expect(rendered.params).toContain("acting_member_2");
+		// The cast is load-bearing: Postgres rejects an uncast parameter inside
+		// jsonb_build_object (42P18), which took image generation down in prod.
+		expect(rendered.sql).toContain(
+			"|| jsonb_build_object('actorUserId', $1::text)",
+		);
+		expect(rendered.params).toEqual(["acting_member_2"]);
 	});
 
 	it("atomically records image_generated for the queue actor in an org workspace", async () => {
