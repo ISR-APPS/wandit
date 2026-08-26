@@ -407,6 +407,13 @@
       "when": 1787754221773,
       "tag": "0057_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1787757421258,
+      "tag": "0058_admin-funnel-actor-index",
+      "breakpoints": true
     }
   ]
 }
