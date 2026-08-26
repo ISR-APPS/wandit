@@ -93,7 +93,7 @@ export const imageGenerationAttempts = pgTable(
 		),
 		check(
 			"image_generation_attempts_count_ck",
-			sql`${table.count} between 1 and 4`,
+			sql`${table.count} between 1 and 6`,
 		),
 	],
 );

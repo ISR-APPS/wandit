@@ -20,6 +20,7 @@ import { storeImageVariants } from "../../../../infrastructure/storage/store-ima
 import {
 	editImageFromSources,
 	generateImageFromPrompt,
+	withSingleFrameInstruction,
 } from "../../../image-generations/application/services/image-generator";
 import type {
 	GatewayGenerationFailure,
@@ -99,6 +100,8 @@ export async function generateBuildImage(params: {
 	}
 
 	let metadata: GatewayGenerationMetadata | null = null;
+	// One SHOT LIST line is one frame: never let a shot come back as a collage.
+	const prompt = withSingleFrameInstruction(params.prompt);
 
 	try {
 		let mediaType: string;
@@ -115,7 +118,7 @@ export async function generateBuildImage(params: {
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				aspect: params.aspect,
 				metering: params.metering,
-				prompt: params.prompt,
+				prompt,
 				sourceImageUrls: params.sourceImageUrls,
 			});
 
@@ -132,7 +135,7 @@ export async function generateBuildImage(params: {
 				aspect: params.aspect,
 				metering: params.metering,
 				model: env.AI_IMAGE_MODEL,
-				prompt: params.prompt,
+				prompt,
 				size: SIZE_BY_ASPECT[params.aspect],
 			});
 

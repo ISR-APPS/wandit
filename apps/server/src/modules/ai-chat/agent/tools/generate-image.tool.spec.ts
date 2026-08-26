@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
-import type { GenerateImageInput } from "@wandit/contracts";
+import {
+	type GenerateImageInput,
+	generateImageInputSchema,
+	MAX_IMAGES_PER_GENERATION,
+} from "@wandit/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -217,6 +221,20 @@ describe("generate_image placement", () => {
 
 		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
 		expect(imageGenerationsRepository.insertAttempt).toHaveBeenCalledOnce();
+	});
+
+	it("accepts up to six separate images per call and no more", () => {
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		expect(MAX_IMAGES_PER_GENERATION).toBe(6);
+		expect(
+			generateImageInputSchema.safeParse({ ...standaloneInput, count: 6 })
+				.success,
+		).toBe(true);
+		expect(
+			generateImageInputSchema.safeParse({ ...standaloneInput, count: 7 })
+				.success,
+		).toBe(false);
 	});
 
 	it("rejects an image index outside the generated count", async () => {
