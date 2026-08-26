@@ -47,6 +47,7 @@ import { AdminSignupGrantsController } from "./presentation/http/controllers/adm
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
+import { CrossSiteWriteGuard } from "./presentation/http/guards/cross-site-write.guard";
 
 const logger = new Logger("AuthModule");
 
@@ -251,6 +252,14 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		SignupGrantsService,
 		TriggerSignupGrantDispatcherService,
 		UserActivityService,
+		CrossSiteWriteGuard,
+		// ORDERING: global guards run in registration order. The CSRF check
+		// goes first so a forged cross-site write is refused before any
+		// session lookup, and before the workspace guard that follows AuthGuard.
+		{
+			provide: APP_GUARD,
+			useExisting: CrossSiteWriteGuard,
+		},
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,
