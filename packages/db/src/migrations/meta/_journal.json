@@ -379,6 +379,13 @@
       "when": 1787526353698,
       "tag": "0053_ai-usage-attempt-ref-index",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1787672070925,
+      "tag": "0054_admin-analytics-indexes-2",
+      "breakpoints": true
     }
   ]
 }
