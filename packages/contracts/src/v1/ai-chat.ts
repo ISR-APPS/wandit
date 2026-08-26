@@ -830,7 +830,7 @@ export type GenerateImagePlacement = z.infer<
 >;
 
 /**
- * generate_image — queues one image generation (1-4 images). Can start from
+ * generate_image — queues one image generation (1-6 separate images). Can start from
  * text alone or EDIT user-uploaded source images (product photo, logo) so
  * outputs stay faithful to the real product. A bounded optional placement
  * replaces one existing page image when generation finishes. Distinct from

@@ -1,4 +1,7 @@
-import type { ImageGenerationAspect } from "@wandit/contracts";
+import {
+	type ImageGenerationAspect,
+	MAX_IMAGES_PER_GENERATION,
+} from "@wandit/contracts";
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 import { Sentry } from "@wandit/observability/node";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -23,11 +26,13 @@ export const USER_SAFE_IMAGE_GENERATION_ERROR =
 export const IMAGE_GENERATION_CONCURRENCY = 2;
 
 // One image call is much faster than a video, but an attempt can hold up to
-// four calls across multiple waves; the stale window stays conservative.
+// MAX_IMAGES_PER_GENERATION calls across multiple waves; the stale window
+// stays conservative and assumes every call ran alone at the timeout.
 export const IMAGE_GENERATION_PROVIDER_TIMEOUT_MS = 2 * 60_000;
 export const IMAGE_GENERATION_RECOVERY_GRACE_MS = 2 * 60_000;
 export const IMAGE_GENERATION_STALE_GENERATING_MS =
-	4 * IMAGE_GENERATION_PROVIDER_TIMEOUT_MS + IMAGE_GENERATION_RECOVERY_GRACE_MS;
+	MAX_IMAGES_PER_GENERATION * IMAGE_GENERATION_PROVIDER_TIMEOUT_MS +
+	IMAGE_GENERATION_RECOVERY_GRACE_MS;
 
 const UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

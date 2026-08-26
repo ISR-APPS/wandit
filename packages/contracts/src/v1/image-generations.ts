@@ -25,7 +25,9 @@ export const imageGenerationAspectSchema = z.enum(IMAGE_GENERATION_ASPECTS);
 export type ImageGenerationAspect = z.infer<typeof imageGenerationAspectSchema>;
 
 // Hard cap per attempt — image calls are the most expensive quick action.
-export const MAX_IMAGES_PER_GENERATION = 4;
+// Every image is its own provider call and its own file; the chat agent asks
+// the user how many when a "shoot" is requested without a number.
+export const MAX_IMAGES_PER_GENERATION = 6;
 
 /**
  * Source photos one generation edits. The edit model (Gemini 3 Pro Image)

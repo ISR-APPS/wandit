@@ -501,9 +501,10 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					layout: "grid",
 				},
 				{
-					// Server cap: MAX_IMAGES_PER_GENERATION = 4 (contracts).
+					// Server cap: MAX_IMAGES_PER_GENERATION = 6 (contracts); every image is
+					// generated separately, never as a grid inside one picture.
 					id: "count",
-					choices: [{ id: "1" }, { id: "2" }, { id: "4" }],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "6" }],
 				},
 			],
 		},
