@@ -12,7 +12,11 @@ import { isEnabled, type WanditSentryOptions } from "./internal/shared";
  * `defaultIntegrations: false`: Trigger runs its own OpenTelemetry runtime
  * for the run dashboard — letting Sentry patch modules on top of it would
  * double-instrument. Sentry here is errors-only by design; the run trace
- * stays in the Trigger dashboard.
+ * stays in the Trigger dashboard. Two pure event processors are added back
+ * because dropping the defaults also dropped them: linkedErrors walks
+ * `error.cause` (a DrizzleQueryError only says "Failed query: …" — the
+ * Postgres message is the cause) and extraErrorData keeps driver fields such
+ * as the SQLSTATE `code`. Neither patches modules or touches OTel.
  *
  * `tasks.onFailure` fires once per run after retries are exhausted, so Sentry
  * gets one event per genuinely failed run, tagged with run/task ids to jump
@@ -24,6 +28,10 @@ export function initTriggerSentry(options: WanditSentryOptions): void {
 	}
 	Sentry.init({
 		defaultIntegrations: false,
+		integrations: [
+			Sentry.linkedErrorsIntegration(),
+			Sentry.extraErrorDataIntegration({ depth: 3 }),
+		],
 		// defaultIntegrations alone does NOT stop @sentry/node from installing
 		// its own OTel provider/context manager — which would fight the OTel
 		// runtime Trigger.dev owns. This does.

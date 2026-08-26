@@ -108,9 +108,11 @@ describe("lead sheet auto-sync task", () => {
 			failures: [{ message: "Google unavailable", projectId: "project-1" }],
 		});
 
-		await expect(task.run({}, context)).rejects.toThrow(
-			"Lead sheet auto-sync left 1 project(s) unsynced and 0 token mint(s) failed across 0 user(s)",
-		);
+		await expect(task.run({}, context)).rejects.toMatchObject({
+			cause: new Error("project-1: Google unavailable"),
+			message:
+				"Lead sheet auto-sync left 1 project(s) unsynced and 0 token mint(s) failed across 0 user(s)",
+		});
 		expect(mocks.warn).toHaveBeenCalledWith(
 			"Lead sheet auto-sync project failed",
 			{
