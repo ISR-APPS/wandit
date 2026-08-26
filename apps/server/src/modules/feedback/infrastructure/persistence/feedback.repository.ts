@@ -129,6 +129,15 @@ export class FeedbackRepository {
 			.where(eq(feedback.id, id));
 	}
 
+	async delete(id: string): Promise<boolean> {
+		const rows = await this.db
+			.delete(feedback)
+			.where(eq(feedback.id, id))
+			.returning({ id: feedback.id });
+
+		return rows.length > 0;
+	}
+
 	async adminList(
 		query: AdminListFeedbackQuery,
 	): Promise<PaginatedResult<AdminFeedbackRow>> {

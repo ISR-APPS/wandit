@@ -56,6 +56,7 @@ const adminControllers = [
 const SUPPORT_ALLOWED_WRITE_HANDLERS = new Set([
 	"AdminUsersController.setBanned",
 	// Support holds feedback:manage by design (see the permission matrix spec).
+	"FeedbackAdminController.remove",
 	"FeedbackAdminController.update",
 ]);
 

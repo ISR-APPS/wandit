@@ -1,6 +1,7 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, RequestMethod } from "@nestjs/common";
 import {
 	GUARDS_METADATA,
+	METHOD_METADATA,
 	PATH_METADATA,
 	ROUTE_ARGS_METADATA,
 } from "@nestjs/common/constants";
@@ -23,12 +24,13 @@ import { FeedbackAdminController } from "./feedback-admin.controller";
 
 const FEEDBACK_ID = "11111111-1111-4111-8111-111111111111";
 
-type ValidatedMethod = "detail" | "list" | "update";
+type ValidatedMethod = "detail" | "list" | "remove" | "update";
 
 function setup() {
 	const service = {
 		get: vi.fn(),
 		list: vi.fn(),
+		remove: vi.fn(),
 		stats: vi.fn(),
 		update: vi.fn(),
 	};
@@ -86,6 +88,18 @@ describe("FeedbackAdminController", () => {
 		).toEqual({ feedback: ["manage"] });
 	});
 
+	it("exposes feedback deletion with the manage permission", () => {
+		const handler = FeedbackAdminController.prototype.remove;
+
+		expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+			RequestMethod.DELETE,
+		);
+		expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(":feedbackId");
+		expect(Reflect.getMetadata(ADMIN_PERMISSION_KEY, handler)).toEqual({
+			feedback: ["manage"],
+		});
+	});
+
 	it("declares the static stats route before the feedback id route", () => {
 		expect(Reflect.getMetadata(PATH_METADATA, FeedbackAdminController)).toBe(
 			"v1/admin/feedback",
@@ -107,7 +121,7 @@ describe("FeedbackAdminController", () => {
 		);
 	});
 
-	it("delegates list, stats, detail, and update with the acting admin", async () => {
+	it("delegates list, stats, detail, update, and delete with the acting admin", async () => {
 		const { controller, service } = setup();
 		const query = {
 			page: 2,
@@ -125,11 +139,13 @@ describe("FeedbackAdminController", () => {
 		await controller.stats();
 		await controller.detail(FEEDBACK_ID);
 		await controller.update(FEEDBACK_ID, patch, admin);
+		await controller.remove(FEEDBACK_ID, admin);
 
 		expect(service.list).toHaveBeenCalledWith(query);
 		expect(service.stats).toHaveBeenCalledOnce();
 		expect(service.get).toHaveBeenCalledWith(FEEDBACK_ID);
 		expect(service.update).toHaveBeenCalledWith(FEEDBACK_ID, patch, "admin-1");
+		expect(service.remove).toHaveBeenCalledWith(FEEDBACK_ID, "admin-1");
 	});
 
 	it("validates every query, id, and update body parameter", () => {
@@ -143,7 +159,7 @@ describe("FeedbackAdminController", () => {
 			routePipe("list", 0).transform({ page: "0" }, { type: "query" }),
 		).toThrow(BadRequestException);
 
-		for (const method of ["detail", "update"] as const) {
+		for (const method of ["detail", "remove", "update"] as const) {
 			expect(
 				routePipe(method, 0).transform(FEEDBACK_ID, {
 					type: "param",
