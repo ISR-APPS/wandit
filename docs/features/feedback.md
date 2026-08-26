@@ -38,6 +38,7 @@ in the admin panel at `/feedback`. The admin page reads real rows, not mock data
   - `GET /api/v1/admin/feedback/stats` (counts for the summary cards and status chips).
   - `GET /api/v1/admin/feedback/:feedbackId` (detail with the activity trail).
   - `PATCH /api/v1/admin/feedback/:feedbackId` (`status`, `priority`, `adminNote`).
+  - `DELETE /api/v1/admin/feedback/:feedbackId`.
 - Admin section `/feedback` (`apps/admin/src/features/feedback/**`): inbox list,
   detail panel, summary cards, filters, search, sort, CSV export, and the workflow
   controls.
@@ -63,10 +64,10 @@ in the admin panel at `/feedback`. The admin page reads real rows, not mock data
 ## Permissions
 
 - `feedback: ["read"]` opens the section and the `GET` routes.
-- `feedback: ["manage"]` is necessary for `PATCH`.
+- `feedback: ["manage"]` is necessary for `PATCH` and `DELETE`.
 - The `admin` role and the `support` role have both actions. The route coverage test
-  (`admin-only.decorator.spec.ts`) lists `FeedbackAdminController.update` as a write
-  handler that support can use.
+	(`admin-only.decorator.spec.ts`) lists `FeedbackAdminController.update` and
+	`FeedbackAdminController.remove` as write handlers that support can use.
 
 ## Stats definitions
 
@@ -88,7 +89,7 @@ in the admin panel at `/feedback`. The admin page reads real rows, not mock data
 
 - The Linear label logic and the markdown escaping. These did not change.
 - User-facing feedback status. Users do not see the admin workflow.
-- Deletion of feedback rows. There is no delete endpoint.
+- Linear issue deletion. The feedback delete endpoint leaves the Linear issue unchanged.
 
 ## Acceptance criteria
 
@@ -100,6 +101,9 @@ in the admin panel at `/feedback`. The admin page reads real rows, not mock data
   the row exists. Sentry receives the Linear error.
 - A non-staff session gets 404 from every `/api/v1/admin/feedback*` route.
 - A `PATCH` with no changed field writes nothing and answers the current detail.
+- A `DELETE` for an existing report answers `{ deleted: true }` and removes the report
+  and its activity rows. The server tries to delete the screenshot. An R2 error does not
+  fail the request. The Linear issue remains.
 - The admin page shows no mock data. Filters, search, sort, and pagination run on the
   server.
 
