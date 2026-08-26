@@ -135,6 +135,31 @@ async function bootstrap() {
 			whitelist: true,
 		}),
 	);
+	// Hardening headers for the API host (the web apps get theirs from
+	// vercel.json). HSTS only where TLS terminates for real.
+	const hstsEnabled = new URL(env.BETTER_AUTH_URL).protocol === "https:";
+	adapter.getInstance().addHook("onSend", (_request, reply, payload, done) => {
+		reply.header("X-Content-Type-Options", "nosniff");
+		if (hstsEnabled) {
+			reply.header(
+				"Strict-Transport-Security",
+				"max-age=31536000; includeSubDomains",
+			);
+		}
+		done(null, payload);
+	});
+
+	// `app.init()` is where Nest registers its default body parsers and routes.
+	// Nest adds an application/x-www-form-urlencoded parser that nothing here
+	// needs: every client sends JSON (or multipart for uploads, text/plain for
+	// the lead beacon). The only thing that speaks urlencoded to this API is a
+	// cross-site <form> forging a write, so drop the parser and let Fastify
+	// answer 415 before any handler runs — independent of the Origin guard.
+	await app.init();
+	const fastify = adapter.getInstance();
+	if (fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
+		fastify.removeContentTypeParser("application/x-www-form-urlencoded");
+	}
 
 	// Start listening after all setup is ready.
 	await app.listen({ host: "0.0.0.0", port: env.PORT });

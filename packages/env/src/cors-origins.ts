@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const httpOriginSchema = z
+export const httpOriginSchema = z
 	.url()
 	.superRefine((value, context) => {
 		const parsed = new URL(value);
@@ -54,4 +54,17 @@ export function allowedCorsWebOrigin(
 		corsWebOrigins(canonicalOrigin, extraOrigins).includes(origin)
 		? origin
 		: undefined;
+}
+
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The Expo web / Metro dev origin, trusted only while the API itself runs on
+ * localhost. Better Auth's trustedOrigins and the API's cross-site write
+ * guard both use this, so the two lists never drift apart.
+ */
+export function expoDevOrigins(apiUrl: string): string[] {
+	return LOCAL_HOSTNAMES.has(new URL(apiUrl).hostname)
+		? ["http://localhost:8081"]
+		: [];
 }

@@ -71,16 +71,16 @@ export class AdminGuard implements CanActivate {
 	}
 
 	/**
-	 * CSRF defence for state-changing admin calls.
+	 * CSRF defence for state-changing admin calls — the admin surface's own
+	 * layer behind the global CrossSiteWriteGuard, the SameSite cookie policy
+	 * and the urlencoded-parser removal in main.ts (see
+	 * docs/features/csrf-and-security-headers.md).
 	 *
-	 * Session cookies are SameSite=None in the https deploys (web/admin and API
-	 * sit on different sites), so a browser attaches them to cross-site requests.
-	 * Nest's FastifyAdapter always registers an `application/x-www-form-urlencoded`
-	 * body parser, so a plain auto-submitting HTML form — no preflight, no CORS
-	 * check — would otherwise reach these handlers carrying an admin's cookie.
-	 * Such a form can never send a JSON content type. Requiring both JSON and the
-	 * configured admin Origin also prevents non-browser callers from bypassing
-	 * the surface boundary by omitting Origin entirely.
+	 * Kept on purpose: a plain auto-submitting HTML form can never send a JSON
+	 * content type, and requiring both JSON and the configured admin Origin
+	 * also prevents non-browser callers from bypassing the surface boundary
+	 * by omitting Origin entirely (the global guard lets Origin-less requests
+	 * through for the native app).
 	 */
 	private assertSameSiteWrite(request: MaybeAuthenticatedRequest): void {
 		const contentType = request.headers["content-type"]
