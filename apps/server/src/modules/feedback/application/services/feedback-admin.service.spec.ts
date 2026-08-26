@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { Logger, NotFoundException } from "@nestjs/common";
 import {
 	type AdminListFeedbackQuery,
 	adminFeedbackDetailSchema,
@@ -7,6 +7,11 @@ import {
 } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+	deleteObject,
+	isR2Configured,
+	publicAssetKeyFromUrl,
+} from "../../../../infrastructure/storage/r2";
 import type {
 	AdminFeedbackActivityRow,
 	AdminFeedbackRow,
@@ -16,6 +21,12 @@ import type {
 	FeedbackRepository,
 } from "../../infrastructure/persistence/feedback.repository";
 import { FeedbackAdminService } from "./feedback-admin.service";
+
+vi.mock("../../../../infrastructure/storage/r2", () => ({
+	deleteObject: vi.fn(),
+	isR2Configured: vi.fn(),
+	publicAssetKeyFromUrl: vi.fn(),
+}));
 
 const FEEDBACK_ID = "11111111-1111-4111-8111-111111111111";
 const NOW = new Date("2026-08-25T10:20:30.000Z");
@@ -89,6 +100,15 @@ class FakeFeedbackRepository {
 			}
 		},
 	);
+	readonly delete = vi.fn(async (feedbackId: string) => {
+		if (this.row?.id !== feedbackId) {
+			return false;
+		}
+
+		this.row = null;
+
+		return true;
+	});
 }
 
 function setup(row: AdminFeedbackRow | null = feedbackRow()) {
@@ -105,6 +125,13 @@ describe("FeedbackAdminService", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.setSystemTime(NOW);
+		vi.mocked(deleteObject).mockReset().mockResolvedValue(undefined);
+		vi.mocked(isR2Configured).mockReset().mockReturnValue(true);
+		vi.mocked(publicAssetKeyFromUrl)
+			.mockReset()
+			.mockReturnValue(`feedback/${FEEDBACK_ID}/screenshot.png`);
+		vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+		vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 	});
 
 	afterEach(() => {
@@ -225,8 +252,37 @@ describe("FeedbackAdminService", () => {
 		expect(result.id).toBe(FEEDBACK_ID);
 	});
 
-	it("returns 404 for missing detail and update targets", async () => {
-		const { service } = setup(null);
+	it("deletes feedback before its screenshot and returns the strict success shape", async () => {
+		const screenshotUrl = `https://assets.example.com/feedback/${FEEDBACK_ID}/screenshot.png`;
+		const { repository, service } = setup(feedbackRow({ screenshotUrl }));
+
+		await expect(service.remove(FEEDBACK_ID, "admin_1")).resolves.toEqual({
+			deleted: true,
+		});
+
+		expect(repository.adminFindById).toHaveBeenCalledWith(FEEDBACK_ID);
+		expect(repository.delete).toHaveBeenCalledWith(FEEDBACK_ID);
+		expect(publicAssetKeyFromUrl).toHaveBeenCalledWith(screenshotUrl);
+		expect(isR2Configured).toHaveBeenCalledOnce();
+		expect(deleteObject).toHaveBeenCalledWith(
+			`feedback/${FEEDBACK_ID}/screenshot.png`,
+		);
+		const [databaseDeleteOrder] = repository.delete.mock.invocationCallOrder;
+		const [screenshotDeleteOrder] =
+			vi.mocked(deleteObject).mock.invocationCallOrder;
+
+		if (
+			databaseDeleteOrder === undefined ||
+			screenshotDeleteOrder === undefined
+		) {
+			throw new Error("Expected both delete operations");
+		}
+
+		expect(databaseDeleteOrder).toBeLessThan(screenshotDeleteOrder);
+	});
+
+	it("returns 404 for missing detail, update, and delete targets", async () => {
+		const { repository, service } = setup(null);
 
 		await expect(service.get(FEEDBACK_ID)).rejects.toBeInstanceOf(
 			NotFoundException,
@@ -234,5 +290,56 @@ describe("FeedbackAdminService", () => {
 		await expect(
 			service.update(FEEDBACK_ID, { status: "planned" }, "admin_1"),
 		).rejects.toBeInstanceOf(NotFoundException);
+		await expect(service.remove(FEEDBACK_ID, "admin_1")).rejects.toBeInstanceOf(
+			NotFoundException,
+		);
+		expect(repository.delete).not.toHaveBeenCalled();
+		expect(deleteObject).not.toHaveBeenCalled();
+	});
+
+	it("returns 404 without cleanup or an audit log when deletion loses a race", async () => {
+		const { repository, service } = setup(
+			feedbackRow({
+				screenshotUrl: `https://assets.example.com/feedback/${FEEDBACK_ID}/screenshot.png`,
+			}),
+		);
+		repository.delete.mockResolvedValueOnce(false);
+
+		await expect(service.remove(FEEDBACK_ID, "admin_1")).rejects.toBeInstanceOf(
+			NotFoundException,
+		);
+
+		expect(repository.delete).toHaveBeenCalledWith(FEEDBACK_ID);
+		expect(publicAssetKeyFromUrl).not.toHaveBeenCalled();
+		expect(isR2Configured).not.toHaveBeenCalled();
+		expect(deleteObject).not.toHaveBeenCalled();
+		expect(Logger.prototype.log).not.toHaveBeenCalled();
+	});
+
+	it("keeps deletion successful when screenshot cleanup fails", async () => {
+		const { repository, service } = setup(
+			feedbackRow({
+				screenshotUrl: `https://assets.example.com/feedback/${FEEDBACK_ID}/screenshot.png`,
+			}),
+		);
+		vi.mocked(deleteObject).mockRejectedValueOnce(new Error("R2 unavailable"));
+
+		await expect(service.remove(FEEDBACK_ID, "admin_1")).resolves.toEqual({
+			deleted: true,
+		});
+		expect(repository.row).toBeNull();
+	});
+
+	it("does not call R2 when feedback has no screenshot", async () => {
+		const { repository, service } = setup();
+
+		await expect(service.remove(FEEDBACK_ID, "admin_1")).resolves.toEqual({
+			deleted: true,
+		});
+
+		expect(repository.delete).toHaveBeenCalledWith(FEEDBACK_ID);
+		expect(publicAssetKeyFromUrl).not.toHaveBeenCalled();
+		expect(isR2Configured).not.toHaveBeenCalled();
+		expect(deleteObject).not.toHaveBeenCalled();
 	});
 });

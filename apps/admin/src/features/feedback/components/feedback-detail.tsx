@@ -6,10 +6,21 @@ import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { MonitorIcon } from "@phosphor-icons/react/Monitor";
 import { NotePencilIcon } from "@phosphor-icons/react/NotePencil";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { XIcon } from "@phosphor-icons/react/X";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,9 +63,11 @@ type FeedbackDetailProps = {
 	item: FeedbackDetailItem;
 	domId: string;
 	isSaving: boolean;
+	isDeleting: boolean;
 	onStatusChange: (id: string, status: FeedbackStatus) => void;
 	onPriorityChange: (id: string, priority: FeedbackPriority) => void;
 	onSaveNote: (id: string, note: string) => void;
+	onDelete: (id: string) => void;
 	onClose?: () => void;
 };
 
@@ -62,9 +75,11 @@ function FeedbackDetail({
 	item,
 	domId,
 	isSaving,
+	isDeleting,
 	onStatusChange,
 	onPriorityChange,
 	onSaveNote,
+	onDelete,
 	onClose,
 }: FeedbackDetailProps) {
 	const [note, setNote] = useState(item.adminNote);
@@ -75,7 +90,9 @@ function FeedbackDetail({
 			<FeedbackDetailHeader
 				item={item}
 				isSaving={isSaving}
+				isDeleting={isDeleting}
 				onStatusChange={onStatusChange}
+				onDelete={onDelete}
 				onClose={onClose}
 			/>
 
@@ -107,13 +124,16 @@ function FeedbackDetail({
 function FeedbackDetailHeader({
 	item,
 	isSaving,
+	isDeleting,
 	onStatusChange,
+	onDelete,
 	onClose,
 }: Pick<
 	FeedbackDetailProps,
-	"item" | "isSaving" | "onStatusChange" | "onClose"
+	"item" | "isSaving" | "isDeleting" | "onStatusChange" | "onDelete" | "onClose"
 >) {
 	const canManage = useAdminPermission({ feedback: ["manage"] });
+	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
 	async function copyFeedbackId() {
 		try {
@@ -125,104 +145,152 @@ function FeedbackDetailHeader({
 	}
 
 	return (
-		<header className="border-b px-5 py-5 sm:px-6">
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<div className="flex flex-wrap items-center gap-1.5">
-					<FeedbackTypeBadge type={item.category} />
-					<FeedbackStatusBadge status={item.status} />
-					<FeedbackPriorityBadge priority={item.priority} />
-				</div>
-				<div className="flex flex-wrap items-center justify-end gap-1.5">
-					{item.linear?.url ? (
-						<Button asChild variant="outline" size="sm">
-							<a href={item.linear.url} target="_blank" rel="noreferrer">
-								<ArrowSquareOutIcon aria-hidden="true" />
-								Open in Linear
-							</a>
-						</Button>
-					) : item.linear ? (
-						<span className="px-2 text-muted-foreground text-xs">
-							Linear link unavailable
-						</span>
-					) : (
-						<span className="px-2 text-muted-foreground text-xs">
-							Not mirrored to Linear
-						</span>
-					)}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						aria-label="Copy feedback ID"
-						onClick={() => void copyFeedbackId()}
-					>
-						<CopyIcon aria-hidden="true" />
-					</Button>
-					{canManage ? (
-						<Button
-							type="button"
-							variant={item.status === "resolved" ? "outline" : "default"}
-							size="sm"
-							disabled={isSaving}
-							onClick={() =>
-								onStatusChange(
-									item.id,
-									item.status === "resolved" ? "reviewing" : "resolved",
-								)
-							}
-						>
-							<CheckCircleIcon aria-hidden="true" />
-							{item.status === "resolved" ? "Reopen" : "Resolve"}
-						</Button>
-					) : null}
-					{onClose ? (
+		<>
+			<header className="border-b px-5 py-5 sm:px-6">
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<div className="flex flex-wrap items-center gap-1.5">
+						<FeedbackTypeBadge type={item.category} />
+						<FeedbackStatusBadge status={item.status} />
+						<FeedbackPriorityBadge priority={item.priority} />
+					</div>
+					<div className="flex flex-wrap items-center justify-end gap-1.5">
+						{item.linear?.url ? (
+							<Button asChild variant="outline" size="sm">
+								<a href={item.linear.url} target="_blank" rel="noreferrer">
+									<ArrowSquareOutIcon aria-hidden="true" />
+									Open in Linear
+								</a>
+							</Button>
+						) : item.linear ? (
+							<span className="px-2 text-muted-foreground text-xs">
+								Linear link unavailable
+							</span>
+						) : (
+							<span className="px-2 text-muted-foreground text-xs">
+								Not mirrored to Linear
+							</span>
+						)}
 						<Button
 							type="button"
 							variant="ghost"
 							size="icon-sm"
-							aria-label="Close feedback details"
-							onClick={onClose}
+							aria-label="Copy feedback ID"
+							onClick={() => void copyFeedbackId()}
 						>
-							<XIcon aria-hidden="true" />
+							<CopyIcon aria-hidden="true" />
 						</Button>
+						{canManage ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+								aria-label="Delete feedback"
+								disabled={isSaving || isDeleting}
+								onClick={() => setDeleteDialogOpen(true)}
+							>
+								<TrashIcon aria-hidden="true" />
+							</Button>
+						) : null}
+						{canManage ? (
+							<Button
+								type="button"
+								variant={item.status === "resolved" ? "outline" : "default"}
+								size="sm"
+								disabled={isSaving}
+								onClick={() =>
+									onStatusChange(
+										item.id,
+										item.status === "resolved" ? "reviewing" : "resolved",
+									)
+								}
+							>
+								<CheckCircleIcon aria-hidden="true" />
+								{item.status === "resolved" ? "Reopen" : "Resolve"}
+							</Button>
+						) : null}
+						{onClose ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Close feedback details"
+								onClick={onClose}
+							>
+								<XIcon aria-hidden="true" />
+							</Button>
+						) : null}
+					</div>
+				</div>
+
+				<p className="mt-5 text-muted-foreground text-xs">
+					<span className="font-mono">{item.id}</span> ·{" "}
+					{formatFeedbackDateTime(item.createdAt)}
+				</p>
+				<h2 className="mt-2 max-w-[32ch] font-semibold text-xl leading-snug tracking-tight sm:text-2xl">
+					{item.title}
+				</h2>
+
+				<div className="mt-4 flex items-center gap-3">
+					<Avatar className="size-9 border">
+						<AvatarImage src={item.reporter.image ?? undefined} alt="" />
+						<AvatarFallback>
+							{getFeedbackInitials(item.reporter.name)}
+						</AvatarFallback>
+					</Avatar>
+					<div className="min-w-0 flex-1">
+						<p className="truncate font-medium text-sm">{item.reporter.name}</p>
+						<p className="truncate text-muted-foreground text-xs">
+							{item.reporter.email}
+							{item.reporter.memberSince
+								? ` · Member since ${formatFeedbackMemberSince(item.reporter.memberSince)}`
+								: ""}
+						</p>
+					</div>
+					{item.reporter.plan ? (
+						<Badge
+							variant="outline"
+							className="font-normal text-muted-foreground"
+						>
+							{titleCaseFeedbackValue(item.reporter.plan)} plan
+						</Badge>
 					) : null}
 				</div>
-			</div>
+			</header>
 
-			<p className="mt-5 text-muted-foreground text-xs">
-				<span className="font-mono">{item.id}</span> ·{" "}
-				{formatFeedbackDateTime(item.createdAt)}
-			</p>
-			<h2 className="mt-2 max-w-[32ch] font-semibold text-xl leading-snug tracking-tight sm:text-2xl">
-				{item.title}
-			</h2>
-
-			<div className="mt-4 flex items-center gap-3">
-				<Avatar className="size-9 border">
-					<AvatarImage src={item.reporter.image ?? undefined} alt="" />
-					<AvatarFallback>
-						{getFeedbackInitials(item.reporter.name)}
-					</AvatarFallback>
-				</Avatar>
-				<div className="min-w-0 flex-1">
-					<p className="truncate font-medium text-sm">{item.reporter.name}</p>
-					<p className="truncate text-muted-foreground text-xs">
-						{item.reporter.email}
-						{item.reporter.memberSince
-							? ` · Member since ${formatFeedbackMemberSince(item.reporter.memberSince)}`
-							: ""}
-					</p>
-				</div>
-				{item.reporter.plan ? (
-					<Badge
-						variant="outline"
-						className="font-normal text-muted-foreground"
-					>
-						{titleCaseFeedbackValue(item.reporter.plan)} plan
-					</Badge>
-				) : null}
-			</div>
-		</header>
+			<AlertDialog
+				open={canManage && deleteDialogOpen}
+				onOpenChange={(open) => {
+					if (!open && isDeleting) {
+						return;
+					}
+					setDeleteDialogOpen(open);
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete this feedback?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This report, its activity trail, and its screenshot will go away
+							permanently. The Linear issue will stay.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							disabled={isDeleting}
+							onClick={(event) => {
+								event.preventDefault();
+								onDelete(item.id);
+							}}
+						>
+							{isDeleting ? "Deleting…" : "Delete"}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }
 
