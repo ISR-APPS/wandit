@@ -212,6 +212,15 @@ export function userUploadKey(
 	return `uploads/${userId}/${uuid}/${filename}`;
 }
 
+// Admin-panel copy of the in-app feedback screenshot. Each feedback row owns
+// one object, so a retry safely replaces the same key.
+export function feedbackScreenshotKey(
+	feedbackId: string,
+	extension: "png" | "jpg",
+): string {
+	return `feedback/${feedbackId}/screenshot.${extension}`;
+}
+
 // Narrower renditions of an image object live BESIDE it, in the same
 // directory, so every key keeps its segment count:
 // {directory}/{stem}.w{width}.webp

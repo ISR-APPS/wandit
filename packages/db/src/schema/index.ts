@@ -28,6 +28,8 @@ export * from "./credits";
 export * from "./deployments";
 // Domain tables.
 export * from "./domains";
+// In-app feedback and activity tables.
+export * from "./feedback";
 // Standalone image generation attempt tables (chat's generate_image tool).
 export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.

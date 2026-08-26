@@ -9,6 +9,7 @@ import {
 	FEEDBACK_LABEL_COLOR,
 	FEEDBACK_LABEL_NAME,
 } from "../../feedback.constants";
+import { decodeScreenshotDataUrl } from "../screenshot-data-url";
 
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -16,8 +17,6 @@ const SCREENSHOT_FILENAMES = {
 	"image/jpeg": "feedback-screenshot.jpg",
 	"image/png": "feedback-screenshot.png",
 } as const;
-
-type ScreenshotContentType = keyof typeof SCREENSHOT_FILENAMES;
 
 type GraphqlResponse = {
 	data?: unknown;
@@ -40,6 +39,11 @@ export type CreateIssueInput = {
 	labelIds: string[];
 	teamId: string;
 	title: string;
+};
+
+export type CreatedLinearIssue = {
+	identifier: string;
+	url: string | null;
 };
 
 // Linear rejects a new label when the name is already taken, and that check
@@ -212,7 +216,7 @@ export class LinearClient {
 	 */
 	async uploadScreenshot(dataUrl: string): Promise<string | null> {
 		try {
-			const decoded = this.decodeDataUrl(dataUrl);
+			const decoded = decodeScreenshotDataUrl(dataUrl);
 
 			if (!decoded) {
 				return null;
@@ -262,8 +266,8 @@ export class LinearClient {
 		}
 	}
 
-	/** Creates the issue and returns its identifier, for example ISRECOM-123. */
-	async createIssue(input: CreateIssueInput): Promise<string> {
+	/** Creates an issue and returns its identifier and optional Linear URL. */
+	async createIssue(input: CreateIssueInput): Promise<CreatedLinearIssue> {
 		try {
 			return await this.postIssue(input);
 		} catch (error) {
@@ -297,7 +301,9 @@ export class LinearClient {
 		return cached ? await cached.catch(() => null) : null;
 	}
 
-	private async postIssue(input: CreateIssueInput): Promise<string> {
+	private async postIssue(
+		input: CreateIssueInput,
+	): Promise<CreatedLinearIssue> {
 		const payload = await this.request(ISSUE_CREATE_MUTATION, {
 			input: {
 				description: input.description,
@@ -306,17 +312,16 @@ export class LinearClient {
 				title: input.title,
 			},
 		});
-		const identifier = this.stringValue(
-			this.recordValue(
-				this.recordValue(this.recordValue(payload)?.issueCreate)?.issue,
-			)?.identifier,
+		const issue = this.recordValue(
+			this.recordValue(this.recordValue(payload)?.issueCreate)?.issue,
 		);
+		const identifier = this.stringValue(issue?.identifier);
 
 		if (!identifier) {
 			throw new FeedbackProviderError("Linear issue create failed");
 		}
 
-		return identifier;
+		return { identifier, url: this.stringValue(issue?.url) };
 	}
 
 	private async request(
@@ -370,23 +375,6 @@ export class LinearClient {
 		}
 
 		return payload?.data ?? null;
-	}
-
-	private decodeDataUrl(dataUrl: string): {
-		bytes: Buffer;
-		contentType: ScreenshotContentType;
-	} | null {
-		const match = /^data:(image\/(?:png|jpeg));base64,(.+)$/s.exec(dataUrl);
-		const contentType = match?.[1] as ScreenshotContentType | undefined;
-		const base64 = match?.[2];
-
-		if (!contentType || !base64) {
-			return null;
-		}
-
-		const bytes = Buffer.from(base64, "base64");
-
-		return bytes.byteLength > 0 ? { bytes, contentType } : null;
 	}
 
 	private uploadFileValue(payload: unknown): UploadFile | null {

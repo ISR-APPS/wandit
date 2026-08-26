@@ -21,6 +21,7 @@ import {
 } from "../../../../auth/auth.constants";
 import { AdminSignupGrantsController } from "../../../../auth/presentation/http/controllers/admin-signup-grants.controller";
 import { AdminManualBillingController } from "../../../../billing/presentation/http/controllers/admin-manual-billing.controller";
+import { FeedbackAdminController } from "../../../../feedback/presentation/http/controllers/feedback-admin.controller";
 import { AdminSettingsController } from "../../../../settings/presentation/http/controllers/admin-settings.controller";
 import { StoryLinkAdminController } from "../../../../story-links/presentation/http/controllers/story-link-admin.controller";
 import { AdminAnalyticsController } from "../controllers/admin-analytics.controller";
@@ -38,6 +39,7 @@ const adminControllers = [
 	AcademyAdminController,
 	AdminAnalyticsController,
 	AdminCostsController,
+	FeedbackAdminController,
 	AdminManualBillingController,
 	AdminOrganizationsController,
 	AdminProjectsController,
@@ -53,6 +55,8 @@ const adminControllers = [
 
 const SUPPORT_ALLOWED_WRITE_HANDLERS = new Set([
 	"AdminUsersController.setBanned",
+	// Support holds feedback:manage by design (see the permission matrix spec).
+	"FeedbackAdminController.update",
 ]);
 
 describe("AdminOnly", () => {

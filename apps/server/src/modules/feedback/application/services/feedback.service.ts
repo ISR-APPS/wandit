@@ -1,4 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type {
 	CreateFeedbackRequest,
@@ -6,15 +7,17 @@ import type {
 	FeedbackCategory,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 
-import { FeedbackNotConfiguredError } from "../../domain/errors/feedback.errors";
+import { projectIdFromPageUrl } from "../../domain/feedback-page-url";
+import { feedbackTitle } from "../../domain/feedback-title";
 import {
 	FEEDBACK_LABEL_NAME,
 	SENTRY_RECENT_ERROR_MS,
 } from "../../feedback.constants";
 import { LinearClient } from "../../infrastructure/linear/linear.client";
-
-const TITLE_MAX_LENGTH = 70;
+import { FeedbackRepository } from "../../infrastructure/persistence/feedback.repository";
+import { FeedbackScreenshotStore } from "../../infrastructure/storage/feedback-screenshot.store";
 
 // Characters that start markdown syntax. Linear renders the description as
 // markdown, so user text must not be able to inject images, links, or headings.
@@ -78,52 +81,126 @@ function renderUrl(value: string): string {
 
 @Injectable()
 export class FeedbackService {
+	private readonly logger = new Logger(FeedbackService.name);
+
 	constructor(
 		@Inject(LinearClient)
 		private readonly linearClient: LinearClient,
+		@Inject(FeedbackRepository)
+		private readonly repository: FeedbackRepository,
+		@Inject(FeedbackScreenshotStore)
+		private readonly screenshotStore: FeedbackScreenshotStore,
 	) {}
 
 	async create(
 		user: AuthUser,
 		request: CreateFeedbackRequest,
 	): Promise<CreateFeedbackResponse> {
-		const apiKey = env.LINEAR_API_KEY;
-		const teamId = env.LINEAR_FEEDBACK_TEAM_ID;
-
-		// The server boots without Linear, so this route answers honestly
-		// instead of crashing.
-		if (!apiKey || !teamId) {
-			throw new FeedbackNotConfiguredError();
-		}
-
+		const feedbackId = randomUUID();
 		const submittedAt = new Date();
-		const labelId = await this.linearClient.findOrCreateLabel(
-			teamId,
-			FEEDBACK_LABEL_NAME,
-		);
-		const assetUrl = request.screenshot
-			? await this.linearClient.uploadScreenshot(request.screenshot.dataUrl)
-			: null;
-		const issueId = await this.linearClient.createIssue({
-			description: this.buildDescription(user, request, submittedAt, assetUrl),
-			labelIds: [labelId],
-			teamId,
-			title: this.buildTitle(request.message, request.category),
+		const teamId = env.LINEAR_FEEDBACK_TEAM_ID;
+		const linearReady = Boolean(env.LINEAR_API_KEY && teamId);
+		const [screenshotUrl, linearAssetUrl] = await Promise.all([
+			request.screenshot
+				? this.screenshotStore.store(feedbackId, request.screenshot.dataUrl)
+				: null,
+			linearReady && request.screenshot
+				? this.linearClient.uploadScreenshot(request.screenshot.dataUrl)
+				: null,
+		]);
+
+		await this.repository.insert({
+			id: feedbackId,
+			userId: user.id,
+			reporterName: user.name || "Unknown",
+			reporterEmail: user.email,
+			projectId: projectIdFromPageUrl(request.pageUrl),
+			category: request.category ?? null,
+			message: request.message,
+			pageUrl: request.pageUrl,
+			replayUrl: request.replayUrl ?? null,
+			sentryEventId: request.sentryEventId ?? null,
+			sentryEventAt: request.sentryEventAt
+				? new Date(request.sentryEventAt)
+				: null,
+			userAgent: request.context?.userAgent ?? null,
+			viewportWidth: request.context?.viewport?.width ?? null,
+			viewportHeight: request.context?.viewport?.height ?? null,
+			locale: request.context?.locale ?? null,
+			screenshotUrl,
+			createdAt: submittedAt,
+		});
+		await this.repository.insertActivity({
+			feedbackId,
+			kind: "received",
 		});
 
-		return { issueId };
+		const issueId =
+			linearReady && teamId
+				? await this.mirrorToLinear(
+						feedbackId,
+						teamId,
+						user,
+						request,
+						submittedAt,
+						linearAssetUrl,
+					)
+				: null;
+
+		return { feedbackId, issueId };
 	}
 
 	private buildTitle(message: string, category?: FeedbackCategory): string {
-		const oneLine = message.replace(/\s+/g, " ").trim();
-		const title =
-			oneLine.length > TITLE_MAX_LENGTH
-				? `${oneLine.slice(0, TITLE_MAX_LENGTH).trimEnd()}…`
-				: oneLine;
 		// The category comes from a closed zod enum, so it is safe as-is.
 		const prefix = category ? `Feedback (${category})` : "Feedback";
 
-		return `${prefix}: ${title}`;
+		return `${prefix}: ${feedbackTitle(message)}`;
+	}
+
+	private async mirrorToLinear(
+		feedbackId: string,
+		teamId: string,
+		user: AuthUser,
+		request: CreateFeedbackRequest,
+		submittedAt: Date,
+		assetUrl: string | null,
+	): Promise<string | null> {
+		try {
+			const labelId = await this.linearClient.findOrCreateLabel(
+				teamId,
+				FEEDBACK_LABEL_NAME,
+			);
+			const issue = await this.linearClient.createIssue({
+				description: this.buildDescription(
+					user,
+					request,
+					submittedAt,
+					assetUrl,
+					feedbackId,
+				),
+				labelIds: [labelId],
+				teamId,
+				title: this.buildTitle(request.message, request.category),
+			});
+
+			await this.repository.setLinearIssue(feedbackId, {
+				issueId: issue.identifier,
+				url: issue.url,
+			});
+
+			return issue.identifier;
+		} catch (error) {
+			this.logger.error(
+				`Linear mirror failed for feedback ${feedbackId}`,
+				error instanceof Error ? error.message : String(error),
+			);
+			Sentry.captureException(error, {
+				tags: { feature: "feedback" },
+				extra: { feedbackId },
+			});
+
+			return null;
+		}
 	}
 
 	private buildDescription(
@@ -131,6 +208,7 @@ export class FeedbackService {
 		request: CreateFeedbackRequest,
 		submittedAt: Date,
 		assetUrl: string | null,
+		feedbackId: string,
 	): string {
 		const lines: string[] = [];
 
@@ -154,6 +232,7 @@ export class FeedbackService {
 		);
 		lines.push(`**Page URL:** ${renderUrl(request.pageUrl)}`);
 		lines.push(`**Submitted at:** ${submittedAt.toISOString()}`);
+		lines.push(`**Feedback id:** ${codeSpan(feedbackId)}`);
 
 		if (request.replayUrl) {
 			lines.push(`**Session replay:** ${renderUrl(request.replayUrl)}`);

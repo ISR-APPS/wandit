@@ -10,6 +10,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import type { FeedbackStats } from "@/features/feedback/api/feedback.dto";
 import {
 	countFeedbackByStatus,
 	FEEDBACK_SORT_OPTIONS,
@@ -17,7 +18,6 @@ import {
 	FEEDBACK_TYPE_OPTIONS,
 } from "@/features/feedback/lib/feedback";
 import type {
-	FeedbackItem,
 	FeedbackSort,
 	FeedbackStatusFilter,
 	FeedbackTypeFilter,
@@ -25,7 +25,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 type FeedbackToolbarProps = {
-	items: FeedbackItem[];
+	stats: FeedbackStats | undefined;
 	query: string;
 	status: FeedbackStatusFilter;
 	type: FeedbackTypeFilter;
@@ -37,7 +37,7 @@ type FeedbackToolbarProps = {
 };
 
 function FeedbackToolbar({
-	items,
+	stats,
 	query,
 	status,
 	type,
@@ -55,7 +55,7 @@ function FeedbackToolbar({
 						<legend className="sr-only">Filter feedback by status</legend>
 						{FEEDBACK_STATUS_OPTIONS.map((option) => {
 							const isActive = status === option.value;
-							const count = countFeedbackByStatus(items, option.value);
+							const count = countFeedbackByStatus(stats, option.value);
 
 							return (
 								<button
@@ -87,8 +87,9 @@ function FeedbackToolbar({
 						<Input
 							type="search"
 							value={query}
-							aria-label="Search feedback"
-							placeholder="Search reports, people, projects…"
+							maxLength={200}
+							aria-label="Search reports, people, or Linear id"
+							placeholder="Search reports, people, or Linear id…"
 							className="pr-9 pl-9 shadow-none"
 							onChange={(event) => onQueryChange(event.target.value)}
 						/>
