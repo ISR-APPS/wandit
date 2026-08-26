@@ -3,7 +3,8 @@ import { isStaffRole } from "@wandit/contracts";
 import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
-import { corsWebOrigins } from "@wandit/env/cors-origins";
+import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
+import { corsWebOrigins, expoDevOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import {
 	type BetterAuthRateLimitStorage,
@@ -30,6 +31,10 @@ import {
 import { adminAccessControl, adminRoles } from "./admin-permissions";
 import { canonicalizeEmail } from "./email-canonical";
 import { emailMagicLinkUrl } from "./email-magic-link-url";
+import {
+	assertTrustedAuthorizationUrl,
+	EXPO_AUTHORIZATION_PROXY_PATH,
+} from "./expo-authorization-proxy";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 
@@ -181,21 +186,33 @@ function createBaseAuthOptions() {
 		.map((cidr) => cidr.trim())
 		.filter((cidr) => cidr.length > 0);
 
-	// Staging serves the web (vercel.app) and API (api-staging.wandit.dev) from
-	// different sites, so every auth cookie (OAuth state, session) must be
-	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
-	// symptom is "State mismatch: State not persisted correctly" on the
-	// Google callback. Local dev is same-site localhost over plain http,
-	// where None+Secure would itself be rejected — keep defaults there.
-	// Production uses wandit.dev and api.wandit.dev, which are the same site.
-	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
+	// https deployments set the cookie attributes explicitly. SameSite decides
+	// whether a cross-site HTML form can carry the session cookie (CSRF):
+	// - production: wandit.dev, admin.wandit.dev and api.wandit.dev are one
+	//   site, so "lax" works for sign-in AND blocks forged cross-site writes;
+	// - staging: the web on vercel.app and the API on api-staging.wandit.dev
+	//   are different sites, so every auth cookie (OAuth state, session) must
+	//   be SameSite=None;Secure or browsers drop it on the cross-site hop —
+	//   the symptom is "State mismatch: State not persisted correctly" on the
+	//   Google callback. The API's CrossSiteWriteGuard covers CSRF there.
+	// Local dev is same-site localhost over plain http, where None+Secure
+	// would itself be rejected — keep Better Auth's defaults there.
+	const httpsCookies = new URL(env.BETTER_AUTH_URL).protocol === "https:";
+	const cookieSameSite = resolveAuthCookieSameSite({
+		apiUrl: env.BETTER_AUTH_URL,
+		browserOrigins: [
+			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
+			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
+		],
+		override: env.AUTH_COOKIE_SAME_SITE,
+	});
 
 	return {
 		advanced: {
-			...(crossSiteCookies
+			...(httpsCookies
 				? {
 						defaultCookieAttributes: {
-							sameSite: "none" as const,
+							sameSite: cookieSameSite,
 							secure: true,
 						},
 					}
@@ -460,7 +477,9 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
 			"wandit://",
 			"exp://",
-			"http://localhost:8081",
+			// Expo web / Metro dev origin, only while the API itself runs on
+			// localhost. A hosted deployment never has a reason to trust it.
+			...expoDevOrigins(env.BETTER_AUTH_URL),
 		],
 		socialProviders: {
 			google: createGoogleProviderOptions(),
@@ -478,8 +497,20 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			//    disposable blocklist, per-email/per-IP caps. A vetoed request
 			//    never reaches the plugin, so no verification row is created
 			//    and the client gets the real error code.
+			// 3. Pin the expo authorization proxy target (first branch below).
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
+				// 3. Pin the expo authorization proxy to the Google URL this API
+				//    issues (see expo-authorization-proxy.ts): no open redirect, no
+				//    state-cookie fixation. Runs before the plugin's own handler.
+				if (path === EXPO_AUTHORIZATION_PROXY_PATH) {
+					const query = ctx.query as { authorizationURL?: unknown } | undefined;
+					assertTrustedAuthorizationUrl(query?.authorizationURL, {
+						googleClientId: env.GOOGLE_CLIENT_ID,
+						googleCallbackUrl: `${new URL(env.BETTER_AUTH_URL).origin}/api/auth/callback/google`,
+					});
+					return;
+				}
 				const sendKind: EmailAuthSendKind | null =
 					path === "/sign-in/magic-link"
 						? "magic-link"

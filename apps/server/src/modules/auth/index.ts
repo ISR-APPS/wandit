@@ -6,6 +6,8 @@
  */
 // Tokens Nest uses to find the isolated Better Auth instances.
 export { ADMIN_AUTH_INSTANCE, AUTH_INSTANCE } from "./auth.constants";
+// Lets a write route accept any browser origin (public lead capture only).
+export { AllowCrossSiteWrite } from "./presentation/http/decorators/allow-cross-site-write.decorator";
 // Lets controllers write `@CurrentUser()` to get the logged-in user.
 export { CurrentUser } from "./presentation/http/decorators/current-user.decorator";
 // Lets a route skip the global auth guard on purpose.

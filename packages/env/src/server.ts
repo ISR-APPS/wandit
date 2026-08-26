@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
-import { corsExtraOriginsSchema } from "./cors-origins";
+import { corsExtraOriginsSchema, httpOriginSchema } from "./cors-origins";
 import { parseLlmProviderOverrides } from "./llm-routing";
 
 // Build paths from this file location so loading works from different cwd values.
@@ -170,17 +170,25 @@ export const env = createEnv({
 		R2_PUBLIC_BASE_URL: z.url().optional(),
 		// Core API/auth settings.
 		// Admin dashboard origin (apps/admin). Optional: unset means no admin
-		// origin is trusted for CORS/auth.
-		ADMIN_ORIGIN: z.url().optional(),
+		// origin is trusted for CORS/auth. Normalized to a bare origin: CORS,
+		// Better Auth and the cross-site write guard all compare it verbatim
+		// with the browser's Origin header, so a trailing slash would block
+		// every admin write.
+		ADMIN_ORIGIN: httpOriginSchema.optional(),
 		// Comma-separated emails auto-promoted to the admin role on signup.
 		ADMIN_EMAILS: z.string().optional(),
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		// The single canonical web origin used as a URL base by server features.
-		CORS_ORIGIN: z.url(),
+		// Normalized to a bare origin for the same reason as ADMIN_ORIGIN.
+		CORS_ORIGIN: httpOriginSchema,
 		// Optional aliases that can call the API but are never canonical URL bases.
 		CORS_EXTRA_ORIGINS: corsExtraOriginsSchema,
+		// SameSite for the auth cookies of https deployments. Unset = "lax" when
+		// every web/admin origin is on the API's site (production), "none" when
+		// one is cross-site (staging on vercel.app). See @wandit/env/cookie-same-site.
+		AUTH_COOKIE_SAME_SITE: z.enum(["lax", "none"]).optional(),
 		GOOGLE_CLIENT_ID: z.string().min(1),
 		GOOGLE_CLIENT_SECRET: z.string().min(1),
 		// Email auth + invitation delivery (Resend). All optional: without a
