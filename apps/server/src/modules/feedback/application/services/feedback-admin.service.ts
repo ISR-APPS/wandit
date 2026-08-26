@@ -5,8 +5,14 @@ import type {
 	AdminListFeedbackQuery,
 	AdminListFeedbackResponse,
 	AdminUpdateFeedbackInput,
+	DeleteAdminFeedbackResponse,
 } from "@wandit/contracts";
 
+import {
+	deleteObject,
+	isR2Configured,
+	publicAssetKeyFromUrl,
+} from "../../../../infrastructure/storage/r2";
 import {
 	mapAdminFeedbackDetail,
 	mapAdminFeedbackSummary,
@@ -53,6 +59,43 @@ export class FeedbackAdminService {
 
 	stats(): Promise<AdminFeedbackStats> {
 		return this.repository.adminStats();
+	}
+
+	async remove(
+		feedbackId: string,
+		actorUserId: string,
+	): Promise<DeleteAdminFeedbackResponse> {
+		const current = await this.repository.adminFindById(feedbackId);
+
+		if (!current) {
+			throw new NotFoundException("Feedback not found");
+		}
+
+		if (!(await this.repository.delete(feedbackId))) {
+			throw new NotFoundException("Feedback not found");
+		}
+
+		// The linked Linear issue stays in Linear by design.
+		if (current.screenshotUrl) {
+			const key = publicAssetKeyFromUrl(current.screenshotUrl);
+
+			if (key && isR2Configured()) {
+				try {
+					await deleteObject(key);
+				} catch (error) {
+					this.logger.warn(
+						`admin_feedback_screenshot_cleanup_failed feedback=${feedbackId}`,
+						error,
+					);
+				}
+			}
+		}
+
+		this.logger.log(
+			`admin_feedback_delete admin=${actorUserId} feedback=${feedbackId}`,
+		);
+
+		return { deleted: true };
 	}
 
 	async update(

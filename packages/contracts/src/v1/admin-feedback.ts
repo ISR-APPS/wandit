@@ -183,3 +183,11 @@ export const adminUpdateFeedbackInputSchema = z
 export type AdminUpdateFeedbackInput = z.infer<
 	typeof adminUpdateFeedbackInputSchema
 >;
+
+export const deleteAdminFeedbackResponseSchema = z
+	.object({ deleted: z.literal(true) })
+	.strict();
+
+export type DeleteAdminFeedbackResponse = z.infer<
+	typeof deleteAdminFeedbackResponseSchema
+>;

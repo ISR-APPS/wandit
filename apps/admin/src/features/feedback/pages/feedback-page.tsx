@@ -10,7 +10,10 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { useUpdateFeedbackMutation } from "@/features/feedback/api/feedback.mutations";
+import {
+	useDeleteFeedbackMutation,
+	useUpdateFeedbackMutation,
+} from "@/features/feedback/api/feedback.mutations";
 import {
 	useFeedbackDetailQuery,
 	useFeedbackListQuery,
@@ -84,6 +87,7 @@ function FeedbackPage() {
 		: (items[0]?.id ?? null);
 	const detailQuery = useFeedbackDetailQuery(effectiveSelectedId);
 	const updateMutation = useUpdateFeedbackMutation();
+	const deleteMutation = useDeleteFeedbackMutation();
 	const total = listQuery.data?.total ?? 0;
 	const fetchedPage = listQuery.data?.page;
 	const totalPages = Math.max(1, Math.ceil(total / FEEDBACK_PAGE_SIZE));
@@ -169,6 +173,17 @@ function FeedbackPage() {
 		);
 	}
 
+	function removeFeedback(feedbackId: string) {
+		deleteMutation.mutate(feedbackId, {
+			onSuccess: () => {
+				toast.success("Feedback deleted");
+				setSelectedId(null);
+				setDetailOpen(false);
+			},
+			onError: (error) => toast.error(error.message),
+		});
+	}
+
 	async function handleExport() {
 		if (isExporting) {
 			return;
@@ -217,9 +232,11 @@ function FeedbackPage() {
 				item={detailQuery.data}
 				domId={`${domId}-${detailQuery.data.id}`}
 				isSaving={updateMutation.isPending}
+				isDeleting={deleteMutation.isPending}
 				onStatusChange={updateStatus}
 				onPriorityChange={updatePriority}
 				onSaveNote={saveNote}
+				onDelete={removeFeedback}
 				onClose={onClose}
 			/>
 		);

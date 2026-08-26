@@ -1,15 +1,17 @@
 import { adminListFeedbackQuerySchema, adminRoutes } from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiGet } from "@/lib/api-client";
+import { apiDelete, apiGet } from "@/lib/api-client";
 
-import { listFeedback } from "./feedback.services";
+import { deleteFeedback, listFeedback } from "./feedback.services";
 
 vi.mock("@/lib/api-client", () => ({
+	apiDelete: vi.fn(),
 	apiGet: vi.fn(),
 	apiPatch: vi.fn(),
 }));
 
+const apiDeleteMock = vi.mocked(apiDelete);
 const apiGetMock = vi.mocked(apiGet);
 
 afterEach(() => {
@@ -80,5 +82,24 @@ describe("listFeedback", () => {
 			category: undefined,
 			priority: undefined,
 		});
+	});
+});
+
+describe("deleteFeedback", () => {
+	it("deletes the feedback at its item route", async () => {
+		apiDeleteMock.mockResolvedValueOnce({ deleted: true });
+
+		await expect(deleteFeedback("feedback-id")).resolves.toEqual({
+			deleted: true,
+		});
+		expect(apiDeleteMock).toHaveBeenCalledWith(
+			adminRoutes.feedbackItem("feedback-id"),
+		);
+	});
+
+	it("rejects a response that does not match the contract", async () => {
+		apiDeleteMock.mockResolvedValueOnce({ deleted: false });
+
+		await expect(deleteFeedback("feedback-id")).rejects.toThrow();
 	});
 });
