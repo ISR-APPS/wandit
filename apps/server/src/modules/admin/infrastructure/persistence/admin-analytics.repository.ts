@@ -3223,56 +3223,108 @@ export class AdminAnalyticsRepository {
 						+ (o.month_index + 1) * interval '1 month'
 				) at time zone 'UTC' <= b.snapshot_end
 			),
-			boundary_subscription_history as (
+			subscription_boundaries as (
 				select
 					b.owner_id,
 					b.cohort_month,
 					b.month_index,
+					b.boundary_at,
 					s.stripe_subscription_id,
 					s.provider,
-					case
-						when ended.id is not null then 'ended'
-						else coalesce(history_status.to_status, s.current_status)
-					end as effective_status,
-					coalesce(
-						history_lookup.to_lookup_key,
-						s.created_lookup_key,
-						case
-							when history_status.to_status is null
-								then s.current_lookup_key
-						end
-					) as effective_lookup_key
+					s.created_lookup_key,
+					s.current_status,
+					s.current_lookup_key
 				from cohort_boundaries b
 				left join retention_subscriptions s
 					on s.owner_id = b.owner_id
 					and coalesce(s.created_at, s.subscription_created_at) <= b.boundary_at
-				left join lateral (
-					select e.id
-					from resolved_retention_events e
-					where e.stripe_subscription_id = s.stripe_subscription_id
-						and e.kind = 'ended'
-						and e.occurred_at <= b.boundary_at
-					order by e.occurred_at desc, e.id desc
-					limit 1
-				) ended on true
-				left join lateral (
-					select e.to_status
-					from resolved_retention_events e
-					where e.stripe_subscription_id = s.stripe_subscription_id
-						and e.to_status is not null
-						and e.occurred_at <= b.boundary_at
-					order by e.occurred_at desc, e.id desc
-					limit 1
-				) history_status on true
-				left join lateral (
-					select e.to_lookup_key
-					from resolved_retention_events e
-					where e.stripe_subscription_id = s.stripe_subscription_id
-						and e.to_lookup_key is not null
-						and e.occurred_at <= b.boundary_at
-					order by e.occurred_at desc, e.id desc
-					limit 1
-				) history_lookup on true
+			),
+			subscription_first_boundaries as (
+				select
+					s.stripe_subscription_id,
+					min(s.boundary_at) as first_boundary_at
+				from subscription_boundaries s
+				where s.stripe_subscription_id is not null
+				group by s.stripe_subscription_id
+			),
+			marked_retention_events as (
+				select
+					e.*,
+					bool_or(e.kind = 'ended') over event_order as has_ended,
+					count(e.to_status) over event_order as status_version,
+					count(e.to_lookup_key) over event_order as lookup_version
+				from resolved_retention_events e
+				window event_order as (
+					partition by e.stripe_subscription_id
+					order by e.occurred_at, e.id
+					rows between unbounded preceding and current row
+				)
+			),
+			filled_retention_events as (
+				select
+					e.*,
+					max(e.to_status) over (
+						partition by e.stripe_subscription_id, e.status_version
+					) as history_status,
+					max(e.to_lookup_key) over (
+						partition by e.stripe_subscription_id, e.lookup_version
+					) as history_lookup
+				from marked_retention_events e
+			),
+			retention_timestamp_states as (
+				select distinct on (e.stripe_subscription_id, e.occurred_at)
+					e.stripe_subscription_id,
+					e.occurred_at,
+					e.id,
+					e.has_ended,
+					e.history_status,
+					e.history_lookup
+				from filled_retention_events e
+				order by e.stripe_subscription_id, e.occurred_at, e.id desc
+			),
+			retention_state_intervals as (
+				select
+					e.*,
+					lead(e.occurred_at) over (
+						partition by e.stripe_subscription_id
+						order by e.occurred_at
+					) as next_occurred_at
+				from retention_timestamp_states e
+			),
+			relevant_retention_states as (
+				select e.*
+				from retention_state_intervals e
+				inner join subscription_first_boundaries f
+					on f.stripe_subscription_id = e.stripe_subscription_id
+				where e.next_occurred_at > f.first_boundary_at
+					or e.next_occurred_at is null
+			),
+			boundary_subscription_history as (
+				select
+					s.owner_id,
+					s.cohort_month,
+					s.month_index,
+					s.stripe_subscription_id,
+					s.provider,
+					case
+						when coalesce(e.has_ended, false) then 'ended'
+						else coalesce(e.history_status, s.current_status)
+					end as effective_status,
+					coalesce(
+						e.history_lookup,
+						s.created_lookup_key,
+						case
+							when e.history_status is null then s.current_lookup_key
+						end
+					) as effective_lookup_key
+				from subscription_boundaries s
+				left join relevant_retention_states e
+					on e.stripe_subscription_id = s.stripe_subscription_id
+					and e.occurred_at <= s.boundary_at
+					and (
+						e.next_occurred_at > s.boundary_at
+						or e.next_occurred_at is null
+					)
 			),
 			retention_paid_owners as (
 				select
@@ -3513,68 +3565,119 @@ export class AdminAnalyticsRepository {
 				from churned_ended_subscriptions c
 				group by c.reason
 			),
-			churn_usage_events as (
+			churned_projects as (
 				select
-					'websites'::text as feature,
-					coalesce(p.organization_id, p.user_id) as owner_id,
-					a.completed_at as event_at
-				from page_generation_attempts a
-				inner join projects p on p.id = a.project_id
+					p.id as project_id,
+					c.owner_id,
+					c.churned_at
+				from projects p
+				inner join churned_owners c
+					on c.owner_id = coalesce(p.organization_id, p.user_id)
 				where p.deleted_at is null
-					and (a.spec ->> 'pageKind') is distinct from 'cod'
-				union all
+			),
+			connector_usage_events as materialized (
 				select
-					'landingPages',
-					coalesce(p.organization_id, p.user_id),
-					a.completed_at
-				from page_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				where p.deleted_at is null
-					and (a.spec ->> 'pageKind') = 'cod'
-				union all
-				select 'images', coalesce(p.organization_id, p.user_id), a.created_at
-				from image_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				where p.deleted_at is null
-				union all
-				select 'videos', coalesce(p.organization_id, p.user_id), a.created_at
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				where p.deleted_at is null
-				union all
-				select 'marketing', coalesce(p.organization_id, p.user_id), a.created_at
-				from marketing_assets a
-				inner join projects p on p.id = a.project_id
-				where p.deleted_at is null
-				union all
-				select 'connectors', coalesce(a.organization_id, a.user_id), a.created_at
+					coalesce(a.organization_id, a.user_id) as owner_id,
+					a.created_at
 				from connector_generation_attempts a
-				union all
-				select 'leadScraping', coalesce(p.organization_id, p.user_id), a.created_at
-				from lead_scrape_attempts a
-				inner join projects p on p.id = a.project_id
-				where p.deleted_at is null
-				union all
-				select 'chat', coalesce(e.organization_id, e.user_id), e.created_at
-				from ai_usage_events e
-				where e.operation = 'chat'
-				union all
-				select 'publishing', coalesce(p.organization_id, p.user_id), d.created_at
-				from deployments d
-				inner join projects p on p.id = d.project_id
-				where p.deleted_at is null
-				union all
-				select 'domains', coalesce(p.organization_id, d.user_id), d.created_at
+				cross join bounds b
+				where a.created_at < b.range_end
+			),
+			domain_usage_events as materialized (
+				select
+					coalesce(p.organization_id, d.user_id) as owner_id,
+					d.created_at
 				from domains d
 				left join projects p on p.id = d.project_id
-				where d.project_id is null or p.deleted_at is null
+				cross join bounds b
+				where (d.project_id is null or p.deleted_at is null)
+					and d.created_at < b.range_end
+			),
+			churn_usage_events as (
+				select
+					case
+						when (a.spec ->> 'pageKind') = 'cod'
+							then 'landingPages'
+						else 'websites'
+					end::text as feature,
+					c.owner_id,
+					a.completed_at as event_at
+				from page_generation_attempts a
+				inner join churned_projects c on c.project_id = a.project_id
+				cross join bounds b
+				where a.completed_at < c.churned_at
+					and a.completed_at < b.range_end
+				union all
+				select 'images', c.owner_id, a.created_at
+				from image_generation_attempts a
+				inner join churned_projects c on c.project_id = a.project_id
+				cross join bounds b
+				where a.created_at < c.churned_at
+					and a.created_at < b.range_end
+				union all
+				select 'videos', c.owner_id, a.created_at
+				from media_generation_attempts a
+				inner join churned_projects c on c.project_id = a.project_id
+				cross join bounds b
+				where a.created_at < c.churned_at
+					and a.created_at < b.range_end
+				union all
+				select 'marketing', c.owner_id, a.created_at
+				from marketing_assets a
+				inner join churned_projects c on c.project_id = a.project_id
+				cross join bounds b
+				where a.created_at < c.churned_at
+					and a.created_at < b.range_end
+				union all
+				select 'connectors', c.owner_id, a.created_at
+				from connector_usage_events a
+				inner join churned_owners c
+					on c.owner_id = a.owner_id
+					and a.created_at < c.churned_at
+				union all
+				select 'leadScraping', c.owner_id, a.created_at
+				from lead_scrape_attempts a
+				inner join churned_projects c on c.project_id = a.project_id
+				cross join bounds b
+				where a.created_at < c.churned_at
+					and a.created_at < b.range_end
+				union all
+				select 'chat', c.owner_id, e.created_at
+				from ai_usage_events e
+				inner join churned_owners c
+					on c.owner_id = e.organization_id
+					and e.created_at < c.churned_at
+				cross join bounds b
+				where e.organization_id is not null
+					and e.operation = 'chat'
+					and e.created_at < b.range_end
+				union all
+				select 'chat', c.owner_id, e.created_at
+				from ai_usage_events e
+				inner join churned_owners c
+					on c.owner_id = e.user_id
+					and e.created_at < c.churned_at
+				cross join bounds b
+				where e.organization_id is null
+					and e.operation = 'chat'
+					and e.created_at < b.range_end
+				union all
+				select 'publishing', c.owner_id, d.created_at
+				from deployments d
+				inner join churned_projects c on c.project_id = d.project_id
+				cross join bounds b
+				where d.created_at < c.churned_at
+					and d.created_at < b.range_end
+				union all
+				select 'domains', c.owner_id, d.created_at
+				from domain_usage_events d
+				inner join churned_owners c
+					on c.owner_id = d.owner_id
+					and d.created_at < c.churned_at
 			),
 			churn_feature_owners as (
-				select distinct e.feature, c.owner_id
+				select distinct e.feature, e.owner_id
 				from churn_usage_events e
-				inner join churned_owners c
-					on c.owner_id = e.owner_id
-					and e.event_at < c.churned_at
 			),
 			churn_feature_totals as (
 				select f.feature, count(*)::bigint as churned

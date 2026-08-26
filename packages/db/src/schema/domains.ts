@@ -79,6 +79,8 @@ export const domains = pgTable(
 	(table) => [
 		index("domains_userId_idx").on(table.userId),
 		index("domains_projectId_idx").on(table.projectId),
+		// Revenue analytics resolves each paid order to its registered domain.
+		index("domains_paymentOrderId_idx").on(table.paymentOrderId),
 		index("domains_status_idx").on(table.status),
 		uniqueIndex("domains_name_uq").on(table.name),
 		uniqueIndex("domains_primary_project_uq")
