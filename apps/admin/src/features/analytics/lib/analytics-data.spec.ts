@@ -187,7 +187,7 @@ describe("feature adoption presentation", () => {
 			convertedAfterUsePct: index,
 		}));
 
-		expect(orderFeatureAdoptionRows(features.toReversed())).toEqual(features);
+		expect(orderFeatureAdoptionRows([...features].reverse())).toEqual(features);
 		expect(adminAnalyticsFeatureKeys.slice(0, 2)).toEqual([
 			"websites",
 			"landingPages",
