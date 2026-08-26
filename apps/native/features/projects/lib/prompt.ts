@@ -287,7 +287,7 @@ export const OUTPUTS_BY_MODE: Record<
 				},
 				{
 					id: "count",
-					choices: [{ id: "1" }, { id: "2" }, { id: "4" }],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "6" }],
 				},
 			],
 		},

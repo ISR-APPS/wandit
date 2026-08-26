@@ -1,6 +1,10 @@
 import { Controller, Get, Inject, Param, Res } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
-import { type ImageGenerationAttempt, uuidSchema } from "@wandit/contracts";
+import {
+	type ImageGenerationAttempt,
+	MAX_IMAGES_PER_GENERATION,
+	uuidSchema,
+} from "@wandit/contracts";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
@@ -12,8 +16,12 @@ import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-c
 import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { ImageGenerationsService } from "../../../application/services/image-generations.service";
 
-// 1-based index into the attempt's images; the contract caps count at 4.
-const downloadIndexSchema = z.coerce.number().int().min(1).max(4);
+// 1-based index into the attempt's images, bounded by the contract's cap.
+const downloadIndexSchema = z.coerce
+	.number()
+	.int()
+	.min(1)
+	.max(MAX_IMAGES_PER_GENERATION);
 
 @Controller("v1/image-generations")
 export class ImageGenerationsController {

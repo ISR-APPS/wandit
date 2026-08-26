@@ -1,0 +1,2 @@
+ALTER TABLE "image_generation_attempts" DROP CONSTRAINT "image_generation_attempts_count_ck";--> statement-breakpoint
+ALTER TABLE "image_generation_attempts" ADD CONSTRAINT "image_generation_attempts_count_ck" CHECK ("image_generation_attempts"."count" between 1 and 6);

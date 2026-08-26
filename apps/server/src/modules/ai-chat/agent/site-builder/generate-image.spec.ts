@@ -9,6 +9,7 @@ import {
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import { SINGLE_FRAME_INSTRUCTION } from "../../../image-generations/application/services/image-generator";
 import { generateBuildImage } from "./generate-image";
 
 // Env is a mutable stub so each test controls exactly which keys exist; the
@@ -98,7 +99,7 @@ describe("generateBuildImage", () => {
 
 		expect(generateImage).toHaveBeenCalledWith({
 			model: "openai/gpt-image-2",
-			prompt: PARAMS.prompt,
+			prompt: `${PARAMS.prompt}\n${SINGLE_FRAME_INSTRUCTION}`,
 			providerOptions: {
 				gateway: {
 					tags: ["op:image", "ws:personal"],

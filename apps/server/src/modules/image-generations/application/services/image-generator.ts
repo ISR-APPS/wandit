@@ -58,6 +58,23 @@ export const SOURCE_FIDELITY_INSTRUCTION =
 	"shape, materials, label, colors, proportions — while restaging " +
 	"everything else according to this direction: ";
 
+/**
+ * Appended to every standalone prompt. A chat model that writes "a 4-shot
+ * product shoot" into one prompt gets a collage inside ONE picture from the
+ * image model; each requested image is its own provider call and its own
+ * file, so every call must render exactly one frame.
+ */
+export const SINGLE_FRAME_INSTRUCTION =
+	"Render exactly ONE image as a single full-frame picture, in the medium " +
+	"the description names. Never a grid, collage, contact sheet, " +
+	"split-screen, before/after panels, storyboard, or multi-panel layout; if " +
+	"the description lists several shots, angles, or variations, depict only " +
+	"one of them in this image.";
+
+export function withSingleFrameInstruction(prompt: string): string {
+	return `${prompt.trim()}\n${SINGLE_FRAME_INSTRUCTION}`;
+}
+
 export type EditImageResult =
 	| GatewayGenerationFailure
 	| ({
@@ -318,13 +335,14 @@ export async function generateStandaloneImage(params: {
 	}
 
 	let metadata: GatewayGenerationMetadata | null = null;
+	const prompt = withSingleFrameInstruction(params.prompt);
 
 	try {
 		let mediaType: string;
 		let bytes: Uint8Array;
 
 		if (params.sourceImageUrls.length > 0) {
-			const edited = await editImageFromSources(params);
+			const edited = await editImageFromSources({ ...params, prompt });
 
 			if (edited.status !== "generated") {
 				return edited;
@@ -339,7 +357,7 @@ export async function generateStandaloneImage(params: {
 				aspect: params.aspect,
 				metering: params.metering,
 				model: env.AI_IMAGE_MODEL,
-				prompt: params.prompt,
+				prompt,
 				size: STANDALONE_SIZE_BY_ASPECT[params.aspect],
 			});
 
