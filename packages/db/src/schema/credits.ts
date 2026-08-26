@@ -324,6 +324,21 @@ export const aiUsageEvents = pgTable(
 		index("ai_usage_events_attemptRef_operation_createdAt_idx")
 			.on(table.attemptRef, table.operation, table.createdAt)
 			.where(sql`${table.attemptRef} IS NOT NULL`),
+		// getFunnelSnapshot resolves the acting user of the latest usage event per
+		// generation attempt (DISTINCT ON (operation, attempt_ref) ... ORDER BY
+		// operation, attempt_ref, created_at DESC). This ordered partial index feeds
+		// that DISTINCT ON pre-sorted and index-only; without it the sort of ~170k
+		// rows spills to disk and dominates the funnel endpoint.
+		index("ai_usage_events_operation_attemptRef_createdAt_userId_idx")
+			.on(
+				table.operation,
+				table.attemptRef,
+				table.createdAt.desc(),
+				table.userId,
+			)
+			.where(
+				sql`${table.attemptRef} IS NOT NULL AND ${table.operation} IN ('page_build', 'image', 'video', 'marketing', 'lead_scrape')`,
+			),
 		index("ai_usage_events_reserved_status_idx")
 			.on(table.status)
 			.where(sql`${table.status} = 'reserved'`),
