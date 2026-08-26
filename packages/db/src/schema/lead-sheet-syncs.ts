@@ -2,7 +2,8 @@
 // the narrow drive.file scope (the app can only touch files it created).
 // Sync is a full idempotent rewrite of the sheet, so status changes made in
 // the Leads tab show up too — this row only remembers which spreadsheet is
-// ours and when it was last written.
+// ours and when it was last written. syncedByUserId remembers which acting
+// member's Google account owns the sheet so automatic sync can use it again.
 import { relations } from "drizzle-orm";
 import {
 	integer,
@@ -12,6 +13,7 @@ import {
 	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
+import { user } from "./auth";
 import { projects } from "./projects";
 
 export const leadSheetSyncs = pgTable(
@@ -23,6 +25,9 @@ export const leadSheetSyncs = pgTable(
 			.references(() => projects.id, { onDelete: "cascade" }),
 		spreadsheetId: text("spreadsheet_id").notNull(),
 		spreadsheetUrl: text("spreadsheet_url").notNull(),
+		syncedByUserId: text("synced_by_user_id").references(() => user.id, {
+			onDelete: "set null",
+		}),
 		lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
 		syncedLeadCount: integer("synced_lead_count").notNull().default(0),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -40,5 +45,9 @@ export const leadSheetSyncsRelations = relations(leadSheetSyncs, ({ one }) => ({
 	project: one(projects, {
 		fields: [leadSheetSyncs.projectId],
 		references: [projects.id],
+	}),
+	syncedBy: one(user, {
+		fields: [leadSheetSyncs.syncedByUserId],
+		references: [user.id],
 	}),
 }));

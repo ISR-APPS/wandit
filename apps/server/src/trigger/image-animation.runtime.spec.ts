@@ -8,6 +8,7 @@ import {
 	generateBuildVideo,
 	generateTextToVideo,
 } from "../modules/ai-chat/agent/site-builder/generate-video";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import type { ImageAnimationAttempt } from "../modules/media-generations/application/services/image-animation-runner";
 import { runImageAnimation } from "../modules/media-generations/application/services/image-animation-runner";
 import { createImageAnimationRuntime } from "./image-animation.runtime";
@@ -56,6 +57,38 @@ const BASE_ATTEMPT: ImageAnimationAttempt = {
 	voiceover: null,
 };
 
+const enqueueLifecycleEvent = vi.spyOn(
+	LifecycleEventsService.prototype,
+	"enqueue",
+);
+
+function successfulUpdateDatabase(durableActorUserId?: string) {
+	const returning = vi.fn().mockResolvedValue([{ id: BASE_ATTEMPT.id }]);
+	const updateWhere = vi.fn(() => ({ returning }));
+	const set = vi.fn(() => ({ where: updateWhere }));
+	const update = vi.fn(() => ({ set }));
+	const limit = vi
+		.fn()
+		.mockResolvedValue(
+			durableActorUserId ? [{ userId: durableActorUserId }] : [],
+		);
+	const selectWhere = vi.fn(() => ({ limit }));
+	const from = vi.fn(() => ({ where: selectWhere }));
+	const select = vi.fn(() => ({ from }));
+	const transactionClient = { select, update };
+	const transaction = vi.fn(
+		async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+			callback(transactionClient),
+	);
+
+	return {
+		db: { transaction } as unknown as Parameters<
+			typeof createImageAnimationRuntime
+		>[0],
+		transactionClient,
+	};
+}
+
 function runtime() {
 	return createImageAnimationRuntime(
 		{} as Parameters<typeof createImageAnimationRuntime>[0],
@@ -99,6 +132,7 @@ function runtimeWithReconciliationRows(
 }
 
 beforeEach(() => {
+	enqueueLifecycleEvent.mockReset().mockResolvedValue(null);
 	vi.mocked(getObjectContentType).mockReset();
 	vi.mocked(getObjectContentType).mockResolvedValue(null);
 	vi.mocked(siteVideoKey).mockClear();
@@ -121,6 +155,107 @@ beforeEach(() => {
 });
 
 describe("image-animation Trigger runtime", () => {
+	it.each([
+		"image-animation",
+		"text-to-video",
+	] as const)("enqueues video_generated for the queue actor after %s success", async (kind) => {
+		const { db, transactionClient } = successfulUpdateDatabase();
+		const capture = vi.fn();
+		const triggerRuntime = createImageAnimationRuntime(db, { capture });
+		const attempt = {
+			...BASE_ATTEMPT,
+			kind,
+			motion: kind === "image-animation" ? BASE_ATTEMPT.motion : null,
+			organizationId: "org_1",
+			sourceImageUrl:
+				kind === "image-animation" ? BASE_ATTEMPT.sourceImageUrl : null,
+			userId: "project_creator_1",
+		};
+
+		await expect(
+			triggerRuntime.runner.markSucceeded(
+				attempt,
+				{
+					mediaType: "video/mp4",
+					url: "https://assets.example.com/video.mp4",
+				},
+				new Date("2026-08-24T12:00:00.000Z"),
+				"acting_member_1",
+			),
+		).resolves.toBe(true);
+
+		expect(enqueueLifecycleEvent).toHaveBeenCalledExactlyOnceWith(
+			{
+				event: "video_generated",
+				idempotencyKey: "video_generated:acting_member_1",
+				userId: "acting_member_1",
+			},
+			transactionClient,
+		);
+		expect(capture).toHaveBeenCalledWith(
+			"acting_member_1",
+			"generation_completed",
+			expect.any(Object),
+		);
+	});
+
+	it("does not guess an actor for scheduled reconciliation", async () => {
+		const { db } = successfulUpdateDatabase();
+		const triggerRuntime = createImageAnimationRuntime(db, {
+			capture: vi.fn(),
+		});
+
+		await expect(
+			triggerRuntime.reconciler.markSucceeded(
+				{
+					...BASE_ATTEMPT,
+					deliveredUnits: 1,
+					plannedUnits: 1,
+				},
+				{
+					mediaType: "video/mp4",
+					url: "https://assets.example.com/video.mp4",
+				},
+				new Date("2026-08-24T12:00:00.000Z"),
+			),
+		).resolves.toBe(true);
+
+		expect(enqueueLifecycleEvent).not.toHaveBeenCalled();
+	});
+
+	it("recovers the original actor for scheduled reconciliation from metering", async () => {
+		const { db, transactionClient } = successfulUpdateDatabase(
+			"original_queue_actor_1",
+		);
+		const triggerRuntime = createImageAnimationRuntime(db, {
+			capture: vi.fn(),
+		});
+
+		await expect(
+			triggerRuntime.reconciler.markSucceeded(
+				{
+					...BASE_ATTEMPT,
+					deliveredUnits: 1,
+					plannedUnits: 1,
+				},
+				{
+					mediaType: "video/mp4",
+					url: "https://assets.example.com/video.mp4",
+				},
+				new Date("2026-08-24T12:00:00.000Z"),
+			),
+		).resolves.toBe(true);
+
+		expect(enqueueLifecycleEvent).toHaveBeenCalledExactlyOnceWith(
+			{
+				event: "video_generated",
+				idempotencyKey: "video_generated:original_queue_actor_1",
+				userId: "original_queue_actor_1",
+			},
+			transactionClient,
+		);
+	});
+
 	it("checks only the final vid-1 recovery keys", async () => {
 		const triggerRuntime = runtime();
 

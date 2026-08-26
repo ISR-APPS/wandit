@@ -6,6 +6,7 @@ import {
 	type MarketingAssetDocument,
 	type MarketingAssetJob,
 	type MarketingAssetProviderResult,
+	type MarketingAssetRunnerDependencies,
 	MarketingAssetSettlementPendingError,
 	parseMarketingAssetPayload,
 	runMarketingAssetGeneration,
@@ -154,7 +155,9 @@ function makeDependencies(
 			},
 		),
 		loadAsset: vi.fn(async () => asset),
-		markSucceeded: vi.fn(async () => true),
+		markSucceeded: vi
+			.fn<MarketingAssetRunnerDependencies["markSucceeded"]>()
+			.mockResolvedValue(true),
 		now: vi.fn(() => NOW),
 		recoverStoredDocument: vi.fn(async () => options.recovered ?? null),
 		refund: vi.fn(async () => undefined),
@@ -201,6 +204,7 @@ describe("runMarketingAssetGeneration", () => {
 		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(dependencies.markSucceeded.mock.calls[0]?.[3]).toBe(USER_ID);
 		expect(dependencies.settle).toHaveBeenCalledWith(
 			RESERVATION,
 			TOKEN_SETTLEMENT,
@@ -403,6 +407,7 @@ describe("runMarketingAssetGeneration", () => {
 		});
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(dependencies.markSucceeded.mock.calls[0]?.[3]).toBe(USER_ID);
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.settle).not.toHaveBeenCalled();

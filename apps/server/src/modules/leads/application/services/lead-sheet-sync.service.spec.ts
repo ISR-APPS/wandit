@@ -2,6 +2,7 @@ import {
 	BadGatewayException,
 	ConflictException,
 	NotFoundException,
+	ServiceUnavailableException,
 } from "@nestjs/common";
 import type { Auth } from "@wandit/auth";
 import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
@@ -12,12 +13,20 @@ import {
 	type GoogleSheetsClient,
 	type StagedSheetRewrite,
 } from "../../infrastructure/google/google-sheets.client";
-import type { LeadSheetSyncsRepository } from "../../infrastructure/persistence/lead-sheet-syncs.repository";
+import {
+	LeadSheetSyncBusyError,
+	LeadSheetSyncLockLostError,
+	type LeadSheetSyncsRepository,
+} from "../../infrastructure/persistence/lead-sheet-syncs.repository";
 import type {
 	LeadRow,
 	LeadsRepository,
 } from "../../infrastructure/persistence/leads.repository";
-import { LeadSheetSyncService } from "./lead-sheet-sync.service";
+import {
+	GoogleAccessTokenError,
+	LeadSheetSyncService,
+	LeadSheetSyncStaleError,
+} from "./lead-sheet-sync.service";
 
 const USER_ID = "user-1";
 const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
@@ -28,10 +37,12 @@ const ORG_SCOPE: ProjectScope = {
 	userId: USER_ID,
 };
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+const DB_NOW = new Date("2026-07-25T14:10:00.000Z");
 const SHEET = {
 	spreadsheetId: "sheet-abc",
 	spreadsheetUrl: "https://docs.google.com/spreadsheets/d/sheet-abc",
 };
+const SYNC_ROW = { ...SHEET, syncedByUserId: USER_ID };
 
 function connectedAccount(overrides: Record<string, unknown> = {}) {
 	return {
@@ -73,20 +84,37 @@ function buildService() {
 		findAccessibleProject: vi
 			.fn()
 			.mockResolvedValue({ id: PROJECT_ID, name: "Parfums d'Alger" }),
-		recordSyncResult: vi
-			.fn()
-			.mockImplementation(
-				async (_projectId: string, syncedLeadCount: number) => ({
-					...SHEET,
-					lastSyncedAt: new Date("2026-07-25T14:00:00.000Z"),
-					syncedLeadCount,
-				}),
-			),
+		isSyncActorAuthorized: vi.fn().mockResolvedValue(true),
+		now: vi.fn().mockResolvedValue(DB_NOW),
+		recordSyncResult: vi.fn().mockImplementation(
+			async (
+				_projectId: string,
+				result: {
+					lastSyncedAt: Date;
+					syncedByUserId: string;
+					syncedLeadCount: number;
+				},
+			) => ({
+				...SYNC_ROW,
+				lastSyncedAt: new Date("2026-07-25T14:00:00.000Z"),
+				syncedByUserId: result.syncedByUserId,
+				syncedLeadCount: result.syncedLeadCount,
+			}),
+		),
 		upsertSpreadsheet: vi.fn().mockResolvedValue({
-			...SHEET,
+			...SYNC_ROW,
 			lastSyncedAt: null,
 			syncedLeadCount: 0,
 		}),
+		withProjectSyncLock: vi
+			.fn()
+			.mockImplementation(
+				async <T>(
+					_projectId: string,
+					_mode: "try" | "wait",
+					fn: () => Promise<T>,
+				) => fn(),
+			),
 	};
 	const rewrite = stagedRewrite();
 	const sheetsClient = {
@@ -168,7 +196,7 @@ describe("LeadSheetSyncService", () => {
 		it("returns the sheet when connected and synced before", async () => {
 			const { service, syncsRepository } = buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: new Date("2026-07-25T14:00:00.000Z"),
 				syncedLeadCount: 3,
 			});
@@ -176,6 +204,7 @@ describe("LeadSheetSyncService", () => {
 			await expect(service.getState(SCOPE, PROJECT_ID)).resolves.toEqual({
 				connected: true,
 				sheet: {
+					autoSyncEnabled: true,
 					lastSyncedAt: "2026-07-25T14:00:00.000Z",
 					spreadsheetUrl: SHEET.spreadsheetUrl,
 					syncedLeadCount: 3,
@@ -204,6 +233,11 @@ describe("LeadSheetSyncService", () => {
 				PROJECT_ID,
 				{ cursor: undefined, pageSize: 1_000 },
 			);
+			expect(syncsRepository.withProjectSyncLock).toHaveBeenCalledWith(
+				PROJECT_ID,
+				"wait",
+				expect.any(Function),
+			);
 		});
 
 		it("creates the spreadsheet on first sync, then writes leads + header", async () => {
@@ -219,6 +253,7 @@ describe("LeadSheetSyncService", () => {
 			expect(syncsRepository.upsertSpreadsheet).toHaveBeenCalledWith(
 				PROJECT_ID,
 				SHEET,
+				USER_ID,
 			);
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
@@ -282,7 +317,11 @@ describe("LeadSheetSyncService", () => {
 			);
 			expect(syncsRepository.recordSyncResult).toHaveBeenCalledWith(
 				PROJECT_ID,
-				1,
+				{
+					lastSyncedAt: expect.any(Date),
+					syncedByUserId: USER_ID,
+					syncedLeadCount: 1,
+				},
 			);
 			const commitCallOrder =
 				sheetsClient.commitStagedRewrite.mock.invocationCallOrder[0];
@@ -295,6 +334,7 @@ describe("LeadSheetSyncService", () => {
 			expect(state).toEqual({
 				connected: true,
 				sheet: {
+					autoSyncEnabled: true,
 					lastSyncedAt: "2026-07-25T14:00:00.000Z",
 					spreadsheetUrl: SHEET.spreadsheetUrl,
 					syncedLeadCount: 1,
@@ -302,11 +342,34 @@ describe("LeadSheetSyncService", () => {
 			});
 		});
 
+		it("records the acting user with the DB clock captured before reading leads", async () => {
+			const { leadsRepository, service, syncsRepository } = buildService();
+
+			await service.syncNow(SCOPE, PROJECT_ID);
+
+			expect(syncsRepository.now).toHaveBeenCalledOnce();
+			expect(syncsRepository.recordSyncResult).toHaveBeenCalledWith(
+				PROJECT_ID,
+				{
+					lastSyncedAt: DB_NOW,
+					syncedByUserId: USER_ID,
+					syncedLeadCount: 1,
+				},
+			);
+			const nowCallOrder = syncsRepository.now.mock.invocationCallOrder[0];
+			const readCallOrder =
+				leadsRepository.listForProjectSync.mock.invocationCallOrder[0];
+			if (nowCallOrder === undefined || readCallOrder === undefined) {
+				throw new Error("Expected DB clock and lead-read calls");
+			}
+			expect(nowCallOrder).toBeLessThan(readCallOrder);
+		});
+
 		it("atomically stages and swaps an existing spreadsheet", async () => {
 			const { rewrite, service, sheetsClient, syncsRepository } =
 				buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: new Date("2026-07-20T10:00:00.000Z"),
 				syncedLeadCount: 5,
 			});
@@ -332,7 +395,7 @@ describe("LeadSheetSyncService", () => {
 			const { rewrite, service, sheetsClient, syncsRepository } =
 				buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				spreadsheetId: "deleted-sheet",
 				lastSyncedAt: null,
 				syncedLeadCount: 0,
@@ -376,7 +439,7 @@ describe("LeadSheetSyncService", () => {
 			);
 			const secondPage = [leadRow({ name: `1000-${"x".repeat(2_000)}` })];
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: null,
 				syncedLeadCount: 0,
 			});
@@ -417,7 +480,11 @@ describe("LeadSheetSyncService", () => {
 			);
 			expect(syncsRepository.recordSyncResult).toHaveBeenCalledWith(
 				PROJECT_ID,
-				1_001,
+				{
+					lastSyncedAt: expect.any(Date),
+					syncedByUserId: USER_ID,
+					syncedLeadCount: 1_001,
+				},
 			);
 		});
 
@@ -425,7 +492,7 @@ describe("LeadSheetSyncService", () => {
 			const { leadsRepository, service, sheetsClient, syncsRepository } =
 				buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: null,
 				syncedLeadCount: 0,
 			});
@@ -494,7 +561,7 @@ describe("LeadSheetSyncService", () => {
 				syncsRepository,
 			} = buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: null,
 				syncedLeadCount: 1,
 			});
@@ -534,29 +601,95 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
 		});
 
-		it("409s with a reconnect hint when the token mint fails", async () => {
+		it("returns a typed 409 with a reconnect hint when token minting fails", async () => {
 			const { auth, service } = buildService();
-			auth.api.getAccessToken.mockRejectedValue(
-				new Error("Failed to refresh access token"),
+			const mintFailure = new Error("Failed to refresh access token");
+			auth.api.getAccessToken.mockRejectedValue(mintFailure);
+
+			const error = await service
+				.syncNow(SCOPE, PROJECT_ID)
+				.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(GoogleAccessTokenError);
+			expect(error).toBeInstanceOf(ConflictException);
+			if (!(error instanceof GoogleAccessTokenError)) {
+				throw new Error("Expected a GoogleAccessTokenError");
+			}
+			expect(error.getStatus()).toBe(409);
+			expect(error.cause).toBe(mintFailure);
+			expect(error.message).toMatch(/reconnect Google Sheets/);
+		});
+
+		it("returns 503 rather than 409 when another project sync holds the lock", async () => {
+			const { service, syncsRepository } = buildService();
+			syncsRepository.withProjectSyncLock.mockRejectedValueOnce(
+				new LeadSheetSyncBusyError(),
 			);
 
-			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
-				ConflictException,
+			const error = await service
+				.syncNow(SCOPE, PROJECT_ID)
+				.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(ServiceUnavailableException);
+			if (!(error instanceof ServiceUnavailableException)) {
+				throw new Error("Expected the manual sync to return a 503");
+			}
+			expect(error.getStatus()).toBe(503);
+			expect(error).not.toBeInstanceOf(ConflictException);
+		});
+
+		it("returns 503 when the project sync loses its advisory-lock connection", async () => {
+			const { service, syncsRepository } = buildService();
+			const cause = new Error("database connection terminated");
+			syncsRepository.withProjectSyncLock.mockRejectedValueOnce(
+				new LeadSheetSyncLockLostError(cause),
+			);
+
+			const error = await service
+				.syncNow(SCOPE, PROJECT_ID)
+				.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(ServiceUnavailableException);
+			if (!(error instanceof ServiceUnavailableException)) {
+				throw new Error("Expected the lost lock to return a 503");
+			}
+			expect(error.getStatus()).toBe(503);
+			expect(error.message).toBe(
+				"The sync lost its lock — try again in a moment",
 			);
 		});
 
-		it("surfaces Google's message on 403 (API not enabled / revoked)", async () => {
+		it.each([
+			401, 403,
+		])("preserves Google's %i response as the conflict cause", async (status) => {
 			const { service, sheetsClient } = buildService();
-			sheetsClient.createSpreadsheet.mockRejectedValue(
-				new GoogleSheetsApiError(
-					403,
-					"Google Sheets API has not been used in project 123 before",
-				),
+			const googleError = new GoogleSheetsApiError(
+				status,
+				"Google Sheets API has not been used in project 123 before",
 			);
+			sheetsClient.createSpreadsheet.mockRejectedValue(googleError);
 
-			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
-				/Google Sheets API has not been used/,
-			);
+			const error = await service
+				.syncNow(SCOPE, PROJECT_ID)
+				.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(ConflictException);
+			if (!(error instanceof ConflictException)) {
+				throw new Error(`Expected Google's ${status} to map to a conflict`);
+			}
+			expect(error.message).toMatch(/Google Sheets API has not been used/);
+			expect(error.cause).toBe(googleError);
+		});
+
+		it("preserves a mapped Google API error as the bad gateway cause", async () => {
+			const { service, sheetsClient } = buildService();
+			const googleError = new GoogleSheetsApiError(429, "Quota exceeded");
+			sheetsClient.createSpreadsheet.mockRejectedValue(googleError);
+
+			const error = await service
+				.syncNow(SCOPE, PROJECT_ID)
+				.catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(BadGatewayException);
+			if (!(error instanceof BadGatewayException)) {
+				throw new Error("Expected Google's 429 to map to a bad gateway");
+			}
+			expect(error.cause).toBe(googleError);
 		});
 
 		it("preserves the previous live values when a staged write fails", async () => {
@@ -569,7 +702,7 @@ describe("LeadSheetSyncService", () => {
 			let liveValues = structuredClone(previousLiveValues);
 			let stagedValues: string[][] = [];
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: null,
 				syncedLeadCount: 0,
 			});
@@ -611,7 +744,7 @@ describe("LeadSheetSyncService", () => {
 		it("does not record success when the atomic commit fails", async () => {
 			const { service, sheetsClient, syncsRepository } = buildService();
 			syncsRepository.findByProject.mockResolvedValue({
-				...SHEET,
+				...SYNC_ROW,
 				lastSyncedAt: null,
 				syncedLeadCount: 1,
 			});
@@ -638,6 +771,155 @@ describe("LeadSheetSyncService", () => {
 				NotFoundException,
 			);
 			expect(auth.api.getAccessToken).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("scheduled candidate validation", () => {
+		it("does not re-check the sync actor for a manual sync", async () => {
+			const { service, syncsRepository } = buildService();
+			syncsRepository.isSyncActorAuthorized.mockResolvedValue(false);
+
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).resolves.toMatchObject({
+				connected: true,
+			});
+			expect(syncsRepository.isSyncActorAuthorized).not.toHaveBeenCalled();
+		});
+
+		it("treats a missing sync row as stale and never creates a spreadsheet", async () => {
+			const { leadsRepository, service, sheetsClient, syncsRepository } =
+				buildService();
+			let insideLock = false;
+			syncsRepository.withProjectSyncLock.mockImplementationOnce(
+				async <T>(
+					_projectId: string,
+					_mode: "try" | "wait",
+					fn: () => Promise<T>,
+				) => {
+					insideLock = true;
+					try {
+						return await fn();
+					} finally {
+						insideLock = false;
+					}
+				},
+			);
+			syncsRepository.findByProject.mockImplementationOnce(async () => {
+				expect(insideLock).toBe(true);
+				return null;
+			});
+
+			await expect(
+				service.syncProject(
+					SCOPE,
+					{ id: PROJECT_ID, name: "Parfums d'Alger" },
+					"try",
+					{ lastSyncedAt: null },
+				),
+			).rejects.toThrow(LeadSheetSyncStaleError);
+			expect(insideLock).toBe(false);
+			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
+			expect(sheetsClient.beginStagedRewrite).not.toHaveBeenCalled();
+			expect(syncsRepository.now).not.toHaveBeenCalled();
+			expect(syncsRepository.recordSyncResult).not.toHaveBeenCalled();
+			expect(leadsRepository.listForProjectSync).not.toHaveBeenCalled();
+		});
+
+		it("treats a changed sync owner as stale and never creates a spreadsheet", async () => {
+			const { leadsRepository, service, sheetsClient, syncsRepository } =
+				buildService();
+			const scheduledAt = new Date("2026-08-25T10:00:00.000Z");
+			syncsRepository.findByProject.mockResolvedValue({
+				...SYNC_ROW,
+				lastSyncedAt: scheduledAt,
+				syncedByUserId: "another-user",
+				syncedLeadCount: 2,
+			});
+
+			await expect(
+				service.syncProject(
+					SCOPE,
+					{ id: PROJECT_ID, name: "Parfums d'Alger" },
+					"try",
+					{ lastSyncedAt: scheduledAt },
+				),
+			).rejects.toThrow(LeadSheetSyncStaleError);
+			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
+			expect(sheetsClient.beginStagedRewrite).not.toHaveBeenCalled();
+			expect(syncsRepository.now).not.toHaveBeenCalled();
+			expect(syncsRepository.recordSyncResult).not.toHaveBeenCalled();
+			expect(leadsRepository.listForProjectSync).not.toHaveBeenCalled();
+		});
+
+		it("treats a changed last sync timestamp as stale and never creates a spreadsheet", async () => {
+			const { leadsRepository, service, sheetsClient, syncsRepository } =
+				buildService();
+			syncsRepository.findByProject.mockResolvedValue({
+				...SYNC_ROW,
+				lastSyncedAt: new Date("2026-08-25T10:30:00.000Z"),
+				syncedLeadCount: 3,
+			});
+
+			await expect(
+				service.syncProject(
+					SCOPE,
+					{ id: PROJECT_ID, name: "Parfums d'Alger" },
+					"try",
+					{ lastSyncedAt: new Date("2026-08-25T10:00:00.000Z") },
+				),
+			).rejects.toThrow(LeadSheetSyncStaleError);
+			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
+			expect(sheetsClient.beginStagedRewrite).not.toHaveBeenCalled();
+			expect(syncsRepository.now).not.toHaveBeenCalled();
+			expect(syncsRepository.recordSyncResult).not.toHaveBeenCalled();
+			expect(leadsRepository.listForProjectSync).not.toHaveBeenCalled();
+		});
+
+		it("treats a no-longer-authorized sync actor as stale under the lock", async () => {
+			const { leadsRepository, service, sheetsClient, syncsRepository } =
+				buildService();
+			const scheduledAt = new Date("2026-08-25T10:00:00.000Z");
+			let insideLock = false;
+			syncsRepository.findByProject.mockResolvedValue({
+				...SYNC_ROW,
+				lastSyncedAt: scheduledAt,
+				syncedLeadCount: 2,
+			});
+			syncsRepository.isSyncActorAuthorized.mockImplementationOnce(async () => {
+				expect(insideLock).toBe(true);
+				return false;
+			});
+			syncsRepository.withProjectSyncLock.mockImplementationOnce(
+				async <T>(
+					_projectId: string,
+					_mode: "try" | "wait",
+					fn: () => Promise<T>,
+				) => {
+					insideLock = true;
+					try {
+						return await fn();
+					} finally {
+						insideLock = false;
+					}
+				},
+			);
+
+			await expect(
+				service.syncProject(
+					SCOPE,
+					{ id: PROJECT_ID, name: "Parfums d'Alger" },
+					"try",
+					{ lastSyncedAt: scheduledAt },
+				),
+			).rejects.toThrow(LeadSheetSyncStaleError);
+			expect(insideLock).toBe(false);
+			expect(syncsRepository.isSyncActorAuthorized).toHaveBeenCalledWith(
+				PROJECT_ID,
+				USER_ID,
+			);
+			expect(sheetsClient.beginStagedRewrite).not.toHaveBeenCalled();
+			expect(syncsRepository.now).not.toHaveBeenCalled();
+			expect(syncsRepository.recordSyncResult).not.toHaveBeenCalled();
+			expect(leadsRepository.listForProjectSync).not.toHaveBeenCalled();
 		});
 	});
 });

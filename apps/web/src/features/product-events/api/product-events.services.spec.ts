@@ -16,6 +16,7 @@ import { createProductEvent } from "./product-events.services";
 const REQUEST: CreateProductEventRequest = {
 	idempotencyKey: "11111111-1111-4111-8111-111111111111",
 	kind: "upgrade_clicked",
+	properties: { method: "card" },
 	surface: "workspace_header",
 };
 

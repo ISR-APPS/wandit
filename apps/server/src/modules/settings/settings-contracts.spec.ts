@@ -5,7 +5,9 @@ import {
 	adminCreditLedgerEntrySchema,
 	backfillSignupGrantsBodySchema,
 	backfillSignupGrantsResponseSchema,
+	patchProductSettingsBodySchema,
 	productSettingsUpdateResponseSchema,
+	publicSettingsSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -31,6 +33,7 @@ describe("workstream 5 contract round-trips", () => {
 		const settings = {
 			emailAuthEnabled: false,
 			id: 1,
+			lifecycleEmailsEnabled: false,
 			manualGraceDays: 3,
 			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
@@ -52,6 +55,18 @@ describe("workstream 5 contract round-trips", () => {
 				signupGrantSkippedCount: 12,
 			}).signupGrantSkippedCount,
 		).toBe(12);
+	});
+
+	it("keeps the lifecycle email switch writable by admins but out of public settings", () => {
+		expect(
+			patchProductSettingsBodySchema.parse({
+				lifecycleEmailsEnabled: true,
+				version: 4,
+			}),
+		).toEqual({ lifecycleEmailsEnabled: true, version: 4 });
+		expect(publicSettingsSchema.shape).not.toHaveProperty(
+			"lifecycleEmailsEnabled",
+		);
 	});
 
 	it("parses the admin analytics additions", () => {

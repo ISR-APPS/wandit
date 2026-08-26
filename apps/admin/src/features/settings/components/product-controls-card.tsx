@@ -60,6 +60,7 @@ const BOOLEAN_SETTING_KEYS = [
 	"topupsEnabled",
 	"organizationsEnabled",
 	"emailAuthEnabled",
+	"lifecycleEmailsEnabled",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -130,6 +131,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "The auth dialog will offer email sign-in: users receive a magic link or 6-digit code, and any verified email address can create an account. Requires a configured email provider (RESEND_API_KEY)."
 				: "The email form disappears from the auth dialog and sign-in emails stop being sent (already-sent links/codes stay valid for up to 10 minutes). Google sign-in is unaffected. Accounts created via email stay intact but cannot sign in again until this is re-enabled — unless their address is also a Google account.",
+	},
+	lifecycleEmailsEnabled: {
+		label: "Lifecycle emails",
+		description:
+			"Control delivery of lifecycle email automations from the durable event outbox.",
+		consequence: (nextValue) =>
+			nextValue
+				? "New eligible lifecycle events will be delivered to Resend automations. Events dropped while this switch was disabled will not be replayed."
+				: "Queued and future lifecycle events will be recorded but dropped without sending. Transactional emails such as sign-in links, invitations, and receipts are unaffected.",
 	},
 };
 
@@ -333,8 +343,8 @@ export function ProductControlsCard({
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<CardTitle>Admission controls</CardTitle>
 						<CardDescription className="max-w-2xl">
-							Kill switches affect new admissions only. Paid entitlements and
-							credits already issued remain intact.
+							Kill switches control new admissions and lifecycle delivery. Paid
+							entitlements and credits already issued remain intact.
 						</CardDescription>
 					</div>
 				</div>

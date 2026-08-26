@@ -217,6 +217,7 @@
 			"sheets": {
 				"title": "Google Sheets",
 				"lastSync": "Last sync {time}",
+				"autoSync": "Syncs automatically every {minutes} min",
 				"justNow": "just now",
 				"sync": "Sync",
 				"syncing": "Syncing…",

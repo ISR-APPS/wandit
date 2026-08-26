@@ -5,6 +5,8 @@ import { ConnectorGenerationRecoveryService } from "../modules/connector-generat
 import { ConnectorGenerationsRepository } from "../modules/connector-generations/infrastructure/persistence/connector-generations.repository";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { MeteringService } from "../modules/metering/application/services/metering.service";
 import {
 	type ModelPricingCache,
@@ -30,6 +32,7 @@ export function createTriggerMetering(db: TriggerDatabase): MeteringService {
 		pricing,
 		createProviderMeteringGateway(),
 		new OrganizationLimitsRepository(db),
+		new LifecycleEventsService(new LifecycleEventsRepository(db)),
 	);
 }
 

@@ -123,6 +123,9 @@ describe("runImageAnimation", () => {
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(dependencies.markSucceeded).mock.calls[0]?.[3]).toBe(
+			USER_ID,
+		);
 		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
 		expect(
 			vi.mocked(dependencies.settle).mock.invocationCallOrder[0],

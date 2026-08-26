@@ -2,6 +2,7 @@ import { captureEvent } from "@wandit/analytics/browser";
 import type {
 	CreateProductEventRequest,
 	ProductEventKind,
+	ProductEventMethod,
 	ProductEventSurface,
 } from "@wandit/contracts";
 
@@ -19,7 +20,10 @@ export type ProductEventSessionState =
 type ProductEventRuntime = {
 	capture: (
 		event: ProductEventKind,
-		properties: { surface: ProductEventSurface },
+		properties: {
+			method?: ProductEventMethod;
+			surface: ProductEventSurface;
+		},
 	) => void;
 	createIdempotencyKey: () => string;
 	getSessionStorage: () => ProductEventStorage | null;
@@ -33,9 +37,12 @@ export type ProductEventEmitter = {
 		sessionState: ProductEventSessionState,
 	) => void;
 	upgradeClicked: (
-		surface: ProductEventSurface,
+		properties: {
+			method: ProductEventMethod;
+			surface: ProductEventSurface;
+		},
 		sessionState: ProductEventSessionState,
-	) => void;
+	) => Promise<void>;
 };
 
 const defaultRuntime: ProductEventRuntime = {
@@ -71,46 +78,43 @@ export function createProductEventEmitter(
 ): ProductEventEmitter {
 	const emittedPricingViewKeys = new Set<string>();
 
-	const emit = (
+	const emit = async (
 		kind: ProductEventKind,
 		surface: ProductEventSurface,
 		sessionState: ProductEventSessionState,
-	) => {
+		method?: ProductEventMethod,
+	): Promise<void> => {
 		try {
-			runtime.capture(kind, { surface });
+			runtime.capture(kind, method ? { method, surface } : { surface });
 		} catch {
 			// Analytics is best-effort and must never affect the interaction.
 		}
 
-		const persist = () => {
+		const persist = async () => {
 			try {
 				const request: CreateProductEventRequest = {
 					idempotencyKey: runtime.createIdempotencyKey(),
 					kind,
+					...(method ? { properties: { method } } : {}),
 					surface,
 				};
 
-				void runtime.persist(request).catch(() => undefined);
+				await runtime.persist(request);
 			} catch {
-				// UUID generation and synchronous transport failures are best-effort too.
+				// UUID generation and transport failures are best-effort too.
 			}
 		};
 
 		if (sessionState === "authenticated") {
-			persist();
+			await persist();
 			return;
 		}
 
 		if (sessionState === "pending") {
 			try {
-				void runtime
-					.resolveHasSession()
-					.then((hasSession) => {
-						if (hasSession) {
-							persist();
-						}
-					})
-					.catch(() => undefined);
+				if (await runtime.resolveHasSession()) {
+					await persist();
+				}
 			} catch {
 				// Session resolution is best-effort and never delays the interaction.
 			}
@@ -136,11 +140,10 @@ export function createProductEventEmitter(
 			}
 			emittedPricingViewKeys.add(storageKey);
 
-			emit("pricing_viewed", surface, sessionState);
+			void emit("pricing_viewed", surface, sessionState);
 		},
-		upgradeClicked: (surface, sessionState) => {
-			emit("upgrade_clicked", surface, sessionState);
-		},
+		upgradeClicked: ({ method, surface }, sessionState) =>
+			emit("upgrade_clicked", surface, sessionState, method),
 	};
 }
 

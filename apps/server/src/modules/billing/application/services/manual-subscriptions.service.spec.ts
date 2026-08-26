@@ -7,6 +7,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
+import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import type { ManualSubscriptionPaymentRow } from "../../infrastructure/persistence/manual-subscription-payments.repository";
 import type { ManualSubscriptionRequestRow } from "../../infrastructure/persistence/manual-subscription-requests.repository";
@@ -38,6 +39,7 @@ function productSettings(
 	return {
 		emailAuthEnabled: false,
 		id: 1,
+		lifecycleEmailsEnabled: false,
 		manualGraceDays: 0,
 		manualPaymentsEnabled: true,
 		organizationsEnabled: false,
@@ -151,6 +153,7 @@ function createContext(
 		[REQUEST_ID, request()],
 	]);
 	const payments: ManualSubscriptionPaymentRow[] = [];
+	const creditGrants: unknown[][] = [];
 	let subscriptionSequence = subscriptions.size;
 	let paymentSequence = 0;
 
@@ -273,13 +276,39 @@ function createContext(
 			async <T>(
 				_owner: CreditOwner,
 				fn: (transaction: typeof TRANSACTION) => Promise<T>,
-			): Promise<T> => fn(TRANSACTION),
+			): Promise<T> => {
+				const subscriptionSnapshot = new Map(subscriptions);
+				const requestSnapshot = new Map(requests);
+				const paymentSnapshot = [...payments];
+				const grantCount = creditGrants.length;
+
+				try {
+					return await fn(TRANSACTION);
+				} catch (error) {
+					subscriptions.clear();
+					for (const [id, row] of subscriptionSnapshot) {
+						subscriptions.set(id, row);
+					}
+					requests.clear();
+					for (const [id, row] of requestSnapshot) {
+						requests.set(id, row);
+					}
+					payments.splice(0, payments.length, ...paymentSnapshot);
+					creditGrants.splice(grantCount);
+
+					throw error;
+				}
+			},
 		),
 	};
 	const creditsService = {
 		applyCappedRefill: vi.fn(async () => ({})),
 		expirePlanRemainder: vi.fn(async () => 0),
-		grant: vi.fn(async () => ({})),
+		grant: vi.fn(async (...args: unknown[]) => {
+			creditGrants.push(args);
+
+			return {};
+		}),
 	};
 	const subscriptionRefillService = {
 		createYearlySlots: vi.fn(async () => 11),
@@ -389,6 +418,7 @@ function createContext(
 		get: vi.fn(async () => productSettings(settingsOverrides)),
 	};
 	const analyticsService = { capture: vi.fn() };
+	const lifecycleEvents = { enqueue: vi.fn(async () => null) };
 	const service = new ManualSubscriptionsService(
 		subscriptionsRepository as never,
 		subscriptionCreditsRepository as never,
@@ -399,13 +429,16 @@ function createContext(
 		stateEventsRepository as never,
 		checkoutAttemptsRepository as never,
 		productSettingsService as never,
+		lifecycleEvents as unknown as LifecycleEventsService,
 		analyticsService as never,
 	);
 
 	return {
 		analyticsService,
 		checkoutAttemptsRepository,
+		creditGrants,
 		creditsService,
+		lifecycleEvents,
 		payments,
 		paymentsRepository,
 		productSettingsService,
@@ -475,13 +508,62 @@ describe("ManualSubscriptionsService", () => {
 			"subscription_started",
 			{ plan: "pro", provider: "manual" },
 		);
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			{
+				event: "payment_completed",
+				idempotencyKey: `payment_completed:${USER.id}`,
+				payload: { interval: "year" },
+				userId: USER.id,
+			},
+			TRANSACTION,
+		);
 
 		await context.service.grant("admin_1", input);
 
 		expect(context.subscriptionsRepository.insertManual).toHaveBeenCalledOnce();
 		expect(context.paymentsRepository.insert).toHaveBeenCalledOnce();
 		expect(context.creditsService.grant).toHaveBeenCalledOnce();
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledOnce();
 		expect(context.analyticsService.capture).toHaveBeenCalledOnce();
+	});
+
+	it("captures a monthly manual payment inside the owner transaction", async () => {
+		const context = createContext();
+
+		await context.service.grant("admin_1", grantInput({ interval: "month" }));
+
+		expect(context.lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: `payment_completed:${USER.id}`,
+				payload: { interval: "month" },
+			}),
+			TRANSACTION,
+		);
+		expect(
+			context.subscriptionRefillService.createYearlySlots,
+		).not.toHaveBeenCalled();
+	});
+
+	it("propagates manual payment lifecycle capture failures", async () => {
+		const context = createContext();
+		context.lifecycleEvents.enqueue.mockRejectedValueOnce(
+			new Error("outbox unavailable"),
+		);
+
+		await expect(
+			context.service.grant("admin_1", grantInput()),
+		).rejects.toThrow("outbox unavailable");
+		expect(
+			context.subscriptionRefillService.createYearlySlots,
+		).not.toHaveBeenCalled();
+		expect(context.analyticsService.capture).not.toHaveBeenCalled();
+		expect(context.creditGrants).toHaveLength(0);
+		expect(context.payments).toHaveLength(0);
+		expect(context.subscriptions.size).toBe(0);
+		expect(context.requests.get(REQUEST_ID)).toMatchObject({
+			status: "pending",
+			subscriptionId: null,
+		});
 	});
 
 	it("rejects a grant when the owner already has a live subscription", async () => {

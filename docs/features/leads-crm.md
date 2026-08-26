@@ -27,11 +27,21 @@ After the capture endpoint accepts a lead, the runtime also fires Meta `Purchase
 
 Wilaya/commune are first-class columns (Algeria); anything else the page collects lands in the jsonb. Phones are normalized to canonical E.164 at capture (Arabic-Indic digits folded, `0`/`00213` prefixes mapped to `+213`; raw input kept in extras; unparseable → validation error — a DB CHECK enforces the shape). Source is derived server-side from attribution (fbclid/utm_source → facebook, ttclid → tiktok, else direct). Status changes are single-tap from the table (the audience works phone-first, mobile-first). CSV and Sheets exports put the fixed columns first, then five always-present promoted order columns (product, quantity, price, delivery, total — filled from the canonical extras keys plus a French/Arabic/English synonym recognizer in `@wandit/contracts`, so pages generated before the canonical-keys rule still land in them), then one column per remaining dynamic form field (first-appearance order over the newest-first lead list, capped at 100 with a serialized "Autres champs" catch-all), UTF-8 BOM for Arabic names. The lead tables show the same promoted facts as an always-visible order summary line under the buyer's name. Confirmation rate = confirmed ÷ (confirmed + cancelled).
 
+## Google Sheets auto-sync
+
+The Trigger.dev task `lead-sheet-auto-sync` runs every 30 minutes with a 15-minute sweep budget, leaving ten minutes before Trigger's hard duration limit for the final in-flight rewrite. It only selects attached sheets that have never synced, have changed leads, or have a lead-count mismatch. The nullable `lead_sheet_syncs.synced_by_user_id` column remembers which member's Google account owns the sheet; the migration backfills personal projects only, while organization projects wait for their next manual sync. Because the sweep has no request guard, organization candidates must also prove that the sheet owner is still a current organization member.
+
+Manual and automatic rewrites share a per-project, session-level Postgres advisory lock held on a short-lived dedicated connection, so Google I/O never pins a pooled connection. The dedicated client handles idle-session `error` events so a Postgres, proxy, or failover disconnect cannot crash the process; if the connection is lost while Google I/O is in flight, the rewrite surfaces a lock-loss error instead of being reported as successfully locked. Before an automatic rewrite starts under that lock, it re-reads the attachment and skips stale candidates when the row disappeared, its owner changed, or another sync changed `last_synced_at`. It also re-checks under the lock that the sheet owner still owns the personal project or remains a member of the project's organization, closing the gap between candidate selection and export.
+
+The sweep spaces projects owned by the same Google user at least five seconds apart. A Google 429 defers that project and all later projects for that user for the rest of the sweep instead of repeatedly consuming quota. Revoked Google grants remain skips until the merchant reconnects; after one token-mint failure, later candidates for that user are skipped without another mint or pacing delay. Token-mint failures are tracked by distinct user. One failing user is treated as a revoked merchant grant, while two or more failing users with nothing synced mark the Trigger run failed because that pattern points to a Trigger secret or Google client mismatch. Any ordinary project failure still marks the run failed.
+
+Freshness comparisons use the database clock on both sides: lead `updated_at` updates with database `now()`, and sync timestamps plus the sweep's comparison time come from the same clock. This prevents application-host clock skew from making an unchanged sheet appear due or hiding a changed lead.
+
 ## Does not own
 
 - The form markup inside generated pages (→ site-builder prompt + design worlds; the `wandit:lead` contract above is the shared spec).
 - Lead email/push notifications (post-MVP).
-- Google Sheets sync, analytics dashboards (post-MVP).
+- Analytics dashboards (post-MVP).
 
 ## Issue breakdown
 

@@ -49,6 +49,8 @@ import {
 	triggerDomainConfigurationTask,
 	triggerDomainPurchaseTask,
 } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { DomainRegistrationFulfillment } from "../modules/orders/application/fulfillment/domain-registration.fulfillment";
 import { OrderFulfillmentRegistry } from "../modules/orders/application/services/order-fulfillment.registry";
 import { OrderRefundsService } from "../modules/orders/application/services/order-refunds.service";
@@ -113,6 +115,7 @@ export function createManualBillingRuntime(db: TriggerDatabase) {
 			new SubscriptionStateEventsRepository(db),
 			new BillingCheckoutAttemptsRepository(db),
 			new ProductSettingsService(new ProductSettingsRepository(db)),
+			createLifecycleEvents(db),
 		),
 	};
 }
@@ -180,6 +183,7 @@ export function createBillingWebhookRuntime(
 		new OrganizationBillingCustomersRepository(db),
 		payment.reconciliationOutbox,
 		new BillingTopupReceiptsRepository(db),
+		createLifecycleEvents(db),
 	);
 	const subscriptionSync = new StripeSubscriptionSyncService(
 		billingCustomers,
@@ -266,6 +270,10 @@ function createAffiliateCore(
 
 function createCredits(db: TriggerDatabase): CreditsService {
 	return new CreditsService(new CreditsRepository(db));
+}
+
+function createLifecycleEvents(db: TriggerDatabase): LifecycleEventsService {
+	return new LifecycleEventsService(new LifecycleEventsRepository(db));
 }
 
 function createOrderReconciler(
