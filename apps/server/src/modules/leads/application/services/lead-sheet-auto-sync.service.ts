@@ -186,7 +186,9 @@ export class LeadSheetAutoSyncService {
 					continue;
 				}
 
-				const message = errorMessage(error);
+				// Keep the cause chain: a Drizzle query error only says "Failed
+				// query: …" — the Postgres message and SQLSTATE live in `cause`.
+				const message = describeError(error);
 				summary.failed += 1;
 				summary.failures.push({ message, projectId: candidate.projectId });
 				this.logger.error(
@@ -222,6 +224,42 @@ function errorMessage(error: unknown): string {
 
 function errorCauseMessage(error: Error): string {
 	return errorMessage(error.cause ?? error);
+}
+
+const MAX_CAUSE_DEPTH = 5;
+
+/**
+ * The error message followed by each `cause` down the chain, with driver
+ * codes (for example a Postgres SQLSTATE) when present. Wrappers such as
+ * DrizzleQueryError and BadGatewayException hide the actionable message in
+ * `cause`, and the sweep's failure list is the only place it surfaces.
+ */
+function describeError(error: unknown): string {
+	const parts: string[] = [];
+	let current: unknown = error;
+
+	for (
+		let depth = 0;
+		depth < MAX_CAUSE_DEPTH && current !== undefined && current !== null;
+		depth += 1
+	) {
+		parts.push(errorSummary(current));
+		current = current instanceof Error ? current.cause : undefined;
+	}
+
+	return parts.join(" — caused by: ");
+}
+
+function errorSummary(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return String(error);
+	}
+
+	const code = (error as { code?: unknown }).code;
+
+	return typeof code === "string" && code.length > 0
+		? `[${code}] ${error.message}`
+		: error.message;
 }
 
 function googleSheetsApiCause(

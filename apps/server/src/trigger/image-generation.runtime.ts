@@ -178,10 +178,13 @@ function createPersistence(
 			.update(imageGenerationAttempts)
 			.set({
 				error: null,
+				// jsonb_build_object takes VARIADIC "any", so Postgres cannot infer the
+				// bound parameter's type from context — an uncast parameter fails the
+				// whole UPDATE with 42P18 "could not determine data type of parameter".
 				spec: sql`coalesce(
 					${imageGenerationAttempts.spec},
 					'{}'::jsonb
-				) || jsonb_build_object('actorUserId', ${input.actorUserId})`,
+				) || jsonb_build_object('actorUserId', ${input.actorUserId}::text)`,
 				startedAt: input.startedAt,
 				status: "generating",
 				triggerRunId: input.runId,

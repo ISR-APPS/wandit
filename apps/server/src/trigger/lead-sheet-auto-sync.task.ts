@@ -53,8 +53,19 @@ export const leadSheetAutoSyncTask = schedules.task({
 				summary.failed > 0 ||
 				(summary.synced === 0 && summary.tokenFailedUsers >= 2)
 			) {
+				// The message stays stable so Sentry groups every sweep failure
+				// together; the per-project reasons ride along as the cause.
 				throw new Error(
 					`Lead sheet auto-sync left ${summary.failed} project(s) unsynced and ${summary.tokenFailed} token mint(s) failed across ${summary.tokenFailedUsers} user(s)`,
+					failures.length > 0
+						? {
+								cause: new Error(
+									failures
+										.map(({ message, projectId }) => `${projectId}: ${message}`)
+										.join("\n"),
+								),
+							}
+						: undefined,
 				);
 			}
 

@@ -158,6 +158,28 @@ describe("LeadSheetAutoSyncService", () => {
 		expect(syncService.syncProject).toHaveBeenCalledTimes(2);
 	});
 
+	it("reports the cause chain and driver code of a wrapped failure", async () => {
+		const { service, syncService } = buildService();
+		const databaseError = Object.assign(
+			new Error("could not determine data type of parameter $2"),
+			{ code: "42P18" },
+		);
+		syncService.syncProject.mockRejectedValueOnce(
+			new Error("Failed query: select 1", { cause: databaseError }),
+		);
+
+		await expect(service.sweep()).resolves.toMatchObject({
+			failed: 1,
+			failures: [
+				{
+					message:
+						"Failed query: select 1 — caused by: [42P18] could not determine data type of parameter $2",
+					projectId: "project-personal",
+				},
+			],
+		});
+	});
+
 	it("counts a lost lock as a failed project", async () => {
 		const { service, syncService } = buildService();
 		syncService.syncProject.mockRejectedValueOnce(
@@ -168,7 +190,8 @@ describe("LeadSheetAutoSyncService", () => {
 			failed: 1,
 			failures: [
 				{
-					message: "The lead sheet sync lock connection was lost",
+					message:
+						"The lead sheet sync lock connection was lost — caused by: connection terminated",
 					projectId: "project-personal",
 				},
 			],
