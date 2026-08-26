@@ -1,0 +1,1 @@
+CREATE INDEX "domains_paymentOrderId_idx" ON "domains" USING btree ("payment_order_id");

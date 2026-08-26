@@ -390,14 +390,14 @@ describe("AdminOverviewRepository overview SQL", () => {
 		const { controlQueries, queries, transaction } =
 			await compileOverviewQueries();
 
-		expect(transaction).toHaveBeenCalledTimes(10);
+		expect(transaction).toHaveBeenCalledTimes(9);
 		for (const [, options] of transaction.mock.calls) {
 			expect(options).toEqual({
 				accessMode: "read only",
 				isolationLevel: "repeatable read",
 			});
 		}
-		expect(controlQueries).toHaveLength(10);
+		expect(controlQueries).toHaveLength(9);
 		expect(controlQueries[0]).toBe(
 			"select pg_export_snapshot() as snapshot_id",
 		);
@@ -408,7 +408,7 @@ describe("AdminOverviewRepository overview SQL", () => {
 					query.startsWith("set transaction snapshot '00000003-0000001B-1'"),
 				),
 		).toBe(true);
-		expect(queries).toHaveLength(9);
+		expect(queries).toHaveLength(8);
 	});
 
 	it("starts all overview queries before any query resolves", async () => {
@@ -427,10 +427,10 @@ describe("AdminOverviewRepository overview SQL", () => {
 
 		const request = repository.getOverview(PRESET_BOUNDS);
 
-		await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(9));
+		await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(8));
 		for (const resolve of resolvers) resolve({ rows: [] });
 		await request;
-		expect(transaction).toHaveBeenCalledTimes(10);
+		expect(transaction).toHaveBeenCalledTimes(9);
 	});
 
 	it("uses explicit series and snapshot bounds and an exactly equal previous interval", async () => {
@@ -469,10 +469,10 @@ describe("AdminOverviewRepository overview SQL", () => {
 		const usageQueries = queries.filter(
 			(query) =>
 				query.includes("from ai_usage_events e") &&
-				(query.includes("usage_totals as") || query.includes("grouped as")),
+				query.includes("grouped as"),
 		);
 
-		expect(usageQueries).toHaveLength(2);
+		expect(usageQueries).toHaveLength(1);
 		for (const query of usageQueries) {
 			const reconciledCost = query.indexOf("e.reconciled_cost_usd_micros");
 			const settledCost = query.indexOf(
@@ -487,6 +487,26 @@ describe("AdminOverviewRepository overview SQL", () => {
 				/jsonb_typeof\(\s*e\.pricing_snapshot -> 'costUsdMicros'\s*\) = 'number'/,
 			);
 		}
+	});
+
+	it("bounds every generation source before one daily and summary aggregation", async () => {
+		const { queries } = await compileOverviewQueries();
+		const generationQuery =
+			queries.find((query) => query.includes("daily_metrics as")) ?? "";
+
+		expect(
+			generationQuery.match(/completed_at >= b\.previous_start/g),
+		).toHaveLength(5);
+		expect(
+			generationQuery.match(/completed_at < b\.current_end/g),
+		).toHaveLength(5);
+		expect(generationQuery).toContain(
+			"from terminal_attempts t cross join bounds b group by 1",
+		);
+		expect(generationQuery).toContain(
+			"sum(d.current_attempts) over () as total_current_attempts",
+		);
+		expect(generationQuery).not.toContain("relevant_attempts as");
 	});
 
 	it("includes paid fulfilling orders and excludes non-collected terminal states", async () => {
