@@ -13,6 +13,7 @@ import { storeImageVariants } from "../../../../infrastructure/storage/store-ima
 import {
 	editImageFromSources,
 	generateStandaloneImage,
+	SINGLE_FRAME_INSTRUCTION,
 	SOURCE_FIDELITY_INSTRUCTION,
 	STANDALONE_SIZE_BY_ASPECT,
 } from "./image-generator";
@@ -148,6 +149,42 @@ describe("generateStandaloneImage", () => {
 			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
 			width: 1024,
+		});
+	});
+
+	it("appends the single-frame instruction to a text-to-image prompt", async () => {
+		mockGeneratedImage();
+
+		await generateStandaloneImage(PARAMS);
+
+		expect(generateImage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: `${PARAMS.prompt}\n${SINGLE_FRAME_INSTRUCTION}`,
+			}),
+		);
+	});
+
+	it("appends the single-frame instruction on the edit path too", async () => {
+		mockEnv.AI_IMAGE_EDIT_MODEL = "google/gemini-3-pro-image";
+		mockEditedImage();
+
+		await generateStandaloneImage({
+			...PARAMS,
+			sourceImageUrls: ["https://assets.example.com/uploads/u1/a/photo.jpg"],
+		});
+
+		const content =
+			vi.mocked(generateText).mock.calls[0]?.[0]?.messages?.[0]?.content;
+
+		if (!Array.isArray(content)) {
+			throw new Error("expected a content array");
+		}
+
+		expect(content[0]).toMatchObject({
+			text: expect.stringContaining(
+				`${SOURCE_FIDELITY_INSTRUCTION}${PARAMS.prompt}\n${SINGLE_FRAME_INSTRUCTION}\n`,
+			),
+			type: "text",
 		});
 	});
 

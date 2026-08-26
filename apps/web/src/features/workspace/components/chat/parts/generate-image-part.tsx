@@ -193,7 +193,11 @@ export function ImageGenerationAttemptView({
 				<div
 					className={cn(
 						"grid gap-2",
-						total > 1 ? "grid-cols-2" : "grid-cols-1",
+						total > 4
+							? "grid-cols-3"
+							: total > 1
+								? "grid-cols-2"
+								: "grid-cols-1",
 					)}
 				>
 					{Array.from({ length: total }, (_, slot) => {

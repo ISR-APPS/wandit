@@ -1,6 +1,8 @@
 /**
- * generate_image — queues one image generation (1-4 images), optionally
- * placing one result into a current page image when it finishes.
+ * generate_image — queues one image generation (1-6 SEPARATE images, one
+ * provider call each), optionally placing one result into a current page
+ * image when it finishes. The runtime appends a single-frame instruction to
+ * the prompt, so a "shoot" can never come back as a collage in one picture.
  *
  * Two paths share one attempt: pure text-to-image, and EDIT mode when the
  * model passes user-attached source images (product photo, logo) so outputs
@@ -17,6 +19,7 @@ import {
 	type GenerateImageOutput,
 	generateImageInputSchema,
 	generateImageOutputSchema,
+	MAX_IMAGES_PER_GENERATION,
 	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -71,8 +74,16 @@ export function createGenerateImageTool(
 
 	return tool({
 		description:
-			"Queue an image generation (1-4 images) that runs in the background; " +
-			"results appear in the conversation and in the user's Assets tab. " +
+			"Queue an image generation that runs in the background; results " +
+			"appear in the conversation and in the user's Assets tab. count " +
+			`(1-${MAX_IMAGES_PER_GENERATION}) is the number of SEPARATE image ` +
+			"files, each its own render of the prompt — so the prompt must " +
+			"describe exactly ONE frame, never a grid, collage, contact sheet, " +
+			"split-screen, or 'several shots/angles in one picture'. For a " +
+			"shoot with different shots (front, detail, lifestyle…), call this " +
+			"tool once per distinct shot in the same reply, each with its own " +
+			`prompt, at most ${MAX_IMAGES_PER_GENERATION} images in total; use ` +
+			"count above 1 only for variations of the same shot. " +
 			"When replacing an existing page image, pass placement with that " +
 			"image's verified data-wid; the selected generated result is applied " +
 			"to the page automatically when ready. Do not ask for an attachment " +
@@ -83,7 +94,7 @@ export function createGenerateImageTool(
 			"more, pick the most representative ones (front, back, details, " +
 			"logo); any extras are skipped and the result says so — relay that " +
 			"gently to the user. Without sources it generates from the prompt " +
-			"alone. Call once per requested set.",
+			"alone. Call once per distinct shot, never again because it feels slow.",
 		inputSchema: generateImageInputSchema,
 		outputSchema: generateImageOutputSchema,
 		execute: async (input, options): Promise<GenerateImageOutput> => {

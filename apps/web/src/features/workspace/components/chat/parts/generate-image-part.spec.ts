@@ -90,6 +90,19 @@ describe("ImageGenerationAttemptView", () => {
 		expect(html).not.toContain("<img");
 	});
 
+	it("lays a six-image set out in three columns, one slot per image", () => {
+		const html = renderAttempt({
+			completedAt: null,
+			count: 6,
+			images: [],
+			status: "generating",
+		});
+
+		expect(html.match(/data-slot="skeleton"/g)).toHaveLength(6);
+		expect(html).toContain("grid-cols-3");
+		expect(html).toContain("0 of 6 ready");
+	});
+
 	it("fills completed slots while preserving the remaining skeletons", () => {
 		const html = renderAttempt({
 			completedAt: null,
