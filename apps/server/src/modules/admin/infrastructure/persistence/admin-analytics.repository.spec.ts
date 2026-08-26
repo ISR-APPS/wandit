@@ -1137,21 +1137,44 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 			"boundary_subscription_history as",
 		);
 
-		expect(retention.sql).toContain("when ended.id is not null then 'ended'");
+		expect(retention.sql).toContain("subscription_first_boundaries as");
+		expect(retention.sql).toContain("min(s.boundary_at) as first_boundary_at");
 		expect(retention.sql).toContain(
-			"else coalesce(history_status.to_status, s.current_status)",
+			"bool_or(e.kind = 'ended') over event_order as has_ended",
+		);
+		expect(retention.sql).toContain("order by e.occurred_at, e.id");
+		expect(retention.sql).toContain(
+			"rows between unbounded preceding and current row",
+		);
+		expect(retention.sql).toContain(
+			"count(e.to_status) over event_order as status_version",
+		);
+		expect(retention.sql).toContain(
+			"count(e.to_lookup_key) over event_order as lookup_version",
+		);
+		expect(retention.sql).toContain("max(e.to_status) over");
+		expect(retention.sql).toContain("max(e.to_lookup_key) over");
+		expect(retention.sql).toContain(
+			"select distinct on (e.stripe_subscription_id, e.occurred_at)",
+		);
+		expect(retention.sql).toContain(
+			"order by e.stripe_subscription_id, e.occurred_at, e.id desc",
+		);
+		expect(retention.sql).toContain("retention_state_intervals as");
+		expect(retention.sql).toContain("lead(e.occurred_at) over");
+		expect(retention.sql).toContain("e.next_occurred_at > f.first_boundary_at");
+		expect(retention.sql).toContain(
+			"when coalesce(e.has_ended, false) then 'ended'",
+		);
+		expect(retention.sql).toContain(
+			"else coalesce(e.history_status, s.current_status)",
 		);
 		expect(retention.sql).toMatch(
-			/coalesce\( history_lookup\.to_lookup_key, s\.created_lookup_key, case when history_status\.to_status is null then s\.current_lookup_key end \) as effective_lookup_key/,
+			/coalesce\( e\.history_lookup, s\.created_lookup_key, case when e\.history_status is null then s\.current_lookup_key end \) as effective_lookup_key/,
 		);
-		expect(retention.sql).toContain("e.to_status is not null");
-		expect(retention.sql).toContain("e.to_lookup_key is not null");
-		expect(
-			retention.sql.match(/e\.occurred_at <= b\.boundary_at/g),
-		).toHaveLength(3);
-		expect(
-			retention.sql.match(/order by e\.occurred_at desc, e\.id desc/g),
-		).toHaveLength(3);
+		expect(retention.sql).toContain("e.occurred_at <= s.boundary_at");
+		expect(retention.sql).toContain("e.next_occurred_at > s.boundary_at");
+		expect(retention.sql).not.toContain("left join lateral");
 		expect(retention.sql).toContain("count(distinct h.owner_id) filter");
 		expect(retention.sql).toContain("left join retention_lookup_totals l");
 	});
@@ -1178,7 +1201,16 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 			"coalesce(nullif(upper(btrim(ua.country)), ''), 'unknown') as country",
 		);
 		expect(churn.sql).toContain("else 'unknown' end as plan");
-		expect(churn.sql).toContain("and e.event_at < c.churned_at");
+		expect(churn.sql).toContain("churned_projects as");
+		expect(churn.sql).toContain(
+			"c.owner_id = coalesce(p.organization_id, p.user_id)",
+		);
+		expect(churn.sql).toContain("a.completed_at < c.churned_at");
+		expect(churn.sql).toContain("a.created_at < c.churned_at");
+		expect(churn.sql).toContain("e.created_at < c.churned_at");
+		expect(churn.sql).toContain("d.created_at < c.churned_at");
+		expect(churn.sql).toContain("connector_usage_events as materialized");
+		expect(churn.sql).toContain("domain_usage_events as materialized");
 		expect(churn.sql).toContain(
 			"left join cancellation_reasons r on r.ended_state_event_id = e.id",
 		);
@@ -1190,13 +1222,14 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 			"select 'reason', r.reason, r.churned, null::text, 0::bigint",
 		);
 
-		const usageStart = churn.sql.indexOf("churn_usage_events as");
+		const usageStart = churn.sql.indexOf("churned_projects as");
 		const usageEnd = churn.sql.indexOf("churn_feature_owners as", usageStart);
 		const featureUsage = churn.sql.slice(usageStart, usageEnd);
 		expect(usageStart).toBeGreaterThanOrEqual(0);
 		expect(usageEnd).toBeGreaterThan(usageStart);
 		expect(featureUsage).not.toContain("b.range_start");
-		expect(featureUsage).not.toContain("b.range_end");
+		expect(featureUsage.match(/created_at < b\.range_end/g)).toHaveLength(9);
+		expect(featureUsage).toContain("a.completed_at < b.range_end");
 		for (const feature of [
 			"websites",
 			"landingPages",

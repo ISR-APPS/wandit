@@ -34,19 +34,16 @@ type RevenueRow = {
 	total_change_percent: NumericValue;
 };
 
-type UsageTotalsRow = {
+type UsageRow = {
 	tokens_used: NumericValue;
 	tokens_change_percent: NumericValue;
 	cost_usd_minor: NumericValue;
-};
-
-type ModelUsageRow = {
-	model_id: string;
-	raw_model: string;
-	provider: string;
-	tokens_used: NumericValue;
+	model_id: string | null;
+	raw_model: string | null;
+	provider: string | null;
+	model_tokens_used: NumericValue;
 	usage_share_percent: NumericValue;
-	cost_usd_minor: NumericValue;
+	model_cost_usd_minor: NumericValue;
 };
 
 type AssetTotalsRow = {
@@ -419,102 +416,94 @@ export class AdminOverviewRepository {
 		client: AdminOverviewDbClient,
 		input: AdminDashboardRangeBounds,
 	) {
-		const [totalsResult, modelsResult] = await Promise.all([
-			client.execute<UsageTotalsRow>(sql`
-				with bounds as (${overviewBounds(input)}),
-				usage_totals as (
-					select
-						coalesce(sum(
-							coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-						) filter (
-							where e.created_at >= b.current_start
-						), 0)::bigint as current_tokens,
-						coalesce(sum(
-							coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-						) filter (
-							where e.created_at < b.current_start
-						), 0)::bigint as previous_tokens,
-						coalesce(sum(
-							coalesce(
-								e.reconciled_cost_usd_micros,
-								case
-									when jsonb_typeof(
-										e.pricing_snapshot -> 'costUsdMicros'
-									) = 'number'
-										then (
-											e.pricing_snapshot ->> 'costUsdMicros'
-										)::bigint
-								end,
-								e.estimated_cost_usd_micros,
-								0
-							)
-						) filter (
-							where e.created_at >= b.current_start
-						), 0)::bigint as current_cost_micros
-					from ai_usage_events e
-					cross join bounds b
-					where e.created_at >= b.previous_start
-						and e.created_at < b.current_end
-						and e.status in ('settled', 'reconciled', 'reconcile_failed')
-				)
+		const result = await client.execute<UsageRow>(sql`
+			with bounds as (${overviewBounds(input)}),
+			grouped as (
 				select
-					u.current_tokens as tokens_used,
-					${percentChangeSql(sql`u.current_tokens`, sql`u.previous_tokens`)} as tokens_change_percent,
-					round(u.current_cost_micros::numeric / 10000)::bigint as cost_usd_minor
-				from usage_totals u
-			`),
-			client.execute<ModelUsageRow>(sql`
-				with bounds as (${overviewBounds(input)}),
-				grouped as (
-					select
-						coalesce(nullif(lower(trim(e.provider)), ''), 'unknown') as provider,
-						coalesce(nullif(trim(e.model), ''), 'unknown') as raw_model,
-						sum(
-							coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-						)::bigint as tokens,
-						sum(coalesce(
-							e.reconciled_cost_usd_micros,
-							case
-								when jsonb_typeof(
-									e.pricing_snapshot -> 'costUsdMicros'
-								) = 'number'
-									then (
-										e.pricing_snapshot ->> 'costUsdMicros'
-									)::bigint
-							end,
-							e.estimated_cost_usd_micros,
-							0
-						))::bigint as cost_micros
-					from ai_usage_events e
-					cross join bounds b
-					where e.created_at >= b.current_start
-						and e.created_at < b.current_end
-						and e.status in ('settled', 'reconciled', 'reconcile_failed')
-					group by 1, 2
-				),
-				with_shares as (
-					select
-						g.*,
-						sum(g.tokens) over () as total_tokens
-					from grouped g
-				)
+					coalesce(nullif(lower(trim(e.provider)), ''), 'unknown') as provider,
+					coalesce(nullif(trim(e.model), ''), 'unknown') as raw_model,
+					coalesce(sum(
+						coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+					) filter (
+						where e.created_at >= b.current_start
+					), 0)::bigint as current_tokens,
+					coalesce(sum(
+						coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+					) filter (
+						where e.created_at < b.current_start
+					), 0)::bigint as previous_tokens,
+					coalesce(sum(coalesce(
+						e.reconciled_cost_usd_micros,
+						case
+							when jsonb_typeof(
+								e.pricing_snapshot -> 'costUsdMicros'
+							) = 'number'
+								then (
+									e.pricing_snapshot ->> 'costUsdMicros'
+								)::bigint
+						end,
+						e.estimated_cost_usd_micros,
+						0
+					)) filter (
+						where e.created_at >= b.current_start
+					), 0)::bigint as current_cost_micros
+				from ai_usage_events e
+				cross join bounds b
+				where e.created_at >= b.previous_start
+					and e.created_at < b.current_end
+					and e.status in ('settled', 'reconciled', 'reconcile_failed')
+				group by 1, 2
+			),
+			with_totals as (
 				select
-					w.raw_model as model_id,
-					w.raw_model,
-					w.provider,
-					w.tokens as tokens_used,
-					case
-						when w.total_tokens = 0 then 0
-						else round(w.tokens::numeric / w.total_tokens * 100, 1)
-					end::double precision as usage_share_percent,
-					round(w.cost_micros::numeric / 10000)::bigint as cost_usd_minor
-				from with_shares w
-				where w.tokens > 0 or w.cost_micros > 0
-				order by w.tokens desc, w.cost_micros desc, w.provider, w.raw_model
-			`),
-		]);
+					g.*,
+					sum(g.current_tokens) over ()::bigint as total_current_tokens,
+					sum(g.previous_tokens) over ()::bigint as total_previous_tokens,
+					sum(g.current_cost_micros) over ()::bigint
+						as total_current_cost_micros
+				from grouped g
+			),
+			summary as (
+				select
+					coalesce(max(w.total_current_tokens), 0)::bigint as current_tokens,
+					coalesce(max(w.total_previous_tokens), 0)::bigint as previous_tokens,
+					coalesce(max(w.total_current_cost_micros), 0)::bigint
+						as current_cost_micros
+				from with_totals w
+			),
+			models as (
+				select w.*
+				from with_totals w
+				where w.current_tokens > 0 or w.current_cost_micros > 0
+			)
+			select
+				s.current_tokens as tokens_used,
+				${percentChangeSql(sql`s.current_tokens`, sql`s.previous_tokens`)} as tokens_change_percent,
+				round(s.current_cost_micros::numeric / 10000)::bigint
+					as cost_usd_minor,
+				m.raw_model as model_id,
+				m.raw_model,
+				m.provider,
+				m.current_tokens as model_tokens_used,
+				case
+					when s.current_tokens = 0 then 0
+					else round(
+						m.current_tokens::numeric / s.current_tokens * 100,
+						1
+					)
+				end::double precision as usage_share_percent,
+				round(m.current_cost_micros::numeric / 10000)::bigint
+					as model_cost_usd_minor
+			from summary s
+			left join models m on true
+			order by
+				m.current_tokens desc,
+				m.current_cost_micros desc,
+				m.provider,
+				m.raw_model
+		`);
 
-		const totals = totalsResult.rows[0];
+		const totals = result.rows[0];
 
 		return {
 			summary: {
@@ -522,14 +511,20 @@ export class AdminOverviewRepository {
 				tokensChangePercent: toNumber(totals?.tokens_change_percent),
 				tokenCostUsdMinor: toNumber(totals?.cost_usd_minor),
 			},
-			models: modelsResult.rows.map((row) => ({
-				modelId: String(row.model_id),
-				rawModel: String(row.raw_model),
-				provider: String(row.provider),
-				tokensUsed: toNumber(row.tokens_used),
-				usageSharePercent: toNumber(row.usage_share_percent),
-				costUsdMinor: toNumber(row.cost_usd_minor),
-			})),
+			models: result.rows.flatMap((row) =>
+				row.model_id === null || row.raw_model === null || row.provider === null
+					? []
+					: [
+							{
+								modelId: row.model_id,
+								rawModel: row.raw_model,
+								provider: row.provider,
+								tokensUsed: toNumber(row.model_tokens_used),
+								usageSharePercent: toNumber(row.usage_share_percent),
+								costUsdMinor: toNumber(row.model_cost_usd_minor),
+							},
+						],
+			),
 		};
 	}
 
@@ -616,35 +611,44 @@ export class AdminOverviewRepository {
 			-- The shared latency is end-to-end completed_at - created_at because
 			-- page and connector attempts do not expose a started_at timestamp.
 			terminal_attempts as (
-				select status::text as status, created_at, completed_at
-				from page_generation_attempts
-				where status in ('succeeded', 'failed')
-				union all
-				select status::text, created_at, completed_at
-				from image_generation_attempts
-				where status in ('succeeded', 'failed')
-				union all
-				select status::text, created_at, completed_at
-				from media_generation_attempts
-				where status in ('succeeded', 'failed')
-				union all
-				select status::text, created_at, completed_at
-				from marketing_assets
-				where status in ('succeeded', 'failed')
-				union all
-				select status::text, created_at, completed_at
-				from connector_generation_attempts
-				where status in ('succeeded', 'failed')
-			),
-			relevant_attempts as (
-				select t.*
-				from terminal_attempts t
+				select p.status::text as status, p.created_at, p.completed_at
+				from page_generation_attempts p
 				cross join bounds b
-				where t.completed_at >= b.previous_start
-					and t.completed_at < b.current_end
+				where p.status in ('succeeded', 'failed')
+					and p.completed_at >= b.previous_start
+					and p.completed_at < b.current_end
+				union all
+				select i.status::text, i.created_at, i.completed_at
+				from image_generation_attempts i
+				cross join bounds b
+				where i.status in ('succeeded', 'failed')
+					and i.completed_at >= b.previous_start
+					and i.completed_at < b.current_end
+				union all
+				select m.status::text, m.created_at, m.completed_at
+				from media_generation_attempts m
+				cross join bounds b
+				where m.status in ('succeeded', 'failed')
+					and m.completed_at >= b.previous_start
+					and m.completed_at < b.current_end
+				union all
+				select a.status::text, a.created_at, a.completed_at
+				from marketing_assets a
+				cross join bounds b
+				where a.status in ('succeeded', 'failed')
+					and a.completed_at >= b.previous_start
+					and a.completed_at < b.current_end
+				union all
+				select c.status::text, c.created_at, c.completed_at
+				from connector_generation_attempts c
+				cross join bounds b
+				where c.status in ('succeeded', 'failed')
+					and c.completed_at >= b.previous_start
+					and c.completed_at < b.current_end
 			),
-			raw_metrics as (
+			daily_metrics as (
 				select
+					(t.completed_at at time zone 'UTC')::date as day,
 					count(*) filter (
 						where t.completed_at >= b.current_start
 					)::bigint as current_attempts,
@@ -663,20 +667,64 @@ export class AdminOverviewRepository {
 						where t.completed_at < b.current_start
 							and t.status = 'succeeded'
 					)::bigint as previous_successful,
-					coalesce(round(avg(
+					coalesce(sum(
 						extract(epoch from (t.completed_at - t.created_at)) * 1000
 					) filter (
 						where t.completed_at >= b.current_start
 							and t.completed_at >= t.created_at
-					)), 0)::bigint as current_latency_ms,
-					coalesce(round(avg(
+					), 0) as current_latency_total,
+					count(*) filter (
+						where t.completed_at >= b.current_start
+							and t.completed_at >= t.created_at
+					)::bigint as current_latency_count,
+					coalesce(sum(
 						extract(epoch from (t.completed_at - t.created_at)) * 1000
 					) filter (
 						where t.completed_at < b.current_start
 							and t.completed_at >= t.created_at
-					)), 0)::bigint as previous_latency_ms
-				from relevant_attempts t
+					), 0) as previous_latency_total,
+					count(*) filter (
+						where t.completed_at < b.current_start
+							and t.completed_at >= t.created_at
+					)::bigint as previous_latency_count
+				from terminal_attempts t
 				cross join bounds b
+				group by 1
+			),
+			with_totals as (
+				select
+					d.*,
+					sum(d.current_attempts) over () as total_current_attempts,
+					sum(d.current_successful) over () as total_current_successful,
+					sum(d.current_failed) over () as total_current_failed,
+					sum(d.previous_attempts) over () as total_previous_attempts,
+					sum(d.previous_successful) over () as total_previous_successful,
+					sum(d.current_latency_total) over () as total_current_latency,
+					sum(d.current_latency_count) over () as total_current_latency_count,
+					sum(d.previous_latency_total) over () as total_previous_latency,
+					sum(d.previous_latency_count) over () as total_previous_latency_count
+				from daily_metrics d
+			),
+			raw_metrics as (
+				select
+					coalesce(max(w.total_current_attempts), 0)::bigint
+						as current_attempts,
+					coalesce(max(w.total_current_successful), 0)::bigint
+						as current_successful,
+					coalesce(max(w.total_current_failed), 0)::bigint as current_failed,
+					coalesce(max(w.total_previous_attempts), 0)::bigint
+						as previous_attempts,
+					coalesce(max(w.total_previous_successful), 0)::bigint
+						as previous_successful,
+					coalesce(round(
+						max(w.total_current_latency) /
+							nullif(max(w.total_current_latency_count), 0)
+					), 0)::bigint as current_latency_ms,
+					coalesce(round(
+						max(w.total_previous_latency) /
+							nullif(max(w.total_previous_latency_count), 0)
+					), 0)::bigint as previous_latency_ms
+				from with_totals w
 			),
 			rates as (
 				select
@@ -703,21 +751,11 @@ export class AdminOverviewRepository {
 					r.current_success_rate - r.previous_success_rate as success_rate_change_points,
 					${percentChangeSql(sql`r.current_latency_ms`, sql`r.previous_latency_ms`)} as latency_change_percent
 				from rates r
-			),
-			daily as (
-				select
-					(t.completed_at at time zone 'UTC')::date as day,
-					count(*) filter (where t.status = 'succeeded')::bigint as successful,
-					count(*) filter (where t.status = 'failed')::bigint as failed
-				from relevant_attempts t
-				cross join bounds b
-				where t.completed_at >= b.current_start
-				group by 1
 			)
 			select
 				to_char(d.day at time zone 'UTC', 'YYYY-MM-DD') as date,
-				coalesce(a.successful, 0)::bigint as successful,
-				coalesce(a.failed, 0)::bigint as failed,
+				coalesce(a.current_successful, 0)::bigint as successful,
+				coalesce(a.current_failed, 0)::bigint as failed,
 				m.current_attempts as attempts,
 				m.current_successful as total_successful,
 				m.current_failed as total_failed,
@@ -727,7 +765,7 @@ export class AdminOverviewRepository {
 				m.latency_change_percent
 			from days d
 			cross join metrics m
-			left join daily a
+			left join with_totals a
 				on a.day = (d.day at time zone 'UTC')::date
 			order by d.day asc
 		`);
