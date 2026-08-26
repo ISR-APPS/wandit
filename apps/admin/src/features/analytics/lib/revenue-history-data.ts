@@ -19,7 +19,7 @@ export function getRevenueRetentionColumns(
 export function orderRevenueRetentionCohorts(
 	cohorts: AdminAnalyticsRevenueResponse["retention"]["cohorts"],
 ) {
-	return cohorts.toSorted((left, right) =>
+	return [...cohorts].sort((left, right) =>
 		right.cohortMonth.localeCompare(left.cohortMonth),
 	);
 }

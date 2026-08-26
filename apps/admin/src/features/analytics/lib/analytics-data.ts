@@ -381,7 +381,7 @@ export function calculatePercentage(part: number, total: number) {
 export function orderFeatureAdoptionRows(
 	features: readonly AdminAnalyticsFeature[],
 ) {
-	return features.toSorted(
+	return [...features].sort(
 		(left, right) =>
 			(featureAdoptionOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
 			(featureAdoptionOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER),
