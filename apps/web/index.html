@@ -4,16 +4,42 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Wandit</title>
+		<!--
+			Chrome detects the page language once, when parsing ends, before the
+			app mounts. Set lang to the locale the app will render so a French or
+			Arabic browser does not offer to translate an "English" page (that
+			translation rewrites React's DOM). Mirrors detectLocale() in
+			src/lib/i18n/locale-store.ts: stored locale first, then
+			navigator.languages via matchLocale().
+		-->
 		<script>
 			(() => {
+				const locales = ["en", "fr", "ar"];
+				let locale = null;
 				try {
-					const locale = window.localStorage.getItem("wandit-locale");
-					if (!["en", "fr", "ar"].includes(locale)) {
-						return;
+					const stored = window.localStorage.getItem("wandit-locale");
+					if (locales.includes(stored)) {
+						locale = stored;
 					}
-					document.documentElement.lang = locale;
-					document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
 				} catch {}
+				if (!locale) {
+					const candidates = navigator.languages || [navigator.language];
+					for (const candidate of candidates) {
+						const base = String(candidate)
+							.toLowerCase()
+							.replace("_", "-")
+							.split("-")[0];
+						if (locales.includes(base)) {
+							locale = base;
+							break;
+						}
+					}
+				}
+				if (!locale) {
+					return;
+				}
+				document.documentElement.lang = locale;
+				document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
 			})();
 		</script>
 		<meta name="theme-color" content="#191613" />
