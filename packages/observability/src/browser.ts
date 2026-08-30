@@ -48,6 +48,34 @@ export function getLastCapturedError(): LastCapturedError | null {
 const stripQuery = (url: string): string => url.split("?")[0] ?? url;
 
 /**
+ * Whether the browser's page translator rewrote the DOM. Chrome stamps
+ * `translated-ltr` / `translated-rtl` on <html> and wraps text in
+ * `<font style="vertical-align: inherit">`; Edge marks text with
+ * `_msttexthash`. A translated page is the trigger for the React
+ * insertBefore/removeChild NotFoundError family, so every event carries it.
+ */
+function isPageTranslated(): boolean {
+	// Structural type: this package compiles without the DOM lib.
+	const doc = (globalThis as { document?: TranslationProbeDocument }).document;
+	if (!doc) {
+		return false;
+	}
+	const root = doc.documentElement;
+	return (
+		root.classList.contains("translated-ltr") ||
+		root.classList.contains("translated-rtl") ||
+		doc.querySelector(
+			'font[style*="vertical-align: inherit"], [_msttexthash]',
+		) !== null
+	);
+}
+
+interface TranslationProbeDocument {
+	documentElement: { classList: { contains(token: string): boolean } };
+	querySelector(selectors: string): unknown;
+}
+
+/**
  * Initialize Sentry for a Vite/React SPA. Call once in main.tsx, after
  * `createRouter` and before rendering. Guarded against Vite HMR re-runs;
  * no-op when no DSN is configured (local dev).
@@ -84,6 +112,10 @@ export function initBrowserSentry(options: InitBrowserSentryOptions): void {
 			if (event.request?.url) {
 				event.request.url = stripQuery(event.request.url);
 			}
+			event.tags = {
+				...event.tags,
+				page_translated: isPageTranslated() ? "yes" : "no",
+			};
 			const scrubbed = scrubEvent(event);
 			// Record only the events Sentry keeps: a dropped event has no id
 			// to link from a feedback report.
