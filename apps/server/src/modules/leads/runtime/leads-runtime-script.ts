@@ -13,7 +13,10 @@
  *   flat detail carries the four canonical fields plus scalar extras.
  * - Heuristic fallback (pages generated before the form contract): observe
  *   any form submit in capture phase, classify fields by key, and send after
- *   a grace window that a `wandit:lead` event cancels.
+ *   a grace window that a `wandit:lead` event with a usable phone cancels.
+ *   An event without a usable phone leaves the fallback armed: a page whose
+ *   dispatcher is broken (an empty or phoneless detail) must not suppress
+ *   the path that reads the form directly, or the submit is lost silently.
  *
  * The payload matches leadCaptureBodySchema (@wandit/contracts) — values are
  * clipped client-side to the contract caps so a valid lead is never rejected
@@ -460,9 +463,6 @@ export function buildLeadsRuntimeScript(options: {
 
 		document.addEventListener("wandit:lead", function (event) {
 			try {
-				// The event path is authoritative — drop any scheduled
-				// heuristic send for the same submit.
-				cancelPendingSend();
 				var detail = event && event.detail;
 				if (!detail || typeof detail !== "object") return;
 				var lead = { name: "", phone: "", wilaya: "", commune: "", extras: {} };
@@ -473,6 +473,13 @@ export function buildLeadsRuntimeScript(options: {
 						addExtra(lead.extras, key, detail[key]);
 					}
 				}
+				// The event path is authoritative only when its detail carries a
+				// usable phone. An empty or phoneless detail (a broken page
+				// dispatcher) must not cancel the scheduled heuristic send:
+				// send() would drop the lead, and the fallback that reads the
+				// form directly is the only path that still captures it.
+				if (phoneDigits(lead.phone).length < 8) return;
+				cancelPendingSend();
 				sendAndReport(lead);
 			} catch (ignored) {}
 		});

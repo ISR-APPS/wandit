@@ -189,6 +189,9 @@ function createRuntimeHarness(
 		emitLead: (detail: Record<string, unknown>) => {
 			emit(documentListeners, "wandit:lead", { detail });
 		},
+		emitSubmit: (target: unknown) => {
+			emit(documentListeners, "submit", { target });
+		},
 		fbqCalls,
 		fetchMock,
 		pagehide: () => {
@@ -196,6 +199,26 @@ function createRuntimeHarness(
 		},
 		results,
 		ttqCalls,
+	};
+}
+
+/** Minimal form stub satisfying leadFromForm's field walk. */
+function formStub(
+	fields: Array<{ name: string; type?: string; value: string }>,
+) {
+	const fieldStubs = fields.map((field) => ({
+		disabled: false,
+		getAttribute: () => null,
+		hasAttribute: () => false,
+		id: "",
+		name: field.name,
+		type: field.type ?? "text",
+		value: field.value,
+	}));
+
+	return {
+		nodeName: "FORM",
+		querySelectorAll: () => fieldStubs,
 	};
 }
 
@@ -328,6 +351,52 @@ describe("buildLeadsRuntimeScript", () => {
 		await flushMicrotasks();
 		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
 		expect(harness.results).toEqual([{ ok: true }, { ok: true }]);
+	});
+
+	it("keeps the heuristic fallback armed when the lead event has no usable phone", async () => {
+		vi.useFakeTimers();
+		const harness = createRuntimeHarness();
+
+		harness.emitSubmit(
+			formStub([
+				{ name: "name", value: "Sara" },
+				{ name: "phone", type: "tel", value: "0795173528" },
+			]),
+		);
+		// A broken page dispatcher: the detail lost every field (e.g. built
+		// via Array.prototype.slice.call over a FormData iterator).
+		harness.emitLead({});
+
+		expect(harness.fetchMock).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(2_500);
+		await flushMicrotasks();
+
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		expect(
+			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+		).toMatchObject({ name: "Sara", phone: "0795173528" });
+	});
+
+	it("cancels the heuristic fallback when the lead event carries a usable phone", async () => {
+		vi.useFakeTimers();
+		const harness = createRuntimeHarness();
+
+		// Distinct phones so a surviving fallback would be a second fetch,
+		// not a same-digits dedupe.
+		harness.emitSubmit(
+			formStub([{ name: "phone", type: "tel", value: "0666000002" }]),
+		);
+		harness.emitLead({ name: "Sara", phone: "0795173528" });
+		await flushMicrotasks();
+
+		await vi.advanceTimersByTimeAsync(2_500);
+		await flushMicrotasks();
+
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		expect(
+			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+		).toMatchObject({ phone: "0795173528" });
 	});
 
 	it("retries 429 and 5xx responses with bounded backoff", async () => {
