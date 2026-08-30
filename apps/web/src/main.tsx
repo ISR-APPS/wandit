@@ -19,11 +19,16 @@ import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
 import RouteError, { ErrorScreen } from "./components/route-error";
+import { installDomTranslationGuard } from "./lib/dom-translation-guard";
 import {
 	getCurrentLocale,
 	setCurrentDictionary,
 } from "./lib/i18n/locale-store";
 import { routeTree } from "./routeTree.gen";
+
+// Before any React commit: browser page translation (Chrome/Edge) rewrites
+// React's DOM and would otherwise crash the next update with NotFoundError.
+installDomTranslationGuard();
 
 const history = createBrowserHistory();
 
