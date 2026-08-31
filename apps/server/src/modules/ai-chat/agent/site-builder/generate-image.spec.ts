@@ -22,7 +22,10 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
-vi.mock("ai", () => ({ generateImage: vi.fn() }));
+vi.mock("ai", async (importOriginal) => ({
+	...(await importOriginal<typeof import("ai")>()),
+	generateImage: vi.fn(),
+}));
 
 vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
 	const original =
@@ -288,7 +291,13 @@ describe("generateBuildImage", () => {
 
 		const result = await generateBuildImage(PARAMS);
 
-		expect(result).toEqual({ message: "gateway exploded", status: "failed" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("gateway exploded");
 		expect(putSiteFile).not.toHaveBeenCalled();
 	});
 

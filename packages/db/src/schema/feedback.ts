@@ -51,6 +51,12 @@ export const feedback = pgTable(
 		// purpose: the value only resolves a project name at read time and must
 		// never make an insert fail.
 		projectId: uuid("project_id"),
+		// The workspace chat the user had open, when known. No FK on purpose:
+		// telemetry context must never make the feedback insert fail.
+		chatId: uuid("chat_id"),
+		// Better Auth session record id (session.id, never session.token), captured
+		// server-side. No FK: session deletion must not erase attribution.
+		authSessionId: text("auth_session_id"),
 		category: feedbackCategory("category"),
 		message: text("message").notNull(),
 		pageUrl: text("page_url").notNull(),

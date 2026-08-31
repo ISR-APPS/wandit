@@ -47,16 +47,19 @@ import {
 	runSiteBuild,
 	type SiteBuildMeteringStep,
 } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import { captureAiError } from "../modules/ai-errors/domain";
+import { llmProviderForTask } from "../modules/ai-provider/domain/llm-provider";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
-import {
-	classifyBuildFailure,
-	TaggedBuildError,
-} from "../modules/pages/domain/build-failure";
+import { TaggedBuildError } from "../modules/pages/domain/build-failure";
 import { appendProjectBrandAsset } from "./generate-page-brand";
+import {
+	classifyPageTaskFailure,
+	pageFailurePersistenceValues,
+} from "./generate-page-failure";
 import { enqueuePageGenerationLifecycleEvent } from "./generate-page-lifecycle";
 import { flushPageBuildGenerationsForSettlement } from "./generate-page-metering";
 import { triggerAnalytics } from "./init";
@@ -151,7 +154,13 @@ export const generatePageTask = task({
 					dismissedAt: null,
 					error: null,
 					failureCode: null,
+					failureKind: null,
+					failureProvider: null,
+					failureProviderMessage: null,
+					failureRequestId: null,
+					failureSource: null,
 					lastProgressPercent: null,
+					sentryEventId: null,
 					startedAt: new Date(),
 					status: "generating",
 					triggerRunId: ctx.run.id,
@@ -443,6 +452,14 @@ export const generatePageTask = task({
 						.update(pageGenerationAttempts)
 						.set({
 							completedAt: new Date(),
+							error: null,
+							failureCode: null,
+							failureKind: null,
+							failureProvider: null,
+							failureProviderMessage: null,
+							failureRequestId: null,
+							failureSource: null,
+							sentryEventId: null,
 							status: "succeeded",
 							versionId,
 						})
@@ -564,7 +581,18 @@ export const generatePageTask = task({
 					throw terminalError;
 				}
 
-				const failureCode = classifyBuildFailure(terminalError);
+				const route = llmProviderForTask("page_build");
+				const { failureCode, normalized } = classifyPageTaskFailure(
+					terminalError,
+					{ model: attempt.model, route },
+				);
+				normalized.sentryEventId = captureAiError(terminalError, normalized, {
+					generationId: attempt.id,
+					projectId: attempt.projectId,
+					route,
+					surface: "page_build",
+					userId: subject.actorUserId,
+				});
 
 				logger.error(
 					`❌ Build failed (${failureCode}): ${terminalError instanceof Error ? terminalError.message : String(terminalError)}`,
@@ -576,11 +604,7 @@ export const generatePageTask = task({
 					.update(pageGenerationAttempts)
 					.set({
 						completedAt: new Date(),
-						error:
-							terminalError instanceof Error
-								? terminalError.message
-								: String(terminalError),
-						failureCode,
+						...pageFailurePersistenceValues(normalized, failureCode),
 						lastProgressPercent: latestProgressPercent,
 						status: "failed",
 					})

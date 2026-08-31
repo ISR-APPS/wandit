@@ -25,6 +25,7 @@ describe("admin navigation permissions", () => {
 		expect(titles).not.toContain("Costs");
 		expect(titles).not.toContain("Settings");
 		expect(titles).not.toContain("Revenue");
+		expect(titles).not.toContain("AI failures");
 	});
 
 	it("drops groups that have no visible items", () => {
@@ -37,7 +38,8 @@ describe("admin navigation permissions", () => {
 	it("shows every section to a full admin, including comma-joined roles", () => {
 		const items = getVisibleAdminNavigation("user,admin");
 
-		expect(items).toHaveLength(17);
+		expect(items).toHaveLength(18);
+		expect(items.map((item) => item.title)).toContain("AI failures");
 		expect(getVisibleAdminNavigationGroups("user,admin")).toHaveLength(2);
 	});
 });

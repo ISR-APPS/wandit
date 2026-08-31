@@ -4,7 +4,7 @@
 // use these table definitions for typed queries.
 //
 // Important: messages store AI SDK "parts" as JSONB, not just one text column.
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	bigint,
 	index,
@@ -43,8 +43,11 @@ export const chats = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
-	// Speeds up "find chat by project id".
-	(table) => [index("chats_projectId_idx").on(table.projectId)],
+	(table) => [
+		// Speeds up "find chat by project id".
+		index("chats_projectId_idx").on(table.projectId),
+		index("chats_projectId_updatedAt_idx").on(table.projectId, table.updatedAt),
+	],
 );
 
 // Saved chat messages: user prompts and final assistant replies.
@@ -66,12 +69,23 @@ export const messages = pgTable(
 		parts: jsonb("parts").notNull(),
 		// Extra metadata like model/usage.
 		metadata: jsonb("metadata"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
 	},
-	// Speeds up loading messages for one chat in order.
-	(table) => [index("messages_chatId_seq_idx").on(table.chatId, table.seq)],
+	(table) => [
+		// Speeds up loading messages for one chat in order.
+		index("messages_chatId_seq_idx").on(table.chatId, table.seq),
+		index("messages_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
+	],
 );
 
 // Relations tell Drizzle how tables connect.

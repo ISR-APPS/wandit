@@ -12,8 +12,8 @@ import {
 	upsertTargetCommentEntry,
 } from "@wandit/preview-editor";
 import { BlurView } from "expo-blur";
-import { Dialog } from "heroui-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { Dialog } from "heroui-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
@@ -36,13 +36,14 @@ import {
 	PageEditBar,
 	PageEditorSheet,
 } from "../components/page-editor/edit-mode";
-import { PagePreviewWebView } from "../components/page-editor/page-web-view";
 import { PageToast, usePageToast } from "../components/page-editor/page-toast";
+import { PagePreviewWebView } from "../components/page-editor/page-web-view";
 import { PublishSheet } from "../components/page-editor/publish-sheet";
 import { PageViewBar } from "../components/page-editor/view-mode-bar";
 import { SpinnerArc } from "../components/spinner-arc";
+import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
 import { pageCommentHandoff } from "../lib/page-preview/comment-handoff";
-import { targetLabel, type PreviewSelection } from "../lib/page-preview/types";
+import { type PreviewSelection, targetLabel } from "../lib/page-preview/types";
 import { usePageEditor } from "../lib/page-preview/use-page-editor";
 
 /** Perceived luminance check so the blur cap tint follows the PAGE palette
@@ -92,6 +93,10 @@ export function PageScreen() {
 	const overview = overviewQuery.data;
 	const activeVersion = overview?.activeVersion ?? null;
 	const attempt = overview?.latestAttempt ?? null;
+	const attemptFailure = readAiErrorData(attempt);
+	const attemptFailurePresentation = attemptFailure
+		? chatErrorPresentation(null, attemptFailure, t)
+		: null;
 	const isGenerating =
 		attempt?.status === "queued" || attempt?.status === "generating";
 	const htmlQuery = useVersionHtmlQuery(activeVersion?.id);
@@ -129,8 +134,7 @@ export function PageScreen() {
 						})
 					: t("native.page.publish.liveTitle"),
 			),
-		onUnpublished: () =>
-			toast.show(t("native.page.publish.unpublishedToast")),
+		onUnpublished: () => toast.show(t("native.page.publish.unpublishedToast")),
 		onRolledBack: (n, liveUrl) =>
 			toast.show(
 				n !== null
@@ -316,8 +320,20 @@ export function PageScreen() {
 				) : attempt?.status === "failed" ? (
 					<StateCard
 						icon="close"
-						title={t("native.page.state.failedTitle")}
-						body={attempt.error ?? t("native.page.state.failedBody")}
+						title={
+							attemptFailurePresentation?.kicker ??
+							t("native.page.state.failedTitle")
+						}
+						body={
+							attemptFailurePresentation
+								? [
+										attemptFailurePresentation.body,
+										attemptFailurePresentation.attribution,
+									]
+										.filter((line): line is string => Boolean(line))
+										.join("\n")
+								: (attempt.error ?? t("native.page.state.failedBody"))
+						}
 					/>
 				) : (
 					<StateCard

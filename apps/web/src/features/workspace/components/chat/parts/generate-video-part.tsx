@@ -22,6 +22,12 @@ import {
 	useMediaGenerationAttemptQuery,
 } from "../../../api/media-generations.queries";
 import { mediaGenerationDownloadUrl } from "../../../api/media-generations.services";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
@@ -86,44 +92,66 @@ export type VideoAttemptCopy = {
 	play: (title: string) => string;
 };
 
-// Keep generate_video's established English chrome unchanged in this batch.
-const GENERATE_VIDEO_COPY: VideoAttemptCopy = {
-	preparing: "Composing the creative brief…",
-	queueing: "Writing the director's cut…",
-	failedToStart: "Video generation failed to start",
-	failedTitle: "Video generation failed",
-	failedBody: "The render stopped before finishing.",
-	statusLoadError:
-		"Couldn't load the video status — reopen this chat to retry.",
-	prepared: "Director's cut written",
-	active: (durationSeconds) => `Rendering the ${durationSeconds}-second clip…`,
-	done: (durationSeconds) => `Rendered the ${durationSeconds}-second clip`,
-	inQueue: "In queue",
-	extractingFrame: (piece) =>
-		piece
-			? `Preparing piece ${piece.current} of ${piece.total}…`
-			: "Preparing the next piece…",
-	renderingPiece: (piece) =>
-		piece
-			? `Rendering piece ${piece.current} of ${piece.total}…`
-			: "Rendering the next piece…",
-	joining: "Joining the pieces…",
-	narration: "Laying the narration…",
-	publish: "Publish",
-	publishing: "Publishing…",
-	published: "Published",
-	complete: "All steps done",
-	ready: "Video ready.",
-	download: "Download",
-	viewAssets: "View in Assets",
-	play: (title) => `Play ${title}`,
-};
-
-export function GenerateVideoPart({ part }: { part: GenerateVideoToolPart }) {
-	return <VideoAttemptPart copy={GENERATE_VIDEO_COPY} part={part} />;
+function useGenerateVideoCopy(): VideoAttemptCopy {
+	const { t } = useTranslation();
+	return {
+		preparing: t("workspace.chat.generateVideo.preparing"),
+		queueing: t("workspace.chat.generateVideo.queueing"),
+		failedToStart: t("workspace.chat.generateVideo.failedToStart"),
+		failedTitle: t("workspace.chat.generateVideo.failedTitle"),
+		failedBody: t("workspace.chat.generateVideo.failedBody"),
+		statusLoadError: t("workspace.chat.generateVideo.statusLoadError"),
+		prepared: t("workspace.chat.generateVideo.directorsCut"),
+		active: (durationSeconds) =>
+			t("workspace.chat.generateVideo.renderingClip", {
+				seconds: durationSeconds,
+			}),
+		done: (durationSeconds) =>
+			t("workspace.chat.generateVideo.renderedClip", {
+				seconds: durationSeconds,
+			}),
+		inQueue: t("workspace.chat.videoAttempt.inQueue"),
+		extractingFrame: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.extractingFrame", piece)
+				: t("workspace.chat.videoAttempt.extractingFrameFallback"),
+		renderingPiece: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.renderingPiece", piece)
+				: t("workspace.chat.videoAttempt.renderingPieceFallback"),
+		joining: t("workspace.chat.videoAttempt.joining"),
+		narration: t("workspace.chat.videoAttempt.narration"),
+		publish: t("workspace.chat.videoAttempt.publish"),
+		publishing: t("workspace.chat.generateVideo.publishing"),
+		published: t("workspace.chat.videoAttempt.published"),
+		complete: t("workspace.chat.generateVideo.allStepsDone"),
+		ready: t("workspace.chat.generateVideo.readyTitle"),
+		download: t("workspace.chat.videoAttempt.download"),
+		viewAssets: t("workspace.chat.videoAttempt.viewAssets"),
+		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
+	};
 }
 
-export function EditVideoPart({ part }: { part: EditVideoToolPart }) {
+export function GenerateVideoPart({
+	part,
+	messageParts,
+}: {
+	part: GenerateVideoToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
+	const copy = useGenerateVideoCopy();
+	return (
+		<VideoAttemptPart copy={copy} part={part} messageParts={messageParts} />
+	);
+}
+
+export function EditVideoPart({
+	part,
+	messageParts,
+}: {
+	part: EditVideoToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
 	const copy: VideoAttemptCopy = {
 		preparing: t("workspace.chat.videoAttempt.edit.preparing"),
@@ -162,10 +190,18 @@ export function EditVideoPart({ part }: { part: EditVideoToolPart }) {
 		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
 	};
 
-	return <VideoAttemptPart copy={copy} part={part} />;
+	return (
+		<VideoAttemptPart copy={copy} part={part} messageParts={messageParts} />
+	);
 }
 
-export function ExtendVideoPart({ part }: { part: ExtendVideoToolPart }) {
+export function ExtendVideoPart({
+	part,
+	messageParts,
+}: {
+	part: ExtendVideoToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
 	const copy: VideoAttemptCopy = {
 		preparing: t("workspace.chat.videoAttempt.extend.preparing"),
@@ -205,16 +241,24 @@ export function ExtendVideoPart({ part }: { part: ExtendVideoToolPart }) {
 		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
 	};
 
-	return <VideoAttemptPart copy={copy} part={part} />;
+	return (
+		<VideoAttemptPart copy={copy} part={part} messageParts={messageParts} />
+	);
 }
 
 export function VideoAttemptPart({
 	part,
 	copy,
+	messageParts,
 }: {
 	part: VideoToolPart;
 	copy: VideoAttemptCopy;
+	messageParts?: WanditUIMessage["parts"];
 }) {
+	const { t } = useTranslation();
+	const { prefillComposer } = useSharedAiChat();
+	const prompt = videoPromptFromInput(part.input);
+
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return (
 			<WorkingLine
@@ -224,6 +268,21 @@ export function VideoAttemptPart({
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			const presentation = durableAiErrorPresentation(failure, t);
+			return (
+				<VideoFailure
+					attribution={presentation.attribution}
+					body={presentation.body}
+					onPrefill={prefillComposer}
+					prompt={prompt}
+					showPrefill={presentation.showRetry}
+					title={presentation.kicker}
+				/>
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
@@ -237,13 +296,27 @@ export function VideoAttemptPart({
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{part.errorText}
+					{copy.failedBody}
 				</p>
 			</div>
 		);
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		const presentation = durableAiErrorPresentation(outputFailure, t);
+		return (
+			<VideoFailure
+				attribution={presentation.attribution}
+				body={presentation.body}
+				onPrefill={prefillComposer}
+				prompt={prompt}
+				showPrefill={presentation.showRetry}
+				title={presentation.kicker}
+			/>
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.attemptId) {
 		return (
@@ -252,6 +325,8 @@ export function VideoAttemptPart({
 				realtime={part.output.realtime}
 				fallbackTitle={part.input.title}
 				copy={copy}
+				onPrefill={prefillComposer}
+				originalPrompt={prompt}
 			/>
 		);
 	}
@@ -271,12 +346,17 @@ function VideoAttemptCard({
 	realtime,
 	fallbackTitle,
 	copy,
+	onPrefill,
+	originalPrompt,
 }: {
 	attemptId: string;
 	realtime: TriggerRealtimeHandle | undefined;
 	fallbackTitle: string;
 	copy: VideoAttemptCopy;
+	onPrefill: (prompt: string) => void;
+	originalPrompt: string | undefined;
 }) {
+	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	// Flipped when the subscription dies OR the run settles: the poll re-checks
 	// the attempt row until it is terminal (its interval stops by itself), so a
@@ -323,6 +403,20 @@ function VideoAttemptCard({
 	}
 
 	if (attempt?.status === "failed") {
+		if (attempt.failure) {
+			const presentation = durableAiErrorPresentation(attempt.failure, t);
+			return (
+				<VideoFailure
+					attribution={presentation.attribution}
+					body={presentation.body}
+					onPrefill={onPrefill}
+					prompt={originalPrompt ?? attempt.prompt}
+					showPrefill={presentation.showRetry}
+					title={presentation.kicker}
+				/>
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
@@ -367,6 +461,71 @@ function VideoAttemptCard({
 			title={attempt?.title ?? fallbackTitle}
 		/>
 	);
+}
+
+function VideoFailure({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill,
+}: {
+	title: string;
+	body: string;
+	attribution: string | null;
+	onPrefill: (prompt: string) => void;
+	prompt: string | undefined;
+	showPrefill: boolean;
+}) {
+	const { t } = useTranslation();
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={title}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
+				{body}
+			</p>
+			{attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{attribution}
+				</p>
+			) : null}
+			{showPrefill && prompt ? (
+				<div className="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 rounded-lg px-2.5 text-xs"
+						onClick={() => onPrefill(prompt)}
+					>
+						{t("workspace.chat.aiError.tryAgainPrefill.video")}
+					</Button>
+					<p className="mt-1 text-[10.5px] text-muted-foreground">
+						{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+					</p>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function videoPromptFromInput(input: unknown): string | undefined {
+	if (!input || typeof input !== "object") return undefined;
+	const record = input as Record<string, unknown>;
+	for (const key of ["prompt", "brief", "instruction", "continuationBrief"]) {
+		if (key in record) {
+			const value = record[key];
+			if (typeof value === "string" && value.trim()) return value;
+		}
+	}
+	return undefined;
 }
 
 /* ---------- the cinematic stage (shared by both states) ---------- */

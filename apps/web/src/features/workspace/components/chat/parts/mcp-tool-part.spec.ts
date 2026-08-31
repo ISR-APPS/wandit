@@ -42,6 +42,12 @@ vi.mock("@/lib/i18n", () => ({
 						"workspace.chat.mcpTool.wantsTo":
 							"Wandit wants to: {action} · {connector}",
 						"workspace.chat.mcpTool.workingWith": "Working with your tools",
+						"workspace.chat.aiError.kicker.provider": "Provider issue",
+						"workspace.chat.aiError.providerFallback": "The AI provider",
+						"workspace.chat.aiError.attribution.viaGateway":
+							"{provider} via Vercel AI Gateway",
+						"errors.ai.provider_error":
+							"{provider} returned an error. Please try again.",
 					} as Record<string, string>
 				)[key] ?? key;
 
@@ -860,6 +866,44 @@ describe("McpActivityCard", () => {
 		expect(html).not.toContain("distinctive-raw-output-value");
 		// A lone finished tool labels the pill with its past action.
 		expect(html).toContain("Fetched data");
+	});
+
+	it("renders typed MCP failures and never exposes isError content text", () => {
+		const failedPart = {
+			type: "dynamic-tool",
+			toolName: "mcp_higgsfield_generate_video",
+			toolCallId: "tool-call-failed-result",
+			state: "output-available",
+			input: { prompt: "A safe prompt" },
+			output: {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: "RAW CONNECTOR ERROR https://cdn.example.com/private.png",
+					},
+				],
+				wanditError: {
+					kind: "provider_error",
+					source: "gateway",
+					providerLabel: "Higgsfield",
+					retryable: true,
+					terminal: true,
+					refunded: null,
+					moderationStage: null,
+					providerMessage: null,
+					requestId: null,
+				},
+			},
+		} as McpPart;
+
+		const html = renderActivity([failedPart], true, undefined, true);
+
+		expect(html).toContain("Provider issue");
+		expect(html).toContain("Higgsfield returned an error. Please try again.");
+		expect(html).not.toContain("RAW CONNECTOR ERROR");
+		expect(html).not.toContain("private.png");
+		expect(mcpRunHasDeliverables([failedPart])).toBe(false);
 	});
 
 	it("renders the live panel with a progress count while a tool runs", () => {

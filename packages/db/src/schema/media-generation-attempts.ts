@@ -110,6 +110,12 @@ export const mediaGenerationAttempts = pgTable(
 		videoUrl: text("video_url"),
 		videoMediaType: text("video_media_type"),
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -134,6 +140,9 @@ export const mediaGenerationAttempts = pgTable(
 			table.status,
 			table.startedAt,
 		),
+		index("media_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("media_generation_attempts_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,

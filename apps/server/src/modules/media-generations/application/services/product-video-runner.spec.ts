@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import {
 	type ProductVideoAttempt,
 	type ProductVideoRunnerDependencies,
@@ -174,6 +175,26 @@ describe("parseProductVideoPayload", () => {
 describe("runProductVideo", () => {
 	beforeEach(() => vi.clearAllMocks());
 
+	it("persists an insufficient-credit reservation rejection as billing", async () => {
+		const attempt = makeAttempt();
+		const { dependencies, fail, generate, reserve } = makeDependencies(attempt);
+		reserve.mockRejectedValueOnce(new InsufficientCreditsError(500, 0));
+
+		await expect(
+			runProductVideo(payload(), { dependencies, runId: "run_billing" }),
+		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
+		expect(fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Not enough credits for this action.",
+				failureKind: "billing",
+				failureSource: "ours",
+				sentryEventId: null,
+			}),
+		);
+		expect(generate).not.toHaveBeenCalled();
+	});
+
 	it("captures before delivery and settles before publishing success", async () => {
 		const attempt = makeAttempt();
 		const {
@@ -260,7 +281,15 @@ describe("runProductVideo", () => {
 		expect(settle).not.toHaveBeenCalled();
 		expect(fail).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ reason: "product_provider_failed" }),
+			expect.objectContaining({
+				error: "Something went wrong on our side. Please try again.",
+				failureKind: "internal",
+				failureSource: "ours",
+				reason: "product_provider_failed",
+			}),
+		);
+		expect(fail.mock.calls[0]?.[1].error).not.toContain(
+			"product_provider_failed",
 		);
 		expect(refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID, "video-product");
 	});
@@ -292,6 +321,15 @@ describe("runProductVideo", () => {
 			fail.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
 		);
 		expect(refund).not.toHaveBeenCalled();
+		expect(fail.mock.calls[0]?.[1]).toMatchObject({
+			error: "Something went wrong on our side. Please try again.",
+			failureKind: "internal",
+			failureSource: "ours",
+			reason: "product_provider_failed",
+		});
+		expect(fail.mock.calls[0]?.[1].error).not.toContain(
+			"product_provider_failed",
+		);
 	});
 
 	it("recovers deterministic output without replaying the provider", async () => {

@@ -16,6 +16,7 @@ import { PulseIcon } from "@phosphor-icons/react/Pulse";
 import { ShareNetworkIcon } from "@phosphor-icons/react/ShareNetwork";
 import { UsersFourIcon } from "@phosphor-icons/react/UsersFour";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
+import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
 import type { AdminPermissionRequest } from "@wandit/auth/admin-permissions";
 import { adminRoleHasPermission } from "@wandit/auth/admin-permissions";
 
@@ -36,6 +37,7 @@ export type AdminRoutePath =
 	| "/analytics/engagement"
 	| "/analytics/features"
 	| "/analytics/health"
+	| "/analytics/ai-failures"
 	| "/settings";
 
 export type AdminNavigationItem = {
@@ -173,6 +175,13 @@ const analyticsNavigation: AdminNavigationItem[] = [
 		to: "/analytics/health",
 		icon: HeartStraightIcon,
 		permission: { analytics: ["read"] },
+	},
+	{
+		title: "AI failures",
+		description: "Normalized failure feed",
+		to: "/analytics/ai-failures",
+		icon: WarningOctagonIcon,
+		permission: { conversations: ["read"] },
 	},
 ];
 

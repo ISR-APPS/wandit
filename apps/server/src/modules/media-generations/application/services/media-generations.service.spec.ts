@@ -108,6 +108,53 @@ beforeEach(() => {
 });
 
 describe("MediaGenerationsService", () => {
+	it("always maps durable normalized failure columns to the response", async () => {
+		const { repository, service } = setup();
+		repository.findAccessibleAttempt.mockResolvedValue({
+			...BASE_ROW,
+			completedAt: new Date("2026-07-24T10:01:00.000Z"),
+			error: "Kling is over capacity right now. Please try again in a minute.",
+			failureKind: "capacity",
+			failureProvider: "klingai",
+			failureProviderMessage: null,
+			failureRequestId: "gen_capacity",
+			failureSource: "provider:klingai",
+			status: "failed",
+		});
+
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			failure: {
+				kind: "capacity",
+				providerLabel: "Kling",
+				providerMessage: null,
+				refunded: false,
+				requestId: "gen_capacity",
+				retryable: true,
+				source: "provider:klingai",
+				terminal: true,
+			},
+		});
+	});
+
+	it("reports a proven no-evidence provider failure as refunded", async () => {
+		const { repository, service } = setup();
+		repository.findAccessibleAttempt.mockResolvedValue({
+			...BASE_ROW,
+			completedAt: new Date("2026-07-24T10:01:00.000Z"),
+			error: "Kling is over capacity right now. Please try again in a minute.",
+			failureKind: "capacity",
+			failureProvider: "klingai",
+			failureProviderMessage: null,
+			failureRequestId: null,
+			failureSource: "provider:klingai",
+			status: "failed",
+		});
+
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			failure: { kind: "capacity", refunded: true },
+		});
+	});
+
 	it("maps a max-tier 15-second duration without truncating it", async () => {
 		const { repository, service } = setup();
 		repository.findAccessibleAttempt.mockResolvedValue({
@@ -260,6 +307,7 @@ describe("MediaGenerationsService", () => {
 			expect.any(Date),
 			failedRow.error,
 			"user_1",
+			true,
 		);
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"usage_event_1",
@@ -358,6 +406,7 @@ describe("MediaGenerationsService", () => {
 			expect.any(Date),
 			failedRow.error,
 			"user_1",
+			true,
 		);
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"usage_event_1",
@@ -395,6 +444,7 @@ describe("MediaGenerationsService", () => {
 			expect.any(Date),
 			failedRow.error,
 			"user_1",
+			true,
 		);
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"usage_event_1",

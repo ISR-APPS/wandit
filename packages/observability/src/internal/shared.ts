@@ -27,17 +27,47 @@ const SENSITIVE_HEADERS = [
  * imports so each entry point only pulls in its own runtime's SDK.
  */
 interface ScrubbableEvent {
+	exception?: {
+		values?: Array<{
+			mechanism?: {
+				type?: string;
+			};
+		}>;
+	};
 	request?: {
 		cookies?: unknown;
 		headers?: Record<string, string>;
 	};
 }
 
+interface ScrubbableEventHint {
+	originalException?: unknown;
+}
+
+const WANDIT_CAPTURED = Symbol.for("wandit.ai-error.captured");
+
+const wasCapturedByWandit = (error: unknown): boolean =>
+	typeof error === "object" &&
+	error !== null &&
+	(error as Record<PropertyKey, unknown>)[WANDIT_CAPTURED] === true;
+
 /**
- * `beforeSend` used by every runtime: better-auth session cookies and auth
- * headers must never ride along on error events.
+ * `beforeSend` used by every runtime: strips session credentials and drops
+ * duplicate Vercel AI events after the same error was captured explicitly.
  */
-export const scrubEvent = <E extends ScrubbableEvent>(event: E): E => {
+export const scrubEvent = <E extends ScrubbableEvent>(
+	event: E,
+	hint?: ScrubbableEventHint,
+): E | null => {
+	if (
+		event.exception?.values?.some(
+			(value) => value.mechanism?.type === "auto.vercelai.channel",
+		) &&
+		wasCapturedByWandit(hint?.originalException)
+	) {
+		return null;
+	}
+
 	if (event.request) {
 		event.request.cookies = undefined;
 		const headers = event.request.headers;

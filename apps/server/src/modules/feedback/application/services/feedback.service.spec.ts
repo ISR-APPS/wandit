@@ -115,6 +115,7 @@ const user = {
 	id: "user-1",
 	name: "Sam",
 } as AuthUser;
+const AUTH_SESSION_ID = "session-1";
 
 function setup(events: string[] = []) {
 	const client = new FakeLinearClient(events);
@@ -150,7 +151,7 @@ describe("FeedbackService.create", () => {
 		mockEnv.LINEAR_API_KEY = undefined;
 		const { client, repository, service } = setup();
 
-		const result = await service.create(user, makeRequest());
+		const result = await service.create(user, AUTH_SESSION_ID, makeRequest());
 
 		expect(result.feedbackId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -168,7 +169,7 @@ describe("FeedbackService.create", () => {
 		const events: string[] = [];
 		const { repository, service } = setup(events);
 
-		const result = await service.create(user, makeRequest());
+		const result = await service.create(user, AUTH_SESSION_ID, makeRequest());
 
 		expect(events).toEqual([
 			"insert",
@@ -198,7 +199,9 @@ describe("FeedbackService.create", () => {
 
 		const result = await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({
+				chatId: "33333333-3333-4333-8333-333333333333",
 				category: "bug",
 				context: {
 					locale: "en-US",
@@ -215,6 +218,8 @@ describe("FeedbackService.create", () => {
 		expect(repository.inserts[0]).toMatchObject({
 			id: result.feedbackId,
 			userId: "user-1",
+			chatId: "33333333-3333-4333-8333-333333333333",
+			authSessionId: AUTH_SESSION_ID,
 			reporterName: "Sam",
 			reporterEmail: "sam@example.com",
 			projectId,
@@ -234,6 +239,7 @@ describe("FeedbackService.create", () => {
 
 		const result = await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({ replayUrl: "https://posthog.test/replay/1" }),
 		);
 
@@ -256,7 +262,11 @@ describe("FeedbackService.create", () => {
 	it("keeps the category title and description behavior", async () => {
 		const { client, service } = setup();
 
-		await service.create(user, makeRequest({ category: "bug" }));
+		await service.create(
+			user,
+			AUTH_SESSION_ID,
+			makeRequest({ category: "bug" }),
+		);
 
 		const issue = client.issues[0];
 		expect(issue?.title).toBe(
@@ -273,7 +283,11 @@ describe("FeedbackService.create", () => {
 	it("uses the chosen category word in the title", async () => {
 		const { client, service } = setup();
 
-		await service.create(user, makeRequest({ category: "idea" }));
+		await service.create(
+			user,
+			AUTH_SESSION_ID,
+			makeRequest({ category: "idea" }),
+		);
 
 		expect(client.issues[0]?.title).toBe(
 			"Feedback (idea): The editor freezes when I drag a block",
@@ -284,7 +298,7 @@ describe("FeedbackService.create", () => {
 	it("keeps the plain title and no category line without a category", async () => {
 		const { client, service } = setup();
 
-		await service.create(user, makeRequest());
+		await service.create(user, AUTH_SESSION_ID, makeRequest());
 
 		const issue = client.issues[0];
 		expect(issue?.title).toBe(
@@ -301,6 +315,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({
 				sentryEventAt: new Date(Date.now() - 10 * 60_000).toISOString(),
 				sentryEventId: "abc123",
@@ -315,7 +330,11 @@ describe("FeedbackService.create", () => {
 	it("says the age is unknown when Sentry sends no timestamp", async () => {
 		const { client, service } = setup();
 
-		await service.create(user, makeRequest({ sentryEventId: "abc123" }));
+		await service.create(
+			user,
+			AUTH_SESSION_ID,
+			makeRequest({ sentryEventId: "abc123" }),
+		);
 
 		const description = client.issues[0]?.description ?? "";
 		expect(description).toContain(
@@ -329,6 +348,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({ message: "hello ![x](https://evil.test/pixel.png) bye" }),
 		);
 
@@ -344,6 +364,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({
 				pageUrl: "https://wandit.dev/a\n## Fake section\n**User:** admin",
 			}),
@@ -364,6 +385,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({ pageUrl: "https://wandit.dev/projects/1?q=(a)" }),
 		);
 
@@ -377,6 +399,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({ replayUrl: "javascript:alert(1)" }),
 		);
 
@@ -390,6 +413,7 @@ describe("FeedbackService.create", () => {
 
 		await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({
 				context: {
 					locale: "en-US",
@@ -412,6 +436,7 @@ describe("FeedbackService.create", () => {
 
 		const result = await service.create(
 			user,
+			AUTH_SESSION_ID,
 			makeRequest({ screenshot: { dataUrl } }),
 		);
 
@@ -432,7 +457,7 @@ describe("FeedbackService.create", () => {
 		const error = new Error("Linear is unavailable");
 		client.createIssueError = error;
 
-		const result = await service.create(user, makeRequest());
+		const result = await service.create(user, AUTH_SESSION_ID, makeRequest());
 
 		expect(result.issueId).toBeNull();
 		expect(repository.inserts).toHaveLength(1);
@@ -448,7 +473,7 @@ describe("FeedbackService.create", () => {
 		const error = new Error("Label lookup failed");
 		client.labelError = error;
 
-		const result = await service.create(user, makeRequest());
+		const result = await service.create(user, AUTH_SESSION_ID, makeRequest());
 
 		expect(result.issueId).toBeNull();
 		expect(repository.inserts).toHaveLength(1);

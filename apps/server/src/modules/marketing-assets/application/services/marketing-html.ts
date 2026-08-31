@@ -10,8 +10,14 @@
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
 import {
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
+import {
 	createLlmModel,
 	hasLlmProviderKey,
+	llmProviderForTask,
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
 import {
@@ -36,7 +42,7 @@ export type MarketingHtmlInput = {
 
 export type MarketingHtmlResult =
 	| ({ html: string; status: "generated" } & GatewayGenerationMetadata)
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure: NormalizedAiError })
 	| { message: string; status: "unavailable" };
 
 const ASSET_TYPE_LABELS: Record<MarketingHtmlInput["assetType"], string> = {
@@ -149,6 +155,7 @@ export async function generateMarketingAssetHtml(
 				`DATE: ${input.dateLabel}\n\n` +
 				`MARKETING BRIEF:\n${input.brief}`,
 			system: MARKETING_DOCUMENT_PROMPT,
+			telemetry: { functionId: "marketing.html" },
 		});
 		providerEvidence = {
 			model,
@@ -176,10 +183,28 @@ export async function generateMarketingAssetHtml(
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure =
+			classifyAiError(error, {
+				...(abortSignal ? { abortSignal } : {}),
+				model,
+				providerMetadata: evidence?.providerMetadata,
+				route: llmProviderForTask("marketing"),
+				surface: "marketing",
+			}) ??
+			classifyAiError(new Error("Marketing generation failed"), {
+				model,
+				route: "none",
+				surface: "marketing",
+			});
+
+		if (!failure) {
+			throw new Error("Marketing failure classification returned no result");
+		}
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};

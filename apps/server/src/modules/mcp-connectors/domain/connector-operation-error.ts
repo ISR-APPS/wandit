@@ -1,3 +1,5 @@
+import { looksLikeCredential } from "../../ai-errors/domain/sanitize-provider-text";
+
 const MAX_ERROR_MESSAGE_LENGTH = 500;
 const MAX_ERROR_CODE_LENGTH = 80;
 const SAFE_ERROR_MESSAGE = "Provider tool execution failed";
@@ -82,14 +84,6 @@ function normalizeErrorCode(candidate: string): string | null {
 	}
 
 	return null;
-}
-
-function looksLikeCredential(value: string): boolean {
-	return (
-		/^(?:sk|pk|rk|ghp|xox[baprs])[-_]/i.test(value) ||
-		/^[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}$/.test(value) ||
-		(value.length >= 24 && /^[A-Za-z0-9]+$/.test(value))
-	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

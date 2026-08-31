@@ -1,3 +1,4 @@
+import { GatewayRateLimitError } from "@ai-sdk/gateway";
 import { BadRequestException, HttpException } from "@nestjs/common";
 import {
 	applyElementOpsInputSchema,
@@ -38,6 +39,7 @@ const r2Mocks = vi.hoisted(() => ({
 }));
 const sentryMocks = vi.hoisted(() => ({
 	captureException: vi.fn(),
+	warn: vi.fn(),
 }));
 
 vi.mock("@wandit/observability/nestjs", async (importOriginal) => {
@@ -49,6 +51,23 @@ vi.mock("@wandit/observability/nestjs", async (importOriginal) => {
 		Sentry: {
 			...actual.Sentry,
 			captureException: sentryMocks.captureException,
+		},
+	};
+});
+
+vi.mock("@wandit/observability/node", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@wandit/observability/node")>();
+
+	return {
+		...actual,
+		Sentry: {
+			...actual.Sentry,
+			captureException: sentryMocks.captureException,
+			logger: {
+				...actual.Sentry.logger,
+				warn: sentryMocks.warn,
+			},
 		},
 	};
 });
@@ -104,6 +123,7 @@ type CapturedStreamOptions = {
 			write: (part: unknown) => void;
 		};
 	}) => Promise<void>;
+	onError?: (error: unknown) => string;
 	onEnd?: (options: {
 		isContinuation: boolean;
 		responseMessage: WanditUIMessage;
@@ -127,6 +147,7 @@ function buildService({
 	pricingOverrides?: Record<string, unknown>;
 } = {}) {
 	const chatsRepository = {
+		deleteTerminalFailedAssistantMessage: vi.fn().mockResolvedValue(true),
 		findAccessibleChatById: vi.fn().mockResolvedValue({
 			id: CHAT_ID,
 			projectId: PROJECT_ID,
@@ -340,6 +361,16 @@ function capturedOnEnd() {
 	return onEnd;
 }
 
+function capturedOuterError() {
+	const onError = capturedStreamOptions?.onError;
+
+	if (!onError) {
+		throw new Error("createUIMessageStream did not receive onError");
+	}
+
+	return onError;
+}
+
 function capturedExecute() {
 	const execute = capturedStreamOptions?.execute;
 
@@ -363,6 +394,7 @@ function capturedAgentStreamOptions() {
 describe("AiChatService MCP lifecycle", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		sentryMocks.captureException.mockReturnValue("sentry-event-1");
 		capturedStreamOptions = undefined;
 		r2Mocks.getPageHtml.mockResolvedValue(null);
 		chatAgentMocks.createChatAgent.mockReturnValue({});
@@ -388,6 +420,62 @@ describe("AiChatService MCP lifecycle", () => {
 		).toBeLessThan(
 			vi.mocked(reply.hijack).mock.invocationCallOrder[0] ?? Number.MAX_VALUE,
 		);
+	});
+
+	it("accepts a persisted assistant AI error through controller validation", async () => {
+		const { chatsRepository, service } = buildService();
+		const prepareStream = vi.spyOn(service, "prepareStream");
+		const serviceStream = vi.spyOn(service, "stream");
+		const failedAssistant = {
+			id: "persisted-failed-assistant",
+			parts: [
+				{
+					data: {
+						kind: "rate_limited",
+						moderationStage: null,
+						provider: null,
+						providerLabel: "Vercel AI Gateway",
+						providerMessage: null,
+						refunded: null,
+						requestId: "generation-rate-limited",
+						retryable: true,
+						sentryEventId: null,
+						source: "gateway",
+						terminal: true,
+					},
+					id: "ai-error",
+					type: "data-ai-error",
+				},
+			],
+			role: "assistant",
+		};
+		const nextUserMessage = {
+			id: "user-message-after-failure",
+			parts: [{ text: "Try a different approach", type: "text" }],
+			role: "user",
+		};
+		chatsRepository.listMessageIds.mockResolvedValue(
+			new Set([failedAssistant.id]),
+		);
+
+		await streamThroughController(service, chatsRepository, [
+			failedAssistant,
+			nextUserMessage,
+		]);
+
+		expect(prepareStream).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					expect.objectContaining({
+						id: failedAssistant.id,
+						parts: [expect.objectContaining({ type: "data-ai-error" })],
+						role: "assistant",
+					}),
+					nextUserMessage,
+				],
+			}),
+		);
+		expect(serviceStream).toHaveBeenCalledOnce();
 	});
 
 	it("reuses the still-reserved project-creation event", async () => {
@@ -426,6 +514,62 @@ describe("AiChatService MCP lifecycle", () => {
 		});
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		prepared.release();
+	});
+
+	it("deletes the scoped failed assistant only after admitting its regeneration", async () => {
+		const { chatsRepository, meteringService, service } = buildService();
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			regenerateMessageId: "failed-assistant-message",
+			requestId: "failed-assistant-message",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("usage-event-1");
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage,
+		).toHaveBeenCalledWith(CHAT_ID, "failed-assistant-message");
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage.mock
+				.invocationCallOrder[0],
+		).toBeGreaterThan(
+			meteringService.claimBundledReservation.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage.mock
+				.invocationCallOrder[0],
+		).toBeGreaterThan(
+			meteringService.reserveWithReplay.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(
+			meteringService.reserveWithReplay.mock.calls[0]?.[2]?.idempotencyKey,
+		).toBe(`ai-chat:${CHAT_ID}:failed-assistant-message`);
+
+		prepared.release();
+	});
+
+	it("keeps the failed assistant when retry admission is refused", async () => {
+		const { chatsRepository, meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockRejectedValueOnce(
+			new InsufficientCreditsError(500, 0),
+		);
+
+		await expect(
+			service.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				regenerateMessageId: "failed-assistant-message",
+				requestId: "failed-assistant-message",
+				scope: PERSONAL_SCOPE,
+			}),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage,
+		).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -833,6 +977,7 @@ describe("AiChatService MCP lifecycle", () => {
 		try {
 			const { meteringService, service } = buildService();
 			meteringService.heartbeatExecutionLease.mockResolvedValue("lost");
+			const writer = { merge: vi.fn(), write: vi.fn() };
 			const options = {
 				...streamOptions(),
 				prepared: {
@@ -843,9 +988,7 @@ describe("AiChatService MCP lifecycle", () => {
 			};
 
 			await service.stream(options);
-			await capturedExecute()({
-				writer: { merge: vi.fn(), write: vi.fn() },
-			});
+			await capturedExecute()({ writer });
 			const agentOptions = capturedAgentStreamOptions();
 
 			expect(agentOptions.abortSignal.aborted).toBe(false);
@@ -853,6 +996,15 @@ describe("AiChatService MCP lifecycle", () => {
 			await vi.advanceTimersByTimeAsync(60_000);
 
 			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(writer.write).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					kind: "internal",
+					source: "ours",
+					terminal: true,
+				}),
+				id: "ai-error",
+				type: "data-ai-error",
+			});
 			expect(options.prepared.release).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.useRealTimers();
@@ -1367,14 +1519,261 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
+	it("emits only connector-unreachable MCP notices as transient AI errors", async () => {
+		const unreachableNotice =
+			"The user's Higgsfield connection could not be used (connector unreachable). Try again shortly.";
+		const reconnectNotice =
+			"The user's Higgsfield connection could not be used (reconnect required). Reconnect it in Settings.";
+		const { service } = buildService({
+			mcpResult: createMcpResult({
+				configuredSlugs: ["higgsfield"],
+				notices: [unreachableNotice, reconnectNotice],
+			}),
+		});
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+
+		expect(writer.write).toHaveBeenCalledOnce();
+		expect(writer.write).toHaveBeenCalledWith({
+			data: {
+				kind: "connector_unreachable",
+				moderationStage: null,
+				provider: "higgsfield",
+				providerLabel: "Higgsfield",
+				providerMessage: null,
+				refunded: null,
+				requestId: null,
+				retryable: true,
+				source: "higgsfield",
+				terminal: false,
+			},
+			transient: true,
+			type: "data-ai-error",
+		});
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
+		options.prepared.release();
+	});
+
+	it("writes one terminal rate-limit part, masks both SDK error callbacks, and persists the failed assistant", async () => {
+		const { chatsRepository, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const gatewayError = new GatewayRateLimitError({
+			generationId: "generation-rate-limited",
+		});
+
+		const errorText = capturedAgentStreamOptions().onError?.(gatewayError);
+		expect(errorText).toBe("An error occurred.");
+		const firstAiErrorPart = writer.write.mock.calls
+			.map(([part]) => part)
+			.find(
+				(part) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "data-ai-error",
+			);
+		expect(firstAiErrorPart).toEqual({
+			data: expect.objectContaining({
+				kind: "rate_limited",
+				requestId: "generation-rate-limited",
+				retryable: true,
+				source: "gateway",
+				terminal: true,
+			}),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
+
+		// AI SDK v7's finish reducer invokes the outer callback with a new Error
+		// made from the already masked text. It must not replace the first part.
+		expect(capturedOuterError()(new Error(errorText))).toBe(
+			"An error occurred.",
+		);
+		expect(
+			writer.write.mock.calls.filter(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "data-ai-error",
+			),
+		).toHaveLength(1);
+		expect(sentryMocks.warn).toHaveBeenCalledOnce();
+		expect(sentryMocks.warn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({
+				errorKind: "rate_limited",
+				gatewayGenerationId: "generation-rate-limited",
+				source: "gateway",
+			}),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+
+		if (!firstAiErrorPart) {
+			throw new Error("The gateway failure did not write an AI error part");
+		}
+		expect(firstAiErrorPart).not.toHaveProperty("data.sentryEventId");
+		const failedAssistant = {
+			id: "failed-assistant-message",
+			parts: [firstAiErrorPart] as WanditUIMessage["parts"],
+			role: "assistant" as const,
+		};
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage: failedAssistant,
+		});
+
+		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			CHAT_ID,
+			[
+				expect.objectContaining({ id: "user-message", role: "user" }),
+				failedAssistant,
+			],
+			expect.objectContaining({
+				failureKind: "rate_limited",
+				failureRequestId: "generation-rate-limited",
+				failureSource: "gateway",
+				sentryEventId: null,
+			}),
+		);
+	});
+
+	it("keeps the SDK tool-output-error masked and writes one scoped manual failure", async () => {
+		const actualAi = await vi.importActual<typeof import("ai")>("ai");
+		const toolError = new Error("private tool stack and arguments");
+		const toolCallId = "tool-call-failed";
+		const fakeAgent = {
+			stream: vi.fn(
+				async ({
+					experimental_transform,
+				}: {
+					experimental_transform?: unknown;
+				}) => {
+					const transformFactories = Array.isArray(experimental_transform)
+						? experimental_transform
+						: [experimental_transform];
+					const captureToolFailure = transformFactories[0] as
+						| ((options: {
+								stopStream: () => void;
+								tools: Record<string, never>;
+						  }) => TransformStream<unknown, unknown>)
+						| undefined;
+					let rawStream = new ReadableStream<unknown>({
+						start(controller) {
+							controller.enqueue({
+								dynamic: true,
+								input: {},
+								toolCallId,
+								toolName: "generate_page",
+								type: "tool-call",
+							});
+							controller.enqueue({
+								dynamic: true,
+								error: toolError,
+								input: {},
+								toolCallId,
+								toolName: "generate_page",
+								type: "tool-error",
+							});
+							controller.close();
+						},
+					});
+
+					if (captureToolFailure) {
+						rawStream = rawStream.pipeThrough(
+							captureToolFailure({ stopStream: vi.fn(), tools: {} }),
+						);
+					}
+
+					return { stream: rawStream };
+				},
+			),
+			tools: {},
+		};
+		chatAgentMocks.createChatAgent.mockReturnValue(fakeAgent);
+		aiMocks.createAgentUIStream.mockImplementation((options) =>
+			actualAi.createAgentUIStream(options as never),
+		);
+		const { service } = buildService();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(streamOptions());
+		await capturedExecute()({ writer });
+		const mergedStream = writer.merge.mock.calls[0]?.[0] as
+			| ReadableStream<unknown>
+			| undefined;
+		if (!mergedStream) {
+			throw new Error("The agent UI stream was not merged");
+		}
+		const chunks: unknown[] = [];
+		const reader = mergedStream.getReader();
+		while (true) {
+			const result = await reader.read();
+			if (result.done) break;
+			chunks.push(result.value);
+		}
+
+		expect(chunks).toContainEqual({
+			dynamic: true,
+			errorText: "An error occurred.",
+			toolCallId,
+			type: "tool-output-error",
+		});
+		expect(
+			writer.write.mock.calls.filter(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"id" in part &&
+					part.id === `ai-error:${toolCallId}`,
+			),
+		).toEqual([
+			[
+				{
+					data: expect.objectContaining({
+						kind: "internal",
+						terminal: true,
+						toolCallId,
+					}),
+					id: `ai-error:${toolCallId}`,
+					type: "data-ai-error",
+				},
+			],
+		]);
+		expect(
+			writer.write.mock.calls.find(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"id" in part &&
+					part.id === `ai-error:${toolCallId}`,
+			)?.[0],
+		).not.toHaveProperty("data.sentryEventId");
+		expect(sentryMocks.captureException).toHaveBeenCalledOnce();
+		expect(sentryMocks.captureException).toHaveBeenCalledWith(
+			toolError,
+			expect.objectContaining({
+				tags: expect.objectContaining({ toolName: "generate_page" }),
+			}),
+		);
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
+	});
+
 	it("captures a real stream failure after an invalid tool input warning", async () => {
 		const { service } = buildService();
 		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
 
 		await service.stream(options);
-		await capturedExecute()({
-			writer: { merge: vi.fn(), write: vi.fn() },
-		});
+		await capturedExecute()({ writer });
 		const agentOptions = capturedAgentStreamOptions();
 		const invalidInput = new InvalidToolInputError({
 			cause: new Error("Too big: expected array to have <=6 items"),
@@ -1386,11 +1785,19 @@ describe("AiChatService MCP lifecycle", () => {
 		// The SDK reports an invalid call twice: the error, then its text for the
 		// tool-error chunk. Neither may arm the fatal-error latch: the tool loop
 		// continues, and a later real failure still needs its capture.
-		expect(agentOptions.onError?.(invalidInput)).toBe(invalidInput.message);
+		expect(agentOptions.onError?.(invalidInput)).toBe("An error occurred.");
 		expect(agentOptions.onError?.(String(invalidInput))).toBe(
 			"An error occurred.",
 		);
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
 		expect(agentOptions.onError?.(providerError)).toBe("An error occurred.");
+		expect(writer.write).toHaveBeenCalledWith({
+			data: expect.objectContaining({ kind: "internal", terminal: true }),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
 
 		expect(sentryMocks.captureException).toHaveBeenCalledTimes(2);
 		expect(sentryMocks.captureException).toHaveBeenNthCalledWith(
@@ -1410,6 +1817,62 @@ describe("AiChatService MCP lifecycle", () => {
 			}),
 		);
 		options.prepared.release();
+	});
+
+	it("writes a moderated terminal part for a content-filter finish without an error chunk", async () => {
+		const { service } = buildService();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(streamOptions());
+		await capturedExecute()({ writer });
+		const messageMetadata = capturedAgentStreamOptions().messageMetadata;
+		if (!messageMetadata) {
+			throw new Error("messageMetadata was not configured");
+		}
+		expect(
+			messageMetadata({
+				part: {
+					providerMetadata: {
+						gateway: {
+							generationId: "generation-moderated",
+							routing: { finalProvider: "anthropic" },
+						},
+					},
+					type: "finish-step",
+				},
+			} as never),
+		).toBeUndefined();
+		expect(
+			messageMetadata({
+				part: {
+					finishReason: "content-filter",
+					rawFinishReason: "SAFETY",
+					totalUsage: finishUsage(),
+					type: "finish",
+				},
+			} as never),
+		).toMatchObject({
+			finishReason: "content-filter",
+			gatewayGenerationId: "generation-moderated",
+			provider: "anthropic",
+			rawFinishReason: "SAFETY",
+		});
+
+		expect(writer.write).toHaveBeenCalledWith({
+			data: expect.objectContaining({
+				kind: "content_moderated",
+				moderationStage: "input",
+				providerLabel: "Anthropic",
+				source: "provider:anthropic",
+				terminal: true,
+			}),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
 	});
 
 	it("retries a step generation capture without replaying the model step", async () => {
@@ -1500,28 +1963,97 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
-	it("aborts and releases a stream before stale-reservation recovery can race it", async () => {
+	it("emits a timeout part when the stream budget aborts", async () => {
 		const timeoutController = new AbortController();
 		const timeout = vi
 			.spyOn(AbortSignal, "timeout")
 			.mockReturnValue(timeoutController.signal);
+
+		try {
+			const { service } = buildService();
+			const options = streamOptions();
+			const writer = { merge: vi.fn(), write: vi.fn() };
+
+			await service.stream(options);
+			await capturedExecute()({ writer });
+			const agentOptions = capturedAgentStreamOptions();
+
+			expect(timeout).toHaveBeenCalledWith(35 * 60 * 1_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			timeoutController.abort(new DOMException("budget", "TimeoutError"));
+
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(writer.write).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					kind: "timeout",
+					source: "ours",
+					terminal: true,
+				}),
+				id: "ai-error",
+				type: "data-ai-error",
+			});
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
+	it("does not write an AI error when the budget aborts after a successful finish", async () => {
+		const timeoutController = new AbortController();
+		const timeout = vi
+			.spyOn(AbortSignal, "timeout")
+			.mockReturnValue(timeoutController.signal);
+
+		try {
+			const { service } = buildService();
+			const writer = { merge: vi.fn(), write: vi.fn() };
+
+			await service.stream(streamOptions());
+			await capturedExecute()({ writer });
+			const messageMetadata = capturedAgentStreamOptions().messageMetadata;
+			if (!messageMetadata) {
+				throw new Error("messageMetadata was not configured");
+			}
+			messageMetadata({
+				part: {
+					finishReason: "stop",
+					totalUsage: finishUsage(),
+					type: "finish",
+				},
+			} as never);
+
+			timeoutController.abort(new DOMException("budget", "TimeoutError"));
+
+			expect(writer.write).not.toHaveBeenCalledWith(
+				expect.objectContaining({ type: "data-ai-error" }),
+			);
+			expect(sentryMocks.captureException).not.toHaveBeenCalled();
+			expect(sentryMocks.warn).not.toHaveBeenCalled();
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
+	it("does not emit an AI error when the user aborts the stream", async () => {
+		const clientAbort = new AbortController();
 		const { service } = buildService();
-		const options = streamOptions();
+		const options = {
+			...streamOptions(),
+			abortSignal: clientAbort.signal,
+		};
+		const writer = { merge: vi.fn(), write: vi.fn() };
 
 		await service.stream(options);
-		await capturedExecute()({
-			writer: { merge: vi.fn(), write: vi.fn() },
-		});
-		const agentOptions = capturedAgentStreamOptions();
+		await capturedExecute()({ writer });
+		clientAbort.abort(new DOMException("closed", "AbortError"));
 
-		expect(timeout).toHaveBeenCalledWith(35 * 60 * 1_000);
-		expect(agentOptions.abortSignal.aborted).toBe(false);
-
-		timeoutController.abort();
-
-		expect(agentOptions.abortSignal.aborted).toBe(true);
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
 		expect(options.prepared.release).toHaveBeenCalledTimes(1);
-		timeout.mockRestore();
 	});
 
 	it("emits the credits-settled part with the post-settle balance after end settlement", async () => {
@@ -1653,6 +2185,11 @@ describe("AiChatService MCP lifecycle", () => {
 			},
 			type: "data-billing-error",
 		});
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
 		options.prepared.release();
 	});
 
@@ -2115,6 +2652,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
 			CHAT_ID,
 			[rawUserMessage, responseMessage],
+			null,
 		);
 		const insertedUserMessage =
 			chatsRepository.insertUiMessagesIfAbsent.mock.calls[0]?.[1]?.[0];
@@ -2206,6 +2744,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.upsertUiMessage).toHaveBeenCalledWith(
 			CHAT_ID,
 			responseMessage,
+			null,
 		);
 		expect(chatsRepository.insertUiMessagesIfAbsent).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);
@@ -2233,6 +2772,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(
 			messageMetadata({
 				part: {
+					finishReason: "stop",
 					type: "finish",
 					totalUsage: {
 						inputTokens: 120,
@@ -2251,7 +2791,9 @@ describe("AiChatService MCP lifecycle", () => {
 				},
 			}),
 		).toEqual({
+			finishReason: "stop",
 			model: env.AI_CHAT_MODEL,
+			provider: env.AI_CHAT_MODEL.split("/", 1)[0],
 			usage: {
 				inputTokens: 120,
 				inputTokenDetails: {
@@ -2293,6 +2835,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
 			CHAT_ID,
 			[userMessage(), responseMessage],
+			null,
 		);
 		expect(chatsRepository.upsertUiMessage).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);

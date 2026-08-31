@@ -23,6 +23,8 @@ import {
 
 import { ChatHeader } from "../components/chat-header";
 import {
+	ChatAiErrorBlock,
+	ChatAiErrorNotices,
 	ChatEmptyState,
 	ChatErrorBanner,
 	ChatLoadingState,
@@ -33,14 +35,18 @@ import { ProjectSheet } from "../components/project-sheet";
 import { RequestTray } from "../components/request-tray/request-tray";
 import { TrayReveal } from "../components/request-tray/tray-reveal";
 import { useRequestTray } from "../components/request-tray/use-request-tray";
-import { StatusMessageHeader } from "../components/status-message-header";
+import {
+	chatErrorPresentation,
+	findLastTerminalAiErrorMessage,
+	messageHasQueuedToolOutput,
+} from "../lib/ai-error-copy";
 import {
 	assistantTurnHasThinkingDismissal,
 	coalesceMessageParts,
 	entryRendersContent,
 } from "../lib/chat-message";
 import { pageCommentHandoff } from "../lib/page-preview/comment-handoff";
-import { chatStreamErrorKey, useAiChat } from "../lib/use-ai-chat";
+import { useAiChat } from "../lib/use-ai-chat";
 
 /** Project chat: header, live thread (or empty state), and composer — with
     the request tray docked into the top of the composer while an ask_user
@@ -55,6 +61,10 @@ export function ChatScreen() {
 	const scrollRef = useRef<ScrollView>(null);
 	const wasSubmittingRef = useRef(false);
 	const [sheetOpen, setSheetOpen] = useState(false);
+	const [composerPrefill, setComposerPrefill] = useState({
+		revision: 0,
+		value: "",
+	});
 
 	const projectId =
 		typeof routeProjectId === "string" ? routeProjectId : undefined;
@@ -65,12 +75,15 @@ export function ChatScreen() {
 		status,
 		streamError,
 		historyError,
+		aiError,
+		notices,
 		billingIntent,
 		isResolvingChat,
 		isLoadingMessages,
 		sendText,
 		answerAskUser,
 		addToolApprovalResponse,
+		retryTurn,
 	} = useAiChat(projectId);
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
@@ -96,6 +109,13 @@ export function ChatScreen() {
 		composerText,
 		onAnswer: answerAskUser,
 	});
+	const prefillComposer = (value: string) => {
+		if (!value.trim()) return;
+		setComposerPrefill((current) => ({
+			revision: current.revision + 1,
+			value,
+		}));
+	};
 
 	const pending = isResolvingChat || isLoadingMessages;
 	// History failures (the transcript could not load) and stream failures (the
@@ -106,8 +126,33 @@ export function ChatScreen() {
 	const visibleError = historyError
 		? t("native.workspace.chat.errors.unavailable")
 		: null;
-	const streamErrorMessage =
-		streamError && !billingIntent ? t(chatStreamErrorKey(streamError)) : null;
+	const failedAssistantMessage = findLastTerminalAiErrorMessage(messages);
+	const failedMessageIsLast =
+		failedAssistantMessage?.id === messages.at(-1)?.id;
+	const failedMessageHasQueuedWork = failedAssistantMessage
+		? messageHasQueuedToolOutput(failedAssistantMessage)
+		: false;
+	const streamErrorPresentation =
+		(aiError ?? streamError) &&
+		!billingIntent &&
+		aiError?.kind !== "cancelled" &&
+		aiError?.kind !== "billing"
+			? chatErrorPresentation(streamError, aiError, t)
+			: null;
+	const showStreamRetry = Boolean(
+		aiError &&
+			streamErrorPresentation?.retryable &&
+			status !== "submitted" &&
+			status !== "streaming" &&
+			failedMessageIsLast &&
+			!failedMessageHasQueuedWork,
+	);
+	const showQueuedHint = Boolean(
+		aiError &&
+			streamErrorPresentation?.retryable &&
+			failedMessageIsLast &&
+			failedMessageHasQueuedWork,
+	);
 	const thinkingLabel = t("native.workspace.chat.thinking");
 	const isSubmitting = status === "submitted" || status === "streaming";
 	const lastMessage = messages.at(-1);
@@ -132,13 +177,15 @@ export function ChatScreen() {
 		hasMessages ||
 		showThinking ||
 		Boolean(visibleError) ||
-		Boolean(streamErrorMessage);
+		Boolean(streamErrorPresentation) ||
+		notices.length > 0;
 	const scrollVersion = JSON.stringify({
 		messageCount: messages.length,
 		parts: lastMessage?.parts ?? [],
 		trayActive: tray.active,
 		visibleError,
-		streamErrorMessage,
+		streamErrorPresentation,
+		notices,
 	});
 
 	// tray.active is a re-scroll trigger too: the tray growing out of the
@@ -262,24 +309,29 @@ export function ChatScreen() {
 							projectId={projectId}
 							activeAskToolCallId={tray.toolCallId}
 							onToolApprovalResponse={addToolApprovalResponse}
+							onPrefillComposer={prefillComposer}
+							hideAiErrorMessageId={
+								aiError ? failedAssistantMessage?.id : undefined
+							}
+							onRetryAiError={retryTurn}
 						/>
 					) : null}
+					{/* Notices belong to the active turn. Keep them at the live edge so
+					    scroll-to-end reveals them instead of leaving them above history. */}
+					<ChatAiErrorNotices notices={notices} />
 					{showThinking ? (
 						<ChatThinkingIndicator label={thinkingLabel} />
 					) : null}
-					{streamErrorMessage ? (
+					{streamErrorPresentation ? (
 						// The live turn broke — the report sits at the bottom of the
-						// thread where the user was reading, byline + kicker + body
-						// (web parity with the pane's stream-error footer).
-						<View className="gap-1.5">
-							<StatusMessageHeader
-								tone="danger"
-								kicker={t("native.workspace.chat.errors.streamKicker")}
-							/>
-							<Text className="text-[13px] text-muted leading-[19px]">
-								{streamErrorMessage}
-							</Text>
-						</View>
+						// thread where the user was reading, with normalized copy and
+						// safe attribution only (never the transport Error.message).
+						<ChatAiErrorBlock
+							presentation={streamErrorPresentation}
+							showQueuedHint={showQueuedHint}
+							showRetry={showStreamRetry}
+							onRetry={retryTurn}
+						/>
 					) : null}
 				</ScrollView>
 			) : (
@@ -295,7 +347,9 @@ export function ChatScreen() {
 					<View className="px-4">
 						<OutOfCreditsBanner active={outOfCredits} intent={bannerIntent}>
 							<PromptBox
+								key={composerPrefill.revision}
 								variant="compact"
+								initialValue={composerPrefill.value}
 								clearOnSubmit
 								disabled={outOfCredits}
 								maxLength={CHAT_PROMPT_MAX_LENGTH}

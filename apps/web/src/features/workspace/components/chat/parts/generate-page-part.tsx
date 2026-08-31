@@ -34,12 +34,18 @@ import { useStopwatch } from "react-timer-hook";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
+import { useTranslation } from "@/lib/i18n";
 import {
 	pageKeys,
 	useDismissPageAttempt,
 	usePageAttemptQuery,
 	useRetryPageAttempt,
 } from "../../../api/pages.queries";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import { buildFailureCopy } from "../../../lib/build-failure-copy";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
@@ -52,7 +58,14 @@ type GeneratePageToolPart = Extract<
 	{ type: "tool-generate_page" }
 >;
 
-export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
+export function GeneratePagePart({
+	part,
+	messageParts,
+}: {
+	part: GeneratePageToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
+	const { t } = useTranslation();
 	// The brief streams in first (it's long), then the tool executes server-side.
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return (
@@ -67,12 +80,18 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			const copy = durableAiErrorPresentation(failure, t);
+			return <PageToolFailure copy={copy} />;
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
 					avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 					kickerClass="text-destructive"
-					kicker="Page build failed to start"
+					kicker={t("workspace.chat.pageBuild.failedTitle")}
 				>
 					<AlertTriangle className="size-3" aria-hidden />
 				</StatusMessageHeader>
@@ -80,13 +99,19 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{part.errorText}
+					{t("workspace.chat.pageBuild.failedHeadline")}
 				</p>
 			</div>
 		);
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		return (
+			<PageToolFailure copy={durableAiErrorPresentation(outputFailure, t)} />
+		);
+	}
 
 	if (part.output.status === "queued") {
 		if (part.output.attemptId || part.output.realtime) {
@@ -109,6 +134,32 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 		<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 			{part.output.message}
 		</p>
+	);
+}
+
+function PageToolFailure({
+	copy,
+}: {
+	copy: ReturnType<typeof durableAiErrorPresentation>;
+}) {
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={copy.kicker}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
+				{copy.body}
+			</p>
+			{copy.attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{copy.attribution}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

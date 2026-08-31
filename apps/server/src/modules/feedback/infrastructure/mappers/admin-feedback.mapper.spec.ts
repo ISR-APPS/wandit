@@ -16,6 +16,8 @@ const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const ROW: AdminFeedbackRow = {
 	id: FEEDBACK_ID,
 	userId: "user-1",
+	chatId: "44444444-4444-4444-8444-444444444444",
+	authSessionId: "session-1",
 	reporterName: "Ada Lovelace",
 	reporterEmail: "ada@example.com",
 	projectId: PROJECT_ID,
@@ -68,6 +70,8 @@ describe("admin feedback mapper", () => {
 				memberSince: "2025-09-01T00:00:00.000Z",
 			},
 			context: {
+				chatId: "44444444-4444-4444-8444-444444444444",
+				authSessionId: "session-1",
 				sentryEventAt: "2026-08-20T09:00:00.000Z",
 				viewport: { width: 1512, height: 982 },
 			},
