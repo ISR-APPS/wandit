@@ -9,6 +9,7 @@ import {
 	type AdminListManualSubscriptionsQuery,
 	type AdminListManualSubscriptionsResponse,
 	type AdminManualBillingOrganization,
+	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualBillingUser,
 	type AdminManualPayment,
@@ -22,6 +23,7 @@ import {
 	type AdminUpdateManualRequestBody,
 	adminListManualRequestsResponseSchema,
 	adminListManualSubscriptionsResponseSchema,
+	adminManualBillingReceiptConfigSchema,
 	adminManualBillingStatsSchema,
 	adminManualRequestSchema,
 	adminManualSubscriptionDetailSchema,
@@ -34,6 +36,7 @@ export type {
 	AdminListManualRequestsResponse,
 	AdminListManualSubscriptionsResponse,
 	AdminManualBillingOrganization,
+	AdminManualBillingReceiptConfig,
 	AdminManualBillingUser,
 	AdminManualPayment,
 	AdminManualPaymentInput,
@@ -110,4 +113,10 @@ export function mapManualBillingStatsDto(
 	input: unknown,
 ): AdminManualBillingStats {
 	return adminManualBillingStatsSchema.parse(input);
+}
+
+export function mapManualBillingReceiptConfigDto(
+	input: unknown,
+): AdminManualBillingReceiptConfig {
+	return adminManualBillingReceiptConfigSchema.parse(input);
 }

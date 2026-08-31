@@ -1,6 +1,8 @@
 export const PRODUCT_SETTINGS_ID = 1 as const;
 
 export const DEFAULT_PRODUCT_SETTINGS = {
+	// Hundredths of a DZD per 1 USD; the admin API exposes decimal DZD.
+	dzdPerUsdRate: 27_000,
 	emailAuthEnabled: false,
 	id: PRODUCT_SETTINGS_ID,
 	lifecycleEmailsEnabled: false,

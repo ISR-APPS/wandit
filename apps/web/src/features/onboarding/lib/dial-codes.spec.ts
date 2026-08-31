@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
 	composePhoneAnswer,
+	countryCodeFromE164,
+	countryForInternationalInput,
 	dialCountries,
 	dialCountryDisplayName,
+	dialCountryIsoCodes,
 	foldArabicDigits,
 	getDialCountry,
 	internationalDigitsOf,
 	isCompletePhoneAnswer,
+	isDialCountryIso,
+	preferredCountryIsoByDial,
+	restorePhoneAnswer,
 	splitPhoneAnswer,
 } from "./dial-codes";
 
@@ -25,6 +31,29 @@ describe("dial country data", () => {
 		for (const { iso, dial } of dialCountries) {
 			expect(iso).toMatch(/^[A-Z]{2}$/);
 			expect(dial).toMatch(/^[1-9][0-9]{0,3}$/);
+		}
+	});
+
+	it("exports the same validated ISO vocabulary as the country data", () => {
+		expect(dialCountryIsoCodes).toEqual(dialCountries.map(({ iso }) => iso));
+		expect(isDialCountryIso("DZ")).toBe(true);
+		expect(isDialCountryIso("dz")).toBe(false);
+		expect(isDialCountryIso("XX")).toBe(false);
+	});
+
+	it("defines a valid preferred owner for every shared dial code", () => {
+		const countriesByDial = new Map<string, string[]>();
+		const preferredOwners: Readonly<Record<string, string>> =
+			preferredCountryIsoByDial;
+
+		for (const { dial, iso } of dialCountries) {
+			countriesByDial.set(dial, [...(countriesByDial.get(dial) ?? []), iso]);
+		}
+
+		for (const [dial, isoCodes] of countriesByDial) {
+			if (isoCodes.length < 2) continue;
+			expect(preferredOwners[dial], dial).toBeDefined();
+			expect(isoCodes, dial).toContain(preferredOwners[dial]);
 		}
 	});
 
@@ -121,8 +150,63 @@ describe("splitPhoneAnswer", () => {
 		expect(splitPhoneAnswer("+442071234567")?.country.iso).toBe("GB");
 	});
 
+	it("uses the exported preferred-owner map for ambiguous calling codes", () => {
+		expect(preferredCountryIsoByDial["1"]).toBe("US");
+		expect(preferredCountryIsoByDial["212"]).toBe("MA");
+	});
+
 	it("rejects values that are not international numbers", () => {
 		expect(splitPhoneAnswer("0661223344")).toBeUndefined();
 		expect(splitPhoneAnswer("+999123")).toBeUndefined();
+	});
+});
+
+describe("restorePhoneAnswer", () => {
+	it("preserves an explicit ISO when the calling code is shared", () => {
+		expect(restorePhoneAnswer("+12025550123", "CA")).toEqual({
+			country: getDialCountry("CA"),
+			national: "2025550123",
+		});
+		expect(restorePhoneAnswer("+212612345678", "EH")?.country.iso).toBe("EH");
+	});
+
+	it("falls back to inference when explicit metadata conflicts", () => {
+		expect(restorePhoneAnswer("+213661223344", "CA")?.country.iso).toBe("DZ");
+	});
+});
+
+describe("countryForInternationalInput", () => {
+	it("keeps the current picker country when the inferred dial is shared", () => {
+		expect(
+			countryForInternationalInput(
+				mustGetDialCountry("CA"),
+				mustGetDialCountry("US"),
+			).iso,
+		).toBe("CA");
+	});
+
+	it("switches to the inferred country when the dial code changes", () => {
+		expect(
+			countryForInternationalInput(
+				mustGetDialCountry("DZ"),
+				mustGetDialCountry("FR"),
+			).iso,
+		).toBe("FR");
+	});
+});
+
+describe("countryCodeFromE164", () => {
+	it("matches longest prefixes and shared-code preferred owners", () => {
+		expect(countryCodeFromE164("+213661223344")).toBe("DZ");
+		expect(countryCodeFromE164("+212612345678")).toBe("MA");
+		expect(countryCodeFromE164("+12025550123")).toBe("US");
+	});
+
+	it("rejects short, oversized, non-digit, and unknown calling-code values", () => {
+		expect(countryCodeFromE164("+2136")).toBeNull();
+		expect(countryCodeFromE164("+2136612233445566")).toBeNull();
+		expect(countryCodeFromE164("+213A661223344")).toBeNull();
+		expect(countryCodeFromE164("+99912345678")).toBeNull();
+		expect(countryCodeFromE164("213661223344")).toBeNull();
 	});
 });

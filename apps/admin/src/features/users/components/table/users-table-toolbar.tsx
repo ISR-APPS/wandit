@@ -23,7 +23,9 @@ import { Input } from "@/components/ui/input";
 import type {
 	AdminListUsersSort,
 	AdminUserSummary,
+	UserCountryFilter,
 	UserCreditsUsedRange,
+	UserFreeCreditsFilter,
 	UserPlanFilter,
 	UserPublishedFilter,
 	UserRoleFilter,
@@ -31,6 +33,7 @@ import type {
 	UserVerifiedFilter,
 } from "@/features/users/api/users.dto";
 import {
+	USER_FREE_CREDITS_FILTER_OPTIONS,
 	USER_PLAN_FILTER_OPTIONS,
 	USER_PUBLISHED_FILTER_OPTIONS,
 	USER_ROLE_FILTER_OPTIONS,
@@ -39,6 +42,7 @@ import {
 	USER_STATUS_FILTER_OPTIONS,
 	USER_VERIFIED_FILTER_OPTIONS,
 } from "@/features/users/lib/constants";
+import { USER_COUNTRY_FILTER_OPTIONS } from "@/features/users/lib/country-filter-options";
 
 import { UsersCreditsUsedFilter } from "./users-credits-used-filter";
 
@@ -46,6 +50,8 @@ type UsersTableToolbarProps = {
 	table: Table<AdminUserSummary>;
 	searchValue: string;
 	sort: AdminListUsersSort;
+	country?: UserCountryFilter;
+	freeCredits?: UserFreeCreditsFilter;
 	plan?: UserPlanFilter;
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
@@ -55,6 +61,8 @@ type UsersTableToolbarProps = {
 	isExporting: boolean;
 	onSearchChange: (value: string) => void;
 	onSortChange: (sort: AdminListUsersSort) => void;
+	onCountryChange: (country: UserCountryFilter | undefined) => void;
+	onFreeCreditsChange: (freeCredits: UserFreeCreditsFilter | undefined) => void;
 	onPlanChange: (plan: UserPlanFilter | undefined) => void;
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
@@ -69,6 +77,7 @@ const columnLabels = {
 	user: "User",
 	role: "Role",
 	plan: "Plan",
+	phone: "Phone",
 	creditsBalance: "Credits",
 	creditsConsumed: "Credits used",
 	projectsCount: "Projects",
@@ -81,6 +90,8 @@ function UsersTableToolbar({
 	table,
 	searchValue,
 	sort,
+	country,
+	freeCredits,
 	plan,
 	role,
 	status,
@@ -90,6 +101,8 @@ function UsersTableToolbar({
 	isExporting,
 	onSearchChange,
 	onSortChange,
+	onCountryChange,
+	onFreeCreditsChange,
 	onPlanChange,
 	onRoleChange,
 	onStatusChange,
@@ -101,6 +114,8 @@ function UsersTableToolbar({
 }: UsersTableToolbarProps) {
 	const hasActiveFilters = Boolean(
 		searchValue.trim().length > 0 ||
+			country?.length ||
+			freeCredits?.length ||
 			plan?.length ||
 			role?.length ||
 			status?.length ||
@@ -117,7 +132,7 @@ function UsersTableToolbar({
 				<Input
 					value={searchValue}
 					onChange={(event) => onSearchChange(event.target.value)}
-					placeholder="Search name or email..."
+					placeholder="Search name, email, or phone..."
 					aria-label="Search users"
 					className="h-8 w-[150px] lg:w-[250px]"
 					// Matches the contract's q.max(200) so a long paste cannot 400.
@@ -130,6 +145,24 @@ function UsersTableToolbar({
 					value={plan ?? []}
 					onValueChange={(values) =>
 						onPlanChange(values as UserPlanFilter | undefined)
+					}
+				/>
+				<DataTableFacetedFilter
+					ariaLabel="Filter by country"
+					title="Country"
+					options={USER_COUNTRY_FILTER_OPTIONS}
+					value={country ?? []}
+					onValueChange={(values) =>
+						onCountryChange(values as UserCountryFilter | undefined)
+					}
+				/>
+				<DataTableFacetedFilter
+					ariaLabel="Filter by free credits"
+					title="Free credits"
+					options={USER_FREE_CREDITS_FILTER_OPTIONS}
+					value={freeCredits ?? []}
+					onValueChange={(values) =>
+						onFreeCreditsChange(values as UserFreeCreditsFilter | undefined)
 					}
 				/>
 				<DataTableFacetedFilter

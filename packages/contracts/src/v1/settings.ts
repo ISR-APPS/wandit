@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { isoDateTimeSchema } from "./shared/primitives";
 
+export const dzdPerUsdRateSchema = z
+	.number()
+	.positive()
+	.max(10_000)
+	.multipleOf(0.01);
+
 export const productSettingsSchema = z.object({
 	id: z.literal(1),
 	signupGrantEnabled: z.boolean(),
@@ -20,6 +26,8 @@ export const productSettingsSchema = z.object({
 	// Collection window in days after currentPeriodEnd for manual subscriptions;
 	// 0 = strict.
 	manualGraceDays: z.int().min(0).max(30),
+	// Admin-only DZD charged per 1 USD of catalog price for offline receipts.
+	dzdPerUsdRate: dzdPerUsdRateSchema,
 	version: z.int().positive(),
 	updatedByUserId: z.string().nullable(),
 	updatedAt: isoDateTimeSchema,
@@ -54,6 +62,7 @@ export const patchProductSettingsBodySchema = z
 		lifecycleEmailsEnabled: z.boolean().optional(),
 		manualPaymentsEnabled: z.boolean().optional(),
 		manualGraceDays: z.int().min(0).max(30).optional(),
+		dzdPerUsdRate: dzdPerUsdRateSchema.optional(),
 		version: z.int().positive(),
 	})
 	.refine(
@@ -66,7 +75,8 @@ export const patchProductSettingsBodySchema = z
 			settings.emailAuthEnabled !== undefined ||
 			settings.lifecycleEmailsEnabled !== undefined ||
 			settings.manualPaymentsEnabled !== undefined ||
-			settings.manualGraceDays !== undefined,
+			settings.manualGraceDays !== undefined ||
+			settings.dzdPerUsdRate !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

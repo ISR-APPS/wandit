@@ -16,6 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
+import {
+	CountryFlag,
+	countryDisplayName,
+} from "@/features/users/components/country-flag";
+import { PhoneCell } from "@/features/users/components/table/user-table-cells";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
 import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
@@ -79,6 +84,19 @@ export function UserDetailHeader({
 							<p className="truncate text-muted-foreground text-sm">
 								{user.email}
 							</p>
+							<div className="text-muted-foreground text-sm">
+								<PhoneCell phone={user.phone} />
+							</div>
+							<div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+								{user.countryCode ? (
+									<>
+										<CountryFlag countryCode={user.countryCode} />
+										<span>{countryDisplayName(user.countryCode)}</span>
+									</>
+								) : (
+									<span>Unknown</span>
+								)}
+							</div>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<Badge variant={user.role === "admin" ? "default" : "outline"}>

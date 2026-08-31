@@ -37,6 +37,8 @@ export function listUsers(
 		pageSize: params.pageSize,
 		q: params.q || undefined,
 		sort: params.sort,
+		country: serializeMultiValueFilter(params.country),
+		freeCredits: serializeMultiValueFilter(params.freeCredits),
 		plan: serializeMultiValueFilter(params.plan),
 		role: serializeMultiValueFilter(params.role),
 		status: serializeMultiValueFilter(params.status),

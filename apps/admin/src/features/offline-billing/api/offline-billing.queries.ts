@@ -5,6 +5,7 @@ import type {
 	ListManualSubscriptionsParams,
 } from "./offline-billing.dto";
 import {
+	getManualBillingReceiptConfig,
 	getManualBillingStats,
 	getManualRequest,
 	getManualSubscription,
@@ -14,6 +15,7 @@ import {
 
 export const offlineBillingKeys = {
 	all: ["admin-offline-billing"] as const,
+	receiptConfig: () => [...offlineBillingKeys.all, "receipt-config"] as const,
 	stats: () => [...offlineBillingKeys.all, "stats"] as const,
 	requests: () => [...offlineBillingKeys.all, "requests"] as const,
 	requestLists: () => [...offlineBillingKeys.requests(), "list"] as const,
@@ -77,5 +79,12 @@ export function useManualBillingStatsQuery() {
 	return useQuery({
 		queryKey: offlineBillingKeys.stats(),
 		queryFn: getManualBillingStats,
+	});
+}
+
+export function useManualBillingReceiptConfigQuery() {
+	return useQuery({
+		queryKey: offlineBillingKeys.receiptConfig(),
+		queryFn: getManualBillingReceiptConfig,
 	});
 }

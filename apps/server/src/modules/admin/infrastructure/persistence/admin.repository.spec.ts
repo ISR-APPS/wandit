@@ -2,6 +2,9 @@ import {
 	type AdminListUsersQuery,
 	type AdminUserPagesQuery,
 	adminListUsersQuerySchema,
+	countryCodeFromE164,
+	dialCountries,
+	preferredCountryIsoByDial,
 } from "@wandit/contracts";
 import { db } from "@wandit/db";
 import { describe, expect, it } from "vitest";
@@ -41,10 +44,52 @@ function storedRoleExistsSql(role: "admin" | "support"): string {
 const adminRoleExistsSql = storedRoleExistsSql("admin");
 const supportRoleExistsSql = storedRoleExistsSql("support");
 
+describe("shared country dial helpers", () => {
+	it.each([
+		["+213661223344", "DZ"],
+		["+12025550123", "US"],
+		["+212612345678", "MA"],
+		["213661223344", null],
+		["+213123", null],
+		["+99912345678", null],
+	] as const)("maps E.164 %s to %s", (phone, expected) => {
+		expect(countryCodeFromE164(phone)).toBe(expected);
+	});
+
+	it("defines a valid preferred owner for every duplicated dial", () => {
+		const countriesByDial = new Map<string, string[]>();
+		for (const country of dialCountries) {
+			const countryCodes = countriesByDial.get(country.dial) ?? [];
+			countryCodes.push(country.iso);
+			countriesByDial.set(country.dial, countryCodes);
+		}
+
+		const duplicateDials = [...countriesByDial]
+			.filter(([, countryCodes]) => countryCodes.length > 1)
+			.map(([dial]) => dial)
+			.sort();
+		expect(duplicateDials).toEqual(
+			Object.keys(preferredCountryIsoByDial).sort(),
+		);
+
+		for (const [dial, preferredCountryCode] of Object.entries(
+			preferredCountryIsoByDial,
+		)) {
+			expect(countriesByDial.get(dial)).toContain(preferredCountryCode);
+			const nationalDigits = "1".repeat(8 - dial.length);
+			expect(countryCodeFromE164(`+${dial}${nationalDigits}`)).toBe(
+				preferredCountryCode,
+			);
+		}
+	});
+});
+
 describe("adminListUsersQuerySchema", () => {
 	it("splits, trims, removes empty values, and deduplicates CSV filters", () => {
 		const query = adminListUsersQuerySchema.parse({
 			plan: " free,pro,,free ",
+			freeCredits: " consumed, available,consumed ",
+			country: " DZ, unknown,US,DZ ",
 			role: "admin, support, user,admin",
 			status: " banned,active ",
 			verified: "verified, unverified,verified",
@@ -54,6 +99,8 @@ describe("adminListUsersQuerySchema", () => {
 
 		expect(query).toMatchObject({
 			plan: ["free", "pro"],
+			freeCredits: ["consumed", "available"],
+			country: ["DZ", "unknown", "US"],
 			role: ["admin", "support", "user"],
 			status: ["banned", "active"],
 			verified: ["verified", "unverified"],
@@ -70,6 +117,9 @@ describe("adminListUsersQuerySchema", () => {
 
 	it.each([
 		["plan", "free,enterprise"],
+		["freeCredits", "consumed,pending"],
+		["country", "DZ,FRANCE"],
+		["country", "dz"],
 		["role", "user,owner"],
 		["status", "active,suspended"],
 		["verified", "verified,pending"],
@@ -105,6 +155,130 @@ describe("adminListUsersQuerySchema", () => {
 });
 
 describe("AdminRepository user-list queries", () => {
+	it("projects phone through a correlated scalar subquery without joining onboarding rows", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { listQuery } = repository["buildListUsersQueries"](query);
+		const listSql = normalizeSql(listQuery.toSQL().sql);
+		const phoneSubquery =
+			'( select "user_onboarding"."answers" ->> \'phone\' from "user_onboarding" where "user_onboarding"."user_id" = "user"."id" limit 1 )';
+
+		expect(listSql).toContain(phoneSubquery);
+		expect(listSql).not.toContain('join "user_onboarding"');
+	});
+
+	it("derives country with matching picker, E.164, then dial-list attribution precedence", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { listQuery } = repository["buildListUsersQueries"](query);
+		const listSql = normalizeSql(listQuery.toSQL().sql);
+		const pickerIndex = listSql.indexOf(
+			`case when upper(btrim("user_onboarding"."answers" ->> 'phone_country'))`,
+		);
+		const inferredIndex = listSql.indexOf(
+			'select "dial_country"."country_code"',
+		);
+		const attributionIndex = listSql.indexOf(
+			'select upper(btrim("user_attributions"."country"))',
+		);
+
+		expect(pickerIndex).toBeGreaterThan(-1);
+		expect(inferredIndex).toBeGreaterThan(pickerIndex);
+		expect(attributionIndex).toBeGreaterThan(inferredIndex);
+		// Both picker metadata and attribution must come from the same dial-list
+		// vocabulary exposed by the country filter.
+		expect(listSql.split("in ('AD', 'AE'")).toHaveLength(3);
+		expect(listSql.slice(attributionIndex)).toContain(
+			`upper(btrim("user_attributions"."country")) in ('AD', 'AE'`,
+		);
+		expect(listSql.slice(attributionIndex)).not.toContain(`~ '^[A-Z]{2}$'`);
+		expect(listSql).toContain(`from (values ('AD', '376'), ('AE', '971')`);
+		expect(listSql).toContain(
+			`"picker_country"."country_code" = upper(btrim("user_onboarding"."answers" ->> 'phone_country'))`,
+		);
+		expect(listSql).toContain(
+			`"user_onboarding"."answers" ->> 'phone' like '+' || "picker_country"."dial_code" || '%'`,
+		);
+		// The picker lookup retains every ISO owner for shared dials.
+		expect(listSql).toContain("('CA', '1')");
+		expect(listSql).toContain("('FR', '33')");
+		expect(listSql).toContain(
+			`"user_onboarding"."answers" ->> 'phone' like '+' || "dial_country"."dial_code" || '%'`,
+		);
+		expect(listSql).toContain(
+			`"user_onboarding"."answers" ->> 'phone' ~ '^\\+[1-9][0-9]{7,14}$'`,
+		);
+		expect(listSql).toContain(
+			'order by length("dial_country"."dial_code") desc limit 1',
+		);
+		// Shared dials use the same conventional owners as countryCodeFromE164.
+		expect(listSql).toContain("('1', 'US')");
+		expect(listSql).toContain("('212', 'MA')");
+		expect(listSql).not.toContain("('1', 'AG')");
+		expect(listSql).not.toContain("('212', 'EH')");
+		expect(listSql).not.toContain('join "user_onboarding"');
+		expect(listSql).not.toContain('join "user_attributions"');
+
+		const afterOuterUser = listSql.split(' from "user"')[1];
+		expect(afterOuterUser).not.toContain(" join ");
+	});
+
+	it("matches the search term against the onboarding phone with separators stripped", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			q: "+213 661-23",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { listQuery } = repository["buildListUsersQueries"](query);
+		const list = listQuery.toSQL();
+
+		expect(normalizeSqlParams(list.sql)).toContain(
+			'"user_onboarding"."answers" ->> \'phone\' ilike $?',
+		);
+		expect(list.params).toContain("%+213 661-23%");
+		expect(list.params).toContain("%+21366123%");
+	});
+
+	it("ORs selected country codes with unknown and shares the WHERE between count and list", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			country: ["DZ", "US", "unknown"],
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const list = listQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+
+		expect(outerUserWhere(list.sql)).toBe(outerUserWhere(count.sql));
+		expect(countSql).toMatch(/\) in \(\$\?, \$\?\) or coalesce\(/);
+		expect(countSql).toContain('from "user_attributions"');
+		expect(countSql).toContain("is null)");
+		expect(count.params).toEqual(["DZ", "US"]);
+		const listCountryParamIndex = list.params.indexOf("DZ");
+		expect(listCountryParamIndex).toBeGreaterThan(-1);
+		expect(
+			list.params.slice(listCountryParamIndex, listCountryParamIndex + 2),
+		).toEqual(["DZ", "US"]);
+	});
+
 	it("applies the same combined search, plan, role, status, verification, and credits filters to count and list", () => {
 		const repository = new AdminRepository(db as Database);
 		const query = {
@@ -131,7 +305,7 @@ describe("AdminRepository user-list queries", () => {
 
 		expect(outerUserWhere(list.sql)).toBe(outerUserWhere(count.sql));
 		expect(countSql).toContain(
-			'("user"."name" ilike $? or "user"."email" ilike $?)',
+			'("user"."name" ilike $? or "user"."email" ilike $? or exists (select 1 from "user_onboarding" where "user_onboarding"."user_id" = "user"."id" and "user_onboarding"."answers" ->> \'phone\' ilike $?))',
 		);
 		expect(countSql).toContain(
 			`exists (select 1 from "subscriptions" where ${entitledPredicate} and "subscriptions"."plan" in ($?, $?))`,
@@ -149,6 +323,7 @@ describe("AdminRepository user-list queries", () => {
 		expect(listSql.split(entitledPredicate)).toHaveLength(3);
 		// Credits bounds are decimal credits scaled x100 to centi-credits.
 		expect(count.params).toEqual([
+			"%100\\%%",
 			"%100\\%%",
 			"%100\\%%",
 			"active",
@@ -267,6 +442,62 @@ describe("AdminRepository user-list queries", () => {
 			"trialing",
 			"pro",
 		]);
+	});
+
+	const freePlanPredicate =
+		'not exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" in ($?, $?))';
+	const signupFreeCreditsGrantPredicate =
+		'exists (select 1 from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'grant\' and "credit_ledger"."bucket" = \'promo\' and "credit_ledger"."idempotency_key" = \'signup:\' || "user"."id")';
+	const personalCreditsBalanceExpression =
+		'coalesce(( select sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null ), 0)::int';
+
+	it.each([
+		["consumed", "<= 0"],
+		["available", "> 0"],
+	] as const)("filters standalone for free users with a signup grant whose credits are %s", (state, balanceComparison) => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			freeCredits: [state],
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+
+		expect(outerUserWhere(listQuery.toSQL().sql)).toBe(
+			outerUserWhere(count.sql),
+		);
+		expect(countSql).toContain(freePlanPredicate);
+		expect(countSql).toContain(signupFreeCreditsGrantPredicate);
+		expect(countSql).toContain(
+			`${personalCreditsBalanceExpression} ${balanceComparison}`,
+		);
+		expect(count.params).toEqual(["active", "trialing"]);
+	});
+
+	it("ORs consumed and available balances while retaining free-plan and signup-grant requirements", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			freeCredits: ["consumed", "available"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+
+		expect(countSql).toContain(freePlanPredicate);
+		expect(countSql).toContain(signupFreeCreditsGrantPredicate);
+		expect(countSql).toContain(
+			`(${personalCreditsBalanceExpression} <= 0 or ${personalCreditsBalanceExpression} > 0)`,
+		);
+		expect(count.params).toEqual(["active", "trialing"]);
 	});
 
 	it("treats all values selected in each dimension as no filter", () => {

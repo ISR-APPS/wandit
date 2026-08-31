@@ -21,13 +21,16 @@ import { type FormEvent, useMemo, useRef, useState } from "react";
 
 import {
 	composePhoneAnswer,
+	countryForInternationalInput,
 	type DialCountry,
+	type DialCountryIso,
 	detectDialCountry,
 	dialCountries,
 	dialCountryDisplayName,
 	foldArabicDigits,
 	internationalDigitsOf,
 	isCompletePhoneAnswer,
+	restorePhoneAnswer,
 	splitPhoneAnswer,
 } from "../lib/dial-codes";
 
@@ -47,6 +50,7 @@ function countryFilter(value: string, search: string): number {
 
 type PhoneStepProps = {
 	value: string;
+	selectedCountryIso?: DialCountryIso;
 	label: string;
 	nextLabel: string;
 	countryLabel: string;
@@ -54,10 +58,10 @@ type PhoneStepProps = {
 	emptyLabel: string;
 	placeholder?: string;
 	locale: string;
-	onChange: (value: string) => void;
+	onChange: (value: string, countryIso: DialCountryIso) => void;
 	/** Receives the composed E.164 answer, so a submit in the same tick as
 	 * the last keystroke can never advance with a stale parent value. */
-	onSubmit: (value: string) => void;
+	onSubmit: (value: string, countryIso: DialCountryIso) => void;
 	disabled?: boolean;
 	inputId?: string;
 };
@@ -96,6 +100,7 @@ function CountryFlag({ iso }: { iso: string }) {
 
 export function PhoneStep({
 	value,
+	selectedCountryIso,
 	label,
 	nextLabel,
 	countryLabel,
@@ -109,12 +114,15 @@ export function PhoneStep({
 	inputId = "onboarding-phone-answer",
 }: PhoneStepProps) {
 	// The stored answer is one E.164 string; the split restores country and
-	// national number when the user navigates back to this step.
+	// national number when the user navigates back to this step. Preserve the
+	// explicit picker ISO because shared codes such as +1 cannot recover it.
 	const [country, setCountry] = useState<DialCountry>(
-		() => splitPhoneAnswer(value)?.country ?? detectDialCountry(),
+		() =>
+			restorePhoneAnswer(value, selectedCountryIso)?.country ??
+			detectDialCountry(),
 	);
 	const [national, setNational] = useState(
-		() => splitPhoneAnswer(value)?.national ?? "",
+		() => restorePhoneAnswer(value, selectedCountryIso)?.national ?? "",
 	);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const numberInputRef = useRef<HTMLInputElement>(null);
@@ -141,14 +149,14 @@ export function PhoneStep({
 	const submit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (disabled || !complete) return;
-		onSubmit(composed);
+		onSubmit(composed, country.iso);
 	};
 
 	function selectCountry(next: DialCountry) {
 		setCountry(next);
 		countrySelectedRef.current = true;
 		setPickerOpen(false);
-		onChange(composePhoneAnswer(next, national));
+		onChange(composePhoneAnswer(next, national), next.iso);
 	}
 
 	function updateNational(raw: string) {
@@ -161,15 +169,22 @@ export function PhoneStep({
 				? splitPhoneAnswer(`+${international}`)
 				: undefined;
 			if (split) {
-				setCountry(split.country);
+				const nextCountry = countryForInternationalInput(
+					country,
+					split.country,
+				);
+				setCountry(nextCountry);
 				setNational(split.national);
-				onChange(composePhoneAnswer(split.country, split.national));
+				onChange(
+					composePhoneAnswer(nextCountry, split.national),
+					nextCountry.iso,
+				);
 				return;
 			}
 			// Dial code still incomplete ("+2") — keep it visible, publish no
 			// answer yet.
 			setNational(`+${international}`);
-			onChange("");
+			onChange("", country.iso);
 			return;
 		}
 
@@ -178,7 +193,7 @@ export function PhoneStep({
 		// the answer.
 		const next = foldArabicDigits(raw).replace(/[^0-9 ]/g, "");
 		setNational(next);
-		onChange(composePhoneAnswer(country, next));
+		onChange(composePhoneAnswer(country, next), country.iso);
 	}
 
 	return (

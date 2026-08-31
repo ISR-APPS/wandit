@@ -11,6 +11,7 @@ import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
+	PhoneCell,
 	PlanBadge,
 	RoleBadge,
 	StatusBadge,
@@ -43,6 +44,13 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 			<DataTableColumnHeader column={column} title="Plan" />
 		),
 		cell: ({ row }) => <PlanBadge plan={row.original.plan} />,
+	},
+	{
+		accessorKey: "phone",
+		header: ({ column }) => (
+			<DataTableColumnHeader column={column} title="Phone" />
+		),
+		cell: ({ row }) => <PhoneCell phone={row.original.phone} />,
 	},
 	{
 		accessorKey: "creditsBalance",

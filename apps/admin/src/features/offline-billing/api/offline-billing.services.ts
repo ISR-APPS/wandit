@@ -14,12 +14,14 @@ import {
 	type AdminGrantManualSubscriptionInput,
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsResponse,
+	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualRequest,
 	type AdminManualSubscriptionDetail,
 	type EndManualSubscriptionInput,
 	type ListManualRequestsParams,
 	type ListManualSubscriptionsParams,
+	mapManualBillingReceiptConfigDto,
 	mapManualBillingStatsDto,
 	mapManualRequestDto,
 	mapManualRequestsDto,
@@ -114,4 +116,10 @@ export async function getManualBillingStats(): Promise<AdminManualBillingStats> 
 	const payload = await apiGet<unknown>(adminRoutes.manualBillingStats);
 
 	return mapManualBillingStatsDto(payload);
+}
+
+export async function getManualBillingReceiptConfig(): Promise<AdminManualBillingReceiptConfig> {
+	const payload = await apiGet<unknown>(adminRoutes.manualBillingReceiptConfig);
+
+	return mapManualBillingReceiptConfigDto(payload);
 }
