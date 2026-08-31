@@ -107,10 +107,28 @@ describe("ProductSettingsService", () => {
 		).toThrow();
 	});
 
+	it.each([
+		0.01, 270, 270.12, 10_000,
+	])("accepts a DZD per USD rate of %s", (dzdPerUsdRate) => {
+		expect(
+			patchProductSettingsBodySchema.parse({ dzdPerUsdRate, version: 1 }),
+		).toEqual({ dzdPerUsdRate, version: 1 });
+	});
+
+	it.each([
+		0, -1, 270.123, 10_000.01,
+	])("rejects an invalid DZD per USD rate of %s", (dzdPerUsdRate) => {
+		expect(() =>
+			patchProductSettingsBodySchema.parse({ dzdPerUsdRate, version: 1 }),
+		).toThrow();
+	});
+
 	it("creates and returns the singleton with launch defaults", async () => {
 		const { repository, service } = setup();
 
 		await expect(service.get()).resolves.toEqual({
+			// Stored internally in hundredths: 27000 = 270.00 DZD/USD.
+			dzdPerUsdRate: 27_000,
 			emailAuthEnabled: false,
 			id: 1,
 			lifecycleEmailsEnabled: false,
@@ -127,6 +145,23 @@ describe("ProductSettingsService", () => {
 			version: 1,
 		});
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(1);
+	});
+
+	it("passes DZD rate changes through and bumps the version", async () => {
+		const { repository, service } = setup();
+
+		await expect(
+			service.update({ dzdPerUsdRate: 27_125, version: 1 }, "admin_1"),
+		).resolves.toMatchObject({
+			dzdPerUsdRate: 27_125,
+			updatedByUserId: "admin_1",
+			version: 2,
+		});
+		expect(repository.updateIfVersion).toHaveBeenCalledWith({
+			changes: { dzdPerUsdRate: 27_125 },
+			expectedVersion: 1,
+			updatedByUserId: "admin_1",
+		});
 	});
 
 	it("serves the singleton from cache for 30 seconds and refreshes after expiry", async () => {
@@ -238,6 +273,9 @@ describe("ProductSettingsService", () => {
 			signupGrantEnabled: true,
 			topupsEnabled: false,
 		});
-		expect(await service.get()).toMatchObject({ lifecycleEmailsEnabled: true });
+		expect(await service.get()).toMatchObject({
+			dzdPerUsdRate: 27_000,
+			lifecycleEmailsEnabled: true,
+		});
 	});
 });

@@ -17,6 +17,7 @@ export function mapProductSettingsRow(
 	}
 
 	return {
+		dzdPerUsdRate: row.dzdPerUsdRate,
 		emailAuthEnabled: row.emailAuthEnabled,
 		id: PRODUCT_SETTINGS_ID,
 		lifecycleEmailsEnabled: row.lifecycleEmailsEnabled,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	mapManualBillingReceiptConfigDto,
 	mapManualBillingStatsDto,
 	mapManualRequestDto,
 	mapManualSubscriptionsDto,
@@ -99,5 +100,11 @@ describe("offline billing DTO mapping", () => {
 		};
 
 		expect(mapManualBillingStatsDto(payload)).toEqual(payload);
+	});
+
+	it("maps the receipt exchange-rate config", () => {
+		const payload = { dzdPerUsdRate: 270.5 };
+
+		expect(mapManualBillingReceiptConfigDto(payload)).toEqual(payload);
 	});
 });

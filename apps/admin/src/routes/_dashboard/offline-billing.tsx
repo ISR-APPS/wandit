@@ -1,7 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
-import { OfflineBillingPage } from "@/features/offline-billing/pages/offline-billing-page";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_dashboard/offline-billing")({
 	component: OfflineBillingRoute,
@@ -11,9 +8,5 @@ export const Route = createFileRoute("/_dashboard/offline-billing")({
 });
 
 function OfflineBillingRoute() {
-	return (
-		<RequireAdminPermission permission={{ billing: ["read"] }}>
-			<OfflineBillingPage />
-		</RequireAdminPermission>
-	);
+	return <Outlet />;
 }

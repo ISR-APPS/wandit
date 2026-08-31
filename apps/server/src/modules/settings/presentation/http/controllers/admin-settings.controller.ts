@@ -36,15 +36,19 @@ export class AdminSettingsController {
 		body: PatchProductSettingsBody,
 		@CurrentUser() admin: AuthUser,
 	): Promise<ProductSettingsUpdateResponse> {
-		// The admin API speaks whole credits; storage (and the signup-grant
-		// path that reads it) is centi-credits — convert exactly once here.
-		const changes: PatchProductSettingsBody =
-			body.signupGrantCredits === undefined
-				? body
+		// The admin API speaks whole credits and decimal DZD. Storage uses integer
+		// hundredths for both values — convert exactly once here.
+		const changes: PatchProductSettingsBody = {
+			...body,
+			...(body.dzdPerUsdRate === undefined
+				? {}
+				: { dzdPerUsdRate: Math.round(body.dzdPerUsdRate * 100) }),
+			...(body.signupGrantCredits === undefined
+				? {}
 				: {
-						...body,
 						signupGrantCredits: creditsToCentiCredits(body.signupGrantCredits),
-					};
+					}),
+		};
 
 		return toApiProductSettings(
 			await this.settingsService.update(changes, admin.id),
@@ -52,11 +56,12 @@ export class AdminSettingsController {
 	}
 }
 
-// Internal settings carry signupGrantCredits in centi-credits; the admin API
-// contract exposes whole credits.
+// Internal settings carry signupGrantCredits and dzdPerUsdRate in integer
+// hundredths; the admin API contract exposes their display units.
 function toApiProductSettings<T extends ProductSettings>(settings: T): T {
 	return {
 		...settings,
+		dzdPerUsdRate: settings.dzdPerUsdRate / 100,
 		signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 	};
 }
