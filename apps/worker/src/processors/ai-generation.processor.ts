@@ -141,6 +141,7 @@ export class AiGenerationProcessor extends WorkerHost {
 				),
 				stopWhen: stepCountIs(LEGACY_CHAT_MAX_STEPS),
 				system: buildSystemPrompt(data.composer),
+				telemetry: { functionId: "chat.legacy" },
 			});
 			providerStreamStarted = true;
 			let text = "";

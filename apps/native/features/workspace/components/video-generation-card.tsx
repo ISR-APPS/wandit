@@ -32,13 +32,14 @@ import Svg, {
 import { WanditIcon } from "@/components/wandit-icon";
 import { creditsKeys } from "@/features/credits";
 import { mediaGenerationKeys } from "../api/generation.keys";
-import { projectAssetKeys } from "../api/project-assets.queries";
 import {
 	DURABLE_POLL_INTERVAL_MS,
 	REALTIME_BACKSTOP_INTERVAL_MS,
 	useMediaGenerationAttemptQuery,
 } from "../api/generation.queries";
 import { mediaGenerationDownloadUrl } from "../api/generation.requests";
+import { projectAssetKeys } from "../api/project-assets.queries";
+import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
 import {
 	downloadAndShareMedia,
 	isMediaDownloadError,
@@ -55,11 +56,15 @@ export function VideoGenerationCard({
 	realtime,
 	fallbackTitle,
 	projectId,
+	onPrefillComposer,
+	originalPrompt,
 }: {
 	attemptId: string;
 	realtime: TriggerRealtimeHandle | undefined;
 	fallbackTitle: string | undefined;
 	projectId: string;
+	onPrefillComposer?: (prompt: string) => void;
+	originalPrompt?: string;
 }) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
@@ -115,15 +120,51 @@ export function VideoGenerationCard({
 	}
 
 	if (attempt?.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		const presentation = failure
+			? chatErrorPresentation(null, failure, t)
+			: null;
 		return (
 			<View className="gap-1.5">
 				<StatusMessageHeader
 					tone="danger"
-					kicker={t("workspace.chat.generateVideo.failedTitle")}
+					kicker={
+						presentation?.kicker ??
+						t("workspace.chat.generateVideo.failedTitle")
+					}
 				/>
-				<Text className="text-[13px] text-muted leading-[19px]">
-					{attempt.error ?? t("workspace.chat.generateVideo.failedBody")}
+				<Text
+					className="text-[13px] text-muted leading-[19px]"
+					style={{ writingDirection: "auto" }}
+				>
+					{presentation?.body ??
+						attempt.error ??
+						t("workspace.chat.generateVideo.failedBody")}
 				</Text>
+				{presentation?.attribution ? (
+					<Text
+						className="text-[11.5px] text-muted/80 leading-[17px]"
+						style={{ writingDirection: "auto" }}
+					>
+						{presentation.attribution}
+					</Text>
+				) : null}
+				{presentation?.retryable && originalPrompt && onPrefillComposer ? (
+					<View className="mt-1 items-start gap-1">
+						<Pressable
+							accessibilityRole="button"
+							onPress={() => onPrefillComposer(originalPrompt)}
+							className="min-h-9 items-center justify-center rounded-lg border border-border px-3 active:bg-surface-secondary"
+						>
+							<Text className="font-sans-semibold text-[12px] text-foreground">
+								{t("native.workspace.chat.aiError.tryAgainPrefill.video")}
+							</Text>
+						</Pressable>
+						<Text className="text-[10.5px] text-muted leading-[15px]">
+							{t("native.workspace.chat.aiError.tryAgainPrefill.hint")}
+						</Text>
+					</View>
+				) : null}
 			</View>
 		);
 	}

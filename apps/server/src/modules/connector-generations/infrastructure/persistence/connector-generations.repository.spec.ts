@@ -5,6 +5,18 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
 
+const sentryMocks = vi.hoisted(() => ({
+	captureException: vi.fn(() => "sentry-event-id"),
+	warn: vi.fn(),
+}));
+
+vi.mock("@wandit/observability/node", () => ({
+	Sentry: {
+		captureException: sentryMocks.captureException,
+		logger: { info: vi.fn(), warn: sentryMocks.warn },
+	},
+}));
+
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import {
@@ -36,14 +48,26 @@ function render(query: unknown): Rendered {
 
 describe("ConnectorGenerationsRepository stale attempt janitor", () => {
 	it("protects a 60-minute clipper row while a 40-minute generate_video row is stale", async () => {
-		let updateWhere: unknown;
+		const updateWheres: unknown[] = [];
+		const updateValues: unknown[] = [];
 		const update = vi.fn(() => ({
-			set: vi.fn(() => ({
-				where: vi.fn((where: unknown) => {
-					updateWhere = where;
-					return Promise.resolve();
-				}),
-			})),
+			set: vi.fn((values: unknown) => {
+				updateValues.push(values);
+				return {
+					where: vi.fn((where: unknown) => {
+						updateWheres.push(where);
+						return {
+							returning: vi.fn().mockResolvedValue([
+								{
+									id: ATTEMPT_ID,
+									toolName: "generate_video",
+									userId: "user-1",
+								},
+							]),
+						};
+					}),
+				};
+			}),
 		}));
 		const select = vi.fn(() => ({
 			from: vi.fn(() => ({
@@ -66,7 +90,7 @@ describe("ConnectorGenerationsRepository stale attempt janitor", () => {
 			nowSpy.mockRestore();
 		}
 
-		const where = render(updateWhere);
+		const where = render(updateWheres[0]);
 		const clipperToolParam = where.params.indexOf("personal_clipper_create");
 		const normalToolParam = where.params.indexOf(
 			"personal_clipper_create",
@@ -95,19 +119,31 @@ describe("ConnectorGenerationsRepository stale attempt janitor", () => {
 
 		expect(isStale("personal_clipper_create", 60 * 60_000)).toBe(false);
 		expect(isStale("generate_video", 40 * 60_000)).toBe(true);
+		expect(updateValues[0]).toEqual(
+			expect.objectContaining({
+				error: "The generation stopped before finishing.",
+				failureKind: "internal",
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureSource: "ours",
+			}),
+		);
+		expect(updateValues[1]).toEqual({ sentryEventId: "sentry-event-id" });
 	});
 });
 
 function setup(returned: Array<{ id: string; userId: string }>): {
 	analytics: { capture: ReturnType<typeof vi.fn> };
 	repository: ConnectorGenerationsRepository;
+	set: ReturnType<typeof vi.fn>;
 } {
 	const returning = vi.fn().mockResolvedValue(returned);
+	const set = vi.fn(() => ({
+		where: vi.fn(() => ({ returning })),
+	}));
 	const db = {
 		update: vi.fn(() => ({
-			set: vi.fn(() => ({
-				where: vi.fn(() => ({ returning })),
-			})),
+			set,
 		})),
 	};
 	const analytics = { capture: vi.fn() };
@@ -116,18 +152,31 @@ function setup(returned: Array<{ id: string; userId: string }>): {
 		analytics as unknown as AnalyticsService,
 	);
 
-	return { analytics, repository };
+	return { analytics, repository, set };
 }
 
 describe("ConnectorGenerationsRepository.markAttemptFailed", () => {
 	it("captures trigger rejection for the attempt's owning user", async () => {
-		const { analytics, repository } = setup([
+		const { analytics, repository, set } = setup([
 			{ id: ATTEMPT_ID, userId: "owning_user" },
 		]);
 
 		await expect(
 			repository.markAttemptFailed(ATTEMPT_ID, "raw Trigger error"),
 		).resolves.toBe(true);
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				error: "Something went wrong on our side. Please try again.",
+				failureKind: "internal",
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureSource: "ours",
+			}),
+		);
+		expect(set).not.toHaveBeenCalledWith(
+			expect.objectContaining({ error: "raw Trigger error" }),
+		);
+		expect(set).toHaveBeenCalledWith({ sentryEventId: "sentry-event-id" });
 		expect(analytics.capture).toHaveBeenCalledWith(
 			"owning_user",
 			"generation_failed",

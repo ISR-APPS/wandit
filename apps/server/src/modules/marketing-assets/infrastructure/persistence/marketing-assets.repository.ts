@@ -5,10 +5,7 @@
  * Trigger task advances that same row through generating -> succeeded/failed,
  * and the Marketing tab reads it through an ownership-checked project join.
  */
-import {
-	type ProjectScope,
-	projectScopePredicate,
-} from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	MarketingAssetStatus,
@@ -23,16 +20,27 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { captureAiError, classifyAiError } from "../../../ai-errors/domain";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
 export type MarketingAssetRow = {
 	assetType: MarketingAssetType;
 	completedAt: Date | null;
 	createdAt: Date;
 	error: string | null;
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
 	id: string;
 	name: string;
 	projectId: string;
 	r2Key: string | null;
+	sentryEventId: string | null;
 	status: MarketingAssetStatus;
 };
 
@@ -41,10 +49,16 @@ const ASSET_COLUMNS = {
 	completedAt: marketingAssets.completedAt,
 	createdAt: marketingAssets.createdAt,
 	error: marketingAssets.error,
+	failureKind: marketingAssets.failureKind,
+	failureProvider: marketingAssets.failureProvider,
+	failureProviderMessage: marketingAssets.failureProviderMessage,
+	failureRequestId: marketingAssets.failureRequestId,
+	failureSource: marketingAssets.failureSource,
 	id: marketingAssets.id,
 	name: marketingAssets.name,
 	projectId: marketingAssets.projectId,
 	r2Key: marketingAssets.r2Key,
+	sentryEventId: marketingAssets.sentryEventId,
 	status: marketingAssets.status,
 } as const;
 
@@ -116,11 +130,33 @@ export class MarketingAssetsRepository {
 		error: string,
 		userId: string,
 	): Promise<boolean> {
+		const failure = classifyAiError(new Error(error), {
+			refunded: true,
+			route: "none",
+			surface: "marketing",
+		});
+		if (!failure) {
+			throw new Error("Marketing handoff failure classification returned null");
+		}
+		failure.sentryEventId = captureAiError(new Error(error), failure, {
+			generationId: assetId,
+			refunded: true,
+			route: "none",
+			surface: "marketing",
+			userId,
+		});
+
 		const [row] = await this.db
 			.update(marketingAssets)
 			.set({
 				completedAt: new Date(),
 				error: error.slice(0, 2_000),
+				failureKind: failure.kind,
+				failureProvider: failure.provider,
+				failureProviderMessage: failure.providerMessage,
+				failureRequestId: failure.requestId,
+				failureSource: failure.source,
+				sentryEventId: failure.sentryEventId,
 				status: "failed",
 			})
 			.where(

@@ -7,9 +7,20 @@ vi.mock("@/lib/i18n", () => ({
 	useTranslation: () => ({
 		t: (key: string, params?: Record<string, unknown>) => {
 			const value =
-				key === "workspace.chat.generateImage.readyCount"
-					? "{ready} of {total} ready"
-					: key;
+				(
+					{
+						"workspace.chat.generateImage.readyCount":
+							"{ready} of {total} ready",
+						"workspace.chat.generateImage.partialFailure":
+							"1 image was not made: {sentence}",
+						"workspace.chat.aiError.kicker.provider": "Provider issue",
+						"workspace.chat.aiError.providerFallback": "The AI provider",
+						"workspace.chat.aiError.attribution.viaGateway":
+							"{provider} via Vercel AI Gateway",
+						"errors.ai.provider_error":
+							"{provider} returned an error. Please try again.",
+					} as Record<string, string>
+				)[key] ?? key;
 
 			return value.replace(/\{(\w+)\}/g, (_, name: string) =>
 				String(params?.[name] ?? `{${name}}`),
@@ -260,5 +271,31 @@ describe("ImageGenerationResult", () => {
 				"workspace.chat.generateImage.placementFailed",
 			);
 		}
+	});
+
+	it("keeps the successful gallery and explains a stored partial failure", () => {
+		const html = renderToStaticMarkup(
+			createElement(ImageGenerationResult, {
+				attempt: attempt({
+					failure: {
+						kind: "provider_error",
+						source: "gateway",
+						providerLabel: "OpenAI",
+						retryable: true,
+						terminal: true,
+						refunded: null,
+						moderationStage: null,
+						providerMessage: null,
+						requestId: null,
+					},
+				}),
+			}),
+		);
+
+		expect(html).toContain('data-gallery="true"');
+		expect(html).toContain(
+			"1 image was not made: OpenAI returned an error. Please try again.",
+		);
+		expect(html).toContain("OpenAI via Vercel AI Gateway");
 	});
 });

@@ -1,4 +1,8 @@
-import { gateway } from "@ai-sdk/gateway";
+import {
+	GatewayInternalServerError,
+	GatewayResponseError,
+	gateway,
+} from "@ai-sdk/gateway";
 import { experimental_generateVideo as generateVideo } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,9 +31,13 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
-vi.mock("ai", () => ({ experimental_generateVideo: vi.fn() }));
+vi.mock("ai", async (importOriginal) => ({
+	...(await importOriginal<typeof import("ai")>()),
+	experimental_generateVideo: vi.fn(),
+}));
 
-vi.mock("@ai-sdk/gateway", () => ({
+vi.mock("@ai-sdk/gateway", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@ai-sdk/gateway")>()),
 	gateway: { video: vi.fn(() => ({ modelId: "mock-video-model" })) },
 }));
 
@@ -196,17 +204,20 @@ describe("generateBuildVideo", () => {
 		expect(generateVideo).not.toHaveBeenCalled();
 	});
 
-	it("maps a transient source preparation failure to a raw failed result", async () => {
+	it("maps a transient source preparation failure to an internal safe result", async () => {
 		vi.mocked(prepareVideoSourceImage).mockRejectedValueOnce(
 			new Error("R2 temporarily unavailable"),
 		);
 
 		const result = await generateBuildVideo(PARAMS);
 
-		expect(result).toEqual({
-			message: "R2 temporarily unavailable",
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
 			status: "failed",
 		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("R2 temporarily unavailable");
 		expect(result).not.toHaveProperty("userMessage");
 		expect(generateVideo).not.toHaveBeenCalled();
 	});
@@ -391,7 +402,13 @@ describe("generateBuildVideo", () => {
 
 		const result = await generateBuildVideo(PARAMS);
 
-		expect(result).toEqual({ message: "gateway exploded", status: "failed" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("gateway exploded");
 		expect(putSiteFile).not.toHaveBeenCalled();
 	});
 
@@ -401,11 +418,57 @@ describe("generateBuildVideo", () => {
 
 		const result = await generateBuildVideo(PARAMS);
 
-		expect(result).toEqual({
-			message: "R2 said no",
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
 			model: "klingai/kling-v2.6-i2v",
 			providerMetadata: { gateway: { generationId: "generation_1" } },
 			providerUnits: 1,
+			status: "failed",
+		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("R2 said no");
+	});
+
+	it("classifies a gateway 529 as provider capacity", async () => {
+		vi.mocked(generateVideo).mockRejectedValueOnce(
+			new GatewayInternalServerError({ statusCode: 529 }),
+		);
+
+		const result = await generateBuildVideo(PARAMS);
+
+		expect(result).toMatchObject({
+			failure: {
+				kind: "capacity",
+				provider: "klingai",
+				source: "provider:klingai",
+			},
+			message:
+				"Kling is over capacity right now. Please try again in a minute.",
+			status: "failed",
+		});
+	});
+
+	it("classifies the combined budget signal before a wrapped gateway timeout", async () => {
+		const controller = new AbortController();
+		controller.abort(new DOMException("budget elapsed", "TimeoutError"));
+		vi.mocked(generateVideo).mockRejectedValueOnce(
+			new GatewayResponseError({
+				cause: new DOMException("timed out", "TimeoutError"),
+				response: {},
+				statusCode: 500,
+			}),
+		);
+
+		const result = await generateBuildVideo({
+			...PARAMS,
+			abortSignal: controller.signal,
+		});
+
+		expect(result).toMatchObject({
+			failure: { kind: "timeout", source: "ours" },
+			message:
+				"This took longer than we allow, so we stopped it. Please try again.",
 			status: "failed",
 		});
 	});

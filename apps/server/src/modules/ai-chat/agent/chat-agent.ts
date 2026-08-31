@@ -243,6 +243,7 @@ export function createChatToolCallRepair({
 					});
 				},
 				schema,
+				telemetry: { functionId: "chat.tool_repair" },
 			});
 
 			await captureOnce({
@@ -466,6 +467,7 @@ export function createChatAgent(
 			"chat",
 		),
 		stopWhen: isStepCount(AI_CHAT_MAX_STEPS),
+		telemetry: { functionId: "chat.agent" },
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
 		toolApproval: approvalMap,
 		tools: {

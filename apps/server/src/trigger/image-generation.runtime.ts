@@ -9,6 +9,10 @@ import {
 	captureGenerationFailed,
 } from "../infrastructure/analytics/generation-events";
 import {
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../modules/ai-errors/domain";
+import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../modules/image-generations/application/services/image-generation-billing";
@@ -34,6 +38,11 @@ const ATTEMPT_COLUMNS = {
 	completedAt: imageGenerationAttempts.completedAt,
 	count: imageGenerationAttempts.count,
 	error: imageGenerationAttempts.error,
+	failureKind: imageGenerationAttempts.failureKind,
+	failureProvider: imageGenerationAttempts.failureProvider,
+	failureProviderMessage: imageGenerationAttempts.failureProviderMessage,
+	failureRequestId: imageGenerationAttempts.failureRequestId,
+	failureSource: imageGenerationAttempts.failureSource,
 	id: imageGenerationAttempts.id,
 	images: imageGenerationAttempts.images,
 	organizationId: projects.organizationId,
@@ -44,6 +53,7 @@ const ATTEMPT_COLUMNS = {
 	spec: imageGenerationAttempts.spec,
 	startedAt: imageGenerationAttempts.startedAt,
 	status: imageGenerationAttempts.status,
+	sentryEventId: imageGenerationAttempts.sentryEventId,
 	title: imageGenerationAttempts.title,
 	triggerRunId: imageGenerationAttempts.triggerRunId,
 	userId: projects.userId,
@@ -206,13 +216,15 @@ function createPersistence(
 		images: GeneratedImageResult[],
 		completedAt: Date,
 		actorUserId: string,
+		failure?: NormalizedAiError,
 	): Promise<boolean> => {
 		const updated = await db.transaction(async (tx) => {
 			const [completed] = await tx
 				.update(imageGenerationAttempts)
 				.set({
 					completedAt,
-					error: null,
+					error: failure ? renderAiErrorSentence(failure) : null,
+					...failureColumns(failure ?? null),
 					images,
 					status: "succeeded",
 				})
@@ -267,6 +279,7 @@ function createPersistence(
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			failure: NormalizedAiError;
 			reason: string;
 		},
 	): Promise<boolean> => {
@@ -275,6 +288,7 @@ function createPersistence(
 			.set({
 				completedAt: input.completedAt,
 				error: input.error.slice(0, 2_000),
+				...failureColumns(input.failure),
 				status: "failed",
 			})
 			.where(
@@ -305,5 +319,16 @@ function createPersistence(
 		failFromStatus,
 		loadAttempt,
 		markSucceeded,
+	};
+}
+
+function failureColumns(failure: NormalizedAiError | null) {
+	return {
+		failureKind: failure?.kind ?? null,
+		failureProvider: failure?.provider ?? null,
+		failureProviderMessage: failure?.providerMessage ?? null,
+		failureRequestId: failure?.requestId ?? null,
+		failureSource: failure?.source ?? null,
+		sentryEventId: failure?.sentryEventId ?? null,
 	};
 }

@@ -14,6 +14,7 @@
  * reaches a terminal state.
  */
 import { z } from "zod";
+import { aiErrorDataSchema } from "./ai-errors";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 export const IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES = [
@@ -145,6 +146,8 @@ export const mediaGenerationAttemptSchema = z.object({
 	videoUrl: z.url().nullable(),
 	videoMediaType: z.string().min(1).nullable(),
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),
 });

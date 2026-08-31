@@ -55,6 +55,8 @@ export type AdminFeedbackReporter = z.infer<typeof adminFeedbackReporterSchema>;
 
 export const adminFeedbackContextSchema = z.object({
 	pageUrl: z.string(),
+	chatId: uuidSchema.nullable(),
+	authSessionId: z.string().nullable(),
 	replayUrl: z.string().nullable(),
 	sentryEventId: z.string().nullable(),
 	sentryEventAt: isoDateTimeSchema.nullable(),

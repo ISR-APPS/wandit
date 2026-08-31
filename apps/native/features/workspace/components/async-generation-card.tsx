@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	type AiErrorData,
 	animateImageOutputSchema,
 	connectorGenerationQueuedOutputSchema,
 	generateImageOutputSchema,
@@ -51,6 +52,8 @@ import {
 } from "@/features/workspace/lib/download-media";
 import { useLiveRun } from "@/features/workspace/lib/use-live-run";
 import { AppSkeletonGroup } from "@/shared/ui/skeleton-group";
+import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
+import { originalGenerationPrompt } from "../lib/generation-prefill";
 
 export type AsyncGenerationKind =
 	| "page"
@@ -66,13 +69,14 @@ export type AsyncGenerationPart = Readonly<{
 	state?: unknown;
 	input?: unknown;
 	output?: unknown;
-	errorText?: unknown;
+	failure?: unknown;
 }>;
 
 export type AsyncGenerationCardProps = {
 	kind: AsyncGenerationKind;
 	projectId: string;
 	part: AsyncGenerationPart;
+	onPrefillComposer?: (prompt: string) => void;
 };
 
 type ToolConfig = {
@@ -103,13 +107,17 @@ type NormalizedOutput = {
 };
 
 type CardTone = "working" | "success" | "danger" | "muted";
+type PrefillGenerationKind = "image" | "video" | "marketing" | "connector";
 
 export function AsyncGenerationCard({
 	kind,
 	projectId,
 	part,
+	onPrefillComposer,
 }: AsyncGenerationCardProps) {
 	const config = useToolConfig(kind);
+	const failure = readAiErrorData(part.failure) ?? readAiErrorData(part.output);
+	const originalPrompt = originalGenerationPrompt(kind, part.input);
 
 	if (part.state === "input-streaming") {
 		return (
@@ -132,10 +140,20 @@ export function AsyncGenerationCard({
 	}
 
 	if (part.state === "output-error") {
+		if (failure) {
+			return (
+				<AiFailureGenerationCard
+					config={config}
+					failure={failure}
+					kind={kind}
+					onPrefill={onPrefillComposer}
+					prompt={originalPrompt}
+				/>
+			);
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
-				detail={typeof part.errorText === "string" ? part.errorText : undefined}
 				headline={config.failedToStart}
 				tone="danger"
 			/>
@@ -143,6 +161,26 @@ export function AsyncGenerationCard({
 	}
 
 	if (part.state !== "output-available") return null;
+	if (failure) {
+		return (
+			<AiFailureGenerationCard
+				config={config}
+				failure={failure}
+				kind={kind}
+				onPrefill={onPrefillComposer}
+				prompt={originalPrompt}
+			/>
+		);
+	}
+	if (isErrorOutput(part.output)) {
+		return (
+			<GenerationCardFrame
+				config={config}
+				headline={config.failedToStart}
+				tone="danger"
+			/>
+		);
+	}
 
 	const output = normalizeOutput(kind, part.output);
 	if (!output) {
@@ -202,6 +240,8 @@ export function AsyncGenerationCard({
 					config={config}
 					fallbackTitle={readStringField(part.input, "title")}
 					message={output.message}
+					onPrefill={onPrefillComposer}
+					originalPrompt={originalPrompt}
 					projectId={projectId}
 				/>
 			);
@@ -211,6 +251,8 @@ export function AsyncGenerationCard({
 					attemptId={output.attemptId}
 					config={config}
 					message={output.message}
+					onPrefill={onPrefillComposer}
+					originalPrompt={originalPrompt}
 				/>
 			) : (
 				<MissingAttemptCard config={config} message={output.message} />
@@ -232,6 +274,8 @@ export function AsyncGenerationCard({
 					attemptId={output.attemptId}
 					config={config}
 					message={output.message}
+					onPrefill={onPrefillComposer}
+					originalPrompt={originalPrompt}
 				/>
 			) : (
 				<MissingAttemptCard config={config} message={output.message} />
@@ -243,6 +287,8 @@ export function AsyncGenerationCard({
 					realtime={output.realtime}
 					fallbackTitle={readStringField(part.input, "title")}
 					projectId={projectId}
+					onPrefillComposer={onPrefillComposer}
+					originalPrompt={originalPrompt}
 				/>
 			) : (
 				<MissingAttemptCard config={config} message={output.message} />
@@ -256,6 +302,8 @@ export function AsyncGenerationCard({
 					connector={output.connector}
 					fallbackTitle={joinToolTitle(output.connector, output.tool)}
 					message={output.message}
+					onPrefill={onPrefillComposer}
+					originalPrompt={originalPrompt}
 					realtime={output.realtime}
 					tool={output.tool}
 				/>
@@ -341,6 +389,10 @@ function DurablePageResult({
 			: undefined);
 
 	if (isMatchingAttempt && attempt?.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		if (failure) {
+			return <AiFailureGenerationCard config={config} failure={failure} />;
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -416,12 +468,16 @@ function MarketingGenerationResult({
 	fallbackTitle,
 	message,
 	config,
+	onPrefill,
+	originalPrompt,
 }: {
 	projectId: string;
 	assetId: string | undefined;
 	fallbackTitle: string | undefined;
 	message: string;
 	config: ToolConfig;
+	onPrefill?: (prompt: string) => void;
+	originalPrompt: string | undefined;
 }) {
 	const mountedAtRef = useRef(Date.now());
 	const queryClient = useQueryClient();
@@ -445,6 +501,18 @@ function MarketingGenerationResult({
 	const title = asset?.name ?? fallbackTitle;
 
 	if (asset?.status === "failed") {
+		const failure = readAiErrorData(asset);
+		if (failure) {
+			return (
+				<AiFailureGenerationCard
+					config={config}
+					failure={failure}
+					kind="marketing"
+					onPrefill={onPrefill}
+					prompt={originalPrompt}
+				/>
+			);
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -534,10 +602,14 @@ function ImageGenerationResult({
 	attemptId,
 	message,
 	config,
+	onPrefill,
+	originalPrompt,
 }: {
 	attemptId: string;
 	message: string;
 	config: ToolConfig;
+	onPrefill?: (prompt: string) => void;
+	originalPrompt: string | undefined;
 }) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
@@ -594,6 +666,18 @@ function ImageGenerationResult({
 	}
 
 	if (attempt.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		if (failure) {
+			return (
+				<AiFailureGenerationCard
+					config={config}
+					failure={failure}
+					kind="image"
+					onPrefill={onPrefill}
+					prompt={originalPrompt}
+				/>
+			);
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -612,6 +696,10 @@ function ImageGenerationResult({
 		label: attempt.title ?? config.title,
 		downloadUrl: imageGenerationDownloadUrl(attempt.id, index + 1),
 	}));
+	const partialFailure = readAiErrorData(attempt);
+	const partialFailurePresentation = partialFailure
+		? chatErrorPresentation(null, partialFailure, t)
+		: null;
 
 	return (
 		<GenerationCardFrame
@@ -624,6 +712,35 @@ function ImageGenerationResult({
 			{media.length > 0 ? (
 				<View className="mt-2">
 					<ChatMediaGallery items={media} />
+				</View>
+			) : null}
+			{partialFailurePresentation ? (
+				<View className="mt-2 gap-1 rounded-xl border border-danger/25 bg-danger/5 p-2.5">
+					<Text
+						className="text-[12px] text-muted leading-[17px]"
+						style={{ writingDirection: "auto" }}
+					>
+						{t("workspace.chat.generateImage.partialFailure", {
+							sentence: partialFailurePresentation.body,
+						})}
+					</Text>
+					{partialFailurePresentation.attribution ? (
+						<Text
+							className="text-[11.5px] text-muted/80 leading-[17px]"
+							style={{ writingDirection: "auto" }}
+						>
+							{partialFailurePresentation.attribution}
+						</Text>
+					) : null}
+					{partialFailurePresentation.retryable &&
+					originalPrompt &&
+					onPrefill ? (
+						<GenerationPrefillButton
+							kind="image"
+							onPrefill={onPrefill}
+							prompt={originalPrompt}
+						/>
+					) : null}
 				</View>
 			) : null}
 			{attempt.placement?.status === "failed" ? (
@@ -656,10 +773,14 @@ function AnimationGenerationResult({
 	attemptId,
 	message,
 	config,
+	onPrefill,
+	originalPrompt,
 }: {
 	attemptId: string;
 	message: string;
 	config: ToolConfig;
+	onPrefill?: (prompt: string) => void;
+	originalPrompt: string | undefined;
 }) {
 	const { t } = useTranslation();
 	const background = useThemeColor("background");
@@ -698,6 +819,18 @@ function AnimationGenerationResult({
 	}
 
 	if (attempt.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		if (failure) {
+			return (
+				<AiFailureGenerationCard
+					config={config}
+					failure={failure}
+					kind="animate"
+					onPrefill={onPrefill}
+					prompt={originalPrompt}
+				/>
+			);
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -898,6 +1031,8 @@ function ConnectorGenerationResult({
 	tool,
 	fallbackTitle,
 	message,
+	onPrefill,
+	originalPrompt,
 	realtime,
 	config,
 }: {
@@ -908,6 +1043,8 @@ function ConnectorGenerationResult({
 	tool: string | undefined;
 	fallbackTitle: string | undefined;
 	message: string;
+	onPrefill?: (prompt: string) => void;
+	originalPrompt: string | undefined;
 	realtime: TriggerRealtimeHandle | undefined;
 	config: ToolConfig;
 }) {
@@ -1065,6 +1202,18 @@ function ConnectorGenerationResult({
 	}
 
 	if (attempt.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		if (failure) {
+			return (
+				<AiFailureGenerationCard
+					config={config}
+					failure={failure}
+					kind="connector"
+					onPrefill={onPrefill}
+					prompt={originalPrompt}
+				/>
+			);
+		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -1157,6 +1306,92 @@ function MissingAttemptCard({
 }) {
 	return (
 		<GenerationCardFrame config={config} headline={message} tone="muted" />
+	);
+}
+
+function AiFailureGenerationCard({
+	failure,
+	config,
+	kind,
+	onPrefill,
+	prompt,
+}: {
+	failure: AiErrorData;
+	config: ToolConfig;
+	kind?: AsyncGenerationKind;
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+}) {
+	const { t } = useTranslation();
+	const presentation = chatErrorPresentation(null, failure, t);
+	const prefillKind = kind ? prefillKindFor(kind) : undefined;
+
+	return (
+		<GenerationCardFrame
+			config={config}
+			titleOverride={presentation.kicker}
+			tone="danger"
+		>
+			<Text
+				className="text-[12px] text-muted leading-[17px]"
+				style={{ writingDirection: "auto" }}
+			>
+				{presentation.body}
+			</Text>
+			{presentation.attribution ? (
+				<Text
+					className="text-[11.5px] text-muted/80 leading-[17px]"
+					style={{ writingDirection: "auto" }}
+				>
+					{presentation.attribution}
+				</Text>
+			) : null}
+			{presentation.retryable && prefillKind && prompt && onPrefill ? (
+				<GenerationPrefillButton
+					kind={prefillKind}
+					onPrefill={onPrefill}
+					prompt={prompt}
+				/>
+			) : null}
+		</GenerationCardFrame>
+	);
+}
+
+function GenerationPrefillButton({
+	kind,
+	onPrefill,
+	prompt,
+}: {
+	kind: PrefillGenerationKind;
+	onPrefill: (prompt: string) => void;
+	prompt: string;
+}) {
+	const { t } = useTranslation();
+	const label = t(
+		kind === "image"
+			? "native.workspace.chat.aiError.tryAgainPrefill.image"
+			: kind === "video"
+				? "native.workspace.chat.aiError.tryAgainPrefill.video"
+				: kind === "marketing"
+					? "native.workspace.chat.aiError.tryAgainPrefill.marketing"
+					: "native.workspace.chat.aiError.tryAgainPrefill.connector",
+	);
+
+	return (
+		<View className="mt-2 items-start gap-1">
+			<Pressable
+				accessibilityRole="button"
+				onPress={() => onPrefill(prompt)}
+				className="min-h-9 items-center justify-center rounded-lg border border-border px-3 active:bg-surface-secondary"
+			>
+				<Text className="font-sans-semibold text-[12px] text-foreground">
+					{label}
+				</Text>
+			</Pressable>
+			<Text className="text-[10.5px] text-muted leading-[15px]">
+				{t("native.workspace.chat.aiError.tryAgainPrefill.hint")}
+			</Text>
+		</View>
 	);
 }
 
@@ -1333,6 +1568,34 @@ function normalizeOutput(
 					}
 				: null;
 		}
+	}
+}
+
+function isErrorOutput(value: unknown): boolean {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		(value as Record<string, unknown>).isError === true
+	);
+}
+
+function prefillKindFor(
+	kind: AsyncGenerationKind,
+): PrefillGenerationKind | undefined {
+	switch (kind) {
+		case "image":
+			return "image";
+		case "animate":
+		case "video":
+			return "video";
+		case "marketing":
+			return "marketing";
+		case "connector":
+			return "connector";
+		case "page":
+		case "leads":
+			return undefined;
 	}
 }
 

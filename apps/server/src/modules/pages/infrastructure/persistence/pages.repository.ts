@@ -23,6 +23,11 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+} from "../../../ai-errors/domain";
+import {
 	type ProjectScope,
 	projectScopePredicate,
 } from "../../../projects/domain/project-scope";
@@ -39,6 +44,8 @@ export const PAGE_ATTEMPT_STALE_GENERATING_MS =
 	PAGE_ATTEMPT_TRIGGER_TTL_MS +
 	PAGE_ATTEMPT_MAX_RUNTIME_MS +
 	PAGE_ATTEMPT_STALE_GRACE_MS;
+const STALE_ATTEMPT_ERROR =
+	"The build never finished — most likely no Trigger.dev dev worker was running (`npx trigger.dev@latest dev`). Start it and ask for the page again.";
 
 // Small explicit shapes; services map these to contract types.
 export type LandingArtifactRow = {
@@ -99,6 +106,11 @@ export type PageOverviewRows = {
 		createdAt: Date;
 		error: string | null;
 		failureCode: string | null;
+		failureKind: string | null;
+		failureProvider: string | null;
+		failureProviderMessage: string | null;
+		failureRequestId: string | null;
+		failureSource: string | null;
 		id: string;
 		status: PageAttemptStatusRow;
 		versionId: string | null;
@@ -112,6 +124,11 @@ export type PageAttemptDetailRow = {
 	dismissedAt: Date | null;
 	error: string | null;
 	failureCode: string | null;
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
 	id: string;
 	lastProgressPercent: number | null;
 	status: PageAttemptStatusRow;
@@ -152,6 +169,72 @@ export class VersionConflictError extends Error {
 		super("The page's active version changed mid-edit");
 		this.name = "VersionConflictError";
 	}
+}
+
+function classifyInternalPageFailure(message: string): NormalizedAiError {
+	const failure = classifyAiError(new Error(message), {
+		route: "none",
+		surface: "page_build",
+	});
+
+	if (!failure) {
+		throw new Error("Page infrastructure failure classification returned null");
+	}
+
+	return failure;
+}
+
+function capturePageFailure(
+	error: unknown,
+	failure: NormalizedAiError,
+	context: { attemptId: string; projectId?: string; userId: string },
+): NormalizedAiError {
+	return {
+		...failure,
+		sentryEventId: captureAiError(error, failure, {
+			generationId: context.attemptId,
+			projectId: context.projectId,
+			route: "none",
+			surface: "page_build",
+			userId: context.userId,
+		}),
+	};
+}
+
+function pageFailureColumns(failure: NormalizedAiError): {
+	failureKind: string;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string;
+	sentryEventId: string | null;
+} {
+	return {
+		failureKind: failure.kind,
+		failureProvider: failure.provider,
+		failureProviderMessage: failure.providerMessage,
+		failureRequestId: failure.requestId,
+		failureSource: failure.source,
+		sentryEventId: failure.sentryEventId,
+	};
+}
+
+function clearPageFailureColumns(): {
+	failureKind: null;
+	failureProvider: null;
+	failureProviderMessage: null;
+	failureRequestId: null;
+	failureSource: null;
+	sentryEventId: null;
+} {
+	return {
+		failureKind: null,
+		failureProvider: null,
+		failureProviderMessage: null,
+		failureRequestId: null,
+		failureSource: null,
+		sentryEventId: null,
+	};
 }
 
 @Injectable()
@@ -246,9 +329,19 @@ export class PagesRepository {
 		error: string,
 		userId: string,
 	): Promise<boolean> {
+		const failure = capturePageFailure(
+			new Error(error),
+			classifyInternalPageFailure(error),
+			{ attemptId, userId },
+		);
 		const [failed] = await this.db
 			.update(pageGenerationAttempts)
-			.set({ completedAt: new Date(), error, status: "failed" })
+			.set({
+				completedAt: new Date(),
+				error,
+				...pageFailureColumns(failure),
+				status: "failed",
+			})
 			.where(
 				and(
 					eq(pageGenerationAttempts.id, attemptId),
@@ -285,12 +378,21 @@ export class PagesRepository {
 		outcome: { error: string; status: "canceled" | "failed" },
 		userId: string,
 	): Promise<boolean> {
+		const failure =
+			outcome.status === "failed"
+				? capturePageFailure(
+						new Error(outcome.error),
+						classifyInternalPageFailure(outcome.error),
+						{ attemptId, userId },
+					)
+				: null;
 		const [settled] = await this.db
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: outcome.error,
 				failureCode: outcome.status === "failed" ? "internal_error" : null,
+				...(failure ? pageFailureColumns(failure) : clearPageFailureColumns()),
 				status: outcome.status,
 			})
 			.where(
@@ -334,6 +436,11 @@ export class PagesRepository {
 				dismissedAt: pageGenerationAttempts.dismissedAt,
 				error: pageGenerationAttempts.error,
 				failureCode: pageGenerationAttempts.failureCode,
+				failureKind: pageGenerationAttempts.failureKind,
+				failureProvider: pageGenerationAttempts.failureProvider,
+				failureProviderMessage: pageGenerationAttempts.failureProviderMessage,
+				failureRequestId: pageGenerationAttempts.failureRequestId,
+				failureSource: pageGenerationAttempts.failureSource,
 				id: pageGenerationAttempts.id,
 				lastProgressPercent: pageGenerationAttempts.lastProgressPercent,
 				status: pageGenerationAttempts.status,
@@ -370,6 +477,9 @@ export class PagesRepository {
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
+				error: null,
+				failureCode: null,
+				...clearPageFailureColumns(),
 				status: "canceled",
 				...(observedPercent !== undefined
 					? { lastProgressPercent: observedPercent }
@@ -406,6 +516,7 @@ export class PagesRepository {
 				dismissedAt: null,
 				error: null,
 				failureCode: null,
+				...clearPageFailureColumns(),
 				lastProgressPercent: null,
 				status: "queued",
 				triggerRunId: null,
@@ -492,8 +603,8 @@ export class PagesRepository {
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
-				error:
-					"The build never finished — most likely no Trigger.dev dev worker was running (`npx trigger.dev@latest dev`). Start it and ask for the page again.",
+				error: STALE_ATTEMPT_ERROR,
+				...pageFailureColumns(classifyInternalPageFailure(STALE_ATTEMPT_ERROR)),
 				status: "failed",
 			})
 			.where(
@@ -512,6 +623,21 @@ export class PagesRepository {
 			});
 
 		for (const failed of staleQueued) {
+			const failure = capturePageFailure(
+				new Error(STALE_ATTEMPT_ERROR),
+				classifyInternalPageFailure(STALE_ATTEMPT_ERROR),
+				{
+					attemptId: failed.id,
+					projectId: failed.projectId,
+					userId: scope.userId,
+				},
+			);
+			if (failure.sentryEventId) {
+				await this.db
+					.update(pageGenerationAttempts)
+					.set({ sentryEventId: failure.sentryEventId })
+					.where(eq(pageGenerationAttempts.id, failed.id));
+			}
 			captureGenerationFailed(
 				this.analyticsService,
 				scope.userId,
@@ -526,8 +652,8 @@ export class PagesRepository {
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
-				error:
-					"The build never finished — most likely no Trigger.dev dev worker was running (`npx trigger.dev@latest dev`). Start it and ask for the page again.",
+				error: STALE_ATTEMPT_ERROR,
+				...pageFailureColumns(classifyInternalPageFailure(STALE_ATTEMPT_ERROR)),
 				status: "failed",
 			})
 			.where(
@@ -546,6 +672,21 @@ export class PagesRepository {
 			});
 
 		for (const failed of staleGenerating) {
+			const failure = capturePageFailure(
+				new Error(STALE_ATTEMPT_ERROR),
+				classifyInternalPageFailure(STALE_ATTEMPT_ERROR),
+				{
+					attemptId: failed.id,
+					projectId: failed.projectId,
+					userId: scope.userId,
+				},
+			);
+			if (failure.sentryEventId) {
+				await this.db
+					.update(pageGenerationAttempts)
+					.set({ sentryEventId: failure.sentryEventId })
+					.where(eq(pageGenerationAttempts.id, failed.id));
+			}
 			captureGenerationFailed(
 				this.analyticsService,
 				scope.userId,
@@ -561,6 +702,11 @@ export class PagesRepository {
 				createdAt: pageGenerationAttempts.createdAt,
 				error: pageGenerationAttempts.error,
 				failureCode: pageGenerationAttempts.failureCode,
+				failureKind: pageGenerationAttempts.failureKind,
+				failureProvider: pageGenerationAttempts.failureProvider,
+				failureProviderMessage: pageGenerationAttempts.failureProviderMessage,
+				failureRequestId: pageGenerationAttempts.failureRequestId,
+				failureSource: pageGenerationAttempts.failureSource,
 				id: pageGenerationAttempts.id,
 				status: pageGenerationAttempts.status,
 				versionId: pageGenerationAttempts.versionId,

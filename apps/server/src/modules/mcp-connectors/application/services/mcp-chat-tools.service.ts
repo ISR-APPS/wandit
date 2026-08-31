@@ -18,6 +18,13 @@ import { z } from "zod";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process.
 import type { runConnectorGenerationTask } from "../../../../trigger/run-connector-generation.task";
+import {
+	captureAiError,
+	classifyAiError,
+	classifyMcpResult,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -699,9 +706,12 @@ export class McpChatToolsService {
 				} catch (error) {
 					// The chat silently continues without this connector — without a
 					// capture the failure is invisible in production.
-					Sentry.captureException(error, {
-						tags: { connectorId: connector.id, connectorSlug: connector.slug },
-					});
+					this.captureConnectorUnreachable(
+						error,
+						subject,
+						chatId ?? null,
+						connector,
+					);
 					return skippedConnector(connector, "unreachable");
 				}
 			}),
@@ -811,6 +821,12 @@ export class McpChatToolsService {
 		}
 
 		if (!connector.mcpServerUrl) {
+			this.captureConnectorUnreachable(
+				new Error(`Connector ${connector.slug} has no MCP server URL`),
+				subject,
+				chatId,
+				connector,
+			);
 			return skippedConnector(connector, "unreachable");
 		}
 
@@ -825,9 +841,7 @@ export class McpChatToolsService {
 			// reconnect_required is an expected state (user must re-auth) — only
 			// genuine reachability failures go to Sentry.
 			if (!(error instanceof ConflictException)) {
-				Sentry.captureException(error, {
-					tags: { connectorId: connector.id, connectorSlug: connector.slug },
-				});
+				this.captureConnectorUnreachable(error, subject, chatId, connector);
 			}
 			return skippedConnector(
 				connector,
@@ -847,9 +861,7 @@ export class McpChatToolsService {
 				registerCloser,
 			);
 		} catch (error) {
-			Sentry.captureException(error, {
-				tags: { connectorId: connector.id, connectorSlug: connector.slug },
-			});
+			this.captureConnectorUnreachable(error, subject, chatId, connector);
 			return skippedConnector(connector, "unreachable");
 		}
 
@@ -945,6 +957,54 @@ export class McpChatToolsService {
 			},
 			tools,
 		};
+	}
+
+	private captureConnectorUnreachable(
+		error: unknown,
+		subject: MeteringSubject,
+		chatId: string | null,
+		connector: McpConnectorRow,
+	): void {
+		const context = {
+			connectorSlug: connector.slug,
+			route: "mcp" as const,
+			surface: "connector" as const,
+		};
+		const classified = classifyAiError(error, context);
+		const fallback =
+			classified ??
+			(classifyAiError(
+				new Error("Connector discovery failed"),
+				context,
+			) as NormalizedAiError);
+		const provider = connector.slug.toLowerCase().slice(0, 40);
+		const normalized: NormalizedAiError =
+			fallback.kind === "connector_unreachable"
+				? fallback
+				: {
+						...fallback,
+						kind: "connector_unreachable",
+						provider,
+						providerLabel: connector.name.slice(0, 40),
+						providerMessage: null,
+						refunded: null,
+						retryable: true,
+						source: (provider === "higgsfield"
+							? "higgsfield"
+							: `provider:${provider}`) as NormalizedAiError["source"],
+						terminal: false,
+						userMessage: {
+							key: "errors.ai.connector_unreachable",
+							params: { provider: connector.name.slice(0, 40) },
+						},
+					};
+
+		captureAiError(error, normalized, {
+			...(chatId === null ? {} : { chatId }),
+			route: "mcp",
+			surface: "connector",
+			userId: subject.actorUserId,
+		});
 	}
 
 	private async discoverTools(
@@ -1873,7 +1933,7 @@ export class McpChatToolsService {
 			// responses with isError=true. Capture any Gateway evidence before the
 			// terminal-aware refund decides whether provider work occurred.
 			await captureConnectorGenerationResult(billing, reservations, result);
-			await this.refundGenerationWithoutMasking(
+			const refunded = await this.refundGenerationWithoutMasking(
 				billing,
 				input.subject,
 				referenceId,
@@ -1881,7 +1941,19 @@ export class McpChatToolsService {
 				input.connectorSlug,
 				input.toolName,
 			);
-			return result;
+			const normalized = classifyMcpResult(result, {
+				connectorSlug: input.connectorSlug,
+				refunded: refunded ? true : null,
+				route: "mcp",
+				surface: "connector",
+				toolName: input.toolName,
+			});
+			return normalized
+				? {
+						...(result as Record<string, unknown>),
+						wanditError: toClientAiError(normalized),
+					}
+				: result;
 		}
 
 		if (input.connectorSlug === "higgsfield" && isUnlimChoiceReceipt(result)) {
@@ -2041,7 +2113,19 @@ export class McpChatToolsService {
 						startedAt,
 						result,
 					);
-					return result;
+					const normalized = classifyMcpResult(result, {
+						connectorSlug: input.connectorSlug,
+						refunded: null,
+						route: "mcp",
+						surface: "connector",
+						toolName: input.toolName,
+					});
+					return normalized
+						? {
+								...(result as Record<string, unknown>),
+								wanditError: toClientAiError(normalized),
+							}
+						: result;
 				}
 
 				// A platform-level failure travels as a successful transport
@@ -2391,7 +2475,7 @@ export class McpChatToolsService {
 				try {
 					closed = await this.connectorGenerationsRepository.markAttemptFailed(
 						attempt.id,
-						message,
+						error,
 					);
 				} catch (markError) {
 					Sentry.captureException(markError, {
@@ -2484,13 +2568,15 @@ export class McpChatToolsService {
 		childOperation: "image" | "video" | undefined,
 		connectorSlug: string,
 		toolName: string,
-	): Promise<void> {
+	): Promise<boolean> {
 		try {
 			await billing.refund(subject, referenceId, childOperation);
+			return true;
 		} catch (error) {
 			Sentry.captureException(error, {
 				tags: { connectorSlug, referenceId, toolName },
 			});
+			return false;
 		}
 	}
 
@@ -2501,7 +2587,7 @@ export class McpChatToolsService {
 		try {
 			await this.connectorGenerationsRepository.markAttemptFailed(
 				attemptId,
-				error instanceof Error ? error.message : String(error),
+				error,
 			);
 		} catch (markError) {
 			Sentry.captureException(markError, { tags: { attemptId } });

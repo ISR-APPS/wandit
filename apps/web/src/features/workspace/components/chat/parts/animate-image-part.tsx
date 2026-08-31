@@ -22,6 +22,12 @@ import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib
 import { useTranslation } from "@/lib/i18n";
 import { useMediaGenerationAttemptQuery } from "../../../api/media-generations.queries";
 import { mediaGenerationDownloadUrl } from "../../../api/media-generations.services";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { StatusMessageHeader } from "../status-message-header";
@@ -31,8 +37,17 @@ type AnimateImageToolPart = Extract<
 	{ type: "tool-animate_image" }
 >;
 
-export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
+export function AnimateImagePart({
+	part,
+	messageParts,
+}: {
+	part: AnimateImageToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
+	const { prefillComposer } = useSharedAiChat();
+	const prompt =
+		typeof part.input?.prompt === "string" ? part.input.prompt : undefined;
 
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		const text =
@@ -47,6 +62,18 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			return (
+				<ImageAnimationFailure
+					error={null}
+					failure={failure}
+					onPrefill={prefillComposer}
+					prompt={prompt}
+				/>
+			);
+		}
+
 		return (
 			<AnnouncedStatus
 				text={`${t("workspace.chat.animateImage.failedToStart")}. ${t(
@@ -62,9 +89,25 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		return (
+			<ImageAnimationFailure
+				error={null}
+				failure={outputFailure}
+				onPrefill={prefillComposer}
+				prompt={prompt}
+			/>
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.attemptId) {
-		return <MediaGenerationCard attemptId={part.output.attemptId} />;
+		return (
+			<MediaGenerationCard
+				attemptId={part.output.attemptId}
+				onPrefill={prefillComposer}
+			/>
+		);
 	}
 
 	return (
@@ -81,7 +124,13 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	);
 }
 
-function MediaGenerationCard({ attemptId }: { attemptId: string }) {
+function MediaGenerationCard({
+	attemptId,
+	onPrefill,
+}: {
+	attemptId: string;
+	onPrefill: (prompt: string) => void;
+}) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	const {
@@ -135,7 +184,14 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	}
 
 	if (attempt?.status === "failed") {
-		return <ImageAnimationFailure error={attempt.error} />;
+		return (
+			<ImageAnimationFailure
+				error={attempt.error}
+				failure={attempt.failure}
+				onPrefill={onPrefill}
+				prompt={attempt.prompt}
+			/>
+		);
 	}
 
 	if (attempt?.status === "succeeded" && attempt.videoUrl) {
@@ -166,14 +222,33 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	);
 }
 
-export function ImageAnimationFailure({ error }: { error: string | null }) {
+export function ImageAnimationFailure({
+	error,
+	failure,
+	onPrefill,
+	prompt,
+}: {
+	error: string | null;
+	failure?: MediaGenerationAttempt["failure"];
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+}) {
 	const { t } = useTranslation();
-	const title = t("workspace.chat.animateImage.failedTitle");
-	const body = error ?? t("workspace.chat.animateImage.failedBody");
+	const copy = failure ? durableAiErrorPresentation(failure, t) : null;
+	const title = copy?.kicker ?? t("workspace.chat.animateImage.failedTitle");
+	const body =
+		copy?.body ?? error ?? t("workspace.chat.animateImage.failedBody");
 
 	return (
 		<AnnouncedStatus text={`${title}. ${body}`}>
-			<FailureMessage title={title} body={body} />
+			<FailureMessage
+				title={title}
+				body={body}
+				attribution={copy?.attribution}
+				onPrefill={onPrefill}
+				prompt={prompt}
+				showPrefill={copy?.showRetry}
+			/>
 		</AnnouncedStatus>
 	);
 }
@@ -317,7 +392,22 @@ function MediaGenerationResult({
 	);
 }
 
-function FailureMessage({ title, body }: { title: string; body: string }) {
+function FailureMessage({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill = false,
+}: {
+	title: string;
+	body: string;
+	attribution?: string | null;
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+	showPrefill?: boolean;
+}) {
+	const { t } = useTranslation();
 	return (
 		<div>
 			<StatusMessageHeader
@@ -330,6 +420,27 @@ function FailureMessage({ title, body }: { title: string; body: string }) {
 			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 				{body}
 			</p>
+			{attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{attribution}
+				</p>
+			) : null}
+			{showPrefill && prompt && onPrefill ? (
+				<div className="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 rounded-lg px-2.5 text-xs"
+						onClick={() => onPrefill(prompt)}
+					>
+						{t("workspace.chat.aiError.tryAgainPrefill.video")}
+					</Button>
+					<p className="mt-1 text-[10.5px] text-muted-foreground">
+						{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+					</p>
+				</div>
+			) : null}
 		</div>
 	);
 }

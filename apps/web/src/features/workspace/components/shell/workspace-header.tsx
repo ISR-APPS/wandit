@@ -20,11 +20,13 @@ import { CreditsChip } from "@/features/credits";
 import { FeedbackButton } from "@/features/feedback";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
+import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
 
 export function WorkspaceHeader() {
 	const { t } = useTranslation();
+	const { chatId } = useSharedAiChat();
 	return (
 		<header className="relative z-40 flex h-[52px] shrink-0 items-center gap-[11px] border-b bg-background/72 px-4 backdrop-blur-sm">
 			<Tooltip>
@@ -65,7 +67,7 @@ export function WorkspaceHeader() {
 					</TooltipTrigger>
 					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
 				</Tooltip>
-				<FeedbackButton />
+				<FeedbackButton chatId={chatId} />
 				<CreditsChip />
 				<UpgradeButton />
 				<PublishButton />

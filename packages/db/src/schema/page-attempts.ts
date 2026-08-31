@@ -62,6 +62,12 @@ export const pageGenerationAttempts = pgTable(
 		// pageBuildFailureCodeSchema) — lets the UI say WHO failed (the model
 		// provider vs us) without parsing the raw error string.
 		failureCode: text("failure_code"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		// Percent at the moment the attempt stopped or failed, so the stopped
 		// card can show "62%" after a reload. Live percent stays in Trigger
 		// run metadata; this is only the terminal snapshot.
@@ -81,6 +87,9 @@ export const pageGenerationAttempts = pgTable(
 		index("page_generation_attempts_pageKind_idx").on(
 			sql`(${table.spec} ->> 'pageKind')`,
 		),
+		index("page_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		index("page_attempts_project_idx").on(table.projectId),
 		index("page_attempts_artifact_idx").on(table.artifactId),
 	],

@@ -1,4 +1,8 @@
 import type { MediaGenerationKind } from "@wandit/contracts";
+import {
+	captureAiError,
+	type NormalizedAiError,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	type ImageAnimationAttempt,
@@ -6,6 +10,11 @@ import {
 	type ImageAnimationVideo,
 	userSafeGenerationError,
 } from "./image-animation-runner";
+import {
+	type AiFailurePersistenceFields,
+	aiFailurePersistenceFields,
+	internalMediaFailure,
+} from "./media-generation-failure";
 import {
 	isLegActivityTrackedGeneration,
 	isMediaGenerationGeneratingStale,
@@ -61,7 +70,7 @@ export type ImageAnimationReconcilerDependencies = {
 				"queued" | "generating"
 			>;
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	) => Promise<boolean>;
 	listCandidates: (input: {
 		generatingBefore: MediaGenerationGeneratingCutoffs;
@@ -139,7 +148,13 @@ export async function reconcileImageAnimations(
 				candidate.reconciliationReason === "stale_queued"
 					? "queued"
 					: "generating";
+			const failure = capturedReconciliationFailure(
+				candidate,
+				candidate.deliveredUnits === 0,
+				"project_deleted",
+			);
 			const failed = await dependencies.failFromStatus(candidate, {
+				...aiFailurePersistenceFields(failure),
 				completedAt: now,
 				error: userSafeReconciliationError(candidate.kind),
 				expectedStatus,
@@ -211,7 +226,15 @@ export async function reconcileImageAnimations(
 			candidate.reconciliationReason === "stale_queued"
 				? "queued"
 				: "generating";
+		const failure = capturedReconciliationFailure(
+			candidate,
+			candidate.deliveredUnits === 0,
+			candidate.reconciliationReason === "stale_queued"
+				? "stale_queued"
+				: "stale_generation",
+		);
 		const failed = await dependencies.failFromStatus(candidate, {
+			...aiFailurePersistenceFields(failure),
 			...(candidate.reconciliationReason === "stale_generating"
 				? {
 						activityBefore: new Date(
@@ -241,6 +264,44 @@ export async function reconcileImageAnimations(
 	return result;
 }
 
+function capturedReconciliationFailure(
+	candidate: MediaGenerationReconciliationAttempt,
+	refunded: boolean,
+	reason: string,
+): NormalizedAiError {
+	const failure = internalMediaFailure({ model: candidate.model, refunded });
+	const sentryEventId = captureAiError(
+		new Error(`Media reconciliation failure: ${reason}`),
+		failure,
+		{
+			functionId: "video.reconcile",
+			generationId: candidate.id,
+			projectId: candidate.projectId,
+			refunded,
+			route: "none",
+			surface: "video",
+			userId: candidate.userId,
+		},
+	);
+	return { ...failure, sentryEventId };
+}
+
+function userSafeReconciliationError(kind: MediaGenerationKind): string {
+	if (kind === "video-product") {
+		return USER_SAFE_PRODUCT_VIDEO_ERROR;
+	}
+
+	if (kind === "video-edit") {
+		return "We couldn't finish editing this video. Please try again in a moment.";
+	}
+
+	if (kind === "video-extension") {
+		return "We couldn't finish extending this video. Please try again in a moment.";
+	}
+
+	return userSafeGenerationError(kind);
+}
+
 async function settleDeliveredOrRefund(
 	candidate: MediaGenerationReconciliationAttempt,
 	dependencies: Pick<
@@ -259,22 +320,6 @@ async function settleDeliveredOrRefund(
 
 	await dependencies.refund(subject, candidate.id, candidate.kind);
 	result.refunded += 1;
-}
-
-function userSafeReconciliationError(kind: MediaGenerationKind): string {
-	if (kind === "video-product") {
-		return USER_SAFE_PRODUCT_VIDEO_ERROR;
-	}
-
-	if (kind === "video-edit") {
-		return "We couldn't finish editing this video. Please try again in a moment.";
-	}
-
-	if (kind === "video-extension") {
-		return "We couldn't finish extending this video. Please try again in a moment.";
-	}
-
-	return userSafeGenerationError(kind);
 }
 
 /**

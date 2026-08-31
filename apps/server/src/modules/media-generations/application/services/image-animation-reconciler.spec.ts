@@ -14,9 +14,15 @@ import {
 	USER_SAFE_IMAGE_ANIMATION_ERROR,
 } from "./image-animation-runner";
 import { MEDIA_GENERATION_STALE_GENERATING_MS } from "./media-generation-staleness";
-import { USER_SAFE_PRODUCT_VIDEO_ERROR } from "./product-video-runner";
 
 const NOW = new Date("2026-07-24T12:00:00.000Z");
+const INTERNAL_FAILURE_FIELDS = {
+	failureKind: "internal",
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: "ours",
+};
 const RECOVERED_VIDEO: ImageAnimationVideo = {
 	mediaType: "video/mp4",
 	url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
@@ -155,10 +161,12 @@ describe("reconcileImageAnimations", () => {
 		});
 		expect(recoverStoredVideo).not.toHaveBeenCalled();
 		expect(failFromStatus).toHaveBeenCalledWith(staleQueued, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "queued",
 			reason: "stale_queued",
+			sentryEventId: expect.any(String),
 		});
 		expect(refund).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
@@ -313,6 +321,9 @@ describe("reconcileImageAnimations", () => {
 			expect.objectContaining({
 				error:
 					"We couldn't finish extending this video. Please try again in a moment.",
+				failureKind: "internal",
+				failureSource: "ours",
+				sentryEventId: expect.any(String),
 			}),
 		);
 		expect(settleExisting).toHaveBeenCalledWith(
@@ -372,6 +383,7 @@ describe("reconcileImageAnimations", () => {
 		expect(recoverStoredVideo).toHaveBeenCalledWith(staleGenerating);
 		expect(markSucceeded).not.toHaveBeenCalled();
 		expect(failFromStatus).toHaveBeenCalledWith(staleGenerating, {
+			...INTERNAL_FAILURE_FIELDS,
 			activityBefore: new Date(
 				NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["image-animation"],
 			),
@@ -379,6 +391,7 @@ describe("reconcileImageAnimations", () => {
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
 			reason: "stale_generation",
+			sentryEventId: expect.any(String),
 		});
 		expect(refund).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
@@ -405,13 +418,16 @@ describe("reconcileImageAnimations", () => {
 			},
 		);
 		expect(failFromStatus).toHaveBeenCalledWith(product, {
+			...INTERNAL_FAILURE_FIELDS,
 			activityBefore: new Date(
 				NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-product"],
 			),
 			completedAt: NOW,
-			error: USER_SAFE_PRODUCT_VIDEO_ERROR,
+			error:
+				"We couldn't finish this product video. Please try again in a moment.",
 			expectedStatus: "generating",
 			reason: "stale_generation",
+			sentryEventId: expect.any(String),
 		});
 		expect(refund).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
@@ -443,10 +459,12 @@ describe("reconcileImageAnimations", () => {
 		expect(recoverStoredVideo).not.toHaveBeenCalled();
 		expect(markSucceeded).not.toHaveBeenCalled();
 		expect(failFromStatus).toHaveBeenCalledWith(deletedGenerating, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(refund).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },

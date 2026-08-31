@@ -41,6 +41,7 @@ export const ASYNC_CARD_PART_TYPES = new Set([
 export const VISIBLE_PART_TYPES = new Set([
 	"text",
 	"file",
+	"data-ai-error",
 	"tool-ask_user",
 	...ASYNC_CARD_PART_TYPES,
 	"dynamic-tool",
@@ -469,6 +470,7 @@ export function entryRendersContent(entry: MessagePartRenderEntry): boolean {
 		return typeof part.text === "string" && part.text.length > 0;
 	}
 	if (part.type === "file") return parseFilePart(part) !== null;
+	if (part.type === "data-ai-error") return isVisibleAiErrorPart(part);
 	return (
 		ASYNC_CARD_PART_TYPES.has(part.type) &&
 		typeof part.state === "string" &&
@@ -497,10 +499,26 @@ export function assistantTurnHasThinkingDismissal(
 				TOOL_PART_STATES.has(part.state)
 			);
 		}
+		if (part.type === "data-ai-error") {
+			return isVisibleAiErrorPart(part);
+		}
 		return (
 			ASYNC_CARD_PART_TYPES.has(part.type) &&
 			typeof part.state === "string" &&
 			ASYNC_RENDER_STATES.has(part.state)
 		);
 	});
+}
+
+function isVisibleAiErrorPart(part: MessagePartRecord): boolean {
+	if (!part.data || typeof part.data !== "object" || Array.isArray(part.data)) {
+		return false;
+	}
+	const data = part.data as Record<string, unknown>;
+	return (
+		data.terminal === true &&
+		!data.toolCallId &&
+		data.kind !== "cancelled" &&
+		data.kind !== "billing"
+	);
 }
