@@ -36,7 +36,7 @@ describe("mapAdminUserSummary", () => {
 	it.each([
 		["DZ", "DZ"],
 		[" fr ", "FR"],
-		["AQ", "AQ"],
+		["CA", "CA"],
 	] as const)("normalizes a valid country code %j to %s", (countryCode, expected) => {
 		expect(
 			mapAdminUserSummary({ ...SUMMARY_ROW, countryCode }).countryCode,

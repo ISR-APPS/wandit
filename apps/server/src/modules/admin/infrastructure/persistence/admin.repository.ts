@@ -184,6 +184,15 @@ const dialCountryCodeListSql = sql.raw(
 	dialCountryIsoCodes.map(sqlStringLiteral).join(", "),
 );
 
+const countryDialValuesSql = sql.raw(
+	dialCountries
+		.map(
+			({ iso, dial }) =>
+				`(${sqlStringLiteral(iso)}, ${sqlStringLiteral(dial)})`,
+		)
+		.join(", "),
+);
+
 const countryByDial = new Map<string, string>();
 for (const country of dialCountries) {
 	countryByDial.set(
@@ -1054,8 +1063,9 @@ export class AdminRepository {
 
 /**
  * Best available country for an admin user. The picker ISO is authoritative
- * when it is one of the shared dial-list countries; older rows fall back to
- * longest-prefix E.164 inference, then the signup-IP attribution.
+ * when its shared dial code matches the stored phone; older or inconsistent
+ * rows fall back to longest-prefix E.164 inference, then the signup-IP
+ * attribution when that country is also in the dial-list vocabulary.
  *
  * Both related tables stay in correlated scalar subqueries so list pagination
  * remains one outer row per user.
@@ -1067,6 +1077,15 @@ function userCountryCode(userId: SQL) {
 				case
 					when upper(btrim("user_onboarding"."answers" ->> 'phone_country'))
 						in (${dialCountryCodeListSql})
+						and exists (
+							select 1
+							from (values ${countryDialValuesSql})
+								as "picker_country"("country_code", "dial_code")
+							where "picker_country"."country_code" =
+								upper(btrim("user_onboarding"."answers" ->> 'phone_country'))
+								and "user_onboarding"."answers" ->> 'phone'
+									like '+' || "picker_country"."dial_code" || '%'
+						)
 					then upper(btrim("user_onboarding"."answers" ->> 'phone_country'))
 				end,
 				(
@@ -1090,7 +1109,7 @@ function userCountryCode(userId: SQL) {
 			from "user_attributions"
 			where "user_attributions"."user_id" = ${userId}
 				and upper(btrim("user_attributions"."country"))
-					~ '^[A-Z]{2}$'
+					in (${dialCountryCodeListSql})
 			limit 1
 		)
 	)`;

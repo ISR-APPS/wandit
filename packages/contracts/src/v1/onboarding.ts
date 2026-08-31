@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { dialCountryIsoSchema, e164PhonePattern } from "./dial-codes";
+import {
+	dialCountryIsoSchema,
+	e164PhonePattern,
+	getDialCountry,
+} from "./dial-codes";
 import { isoDateTimeSchema } from "./shared/primitives";
 
 export const onboardingQuestionsVersion = "v3";
@@ -257,6 +261,21 @@ const completeOnboardingAnswersSchema = z.preprocess(
 		.strict()
 		.superRefine((answers, context) => {
 			const answersByQuestion: Partial<Record<string, string>> = answers;
+			const selectedDialCountry = answers.phone_country
+				? getDialCountry(answers.phone_country)
+				: undefined;
+
+			if (
+				answers.phone &&
+				selectedDialCountry &&
+				!answers.phone.startsWith(`+${selectedDialCountry.dial}`)
+			) {
+				context.addIssue({
+					code: "custom",
+					message: "Phone number must match the selected country calling code",
+					path: ["phone"],
+				});
+			}
 
 			for (const question of onboardingQuestions) {
 				const answer = answersByQuestion[question.id];

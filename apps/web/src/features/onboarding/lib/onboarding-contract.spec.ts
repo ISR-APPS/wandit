@@ -19,12 +19,24 @@ describe("onboarding phone country contract", () => {
 		).toBe(true);
 	});
 
-	it("accepts a listed uppercase picker ISO", () => {
+	it("accepts a shared-dial picker ISO that matches the phone", () => {
 		const result = completeOnboardingBodySchema.parse({
 			answers: { ...soloAnswers, phone_country: "CA" },
 		});
 
 		expect(result.answers.phone_country).toBe("CA");
+	});
+
+	it("rejects picker metadata whose dial does not match the phone", () => {
+		expect(
+			completeOnboardingBodySchema.safeParse({
+				answers: {
+					...soloAnswers,
+					phone: "+213661223344",
+					phone_country: "FR",
+				},
+			}).success,
+		).toBe(false);
 	});
 
 	it.each(["ca", "XX", "USA"])("rejects invalid picker ISO %s", (iso) => {

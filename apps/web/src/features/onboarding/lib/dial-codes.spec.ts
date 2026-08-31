@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	composePhoneAnswer,
 	countryCodeFromE164,
+	countryForInternationalInput,
 	dialCountries,
 	dialCountryDisplayName,
 	dialCountryIsoCodes,
@@ -171,6 +172,26 @@ describe("restorePhoneAnswer", () => {
 
 	it("falls back to inference when explicit metadata conflicts", () => {
 		expect(restorePhoneAnswer("+213661223344", "CA")?.country.iso).toBe("DZ");
+	});
+});
+
+describe("countryForInternationalInput", () => {
+	it("keeps the current picker country when the inferred dial is shared", () => {
+		expect(
+			countryForInternationalInput(
+				mustGetDialCountry("CA"),
+				mustGetDialCountry("US"),
+			).iso,
+		).toBe("CA");
+	});
+
+	it("switches to the inferred country when the dial code changes", () => {
+		expect(
+			countryForInternationalInput(
+				mustGetDialCountry("DZ"),
+				mustGetDialCountry("FR"),
+			).iso,
+		).toBe("FR");
 	});
 });
 

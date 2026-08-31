@@ -96,6 +96,15 @@ export function restorePhoneAnswer(
 	return splitPhoneAnswer(value);
 }
 
+/** Keeps an explicit picker choice when inference can only identify a shared
+ * calling code (for example, Canada and the US both use +1). */
+export function countryForInternationalInput(
+	current: DialCountry,
+	inferred: DialCountry,
+): DialCountry {
+	return current.dial === inferred.dial ? current : inferred;
+}
+
 /** Best-guess start country: the browser's region when we list it, else DZ. */
 export function detectDialCountry(): DialCountry {
 	const fallback = getDialCountry(DEFAULT_DIAL_COUNTRY_ISO);

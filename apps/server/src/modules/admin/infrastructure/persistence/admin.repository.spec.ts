@@ -172,7 +172,7 @@ describe("AdminRepository user-list queries", () => {
 		expect(listSql).not.toContain('join "user_onboarding"');
 	});
 
-	it("derives country with validated picker, E.164, then validated attribution precedence", () => {
+	it("derives country with matching picker, E.164, then dial-list attribution precedence", () => {
 		const repository = new AdminRepository(db as Database);
 		const query = {
 			page: 1,
@@ -195,12 +195,23 @@ describe("AdminRepository user-list queries", () => {
 		expect(pickerIndex).toBeGreaterThan(-1);
 		expect(inferredIndex).toBeGreaterThan(pickerIndex);
 		expect(attributionIndex).toBeGreaterThan(inferredIndex);
-		// Picker metadata must come from the dial list. Attribution also covers
-		// ISO regions without a calling code, so only its alpha-2 shape is checked.
-		expect(listSql.split("in ('AD', 'AE'")).toHaveLength(2);
-		expect(listSql).toContain(
-			`upper(btrim("user_attributions"."country")) ~ '^[A-Z]{2}$'`,
+		// Both picker metadata and attribution must come from the same dial-list
+		// vocabulary exposed by the country filter.
+		expect(listSql.split("in ('AD', 'AE'")).toHaveLength(3);
+		expect(listSql.slice(attributionIndex)).toContain(
+			`upper(btrim("user_attributions"."country")) in ('AD', 'AE'`,
 		);
+		expect(listSql.slice(attributionIndex)).not.toContain(`~ '^[A-Z]{2}$'`);
+		expect(listSql).toContain(`from (values ('AD', '376'), ('AE', '971')`);
+		expect(listSql).toContain(
+			`"picker_country"."country_code" = upper(btrim("user_onboarding"."answers" ->> 'phone_country'))`,
+		);
+		expect(listSql).toContain(
+			`"user_onboarding"."answers" ->> 'phone' like '+' || "picker_country"."dial_code" || '%'`,
+		);
+		// The picker lookup retains every ISO owner for shared dials.
+		expect(listSql).toContain("('CA', '1')");
+		expect(listSql).toContain("('FR', '33')");
 		expect(listSql).toContain(
 			`"user_onboarding"."answers" ->> 'phone' like '+' || "dial_country"."dial_code" || '%'`,
 		);

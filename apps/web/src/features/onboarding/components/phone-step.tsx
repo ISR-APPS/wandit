@@ -21,6 +21,7 @@ import { type FormEvent, useMemo, useRef, useState } from "react";
 
 import {
 	composePhoneAnswer,
+	countryForInternationalInput,
 	type DialCountry,
 	type DialCountryIso,
 	detectDialCountry,
@@ -168,11 +169,15 @@ export function PhoneStep({
 				? splitPhoneAnswer(`+${international}`)
 				: undefined;
 			if (split) {
-				setCountry(split.country);
+				const nextCountry = countryForInternationalInput(
+					country,
+					split.country,
+				);
+				setCountry(nextCountry);
 				setNational(split.national);
 				onChange(
-					composePhoneAnswer(split.country, split.national),
-					split.country.iso,
+					composePhoneAnswer(nextCountry, split.national),
+					nextCountry.iso,
 				);
 				return;
 			}
