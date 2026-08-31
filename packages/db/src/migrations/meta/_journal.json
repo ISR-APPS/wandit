@@ -435,6 +435,13 @@
       "when": 1788118370637,
       "tag": "0061_ai-usage-events-chat-idx",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788190660373,
+      "tag": "0062_manual-billing-dzd-rate",
+      "breakpoints": true
     }
   ]
 }

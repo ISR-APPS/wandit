@@ -1,0 +1,2 @@
+ALTER TABLE "product_settings" ADD COLUMN "dzd_per_usd_rate" integer DEFAULT 27000 NOT NULL;--> statement-breakpoint
+ALTER TABLE "product_settings" ADD CONSTRAINT "product_settings_dzd_per_usd_rate_range_ck" CHECK ("product_settings"."dzd_per_usd_rate" > 0 AND "product_settings"."dzd_per_usd_rate" <= 1000000);
