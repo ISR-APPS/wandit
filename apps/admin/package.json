@@ -30,6 +30,7 @@
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
+		"country-flag-icons": "^1.6.20",
 		"exceljs": "^4.4.0",
 		"lucide-react": "catalog:",
 		"next-themes": "catalog:",

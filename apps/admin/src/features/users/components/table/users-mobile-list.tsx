@@ -10,6 +10,7 @@ import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
+	PhoneCell,
 	PlanBadge,
 	RoleBadge,
 	StatusBadge,
@@ -29,6 +30,12 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 							<UserIdentity user={user} />
 						</div>
 						<UserRowActions user={user} />
+					</div>
+
+					<div className="border-b">
+						<MobileDatum label="Phone">
+							<PhoneCell phone={user.phone} />
+						</MobileDatum>
 					</div>
 
 					<div className="grid grid-cols-2 divide-x border-b">

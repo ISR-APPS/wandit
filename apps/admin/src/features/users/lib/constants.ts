@@ -1,5 +1,6 @@
 import type {
 	AdminListUsersSort,
+	UserFreeCreditsFilter,
 	UserPlanFilter,
 	UserPublishedFilter,
 	UserRoleFilter,
@@ -63,6 +64,13 @@ export const USER_PLAN_FILTER_OPTIONS = [
 	{ label: "Pro", value: "pro" },
 	{ label: "Business", value: "business" },
 ] as const satisfies readonly UserFacetedFilterOption<UserPlanFilter[number]>[];
+
+export const USER_FREE_CREDITS_FILTER_OPTIONS = [
+	{ label: "Consumed", value: "consumed" },
+	{ label: "Available", value: "available" },
+] as const satisfies readonly UserFacetedFilterOption<
+	UserFreeCreditsFilter[number]
+>[];
 
 export const USER_ROLE_FILTER_OPTIONS = [
 	{ label: "User", value: "user" },

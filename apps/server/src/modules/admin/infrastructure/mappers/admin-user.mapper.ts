@@ -10,6 +10,7 @@ import {
 	billingPlanIdSchema,
 	billingPlanIds,
 	centiCreditsToCredits,
+	countryIsoCodePattern,
 	normalizeStoredRole,
 } from "@wandit/contracts";
 import type {
@@ -30,6 +31,8 @@ export function mapAdminUserSummary(
 		id: row.id,
 		name: row.name,
 		email: row.email,
+		phone: normalizePhone(row.phone),
+		countryCode: normalizeCountryCode(row.countryCode),
 		emailVerified: row.emailVerified,
 		image: row.image,
 		role: normalizeStoredRole(row.role),
@@ -136,6 +139,20 @@ function normalizePlan(plan: string | null): AdminUserPlan {
 	}
 
 	return "free";
+}
+
+function normalizePhone(phone: string | null): string | null {
+	const normalized = phone?.trim();
+
+	return normalized ? normalized : null;
+}
+
+function normalizeCountryCode(countryCode: string | null): string | null {
+	const normalized = countryCode?.trim().toUpperCase();
+
+	return normalized && countryIsoCodePattern.test(normalized)
+		? normalized
+		: null;
 }
 
 // Raw SQL expressions can surface as Date or string depending on pg parsers.
