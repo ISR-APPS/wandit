@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { MessageSquareTextIcon } from "lucide-react";
+import type { MouseEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,6 +22,7 @@ import type { ChatSummary } from "@/features/conversations/api/conversations.dto
 import {
 	formatConversationCount,
 	formatConversationDateTime,
+	formatConversationRelativeTime,
 } from "@/features/conversations/lib/conversation-formatters";
 import { ProjectDetailPagination } from "@/features/projects/components/project-detail-pagination";
 
@@ -73,51 +75,75 @@ export function ChatList({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{items.map((chat) => (
-						<TableRow key={chat.id}>
-							<TableCell>
-								<Link
-									to="/chats/$chatId"
-									params={{ chatId: chat.id }}
-									className="block max-w-48 truncate font-mono text-primary text-xs underline-offset-4 hover:underline"
-									title={chat.id}
-								>
-									{chat.id}
-								</Link>
-							</TableCell>
-							<TableCell className="max-w-52 truncate">
-								{chat.projectName ?? "Unknown project"}
-							</TableCell>
-							<TableCell className="max-w-56">
-								{chat.owner ? (
-									<div className="min-w-0">
-										<p className="truncate">{chat.owner.name}</p>
-										<p className="truncate text-muted-foreground text-xs">
-											{chat.owner.email}
-										</p>
-									</div>
-								) : (
-									<span className="text-muted-foreground">Unknown</span>
-								)}
-							</TableCell>
-							<TableCell>
-								<time dateTime={chat.lastMessageAt ?? chat.createdAt}>
-									{formatConversationDateTime(chat.lastMessageAt)}
-								</time>
-							</TableCell>
-							<TableCell className="text-right tabular-nums">
-								{formatConversationCount(chat.messageCount)}
-							</TableCell>
-							<TableCell className="text-right">
-								<Badge
-									variant={chat.failedTurnCount > 0 ? "destructive" : "outline"}
-									className="tabular-nums"
-								>
-									{formatConversationCount(chat.failedTurnCount)}
-								</Badge>
-							</TableCell>
-						</TableRow>
-					))}
+					{items.map((chat) => {
+						const activityAt = chat.lastMessageAt ?? chat.createdAt;
+
+						return (
+							<TableRow
+								key={chat.id}
+								className="cursor-pointer focus-within:bg-muted/70 hover:bg-muted/70"
+								onClick={openChatFromRow}
+							>
+								<TableCell>
+									<Link
+										to="/chats/$chatId"
+										params={{ chatId: chat.id }}
+										data-chat-row-link
+										className="block max-w-48 truncate rounded-sm font-mono text-primary text-xs underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+										title={chat.id}
+									>
+										{chat.id}
+									</Link>
+								</TableCell>
+								<TableCell className="max-w-52 truncate">
+									{chat.projectName ?? "Unknown project"}
+								</TableCell>
+								<TableCell className="max-w-56">
+									{chat.owner ? (
+										<div className="min-w-0">
+											<p className="truncate">{chat.owner.name}</p>
+											<p className="truncate text-muted-foreground text-xs">
+												{chat.owner.email}
+											</p>
+										</div>
+									) : (
+										<span className="text-muted-foreground">Unknown</span>
+									)}
+								</TableCell>
+								<TableCell>
+									<time
+										dateTime={activityAt}
+										title={formatConversationDateTime(activityAt)}
+										className="text-muted-foreground"
+									>
+										{formatConversationRelativeTime(activityAt)}
+									</time>
+								</TableCell>
+								<TableCell>
+									<span className="flex items-center justify-end gap-1.5 text-muted-foreground tabular-nums">
+										<MessageSquareTextIcon
+											aria-hidden="true"
+											className="size-3.5"
+										/>
+										{formatConversationCount(chat.messageCount)}
+										<span className="sr-only"> messages</span>
+									</span>
+								</TableCell>
+								<TableCell className="text-right">
+									{chat.failedTurnCount > 0 ? (
+										<Badge variant="destructive" className="tabular-nums">
+											{formatConversationCount(chat.failedTurnCount)}
+										</Badge>
+									) : (
+										<span className="text-muted-foreground">
+											<span aria-hidden="true">—</span>
+											<span className="sr-only">No failures</span>
+										</span>
+									)}
+								</TableCell>
+							</TableRow>
+						);
+					})}
 				</TableBody>
 			</Table>
 			<ProjectDetailPagination
@@ -128,4 +154,17 @@ export function ChatList({
 			/>
 		</div>
 	);
+}
+
+function openChatFromRow(event: MouseEvent<HTMLTableRowElement>) {
+	if (
+		event.target instanceof Element &&
+		event.target.closest("a, button, input, select, textarea")
+	) {
+		return;
+	}
+
+	event.currentTarget
+		.querySelector<HTMLAnchorElement>("[data-chat-row-link]")
+		?.click();
 }

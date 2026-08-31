@@ -3,6 +3,10 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 	timeStyle: "short",
 });
 
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+});
+
 const wholeNumberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
@@ -16,6 +20,50 @@ const usdFormatter = new Intl.NumberFormat("en-US", {
 
 export function formatConversationDateTime(value: string | null): string {
 	return value ? dateTimeFormatter.format(new Date(value)) : "No activity";
+}
+
+export function formatConversationRelativeTime(
+	value: string | null,
+	nowMs = Date.now(),
+): string {
+	if (!value) {
+		return "No activity";
+	}
+
+	const timestampMs = Date.parse(value);
+	if (!Number.isFinite(timestampMs)) {
+		return "No activity";
+	}
+
+	const elapsedMinutes = Math.max(
+		Math.floor((nowMs - timestampMs) / 60_000),
+		0,
+	);
+
+	if (elapsedMinutes < 1) {
+		return "Just now";
+	}
+
+	if (elapsedMinutes < 60) {
+		return `${elapsedMinutes}m ago`;
+	}
+
+	const elapsedHours = Math.floor(elapsedMinutes / 60);
+	if (elapsedHours < 24) {
+		return `${elapsedHours}h ago`;
+	}
+
+	const elapsedDays = Math.floor(elapsedHours / 24);
+	if (elapsedDays < 7) {
+		return `${elapsedDays}d ago`;
+	}
+
+	const elapsedWeeks = Math.floor(elapsedDays / 7);
+	if (elapsedWeeks < 5) {
+		return `${elapsedWeeks}w ago`;
+	}
+
+	return dateFormatter.format(new Date(timestampMs));
 }
 
 export function formatConversationCount(value: number | null): string {

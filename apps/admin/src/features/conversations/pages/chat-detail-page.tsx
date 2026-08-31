@@ -45,6 +45,7 @@ import { isApiClientError } from "@/lib/api-client";
 
 const MESSAGES_PAGE_SIZE = 50;
 const CALLS_PAGE_SIZE = 20;
+const INLINE_CALLS_PAGE_SIZE = 100;
 const SECTION_SKELETON_KEYS = [
 	"section-one",
 	"section-two",
@@ -62,6 +63,10 @@ const METRIC_SKELETON_KEYS = [
 export function ChatDetailPage({ chatId }: { chatId: string }) {
 	const [messagesPage, setMessagesPage] = useState(1);
 	const [callsPage, setCallsPage] = useState(1);
+	const [activeTab, setActiveTab] = useState<"transcript" | "usage">(
+		"transcript",
+	);
+	const [failureJumpRequest, setFailureJumpRequest] = useState(0);
 	const detailQuery = useChatDetailQuery(chatId);
 	const messagesQuery = useChatMessagesQuery({
 		chatId,
@@ -72,6 +77,11 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 		chatId,
 		page: callsPage,
 		pageSize: CALLS_PAGE_SIZE,
+	});
+	const inlineCallsQuery = useChatCallsQuery({
+		chatId,
+		page: 1,
+		pageSize: INLINE_CALLS_PAGE_SIZE,
 	});
 
 	if (detailQuery.isPending) {
@@ -141,6 +151,12 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 				}
 			: null;
 
+	function openFirstFailure() {
+		setActiveTab("transcript");
+		setMessagesPage(1);
+		setFailureJumpRequest((request) => request + 1);
+	}
+
 	return (
 		<ChatDetailContainer>
 			<header className="rounded-xl border bg-background p-6">
@@ -198,34 +214,41 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 			</header>
 
 			<section
-				className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+				className="grid overflow-hidden rounded-xl border bg-background sm:grid-cols-2 xl:grid-cols-4 [&>*:not(:last-child)]:border-b xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(n+3)]:border-b-0 sm:[&>*:nth-child(odd)]:border-e xl:[&>*]:border-b-0"
 				aria-label="Conversation totals"
 			>
-				<MetricCard
+				<MetricStat
 					label="Messages"
 					value={formatConversationCount(detail.messageCount)}
 					icon={MessageSquareTextIcon}
 				/>
-				<MetricCard
+				<MetricStat
 					label="Failed turns"
 					value={formatConversationCount(detail.failedTurnCount)}
 					icon={TriangleAlertIcon}
 					danger={detail.failedTurnCount > 0}
+					onClick={detail.failedTurnCount > 0 ? openFirstFailure : undefined}
 				/>
-				<MetricCard
+				<MetricStat
 					label="Total tokens"
 					value={formatConversationCount(detail.totalTokens)}
 					icon={MessageSquareTextIcon}
 				/>
-				<MetricCard
+				<MetricStat
 					label="Recorded cost"
 					value={formatUsdMicros(detail.totalCostUsdMicros)}
 					icon={CircleDollarSignIcon}
 				/>
 			</section>
 
-			<Card className="gap-0">
-				<Tabs defaultValue="transcript" className="gap-0">
+			<Card className="gap-0 overflow-visible">
+				<Tabs
+					value={activeTab}
+					onValueChange={(value) =>
+						setActiveTab(value === "usage" ? "usage" : "transcript")
+					}
+					className="gap-0"
+				>
 					<CardHeader className="gap-4 border-b">
 						<div>
 							<CardTitle>Conversation details</CardTitle>
@@ -253,11 +276,16 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 							) : (
 								<Transcript
 									messages={messagesQuery.data.items}
+									calls={inlineCallsQuery.data?.items ?? []}
 									page={messagesQuery.data.page}
 									pageSize={messagesQuery.data.pageSize}
 									total={messagesQuery.data.total}
+									failedTurnCount={detail.failedTurnCount}
 									onPageChange={setMessagesPage}
-									isFetching={messagesQuery.isFetching}
+									isFetching={
+										messagesQuery.isFetching || inlineCallsQuery.isFetching
+									}
+									failureJumpRequest={failureJumpRequest}
 								/>
 							)}
 						</CardContent>
@@ -299,40 +327,57 @@ function ChatDetailContainer({ children }: PropsWithChildren) {
 	);
 }
 
-function MetricCard({
+function MetricStat({
 	label,
 	value,
 	icon: Icon,
 	danger = false,
+	onClick,
 }: {
 	label: string;
 	value: string;
 	icon: typeof MessageSquareTextIcon;
 	danger?: boolean;
+	onClick?: () => void;
 }) {
-	return (
-		<Card className="gap-3 py-4 shadow-none">
-			<CardContent className="flex items-center justify-between px-4">
-				<div>
-					<p className="text-muted-foreground text-xs">{label}</p>
-					<p
-						className={
-							danger
-								? "mt-1 font-semibold text-destructive text-xl"
-								: "mt-1 font-semibold text-xl"
-						}
-					>
-						{value}
-					</p>
-				</div>
-				<Icon
-					aria-hidden="true"
+	const content = (
+		<>
+			<div>
+				<p className="text-muted-foreground text-xs uppercase tracking-wide">
+					{label}
+				</p>
+				<p
 					className={
-						danger ? "size-5 text-destructive" : "size-5 text-muted-foreground"
+						danger
+							? "mt-1 font-semibold text-destructive text-lg tabular-nums"
+							: "mt-1 font-semibold text-lg tabular-nums"
 					}
-				/>
-			</CardContent>
-		</Card>
+				>
+					{value}
+				</p>
+			</div>
+			<Icon
+				aria-hidden="true"
+				className={
+					danger ? "size-4 text-destructive" : "size-4 text-muted-foreground"
+				}
+			/>
+		</>
+	);
+
+	return onClick ? (
+		<button
+			type="button"
+			className="flex min-h-20 items-center justify-between px-4 py-3 text-start outline-none transition-colors hover:bg-destructive/5 focus-visible:bg-destructive/5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset active:translate-y-px"
+			onClick={onClick}
+			aria-label="Open transcript and jump to the first failed message"
+		>
+			{content}
+		</button>
+	) : (
+		<div className="flex min-h-20 items-center justify-between px-4 py-3">
+			{content}
+		</div>
 	);
 }
 
@@ -379,9 +424,11 @@ function ChatDetailSkeleton() {
 	return (
 		<>
 			<Skeleton className="h-40 w-full rounded-xl" />
-			<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+			<div className="grid overflow-hidden rounded-xl border sm:grid-cols-2 xl:grid-cols-4 [&>*:not(:last-child)]:border-b xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(n+3)]:border-b-0 sm:[&>*:nth-child(odd)]:border-e xl:[&>*]:border-b-0">
 				{METRIC_SKELETON_KEYS.map((key) => (
-					<Skeleton key={key} className="h-24 w-full rounded-xl" />
+					<div key={key} className="p-4">
+						<Skeleton className="h-12 w-full" />
+					</div>
 				))}
 			</div>
 			<Skeleton className="h-[32rem] w-full rounded-xl" />
