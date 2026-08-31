@@ -30,6 +30,7 @@ import {
 } from "./marketing-assets";
 import { pageAttemptStatusSchema, pageVersionListItemSchema } from "./pages";
 import { projectAssetSourceSchema } from "./project-assets";
+import { dzdPerUsdRateSchema } from "./settings";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
@@ -1302,6 +1303,15 @@ export type AdminManualBillingStats = z.infer<
 	typeof adminManualBillingStatsSchema
 >;
 
+/** Settings needed to render offline billing receipts. */
+export const adminManualBillingReceiptConfigSchema = z.object({
+	dzdPerUsdRate: dzdPerUsdRateSchema,
+});
+
+export type AdminManualBillingReceiptConfig = z.infer<
+	typeof adminManualBillingReceiptConfigSchema
+>;
+
 export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
 export const adminRoutes = {
@@ -1334,6 +1344,7 @@ export const adminRoutes = {
 	signupStats: "/api/v1/admin/stats/signups",
 	webhookReplay: (eventId: string) =>
 		`/api/v1/admin/webhooks/${encodeURIComponent(eventId)}/replay`,
+	manualBillingReceiptConfig: "/api/v1/admin/manual-billing/receipt-config",
 	manualBillingStats: "/api/v1/admin/manual-billing/stats",
 	manualRequests: "/api/v1/admin/manual-requests",
 	manualRequest: (requestId: string) =>

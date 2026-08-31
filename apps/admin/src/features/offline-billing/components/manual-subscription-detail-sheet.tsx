@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { RefreshCwIcon } from "lucide-react";
+import { PrinterIcon, RefreshCwIcon } from "lucide-react";
 import type { PropsWithChildren } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -106,7 +106,18 @@ function ManualSubscriptionDetailSheetContent({
 									Created {formatAdminDateTime(subscription.createdAt)}
 								</p>
 							</div>
-							<div className="flex items-center gap-2">
+							<div className="flex flex-wrap items-center gap-2">
+								<Button asChild variant="outline" size="sm">
+									<Link
+										to="/offline-billing/$subscriptionId/receipt"
+										params={{ subscriptionId: subscription.id }}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										<PrinterIcon data-icon="inline-start" aria-hidden="true" />
+										Print receipt
+									</Link>
+								</Button>
 								<Badge variant="outline">Paid offline</Badge>
 								<ManualSubscriptionStatusBadge
 									entitled={subscription.entitled}

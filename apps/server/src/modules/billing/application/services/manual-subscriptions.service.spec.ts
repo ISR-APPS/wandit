@@ -37,6 +37,7 @@ function productSettings(
 	overrides: Partial<ProductSettings> = {},
 ): ProductSettings {
 	return {
+		dzdPerUsdRate: 27_000,
 		emailAuthEnabled: false,
 		id: 1,
 		lifecycleEmailsEnabled: false,

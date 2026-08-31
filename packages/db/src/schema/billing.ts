@@ -133,6 +133,8 @@ export const productSettings = pgTable(
 			.notNull()
 			.default(false),
 		manualGraceDays: integer("manual_grace_days").notNull().default(0),
+		// Hundredths of a DZD per 1 USD (27000 = 270.00 DZD/USD).
+		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull().default(27_000),
 		version: integer("version").notNull().default(1),
 		updatedByUserId: text("updated_by_user_id").references(() => user.id, {
 			onDelete: "restrict",
@@ -151,6 +153,10 @@ export const productSettings = pgTable(
 		check(
 			"product_settings_manual_grace_days_range_ck",
 			sql`${table.manualGraceDays} >= 0 AND ${table.manualGraceDays} <= 30`,
+		),
+		check(
+			"product_settings_dzd_per_usd_rate_range_ck",
+			sql`${table.dzdPerUsdRate} > 0 AND ${table.dzdPerUsdRate} <= 1000000`,
 		),
 	],
 );
