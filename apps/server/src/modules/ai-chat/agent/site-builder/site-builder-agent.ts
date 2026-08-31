@@ -45,6 +45,7 @@ import {
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import { BuilderStallError } from "../../../pages/domain/build-failure";
 import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
@@ -146,6 +147,10 @@ const MAX_STEPS = 64;
 // Full landing pages routinely exceed 30k chars of HTML; the ceiling must
 // leave room for a complete write_file call in a single step.
 const MAX_OUTPUT_TOKENS = 64_000;
+
+// 13.1-minute production stalls and ~3-minute OpenRouter 504 idle timeouts
+// make three minutes the safe no-progress boundary.
+export const STALL_TIMEOUT_MS = 180_000;
 
 // Two rendered review passes minimum — one correctness/structure hunt, one
 // design-quality hunt. Counted only on successful captures. Once both passes
@@ -1464,11 +1469,94 @@ export async function runSiteBuild(
 	const vfs = new VirtualFileSystem();
 	const screenshotRequired = !modelNeedsToolImageStripping(params.model);
 	const state = createBuildLoopState(screenshotRequired);
+	const stallAbortController = new AbortController();
+	const streamAbortSignal = AbortSignal.any(
+		params.abortSignal
+			? [params.abortSignal, stallAbortController.signal]
+			: [stallAbortController.signal],
+	);
 	const screenshots = createScreenshotSession(
 		params.attemptId,
 		params.abortSignal,
 	);
 	const startedAt = Date.now();
+	let inFlightTools = 0;
+	let lastProgressAt = performance.now();
+	let stallError: BuilderStallError | undefined;
+	let watchdogActive = false;
+	let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+
+	const stopStallWatchdog = (): void => {
+		watchdogActive = false;
+		if (watchdogTimer !== undefined) {
+			clearTimeout(watchdogTimer);
+			watchdogTimer = undefined;
+		}
+	};
+	const armStallWatchdog = (): void => {
+		if (watchdogTimer !== undefined) {
+			clearTimeout(watchdogTimer);
+			watchdogTimer = undefined;
+		}
+
+		if (!watchdogActive || streamAbortSignal.aborted || inFlightTools > 0) {
+			return;
+		}
+
+		const elapsedMs = performance.now() - lastProgressAt;
+		watchdogTimer = setTimeout(
+			() => {
+				watchdogTimer = undefined;
+
+				if (!watchdogActive || streamAbortSignal.aborted || inFlightTools > 0) {
+					return;
+				}
+
+				const idleMs = performance.now() - lastProgressAt;
+				if (idleMs < STALL_TIMEOUT_MS) {
+					armStallWatchdog();
+					return;
+				}
+
+				stallError = new BuilderStallError(idleMs, params.model);
+				stallAbortController.abort(stallError);
+			},
+			Math.max(0, STALL_TIMEOUT_MS - elapsedMs),
+		);
+	};
+	const resetStallWatchdog = (): void => {
+		lastProgressAt = performance.now();
+		armStallWatchdog();
+	};
+	const streamControls = {
+		abortSignal: streamAbortSignal,
+		onToolExecutionEnd: () => {
+			inFlightTools = Math.max(0, inFlightTools - 1);
+			resetStallWatchdog();
+		},
+		onToolExecutionStart: () => {
+			inFlightTools += 1;
+			if (watchdogTimer !== undefined) {
+				clearTimeout(watchdogTimer);
+				watchdogTimer = undefined;
+			}
+		},
+	};
+	const bufferGenerationError = async (error: unknown): Promise<void> => {
+		try {
+			await params.onGenerationError?.(error);
+		} catch (captureError) {
+			// Generation capture has its own durable retry path. Never replace the
+			// provider failure that the attempt row and Trigger run must retain.
+			log(
+				`failed to buffer gateway error evidence: ${
+					captureError instanceof Error
+						? captureError.message
+						: String(captureError)
+				}`,
+			);
+		}
+	};
 
 	// Read at BUILD time (not snapshotted like the model): per-model overrides
 	// win over the env knob, and "auto" defers to the provider. Gateway
@@ -1485,7 +1573,18 @@ export async function runSiteBuild(
 		? ["novita"]
 		: params.model.startsWith("alibaba/")
 			? ["fireworks"]
-			: undefined;
+			: // GLM 5.3 Flash provider speed varies 20x for the same request
+				// (2026-08-30 page-write measurements: Baseten 258 tps via the
+				// account's BYOK key, Fireworks 67 tps, balanced routing 32 tps,
+				// DeepInfra 7 tps). Baseten-first assumes that prioritized BYOK
+				// key stays configured on the active gateway (Vercel and
+				// OpenRouter both carry it) — without it the shared
+				// Baseten pool rate-limits and routing falls through. Modal is
+				// skipped by OpenRouter for tools+images requests, so it earns
+				// no slot. A preference, not a pin — fallbacks stay allowed.
+				params.model.startsWith("zai/")
+				? ["baseten", "fireworks"]
+				: undefined;
 	const providerOptions = withLlmAttribution(
 		{
 			...(reasoningEffort
@@ -1509,6 +1608,10 @@ export async function runSiteBuild(
 										? ("high" as const)
 										: reasoningEffort,
 						},
+						// GLM 5.2+ accepts every effort in our vocabulary unchanged
+						// (verified against the gateway 2026-08-31). On OpenRouter this
+						// key is inert — unified reasoning travels as a model setting.
+						zai: { reasoningEffort },
 					}
 				: {}),
 			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
@@ -1610,22 +1713,43 @@ export async function runSiteBuild(
 		const userPhotoUrls = screenshotRequired
 			? extractBriefUserPhotoUrls(params.brief)
 			: [];
-		const stream =
-			userPhotoUrls.length > 0
-				? await agent.stream({
-						abortSignal: params.abortSignal,
-						messages: composeBuildStartMessages({
-							brief: params.brief,
-							title: params.title,
-							userPhotoUrls,
-						}),
-					})
-				: await agent.stream({
-						abortSignal: params.abortSignal,
-						prompt:
-							`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
-							`BRIEF:\n${params.brief}`,
-					});
+		watchdogActive = true;
+		resetStallWatchdog();
+		let stream: Awaited<ReturnType<typeof agent.stream>>;
+		try {
+			stream =
+				userPhotoUrls.length > 0
+					? await agent.stream({
+							...streamControls,
+							messages: composeBuildStartMessages({
+								brief: params.brief,
+								title: params.title,
+								userPhotoUrls,
+							}),
+						})
+					: await agent.stream({
+							...streamControls,
+							prompt:
+								`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
+								`BRIEF:\n${params.brief}`,
+						});
+		} catch (error) {
+			if (stallError !== undefined) {
+				const terminalStallError =
+					error === stallError
+						? stallError
+						: new BuilderStallError(
+								stallError.idleMs,
+								stallError.modelId,
+								error,
+							);
+				await bufferGenerationError(terminalStallError);
+
+				throw terminalStallError;
+			}
+
+			throw error;
+		}
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires
@@ -1633,14 +1757,35 @@ export async function runSiteBuild(
 		// but still attempt the best-effort publish path below: once a valid page
 		// exists, a late provider failure must not discard it.
 		let streamError: unknown;
+		let stepIndex = 0;
 		try {
 			for await (const part of stream.fullStream) {
+				resetStallWatchdog();
 				if (part.type === "error" && streamError === undefined) {
 					streamError = part.error;
+				}
+				// Which upstream actually served each step (OpenRouter routes per
+				// request, so it can differ step to step) — 2026-08-30 forensics
+				// needed the generation API for this; now it's in the trace.
+				if (part.type === "finish-step") {
+					stepIndex += 1;
+					const openrouter = part.providerMetadata?.openrouter;
+					const servedBy = openrouter?.provider;
+
+					if (typeof servedBy === "string" && servedBy.length > 0) {
+						log(
+							`step ${stepIndex} served by ${servedBy}` +
+								(typeof openrouter?.generationId === "string"
+									? ` (${openrouter.generationId})`
+									: ""),
+						);
+					}
 				}
 			}
 		} catch (error) {
 			streamError ??= error;
+		} finally {
+			stopStallWatchdog();
 		}
 
 		const steps = await Promise.resolve(stream.steps).catch((error) => {
@@ -1649,20 +1794,19 @@ export async function runSiteBuild(
 			return [];
 		});
 
+		if (stallError !== undefined) {
+			streamError =
+				streamError === undefined || streamError === stallError
+					? stallError
+					: new BuilderStallError(
+							stallError.idleMs,
+							stallError.modelId,
+							streamError,
+						);
+		}
+
 		if (streamError !== undefined) {
-			try {
-				await params.onGenerationError?.(streamError);
-			} catch (captureError) {
-				// Generation capture has its own durable retry path. Never replace the
-				// provider failure that the attempt row and Trigger run must retain.
-				log(
-					`failed to buffer gateway error evidence: ${
-						captureError instanceof Error
-							? captureError.message
-							: String(captureError)
-					}`,
-				);
-			}
+			await bufferGenerationError(streamError);
 
 			log(
 				"stream ended with an error; evaluating the last page revision — " +
@@ -1762,6 +1906,7 @@ export async function runSiteBuild(
 			usage,
 		};
 	} finally {
+		stopStallWatchdog();
 		// The Trigger worker process may be reused for the next build.
 		await screenshots.dispose();
 	}

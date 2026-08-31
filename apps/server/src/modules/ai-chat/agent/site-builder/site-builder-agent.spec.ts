@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { openrouterGenerationIdFromError } from "../../../metering/domain/gateway-metering";
+import {
+	BuilderStallError,
+	classifyBuildFailure,
+} from "../../../pages/domain/build-failure";
 import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
 import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
@@ -24,6 +29,7 @@ import {
 	MAX_SCREENSHOT_PASSES,
 	REQUIRED_SCREENSHOT_PASSES,
 	runSiteBuild,
+	STALL_TIMEOUT_MS,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
@@ -2586,6 +2592,301 @@ describe("runSiteBuild", () => {
 		expect(BUILDER_REASONING_EFFORT_BY_MODEL).toEqual({});
 	});
 
+	it("aborts a no-progress stream and classifies it as provider_timeout", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const onGenerationError = vi.fn();
+		const providerAbortError = Object.assign(
+			new Error("provider stream aborted"),
+			{
+				openrouterGenerationId: "gen_stalled_openrouter",
+			},
+		);
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async (options) => {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+
+				return {
+					fullStream: (async function* () {
+						await new Promise<never>((_, reject) => {
+							if (signal.aborted) {
+								reject(providerAbortError);
+								return;
+							}
+
+							signal.addEventListener(
+								"abort",
+								() => reject(providerAbortError),
+								{ once: true },
+							);
+						});
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+		const callerAbortController = new AbortController();
+
+		try {
+			const buildErrorPromise = runSiteBuild({
+				abortSignal: callerAbortController.signal,
+				attemptId: "attempt_stalled",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/stalled",
+				onGenerationError,
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Stalled page",
+			}).then(
+				() => null,
+				(error: unknown) => error,
+			);
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS);
+			const buildError = await buildErrorPromise;
+			const generationError = onGenerationError.mock.calls[0]?.[0];
+
+			expect(streamSignal).toBeDefined();
+			expect(streamSignal).not.toBe(callerAbortController.signal);
+			expect(streamSignal?.aborted).toBe(true);
+			expect(streamSignal?.reason).toBeInstanceOf(BuilderStallError);
+			expect(callerAbortController.signal.aborted).toBe(false);
+			expect(generationError).toBeInstanceOf(BuilderStallError);
+			expect(
+				(generationError as BuilderStallError).idleMs,
+			).toBeGreaterThanOrEqual(STALL_TIMEOUT_MS);
+			expect((generationError as BuilderStallError).modelId).toBe(
+				"deepseek/stalled",
+			);
+			expect(openrouterGenerationIdFromError(generationError)).toBe(
+				"gen_stalled_openrouter",
+			);
+			expect(classifyBuildFailure(buildError)).toBe("provider_timeout");
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("publishes a valid revision best-effort when a later step stalls", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const onGenerationError = vi.fn();
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "stall_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {
+						yield { text: "first step complete", type: "text-delta" };
+						await new Promise<void>((resolve) => {
+							if (signal.aborted) {
+								resolve();
+								return;
+							}
+
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_partial_stall",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/stalled",
+				onGenerationError,
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Partial stalled page",
+			});
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS);
+			const build = await buildPromise;
+
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(true);
+			expect(onGenerationError).toHaveBeenCalledWith(
+				expect.any(BuilderStallError),
+			);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not abort while a slow builder tool is executing", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		let streamSignal: AbortSignal | undefined;
+		vi.mocked(generateBuildImage).mockImplementation(async () => {
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, STALL_TIMEOUT_MS + 10_000);
+			});
+
+			return {
+				height: 1024,
+				imageBase64: "aW1nLWJ5dGVz",
+				mediaType: "image/png",
+				model: "test/image-model",
+				providerMetadata: {},
+				status: "generated",
+				url: "https://assets.example.com/img-slow.png",
+				width: 1536,
+			};
+		});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await options.onToolExecutionStart?.({} as never);
+				try {
+					await tools.generate_image.execute?.(IMAGE_INPUT, {
+						messages: [],
+						toolCallId: "slow_image",
+					} as never);
+				} finally {
+					await options.onToolExecutionEnd?.({} as never);
+				}
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "slow_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_slow_tool",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Slow tool page",
+			});
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS + 1);
+			expect(streamSignal?.aborted).toBe(false);
+			await vi.advanceTimersByTimeAsync(9_999);
+			const build = await buildPromise;
+
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(false);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a normally progressing stream unaffected", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const progressIntervalMs = STALL_TIMEOUT_MS - 60_000;
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "progress_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {
+						for (let index = 0; index < 3; index += 1) {
+							await new Promise<void>((resolve) => {
+								setTimeout(resolve, progressIntervalMs);
+							});
+							yield { text: `progress-${index}`, type: "text-delta" };
+						}
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_progressing",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Progressing page",
+			});
+
+			for (let part = 0; part < 3; part += 1) {
+				await vi.advanceTimersByTimeAsync(progressIntervalMs);
+				expect(streamSignal?.aborted).toBe(false);
+			}
+
+			const build = await buildPromise;
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(false);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
 	it("starts a vision-capable build with the brief's user photos attached", async () => {
 		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		const firstPhoto =
@@ -2612,7 +2913,7 @@ describe("runSiteBuild", () => {
 
 			expect(extractBriefUserPhotoUrls).toHaveBeenCalledWith(brief);
 			expect(streamSpy).toHaveBeenCalledWith({
-				abortSignal: undefined,
+				abortSignal: expect.any(AbortSignal),
 				messages: [
 					{
 						content: [
@@ -2638,6 +2939,8 @@ describe("runSiteBuild", () => {
 						role: "user",
 					},
 				],
+				onToolExecutionEnd: expect.any(Function),
+				onToolExecutionStart: expect.any(Function),
 			});
 		} finally {
 			streamSpy.mockRestore();
@@ -2666,7 +2969,9 @@ describe("runSiteBuild", () => {
 
 			expect(extractBriefUserPhotoUrls).not.toHaveBeenCalled();
 			expect(streamSpy).toHaveBeenCalledWith({
-				abortSignal: undefined,
+				abortSignal: expect.any(AbortSignal),
+				onToolExecutionEnd: expect.any(Function),
+				onToolExecutionStart: expect.any(Function),
 				prompt:
 					"Build the landing page now.\n\nTITLE: Text-only page\n\n" +
 					`BRIEF:\n${brief}`,

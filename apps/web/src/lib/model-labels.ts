@@ -12,6 +12,7 @@ const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
 	"openai/gpt-5.6-terra": "GPT-5.6 Terra",
 	"xai/grok-4.5": "Grok 4.5",
 	"xiaomi/mimo-v2.5": "MiMo v2.5",
+	"zai/glm-5.3-flash": "GLM 5.3 Flash",
 };
 
 export type BuilderModelOption = {
