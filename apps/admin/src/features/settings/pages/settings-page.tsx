@@ -142,7 +142,12 @@ export function SettingsPage() {
 					{canManageSettings ? (
 						<SignupGrantBackfillCard settings={settings} />
 					) : null}
-					{canManageBilling ? <BillingOpsCard /> : null}
+					{canManageBilling ? (
+						<BillingOpsCard
+							settings={settings}
+							reloadSettings={reloadSettings}
+						/>
+					) : null}
 				</div>
 			</div>
 		</div>

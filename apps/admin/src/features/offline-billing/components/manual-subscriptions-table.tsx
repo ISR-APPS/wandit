@@ -6,6 +6,7 @@ import {
 	EllipsisIcon,
 	EyeIcon,
 	OctagonXIcon,
+	PrinterIcon,
 	RefreshCwIcon,
 	SearchIcon,
 } from "lucide-react";
@@ -452,6 +453,17 @@ function ManualSubscriptionActions({
 						<DropdownMenuItem onSelect={onDetails}>
 							<EyeIcon />
 							Details & payments
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							<Link
+								to="/offline-billing/$subscriptionId/receipt"
+								params={{ subscriptionId: subscription.id }}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<PrinterIcon />
+								Print receipt
+							</Link>
 						</DropdownMenuItem>
 						{canManage ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>

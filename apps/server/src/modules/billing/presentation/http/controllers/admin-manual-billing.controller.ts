@@ -17,6 +17,7 @@ import {
 	type AdminListManualRequestsResponse,
 	type AdminListManualSubscriptionsQuery,
 	type AdminListManualSubscriptionsResponse,
+	type AdminManualBillingReceiptConfig,
 	type AdminManualBillingStats,
 	type AdminManualRequest,
 	type AdminManualSubscriptionDetail,
@@ -35,6 +36,7 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
 import { AdminPermission } from "../../../../admin/presentation/http/decorators/admin-permission.decorator";
 import { CurrentUser } from "../../../../auth";
+import { ProductSettingsService } from "../../../../settings";
 import { ManualSubscriptionsService } from "../../../application/services/manual-subscriptions.service";
 
 @Controller("v1/admin")
@@ -44,7 +46,16 @@ export class AdminManualBillingController {
 	constructor(
 		@Inject(ManualSubscriptionsService)
 		private readonly manualSubscriptionsService: ManualSubscriptionsService,
+		@Inject(ProductSettingsService)
+		private readonly productSettingsService: ProductSettingsService,
 	) {}
+
+	@Get("manual-billing/receipt-config")
+	async receiptConfig(): Promise<AdminManualBillingReceiptConfig> {
+		const settings = await this.productSettingsService.get();
+
+		return { dzdPerUsdRate: settings.dzdPerUsdRate / 100 };
+	}
 
 	@Get("manual-billing/stats")
 	stats(): Promise<AdminManualBillingStats> {
