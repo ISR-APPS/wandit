@@ -2,9 +2,22 @@
 
 import type { VideoVoiceover } from "@wandit/contracts";
 
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import { parseImageAnimationPayload } from "./image-animation-runner";
+import {
+	type AiFailurePersistenceFields,
+	aiFailurePersistenceFields,
+	errorForCapturedFailure,
+	internalMediaFailure,
+	withMediaRefundOutcome,
+} from "./media-generation-failure";
 import {
 	type VideoBilling,
 	type VideoDeliveredUnits,
@@ -104,6 +117,7 @@ export type VideoWorkflowExecutionResult =
 			refundable: boolean;
 			reason: string;
 			status: "failed";
+			failure?: NormalizedAiError;
 			userMessage?: string;
 	  };
 
@@ -131,7 +145,7 @@ export type VideoWorkflowRunnerDependencies = {
 			error: string;
 			expectedStatus: "queued" | "generating";
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	) => Promise<boolean>;
 	loadAttempt: (attemptId: string) => Promise<VideoWorkflowAttempt | null>;
 	markSucceeded: (
@@ -308,9 +322,26 @@ async function continueAttempt(
 			payload.billingMode,
 			videoEstimateHintForAttempt(active, units),
 		);
-	} catch {
+	} catch (error) {
+		let failure =
+			classifyAiError(error, {
+				model: active.model ?? undefined,
+				refunded: true,
+				route: "none",
+				surface: "video",
+			}) ??
+			internalMediaFailure({
+				model: active.model,
+				refunded: true,
+			});
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			failure = captureWorkflowFailure(error, failure, active, "none");
+		}
 		await failAndBill(active, subject, dependencies, {
 			deliveredUnits: 0,
+			failure,
 			reason: "reservation_failed",
 			refundable: true,
 		});
@@ -325,6 +356,11 @@ async function continueAttempt(
 		const completedUnits = await dependencies.completedUnitsForAttempt(active);
 		await failAndBill(active, subject, dependencies, {
 			deliveredUnits: completedUnits,
+			failure: capturedWorkflowInternalFailure(
+				active,
+				false,
+				"terminal billing had no recoverable output",
+			),
 			reason: "terminal_billing_without_output",
 			refundable: false,
 			reservation,
@@ -357,10 +393,23 @@ async function continueAttempt(
 			executed.deliveredUnits,
 			durableUnits,
 		);
+		const refundable = executed.refundable && deliveredUnits === 0;
+		let failure = withMediaRefundOutcome(
+			executed.failure ??
+				internalMediaFailure({ model: active.model, refunded: refundable }),
+			refundable,
+		);
+		failure = captureWorkflowFailure(
+			errorForCapturedFailure(failure),
+			failure,
+			active,
+			"vercel",
+		);
 		await failAndBill(active, subject, dependencies, {
 			...executed,
 			deliveredUnits,
-			refundable: executed.refundable && deliveredUnits === 0,
+			failure,
+			refundable,
 			reservation,
 		});
 		return { reason: "execution_failed", status: "failed" };
@@ -434,6 +483,7 @@ async function failAndBill(
 	dependencies: VideoWorkflowRunnerDependencies,
 	input: {
 		deliveredUnits: VideoDeliveredUnits;
+		failure?: NormalizedAiError;
 		reason: string;
 		refundable: boolean;
 		reservation?: VideoReservation;
@@ -446,10 +496,19 @@ async function failAndBill(
 	if (!input.refundable && input.reservation) {
 		await dependencies.settle(input.reservation, input.deliveredUnits);
 	}
+	const failure = withMediaRefundOutcome(
+		input.failure ??
+			internalMediaFailure({
+				model: attempt.model,
+				refunded: input.refundable,
+			}),
+		input.refundable,
+	);
 
 	const failed = await dependencies.fail(attempt, {
+		...aiFailurePersistenceFields(failure),
 		completedAt: dependencies.now(),
-		error: input.userMessage ?? userSafeWorkflowError(attempt.kind),
+		error: input.userMessage ?? renderAiErrorSentence(failure),
 		expectedStatus: "generating",
 		reason: input.reason,
 	});
@@ -477,14 +536,21 @@ async function failDeletedProject(
 	dependencies: VideoWorkflowRunnerDependencies,
 ): Promise<VideoWorkflowRunResult> {
 	const completedUnits = await dependencies.completedUnitsForAttempt(attempt);
+	const refunded = completedUnits === 0;
 	if (completedUnits !== 0) {
 		// Settle durable provider work before exposing the failed parent; a crash
 		// after the CAS must never make a later poll take the full-refund path.
 		await dependencies.settleExisting(subject, attempt.id, completedUnits);
 	}
+	const failure = capturedWorkflowInternalFailure(
+		attempt,
+		refunded,
+		"video workflow project was deleted",
+	);
 	const failed = await dependencies.fail(attempt, {
+		...aiFailurePersistenceFields(failure),
 		completedAt: dependencies.now(),
-		error: userSafeWorkflowError(attempt.kind),
+		error: renderAiErrorSentence(failure),
 		expectedStatus: attempt.status === "queued" ? "queued" : "generating",
 		reason: "project_deleted",
 	});
@@ -500,6 +566,38 @@ async function failDeletedProject(
 	return { reason: "project_deleted", status: "failed" };
 }
 
+function captureWorkflowFailure(
+	error: unknown,
+	failure: NormalizedAiError,
+	attempt: VideoWorkflowAttempt,
+	route: "vercel" | "none",
+): NormalizedAiError {
+	const sentryEventId = captureAiError(error, failure, {
+		functionId:
+			attempt.kind === "video-edit" ? "video.edit" : "video.extension",
+		generationId: attempt.id,
+		projectId: attempt.projectId,
+		refunded: failure.refunded,
+		route,
+		surface: "video",
+		userId: attempt.userId,
+	});
+	return { ...failure, sentryEventId };
+}
+
+function capturedWorkflowInternalFailure(
+	attempt: VideoWorkflowAttempt,
+	refunded: boolean,
+	reason: string,
+): NormalizedAiError {
+	return captureWorkflowFailure(
+		new Error(`Video workflow runner failure: ${reason}`),
+		internalMediaFailure({ model: attempt.model, refunded }),
+		attempt,
+		"none",
+	);
+}
+
 function payloadSubject(payload: VideoWorkflowPayload): MeteringSubject {
 	return {
 		actorUserId: payload.userId,
@@ -507,12 +605,6 @@ function payloadSubject(payload: VideoWorkflowPayload): MeteringSubject {
 			? { organizationId: payload.organizationId }
 			: {}),
 	};
-}
-
-function userSafeWorkflowError(kind: VideoWorkflowKind): string {
-	return kind === "video-edit"
-		? USER_SAFE_VIDEO_EDIT_ERROR
-		: USER_SAFE_VIDEO_EXTENSION_ERROR;
 }
 
 function succeededResult(

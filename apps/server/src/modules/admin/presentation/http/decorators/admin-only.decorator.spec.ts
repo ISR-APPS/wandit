@@ -25,6 +25,7 @@ import { FeedbackAdminController } from "../../../../feedback/presentation/http/
 import { AdminSettingsController } from "../../../../settings/presentation/http/controllers/admin-settings.controller";
 import { StoryLinkAdminController } from "../../../../story-links/presentation/http/controllers/story-link-admin.controller";
 import { AdminAnalyticsController } from "../controllers/admin-analytics.controller";
+import { AdminConversationsController } from "../controllers/admin-conversations.controller";
 import { AdminCostsController } from "../controllers/admin-costs.controller";
 import { AdminOrganizationsController } from "../controllers/admin-organizations.controller";
 import { AdminProjectsController } from "../controllers/admin-projects.controller";
@@ -38,6 +39,7 @@ import { ADMIN_PERMISSION_KEY } from "./admin-permission.decorator";
 const adminControllers = [
 	AcademyAdminController,
 	AdminAnalyticsController,
+	AdminConversationsController,
 	AdminCostsController,
 	FeedbackAdminController,
 	AdminManualBillingController,

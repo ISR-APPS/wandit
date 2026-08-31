@@ -4,6 +4,8 @@
 
 // Academy guide tables.
 export * from "./academy";
+// Admin access audit trail.
+export * from "./admin-audit-events";
 // Admin funnel outreach tracking.
 export * from "./admin-funnel-contacts";
 // Affiliate programs, attribution, commissions, and payouts.

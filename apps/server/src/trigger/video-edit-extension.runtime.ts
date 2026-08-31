@@ -33,10 +33,15 @@ import {
 } from "../infrastructure/storage/r2";
 import { editVideo } from "../modules/ai-chat/agent/site-builder/edit-video";
 import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
+import {
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../modules/ai-errors/domain";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import { SpeechService } from "../modules/generation/application/services/speech.service";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
+import type { AiFailurePersistenceFields } from "../modules/media-generations/application/services/media-generation-failure";
 import {
 	createVideoBilling,
 	type VideoReservation,
@@ -241,13 +246,19 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			error: string;
 			expectedStatus: "queued" | "generating";
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	): Promise<boolean> => {
 		const [updated] = await db
 			.update(mediaGenerationAttempts)
 			.set({
 				completedAt: input.completedAt,
 				error: input.error.slice(0, 2_000),
+				failureKind: input.failureKind,
+				failureProvider: input.failureProvider,
+				failureProviderMessage: input.failureProviderMessage,
+				failureRequestId: input.failureRequestId,
+				failureSource: input.failureSource,
+				sentryEventId: input.sentryEventId,
 				status: "failed",
 			})
 			.where(
@@ -697,6 +708,9 @@ async function executeEdit(
 		}
 		return {
 			deliveredUnits: providerUnits,
+			...(failureFromResult(generated)
+				? { failure: failureFromResult(generated) as NormalizedAiError }
+				: {}),
 			refundable: !hasGatewayGenerationMetadata(generated),
 			reason: "edit_provider_failed",
 			status: "failed",
@@ -930,15 +944,26 @@ export async function executeExtension(
 					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
 				});
 			}
+			const failure = failureFromResult(generated);
 			await dependencies.persistence.failLeg(
 				attempt.id,
 				leg.seq,
-				"This continuation piece could not be rendered.",
+				failure
+					? renderAiErrorSentence(failure)
+					: "This continuation piece could not be rendered.",
 			);
 			const chargedUnits = accountedUnits + providerUnits;
 			return hasGatewayGenerationMetadata(generated) || chargedUnits > 0
-				? nonRefundableFailure(chargedUnits, "leg_provider_failed")
-				: failedExecution("leg_provider_failed");
+				? nonRefundableFailure(
+						chargedUnits,
+						"leg_provider_failed",
+						failure ?? undefined,
+					)
+				: failedExecution(
+						"leg_provider_failed",
+						undefined,
+						failure ?? undefined,
+					);
 		}
 
 		const rawKey = publicAssetKeyFromUrl(generated.url);
@@ -1174,12 +1199,14 @@ function asDeliveredUnits(value: number): 0 | 1 | 2 | 3 {
 function failedExecution(
 	reason: string,
 	userMessage?: string,
+	failure?: NormalizedAiError,
 ): VideoWorkflowExecutionResult {
 	return {
 		deliveredUnits: 0,
 		refundable: true,
 		reason,
 		status: "failed",
+		...(failure ? { failure } : {}),
 		...(userMessage ? { userMessage } : {}),
 	};
 }
@@ -1187,13 +1214,25 @@ function failedExecution(
 function nonRefundableFailure(
 	deliveredUnits: number,
 	reason: string,
+	failure?: NormalizedAiError,
 ): VideoWorkflowExecutionResult {
 	return {
 		deliveredUnits: asDeliveredUnits(deliveredUnits),
 		refundable: false,
 		reason,
 		status: "failed",
+		...(failure ? { failure } : {}),
 	};
+}
+
+function failureFromResult(value: unknown): NormalizedAiError | null {
+	if (typeof value !== "object" || value === null || !("failure" in value)) {
+		return null;
+	}
+	const failure = value.failure;
+	return typeof failure === "object" && failure !== null
+		? (failure as NormalizedAiError)
+		: null;
 }
 
 function legProgress(seq: number, total: number, base: number): number {

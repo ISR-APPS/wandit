@@ -19,6 +19,10 @@ import {
 	putSiteFile,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
+import {
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import { VIDEO_PRODUCT_ENGINE_MODEL } from "../../../media-generations/domain/video-quality-models";
 import {
 	type GatewayGenerationFailure,
@@ -27,7 +31,10 @@ import {
 	gatewayGenerationCaptureFromError,
 	withGatewayAttribution,
 } from "../../../metering/domain/gateway-metering";
-import { videoProviderTimeoutMs } from "./generate-video";
+import {
+	classifyVideoAdapterError,
+	videoProviderTimeoutMs,
+} from "./generate-video";
 
 const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"video/mp4": "mp4",
@@ -37,7 +44,7 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 export type ProductVideoSourceMediaType = "image/jpeg" | "image/png";
 
 export type ProductVideoResult =
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure?: NormalizedAiError })
 	| { message: string; status: "unavailable" }
 	| ({
 			mediaType: string;
@@ -81,10 +88,11 @@ export async function productVideo(params: {
 	}
 
 	let providerEvidence: GatewayGenerationMetadata | null = null;
+	let providerAbortSignal = params.abortSignal;
 
 	try {
 		const timeoutSignal = AbortSignal.timeout(videoProviderTimeoutMs(5));
-		const abortSignal = params.abortSignal
+		providerAbortSignal = params.abortSignal
 			? AbortSignal.any([params.abortSignal, timeoutSignal])
 			: timeoutSignal;
 		const providerOptions: NonNullable<
@@ -95,7 +103,7 @@ export async function productVideo(params: {
 		// keep the single unavoidable cast at this adapter boundary.
 		const adaptiveAspect = "adaptive" as `${number}:${number}`;
 		const result = await generateVideo({
-			abortSignal,
+			abortSignal: providerAbortSignal,
 			aspectRatio: adaptiveAspect,
 			duration: 5,
 			inputReferences: [{ data: params.imageUrl, mediaType: params.mediaType }],
@@ -148,10 +156,17 @@ export async function productVideo(params: {
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure = classifyVideoAdapterError({
+			abortSignal: providerAbortSignal,
+			error,
+			model: VIDEO_PRODUCT_ENGINE_MODEL,
+			providerMetadata: evidence?.providerMetadata,
+		});
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};

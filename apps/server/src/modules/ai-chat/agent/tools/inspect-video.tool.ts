@@ -156,6 +156,7 @@ export function createInspectVideoTool(
 						"video_inspect",
 					),
 					system: INSPECT_VIDEO_SYSTEM_PROMPT,
+					telemetry: { functionId: "video.inspect" },
 				});
 
 				await captureGenerationSafely(deps, {

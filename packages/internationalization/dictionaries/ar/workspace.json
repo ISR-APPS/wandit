@@ -762,6 +762,37 @@
 			"replayed": "تمت معالجة هذا الطلب من قبل. أرسل رسالة جديدة للمتابعة.",
 			"stream": "تم قطع بث التوليد. حاول مرة أخرى."
 		},
+		"aiError": {
+			"kicker": {
+				"provider": "مشكلة لدى المزوّد",
+				"moderated": "قواعد المحتوى",
+				"connector": "مشكلة في الموصّل",
+				"ours": "حدث خطأ ما"
+			},
+			"providerFallback": "مزوّد الذكاء الاصطناعي",
+			"retry": "حاول مرة أخرى",
+			"retryHint": "عند إعادة المحاولة، تبدأ محاولة جديدة.",
+			"queuedHint": "ستكتمل عمليات التوليد التي بدأت بالفعل من تلقاء نفسها.",
+			"notCharged": "لم يتم تحصيل رسوم منك.",
+			"connectorRefunded": "تمت إعادة أرصدة Wandit إليك. تحقّق من رصيدك لدى {connector}.",
+			"attribution": {
+				"viaGateway": "{provider} عبر Vercel AI Gateway",
+				"viaOpenrouter": "{provider} عبر OpenRouter",
+				"refusedPrompt": "رفض {provider} هذا الأمر النصي: {text}",
+				"refusedPromptNoText": "رفض {provider} هذا الأمر النصي.",
+				"outputFilter": "أوقف عامل تصفية المحتوى لدى {provider} عملية التوليد هذه.",
+				"reasonGiven": "السبب المذكور: {text}",
+				"connectorReturned": "كانت استجابة {connector}: {text}",
+				"connectorNoReason": "فشل {connector} دون توضيح السبب."
+			},
+			"tryAgainPrefill": {
+				"image": "جرّب الصورة مرة أخرى",
+				"video": "جرّب الفيديو مرة أخرى",
+				"marketing": "جرّب الأصل التسويقي مرة أخرى",
+				"connector": "جرّب الموصّل مرة أخرى",
+				"hint": "سيبدأ هذا عملية توليد جديدة."
+			}
+		},
 		"versionCardKind": "صفحة هبوط",
 		"emptyTitle": "ابدأ المحادثة",
 		"emptyBody": "صف صفحتك وسيولّدها الذكاء الاصطناعي هنا.",
@@ -800,7 +831,8 @@
 			"download": "تنزيل",
 			"inAssetsTab": "متاحة أيضًا في تبويب الوسائط",
 			"placementFailed": "تعذّر تطبيقها على الصفحة — الصورة موجودة في تبويب الوسائط",
-			"readyCount": "{ready} من {total} جاهزة"
+			"readyCount": "{ready} من {total} جاهزة",
+			"partialFailure": "لم يتم إنشاء صورة واحدة: {sentence}"
 		},
 		"media": {
 			"close": "إغلاق",

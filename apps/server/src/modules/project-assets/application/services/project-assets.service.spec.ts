@@ -52,6 +52,11 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	count: 2,
 	createdAt: new Date("2026-07-25T11:59:00.000Z"),
 	error: null,
+	failureKind: null,
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: null,
 	id: "33333333-3333-4333-8333-333333333333",
 	images: [
 		{
@@ -68,6 +73,7 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	sourceImageUrls: [],
 	spec: null,
 	status: "succeeded",
+	sentryEventId: null,
 	title: "Photo produit",
 };
 

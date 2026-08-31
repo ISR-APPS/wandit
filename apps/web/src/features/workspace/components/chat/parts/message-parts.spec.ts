@@ -17,10 +17,20 @@ import { isVisibleAssistantReplyPart } from "./visible-reply-part";
 vi.mock("@/lib/i18n", () => ({
 	useTranslation: () => ({
 		t: (key: string, params?: Record<string, unknown>) => {
-			const value =
-				key === "workspace.chat.usage.message"
-					? "Input {input} · Output {output} · Total {total} tokens"
-					: key;
+			const values: Record<string, string> = {
+				"errors.ai.capacity":
+					"{provider} is over capacity right now. Please try again in a minute.",
+				"workspace.chat.aiError.attribution.viaGateway":
+					"{provider} via Vercel AI Gateway",
+				"workspace.chat.aiError.kicker.provider": "Provider issue",
+				"workspace.chat.aiError.queuedHint":
+					"Generations already started will finish on their own.",
+				"workspace.chat.aiError.retry": "Retry",
+				"workspace.chat.aiError.retryHint": "Retry starts a new attempt.",
+				"workspace.chat.usage.message":
+					"Input {input} · Output {output} · Total {total} tokens",
+			};
+			const value = values[key] ?? key;
 
 			return value.replace(/\{(\w+)\}/g, (_, name: string) =>
 				String(params?.[name] ?? `{${name}}`),
@@ -46,6 +56,10 @@ vi.mock("@/lib/i18n", () => ({
 			},
 		},
 	}),
+}));
+
+vi.mock("../../../lib/ai-chat-context", () => ({
+	useSharedAiChat: () => ({ prefillComposer: vi.fn() }),
 }));
 
 function asMessageParts(parts: unknown[]): WanditUIMessage["parts"] {
@@ -222,6 +236,38 @@ describe("coalesceMessageParts", () => {
 		expect(entries[0]?.kind).toBe("mcp-run");
 		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
 		expect(entries[0].parts).toHaveLength(2);
+	});
+
+	it("keeps one MCP receipt across a tool-scoped AI error part", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				dynamicPart("mcp-1"),
+				{
+					type: "data-ai-error",
+					data: {
+						kind: "connector_rejected",
+						source: "higgsfield",
+						providerLabel: "Higgsfield",
+						retryable: false,
+						terminal: true,
+						refunded: true,
+						moderationStage: null,
+						providerMessage: null,
+						requestId: "request-1",
+						toolCallId: "mcp-1",
+					},
+				},
+				dynamicPart("mcp-2"),
+			]),
+		);
+
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.kind).toBe("mcp-run");
+		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
+		expect(entries[0].parts.map((part) => part.toolCallId)).toEqual([
+			"mcp-1",
+			"mcp-2",
+		]);
 	});
 
 	it("starts a new dynamic run after non-empty text", () => {
@@ -719,6 +765,93 @@ describe("MessageParts turn block", () => {
 		]);
 
 		expect(html).toBe("");
+	});
+
+	describe("persisted AI errors", () => {
+		const errorPart = {
+			type: "data-ai-error",
+			errorText: "RAW_ERROR_TEXT_MUST_NOT_RENDER",
+			data: {
+				kind: "capacity",
+				source: "provider:anthropic",
+				providerLabel: "Anthropic",
+				retryable: true,
+				terminal: true,
+				refunded: false,
+				moderationStage: null,
+				providerMessage: null,
+				requestId: "request-1",
+			},
+		};
+
+		function renderPersistedError({
+			status = "error",
+			isLast = true,
+			queued = false,
+		}: {
+			status?: "error" | "ready" | "streaming";
+			isLast?: boolean;
+			queued?: boolean;
+		} = {}) {
+			return renderToStaticMarkup(
+				createElement(MessageParts, {
+					message: {
+						id: "failed-assistant",
+						role: "assistant",
+						parts: asMessageParts([
+							errorPart,
+							...(queued
+								? [
+										{
+											type: "tool-read_skill",
+											toolCallId: "queued-work",
+											state: "output-available",
+											input: {},
+											output: { status: "queued" },
+										},
+									]
+								: []),
+						]),
+					} as WanditUIMessage,
+					isStreaming: status === "streaming",
+					isLastAssistantMessage: isLast,
+					chatStatus: status,
+					onRetry: () => {},
+					onToolApprovalResponse: () => {},
+				}),
+			);
+		}
+
+		it("renders distinct kicker, body, attribution and safe Retry copy", () => {
+			const html = renderPersistedError();
+
+			expect(html).toContain("Provider issue");
+			expect(html).toContain(
+				"Anthropic is over capacity right now. Please try again in a minute.",
+			);
+			expect(html).toContain("Anthropic via Vercel AI Gateway");
+			expect(html).toContain(">Retry<");
+			expect(html).not.toContain("RAW_ERROR_TEXT_MUST_NOT_RENDER");
+		});
+
+		it("hides Retry while streaming", () => {
+			expect(renderPersistedError({ status: "streaming" })).not.toContain(
+				">Retry<",
+			);
+		});
+
+		it("hides Retry and explains already queued work", () => {
+			const html = renderPersistedError({ queued: true });
+
+			expect(html).not.toContain(">Retry<");
+			expect(html).toContain(
+				"Generations already started will finish on their own.",
+			);
+		});
+
+		it("hides Retry on a non-last failed message", () => {
+			expect(renderPersistedError({ isLast: false })).not.toContain(">Retry<");
+		});
 	});
 
 	it("renders a persisted target chip above a targeted user message", () => {

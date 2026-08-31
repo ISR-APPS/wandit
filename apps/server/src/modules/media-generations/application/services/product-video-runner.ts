@@ -1,5 +1,11 @@
 // /node, not /nestjs: this orchestration also runs inside Trigger workers.
 
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import {
@@ -8,6 +14,13 @@ import {
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import {
+	type AiFailurePersistenceFields,
+	aiFailurePersistenceFields,
+	errorForCapturedFailure,
+	internalMediaFailure,
+	withMediaRefundOutcome,
+} from "./media-generation-failure";
 import type {
 	VideoBilling,
 	VideoDeliveredUnits,
@@ -64,7 +77,7 @@ export type ProductVideo = {
 
 export type ProductVideoProviderResult =
 	| ({ status: "generated" } & ProductVideo & GatewayGenerationMetadata)
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure?: NormalizedAiError })
 	| { message: string; status: "unavailable" };
 
 export type ProductVideoProgress = {
@@ -92,7 +105,7 @@ export type ProductVideoRunnerDependencies = {
 			error: string;
 			expectedStatus: "queued" | "generating";
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	) => Promise<boolean>;
 	generate: (
 		attempt: ProductVideoAttempt,
@@ -315,8 +328,30 @@ async function continueAttempt(
 	let reservation: VideoReservation;
 	try {
 		reservation = await reserveAttempt(claimed, subject, payload, dependencies);
-	} catch {
-		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
+	} catch (error) {
+		let failure =
+			classifyAiError(error, {
+				model: claimed.model ?? undefined,
+				refunded: true,
+				route: "none",
+				surface: "video",
+			}) ??
+			internalMediaFailure({
+				model: claimed.model,
+				refunded: true,
+			});
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			failure = captureProductFailure(error, failure, claimed, "none");
+		}
+		await failAndRefund(
+			claimed,
+			subject,
+			dependencies,
+			"reservation_failed",
+			failure,
+		);
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -330,11 +365,15 @@ async function continueAttempt(
 		if (recovered) {
 			return recovered;
 		}
-		await persistFailure(
-			claimed,
-			dependencies,
-			"terminal_billing_without_output",
-		);
+		await persistFailure(claimed, dependencies, {
+			failure: capturedProductInternalFailure(
+				claimed,
+				false,
+				"terminal billing had no recoverable output",
+			),
+			reason: "terminal_billing_without_output",
+			refunded: false,
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -344,27 +383,72 @@ async function continueAttempt(
 		stage: "rendering",
 	});
 	let evidenceCapturedBeforeDelivery = false;
-	const generated = await dependencies.generate(claimed, subject, {
-		onProviderGeneration: async (generation) => {
-			await dependencies.capture(reservation, {
-				providerMetadata: generation.providerMetadata,
-				stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+	let generated: ProductVideoProviderResult;
+	try {
+		generated = await dependencies.generate(claimed, subject, {
+			onProviderGeneration: async (generation) => {
+				await dependencies.capture(reservation, {
+					providerMetadata: generation.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+				});
+				evidenceCapturedBeforeDelivery = true;
+			},
+			onPublishing: () => {
+				input.progress?.report({
+					headline: "Publishing the product video…",
+					percent: 94,
+					stage: "publishing",
+				});
+			},
+			...(input.signal ? { signal: input.signal } : {}),
+		});
+	} catch (error) {
+		const refunded = !evidenceCapturedBeforeDelivery;
+		let failure =
+			classifyAiError(error, {
+				abortSignal: input.signal,
+				model: claimed.model ?? undefined,
+				refunded,
+				route: "vercel",
+				surface: "video",
+			}) ?? internalMediaFailure({ model: claimed.model, refunded });
+		failure = captureProductFailure(error, failure, claimed, "vercel");
+		if (evidenceCapturedBeforeDelivery) {
+			await dependencies.settle(reservation, 1);
+			await persistFailure(claimed, dependencies, {
+				failure,
+				reason: "product_provider_failed",
+				refunded: false,
 			});
-			evidenceCapturedBeforeDelivery = true;
-		},
-		onPublishing: () => {
-			input.progress?.report({
-				headline: "Publishing the product video…",
-				percent: 94,
-				stage: "publishing",
-			});
-		},
-		...(input.signal ? { signal: input.signal } : {}),
-	});
+		} else {
+			await failAndRefund(
+				claimed,
+				subject,
+				dependencies,
+				"product_provider_failed",
+				failure,
+			);
+		}
+		return { reason: "generation_failed", status: "failed" };
+	}
 
 	if (generated.status !== "generated") {
 		const providerUnits =
 			"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
+		const refunded = !hasGatewayGenerationMetadata(generated);
+		const generatedFailure =
+			"failure" in generated ? generated.failure : undefined;
+		let failure = withMediaRefundOutcome(
+			generatedFailure ??
+				internalMediaFailure({ model: claimed.model, refunded }),
+			refunded,
+		);
+		failure = captureProductFailure(
+			errorForCapturedFailure(failure),
+			failure,
+			claimed,
+			"vercel",
+		);
 		if (hasGatewayGenerationMetadata(generated)) {
 			if (!evidenceCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
@@ -379,13 +463,18 @@ async function continueAttempt(
 			// Evidence-backed provider work is financially terminal before the
 			// failed row becomes visible. A zero-unit settle releases the hold.
 			await dependencies.settle(reservation, providerUnits);
-			await persistFailure(claimed, dependencies, "product_provider_failed");
+			await persistFailure(claimed, dependencies, {
+				failure,
+				reason: "product_provider_failed",
+				refunded: false,
+			});
 		} else {
 			await failAndRefund(
 				claimed,
 				subject,
 				dependencies,
 				"product_provider_failed",
+				failure,
 			);
 		}
 		return { reason: "generation_failed", status: "failed" };
@@ -417,7 +506,15 @@ async function continueAttempt(
 			current?.projectDeletedAt !== null &&
 			current?.status === "generating"
 		) {
-			await persistFailure(current, dependencies, "project_deleted");
+			await persistFailure(current, dependencies, {
+				failure: capturedProductInternalFailure(
+					current,
+					false,
+					"project deletion won the success transition",
+				),
+				reason: "project_deleted",
+				refunded: false,
+			});
 			return { reason: "project_deleted", status: "failed" };
 		}
 		if (current?.status === "failed") {
@@ -512,7 +609,16 @@ async function failDeletedProject(
 	if (deliveredUnits === 1) {
 		await dependencies.settleExisting(subject, attempt.id, 1);
 	}
-	await persistFailure(attempt, dependencies, "project_deleted");
+	const refunded = deliveredUnits === 0;
+	await persistFailure(attempt, dependencies, {
+		failure: capturedProductInternalFailure(
+			attempt,
+			refunded,
+			"product video project was deleted",
+		),
+		reason: "project_deleted",
+		refunded,
+	});
 	if (deliveredUnits === 0) {
 		await dependencies.refund(subject, attempt.id, "video-product");
 	}
@@ -539,21 +645,33 @@ async function failAndRefund(
 	subject: MeteringSubject,
 	dependencies: ProductVideoRunnerDependencies,
 	reason: string,
+	failure?: NormalizedAiError,
 ): Promise<void> {
-	await persistFailure(attempt, dependencies, reason);
+	await persistFailure(attempt, dependencies, {
+		failure:
+			failure ?? internalMediaFailure({ model: attempt.model, refunded: true }),
+		reason,
+		refunded: true,
+	});
 	await dependencies.refund(subject, attempt.id, "video-product");
 }
 
 async function persistFailure(
 	attempt: ProductVideoAttempt,
 	dependencies: ProductVideoRunnerDependencies,
-	reason: string,
+	input: {
+		failure: NormalizedAiError;
+		reason: string;
+		refunded: boolean;
+	},
 ): Promise<void> {
+	const failure = withMediaRefundOutcome(input.failure, input.refunded);
 	const failed = await dependencies.fail(attempt, {
+		...aiFailurePersistenceFields(failure),
 		completedAt: dependencies.now(),
-		error: USER_SAFE_PRODUCT_VIDEO_ERROR,
+		error: renderAiErrorSentence(failure),
 		expectedStatus: attempt.status === "queued" ? "queued" : "generating",
-		reason,
+		reason: input.reason,
 	});
 	if (failed) {
 		return;
@@ -564,6 +682,37 @@ async function persistFailure(
 			`Product video ${attempt.id} could not persist its failure`,
 		);
 	}
+}
+
+function captureProductFailure(
+	error: unknown,
+	failure: NormalizedAiError,
+	attempt: ProductVideoAttempt,
+	route: "vercel" | "none",
+): NormalizedAiError {
+	const sentryEventId = captureAiError(error, failure, {
+		functionId: "video.product",
+		generationId: attempt.id,
+		projectId: attempt.projectId,
+		refunded: failure.refunded,
+		route,
+		surface: "video",
+		userId: attempt.userId,
+	});
+	return { ...failure, sentryEventId };
+}
+
+function capturedProductInternalFailure(
+	attempt: ProductVideoAttempt,
+	refunded: boolean,
+	reason: string,
+): NormalizedAiError {
+	return captureProductFailure(
+		new Error(`Product video runner failure: ${reason}`),
+		internalMediaFailure({ model: attempt.model, refunded }),
+		attempt,
+		"none",
+	);
 }
 
 function payloadSubject(payload: ProductVideoPayload): MeteringSubject {

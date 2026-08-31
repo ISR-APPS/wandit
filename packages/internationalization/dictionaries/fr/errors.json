@@ -1,6 +1,27 @@
 {
 	"generic": "Un souci est survenu. Réessaie.",
 	"network": "Impossible de joindre le serveur. Vérifie ta connexion et réessaie.",
+	"ai": {
+		"internal": "Un problème est survenu de notre côté. Réessaie.",
+		"auth_config": "Le service d’IA n’est pas disponible pour le moment. Notre équipe a été prévenue.",
+		"invalid_request": "{provider} n’a pas accepté cette requête. Essaie avec un prompt plus court ou un autre fichier.",
+		"model_not_found": "Le modèle d’IA n’est pas disponible pour le moment. Notre équipe a été prévenue.",
+		"rate_limited": "{provider} est très sollicité. Attends un instant, puis réessaie.",
+		"capacity": "{provider} est actuellement saturé. Réessaie dans une minute.",
+		"provider_error": "{provider} a renvoyé une erreur. Réessaie.",
+		"content_moderated": "{provider} a refusé cette requête en raison de ses règles de contenu. Modifie le prompt, puis réessaie.",
+		"content_moderated_output": "Le filtre de contenu de {provider} a arrêté cette génération. Modifie le prompt, puis réessaie.",
+		"timeout": "{provider} a mis trop de temps à répondre. Réessaie.",
+		"timeout_budget": "Cette opération a dépassé la durée autorisée, nous l’avons donc arrêtée. Réessaie.",
+		"timeout_connector": "{connector} a accepté la tâche, mais n’a pas transmis de résultat à temps. Vérifie {connector} avant de réessayer.",
+		"network": "Impossible de joindre {provider}. Réessaie.",
+		"cancelled": "Cette génération a été arrêtée.",
+		"unknown": "Un problème est survenu. Réessaie.",
+		"connector_unreachable": "{connector} est injoignable. Vérifie la connexion dans les réglages, puis réessaie.",
+		"connector_account": "{text} Mets à jour ton compte {connector}, puis réessaie.",
+		"connector_rejected": "{connector} a répondu : {text}",
+		"connector_rejected_no_text": "{connector} a échoué sans donner de raison."
+	},
 	"codes": {
 		"AUTH_FAILURE": "Impossible de confirmer ta session. Connecte-toi à nouveau.",
 		"NETWORK_ERROR": "Impossible de joindre le serveur. Vérifie ta connexion et réessaie.",
@@ -37,6 +58,13 @@
 		"WORKSPACE_NOT_SUPPORTED": "Cette action n'est pas disponible dans un espace de travail d'équipe.",
 		"EMAIL_AUTH_DISABLED": "La connexion par e-mail est indisponible pour le moment.",
 		"EMAIL_DOMAIN_BLOCKED": "Ce domaine e-mail n'est pas pris en charge.",
-		"EMAIL_SEND_RATE_LIMITED": "Trop d'e-mails demandés. Patiente avant de réessayer."
+		"EMAIL_SEND_RATE_LIMITED": "Trop d'e-mails demandés. Patiente avant de réessayer.",
+		"AI_RATE_LIMITED": "Le fournisseur d’IA est très sollicité. Attends un instant, puis réessaie.",
+		"AI_CAPACITY": "Le fournisseur d’IA est actuellement saturé. Réessaie dans une minute.",
+		"AI_TIMEOUT": "Le fournisseur d’IA a mis trop de temps à répondre. Réessaie.",
+		"AI_CONTENT_MODERATED": "Le fournisseur d’IA a refusé cette requête en raison de ses règles de contenu. Modifie le prompt, puis réessaie.",
+		"AI_INVALID_REQUEST": "Le fournisseur d’IA n’a pas accepté cette requête. Essaie avec un prompt plus court ou un autre fichier.",
+		"AI_INTERNAL": "Un problème est survenu de notre côté. Réessaie.",
+		"AI_UNKNOWN": "Un problème est survenu. Réessaie."
 	}
 }

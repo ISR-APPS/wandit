@@ -18,6 +18,16 @@ import type {
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
 import type { ImageGenerationPlacementService } from "./image-generation-placement.service";
+
+const aiErrorMocks = vi.hoisted(() => ({
+	captureAiError: vi.fn(() => "image-stale-sentry-event"),
+}));
+
+vi.mock("../../../ai-errors/domain", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../ai-errors/domain")>()),
+	captureAiError: aiErrorMocks.captureAiError,
+}));
+
 import { ImageGenerationsService } from "./image-generations.service";
 
 vi.mock("../../../../infrastructure/storage/r2", () => ({
@@ -49,6 +59,11 @@ function attemptRow(
 		count: 1,
 		createdAt: new Date("2026-08-01T10:00:00.000Z"),
 		error: null,
+		failureKind: null,
+		failureProvider: null,
+		failureProviderMessage: null,
+		failureRequestId: null,
+		failureSource: null,
 		id: ATTEMPT_ID,
 		images: [
 			{
@@ -61,6 +76,7 @@ function attemptRow(
 		sourceImageUrls: [],
 		spec: null,
 		status: "succeeded",
+		sentryEventId: null,
 		title: "Product image",
 		...overrides,
 	};
@@ -79,6 +95,7 @@ function setupStaleRecovery(
 	options: {
 		hasUsageEvent?: boolean;
 		staleRow?: Partial<ImageGenerationAttemptRow>;
+		updateRows?: Array<{ projectId: string }>;
 		usageActorUserId?: string;
 	} = {},
 ) {
@@ -120,7 +137,7 @@ function setupStaleRecovery(
 		.mockResolvedValue([{ startedAt: new Date(Date.now() - 20 * 60 * 1_000) }]);
 	const updateReturning = vi
 		.fn()
-		.mockResolvedValue([{ projectId: PROJECT_ID }]);
+		.mockResolvedValue(options.updateRows ?? [{ projectId: PROJECT_ID }]);
 	const updateSet = vi.fn(() => ({
 		where: vi.fn(() => ({ returning: updateReturning })),
 	}));
@@ -170,6 +187,7 @@ beforeEach(() => {
 	vi.mocked(imageGenerationKey).mockClear();
 	vi.mocked(publicAssetKeyFromUrl).mockReset();
 	vi.mocked(publicAssetUrl).mockClear();
+	aiErrorMocks.captureAiError.mockClear();
 });
 
 describe("ImageGenerationsService stale recovery billing", () => {
@@ -322,6 +340,27 @@ describe("ImageGenerationsService stale recovery billing", () => {
 		);
 		expect(db.update).not.toHaveBeenCalled();
 		expect(meteringService.refund).not.toHaveBeenCalled();
+	});
+
+	it("captures a stale failure only after winning the status CAS", async () => {
+		const winner = setupStaleRecovery();
+		vi.mocked(getObjectContentType).mockResolvedValue(null);
+
+		await winner.service.attempt(SCOPE, STALE_ROW.id);
+
+		expect(winner.db.update.mock.invocationCallOrder[0]).toBeLessThan(
+			aiErrorMocks.captureAiError.mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
+		expect(winner.updateSet).toHaveBeenCalledWith({
+			sentryEventId: "image-stale-sentry-event",
+		});
+
+		const loser = setupStaleRecovery({ updateRows: [] });
+		aiErrorMocks.captureAiError.mockClear();
+		vi.mocked(getObjectContentType).mockResolvedValue(null);
+		await loser.service.attempt(SCOPE, STALE_ROW.id);
+		expect(aiErrorMocks.captureAiError).not.toHaveBeenCalled();
 	});
 
 	it("publishes the durable sparse subset and settles against durable completion evidence", async () => {
@@ -626,11 +665,65 @@ describe("ImageGenerationsService attempt placement", () => {
 		);
 	});
 
+	it("always maps persisted normalized failure columns onto the response", async () => {
+		findAccessibleAttempt.mockResolvedValue(
+			attemptRow({
+				error:
+					"The content filter of Google stopped this generation. Change the prompt and try again.",
+				failureKind: "content_moderated",
+				failureProvider: "google",
+				failureProviderMessage: null,
+				failureRequestId: "gen_safety",
+				failureSource: "provider:google",
+				images: null,
+				status: "failed",
+			}),
+		);
+
+		const attempt = await service.attempt(PLACEMENT_SCOPE, ATTEMPT_ID);
+
+		expect(attempt.failure).toEqual({
+			kind: "content_moderated",
+			moderationStage: "output",
+			providerLabel: "Google",
+			providerMessage: null,
+			refunded: false,
+			requestId: "gen_safety",
+			retryable: false,
+			source: "provider:google",
+			terminal: true,
+		});
+	});
+
+	it("maps a partial-success failure with refunded false", async () => {
+		findAccessibleAttempt.mockResolvedValue(
+			attemptRow({
+				error:
+					"OpenAI is over capacity right now. Please try again in a minute.",
+				failureKind: "capacity",
+				failureProvider: "openai",
+				failureRequestId: "gen_capacity",
+				failureSource: "provider:openai",
+				status: "succeeded",
+			}),
+		);
+
+		const attempt = await service.attempt(PLACEMENT_SCOPE, ATTEMPT_ID);
+
+		expect(attempt.failure).toMatchObject({
+			kind: "capacity",
+			providerLabel: "OpenAI",
+			refunded: false,
+			retryable: true,
+		});
+	});
+
 	it("omits placement for standalone attempts", async () => {
 		findAccessibleAttempt.mockResolvedValue(attemptRow());
 
 		const attempt = await service.attempt(PLACEMENT_SCOPE, ATTEMPT_ID);
 
 		expect(attempt.placement).toBeUndefined();
+		expect(attempt.failure).toBeNull();
 	});
 });

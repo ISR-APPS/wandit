@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 
+const aiErrorMocks = vi.hoisted(() => ({
+	captureAiError: vi.fn(() => "image-sentry-event"),
+}));
+
+vi.mock("../../../ai-errors/domain", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../ai-errors/domain")>()),
+	captureAiError: aiErrorMocks.captureAiError,
+}));
+
 import { ImageGenerationsRepository } from "./image-generations.repository";
 
 type SqlCondition = {
@@ -139,6 +148,73 @@ describe("ImageGenerationsRepository.persistProgress", () => {
 		await expect(
 			repository.persistProgress("attempt-1", "project-1", []),
 		).resolves.toBe(false);
+	});
+});
+
+describe("ImageGenerationsRepository.markAttemptFailed", () => {
+	it("does not capture when the queued-to-failed CAS loses", async () => {
+		const returning = vi.fn().mockResolvedValue([]);
+		const where = vi.fn(() => ({ returning }));
+		const set = vi.fn(() => ({ where }));
+		const repository = new ImageGenerationsRepository(
+			{ update: vi.fn(() => ({ set })) } as unknown as Database,
+			{ capture: vi.fn() },
+		);
+		aiErrorMocks.captureAiError.mockClear();
+
+		await expect(
+			repository.markAttemptFailed(
+				"attempt-1",
+				"stale",
+				"user-1",
+				"stale_queued",
+			),
+		).resolves.toBe(false);
+
+		expect(aiErrorMocks.captureAiError).not.toHaveBeenCalled();
+	});
+
+	it("stores an internal normalized failure while preserving the analytics reason", async () => {
+		const returning = vi.fn().mockResolvedValue([{ projectId: "project-1" }]);
+		const where = vi.fn(() => ({ returning }));
+		const set = vi.fn(() => ({ where }));
+		const update = vi.fn(() => ({ set }));
+		const analytics = { capture: vi.fn() };
+		const repository = new ImageGenerationsRepository(
+			{ update } as unknown as Database,
+			analytics,
+		);
+
+		await expect(
+			repository.markAttemptFailed(
+				"attempt-1",
+				"The background generator rejected this request. Please try again.",
+				"user-1",
+				"trigger_rejected",
+			),
+		).resolves.toBe(true);
+
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				error:
+					"The background generator rejected this request. Please try again.",
+				failureKind: "internal",
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureRequestId: null,
+				failureSource: "ours",
+				sentryEventId: null,
+				status: "failed",
+			}),
+		);
+		expect(set).toHaveBeenCalledWith({
+			sentryEventId: "image-sentry-event",
+		});
+		expect(analytics.capture).toHaveBeenCalledWith(
+			"user-1",
+			"generation_failed",
+			expect.objectContaining({ reason: "trigger_rejected" }),
+		);
 	});
 });
 
