@@ -1,4 +1,11 @@
+import {
+	GatewayInternalServerError,
+	GatewayInvalidRequestError,
+} from "@ai-sdk/gateway";
+import { APICallError } from "ai";
 import { describe, expect, it, vi } from "vitest";
+import { classifyAiError } from "../../../ai-errors/domain";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 
 import {
 	type GeneratedImageResult,
@@ -61,6 +68,16 @@ function generated(index: number) {
 		usage: { inputTokens: 1 },
 		url: `https://assets.example.com/images/p/a/img-${index}.png`,
 	};
+}
+
+function classifiedImageFailure(error: unknown, model = "openai/gpt-image-2") {
+	const failure = classifyAiError(error, {
+		model,
+		route: "vercel",
+		surface: "image",
+	});
+	if (!failure) throw new Error("Expected a classified image failure");
+	return failure;
 }
 
 function makeAttempt(
@@ -427,6 +444,7 @@ describe("runImageGeneration", () => {
 			[makeImages(4)[0], makeImages(4)[2]],
 			expect.any(Date),
 			USER_ID,
+			expect.objectContaining({ kind: "internal", refunded: false }),
 		);
 	});
 
@@ -678,9 +696,79 @@ describe("runImageGeneration", () => {
 
 		expect(result).toEqual({ reason: "generation_failed", status: "failed" });
 		expect(dependencies.fail).toHaveBeenCalledTimes(1);
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Something went wrong on our side. Please try again.",
+				failure: expect.objectContaining({
+					kind: "internal",
+					refunded: true,
+					source: "ours",
+				}),
+				reason: "generation_failed",
+			}),
+		);
 		expect(dependencies.refund).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
 		expect(dependencies.settlePlacement).not.toHaveBeenCalled();
+	});
+
+	it("persists moderation classification and the explicit-refund outcome", async () => {
+		const cause = new APICallError({
+			data: {
+				error: {
+					code: "moderation_blocked",
+					moderation_details: {
+						categories: ["violence"],
+						moderation_stage: "input",
+					},
+				},
+			},
+			message: "Provider request failed",
+			requestBodyValues: {},
+			statusCode: 400,
+			url: "https://api.openai.com/v1/images/generations",
+		});
+		const gatewayError = new GatewayInvalidRequestError({ cause });
+		const queued = makeAttempt({ count: 1 });
+		const generating = makeAttempt({
+			count: 1,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			generateOne: vi.fn().mockResolvedValue({
+				failure: classifiedImageFailure(gatewayError),
+				message:
+					"OpenAI declined this request because of its content rules. Change the prompt and try again.",
+				status: "failed",
+			}),
+			loadAttempt: vi.fn().mockResolvedValue(queued),
+			reserve: vi.fn().mockResolvedValue({ ...RESERVATION, units: 1 }),
+		});
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_moderated",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			generating,
+			expect.objectContaining({
+				error:
+					"OpenAI declined this request because of its content rules. Change the prompt and try again.",
+				failure: expect.objectContaining({
+					kind: "content_moderated",
+					provider: "openai",
+					providerMessage: "violence",
+					refunded: true,
+				}),
+			}),
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 
 	it("delivers and charges one uploaded image when request four fails later", async () => {
@@ -736,9 +824,66 @@ describe("runImageGeneration", () => {
 			],
 			expect.any(Date),
 			USER_ID,
+			expect.objectContaining({ kind: "internal", refunded: false }),
 		);
 		expect(dependencies.fail).not.toHaveBeenCalled();
 		expect(dependencies.refund).not.toHaveBeenCalled();
+	});
+
+	it("stores the last failed unit kind on a two-of-three success", async () => {
+		const queued = makeAttempt({ count: 3 });
+		const generating = makeAttempt({
+			count: 3,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const gates = new Map(
+			[1, 2, 3].map((index) => [
+				index,
+				deferred<ImageGenerationProviderResult>(),
+			]),
+		);
+		const started: number[] = [];
+		const capacity = classifiedImageFailure(
+			new GatewayInternalServerError({ statusCode: 529 }),
+		);
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			generateOne: vi.fn((_attempt, _subject, index) => {
+				started.push(index);
+				return (gates.get(index) as Deferred<ImageGenerationProviderResult>)
+					.promise;
+			}),
+			loadAttempt: vi.fn().mockResolvedValue(queued),
+			reserve: vi.fn().mockResolvedValue({ ...RESERVATION, units: 3 }),
+		});
+		const run = runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_two_of_three",
+		});
+
+		await vi.waitFor(() => expect(started).toEqual([1, 2]));
+		gates.get(1)?.resolve(generated(1));
+		await vi.waitFor(() => expect(started).toEqual([1, 2, 3]));
+		gates.get(2)?.resolve({
+			failure: capacity,
+			message:
+				"OpenAI is over capacity right now. Please try again in a minute.",
+			status: "failed",
+		});
+		gates.get(3)?.resolve(generated(3));
+
+		await expect(run).resolves.toMatchObject({
+			images: [makeImages(3)[0], makeImages(3)[2]],
+			status: "succeeded",
+		});
+		expect(dependencies.markSucceeded).toHaveBeenCalledWith(
+			generating,
+			[makeImages(3)[0], makeImages(3)[2]],
+			expect.any(Date),
+			USER_ID,
+			expect.objectContaining({ kind: "capacity", refunded: false }),
+		);
 	});
 
 	it("never exposes an uploaded image whose generation ref capture failed", async () => {
@@ -844,6 +989,32 @@ describe("runImageGeneration", () => {
 		expect(dependencies.generateOne).not.toHaveBeenCalled();
 		expect(dependencies.settlePlacement).not.toHaveBeenCalled();
 		expect(dependencies.refund).toHaveBeenCalled();
+	});
+
+	it("persists an insufficient-credit reservation rejection as billing", async () => {
+		const dependencies = makeDependencies({
+			reserve: vi.fn().mockRejectedValue(new InsufficientCreditsError(500, 0)),
+		});
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_billing_rejection",
+			}),
+		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Not enough credits for this action.",
+				failure: expect.objectContaining({
+					kind: "billing",
+					retryable: false,
+					source: "ours",
+					statusCode: 402,
+				}),
+			}),
+		);
+		expect(dependencies.generateOne).not.toHaveBeenCalled();
 	});
 
 	it("fails without refund or provider replay after reconcile_failed", async () => {

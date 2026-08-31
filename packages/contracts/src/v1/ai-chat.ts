@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paymentRequiredDetailsSchema } from "../http/error-codes";
+import type { AiErrorData } from "./ai-errors";
 import { attachmentMediaTypeSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 import {
@@ -72,6 +73,7 @@ export type AiChatCreditsSettledData = z.infer<
 >;
 
 export type AiChatDataParts = {
+	"ai-error": AiErrorData;
 	"billing-error": AiChatBillingErrorData;
 	"credits-settled": AiChatCreditsSettledData;
 };
@@ -105,6 +107,15 @@ export const aiChatSelectedTargetSchema = z.object({
 export const aiChatMessageMetadataSchema = z.object({
 	model: z.string().min(1).optional(),
 	usage: aiChatMessageUsageSchema.optional(),
+	// Keep the request context on the user row so regenerate can faithfully
+	// replay the turn after a browser refresh or native app restart.
+	composer: composerMetadataSchema.optional(),
+	selectedWids: z.array(widSchema).min(1).max(10).optional(),
+	// Provider outcome of the turn, kept on `finish` for the admin inspector.
+	finishReason: z.string().optional(),
+	rawFinishReason: z.string().optional(),
+	provider: z.string().optional(),
+	gatewayGenerationId: z.string().optional(),
 	selectedTarget: aiChatSelectedTargetSchema.optional(),
 	selectedTargets: z
 		.array(aiChatSelectedTargetSchema)

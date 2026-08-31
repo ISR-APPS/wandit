@@ -59,6 +59,8 @@ const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
 const adminFeedbackColumns = {
 	id: feedback.id,
 	userId: feedback.userId,
+	chatId: feedback.chatId,
+	authSessionId: feedback.authSessionId,
 	reporterName: feedback.reporterName,
 	reporterEmail: feedback.reporterEmail,
 	projectId: feedback.projectId,

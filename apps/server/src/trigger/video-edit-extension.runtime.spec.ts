@@ -10,6 +10,7 @@ import {
 } from "../infrastructure/storage/r2";
 import { editVideo } from "../modules/ai-chat/agent/site-builder/edit-video";
 import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
+import { InsufficientCreditsError } from "../modules/credits/domain/errors/insufficient-credits.error";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import {
 	runVideoWorkflow,
@@ -541,6 +542,57 @@ describe("video edit/extension Trigger runtime", () => {
 		expect(fail).not.toHaveBeenCalled();
 		expect(refund).not.toHaveBeenCalled();
 		expect(settle).not.toHaveBeenCalled();
+	});
+
+	it("persists an insufficient-credit reservation rejection as billing", async () => {
+		const queued = {
+			...BASE_ATTEMPT,
+			startedAt: null,
+			status: "queued" as const,
+		};
+		const fail = vi.fn().mockResolvedValue(true);
+		const execute = vi.fn();
+
+		await expect(
+			runVideoWorkflow(
+				{
+					attemptId: queued.id,
+					projectId: queued.projectId,
+					userId: queued.userId,
+				},
+				{
+					dependencies: {
+						claimQueued: vi.fn().mockResolvedValue(BASE_ATTEMPT),
+						completedUnitsForAttempt: vi.fn().mockResolvedValue(0),
+						execute,
+						fail,
+						loadAttempt: vi.fn().mockResolvedValue(queued),
+						markSucceeded: vi.fn(),
+						now: () => new Date(),
+						recoverStoredVideo: vi.fn().mockResolvedValue(null),
+						refund: vi.fn(),
+						reserve: vi
+							.fn()
+							.mockRejectedValue(new InsufficientCreditsError(500, 0)),
+						settle: vi.fn(),
+						settleExisting: vi.fn(),
+						unitsForAttempt: vi.fn().mockResolvedValue(1),
+					},
+					expectedKind: "video-extension",
+					runId: "run_billing",
+				},
+			),
+		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
+		expect(fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Not enough credits for this action.",
+				failureKind: "billing",
+				failureSource: "ours",
+				sentryEventId: null,
+			}),
+		);
+		expect(execute).not.toHaveBeenCalled();
 	});
 
 	it("settles provider evidence before making a partial failure visible", async () => {

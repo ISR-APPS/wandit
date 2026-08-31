@@ -1,4 +1,4 @@
-import { GlobeIcon } from "lucide-react";
+import { GlobeIcon, MessageSquareTextIcon } from "lucide-react";
 
 import {
 	Card,
@@ -8,6 +8,8 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
+import { UserConversationsList } from "@/features/conversations/components/user-conversations-list";
 import type { AdminCreditLedgerEntry } from "@/features/users/api/users.dto";
 import { formatWholeNumber } from "@/features/users/lib/formatters";
 
@@ -26,6 +28,10 @@ export function UserActivityPanel({
 	projectsCount,
 	creditLedger,
 }: UserActivityPanelProps) {
+	const canReadConversations = useAdminPermission({
+		conversations: ["read"],
+	});
+
 	return (
 		<Card className="gap-0 shadow-none">
 			<Tabs defaultValue="projects" className="gap-0">
@@ -33,8 +39,8 @@ export function UserActivityPanel({
 					<div className="space-y-1.5">
 						<CardTitle>Activity</CardTitle>
 						<CardDescription>
-							Switch between this user&apos;s projects, credit ledger, and
-							landing pages.
+							Switch between this user&apos;s projects, conversations, credit
+							ledger, and landing pages.
 						</CardDescription>
 					</div>
 					<div className="-mx-6 overflow-x-auto border-b px-6">
@@ -45,6 +51,12 @@ export function UserActivityPanel({
 									{formatWholeNumber(projectsCount)}
 								</span>
 							</TabsTrigger>
+							{canReadConversations ? (
+								<TabsTrigger value="conversations">
+									<MessageSquareTextIcon aria-hidden="true" />
+									Conversations
+								</TabsTrigger>
+							) : null}
 							<TabsTrigger value="credit-ledger">
 								Credit ledger
 								<span className="text-muted-foreground tabular-nums">
@@ -63,6 +75,13 @@ export function UserActivityPanel({
 						<UserProjectsList userId={userId} />
 					</CardContent>
 				</TabsContent>
+				{canReadConversations ? (
+					<TabsContent value="conversations" className="mt-0 outline-none">
+						<CardContent className="pt-6">
+							<UserConversationsList userId={userId} />
+						</CardContent>
+					</TabsContent>
+				) : null}
 				<TabsContent value="credit-ledger" className="mt-0 outline-none">
 					<CardContent
 						className={creditLedger.length > 0 ? "px-0 pt-6" : "pt-6"}

@@ -26,6 +26,11 @@ import {
 	putSiteFile,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
+import {
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import { prepareVideoSourceImage } from "../../../media-generations/application/services/prepare-video-source-image";
 import {
 	VIDEO_QUALITY_CAPABILITIES,
@@ -51,6 +56,8 @@ export type ImageVideoProfile = "ambient-loop" | "image-animation";
 export type ImageVideoMotion = "subtle" | "balanced" | "dynamic";
 
 type VideoGenerationFailureDetails = {
+	/** Safe structured classification for persistence and client rendering. */
+	failure?: NormalizedAiError;
 	/** Stable classifier for analytics; raw provider messages remain internal. */
 	reasonCode?: string;
 	/** Explicitly safe to persist and show to the user. */
@@ -190,6 +197,7 @@ export async function generateBuildVideo(params: {
 	}
 
 	let providerEvidence: GatewayGenerationMetadata | null = null;
+	let providerAbortSignal = params.abortSignal;
 
 	try {
 		const prepared = await prepareVideoSourceImage({
@@ -211,7 +219,7 @@ export async function generateBuildVideo(params: {
 		const timeoutSignal = AbortSignal.timeout(
 			videoProviderTimeoutMs(durationSeconds),
 		);
-		const abortSignal = params.abortSignal
+		providerAbortSignal = params.abortSignal
 			? AbortSignal.any([params.abortSignal, timeoutSignal])
 			: timeoutSignal;
 		const providerOptions: NonNullable<
@@ -226,7 +234,7 @@ export async function generateBuildVideo(params: {
 		}
 
 		const result = await generateVideo({
-			abortSignal,
+			abortSignal: providerAbortSignal,
 			aspectRatio: params.aspect,
 			duration: durationSeconds,
 			fps: 30,
@@ -286,10 +294,17 @@ export async function generateBuildVideo(params: {
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure = classifyVideoAdapterError({
+			abortSignal: providerAbortSignal,
+			error,
+			model: params.modelId,
+			providerMetadata: evidence?.providerMetadata,
+		});
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};
@@ -438,12 +453,13 @@ export async function generateTextToVideo(params: {
 	}
 
 	let providerEvidence: GatewayGenerationMetadata | null = null;
+	let providerAbortSignal = params.abortSignal;
 
 	try {
 		const timeoutSignal = AbortSignal.timeout(
 			videoProviderTimeoutMs(params.durationSeconds),
 		);
-		const abortSignal = params.abortSignal
+		providerAbortSignal = params.abortSignal
 			? AbortSignal.any([params.abortSignal, timeoutSignal])
 			: timeoutSignal;
 		const providerOptions: NonNullable<
@@ -472,7 +488,7 @@ export async function generateTextToVideo(params: {
 		}
 
 		const result = await generateVideo({
-			abortSignal,
+			abortSignal: providerAbortSignal,
 			aspectRatio: params.aspect,
 			duration: clampDurationForModel(params.modelId, params.durationSeconds),
 			fps: 30,
@@ -533,12 +549,45 @@ export async function generateTextToVideo(params: {
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure = classifyVideoAdapterError({
+			abortSignal: providerAbortSignal,
+			error,
+			model: params.modelId,
+			providerMetadata: evidence?.providerMetadata,
+		});
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};
 	}
+}
+
+export function classifyVideoAdapterError(input: {
+	abortSignal?: AbortSignal;
+	error: unknown;
+	model: string;
+	providerMetadata?: unknown;
+}): NormalizedAiError {
+	const context = {
+		abortSignal: input.abortSignal,
+		model: input.model,
+		providerMetadata: input.providerMetadata,
+		route: "vercel" as const,
+		surface: "video" as const,
+	};
+	const classified = classifyAiError(input.error, context);
+	if (classified) return classified;
+
+	const fallback = classifyAiError(
+		new TypeError("Video provider adapter failed without a classifiable error"),
+		context,
+	);
+	if (!fallback) {
+		throw new Error("Video provider adapter failure could not be classified");
+	}
+	return fallback;
 }

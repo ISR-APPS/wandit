@@ -4,6 +4,13 @@ import {
 } from "@wandit/contracts";
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 import { Sentry } from "@wandit/observability/node";
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import {
@@ -17,9 +24,6 @@ import type {
 	ImageGenerationReservation,
 } from "./image-generation-billing";
 import { mapWithConcurrency } from "./map-with-concurrency";
-
-export const USER_SAFE_IMAGE_GENERATION_ERROR =
-	"We couldn't generate these images. Please try again in a moment.";
 
 // Keep provider fan-out bounded: image models are expensive and each attempt
 // shares one billing reservation whose capture writes must remain serialized.
@@ -82,7 +86,7 @@ export type GeneratedImageResult = {
 
 export type ImageGenerationProviderResult =
 	| ({ status: "generated" } & GeneratedImageResult & GatewayGenerationMetadata)
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure?: NormalizedAiError })
 	| { message: string; status: "unavailable" };
 
 export type ImageGenerationRunnerDependencies = {
@@ -100,6 +104,7 @@ export type ImageGenerationRunnerDependencies = {
 				"queued" | "generating"
 			>;
 			reason: string;
+			failure: NormalizedAiError;
 		},
 	) => Promise<boolean>;
 	generateOne: (
@@ -119,6 +124,7 @@ export type ImageGenerationRunnerDependencies = {
 		images: GeneratedImageResult[],
 		completedAt: Date,
 		actorUserId: string,
+		failure?: NormalizedAiError,
 	) => Promise<boolean>;
 	now: () => Date;
 	persistProgress: (
@@ -155,6 +161,12 @@ export type ImageGenerationRunResult =
 				| "stale_generation";
 			status: "failed";
 	  };
+
+type ObservedImageFailure = {
+	capture?: boolean;
+	error: unknown;
+	failure: NormalizedAiError;
+};
 
 /**
  * Signals Trigger.dev to retry the same run. Thrown only after a generating
@@ -432,16 +444,36 @@ export async function runImageGeneration(
 			{ hasSourceImages: claimed.sourceImageUrls.length > 0 },
 		);
 	} catch (error) {
-		// Insufficient credits is an expected outcome; anything else here is
-		// billing/DB infrastructure failing and must be visible.
-		if (
-			!(error instanceof Error && error.name === "InsufficientCreditsError")
-		) {
-			Sentry.captureException(error, {
-				tags: { generationId: claimed.id, userId: claimed.userId },
-			});
-		}
-		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
+		const reservationFailure =
+			classifyAiError(error, {
+				...(typeof claimed.spec?.model === "string"
+					? { model: claimed.spec.model }
+					: {}),
+				refunded: true,
+				route: "none",
+				surface: "image",
+			}) ?? classifyInternalImageFailure();
+		const failure = captureObservedFailures(
+			claimed,
+			[
+				{
+					capture: !(
+						error instanceof Error && error.name === "InsufficientCreditsError"
+					),
+					error,
+					failure: reservationFailure,
+				},
+			],
+			true,
+			subject.actorUserId,
+		);
+		await failAndRefund(
+			claimed,
+			subject,
+			dependencies,
+			"reservation_failed",
+			failure,
+		);
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -460,6 +492,7 @@ export async function runImageGeneration(
 	let completionTail: Promise<void> = Promise.resolve();
 	let failureReason: "generation_capture_failed" | "generation_failed" | null =
 		null;
+	const observedFailures: ObservedImageFailure[] = [];
 	let stopLaunching = false;
 
 	const acquireCompletion = async (): Promise<() => void> => {
@@ -478,8 +511,10 @@ export async function runImageGeneration(
 
 	const recordFailure = (
 		reason: "generation_capture_failed" | "generation_failed",
+		observed?: ObservedImageFailure,
 	) => {
 		failureReason ??= reason;
+		if (observed) observedFailures.push(observed);
 		stopLaunching = true;
 	};
 
@@ -530,30 +565,33 @@ export async function runImageGeneration(
 							generationCapturedBeforeDelivery = true;
 						} catch (error) {
 							releaseHeldCompletion();
-							recordFailure("generation_capture_failed");
+							recordFailure("generation_capture_failed", {
+								error,
+								failure: classifyInternalImageFailure(),
+							});
 							throw error;
 						}
 					},
 				);
 			} catch (error) {
 				releaseHeldCompletion();
-				recordFailure("generation_failed");
-				// User aborts are expected; anything else was previously invisible.
-				if (!input.signal?.aborted) {
-					Sentry.captureException(error, {
-						tags: { generationId: claimed.id, userId: claimed.userId },
+				if (!observedFailures.some((observed) => observed.error === error)) {
+					recordFailure("generation_failed", {
+						error,
+						failure: classifyImageProviderFailure(error, claimed, input.signal),
 					});
 				}
 				return;
 			}
 
 			if (generated.status !== "generated") {
-				recordFailure("generation_failed");
-				// The provider's message is about to be replaced by a generic
-				// "generation_failed" — keep the original reason.
-				Sentry.captureMessage(`Image generation failed: ${generated.message}`, {
-					level: "error",
-					tags: { generationId: claimed.id, userId: claimed.userId },
+				const failure =
+					"failure" in generated && generated.failure
+						? generated.failure
+						: classifyInternalImageFailure();
+				recordFailure("generation_failed", {
+					error: errorFromNormalizedFailure(failure),
+					failure,
 				});
 				const providerUnits =
 					"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
@@ -566,8 +604,9 @@ export async function runImageGeneration(
 						releaseCompletion = await acquireCompletion();
 						await captureGeneration(generated, providerUnits);
 					} catch (error) {
-						Sentry.captureException(error, {
-							tags: { generationId: claimed.id, userId: claimed.userId },
+						recordFailure("generation_capture_failed", {
+							error,
+							failure: classifyInternalImageFailure(),
 						});
 					}
 				}
@@ -584,9 +623,9 @@ export async function runImageGeneration(
 					try {
 						await captureGeneration(generated, 1);
 					} catch (error) {
-						recordFailure("generation_capture_failed");
-						Sentry.captureException(error, {
-							tags: { generationId: claimed.id, userId: claimed.userId },
+						recordFailure("generation_capture_failed", {
+							error,
+							failure: classifyInternalImageFailure(),
 						});
 						return;
 					}
@@ -632,9 +671,13 @@ export async function runImageGeneration(
 
 	for (const result of generationResults) {
 		if (result.status === "rejected") {
-			recordFailure("generation_failed");
-			Sentry.captureException(result.reason, {
-				tags: { generationId: claimed.id, userId: claimed.userId },
+			recordFailure("generation_failed", {
+				error: result.reason,
+				failure: classifyImageProviderFailure(
+					result.reason,
+					claimed,
+					input.signal,
+				),
 			});
 		}
 	}
@@ -651,6 +694,7 @@ export async function runImageGeneration(
 			capturedUnits,
 			capturedProviderEvidence,
 			failureReason,
+			observedFailures,
 		);
 	}
 
@@ -687,8 +731,15 @@ async function completeSuccessfulSubsetOrFailure(
 	completedUnits: number,
 	hasProviderEvidence: boolean,
 	reason: string,
+	observedFailures: readonly ObservedImageFailure[],
 ): Promise<ImageGenerationRunResult> {
 	if (images.length > 0) {
+		const failure = captureObservedFailures(
+			attempt,
+			observedFailures,
+			false,
+			subject.actorUserId,
+		);
 		// Partial provider output is still useful. Settle every successfully
 		// captured unit, then publish the durable (possibly sparse) R2 subset.
 		await dependencies.settle(reservation, completedUnits);
@@ -697,6 +748,7 @@ async function completeSuccessfulSubsetOrFailure(
 			[...images],
 			dependencies.now(),
 			subject.actorUserId,
+			failure,
 		);
 
 		if (!persisted) {
@@ -712,15 +764,27 @@ async function completeSuccessfulSubsetOrFailure(
 	}
 
 	if (hasProviderEvidence || completedUnits > 0) {
+		const failure = captureObservedFailures(
+			attempt,
+			observedFailures,
+			false,
+			subject.actorUserId,
+		);
 		// Provider-completed image units remain billable even when a later storage
 		// step fails. A no-image/error generation carries zero units and closes the
 		// hold at zero while retaining its ref for provider-cost audit.
 		await dependencies.settle(reservation, completedUnits);
-		await failAndRefund(attempt, subject, dependencies, reason, false);
+		await failAndRefund(attempt, subject, dependencies, reason, failure, false);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
-	await failAndRefund(attempt, subject, dependencies, reason);
+	const failure = captureObservedFailures(
+		attempt,
+		observedFailures,
+		true,
+		subject.actorUserId,
+	);
+	await failAndRefund(attempt, subject, dependencies, reason, failure);
 	return { reason: "generation_failed", status: "failed" };
 }
 
@@ -732,6 +796,115 @@ function imagesInGenerationOrder(
 			(left.index ?? Number.MAX_SAFE_INTEGER) -
 			(right.index ?? Number.MAX_SAFE_INTEGER),
 	);
+}
+
+function classifyImageProviderFailure(
+	error: unknown,
+	attempt: ImageGenerationAttemptState,
+	abortSignal?: AbortSignal,
+): NormalizedAiError {
+	const context: AiErrorContext = {
+		...(abortSignal ? { abortSignal } : {}),
+		...(typeof attempt.spec?.model === "string"
+			? { model: attempt.spec.model }
+			: {}),
+		route: "vercel",
+		surface: "image",
+	};
+	return classifyAiError(error, context) ?? classifyInternalImageFailure();
+}
+
+function classifyInternalImageFailure(): NormalizedAiError {
+	const failure = classifyAiError(
+		new Error("Image generation infrastructure failure"),
+		{ route: "none", surface: "image" },
+	);
+	if (!failure) {
+		throw new Error("Internal image failure classification returned no result");
+	}
+	return failure;
+}
+
+function errorFromNormalizedFailure(failure: NormalizedAiError): unknown {
+	return failure.raw.cause instanceof Error
+		? failure.raw.cause
+		: new Error(failure.raw.message || "Image generation failed");
+}
+
+function captureObservedFailures(
+	attempt: ImageGenerationAttemptState,
+	observedFailures: readonly ObservedImageFailure[],
+	refunded: boolean,
+	userId = attempt.userId,
+): NormalizedAiError {
+	const failures =
+		observedFailures.length > 0
+			? observedFailures
+			: [
+					{
+						error: new Error(
+							"Image generation failed without a classified cause",
+						),
+						failure: classifyInternalImageFailure(),
+					},
+				];
+	let lastFailure: NormalizedAiError | null = null;
+
+	for (const observed of failures) {
+		const normalized = {
+			...observed.failure,
+			refunded,
+			sentryEventId: null,
+		};
+		const route: AiErrorContext["route"] =
+			normalized.source === "gateway" ||
+			normalized.source.startsWith("provider:")
+				? "vercel"
+				: "none";
+		const sentryEventId =
+			observed.capture === false || normalized.kind === "cancelled"
+				? null
+				: captureAiError(observed.error, normalized, {
+						functionId: imageFunctionId(attempt, normalized),
+						generationId: attempt.id,
+						projectId: attempt.projectId,
+						refunded,
+						route,
+						surface: "image",
+						userId,
+					});
+		lastFailure = { ...normalized, sentryEventId };
+	}
+
+	if (!lastFailure) {
+		throw new Error("Image failure capture produced no normalized failure");
+	}
+	return lastFailure;
+}
+
+function captureInternalFailure(
+	attempt: ImageGenerationAttemptState,
+	refunded: boolean,
+	reason: string,
+	userId = attempt.userId,
+): NormalizedAiError {
+	const error = new Error(`Image generation runner failure: ${reason}`);
+	return captureObservedFailures(
+		attempt,
+		[{ error, failure: classifyInternalImageFailure() }],
+		refunded,
+		userId,
+	);
+}
+
+function imageFunctionId(
+	attempt: ImageGenerationAttemptState,
+	failure: NormalizedAiError,
+): string {
+	if (attempt.sourceImageUrls.length > 0) return "image.edit";
+	return failure.model?.startsWith("google/gemini-")
+		? "image.generate_text"
+		: "image.generate";
 }
 
 async function recoverOrSettleGenerating(
@@ -780,11 +953,18 @@ async function recoverOrSettleGenerating(
 		// A terminal financial state cannot authorize another provider call. With
 		// no deterministic object to publish, close the domain row once and retain
 		// the charge/refund already chosen by metering.
+		const failure = captureInternalFailure(
+			attempt,
+			false,
+			"terminal_billing",
+			subject.actorUserId,
+		);
 		await failAndRefund(
 			attempt,
 			subject,
 			dependencies,
 			"terminal_billing",
+			failure,
 			false,
 		);
 		return { reason: "generation_failed", status: "failed" };
@@ -794,7 +974,19 @@ async function recoverOrSettleGenerating(
 		throw new ImageGenerationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, subject, dependencies, "stale_generation");
+	const failure = captureInternalFailure(
+		attempt,
+		true,
+		"stale_generation",
+		subject.actorUserId,
+	);
+	await failAndRefund(
+		attempt,
+		subject,
+		dependencies,
+		"stale_generation",
+		failure,
+	);
 	return { reason: "stale_generation", status: "failed" };
 }
 
@@ -844,12 +1036,14 @@ async function failAndRefund(
 	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
 	reason: string,
+	failure: NormalizedAiError,
 	shouldRefund = true,
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_GENERATION_ERROR,
+		error: renderAiErrorSentence(failure),
 		expectedStatus: "generating",
+		failure,
 		reason,
 	});
 
@@ -890,11 +1084,18 @@ async function settleDeletedProject(
 		}
 		return { reason: "already_failed", status: "failed" };
 	}
+	const failure = captureInternalFailure(
+		attempt,
+		shouldRefund,
+		"project_deleted",
+		subject.actorUserId,
+	);
 
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_GENERATION_ERROR,
+		error: renderAiErrorSentence(failure),
 		expectedStatus: attempt.status,
+		failure,
 		reason: "project_deleted",
 	});
 

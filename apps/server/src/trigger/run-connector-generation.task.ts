@@ -27,12 +27,19 @@ import {
 	captureGenerationFailed,
 	machineFailureReason,
 } from "../infrastructure/analytics/generation-events";
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	classifyMcpResult,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../modules/ai-errors/domain";
 import { extractMediaUrls } from "../modules/connector-generations/domain/extract-media-urls";
 import {
 	followDeadlineFor,
 	statusToolFor,
 } from "../modules/connector-generations/domain/provider-job-follow";
-import { classifyProviderRejection } from "../modules/connector-generations/domain/provider-rejection";
 import {
 	type ConnectorGenerationReservations,
 	captureConnectorGenerationResult,
@@ -78,7 +85,13 @@ export const runConnectorGenerationTask = task({
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
 		let claimedAttempt:
-			| { organizationId: string | null; userId: string }
+			| {
+					chatId: string | null;
+					connectorSlug: string;
+					organizationId: string | null;
+					toolName: string;
+					userId: string;
+			  }
 			| undefined;
 		let providerCompleted = false;
 		let submitResultCaptureFailed = false;
@@ -148,7 +161,10 @@ export const runConnectorGenerationTask = task({
 			}
 			claimed = true;
 			claimedAttempt = {
+				chatId: attempt.chatId,
+				connectorSlug: attempt.connectorSlug,
 				organizationId: attempt.organizationId,
+				toolName: attempt.toolName,
 				userId: attempt.userId,
 			};
 			// A terminal replay proves provider work already completed in an older
@@ -216,7 +232,8 @@ export const runConnectorGenerationTask = task({
 						result,
 					)) || providerCompleted;
 			} catch (captureError) {
-				// Preserve the exact provider/tool error while leaving both holds open.
+				// Preserve the provider result in the redacted AI error context while
+				// leaving both holds open.
 				// Refunding after provider evidence failed to persist could create a
 				// free-generation race; the stale sweep remains the backstop.
 				submitResultCaptureFailed = true;
@@ -226,12 +243,17 @@ export const runConnectorGenerationTask = task({
 				);
 
 				if (isMcpToolError(result)) {
-					const providerText =
-						mcpErrorText(result) ??
-						`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`;
-					throw new ProviderResultCaptureError(
-						providerText,
-						classifyProviderRejection(providerText).userMessage,
+					const normalized = requireAiClassification(
+						captureError,
+						connectorAiContext(attempt.connectorSlug, attempt.toolName),
+					);
+					normalized.raw.cause = result;
+					throw attachConnectorFailure(
+						new ProviderResultCaptureError(
+							"Connector submit-result capture failed",
+							{ cause: captureError },
+						),
+						normalized,
 					);
 				}
 
@@ -241,26 +263,33 @@ export const runConnectorGenerationTask = task({
 			// MCP reports tool failures as a RESULT with isError, not a thrown
 			// error — settling that as "succeeded" would show a dead card.
 			if (isMcpToolError(result)) {
-				const providerText =
-					mcpErrorText(result) ??
-					`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`;
-				const rejection = classifyProviderRejection(providerText);
+				const normalized = requireMcpClassification(
+					result,
+					connectorAiContext(attempt.connectorSlug, attempt.toolName),
+				);
 
 				logger.warn(
 					"Connector generation submit was rejected by the provider",
 					{
-						kind: rejection.kind,
-						providerText,
+						kind: normalized.kind,
 					},
 				);
 
-				if (rejection.kind !== "unknown") {
-					throw new ProviderSubmitRejectedError(rejection.userMessage);
+				if (
+					normalized.kind !== "connector_rejected" ||
+					normalized.providerMessage !== null
+				) {
+					throw attachConnectorFailure(
+						new ProviderSubmitRejectedError(renderAiErrorSentence(normalized)),
+						normalized,
+						result,
+					);
 				}
 
-				throw new ProviderUnknownSubmitError(
-					providerText,
-					rejection.userMessage,
+				throw attachConnectorFailure(
+					new ProviderUnknownSubmitError(renderAiErrorSentence(normalized)),
+					normalized,
+					result,
 				);
 			}
 
@@ -271,11 +300,14 @@ export const runConnectorGenerationTask = task({
 			// provider's own question so the card explains itself and the holds
 			// are refunded.
 			if (isUnlimChoiceReceipt(result)) {
-				throw new ProviderJobFailedError(
-					mcpErrorText(result) ??
-						"Higgsfield asked which plan to use (unlimited allowance vs " +
-							"paid credits) and did not start this render. Retry after " +
-							"answering the plan question in Higgsfield.",
+				const normalized = requireMcpClassification(
+					result,
+					connectorAiContext(attempt.connectorSlug, attempt.toolName),
+				);
+				throw attachConnectorFailure(
+					new ProviderJobFailedError(renderAiErrorSentence(normalized)),
+					normalized,
+					result,
 				);
 			}
 
@@ -448,8 +480,6 @@ export const runConnectorGenerationTask = task({
 			return { mediaCount: media.length };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			const attemptErrorMessage =
-				error instanceof ProviderSubmitError ? error.userMessage : message;
 
 			if (claimed) {
 				let durableCheckpoint = completionCheckpointed;
@@ -469,6 +499,28 @@ export const runConnectorGenerationTask = task({
 				}
 
 				if (durableCheckpoint) {
+					const context = connectorAiContext(
+						claimedAttempt?.connectorSlug,
+						claimedAttempt?.toolName,
+					);
+					const normalized = classifyConnectorTaskFailure(error, context);
+					normalized.sentryEventId = captureAiError(error, normalized, {
+						...(claimedAttempt?.chatId
+							? { chatId: claimedAttempt.chatId }
+							: {}),
+						generationId: payload.attemptId,
+						refunded: null,
+						route: "mcp",
+						surface: "connector",
+						...(claimedAttempt?.toolName
+							? { toolName: claimedAttempt.toolName }
+							: {}),
+						...(claimedAttempt?.userId
+							? { userId: claimedAttempt.userId }
+							: payload.userId
+								? { userId: payload.userId }
+								: {}),
+					});
 					// Keep the row running: the metering sweep or the next card poll
 					// replays settlement from the checkpoint and publishes it.
 					logger.error(
@@ -478,35 +530,7 @@ export const runConnectorGenerationTask = task({
 					throw error;
 				}
 
-				const [failed] = await db
-					.update(connectorGenerationAttempts)
-					.set({
-						completedAt: new Date(),
-						error: attemptErrorMessage,
-						status: "failed",
-					})
-					.where(
-						and(
-							eq(connectorGenerationAttempts.id, payload.attemptId),
-							eq(connectorGenerationAttempts.triggerRunId, ctx.run.id),
-							inArray(connectorGenerationAttempts.status, [
-								"queued",
-								"running",
-							]),
-						),
-					)
-					.returning({ id: connectorGenerationAttempts.id });
-
-				if (failed && claimedAttempt) {
-					captureGenerationFailed(
-						triggerAnalytics,
-						claimedAttempt.userId,
-						"connector",
-						null,
-						failed.id,
-						machineFailureReason(error),
-					);
-				}
+				let refunded: boolean | null = providerCompleted ? false : null;
 
 				if (
 					!providerCompleted &&
@@ -527,6 +551,7 @@ export const runConnectorGenerationTask = task({
 							{ childUnits: payload.billing.child ? 0 : undefined },
 						);
 						providerCompleted = true;
+						refunded = false;
 					} catch (settleError) {
 						logger.error(
 							`Provider-accepted settlement failed for attempt ${payload.attemptId}`,
@@ -551,6 +576,7 @@ export const runConnectorGenerationTask = task({
 							payload.attemptId,
 							payload.billing.child?.operation,
 						);
+						refunded = true;
 					} catch (refundError) {
 						logger.error(
 							`Connector metering refund failed for attempt ${payload.attemptId}`,
@@ -558,6 +584,74 @@ export const runConnectorGenerationTask = task({
 						);
 					}
 				}
+
+				const context = connectorAiContext(
+					claimedAttempt?.connectorSlug,
+					claimedAttempt?.toolName,
+					refunded,
+				);
+				const normalized = classifyConnectorTaskFailure(error, context);
+				normalized.sentryEventId = captureAiError(error, normalized, {
+					...(claimedAttempt?.chatId ? { chatId: claimedAttempt.chatId } : {}),
+					generationId: payload.attemptId,
+					refunded,
+					route: "mcp",
+					surface: "connector",
+					...(claimedAttempt?.toolName
+						? { toolName: claimedAttempt.toolName }
+						: {}),
+					...(claimedAttempt?.userId
+						? { userId: claimedAttempt.userId }
+						: payload.userId
+							? { userId: payload.userId }
+							: {}),
+				});
+
+				const [failed] = await db
+					.update(connectorGenerationAttempts)
+					.set({
+						completedAt: new Date(),
+						error: renderAiErrorSentence(normalized),
+						failureKind: normalized.kind,
+						failureProvider: normalized.provider,
+						failureProviderMessage: normalized.providerMessage,
+						failureRequestId: normalized.requestId,
+						failureSource: normalized.source,
+						sentryEventId: normalized.sentryEventId,
+						status: "failed",
+					})
+					.where(
+						and(
+							eq(connectorGenerationAttempts.id, payload.attemptId),
+							eq(connectorGenerationAttempts.triggerRunId, ctx.run.id),
+							inArray(connectorGenerationAttempts.status, [
+								"queued",
+								"running",
+							]),
+						),
+					)
+					.returning({ id: connectorGenerationAttempts.id });
+
+				if (failed && claimedAttempt) {
+					captureGenerationFailed(
+						triggerAnalytics,
+						claimedAttempt.userId,
+						"connector",
+						null,
+						failed.id,
+						machineFailureReason(error),
+					);
+				}
+			} else {
+				const context = connectorAiContext();
+				const normalized = classifyConnectorTaskFailure(error, context);
+				captureAiError(error, normalized, {
+					generationId: payload.attemptId,
+					refunded: null,
+					route: "mcp",
+					surface: "connector",
+					...(payload.userId ? { userId: payload.userId } : {}),
+				});
 			}
 
 			if (error instanceof ProviderSubmitRejectedError) {
@@ -706,20 +800,95 @@ class ProviderJobFailedError extends Error {
 /** Expected submit-time refusal: fail/refund the row without failing the run. */
 class ProviderSubmitRejectedError extends ProviderJobFailedError {}
 
-class ProviderSubmitError extends Error {
-	constructor(
-		message: string,
-		readonly userMessage: string,
-	) {
-		super(message);
-	}
-}
+class ProviderSubmitError extends Error {}
 
-/** Unknown provider refusal: preserve raw diagnostics outside the user-facing row. */
+/** Unknown provider refusal: raw diagnostics stay in the redacted AI error context. */
 class ProviderUnknownSubmitError extends ProviderSubmitError {}
 
 /** Capture uncertainty must fail the run while stale recovery owns both holds. */
 class ProviderResultCaptureError extends ProviderSubmitError {}
+
+type ClassifiedConnectorFailure = Error & {
+	mcpResult?: unknown;
+	normalizedAiError?: NormalizedAiError;
+};
+
+function connectorAiContext(
+	connectorSlug = "higgsfield",
+	toolName?: string,
+	refunded?: boolean | null,
+): AiErrorContext {
+	return {
+		connectorSlug,
+		...(refunded === undefined ? {} : { refunded }),
+		route: "mcp",
+		surface: "connector",
+		...(toolName ? { toolName } : {}),
+	};
+}
+
+function requireAiClassification(
+	error: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	return (
+		classifyAiError(error, context) ??
+		(classifyAiError(
+			new Error("Connector generation failed"),
+			context,
+		) as NormalizedAiError)
+	);
+}
+
+function requireMcpClassification(
+	result: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	return (
+		classifyMcpResult(result, context) ??
+		requireAiClassification(
+			new Error("MCP result could not be classified"),
+			context,
+		)
+	);
+}
+
+function attachConnectorFailure<T extends Error>(
+	error: T,
+	normalized: NormalizedAiError,
+	mcpResult?: unknown,
+): T {
+	const classified = error as T & ClassifiedConnectorFailure;
+	classified.normalizedAiError = normalized;
+	if (mcpResult !== undefined) classified.mcpResult = mcpResult;
+	return error;
+}
+
+function classifyConnectorTaskFailure(
+	error: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	const classified =
+		error instanceof Error ? (error as ClassifiedConnectorFailure) : null;
+	if (classified?.mcpResult !== undefined) {
+		return requireMcpClassification(classified.mcpResult, context);
+	}
+
+	if (classified?.normalizedAiError) {
+		const refunded = context.refunded ?? classified.normalizedAiError.refunded;
+		return {
+			...classified.normalizedAiError,
+			refunded,
+			retryable:
+				classified.normalizedAiError.kind === "connector_rejected"
+					? classified.normalizedAiError.providerMessage === null &&
+						refunded === true
+					: classified.normalizedAiError.retryable,
+		};
+	}
+
+	return requireAiClassification(error, context);
+}
 
 function isProviderVerdict(error: unknown): boolean {
 	return error instanceof ProviderJobFailedError && error.verdict;
@@ -747,9 +916,21 @@ async function followProviderJob(
 		statusRoute.idProperty === "row_id";
 	const cannotFollow = (): null => {
 		if (isPersonalClipperRoute) {
-			throw new ProviderJobFailedError(
-				"Higgsfield accepted the clipping job but Wandit could not follow it. Check your Higgsfield account for the clips.",
-				false,
+			const failureResult = {
+				cannotFollow: true,
+				state: "processing",
+			};
+			const normalized = requireMcpClassification(
+				failureResult,
+				connectorAiContext(connectorSlug, submittedToolName),
+			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(
+					"Higgsfield accepted the clipping job but Wandit could not follow it. Check your Higgsfield account for the clips.",
+					false,
+				),
+				normalized,
+				failureResult,
 			);
 		}
 
@@ -829,9 +1010,18 @@ async function followProviderJob(
 			// media fallback here — the receipt can embed catalog garnish that
 			// is not the render, and settling on it would charge the user for
 			// media they never got.
-			throw new ProviderJobFailedError(
-				errorText ?? "The provider reported a job error",
-				false,
+			const failureResult = {
+				consecutiveStatusErrors,
+				result: status,
+			};
+			const normalized = requireMcpClassification(
+				failureResult,
+				connectorAiContext(connectorSlug, submittedToolName),
+			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(renderAiErrorSentence(normalized), false),
+				normalized,
+				failureResult,
 			);
 		}
 		consecutiveStatusErrors = 0;
@@ -848,21 +1038,33 @@ async function followProviderJob(
 			IN_FLIGHT_STATE_PATTERN.test(state),
 		);
 		const media = extractMediaUrls(status);
-		if (media.length > 0) {
-			if (!isPersonalClipperRoute) return status;
-			lastMediaStatus = status;
-		}
 
 		// One failed auxiliary item must not sink a set whose main item is
-		// still rendering — failure is terminal only once nothing is
-		// in-flight (the media check above already caught partial successes).
+		// still rendering. Once nothing is in flight, the provider's failed
+		// verdict wins over arbitrary URLs echoed in the status JSON (input URLs
+		// and catalog garnish are not proof of a successful output).
 		const failedState = states.find((state) =>
 			FAILED_STATE_PATTERN.test(state),
 		);
-		if (failedState && !anyInFlight) {
-			throw new ProviderJobFailedError(
-				mcpErrorText(status) ?? `The provider job ended as "${failedState}"`,
+		if (
+			failedState &&
+			!anyInFlight &&
+			!states.some((state) => SETTLED_STATE_PATTERN.test(state))
+		) {
+			const normalized = requireMcpClassification(
+				status,
+				connectorAiContext(connectorSlug, submittedToolName),
 			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(renderAiErrorSentence(normalized)),
+				normalized,
+				status,
+			);
+		}
+
+		if (media.length > 0) {
+			if (!isPersonalClipperRoute) return status;
+			lastMediaStatus = status;
 		}
 
 		const allSettled =
@@ -890,9 +1092,18 @@ async function followProviderJob(
 		return lastMediaStatus;
 	if (lastSettledStatus !== null) return lastSettledStatus;
 
-	throw new ProviderJobFailedError(
-		"Timed out waiting for the provider to finish generating",
-		false,
+	const failureResult = { deadline: true, state: "processing" };
+	const normalized = requireMcpClassification(
+		failureResult,
+		connectorAiContext(connectorSlug, submittedToolName),
+	);
+	throw attachConnectorFailure(
+		new ProviderJobFailedError(
+			"Timed out waiting for the provider to finish generating",
+			false,
+		),
+		normalized,
+		failureResult,
 	);
 }
 

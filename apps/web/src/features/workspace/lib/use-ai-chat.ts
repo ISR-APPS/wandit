@@ -6,11 +6,13 @@ import {
 	type AiChatMessageMetadata,
 	type AiChatSelectedTarget,
 	type AiChatTools,
+	type AiErrorData,
 	type AskUserOutput,
 	aiChatBillingErrorDataSchema,
 	aiChatCreditsSettledDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRoutes,
+	aiErrorDataSchema,
 	type ChatMessage,
 	type ComposerMetadata,
 	type CreditBalanceResponse,
@@ -28,7 +30,6 @@ import { dispatchBillingError } from "@/features/billing/lib/billing-error-dispa
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import { chatAutostart, projectKeys } from "@/features/projects";
 import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
-import { isApiClientError } from "@/lib/api-client";
 import { getServerUrl } from "@/lib/server-url";
 import {
 	useChatByProjectQuery,
@@ -53,6 +54,11 @@ export type SendAiTextOptions = {
 	selectedTargets?: AiChatSelectedTarget[];
 };
 
+type RetryRequestMetadata = {
+	composer?: ComposerMetadata;
+	selectedWids?: string[];
+};
+
 /** Turn persisted chat rows into the AI SDK shape used by the live thread. */
 export function hydrateAiChatMessages(
 	messages: readonly ChatMessage[],
@@ -62,14 +68,14 @@ export function hydrateAiChatMessages(
 
 		// Both sides can carry typed metadata now: assistants carry model/usage,
 		// while targeted user turns carry the descriptor rendered in history.
-		const metadata = aiChatMessageMetadataSchema.safeParse(message.metadata);
+		const metadata = parsePersistedMessageMetadata(message.metadata);
 
 		return [
 			{
 				id: message.id,
 				role: message.role,
 				parts: message.parts as WanditUIMessage["parts"],
-				...(metadata.success ? { metadata: metadata.data } : {}),
+				...(metadata ? { metadata } : {}),
 			},
 		];
 	});
@@ -134,6 +140,28 @@ export function useAiChat(projectId: string) {
 	const [aiTargets, setAiTargets] = useState<AiChatSelectedTarget[]>([]);
 	const [billingError, setBillingError] = useState(false);
 	const billingErrorInCurrentTurnRef = useRef(false);
+	const [aiError, setAiError] = useState<AiErrorData | null>(null);
+	const [notices, setNotices] = useState<AiErrorData[]>([]);
+	// This ref belongs to the active submission. onFinish uses it to distinguish
+	// a successful turn (which clears an older banner) from a moderated finish,
+	// where the typed terminal data part is the only failure signal.
+	const aiErrorRef = useRef<AiErrorData | null>(null);
+	const resetAiErrorForNewTurn = useCallback(() => {
+		aiErrorRef.current = null;
+		setAiError(null);
+		setNotices([]);
+	}, []);
+	const [composerPrefill, setComposerPrefill] = useState({
+		value: "",
+		revision: 0,
+	});
+	const prefillComposer = useCallback((prompt: string) => {
+		if (!prompt.trim()) return;
+		setComposerPrefill((current) => ({
+			value: prompt,
+			revision: current.revision + 1,
+		}));
+	}, []);
 
 	const transport = useMemo(
 		() =>
@@ -184,6 +212,7 @@ export function useAiChat(projectId: string) {
 		id: chatId ?? `project:${projectId}`,
 		messageMetadataSchema: aiChatMessageMetadataSchema,
 		dataPartSchemas: {
+			"ai-error": aiErrorDataSchema,
 			"billing-error": aiChatBillingErrorDataSchema,
 			"credits-settled": aiChatCreditsSettledDataSchema,
 		},
@@ -197,6 +226,10 @@ export function useAiChat(projectId: string) {
 		onFinish: ({ isAbort, isError }) => {
 			lastSendSucceededRef.current =
 				!isAbort && !isError && !billingErrorInCurrentTurnRef.current;
+			if (!aiErrorRef.current) {
+				setAiError(null);
+			}
+			setNotices([]);
 			invalidateFinishedTurnDataRef.current();
 		},
 		onError: (chatError) => {
@@ -210,6 +243,26 @@ export function useAiChat(projectId: string) {
 			}
 		},
 		onData: (part) => {
+			if (part.type === "data-ai-error") {
+				if (part.data.terminal) {
+					// Tool-scoped failures render inside their card. Only a turn-level
+					// failure owns the chat banner and whole-turn Retry action.
+					if (!part.data.toolCallId) {
+						aiErrorRef.current = part.data;
+						setAiError(part.data);
+					}
+				} else {
+					setNotices((current) =>
+						current.some(
+							(notice) =>
+								aiErrorNoticeKey(notice) === aiErrorNoticeKey(part.data),
+						)
+							? current
+							: [...current, part.data],
+					);
+				}
+				return;
+			}
 			if (part.type === "data-credits-settled") {
 				applyCreditsSettled(queryClient, part.data);
 				return;
@@ -261,6 +314,9 @@ export function useAiChat(projectId: string) {
 			if (nested.success) {
 				metaRef.current = { composer: nested.data };
 			}
+			resetAiErrorForNewTurn();
+			billingErrorInCurrentTurnRef.current = false;
+			setBillingError(false);
 			void regenerate();
 		}
 	}, [
@@ -269,6 +325,7 @@ export function useAiChat(projectId: string) {
 		messagesQuery.data,
 		projectId,
 		regenerate,
+		resetAiErrorForNewTurn,
 		setMessages,
 	]);
 
@@ -308,11 +365,20 @@ export function useAiChat(projectId: string) {
 			const selectedTargets = options?.selectedTargets?.length
 				? options.selectedTargets
 				: undefined;
+			const messageMetadata =
+				options?.composer || selectedWids || selectedTargets
+					? {
+							...(options?.composer ? { composer: options.composer } : {}),
+							...(selectedWids ? { selectedWids } : {}),
+							...(selectedTargets ? { selectedTargets } : {}),
+						}
+					: undefined;
 
 			metaRef.current = {
 				composer: options?.composer,
 				selectedWids,
 			};
+			resetAiErrorForNewTurn();
 			billingErrorInCurrentTurnRef.current = false;
 			setBillingError(false);
 			if (selectedTargets) setAiTargets(selectedTargets);
@@ -320,7 +386,7 @@ export function useAiChat(projectId: string) {
 			try {
 				await sendMessage({
 					text: trimmed,
-					...(selectedTargets ? { metadata: { selectedTargets } } : {}),
+					...(messageMetadata ? { metadata: messageMetadata } : {}),
 					files: options?.files?.map((file) => ({
 						type: "file" as const,
 						mediaType: file.mediaType,
@@ -340,8 +406,23 @@ export function useAiChat(projectId: string) {
 				if (selectedTargets) setAiTargets([]);
 			}
 		},
-		[chatId, messagesQuery.data, sendMessage],
+		[chatId, messagesQuery.data, resetAiErrorForNewTurn, sendMessage],
 	);
+
+	const retryTurn = useCallback(() => {
+		const failedMessage = findLastTerminalAiErrorMessage(messages);
+		if (!failedMessage) return;
+
+		metaRef.current = findRetryRequestMetadata(
+			messages,
+			failedMessage.id,
+			metaRef.current,
+		);
+		resetAiErrorForNewTurn();
+		billingErrorInCurrentTurnRef.current = false;
+		setBillingError(false);
+		void regenerate({ messageId: failedMessage.id });
+	}, [messages, regenerate, resetAiErrorForNewTurn]);
 
 	const answerAskUser = useCallback(
 		(toolCallId: string, output: AskUserOutput) => {
@@ -364,13 +445,118 @@ export function useAiChat(projectId: string) {
 		status,
 		error,
 		billingError,
+		aiError,
+		notices,
 		aiTargets,
+		chatId,
+		regenerate,
+		retryTurn,
+		composerPrefill,
+		prefillComposer,
 		sendText,
 		answerAskUser,
 		addToolApprovalResponse,
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
+}
+
+/**
+ * Rebuild the request-only context for a regenerate call. New user rows carry
+ * the exact values; selectedTargets is a backward-compatible source for page
+ * target ids persisted before selectedWids was added to message metadata.
+ */
+export function findRetryRequestMetadata(
+	messages: readonly WanditUIMessage[],
+	failedMessageId: string,
+	fallback: RetryRequestMetadata = {},
+): RetryRequestMetadata {
+	const failedIndex = messages.findIndex(
+		(message) => message.id === failedMessageId && message.role === "assistant",
+	);
+	if (failedIndex < 0) return fallback;
+
+	for (let index = failedIndex - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== "user") continue;
+
+		const persistedWids =
+			message.metadata?.selectedWids ??
+			message.metadata?.selectedTargets?.map((target) => target.wid);
+		const composer = message.metadata?.composer ?? fallback.composer;
+		const selectedWids = persistedWids ?? fallback.selectedWids;
+
+		return {
+			...(composer ? { composer } : {}),
+			...(selectedWids ? { selectedWids } : {}),
+		};
+	}
+
+	return fallback;
+}
+
+function parsePersistedMessageMetadata(
+	value: unknown,
+): AiChatMessageMetadata | undefined {
+	// Dashboard-created chats historically stored the composer object directly
+	// instead of under `metadata.composer`; normalize those rows on hydration.
+	const directComposer = composerMetadataSchema.safeParse(value);
+	if (directComposer.success) {
+		return { composer: directComposer.data };
+	}
+
+	const metadata = aiChatMessageMetadataSchema.safeParse(value);
+	return metadata.success ? metadata.data : undefined;
+}
+
+/** Last whole-turn failure eligible for regenerate({ messageId }). */
+export function findLastTerminalAiErrorMessage(
+	messages: readonly WanditUIMessage[],
+): WanditUIMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (
+			message?.role === "assistant" &&
+			message.parts.some(
+				(part) =>
+					part.type === "data-ai-error" &&
+					part.data.terminal &&
+					!part.data.toolCallId,
+			)
+		) {
+			return message;
+		}
+	}
+
+	return undefined;
+}
+
+/** Retrying a turn with queued background work would enqueue and charge twice. */
+export function messageHasQueuedToolWork(
+	message: WanditUIMessage | undefined,
+): boolean {
+	if (!message) return false;
+
+	return message.parts.some((part) => {
+		if (!("output" in part)) return false;
+		const output: unknown = part.output;
+		return (
+			typeof output === "object" &&
+			output !== null &&
+			"status" in output &&
+			output.status === "queued"
+		);
+	});
+}
+
+export function aiErrorNoticeKey(error: AiErrorData): string {
+	return [
+		error.requestId ?? "notice",
+		error.kind,
+		error.source,
+		error.providerLabel ?? "",
+		error.toolCallId ?? "",
+	].join(":");
 }
 
 /**
@@ -387,31 +573,6 @@ export function applyCreditsSettled(
 		(prev) => (prev ? { ...prev, settledBalance: data.settledBalance } : prev),
 	);
 	void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
-}
-
-/**
- * The generic stream-error copy says "try again", which is exactly wrong for
- * two server refusals: 409 AI_CHAT_OPERATION_REPLAYED means the identical
- * transcript already COMPLETED (retrying reproduces the identical idempotency
- * key — the user must send a new message), and 409 AI_CHAT_TURN_ACTIVE means
- * this turn is streaming RIGHT NOW (the user must wait, not fork the chat).
- * The pane maps each to its own copy; everything else keeps the generic text.
- */
-export function chatStreamErrorKey(
-	error: unknown,
-):
-	| "workspace.chat.errors.busy"
-	| "workspace.chat.errors.replayed"
-	| "workspace.chat.errors.stream" {
-	if (isApiClientError(error) && error.code === "AI_CHAT_OPERATION_REPLAYED") {
-		return "workspace.chat.errors.replayed";
-	}
-
-	if (isApiClientError(error) && error.code === "AI_CHAT_TURN_ACTIVE") {
-		return "workspace.chat.errors.busy";
-	}
-
-	return "workspace.chat.errors.stream";
 }
 
 /**

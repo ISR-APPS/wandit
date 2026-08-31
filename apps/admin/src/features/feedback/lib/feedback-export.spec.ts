@@ -24,6 +24,8 @@ function makeFeedback(overrides: Partial<FeedbackItem> = {}): FeedbackItem {
 			memberSince: "2026-01-01T00:00:00.000Z",
 		},
 		context: {
+			chatId: null,
+			authSessionId: "session-1",
 			pageUrl: "https://app.example.com/dashboard",
 			replayUrl: null,
 			sentryEventId: null,

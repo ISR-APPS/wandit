@@ -8,6 +8,19 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/i18n", () => ({
+	useTranslation: () => ({
+		t: (key: string) =>
+			(
+				({
+					"workspace.chat.pageBuild.failedHeadline":
+						"The build stopped before the page was ready.",
+					"workspace.chat.pageBuild.failedTitle": "Page build failed",
+				}) as Record<string, string>
+			)[key] ?? key,
+	}),
+}));
+
 vi.mock("../../../lib/store", () => ({
 	useWorkspace: () => ({
 		projectId: "project-1",

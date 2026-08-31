@@ -1,4 +1,5 @@
 import {
+	aiErrorDataSchema,
 	type ConnectorGenerationAttempt,
 	connectorGenerationAttemptSchema,
 	connectorGenerationsRoutes,
@@ -28,6 +29,12 @@ import {
 
 import { apiClient } from "@/shared/lib/api-client";
 import { getServerUrl } from "@/shared/lib/server-url";
+
+// The shared lead DTO is being rolled out independently. Keep the native
+// parser forward-compatible so Zod does not strip C4's optional failure.
+const nativeLeadScrapeAttemptSchema = leadScrapeAttemptSchema.extend({
+	failure: aiErrorDataSchema.nullable().optional(),
+});
 
 export async function getPageOverview(
 	projectId: string,
@@ -148,7 +155,7 @@ export async function getLeadScrapeAttempt(
 	const data = await apiClient.get<unknown>(
 		leadScrapesRoutes.attempt(attemptId),
 	);
-	return leadScrapeAttemptSchema.parse(data);
+	return nativeLeadScrapeAttemptSchema.parse(data);
 }
 
 export async function getConnectorGenerationAttempt(

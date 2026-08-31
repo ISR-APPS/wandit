@@ -28,6 +28,7 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import { captureAiError, classifyAiError } from "../../../ai-errors/domain";
 import {
 	type ProjectScope,
 	projectScopePredicate,
@@ -39,6 +40,11 @@ export type ImageGenerationAttemptRow = {
 	count: number;
 	createdAt: Date;
 	error: string | null;
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
 	id: string;
 	images: GeneratedImageRef[] | null;
 	projectId: string;
@@ -46,6 +52,7 @@ export type ImageGenerationAttemptRow = {
 	sourceImageUrls: string[];
 	spec: Record<string, unknown> | null;
 	status: MediaGenerationStatus;
+	sentryEventId: string | null;
 	title: string;
 };
 
@@ -61,6 +68,11 @@ const ATTEMPT_COLUMNS = {
 	count: imageGenerationAttempts.count,
 	createdAt: imageGenerationAttempts.createdAt,
 	error: imageGenerationAttempts.error,
+	failureKind: imageGenerationAttempts.failureKind,
+	failureProvider: imageGenerationAttempts.failureProvider,
+	failureProviderMessage: imageGenerationAttempts.failureProviderMessage,
+	failureRequestId: imageGenerationAttempts.failureRequestId,
+	failureSource: imageGenerationAttempts.failureSource,
 	id: imageGenerationAttempts.id,
 	images: imageGenerationAttempts.images,
 	projectId: imageGenerationAttempts.projectId,
@@ -68,6 +80,7 @@ const ATTEMPT_COLUMNS = {
 	sourceImageUrls: imageGenerationAttempts.sourceImageUrls,
 	spec: imageGenerationAttempts.spec,
 	status: imageGenerationAttempts.status,
+	sentryEventId: imageGenerationAttempts.sentryEventId,
 	title: imageGenerationAttempts.title,
 } as const;
 
@@ -271,11 +284,26 @@ export class ImageGenerationsRepository {
 		userId: string,
 		reason: "stale_queued" | "trigger_rejected",
 	): Promise<boolean> {
+		const captureError = new Error(`Image generation ${reason}`);
+		const classified = classifyAiError(captureError, {
+			refunded: true,
+			route: "none",
+			surface: "image",
+		});
+		if (!classified) {
+			throw new Error("Queued image failure classification returned no result");
+		}
 		const [row] = await this.db
 			.update(imageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: error.slice(0, 2_000),
+				failureKind: classified.kind,
+				failureProvider: classified.provider,
+				failureProviderMessage: classified.providerMessage,
+				failureRequestId: classified.requestId,
+				failureSource: classified.source,
+				sentryEventId: null,
 				status: "failed",
 			})
 			.where(
@@ -288,6 +316,24 @@ export class ImageGenerationsRepository {
 
 		if (!row) {
 			return false;
+		}
+		const sentryEventId = captureAiError(captureError, classified, {
+			generationId: attemptId,
+			refunded: true,
+			route: "none",
+			surface: "image",
+			userId,
+		});
+		if (sentryEventId) {
+			await this.db
+				.update(imageGenerationAttempts)
+				.set({ sentryEventId })
+				.where(
+					and(
+						eq(imageGenerationAttempts.id, attemptId),
+						eq(imageGenerationAttempts.status, "failed"),
+					),
+				);
 		}
 
 		captureGenerationFailed(

@@ -15,6 +15,12 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 
 export type ConnectorGenerationAttemptRow = {
@@ -28,6 +34,12 @@ export type ConnectorGenerationAttemptRow = {
 	status: "queued" | "running" | "succeeded" | "failed";
 	media: unknown;
 	error: string | null;
+	failureKind: string | null;
+	failureSource: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	sentryEventId: string | null;
 	createdAt: Date;
 	completedAt: Date | null;
 };
@@ -116,10 +128,21 @@ export class ConnectorGenerationsRepository {
 			.where(eq(connectorGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+	async markAttemptFailed(attemptId: string, error: unknown): Promise<boolean> {
+		const normalized = connectorInfrastructureFailure(error);
 		const [failed] = await this.db
 			.update(connectorGenerationAttempts)
-			.set({ completedAt: new Date(), error, status: "failed" })
+			.set({
+				completedAt: new Date(),
+				error: renderAiErrorSentence(normalized),
+				failureKind: normalized.kind,
+				failureProvider: normalized.provider,
+				failureProviderMessage: normalized.providerMessage,
+				failureRequestId: normalized.requestId,
+				failureSource: normalized.source,
+				sentryEventId: normalized.sentryEventId,
+				status: "failed",
+			})
 			.where(
 				and(
 					eq(connectorGenerationAttempts.id, attemptId),
@@ -133,6 +156,23 @@ export class ConnectorGenerationsRepository {
 
 		if (!failed) {
 			return false;
+		}
+		normalized.sentryEventId = captureAiError(error, normalized, {
+			generationId: failed.id,
+			route: "none",
+			surface: "connector",
+			userId: failed.userId,
+		});
+		if (normalized.sentryEventId) {
+			try {
+				await this.db
+					.update(connectorGenerationAttempts)
+					.set({ sentryEventId: normalized.sentryEventId })
+					.where(eq(connectorGenerationAttempts.id, failed.id));
+			} catch {
+				// The terminal row already won its CAS. A failed observability-link
+				// write must not keep its associated hold open.
+			}
 		}
 
 		captureGenerationFailed(
@@ -252,12 +292,20 @@ export class ConnectorGenerationsRepository {
 	// (worker crash, lost handoff) — settle it so the card can conclude.
 	private async settleStaleAttempt(attemptId: string): Promise<void> {
 		const now = Date.now();
+		const staleError = new Error("Connector generation attempt became stale");
+		const normalized = connectorInfrastructureFailure(staleError);
 
-		await this.db
+		const [stale] = await this.db
 			.update(connectorGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: "The generation stopped before finishing.",
+				failureKind: normalized.kind,
+				failureProvider: normalized.provider,
+				failureProviderMessage: normalized.providerMessage,
+				failureRequestId: normalized.requestId,
+				failureSource: normalized.source,
+				sentryEventId: normalized.sentryEventId,
 				status: "failed",
 			})
 			.where(
@@ -288,6 +336,44 @@ export class ConnectorGenerationsRepository {
 						),
 					),
 				),
-			);
+			)
+			.returning({
+				id: connectorGenerationAttempts.id,
+				toolName: connectorGenerationAttempts.toolName,
+				userId: connectorGenerationAttempts.userId,
+			});
+
+		if (!stale) return;
+		normalized.sentryEventId = captureAiError(staleError, normalized, {
+			generationId: stale.id,
+			route: "none",
+			surface: "connector",
+			toolName: stale.toolName,
+			userId: stale.userId,
+		});
+		if (normalized.sentryEventId) {
+			try {
+				await this.db
+					.update(connectorGenerationAttempts)
+					.set({ sentryEventId: normalized.sentryEventId })
+					.where(eq(connectorGenerationAttempts.id, stale.id));
+			} catch {
+				// The stale row is already terminal; keep the read path available when
+				// only the optional Sentry link could not be persisted.
+			}
+		}
 	}
+}
+
+function connectorInfrastructureFailure(error: unknown): NormalizedAiError {
+	return (
+		classifyAiError(error, {
+			route: "none",
+			surface: "connector",
+		}) ??
+		(classifyAiError(new Error("Connector generation failed"), {
+			route: "none",
+			surface: "connector",
+		}) as NormalizedAiError)
+	);
 }

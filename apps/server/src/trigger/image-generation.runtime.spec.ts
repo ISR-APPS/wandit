@@ -1,9 +1,11 @@
+import { GatewayInternalServerError } from "@ai-sdk/gateway";
 import { PgDialect } from "@wandit/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getObjectContentType,
 	imageGenerationKey,
 } from "../infrastructure/storage/r2";
+import { classifyAiError } from "../modules/ai-errors/domain";
 import {
 	type ImagePlacementDependencies,
 	settleImagePlacement,
@@ -101,6 +103,7 @@ function successPersistenceDb(lifecycleError?: Error) {
 		transaction,
 		update,
 		updateReturning,
+		updateSet,
 		values,
 	};
 }
@@ -194,6 +197,96 @@ describe("createImageGenerationRuntime", () => {
 			"acting_member_2",
 			"generation_completed",
 			expect.objectContaining({ generationId: ATTEMPT_ID, kind: "image" }),
+		);
+	});
+
+	it("stores all failure columns on a partially succeeded attempt", async () => {
+		const persistence = successPersistenceDb();
+		const runtime = createImageGenerationRuntime(persistence.db as never, {
+			capture: vi.fn(),
+		});
+		const classified = classifyAiError(
+			new GatewayInternalServerError({
+				generationId: "gen_capacity",
+				statusCode: 529,
+			}),
+			{
+				model: "openai/gpt-image-2",
+				refunded: false,
+				route: "vercel",
+				surface: "image",
+			},
+		);
+		if (!classified) throw new Error("Expected classified capacity failure");
+		const failure = { ...classified, sentryEventId: "event_capacity" };
+
+		await runtime.runner.markSucceeded(
+			makeAttempt(),
+			makeImages(),
+			new Date("2026-01-01T00:05:00Z"),
+			"user_1",
+			failure,
+		);
+
+		expect(persistence.updateSet).toHaveBeenCalledWith(
+			expect.objectContaining({
+				error:
+					"OpenAI is over capacity right now. Please try again in a minute.",
+				failureKind: "capacity",
+				failureProvider: "openai",
+				failureProviderMessage: null,
+				failureRequestId: "gen_capacity",
+				failureSource: "provider:openai",
+				sentryEventId: "event_capacity",
+				status: "succeeded",
+			}),
+		);
+	});
+
+	it("stores all failure columns on a failed attempt without changing analytics reason", async () => {
+		const returning = vi.fn().mockResolvedValue([{ id: ATTEMPT_ID }]);
+		const where = vi.fn(() => ({ returning }));
+		const set = vi.fn(() => ({ where }));
+		const update = vi.fn(() => ({ set }));
+		const analytics = { capture: vi.fn() };
+		const runtime = createImageGenerationRuntime(
+			{ update } as never,
+			analytics,
+		);
+		const classified = classifyAiError(
+			new GatewayInternalServerError({ statusCode: 529 }),
+			{
+				model: "openai/gpt-image-2",
+				refunded: true,
+				route: "vercel",
+				surface: "image",
+			},
+		);
+		if (!classified) throw new Error("Expected classified capacity failure");
+
+		await runtime.runner.fail(makeAttempt(), {
+			completedAt: new Date("2026-01-01T00:05:00Z"),
+			error: "OpenAI is over capacity right now. Please try again in a minute.",
+			expectedStatus: "generating",
+			failure: classified,
+			reason: "generation_failed",
+		});
+
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				failureKind: "capacity",
+				failureProvider: "openai",
+				failureProviderMessage: null,
+				failureRequestId: null,
+				failureSource: "provider:openai",
+				sentryEventId: null,
+				status: "failed",
+			}),
+		);
+		expect(analytics.capture).toHaveBeenCalledWith(
+			"user_1",
+			"generation_failed",
+			expect.objectContaining({ reason: "generation_failed" }),
 		);
 	});
 

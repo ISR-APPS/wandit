@@ -42,6 +42,7 @@ import type {
 	ImageAnimationRunnerDependencies,
 	ImageAnimationVideo,
 } from "../modules/media-generations/application/services/image-animation-runner";
+import type { AiFailurePersistenceFields } from "../modules/media-generations/application/services/media-generation-failure";
 import type { MediaGenerationGeneratingCutoffs } from "../modules/media-generations/application/services/media-generation-staleness";
 import {
 	createVideoBilling,
@@ -394,13 +395,19 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			error: string;
 			expectedStatus: "queued" | "generating";
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	): Promise<boolean> => {
 		const [updated] = await db
 			.update(mediaGenerationAttempts)
 			.set({
 				completedAt: input.completedAt,
 				error: input.error.slice(0, 2_000),
+				failureKind: input.failureKind,
+				failureProvider: input.failureProvider,
+				failureProviderMessage: input.failureProviderMessage,
+				failureRequestId: input.failureRequestId,
+				failureSource: input.failureSource,
+				sentryEventId: input.sentryEventId,
 				status: "failed",
 			})
 			.where(

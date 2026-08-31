@@ -9,6 +9,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import type { TriggerRealtimeHandle } from "@wandit/contracts";
+import { Button } from "@wandit/ui/components/button";
 import { AlertTriangle } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import {
 	connectorGenerationKeys,
 	useConnectorGenerationAttemptQuery,
 } from "../../../api/connector-generations.queries";
+import { durableAiErrorPresentation } from "../../../lib/ai-error-copy";
 import { useLiveRun } from "../../../lib/use-live-run";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { ChatMediaGallery } from "./chat-media";
@@ -43,6 +45,7 @@ export function ConnectorGenerationCard({
 	realtime,
 	title,
 	toolName,
+	onPrefillComposer,
 }: {
 	/** Raw MCP tool arguments — duration/aspect enrich the title line. */
 	args: unknown;
@@ -54,6 +57,7 @@ export function ConnectorGenerationCard({
 	title: string;
 	/** Provider tool name for the technical footer, e.g. "generate_video". */
 	toolName: string;
+	onPrefillComposer?: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
@@ -107,6 +111,20 @@ export function ConnectorGenerationCard({
 	}
 
 	if (attempt?.status === "failed") {
+		if (attempt.failure) {
+			const copy = durableAiErrorPresentation(attempt.failure, t);
+			return (
+				<ConnectorFailure
+					attribution={copy.attribution}
+					body={copy.body}
+					onPrefill={onPrefillComposer}
+					prompt={connectorPrompt(args)}
+					showPrefill={copy.showRetry}
+					title={copy.kicker}
+				/>
+			);
+		}
+
 		return (
 			<div className="rounded-[14px] border border-destructive/25 bg-destructive/[0.035] p-3.5">
 				<div className="flex items-start gap-2.5">
@@ -261,6 +279,91 @@ export function ConnectorGenerationCard({
 			</span>
 		</div>
 	);
+}
+
+function ConnectorFailure({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill,
+}: {
+	title: string;
+	body: string;
+	attribution: string | null;
+	onPrefill: ((prompt: string) => void) | undefined;
+	prompt: string | undefined;
+	showPrefill: boolean;
+}) {
+	const { t } = useTranslation();
+	return (
+		<div className="rounded-[14px] border border-destructive/25 bg-destructive/[0.035] p-3.5">
+			<div className="flex items-start gap-2.5">
+				<span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">
+					<AlertTriangle className="size-3.5" aria-hidden />
+				</span>
+				<div className="min-w-0 flex-1">
+					<p className="font-medium text-[13.5px] text-foreground">{title}</p>
+					<p
+						dir="auto"
+						className="mt-0.5 text-[13px] text-muted-foreground leading-[1.5]"
+					>
+						{body}
+					</p>
+					{attribution ? (
+						<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+							{attribution}
+						</p>
+					) : null}
+					{showPrefill && prompt && onPrefill ? (
+						<div className="mt-2">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 rounded-lg px-2.5 text-xs"
+								onClick={() => onPrefill(prompt)}
+							>
+								{t("workspace.chat.aiError.tryAgainPrefill.connector")}
+							</Button>
+							<p className="mt-1 text-[10.5px] text-muted-foreground">
+								{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+							</p>
+						</div>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+const CONNECTOR_PROMPT_KEYS = [
+	"prompt",
+	"brief",
+	"instruction",
+	"description",
+	"text",
+] as const;
+
+/** Finds the original text in direct MCP args or run_platform_tool.params. */
+function connectorPrompt(value: unknown, depth = 0): string | undefined {
+	if (!value || typeof value !== "object" || depth > 2) return undefined;
+	const record = value as Record<string, unknown>;
+	for (const key of CONNECTOR_PROMPT_KEYS) {
+		if (key in record) {
+			const candidate = record[key];
+			if (typeof candidate === "string" && candidate.trim()) return candidate;
+		}
+	}
+
+	for (const key of ["params", "arguments", "input"] as const) {
+		if (key in record) {
+			const nested = connectorPrompt(record[key], depth + 1);
+			if (nested) return nested;
+		}
+	}
+	return undefined;
 }
 
 /**

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { classifyAiError } from "../../../ai-errors/domain";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 
 import type { MarketingAssetReservation } from "./marketing-asset-billing";
 import {
@@ -39,6 +41,15 @@ const TOKEN_SETTLEMENT = {
 		usage: { inputTokens: 10, outputTokens: 20 },
 	},
 };
+
+function internalFailure(message: string) {
+	const failure = classifyAiError(new Error(message), {
+		route: "none",
+		surface: "marketing",
+	});
+	if (!failure) throw new Error("Expected a normalized failure");
+	return failure;
+}
 
 describe("parseMarketingAssetPayload", () => {
 	it("accepts only the exact handoff payload", () => {
@@ -267,7 +278,7 @@ describe("runMarketingAssetGeneration", () => {
 	it("fails and refunds when the generator reports failure", async () => {
 		const asset = makeAsset();
 		const dependencies = makeDependencies(asset, {
-			generated: { message: "model unavailable", status: "failed" },
+			generated: { message: "model unavailable", status: "unavailable" },
 		});
 
 		await expect(
@@ -278,12 +289,14 @@ describe("runMarketingAssetGeneration", () => {
 		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
 		expect(dependencies.fail).toHaveBeenCalledWith(
 			expect.objectContaining({ status: "generating" }),
-			{
+			expect.objectContaining({
 				completedAt: NOW,
 				error: USER_SAFE_MARKETING_ASSET_ERROR,
 				expectedStatus: "generating",
+				failureKind: "internal",
+				failureSource: "ours",
 				reason: "generation_failed",
-			},
+			}),
 		);
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
@@ -303,6 +316,7 @@ describe("runMarketingAssetGeneration", () => {
 				await onProviderGeneration?.(generation);
 				return {
 					...generation,
+					failure: internalFailure("R2 unavailable"),
 					message: "R2 unavailable",
 					providerUnits: 1,
 					status: "failed" as const,
@@ -344,6 +358,31 @@ describe("runMarketingAssetGeneration", () => {
 		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
+	});
+
+	it("persists an insufficient-credit reservation rejection as billing", async () => {
+		const asset = makeAsset();
+		const dependencies = makeDependencies(asset);
+		dependencies.reserve.mockRejectedValueOnce(
+			new InsufficientCreditsError(500, 0),
+		);
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_billing_rejection",
+			}),
+		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Not enough credits for this action.",
+				failureKind: "billing",
+				failureSource: "ours",
+				sentryEventId: null,
+			}),
+		);
+		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
 
 	it("settles an already-failed row with a refund and no generation", async () => {
@@ -488,7 +527,13 @@ describe("runMarketingAssetGeneration", () => {
 			completedAt: NOW,
 			error: USER_SAFE_MARKETING_ASSET_ERROR,
 			expectedStatus: "queued",
+			failureKind: "internal",
+			failureProvider: null,
+			failureProviderMessage: null,
+			failureRequestId: null,
+			failureSource: "ours",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();

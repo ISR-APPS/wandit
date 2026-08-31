@@ -12,6 +12,7 @@ import {
 	type AiChatMessageMetadata,
 	type AiChatMessageUsage,
 	type AiChatRequestMetadata,
+	type AiErrorData,
 	type AnimateImageInput,
 	type AnimateImageOutput,
 	type ApplyElementOpsInput,
@@ -86,6 +87,7 @@ import {
 	type LanguageModelUsage,
 	pipeUIMessageStreamToResponse,
 	smoothStream,
+	type UIMessageStreamWriter,
 } from "ai";
 import type { FastifyReply } from "fastify";
 
@@ -93,13 +95,25 @@ import {
 	getPageHtml,
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	classifyFinish,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
+import { llmProviderForTask } from "../../../ai-provider/domain/llm-provider";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
 	type MeteringSubject,
 	subjectPayer,
 } from "../../../credits/domain/credit-owner";
-import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
+import {
+	ChatsRepository,
+	type MessageFailureColumns,
+} from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
@@ -186,6 +200,10 @@ const AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS = 4 * 60_000;
 const AI_CHAT_LEASE_TTL_MS = 5 * 60_000;
 const AI_CHAT_LEASE_HEARTBEAT_MS = 60_000;
 
+type StreamedAiErrorData = AiErrorData & {
+	provider?: string | null;
+};
+
 export type PreparedAiChatStream = {
 	readonly eventId: string | null;
 	/** Execution-lease token when this request owns the hold's lease. */
@@ -268,6 +286,7 @@ export class AiChatService {
 		/** Request metadata (composer pickers) — only its size matters here. */
 		metadata?: AiChatRequestMetadata;
 		projectId: string;
+		regenerateMessageId?: string;
 		requestId?: string;
 		scope: ProjectScope;
 	}): Promise<PreparedAiChatStream> {
@@ -312,6 +331,7 @@ export class AiChatService {
 					});
 
 				if (creationEvent) {
+					await this.deleteRegenerationTargetAfterAdmission(options);
 					// The bundled hold may be adoptable from ANY replica: the lease is
 					// the cross-replica proof no other stream is using it right now.
 					const leaseToken = await this.acquireStreamLease(creationEvent.id);
@@ -358,6 +378,7 @@ export class AiChatService {
 					}
 				}
 
+				await this.deleteRegenerationTargetAfterAdmission(options);
 				return { eventId: null, leaseToken: null, release };
 			}
 
@@ -379,6 +400,7 @@ export class AiChatService {
 				estimatedCostUsdMicros: estimate.costUsdMicros,
 				messageId,
 			});
+			await this.deleteRegenerationTargetAfterAdmission(options);
 
 			return {
 				eventId: admitted.event.id,
@@ -389,6 +411,20 @@ export class AiChatService {
 			release();
 			throw error;
 		}
+	}
+
+	private async deleteRegenerationTargetAfterAdmission(options: {
+		chatId: string;
+		regenerateMessageId?: string;
+	}): Promise<void> {
+		if (!options.regenerateMessageId) {
+			return;
+		}
+
+		await this.chatsRepository.deleteTerminalFailedAssistantMessage(
+			options.chatId,
+			options.regenerateMessageId,
+		);
 	}
 
 	private chatReplayConflict(): ConflictException {
@@ -660,6 +696,7 @@ export class AiChatService {
 			AbortSignal.timeout(AI_CHAT_MAX_STREAM_DURATION_MS),
 			leaseLossAbort.signal,
 		]);
+		const route = llmProviderForTask("chat");
 		const stopLeaseHeartbeat = this.startLeaseHeartbeat(
 			prepared,
 			leaseLossAbort,
@@ -862,13 +899,176 @@ export class AiChatService {
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
 			const stepUsages: MeteredTokenUsage[] = [];
 			let writerClosed = false;
+			let streamWriter: UIMessageStreamWriter<WanditUIMessage> | null = null;
+			let wroteBillingError = false;
+			let wroteTerminalAiError = false;
+			let terminalAiError: NormalizedAiError | null = null;
+			const wroteToolAiErrorIds = new Set<string>();
+			let streamErrorCaptured = false;
+			let pendingWarningReplay = false;
+			let skipNextAgentStreamError = false;
+			let lastProviderMetadata: unknown;
+			let sawErrorPart = false;
+			let sawOutputText = false;
+			let agentFinished = false;
+			const processedStreamErrors = new Map<
+				unknown,
+				NormalizedAiError | null
+			>();
+			const toolErrorScopes = new Map<
+				unknown,
+				{ toolCallId: string; toolName?: string }
+			>();
+			let removeAbortListener: (() => void) | null = null;
+			const aiErrorContext = (
+				overrides: Partial<AiErrorContext> = {},
+			): AiErrorContext => ({
+				abortSignal,
+				model: env.AI_CHAT_MODEL,
+				providerMetadata: lastProviderMetadata,
+				route,
+				surface: "chat",
+				...overrides,
+			});
+			const writeAiError = (
+				normalized: NormalizedAiError,
+				toolCallId?: string,
+			): boolean => {
+				const writer = streamWriter;
+
+				if (!writer || writerClosed) {
+					return false;
+				}
+
+				const data: StreamedAiErrorData = {
+					...toClientAiError(normalized, toolCallId),
+					provider: normalized.provider,
+				};
+
+				if (!normalized.terminal) {
+					if (toolCallId !== undefined) {
+						if (wroteToolAiErrorIds.has(toolCallId)) {
+							return false;
+						}
+
+						wroteToolAiErrorIds.add(toolCallId);
+					}
+
+					writer.write({ type: "data-ai-error", transient: true, data });
+					return true;
+				}
+
+				if (toolCallId !== undefined) {
+					if (wroteToolAiErrorIds.has(toolCallId)) {
+						return false;
+					}
+
+					wroteToolAiErrorIds.add(toolCallId);
+					writer.write({
+						type: "data-ai-error",
+						id: `ai-error:${toolCallId}`,
+						data,
+					});
+					return true;
+				}
+
+				if (wroteTerminalAiError) {
+					return false;
+				}
+
+				wroteTerminalAiError = true;
+				terminalAiError = normalized;
+				writer.write({ type: "data-ai-error", id: "ai-error", data });
+				return true;
+			};
+			const captureAndWriteStreamError = (
+				error: unknown,
+				scope?: { toolCallId: string; toolName?: string },
+			): NormalizedAiError | null => {
+				if (processedStreamErrors.has(error)) {
+					const processed = processedStreamErrors.get(error) ?? null;
+
+					if (processed && scope) {
+						writeAiError(processed, scope.toolCallId);
+					}
+
+					return processed;
+				}
+
+				const normalized = classifyAiError(error, aiErrorContext());
+				processedStreamErrors.set(error, normalized);
+
+				if (!normalized) {
+					this.handleStreamWarning(error, { chatId, projectId, userId });
+					pendingWarningReplay = true;
+					return null;
+				}
+
+				const captured = this.handleStreamError(error, normalized, {
+					chatId,
+					functionId: "chat.agent",
+					projectId,
+					route,
+					toolName: scope?.toolName,
+					userId,
+				});
+				processedStreamErrors.set(error, captured);
+				streamErrorCaptured = true;
+				writeAiError(captured, scope?.toolCallId);
+				return captured;
+			};
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
-					let wroteBillingError = false;
-					let streamErrorCaptured = false;
-					// Text forms of invalid tool inputs already captured as warnings:
-					// the SDK replays each one as plain text for its tool-error chunk.
-					const invalidToolInputTexts = new Set<string>();
+					streamWriter = writer;
+					for (const notice of mcpResult.notices) {
+						const data = connectorUnreachableNoticeData(
+							notice,
+							mcpResult.configuredSlugs,
+						);
+
+						if (data) {
+							writer.write({ type: "data-ai-error", transient: true, data });
+						}
+					}
+
+					const onAbort = (): void => {
+						if (agentFinished || wroteTerminalAiError || wroteBillingError) {
+							return;
+						}
+
+						const error = abortSignal.reason;
+
+						if (processedStreamErrors.has(error)) {
+							return;
+						}
+
+						const normalized = classifyAiError(error, aiErrorContext());
+						processedStreamErrors.set(error, normalized);
+
+						// Closing the browser is an expected user action. It produces no
+						// banner and no failure event. Budget and lease aborts are failures.
+						if (!normalized || normalized.kind === "cancelled") {
+							return;
+						}
+
+						const captured = this.handleStreamError(error, normalized, {
+							chatId,
+							functionId: "chat.agent",
+							projectId,
+							route,
+							userId,
+						});
+						processedStreamErrors.set(error, captured);
+						writeAiError(captured);
+					};
+					abortSignal.addEventListener("abort", onAbort, { once: true });
+					removeAbortListener = () =>
+						abortSignal.removeEventListener("abort", onAbort);
+
+					if (abortSignal.aborted) {
+						onAbort();
+					}
+
 					// The settle signal must never reach a writer the outer onEnd
 					// already closed.
 					const writeCreditsSettled = async (
@@ -906,7 +1106,7 @@ export class AiChatService {
 							return false;
 						}
 
-						if (!wroteBillingError) {
+						if (!wroteBillingError && !writerClosed) {
 							wroteBillingError = true;
 							writer.write({ type: "data-billing-error", data });
 						}
@@ -914,10 +1114,20 @@ export class AiChatService {
 						return true;
 					};
 					// The agent stream sees provider/tool failures first. Expected 402s
-					// become a typed data part; other failures keep the existing capture-
-					// once behavior and generic client message.
+					// keep their existing typed path. Every other error is normalized,
+					// captured once, and masked on the UI error chunk.
 					const onAgentStreamError = (error: unknown): string => {
 						queueGatewayErrorCapture(error);
+
+						if (skipNextAgentStreamError) {
+							skipNextAgentStreamError = false;
+							return this.streamErrorMessage();
+						}
+
+						if (pendingWarningReplay && typeof error === "string") {
+							pendingWarningReplay = false;
+							return this.streamErrorMessage();
+						}
 
 						if (writeBillingError(error)) {
 							// The SDK's synthetic second invocation (see below) must
@@ -926,40 +1136,14 @@ export class AiChatService {
 							return "Insufficient credits.";
 						}
 
-						// An invalid tool input is a warning: the tool loop continues,
-						// so it must not arm the fatal-error latch below — a later real
-						// failure still needs its capture. Its plain-text replay is
-						// recognised by content instead of by the latch.
-						if (InvalidToolInputError.isInstance(error)) {
-							invalidToolInputTexts.add(error.message);
-							invalidToolInputTexts.add(String(error));
-
-							return this.handleStreamError(error, {
-								chatId,
-								projectId,
-								userId,
-							});
+						const wasProcessedWarning =
+							processedStreamErrors.has(error) &&
+							processedStreamErrors.get(error) === null;
+						captureAndWriteStreamError(error, toolErrorScopes.get(error));
+						if (wasProcessedWarning) {
+							pendingWarningReplay = false;
 						}
-
-						if (typeof error === "string" && invalidToolInputTexts.has(error)) {
-							return this.streamErrorMessage(error);
-						}
-
-						// The SDK invokes onError twice per failure: first with the
-						// real error, then with a synthetic Error built from the
-						// sanitized errorText while the finish wrapper replays the
-						// chunk stream. Only the first carries signal — capture that
-						// one and keep answering with the client-safe message.
-						if (streamErrorCaptured) {
-							return this.streamErrorMessage(error);
-						}
-						streamErrorCaptured = true;
-
-						return this.handleStreamError(error, {
-							chatId,
-							projectId,
-							userId,
-						});
+						return this.streamErrorMessage();
 					};
 
 					try {
@@ -971,6 +1155,28 @@ export class AiChatService {
 							new TransformStream({
 								transform: (part, controller) => {
 									if (
+										part.type === "text-delta" &&
+										part.text.trim().length > 0
+									) {
+										sawOutputText = true;
+									}
+
+									if (part.type === "error") {
+										sawErrorPart = true;
+									}
+
+									if (
+										part.type === "tool-error" &&
+										pendingWarningReplay &&
+										typeof part.error === "string"
+									) {
+										pendingWarningReplay = false;
+										skipNextAgentStreamError = true;
+										controller.enqueue(part);
+										return;
+									}
+
+									if (
 										part.type === "tool-error" &&
 										writeBillingError(part.error)
 									) {
@@ -980,6 +1186,15 @@ export class AiChatService {
 										// suppress the tool-error chunk, and prevent another step.
 										stopStream();
 										return;
+									}
+
+									if (part.type === "tool-error") {
+										const scope = {
+											toolCallId: part.toolCallId,
+											toolName: part.toolName,
+										};
+										toolErrorScopes.set(part.error, scope);
+										captureAndWriteStreamError(part.error, scope);
 									}
 
 									controller.enqueue(part);
@@ -1003,10 +1218,54 @@ export class AiChatService {
 									return { model: env.AI_CHAT_MODEL };
 								}
 
+								if (part.type === "finish-step") {
+									lastProviderMetadata = part.providerMetadata;
+									return undefined;
+								}
+
 								if (part.type === "finish") {
+									agentFinished = true;
+									removeAbortListener?.();
+									removeAbortListener = null;
 									finalUsage = part.totalUsage;
+									const provider = providerFromAiMetadata(lastProviderMetadata);
+									const gatewayGenerationId =
+										gatewayGenerationIdFromAiMetadata(lastProviderMetadata);
+									const finishError = classifyFinish(
+										aiErrorContext({
+											finishReason: part.finishReason,
+											outputText: sawOutputText ? "output" : "",
+											rawFinishReason: part.rawFinishReason,
+											sawErrorPart,
+										}),
+									);
+
+									if (finishError) {
+										const error = new Error(
+											`AI chat finished with ${finishError.kind}`,
+										);
+										const captured = this.handleStreamError(
+											error,
+											finishError,
+											{
+												chatId,
+												functionId: "chat.agent",
+												projectId,
+												route,
+												userId,
+											},
+										);
+										writeAiError(captured);
+									}
+
 									return {
+										finishReason: part.finishReason,
+										...(gatewayGenerationId ? { gatewayGenerationId } : {}),
 										model: env.AI_CHAT_MODEL,
+										...(provider ? { provider } : {}),
+										...(part.rawFinishReason !== undefined
+											? { rawFinishReason: part.rawFinishReason }
+											: {}),
 										usage: toAiChatMessageUsage(part.totalUsage),
 									};
 								}
@@ -1104,21 +1363,34 @@ export class AiChatService {
 							return;
 						}
 
-						// Setup failures never reach the agent stream's onError —
-						// capture here, then rethrow so the SDK still emits an error
-						// chunk for the client.
-						Sentry.captureException(error, {
-							tags: { chatId, projectId, userId },
-						});
+						// Setup failures never reach the agent stream's onError. Normalize
+						// here, then rethrow so the SDK still emits its masked error chunk.
+						captureAndWriteStreamError(error);
 						throw error;
 					}
 				},
 				onError: (error: unknown) => {
 					queueGatewayErrorCapture(error);
-					return this.streamErrorMessage(error);
+
+					// The finish reducer replays a terminal error as a new Error made
+					// from the already masked errorText. It has no provider signal and
+					// must not replace the id-reconciled terminal data part.
+					if (
+						!(
+							streamErrorCaptured &&
+							(isMaskedStreamError(error) || wroteBillingError)
+						)
+					) {
+						captureAndWriteStreamError(error);
+					}
+
+					return this.streamErrorMessage();
 				},
 				onEnd: async ({ isContinuation, responseMessage }) => {
 					writerClosed = true;
+					removeAbortListener?.();
+					removeAbortListener = null;
+					streamWriter = null;
 
 					try {
 						await flushGatewayErrorCaptures();
@@ -1129,10 +1401,14 @@ export class AiChatService {
 						// below would hit the id conflict and silently drop all of that,
 						// so continuations overwrite the existing row instead.
 						if (isContinuation) {
-							await this.chatsRepository.upsertUiMessage(chatId, {
-								...responseMessage,
-								role: "assistant" as const,
-							});
+							await this.chatsRepository.upsertUiMessage(
+								chatId,
+								{
+									...responseMessage,
+									role: "assistant" as const,
+								},
+								messageFailureColumns(terminalAiError),
+							);
 
 							return;
 						}
@@ -1151,6 +1427,7 @@ export class AiChatService {
 						await this.chatsRepository.insertUiMessagesIfAbsent(
 							chatId,
 							messagesToInsert,
+							messageFailureColumns(terminalAiError),
 						);
 					} finally {
 						try {
@@ -1184,8 +1461,30 @@ export class AiChatService {
 			await flushGatewayErrorCaptures();
 
 			// The controller hijacked the reply before calling us, so the global
-			// exception filter sees reply.sent and skips — capture here or lose it.
-			Sentry.captureException(error, { tags: { chatId, projectId, userId } });
+			// exception filter sees reply.sent and skips. Use the same channel split
+			// as stream errors instead of making every provider failure an issue.
+			const normalized = classifyAiError(error, {
+				abortSignal,
+				model: env.AI_CHAT_MODEL,
+				route,
+				surface: "chat",
+			});
+
+			if (
+				normalized &&
+				normalized.kind !== "billing" &&
+				normalized.kind !== "cancelled"
+			) {
+				this.handleStreamError(error, normalized, {
+					chatId,
+					functionId: "chat.agent",
+					projectId,
+					route,
+					userId,
+				});
+			} else if (!normalized) {
+				this.handleStreamWarning(error, { chatId, projectId, userId });
+			}
 			const mcpResult =
 				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
 			try {
@@ -1413,9 +1712,33 @@ export class AiChatService {
 
 	private handleStreamError(
 		error: unknown,
+		normalized: NormalizedAiError,
+		context: {
+			chatId: string;
+			functionId?: string;
+			projectId: string;
+			route: AiErrorContext["route"];
+			toolName?: string;
+			userId: string;
+		},
+	): NormalizedAiError {
+		const capturedEventId = captureAiError(error, normalized, {
+			...context,
+			surface: "chat",
+		});
+		this.logger.error("AI chat stream failed", error);
+
+		return {
+			...normalized,
+			sentryEventId:
+				typeof capturedEventId === "string" ? capturedEventId : null,
+		};
+	}
+
+	private handleStreamWarning(
+		error: unknown,
 		context: { chatId: string; projectId: string; userId: string },
-	): string {
-		// Stream onError never reaches any exception filter — capture explicitly.
+	): void {
 		if (InvalidToolInputError.isInstance(error)) {
 			// The SDK hands the validation error back to the model and the tool
 			// loop continues, so this is a warning, not a failed request. One
@@ -1429,20 +1752,122 @@ export class AiChatService {
 			this.logger.warn(
 				`AI chat tool input rejected for ${error.toolName}: ${error.message}`,
 			);
-		} else {
-			Sentry.captureException(error, { tags: context });
-			this.logger.error("AI chat stream failed", error);
+			return;
 		}
 
-		return this.streamErrorMessage(error);
+		this.logger.warn("AI chat stream warning", error);
 	}
 
 	/** User-facing message only — no capture, no log (see capture-once note). */
-	private streamErrorMessage(error: unknown): string {
-		return InvalidToolInputError.isInstance(error)
-			? error.message
-			: "An error occurred.";
+	private streamErrorMessage(): string {
+		return "An error occurred.";
 	}
+}
+
+function isMaskedStreamError(error: unknown): boolean {
+	return (
+		error === "An error occurred." ||
+		(error instanceof Error && error.message === "An error occurred.")
+	);
+}
+
+function providerFromAiMetadata(providerMetadata: unknown): string | null {
+	const metadata = unknownRecord(providerMetadata);
+	const gateway = unknownRecord(metadata?.gateway);
+	const routing = unknownRecord(gateway?.routing);
+	const finalProvider = routing?.finalProvider;
+
+	if (typeof finalProvider === "string" && finalProvider.trim()) {
+		return finalProvider.trim();
+	}
+
+	const openrouter = unknownRecord(metadata?.openrouter);
+	const openrouterProvider =
+		openrouter?.provider ??
+		openrouter?.providerName ??
+		openrouter?.finalProvider;
+
+	if (typeof openrouterProvider === "string" && openrouterProvider.trim()) {
+		return openrouterProvider.trim();
+	}
+
+	const modelProvider = env.AI_CHAT_MODEL.split("/", 1)[0]?.trim();
+	return modelProvider || null;
+}
+
+function gatewayGenerationIdFromAiMetadata(
+	providerMetadata: unknown,
+): string | null {
+	const metadata = unknownRecord(providerMetadata);
+	const gateway = unknownRecord(metadata?.gateway);
+	const generationId = gateway?.generationId;
+
+	return typeof generationId === "string" && generationId.length > 0
+		? generationId
+		: null;
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function connectorUnreachableNoticeData(
+	notice: string,
+	configuredSlugs: readonly string[],
+): StreamedAiErrorData | null {
+	const match =
+		/^The user's (.{1,80}?) connection could not be used \(connector unreachable\)\./u.exec(
+			notice,
+		);
+
+	if (!match?.[1]) {
+		return null;
+	}
+
+	const providerLabel = match[1].trim().slice(0, 40) || null;
+	const labelSlug = providerLabel
+		?.toLowerCase()
+		.replaceAll(/[^a-z0-9_-]+/gu, "-")
+		.replaceAll(/^-+|-+$/gu, "");
+	const provider = configuredSlugs.find((slug) => slug === labelSlug) ?? null;
+	const source =
+		provider === "higgsfield"
+			? "higgsfield"
+			: provider && /^[a-z0-9_-]{1,40}$/u.test(provider)
+				? (`provider:${provider}` as const)
+				: "unknown";
+
+	return {
+		kind: "connector_unreachable",
+		moderationStage: null,
+		provider,
+		providerLabel,
+		providerMessage: null,
+		refunded: null,
+		requestId: null,
+		retryable: true,
+		source,
+		terminal: false,
+	};
+}
+
+function messageFailureColumns(
+	failure: NormalizedAiError | null,
+): MessageFailureColumns | null {
+	if (!failure) {
+		return null;
+	}
+
+	return {
+		failureKind: failure.kind,
+		failureProvider: failure.provider?.slice(0, 40) ?? null,
+		failureProviderMessage: failure.providerMessage?.slice(0, 240) ?? null,
+		failureRequestId: failure.requestId?.slice(0, 80) ?? null,
+		failureSource: failure.source,
+		sentryEventId: failure.sentryEventId,
+	};
 }
 
 function toAiChatMessageUsage(usage: LanguageModelUsage): AiChatMessageUsage {
