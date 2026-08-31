@@ -1,3 +1,6 @@
+import { domainDnsSchema } from "@wandit/contracts";
+
+import { withoutNameserverRequiredDomainRecords } from "../../domain/domain-provisioning-rules";
 import type { CustomHostnameVerificationResult } from "./custom-hostname-verification.step";
 import {
 	type DomainActivationResult,
@@ -43,6 +46,11 @@ type DomainConfigurationCursorStore = {
 			stalledAt: Date;
 		},
 	): Promise<boolean>;
+	mergeDnsIfStatus(
+		domainId: string,
+		statuses: ("active" | "configuring")[],
+		patch: Record<string, unknown>,
+	): Promise<DomainFulfillmentRow | null>;
 	readCursor(domainId: string): Promise<DomainConfigurationCursor | null>;
 };
 
@@ -53,13 +61,18 @@ type DomainConfigurationRunnerDependencies = {
 	/**
 	 * Best-effort apex zone pass (purchased rows in the purchase runtime,
 	 * external rows in the configuration runtime; the step itself gates on the
-	 * row source): it runs before every probe (retrying configuration until
-	 * `dns.apexConfigured`, then polling the zone / nudging the apex hostname),
+	 * row source): purchased rows run it before every probe; external rows probe
+	 * ownership first and authorize missing-zone provisioning only after the www
+	 * hostname is active. It retries configuration until
+	 * `dns.apexConfigured`, then polls the zone / nudges the apex hostname,
 	 * never throws, and only merges apex keys, so it cannot disturb this
 	 * runner's cursor. Activation never waits on it.
 	 */
 	apexZone?: {
-		execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow>;
+		execute(
+			row: DomainFulfillmentRow,
+			options: { allowZoneCreation: boolean },
+		): Promise<DomainFulfillmentRow>;
 	};
 	cursors: DomainConfigurationCursorStore;
 	now(): Date;
@@ -192,14 +205,42 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			if (this.dependencies.apexZone) {
-				row = await this.dependencies.apexZone.execute(row);
+			let verification: CustomHostnameVerificationResult;
+
+			if (row.source === "external") {
+				verification =
+					await this.dependencies.verification.execute(cfCustomHostnameId);
+
+				if (this.dependencies.apexZone) {
+					row = await this.dependencies.apexZone.execute(row, {
+						allowZoneCreation:
+							verification.status !== "transient" &&
+							verification.hostnameStatus === "active",
+					});
+				}
+			} else {
+				if (this.dependencies.apexZone) {
+					row = await this.dependencies.apexZone.execute(row, {
+						allowZoneCreation: true,
+					});
+				}
+
+				verification =
+					await this.dependencies.verification.execute(cfCustomHostnameId);
 			}
 
-			const verification =
-				await this.dependencies.verification.execute(cfCustomHostnameId);
-
 			if (verification.status === "active") {
+				const activationRow = await this.hideIncompleteExternalZone(row);
+
+				if (!activationRow) {
+					return {
+						processed: false,
+						reason: "state_changed",
+						terminalized: false,
+					};
+				}
+
+				row = activationRow;
 				let activation: DomainActivationResult;
 
 				try {
@@ -260,6 +301,24 @@ export class DomainConfigurationRunner {
 				};
 			}
 		}
+	}
+
+	private async hideIncompleteExternalZone(
+		row: DomainFulfillmentRow,
+	): Promise<DomainFulfillmentRow | null> {
+		if (row.source !== "external") {
+			return row;
+		}
+
+		const dns = domainDnsSchema.safeParse(row.dns);
+
+		if (!dns.success || !dns.data.zoneId || dns.data.apexConfigured === true) {
+			return row;
+		}
+
+		return this.dependencies.cursors.mergeDnsIfStatus(row.id, ["configuring"], {
+			records: withoutNameserverRequiredDomainRecords(dns.data.records ?? []),
+		});
 	}
 
 	private async handleTerminalState(

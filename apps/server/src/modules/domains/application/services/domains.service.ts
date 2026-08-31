@@ -6,7 +6,6 @@ import {
 	type DetachDomainResponse,
 	DOMAIN_TLD_CATALOG,
 	type DomainAvailabilityStatus,
-	type DomainDns,
 	type DomainTld,
 	domainDnsSchema,
 	domainRetailUsdCentsFromWholesale,
@@ -28,7 +27,6 @@ import { env } from "@wandit/env/server";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	mergeRequiredDomainRecords,
-	nameserverRequiredDomainRecords,
 	validationRequiredDomainRecords,
 	wholesaleQuoteBlockReason,
 	wwwCnameTrafficRecord,
@@ -36,6 +34,7 @@ import {
 import {
 	DomainBlockedError,
 	DomainNotAvailableError,
+	ExternalDomainUnregisteredError,
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
@@ -51,6 +50,7 @@ import {
 import { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "../../infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
+import { DomainRegistrationCheckService } from "../../infrastructure/dns/domain-registration-check.service";
 import { mapDomain } from "../../infrastructure/mappers/domain.mapper";
 import {
 	type DomainRow,
@@ -60,23 +60,11 @@ import {
 	apexCustomHostnameIdOf,
 	customerZoneIdOf,
 } from "../fulfillment/domain-assets-cleanup";
-import type { CustomerZone } from "../fulfillment/domain-fulfillment.contracts";
 import { withdrawnCustomerZoneDnsPatch } from "../fulfillment/withdrawn-customer-zone";
 
 export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
 
-const APEX_ERROR_MAX_LENGTH = 240;
-
 type DomainLogger = Pick<Logger, "error" | "log" | "warn">;
-
-/**
- * Outcome of the best-effort zone preparation during an external attach:
- * the zone (adopted or created here) whose nameservers the user is shown, or
- * the reason the attach stays www-only for now.
- */
-type PreparedExternalZone =
-	| { created: boolean; ok: true; zone: CustomerZone }
-	| { error: string | null; ok: false };
 
 export type PreparedDomainPurchase = {
 	name: string;
@@ -98,6 +86,8 @@ export class DomainsService {
 		private readonly customHostnameService: CustomHostnameService,
 		@Inject(CustomerZoneService)
 		private readonly customerZoneService: CustomerZoneService,
+		@Inject(DomainRegistrationCheckService)
+		private readonly domainRegistrationCheckService: DomainRegistrationCheckService,
 		@Inject(DomainRoutingService)
 		private readonly domainRoutingService: DomainRoutingService,
 		@Inject(DOMAINS_LOGGER)
@@ -193,6 +183,13 @@ export class DomainsService {
 		const parsed = this.parseSafeExternalDomainName(body.name);
 
 		await this.domainsRepository.assertProjectAccessible(scope, projectId);
+		const registration = await this.domainRegistrationCheckService.check(
+			parsed.name,
+		);
+
+		if (registration.status === "unregistered") {
+			throw new ExternalDomainUnregisteredError(parsed.name);
+		}
 
 		const row = await this.domainsRepository.createExternalReplacingTerminal({
 			name: parsed.name,
@@ -202,7 +199,6 @@ export class DomainsService {
 			userId: scope.userId,
 		});
 		let customHostnameId: string | null = null;
-		let createdZoneId: string | null = null;
 
 		try {
 			const hostname = await this.customHostnameService.createCustomHostname(
@@ -213,19 +209,9 @@ export class DomainsService {
 				parsed.name,
 				hostname.requiredRecords,
 			);
-			// Best-effort: the Cloudflare zone whose nameservers let the user serve
-			// the bare domain too (option A). Any failure keeps the attach www-only.
-			const prepared = await this.prepareExternalZone(row.id, parsed.name);
-
-			if (prepared.ok && prepared.created) {
-				createdZoneId = prepared.zone.id;
-			}
-
-			const dns = this.externalAttachDns(wwwRecords, prepared);
-			const requiredRecords = dns.records ?? wwwRecords;
 			const updated = await this.domainsRepository.updateById(row.id, {
 				cfCustomHostnameId: hostname.id,
-				dns,
+				dns: { records: wwwRecords },
 			});
 
 			const nonce = String(updated.updatedAt.getTime());
@@ -237,16 +223,11 @@ export class DomainsService {
 
 			return {
 				domain: mapDomain(updated),
-				requiredRecords,
+				requiredRecords: wwwRecords,
 			};
 		} catch (error) {
 			if (customHostnameId) {
 				await this.bestEffortDeleteCustomHostname(customHostnameId, row.id);
-			}
-			// Only a zone THIS call created is released; an adopted one is left
-			// alone (it may already serve the domain).
-			if (createdZoneId) {
-				await this.bestEffortDeleteCustomerZone(createdZoneId, row.id);
 			}
 			await this.domainsRepository.deleteById(row.id);
 			throw error;
@@ -284,13 +265,18 @@ export class DomainsService {
 		const current =
 			checked.source === "external" &&
 			!this.sameRequiredRecords(currentDns.records ?? [], requiredRecords)
-				? await this.domainsRepository.setDns(checked.id, {
-						...currentDns,
-						records: requiredRecords,
-					})
+				? ((await this.domainsRepository.mergeDnsIfStatus(
+						checked.id,
+						["configuring", "active"],
+						{ records: requiredRecords },
+					)) ??
+					(await this.domainsRepository.getByIdForScope(checked.id, scope)))
 				: checked;
+		const hostnameActive = this.isHostnameActive(status.status);
+		const externalConfiguring =
+			current.source === "external" && current.status === "configuring";
 
-		if (this.isHostnameActive(status.status)) {
+		if (hostnameActive && !externalConfiguring) {
 			const active = await this.activateDomain(current);
 
 			return { domain: mapDomain(active), requiredRecords };
@@ -298,7 +284,11 @@ export class DomainsService {
 
 		const pending =
 			current.source === "external"
-				? await this.redispatchExternalVerification(current, scope)
+				? await this.redispatchExternalVerification(
+						current,
+						scope,
+						hostnameActive && externalConfiguring,
+					)
 				: current;
 
 		if (current.source === "purchased") {
@@ -589,9 +579,14 @@ export class DomainsService {
 	private async redispatchExternalVerification(
 		row: DomainRow,
 		scope: ProjectScope,
+		forceRestart = false,
 	): Promise<DomainRow> {
 		const dns = domainDnsSchema.safeParse(row.dns);
 		const marker = dns.success ? dns.data.externalVerification : undefined;
+
+		if (forceRestart) {
+			return this.forceRestartExternalVerification(row.id, scope);
+		}
 
 		if (marker) {
 			const restart =
@@ -639,35 +634,86 @@ export class DomainsService {
 		return this.domainsRepository.getByIdForScope(row.id, scope);
 	}
 
-	/**
-	 * Find-or-adopt-or-create the domain's Cloudflare zone in our account so the
-	 * attach response can already show the nameservers (records purpose
-	 * `nameserver`). Off with the kill switch; a failure (including a missing
-	 * `CLOUDFLARE_ACCOUNT_ID`) is logged and reported as `dns.apexError`.
-	 */
-	private async prepareExternalZone(
+	private async forceRestartExternalVerification(
 		domainId: string,
-		name: string,
-	): Promise<PreparedExternalZone> {
-		if (env.DOMAINS_APEX_ZONE_ENABLED === false) {
-			return { error: null, ok: false };
-		}
+		scope: ProjectScope,
+	): Promise<DomainRow> {
+		const nonce = `manual-restart:${randomUUID()}`;
+		let expectedCursor = await this.domainsRepository.readCursor(domainId);
 
-		try {
-			const adopted = await this.customerZoneService.findZoneByName(name);
-			const zone = adopted ?? (await this.customerZoneService.createZone(name));
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			const restart =
+				await this.domainsRepository.prepareExternalVerificationRestart(
+					domainId,
+					{
+						expectedNonce: expectedCursor?.nonce ?? null,
+						nonce,
+					},
+				);
 
-			return { created: adopted === null, ok: true, zone };
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			if (restart) {
+				return this.handoffExternalVerificationRestart(
+					domainId,
+					scope,
+					restart.nonce,
+				);
+			}
 
-			this.logger.warn(
-				`Apex zone preparation deferred for external domain ${domainId}`,
-				message,
+			const current = await this.domainsRepository.getByIdForScope(
+				domainId,
+				scope,
 			);
 
-			return { error: message.slice(0, APEX_ERROR_MAX_LENGTH), ok: false };
+			if (current.source !== "external" || current.status !== "configuring") {
+				return current;
+			}
+
+			const winner = await this.domainsRepository.readCursor(domainId);
+
+			if (
+				winner &&
+				winner.nonce !== expectedCursor?.nonce &&
+				winner.nonce.startsWith("manual-restart:")
+			) {
+				return this.handoffExternalVerificationRestart(
+					domainId,
+					scope,
+					winner.nonce,
+				);
+			}
+
+			expectedCursor = winner;
 		}
+
+		throw new InvalidDomainStateError(
+			"External domain verification could not be restarted",
+		);
+	}
+
+	private async handoffExternalVerificationRestart(
+		domainId: string,
+		scope: ProjectScope,
+		nonce: string,
+	): Promise<DomainRow> {
+		await this.domainTaskDispatcher.triggerConfiguration({ domainId, nonce });
+
+		const current = await this.domainsRepository.getByIdForScope(
+			domainId,
+			scope,
+		);
+		const dns = domainDnsSchema.safeParse(current.dns);
+		const marker = dns.success ? dns.data.externalVerification : undefined;
+
+		if (!marker) {
+			return current;
+		}
+
+		await this.domainsRepository.clearExternalVerificationMarker(
+			domainId,
+			marker.stalledAt,
+		);
+
+		return this.domainsRepository.getByIdForScope(domainId, scope);
 	}
 
 	/**
@@ -675,9 +721,9 @@ export class DomainsService {
 	 * longer exists in Cloudflare (deleted out of band, purged while pending),
 	 * its nameservers are withdrawn from `dns.records` and the zone keys are
 	 * cleared, so no UI keeps recommending option A for a zone nobody hosts. A
-	 * `configuring` row gets a fresh zone from the configure task this verify
-	 * redispatches; an `active` row stays on option B (no pass would fill a
-	 * zone recreated for it). A failed check is logged and changes nothing.
+	 * `configuring` row is redispatched so the fulfillment runner can apply its
+	 * current ownership gate before replacing the zone; an `active` row stays on
+	 * option B. A failed check is logged and changes nothing.
 	 */
 	private async withdrawLostExternalZone(row: DomainRow): Promise<DomainRow> {
 		const dns = domainDnsSchema.safeParse(row.dns);
@@ -715,46 +761,6 @@ export class DomainsService {
 		);
 
 		return withdrawn ?? row;
-	}
-
-	private externalAttachDns(
-		wwwRecords: RequiredDomainRecord[],
-		prepared: PreparedExternalZone,
-	): DomainDns {
-		if (!prepared.ok) {
-			return {
-				records: wwwRecords,
-				...(prepared.error ? { apexError: prepared.error } : {}),
-			};
-		}
-
-		// `zoneDelegated` from the first exposure: the user may delegate at any
-		// time, so cleanup must never delete this zone.
-		return {
-			records: mergeRequiredDomainRecords(
-				wwwRecords,
-				nameserverRequiredDomainRecords(prepared.zone.nameServers),
-			),
-			...(prepared.created ? { zoneCreated: true } : {}),
-			zoneDelegated: true,
-			zoneId: prepared.zone.id,
-			zoneNameServers: prepared.zone.nameServers,
-			zoneStatus: prepared.zone.status,
-		};
-	}
-
-	private async bestEffortDeleteCustomerZone(
-		zoneId: string,
-		domainId: string,
-	): Promise<void> {
-		try {
-			await this.customerZoneService.deleteZone(zoneId);
-		} catch (error) {
-			this.logger.warn(
-				`Failed to delete Cloudflare zone ${zoneId} for domain ${domainId}`,
-				error instanceof Error ? error.message : String(error),
-			);
-		}
 	}
 
 	private sameRequiredRecords(

@@ -110,6 +110,7 @@ export type DomainApexDnsPatch = {
 	zoneDelegated?: true | null;
 	zoneId?: string | null;
 	zoneNameServers?: string[] | null;
+	zoneNameserversExposedAt?: string | null;
 	zoneScanned?: true | null;
 	zoneScanRecordsAdded?: number | null;
 	zoneStatus?: string | null;

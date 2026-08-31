@@ -421,6 +421,13 @@
       "when": 1787759987110,
       "tag": "0059_image-count-6",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788106683998,
+      "tag": "0060_late_chimera",
+      "breakpoints": true
     }
   ]
 }

@@ -198,6 +198,18 @@ function setup(
 		error: vi.fn(),
 		warn: vi.fn(),
 	} satisfies DomainFulfillmentLogger;
+	const apexZoneStep = new ApexZoneStep(
+		zones,
+		customHostnames,
+		registrar,
+		state,
+		logger,
+		{
+			enabled: options.enabled ?? true,
+			fallbackOrigin,
+			sources: options.sources ?? ["purchased"],
+		},
+	);
 
 	return {
 		customHostnames,
@@ -205,11 +217,12 @@ function setup(
 		logger,
 		registrar,
 		state,
-		step: new ApexZoneStep(zones, customHostnames, registrar, state, logger, {
-			enabled: options.enabled ?? true,
-			fallbackOrigin,
-			sources: options.sources ?? ["purchased"],
-		}),
+		step: {
+			execute: (
+				row: DomainFulfillmentRow,
+				execution = { allowZoneCreation: true },
+			) => apexZoneStep.execute(row, execution),
+		},
 		zones,
 	};
 }
@@ -457,6 +470,7 @@ describe("ApexZoneStep", () => {
 			zoneDelegated: null,
 			zoneId: null,
 			zoneNameServers: null,
+			zoneNameserversExposedAt: null,
 			zoneScanRecordsAdded: null,
 			zoneScanned: null,
 			zoneStatus: null,
@@ -735,8 +749,56 @@ describe("ApexZoneStep", () => {
 				status: "configuring",
 				...overrides,
 			});
-		const externalSetup = (options: { enabled?: boolean } = {}) =>
-			setup({ ...options, sources: ["external"] });
+		const externalSetup = (options: { enabled?: boolean } = {}) => {
+			const fixture = setup({ ...options, sources: ["external"] });
+
+			return {
+				...fixture,
+				step: {
+					execute: (
+						row: DomainFulfillmentRow,
+						execution = { allowZoneCreation: true },
+					) => fixture.step.execute(row, execution),
+				},
+			};
+		};
+
+		it("does not find, adopt, or create a missing zone without explicit authorization", async () => {
+			const input = externalRow();
+			const { events, state, step, zones } = externalSetup();
+
+			await expect(
+				step.execute(input, { allowZoneCreation: false }),
+			).resolves.toBe(input);
+
+			expect(events).toEqual([]);
+			expect(zones.findZoneByName).not.toHaveBeenCalled();
+			expect(zones.createZone).not.toHaveBeenCalled();
+			expect(state.persistApexDns).not.toHaveBeenCalled();
+		});
+
+		it("maintains a persisted zone id without nameserver metadata while creation is unauthorized", async () => {
+			const input = externalRow({
+				dns: {
+					apexCustomHostnameId: "cf_apex",
+					records: [wwwTrafficRecord, wwwValidationRecord],
+					zoneId: "zone_legacy",
+					zoneScanned: true,
+					zoneStatus: "pending",
+				},
+			});
+			const { step, zones } = externalSetup();
+
+			await expect(
+				step.execute(input, { allowZoneCreation: false }),
+			).resolves.toMatchObject({ dns: { apexConfigured: true } });
+
+			expect(zones.getZoneStatus).toHaveBeenCalledExactlyOnceWith(
+				"zone_legacy",
+			);
+			expect(zones.findZoneByName).not.toHaveBeenCalled();
+			expect(zones.createZone).not.toHaveBeenCalled();
+		});
 
 		it("creates the zone, exposes its nameservers at once, imports the existing DNS once, and configures the apex without any registrar call", async () => {
 			const input = externalRow();
@@ -774,6 +836,7 @@ describe("ApexZoneStep", () => {
 				zoneDelegated: true,
 				zoneId: "zone_1",
 				zoneNameServers: nameServers,
+				zoneNameserversExposedAt: expect.any(String),
 				zoneStatus: "pending",
 			});
 			expect(zones.scanDnsRecords).toHaveBeenCalledExactlyOnceWith("zone_1");
@@ -858,13 +921,14 @@ describe("ApexZoneStep", () => {
 				zoneDelegated: true,
 				zoneId: "zone_1",
 				zoneNameServers: nameServers,
+				zoneNameserversExposedAt: expect.any(String),
 				zoneScanRecordsAdded: 3,
 				zoneScanned: true,
 				zoneStatus: "pending",
 			});
 		});
 
-		it("resumes from the zone the attach already exposed without looking it up, and still imports the DNS once", async () => {
+		it("maintains a persisted zone without creation authorization and still imports the DNS once", async () => {
 			const input = externalRow({
 				dns: {
 					records: [
@@ -881,7 +945,9 @@ describe("ApexZoneStep", () => {
 			});
 			const { events, state, step, zones } = externalSetup();
 
-			const result = await step.execute(input);
+			const result = await step.execute(input, {
+				allowZoneCreation: false,
+			});
 
 			expect(zones.findZoneByName).not.toHaveBeenCalled();
 			expect(zones.createZone).not.toHaveBeenCalled();
@@ -907,6 +973,58 @@ describe("ApexZoneStep", () => {
 			]);
 		});
 
+		it("withdraws a lost persisted zone without finding or creating a replacement when unauthorized", async () => {
+			const exposedAt = "2026-08-01T00:00:00.000Z";
+			const input = externalRow({
+				dns: {
+					records: [
+						wwwTrafficRecord,
+						wwwValidationRecord,
+						...nameserverRecords,
+					],
+					zoneCreated: true,
+					zoneDelegated: true,
+					zoneId: "zone_gone",
+					zoneNameServers: nameServers,
+					zoneNameserversExposedAt: exposedAt,
+					zoneScanned: true,
+					zoneStatus: "pending",
+				},
+			});
+			const { events, state, step, zones } = externalSetup();
+			zones.getZoneStatus.mockImplementationOnce(async () => {
+				events.push("get-zone-status");
+				return null;
+			});
+
+			const result = await step.execute(input, {
+				allowZoneCreation: false,
+			});
+
+			expect(events).toEqual(["get-zone-status", "persist"]);
+			expect(zones.findZoneByName).not.toHaveBeenCalled();
+			expect(zones.createZone).not.toHaveBeenCalled();
+			expect(state.persistApexDns).toHaveBeenCalledExactlyOnceWith(input, {
+				apexConfigured: null,
+				apexCustomHostnameNudged: null,
+				apexError: "Cloudflare zone zone_gone no longer exists",
+				records: [wwwTrafficRecord, wwwValidationRecord],
+				zoneActive: null,
+				zoneCreated: null,
+				zoneDelegated: null,
+				zoneId: null,
+				zoneNameServers: null,
+				zoneNameserversExposedAt: null,
+				zoneScanRecordsAdded: null,
+				zoneScanned: null,
+				zoneStatus: null,
+			});
+			expect(result.dns).toEqual({
+				apexError: "Cloudflare zone zone_gone no longer exists",
+				records: [wwwTrafficRecord, wwwValidationRecord],
+			});
+		});
+
 		it("adopts a zone that already exists by name and still exposes its nameservers with the delegation marker", async () => {
 			const { state, step, zones } = externalSetup();
 			zones.findZoneByName.mockResolvedValueOnce(
@@ -928,6 +1046,7 @@ describe("ApexZoneStep", () => {
 					zoneDelegated: true,
 					zoneId: "zone_existing",
 					zoneNameServers: nameServers,
+					zoneNameserversExposedAt: expect.any(String),
 					zoneStatus: "active",
 				},
 			);
@@ -1230,6 +1349,7 @@ describe("ApexZoneStep", () => {
 					zoneDelegated: null,
 					zoneId: null,
 					zoneNameServers: null,
+					zoneNameserversExposedAt: null,
 					zoneScanRecordsAdded: null,
 					zoneScanned: null,
 					zoneStatus: null,
