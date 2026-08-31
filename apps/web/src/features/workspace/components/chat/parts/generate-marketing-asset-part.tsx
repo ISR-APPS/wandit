@@ -17,6 +17,12 @@ import {
 	marketingAssetKeys,
 	useMarketingAssetsQuery,
 } from "../../../api/marketing-assets.queries";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
@@ -30,10 +36,13 @@ type GenerateMarketingAssetToolPart = Extract<
 
 export function GenerateMarketingAssetPart({
 	part,
+	messageParts,
 }: {
 	part: GenerateMarketingAssetToolPart;
+	messageParts?: WanditUIMessage["parts"];
 }) {
 	const { t } = useTranslation();
+	const { prefillComposer } = useSharedAiChat();
 	const { projectId } = useWorkspace();
 	const queryClient = useQueryClient();
 
@@ -63,6 +72,21 @@ export function GenerateMarketingAssetPart({
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			const copy = durableAiErrorPresentation(failure, t);
+			return (
+				<MarketingFailure
+					attribution={copy.attribution}
+					body={copy.body}
+					onPrefill={prefillComposer}
+					prompt={part.input?.brief}
+					showPrefill={copy.showRetry}
+					title={copy.kicker}
+				/>
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
@@ -76,13 +100,27 @@ export function GenerateMarketingAssetPart({
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{part.errorText}
+					{t("workspace.chat.marketingAsset.failedBody")}
 				</p>
 			</div>
 		);
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		const copy = durableAiErrorPresentation(outputFailure, t);
+		return (
+			<MarketingFailure
+				attribution={copy.attribution}
+				body={copy.body}
+				onPrefill={prefillComposer}
+				prompt={part.input?.brief}
+				showPrefill={copy.showRetry}
+				title={copy.kicker}
+			/>
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.assetId) {
 		return (
@@ -90,6 +128,8 @@ export function GenerateMarketingAssetPart({
 				assetId={part.output.assetId}
 				realtime={part.output.realtime}
 				fallbackTitle={part.input?.title}
+				fallbackPrompt={part.input?.brief}
+				onPrefill={prefillComposer}
 			/>
 		);
 	}
@@ -107,10 +147,14 @@ function MarketingAssetLiveCard({
 	assetId,
 	realtime,
 	fallbackTitle,
+	fallbackPrompt,
+	onPrefill,
 }: {
 	assetId: string;
 	realtime: TriggerRealtimeHandle | undefined;
 	fallbackTitle: string | undefined;
+	fallbackPrompt: string | undefined;
+	onPrefill: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
 	const { projectId, setTab } = useWorkspace();
@@ -176,6 +220,20 @@ function MarketingAssetLiveCard({
 	}
 
 	if (asset?.status === "failed") {
+		if (asset.failure) {
+			const copy = durableAiErrorPresentation(asset.failure, t);
+			return (
+				<MarketingFailure
+					attribution={copy.attribution}
+					body={copy.body}
+					onPrefill={onPrefill}
+					prompt={fallbackPrompt}
+					showPrefill={copy.showRetry}
+					title={copy.kicker}
+				/>
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
@@ -221,6 +279,59 @@ function MarketingAssetLiveCard({
 					: t("workspace.chat.marketingAsset.building")}
 			</p>
 			<OpenMarketingTabButton onOpen={() => setTab("marketing")} />
+		</div>
+	);
+}
+
+function MarketingFailure({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill,
+}: {
+	title: string;
+	body: string;
+	attribution: string | null;
+	onPrefill: (prompt: string) => void;
+	prompt: string | undefined;
+	showPrefill: boolean;
+}) {
+	const { t } = useTranslation();
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={title}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
+				{body}
+			</p>
+			{attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{attribution}
+				</p>
+			) : null}
+			{showPrefill && prompt ? (
+				<div className="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 rounded-lg px-2.5 text-xs"
+						onClick={() => onPrefill(prompt)}
+					>
+						{t("workspace.chat.aiError.tryAgainPrefill.marketing")}
+					</Button>
+					<p className="mt-1 text-[10.5px] text-muted-foreground">
+						{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+					</p>
+				</div>
+			) : null}
 		</div>
 	);
 }

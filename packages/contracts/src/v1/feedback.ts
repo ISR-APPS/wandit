@@ -33,6 +33,8 @@ export const createFeedbackRequestSchema = z.object({
 	category: feedbackCategorySchema.optional(),
 	// The page the user was on at submit time.
 	pageUrl: z.string().max(2000),
+	// The workspace chat that was open, so admins can jump to the conversation.
+	chatId: uuidSchema.optional(),
 	// PostHog session replay deep link, when replay is active.
 	replayUrl: z.string().max(2000).optional(),
 	// Most recent Sentry error captured in this tab, if any.

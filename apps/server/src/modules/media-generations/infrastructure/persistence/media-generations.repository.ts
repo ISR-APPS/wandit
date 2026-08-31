@@ -32,11 +32,19 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	captureAiError,
+	type NormalizedAiError,
+} from "../../../ai-errors/domain";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import {
 	type ProjectScope,
 	projectScopePredicate,
 } from "../../../projects/domain/project-scope";
+import {
+	aiFailurePersistenceFields,
+	internalMediaFailure,
+} from "../../application/services/media-generation-failure";
 
 export type MediaGenerationAttemptRow = {
 	actualDurationMs: number | null;
@@ -46,6 +54,11 @@ export type MediaGenerationAttemptRow = {
 	createdAt: Date;
 	durationSeconds: number;
 	error: string | null;
+	failureKind?: string | null;
+	failureProvider?: string | null;
+	failureProviderMessage?: string | null;
+	failureRequestId?: string | null;
+	failureSource?: string | null;
 	id: string;
 	kind: MediaGenerationKind;
 	model: string | null;
@@ -61,6 +74,7 @@ export type MediaGenerationAttemptRow = {
 	sourceVideoUrl: string | null;
 	startedAt: Date | null;
 	status: "queued" | "generating" | "succeeded" | "failed";
+	sentryEventId?: string | null;
 	talking: boolean | null;
 	title: string | null;
 	videoMediaType: string | null;
@@ -175,6 +189,11 @@ const ATTEMPT_COLUMNS = {
 	createdAt: mediaGenerationAttempts.createdAt,
 	durationSeconds: mediaGenerationAttempts.durationSeconds,
 	error: mediaGenerationAttempts.error,
+	failureKind: mediaGenerationAttempts.failureKind,
+	failureProvider: mediaGenerationAttempts.failureProvider,
+	failureProviderMessage: mediaGenerationAttempts.failureProviderMessage,
+	failureRequestId: mediaGenerationAttempts.failureRequestId,
+	failureSource: mediaGenerationAttempts.failureSource,
 	id: mediaGenerationAttempts.id,
 	kind: mediaGenerationAttempts.kind,
 	model: mediaGenerationAttempts.model,
@@ -190,6 +209,7 @@ const ATTEMPT_COLUMNS = {
 	sourceVideoUrl: mediaGenerationAttempts.sourceVideoUrl,
 	startedAt: mediaGenerationAttempts.startedAt,
 	status: mediaGenerationAttempts.status,
+	sentryEventId: mediaGenerationAttempts.sentryEventId,
 	talking: mediaGenerationAttempts.talking,
 	title: mediaGenerationAttempts.title,
 	videoMediaType: mediaGenerationAttempts.videoMediaType,
@@ -545,9 +565,11 @@ export class MediaGenerationsRepository {
 		error: string,
 		userId: string,
 	): Promise<boolean> {
+		const failure = internalMediaFailure({ model: null, refunded: true });
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
 			.set({
+				...aiFailurePersistenceFields(failure),
 				completedAt: new Date(),
 				error: error.slice(0, 2_000),
 				status: "failed",
@@ -566,6 +588,14 @@ export class MediaGenerationsRepository {
 		if (!row) {
 			return false;
 		}
+		await captureAndPersistFailureEventId(
+			this.db,
+			attemptId,
+			userId,
+			true,
+			"trigger_rejected",
+			failure,
+		);
 
 		captureGenerationFailed(
 			this.analyticsService,
@@ -604,10 +634,13 @@ export class MediaGenerationsRepository {
 		startedBefore: Date,
 		error: string,
 		userId: string,
+		refunded: boolean,
 	): Promise<boolean> {
+		const failure = internalMediaFailure({ model: null, refunded });
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
 			.set({
+				...aiFailurePersistenceFields(failure),
 				completedAt: new Date(),
 				error: error.slice(0, 2_000),
 				status: "failed",
@@ -628,6 +661,14 @@ export class MediaGenerationsRepository {
 		if (!row) {
 			return false;
 		}
+		await captureAndPersistFailureEventId(
+			this.db,
+			attemptId,
+			userId,
+			refunded,
+			"stale_generation",
+			failure,
+		);
 
 		captureGenerationFailed(
 			this.analyticsService,
@@ -647,9 +688,11 @@ export class MediaGenerationsRepository {
 		error: string,
 		userId: string,
 	): Promise<boolean> {
+		const failure = internalMediaFailure({ model: null, refunded: true });
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
 			.set({
+				...aiFailurePersistenceFields(failure),
 				completedAt: new Date(),
 				error: error.slice(0, 2_000),
 				status: "failed",
@@ -669,6 +712,14 @@ export class MediaGenerationsRepository {
 		if (!row) {
 			return false;
 		}
+		await captureAndPersistFailureEventId(
+			this.db,
+			attemptId,
+			userId,
+			true,
+			"stale_queued",
+			failure,
+		);
 
 		captureGenerationFailed(
 			this.analyticsService,
@@ -851,6 +902,41 @@ export class MediaGenerationsRepository {
 			.orderBy(desc(mediaGenerationAttempts.createdAt))
 			.limit(limit);
 	}
+}
+
+async function captureAndPersistFailureEventId(
+	db: Database,
+	attemptId: string,
+	userId: string,
+	refunded: boolean,
+	reason: string,
+	failure: NormalizedAiError,
+): Promise<void> {
+	const sentryEventId = captureAiError(
+		new Error(`Media persistence failure: ${reason}`),
+		failure,
+		{
+			functionId: "video.persistence",
+			generationId: attemptId,
+			refunded,
+			route: "none",
+			surface: "video",
+			userId,
+		},
+	);
+	if (!sentryEventId) {
+		return;
+	}
+
+	await db
+		.update(mediaGenerationAttempts)
+		.set({ sentryEventId })
+		.where(
+			and(
+				eq(mediaGenerationAttempts.id, attemptId),
+				eq(mediaGenerationAttempts.status, "failed"),
+			),
+		);
 }
 
 function analyticsKind(kind: MediaGenerationKind): "animation" | "video" {

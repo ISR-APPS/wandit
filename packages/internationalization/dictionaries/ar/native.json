@@ -126,6 +126,37 @@
 				"memberLimit": "لقد بلغت حدك الشهري من الرصيد في مساحة العمل هذه. اطلب من المسؤول رفعه.",
 				"streamKicker": "انقطع الرد"
 			},
+			"aiError": {
+				"kicker": {
+					"provider": "مشكلة لدى المزوّد",
+					"moderated": "قواعد المحتوى",
+					"connector": "مشكلة في الموصّل",
+					"ours": "حدث خطأ ما"
+				},
+				"providerFallback": "مزوّد الذكاء الاصطناعي",
+				"retry": "حاول مرة أخرى",
+				"retryHint": "عند إعادة المحاولة، تبدأ محاولة جديدة.",
+				"queuedHint": "ستكتمل عمليات التوليد التي بدأت بالفعل من تلقاء نفسها.",
+				"notCharged": "لم يتم تحصيل رسوم منك.",
+				"connectorRefunded": "تمت إعادة أرصدة Wandit إليك. تحقّق من رصيدك لدى {connector}.",
+				"attribution": {
+					"viaGateway": "{provider} عبر Vercel AI Gateway",
+					"viaOpenrouter": "{provider} عبر OpenRouter",
+					"refusedPrompt": "رفض {provider} هذا الأمر النصي: {text}",
+					"refusedPromptNoText": "رفض {provider} هذا الأمر النصي.",
+					"outputFilter": "أوقف عامل تصفية المحتوى لدى {provider} عملية التوليد هذه.",
+					"reasonGiven": "السبب المذكور: {text}",
+					"connectorReturned": "كانت استجابة {connector}: {text}",
+					"connectorNoReason": "فشل {connector} دون توضيح السبب."
+				},
+				"tryAgainPrefill": {
+					"image": "جرّب الصورة مرة أخرى",
+					"video": "جرّب الفيديو مرة أخرى",
+					"marketing": "جرّب الأصل التسويقي مرة أخرى",
+					"connector": "جرّب الموصّل مرة أخرى",
+					"hint": "سيبدأ هذا عملية توليد جديدة."
+				}
+			},
 			"tray": {
 				"preparing": "جارٍ تحضير السؤال…",
 				"needsDetail": "نحتاج توضيحًا",

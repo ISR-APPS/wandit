@@ -6,6 +6,7 @@
  * attempt settles, then fetches the finished version's HTML separately.
  */
 import { z } from "zod";
+import { aiErrorDataSchema } from "./ai-errors";
 // Shared UUID/date validators.
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 // Realtime handle: same shape the generate_page tool returns at queue time.
@@ -83,6 +84,7 @@ export const pageOverviewSchema = z.object({
 			id: uuidSchema,
 			status: pageAttemptStatusSchema,
 			error: z.string().nullable(),
+			failure: aiErrorDataSchema.nullable().optional(),
 			// Defaulted: older server responses predate the field.
 			failureCode: pageBuildFailureCodeReadSchema.default(null),
 			versionId: uuidSchema.nullable(),
@@ -102,6 +104,8 @@ export const pageAttemptDetailSchema = z.object({
 	id: uuidSchema,
 	status: pageAttemptStatusSchema,
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	failureCode: pageBuildFailureCodeReadSchema.default(null),
 	// Terminal snapshot only — live percent rides Trigger run metadata.
 	lastProgressPercent: z.number().int().min(0).max(100).nullable(),

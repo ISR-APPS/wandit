@@ -19,10 +19,27 @@ const triggerMocks = vi.hoisted(() => ({
 	trigger: vi.fn(),
 }));
 
+const sentryMocks = vi.hoisted(() => ({
+	captureException: vi.fn(() => "sentry-event-id"),
+	info: vi.fn(),
+	warn: vi.fn(),
+}));
+
 vi.mock("@trigger.dev/sdk", () => ({
 	auth: { createPublicToken: triggerMocks.createPublicToken },
 	idempotencyKeys: { create: triggerMocks.createTriggerIdempotencyKey },
 	tasks: { trigger: triggerMocks.trigger },
+}));
+
+vi.mock("@wandit/observability/nestjs", () => ({
+	Sentry: { captureException: sentryMocks.captureException },
+}));
+
+vi.mock("@wandit/observability/node", () => ({
+	Sentry: {
+		captureException: sentryMocks.captureException,
+		logger: { info: sentryMocks.info, warn: sentryMocks.warn },
+	},
 }));
 
 import type { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
@@ -555,6 +572,14 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.notices).toEqual([
 				"The user's Higgsfield connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 			]);
+			expect(sentryMocks.captureException).not.toHaveBeenCalled();
+			expect(sentryMocks.warn).toHaveBeenCalledWith(
+				"ai.call.failed",
+				expect.objectContaining({
+					errorKind: "connector_unreachable",
+					errorSource: "higgsfield",
+				}),
+			);
 		});
 
 		it("requires reconnect only for a rejected token refresh", async () => {
@@ -2010,7 +2035,16 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					{ prompt: "Provider rejects" },
 					toolExecutionOptions("call-image-mcp-error"),
 				),
-			).resolves.toBe(providerResult);
+			).resolves.toEqual({
+				...providerResult,
+				wanditError: expect.objectContaining({
+					kind: "connector_rejected",
+					providerMessage: null,
+					refunded: true,
+					retryable: true,
+					source: "higgsfield",
+				}),
+			});
 			expect(meteringService.captureGeneration).toHaveBeenCalledWith(
 				"usage-event-2",
 				expect.objectContaining({
@@ -2651,12 +2685,11 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		it("refunds both holds only after a definitive Trigger rejection", async () => {
 			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
 				"tr_test";
-			triggerMocks.trigger.mockRejectedValueOnce(
-				Object.assign(new Error("Invalid task"), {
-					name: "TriggerApiError",
-					status: 422,
-				}),
-			);
+			const triggerError = Object.assign(new Error("Invalid task"), {
+				name: "TriggerApiError",
+				status: 422,
+			});
+			triggerMocks.trigger.mockRejectedValueOnce(triggerError);
 			queueClient(mockClient({ definitions: [definition("generate_video")] }));
 			const { connectorGenerationsRepository, meteringService, service } =
 				buildService({ connectors: [connector({ slug: "higgsfield" })] });
@@ -2675,7 +2708,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
 			expect(
 				connectorGenerationsRepository.markAttemptFailed,
-			).toHaveBeenCalledWith(GENERATION_ATTEMPT_ID, "Invalid task");
+			).toHaveBeenCalledWith(GENERATION_ATTEMPT_ID, triggerError);
 			expect(meteringService.refund.mock.calls).toEqual([
 				["usage-event-2", "connector_generation_failed"],
 				["usage-event-1", "connector_generation_failed"],
@@ -3890,7 +3923,15 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					requiredTool(result.tools, "mcp_meta-ads_campaign_get"),
 					{},
 				),
-			).resolves.toBe(returned);
+			).resolves.toEqual({
+				...returned,
+				wanditError: expect.objectContaining({
+					kind: "connector_rejected",
+					providerMessage: null,
+					refunded: null,
+					source: "provider:meta-ads",
+				}),
+			});
 			await expect(
 				executeTool(
 					requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
@@ -4802,7 +4843,15 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					requiredTool(result.tools, "mcp_meta-ads_campaign_get"),
 					{},
 				),
-			).resolves.toEqual(semanticError);
+			).resolves.toEqual({
+				...semanticError,
+				wanditError: expect.objectContaining({
+					kind: "connector_rejected",
+					providerMessage: null,
+					refunded: null,
+					retryable: false,
+				}),
+			});
 			expect(execute).toHaveBeenCalledTimes(1);
 		});
 

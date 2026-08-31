@@ -14,8 +14,10 @@ import {
 	aiChatBillingErrorDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRequestMetadataSchema,
+	aiErrorDataSchema,
 	uuidSchema,
 } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/nestjs";
 import { validateUIMessages } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -106,6 +108,10 @@ export class AiChatController {
 			throw new NotFoundException();
 		}
 
+		const { projectId } = chat;
+		Sentry.getIsolationScope().setTags({ chatId, projectId });
+		Sentry.setConversationId(chatId);
+
 		if (hasSystemMessage(body.messages)) {
 			throw new BadRequestException({
 				code: "SYSTEM_MESSAGES_NOT_ALLOWED",
@@ -129,6 +135,8 @@ export class AiChatController {
 			messages,
 			metadata: body.metadata,
 			projectId: chat.projectId,
+			regenerateMessageId:
+				body.trigger === "regenerate-message" ? body.messageId : undefined,
 			requestId: streamRequestId(body),
 			scope,
 		});
@@ -174,7 +182,10 @@ export class AiChatController {
 
 		try {
 			validated = await validateUIMessages<WanditUIMessage>({
-				dataSchemas: { "billing-error": aiChatBillingErrorDataSchema },
+				dataSchemas: {
+					"ai-error": aiErrorDataSchema,
+					"billing-error": aiChatBillingErrorDataSchema,
+				},
 				messages: nonEmptyMessages,
 				metadataSchema: aiChatValidationMetadataSchema,
 				tools: aiChatToolsForValidation,

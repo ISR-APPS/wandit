@@ -1581,6 +1581,7 @@ export async function runSiteBuild(
 					}
 				: {}),
 			stopWhen: buildStopConditions(state),
+			telemetry: { functionId: "page_build.agent" },
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,

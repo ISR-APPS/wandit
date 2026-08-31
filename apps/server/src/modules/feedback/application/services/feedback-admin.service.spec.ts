@@ -37,6 +37,8 @@ function feedbackRow(
 	return {
 		id: FEEDBACK_ID,
 		userId: "user_1",
+		chatId: null,
+		authSessionId: "session-1",
 		reporterName: "Amina Doe",
 		reporterEmail: "amina@example.com",
 		projectId: null,

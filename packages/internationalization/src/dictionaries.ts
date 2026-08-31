@@ -60,8 +60,8 @@ type DotPath<
 	T,
 	Prefix extends string = "",
 	Depth extends readonly unknown[] = [],
-	// Keep typed keys to five segments; 6-segment leaves must use useDictionary().
-> = Depth["length"] extends 6
+	// Keep typed keys to six segments; 7-segment leaves must use useDictionary().
+> = Depth["length"] extends 7
 	? never
 	: T extends string
 		? Prefix

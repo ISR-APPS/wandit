@@ -19,11 +19,18 @@ import { AlertTriangle, Check, Download, FileSpreadsheet } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
+import { useTranslation } from "@/lib/i18n";
 import {
 	leadScrapeKeys,
 	useLeadScrapeAttemptQuery,
 } from "../../../api/lead-scrapes.queries";
 import { leadScrapeDownloadUrl } from "../../../api/lead-scrapes.services";
+import {
+	durableAiErrorPresentation,
+	durableAttemptAiError,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
 import { SpinnerArc } from "../request-tray/tray-signals";
@@ -38,7 +45,14 @@ const SOURCE_LABELS: Record<string, string> = {
 	"google-maps": "Google Maps",
 };
 
-export function ScrapeLeadsPart({ part }: { part: ScrapeLeadsToolPart }) {
+export function ScrapeLeadsPart({
+	part,
+	messageParts,
+}: {
+	part: ScrapeLeadsToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
+	const { t } = useTranslation();
 	// The search brief streams in first, then the tool executes server-side.
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return (
@@ -53,12 +67,19 @@ export function ScrapeLeadsPart({ part }: { part: ScrapeLeadsToolPart }) {
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			return (
+				<LeadScrapeFailure copy={durableAiErrorPresentation(failure, t)} />
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
 					avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 					kickerClass="text-destructive"
-					kicker="Lead scrape failed to start"
+					kicker={t("workspace.chat.leadScrape.failedTitle")}
 				>
 					<AlertTriangle className="size-3" aria-hidden />
 				</StatusMessageHeader>
@@ -66,13 +87,19 @@ export function ScrapeLeadsPart({ part }: { part: ScrapeLeadsToolPart }) {
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{part.errorText}
+					{t("workspace.chat.leadScrape.failedDetail")}
 				</p>
 			</div>
 		);
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		return (
+			<LeadScrapeFailure copy={durableAiErrorPresentation(outputFailure, t)} />
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.attemptId) {
 		return (
@@ -106,6 +133,7 @@ function LeadScrapeCard({
 	fallbackQuery: string;
 	fallbackLocation: string | null;
 }) {
+	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	// Flipped when the subscription dies OR the run settles: the poll re-checks
 	// the attempt row until it is terminal (its interval stops by itself), so a
@@ -152,6 +180,13 @@ function LeadScrapeCard({
 	}
 
 	if (attempt?.status === "failed") {
+		const failure = durableAttemptAiError(attempt);
+		if (failure) {
+			return (
+				<LeadScrapeFailure copy={durableAiErrorPresentation(failure, t)} />
+			);
+		}
+
 		return (
 			<div>
 				<StatusMessageHeader
@@ -184,6 +219,32 @@ function LeadScrapeCard({
 			fallbackQuery={fallbackQuery}
 			fallbackLocation={fallbackLocation}
 		/>
+	);
+}
+
+function LeadScrapeFailure({
+	copy,
+}: {
+	copy: ReturnType<typeof durableAiErrorPresentation>;
+}) {
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={copy.kicker}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
+				{copy.body}
+			</p>
+			{copy.attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{copy.attribution}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

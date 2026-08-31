@@ -1,0 +1,1 @@
+CREATE INDEX "ai_usage_events_chatId_createdAt_idx" ON "ai_usage_events" USING btree ("chat_id","created_at") WHERE "ai_usage_events"."chat_id" IS NOT NULL;

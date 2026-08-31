@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 
-import { generateImage, generateText } from "ai";
+import {
+	GatewayInternalServerError,
+	GatewayInvalidRequestError,
+	GatewayResponseError,
+} from "@ai-sdk/gateway";
+import { APICallError, generateImage, generateText } from "ai";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +17,7 @@ import {
 import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
 import {
 	editImageFromSources,
+	generateImageFromPrompt,
 	generateStandaloneImage,
 	SINGLE_FRAME_INSTRUCTION,
 	SOURCE_FIDELITY_INSTRUCTION,
@@ -29,10 +35,14 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
-vi.mock("ai", () => ({
-	generateImage: vi.fn(),
-	generateText: vi.fn(),
-}));
+vi.mock("ai", async (importOriginal) => {
+	const original = await importOriginal<typeof import("ai")>();
+	return {
+		...original,
+		generateImage: vi.fn(),
+		generateText: vi.fn(),
+	};
+});
 
 vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
 	const original =
@@ -108,7 +118,11 @@ describe("generateStandaloneImage", () => {
 
 		const result = await generateStandaloneImage(PARAMS);
 
-		expect(result).toMatchObject({ status: "unavailable" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "unavailable",
+		});
 		expect(generateImage).not.toHaveBeenCalled();
 	});
 
@@ -299,12 +313,143 @@ describe("generateStandaloneImage", () => {
 		expect(result).toMatchObject({ status: "generated" });
 	});
 
+	it("classifies an OpenAI gateway moderation cause without exposing its text", async () => {
+		const cause = new APICallError({
+			data: {
+				error: {
+					code: "moderation_blocked",
+					message: "raw provider moderation payload",
+					moderation_details: {
+						categories: ["violence"],
+						moderation_stage: "input",
+					},
+				},
+			},
+			message: "Provider request failed",
+			requestBodyValues: {},
+			statusCode: 400,
+			url: "https://api.openai.com/v1/images/generations",
+		});
+		vi.mocked(generateImage).mockRejectedValue(
+			new GatewayInvalidRequestError({ cause, generationId: "gen_moderated" }),
+		);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			failure: {
+				kind: "content_moderated",
+				moderationStage: "input",
+				provider: "openai",
+				providerMessage: "violence",
+				requestId: "gen_moderated",
+			},
+			message:
+				"OpenAI declined this request because of its content rules. Change the prompt and try again.",
+			status: "failed",
+		});
+		expect(result).not.toMatchObject({
+			message: expect.stringContaining("raw provider"),
+		});
+	});
+
+	it("classifies a gateway 529 as capacity", async () => {
+		vi.mocked(generateImage).mockRejectedValue(
+			new GatewayInternalServerError({ statusCode: 529 }),
+		);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			failure: { kind: "capacity", provider: "openai" },
+			message:
+				"OpenAI is over capacity right now. Please try again in a minute.",
+			status: "failed",
+		});
+	});
+
+	it("classifies a GatewayResponseError TimeoutError cause as timeout", async () => {
+		vi.mocked(generateImage).mockRejectedValue(
+			new GatewayResponseError({
+				cause: new DOMException("timed out", "TimeoutError"),
+				statusCode: 500,
+			}),
+		);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			failure: { kind: "timeout", source: "gateway" },
+			message: "OpenAI took too long to answer. Please try again.",
+			status: "failed",
+		});
+	});
+
+	it("classifies Gemini IMAGE_SAFETY no-file finishes as moderation", async () => {
+		mockEnv.AI_IMAGE_MODEL = "google/gemini-3-pro-image";
+		vi.mocked(generateText).mockResolvedValue({
+			files: [],
+			finishReason: "other",
+			providerMetadata: { gateway: { generationId: "gen_safety" } },
+			rawFinishReason: "IMAGE_SAFETY",
+			usage: { inputTokens: 10, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateText>>);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			failure: {
+				kind: "content_moderated",
+				moderationStage: "output",
+				provider: "google",
+				requestId: "gen_safety",
+			},
+			message:
+				"The content filter of Google stopped this generation. Change the prompt and try again.",
+			status: "failed",
+		});
+		expect(generateText).toHaveBeenCalledWith(
+			expect.objectContaining({
+				telemetry: { functionId: "image.generate_text" },
+			}),
+		);
+	});
+
+	it("classifies a Gemini no-file finish without a safety reason as provider_error", async () => {
+		vi.mocked(generateText).mockResolvedValue({
+			files: [],
+			finishReason: "stop",
+			providerMetadata: {},
+			rawFinishReason: undefined,
+			usage: { inputTokens: 1, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateText>>);
+
+		const result = await generateImageFromPrompt({
+			aspect: "1:1",
+			metering: PARAMS.metering,
+			model: "google/gemini-3-pro-image",
+			prompt: PARAMS.prompt,
+			size: "1024x1024",
+		});
+
+		expect(result).toMatchObject({
+			failure: { kind: "provider_error", provider: "google" },
+			message: "Google returned an error. Please try again.",
+			status: "failed",
+		});
+	});
+
 	it("turns provider throws into failed results", async () => {
 		vi.mocked(generateImage).mockRejectedValue(new Error("quota"));
 
 		const result = await generateStandaloneImage(PARAMS);
 
-		expect(result).toMatchObject({ message: "quota", status: "failed" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
+		expect(result).not.toMatchObject({ message: "quota" });
 	});
 
 	it("preserves a top-level gateway generation id from a provider error", async () => {
@@ -333,6 +478,8 @@ describe("generateStandaloneImage", () => {
 		const result = await generateStandaloneImage(PARAMS);
 
 		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
 			model: "openai/gpt-image-2",
 			providerMetadata: { gateway: { generationId: "gen_image_1" } },
 			providerUnits: 1,
@@ -357,7 +504,11 @@ describe("editImageFromSources", () => {
 
 		const result = await editImageFromSources(EDIT_PARAMS);
 
-		expect(result).toMatchObject({ status: "failed" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
 		expect(generateText).not.toHaveBeenCalled();
 	});
 
@@ -396,6 +547,7 @@ describe("editImageFromSources", () => {
 				user: "user_1",
 			},
 		});
+		expect(call?.telemetry).toEqual({ functionId: "image.edit" });
 	});
 
 	it("returns the first image file from the response", async () => {
@@ -417,7 +569,8 @@ describe("editImageFromSources", () => {
 		const result = await editImageFromSources(EDIT_PARAMS);
 
 		expect(result).toMatchObject({
-			message: expect.stringContaining("no image"),
+			failure: { kind: "provider_error", provider: "google" },
+			message: "Google returned an error. Please try again.",
 			status: "failed",
 		});
 	});

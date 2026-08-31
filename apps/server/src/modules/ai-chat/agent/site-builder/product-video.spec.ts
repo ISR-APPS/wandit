@@ -21,8 +21,12 @@ const mockEnv = vi.hoisted(() => ({
 }));
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
-vi.mock("ai", () => ({ experimental_generateVideo: vi.fn() }));
-vi.mock("@ai-sdk/gateway", () => ({
+vi.mock("ai", async (importOriginal) => ({
+	...(await importOriginal<typeof import("ai")>()),
+	experimental_generateVideo: vi.fn(),
+}));
+vi.mock("@ai-sdk/gateway", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@ai-sdk/gateway")>()),
 	gateway: { video: vi.fn(() => ({ modelId: "seedance-product" })) },
 }));
 vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
@@ -142,5 +146,29 @@ describe("productVideo provider adapter", () => {
 
 		expect(result).toMatchObject({ status: "failed" });
 		expect(generateVideo).not.toHaveBeenCalled();
+	});
+
+	it("returns a normalized safe failure when the provider call throws", async () => {
+		vi.mocked(generateVideo).mockRejectedValueOnce(
+			new Error("raw Seedance product response"),
+		);
+
+		const result = await productVideo({
+			attemptId: "attempt_1",
+			imageUrl: "https://assets.example.com/product.png",
+			mediaType: "image/png",
+			metering: { operation: "video", userId: "user_1" },
+			outputPath: join(tmpdir(), "unused-product-video-output"),
+			projectId: "project_1",
+			prompt: "A deterministic studio orbit.",
+		});
+
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("raw Seedance product response");
 	});
 });

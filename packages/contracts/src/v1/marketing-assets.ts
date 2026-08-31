@@ -7,6 +7,7 @@
  * the work; the web polls the project list until every card is terminal.
  */
 import { z } from "zod";
+import { aiErrorDataSchema } from "./ai-errors";
 import { mediaGenerationStatusSchema } from "./media-generations";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
@@ -37,6 +38,8 @@ export const marketingAssetSchema = z.object({
 	assetType: marketingAssetTypeSchema,
 	status: marketingAssetStatusSchema,
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),
 });

@@ -3,6 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+
+const aiErrorMocks = vi.hoisted(() => ({
+	captureAiError: vi.fn(() => "media-sentry-event"),
+}));
+
+vi.mock("../../../ai-errors/domain", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../ai-errors/domain")>()),
+	captureAiError: aiErrorMocks.captureAiError,
+}));
+
 import { MediaGenerationsRepository } from "./media-generations.repository";
 
 function setup(
@@ -118,5 +128,61 @@ describe("MediaGenerationsRepository lifecycle recovery", () => {
 		).rejects.toThrow("lifecycle insert failed");
 
 		expect(capture).not.toHaveBeenCalled();
+	});
+});
+
+describe("MediaGenerationsRepository stale failure capture", () => {
+	function staleRepository(
+		returnedRows: Array<{ kind: "video-edit"; projectId: string }>,
+	) {
+		const returning = vi.fn().mockResolvedValue(returnedRows);
+		const where = vi.fn(() => ({ returning }));
+		const set = vi.fn(() => ({ where }));
+		const update = vi.fn(() => ({ set }));
+		const analytics = { capture: vi.fn() };
+		const repository = new MediaGenerationsRepository(
+			{ update } as unknown as Database,
+			analytics as unknown as AnalyticsService,
+			{ enqueue: vi.fn() } as unknown as LifecycleEventsService,
+		);
+
+		return { repository, set, update };
+	}
+
+	it("captures and persists an event id only after winning the stale CAS", async () => {
+		const winner = staleRepository([
+			{ kind: "video-edit", projectId: "project-1" },
+		]);
+		aiErrorMocks.captureAiError.mockClear();
+
+		await expect(
+			winner.repository.markStaleGeneratingAttemptFailed(
+				"attempt-1",
+				new Date(),
+				"stale",
+				"user-1",
+				true,
+			),
+		).resolves.toBe(true);
+		expect(winner.update.mock.invocationCallOrder[0]).toBeLessThan(
+			aiErrorMocks.captureAiError.mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
+		expect(winner.set).toHaveBeenCalledWith({
+			sentryEventId: "media-sentry-event",
+		});
+
+		const loser = staleRepository([]);
+		aiErrorMocks.captureAiError.mockClear();
+		await expect(
+			loser.repository.markStaleGeneratingAttemptFailed(
+				"attempt-1",
+				new Date(),
+				"stale",
+				"user-1",
+				true,
+			),
+		).resolves.toBe(false);
+		expect(aiErrorMocks.captureAiError).not.toHaveBeenCalled();
 	});
 });

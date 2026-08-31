@@ -22,6 +22,13 @@ import {
 } from "../../../../infrastructure/storage/r2";
 import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
 import {
+	type AiErrorContext,
+	classifyAiError,
+	classifyFinish,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
+import {
 	type GatewayGenerationFailure,
 	type GatewayGenerationMetadata,
 	type GatewayMeteringContext,
@@ -75,8 +82,12 @@ export function withSingleFrameInstruction(prompt: string): string {
 	return `${prompt.trim()}\n${SINGLE_FRAME_INSTRUCTION}`;
 }
 
+export type ClassifiedImageGenerationFailure = GatewayGenerationFailure & {
+	failure: NormalizedAiError;
+};
+
 export type EditImageResult =
-	| GatewayGenerationFailure
+	| ClassifiedImageGenerationFailure
 	| ({
 			mediaType: string;
 			status: "generated";
@@ -95,8 +106,14 @@ export async function editImageFromSources(params: {
 	sourceImageUrls: readonly string[];
 }): Promise<EditImageResult> {
 	if (!env.AI_IMAGE_EDIT_MODEL) {
+		const error = new Error("AI image editing is not configured");
+		const failure = classifyImageError(error, {
+			route: "none",
+			surface: "image",
+		});
 		return {
-			message: "AI_IMAGE_EDIT_MODEL is not configured",
+			failure,
+			message: renderAiErrorSentence(failure),
 			status: "failed",
 		};
 	}
@@ -133,6 +150,7 @@ export async function editImageFromSources(params: {
 				{ google: { imageConfig: { aspectRatio: params.aspect } } },
 				params.metering,
 			),
+			telemetry: { functionId: "image.edit" },
 		});
 		providerEvidence = {
 			model: env.AI_IMAGE_EDIT_MODEL,
@@ -145,9 +163,22 @@ export async function editImageFromSources(params: {
 		);
 
 		if (!file) {
+			const failure = classifyImageFinish({
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				finishReason: result.finishReason,
+				model: env.AI_IMAGE_EDIT_MODEL,
+				outputFiles: result.files,
+				providerMetadata: result.providerMetadata,
+				...(result.rawFinishReason
+					? { rawFinishReason: result.rawFinishReason }
+					: {}),
+				route: "vercel",
+				surface: "image",
+			});
 			return {
 				...providerEvidence,
-				message: "the edit model returned no image",
+				failure,
+				message: renderAiErrorSentence(failure),
 				providerUnits: 0,
 				status: "failed",
 			};
@@ -171,10 +202,18 @@ export async function editImageFromSources(params: {
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure = classifyImageError(error, {
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+			model: env.AI_IMAGE_EDIT_MODEL,
+			providerMetadata: evidence?.providerMetadata,
+			route: "vercel",
+			surface: "image",
+		});
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: 0 } : {}),
 			status: "failed",
 		};
@@ -219,6 +258,7 @@ export async function generateImageFromPrompt(params: {
 					{ google: { imageConfig: { aspectRatio: params.aspect } } },
 					params.metering,
 				),
+				telemetry: { functionId: "image.generate_text" },
 			});
 			providerEvidence = {
 				model: params.model,
@@ -231,9 +271,22 @@ export async function generateImageFromPrompt(params: {
 			);
 
 			if (!file) {
+				const failure = classifyImageFinish({
+					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+					finishReason: result.finishReason,
+					model: params.model,
+					outputFiles: result.files,
+					providerMetadata: result.providerMetadata,
+					...(result.rawFinishReason
+						? { rawFinishReason: result.rawFinishReason }
+						: {}),
+					route: "vercel",
+					surface: "image",
+				});
 				return {
 					...providerEvidence,
-					message: "the image model returned no image",
+					failure,
+					message: renderAiErrorSentence(failure),
 					providerUnits: 0,
 					status: "failed",
 				};
@@ -280,10 +333,18 @@ export async function generateImageFromPrompt(params: {
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
+		const failure = classifyImageError(error, {
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+			model: params.model,
+			providerMetadata: evidence?.providerMetadata,
+			route: "vercel",
+			surface: "image",
+		});
 
 		return {
 			...(evidence ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(evidence ? { providerUnits: 0 } : {}),
 			status: "failed",
 		};
@@ -291,8 +352,12 @@ export async function generateImageFromPrompt(params: {
 }
 
 export type GeneratedStandaloneImage =
-	| GatewayGenerationFailure
-	| { message: string; status: "unavailable" }
+	| ClassifiedImageGenerationFailure
+	| {
+			failure: NormalizedAiError;
+			message: string;
+			status: "unavailable";
+	  }
 	| ({
 			/** Intrinsic height of the STORED object, for the img attribute. */
 			height: number;
@@ -328,8 +393,15 @@ export async function generateStandaloneImage(params: {
 	sourceImageUrls: readonly string[];
 }): Promise<GeneratedStandaloneImage> {
 	if (!env.AI_IMAGE_MODEL || !env.R2_PUBLIC_BASE_URL || !isR2Configured()) {
+		const error = new Error("Standalone image generation is not configured");
+		const failure = classifyImageError(error, {
+			...(env.AI_IMAGE_MODEL ? { model: env.AI_IMAGE_MODEL } : {}),
+			route: "none",
+			surface: "image",
+		});
 		return {
-			message: "standalone image generation is not configured",
+			failure,
+			message: renderAiErrorSentence(failure),
 			status: "unavailable",
 		};
 	}
@@ -418,13 +490,60 @@ export async function generateStandaloneImage(params: {
 			width: optimized.width ?? canvas.width,
 		};
 	} catch (error) {
+		const model =
+			metadata?.model ??
+			(params.sourceImageUrls.length > 0
+				? env.AI_IMAGE_EDIT_MODEL
+				: env.AI_IMAGE_MODEL);
+		const failure = classifyImageError(error, {
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+			...(model ? { model } : {}),
+			providerMetadata: metadata?.providerMetadata,
+			route: metadata ? "vercel" : "none",
+			surface: "image",
+		});
 		return {
 			...(metadata ?? {}),
-			message: error instanceof Error ? error.message : String(error),
+			failure,
+			message: renderAiErrorSentence(failure),
 			...(metadata ? { providerUnits: 1 } : {}),
 			status: "failed",
 		};
 	}
+}
+
+function classifyImageError(
+	error: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	const classified = classifyAiError(error, context);
+	if (classified) return classified;
+
+	// Warning-only SDK errors are not expected from these one-shot calls. If one
+	// does escape, classify the failed image result as a provider failure rather
+	// than returning an unstructured or provider-authored string.
+	const fallback = classifyAiError(
+		{ code: 500, message: "Image generation failed", type: "provider_error" },
+		{ ...context, abortSignal: undefined, route: "vercel" },
+	);
+	if (!fallback) {
+		throw new Error("Image failure classification returned no result");
+	}
+	return fallback;
+}
+
+function classifyImageFinish(context: AiErrorContext): NormalizedAiError {
+	const classified = classifyFinish(context);
+	if (classified) return classified;
+
+	return classifyImageError(
+		{
+			code: 500,
+			message: "Image model returned no image",
+			type: "provider_error",
+		},
+		{ ...context, abortSignal: undefined, route: "vercel" },
+	);
 }
 
 // "1536x1024" -> { height: 1024, width: 1536 }.

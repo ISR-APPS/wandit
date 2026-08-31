@@ -11,6 +11,8 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
+import { ProjectConversationsCard } from "@/features/conversations/components/project-conversations-card";
 import { useAdminProjectQuery } from "@/features/projects/api/projects.queries";
 import { ProjectAssetsCard } from "@/features/projects/components/project-assets-card";
 import { ProjectDetailHeader } from "@/features/projects/components/project-detail-header";
@@ -35,6 +37,9 @@ export function ProjectDetailPage({
 	userId,
 }: ProjectDetailPageProps) {
 	const projectQuery = useAdminProjectQuery(projectId);
+	const canReadConversations = useAdminPermission({
+		conversations: ["read"],
+	});
 
 	if (projectQuery.isLoading) {
 		return (
@@ -98,6 +103,12 @@ export function ProjectDetailPage({
 		<ProjectDetailContainer>
 			<ProjectDetailHeader detail={detail} />
 			<ProjectMetrics detail={detail} />
+			{canReadConversations ? (
+				<ProjectConversationsCard
+					projectId={detail.project.id}
+					userId={userId}
+				/>
+			) : null}
 			<ProjectAssetsCard assets={detail.assets} />
 			<ProjectWebsiteCard website={detail.website} />
 			<ProjectLandingPageVariationsCard

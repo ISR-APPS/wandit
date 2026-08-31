@@ -317,6 +317,9 @@ export const aiUsageEvents = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+		index("ai_usage_events_chatId_createdAt_idx")
+			.on(table.chatId, table.createdAt)
+			.where(sql`${table.chatId} IS NOT NULL`),
 		// Per-member spend aggregation inside an org (calendar-month limits).
 		index("ai_usage_events_orgId_userId_createdAt_idx")
 			.on(table.organizationId, table.userId, table.createdAt)

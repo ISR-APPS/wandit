@@ -105,6 +105,7 @@ export class ProjectTitleService {
 					"project_title",
 				),
 				system: PROJECT_TITLE_PROMPT,
+				telemetry: { functionId: "project_title" },
 			});
 
 			if (input.usageEventId) {

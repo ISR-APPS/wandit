@@ -17,6 +17,10 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import {
+	durableAiErrorPresentation,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { ChatMediaGallery } from "./chat-media";
@@ -224,6 +228,7 @@ export function isMcpRunFullySettled(parts: McpToolPartValue[]): boolean {
 export function mcpRunHasDeliverables(parts: McpToolPartValue[]): boolean {
 	return parts.some((part) => {
 		if (part.state !== "output-available") return false;
+		if (isMcpErrorOutput(part.output)) return false;
 		if (connectorGenerationQueuedOutputSchema.safeParse(part.output).success) {
 			return true;
 		}
@@ -241,6 +246,7 @@ export function McpActivityCard({
 	section = "all",
 	isTurnLive = false,
 	isRunConcluded = false,
+	onPrefillComposer,
 }: {
 	parts: McpToolPartValue[];
 	isApprovalActionable: boolean;
@@ -259,6 +265,7 @@ export function McpActivityCard({
 	 * join it). Mid-stream, a concluded receipt animates out of the thread;
 	 * it reappears as the bottom chip once the turn ends. */
 	isRunConcluded?: boolean;
+	onPrefillComposer?: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
 	const dictionary = useDictionary();
@@ -271,6 +278,7 @@ export function McpActivityCard({
 	// would read "done" while the provider is still generating.
 	const backgroundGenerations = parts.flatMap((part) => {
 		if (part.state !== "output-available") return [];
+		if (isMcpErrorOutput(part.output)) return [];
 		const parsed = connectorGenerationQueuedOutputSchema.safeParse(part.output);
 		return parsed.success ? [{ output: parsed.data, part }] : [];
 	});
@@ -375,6 +383,7 @@ export function McpActivityCard({
 	const seenMediaUrls = new Set<string>();
 	const media = visibleParts.flatMap((part) =>
 		part.state === "output-available" &&
+		!isMcpErrorOutput(part.output) &&
 		!isInputEchoTool(part.toolName, part.input)
 			? findMediaPreviews(part.output)
 					.filter((preview) => {
@@ -414,14 +423,17 @@ export function McpActivityCard({
 			)
 		: null;
 	const singleDonePart =
-		visibleParts.length === 1 && visibleParts[0]?.state === "output-available"
+		visibleParts.length === 1 &&
+		visibleParts[0]?.state === "output-available" &&
+		!isMcpErrorOutput(visibleParts[0].output)
 			? visibleParts[0]
 			: undefined;
 	// The live pill narrates; the settled pill must stay truthful — count
 	// only tools that actually EXECUTED, and name what happened when none
 	// did (declined, expired approval, failed, interrupted).
 	const executedCount = visibleParts.filter(
-		(part) => part.state === "output-available",
+		(part) =>
+			part.state === "output-available" && !isMcpErrorOutput(part.output),
 	).length;
 	const showLive = isRunning || (isTurnLive && visibleParts.length > 0);
 	const pillLabel = showLive
@@ -443,7 +455,12 @@ export function McpActivityCard({
 						? t("workspace.chat.mcpTool.skippedDeclined")
 						: visibleParts.some((part) => part.state === "approval-requested")
 							? t("workspace.chat.mcpTool.expired")
-							: visibleParts.some((part) => part.state === "output-error")
+							: visibleParts.some(
+										(part) =>
+											part.state === "output-error" ||
+											(part.state === "output-available" &&
+												isMcpErrorOutput(part.output)),
+									)
 								? t("workspace.chat.mcpTool.stepFailed")
 								: t("workspace.chat.mcpTool.interrupted");
 
@@ -664,6 +681,7 @@ export function McpActivityCard({
 								genericLabels,
 							)}
 							toolName={output.tool}
+							onPrefillComposer={onPrefillComposer}
 						/>
 					))}
 				</>
@@ -910,6 +928,31 @@ function ActivityStatusLine({
 	const { t } = useTranslation();
 
 	if (row.status === "error") {
+		let failure: ReturnType<typeof toolOutputAiError> = null;
+		for (const part of row.parts) {
+			if (part.state !== "output-available") continue;
+			failure = toolOutputAiError(part.output);
+			if (failure) break;
+		}
+		if (failure) {
+			const copy = durableAiErrorPresentation(failure, t);
+			return (
+				<div className="mt-1">
+					<p className="font-medium text-[11.5px] text-destructive">
+						{copy.kicker}
+					</p>
+					<p dir="auto" className="text-[11.5px] text-muted-foreground">
+						{copy.body}
+					</p>
+					{copy.attribution ? (
+						<p dir="auto" className="text-[10.5px] text-muted-foreground">
+							{copy.attribution}
+						</p>
+					) : null}
+				</div>
+			);
+		}
+
 		return (
 			<p className="mt-1 text-[11.5px] text-destructive">
 				{t("workspace.chat.mcpTool.stepFailed")}
@@ -1213,12 +1256,21 @@ function activityStatus(part: McpToolPartValue, live: boolean): ActivityStatus {
 			if (!live) return "interrupted";
 			return part.approval.approved ? "approval-approved" : "approval-denied";
 		case "output-available":
-			return "done";
+			return isMcpErrorOutput(part.output) ? "error" : "done";
 		case "output-error":
 			return "error";
 		case "output-denied":
 			return "denied";
 	}
+}
+
+function isMcpErrorOutput(output: unknown): boolean {
+	return (
+		typeof output === "object" &&
+		output !== null &&
+		"isError" in output &&
+		output.isError === true
+	);
 }
 
 function activityLabel(

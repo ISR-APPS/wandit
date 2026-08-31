@@ -126,6 +126,37 @@
 				"memberLimit": "You reached your monthly credit limit for this workspace. Ask an admin to raise it.",
 				"streamKicker": "Reply interrupted"
 			},
+			"aiError": {
+				"kicker": {
+					"provider": "Provider issue",
+					"moderated": "Content rules",
+					"connector": "Connector issue",
+					"ours": "Something went wrong"
+				},
+				"providerFallback": "The AI provider",
+				"retry": "Retry",
+				"retryHint": "Retry starts a new attempt.",
+				"queuedHint": "Generations already started will finish on their own.",
+				"notCharged": "You were not charged.",
+				"connectorRefunded": "Your Wandit credits were returned. Check your {connector} balance.",
+				"attribution": {
+					"viaGateway": "{provider} via Vercel AI Gateway",
+					"viaOpenrouter": "{provider} via OpenRouter",
+					"refusedPrompt": "{provider} refused this prompt: {text}",
+					"refusedPromptNoText": "{provider} refused this prompt.",
+					"outputFilter": "The content filter of {provider} stopped this generation.",
+					"reasonGiven": "Reason given: {text}",
+					"connectorReturned": "{connector} returned: {text}",
+					"connectorNoReason": "{connector} failed without giving a reason."
+				},
+				"tryAgainPrefill": {
+					"image": "Try the image again",
+					"video": "Try the video again",
+					"marketing": "Try the marketing asset again",
+					"connector": "Try the connector again",
+					"hint": "This starts a new generation."
+				}
+			},
 			"tray": {
 				"preparing": "Preparing the question…",
 				"needsDetail": "Needs a detail",

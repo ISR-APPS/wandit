@@ -1,7 +1,16 @@
-import type { ChatAddToolApproveResponseFunction } from "ai";
+import { Button } from "@wandit/ui/components/button";
+import type { ChatAddToolApproveResponseFunction, ChatStatus } from "ai";
+import { AlertTriangle } from "lucide-react";
 
-import type { WanditUIMessage } from "../../../lib/use-ai-chat";
+import { useTranslation } from "@/lib/i18n";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import { chatErrorPresentation } from "../../../lib/ai-error-copy";
+import {
+	messageHasQueuedToolWork,
+	type WanditUIMessage,
+} from "../../../lib/use-ai-chat";
 import { WanditMessageHeader } from "../real-message";
+import { StatusMessageHeader } from "../status-message-header";
 import { TargetChip } from "../target-chip";
 import { MessageTokenUsage } from "../token-usage";
 import { AnimateImagePart } from "./animate-image-part";
@@ -50,6 +59,9 @@ const TRANSPARENT_PART_TYPES = new Set([
 ]);
 
 export function isTransparentMessagePart(part: MessagePart): boolean {
+	// The scoped error belongs to its tool card. It must not split adjacent MCP
+	// calls into separate receipt groups; turn-level errors remain renderable.
+	if (part.type === "data-ai-error") return Boolean(part.data.toolCallId);
 	return TRANSPARENT_PART_TYPES.has(part.type);
 }
 
@@ -102,6 +114,14 @@ function entryRendersContent(entry: MessagePartRenderEntry): boolean {
 		return true;
 	const { part } = entry;
 	if (part.type === "text") return part.text.length > 0;
+	if (part.type === "data-ai-error") {
+		return (
+			part.data.terminal &&
+			!part.data.toolCallId &&
+			part.data.kind !== "cancelled" &&
+			part.data.kind !== "billing"
+		);
+	}
 	return part.type === "file" || ASYNC_CARD_PART_TYPES.has(part.type);
 }
 
@@ -156,17 +176,25 @@ export function MessageParts({
 	message,
 	isStreaming,
 	isLastAssistantMessage,
+	chatStatus = "ready",
+	onRetry,
+	suppressAiError = false,
 	activeAskToolCallId,
 	onToolApprovalResponse,
 }: {
 	message: WanditUIMessage;
 	isStreaming: boolean;
 	isLastAssistantMessage: boolean;
+	chatStatus?: ChatStatus;
+	onRetry?: () => void;
+	/** The live turn-level banner owns this part; persisted rows leave it false. */
+	suppressAiError?: boolean;
 	/** The ask_user call currently docked on the composer tray (if any) — its
 	 * in-thread rendering shows a pointer chip instead of a receipt. */
 	activeAskToolCallId?: string;
 	onToolApprovalResponse: ChatAddToolApproveResponseFunction;
 }) {
+	const { prefillComposer } = useSharedAiChat();
 	// Only the turn that OWNS the docked ask marks its later pending asks as
 	// waiting ("Up next"). Unanswered asks stranded in older messages keep
 	// rendering nothing — the server repairs those on the next send.
@@ -190,7 +218,16 @@ export function MessageParts({
 		// they fold into a quiet chip at the bottom of the message.
 		receiptsAtBottom: !isStreaming,
 	});
-	const firstContentEntry = entries.find(entryRendersContent);
+	const firstContentEntry = entries.find((entry) => {
+		if (
+			suppressAiError &&
+			entry.kind === "part" &&
+			entry.part.type === "data-ai-error"
+		) {
+			return false;
+		}
+		return entryRendersContent(entry);
+	});
 	if (!firstContentEntry) return null;
 
 	// The whole turn is ONE block: Wandit header on top, then everything the
@@ -225,6 +262,7 @@ export function MessageParts({
 					section={entry.section}
 					isTurnLive={isStreaming}
 					isRunConcluded={isRunConcluded(entry.parts)}
+					onPrefillComposer={prefillComposer}
 				/>
 			);
 		}
@@ -257,6 +295,19 @@ export function MessageParts({
 		const isLastPart = index === message.parts.length - 1;
 
 		switch (part.type) {
+			case "data-ai-error":
+				if (suppressAiError || !part.data.terminal || part.data.toolCallId)
+					return null;
+				return (
+					<PersistedAiErrorPart
+						key={`${message.id}:${index}`}
+						error={part.data}
+						isLastAssistantMessage={isLastAssistantMessage}
+						chatStatus={chatStatus}
+						hasQueuedWork={messageHasQueuedToolWork(message)}
+						onRetry={onRetry}
+					/>
+				);
 			case "text":
 				// An empty text part (the stream sends "text-start" before any
 				// characters) would render a bare Wandit header next to the
@@ -278,23 +329,77 @@ export function MessageParts({
 				// filename chips for documents.
 				return <FilePart key={`${message.id}:${index}`} part={part} />;
 			case "tool-generate_page":
-				return <GeneratePagePart key={part.toolCallId} part={part} />;
+				return (
+					<GeneratePagePart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-generate_marketing_asset":
-				return <GenerateMarketingAssetPart key={part.toolCallId} part={part} />;
+				return (
+					<GenerateMarketingAssetPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-generate_image":
-				return <GenerateImagePart key={part.toolCallId} part={part} />;
+				return (
+					<GenerateImagePart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-scrape_leads":
-				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
+				return (
+					<ScrapeLeadsPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-animate_image":
-				return <AnimateImagePart key={part.toolCallId} part={part} />;
+				return (
+					<AnimateImagePart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-generate_video":
-				return <GenerateVideoPart key={part.toolCallId} part={part} />;
+				return (
+					<GenerateVideoPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-product_video":
-				return <ProductVideoPart key={part.toolCallId} part={part} />;
+				return (
+					<ProductVideoPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-edit_video":
-				return <EditVideoPart key={part.toolCallId} part={part} />;
+				return (
+					<EditVideoPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-extend_video":
-				return <ExtendVideoPart key={part.toolCallId} part={part} />;
+				return (
+					<ExtendVideoPart
+						key={part.toolCallId}
+						part={part}
+						messageParts={message.parts}
+					/>
+				);
 			case "tool-read_skill":
 			case "tool-read_attachment":
 			case "tool-inspect_video":
@@ -344,6 +449,71 @@ export function MessageParts({
 			message.role === "assistant" &&
 			message.metadata?.usage ? (
 				<MessageTokenUsage usage={message.metadata.usage} />
+			) : null}
+		</div>
+	);
+}
+
+function PersistedAiErrorPart({
+	error,
+	isLastAssistantMessage,
+	chatStatus,
+	hasQueuedWork,
+	onRetry,
+}: {
+	error: Extract<MessagePart, { type: "data-ai-error" }>["data"];
+	isLastAssistantMessage: boolean;
+	chatStatus: ChatStatus;
+	hasQueuedWork: boolean;
+	onRetry?: () => void;
+}) {
+	const { t } = useTranslation();
+	const presentation = chatErrorPresentation(null, error, t);
+	if (!presentation.showBanner) return null;
+
+	const isIdle = chatStatus !== "submitted" && chatStatus !== "streaming";
+	const showRetry =
+		presentation.showRetry &&
+		isIdle &&
+		isLastAssistantMessage &&
+		!hasQueuedWork &&
+		onRetry !== undefined;
+	const showQueuedHint =
+		presentation.retryable && isIdle && isLastAssistantMessage && hasQueuedWork;
+
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={presentation.kicker}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
+				{presentation.body}
+			</p>
+			{presentation.attribution ? (
+				<p
+					dir="auto"
+					className="mt-1 text-[12px] text-muted-foreground leading-[1.5]"
+				>
+					{presentation.attribution}
+				</p>
+			) : null}
+			{showRetry ? (
+				<div className="mt-3 flex flex-col items-start gap-1">
+					<Button type="button" variant="outline" size="sm" onClick={onRetry}>
+						{t("workspace.chat.aiError.retry")}
+					</Button>
+					<span className="text-[11px] text-muted-foreground">
+						{t("workspace.chat.aiError.retryHint")}
+					</span>
+				</div>
+			) : showQueuedHint ? (
+				<p className="mt-2 text-[11px] text-muted-foreground">
+					{t("workspace.chat.aiError.queuedHint")}
+				</p>
 			) : null}
 		</div>
 	);

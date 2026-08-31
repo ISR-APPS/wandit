@@ -17,6 +17,7 @@ import {
 	type MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
 } from "../../infrastructure/persistence/media-generations.repository";
+import { toClientStoredAiFailure } from "./media-generation-failure";
 import {
 	isLegActivityTrackedGeneration,
 	isMediaGenerationGeneratingStale,
@@ -96,11 +97,13 @@ export class MediaGenerationsService {
 			const recovered = await this.recoverStoredVideo(row, scope);
 
 			if (!recovered) {
+				const deliveredUnits = await this.deliveredExtensionUnits(row);
 				await this.mediaGenerationsRepository.markStaleGeneratingAttemptFailed(
 					row.id,
 					staleCutoff,
 					STALE_GENERATION_ERROR,
 					userId,
+					deliveredUnits === 0,
 				);
 			}
 			row = await this.mediaGenerationsRepository.findAccessibleAttempt(
@@ -278,6 +281,7 @@ function mapAttemptRow(row: MediaGenerationAttemptRow): MediaGenerationAttempt {
 				? row.durationSeconds
 				: Math.round(row.actualDurationMs / 1_000),
 		error: row.error,
+		failure: toClientStoredAiFailure(row),
 		id: row.id,
 		kind: row.kind,
 		motion: row.motion,

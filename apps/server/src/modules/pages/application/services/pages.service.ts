@@ -13,6 +13,8 @@ import {
 } from "@nestjs/common";
 import { runs } from "@trigger.dev/sdk";
 import type {
+	AiErrorData,
+	AiErrorKind,
 	ListPageVersionsResponse,
 	PageAttemptDetail,
 	PageOverview,
@@ -23,12 +25,19 @@ import type {
 	StopPageAttemptBody,
 } from "@wandit/contracts";
 import {
+	aiErrorKindSchema,
+	aiErrorSourceSchema,
 	pageBuildFailureCodeReadSchema,
 	pageVersionSourceSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import {
+	classifyAiError,
+	sanitizeProviderText,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { stampHtml } from "../../domain/stamp";
 import {
@@ -80,6 +89,7 @@ export class PagesService {
 				? {
 						createdAt: rows.latestAttempt.createdAt.toISOString(),
 						error: rows.latestAttempt.error,
+						failure: mapPersistedFailure(rows.latestAttempt),
 						failureCode: pageBuildFailureCodeReadSchema.parse(
 							rows.latestAttempt.failureCode,
 						),
@@ -422,6 +432,7 @@ function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
 		createdAt: row.createdAt.toISOString(),
 		dismissed: row.dismissedAt !== null,
 		error: row.error,
+		failure: mapPersistedFailure(row),
 		failureCode: pageBuildFailureCodeReadSchema.parse(row.failureCode),
 		id: row.id,
 		lastProgressPercent: row.lastProgressPercent,
@@ -429,6 +440,87 @@ function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
 		triggerRunId: row.triggerRunId,
 		versionId: row.versionId,
 	};
+}
+
+function mapPersistedFailure(row: {
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
+}): AiErrorData | null {
+	const kind = aiErrorKindSchema.safeParse(row.failureKind);
+	if (!kind.success) return null;
+	const source = aiErrorSourceSchema.safeParse(row.failureSource);
+	const route =
+		source.success && source.data === "openrouter"
+			? "openrouter"
+			: source.success &&
+					(source.data === "gateway" || source.data.startsWith("provider:"))
+				? "vercel"
+				: "none";
+	const normalized = classifyAiError(new Error("Persisted page failure"), {
+		...(row.failureProvider
+			? { model: `${row.failureProvider}/persisted` }
+			: {}),
+		route,
+		surface: "page_build",
+	});
+
+	if (!normalized) return null;
+
+	normalized.kind = kind.data;
+	normalized.source = source.success ? source.data : "unknown";
+	normalized.provider = row.failureProvider;
+	normalized.providerLabel = persistedProviderLabel(row.failureProvider);
+	normalized.providerMessage = row.failureProviderMessage
+		? sanitizeProviderText(row.failureProviderMessage, {
+				kind: kind.data,
+				provider: row.failureProvider,
+			})
+		: null;
+	normalized.requestId = row.failureRequestId?.slice(0, 80) ?? null;
+	normalized.retryable = persistedRetryable(kind.data);
+	normalized.terminal = true;
+	normalized.refunded = null;
+	normalized.moderationStage = null;
+
+	return toClientAiError(normalized);
+}
+
+function persistedProviderLabel(provider: string | null): string | null {
+	if (!provider) return null;
+	const known: Record<string, string> = {
+		anthropic: "Anthropic",
+		bedrock: "Amazon Bedrock",
+		bytedance: "Seedance",
+		google: "Google",
+		higgsfield: "Higgsfield",
+		klingai: "Kling",
+		openai: "OpenAI",
+		openrouter: "OpenRouter",
+		xai: "xAI",
+	};
+	return (
+		known[provider] ??
+		provider
+			.split(/[-_]+/u)
+			.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+			.join(" ")
+	).slice(0, 40);
+}
+
+function persistedRetryable(kind: AiErrorKind): boolean {
+	return (
+		kind === "internal" ||
+		kind === "rate_limited" ||
+		kind === "capacity" ||
+		kind === "provider_error" ||
+		kind === "timeout" ||
+		kind === "network" ||
+		kind === "connector_unreachable" ||
+		kind === "unknown"
+	);
 }
 
 function mapVersionListRow(row: VersionListRow): PageVersionListItem {

@@ -8,6 +8,7 @@ import { MonitorIcon } from "@phosphor-icons/react/Monitor";
 import { NotePencilIcon } from "@phosphor-icons/react/NotePencil";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { XIcon } from "@phosphor-icons/react/X";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -133,6 +134,9 @@ function FeedbackDetailHeader({
 	"item" | "isSaving" | "isDeleting" | "onStatusChange" | "onDelete" | "onClose"
 >) {
 	const canManage = useAdminPermission({ feedback: ["manage"] });
+	const canReadConversations = useAdminPermission({
+		conversations: ["read"],
+	});
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
 	async function copyFeedbackId() {
@@ -154,6 +158,17 @@ function FeedbackDetailHeader({
 						<FeedbackPriorityBadge priority={item.priority} />
 					</div>
 					<div className="flex flex-wrap items-center justify-end gap-1.5">
+						{item.context.chatId && canReadConversations ? (
+							<Button asChild variant="outline" size="sm">
+								<Link
+									to="/chats/$chatId"
+									params={{ chatId: item.context.chatId }}
+								>
+									<ChatCenteredDotsIcon aria-hidden="true" />
+									Open conversation
+								</Link>
+							</Button>
+						) : null}
 						{item.linear?.url ? (
 							<Button asChild variant="outline" size="sm">
 								<a href={item.linear.url} target="_blank" rel="noreferrer">
@@ -342,7 +357,10 @@ function SubmissionContextSection({
 	const pageUrl = safeHttpUrl(item.context.pageUrl);
 	const replayUrl = safeHttpUrl(item.context.replayUrl);
 	const hasSignals = Boolean(
-		item.context.locale || item.context.replayUrl || item.context.sentryEventId,
+		item.context.locale ||
+			item.context.authSessionId ||
+			item.context.replayUrl ||
+			item.context.sentryEventId,
 	);
 
 	return (
@@ -404,6 +422,12 @@ function SubmissionContextSection({
 									</span>
 								</p>
 							) : null}
+							{item.context.authSessionId ? (
+								<CopyableContextValue
+									label="Auth session"
+									value={item.context.authSessionId}
+								/>
+							) : null}
 							{replayUrl ? (
 								<a
 									href={replayUrl}
@@ -433,6 +457,42 @@ function SubmissionContextSection({
 				</div>
 			</div>
 		</section>
+	);
+}
+
+function CopyableContextValue({
+	label,
+	value,
+}: {
+	label: string;
+	value: string;
+}) {
+	async function copyValue() {
+		try {
+			await navigator.clipboard.writeText(value);
+			toast.success(`${label} copied`);
+		} catch {
+			toast.error(`${label} could not be copied`);
+		}
+	}
+
+	return (
+		<div className="flex min-w-0 items-center gap-1">
+			<span>{label}</span>
+			<span className="truncate font-mono text-muted-foreground" title={value}>
+				{value}
+			</span>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-6 shrink-0"
+				aria-label={`Copy ${label.toLowerCase()}`}
+				onClick={() => void copyValue()}
+			>
+				<CopyIcon aria-hidden="true" />
+			</Button>
+		</div>
 	);
 }
 

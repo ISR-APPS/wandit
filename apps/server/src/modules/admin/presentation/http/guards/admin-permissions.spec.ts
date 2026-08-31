@@ -54,6 +54,13 @@ const expectedPermissionMatrix = [
 	{ action: "manage", admin: true, resource: "academy", support: false },
 	{ action: "read", admin: true, resource: "analytics", support: false },
 	{ action: "manage", admin: true, resource: "analytics", support: false },
+	{ action: "read", admin: true, resource: "conversations", support: false },
+	{
+		action: "read-raw",
+		admin: true,
+		resource: "conversations",
+		support: false,
+	},
 	{ action: "read", admin: true, resource: "settings", support: false },
 	{ action: "manage", admin: true, resource: "settings", support: false },
 ] as const;

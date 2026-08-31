@@ -10,6 +10,7 @@
  */
 import { z } from "zod";
 import { triggerRealtimeHandleSchema } from "./ai-chat";
+import { aiErrorDataSchema } from "./ai-errors";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Marker the chat agent's intercept stamps on the dynamic-tool output so the
@@ -68,6 +69,8 @@ export const connectorGenerationAttemptSchema = z.object({
 	media: z.array(connectorGenerationMediaSchema),
 	// Human-readable failure reason, shown in the card's error state.
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),
 });

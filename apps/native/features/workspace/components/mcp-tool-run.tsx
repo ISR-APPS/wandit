@@ -14,6 +14,8 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { WanditIcon } from "@/components/wandit-icon";
+import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
+import { originalGenerationPrompt } from "../lib/generation-prefill";
 
 import { AsyncGenerationCard } from "./async-generation-card";
 import { ChatMediaGallery, type ChatMediaGalleryItem } from "./chat-media";
@@ -37,7 +39,6 @@ export type McpToolPart = Readonly<{
 	state: McpToolPartState;
 	input?: unknown;
 	output?: unknown;
-	errorText?: string;
 	approval?: Readonly<{
 		id: string;
 		approved?: boolean;
@@ -64,6 +65,7 @@ export type McpToolRunProps = {
 		id: string;
 		approved: boolean;
 	}) => void | Promise<void>;
+	onPrefillComposer?: (prompt: string) => void;
 };
 
 type ActivityStatus =
@@ -208,6 +210,7 @@ export function McpToolRun({
 	section = "all",
 	isLastAssistantMessage,
 	onApprovalResponse,
+	onPrefillComposer,
 }: McpToolRunProps) {
 	const { t } = useTranslation();
 	const dictionary = useDictionary();
@@ -246,7 +249,9 @@ export function McpToolRun({
 	// deliverables half of the turn.
 	const mediaPreviews = collectRunMediaPreviews(visibleParts);
 	const failedCount = visibleParts.filter(
-		(part) => part.state === "output-error",
+		(part) =>
+			part.state === "output-error" ||
+			(part.state === "output-available" && isMcpErrorOutput(part.output)),
 	).length;
 	const doneCount = visibleParts.filter((part) =>
 		TERMINAL_STATES.has(part.state),
@@ -443,6 +448,7 @@ export function McpToolRun({
 													: undefined
 											}
 											toolLabels={toolLabels}
+											onPrefillComposer={onPrefillComposer}
 											onApprovalResponse={(id, approved) => {
 												void handleApprovalResponse(id, approved);
 											}}
@@ -484,6 +490,7 @@ export function McpToolRun({
 							kind="connector"
 							part={part}
 							projectId={projectId}
+							onPrefillComposer={onPrefillComposer}
 						/>
 					))}
 					{mediaPreviews.length > 0 ? (
@@ -508,6 +515,7 @@ function collectRunMediaPreviews(parts: McpToolPart[]): ChatMediaGalleryItem[] {
 
 	for (const part of parts) {
 		if (part.state !== "output-available") continue;
+		if (isMcpErrorOutput(part.output)) continue;
 		if (isBackgroundGenerationPart(part)) continue;
 		if (isInputEchoTool(part)) continue;
 
@@ -635,7 +643,9 @@ function settledPillLabel(
 	t: ReturnType<typeof useTranslation>["t"],
 ): string {
 	const singleDone =
-		visibleParts.length === 1 && visibleParts[0]?.state === "output-available"
+		visibleParts.length === 1 &&
+		visibleParts[0]?.state === "output-available" &&
+		!isMcpErrorOutput(visibleParts[0].output)
 			? visibleParts[0]
 			: undefined;
 	if (singleDone) {
@@ -643,7 +653,8 @@ function settledPillLabel(
 	}
 
 	const executedCount = visibleParts.filter(
-		(part) => part.state === "output-available",
+		(part) =>
+			part.state === "output-available" && !isMcpErrorOutput(part.output),
 	).length;
 	if (executedCount === 1) return t("workspace.chat.mcpTool.usedTool");
 	if (executedCount > 1) {
@@ -655,7 +666,13 @@ function settledPillLabel(
 	if (visibleParts.some((part) => part.state === "approval-requested")) {
 		return t("workspace.chat.mcpTool.expired");
 	}
-	if (visibleParts.some((part) => part.state === "output-error")) {
+	if (
+		visibleParts.some(
+			(part) =>
+				part.state === "output-error" ||
+				(part.state === "output-available" && isMcpErrorOutput(part.output)),
+		)
+	) {
 		return t("workspace.chat.mcpTool.stepFailed");
 	}
 	return t("workspace.chat.mcpTool.interrupted");
@@ -883,6 +900,7 @@ function ActivityRowView({
 	isResponding,
 	startedAt,
 	toolLabels,
+	onPrefillComposer,
 	onApprovalResponse,
 }: {
 	row: ActivityRow;
@@ -891,6 +909,7 @@ function ActivityRowView({
 	isResponding: boolean;
 	startedAt?: string;
 	toolLabels: ToolLabelDictionary;
+	onPrefillComposer?: (prompt: string) => void;
 	onApprovalResponse: (id: string, approved: boolean) => void;
 }) {
 	const { t } = useTranslation();
@@ -900,12 +919,23 @@ function ActivityRowView({
 					part.state === "approval-requested" && Boolean(part.approval?.id),
 			)
 		: [];
-	const errorText = row.parts.find(
-		(part) => part.state === "output-error" && part.errorText,
-	)?.errorText;
+	const failedPart = row.parts.find((part) =>
+		Boolean(readOutputWanditError(part.output)),
+	);
+	const wanditError = failedPart
+		? readOutputWanditError(failedPart.output)
+		: null;
+	const errorPresentation = wanditError
+		? chatErrorPresentation(null, wanditError, t)
+		: null;
+	const originalPrompt = failedPart
+		? originalGenerationPrompt("connector", failedPart.input)
+		: undefined;
 	const statusLabel =
-		row.status === "error" && errorText
-			? errorText
+		row.status === "error" && errorPresentation
+			? [errorPresentation.body, errorPresentation.attribution]
+					.filter((line): line is string => Boolean(line))
+					.join(" ")
 			: activityStatusLabel(row.status, actionableApprovals.length > 0, t);
 
 	return (
@@ -955,6 +985,24 @@ function ActivityRowView({
 					>
 						{statusLabel}
 					</Text>
+					{errorPresentation?.retryable &&
+					originalPrompt &&
+					onPrefillComposer ? (
+						<View className="mt-1 items-start gap-1">
+							<Pressable
+								accessibilityRole="button"
+								onPress={() => onPrefillComposer(originalPrompt)}
+								className="min-h-9 items-center justify-center rounded-lg border border-border px-3 active:bg-surface-secondary"
+							>
+								<Text className="font-sans-semibold text-[12px] text-foreground">
+									{t("native.workspace.chat.aiError.tryAgainPrefill.connector")}
+								</Text>
+							</Pressable>
+							<Text className="text-[10.5px] text-muted leading-[15px]">
+								{t("native.workspace.chat.aiError.tryAgainPrefill.hint")}
+							</Text>
+						</View>
+					) : null}
 				</View>
 			</View>
 
@@ -1180,8 +1228,6 @@ function parseMcpToolPart(value: unknown): McpToolPart | null {
 		state: value.state as McpToolPartState,
 		input: value.input,
 		output: value.output,
-		errorText:
-			typeof value.errorText === "string" ? value.errorText : undefined,
 		approval,
 	};
 }
@@ -1242,7 +1288,7 @@ function activityStatus(
 			if (!isTurnLive) return "interrupted";
 			return part.approval?.approved ? "approval-approved" : "approval-denied";
 		case "output-available":
-			return "done";
+			return isMcpErrorOutput(part.output) ? "error" : "done";
 		case "output-error":
 			return "error";
 		case "output-denied":
@@ -1461,6 +1507,14 @@ function humanizeToolName(value: string) {
 		.filter(Boolean)
 		.map((token) => `${token.charAt(0).toUpperCase()}${token.slice(1)}`)
 		.join(" ");
+}
+
+function isMcpErrorOutput(output: unknown): boolean {
+	return isRecord(output) && output.isError === true;
+}
+
+function readOutputWanditError(output: unknown) {
+	return isRecord(output) ? readAiErrorData(output.wanditError) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

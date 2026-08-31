@@ -1,6 +1,27 @@
 {
 	"generic": "Something went wrong. Please try again.",
 	"network": "We could not reach the server. Check your connection and try again.",
+	"ai": {
+		"internal": "Something went wrong on our side. Please try again.",
+		"auth_config": "The AI service is not available right now. Our team is notified.",
+		"invalid_request": "{provider} did not accept this request. Try a shorter prompt or a different file.",
+		"model_not_found": "The AI model is not available right now. Our team is notified.",
+		"rate_limited": "{provider} is busy. Please wait a moment and try again.",
+		"capacity": "{provider} is over capacity right now. Please try again in a minute.",
+		"provider_error": "{provider} returned an error. Please try again.",
+		"content_moderated": "{provider} declined this request because of its content rules. Change the prompt and try again.",
+		"content_moderated_output": "The content filter of {provider} stopped this generation. Change the prompt and try again.",
+		"timeout": "{provider} took too long to answer. Please try again.",
+		"timeout_budget": "This took longer than we allow, so we stopped it. Please try again.",
+		"timeout_connector": "{connector} accepted the job but did not report a result in time. Check {connector} before you try again.",
+		"network": "We cannot reach {provider}. Please try again.",
+		"cancelled": "This generation was stopped.",
+		"unknown": "Something went wrong. Please try again.",
+		"connector_unreachable": "{connector} is not reachable. Check the connection in Settings and try again.",
+		"connector_account": "{text} Update your {connector} account, then try again.",
+		"connector_rejected": "{connector} returned: {text}",
+		"connector_rejected_no_text": "{connector} failed without giving a reason."
+	},
 	"codes": {
 		"AUTH_FAILURE": "We could not authenticate your session. Please sign in again.",
 		"NETWORK_ERROR": "We could not reach the server. Check your connection and try again.",
@@ -37,6 +58,13 @@
 		"WORKSPACE_NOT_SUPPORTED": "This action is not available in a team workspace.",
 		"EMAIL_AUTH_DISABLED": "Email sign-in is currently unavailable.",
 		"EMAIL_DOMAIN_BLOCKED": "This email domain is not supported.",
-		"EMAIL_SEND_RATE_LIMITED": "Too many emails requested. Please wait before trying again."
+		"EMAIL_SEND_RATE_LIMITED": "Too many emails requested. Please wait before trying again.",
+		"AI_RATE_LIMITED": "The AI provider is busy. Please wait a moment and try again.",
+		"AI_CAPACITY": "The AI provider is over capacity right now. Please try again in a minute.",
+		"AI_TIMEOUT": "The AI provider took too long to answer. Please try again.",
+		"AI_CONTENT_MODERATED": "The AI provider declined this request because of its content rules. Change the prompt and try again.",
+		"AI_INVALID_REQUEST": "The AI provider did not accept this request. Try a shorter prompt or a different file.",
+		"AI_INTERNAL": "Something went wrong on our side. Please try again.",
+		"AI_UNKNOWN": "Something went wrong. Please try again."
 	}
 }

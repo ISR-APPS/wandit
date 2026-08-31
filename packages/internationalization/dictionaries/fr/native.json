@@ -126,6 +126,37 @@
 				"memberLimit": "Tu as atteint ta limite mensuelle de crédits pour cet espace. Demande à un admin de l'augmenter.",
 				"streamKicker": "Réponse interrompue"
 			},
+			"aiError": {
+				"kicker": {
+					"provider": "Problème côté fournisseur",
+					"moderated": "Règles de contenu",
+					"connector": "Problème de connecteur",
+					"ours": "Un problème est survenu"
+				},
+				"providerFallback": "Le fournisseur d’IA",
+				"retry": "Réessayer",
+				"retryHint": "Réessayer lance une nouvelle tentative.",
+				"queuedHint": "Les générations déjà lancées se termineront d’elles-mêmes.",
+				"notCharged": "Aucun crédit ne t’a été retiré.",
+				"connectorRefunded": "Tes crédits Wandit ont été restitués. Vérifie ton solde sur {connector}.",
+				"attribution": {
+					"viaGateway": "{provider} via Vercel AI Gateway",
+					"viaOpenrouter": "{provider} via OpenRouter",
+					"refusedPrompt": "{provider} a refusé ce prompt : {text}",
+					"refusedPromptNoText": "{provider} a refusé ce prompt.",
+					"outputFilter": "Le filtre de contenu de {provider} a arrêté cette génération.",
+					"reasonGiven": "Motif indiqué : {text}",
+					"connectorReturned": "{connector} a répondu : {text}",
+					"connectorNoReason": "{connector} a échoué sans donner de raison."
+				},
+				"tryAgainPrefill": {
+					"image": "Réessayer l’image",
+					"video": "Réessayer la vidéo",
+					"marketing": "Réessayer l’asset marketing",
+					"connector": "Réessayer avec le connecteur",
+					"hint": "Cela lance une nouvelle génération."
+				}
+			},
 			"tray": {
 				"preparing": "Préparation de la question…",
 				"needsDetail": "Détail à préciser",

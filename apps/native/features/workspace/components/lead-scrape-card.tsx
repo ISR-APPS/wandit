@@ -32,6 +32,7 @@ import { useLiveRun } from "@/features/workspace/lib/use-live-run";
 import { authClient } from "@/lib/auth-client";
 import { getServerUrl } from "@/shared/lib/server-url";
 import { AppButton } from "@/shared/ui/button";
+import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
 
 const SOURCE_LABELS: Record<string, string> = {
 	"google-maps": "Google Maps",
@@ -107,17 +108,31 @@ export function LeadScrapeCard({
 	}
 
 	if (attempt?.status === "failed") {
+		const failure = readAiErrorData(attempt);
+		const presentation = failure
+			? chatErrorPresentation(null, failure, t)
+			: null;
 		return (
 			<View className="rounded-[16px] border border-border bg-surface p-3.5">
 				<Text className="font-sans-semibold text-[13.5px] text-danger">
-					{t("workspace.chat.leadScrape.failedTitle")}
+					{presentation?.kicker ?? t("workspace.chat.leadScrape.failedTitle")}
 				</Text>
 				<Text
 					className="pt-1 text-[12.5px] text-muted leading-[18px]"
 					style={{ writingDirection: "auto" }}
 				>
-					{attempt.error ?? t("workspace.chat.leadScrape.failedDetail")}
+					{presentation?.body ??
+						attempt.error ??
+						t("workspace.chat.leadScrape.failedDetail")}
 				</Text>
+				{presentation?.attribution ? (
+					<Text
+						className="pt-1 text-[11.5px] text-muted/80 leading-[17px]"
+						style={{ writingDirection: "auto" }}
+					>
+						{presentation.attribution}
+					</Text>
+				) : null}
 			</View>
 		);
 	}
