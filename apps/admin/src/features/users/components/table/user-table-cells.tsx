@@ -8,6 +8,7 @@ import type {
 	AdminUserRole,
 	AdminUserSummary,
 } from "@/features/users/api/users.dto";
+import { CountryFlag } from "@/features/users/components/country-flag";
 import { cn } from "@/lib/utils";
 
 import { getInitials, titleCase } from "./users-table-utils";
@@ -22,13 +23,18 @@ function UserIdentity({ user }: { user: AdminUserSummary }) {
 				</AvatarFallback>
 			</Avatar>
 			<div className="min-w-0 flex-1">
-				<Link
-					to="/users/$userId"
-					params={{ userId: user.id }}
-					className="block truncate font-medium text-foreground outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					{user.name}
-				</Link>
+				<div className="flex min-w-0 items-center gap-1.5">
+					<Link
+						to="/users/$userId"
+						params={{ userId: user.id }}
+						className="min-w-0 truncate font-medium text-foreground outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						{user.name}
+					</Link>
+					{user.countryCode ? (
+						<CountryFlag countryCode={user.countryCode} />
+					) : null}
+				</div>
 				<p className="truncate text-muted-foreground text-xs">{user.email}</p>
 				<p className="mt-0.5 font-mono text-[10px] text-muted-foreground/75">
 					{user.id}
@@ -67,6 +73,21 @@ function PlanBadge({ plan }: { plan: AdminUserPlan }) {
 	);
 }
 
+function PhoneCell({ phone }: { phone: string | null }) {
+	if (!phone) {
+		return <span className="text-muted-foreground">—</span>;
+	}
+
+	return (
+		<a
+			href={`tel:${phone}`}
+			className="whitespace-nowrap font-mono text-sm hover:underline"
+		>
+			{phone}
+		</a>
+	);
+}
+
 function StatusBadge({ user }: { user: AdminUserSummary }) {
 	if (user.banned) {
 		return (
@@ -101,4 +122,4 @@ function StatusBadge({ user }: { user: AdminUserSummary }) {
 	);
 }
 
-export { PlanBadge, RoleBadge, StatusBadge, UserIdentity };
+export { PhoneCell, PlanBadge, RoleBadge, StatusBadge, UserIdentity };

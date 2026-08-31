@@ -43,6 +43,8 @@ export * from "./v1/connector-generations";
 export * from "./v1/credits";
 // Deployment contracts.
 export * from "./v1/deployments";
+// Shared country calling-code data and E.164 country inference.
+export * from "./v1/dial-codes";
 // Domain contracts.
 export * from "./v1/domains";
 // In-app user feedback contracts.

@@ -1,4 +1,5 @@
 import {
+	type DialCountryIso,
 	getApplicableOnboardingQuestions,
 	onboardingQuestions,
 } from "@wandit/contracts";
@@ -33,7 +34,7 @@ export type OnboardingQuestion = (typeof onboardingQuestions)[number];
 export type OnboardingQuestionId = OnboardingQuestion["id"];
 export type OnboardingAnswerState = Partial<
 	Record<OnboardingQuestionId, string>
->;
+> & { phone_country?: DialCountryIso };
 export type OnboardingChoiceQuestion = Extract<
 	OnboardingQuestion,
 	{ type: "choice" }

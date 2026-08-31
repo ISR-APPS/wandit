@@ -1,12 +1,13 @@
 import { z } from "zod";
+import { dialCountryIsoSchema, e164PhonePattern } from "./dial-codes";
 import { isoDateTimeSchema } from "./shared/primitives";
 
 export const onboardingQuestionsVersion = "v3";
 
 // Practical E.164: leading +, no leading zero, 8-15 digits total. Same shape
-// as the leads capture and domains registrant checks — the dial code travels
-// inside the answer string, so no separate country field is stored.
-export const onboardingPhonePattern = /^\+[1-9][0-9]{7,14}$/;
+// as the leads capture and domains registrant checks. The dial code remains
+// inside the answer; optional phone_country preserves the exact picker ISO.
+export const onboardingPhonePattern = e164PhonePattern;
 
 export const onboardingStyles = ["light", "dark"] as const;
 export const onboardingStyleSchema = z.enum(onboardingStyles);
@@ -247,7 +248,12 @@ function normalizeEmptyOptionalTextAnswers(value: unknown): unknown {
 const completeOnboardingAnswersSchema = z.preprocess(
 	normalizeEmptyOptionalTextAnswers,
 	z
-		.object(completeOnboardingAnswerShape)
+		.object({
+			...completeOnboardingAnswerShape,
+			// Optional v3 metadata: older clients and rows only carry the E.164
+			// phone answer, while new clients preserve the exact picker country.
+			phone_country: dialCountryIsoSchema.optional(),
+		})
 		.strict()
 		.superRefine((answers, context) => {
 			const answersByQuestion: Partial<Record<string, string>> = answers;

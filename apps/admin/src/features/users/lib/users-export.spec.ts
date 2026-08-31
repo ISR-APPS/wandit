@@ -14,6 +14,8 @@ function makeUser(overrides: Partial<AdminUserSummary> = {}): AdminUserSummary {
 		id: "user-1",
 		name: "Ada Lovelace",
 		email: "ada@example.com",
+		phone: "+15551234567",
+		countryCode: "US",
 		emailVerified: true,
 		image: null,
 		role: "user",
@@ -36,6 +38,8 @@ describe("buildUsersExportRow", () => {
 		expect(row).toEqual([
 			"Ada Lovelace",
 			"ada@example.com",
+			"+15551234567",
+			"US",
 			"Yes",
 			"User",
 			"active",
@@ -52,17 +56,25 @@ describe("buildUsersExportRow", () => {
 	it("exports the support role with a readable label", () => {
 		const row = buildUsersExportRow(makeUser({ role: "support" }));
 
-		expect(row[3]).toBe("Support");
+		expect(row[5]).toBe("Support");
 	});
 
 	it("maps banned, unverified, and never-seen users to readable cells", () => {
 		const row = buildUsersExportRow(
-			makeUser({ emailVerified: false, banned: true, lastSeenAt: null }),
+			makeUser({
+				phone: null,
+				countryCode: null,
+				emailVerified: false,
+				banned: true,
+				lastSeenAt: null,
+			}),
 		);
 
-		expect(row[2]).toBe("No");
-		expect(row[4]).toBe("banned");
-		expect(row[10]).toBe("");
+		expect(row[2]).toBe("");
+		expect(row[3]).toBe("");
+		expect(row[4]).toBe("No");
+		expect(row[6]).toBe("banned");
+		expect(row[12]).toBe("");
 	});
 
 	it("never rounds a balance up and keeps whole-credit amounts whole", () => {
@@ -70,8 +82,8 @@ describe("buildUsersExportRow", () => {
 			makeUser({ creditsBalance: 2.99, creditsConsumed: 20 }),
 		);
 
-		expect(row[6]).toBe(2.9);
-		expect(row[7]).toBe(20);
+		expect(row[8]).toBe(2.9);
+		expect(row[9]).toBe(20);
 	});
 });
 
@@ -97,7 +109,12 @@ describe("fetchAllFilteredUsers", () => {
 			});
 
 		const users = await fetchAllFilteredUsers(
-			{ sort: "newest", creditsUsedMin: 100 },
+			{
+				sort: "newest",
+				country: ["US", "unknown"],
+				freeCredits: ["consumed"],
+				creditsUsedMin: 100,
+			},
 			fetchPage,
 		);
 
@@ -105,12 +122,16 @@ describe("fetchAllFilteredUsers", () => {
 		expect(fetchPage).toHaveBeenCalledTimes(2);
 		expect(fetchPage).toHaveBeenNthCalledWith(1, {
 			sort: "newest",
+			country: ["US", "unknown"],
+			freeCredits: ["consumed"],
 			creditsUsedMin: 100,
 			page: 1,
 			pageSize: USERS_EXPORT_PAGE_SIZE,
 		});
 		expect(fetchPage).toHaveBeenNthCalledWith(2, {
 			sort: "newest",
+			country: ["US", "unknown"],
+			freeCredits: ["consumed"],
 			creditsUsedMin: 100,
 			page: 2,
 			pageSize: USERS_EXPORT_PAGE_SIZE,

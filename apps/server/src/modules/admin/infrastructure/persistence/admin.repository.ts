@@ -10,8 +10,11 @@ import {
 	adminUserStatuses,
 	adminUserVerificationStatuses,
 	creditsToCentiCredits,
+	dialCountries,
+	dialCountryIsoCodes,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
+	preferredCountryIsoByDial,
 } from "@wandit/contracts";
 import {
 	and,
@@ -49,6 +52,8 @@ export type AdminUserSummaryRow = {
 	id: string;
 	name: string;
 	email: string;
+	phone: string | null;
+	countryCode: string | null;
 	emailVerified: boolean;
 	image: string | null;
 	role: string;
@@ -174,6 +179,33 @@ export type AdminTransaction = Parameters<
 type AdminDbClient = Pick<Database, "insert" | "select" | "update">;
 
 const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
+
+const dialCountryCodeListSql = sql.raw(
+	dialCountryIsoCodes.map(sqlStringLiteral).join(", "),
+);
+
+const countryByDial = new Map<string, string>();
+for (const country of dialCountries) {
+	countryByDial.set(
+		country.dial,
+		preferredCountryIsoByDial[
+			country.dial as keyof typeof preferredCountryIsoByDial
+		] ?? country.iso,
+	);
+}
+
+const dialCountryValuesSql = sql.raw(
+	[...countryByDial]
+		.sort(
+			([dialA], [dialB]) =>
+				dialB.length - dialA.length || dialA.localeCompare(dialB),
+		)
+		.map(
+			([dial, countryCode]) =>
+				`(${sqlStringLiteral(dial)}, ${sqlStringLiteral(countryCode)})`,
+		)
+		.join(", "),
+);
 
 // Same terminal set as the subscriptions_userId_nonTerminal_uq partial index
 // (packages/db/src/schema/billing.ts) and SubscriptionsRepository
@@ -766,6 +798,13 @@ export class AdminRepository {
 			id: user.id,
 			name: user.name,
 			email: user.email,
+			phone: sql<string | null>`(
+				select "user_onboarding"."answers" ->> 'phone'
+				from "user_onboarding"
+				where "user_onboarding"."user_id" = ${userId}
+				limit 1
+			)`,
+			countryCode: userCountryCode(userId),
 			emailVerified: user.emailVerified,
 			image: user.image,
 			role: user.role,
@@ -790,29 +829,83 @@ export class AdminRepository {
 
 		if (query.q) {
 			const pattern = `%${escapeLikePattern(query.q)}%`;
-			filters.push(or(ilike(user.name, pattern), ilike(user.email, pattern)));
+			const searchFilters = [
+				ilike(user.name, pattern),
+				ilike(user.email, pattern),
+			];
+
+			// Phones are stored as E.164 (no separators), so strip the separators
+			// a pasted number typically carries before matching.
+			const phoneQuery = query.q.replace(/[\s\-().]/g, "");
+			if (phoneQuery.length > 0) {
+				const phonePattern = `%${escapeLikePattern(phoneQuery)}%`;
+				const userId = sql.raw('"user"."id"');
+				searchFilters.push(
+					sql`exists (select 1
+						from "user_onboarding"
+						where "user_onboarding"."user_id" = ${userId}
+							and "user_onboarding"."answers" ->> 'phone' ilike ${phonePattern})`,
+				);
+			}
+
+			filters.push(or(...searchFilters));
 		}
 
 		if (query.plan && query.plan.length < adminUserPlans.length) {
-			const entitledSubscription = sql`select 1
-				from "subscriptions"
-				where ${personalEntitledSubscriptionFilter(sql.raw('"user"."id"'))}`;
+			const userId = sql.raw('"user"."id"');
 			const planFilters: SQL[] = [];
 
 			if (query.plan.includes("free")) {
-				planFilters.push(sql`not exists (${entitledSubscription})`);
+				planFilters.push(freePlanUserFilter(userId));
 			}
 
 			const paidPlans = query.plan.filter((plan) => plan !== "free");
 			if (paidPlans.length > 0) {
-				planFilters.push(sql`exists (${entitledSubscription}
-					and "subscriptions"."plan" in (${sql.join(
-						paidPlans.map((plan) => sql`${plan}`),
-						sql`, `,
-					)}))`);
+				planFilters.push(personalEntitledSubscriptionExists(userId, paidPlans));
 			}
 
 			filters.push(or(...planFilters));
+		}
+
+		if (query.freeCredits) {
+			const userId = sql.raw('"user"."id"');
+			const creditsBalance = userCreditsBalance(userId);
+			const balanceFilters = query.freeCredits.map((state) =>
+				state === "consumed"
+					? sql`${creditsBalance} <= 0`
+					: sql`${creditsBalance} > 0`,
+			);
+
+			filters.push(
+				and(
+					freePlanUserFilter(userId),
+					signupFreeCreditsGrantExists(userId),
+					or(...balanceFilters),
+				),
+			);
+		}
+
+		if (query.country) {
+			const countryCode = userCountryCode(sql.raw('"user"."id"'));
+			const selectedCountryCodes = query.country.filter(
+				(value) => value !== "unknown",
+			);
+			const countryFilters: SQL[] = [];
+
+			if (selectedCountryCodes.length > 0) {
+				countryFilters.push(
+					sql`${countryCode} in (${sql.join(
+						selectedCountryCodes.map((value) => sql`${value}`),
+						sql`, `,
+					)})`,
+				);
+			}
+
+			if (query.country.includes("unknown")) {
+				countryFilters.push(sql`${countryCode} is null`);
+			}
+
+			filters.push(or(...countryFilters));
 		}
 
 		if (query.role && query.role.length < adminUserRoles.length) {
@@ -959,6 +1052,50 @@ export class AdminRepository {
 	}
 }
 
+/**
+ * Best available country for an admin user. The picker ISO is authoritative
+ * when it is one of the shared dial-list countries; older rows fall back to
+ * longest-prefix E.164 inference, then the signup-IP attribution.
+ *
+ * Both related tables stay in correlated scalar subqueries so list pagination
+ * remains one outer row per user.
+ */
+function userCountryCode(userId: SQL) {
+	return sql<string | null>`coalesce(
+		(
+			select coalesce(
+				case
+					when upper(btrim("user_onboarding"."answers" ->> 'phone_country'))
+						in (${dialCountryCodeListSql})
+					then upper(btrim("user_onboarding"."answers" ->> 'phone_country'))
+				end,
+				(
+					select "dial_country"."country_code"
+					from (values ${dialCountryValuesSql})
+						as "dial_country"("dial_code", "country_code")
+					where "user_onboarding"."answers" ->> 'phone'
+						~ '^\\+[1-9][0-9]{7,14}$'
+						and "user_onboarding"."answers" ->> 'phone'
+						like '+' || "dial_country"."dial_code" || '%'
+					order by length("dial_country"."dial_code") desc
+					limit 1
+				)
+			)
+			from "user_onboarding"
+			where "user_onboarding"."user_id" = ${userId}
+			limit 1
+		),
+		(
+			select upper(btrim("user_attributions"."country"))
+			from "user_attributions"
+			where "user_attributions"."user_id" = ${userId}
+				and upper(btrim("user_attributions"."country"))
+					~ '^[A-Z]{2}$'
+			limit 1
+		)
+	)`;
+}
+
 function userPageActivityTimestamp() {
 	return sql<
 		Date | string
@@ -1017,6 +1154,39 @@ function personalEntitledSubscriptionFilter(userId: SQL) {
 		)})`;
 }
 
+function personalEntitledSubscriptionExists(
+	userId: SQL,
+	plans?: readonly string[],
+) {
+	if (!plans || plans.length === 0) {
+		return sql`exists (select 1
+			from "subscriptions"
+			where ${personalEntitledSubscriptionFilter(userId)})`;
+	}
+
+	return sql`exists (select 1
+		from "subscriptions"
+		where ${personalEntitledSubscriptionFilter(userId)}
+			and "subscriptions"."plan" in (${sql.join(
+				plans.map((plan) => sql`${plan}`),
+				sql`, `,
+			)}))`;
+}
+
+function freePlanUserFilter(userId: SQL) {
+	return sql`not ${personalEntitledSubscriptionExists(userId)}`;
+}
+
+function signupFreeCreditsGrantExists(userId: SQL) {
+	return sql`exists (select 1
+		from "credit_ledger"
+		where "credit_ledger"."user_id" = ${userId}
+			and "credit_ledger"."organization_id" is null
+			and "credit_ledger"."kind" = 'grant'
+			and "credit_ledger"."bucket" = 'promo'
+			and "credit_ledger"."idempotency_key" = 'signup:' || ${userId})`;
+}
+
 function storedRoleIncludesAdmin(role: typeof user.role) {
 	return sql`exists (
 		select 1
@@ -1036,6 +1206,10 @@ function storedRoleIncludesSupport(role: typeof user.role) {
 // Escape LIKE wildcards so a search for "100%" matches literally.
 function escapeLikePattern(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function sqlStringLiteral(value: string): string {
+	return `'${value.replaceAll("'", "''")}'`;
 }
 
 // Postgres 40001 serialization_failure — the only error readTransaction retries.

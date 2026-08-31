@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/empty";
 import type {
 	AdminListUsersSort,
+	UserCountryFilter,
 	UserCreditsUsedRange,
+	UserFreeCreditsFilter,
 	UserPlanFilter,
 	UserPublishedFilter,
 	UserRoleFilter,
@@ -32,6 +34,8 @@ function UsersPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(USER_TABLE_DEFAULT_PAGE_SIZE);
 	const [sort, setSort] = useState<AdminListUsersSort>("newest");
+	const [country, setCountry] = useState<UserCountryFilter>();
+	const [freeCredits, setFreeCredits] = useState<UserFreeCreditsFilter>();
 	const [plan, setPlan] = useState<UserPlanFilter>();
 	const [role, setRole] = useState<UserRoleFilter>();
 	const [status, setStatus] = useState<UserStatusFilter>();
@@ -58,6 +62,8 @@ function UsersPage() {
 		debouncedQuery,
 		sort,
 		pageSize,
+		country,
+		freeCredits,
 		plan,
 		role,
 		status,
@@ -71,6 +77,8 @@ function UsersPage() {
 		pageSize,
 		sort,
 		q: debouncedQuery || undefined,
+		country,
+		freeCredits,
 		plan,
 		role,
 		status,
@@ -82,7 +90,9 @@ function UsersPage() {
 
 	const result = usersQuery.data;
 	const hasActiveFilters = Boolean(
-		plan?.length ||
+		country?.length ||
+			freeCredits?.length ||
+			plan?.length ||
 			role?.length ||
 			status?.length ||
 			verified?.length ||
@@ -97,6 +107,8 @@ function UsersPage() {
 		!hasActiveFilters;
 	const clearAllFilters = () => {
 		setSearchValue("");
+		setCountry(undefined);
+		setFreeCredits(undefined);
 		setPlan(undefined);
 		setRole(undefined);
 		setStatus(undefined);
@@ -114,6 +126,8 @@ function UsersPage() {
 			await exportUsersToExcel({
 				q: debouncedQuery || undefined,
 				sort,
+				country,
+				freeCredits,
 				plan,
 				role,
 				status,
@@ -206,6 +220,8 @@ function UsersPage() {
 					pageSize={pageSize}
 					total={result.total}
 					sort={sort}
+					country={country}
+					freeCredits={freeCredits}
 					plan={plan}
 					role={role}
 					status={status}
@@ -217,6 +233,8 @@ function UsersPage() {
 					isExporting={isExporting}
 					onSearchChange={setSearchValue}
 					onSortChange={setSort}
+					onCountryChange={setCountry}
+					onFreeCreditsChange={setFreeCredits}
 					onPlanChange={setPlan}
 					onRoleChange={setRole}
 					onStatusChange={setStatus}

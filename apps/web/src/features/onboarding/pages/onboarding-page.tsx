@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { captureEvent, identifyAnalyticsUser } from "@wandit/analytics/browser";
 import {
 	completeOnboardingBodySchema,
+	type DialCountryIso,
 	getApplicableOnboardingQuestions,
 	onboardingQuestions,
 } from "@wandit/contracts";
@@ -147,8 +148,14 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		setActiveIndex((index) => Math.max(index - 1, 0));
 	}
 
-	function updateTextAnswer(value: string) {
-		setAnswers((current) => ({ ...current, [question.id]: value }));
+	function updateTextAnswer(value: string, phoneCountryIso?: DialCountryIso) {
+		setAnswers((current) => ({
+			...current,
+			[question.id]: value,
+			...(question.id === "phone" && phoneCountryIso
+				? { phone_country: phoneCountryIso }
+				: {}),
+		}));
 	}
 
 	function advanceOrSubmit(nextAnswers: OnboardingAnswerState) {
@@ -226,11 +233,15 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		await navigate({ href: next ?? "/dashboard", replace: true });
 	}
 
-	function answerCurrentQuestion(value: string) {
+	function answerCurrentQuestion(
+		value: string,
+		phoneCountryIso?: DialCountryIso,
+	) {
 		if (interactionLockedRef.current || submitting) return;
 
 		const answer = question.type === "text" ? value.trim() : value;
 		if (!answer) return;
+		if (question.id === "phone" && !phoneCountryIso) return;
 
 		interactionLockedRef.current = true;
 		clearAdvanceTimer();
@@ -242,6 +253,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		const nextAnswers = removeInapplicableOnboardingAnswers({
 			...answers,
 			[question.id]: answer,
+			...(question.id === "phone" ? { phone_country: phoneCountryIso } : {}),
 		});
 		setAnswers(nextAnswers);
 		setPulse((current) => current + 1);
@@ -333,6 +345,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 												question={question}
 												view={view}
 												answer={answers[question.id] ?? ""}
+												phoneCountryIso={answers.phone_country}
 												dir={dir}
 												locale={locale}
 												pulse={pulse}
@@ -363,12 +376,13 @@ type QuestionRendererProps = {
 	question: OnboardingQuestion;
 	view: OnboardingQuestionViewConfig;
 	answer: string;
+	phoneCountryIso?: DialCountryIso;
 	dir: "ltr" | "rtl";
 	locale: string;
 	pulse: number;
 	titleId: string;
-	onTextChange: (value: string) => void;
-	onAnswer: (value: string) => void;
+	onTextChange: (value: string, phoneCountryIso?: DialCountryIso) => void;
+	onAnswer: (value: string, phoneCountryIso?: DialCountryIso) => void;
 	onSkip: () => void;
 };
 
@@ -376,6 +390,7 @@ function QuestionRenderer({
 	question,
 	view,
 	answer,
+	phoneCountryIso,
 	dir,
 	locale,
 	pulse,
@@ -417,6 +432,7 @@ function QuestionRenderer({
 		return (
 			<PhoneStep
 				value={answer}
+				selectedCountryIso={phoneCountryIso}
 				label={t(view.labelKey)}
 				nextLabel={t(view.nextLabelKey)}
 				countryLabel={t(view.countryLabelKey)}
