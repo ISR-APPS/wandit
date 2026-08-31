@@ -1,5 +1,5 @@
 {
-  "id": "fbfa8315-e1a5-49e5-9751-6df9285b1110",
+  "id": "5fc03c6b-977e-4865-b4c9-c8cb0ef6882a",
   "prevId": "3ec8d3d4-722d-4f5a-b216-2ba9abfd9818",
   "version": "7",
   "dialect": "postgresql",
@@ -121,6 +121,148 @@
             "id"
           ],
           "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.admin_audit_events": {
+      "name": "admin_audit_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "admin_user_id": {
+          "name": "admin_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_user_id": {
+          "name": "target_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "admin_audit_events_adminUserId_createdAt_idx": {
+          "name": "admin_audit_events_adminUserId_createdAt_idx",
+          "columns": [
+            {
+              "expression": "admin_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "admin_audit_events_targetUserId_idx": {
+          "name": "admin_audit_events_targetUserId_idx",
+          "columns": [
+            {
+              "expression": "target_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "admin_audit_events_action_createdAt_idx": {
+          "name": "admin_audit_events_action_createdAt_idx",
+          "columns": [
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "admin_audit_events_admin_user_id_user_id_fk": {
+          "name": "admin_audit_events_admin_user_id_user_id_fk",
+          "tableFrom": "admin_audit_events",
+          "tableTo": "user",
+          "columnsFrom": [
+            "admin_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "admin_audit_events_target_user_id_user_id_fk": {
+          "name": "admin_audit_events_target_user_id_user_id_fk",
+          "tableFrom": "admin_audit_events",
+          "tableTo": "user",
+          "columnsFrom": [
+            "target_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -5480,6 +5622,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "chats_projectId_updatedAt_idx": {
+          "name": "chats_projectId_updatedAt_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -5555,6 +5718,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5581,6 +5780,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_failureKind_createdAt_idx": {
+          "name": "messages_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"messages\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5686,6 +5907,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5739,6 +5996,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "connector_generation_attempts_failureKind_createdAt_idx": {
+          "name": "connector_generation_attempts_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"connector_generation_attempts\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -7751,12 +8030,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "external_delegation_reminder_sent_at": {
-          "name": "external_delegation_reminder_sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "price_snapshot": {
           "name": "price_snapshot",
           "type": "jsonb",
@@ -7969,6 +8242,18 @@
         "project_id": {
           "name": "project_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auth_session_id": {
+          "name": "auth_session_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -8370,6 +8655,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8459,6 +8780,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "image_generation_attempts_failureKind_createdAt_idx": {
+          "name": "image_generation_attempts_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"image_generation_attempts\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -9353,6 +9696,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -9442,6 +9821,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "marketing_assets_failureKind_createdAt_idx": {
+          "name": "marketing_assets_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"marketing_assets\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -9982,6 +10383,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -10092,6 +10529,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "media_generation_attempts_failureKind_createdAt_idx": {
+          "name": "media_generation_attempts_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"media_generation_attempts\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -11316,6 +11775,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "failure_kind": {
+          "name": "failure_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_source": {
+          "name": "failure_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider": {
+          "name": "failure_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_provider_message": {
+          "name": "failure_provider_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_request_id": {
+          "name": "failure_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sentry_event_id": {
+          "name": "sentry_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_progress_percent": {
           "name": "last_progress_percent",
           "type": "integer",
@@ -11375,6 +11870,28 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "page_generation_attempts_failureKind_createdAt_idx": {
+          "name": "page_generation_attempts_failureKind_createdAt_idx",
+          "columns": [
+            {
+              "expression": "failure_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"page_generation_attempts\".\"failure_kind\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

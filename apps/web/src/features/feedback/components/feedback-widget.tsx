@@ -76,11 +76,13 @@ function getReplayUrl(): string | undefined {
 type FeedbackHostProps = {
 	// Draws the element that opens the dialog. The host owns all state.
 	renderTrigger: (open: () => void) => ReactNode;
+	/** Active workspace conversation, when the trigger lives inside chat scope. */
+	chatId?: string;
 };
 
 // Owns the dialog, the capture, and the submit flow. The trigger below
 // chooses where and how the opener renders.
-function FeedbackHost({ renderTrigger }: FeedbackHostProps) {
+function FeedbackHost({ renderTrigger, chatId }: FeedbackHostProps) {
 	const { t } = useTranslation();
 	const { data } = useSession();
 	const createFeedback = useCreateFeedback();
@@ -172,6 +174,7 @@ function FeedbackHost({ renderTrigger }: FeedbackHostProps) {
 		const withScreenshot = includeScreenshot && screenshot !== null;
 		const body: CreateFeedbackRequest = {
 			message: text,
+			...(chatId ? { chatId } : {}),
 			...(category ? { category } : {}),
 			pageUrl: window.location.href.slice(0, MAX_PAGE_URL_LENGTH),
 			...(replayUrl ? { replayUrl } : {}),
@@ -347,10 +350,13 @@ function FeedbackHost({ renderTrigger }: FeedbackHostProps) {
 // A labeled header button, styled like the academy button next to it. The
 // label hides on narrow screens where only the icon fits; the tooltip covers
 // that case. The bottom-right corner belongs to the live-chat widget.
-export function FeedbackButton() {
+export type FeedbackButtonProps = { chatId?: string };
+
+export function FeedbackButton({ chatId }: FeedbackButtonProps) {
 	const { t } = useTranslation();
 	return (
 		<FeedbackHost
+			chatId={chatId}
 			renderTrigger={(open) => (
 				<Tooltip>
 					<TooltipTrigger asChild>

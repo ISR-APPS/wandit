@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => {
 		logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 		metadata,
 		recordReceipt: vi.fn(),
+		sentryCaptureException: vi.fn(
+			(_error: unknown, _context?: unknown) => "sentry-event-id",
+		),
+		sentryWarn: vi.fn(),
 		task: vi.fn((definition: unknown) => definition),
 		triggerAnalytics: { capture: vi.fn() },
 	};
@@ -42,6 +46,13 @@ vi.mock("@trigger.dev/sdk", () => ({
 	logger: mocks.logger,
 	metadata: mocks.metadata,
 	task: mocks.task,
+}));
+
+vi.mock("@wandit/observability/node", () => ({
+	Sentry: {
+		captureException: mocks.sentryCaptureException,
+		logger: { info: vi.fn(), warn: mocks.sentryWarn },
+	},
 }));
 
 vi.mock("@wandit/db", () => ({
@@ -129,6 +140,12 @@ const USER_MESSAGE =
 	"Higgsfield could not read this YouTube video. Check that the link is a public, finished video, then try again.";
 const UNFOLLOWABLE_MESSAGE =
 	"Higgsfield accepted the clipping job but Wandit could not follow it. Check your Higgsfield account for the clips.";
+const CONNECTOR_TIMEOUT_MESSAGE =
+	"Higgsfield accepted the job but did not report a result in time. Check Higgsfield before you try again.";
+const CONNECTOR_NO_REASON_MESSAGE =
+	"Higgsfield failed without giving a reason.";
+const INTERNAL_FAILURE_MESSAGE =
+	"Something went wrong on our side. Please try again.";
 
 const attempt = {
 	args: { urls: ["https://www.youtube.com/watch?v=clip"] },
@@ -138,6 +155,21 @@ const attempt = {
 	status: "queued",
 	toolName: "personal_clipper_create",
 	userId: USER_ID,
+};
+
+const videoAttempt = {
+	...attempt,
+	args: { prompt: "a product reveal" },
+	toolName: "generate_video",
+};
+
+const submitJobResult = {
+	content: [
+		{
+			text: JSON.stringify({ job_id: "provider-job-1" }),
+			type: "text",
+		},
+	],
 };
 
 const payload: RunConnectorGenerationPayload = {
@@ -361,7 +393,11 @@ describe("runConnectorGenerationTask", () => {
 		expect(database.set).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({
-				error: UNFOLLOWABLE_MESSAGE,
+				error: CONNECTOR_TIMEOUT_MESSAGE,
+				failureKind: "timeout",
+				failureProvider: "higgsfield",
+				failureProviderMessage: null,
+				failureSource: "higgsfield",
 				status: "failed",
 			}),
 		);
@@ -372,6 +408,11 @@ describe("runConnectorGenerationTask", () => {
 			{ childUnits: 0 },
 		);
 		expect(mocks.billing.refund).not.toHaveBeenCalled();
+		expect(mocks.sentryCaptureException).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({ errorKind: "timeout", refunded: false }),
+		);
 	});
 
 	it("keeps polling Clipper while partial media is still processing", async () => {
@@ -446,6 +487,47 @@ describe("runConnectorGenerationTask", () => {
 		});
 	});
 
+	it("accepts delivered media when a completed sibling accompanies a failed item", async () => {
+		const database = setupDatabase({
+			selectRows: [[videoAttempt]],
+			updateRows: [
+				[{ id: ATTEMPT_ID }],
+				[{ id: ATTEMPT_ID }],
+				[{ id: ATTEMPT_ID }],
+			],
+		});
+		const signal = new AbortController().signal;
+		const statusResult = {
+			content: [
+				{
+					text: JSON.stringify({
+						jobs: [{ state: "completed" }, { state: "failed" }],
+						output_url: "https://media.example/final.mp4",
+					}),
+					type: "text",
+				},
+			],
+		};
+		mocks.client.callTool
+			.mockResolvedValueOnce(submitJobResult)
+			.mockResolvedValueOnce(statusResult);
+		mockJobStatusDefinition();
+		const timer = useImmediateTimers();
+
+		try {
+			await expect(
+				task.run(payload, { ctx: { run: { id: "run-mixed-set" } }, signal }),
+			).resolves.toEqual({ mediaCount: 1 });
+		} finally {
+			timer.mockRestore();
+		}
+
+		expect(database.set).toHaveBeenNthCalledWith(2, {
+			media: [{ kind: "video", url: "https://media.example/final.mp4" }],
+		});
+		expect(mocks.billing.refund).not.toHaveBeenCalled();
+	});
+
 	it("captures gateway evidence before a classified submit rejection", async () => {
 		const database = setupDatabase({
 			selectRows: [[attempt], [{ media: null, status: "running" }]],
@@ -471,12 +553,19 @@ describe("runConnectorGenerationTask", () => {
 		).resolves.toEqual({
 			mediaCount: 0,
 			outcome: "provider_rejected",
-			reason: USER_MESSAGE,
+			reason: `Higgsfield returned: ${USER_MESSAGE}`,
 		});
 
 		expect(database.set).toHaveBeenNthCalledWith(
 			2,
-			expect.objectContaining({ error: USER_MESSAGE, status: "failed" }),
+			expect.objectContaining({
+				error: `Higgsfield returned: ${USER_MESSAGE}`,
+				failureKind: "connector_rejected",
+				failureProvider: "higgsfield",
+				failureProviderMessage: USER_MESSAGE,
+				failureSource: "higgsfield",
+				status: "failed",
+			}),
 		);
 		expect(mocks.captureResult).toHaveBeenCalledWith(
 			mocks.billing,
@@ -484,19 +573,24 @@ describe("runConnectorGenerationTask", () => {
 			errorResult,
 		);
 		expect(mocks.billing.refund).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({ refunded: false }),
+		);
 		expect(mocks.logger.warn).toHaveBeenCalledWith(
 			"Connector generation submit was rejected by the provider",
-			{ kind: "validation", providerText },
+			{ kind: "connector_rejected" },
 		);
 		expect(mocks.recordReceipt).not.toHaveBeenCalled();
 	});
 
-	it("captures unknown submit errors, stores safe text, and throws the raw provider text", async () => {
+	it("captures unknown submit errors without throwing raw provider text", async () => {
 		const database = setupDatabase({
 			selectRows: [[attempt], [{ media: null, status: "running" }]],
 			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
 		});
-		const providerText = "Unexpected provider failure (Request ID: req-secret)";
+		const providerText =
+			"Unexpected provider failure at https://private.example/input with Bearer secret-token (Request ID: req-secret)";
 		const errorResult = {
 			content: [{ text: providerText, type: "text" }],
 			isError: true,
@@ -511,12 +605,15 @@ describe("runConnectorGenerationTask", () => {
 			.catch((error: unknown) => error);
 
 		expect(thrown).toBeInstanceOf(Error);
-		expect((thrown as Error).message).toBe(providerText);
+		expect((thrown as Error).message).toBe(CONNECTOR_NO_REASON_MESSAGE);
 
 		expect(database.set).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({
-				error: "Unexpected provider failure",
+				error: CONNECTOR_NO_REASON_MESSAGE,
+				failureKind: "connector_rejected",
+				failureProviderMessage: null,
+				failureSource: "higgsfield",
 				status: "failed",
 			}),
 		);
@@ -526,6 +623,19 @@ describe("runConnectorGenerationTask", () => {
 			errorResult,
 		);
 		expect(mocks.billing.refund).toHaveBeenCalledOnce();
+		expect(mocks.sentryCaptureException).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({
+				errorKind: "connector_rejected",
+				rawCause: expect.any(String),
+				refunded: true,
+			}),
+		);
+		const failedLog = mocks.sentryWarn.mock.calls[0]?.[1] as {
+			rawCause: string;
+		};
+		expect(failedLog.rawCause).not.toMatch(/private\.example|secret-token/u);
 		expect(mocks.recordReceipt).not.toHaveBeenCalled();
 	});
 
@@ -534,7 +644,8 @@ describe("runConnectorGenerationTask", () => {
 			selectRows: [[attempt], [{ media: null, status: "running" }]],
 			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
 		});
-		const providerText = "Unexpected provider failure (Request ID: req-secret)";
+		const providerText =
+			"Unexpected provider failure at https://private.example/input with Bearer secret-token (Request ID: req-secret)";
 		const errorResult = {
 			content: [{ text: providerText, type: "text" }],
 			isError: true,
@@ -550,11 +661,13 @@ describe("runConnectorGenerationTask", () => {
 			.catch((error: unknown) => error);
 
 		expect(thrown).toBeInstanceOf(Error);
-		expect((thrown as Error).message).toBe(providerText);
+		expect((thrown as Error).message).toBe(CONNECTOR_NO_REASON_MESSAGE);
 		expect(database.set).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({
-				error: "Unexpected provider failure",
+				error: CONNECTOR_NO_REASON_MESSAGE,
+				failureKind: "connector_rejected",
+				failureProviderMessage: null,
 				status: "failed",
 			}),
 		);
@@ -572,7 +685,8 @@ describe("runConnectorGenerationTask", () => {
 			selectRows: [[attempt], [{ media: null, status: "running" }]],
 			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
 		});
-		const providerText = "Unexpected provider failure (Request ID: req-secret)";
+		const providerText =
+			"Unexpected provider failure at https://private.example/input with Bearer secret-token (Request ID: req-secret)";
 		const errorResult = {
 			content: [{ text: providerText, type: "text" }],
 			isError: true,
@@ -589,11 +703,18 @@ describe("runConnectorGenerationTask", () => {
 			.catch((error: unknown) => error);
 
 		expect(thrown).toBeInstanceOf(Error);
-		expect((thrown as Error).message).toBe(providerText);
+		expect((thrown as Error).message).toBe(
+			"Connector submit-result capture failed",
+		);
 		expect(database.set).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({
-				error: "Unexpected provider failure",
+				error: INTERNAL_FAILURE_MESSAGE,
+				failureKind: "internal",
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureSource: "ours",
+				sentryEventId: "sentry-event-id",
 				status: "failed",
 			}),
 		);
@@ -602,11 +723,268 @@ describe("runConnectorGenerationTask", () => {
 			`Connector submit-result capture failed for attempt ${ATTEMPT_ID}`,
 			{ error: captureError },
 		);
+		const capturedError = mocks.sentryCaptureException.mock.calls[0]?.[0];
+		expect(capturedError).toBeInstanceOf(Error);
+		expect((capturedError as Error).message).toBe(
+			"Connector submit-result capture failed",
+		);
+		expect((capturedError as Error).message).not.toContain(providerText);
+		const captureOptions = mocks.sentryCaptureException.mock.calls[0]?.[1];
+		expect(JSON.stringify(captureOptions)).not.toMatch(
+			/private\.example|secret-token/u,
+		);
 		expect(mocks.recordReceipt).not.toHaveBeenCalled();
 	});
 
+	it("classifies an nsfw job verdict, persists only the fixed moderation sentence, and refunds", async () => {
+		const database = setupDatabase({
+			selectRows: [[videoAttempt], [{ media: null, status: "running" }]],
+			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
+		});
+		const statusResult = {
+			content: [
+				{
+					text: JSON.stringify({
+						request_id: "higgsfield-request-1",
+						status: "nsfw",
+						task_status_msg: "raw moderation payload",
+					}),
+					type: "text",
+				},
+			],
+		};
+		mocks.client.callTool
+			.mockResolvedValueOnce(submitJobResult)
+			.mockResolvedValueOnce(statusResult);
+		mockJobStatusDefinition();
+		const timer = useImmediateTimers();
+
+		try {
+			await expect(
+				task.run(payload, {
+					ctx: { run: { id: "run-nsfw" } },
+					signal: new AbortController().signal,
+				}),
+			).rejects.toThrow();
+		} finally {
+			timer.mockRestore();
+		}
+
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error:
+					"Higgsfield declined this request because of its content rules. Change the prompt and try again.",
+				failureKind: "content_moderated",
+				failureProvider: "higgsfield",
+				failureProviderMessage:
+					"Input or output was rejected by content moderation.",
+				failureRequestId: "higgsfield-request-1",
+				failureSource: "higgsfield",
+				status: "failed",
+			}),
+		);
+		expect(mocks.billing.refund).toHaveBeenCalledOnce();
+		expect(mocks.sentryCaptureException).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({
+				errorKind: "content_moderated",
+				refunded: true,
+			}),
+		);
+	});
+
+	it.each([
+		{
+			label: "without text",
+			statusResult: { state: "failed" },
+		},
+		{
+			label: "with a JSON blob",
+			statusResult: {
+				content: [
+					{
+						text: JSON.stringify({
+							access_token: "secret-provider-token",
+							prompt: "private prompt",
+							status: "failed",
+							url: "https://private.example/input.png",
+						}),
+						type: "text",
+					},
+				],
+			},
+		},
+	])("stores the category sentence for a failed state $label", async ({
+		statusResult,
+	}) => {
+		const database = setupDatabase({
+			selectRows: [[videoAttempt], [{ media: null, status: "running" }]],
+			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
+		});
+		mocks.client.callTool
+			.mockResolvedValueOnce(submitJobResult)
+			.mockResolvedValueOnce(statusResult);
+		mockJobStatusDefinition();
+		const timer = useImmediateTimers();
+
+		try {
+			await expect(
+				task.run(payload, {
+					ctx: { run: { id: "run-failed-state" } },
+					signal: new AbortController().signal,
+				}),
+			).rejects.toThrow();
+		} finally {
+			timer.mockRestore();
+		}
+
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error: CONNECTOR_NO_REASON_MESSAGE,
+				failureKind: "connector_rejected",
+				failureProviderMessage: null,
+				failureSource: "higgsfield",
+				status: "failed",
+			}),
+		);
+		expect(mocks.billing.refund).toHaveBeenCalledOnce();
+		expect(JSON.stringify(database.set.mock.calls[1]?.[0])).not.toContain(
+			"secret-provider-token",
+		);
+	});
+
+	it("classifies submit-time account credits without creating a Sentry issue", async () => {
+		const database = setupDatabase({
+			selectRows: [[attempt], [{ media: null, status: "running" }]],
+			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
+		});
+		mocks.client.callTool.mockResolvedValue({
+			content: [{ text: "Higgsfield is out of credits", type: "text" }],
+			isError: true,
+		});
+
+		await expect(
+			task.run(payload, {
+				ctx: { run: { id: "run-credits" } },
+				signal: new AbortController().signal,
+			}),
+		).resolves.toMatchObject({ outcome: "provider_rejected" });
+
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error:
+					"Your Higgsfield workspace is out of credits. Update your Higgsfield account, then try again.",
+				failureKind: "connector_account",
+				failureProviderMessage: "Your Higgsfield workspace is out of credits.",
+				failureSource: "higgsfield",
+			}),
+		);
+		expect(mocks.billing.refund).toHaveBeenCalledOnce();
+		expect(mocks.sentryCaptureException).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({ errorKind: "connector_account" }),
+		);
+	});
+
+	it("classifies twelve consecutive status errors as a non-retryable zero-unit timeout", async () => {
+		const database = setupDatabase({
+			selectRows: [[videoAttempt], [{ media: null, status: "running" }]],
+			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
+		});
+		const statusError = {
+			content: [{ text: "provider status unavailable", type: "text" }],
+			isError: true,
+		};
+		mocks.client.callTool
+			.mockResolvedValueOnce(submitJobResult)
+			.mockResolvedValue(statusError);
+		mockJobStatusDefinition();
+		const timer = useImmediateTimers();
+
+		try {
+			await expect(
+				task.run(payload, {
+					ctx: { run: { id: "run-status-errors" } },
+					signal: new AbortController().signal,
+				}),
+			).rejects.toThrow(CONNECTOR_TIMEOUT_MESSAGE);
+		} finally {
+			timer.mockRestore();
+		}
+
+		expect(mocks.client.callTool).toHaveBeenCalledTimes(13);
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error: CONNECTOR_TIMEOUT_MESSAGE,
+				failureKind: "timeout",
+				failureProviderMessage: null,
+				failureSource: "higgsfield",
+			}),
+		);
+		expect(mocks.finalizeBilling).toHaveBeenCalledWith(
+			mocks.billing,
+			payload.billing,
+			[],
+			{ childUnits: 0 },
+		);
+		expect(mocks.billing.refund).not.toHaveBeenCalled();
+		expect(mocks.sentryWarn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({
+				errorKind: "timeout",
+				refunded: false,
+			}),
+		);
+	});
+
+	it("classifies the follow deadline as a non-retryable zero-unit timeout", async () => {
+		const database = setupDatabase({
+			selectRows: [[videoAttempt], [{ media: null, status: "running" }]],
+			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
+		});
+		mocks.client.callTool.mockResolvedValueOnce(submitJobResult);
+		mockJobStatusDefinition();
+		const now = vi
+			.spyOn(Date, "now")
+			.mockReturnValueOnce(1)
+			.mockReturnValue(1 + 25 * 60 * 1000);
+
+		try {
+			await expect(
+				task.run(payload, {
+					ctx: { run: { id: "run-deadline" } },
+					signal: new AbortController().signal,
+				}),
+			).rejects.toThrow("Timed out waiting for the provider");
+		} finally {
+			now.mockRestore();
+		}
+
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error: CONNECTOR_TIMEOUT_MESSAGE,
+				failureKind: "timeout",
+				failureProviderMessage: null,
+			}),
+		);
+		expect(mocks.finalizeBilling).toHaveBeenCalledWith(
+			mocks.billing,
+			payload.billing,
+			[],
+			{ childUnits: 0 },
+		);
+		expect(mocks.billing.refund).not.toHaveBeenCalled();
+	});
+
 	it("keeps the existing unlim_choice verdict as a failed run", async () => {
-		setupDatabase({
+		const database = setupDatabase({
 			selectRows: [[attempt], [{ media: null, status: "running" }]],
 			updateRows: [[{ id: ATTEMPT_ID }], [{ id: ATTEMPT_ID }]],
 		});
@@ -623,10 +1001,23 @@ describe("runConnectorGenerationTask", () => {
 				ctx: { run: { id: "run-7" } },
 				signal: new AbortController().signal,
 			}),
-		).rejects.toThrow(providerText);
+		).rejects.toThrow(
+			"This Higgsfield tool needs a higher Higgsfield plan. Update your Higgsfield account, then try again.",
+		);
 
 		expect(mocks.billing.refund).toHaveBeenCalledOnce();
 		expect(mocks.recordReceipt).not.toHaveBeenCalled();
+		expect(database.set).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				error:
+					"This Higgsfield tool needs a higher Higgsfield plan. Update your Higgsfield account, then try again.",
+				failureKind: "connector_account",
+				failureProviderMessage:
+					"This Higgsfield tool needs a higher Higgsfield plan.",
+				failureSource: "higgsfield",
+			}),
+		);
 	});
 });
 
@@ -639,6 +1030,17 @@ function useImmediateTimers() {
 	}) as unknown as typeof setTimeout);
 }
 
+function mockJobStatusDefinition(): void {
+	mocks.client.listTools.mockResolvedValue({
+		tools: [
+			{
+				inputSchema: { properties: { job_id: {} } },
+				name: "job_status",
+			},
+		],
+	});
+}
+
 function setupDatabase(input: {
 	selectRows: unknown[][];
 	updateRows: unknown[][];
@@ -647,7 +1049,7 @@ function setupDatabase(input: {
 	const updateRows = [...input.updateRows];
 	const limit = vi.fn(async () => selectRows.shift() ?? []);
 	const returning = vi.fn(async () => updateRows.shift() ?? []);
-	const set = vi.fn(() => ({
+	const set = vi.fn((_values: unknown) => ({
 		where: vi.fn(() => ({ returning })),
 	}));
 	const database = {

@@ -133,6 +133,7 @@ export class HiggsfieldPromptRefinerService {
 					"prompt_refine",
 				),
 				system: HIGGSFIELD_PROMPT_REFINER_PROMPT,
+				telemetry: { functionId: "connector.prompt_refine" },
 			});
 
 			if (input.parentEventId) {

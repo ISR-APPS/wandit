@@ -22,6 +22,7 @@ export const adminStatement = {
 	costs: ["read", "manage"],
 	academy: ["read", "manage"],
 	analytics: ["read", "manage"],
+	conversations: ["read", "read-raw"],
 	settings: ["read", "manage"],
 } as const;
 
@@ -43,6 +44,7 @@ const fullAdminStatements = {
 	costs: ["read", "manage"],
 	academy: ["read", "manage"],
 	analytics: ["read", "manage"],
+	conversations: ["read", "read-raw"],
 	settings: ["read", "manage"],
 } as const satisfies CompleteAdminRoleStatements;
 
@@ -58,7 +60,8 @@ export const adminRoles = {
 		links: ["read"],
 		academy: ["read"],
 		// Deliberately absent: grant-credits / set-role (money + privilege),
-		// affiliates, costs, analytics, settings (finance + product controls).
+		// affiliates, costs, analytics, settings (finance + product controls), and
+		// conversations (customer transcript data).
 	}),
 } satisfies Record<StaffRole, ReturnType<typeof adminAccessControl.newRole>>;
 

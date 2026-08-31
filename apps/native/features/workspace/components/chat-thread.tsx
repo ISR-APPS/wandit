@@ -1,3 +1,4 @@
+import type { AiErrorData } from "@wandit/contracts";
 import {
 	useDictionary,
 	useTranslation,
@@ -11,6 +12,14 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { WanditIcon } from "@/components/wandit-icon";
+import {
+	aiErrorNoticeKey,
+	type ChatErrorPresentation,
+	chatErrorPresentation,
+	findToolAiError,
+	messageHasQueuedToolOutput,
+	readAiErrorData,
+} from "../lib/ai-error-copy";
 import {
 	coalesceMessageParts,
 	entryRendersContent,
@@ -32,6 +41,7 @@ import { ChatMessageTokenUsage } from "./chat-dev-diagnostics";
 import { ChatMarkdown } from "./chat-markdown";
 import { ChatMediaViewer } from "./chat-media";
 import { McpToolRun } from "./mcp-tool-run";
+import { StatusMessageHeader } from "./status-message-header";
 import { TargetChip } from "./target-chip";
 
 type ChatStatus = "submitted" | "streaming" | "ready" | "error";
@@ -285,6 +295,9 @@ function ChatMessageParts({
 	projectId,
 	activeAskToolCallId,
 	onToolApprovalResponse,
+	onPrefillComposer,
+	hideAiErrorMessageId,
+	onRetryAiError,
 }: {
 	message: WanditUIMessage;
 	messageIndex: number;
@@ -293,6 +306,9 @@ function ChatMessageParts({
 	projectId: string;
 	activeAskToolCallId?: string;
 	onToolApprovalResponse: (response: ApprovalResponse) => void;
+	onPrefillComposer?: (prompt: string) => void;
+	hideAiErrorMessageId?: string;
+	onRetryAiError?: () => unknown;
 }) {
 	const { t } = useTranslation();
 	const turnLive =
@@ -370,6 +386,7 @@ function ChatMessageParts({
 					section={entry.section}
 					isLastAssistantMessage={isLastAssistantMessage}
 					onApprovalResponse={onToolApprovalResponse}
+					onPrefillComposer={onPrefillComposer}
 				/>
 			);
 		}
@@ -402,6 +419,8 @@ function ChatMessageParts({
 
 		const asyncKind = ASYNC_KIND_BY_TYPE[part.type];
 		if (asyncKind) {
+			const toolCallId =
+				typeof part.toolCallId === "string" ? part.toolCallId : undefined;
 			return (
 				<AsyncGenerationCard
 					key={
@@ -411,12 +430,50 @@ function ChatMessageParts({
 					}
 					kind={asyncKind}
 					projectId={projectId}
+					onPrefillComposer={onPrefillComposer}
 					part={{
 						state: part.state,
 						input: part.input,
 						output: part.output,
-						errorText: part.errorText,
+						failure:
+							findToolAiError(message.parts, toolCallId) ??
+							readAiErrorData(part.output),
 					}}
+				/>
+			);
+		}
+
+		if (part.type === "data-ai-error") {
+			const error = readAiErrorData(part.data);
+			if (
+				!error?.terminal ||
+				error.toolCallId ||
+				error.kind === "cancelled" ||
+				error.kind === "billing" ||
+				hideAiErrorMessageId === message.id
+			) {
+				return null;
+			}
+
+			const hasQueuedWork = messageHasQueuedToolOutput(message);
+			const presentation = chatErrorPresentation(null, error, t);
+			const canRetry =
+				presentation.retryable &&
+				isLastAssistantMessage &&
+				status !== "submitted" &&
+				status !== "streaming" &&
+				!hasQueuedWork &&
+				Boolean(onRetryAiError);
+
+			return (
+				<ChatAiErrorBlock
+					key={`${message.id}:${index}`}
+					presentation={presentation}
+					showQueuedHint={
+						presentation.retryable && isLastAssistantMessage && hasQueuedWork
+					}
+					showRetry={canRetry}
+					onRetry={onRetryAiError}
 				/>
 			);
 		}
@@ -592,6 +649,77 @@ export function ChatErrorBanner({ message }: { message: string }) {
 	);
 }
 
+export function ChatAiErrorBlock({
+	presentation,
+	showRetry = false,
+	showQueuedHint = false,
+	onRetry,
+}: {
+	presentation: ChatErrorPresentation;
+	showRetry?: boolean;
+	showQueuedHint?: boolean;
+	onRetry?: () => unknown;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<View className="gap-1.5" accessibilityLiveRegion="polite">
+			<StatusMessageHeader tone="danger" kicker={presentation.kicker} />
+			<Text
+				className="text-[13px] text-muted leading-[19px]"
+				style={{ writingDirection: "auto" }}
+			>
+				{presentation.body}
+			</Text>
+			{presentation.attribution ? (
+				<Text
+					className="text-[12px] text-muted/80 leading-[18px]"
+					style={{ writingDirection: "auto" }}
+				>
+					{presentation.attribution}
+				</Text>
+			) : null}
+			{showQueuedHint ? (
+				<Text className="text-[12px] text-muted leading-[18px]">
+					{t("native.workspace.chat.aiError.queuedHint")}
+				</Text>
+			) : null}
+			{showRetry && onRetry ? (
+				<View className="items-start gap-1">
+					<Pressable
+						accessibilityRole="button"
+						onPress={() => {
+							void onRetry();
+						}}
+						className="min-h-10 items-center justify-center rounded-full border border-danger/35 bg-danger/10 px-4 active:opacity-75"
+					>
+						<Text className="font-sans-semibold text-[12.5px] text-danger">
+							{t("native.workspace.chat.aiError.retry")}
+						</Text>
+					</Pressable>
+					<Text className="text-[11.5px] text-muted leading-[17px]">
+						{t("native.workspace.chat.aiError.retryHint")}
+					</Text>
+				</View>
+			) : null}
+		</View>
+	);
+}
+
+export function ChatAiErrorNotices({
+	notices,
+}: {
+	notices: readonly AiErrorData[];
+}) {
+	const { t } = useTranslation();
+	return notices.map((notice) => (
+		<ChatAiErrorBlock
+			key={aiErrorNoticeKey(notice)}
+			presentation={chatErrorPresentation(null, notice, t)}
+		/>
+	));
+}
+
 export function ChatLoadingState() {
 	// Thread-shaped shimmer blocks instead of a bare spinner (web skeleton
 	// parity): a user turn, an assistant reply, a shorter user turn.
@@ -610,12 +738,18 @@ export function ChatMessages({
 	projectId,
 	activeAskToolCallId,
 	onToolApprovalResponse,
+	onPrefillComposer,
+	hideAiErrorMessageId,
+	onRetryAiError,
 }: {
 	messages: WanditUIMessage[];
 	status: ChatStatus;
 	projectId: string;
 	activeAskToolCallId?: string;
 	onToolApprovalResponse: (response: ApprovalResponse) => void;
+	onPrefillComposer?: (prompt: string) => void;
+	hideAiErrorMessageId?: string;
+	onRetryAiError?: () => unknown;
 }) {
 	return (
 		<>
@@ -629,6 +763,9 @@ export function ChatMessages({
 					projectId={projectId}
 					activeAskToolCallId={activeAskToolCallId}
 					onToolApprovalResponse={onToolApprovalResponse}
+					onPrefillComposer={onPrefillComposer}
+					hideAiErrorMessageId={hideAiErrorMessageId}
+					onRetryAiError={onRetryAiError}
 				/>
 			))}
 		</>

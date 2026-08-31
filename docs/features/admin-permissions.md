@@ -75,8 +75,13 @@ type AdminPermissionRequest = {
 | `academy` | `manage` | Yes | No |
 | `analytics` | `read` | Yes | No |
 | `analytics` | `manage` | Yes | No |
+| `conversations` | `read` | Yes | No |
+| `conversations` | `read-raw` | Yes | No |
 | `settings` | `read` | Yes | No |
 | `settings` | `manage` | Yes | No |
+
+The `conversations` resource controls access to customer transcripts. The `read-raw` action gives
+access to the full tool data.
 
 The Better Auth `createAccessControl` evaluator requires all requested actions to be granted by
 one stored role. A comma-joined role value succeeds when any one component grants the complete

@@ -94,6 +94,7 @@ export class FeedbackService {
 
 	async create(
 		user: AuthUser,
+		authSessionId: string,
 		request: CreateFeedbackRequest,
 	): Promise<CreateFeedbackResponse> {
 		const feedbackId = randomUUID();
@@ -112,6 +113,8 @@ export class FeedbackService {
 		await this.repository.insert({
 			id: feedbackId,
 			userId: user.id,
+			chatId: request.chatId ?? null,
+			authSessionId,
 			reporterName: user.name || "Unknown",
 			reporterEmail: user.email,
 			projectId: projectIdFromPageUrl(request.pageUrl),

@@ -425,8 +425,22 @@
     {
       "idx": 60,
       "version": "7",
-      "when": 1788106683998,
-      "tag": "0060_late_chimera",
+      "when": 1788097179779,
+      "tag": "0060_ai-inspector-foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788118370637,
+      "tag": "0061_ai-usage-events-chat-idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788189341531,
+      "tag": "0062_short_prowler",
       "breakpoints": true
     }
   ]

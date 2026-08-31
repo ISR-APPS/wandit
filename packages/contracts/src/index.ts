@@ -17,6 +17,8 @@ export * from "./v1/academy";
 export * from "./v1/admin";
 // Admin analytics contracts.
 export * from "./v1/admin-analytics";
+// Admin conversation inspector contracts.
+export * from "./v1/admin-conversations";
 // Admin monthly-cost contracts.
 export * from "./v1/admin-costs";
 // Admin feedback contracts.
@@ -25,6 +27,8 @@ export * from "./v1/admin-feedback";
 export * from "./v1/affiliates";
 // AI SDK chat tool and stream contracts.
 export * from "./v1/ai-chat";
+// Normalized AI error contracts.
+export * from "./v1/ai-errors";
 // Artifact/page contracts.
 export * from "./v1/artifacts";
 // Attachment upload contract.

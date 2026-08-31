@@ -1,5 +1,8 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+	type AiErrorKind,
+	aiErrorKindSchema,
+	aiErrorSourceSchema,
 	generateImagePlacementSchema,
 	type ImageGenerationAttempt,
 } from "@wandit/contracts";
@@ -19,6 +22,12 @@ import {
 	getObjectBytes,
 	publicAssetKeyFromUrl,
 } from "../../../../infrastructure/storage/r2";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
@@ -274,11 +283,26 @@ export class ImageGenerationsService {
 			return true;
 		}
 
+		const staleError = new Error("Image generation became stale");
+		const classified = classifyAiError(staleError, {
+			refunded: true,
+			route: "none",
+			surface: "image",
+		});
+		if (!classified) {
+			throw new Error("Stale image failure classification returned no result");
+		}
 		const [failed] = await this.db
 			.update(imageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: STALE_GENERATION_ERROR,
+				failureKind: classified.kind,
+				failureProvider: classified.provider,
+				failureProviderMessage: classified.providerMessage,
+				failureRequestId: classified.requestId,
+				failureSource: classified.source,
+				sentryEventId: null,
 				status: "failed",
 			})
 			.where(
@@ -291,6 +315,25 @@ export class ImageGenerationsService {
 			.returning({ projectId: imageGenerationAttempts.projectId });
 
 		if (failed) {
+			const sentryEventId = captureAiError(staleError, classified, {
+				generationId: row.id,
+				projectId: row.projectId,
+				refunded: true,
+				route: "none",
+				surface: "image",
+				userId: scope.userId,
+			});
+			if (sentryEventId) {
+				await this.db
+					.update(imageGenerationAttempts)
+					.set({ sentryEventId })
+					.where(
+						and(
+							eq(imageGenerationAttempts.id, row.id),
+							eq(imageGenerationAttempts.status, "failed"),
+						),
+					);
+			}
 			captureGenerationFailed(
 				this.analyticsService,
 				scope.userId,
@@ -361,6 +404,7 @@ function mapAttemptRow(row: ImageGenerationAttemptRow): ImageGenerationAttempt {
 		count: row.count,
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,
+		failure: mapFailure(row),
 		id: row.id,
 		images: row.images,
 		placement: mapPlacementStatus(row.spec, row.status),
@@ -369,6 +413,91 @@ function mapAttemptRow(row: ImageGenerationAttemptRow): ImageGenerationAttempt {
 		status: row.status,
 		title: row.title,
 	};
+}
+
+function mapFailure(
+	row: ImageGenerationAttemptRow,
+): ImageGenerationAttempt["failure"] {
+	const kindResult = aiErrorKindSchema.safeParse(row.failureKind);
+	const sourceResult = aiErrorSourceSchema.safeParse(row.failureSource);
+	if (!kindResult.success || !sourceResult.success) return null;
+
+	const kind = kindResult.data;
+	const provider = row.failureProvider;
+	const normalized: NormalizedAiError = {
+		gatewayGenerationId:
+			sourceResult.data === "gateway" ? row.failureRequestId : null,
+		kind,
+		model: null,
+		moderationStage:
+			kind === "content_moderated"
+				? provider === "google"
+					? "output"
+					: "input"
+				: null,
+		openrouterGenerationId: null,
+		provider,
+		providerLabel: imageProviderLabel(provider),
+		providerMessage: row.failureProviderMessage,
+		raw: {
+			cause: null,
+			message: row.error ?? "",
+			name: null,
+			providerAttempts: null,
+			responseBody: null,
+		},
+		refunded:
+			row.status === "succeeded"
+				? false
+				: sourceResult.data === "ours"
+					? null
+					: row.failureRequestId === null,
+		requestId: row.failureRequestId,
+		retryable: retryableImageFailure(kind),
+		sentryEventId: row.sentryEventId,
+		source: sourceResult.data,
+		statusCode: null,
+		terminal: true,
+		userMessage: {
+			key: `errors.ai.${kind}`,
+			params: {},
+		},
+	};
+
+	return toClientAiError(normalized);
+}
+
+function retryableImageFailure(kind: AiErrorKind): boolean {
+	return !new Set<AiErrorKind>([
+		"auth_config",
+		"billing",
+		"cancelled",
+		"connector_account",
+		"connector_unreachable",
+		"content_moderated",
+		"invalid_request",
+		"model_not_found",
+	]).has(kind);
+}
+
+function imageProviderLabel(provider: string | null): string | null {
+	if (!provider) return null;
+	return (
+		{
+			anthropic: "Anthropic",
+			bytedance: "ByteDance",
+			google: "Google",
+			klingai: "Kling",
+			openai: "OpenAI",
+			xai: "xAI",
+		}[provider] ??
+		provider
+			.split(/[-_]/u)
+			.filter(Boolean)
+			.map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+			.join(" ")
+			.slice(0, 40)
+	);
 }
 
 function mapPlacementStatus(

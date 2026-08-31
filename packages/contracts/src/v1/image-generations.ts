@@ -7,6 +7,7 @@
  * The chat card polls the attempt route until it reaches a terminal state.
  */
 import { z } from "zod";
+import { aiErrorDataSchema } from "./ai-errors";
 import { mediaGenerationStatusSchema } from "./media-generations";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
@@ -69,6 +70,8 @@ export const imageGenerationAttemptSchema = z.object({
 	// Present only when generate_image was asked to replace a page image.
 	placement: imageGenerationPlacementStatusSchema.optional(),
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),
 });

@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	index,
 	jsonb,
@@ -64,6 +64,12 @@ export const connectorGenerationAttempts = pgTable(
 		media: jsonb("media"),
 		// Human-readable failure reason, shown in the chat card error state.
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -77,6 +83,9 @@ export const connectorGenerationAttempts = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+		index("connector_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("connector_generation_attempts_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,

@@ -7,7 +7,13 @@ type ProductVideoToolPart = Extract<
 	{ type: "tool-product_video" }
 >;
 
-export function ProductVideoPart({ part }: { part: ProductVideoToolPart }) {
+export function ProductVideoPart({
+	part,
+	messageParts,
+}: {
+	part: ProductVideoToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
 	const copy: VideoAttemptCopy = {
 		preparing: t("workspace.chat.videoAttempt.product.preparing"),
@@ -46,5 +52,7 @@ export function ProductVideoPart({ part }: { part: ProductVideoToolPart }) {
 		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
 	};
 
-	return <VideoAttemptPart copy={copy} part={part} />;
+	return (
+		<VideoAttemptPart copy={copy} part={part} messageParts={messageParts} />
+	);
 }

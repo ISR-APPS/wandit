@@ -6,11 +6,13 @@ import {
 	type AiChatMessageMetadata,
 	type AiChatSelectedTarget,
 	type AiChatTools,
+	type AiErrorData,
 	type AskUserOutput,
 	aiChatBillingErrorDataSchema,
 	aiChatCreditsSettledDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRoutes,
+	aiErrorDataSchema,
 	type ComposerMetadata,
 	type CreditBalanceResponse,
 	composerMetadataSchema,
@@ -36,9 +38,13 @@ import {
 } from "@/features/workspace/api/chat.queries";
 import { pageKeys } from "@/features/workspace/api/generation.keys";
 import { authClient } from "@/lib/auth-client";
-import { isApiClientError } from "@/shared/lib/base-service";
 import { getServerUrl } from "@/shared/lib/server-url";
+import {
+	aiErrorNoticeKey,
+	findLastTerminalAiErrorMessage,
+} from "./ai-error-copy";
 import { chatAutostart } from "./chat-autostart";
+import { findRetryRequestMetadata } from "./retry-request-metadata";
 import { createStatusPreservingChatFetch } from "./status-preserving-chat-fetch";
 
 export type WanditUIMessage = UIMessage<
@@ -71,6 +77,9 @@ export function useAiChat(projectId?: string) {
 		selectedWids?: string[];
 	}>({});
 	const lastSendSucceededRef = useRef(false);
+	const aiErrorRef = useRef<AiErrorData | null>(null);
+	const [aiError, setAiError] = useState<AiErrorData | null>(null);
+	const [notices, setNotices] = useState<AiErrorData[]>([]);
 	// Billing is a monotonic condition within one chat turn: the server can
 	// emit a typed billing data part and then a generic AI SDK error chunk;
 	// that later chunk must not restore the generic error UI (web parity).
@@ -88,15 +97,13 @@ export function useAiChat(projectId?: string) {
 					}
 					// Assistants carry model/usage, targeted user turns carry the
 					// selected-target snapshots rendered in history.
-					const metadata = aiChatMessageMetadataSchema.safeParse(
-						message.metadata,
-					);
+					const metadata = parsePersistedMessageMetadata(message.metadata);
 					return [
 						{
 							id: message.id,
 							role: message.role,
 							parts: message.parts as WanditUIMessage["parts"],
-							...(metadata.success ? { metadata: metadata.data } : {}),
+							...(metadata ? { metadata } : {}),
 						},
 					];
 				},
@@ -156,6 +163,7 @@ export function useAiChat(projectId?: string) {
 		id: chatId ?? `project:${projectId ?? "none"}`,
 		messageMetadataSchema: aiChatMessageMetadataSchema,
 		dataPartSchemas: {
+			"ai-error": aiErrorDataSchema,
 			"billing-error": aiChatBillingErrorDataSchema,
 			"credits-settled": aiChatCreditsSettledDataSchema,
 		},
@@ -167,6 +175,11 @@ export function useAiChat(projectId?: string) {
 		onFinish: ({ isAbort, isError }) => {
 			lastSendSucceededRef.current =
 				!isAbort && !isError && !billingErrorInCurrentTurnRef.current;
+			// A content-filter finish can be transport-successful while the typed
+			// terminal data part is the user-visible outcome. Preserve it; ordinary
+			// successful turns clear stale failures. Notices never outlive a turn.
+			if (!aiErrorRef.current) setAiError(null);
+			setNotices([]);
 			void queryClient.invalidateQueries({
 				queryKey: creditsKeys.balance(),
 			});
@@ -195,6 +208,26 @@ export function useAiChat(projectId?: string) {
 			}
 		},
 		onData: (part) => {
+			if (part.type === "data-ai-error") {
+				if (part.data.terminal) {
+					// Tool-scoped failures render on their owning card, never as the
+					// whole-turn banner.
+					if (!part.data.toolCallId) {
+						aiErrorRef.current = part.data;
+						setAiError(part.data);
+					}
+				} else {
+					setNotices((current) =>
+						current.some(
+							(notice) =>
+								aiErrorNoticeKey(notice) === aiErrorNoticeKey(part.data),
+						)
+							? current
+							: [...current, part.data],
+					);
+				}
+				return;
+			}
 			if (part.type === "data-credits-settled") {
 				applyCreditsSettled(queryClient, part.data);
 				return;
@@ -246,6 +279,10 @@ export function useAiChat(projectId?: string) {
 		};
 		lastSendSucceededRef.current = false;
 		billingErrorInCurrentTurnRef.current = false;
+		aiErrorRef.current = null;
+		setAiError(null);
+		setNotices([]);
+		setBillingIntent(null);
 		void regenerate();
 	}, [
 		chatId,
@@ -268,9 +305,20 @@ export function useAiChat(projectId?: string) {
 			const selectedTargets = options?.selectedTargets?.length
 				? options.selectedTargets
 				: undefined;
+			const messageMetadata =
+				options?.composer || selectedWids || selectedTargets
+					? {
+							...(options?.composer ? { composer: options.composer } : {}),
+							...(selectedWids ? { selectedWids } : {}),
+							...(selectedTargets ? { selectedTargets } : {}),
+						}
+					: undefined;
 			metaRef.current = { composer: options?.composer, selectedWids };
 			lastSendSucceededRef.current = false;
 			billingErrorInCurrentTurnRef.current = false;
+			aiErrorRef.current = null;
+			setAiError(null);
+			setNotices([]);
 			setBillingIntent(null);
 
 			const files = options?.files?.map((file) => ({
@@ -289,9 +337,12 @@ export function useAiChat(projectId?: string) {
 						? {
 								text: trimmed,
 								...(files?.length ? { files } : {}),
-								...(selectedTargets ? { metadata: { selectedTargets } } : {}),
+								...(messageMetadata ? { metadata: messageMetadata } : {}),
 							}
-						: { files: files ?? [] },
+						: {
+								files: files ?? [],
+								...(messageMetadata ? { metadata: messageMetadata } : {}),
+							},
 				);
 				return lastSendSucceededRef.current;
 			} catch {
@@ -320,6 +371,24 @@ export function useAiChat(projectId?: string) {
 		[addToolOutput],
 	);
 
+	const retryTurn = () => {
+		const failedMessage = findLastTerminalAiErrorMessage(messages);
+		if (!failedMessage) return;
+
+		metaRef.current = findRetryRequestMetadata(
+			messages,
+			failedMessage.id,
+			metaRef.current,
+		);
+		aiErrorRef.current = null;
+		setAiError(null);
+		setNotices([]);
+		lastSendSucceededRef.current = false;
+		billingErrorInCurrentTurnRef.current = false;
+		setBillingIntent(null);
+		return regenerate({ messageId: failedMessage.id });
+	};
+
 	const historyError =
 		chatByProjectQuery.error ?? messagesQuery.error ?? undefined;
 
@@ -330,6 +399,8 @@ export function useAiChat(projectId?: string) {
 		error: streamError ?? historyError,
 		streamError,
 		historyError,
+		aiError,
+		notices,
 		billingError: billingIntent !== null,
 		billingIntent,
 		sendText,
@@ -338,6 +409,7 @@ export function useAiChat(projectId?: string) {
 		addToolOutput,
 		addToolApprovalResponse,
 		regenerate,
+		retryTurn,
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
@@ -357,30 +429,6 @@ export function applyCreditsSettled(
 		(prev) => (prev ? { ...prev, settledBalance: data.settledBalance } : prev),
 	);
 	void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
-}
-
-/**
- * The generic stream-error copy says "try again", which is exactly wrong for
- * two server refusals: 409 AI_CHAT_OPERATION_REPLAYED means the identical
- * transcript already COMPLETED (the user must send a new message), and 409
- * AI_CHAT_TURN_ACTIVE means this turn is streaming RIGHT NOW (the user must
- * wait, not fork the chat). Everything else keeps the generic text.
- */
-export function chatStreamErrorKey(
-	error: unknown,
-):
-	| "native.workspace.chat.errors.busy"
-	| "native.workspace.chat.errors.replayed"
-	| "native.workspace.chat.errors.stream" {
-	if (isApiClientError(error) && error.code === "AI_CHAT_OPERATION_REPLAYED") {
-		return "native.workspace.chat.errors.replayed";
-	}
-
-	if (isApiClientError(error) && error.code === "AI_CHAT_TURN_ACTIVE") {
-		return "native.workspace.chat.errors.busy";
-	}
-
-	return "native.workspace.chat.errors.stream";
 }
 
 function buildStreamUrl(chatId: string) {
@@ -404,4 +452,15 @@ function parseComposerMetadata(value: unknown): ComposerMetadata | undefined {
 		(value as Record<string, unknown>).composer,
 	);
 	return nested.success ? nested.data : undefined;
+}
+
+function parsePersistedMessageMetadata(
+	value: unknown,
+): AiChatMessageMetadata | undefined {
+	// Project creation historically stored the composer object directly.
+	const directComposer = composerMetadataSchema.safeParse(value);
+	if (directComposer.success) return { composer: directComposer.data };
+
+	const metadata = aiChatMessageMetadataSchema.safeParse(value);
+	return metadata.success ? metadata.data : undefined;
 }

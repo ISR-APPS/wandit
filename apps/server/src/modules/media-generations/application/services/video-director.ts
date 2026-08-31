@@ -202,6 +202,7 @@ export class VideoDirectorService {
 					"prompt_refine",
 				),
 				system: VIDEO_DIRECTOR_PROMPT,
+				telemetry: { functionId: "video.director" },
 			});
 
 			// The director's cost bills inside the parent chat event (helper

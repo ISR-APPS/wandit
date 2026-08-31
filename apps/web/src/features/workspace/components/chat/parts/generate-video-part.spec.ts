@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { MediaGenerationAttempt } from "@wandit/contracts";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import { MessageParts } from "./message-parts";
 const state = vi.hoisted(() => ({
 	attempt: undefined as MediaGenerationAttempt | undefined,
 	progress: undefined as unknown,
+	prefillComposer: vi.fn(),
 	setTab: vi.fn(),
 }));
 
@@ -20,8 +21,21 @@ vi.mock("@/features/credits", () => ({
 	creditsKeys: { balance: () => ["credits", "balance"] },
 }));
 
+vi.mock("../../../lib/ai-chat-context", () => ({
+	useSharedAiChat: () => ({ prefillComposer: state.prefillComposer }),
+}));
+
 vi.mock("@/lib/i18n", () => {
 	const messages: Record<string, string> = {
+		"errors.ai.provider_error":
+			"{provider} returned an error. Please try again.",
+		"workspace.chat.aiError.attribution.viaGateway":
+			"{provider} via Vercel AI Gateway",
+		"workspace.chat.aiError.kicker.provider": "Provider issue",
+		"workspace.chat.aiError.providerFallback": "The AI provider",
+		"workspace.chat.aiError.tryAgainPrefill.hint":
+			"This starts a new generation.",
+		"workspace.chat.aiError.tryAgainPrefill.video": "Try the video again",
 		"workspace.chat.videoAttempt.download": "Download",
 		"workspace.chat.videoAttempt.edit.active":
 			"Editing the {seconds}-second video…",
@@ -245,6 +259,7 @@ function renderVideoMessage(part: EditVideoToolPart | ExtendVideoToolPart) {
 beforeEach(() => {
 	state.attempt = undefined;
 	state.progress = undefined;
+	state.prefillComposer.mockReset();
 	state.setTab.mockReset();
 });
 
@@ -281,6 +296,33 @@ describe("video attempt message registration", () => {
 });
 
 describe("ExtendVideoPart", () => {
+	it("prefills the original continuation brief after a durable retryable failure", () => {
+		state.attempt = extensionAttempt({
+			failure: {
+				kind: "provider_error",
+				source: "gateway",
+				providerLabel: "Kling",
+				retryable: true,
+				terminal: true,
+				refunded: null,
+				moderationStage: null,
+				providerMessage: null,
+				requestId: null,
+			},
+			prompt: "PROVIDER-REWRITTEN PROMPT",
+			status: "failed",
+		});
+
+		renderExtension();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Try the video again" }),
+		);
+
+		expect(state.prefillComposer).toHaveBeenCalledWith(
+			"Continue the orbit into a close-up.",
+		);
+	});
+
 	it("shows the queued extension state", () => {
 		state.attempt = extensionAttempt();
 

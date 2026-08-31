@@ -37,6 +37,8 @@ export function mapAdminFeedbackSummary(
 					: toIso(row.reporterCreatedAt),
 		},
 		context: {
+			chatId: row.chatId,
+			authSessionId: row.authSessionId,
 			pageUrl: row.pageUrl,
 			replayUrl: row.replayUrl,
 			sentryEventId: row.sentryEventId,

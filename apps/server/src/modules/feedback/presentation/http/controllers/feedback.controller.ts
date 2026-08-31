@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Inject, Post, Req, UseGuards } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type CreateFeedbackRequest,
@@ -8,6 +8,7 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import type { AuthenticatedRequest } from "../../../../auth/presentation/http/types/authenticated-request";
 import { FeedbackService } from "../../../application/services/feedback.service";
 import { FeedbackRateLimitGuard } from "../guards/rate-limit.guard";
 
@@ -24,7 +25,8 @@ export class FeedbackController {
 		@Body(new ZodValidationPipe(createFeedbackRequestSchema))
 		body: CreateFeedbackRequest,
 		@CurrentUser() user: AuthUser,
+		@Req() request: AuthenticatedRequest,
 	): Promise<CreateFeedbackResponse> {
-		return this.feedbackService.create(user, body);
+		return this.feedbackService.create(user, request.session.id, body);
 	}
 }

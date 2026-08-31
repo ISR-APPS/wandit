@@ -1312,6 +1312,7 @@ export const adminRoutes = {
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
 	userProjects: (userId: string) => `/api/v1/admin/users/${userId}/projects`,
 	userPages: (userId: string) => `/api/v1/admin/users/${userId}/pages`,
+	userChats: (userId: string) => `/api/v1/admin/users/${userId}/chats`,
 	organizations: "/api/v1/admin/organizations",
 	organization: (organizationId: string) =>
 		`/api/v1/admin/organizations/${organizationId}`,
@@ -1321,12 +1322,20 @@ export const adminRoutes = {
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	publications: "/api/v1/admin/publications",
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
+	projectChats: (projectId: string) =>
+		`/api/v1/admin/projects/${projectId}/chats`,
 	projectVersions: (projectId: string) =>
 		`/api/v1/admin/projects/${projectId}/versions`,
 	projectVersionHtml: (projectId: string, versionId: string) =>
 		`/api/v1/admin/projects/${projectId}/versions/${versionId}/html`,
 	projectVersionPreview: (projectId: string, versionId: string) =>
 		`/api/v1/admin/projects/${projectId}/versions/${versionId}/preview`,
+	chat: (chatId: string) => `/api/v1/admin/chats/${chatId}`,
+	chatMessages: (chatId: string) => `/api/v1/admin/chats/${chatId}/messages`,
+	chatCalls: (chatId: string) => `/api/v1/admin/chats/${chatId}/calls`,
+	aiFailures: "/api/v1/admin/ai-failures",
+	generationAttempt: (surface: string, attemptId: string) =>
+		`/api/v1/admin/generations/${surface}/${attemptId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,

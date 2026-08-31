@@ -68,6 +68,12 @@ export const imageGenerationAttempts = pgTable(
 		// Trigger.dev run id for operations/debugging; not exposed to the client.
 		triggerRunId: text("trigger_run_id"),
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -87,6 +93,9 @@ export const imageGenerationAttempts = pgTable(
 			table.status,
 			table.createdAt,
 		),
+		index("image_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("image_generation_attempts_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,

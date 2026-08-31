@@ -14,6 +14,11 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 	connectorSlug: "higgsfield",
 	createdAt: new Date("2026-08-01T00:00:00.000Z"),
 	error: null,
+	failureKind: null,
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: null,
 	id: "attempt-1",
 	media: [
 		{ kind: "image", url: "https://assets.test/one.webp" },
@@ -21,6 +26,7 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 	],
 	organizationId: null,
 	status: "running",
+	sentryEventId: null,
 	toolName: "generate_image",
 	userId: "user-1",
 };
