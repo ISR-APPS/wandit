@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { BILLING_CATALOG } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
 	CircleAlertIcon,
@@ -20,40 +21,47 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	useManualBillingReceiptConfigQuery,
-	useManualSubscriptionQuery,
+	useManualRequestQuery,
 } from "@/features/offline-billing/api/offline-billing.queries";
-import { OfflineReceipt } from "@/features/offline-billing/components/offline-receipt";
+import { OfflineRequestReceipt } from "@/features/offline-billing/components/offline-receipt";
 import { RECEIPT_PRINT_STYLES } from "@/features/offline-billing/lib/receipt-print-styles";
 import { isApiClientError } from "@/lib/api-client";
 
-type OfflineReceiptPageProps = {
-	subscriptionId: string;
+type OfflineRequestReceiptPageProps = {
+	requestId: string;
 };
 
-export function OfflineReceiptPage({
-	subscriptionId,
-}: OfflineReceiptPageProps) {
-	const subscriptionQuery = useManualSubscriptionQuery(subscriptionId);
+export function OfflineRequestReceiptPage({
+	requestId,
+}: OfflineRequestReceiptPageProps) {
+	const requestQuery = useManualRequestQuery(requestId);
 	const receiptConfigQuery = useManualBillingReceiptConfigQuery();
 	const [generatedAt] = useState(() => new Date());
-	const subscription = subscriptionQuery.data;
+	const request = requestQuery.data;
 	const dzdPerUsdRate = receiptConfigQuery.data?.dzdPerUsdRate;
-	const isPending = subscriptionQuery.isPending || receiptConfigQuery.isPending;
-	const isError = subscriptionQuery.isError || receiptConfigQuery.isError;
-	const isSubscriptionMissing =
-		isApiClientError(subscriptionQuery.error) &&
-		subscriptionQuery.error.status === 404 &&
+	const tierCredits = request
+		? BILLING_CATALOG.creditTiers.find(
+				(catalogTier) => catalogTier === request.tierCredits,
+			)
+		: undefined;
+	const isPending = requestQuery.isPending || receiptConfigQuery.isPending;
+	const isError = requestQuery.isError || receiptConfigQuery.isError;
+	const isRequestMissing =
+		isApiClientError(requestQuery.error) &&
+		requestQuery.error.status === 404 &&
 		!receiptConfigQuery.isError;
+	const isTierRetired =
+		requestQuery.isSuccess &&
+		request !== undefined &&
+		tierCredits === undefined;
 	const isReceiptReady =
-		subscriptionQuery.isSuccess &&
+		requestQuery.isSuccess &&
 		receiptConfigQuery.isSuccess &&
-		subscription !== undefined &&
+		request !== undefined &&
+		tierCredits !== undefined &&
 		dzdPerUsdRate !== undefined;
 	const retryReceipt = () => {
-		void Promise.all([
-			subscriptionQuery.refetch(),
-			receiptConfigQuery.refetch(),
-		]);
+		void Promise.all([requestQuery.refetch(), receiptConfigQuery.refetch()]);
 	};
 
 	return (
@@ -65,20 +73,22 @@ export function OfflineReceiptPage({
 
 			{isError ? (
 				<ReceiptErrorState
-					isMissing={isSubscriptionMissing}
+					isMissing={isRequestMissing}
 					onRetry={retryReceipt}
 				/>
 			) : isPending ? (
 				<ReceiptLoadingState />
+			) : isTierRetired ? (
+				<RetiredTierState />
 			) : isReceiptReady ? (
-				<OfflineReceipt
-					subscription={subscription}
+				<OfflineRequestReceipt
+					request={request}
 					generatedAt={generatedAt}
 					dzdPerUsdRate={dzdPerUsdRate}
 				/>
 			) : (
 				<ReceiptErrorState
-					isMissing={subscription === undefined}
+					isMissing={request === undefined}
 					onRetry={retryReceipt}
 				/>
 			)}
@@ -146,11 +156,11 @@ function ReceiptErrorState({
 					)}
 				</EmptyMedia>
 				<EmptyTitle>
-					{isMissing ? "Subscription not found" : "Receipt could not be loaded"}
+					{isMissing ? "Request not found" : "Receipt could not be loaded"}
 				</EmptyTitle>
 				<EmptyDescription>
 					{isMissing
-						? "This offline subscription may have been removed, or the ID is incorrect."
+						? "This offline subscription request may have been removed, or the ID is incorrect."
 						: "The receipt data could not be read. Try the request again."}
 				</EmptyDescription>
 			</EmptyHeader>
@@ -159,6 +169,32 @@ function ReceiptErrorState({
 					<RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
 					Try again
 				</Button>
+				<Button asChild variant="outline">
+					<Link to="/offline-billing">
+						<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+						Back to offline billing
+					</Link>
+				</Button>
+			</EmptyContent>
+		</Empty>
+	);
+}
+
+function RetiredTierState() {
+	return (
+		<Empty className="offline-receipt-screen-only min-h-[560px] border bg-background">
+			<EmptyHeader>
+				<EmptyMedia variant="icon">
+					<CircleAlertIcon aria-hidden="true" />
+				</EmptyMedia>
+				<EmptyTitle>Requested tier is no longer sold</EmptyTitle>
+				<EmptyDescription>
+					The requested credit tier is no longer sold, so a priced receipt
+					cannot be printed. Grant the subscription with a current tier, then
+					print its receipt instead.
+				</EmptyDescription>
+			</EmptyHeader>
+			<EmptyContent>
 				<Button asChild variant="outline">
 					<Link to="/offline-billing">
 						<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
