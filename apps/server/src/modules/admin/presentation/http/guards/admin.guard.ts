@@ -15,13 +15,17 @@ import {
 import { Reflector } from "@nestjs/core";
 import {
 	type AdminPermissionRequest,
-	adminRoleHasPermission,
+	staffHasPermission,
 } from "@wandit/auth/admin-permissions";
 import { isAdminRole, isStaffRole } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
 import type { MaybeAuthenticatedRequest } from "../../../../auth";
 import { AdminPermissionRequiredError } from "../../../domain/errors/admin-permission-required.error";
+import {
+	AdminViewGrantsRepository,
+	filterKnownAdminViews,
+} from "../../../infrastructure/persistence/admin-view-grants.repository";
 import { ADMIN_PERMISSION_KEY } from "../decorators/admin-permission.decorator";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -35,15 +39,18 @@ export class AdminGuard implements CanActivate {
 	constructor(
 		@Inject(Reflector)
 		private readonly reflector: Reflector,
+		@Inject(AdminViewGrantsRepository)
+		private readonly adminViewGrantsRepository: AdminViewGrantsRepository,
 	) {}
 
-	canActivate(context: ExecutionContext): boolean {
+	async canActivate(context: ExecutionContext): Promise<boolean> {
 		const request = context
 			.switchToHttp()
 			.getRequest<MaybeAuthenticatedRequest>();
-		const role = request.user?.role;
+		const user = request.user;
+		const role = user?.role;
 
-		if (!isStaffRole(role)) {
+		if (!user || !isStaffRole(role)) {
 			throw new NotFoundException();
 		}
 
@@ -52,22 +59,49 @@ export class AdminGuard implements CanActivate {
 		}
 
 		const required = this.reflector.getAllAndOverride<
-			AdminPermissionRequest | undefined
+			AdminPermissionRequest | "any-staff" | undefined
 		>(ADMIN_PERMISSION_KEY, [context.getHandler(), context.getClass()]);
 
-		if (required === undefined) {
-			if (isAdminRole(role)) {
+		if (required === "any-staff") {
+			return true;
+		}
+
+		// Admins always have the full matrix. Keep this branch before the grant
+		// lookup so the common full-admin path has zero database overhead.
+		if (isAdminRole(role)) {
+			if (required === undefined) {
+				return true;
+			}
+
+			if (staffHasPermission(role, null, required)) {
 				return true;
 			}
 
 			throw new AdminPermissionRequiredError();
 		}
 
-		if (!adminRoleHasPermission(role, required)) {
+		const supportAccess =
+			await this.adminViewGrantsRepository.findSupportAccess(user.id);
+
+		if (!supportAccess || !isStaffRole(supportAccess.role)) {
+			throw new NotFoundException();
+		}
+
+		if (required === undefined) {
+			if (isAdminRole(supportAccess.role)) {
+				return true;
+			}
+
 			throw new AdminPermissionRequiredError();
 		}
 
-		return true;
+		const views = filterKnownAdminViews(supportAccess.views);
+
+		if (staffHasPermission(supportAccess.role, views, required)) {
+			return true;
+		}
+
+		throw new AdminPermissionRequiredError();
 	}
 
 	/**

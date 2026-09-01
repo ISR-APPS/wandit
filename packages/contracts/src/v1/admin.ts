@@ -117,6 +117,29 @@ export function normalizeStoredRole(
 	return "user";
 }
 
+// Dashboard views available for per-user support grants. This list is kept in
+// contracts so API payloads can be validated without importing @wandit/auth.
+// A server matrix spec pins it to Object.keys(adminStatement).
+export const adminViewValues = [
+	"overview",
+	"users",
+	"organizations",
+	"billing",
+	"publications",
+	"feedback",
+	"affiliates",
+	"links",
+	"costs",
+	"academy",
+	"analytics",
+	"conversations",
+	"settings",
+] as const;
+
+export const adminViewSchema = z.enum(adminViewValues);
+
+export type AdminView = z.infer<typeof adminViewSchema>;
+
 // "free" is derived (no entitled subscription row), not stored.
 export const adminUserPlans = ["free", "pro", "business"] as const;
 
@@ -355,6 +378,9 @@ export type AdminAiSpend = z.infer<typeof adminAiSpendSchema>;
 export const adminUserDetailSchema = adminUserSummarySchema.extend({
 	updatedAt: isoDateTimeSchema,
 	banReason: z.string().nullable(),
+	// Stored support grant. Null means no row (and therefore default views), or
+	// that the target is not a support account.
+	adminViews: adminViewSchema.array().nullable(),
 	subscription: adminUserSubscriptionSchema.nullable(),
 	projects: z.array(adminUserProjectSchema),
 	creditLedger: z.array(adminCreditLedgerEntrySchema),
@@ -649,11 +675,35 @@ export type AdminGrantCreditsInput = z.infer<
 	typeof adminGrantCreditsInputSchema
 >;
 
-export const adminSetRoleInputSchema = z.object({
-	role: adminUserRoleSchema,
-});
+export const adminSetRoleInputSchema = z
+	.object({
+		role: adminUserRoleSchema,
+		views: adminViewSchema.array().min(1).optional(),
+	})
+	.refine((input) => input.role === "support" || input.views === undefined, {
+		message: "Admin views are only allowed for support accounts",
+		path: ["views"],
+	});
 
 export type AdminSetRoleInput = z.infer<typeof adminSetRoleInputSchema>;
+
+export const adminSetAdminViewsInputSchema = z.object({
+	views: adminViewSchema.array().min(1),
+});
+
+export type AdminSetAdminViewsInput = z.infer<
+	typeof adminSetAdminViewsInputSchema
+>;
+
+export const adminMyPermissionsResponseSchema = z.object({
+	role: adminUserRoleSchema,
+	views: adminViewSchema.array(),
+	permissions: z.record(z.string(), z.array(z.string())),
+});
+
+export type AdminMyPermissionsResponse = z.infer<
+	typeof adminMyPermissionsResponseSchema
+>;
 
 export const adminSetBannedInputSchema = z.object({
 	banned: z.boolean(),
@@ -1333,11 +1383,14 @@ export type AdminManualBillingReceiptConfig = z.infer<
 export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
 export const adminRoutes = {
+	myPermissions: "/api/v1/admin/me/permissions",
 	feedback: "/api/v1/admin/feedback",
 	feedbackStats: "/api/v1/admin/feedback/stats",
 	feedbackItem: (feedbackId: string) => `/api/v1/admin/feedback/${feedbackId}`,
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
+	userAdminViews: (userId: string) =>
+		`/api/v1/admin/users/${userId}/admin-views`,
 	userProjects: (userId: string) => `/api/v1/admin/users/${userId}/projects`,
 	userPages: (userId: string) => `/api/v1/admin/users/${userId}/pages`,
 	userChats: (userId: string) => `/api/v1/admin/users/${userId}/chats`,

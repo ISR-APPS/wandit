@@ -1,6 +1,7 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { Sentry } from "@wandit/observability/browser";
 
+import { adminMyPermissionsQueryKey } from "@/features/auth/api/admin-permissions.queries";
 import { invalidateSessionCache } from "@/features/auth/lib/session";
 import { isApiClientError } from "@/lib/api-client";
 
@@ -15,6 +16,9 @@ function isExpectedApiResponse(error: unknown): boolean {
 function invalidateSessionOnPermissionError(error: unknown): void {
 	if (isApiClientError(error) && error.code === "ADMIN_PERMISSION_REQUIRED") {
 		invalidateSessionCache();
+		void queryClient.invalidateQueries({
+			queryKey: adminMyPermissionsQueryKey,
+		});
 	}
 }
 
