@@ -1,7 +1,9 @@
 import type { AdminPermissionRequest } from "@wandit/auth/admin-permissions";
 import type { ReactNode } from "react";
-import { hasAdminPermission } from "../lib/permissions";
-import { useSession } from "../lib/session";
+import {
+	permissionMapAllows,
+	useEffectiveAdminPermissions,
+} from "../lib/permissions";
 import { AccessDeniedState } from "./access-denied-state";
 
 type RequireAdminPermissionProps = {
@@ -13,13 +15,13 @@ export function RequireAdminPermission({
 	permission,
 	children,
 }: RequireAdminPermissionProps) {
-	const { data, isPending } = useSession();
+	const { map, isLoading } = useEffectiveAdminPermissions();
 
-	if (isPending) {
+	if (isLoading) {
 		return null;
 	}
 
-	return hasAdminPermission(data?.user.role, permission) ? (
+	return permissionMapAllows(map, permission) ? (
 		children
 	) : (
 		<AccessDeniedState />

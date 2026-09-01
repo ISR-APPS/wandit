@@ -9,7 +9,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { useSession } from "@/features/auth/lib/session";
+import { useEffectiveAdminPermissions } from "@/features/auth/lib/permissions";
 import { getAdminAnalyticsNavigationSearch } from "@/lib/admin-date-range";
 import {
 	type AdminNavigationItem,
@@ -82,8 +82,8 @@ export function NavMain() {
 		select: ({ pathname, search }) => ({ pathname, search }),
 	});
 	const { isMobile, setOpenMobile } = useSidebar();
-	const { data } = useSession();
-	const navigationGroups = getVisibleAdminNavigationGroups(data?.user.role);
+	const { map } = useEffectiveAdminPermissions();
+	const navigationGroups = getVisibleAdminNavigationGroups(map);
 
 	return (
 		<>

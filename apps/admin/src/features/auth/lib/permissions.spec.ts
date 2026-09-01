@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { hasAdminPermission, sessionRoleLabel } from "./permissions";
+import {
+	hasAdminPermission,
+	permissionMapAllows,
+	sessionRoleLabel,
+} from "./permissions";
 
 describe("admin session permissions", () => {
 	it("checks the shared permission matrix", () => {
@@ -18,5 +22,23 @@ describe("admin session permissions", () => {
 		expect(sessionRoleLabel("support,user")).toBe("Support");
 		expect(sessionRoleLabel("support,admin")).toBe("Admin");
 		expect(sessionRoleLabel("unknown")).toBe("User");
+	});
+
+	it("requires every requested action in an effective permission map", () => {
+		const map = {
+			users: ["read", "ban"],
+			feedback: ["read", "manage"],
+		};
+
+		expect(permissionMapAllows(map, { users: ["read"] })).toBe(true);
+		expect(
+			permissionMapAllows(map, {
+				users: ["read", "ban"],
+				feedback: ["manage"],
+			}),
+		).toBe(true);
+		expect(permissionMapAllows(map, { users: ["set-role"] })).toBe(false);
+		expect(permissionMapAllows(map, { overview: ["read"] })).toBe(false);
+		expect(permissionMapAllows(null, { users: ["read"] })).toBe(false);
 	});
 });
