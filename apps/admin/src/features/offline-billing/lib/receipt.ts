@@ -92,9 +92,9 @@ type ReceiptCustomerDetail = {
 	user: Pick<AdminManualSubscriptionDetail["user"], "email" | "name">;
 };
 
-/** Build the customer-facing number from a validated subscription UUID. */
-export function createReceiptNumber(subscriptionId: string): string {
-	const compactId = subscriptionId.trim().replaceAll("-", "");
+/** Build the customer-facing number from a validated receipt source UUID. */
+export function createReceiptNumber(sourceId: string): string {
+	const compactId = sourceId.trim().replaceAll("-", "");
 
 	if (!/^[\da-f]{32}$/i.test(compactId)) {
 		return "REC-UNKNOWN";
