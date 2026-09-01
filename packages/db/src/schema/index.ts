@@ -8,6 +8,8 @@ export * from "./academy";
 export * from "./admin-audit-events";
 // Admin funnel outreach tracking.
 export * from "./admin-funnel-contacts";
+// Per-user support dashboard view grants.
+export * from "./admin-view-grants";
 // Affiliate programs, attribution, commissions, and payouts.
 export * from "./affiliates";
 // Generated page/artifact tables.

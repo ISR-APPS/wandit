@@ -732,8 +732,12 @@ export class AdminRepository {
 		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
 
-	async updateUserRole(userId: string, role: string): Promise<void> {
-		await this.db.update(user).set({ role }).where(eq(user.id, userId));
+	async updateUserRole(
+		userId: string,
+		role: string,
+		client: AdminDbClient = this.db,
+	): Promise<void> {
+		await client.update(user).set({ role }).where(eq(user.id, userId));
 	}
 
 	async setUserBanned(

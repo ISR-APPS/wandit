@@ -14,17 +14,13 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
+import type { AdminViewGrantsRepository } from "../../../infrastructure/persistence/admin-view-grants.repository";
 import { ADMIN_PERMISSION_KEY } from "../decorators/admin-permission.decorator";
 import { AdminGuard } from "./admin.guard";
 
-type GuardSetup = {
-	guard: AdminGuard;
-	reflector: {
-		getAllAndOverride: ReturnType<typeof vi.fn>;
-	};
-};
+type PermissionMetadata = AdminPermissionRequest | "any-staff";
 
-function setup(): GuardSetup {
+function setup(storedViews: string[] | null = null) {
 	const reflector = {
 		getAllAndOverride: vi.fn(
 			(key: string | symbol, targets: readonly object[]) => {
@@ -38,17 +34,26 @@ function setup(): GuardSetup {
 			},
 		),
 	};
+	const repository = {
+		findSupportAccess: vi
+			.fn()
+			.mockResolvedValue({ role: "support", views: storedViews }),
+	};
 
 	return {
-		guard: new AdminGuard(reflector as unknown as Reflector),
+		guard: new AdminGuard(
+			reflector as unknown as Reflector,
+			repository as unknown as AdminViewGrantsRepository,
+		),
 		reflector,
+		repository,
 	};
 }
 
 function contextFor(options: {
-	classPermission?: AdminPermissionRequest;
+	classPermission?: PermissionMetadata;
 	contentType?: string;
-	handlerPermission?: AdminPermissionRequest;
+	handlerPermission?: PermissionMetadata;
 	method?: string;
 	origin?: string;
 	role?: string;
@@ -86,22 +91,24 @@ function contextFor(options: {
 					...(origin === undefined ? {} : { origin }),
 				},
 				method,
-				user: role === undefined ? undefined : { role },
+				user: role === undefined ? undefined : { id: "staff-1", role },
 			}),
 		}),
 	} as unknown as ExecutionContext;
 }
 
-function expectPermissionError(run: () => unknown): void {
-	try {
-		run();
-		throw new Error("Expected AdminGuard to reject the request");
-	} catch (error) {
-		expect(error).toBeInstanceOf(ForbiddenException);
-		expect((error as ForbiddenException).getResponse()).toMatchObject({
-			code: ADMIN_PERMISSION_REQUIRED_ERROR_CODE,
-		});
-	}
+async function expectPermissionError(
+	run: () => Promise<unknown>,
+): Promise<void> {
+	const error = await run().then(
+		() => new Error("Expected AdminGuard to reject the request"),
+		(reason: unknown) => reason,
+	);
+
+	expect(error).toBeInstanceOf(ForbiddenException);
+	expect((error as ForbiddenException).getResponse()).toMatchObject({
+		code: ADMIN_PERMISSION_REQUIRED_ERROR_CODE,
+	});
 }
 
 describe("AdminGuard", () => {
@@ -109,10 +116,10 @@ describe("AdminGuard", () => {
 		"user",
 		"",
 		undefined,
-	])("hides safe reads from non-staff role %s", (role) => {
+	])("hides safe reads from non-staff role %s", async (role) => {
 		const { guard } = setup();
 
-		expect(() =>
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["read"] },
@@ -120,17 +127,17 @@ describe("AdminGuard", () => {
 					role,
 				}),
 			),
-		).toThrow(NotFoundException);
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
 	it.each([
 		"user",
 		"",
 		undefined,
-	])("hides writes from non-staff role %s", (role) => {
+	])("hides writes from non-staff role %s", async (role) => {
 		const { guard } = setup();
 
-		expect(() =>
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["ban"] },
@@ -138,36 +145,58 @@ describe("AdminGuard", () => {
 					role,
 				}),
 			),
-		).toThrow(NotFoundException);
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
-	it("defaults routes without metadata to full-admin-only", () => {
-		const { guard } = setup();
+	it("defaults routes without metadata to full-admin-only without reading grants", async () => {
+		const support = setup(["users"]);
+		const admin = setup([]);
 
-		expectPermissionError(() =>
-			guard.canActivate(contextFor({ method: "GET", role: "support" })),
+		await expectPermissionError(() =>
+			support.guard.canActivate(contextFor({ method: "GET", role: "support" })),
 		);
-		expect(
-			guard.canActivate(contextFor({ method: "GET", role: "admin" })),
-		).toBe(true);
+		await expect(
+			admin.guard.canActivate(contextFor({ method: "GET", role: "admin" })),
+		).resolves.toBe(true);
+		expect(support.repository.findSupportAccess).toHaveBeenCalledWith(
+			"staff-1",
+		);
+		expect(admin.repository.findSupportAccess).not.toHaveBeenCalled();
 	});
 
-	it("allows support permissions and rejects permissions outside its matrix", () => {
-		const allowed = setup();
-		const denied = setup();
+	it("uses stored support views for granted and ungranted routes", async () => {
+		const granted = setup(["users"]);
+		const denied = setup(["users"]);
 
-		expect(
-			allowed.guard.canActivate(
+		await expect(
+			granted.guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["read"] },
 					method: "GET",
 					role: "support",
 				}),
 			),
-		).toBe(true);
-		expectPermissionError(() =>
+		).resolves.toBe(true);
+		await expectPermissionError(() =>
 			denied.guard.canActivate(
 				contextFor({
+					handlerPermission: { feedback: ["read"] },
+					method: "GET",
+					role: "support",
+				}),
+			),
+		);
+		expect(granted.repository.findSupportAccess).toHaveBeenCalledWith(
+			"staff-1",
+		);
+	});
+
+	it("does not grant actions outside a granted view's support actions", async () => {
+		const { guard } = setup(["users"]);
+
+		await expectPermissionError(() =>
+			guard.canActivate(
+				contextFor({
 					handlerPermission: { users: ["set-role"] },
 					method: "GET",
 					role: "support",
@@ -176,14 +205,61 @@ describe("AdminGuard", () => {
 		);
 	});
 
-	it("uses handler permission metadata before class permission metadata", () => {
-		const { guard } = setup();
+	it("uses default support views when no grants row exists", async () => {
+		const { guard } = setup(null);
 
-		expectPermissionError(() =>
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: { overview: ["read"] },
+					method: "GET",
+					role: "support",
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
+	it("accepts any-staff metadata without reading grants", async () => {
+		const { guard, repository } = setup([]);
+
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: "any-staff",
+					method: "GET",
+					role: "support",
+				}),
+			),
+		).resolves.toBe(true);
+		expect(repository.findSupportAccess).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		null,
+		[],
+	])("does not read grants for an admin when the stub contains %j", async (storedViews) => {
+		const { guard, repository } = setup(storedViews);
+
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: { settings: ["manage"] },
+					method: "GET",
+					role: "user,admin",
+				}),
+			),
+		).resolves.toBe(true);
+		expect(repository.findSupportAccess).not.toHaveBeenCalled();
+	});
+
+	it("uses handler permission metadata before class permission metadata", async () => {
+		const { guard } = setup(["users"]);
+
+		await expectPermissionError(() =>
 			guard.canActivate(
 				contextFor({
 					classPermission: { users: ["read"] },
-					handlerPermission: { users: ["set-role"] },
+					handlerPermission: { feedback: ["read"] },
 					method: "GET",
 					role: "support",
 				}),
@@ -191,10 +267,10 @@ describe("AdminGuard", () => {
 		);
 	});
 
-	it("falls back to class permission metadata when the handler has none", () => {
-		const { guard } = setup();
+	it("falls back to class permission metadata when the handler has none", async () => {
+		const { guard } = setup(["users"]);
 
-		expect(
+		await expect(
 			guard.canActivate(
 				contextFor({
 					classPermission: { users: ["read"] },
@@ -202,13 +278,13 @@ describe("AdminGuard", () => {
 					role: "support",
 				}),
 			),
-		).toBe(true);
+		).resolves.toBe(true);
 	});
 
-	it("allows a comma-joined stored role when any component grants access", () => {
-		const { guard } = setup();
+	it("allows a comma-joined stored role when its support component grants access", async () => {
+		const { guard } = setup(["users"]);
 
-		expect(
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["read"] },
@@ -216,13 +292,13 @@ describe("AdminGuard", () => {
 					role: "user,support",
 				}),
 			),
-		).toBe(true);
+		).resolves.toBe(true);
 	});
 
-	it("allows JSON support writes from the configured admin origin", () => {
-		const { guard } = setup();
+	it("allows JSON support writes from the configured admin origin", async () => {
+		const { guard } = setup(["users"]);
 
-		expect(
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["ban"] },
@@ -230,40 +306,30 @@ describe("AdminGuard", () => {
 					role: "support",
 				}),
 			),
-		).toBe(true);
+		).resolves.toBe(true);
 	});
 
-	it("rejects support writes with no Origin header", () => {
-		const { guard } = setup();
+	it.each([
+		{ label: "no Origin header", origin: undefined },
+		{ label: "the web-app origin", origin: "https://wandit.test" },
+	])("rejects support writes from $label", async ({ origin }) => {
+		const { guard } = setup(["users"]);
 
-		expect(() =>
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["ban"] },
+					origin,
 					role: "support",
 				}),
 			),
-		).toThrow(NotFoundException);
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
-	it("rejects support writes from the web-app origin", () => {
-		const { guard } = setup();
+	it("rejects non-JSON support writes from the admin origin", async () => {
+		const { guard } = setup(["users"]);
 
-		expect(() =>
-			guard.canActivate(
-				contextFor({
-					handlerPermission: { users: ["ban"] },
-					origin: "https://wandit.test",
-					role: "support",
-				}),
-			),
-		).toThrow(NotFoundException);
-	});
-
-	it("rejects non-JSON support writes from the admin origin", () => {
-		const { guard } = setup();
-
-		expect(() =>
+		await expect(
 			guard.canActivate(
 				contextFor({
 					contentType: "application/x-www-form-urlencoded",
@@ -272,20 +338,72 @@ describe("AdminGuard", () => {
 					role: "support",
 				}),
 			),
-		).toThrow(NotFoundException);
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
-	it("checks write CSRF requirements before looking up permissions", () => {
-		const { guard, reflector } = setup();
+	it("checks write CSRF requirements before looking up permissions", async () => {
+		const { guard, reflector, repository } = setup(["users"]);
 
-		expect(() =>
+		await expect(
 			guard.canActivate(
 				contextFor({
 					handlerPermission: { users: ["set-role"] },
 					role: "support",
 				}),
 			),
-		).toThrow(NotFoundException);
+		).rejects.toBeInstanceOf(NotFoundException);
 		expect(reflector.getAllAndOverride).not.toHaveBeenCalled();
+		expect(repository.findSupportAccess).not.toHaveBeenCalled();
+	});
+
+	it("404s a stale support session after the database role was demoted", async () => {
+		const { guard, repository } = setup(["users"]);
+		repository.findSupportAccess.mockResolvedValue({
+			role: "user",
+			views: null,
+		});
+
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: { users: ["read"] },
+					method: "GET",
+					role: "support",
+				}),
+			),
+		).rejects.toBeInstanceOf(NotFoundException);
+	});
+
+	it("uses the full matrix when a support session's database role is now admin", async () => {
+		const { guard, repository } = setup(null);
+		repository.findSupportAccess.mockResolvedValue({
+			role: "admin",
+			views: null,
+		});
+
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: { users: ["set-role"] },
+					method: "GET",
+					role: "support",
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
+	it("404s a support session when the database user has vanished", async () => {
+		const { guard, repository } = setup();
+		repository.findSupportAccess.mockResolvedValue(null);
+
+		await expect(
+			guard.canActivate(
+				contextFor({
+					handlerPermission: { users: ["read"] },
+					method: "GET",
+					role: "support",
+				}),
+			),
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 });

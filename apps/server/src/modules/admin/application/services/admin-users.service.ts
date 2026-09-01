@@ -9,6 +9,7 @@ import {
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
+	type AdminSetAdminViewsInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
@@ -19,6 +20,7 @@ import {
 	type AdminUserProjectsResponse,
 	creditsToCentiCredits,
 	isStaffRole,
+	normalizeStoredRole,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
@@ -32,9 +34,14 @@ import {
 } from "../../infrastructure/mappers/admin-user.mapper";
 import {
 	AdminRepository,
+	type AdminTransaction,
 	type AdminUserPageRow,
 } from "../../infrastructure/persistence/admin.repository";
 import { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
+import {
+	AdminViewGrantsRepository,
+	filterKnownAdminViews,
+} from "../../infrastructure/persistence/admin-view-grants.repository";
 
 const RECENT_PROJECTS_LIMIT = 25;
 const RECENT_LEDGER_LIMIT = 50;
@@ -50,6 +57,8 @@ export class AdminUsersService {
 		private readonly adminOrganizationsRepository: AdminOrganizationsRepository,
 		@Inject(CreditsService)
 		private readonly creditsService: CreditsService,
+		@Inject(AdminViewGrantsRepository)
+		private readonly adminViewGrantsRepository: AdminViewGrantsRepository,
 	) {}
 
 	async listUsers(query: AdminListUsersQuery): Promise<AdminListUsersResponse> {
@@ -101,7 +110,7 @@ export class AdminUsersService {
 	}
 
 	async getUserDetail(userId: string): Promise<AdminUserDetail> {
-		// One repeatable-read snapshot for all six reads: the money numbers on
+		// One repeatable-read snapshot for the financial reads: the money numbers on
 		// the detail card can never mix two moments of the ledger.
 		return this.adminRepository.readTransaction(async (tx) => {
 			const row = await this.adminRepository.findUserDetail(userId, tx);
@@ -110,22 +119,35 @@ export class AdminUsersService {
 				throw new NotFoundException();
 			}
 
-			const [subscription, projects, creditLedger, memberships, aiSpend] =
-				await Promise.all([
-					this.adminRepository.findLatestSubscription(userId, tx),
-					this.adminRepository.listRecentProjects(
-						userId,
-						RECENT_PROJECTS_LIMIT,
-						tx,
-					),
-					this.adminRepository.listRecentCreditLedger(
-						userId,
-						RECENT_LEDGER_LIMIT,
-						tx,
-					),
-					this.adminOrganizationsRepository.listUserMemberships(userId, tx),
-					this.adminRepository.sumAiSpendForUser(userId, tx),
-				]);
+			const adminViewsPromise =
+				normalizeStoredRole(row.role) === "support"
+					? this.adminViewGrantsRepository
+							.findViews(userId, tx)
+							.then(filterKnownAdminViews)
+					: Promise.resolve(null);
+			const [
+				subscription,
+				projects,
+				creditLedger,
+				memberships,
+				aiSpend,
+				adminViews,
+			] = await Promise.all([
+				this.adminRepository.findLatestSubscription(userId, tx),
+				this.adminRepository.listRecentProjects(
+					userId,
+					RECENT_PROJECTS_LIMIT,
+					tx,
+				),
+				this.adminRepository.listRecentCreditLedger(
+					userId,
+					RECENT_LEDGER_LIMIT,
+					tx,
+				),
+				this.adminOrganizationsRepository.listUserMemberships(userId, tx),
+				this.adminRepository.sumAiSpendForUser(userId, tx),
+				adminViewsPromise,
+			]);
 
 			return mapAdminUserDetail(
 				row,
@@ -134,6 +156,7 @@ export class AdminUsersService {
 				creditLedger,
 				memberships,
 				aiSpend,
+				adminViews,
 			);
 		});
 	}
@@ -175,12 +198,77 @@ export class AdminUsersService {
 		if (actingAdminId === userId) {
 			throw new BadRequestException("Admins cannot change their own role");
 		}
+		const normalizedViews =
+			input.views === undefined
+				? undefined
+				: (filterKnownAdminViews(input.views) ?? []);
 
-		await this.ensureUserExists(userId);
-		await this.adminRepository.updateUserRole(userId, input.role);
+		await this.adminRepository.withUserTransaction(
+			userId,
+			async (tx: AdminTransaction) => {
+				const target = await this.adminRepository.findUserAccess(userId, tx);
+
+				if (!target) {
+					throw new NotFoundException();
+				}
+
+				await this.adminRepository.updateUserRole(userId, input.role, tx);
+
+				if (input.role === "support") {
+					if (normalizedViews !== undefined) {
+						await this.adminViewGrantsRepository.upsertViews(
+							userId,
+							normalizedViews,
+							actingAdminId,
+							tx,
+						);
+					}
+				} else {
+					await this.adminViewGrantsRepository.deleteViews(userId, tx);
+				}
+			},
+		);
 
 		this.logger.log(
-			`admin_set_role admin=${actingAdminId} target=${userId} role=${input.role}`,
+			`admin_set_role admin=${actingAdminId} target=${userId} role=${input.role}${normalizedViews === undefined ? "" : ` views=${JSON.stringify(normalizedViews)}`}`,
+		);
+
+		return this.getUserDetail(userId);
+	}
+
+	async setAdminViews(
+		actingAdminId: string,
+		userId: string,
+		input: AdminSetAdminViewsInput,
+	): Promise<AdminUserDetail> {
+		const normalizedViews = filterKnownAdminViews(input.views) ?? [];
+
+		await this.adminRepository.withUserTransaction(
+			userId,
+			async (tx: AdminTransaction) => {
+				const target = await this.adminRepository.findUserAccess(userId, tx);
+
+				if (!target) {
+					throw new NotFoundException();
+				}
+
+				if (normalizeStoredRole(target.role) !== "support") {
+					throw new BadRequestException(
+						"Only support accounts have admin views",
+					);
+				}
+
+				await this.adminViewGrantsRepository.upsertViews(
+					userId,
+					normalizedViews,
+					actingAdminId,
+					tx,
+				);
+			},
+		);
+
+		this.logger.log(
+			`admin_set_admin_views admin=${actingAdminId} target=${userId} views=${JSON.stringify(normalizedViews)}`,
 		);
 
 		return this.getUserDetail(userId);

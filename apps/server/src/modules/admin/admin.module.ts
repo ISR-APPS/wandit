@@ -33,6 +33,7 @@ import { AdminOverviewRepository } from "./infrastructure/persistence/admin-over
 import { AdminAnalyticsController } from "./presentation/http/controllers/admin-analytics.controller";
 import { AdminConversationsController } from "./presentation/http/controllers/admin-conversations.controller";
 import { AdminCostsController } from "./presentation/http/controllers/admin-costs.controller";
+import { AdminMeController } from "./presentation/http/controllers/admin-me.controller";
 import { AdminOrganizationsController } from "./presentation/http/controllers/admin-organizations.controller";
 import { AdminProjectsController } from "./presentation/http/controllers/admin-projects.controller";
 import { AdminPublicationsController } from "./presentation/http/controllers/admin-publications.controller";
@@ -45,6 +46,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminAnalyticsController,
 		AdminConversationsController,
 		AdminCostsController,
+		AdminMeController,
 		AdminOrganizationsController,
 		AdminProjectsController,
 		AdminPublicationsController,

@@ -6,6 +6,7 @@ import {
 	Inject,
 	Param,
 	Post,
+	Put,
 	Query,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
@@ -13,6 +14,7 @@ import {
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
+	type AdminSetAdminViewsInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
@@ -22,6 +24,7 @@ import {
 	type AdminUserProjectsResponse,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
+	adminSetAdminViewsInputSchema,
 	adminSetBannedInputSchema,
 	adminSetRoleInputSchema,
 	adminUserPagesQuerySchema,
@@ -108,5 +111,17 @@ export class AdminUsersController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminUserDetail> {
 		return this.adminUsersService.setBanned(admin.id, userId, body);
+	}
+
+	@Put(":userId/admin-views")
+	@AdminPermission({ users: ["set-role"] })
+	@HttpCode(200)
+	setAdminViews(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminSetAdminViewsInputSchema))
+		body: AdminSetAdminViewsInput,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminUserDetail> {
+		return this.adminUsersService.setAdminViews(admin.id, userId, body);
 	}
 }

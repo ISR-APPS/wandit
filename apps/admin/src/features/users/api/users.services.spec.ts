@@ -1,16 +1,19 @@
 import { adminListUsersQuerySchema, adminRoutes } from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiGet } from "@/lib/api-client";
+import { apiGet, apiPost, apiPut } from "@/lib/api-client";
 
-import { listUsers } from "./users.services";
+import { changeUserRole, listUsers, setUserAdminViews } from "./users.services";
 
 vi.mock("@/lib/api-client", () => ({
 	apiGet: vi.fn(),
 	apiPost: vi.fn(),
+	apiPut: vi.fn(),
 }));
 
 const apiGetMock = vi.mocked(apiGet);
+const apiPostMock = vi.mocked(apiPost);
+const apiPutMock = vi.mocked(apiPut);
 
 afterEach(() => {
 	vi.clearAllMocks();
@@ -187,6 +190,37 @@ describe("listUsers", () => {
 				creditsUsedMin: 1000,
 				creditsUsedMax: undefined,
 			}),
+		);
+	});
+});
+
+describe("admin user access writes", () => {
+	it("sends support views with the existing role mutation", async () => {
+		apiPostMock.mockResolvedValueOnce({} as never);
+
+		await changeUserRole({
+			userId: "user-1",
+			role: "support",
+			views: ["users", "feedback"],
+		});
+
+		expect(apiPostMock).toHaveBeenCalledWith(adminRoutes.setRole("user-1"), {
+			role: "support",
+			views: ["users", "feedback"],
+		});
+	});
+
+	it("updates views through the admin-views PUT route", async () => {
+		apiPutMock.mockResolvedValueOnce({} as never);
+
+		await setUserAdminViews({
+			userId: "user-1",
+			views: ["organizations", "academy"],
+		});
+
+		expect(apiPutMock).toHaveBeenCalledWith(
+			adminRoutes.userAdminViews("user-1"),
+			{ views: ["organizations", "academy"] },
 		);
 	});
 });

@@ -18,7 +18,11 @@ import { UsersFourIcon } from "@phosphor-icons/react/UsersFour";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
 import type { AdminPermissionRequest } from "@wandit/auth/admin-permissions";
-import { adminRoleHasPermission } from "@wandit/auth/admin-permissions";
+
+import {
+	type AdminPermissionMap,
+	permissionMapAllows,
+} from "@/features/auth/lib/permissions";
 
 export type AdminRoutePath =
 	| "/dashboard"
@@ -201,11 +205,11 @@ export const adminNavigation = adminNavigationGroups.flatMap(
 );
 
 export function getVisibleAdminNavigationGroups(
-	role: string | null | undefined,
+	map: AdminPermissionMap,
 ): AdminNavigationGroup[] {
 	return adminNavigationGroups.flatMap((group) => {
 		const items = group.items.filter((item) =>
-			adminRoleHasPermission(role, item.permission),
+			permissionMapAllows(map, item.permission),
 		);
 
 		return items.length > 0 ? [{ ...group, items }] : [];
@@ -213,7 +217,7 @@ export function getVisibleAdminNavigationGroups(
 }
 
 export function getVisibleAdminNavigation(
-	role: string | null | undefined,
+	map: AdminPermissionMap,
 ): AdminNavigationItem[] {
-	return getVisibleAdminNavigationGroups(role).flatMap((group) => group.items);
+	return getVisibleAdminNavigationGroups(map).flatMap((group) => group.items);
 }

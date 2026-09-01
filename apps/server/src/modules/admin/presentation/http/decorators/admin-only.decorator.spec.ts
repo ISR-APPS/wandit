@@ -4,7 +4,12 @@ import {
 	METHOD_METADATA,
 	PATH_METADATA,
 } from "@nestjs/common/constants";
-import { adminRoleHasPermission } from "@wandit/auth/admin-permissions";
+import {
+	type AdminPermissionRequest,
+	adminViews,
+	defaultSupportViews,
+	staffHasPermission,
+} from "@wandit/auth/admin-permissions";
 import { describe, expect, it, vi } from "vitest";
 
 // This is a metadata-only test. Avoid loading the Academy HTML sanitizer and
@@ -27,6 +32,7 @@ import { StoryLinkAdminController } from "../../../../story-links/presentation/h
 import { AdminAnalyticsController } from "../controllers/admin-analytics.controller";
 import { AdminConversationsController } from "../controllers/admin-conversations.controller";
 import { AdminCostsController } from "../controllers/admin-costs.controller";
+import { AdminMeController } from "../controllers/admin-me.controller";
 import { AdminOrganizationsController } from "../controllers/admin-organizations.controller";
 import { AdminProjectsController } from "../controllers/admin-projects.controller";
 import { AdminPublicationsController } from "../controllers/admin-publications.controller";
@@ -41,6 +47,7 @@ const adminControllers = [
 	AdminAnalyticsController,
 	AdminConversationsController,
 	AdminCostsController,
+	AdminMeController,
 	FeedbackAdminController,
 	AdminManualBillingController,
 	AdminOrganizationsController,
@@ -95,19 +102,26 @@ describe("AdminOnly", () => {
 		for (const handlerName of handlerNames) {
 			const handler =
 				controller.prototype[handlerName as keyof typeof controller.prototype];
-			const permission =
+			const permission: AdminPermissionRequest | "any-staff" | undefined =
 				Reflect.getMetadata(ADMIN_PERMISSION_KEY, handler) ??
 				Reflect.getMetadata(ADMIN_PERMISSION_KEY, controller);
+
+			if (permission === "any-staff") {
+				expect(permission, `${controller.name}.${handlerName}`).toBe(
+					"any-staff",
+				);
+				continue;
+			}
 
 			expect(permission, `${controller.name}.${handlerName}`).toBeTypeOf(
 				"object",
 			);
 			expect(
-				Object.keys(permission as Record<string, unknown>).length,
+				Object.keys(permission ?? {}).length,
 				`${controller.name}.${handlerName}`,
 			).toBeGreaterThan(0);
 			expect(
-				Object.values(permission as Record<string, unknown>).every(
+				Object.values(permission ?? {}).every(
 					(actions) => Array.isArray(actions) && actions.length > 0,
 				),
 				`${controller.name}.${handlerName}`,
@@ -139,21 +153,36 @@ describe("AdminOnly", () => {
 				| undefined;
 			const routeName = `${controller.name}.${handlerName}`;
 
+			if (requestMethod === undefined || requestMethod === RequestMethod.GET) {
+				continue;
+			}
+
+			const effectivePermission = (Reflect.getMetadata(
+				ADMIN_PERMISSION_KEY,
+				handler,
+			) ?? Reflect.getMetadata(ADMIN_PERMISSION_KEY, controller)) as
+				| AdminPermissionRequest
+				| "any-staff";
+
+			expect(
+				effectivePermission,
+				`${routeName} must not grant write access to any staff member`,
+			).not.toBe("any-staff");
+
 			if (
-				requestMethod === undefined ||
-				requestMethod === RequestMethod.GET ||
+				effectivePermission === "any-staff" ||
 				SUPPORT_ALLOWED_WRITE_HANDLERS.has(routeName)
 			) {
 				continue;
 			}
 
-			const effectivePermission =
-				Reflect.getMetadata(ADMIN_PERMISSION_KEY, handler) ??
-				Reflect.getMetadata(ADMIN_PERMISSION_KEY, controller);
-
 			expect(
-				adminRoleHasPermission("support", effectivePermission),
-				routeName,
+				staffHasPermission("support", defaultSupportViews, effectivePermission),
+				`${routeName} with default views`,
+			).toBe(false);
+			expect(
+				staffHasPermission("support", adminViews, effectivePermission),
+				`${routeName} with every view`,
 			).toBe(false);
 		}
 	});
@@ -183,8 +212,55 @@ describe("AdminOnly", () => {
 		expect(
 			Reflect.getMetadata(
 				ADMIN_PERMISSION_KEY,
+				AdminUsersController.prototype.setAdminViews,
+			),
+		).toEqual({ users: ["set-role"] });
+		expect(
+			Reflect.getMetadata(
+				ADMIN_PERMISSION_KEY,
 				AdminUsersController.prototype.list,
 			),
 		).toBeUndefined();
+	});
+
+	it("reserves any-staff for the GET permissions endpoint", () => {
+		const anyStaffHandlers: string[] = [];
+
+		for (const controller of adminControllers) {
+			for (const handlerName of Object.getOwnPropertyNames(
+				controller.prototype,
+			)) {
+				const handler =
+					controller.prototype[
+						handlerName as keyof typeof controller.prototype
+					];
+
+				if (typeof handler !== "function") {
+					continue;
+				}
+
+				const requestMethod = Reflect.getMetadata(METHOD_METADATA, handler) as
+					| RequestMethod
+					| undefined;
+
+				if (requestMethod === undefined) {
+					continue;
+				}
+
+				const effectivePermission =
+					Reflect.getMetadata(ADMIN_PERMISSION_KEY, handler) ??
+					Reflect.getMetadata(ADMIN_PERMISSION_KEY, controller);
+
+				if (effectivePermission !== "any-staff") {
+					continue;
+				}
+
+				const routeName = `${controller.name}.${handlerName}`;
+				anyStaffHandlers.push(routeName);
+				expect(requestMethod, routeName).toBe(RequestMethod.GET);
+			}
+		}
+
+		expect(anyStaffHandlers).toEqual(["AdminMeController.permissions"]);
 	});
 });

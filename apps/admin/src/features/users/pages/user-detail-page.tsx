@@ -16,6 +16,7 @@ import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
 import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import { useUserQuery } from "@/features/users/api/users.queries";
+import { AdminViewsDialog } from "@/features/users/components/admin-views-dialog";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
 import { UserActivityPanel } from "@/features/users/components/detail/user-activity-panel";
@@ -31,7 +32,13 @@ type UserDetailPageProps = {
 	userId: string;
 };
 
-type OpenDialog = "credits" | "offline-subscription" | "role" | "ban" | null;
+type OpenDialog =
+	| "credits"
+	| "offline-subscription"
+	| "role"
+	| "admin-views"
+	| "ban"
+	| null;
 
 export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
@@ -113,6 +120,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				onGrantCredits={() => setOpenDialog("credits")}
 				onGrantOffline={() => setOpenDialog("offline-subscription")}
 				onChangeRole={() => setOpenDialog("role")}
+				onEditAdminViews={() => setOpenDialog("admin-views")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
 			<UserMetrics user={user} />
@@ -153,6 +161,13 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 					user={user}
 					open={openDialog === "role"}
 					onOpenChange={(open) => setOpenDialog(open ? "role" : null)}
+				/>
+			) : null}
+			{canManageAccess && canSetRole && user.role === "support" ? (
+				<AdminViewsDialog
+					user={user}
+					open={openDialog === "admin-views"}
+					onOpenChange={(open) => setOpenDialog(open ? "admin-views" : null)}
 				/>
 			) : null}
 			{canToggleBanned ? (
