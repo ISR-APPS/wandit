@@ -359,7 +359,9 @@ describe("createDomainApexBackfillRuntime", () => {
 			whoisPrivacy: false,
 		};
 
-		await expect(runtime.apexZone.execute(row)).resolves.toBe(row);
+		await expect(
+			runtime.apexZone.execute(row, { allowZoneCreation: true }),
+		).resolves.toBe(row);
 		expect(mergeDnsIfStatus).not.toHaveBeenCalled();
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});

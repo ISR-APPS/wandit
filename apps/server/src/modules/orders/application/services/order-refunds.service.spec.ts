@@ -403,6 +403,7 @@ function domainRow(overrides: Partial<DomainRow> = {}): DomainRow {
 		createdAt: now,
 		dns: null,
 		error: null,
+		externalDelegationReminderSentAt: null,
 		expiresAt: null,
 		id: domainId,
 		isPrimary: true,

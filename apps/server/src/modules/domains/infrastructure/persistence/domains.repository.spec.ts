@@ -7,6 +7,7 @@ import {
 
 const DOMAIN_ID = "22222222-2222-4222-8222-222222222222";
 const NONCE = "purchase:11111111-1111-4111-8111-111111111111";
+const USER_ID = "user_1";
 
 type QueryCall = [text: string, values: unknown[]];
 type SqlCondition = {
@@ -296,6 +297,48 @@ describe("DomainsRepository Trigger configuration cursor", () => {
 		expect(statement).toContain("THEN dns ELSE");
 	});
 
+	it("CAS-replaces a live external cursor with an explicit fresh restart nonce", async () => {
+		const freshNonce = "manual-restart:44444444-4444-4444-8444-444444444444";
+		const { query, repository } = repositoryWithQuery([
+			{
+				dns: {
+					records: [],
+					triggerConfiguration: {
+						nextAttempt: 0,
+						nextProbeAt: null,
+						nonce: freshNonce,
+					},
+				},
+			},
+		]);
+
+		await expect(
+			repository.prepareExternalVerificationRestart(DOMAIN_ID, {
+				expectedNonce: "sleeping-run",
+				nonce: freshNonce,
+			}),
+		).resolves.toEqual({
+			nextAttempt: 0,
+			nextProbeAt: null,
+			nonce: freshNonce,
+		});
+
+		const statement = compactSql(query);
+		expect(statement).toContain("'nonce', $3::text");
+		expect(statement).toContain("'nextAttempt', 0");
+		expect(statement).toContain("'nextProbeAt', NULL");
+		expect(statement).toContain("source = 'external'");
+		expect(statement).toContain("status = 'configuring'");
+		expect(statement).toContain(
+			"dns -> 'triggerConfiguration' ->> 'nonce' = $2::text",
+		);
+		expect(statement).not.toContain(
+			"jsonb_typeof(dns -> 'externalVerification')",
+		);
+		expect(statement).toContain("updated_at = updated_at");
+		expect(queryValues(query)).toEqual([DOMAIN_ID, "sleeping-run", freshNonce]);
+	});
+
 	it("clears only the matching stalled marker after restart handoff", async () => {
 		const stalledAt = "2026-08-02T00:00:30.000Z";
 		const { query, repository } = repositoryWithQuery([{ id: DOMAIN_ID }]);
@@ -402,6 +445,131 @@ describe("DomainsRepository apex dns merge", () => {
 			}),
 		).resolves.toBeNull();
 		expect(getById).not.toHaveBeenCalled();
+	});
+});
+
+describe("DomainsRepository external delegation reminders", () => {
+	it("requires an apex-configured zone and ages nameserver exposure with a createdAt fallback", async () => {
+		const createdBefore = new Date("2026-08-16T02:30:00.000Z");
+		const candidate = { id: DOMAIN_ID, name: "pending.example" };
+		const builder = selectBuilder([candidate]);
+		const repository = new DomainsRepository({
+			select: vi.fn(() => builder),
+		} as never);
+
+		await expect(
+			repository.findExternalDelegationReminderCandidates({
+				createdBefore,
+				limit: Number.POSITIVE_INFINITY,
+			}),
+		).resolves.toEqual([candidate]);
+
+		const condition = compileCondition(builder.where.mock.calls[0]?.[0]);
+		expect(condition.params).toEqual(["external", createdBefore]);
+		expect(condition.sql).toContain(`"domains"."source" = $1`);
+		expect(condition.sql).toContain(`"domains"."dns" ->> 'zoneId' IS NOT NULL`);
+		// Strict equality excludes a row whose zoneId exists but whose failed apex
+		// pass never persisted the apexConfigured marker.
+		expect(condition.sql).toContain(
+			`"domains"."dns" -> 'apexConfigured' = 'true'::jsonb`,
+		);
+		expect(condition.sql).toContain(
+			`"domains"."dns" -> 'zoneActive' IS DISTINCT FROM 'true'::jsonb`,
+		);
+		expect(condition.sql).toContain(
+			`"domains"."external_delegation_reminder_sent_at" IS NULL`,
+		);
+		expect(condition.sql).toContain(
+			`COALESCE(("domains"."dns" ->> 'zoneNameserversExposedAt')::timestamptz, "domains"."created_at") < $2`,
+		);
+		expect(condition.sql).not.toContain(`"domains"."status"`);
+		expect(builder.limit).toHaveBeenCalledWith(
+			DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+		);
+	});
+
+	it("continues the reminder scan after a stable created-at and id cursor", async () => {
+		const createdBefore = new Date("2026-08-16T02:30:00.000Z");
+		const after = {
+			createdAt: new Date("2026-07-01T12:00:00.000Z"),
+			id: DOMAIN_ID,
+		};
+		const builder = selectBuilder([]);
+		const repository = new DomainsRepository({
+			select: vi.fn(() => builder),
+		} as never);
+
+		await repository.findExternalDelegationReminderCandidates({
+			after,
+			createdBefore,
+			limit: 20,
+		});
+
+		const condition = compileCondition(builder.where.mock.calls[0]?.[0]);
+		expect(condition.params).toEqual([
+			"external",
+			createdBefore,
+			after.createdAt,
+			after.createdAt.toISOString(),
+			after.id,
+		]);
+		expect(condition.sql).toContain(`"domains"."created_at" > $3`);
+		expect(condition.sql).toContain(`"domains"."created_at" = $4`);
+		expect(condition.sql).toContain(`"domains"."id" > $5::uuid`);
+		expect(builder.limit).toHaveBeenCalledWith(20);
+	});
+
+	it("resolves the canonical owner email from the domain user id", async () => {
+		const builder = selectBuilder([{ email: "owner@example.com" }]);
+		const repository = new DomainsRepository({
+			select: vi.fn(() => builder),
+		} as never);
+
+		await expect(repository.findOwnerEmail(USER_ID)).resolves.toBe(
+			"owner@example.com",
+		);
+
+		const condition = compileCondition(builder.where.mock.calls[0]?.[0]);
+		expect(condition.params).toEqual([USER_ID]);
+		expect(condition.sql).toContain(`"user"."id" = $1`);
+		expect(builder.limit).toHaveBeenCalledWith(1);
+	});
+
+	it("returns null when the domain owner no longer exists", async () => {
+		const builder = selectBuilder();
+		const repository = new DomainsRepository({
+			select: vi.fn(() => builder),
+		} as never);
+
+		await expect(repository.findOwnerEmail(USER_ID)).resolves.toBeNull();
+	});
+
+	it("marks a reminder once with an atomic compare-and-set", async () => {
+		const query = vi
+			.fn()
+			.mockResolvedValueOnce({ rows: [{ id: DOMAIN_ID }] })
+			.mockResolvedValueOnce({ rows: [] });
+		const repository = new DomainsRepository({
+			$client: { query },
+		} as never);
+
+		await expect(
+			repository.markExternalDelegationReminderSent(DOMAIN_ID),
+		).resolves.toBe(true);
+		await expect(
+			repository.markExternalDelegationReminderSent(DOMAIN_ID),
+		).resolves.toBe(false);
+
+		const statement = compactSql(query);
+		expect(statement).toContain(
+			"SET external_delegation_reminder_sent_at = NOW()",
+		);
+		expect(statement).toContain("WHERE id = $1::uuid");
+		expect(statement).toContain(
+			"AND external_delegation_reminder_sent_at IS NULL",
+		);
+		expect(statement).toContain("RETURNING id");
+		expect(queryValues(query)).toEqual([DOMAIN_ID]);
 	});
 });
 

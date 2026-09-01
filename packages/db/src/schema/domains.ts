@@ -66,6 +66,10 @@ export const domains = pgTable(
 		}),
 		cfCustomHostnameId: text("cf_custom_hostname_id"),
 		dns: jsonb("dns"),
+		externalDelegationReminderSentAt: timestamp(
+			"external_delegation_reminder_sent_at",
+			{ withTimezone: true },
+		),
 		priceSnapshot: jsonb("price_snapshot"),
 		error: text("error"),
 		createdAt: timestamp("created_at", { withTimezone: true })

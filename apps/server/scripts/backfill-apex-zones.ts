@@ -164,7 +164,11 @@ async function main(): Promise<void> {
 		// Sequential on purpose: one registrar/Cloudflare conversation at a time.
 		for (const row of rows) {
 			console.log(`Backfilling apex zone for ${row.name} (${row.status})`);
-			summary.push(summarize(await runtime.apexZone.execute(row)));
+			summary.push(
+				summarize(
+					await runtime.apexZone.execute(row, { allowZoneCreation: true }),
+				),
+			);
 		}
 
 		console.table(summary);

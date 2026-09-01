@@ -249,6 +249,7 @@ function domainRow(overrides: Partial<DomainRow> = {}): DomainRow {
 		createdAt: now,
 		dns: { records: [] },
 		error: null,
+		externalDelegationReminderSentAt: null,
 		expiresAt: null,
 		id: "22222222-2222-4222-8222-000000000001",
 		isPrimary: false,

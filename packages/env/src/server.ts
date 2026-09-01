@@ -245,16 +245,15 @@ export const env = createEnv({
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
-		// Account that hosts the per-domain Cloudflare zones created for the
-		// apex of purchased domains (Trigger purchase task) and of external
-		// "bring your own" domains (API attach + Trigger configure task); POST
-		// /zones needs it. Unset means the apex zone step records an error and
-		// the domain stays www-only.
+		// Account that hosts the per-domain Cloudflare zones created by the
+		// Trigger purchase/configure tasks for purchased and external domains;
+		// POST /zones needs it. Unset means the apex zone step records an error
+		// and the domain stays www-only.
 		CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
 		// Kill switch for the apex zone step (purchased and external domains).
 		// "false" means no NEW zone and restores the previous behavior: Name.com
-		// URL forwarding for a purchased apex, www-only records for an external
-		// attach. An external row that already exposed its zone's nameservers
+		// URL forwarding for a purchased apex and no nameserver option for a new
+		// external row. An external row that already exposed its zone's nameservers
 		// (dns.zoneId) is still finished by the configure task, since its owner
 		// may have delegated already and nothing else can fill that zone.
 		DOMAINS_APEX_ZONE_ENABLED: z

@@ -9,6 +9,12 @@ export type EmailContent = {
 	text: string;
 };
 
+export type ExternalDomainDelegationReminderEmailData = {
+	dashboardUrl: string;
+	domainName: string;
+	nameServers: readonly string[];
+};
+
 export type ManualRequestEmailData = {
 	adminUrl: string;
 	fullName: string;
@@ -76,6 +82,37 @@ export function invitationEmail(data: {
 <tr><td style="padding-bottom:24px;"><a href="${inviteUrl}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">View invitation</a></td></tr>
 <tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">Button not working? Paste this link into your browser:<br><a href="${inviteUrl}" style="color:${EMBER};word-break:break-all;">${inviteUrl}</a></td></tr>`),
 		text: `${inviterName} invited you to join the ${organizationName} workspace on Wandit.\n\nView the invitation (expires in 7 days):\n${inviteUrl}\n\nIf you didn't request this email, you can safely ignore it.`,
+	};
+}
+
+export function externalDomainDelegationReminderEmail(
+	data: ExternalDomainDelegationReminderEmailData,
+): EmailContent {
+	const domainName = sanitizeHeaderText(data.domainName);
+	const { dashboardUrl } = data;
+	const nameServers = data.nameServers
+		.map((nameServer) => sanitizeHeaderText(nameServer))
+		.filter((nameServer) => nameServer.length > 0);
+	const htmlNameServers = nameServers
+		.map(
+			(nameServer) =>
+				`<tr><td style="font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;font-size:14px;color:#1a1815;background-color:#f6f5f2;border-radius:8px;padding:10px 12px;">${escapeHtml(nameServer)}</td></tr>`,
+		)
+		.join('<tr><td style="height:8px;"></td></tr>');
+	const textNameServers = nameServers
+		.map((nameServer) => `- ${nameServer}`)
+		.join("\n");
+
+	return {
+		subject: `Finish connecting ${domainName} to Wandit`,
+		html: shell(`
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">The domain <strong>${escapeHtml(domainName)}</strong> is connected to Wandit, but its nameservers still point elsewhere.</td></tr>
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">To finish setup, change the nameservers at your domain registrar to:</td></tr>
+<tr><td style="padding-bottom:24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${htmlNameServers}</table></td></tr>
+<tr><td style="padding-bottom:24px;"><a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">Open domain settings</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;padding-bottom:16px;">Button not working? Paste this link into your browser:<br><a href="${escapeHtml(dashboardUrl)}" style="color:${EMBER};word-break:break-all;">${escapeHtml(dashboardUrl)}</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">If you no longer want this domain connected, you can remove it in settings.</td></tr>`),
+		text: `Finish connecting ${domainName} to Wandit\n\nThe domain ${domainName} is connected to Wandit, but its nameservers still point elsewhere.\n\nTo finish setup, change the nameservers at your domain registrar to:\n${textNameServers}\n\nOpen domain settings:\n${dashboardUrl}\n\nIf you no longer want this domain connected, you can remove it in settings.`,
 	};
 }
 

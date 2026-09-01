@@ -16,6 +16,11 @@ const mocks = vi.hoisted(() => ({
 	buttons: new Map<string, (() => void) | undefined>(),
 	domainQueryOptions: undefined as { enabled?: boolean } | undefined,
 	domains: [] as unknown[],
+	domainsDataUpdatedAt: 0,
+	dnsStatusData: undefined as unknown,
+	dnsStatusDataUpdatedAt: 0,
+	dnsStatusRefetch: vi.fn(async () => undefined),
+	setupOnRefresh: null as (() => void) | null,
 	setupRecords: null as unknown[] | null,
 	surface: null as "input" | "records" | null,
 	verifyMutateAsync: vi.fn(async (_domainId: string): Promise<unknown> => {
@@ -117,13 +122,15 @@ vi.mock("../api/domains.queries", () => ({
 		mocks.domainQueryOptions = options;
 		return {
 			data: options.enabled === false ? undefined : mocks.domains,
+			dataUpdatedAt: mocks.domainsDataUpdatedAt,
 		};
 	},
 	useDomainDnsStatusQuery: () => ({
-		data: undefined,
+		data: mocks.dnsStatusData,
+		dataUpdatedAt: mocks.dnsStatusDataUpdatedAt,
 		isError: false,
 		isFetching: false,
-		refetch: vi.fn(),
+		refetch: mocks.dnsStatusRefetch,
 	}),
 }));
 
@@ -134,9 +141,16 @@ vi.mock("../lib/hooks", () => ({
 vi.mock("./external-domain-setup-options", async () => {
 	const { createElement } = await import("react");
 	return {
-		ExternalDomainSetupOptions: ({ records }: { records: unknown[] }) => {
+		ExternalDomainSetupOptions: ({
+			records,
+			onRefresh,
+		}: {
+			records: unknown[];
+			onRefresh?: () => void;
+		}) => {
 			mocks.surface = "records";
 			mocks.setupRecords = records;
+			mocks.setupOnRefresh = onRefresh ?? null;
 			return createElement("div", null, "dnsRecords");
 		},
 	};
@@ -309,6 +323,11 @@ beforeEach(() => {
 	mocks.buttons.clear();
 	mocks.domainQueryOptions = undefined;
 	mocks.domains = [];
+	mocks.domainsDataUpdatedAt = 0;
+	mocks.dnsStatusData = undefined;
+	mocks.dnsStatusDataUpdatedAt = 0;
+	mocks.dnsStatusRefetch.mockClear();
+	mocks.setupOnRefresh = null;
 	mocks.setupRecords = null;
 	mocks.surface = null;
 	mocks.verifyMutateAsync.mockReset();
@@ -402,6 +421,23 @@ describe("ExternalDomainRoutingNote", () => {
 		expect(html).toContain("externalApexRedirectTo");
 		expect(html).toContain(
 			'<bdi dir="ltr" class="font-mono">https://www.example.com</bdi>',
+		);
+	});
+});
+
+describe("ExternalDomainConnectWizard ownership warning", () => {
+	it("warns before the domain can be submitted", () => {
+		const html = renderToStaticMarkup(
+			createElement(ExternalDomainConnectWizard, {
+				projectId: "11111111-1111-4111-8111-111111111111",
+			}),
+		);
+
+		expect(html).toContain("externalOwnershipWarningTitle");
+		expect(html).toContain("externalOwnershipWarningDescription");
+		expect(html).not.toContain("externalNameserverChangeWarning");
+		expect(html.indexOf("externalOwnershipWarningTitle")).toBeLessThan(
+			html.indexOf("externalConnect"),
 		);
 	});
 });
@@ -584,6 +620,93 @@ describe("ExternalDomainConnectWizard pending domain resume", () => {
 		});
 
 		expect(mocks.setupRecords).toEqual([...wwwRecords, ...nameserverRecords]);
+	});
+
+	it("shows records returned by Refresh before the domain list poll", async () => {
+		const wwwRecords = [
+			{
+				name: "www",
+				purpose: "traffic",
+				type: "CNAME" as const,
+				value: "customers.wandit.app",
+			},
+		];
+		const nameserverRecords = [
+			{
+				name: "@",
+				purpose: "nameserver",
+				type: "NS" as const,
+				value: "ada.ns.cloudflare.com",
+			},
+		];
+		const pendingDomain = domain({ dns: { records: wwwRecords } });
+		mocks.domains = [pendingDomain];
+		const root = await mountWizard();
+
+		expect(mocks.setupRecords).toEqual(wwwRecords);
+		expect(mocks.setupOnRefresh).toBeTypeOf("function");
+		await act(async () => mocks.setupOnRefresh?.());
+		expect(mocks.dnsStatusRefetch).toHaveBeenCalledTimes(1);
+
+		mocks.dnsStatusData = {
+			checkedAt: "2026-08-12T10:01:00.000Z",
+			domain: domain({
+				dns: { records: [...wwwRecords, ...nameserverRecords] },
+			}),
+			records: [],
+		};
+		mocks.dnsStatusDataUpdatedAt = 2;
+		await act(async () => {
+			root.render(
+				createElement(ExternalDomainConnectWizard, {
+					projectId: "11111111-1111-4111-8111-111111111111",
+				}),
+			);
+		});
+
+		expect(mocks.setupRecords).toEqual([...wwwRecords, ...nameserverRecords]);
+	});
+
+	it("lets a newer domain-list poll supersede cached pre-zone status records", async () => {
+		const wwwRecords = [
+			{
+				name: "www",
+				purpose: "traffic",
+				type: "CNAME" as const,
+				value: "customers.wandit.app",
+			},
+		];
+		const nameserverRecord = {
+			name: "@",
+			purpose: "nameserver",
+			type: "NS" as const,
+			value: "ada.ns.cloudflare.com",
+		};
+		mocks.domains = [domain({ dns: { records: wwwRecords } })];
+		mocks.domainsDataUpdatedAt = 1;
+		mocks.dnsStatusData = {
+			checkedAt: "2026-08-12T10:01:00.000Z",
+			domain: domain({ dns: { records: wwwRecords } }),
+			records: [],
+		};
+		mocks.dnsStatusDataUpdatedAt = 2;
+		const root = await mountWizard();
+
+		expect(mocks.setupRecords).toEqual(wwwRecords);
+
+		mocks.domains = [
+			domain({ dns: { records: [...wwwRecords, nameserverRecord] } }),
+		];
+		mocks.domainsDataUpdatedAt = 3;
+		await act(async () => {
+			root.render(
+				createElement(ExternalDomainConnectWizard, {
+					projectId: "11111111-1111-4111-8111-111111111111",
+				}),
+			);
+		});
+
+		expect(mocks.setupRecords).toEqual([...wwwRecords, nameserverRecord]);
 	});
 
 	it("returns to input when another domain is requested", async () => {

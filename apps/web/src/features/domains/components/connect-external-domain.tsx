@@ -126,16 +126,11 @@ export function ExternalDomainConnectWizard({
 		() => (domains.data ?? []).find((domain) => domain.id === domainId) ?? null,
 		[domainId, domains.data],
 	);
-	// The persisted records win once the domain is loaded: the server changes
-	// `dns.records` after the attach (the configure task adds the nameservers
-	// of a zone the attach could not prepare, a lost zone withdraws them), and
-	// the polled domain list carries that; the attach/verify response only
-	// bridges the gap until then.
+	// Server records win once the domain is loaded: the configure task adds
+	// nameservers after ownership verification and withdraws them if the zone is
+	// lost. The freshest domain-list or DNS-status response wins, while
+	// attach/verify records only bridge the gap before either has records.
 	const persistedRecords = currentDomain?.dns?.records;
-	const effectiveRecords =
-		persistedRecords && persistedRecords.length > 0
-			? persistedRecords
-			: records;
 	const stalledVerification = currentDomain?.dns?.externalVerification;
 	const showRecords =
 		step === "records" || step === "checking" || step === "success";
@@ -143,6 +138,15 @@ export function ExternalDomainConnectWizard({
 		enabled: showRecords,
 		poll: showRecords && currentDomain?.status === "configuring",
 	});
+	const refreshedRecords = dnsStatus.data?.domain.dns?.records;
+	const refreshedRecordsAreNewest =
+		refreshedRecords !== undefined &&
+		dnsStatus.dataUpdatedAt >= domains.dataUpdatedAt;
+	const effectiveRecords = refreshedRecordsAreNewest
+		? refreshedRecords
+		: persistedRecords && persistedRecords.length > 0
+			? persistedRecords
+			: records;
 
 	useEffect(() => {
 		if (step !== "input") {
@@ -259,31 +263,44 @@ export function ExternalDomainConnectWizard({
 			) : null}
 
 			{step === "input" ? (
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-					<div className="min-w-0 flex-1">
-						<Label htmlFor={inputId}>
-							{t("settings.domains.externalLabel")}
-						</Label>
-						<Input
-							id={inputId}
-							className="mt-2 font-mono"
-							dir="ltr"
-							value={domainInput}
-							placeholder={t("settings.domains.externalPlaceholder")}
-							onChange={(event) => setDomainInput(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") void connect();
-							}}
-						/>
+				<div className="flex flex-col gap-3">
+					<div className="flex gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-3">
+						<AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
+						<div className="min-w-0 flex-1">
+							<p className="font-medium text-amber-900 text-sm dark:text-amber-100">
+								{t("settings.domains.externalOwnershipWarningTitle")}
+							</p>
+							<p className="mt-0.5 text-amber-800/80 text-xs dark:text-amber-200/80">
+								{t("settings.domains.externalOwnershipWarningDescription")}
+							</p>
+						</div>
 					</div>
-					<Button
-						type="button"
-						onClick={() => void connect()}
-						disabled={attach.isPending}
-					>
-						{attach.isPending ? <Loader2 className="animate-spin" /> : null}
-						{t("settings.domains.externalConnect")}
-					</Button>
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+						<div className="min-w-0 flex-1">
+							<Label htmlFor={inputId}>
+								{t("settings.domains.externalLabel")}
+							</Label>
+							<Input
+								id={inputId}
+								className="mt-2 font-mono"
+								dir="ltr"
+								value={domainInput}
+								placeholder={t("settings.domains.externalPlaceholder")}
+								onChange={(event) => setDomainInput(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") void connect();
+								}}
+							/>
+						</div>
+						<Button
+							type="button"
+							onClick={() => void connect()}
+							disabled={attach.isPending}
+						>
+							{attach.isPending ? <Loader2 className="animate-spin" /> : null}
+							{t("settings.domains.externalConnect")}
+						</Button>
+					</div>
 				</div>
 			) : null}
 

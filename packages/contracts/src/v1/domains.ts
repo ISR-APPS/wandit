@@ -317,6 +317,9 @@ export const domainDnsSchema = z
 		zoneDelegated: z.boolean().optional(),
 		zoneId: z.string().optional(),
 		zoneNameServers: z.array(z.string()).optional(),
+		// External only: when the zone nameservers first became actionable in
+		// the setup UI. Delegation reminders age from this point.
+		zoneNameserversExposedAt: isoDateTimeSchema.optional(),
 		// External only: the one-time import of the domain's current public
 		// DNS into the zone (Cloudflare record scan) already ran; it must never
 		// run again once the user may have switched nameservers to us.

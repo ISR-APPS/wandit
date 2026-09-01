@@ -5,11 +5,16 @@ import { CustomHostnameVerificationStep } from "./custom-hostname-verification.s
 describe("CustomHostnameVerificationStep", () => {
 	it("normalizes the exact active status to active with one probe", async () => {
 		const provider = {
-			getCustomHostnameStatus: vi.fn(async () => ({ status: "active" })),
+			getCustomHostnameStatus: vi.fn(async () => ({
+				hostnameStatus: "active",
+				sslStatus: "active",
+			})),
 		};
 		const step = new CustomHostnameVerificationStep(provider);
 
 		await expect(step.execute("cf_active")).resolves.toEqual({
+			hostnameStatus: "active",
+			sslStatus: "active",
 			status: "active",
 		});
 		expect(provider.getCustomHostnameStatus).toHaveBeenCalledOnce();
@@ -17,17 +22,23 @@ describe("CustomHostnameVerificationStep", () => {
 	});
 
 	it.each([
-		"pending",
-		"blocked",
-		"",
-		"ACTIVE",
-	])("normalizes provider status %j to pending", async (status) => {
+		["pending", "pending_validation"],
+		["blocked", "active"],
+		["", "active"],
+		["ACTIVE", "active"],
+		["active", "pending_validation"],
+	] as const)("normalizes hostname %j and SSL %j to pending while preserving both", async (hostnameStatus, sslStatus) => {
 		const provider = {
-			getCustomHostnameStatus: vi.fn(async () => ({ status })),
+			getCustomHostnameStatus: vi.fn(async () => ({
+				hostnameStatus,
+				sslStatus,
+			})),
 		};
 		const step = new CustomHostnameVerificationStep(provider);
 
 		await expect(step.execute("cf_pending")).resolves.toEqual({
+			hostnameStatus,
+			sslStatus,
 			status: "pending",
 		});
 		expect(provider.getCustomHostnameStatus).toHaveBeenCalledOnce();

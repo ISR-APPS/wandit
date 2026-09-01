@@ -11,6 +11,7 @@ import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	DomainNotAvailableError,
 	DomainsUnavailableError,
+	ExternalDomainUnregisteredError,
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
@@ -24,6 +25,10 @@ import type { DomainTaskDispatcher } from "../../domain/ports/domain-task-dispat
 import type { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import type { CustomerZoneService } from "../../infrastructure/cloudflare/customer-zone.service";
 import type { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
+import type {
+	DomainRegistrationCheckResult,
+	DomainRegistrationCheckService,
+} from "../../infrastructure/dns/domain-registration-check.service";
 import type {
 	DomainRow,
 	DomainsRepository,
@@ -44,17 +49,6 @@ const nameserverRecords = zoneNameServers.map((value) => ({
 	type: "NS" as const,
 	value,
 })) satisfies RequiredDomainRecord[];
-
-/** The env mock is a plain object: flip the kill switch in place. */
-function setApexZoneEnabled(enabled: boolean | undefined) {
-	const mutable = env as unknown as Record<string, unknown>;
-
-	if (enabled === undefined) {
-		delete mutable.DOMAINS_APEX_ZONE_ENABLED;
-	} else {
-		mutable.DOMAINS_APEX_ZONE_ENABLED = enabled;
-	}
-}
 
 class FakeDomainsRepository {
 	readonly projects = new Set([`${userId}:${projectId}`]);
@@ -252,10 +246,39 @@ class FakeDomainsRepository {
 		};
 	}
 
-	async prepareExternalVerificationRestart(id: string) {
+	async prepareExternalVerificationRestart(
+		id: string,
+		input?: { expectedNonce: string | null; nonce: string },
+	) {
 		const row = this.rows.get(id);
 		const dns = domainDnsSchema.safeParse(row?.dns);
 		const cursor = await this.readCursor(id);
+		const currentDns = dns.success ? dns.data : {};
+
+		if (input) {
+			if (
+				row?.source !== "external" ||
+				row.status !== "configuring" ||
+				(cursor?.nonce ?? null) !== input.expectedNonce
+			) {
+				return null;
+			}
+
+			const restarted = {
+				nextAttempt: 0,
+				nextProbeAt: null,
+				nonce: input.nonce,
+			};
+			this.rows.set(id, {
+				...row,
+				dns: {
+					...currentDns,
+					triggerConfiguration: restarted,
+				},
+			});
+
+			return restarted;
+		}
 
 		if (
 			row?.source !== "external" ||
@@ -365,6 +388,7 @@ class FakeDomainsRepository {
 			createdAt: now,
 			dns: null,
 			error: null,
+			externalDelegationReminderSentAt: null,
 			expiresAt: null,
 			id,
 			isPrimary: false,
@@ -497,6 +521,14 @@ class FakeRoutingService {
 	async refreshProjectDomains() {}
 }
 
+class FakeDomainRegistrationCheckService {
+	result: DomainRegistrationCheckResult = { status: "registered" };
+	readonly check = vi.fn(
+		async (_name: string): Promise<DomainRegistrationCheckResult> =>
+			this.result,
+	);
+}
+
 class FakeDomainTaskDispatcher implements DomainTaskDispatcher {
 	readonly assertAvailable = vi.fn(() => {
 		if (!process.env.TRIGGER_SECRET_KEY?.trim()) {
@@ -544,6 +576,7 @@ function setup() {
 	const provider = new FakeProvider();
 	const cloudflare = new FakeCustomHostnameService();
 	const zones = new FakeCustomerZoneService();
+	const registration = new FakeDomainRegistrationCheckService();
 	const routing = new FakeRoutingService();
 	const dispatcher = new FakeDomainTaskDispatcher();
 	const logger = {
@@ -556,6 +589,7 @@ function setup() {
 		provider,
 		cloudflare as unknown as CustomHostnameService,
 		zones as unknown as CustomerZoneService,
+		registration as unknown as DomainRegistrationCheckService,
 		routing as unknown as DomainRoutingService,
 		logger,
 		dispatcher,
@@ -566,6 +600,7 @@ function setup() {
 		dispatcher,
 		logger,
 		provider,
+		registration,
 		repository,
 		routing,
 		service,
@@ -576,7 +611,6 @@ function setup() {
 describe("DomainsService", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
-		setApexZoneEnabled(undefined);
 	});
 
 	it("returns retail USD prices only for safely purchasable domains", async () => {
@@ -805,7 +839,65 @@ describe("DomainsService", () => {
 		expectNoRegistrarMutation(provider);
 	});
 
-	it("attaches BYO domains and idempotently reuses its verification run", async () => {
+	it("refuses a confirmed unregistered external domain before creating resources", async () => {
+		const { cloudflare, dispatcher, registration, repository, service, zones } =
+			setup();
+		registration.result = { status: "unregistered" };
+		const assertProjectAccessible = vi.spyOn(
+			repository,
+			"assertProjectAccessible",
+		);
+		const createExternal = vi.spyOn(
+			repository,
+			"createExternalReplacingTerminal",
+		);
+
+		const error = await service
+			.attachExternal(scope, projectId, { name: "unregistered.com" })
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(ExternalDomainUnregisteredError);
+		expect(error).toMatchObject({
+			response: {
+				code: "EXTERNAL_DOMAIN_UNREGISTERED",
+				message: "unregistered.com is not registered",
+			},
+			status: 422,
+		});
+		expect(assertProjectAccessible).toHaveBeenCalledWith(scope, projectId);
+		expect(registration.check).toHaveBeenCalledExactlyOnceWith(
+			"unregistered.com",
+		);
+		expect(assertProjectAccessible.mock.invocationCallOrder[0]).toBeLessThan(
+			registration.check.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(createExternal).not.toHaveBeenCalled();
+		expect(repository.rows.size).toBe(0);
+		expect(cloudflare.createCustomHostname).not.toHaveBeenCalled();
+		expect(zones.findZoneByName).not.toHaveBeenCalled();
+		expect(zones.createZone).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
+	});
+
+	it("continues an external attach when registration is inconclusive", async () => {
+		const { cloudflare, registration, repository, service, zones } = setup();
+		registration.result = {
+			reason: "DNS registration lookup was inconclusive",
+			status: "inconclusive",
+		};
+
+		await expect(
+			service.attachExternal(scope, projectId, { name: "uncertain.org" }),
+		).resolves.toMatchObject({ domain: { name: "uncertain.org" } });
+
+		expect(registration.check).toHaveBeenCalledExactlyOnceWith("uncertain.org");
+		expect(repository.rows.size).toBe(1);
+		expect(cloudflare.createCustomHostname).toHaveBeenCalledOnce();
+		expect(zones.findZoneByName).not.toHaveBeenCalled();
+		expect(zones.createZone).not.toHaveBeenCalled();
+	});
+
+	it("attaches BYO domains, reuses pending verification, and freshly restarts an active probe", async () => {
 		const { cloudflare, dispatcher, repository, routing, service } = setup();
 
 		const attached = await service.attachExternal(scope, projectId, {
@@ -863,110 +955,31 @@ describe("DomainsService", () => {
 
 		cloudflare.status = "active";
 		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
-			domain: { status: "active" },
+			domain: { status: "configuring" },
 		});
-		expect(routing.pointers).toEqual([
-			{ host: "brand.com", pointer: { projectId, source: "domain" } },
-		]);
-		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(3);
+		expect(routing.pointers).toHaveLength(0);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(4);
+		expect(dispatcher.triggerConfiguration).toHaveBeenNthCalledWith(4, {
+			domainId: row.id,
+			nonce: expect.stringMatching(/^manual-restart:/),
+		});
+		expect(
+			(
+				repository.rows.get(row.id)?.dns as {
+					triggerConfiguration?: { nonce?: string };
+				}
+			).triggerConfiguration?.nonce,
+		).not.toBe(String(row.updatedAt.getTime()));
 		expect(dispatcher.recoverConfiguration).not.toHaveBeenCalled();
 	});
 
-	it("attaches a BYO domain with a freshly created zone: nameservers are shown at once and persisted with the delegation marker", async () => {
+	it("attaches a BYO domain with only the www CNAME and ownership TXT records", async () => {
 		const { dispatcher, repository, service, zones } = setup();
-
-		const attached = await service.attachExternal(scope, projectId, {
-			name: "brand.com",
-		});
-		const row = [...repository.rows.values()][0];
-
-		expect(zones.findZoneByName).toHaveBeenCalledExactlyOnceWith("brand.com");
-		expect(zones.createZone).toHaveBeenCalledExactlyOnceWith("brand.com");
-		expect(attached.requiredRecords).toEqual([
-			expect.objectContaining({ name: "www", type: "CNAME" }),
-			expect.objectContaining({ type: "TXT", value: "cf-token" }),
-			...nameserverRecords,
-		]);
-		expect(attached.domain.dns?.records).toEqual(attached.requiredRecords);
-		expect(row?.dns).toEqual({
-			records: attached.requiredRecords,
-			zoneCreated: true,
-			zoneDelegated: true,
-			zoneId: "zone_new",
-			zoneNameServers,
-			zoneStatus: "pending",
-		});
-		// The zone lives only in the stored dns; the public shape stays records.
-		expect(attached.domain.dns).toEqual({ records: attached.requiredRecords });
-		expect(dispatcher.triggerConfiguration).toHaveBeenCalledOnce();
-		expect(zones.deleteZone).not.toHaveBeenCalled();
-	});
-
-	it("adopts an existing zone on attach without marking it created", async () => {
-		const { repository, service, zones } = setup();
 		zones.existingZone = {
 			id: "zone_existing",
 			nameServers: zoneNameServers,
 			status: "active",
 		};
-
-		const attached = await service.attachExternal(scope, projectId, {
-			name: "brand.com",
-		});
-		const row = [...repository.rows.values()][0];
-
-		expect(zones.createZone).not.toHaveBeenCalled();
-		expect(attached.requiredRecords).toEqual(
-			expect.arrayContaining(nameserverRecords),
-		);
-		expect(row?.dns).toMatchObject({
-			zoneDelegated: true,
-			zoneId: "zone_existing",
-			zoneStatus: "active",
-		});
-		expect(row?.dns).not.toHaveProperty("zoneCreated");
-	});
-
-	it("keeps a BYO attach www-only and records apexError when the zone cannot be prepared", async () => {
-		const { dispatcher, logger, repository, service, zones } = setup();
-		zones.createZone.mockRejectedValueOnce(
-			new Error("Cloudflare zone request failed"),
-		);
-
-		const attached = await service.attachExternal(scope, projectId, {
-			name: "brand.com",
-		});
-		const row = [...repository.rows.values()][0];
-
-		expect(attached.requiredRecords).toEqual([
-			expect.objectContaining({ name: "www", type: "CNAME" }),
-			expect.objectContaining({ type: "TXT", value: "cf-token" }),
-		]);
-		expect(row?.dns).toEqual({
-			apexError: "Cloudflare zone request failed",
-			records: attached.requiredRecords,
-		});
-		expect(logger.warn).toHaveBeenCalledWith(
-			`Apex zone preparation deferred for external domain ${row?.id}`,
-			"Cloudflare zone request failed",
-		);
-		expect(dispatcher.triggerConfiguration).toHaveBeenCalledOnce();
-		expect(zones.deleteZone).not.toHaveBeenCalled();
-	});
-
-	it("truncates a long zone preparation error in apexError", async () => {
-		const { repository, service, zones } = setup();
-		zones.findZoneByName.mockRejectedValueOnce(new Error("x".repeat(500)));
-
-		await service.attachExternal(scope, projectId, { name: "brand.com" });
-		const row = [...repository.rows.values()][0];
-
-		expect((row?.dns as { apexError: string }).apexError).toHaveLength(240);
-	});
-
-	it("attaches exactly as before when the apex zone kill switch is off", async () => {
-		setApexZoneEnabled(false);
-		const { repository, service, zones } = setup();
 
 		const attached = await service.attachExternal(scope, projectId, {
 			name: "brand.com",
@@ -979,69 +992,35 @@ describe("DomainsService", () => {
 			expect.objectContaining({ name: "www", type: "CNAME" }),
 			expect.objectContaining({ type: "TXT", value: "cf-token" }),
 		]);
+		expect(attached.requiredRecords).not.toContainEqual(
+			expect.objectContaining({ type: "NS" }),
+		);
 		expect(row?.dns).toEqual({ records: attached.requiredRecords });
+		expect(attached.domain.dns).toEqual({ records: attached.requiredRecords });
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledOnce();
 	});
 
-	it("releases only a zone the attach itself created when the Trigger handoff is rejected", async () => {
-		const created = setup();
-		created.dispatcher.triggerConfiguration.mockRejectedValueOnce(
-			new Error("trigger down"),
-		);
-
-		await expect(
-			created.service.attachExternal(scope, projectId, {
-				name: "rollback.org",
-			}),
-		).rejects.toThrow("trigger down");
-
-		expect(created.repository.rows.size).toBe(0);
-		expect(created.cloudflare.deleteCustomHostname).toHaveBeenCalledWith(
-			"cf_1",
-		);
-		expect(created.zones.deleteZone).toHaveBeenCalledExactlyOnceWith(
-			"zone_new",
-		);
-
-		const adopted = setup();
-		adopted.zones.existingZone = {
-			id: "zone_existing",
-			nameServers: zoneNameServers,
-			status: "pending",
-		};
-		adopted.dispatcher.triggerConfiguration.mockRejectedValueOnce(
-			new Error("trigger down"),
-		);
-
-		await expect(
-			adopted.service.attachExternal(scope, projectId, {
-				name: "rollback.org",
-			}),
-		).rejects.toThrow("trigger down");
-
-		expect(adopted.repository.rows.size).toBe(0);
-		expect(adopted.zones.deleteZone).not.toHaveBeenCalled();
-	});
-
-	it("swallows a failed zone release during rollback and still rethrows the original error", async () => {
-		const { dispatcher, logger, repository, service, zones } = setup();
+	it("rolls back only attach-created hostname state when Trigger handoff fails", async () => {
+		const { cloudflare, dispatcher, repository, service, zones } = setup();
 		dispatcher.triggerConfiguration.mockRejectedValueOnce(
 			new Error("trigger down"),
 		);
-		zones.deleteZone.mockRejectedValueOnce(new Error("zone busy"));
 
 		await expect(
 			service.attachExternal(scope, projectId, { name: "rollback.org" }),
 		).rejects.toThrow("trigger down");
 
 		expect(repository.rows.size).toBe(0);
-		expect(logger.warn).toHaveBeenCalledWith(
-			expect.stringMatching(/Failed to delete Cloudflare zone zone_new/),
-			"zone busy",
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledExactlyOnceWith(
+			"cf_1",
 		);
+		expect(zones.findZoneByName).not.toHaveBeenCalled();
+		expect(zones.createZone).not.toHaveBeenCalled();
+		expect(zones.deleteZone).not.toHaveBeenCalled();
 	});
 
-	it("keeps the nameserver records first and unchanged when a BYO domain is verified", async () => {
-		const { cloudflare, dispatcher, repository, service } = setup();
+	it("keeps the attach records unchanged when a pre-zone BYO domain is verified", async () => {
+		const { cloudflare, dispatcher, repository, service, zones } = setup();
 		// The status probe returns the same challenge the create call handed out.
 		cloudflare.requiredRecords = [
 			{
@@ -1063,11 +1042,12 @@ describe("DomainsService", () => {
 		const verified = await service.verify(row.id, scope);
 
 		expect(verified.requiredRecords).toEqual(attached.requiredRecords);
-		expect(verified.requiredRecords?.slice(-2)).toEqual(nameserverRecords);
 		expect(verified.domain.dns?.records).toEqual(attached.requiredRecords);
 		// Nothing changed, so no rewrite of dns.records happened.
 		expect(setDns).not.toHaveBeenCalled();
 		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(2);
+		expect(zones.findZoneByName).not.toHaveBeenCalled();
+		expect(zones.createZone).not.toHaveBeenCalled();
 	});
 
 	it("withdraws the nameservers of a zone that no longer exists when a configuring BYO domain is verified", async () => {
@@ -1081,15 +1061,23 @@ describe("DomainsService", () => {
 			throw new Error("Expected BYO row");
 		}
 
-		expect(attached.requiredRecords?.slice(-2)).toEqual(nameserverRecords);
+		const exposedRecords = [...attached.requiredRecords, ...nameserverRecords];
+		await repository.updateById(row.id, {
+			dns: {
+				records: exposedRecords,
+				zoneCreated: true,
+				zoneDelegated: true,
+				zoneId: "zone_new",
+				zoneNameServers,
+				zoneStatus: "pending",
+			},
+		});
 		zones.zoneStatus = null;
 
 		const verified = await service.verify(row.id, scope);
 
 		expect(zones.getZoneStatus).toHaveBeenCalledExactlyOnceWith("zone_new");
-		expect(verified.requiredRecords).toEqual(
-			attached.requiredRecords?.filter((record) => record.type !== "NS"),
-		);
+		expect(verified.requiredRecords).toEqual(attached.requiredRecords);
 		expect(verified.requiredRecords).not.toContainEqual(
 			expect.objectContaining({ type: "NS" }),
 		);
@@ -1111,7 +1099,7 @@ describe("DomainsService", () => {
 		expect(logger.warn).toHaveBeenCalledWith(
 			`Cloudflare zone zone_new for domain ${row.id} no longer exists; its nameservers are withdrawn`,
 		);
-		// The redispatched configure task creates a fresh zone for the row.
+		// The redispatched configure task rechecks ownership before replacing it.
 		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(2);
 	});
 
@@ -1178,6 +1166,8 @@ describe("DomainsService", () => {
 
 	it("persists newly merged Cloudflare records for external domains", async () => {
 		const { cloudflare, dispatcher, repository, service } = setup();
+		const mergeDns = vi.spyOn(repository, "mergeDnsIfStatus");
+		const setDns = vi.spyOn(repository, "setDns");
 		cloudflare.requiredRecords = [
 			{
 				name: "_cf-custom-hostname.brand.com",
@@ -1188,6 +1178,7 @@ describe("DomainsService", () => {
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_rotated",
 			dns: {
+				apexConfigured: true,
 				records: [
 					{
 						name: "_cf-custom-hostname.brand.com",
@@ -1211,6 +1202,7 @@ describe("DomainsService", () => {
 		const response = await service.verify(row.id, scope);
 
 		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			apexConfigured: true,
 			records: response.requiredRecords,
 			triggerConfiguration: {
 				nextAttempt: 2,
@@ -1230,6 +1222,54 @@ describe("DomainsService", () => {
 			domainId: row.id,
 			nonce: "existing-nonce",
 		});
+		expect(mergeDns).toHaveBeenCalledExactlyOnceWith(
+			row.id,
+			["configuring", "active"],
+			{ records: response.requiredRecords },
+		);
+		expect(setDns).not.toHaveBeenCalled();
+	});
+
+	it("restarts a fully active external hostname with a fresh cursor and no stalled marker", async () => {
+		const { cloudflare, dispatcher, repository, routing, service } = setup();
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_sleeping_active",
+			dns: {
+				records: [],
+				triggerConfiguration: {
+					nextAttempt: 4,
+					nextProbeAt: "2026-08-02T00:15:00.000Z",
+					nonce: "sleeping-run",
+				},
+			},
+			name: "active-sleeping.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: { status: "configuring" },
+		});
+
+		const dispatched = dispatcher.triggerConfiguration.mock.calls[0]?.[0];
+		expect(dispatched).toEqual({
+			domainId: row.id,
+			nonce: expect.stringMatching(/^manual-restart:/),
+		});
+		expect(dispatched?.nonce).not.toBe("sleeping-run");
+		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			triggerConfiguration: {
+				nextAttempt: 0,
+				nextProbeAt: null,
+				nonce: dispatched?.nonce,
+			},
+		});
+		expect(repository.rows.get(row.id)?.dns).not.toHaveProperty(
+			"externalVerification",
+		);
+		expect(routing.pointers).toHaveLength(0);
 	});
 
 	it("restarts a stalled external run and clears its warning after handoff", async () => {
@@ -1306,8 +1346,8 @@ describe("DomainsService", () => {
 		});
 	});
 
-	it("clears a stalled marker when a manual check activates the domain", async () => {
-		const { cloudflare, dispatcher, repository, service } = setup();
+	it("clears a stalled marker while handing a fully active external hostname back to the runner", async () => {
+		const { cloudflare, dispatcher, repository, routing, service } = setup();
 		cloudflare.status = "active";
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_stalled_active",
@@ -1317,6 +1357,11 @@ describe("DomainsService", () => {
 					stalledAt: "2026-08-02T00:00:30.000Z",
 				},
 				records: [],
+				triggerConfiguration: {
+					nextAttempt: 100,
+					nextProbeAt: null,
+					nonce: "stalled-active-run",
+				},
 			},
 			name: "active-stalled.com",
 			projectId,
@@ -1329,12 +1374,31 @@ describe("DomainsService", () => {
 				dns: {
 					records: [expect.objectContaining({ name: "www", type: "CNAME" })],
 				},
-				status: "active",
+				status: "configuring",
 			},
 		});
 		expect(repository.rows.get(row.id)?.dns).not.toHaveProperty(
 			"externalVerification",
 		);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledExactlyOnceWith({
+			domainId: row.id,
+			nonce: expect.stringMatching(/^manual-restart:/),
+		});
+		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			triggerConfiguration: {
+				nextAttempt: 0,
+				nextProbeAt: null,
+				nonce: expect.stringMatching(/^manual-restart:/),
+			},
+		});
+		expect(
+			(
+				repository.rows.get(row.id)?.dns as {
+					triggerConfiguration?: { nonce?: string };
+				}
+			).triggerConfiguration?.nonce,
+		).not.toBe("stalled-active-run");
+		expect(routing.pointers).toHaveLength(0);
 		expect(dispatcher.recoverConfiguration).not.toHaveBeenCalled();
 	});
 

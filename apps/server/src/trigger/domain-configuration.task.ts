@@ -8,7 +8,7 @@ import { domainOperationsQueue } from "./domain-task-queues";
 
 /**
  * Durable custom-hostname verification for BYO attach and manual checks, plus
- * the best-effort apex zone pass for external rows before every probe.
+ * the ownership-gated best-effort apex zone pass after each external probe.
  */
 export const domainConfigurationTask = schemaTask({
 	id: "domain-configure",
