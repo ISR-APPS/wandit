@@ -1,10 +1,16 @@
 export type CustomHostnameVerificationResult =
-	| { status: "active" }
-	| { status: "pending" }
+	| {
+			hostnameStatus: string | null;
+			sslStatus: string | null;
+			status: "active" | "pending";
+	  }
 	| { error: unknown; status: "transient" };
 
 type CustomHostnameStatusProvider = {
-	getCustomHostnameStatus(id: string): Promise<{ status: string }>;
+	getCustomHostnameStatus(id: string): Promise<{
+		hostnameStatus: string | null;
+		sslStatus: string | null;
+	}>;
 };
 
 export class CustomHostnameVerificationStep {
@@ -13,10 +19,14 @@ export class CustomHostnameVerificationStep {
 	async execute(id: string): Promise<CustomHostnameVerificationResult> {
 		try {
 			const result = await this.provider.getCustomHostnameStatus(id);
+			const fullyActive =
+				result.hostnameStatus === "active" && result.sslStatus === "active";
 
-			return result.status === "active"
-				? { status: "active" }
-				: { status: "pending" };
+			return {
+				hostnameStatus: result.hostnameStatus,
+				sslStatus: result.sslStatus,
+				status: fullyActive ? "active" : "pending",
+			};
 		} catch (error) {
 			return { error, status: "transient" };
 		}

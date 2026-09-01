@@ -42,6 +42,7 @@ import type { DomainTaskDispatcher } from "../modules/domains/domain/ports/domai
 import { CustomHostnameService } from "../modules/domains/infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "../modules/domains/infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
+import { DomainRegistrationCheckService } from "../modules/domains/infrastructure/dns/domain-registration-check.service";
 import { NamecomProvider } from "../modules/domains/infrastructure/namecom/namecom.provider";
 import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
 import {
@@ -299,6 +300,7 @@ function createOrderReconciler(
 		new NamecomProvider(),
 		new CustomHostnameService(),
 		new CustomerZoneService(),
+		new DomainRegistrationCheckService(),
 		routing,
 		{
 			error: (message: unknown) =>

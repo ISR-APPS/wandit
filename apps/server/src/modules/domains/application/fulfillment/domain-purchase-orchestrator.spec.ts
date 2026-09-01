@@ -136,6 +136,7 @@ describe("DomainPurchaseOrchestrator", () => {
 		);
 		expect(fixture.apexZone).toHaveBeenCalledWith(
 			expect.objectContaining({ cfCustomHostnameId: "cf_1" }),
+			{ allowZoneCreation: true },
 		);
 		expect(fixture.transitionToConfiguring).toHaveBeenCalledWith(
 			expect.objectContaining({

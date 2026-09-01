@@ -1,3 +1,5 @@
+import { AlertTriangle } from "lucide-react";
+
 import { useTranslation } from "@/lib/i18n";
 import type {
 	DnsRecordDiagnostic,
@@ -33,6 +35,17 @@ export function ExternalDomainSetupOptions({
 	if (!hasNameserverOption) {
 		return (
 			<>
+				<div className="space-y-1">
+					<h4 className="font-medium text-sm">
+						{t("settings.domains.externalOwnershipStepTitle")}
+					</h4>
+					<p className="text-muted-foreground text-xs">
+						{t("settings.domains.externalOwnershipStepDescription")}
+					</p>
+					<p className="text-muted-foreground text-xs">
+						{t("settings.domains.externalNameserverUnlockHint")}
+					</p>
+				</div>
 				<ExternalDomainRoutingNote name={name} />
 				<DnsRecordsTable
 					records={records}
@@ -69,6 +82,20 @@ export function ExternalDomainSetupOptions({
 					<p className="text-muted-foreground text-xs">
 						{t("settings.domains.externalOptionNsDnssec")}
 					</p>
+				</div>
+				<div className="flex gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-3">
+					<AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
+					<div className="min-w-0 flex-1">
+						<p className="font-medium text-amber-900 text-sm dark:text-amber-100">
+							{t("settings.domains.externalOwnershipWarningTitle")}
+						</p>
+						<p className="mt-0.5 text-amber-800/80 text-xs dark:text-amber-200/80">
+							{t("settings.domains.externalOwnershipWarningDescription")}
+						</p>
+						<p className="mt-1 text-amber-800/80 text-xs dark:text-amber-200/80">
+							{t("settings.domains.externalNameserverChangeWarning")}
+						</p>
+					</div>
 				</div>
 				<DnsRecordsTable
 					records={nameserverRecords}

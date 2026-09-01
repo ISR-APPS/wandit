@@ -11,6 +11,7 @@ import { DOMAIN_TASK_DISPATCHER } from "./domain/ports/domain-task-dispatcher.po
 import { CustomHostnameService } from "./infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "./infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "./infrastructure/cloudflare/domain-routing.service";
+import { DomainRegistrationCheckService } from "./infrastructure/dns/domain-registration-check.service";
 import { NamecomProvider } from "./infrastructure/namecom/namecom.provider";
 import { DomainsRepository } from "./infrastructure/persistence/domains.repository";
 import { TriggerDomainTaskDispatcherService } from "./infrastructure/trigger/trigger-domain-task-dispatcher.service";
@@ -28,6 +29,7 @@ import { DomainRateLimitGuard } from "./presentation/http/guards/rate-limit.guar
 	imports: [DatabaseModule],
 	providers: [
 		CustomerZoneService,
+		DomainRegistrationCheckService,
 		CustomHostnameService,
 		DomainDnsDiagnosticsService,
 		DomainRateLimitGuard,
