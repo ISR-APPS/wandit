@@ -10,6 +10,7 @@ const SETTINGS_PAYLOAD = {
 	paidSubscriptionsEnabled: false,
 	manualPaymentsEnabled: false,
 	manualGraceDays: 3,
+	dzdPerUsdRate: 270,
 	topupsEnabled: false,
 	organizationsEnabled: false,
 	emailAuthEnabled: false,
@@ -28,6 +29,7 @@ describe("mapProductSettingsDto", () => {
 			paidSubscriptionsEnabled: false,
 			manualPaymentsEnabled: false,
 			manualGraceDays: 3,
+			dzdPerUsdRate: 270,
 			topupsEnabled: false,
 			organizationsEnabled: false,
 			emailAuthEnabled: false,
@@ -78,6 +80,30 @@ describe("manualGraceDays PATCH validation", () => {
 		expect(
 			patchProductSettingsBodySchema.safeParse({
 				manualGraceDays: 1.5,
+				version: 7,
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("dzdPerUsdRate PATCH validation", () => {
+	it.each([
+		0.01, 270, 10_000,
+	])("accepts the boundary value %d", (dzdPerUsdRate) => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				dzdPerUsdRate,
+				version: 7,
+			}).success,
+		).toBe(true);
+	});
+
+	it.each([
+		0, -1, 10_000.01, 270.001,
+	])("rejects the invalid value %d", (dzdPerUsdRate) => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				dzdPerUsdRate,
 				version: 7,
 			}).success,
 		).toBe(false);

@@ -47,6 +47,10 @@ export type {
 };
 
 export type AdminListUsersSort = AdminListUsersQuery["sort"];
+export type UserCountryFilter = NonNullable<AdminListUsersQuery["country"]>;
+export type UserFreeCreditsFilter = NonNullable<
+	AdminListUsersQuery["freeCredits"]
+>;
 export type UserPlanFilter = NonNullable<AdminListUsersQuery["plan"]>;
 export type UserRoleFilter = NonNullable<AdminListUsersQuery["role"]>;
 export type UserStatusFilter = NonNullable<AdminListUsersQuery["status"]>;
@@ -82,6 +86,8 @@ export type ListUsersParams = {
 	pageSize: number;
 	q?: string;
 	sort: AdminListUsersSort;
+	country?: UserCountryFilter;
+	freeCredits?: UserFreeCreditsFilter;
 	plan?: UserPlanFilter;
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;

@@ -49,6 +49,8 @@ export async function fetchAllFilteredUsers(
 export const USERS_EXPORT_COLUMNS = [
 	{ header: "Name", width: 28 },
 	{ header: "Email", width: 32 },
+	{ header: "Phone", width: 16 },
+	{ header: "Country", width: 10 },
 	{ header: "Verified", width: 10 },
 	{ header: "Role", width: 10 },
 	{ header: "Status", width: 10 },
@@ -67,6 +69,8 @@ export function buildUsersExportRow(
 	return [
 		user.name,
 		user.email,
+		user.phone ?? "",
+		user.countryCode ?? "",
 		user.emailVerified ? "Yes" : "No",
 		getRoleLabel(user.role),
 		user.banned ? "banned" : "active",

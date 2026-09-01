@@ -300,6 +300,7 @@ function dispatchContext(
 
 function productSettings(lifecycleEmailsEnabled: boolean): ProductSettings {
 	return {
+		dzdPerUsdRate: 27_000,
 		emailAuthEnabled: false,
 		id: 1,
 		lifecycleEmailsEnabled,

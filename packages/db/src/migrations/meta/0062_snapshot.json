@@ -1,5 +1,5 @@
 {
-  "id": "9fc1d8c0-b30b-4e9b-86db-59a5ec5f695a",
+  "id": "b42ffafb-010f-4d75-8db5-4338d63f3681",
   "prevId": "16e343e5-c62e-45d6-9325-f32988e6f7dc",
   "version": "7",
   "dialect": "postgresql",
@@ -4685,6 +4685,13 @@
           "notNull": true,
           "default": 0
         },
+        "dzd_per_usd_rate": {
+          "name": "dzd_per_usd_rate",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 27000
+        },
         "version": {
           "name": "version",
           "type": "integer",
@@ -4737,6 +4744,10 @@
         "product_settings_manual_grace_days_range_ck": {
           "name": "product_settings_manual_grace_days_range_ck",
           "value": "\"product_settings\".\"manual_grace_days\" >= 0 AND \"product_settings\".\"manual_grace_days\" <= 30"
+        },
+        "product_settings_dzd_per_usd_rate_range_ck": {
+          "name": "product_settings_dzd_per_usd_rate_range_ck",
+          "value": "\"product_settings\".\"dzd_per_usd_rate\" > 0 AND \"product_settings\".\"dzd_per_usd_rate\" <= 1000000"
         }
       },
       "isRLSEnabled": false
@@ -8049,12 +8060,6 @@
         "dns": {
           "name": "dns",
           "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "external_delegation_reminder_sent_at": {
-          "name": "external_delegation_reminder_sent_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

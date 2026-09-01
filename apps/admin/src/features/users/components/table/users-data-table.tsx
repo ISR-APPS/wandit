@@ -33,7 +33,9 @@ import {
 import type {
 	AdminListUsersSort,
 	AdminUserSummary,
+	UserCountryFilter,
 	UserCreditsUsedRange,
+	UserFreeCreditsFilter,
 	UserPlanFilter,
 	UserPublishedFilter,
 	UserRoleFilter,
@@ -52,6 +54,8 @@ type UsersDataTableProps = {
 	pageSize: number;
 	total: number;
 	sort: AdminListUsersSort;
+	country?: UserCountryFilter;
+	freeCredits?: UserFreeCreditsFilter;
 	plan?: UserPlanFilter;
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
@@ -63,6 +67,8 @@ type UsersDataTableProps = {
 	isExporting: boolean;
 	onSearchChange: (value: string) => void;
 	onSortChange: (sort: AdminListUsersSort) => void;
+	onCountryChange: (country: UserCountryFilter | undefined) => void;
+	onFreeCreditsChange: (freeCredits: UserFreeCreditsFilter | undefined) => void;
 	onPlanChange: (plan: UserPlanFilter | undefined) => void;
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
@@ -81,6 +87,8 @@ function UsersDataTable({
 	pageSize,
 	total,
 	sort,
+	country,
+	freeCredits,
 	plan,
 	role,
 	status,
@@ -92,6 +100,8 @@ function UsersDataTable({
 	isExporting,
 	onSearchChange,
 	onSortChange,
+	onCountryChange,
+	onFreeCreditsChange,
 	onPlanChange,
 	onRoleChange,
 	onStatusChange,
@@ -148,7 +158,9 @@ function UsersDataTable({
 	const isFiltered =
 		searchValue.trim().length > 0 ||
 		Boolean(
-			plan?.length ||
+			country?.length ||
+				freeCredits?.length ||
+				plan?.length ||
 				role?.length ||
 				status?.length ||
 				verified?.length ||
@@ -163,6 +175,8 @@ function UsersDataTable({
 					table={table}
 					searchValue={searchValue}
 					sort={sort}
+					country={country}
+					freeCredits={freeCredits}
 					plan={plan}
 					role={role}
 					status={status}
@@ -172,6 +186,8 @@ function UsersDataTable({
 					isExporting={isExporting}
 					onSearchChange={onSearchChange}
 					onSortChange={onSortChange}
+					onCountryChange={onCountryChange}
+					onFreeCreditsChange={onFreeCreditsChange}
 					onPlanChange={onPlanChange}
 					onRoleChange={onRoleChange}
 					onStatusChange={onStatusChange}

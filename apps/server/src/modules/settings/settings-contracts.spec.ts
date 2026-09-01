@@ -31,6 +31,7 @@ describe("workstream 5 contract round-trips", () => {
 
 	it("keeps the settings update response compatible with and without the skipped count", () => {
 		const settings = {
+			dzdPerUsdRate: 270,
 			emailAuthEnabled: false,
 			id: 1,
 			lifecycleEmailsEnabled: false,
@@ -67,6 +68,16 @@ describe("workstream 5 contract round-trips", () => {
 		expect(publicSettingsSchema.shape).not.toHaveProperty(
 			"lifecycleEmailsEnabled",
 		);
+	});
+
+	it("keeps the DZD rate writable by admins but out of public settings", () => {
+		expect(
+			patchProductSettingsBodySchema.parse({
+				dzdPerUsdRate: 271.25,
+				version: 4,
+			}),
+		).toEqual({ dzdPerUsdRate: 271.25, version: 4 });
+		expect(publicSettingsSchema.shape).not.toHaveProperty("dzdPerUsdRate");
 	});
 
 	it("parses the admin analytics additions", () => {

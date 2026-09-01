@@ -39,6 +39,8 @@ describe("listUsers", () => {
 			pageSize: 25,
 			q: undefined,
 			sort: "newest",
+			country: undefined,
+			freeCredits: undefined,
 			plan: "pro",
 			role: undefined,
 			status: undefined,
@@ -71,10 +73,68 @@ describe("listUsers", () => {
 		expect(apiGetMock).toHaveBeenCalledWith(
 			adminRoutes.users,
 			expect.objectContaining({
+				country: undefined,
+				freeCredits: undefined,
 				creditsUsedMin: undefined,
 				creditsUsedMax: undefined,
 			}),
 		);
+	});
+
+	it("round-trips the country filter as CSV through query params the contract accepts", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			items: [],
+			page: 1,
+			pageSize: 25,
+			total: 0,
+		});
+
+		await listUsers({
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			country: ["DZ", "unknown"],
+		});
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminRoutes.users,
+			expect.objectContaining({
+				country: "DZ,unknown",
+			}),
+		);
+
+		const [, sentParams] = apiGetMock.mock.calls[0] as [string, object];
+		const parsed = adminListUsersQuerySchema.parse(sentParams);
+
+		expect(parsed.country).toEqual(["DZ", "unknown"]);
+	});
+
+	it("round-trips the free-credits filter as CSV through query params the contract accepts", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			items: [],
+			page: 1,
+			pageSize: 25,
+			total: 0,
+		});
+
+		await listUsers({
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			freeCredits: ["consumed", "available"],
+		});
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminRoutes.users,
+			expect.objectContaining({
+				freeCredits: "consumed,available",
+			}),
+		);
+
+		const [, sentParams] = apiGetMock.mock.calls[0] as [string, object];
+		const parsed = adminListUsersQuerySchema.parse(sentParams);
+
+		expect(parsed.freeCredits).toEqual(["consumed", "available"]);
 	});
 
 	it("round-trips the published filter as CSV through query params the contract accepts", async () => {
