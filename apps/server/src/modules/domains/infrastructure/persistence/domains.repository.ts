@@ -9,6 +9,7 @@ import type {
 } from "@wandit/contracts";
 import { domainDnsSchema } from "@wandit/contracts";
 import { and, asc, desc, eq, inArray, or, sql } from "@wandit/db";
+import { user } from "@wandit/db/schema/auth";
 import { domains } from "@wandit/db/schema/domains";
 import { paymentOrders } from "@wandit/db/schema/orders";
 import { projects } from "@wandit/db/schema/projects";
@@ -54,6 +55,11 @@ export type ExternalVerificationRestart = {
 	stalledAt: string;
 };
 
+export type ExternalVerificationRestartCursorInput = {
+	expectedNonce: string | null;
+	nonce: string;
+};
+
 export type FindStaleDomainPurchaseCandidatesInput = {
 	limit: number;
 	staleBefore: Date;
@@ -62,6 +68,12 @@ export type FindStaleDomainPurchaseCandidatesInput = {
 export type FindStaleDomainConfigurationCandidatesInput = {
 	limit: number;
 	staleBefore: Date;
+};
+
+export type FindExternalDelegationReminderCandidatesInput = {
+	after?: { createdAt: Date; id: string };
+	createdBefore: Date;
+	limit: number;
 };
 
 export type DomainTransaction = Parameters<
@@ -229,6 +241,47 @@ export class DomainsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	async findOwnerEmail(userId: string): Promise<string | null> {
+		const [row] = await this.db
+			.select({ email: user.email })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1);
+
+		return row?.email ?? null;
+	}
+
+	async findExternalDelegationReminderCandidates(
+		input: FindExternalDelegationReminderCandidatesInput,
+	): Promise<DomainRow[]> {
+		const after = input.after
+			? or(
+					sql`${domains.createdAt} > ${input.after.createdAt}`,
+					and(
+						eq(domains.createdAt, input.after.createdAt),
+						sql`${domains.id} > ${input.after.id}::uuid`,
+					),
+				)
+			: undefined;
+
+		return this.db
+			.select()
+			.from(domains)
+			.where(
+				and(
+					eq(domains.source, "external"),
+					sql`${domains.dns} ->> 'zoneId' IS NOT NULL`,
+					sql`${domains.dns} -> 'apexConfigured' = 'true'::jsonb`,
+					sql`${domains.dns} -> 'zoneActive' IS DISTINCT FROM 'true'::jsonb`,
+					sql`${domains.externalDelegationReminderSentAt} IS NULL`,
+					sql`COALESCE((${domains.dns} ->> 'zoneNameserversExposedAt')::timestamptz, ${domains.createdAt}) < ${input.createdBefore}`,
+					after,
+				),
+			)
+			.orderBy(asc(domains.createdAt), asc(domains.id))
+			.limit(boundedRepositoryLimit(input.limit));
 	}
 
 	async findStalePurchaseCandidates(
@@ -454,7 +507,56 @@ export class DomainsRepository {
 
 	async prepareExternalVerificationRestart(
 		domainId: string,
-	): Promise<ExternalVerificationRestart | null> {
+	): Promise<ExternalVerificationRestart | null>;
+	async prepareExternalVerificationRestart(
+		domainId: string,
+		input: ExternalVerificationRestartCursorInput,
+	): Promise<DomainConfigurationCursor | null>;
+	async prepareExternalVerificationRestart(
+		domainId: string,
+		input?: ExternalVerificationRestartCursorInput,
+	): Promise<DomainConfigurationCursor | ExternalVerificationRestart | null> {
+		if (input) {
+			const cursor = parseDomainConfigurationCursor({
+				nextAttempt: 0,
+				nextProbeAt: null,
+				nonce: input.nonce,
+			});
+
+			if (input.expectedNonce !== null) {
+				parseDomainConfigurationCursor({
+					nextAttempt: 0,
+					nextProbeAt: null,
+					nonce: input.expectedNonce,
+				});
+			}
+
+			const result = await this.db.$client.query<{ dns: unknown }>(
+				`UPDATE domains
+				 SET dns = (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+				     || jsonb_build_object(
+				       'triggerConfiguration',
+				       jsonb_build_object(
+				         'nonce', $3::text,
+				         'nextAttempt', 0,
+				         'nextProbeAt', NULL
+				       )
+				     ),
+				 updated_at = updated_at
+				 WHERE id = $1::uuid
+				   AND source = 'external'
+				   AND status = 'configuring'
+				   AND (
+				     ($2::text IS NULL AND dns -> 'triggerConfiguration' ->> 'nonce' IS NULL)
+				     OR dns -> 'triggerConfiguration' ->> 'nonce' = $2::text
+				   )
+				 RETURNING dns`,
+				[domainId, input.expectedNonce, cursor.nonce],
+			);
+
+			return cursorFromDns(result.rows[0]?.dns);
+		}
+
 		const result = await this.db.$client.query<{ dns: unknown }>(
 			`UPDATE domains
 			 SET dns = CASE
@@ -831,6 +933,19 @@ export class DomainsRepository {
 
 	recordRenewalNotice(id: string, message: string): Promise<DomainRow> {
 		return this.updateById(id, { error: message });
+	}
+
+	async markExternalDelegationReminderSent(id: string): Promise<boolean> {
+		const result = await this.db.$client.query<{ id: string }>(
+			`UPDATE domains
+			 SET external_delegation_reminder_sent_at = NOW()
+			 WHERE id = $1::uuid
+			   AND external_delegation_reminder_sent_at IS NULL
+			 RETURNING id`,
+			[id],
+		);
+
+		return result.rows.length === 1;
 	}
 
 	markFailed(id: string, summary: string): Promise<DomainRow> {

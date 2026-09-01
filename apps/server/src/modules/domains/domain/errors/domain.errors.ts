@@ -56,6 +56,16 @@ export class DomainAlreadyExistsError extends DomainHttpError {
 	}
 }
 
+export class ExternalDomainUnregisteredError extends DomainHttpError {
+	constructor(name: string) {
+		super(
+			"EXTERNAL_DOMAIN_UNREGISTERED",
+			`${name} is not registered`,
+			HttpStatus.UNPROCESSABLE_ENTITY,
+		);
+	}
+}
+
 export class DomainBlockedError extends DomainHttpError {
 	constructor(message = "Domain name is blocked") {
 		super("DOMAIN_BLOCKED", message, HttpStatus.BAD_REQUEST);

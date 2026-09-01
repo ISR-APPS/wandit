@@ -125,7 +125,7 @@ describe("domainConfigurationTask", () => {
 		};
 		const date = new Date("2026-08-01T00:00:00.000Z");
 
-		// The external apex zone pass runs with the asserted configuration's
+		// The ownership-gated external apex pass uses the asserted configuration's
 		// kill switch and fallback origin.
 		expect(runtimeOptions).toMatchObject({
 			apexZoneEnabled: true,

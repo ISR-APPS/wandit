@@ -62,6 +62,11 @@ describe("ExternalDomainSetupOptions", () => {
 		expect(html).toContain("externalApexRedirect");
 		expect(html).not.toContain("externalApexAutomatic");
 		expect(html).not.toContain("externalOptionNsTitle");
+		expect(html).toContain("externalOwnershipStepTitle");
+		expect(html).toContain("externalOwnershipStepDescription");
+		expect(html).toContain("externalNameserverUnlockHint");
+		expect(html).not.toContain("externalOwnershipWarningTitle");
+		expect(html).not.toContain("externalNameserverChangeWarning");
 		expect(html).not.toContain("externalOptionRecordsTitle");
 		expect(count(html, "<table")).toBe(1);
 		expect(count(html, "refreshDns")).toBe(1);
@@ -86,6 +91,11 @@ describe("ExternalDomainSetupOptions", () => {
 		);
 		expect(html).toContain("externalOptionNsMail");
 		expect(html).toContain("externalOptionNsDnssec");
+		expect(html).toContain("externalOwnershipWarningTitle");
+		expect(html).toContain("externalOwnershipWarningDescription");
+		expect(html).toContain("externalNameserverChangeWarning");
+		expect(html).not.toContain("externalOwnershipStepTitle");
+		expect(html).not.toContain("externalNameserverUnlockHint");
 		expect(html).toContain("externalOptionRecordsTitle");
 		expect(html).toContain(
 			"externalOptionRecordsDescription(example.com,https://www.example.com,www.example.com)",

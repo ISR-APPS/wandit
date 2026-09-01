@@ -10,8 +10,8 @@ const APEX_ERROR_MAX_LENGTH = 240;
  * purged by Cloudflare) from a row: every zone and apex-pass key is removed,
  * the nameservers exposed for it leave `dns.records` so no UI recommends
  * delegating to a zone nobody hosts, and `apexError` explains it. The apex
- * hostname id is kept (the hostname still exists). The next configure pass of
- * the row finds-or-creates a zone again and exposes fresh nameservers.
+ * hostname id is kept (the hostname still exists). A later authorized
+ * configure pass can find-or-create a zone and expose fresh nameservers.
  */
 export function withdrawnCustomerZoneDnsPatch(
 	dns: DomainDns,
@@ -30,6 +30,7 @@ export function withdrawnCustomerZoneDnsPatch(
 		zoneDelegated: null,
 		zoneId: null,
 		zoneNameServers: null,
+		zoneNameserversExposedAt: null,
 		zoneScanRecordsAdded: null,
 		zoneScanned: null,
 		zoneStatus: null,
