@@ -7,7 +7,7 @@ import {
 	adminUserProjectsResponseSchema,
 } from "@wandit/contracts";
 
-import { apiGet, apiPost } from "@/lib/api-client";
+import { apiGet, apiPost, apiPut } from "@/lib/api-client";
 
 import type {
 	AdminListUsersResponse,
@@ -19,6 +19,7 @@ import type {
 	ListUserPagesParams,
 	ListUserProjectsParams,
 	ListUsersParams,
+	SetUserAdminViewsInput,
 	SetUserBannedInput,
 	UserDetail,
 } from "./users.dto";
@@ -116,9 +117,16 @@ export function grantUserCredits({
 
 export function changeUserRole({
 	userId,
-	role,
+	...input
 }: ChangeUserRoleInput): Promise<UserDetail> {
-	return apiPost<UserDetail>(adminRoutes.setRole(userId), { role });
+	return apiPost<UserDetail>(adminRoutes.setRole(userId), input);
+}
+
+export function setUserAdminViews({
+	userId,
+	views,
+}: SetUserAdminViewsInput): Promise<UserDetail> {
+	return apiPut<UserDetail>(adminRoutes.userAdminViews(userId), { views });
 }
 
 export function setUserBanned({

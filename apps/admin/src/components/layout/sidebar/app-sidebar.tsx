@@ -56,7 +56,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 							tooltip="Wandit admin"
 							className="h-10 gap-2.5 rounded-xl px-0 hover:bg-transparent hover:text-foreground active:bg-transparent group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
 						>
-							<Link to="/dashboard" aria-label="Wandit admin home">
+							<Link to="/" aria-label="Wandit admin home">
 								<span className="grid size-8 shrink-0 place-items-center rounded-[11px] bg-gradient-ember shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] ring-1 ring-primary/10 ring-inset">
 									<Logo className="size-[15px] text-primary-foreground" />
 								</span>

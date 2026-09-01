@@ -1,4 +1,6 @@
 import {
+	adminSetAdminViewsInputSchema,
+	adminSetRoleInputSchema,
 	isAdminRole,
 	isStaffRole,
 	normalizeStoredRole,
@@ -35,5 +37,36 @@ describe("stored platform role helpers", () => {
 		expect(normalizeStoredRole("unknown, SUPPORT ")).toBe("support");
 		expect(normalizeStoredRole("unknown,user")).toBe("user");
 		expect(normalizeStoredRole(undefined)).toBe("user");
+	});
+});
+
+describe("admin role input contracts", () => {
+	it("accepts a valid admin view grant set", () => {
+		expect(
+			adminSetAdminViewsInputSchema.safeParse({
+				views: ["overview", "academy"],
+			}).success,
+		).toBe(true);
+	});
+
+	it.each([
+		{ views: [] },
+		{ views: ["unknown"] },
+	])("rejects invalid admin view grants: $views", (input) => {
+		expect(adminSetAdminViewsInputSchema.safeParse(input).success).toBe(false);
+	});
+
+	it.each([
+		{ role: "support" },
+		{ role: "support", views: ["users", "academy"] },
+	])("accepts support role input: $role $views", (input) => {
+		expect(adminSetRoleInputSchema.safeParse(input).success).toBe(true);
+	});
+
+	it.each([
+		{ role: "admin", views: ["overview"] },
+		{ role: "user", views: ["overview"] },
+	])("rejects views for the $role role", (input) => {
+		expect(adminSetRoleInputSchema.safeParse(input).success).toBe(false);
 	});
 });

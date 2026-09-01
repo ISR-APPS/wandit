@@ -449,6 +449,13 @@
       "when": 1788241002852,
       "tag": "0063_real_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788242581007,
+      "tag": "0064_admin-view-grants",
+      "breakpoints": true
     }
   ]
 }
