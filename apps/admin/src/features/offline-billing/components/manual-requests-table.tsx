@@ -8,6 +8,7 @@ import {
 	HandCoinsIcon,
 	MessageSquareTextIcon,
 	PhoneCallIcon,
+	PrinterIcon,
 	RefreshCwIcon,
 	SearchIcon,
 	XCircleIcon,
@@ -460,6 +461,29 @@ function ManualRequestActions({
 						<DropdownMenuItem onSelect={onDetails}>
 							<EyeIcon />
 							View details
+						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							{request.subscriptionId ? (
+								<Link
+									to="/offline-billing/$subscriptionId/receipt"
+									params={{ subscriptionId: request.subscriptionId }}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<PrinterIcon />
+									Print receipt
+								</Link>
+							) : (
+								<Link
+									to="/offline-billing/requests/$requestId/receipt"
+									params={{ requestId: request.id }}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<PrinterIcon />
+									Print receipt
+								</Link>
+							)}
 						</DropdownMenuItem>
 						{canManage && request.status === "pending" ? (
 							<DropdownMenuItem

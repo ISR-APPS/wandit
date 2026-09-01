@@ -26,12 +26,15 @@ describe("createReceiptNumber", () => {
 		expect(createReceiptNumber("550e8400-e29b-41d4-a716-446655440000")).toBe(
 			"REC-550E8400",
 		);
+	});
+
+	it("uses the same receipt number format for a request UUID", () => {
 		expect(createReceiptNumber("abcdef12-e29b-41d4-a716-446655440000")).toBe(
 			"REC-ABCDEF12",
 		);
 	});
 
-	it("uses an explicit fallback for an invalid subscription id", () => {
+	it("uses an explicit fallback for an invalid source id", () => {
 		expect(createReceiptNumber("")).toBe("REC-UNKNOWN");
 		expect(createReceiptNumber("not-a-uuid")).toBe("REC-UNKNOWN");
 	});
