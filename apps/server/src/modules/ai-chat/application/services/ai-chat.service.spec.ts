@@ -2761,13 +2761,51 @@ describe("AiChatService MCP lifecycle", () => {
 		const agentOptions = aiMocks.createAgentUIStream.mock.calls[0]?.[0] as
 			| {
 					messageMetadata?: (options: { part: unknown }) => unknown;
+					onStepEnd?: (options: unknown) => Promise<void>;
 			  }
 			| undefined;
 		const messageMetadata = agentOptions?.messageMetadata;
 		if (!messageMetadata) throw new Error("messageMetadata was not configured");
+		if (!agentOptions.onStepEnd)
+			throw new Error("onStepEnd was not configured");
+		const lastStepUsage = {
+			inputTokens: 100,
+			inputTokenDetails: {
+				cacheReadTokens: 20,
+				cacheWriteTokens: 5,
+				noCacheTokens: 75,
+			},
+			outputTokens: 20,
+			outputTokenDetails: {
+				reasoningTokens: 10,
+				textTokens: 10,
+			},
+			totalTokens: 120,
+		};
 
 		expect(messageMetadata({ part: { type: "start" } })).toEqual({
 			model: env.AI_CHAT_MODEL,
+		});
+		await agentOptions.onStepEnd({
+			providerMetadata: undefined,
+			usage: {
+				inputTokens: 20,
+				inputTokenDetails: {
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					noCacheTokens: 20,
+				},
+				outputTokens: 10,
+				outputTokenDetails: {
+					reasoningTokens: 0,
+					textTokens: 10,
+				},
+				totalTokens: 30,
+			},
+		});
+		await agentOptions.onStepEnd({
+			providerMetadata: undefined,
+			usage: lastStepUsage,
 		});
 		expect(
 			messageMetadata({
@@ -2792,8 +2830,10 @@ describe("AiChatService MCP lifecycle", () => {
 			}),
 		).toEqual({
 			finishReason: "stop",
+			lastStepUsage,
 			model: env.AI_CHAT_MODEL,
 			provider: env.AI_CHAT_MODEL.split("/", 1)[0],
+			stepCount: 2,
 			usage: {
 				inputTokens: 120,
 				inputTokenDetails: {

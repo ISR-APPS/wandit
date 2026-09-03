@@ -21,6 +21,8 @@ function chatDetail(): AdminChatDetail {
 			id: CHAT_ID,
 			updatedAt: "2026-08-02T10:00:00.000Z",
 		},
+		cacheReadTokens: 10,
+		cacheWriteTokens: 2,
 		failedTurnCount: 1,
 		messageCount: 2,
 		owner: {
@@ -34,7 +36,21 @@ function chatDetail(): AdminChatDetail {
 			name: "Project",
 		},
 		totalCostUsdMicros: 1_000,
+		totalCreditsCenti: 25,
 		totalTokens: 25,
+		usageSummary: [
+			{
+				cacheReadTokens: 10,
+				cacheWriteTokens: 2,
+				calls: 1,
+				costUsdMicros: 1_000,
+				creditsCenti: 25,
+				inputTokens: 20,
+				model: "anthropic/claude-sonnet",
+				operation: "chat",
+				outputTokens: 5,
+			},
+		],
 	};
 }
 

@@ -37,6 +37,7 @@ import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
+import { useChatUsageQuery } from "../../api/chat.queries";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { chatErrorPresentation } from "../../lib/ai-error-copy";
@@ -47,6 +48,7 @@ import {
 	messageHasQueuedToolWork,
 } from "../../lib/use-ai-chat";
 import { usePageEditor } from "../../lib/use-page-editor";
+import { useTokenUsageVisible } from "../../lib/use-token-usage-visible";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { ConversationModelIndicator } from "./model-indicator";
@@ -58,7 +60,7 @@ import { TrayStatusPill } from "./request-tray/tray-signals";
 import { useRequestTray } from "./request-tray/use-request-tray";
 import { StatusMessageHeader } from "./status-message-header";
 import { TargetChip } from "./target-chip";
-import { ConversationContextMeter } from "./token-usage";
+import { ConversationContextMeter, ConversationCost } from "./token-usage";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
@@ -71,6 +73,7 @@ export function ChatPane({ className }: { className?: string }) {
 		billingError,
 		aiError,
 		notices,
+		chatId,
 		isResolvingChat,
 		isLoadingMessages,
 		composerPrefill,
@@ -80,6 +83,22 @@ export function ChatPane({ className }: { className?: string }) {
 		addToolApprovalResponse,
 	} = useSharedAiChat();
 	const editor = usePageEditor();
+	const tokenUsageVisible = useTokenUsageVisible();
+	const completedAssistantMessageCount = useMemo(
+		() =>
+			messages.reduce(
+				(count, message) =>
+					message.role === "assistant" && message.metadata?.usage
+						? count + 1
+						: count,
+				0,
+			),
+		[messages],
+	);
+	const chatUsageQuery = useChatUsageQuery(
+		chatId,
+		completedAssistantMessageCount,
+	);
 	// Empty pool: the composer locks and the banner above it owns the upgrade
 	// CTA. Derived from the polled balance query, so a resubscribe or top-up
 	// unlocks it without any manual refresh.
@@ -382,6 +401,7 @@ export function ChatPane({ className }: { className?: string }) {
 									{message.id === noticeOwnerMessageId ? noticeRows : null}
 									<MessageParts
 										message={message}
+										tokenUsageVisible={tokenUsageVisible}
 										isStreaming={
 											status === "streaming" && index === messages.length - 1
 										}
@@ -454,9 +474,12 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
-					{import.meta.env.DEV ? (
+					{tokenUsageVisible ? (
 						<>
 							<ConversationContextMeter messages={messages} />
+							<ConversationCost
+								usage={chatUsageQuery.isError ? undefined : chatUsageQuery.data}
+							/>
 							<ConversationModelIndicator
 								messages={messages}
 								pickerBuilderModel={pickerBuilderModel}

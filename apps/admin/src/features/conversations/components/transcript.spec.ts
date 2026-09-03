@@ -124,19 +124,23 @@ describe("Transcript usage", () => {
 	it("aggregates matching calls and ignores calls without a message ID", () => {
 		const grouped = groupCallsByMessageId([
 			aiCall({
+				cacheReadTokens: 80,
 				costUsd: 0.012,
 				gatewayGenerationId: "generation-1",
 				inputTokens: 120,
 				messageId: "user-1",
 				outputTokens: 30,
+				reasoningTokens: 10,
 			}),
 			aiCall({
+				cacheReadTokens: 120,
 				costUsd: 0.018,
 				gatewayGenerationId: "generation-2",
 				id: "22222222-2222-4222-8222-222222222222",
 				inputTokens: 180,
 				messageId: "user-1",
 				outputTokens: 20,
+				reasoningTokens: 5,
 			}),
 			aiCall({
 				id: "33333333-3333-4333-8333-333333333333",
@@ -146,11 +150,102 @@ describe("Transcript usage", () => {
 
 		expect(grouped.size).toBe(1);
 		expect(grouped.get("user-1")).toMatchObject({
+			cacheReadTokens: 200,
 			callCount: 2,
 			costUsd: 0.03,
 			gatewayGenerationIds: ["generation-1", "generation-2"],
 			inputTokens: 300,
 			outputTokens: 50,
+			reasoningTokens: 15,
+			totalTokens: null,
+		});
+	});
+
+	it("uses aggregate event totals without double-counting generation refs", () => {
+		const grouped = groupCallsByMessageId([
+			aiCall({
+				cacheReadTokens: 200,
+				costUsd: 0.03,
+				creditsCenti: 125,
+				inputTokens: 300,
+				messageId: "user-1",
+				outputTokens: 50,
+				reasoningTokens: 15,
+			}),
+			aiCall({
+				cacheReadTokens: 80,
+				costUsd: 0.012,
+				gatewayGenerationId: "generation-1",
+				id: "22222222-2222-4222-8222-222222222222",
+				inputTokens: 120,
+				messageId: "user-1",
+				outputTokens: 30,
+				reasoningTokens: 10,
+			}),
+			aiCall({
+				cacheReadTokens: 120,
+				costUsd: 0.018,
+				gatewayGenerationId: "generation-2",
+				id: "33333333-3333-4333-8333-333333333333",
+				inputTokens: 180,
+				messageId: "user-1",
+				outputTokens: 20,
+				reasoningTokens: 5,
+			}),
+		]);
+
+		expect(grouped.get("user-1")).toMatchObject({
+			cacheReadTokens: 200,
+			callCount: 1,
+			costUsd: 0.03,
+			gatewayGenerationIds: ["generation-1", "generation-2"],
+			inputTokens: 300,
+			outputTokens: 50,
+			reasoningTokens: 15,
+			totalTokens: null,
+		});
+	});
+
+	it("fills sparse aggregate metrics from generation refs", () => {
+		const grouped = groupCallsByMessageId([
+			aiCall({
+				costUsd: 0.03,
+				creditsCenti: 125,
+				inputTokens: 300,
+				messageId: "user-1",
+			}),
+			aiCall({
+				cacheReadTokens: 80,
+				costUsd: 0.012,
+				gatewayGenerationId: "generation-1",
+				id: "22222222-2222-4222-8222-222222222222",
+				inputTokens: 120,
+				messageId: "user-1",
+				outputTokens: 30,
+				reasoningTokens: 10,
+				totalTokens: 150,
+			}),
+			aiCall({
+				cacheReadTokens: 120,
+				costUsd: 0.018,
+				gatewayGenerationId: "generation-2",
+				id: "33333333-3333-4333-8333-333333333333",
+				inputTokens: 180,
+				messageId: "user-1",
+				outputTokens: 20,
+				reasoningTokens: 5,
+				totalTokens: 200,
+			}),
+		]);
+
+		expect(grouped.get("user-1")).toMatchObject({
+			cacheReadTokens: 200,
+			callCount: 1,
+			costUsd: 0.03,
+			inputTokens: 300,
+			outputTokens: 50,
+			reasoningTokens: 15,
+			totalTokens: 350,
 		});
 	});
 
@@ -180,6 +275,69 @@ describe("Transcript usage", () => {
 		expect(html).toContain("300 in / 50 out tokens");
 		expect(html).toContain("$0.03");
 		expect(html).toContain("2 calls");
+	});
+
+	it("falls back to validated assistant message metadata outside the call window", () => {
+		const html = renderTranscript([
+			chatMessage({
+				metadata: {
+					gatewayGenerationId: "generation-from-message",
+					model: "anthropic/claude-sonnet",
+					usage: {
+						inputTokenDetails: { cacheReadTokens: 300 },
+						inputTokens: 420,
+						outputTokenDetails: { reasoningTokens: 25 },
+						outputTokens: 80,
+					},
+				},
+			}),
+		]);
+
+		expect(html).toContain("420 in / 80 out tokens");
+		expect(html).toContain("300 cache read");
+		expect(html).toContain("25 reasoning");
+		expect(html).toContain("generation-from-message");
+	});
+
+	it("ignores malformed assistant usage metadata", () => {
+		const html = renderTranscript([
+			chatMessage({
+				metadata: {
+					usage: { inputTokens: -1, outputTokens: "many" },
+				},
+			}),
+		]);
+
+		expect(html).not.toContain("out tokens");
+	});
+
+	it("does not render an empty validated usage object", () => {
+		const html = renderTranscript([
+			chatMessage({
+				metadata: {
+					model: "anthropic/claude-sonnet",
+					usage: {},
+				},
+			}),
+		]);
+
+		expect(html).not.toContain("Model unknown");
+		expect(html).not.toContain("anthropic/claude-sonnet");
+		expect(html).not.toContain("out tokens");
+	});
+
+	it("renders total-only assistant usage metadata without empty input fields", () => {
+		const html = renderTranscript([
+			chatMessage({
+				metadata: {
+					model: "anthropic/claude-sonnet",
+					usage: { totalTokens: 500 },
+				},
+			}),
+		]);
+
+		expect(html).toContain("500 total tokens");
+		expect(html).not.toContain("in / ");
 	});
 });
 
@@ -261,8 +419,11 @@ function chatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 
 function aiCall(overrides: Partial<AiCall> = {}): AiCall {
 	return {
+		cacheReadTokens: null,
+		cacheWriteTokens: null,
 		costUsd: null,
 		createdAt,
+		creditsCenti: null,
 		gatewayGenerationId: null,
 		id: "11111111-1111-4111-8111-111111111111",
 		inputTokens: null,
@@ -271,6 +432,7 @@ function aiCall(overrides: Partial<AiCall> = {}): AiCall {
 		operation: "chat",
 		outputTokens: null,
 		provider: "anthropic",
+		reasoningTokens: null,
 		totalTokens: null,
 		...overrides,
 	};
