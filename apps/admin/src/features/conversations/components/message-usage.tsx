@@ -9,6 +9,8 @@ import type { MessageUsageSummary } from "@/features/conversations/lib/conversat
 
 export function MessageUsage({ usage }: { usage: MessageUsageSummary }) {
 	const generationId = usage.gatewayGenerationIds[0];
+	const hasInputOrOutputTokens =
+		usage.inputTokens !== null || usage.outputTokens !== null;
 	const model =
 		usage.modelLabels.length > 1
 			? `${usage.modelLabels[0]} +${usage.modelLabels.length - 1}`
@@ -22,11 +24,38 @@ export function MessageUsage({ usage }: { usage: MessageUsageSummary }) {
 			>
 				{model}
 			</span>
-			<span aria-hidden="true">·</span>
-			<span className="tabular-nums">
-				{formatConversationCount(usage.inputTokens)} in /{" "}
-				{formatConversationCount(usage.outputTokens)} out tokens
-			</span>
+			{hasInputOrOutputTokens ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="tabular-nums">
+						{formatConversationCount(usage.inputTokens)} in /{" "}
+						{formatConversationCount(usage.outputTokens)} out tokens
+					</span>
+				</>
+			) : usage.totalTokens !== null ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="tabular-nums">
+						{formatConversationCount(usage.totalTokens)} total tokens
+					</span>
+				</>
+			) : null}
+			{usage.cacheReadTokens !== null ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="tabular-nums">
+						{formatConversationCount(usage.cacheReadTokens)} cache read
+					</span>
+				</>
+			) : null}
+			{usage.reasoningTokens !== null ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="tabular-nums">
+						{formatConversationCount(usage.reasoningTokens)} reasoning
+					</span>
+				</>
+			) : null}
 			<span aria-hidden="true">·</span>
 			<span className="tabular-nums">
 				{formatConversationCost(usage.costUsd)}

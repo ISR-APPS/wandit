@@ -1516,9 +1516,12 @@ export async function runSiteBuild(
 			// preference stays scoped to K2-era models. Qwen's default routing
 			// lands on Alibaba Cloud/Together at ~55 tps; Fireworks serves the
 			// same models at ~330 tps (gateway P50 chart, 2026-07-26).
-			// An openai/* builder (luna in prod) is pinned to OpenAI itself — see
-			// gatewayRoutingForModel. The two knobs never overlap: the pin covers
-			// openai/* models, the order preferences cover Kimi/Qwen.
+			// An openai/* builder (luna in prod) is pinned to OpenAI itself, and
+			// zai/* (GLM) prefers Friendli→Baseten→Fireworks — see
+			// gatewayRoutingForModel.
+			// The two knobs never overlap: gatewayRoutingForModel covers openai/*
+			// and zai/*, the local order preferences cover Kimi/Qwen, so the
+			// spread below never clobbers one with the other.
 			gateway: {
 				...gatewayRoutingForModel(params.model),
 				...(routingOrder ? { order: routingOrder } : {}),

@@ -33,9 +33,15 @@
 // under this key".
 import { useQuery } from "@tanstack/react-query";
 
+import { useTokenUsageVisible } from "../lib/use-token-usage-visible";
+
 // The raw fetch functions (no React inside) — thin wrappers around the shared
 // API client that parse each response with a Zod schema before returning it.
-import { getChatByProject, getChatMessages } from "./chat.services";
+import {
+	getChatByProject,
+	getChatMessages,
+	getChatUsage,
+} from "./chat.services";
 
 // Cache-key factory: the ONE central place that builds the query-key arrays
 // for everything chat-related. The keys nest hierarchically:
@@ -51,6 +57,8 @@ export const chatKeys = {
 	byProject: (projectId: string) =>
 		[...chatKeys.all, "by-project", projectId] as const,
 	messages: (chatId: string) => [...chatKeys.all, "messages", chatId] as const,
+	usage: (chatId: string, completedAssistantMessageCount: number) =>
+		[...chatKeys.all, "usage", chatId, completedAssistantMessageCount] as const,
 };
 
 // "Which chat belongs to this project?" — the workspace URL only carries a
@@ -90,4 +98,40 @@ export function useChatMessagesQuery(chatId: string | undefined) {
 		// "only fetch B after A has resolved".
 		enabled: Boolean(chatId),
 	});
+}
+
+/**
+ * Loads staff-only conversation spend. Including the completed assistant-turn
+ * count in the key fetches a fresh aggregate exactly when a turn finishes.
+ */
+export function useChatUsageQuery(
+	chatId: string | undefined,
+	completedAssistantMessageCount: number,
+) {
+	const tokenUsageVisible = useTokenUsageVisible();
+
+	return useQuery(
+		createChatUsageQueryOptions(
+			chatId,
+			completedAssistantMessageCount,
+			tokenUsageVisible,
+		),
+	);
+}
+
+export function createChatUsageQueryOptions(
+	chatId: string | undefined,
+	completedAssistantMessageCount: number,
+	tokenUsageVisible: boolean,
+) {
+	return {
+		queryKey: chatKeys.usage(chatId ?? "none", completedAssistantMessageCount),
+		queryFn: () => getChatUsage(chatId as string),
+		enabled: tokenUsageVisible && Boolean(chatId),
+		// A hidden staff surface has no error affordance. In particular, a 404
+		// for a non-staff dev session must not create a background retry loop.
+		retry: false,
+		refetchOnReconnect: false,
+		refetchOnWindowFocus: false,
+	} as const;
 }

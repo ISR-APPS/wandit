@@ -11,9 +11,10 @@ import {
 } from "@/components/ui/table";
 import type { AiCall } from "@/features/conversations/api/conversations.dto";
 import {
+	formatCentiCredits,
 	formatConversationCost,
-	formatConversationCount,
 	formatConversationDateTime,
+	formatConversationTokenCount,
 	titleCaseIdentifier,
 } from "@/features/conversations/lib/conversation-formatters";
 import { gatewayGenerationUrl } from "@/features/conversations/lib/external-links";
@@ -64,6 +65,17 @@ export function AiCallStrip({
 				<TableBody>
 					{calls.map((call) => {
 						const gatewayUrl = gatewayGenerationUrl(call.gatewayGenerationId);
+						const cacheAndReasoning = [
+							call.cacheReadTokens === null
+								? null
+								: `${formatConversationTokenCount(call.cacheReadTokens)} cache read`,
+							call.cacheWriteTokens === null
+								? null
+								: `${formatConversationTokenCount(call.cacheWriteTokens)} cache write`,
+							call.reasoningTokens === null
+								? null
+								: `${formatConversationTokenCount(call.reasoningTokens)} reasoning`,
+						].filter((segment): segment is string => segment !== null);
 
 						return (
 							<TableRow key={call.id}>
@@ -77,16 +89,26 @@ export function AiCallStrip({
 								</TableCell>
 								<TableCell>{call.provider ?? "—"}</TableCell>
 								<TableCell className="text-right tabular-nums">
-									{formatConversationCount(call.totalTokens)}
+									{formatConversationTokenCount(call.totalTokens)}
 									{call.inputTokens !== null || call.outputTokens !== null ? (
 										<p className="text-[10px] text-muted-foreground">
-											{formatConversationCount(call.inputTokens)} in ·{" "}
-											{formatConversationCount(call.outputTokens)} out
+											{formatConversationTokenCount(call.inputTokens)} in ·{" "}
+											{formatConversationTokenCount(call.outputTokens)} out
+										</p>
+									) : null}
+									{cacheAndReasoning.length > 0 ? (
+										<p className="text-[10px] text-muted-foreground">
+											{cacheAndReasoning.join(" · ")}
 										</p>
 									) : null}
 								</TableCell>
 								<TableCell className="text-right tabular-nums">
 									{formatConversationCost(call.costUsd)}
+									{call.creditsCenti !== null ? (
+										<p className="text-[10px] text-muted-foreground">
+											{formatCentiCredits(call.creditsCenti)} credits
+										</p>
+									) : null}
 								</TableCell>
 								<TableCell>
 									<time dateTime={call.createdAt}>

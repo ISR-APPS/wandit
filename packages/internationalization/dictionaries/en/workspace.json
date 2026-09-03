@@ -210,8 +210,16 @@
 		"generating": "Generating",
 		"usage": {
 			"message": "Input {input} · Output {output} · Total {total} tokens",
+			"messageWithSteps": "Σ {count} steps · {message}",
+			"cached": "({tokens} cached)",
+			"reasoning": "({tokens} reasoning)",
+			"messageBreakdown": "No-cache tokens {noCache} · Cache-read tokens {cacheRead} · Cache-write tokens {cacheWrite} · Text tokens {text} · Reasoning tokens {reasoning}",
 			"context": "Context",
 			"conversationTotal": "{total} tokens total spent this conversation",
+			"conversationCumulative": "Cumulative input {input} · Cumulative output {output}",
+			"latestCacheReadShare": "Latest-turn cache-read share {share}",
+			"conversationCost": "Cost {cost}",
+			"conversationCredits": "{credits} credits",
 			"brain": "Brain",
 			"builder": "Builder"
 		},
@@ -833,6 +841,53 @@
 			"placementFailed": "Couldn't apply it to the page — the image is in your Assets",
 			"readyCount": "{ready} of {total} ready",
 			"partialFailure": "1 image was not made: {sentence}"
+		},
+		"imageBatch": {
+			"generating": "Generating {count} images",
+			"ready": "{count} images ready",
+			"readyCount": "{ready} of {total} ready"
+		},
+		"pageEdit": {
+			"editing": "Editing the page",
+			"updated": "Page updated — version {n}",
+			"inspected": "Inspected the page",
+			"showDetails": "Show details",
+			"hideDetails": "Hide details",
+			"receiptUpdated": "Page updated — v{n} · {count} edits",
+			"receiptUpdatedSingle": "Page updated — v{n} · 1 edit",
+			"labels": {
+				"getPageOutline": "Reading the page structure",
+				"readSection": "Reading section {wid}",
+				"readElements": "Reading {count} elements",
+				"readElement": "Reading 1 element",
+				"readTheme": "Reading the theme",
+				"replaceSection": "Rewriting section {wid}",
+				"insertSection": "Adding a section {position} {wid}",
+				"applyElementOps": "Applying {count} edits",
+				"applyElementOp": "Applying 1 edit"
+			},
+			"positions": {
+				"before": "before",
+				"after": "after"
+			},
+			"states": {
+				"applied": "Applied",
+				"rejected": "Rejected",
+				"noPage": "No page available",
+				"failed": "Failed"
+			},
+			"moreTargets": "+{count}",
+			"opKinds": {
+				"text": "text",
+				"imageSrc": "image",
+				"elementStyle": "style",
+				"setTokens": "design tokens",
+				"setPageTitle": "page title",
+				"setLinkHref": "link",
+				"removeElement": "removal",
+				"sectionStyle": "section style",
+				"insertElement": "new element"
+			}
 		},
 		"media": {
 			"close": "Close",

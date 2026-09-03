@@ -8,7 +8,7 @@
  * saves the user message, reserves the chat in Redis, and puts a job in BullMQ.
  * The worker app later reads that job and calls the model.
  */
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+
 import { randomUUID } from "node:crypto";
 import {
 	type HttpException,
@@ -22,13 +22,14 @@ import {
 import type {
 	ChatByProjectResponse,
 	ChatMessagesResponse,
+	ChatUsageResponse,
 	SendChatMessageBody,
 	SendChatMessageResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { operationPricing } from "../../../metering/domain/operation-registry";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
 import { mapMessageRow } from "../../infrastructure/mappers/chat-message.mapper";
 // Repository = database helper. The service uses it instead of writing SQL here.
@@ -98,6 +99,15 @@ export class ChatService {
 		};
 	}
 
+	async getUsage(
+		scope: ProjectScope,
+		chatId: string,
+	): Promise<ChatUsageResponse> {
+		const chat = await this.requireAccessibleChat(scope, chatId);
+
+		return this.chatsRepository.getUsage(chat.id);
+	}
+
 	// Save the user's message and enqueue the background AI job.
 	async sendMessage(
 		userId: string,
@@ -142,13 +152,14 @@ export class ChatService {
 					// Legacy path is personal-only by design (teams-workspaces.md §0).
 					{ actorUserId: userId },
 					{
-					attemptRef: jobId,
-					chatId: chat.id,
-					credits: operationPricing("chat").reserveFloorCredits,
-					idempotencyKey: `legacy-chat:${jobId}`,
-					messageId: message.id,
-					model: env.AI_CHAT_MODEL,
-				});
+						attemptRef: jobId,
+						chatId: chat.id,
+						credits: operationPricing("chat").reserveFloorCredits,
+						idempotencyKey: `legacy-chat:${jobId}`,
+						messageId: message.id,
+						model: env.AI_CHAT_MODEL,
+					},
+				);
 				usageEventId = reservation.id;
 			}
 

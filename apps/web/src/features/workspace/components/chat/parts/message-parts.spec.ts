@@ -6,6 +6,7 @@ import {
 	hydrateAiChatMessages,
 	type WanditUIMessage,
 } from "../../../lib/use-ai-chat";
+import { ConversationContextMeter, ConversationCost } from "../token-usage";
 import {
 	coalesceMessageParts,
 	isTransparentMessagePart,
@@ -15,7 +16,9 @@ import {
 import { isVisibleAssistantReplyPart } from "./visible-reply-part";
 
 vi.mock("@/lib/i18n", () => ({
+	formatNumber: (value: number) => new Intl.NumberFormat("en").format(value),
 	useTranslation: () => ({
+		locale: "en",
 		t: (key: string, params?: Record<string, unknown>) => {
 			const values: Record<string, string> = {
 				"errors.ai.capacity":
@@ -27,8 +30,30 @@ vi.mock("@/lib/i18n", () => ({
 					"Generations already started will finish on their own.",
 				"workspace.chat.aiError.retry": "Retry",
 				"workspace.chat.aiError.retryHint": "Retry starts a new attempt.",
+				"workspace.chat.pageEdit.editing": "Editing the page",
+				"workspace.chat.pageEdit.inspected": "Inspected the page",
+				"workspace.chat.pageEdit.receiptUpdatedSingle":
+					"Page updated - v{n} · 1 edit",
+				"workspace.chat.pageEdit.labels.insertSection":
+					"Adding a section {position} {wid}",
+				"workspace.chat.pageEdit.positions.after": "after",
+				"workspace.chat.generateImage.queueing": "Queueing the generation…",
 				"workspace.chat.usage.message":
 					"Input {input} · Output {output} · Total {total} tokens",
+				"workspace.chat.usage.messageWithSteps": "Σ {count} steps · {message}",
+				"workspace.chat.usage.cached": "({tokens} cached)",
+				"workspace.chat.usage.reasoning": "({tokens} reasoning)",
+				"workspace.chat.usage.messageBreakdown":
+					"No-cache tokens {noCache} · Cache-read tokens {cacheRead} · Cache-write tokens {cacheWrite} · Text tokens {text} · Reasoning tokens {reasoning}",
+				"workspace.chat.usage.context": "Context",
+				"workspace.chat.usage.conversationTotal":
+					"{total} tokens total spent this conversation",
+				"workspace.chat.usage.conversationCumulative":
+					"Cumulative input {input} · Cumulative output {output}",
+				"workspace.chat.usage.latestCacheReadShare":
+					"Latest-turn cache-read share {share}",
+				"workspace.chat.usage.conversationCost": "Cost {cost}",
+				"workspace.chat.usage.conversationCredits": "{credits} credits",
 			};
 			const value = values[key] ?? key;
 
@@ -339,7 +364,7 @@ describe("coalesceMessageParts", () => {
 		expect(entries[0].parts).toHaveLength(2);
 	});
 
-	it("keeps insert_section transparent across coalescing and rendering", () => {
+	it("renders page tools as their own run instead of bridging MCP receipts", () => {
 		const insertSectionPart = {
 			type: "tool-insert_section",
 			toolCallId: "insert-section-1",
@@ -349,14 +374,14 @@ describe("coalesceMessageParts", () => {
 				position: "after",
 				html: "<section><h2>New section</h2></section>",
 			},
-			output: { status: "applied", message: "Done" },
+			output: { status: "applied", versionNumber: 3, message: "Done" },
 		};
 
 		expect(
 			isTransparentMessagePart(
 				insertSectionPart as WanditUIMessage["parts"][number],
 			),
-		).toBe(true);
+		).toBe(false);
 
 		const entries = coalesceMessageParts(
 			asMessageParts([
@@ -365,17 +390,149 @@ describe("coalesceMessageParts", () => {
 				dynamicPart("mcp-2"),
 			]),
 		);
-		expect(entries).toHaveLength(1);
-		expect(entries[0]?.kind).toBe("mcp-run");
-		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
-		expect(entries[0].parts).toHaveLength(2);
+		expect(entries.map((entry) => entry.kind)).toEqual([
+			"mcp-run",
+			"page-edit-run",
+			"mcp-run",
+		]);
+		if (entries[1]?.kind !== "page-edit-run") {
+			throw new Error("Expected page-edit run");
+		}
+		expect(entries[1].parts).toHaveLength(1);
 
 		const html = renderMessage("assistant", [
 			insertSectionPart,
 			{ type: "text", text: "Section added.", state: "done" },
 		]);
 		expect(html).toContain("Section added.");
-		expect(html).not.toContain("insert-section-1");
+		expect(html).toContain("Page updated - v3 · 1 edit");
+	});
+
+	it("coalesces consecutive page tools across stream markers", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				{
+					type: "tool-get_page_outline",
+					toolCallId: "outline-1",
+					state: "output-available",
+					input: {},
+					output: { status: "ok", versionNumber: 2 },
+				},
+				{ type: "step-start" },
+				{
+					type: "tool-replace_section",
+					toolCallId: "replace-1",
+					state: "input-available",
+					input: {
+						wid: "hero",
+						html: "<section>Updated hero content</section>",
+					},
+				},
+			]),
+		);
+
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.kind).toBe("page-edit-run");
+		if (entries[0]?.kind !== "page-edit-run") {
+			throw new Error("Expected page-edit run");
+		}
+		expect(entries[0].parts.map((part) => part.toolCallId)).toEqual([
+			"outline-1",
+			"replace-1",
+		]);
+	});
+
+	it.each([
+		"tool-get_page_outline",
+		"tool-apply_element_ops",
+		"tool-read_elements",
+		"tool-read_theme",
+		"tool-read_section",
+		"tool-insert_section",
+		"tool-replace_section",
+	])("keeps %s visible to the page-edit renderer", (type) => {
+		expect(
+			isTransparentMessagePart({ type } as WanditUIMessage["parts"][number]),
+		).toBe(false);
+	});
+
+	it("splits page-edit runs at visible message boundaries", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				{
+					type: "tool-read_theme",
+					toolCallId: "theme-1",
+					state: "output-available",
+					input: {},
+					output: { status: "ok", versionNumber: 2 },
+				},
+				{ type: "text", text: "I found the current theme.", state: "done" },
+				{
+					type: "tool-read_section",
+					toolCallId: "section-1",
+					state: "input-available",
+					input: { wid: "hero" },
+				},
+			]),
+		);
+
+		expect(entries.map((entry) => entry.kind)).toEqual([
+			"page-edit-run",
+			"part",
+			"page-edit-run",
+		]);
+	});
+
+	it("batches multiple image calls in one message but preserves one-call fallback", () => {
+		const single = coalesceMessageParts(
+			asMessageParts([toolPart("tool-generate_image", "image-1")]),
+		);
+		expect(single).toHaveLength(1);
+		expect(single[0]?.kind).toBe("part");
+
+		const multiple = coalesceMessageParts(
+			asMessageParts([
+				toolPart("tool-generate_image", "image-1"),
+				{ type: "text", text: "Two shots are on the way.", state: "done" },
+				toolPart("tool-generate_image", "image-2"),
+			]),
+		);
+
+		expect(multiple.map((entry) => entry.kind)).toEqual([
+			"image-batch",
+			"part",
+		]);
+		if (multiple[0]?.kind !== "image-batch") {
+			throw new Error("Expected image batch");
+		}
+		expect(multiple[0].parts.map((part) => part.toolCallId)).toEqual([
+			"image-1",
+			"image-2",
+		]);
+		expect(orderMessagePartEntries(multiple).map(entryLabel)).toEqual([
+			"text",
+			"image-batch",
+		]);
+	});
+
+	it("renders a single image call through the existing standalone status UI", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "tool-generate_image",
+				toolCallId: "image-only",
+				state: "input-available",
+				input: {
+					title: "Single studio shot",
+					prompt: "A detailed studio image of the product",
+					aspect: "1:1",
+					count: 1,
+					sourceImageUrls: [],
+				},
+			},
+		]);
+
+		expect(html).toContain("Queueing the generation…");
+		expect(html).not.toContain("workspace.chat.imageBatch");
 	});
 
 	it("groups ask_user calls independently across step-start", () => {
@@ -598,6 +755,7 @@ function renderMessage(
 				role,
 				parts: asMessageParts(parts),
 			} as WanditUIMessage,
+			tokenUsageVisible: true,
 			isStreaming,
 			isLastAssistantMessage: role === "assistant",
 			onToolApprovalResponse: () => {},
@@ -813,6 +971,7 @@ describe("MessageParts turn block", () => {
 								: []),
 						]),
 					} as WanditUIMessage,
+					tokenUsageVisible: true,
 					isStreaming: status === "streaming",
 					isLastAssistantMessage: isLast,
 					chatStatus: status,
@@ -943,6 +1102,7 @@ describe("MessageParts turn block", () => {
 		const html = renderToStaticMarkup(
 			createElement(MessageParts, {
 				message: hydrated,
+				tokenUsageVisible: true,
 				isStreaming: false,
 				isLastAssistantMessage: false,
 				onToolApprovalResponse: () => {},
@@ -1053,15 +1213,81 @@ describe("MessageParts turn block", () => {
 			false,
 			{
 				model: "provider/model",
+				stepCount: 3,
 				usage: {
 					inputTokens: 8_421,
+					inputTokenDetails: {
+						noCacheTokens: 421,
+						cacheReadTokens: 8_000,
+						cacheWriteTokens: 300,
+					},
 					outputTokens: 950,
+					outputTokenDetails: {
+						textTokens: 700,
+						reasoningTokens: 250,
+					},
 					totalTokens: 9_371,
 				},
 			},
 		);
 
-		expect(html).toContain("Input 8.4k · Output 950 · Total 9.4k tokens");
+		expect(html).toContain(
+			"Σ 3 steps · Input 8.4k (8k cached) · Output 950 (250 reasoning) · Total 9.4k tokens",
+		);
+		expect(html).toContain(
+			'title="No-cache tokens 421 · Cache-read tokens 8,000 · Cache-write tokens 300 · Text tokens 700 · Reasoning tokens 250"',
+		);
 		expect(html.match(/Input 8\.4k/g)).toHaveLength(1);
+	});
+
+	it("shows cumulative usage and the latest cache share in the context tooltip", () => {
+		const html = renderToStaticMarkup(
+			createElement(ConversationContextMeter, {
+				messages: [
+					{
+						id: "assistant-1",
+						role: "assistant",
+						parts: [],
+						metadata: {
+							usage: {
+								inputTokens: 120_000,
+								inputTokenDetails: { cacheReadTokens: 90_000 },
+								outputTokens: 3_400,
+								totalTokens: 125_000,
+							},
+						},
+					} as WanditUIMessage,
+				],
+			}),
+		);
+
+		expect(html).toContain(
+			'title="125,000 tokens total spent this conversation · Cumulative input 120,000 · Cumulative output 3,400 · Latest-turn cache-read share 75%"',
+		);
+	});
+
+	it("renders reconciled conversation cost and credits when available", () => {
+		const html = renderToStaticMarkup(
+			createElement(ConversationCost, {
+				usage: {
+					inputTokens: 190_000,
+					outputTokens: 4_000,
+					cacheReadTokens: 120_000,
+					cacheWriteTokens: null,
+					costUsdMicros: 130_000,
+					creditsCenti: 123,
+				},
+			}),
+		);
+
+		expect(html).toContain("Cost $0.13 · 1.23 credits");
+	});
+
+	it("hides conversation spend when the staff endpoint has no data", () => {
+		expect(
+			renderToStaticMarkup(
+				createElement(ConversationCost, { usage: undefined }),
+			),
+		).toBe("");
 	});
 });

@@ -15,6 +15,9 @@ export type ConversationTokenUsage = {
 	contextTokens: number;
 	contextPercent: number;
 	totalTokens: number;
+	cumulativeInputTokens: number;
+	cumulativeOutputTokens: number;
+	latestCacheReadShare: number | undefined;
 };
 
 export function formatTokenCount(tokens: number): string {
@@ -36,7 +39,10 @@ export function summarizeConversationTokenUsage(
 	messages: readonly MessageWithTokenUsage[],
 ): ConversationTokenUsage | null {
 	let latestContextTokens: number | undefined;
+	let latestCacheReadShare: number | undefined;
 	let totalTokens = 0;
+	let cumulativeInputTokens = 0;
+	let cumulativeOutputTokens = 0;
 
 	for (const message of messages) {
 		if (message.role !== "assistant") continue;
@@ -44,12 +50,21 @@ export function summarizeConversationTokenUsage(
 		const usage = message.metadata?.usage;
 		if (!usage) continue;
 
-		const contextTokens = sumKnownInputAndOutput(usage);
+		// A turn's aggregate usage is the sum of every internal model step. The
+		// context window, however, is represented by only the final step. Older
+		// persisted messages do not have lastStepUsage, so keep their legacy
+		// aggregate as the backward-compatible fallback.
+		const contextUsage = message.metadata?.lastStepUsage ?? usage;
+		const contextTokens = sumKnownInputAndOutput(contextUsage);
 		if (contextTokens !== undefined) {
 			latestContextTokens = contextTokens;
+			latestCacheReadShare = resolveCacheReadShare(contextUsage);
 		}
 
-		const messageTotal = usage.totalTokens ?? contextTokens;
+		cumulativeInputTokens += usage.inputTokens ?? 0;
+		cumulativeOutputTokens += usage.outputTokens ?? 0;
+
+		const messageTotal = usage.totalTokens ?? sumKnownInputAndOutput(usage);
 		if (messageTotal !== undefined) {
 			totalTokens += messageTotal;
 		}
@@ -66,6 +81,9 @@ export function summarizeConversationTokenUsage(
 			Math.max(0, (latestContextTokens / CONTEXT_WINDOW_TOKENS) * 100),
 		),
 		totalTokens,
+		cumulativeInputTokens,
+		cumulativeOutputTokens,
+		latestCacheReadShare,
 	};
 }
 
@@ -81,6 +99,21 @@ function sumKnownInputAndOutput(usage: AiChatMessageUsage): number | undefined {
 	}
 
 	return (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+}
+
+function resolveCacheReadShare(usage: AiChatMessageUsage): number | undefined {
+	const inputTokens = usage.inputTokens;
+	const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens;
+
+	if (
+		inputTokens === undefined ||
+		inputTokens <= 0 ||
+		cacheReadTokens === undefined
+	) {
+		return undefined;
+	}
+
+	return cacheReadTokens / inputTokens;
 }
 
 function formatSingleDecimal(value: number): string {

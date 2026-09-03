@@ -107,6 +107,8 @@ export const aiChatSelectedTargetSchema = z.object({
 export const aiChatMessageMetadataSchema = z.object({
 	model: z.string().min(1).optional(),
 	usage: aiChatMessageUsageSchema.optional(),
+	stepCount: z.number().int().nonnegative().optional(),
+	lastStepUsage: aiChatMessageUsageSchema.optional(),
 	// Keep the request context on the user row so regenerate can faithfully
 	// replay the turn after a browser refresh or native app restart.
 	composer: composerMetadataSchema.optional(),

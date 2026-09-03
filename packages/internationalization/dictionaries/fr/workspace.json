@@ -210,8 +210,16 @@
 		"generating": "Génération",
 		"usage": {
 			"message": "Entrée {input} · Sortie {output} · Total {total} jetons",
+			"messageWithSteps": "Σ {count} étapes · {message}",
+			"cached": "({tokens} en cache)",
+			"reasoning": "({tokens} de raisonnement)",
+			"messageBreakdown": "Jetons hors cache {noCache} · Jetons lus dans le cache {cacheRead} · Jetons écrits dans le cache {cacheWrite} · Jetons de texte {text} · Jetons de raisonnement {reasoning}",
 			"context": "Contexte",
 			"conversationTotal": "{total} jetons utilisés au total dans cette conversation",
+			"conversationCumulative": "Entrée cumulée {input} · Sortie cumulée {output}",
+			"latestCacheReadShare": "Part lue dans le cache au dernier tour {share}",
+			"conversationCost": "Coût {cost}",
+			"conversationCredits": "{credits} crédits",
 			"brain": "Cerveau",
 			"builder": "Créateur"
 		},
@@ -833,6 +841,53 @@
 			"placementFailed": "Impossible de l’appliquer à la page — l’image est dans tes Médias",
 			"readyCount": "{ready} sur {total} prêtes",
 			"partialFailure": "1 image n’a pas été créée : {sentence}"
+		},
+		"imageBatch": {
+			"generating": "Génération de {count} images",
+			"ready": "{count} images prêtes",
+			"readyCount": "{ready} sur {total} prêtes"
+		},
+		"pageEdit": {
+			"editing": "Modification de la page",
+			"updated": "Page mise à jour — version {n}",
+			"inspected": "Page inspectée",
+			"showDetails": "Afficher les détails",
+			"hideDetails": "Masquer les détails",
+			"receiptUpdated": "Page mise à jour — v{n} · {count} modifications",
+			"receiptUpdatedSingle": "Page mise à jour — v{n} · 1 modification",
+			"labels": {
+				"getPageOutline": "Lecture de la structure de la page",
+				"readSection": "Lecture de la section {wid}",
+				"readElements": "Lecture de {count} éléments",
+				"readElement": "Lecture d’un élément",
+				"readTheme": "Lecture du thème",
+				"replaceSection": "Réécriture de la section {wid}",
+				"insertSection": "Ajout d’une section {position} {wid}",
+				"applyElementOps": "Application de {count} modifications",
+				"applyElementOp": "Application d’une modification"
+			},
+			"positions": {
+				"before": "avant",
+				"after": "après"
+			},
+			"states": {
+				"applied": "Appliqué",
+				"rejected": "Refusé",
+				"noPage": "Aucune page disponible",
+				"failed": "Échec"
+			},
+			"moreTargets": "+{count}",
+			"opKinds": {
+				"text": "texte",
+				"imageSrc": "image",
+				"elementStyle": "style",
+				"setTokens": "variables de design",
+				"setPageTitle": "titre de page",
+				"setLinkHref": "lien",
+				"removeElement": "suppression",
+				"sectionStyle": "style de section",
+				"insertElement": "nouvel élément"
+			}
 		},
 		"media": {
 			"close": "Fermer",
