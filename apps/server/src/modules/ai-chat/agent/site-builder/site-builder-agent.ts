@@ -36,7 +36,7 @@ import {
 	isStampableLeaf,
 	stampHtml,
 } from "../../../pages/domain/stamp";
-import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
+import type { BuilderReasoningOption } from "../tools/builder-model-options";
 import type { BuildProgressEvent } from "./build-progress";
 import {
 	BUILD_IMAGE_ASPECTS,
@@ -86,6 +86,8 @@ export type SiteBuildParams = {
 	pageKind?: "cod" | "website";
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
+	/** Composer's per-message reasoning pick, snapshotted on the attempt spec. */
+	reasoningEffort?: BuilderReasoningOption;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
 	system: string;
 	title: string;
@@ -124,17 +126,26 @@ const MAX_STEPS = 64;
 // leave room for a complete write_file call in a single step.
 const MAX_OUTPUT_TOKENS = 64_000;
 
-// Two rendered review passes minimum — one correctness/structure hunt, one
-// design-quality hunt. Counted only on successful captures. Once both passes
-// are recorded, targeted edits are reviewed through edit_file's returned
-// context and may finish without another screenshot; passes 3-4 are optional
-// for risky or structural changes the builder needs to see rendered. Exported
-// for tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
-// experiments — 2 is the speed/quality compromise.)
-export const REQUIRED_SCREENSHOT_PASSES = 2;
+// Minimum rendered review passes, counted only on successful captures. Once
+// the minimum is recorded, targeted edits are reviewed through edit_file's
+// returned context and may finish without another screenshot; the passes
+// between minimum and cap are optional for risky or structural changes the
+// builder needs to see rendered. Exported for tests. Landing pages run the
+// tuned 2-pass compromise (3 originally; tuned through 1 and 5 during the
+// 2026-07-26 experiments); COD funnels run 4 — cheap-model output needed
+// more than two hunts to reach selling quality (2026-08-05).
+export const REQUIRED_SCREENSHOT_PASSES_BY_KIND = {
+	cod: 4,
+	website: 2,
+} as const;
 
-/** Hard visual-review budget. Successful captures alone consume a pass. */
-export const MAX_SCREENSHOT_PASSES = 4;
+/** Hard visual-review budgets. Successful captures alone consume a pass. */
+export const MAX_SCREENSHOT_PASSES_BY_KIND = {
+	cod: 6,
+	website: 4,
+} as const;
+
+export type BuilderPageKind = keyof typeof REQUIRED_SCREENSHOT_PASSES_BY_KIND;
 
 const MAX_FAILED_EDIT_ATTEMPTS = 5;
 const EDIT_CONTEXT_LINES = 8;
@@ -147,9 +158,14 @@ export function fallbackBuildSummary(stepCount: number): string {
 	return stepCount >= MAX_STEPS ? STEP_BUDGET_SUMMARY : EARLY_STOP_SUMMARY;
 }
 
-export function resolveBuilderReasoningEffort(model: string) {
-	const configuredReasoningEffort =
-		BUILDER_REASONING_EFFORT_BY_MODEL[model] ?? env.AI_PAGE_DESIGN_REASONING;
+/**
+ * The composer's per-message reasoning pick outranks the env fallback;
+ * "auto" (either way) sends no reasoning parameter — the provider picks.
+ * Per-model effort forcing was removed on purpose (2026-08-05): effort is
+ * an explicit user/env choice, never a hidden model-keyed default.
+ */
+export function resolveBuilderReasoningEffort(override?: BuilderReasoningOption) {
+	const configuredReasoningEffort = override ?? env.AI_PAGE_DESIGN_REASONING;
 
 	if (configuredReasoningEffort === "auto") {
 		return undefined;
@@ -449,6 +465,8 @@ function createEditContext(
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const { pageKind = "website", screenshots, state, vfs } = params;
+	const requiredScreenshotPasses = REQUIRED_SCREENSHOT_PASSES_BY_KIND[pageKind];
+	const maxScreenshotPasses = MAX_SCREENSHOT_PASSES_BY_KIND[pageKind];
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
@@ -801,10 +819,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"Declare the site complete. Call this ONCE, only after the " +
 				"required screenshot_page review (minimum " +
-				`${REQUIRED_SCREENSHOT_PASSES} per build). After those passes, ` +
+				`${requiredScreenshotPasses} per build). After those passes, ` +
 				"edit_file's updated surrounding context reviews each targeted " +
 				"fix, so finish directly unless a risky or structural change needs " +
-				"an optional third or fourth rendered review.",
+				"an optional extra rendered review.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -825,18 +843,18 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (
 					state.screenshotRequired &&
-					state.screenshotPasses < REQUIRED_SCREENSHOT_PASSES
+					state.screenshotPasses < requiredScreenshotPasses
 				) {
 					log(
 						`finish refused — only ${state.screenshotPasses} of ` +
-							`${REQUIRED_SCREENSHOT_PASSES} screenshot review passes done`,
+							`${requiredScreenshotPasses} screenshot review passes done`,
 					);
 
 					return {
 						accepted: false as const,
 						reason:
 							`Only ${state.screenshotPasses} of ` +
-							`${REQUIRED_SCREENSHOT_PASSES} required screenshot review ` +
+							`${requiredScreenshotPasses} required screenshot review ` +
 							"passes are recorded. Review the renders against the " +
 							"brief, improve the page, then call " +
 							"screenshot_page again.",
@@ -1084,22 +1102,23 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 		screenshot_page: tool({
 			description:
 				"Render the current index.html in a real browser for one required " +
-				`review pass (minimum ${REQUIRED_SCREENSHOT_PASSES} per ` +
-				`build, maximum ${MAX_SCREENSHOT_PASSES}). Returns desktop ` +
+				`review pass (minimum ${requiredScreenshotPasses} per ` +
+				`build, maximum ${maxScreenshotPasses}). Returns desktop ` +
 				"(1440×900) and mobile (390×844) " +
 				"screenshots from top to bottom, console/page errors, failed " +
 				"asset requests, and horizontal-overflow measurements. After the " +
-				"two required passes, use a third or fourth only for risky or " +
+				`${requiredScreenshotPasses} required passes, use the optional ` +
+				"remaining passes only for risky or " +
 				"structural changes that need another rendered review.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
 				if (
 					state.screenshotPasses + screenshotPassesInFlight >=
-					MAX_SCREENSHOT_PASSES
+					maxScreenshotPasses
 				) {
 					return {
 						message:
-							`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES} per ` +
+							`screenshot budget exhausted (${maxScreenshotPasses} per ` +
 							"build) — finish now with the current page",
 						refused: true as const,
 					};
@@ -1177,7 +1196,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				log(
 					`screenshot-reviewed revision ${revision} — ` +
-						`${capture.shots.length} shots, ` +
+						`${capture.shots.length} shots ` +
+						`(${desktopShots} desktop, ${mobileShots} mobile), ` +
 						`${capture.consoleErrors.length} console errors, ` +
 						`${capture.failedRequests.length} failed requests`,
 				);
@@ -1359,10 +1379,10 @@ export async function runSiteBuild(
 	);
 	const startedAt = Date.now();
 
-	// Read at BUILD time (not snapshotted like the model): per-model overrides
-	// win over the env knob, and "auto" defers to the provider. Gateway
-	// attribution is merged with (and preserves) model-specific routing.
-	const reasoningEffort = resolveBuilderReasoningEffort(params.model);
+	// The composer pick (snapshotted on the attempt) wins over the env knob;
+	// "auto" defers to the provider. Gateway attribution is merged with (and
+	// preserves) model-specific routing.
+	const reasoningEffort = resolveBuilderReasoningEffort(params.reasoningEffort);
 	const providerOptions = withGatewayAttribution(
 		{
 			...(reasoningEffort
@@ -1928,6 +1948,18 @@ function assertValidSite(
 
 	if (pageKind === "cod") {
 		const $ = cheerio.load(html);
+
+		// The product must be SEEN, and image slots must be editor-replaceable:
+		// only a real <img> leaf gets a data-wid stamp and the panel's upload
+		// control. div/svg "placeholder frames" are dead ends for the merchant.
+		if ($("img").length === 0) {
+			throw new Error(
+				"COD index.html must contain at least one <img> element — place " +
+					"the brief's product photos or generated shots, and render any " +
+					"empty product slot as the placeholder <img> convention " +
+					"(data-wandit-placeholder), never as a div/svg frame",
+			);
+		}
 
 		if ($("nav").length !== 0) {
 			throw new Error(

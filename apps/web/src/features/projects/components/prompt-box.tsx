@@ -35,6 +35,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import {
 	ArrowUp,
 	BadgeCheck,
+	BrainCircuit,
 	Brush,
 	Captions,
 	Check,
@@ -70,9 +71,14 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
 	BUILDER_MODELS,
+	BUILDER_REASONING_LEVELS,
+	BUILDER_REASONING_STORAGE_KEY,
 	DEFAULT_BUILDER_MODEL,
+	DEFAULT_BUILDER_REASONING,
 	getBuilderModelOption,
+	getBuilderReasoningOption,
 	readStoredBuilderModel,
+	readStoredBuilderReasoning,
 } from "@/lib/model-labels";
 import {
 	ATTACHMENT_ACCEPT,
@@ -1413,6 +1419,75 @@ function BuilderModelPicker({
 	);
 }
 
+// Dev-only chip next to the builder-model picker: overrides the page-builder
+// reasoning effort per message (composer options.builderReasoning). "Auto"
+// sends nothing — the provider decides. Hidden outside local dev builds.
+function BuilderReasoningPicker({
+	value,
+	onValueChange,
+	isHero,
+}: {
+	value: string;
+	onValueChange: (id: string) => void;
+	isHero: boolean;
+}) {
+	const selected = getBuilderReasoningOption(value);
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={`Builder reasoning: ${selected.label}`}
+					className={cn(
+						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+						"hover:border-primary/35 hover:text-foreground",
+						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground",
+						isHero
+							? "h-9 gap-1.5 px-3 text-muted-foreground"
+							: "h-[30px] gap-1.5 px-2.5 text-[13px] text-foreground",
+					)}
+				>
+					<BrainCircuit className={isHero ? "size-3.5" : "size-3"} />
+					<span className="max-w-32 truncate">{selected.label}</span>
+					<ChevronDown
+						className={cn(
+							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
+							isHero ? "size-3.5" : "size-[11px] opacity-50",
+						)}
+					/>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-52 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+			>
+				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+					Builder reasoning (dev)
+				</DropdownMenuLabel>
+				<DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+					{BUILDER_REASONING_LEVELS.map((level) => (
+						<DropdownMenuRadioItemBare
+							key={level.id}
+							value={level.id}
+							className="data-[state=checked]:bg-primary/10"
+						>
+							<span className="min-w-0 flex-1 truncate text-sm">
+								{level.label}
+							</span>
+							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+						</DropdownMenuRadioItemBare>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 function OutputPicker({
 	mode,
 	output,
@@ -1799,6 +1874,20 @@ export function PromptBox({
 		},
 		[onBuilderModelChange],
 	);
+	// Dev-only builder reasoning override; same localStorage persistence
+	// pattern as the model pick. "auto" = send nothing, provider decides.
+	const [builderReasoning, setBuilderReasoningState] = useState(() =>
+		readStoredBuilderReasoning(initialComposer?.options?.builderReasoning),
+	);
+	const setBuilderReasoning = useCallback((id: string) => {
+		const selection = getBuilderReasoningOption(id);
+		setBuilderReasoningState(selection.id);
+		try {
+			window.localStorage.setItem(BUILDER_REASONING_STORAGE_KEY, selection.id);
+		} catch {
+			// Private-mode storage failures just lose persistence, not the pick.
+		}
+	}, []);
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>(() =>
 		(initialComposer?.skills ?? []).filter((id): id is SkillFileId =>
 			Boolean(getSkillFile(id as SkillFileId)),
@@ -2073,6 +2162,12 @@ export function PromptBox({
 		// generate_page call snapshots the picked model — no server restart.
 		if (builderModel !== DEFAULT_BUILDER_MODEL.id) {
 			options.builderModel = builderModel;
+		}
+
+		// Dev-only reasoning override: "auto" is the server default, so only a
+		// real pick is worth sending.
+		if (builderReasoning !== DEFAULT_BUILDER_REASONING.id) {
+			options.builderReasoning = builderReasoning;
 		}
 
 		if (isVideoMode) {
@@ -2364,11 +2459,18 @@ export function PromptBox({
 							isHero={isHero}
 						/>
 						{import.meta.env.DEV ? (
-							<BuilderModelPicker
-								value={builderModel}
-								onValueChange={setBuilderModel}
-								isHero={isHero}
-							/>
+							<>
+								<BuilderModelPicker
+									value={builderModel}
+									onValueChange={setBuilderModel}
+									isHero={isHero}
+								/>
+								<BuilderReasoningPicker
+									value={builderReasoning}
+									onValueChange={setBuilderReasoning}
+									isHero={isHero}
+								/>
+							</>
 						) : null}
 						<OutputPicker
 							mode={routeMode}

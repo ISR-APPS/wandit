@@ -43,6 +43,7 @@ import {
 	type GenerationCaptureBuffer,
 } from "../modules/ai-chat/agent/site-builder/generation-capture-buffer";
 import {
+	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
 	runSiteBuild,
 	type SiteBuildMeteringStep,
 } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
@@ -62,14 +63,20 @@ const attemptSpecSchema = z.object({
 	designerSystemPrompt: z.string().min(1),
 	// Legacy rows already use "website"; older rows may omit the field.
 	pageKind: z.enum(["cod", "website"]).optional(),
+	// Composer's per-message reasoning pick; absent = env fallback ("auto").
+	reasoningEffort: z
+		.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
+		.optional(),
 	title: z.string().min(1),
 });
 
 export const generatePageTask = task({
 	id: "generate-page",
-	// One Builder tool loop with two screenshot review passes; typically a
-	// few minutes. The generous ceiling is a safety net, not an estimate.
-	maxDuration: 1800,
+	// One Builder tool loop with the per-kind screenshot review passes
+	// (website 2, COD 4); typically a few minutes. The generous ceiling is a
+	// safety net, not an estimate — sized for a COD build on a slow
+	// high-reasoning model.
+	maxDuration: 2700,
 	retry: { maxAttempts: 1 },
 	run: async (
 		payload: {
@@ -191,8 +198,9 @@ export const generatePageTask = task({
 				);
 
 				logger.info(
-					"🧠 The Builder is writing the page now — two screenshot " +
-						"review passes when vision and Playwright are available",
+					"🧠 The Builder is writing the page now — " +
+						`${REQUIRED_SCREENSHOT_PASSES_BY_KIND[spec.pageKind ?? "website"]} ` +
+						"screenshot review passes when vision and Playwright are available",
 				);
 
 				// Every run gets a fresh asset namespace. A deliberate retry
@@ -203,6 +211,7 @@ export const generatePageTask = task({
 				// one metadata object that Realtime pushes to the subscribed card.
 				const progress = createBuildProgressTracker({
 					attemptId: assetNamespace,
+					pageKind: spec.pageKind ?? "website",
 					projectId: attempt.projectId,
 					publish: (snapshot) => {
 						metadata.set("progress", snapshot);
@@ -235,6 +244,9 @@ export const generatePageTask = task({
 						progress.emit(event);
 					},
 					pageKind: spec.pageKind ?? "website",
+					...(spec.reasoningEffort
+						? { reasoningEffort: spec.reasoningEffort }
+						: {}),
 					...(meteringService && usageEventId && activeGenerationCaptureBuffer
 						? {
 								meteringService,

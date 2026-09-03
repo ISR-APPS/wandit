@@ -183,6 +183,7 @@ export function createChatAgent(
 			}),
 			generate_page: createGeneratePageTool({
 				builderModel: deps.builderModel,
+				builderReasoning: deps.builderReasoning,
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
 				parentEventId: deps.parentEventId,

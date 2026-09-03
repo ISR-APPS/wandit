@@ -18,7 +18,10 @@ import {
 	siteShotKey,
 } from "../../../../infrastructure/storage/r2";
 
-import { REQUIRED_SCREENSHOT_PASSES } from "./site-builder-agent";
+import {
+	type BuilderPageKind,
+	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
+} from "./site-builder-agent";
 
 export type BuildProgressEvent =
 	| { type: "image-start"; role: string }
@@ -71,6 +74,8 @@ const SECTION_LABEL_MAX = 24;
 export function createBuildProgressTracker(params: {
 	/** R2 asset namespace for this run (the namespaced attempt id). */
 	attemptId: string;
+	/** Sets the card's review-pass target (COD runs more passes than landing). */
+	pageKind?: BuilderPageKind;
 	projectId: string;
 	publish: (progress: PageBuildProgress) => void;
 	uploadShot?: ShotUploader;
@@ -108,7 +113,7 @@ export function createBuildProgressTracker(params: {
 		percent: 3,
 		phase: "starting",
 		reviewPasses: 0,
-		reviewTarget: REQUIRED_SCREENSHOT_PASSES,
+		reviewTarget: REQUIRED_SCREENSHOT_PASSES_BY_KIND[params.pageKind ?? "website"],
 		sections: [],
 		shots: [],
 		videos: 0,

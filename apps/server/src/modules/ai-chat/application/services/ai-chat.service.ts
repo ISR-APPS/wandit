@@ -114,7 +114,10 @@ import {
 	resolveVideoRequestKeySeed,
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
-import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
+import {
+	resolveBuilderModelOption,
+	resolveBuilderReasoningOption,
+} from "../../agent/tools/builder-model-options";
 import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
@@ -578,6 +581,11 @@ export class AiChatService {
 					// against the allow-list; undefined = env default.
 					builderModel: resolveBuilderModelOption(
 						metadata?.composer?.options?.builderModel,
+					),
+					// Composer's reasoning picker: per-message effort override,
+					// validated the same way; undefined = env fallback ("auto").
+					builderReasoning: resolveBuilderReasoningOption(
+						metadata?.composer?.options?.builderReasoning,
 					),
 					chatId,
 					imageGenerationsRepository: this.imageGenerationsRepository,
