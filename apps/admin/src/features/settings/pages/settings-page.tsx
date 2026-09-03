@@ -15,10 +15,12 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useProductSettingsQuery } from "@/features/settings/api/settings.queries";
 import { BillingOpsCard } from "@/features/settings/components/billing-ops-card";
 import { ProductControlsCard } from "@/features/settings/components/product-controls-card";
 import { SettingsPageSkeleton } from "@/features/settings/components/settings-page-skeleton";
+import { SignupGrantBackfillCard } from "@/features/settings/components/signup-grant-backfill-card";
 
 const settingsDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -30,6 +32,8 @@ const settingsDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 
 export function SettingsPage() {
 	const settingsQuery = useProductSettingsQuery();
+	const canManageSettings = useAdminPermission({ settings: ["manage"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (settingsQuery.isLoading) {
 		return <SettingsPageSkeleton />;
@@ -97,9 +101,8 @@ export function SettingsPage() {
 					</p>
 					<h1 className="font-semibold text-2xl tracking-tight">Settings</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						Control beta admission, purchase availability, and promotional
-						credits. Every switch requires confirmation before it reaches the
-						server.
+						Control purchase availability and promotional credits. Every switch
+						requires confirmation before it reaches the server.
 					</p>
 				</div>
 
@@ -135,7 +138,17 @@ export function SettingsPage() {
 					settings={settings}
 					reloadSettings={reloadSettings}
 				/>
-				<BillingOpsCard />
+				<div className="flex flex-col gap-6">
+					{canManageSettings ? (
+						<SignupGrantBackfillCard settings={settings} />
+					) : null}
+					{canManageBilling ? (
+						<BillingOpsCard
+							settings={settings}
+							reloadSettings={reloadSettings}
+						/>
+					) : null}
+				</div>
 			</div>
 		</div>
 	);

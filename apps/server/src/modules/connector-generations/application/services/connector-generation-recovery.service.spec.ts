@@ -14,6 +14,11 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 	connectorSlug: "higgsfield",
 	createdAt: new Date("2026-08-01T00:00:00.000Z"),
 	error: null,
+	failureKind: null,
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: null,
 	id: "attempt-1",
 	media: [
 		{ kind: "image", url: "https://assets.test/one.webp" },
@@ -21,6 +26,7 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 	],
 	organizationId: null,
 	status: "running",
+	sentryEventId: null,
 	toolName: "generate_image",
 	userId: "user-1",
 };
@@ -48,7 +54,7 @@ function event(input: {
 		outputTokens: null,
 		parentEventId: input.parentEventId ?? null,
 		pricingSnapshot: {
-			creditsPerUnit: 5,
+			creditsPerUnit: input.operation === "connector" ? 500 : 300,
 			mode: "fixed",
 			operation: input.operation,
 			source: "operation_registry_reservation",
@@ -61,6 +67,10 @@ function event(input: {
 		settledAt: null,
 		status: "reserved" as const,
 		userId: BASE_ROW.userId,
+		executionLeaseToken: null,
+		executionLeaseExpiresAt: null,
+		reconcileAttempts: 0,
+		nextReconcileAttemptAt: null,
 	};
 }
 
@@ -68,13 +78,13 @@ function setup(options: { withEvents?: boolean } = {}) {
 	const connectorEvent = event({
 		id: "event-parent",
 		operation: "connector",
-		reservedCredits: 5,
+		reservedCredits: 500,
 	});
 	const imageEvent = event({
 		id: "event-child",
 		operation: "image",
 		parentEventId: connectorEvent.id,
-		reservedCredits: 15,
+		reservedCredits: 900,
 	});
 	const events = new Map(
 		options.withEvents === false
@@ -123,12 +133,12 @@ describe("ConnectorGenerationRecoveryService", () => {
 		).toHaveBeenCalledWith(
 			expect.objectContaining({
 				eventId: "event-parent",
-				settlement: expect.objectContaining({ finalCredits: 5 }),
+				settlement: expect.objectContaining({ finalCredits: 500 }),
 			}),
 			expect.objectContaining({
 				eventId: "event-child",
 				settlement: expect.objectContaining({
-					finalCredits: 10,
+					finalCredits: 600,
 					pricingSnapshot: expect.objectContaining({ units: 2 }),
 				}),
 			}),
@@ -150,6 +160,42 @@ describe("ConnectorGenerationRecoveryService", () => {
 				projectId: null,
 			},
 		);
+	});
+
+	it("settles a legacy image hold when a checkpointed reframe now classifies as video", async () => {
+		const { meteringService, repository, service } = setup();
+		const row: ConnectorGenerationAttemptRow = {
+			...BASE_ROW,
+			args: { aspect_ratio: "16:9" },
+			media: [{ kind: "video", url: "https://assets.test/reframed.mp4" }],
+			toolName: "reframe",
+		};
+
+		await expect(service.recoverCheckpoint(row)).resolves.toBe(true);
+
+		expect(meteringService.findByIdempotencyKey).toHaveBeenNthCalledWith(
+			2,
+			`video:${row.id}`,
+			{ actorUserId: row.userId },
+		);
+		expect(meteringService.findByIdempotencyKey).toHaveBeenNthCalledWith(
+			3,
+			`image:${row.id}`,
+			{ actorUserId: row.userId },
+		);
+		expect(
+			meteringService.settleDirectPairWithFixedEvidence,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({ eventId: "event-parent" }),
+			expect.objectContaining({
+				eventId: "event-child",
+				settlement: expect.objectContaining({
+					pricingSnapshot: expect.objectContaining({ operation: "image" }),
+				}),
+			}),
+			{ completedUnits: 1, eventId: "event-child" },
+		);
+		expect(repository.markRunningAttemptSucceeded).toHaveBeenCalledWith(row.id);
 	});
 
 	it("publishes a billing-off checkpoint without inventing usage events", async () => {

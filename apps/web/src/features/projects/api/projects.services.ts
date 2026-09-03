@@ -83,6 +83,18 @@ export async function updateProjectPixels(
 	return updateProjectResponseSchema.parse(data);
 }
 
+// Persist the "Made with Wandit" badge visibility for the published page.
+// Stored for everyone; publish honours it only for entitled (paid) owners.
+export async function updateProjectBadge(
+	id: string,
+	hideWanditBadge: boolean,
+): Promise<Project> {
+	const data = await apiClient.patch<unknown>(projectsRoutes.update(id), {
+		hideWanditBadge,
+	});
+	return updateProjectResponseSchema.parse(data);
+}
+
 // Persist or remove the project-level logo used by the Data tab and rebuilds.
 export async function updateProjectLogo(
 	id: string,

@@ -20,7 +20,11 @@ export function isDomainTransitional(status: DomainStatus) {
 
 export function hasTransitionalDomains(domains: Domain[] | undefined) {
 	return (
-		domains?.some((domain) => isDomainTransitional(domain.status)) ?? false
+		domains?.some(
+			(domain) =>
+				isDomainTransitional(domain.status) &&
+				!(domain.source === "external" && domain.dns?.externalVerification),
+		) ?? false
 	);
 }
 
@@ -45,6 +49,7 @@ export function isAvailableSearchResult(result: SearchDomainsResult) {
 
 export function createRegistrantDefaults(user?: {
 	name?: string | null;
+	displayEmail?: string | null;
 	email?: string | null;
 }): RegistrantFlatFormValues {
 	const { firstName, lastName } = splitDisplayName(user?.name);
@@ -52,7 +57,8 @@ export function createRegistrantDefaults(user?: {
 	return {
 		firstName,
 		lastName,
-		email: user?.email ?? "",
+		// This is an editable prefill; both spellings reach the same inbox.
+		email: user?.displayEmail ?? user?.email ?? "",
 		phone: "",
 		companyName: "",
 		street: "",
@@ -133,10 +139,33 @@ export function safeDomainErrorSummary(error: string | null | undefined) {
 	return summary ? summary.slice(0, 180) : null;
 }
 
+export function isNameserverRecord(record: RequiredDomainRecord) {
+	return record.type === "NS" || record.purpose.toLowerCase() === "nameserver";
+}
+
+// External rows with a Wandit zone carry NS records next to the www records:
+// option A (delegate the nameservers) versus option B (add the www records).
+export function splitExternalDomainRecords(records: RequiredDomainRecord[]) {
+	const nameserverRecords: RequiredDomainRecord[] = [];
+	const manualRecords: RequiredDomainRecord[] = [];
+
+	for (const record of records) {
+		(isNameserverRecord(record) ? nameserverRecords : manualRecords).push(
+			record,
+		);
+	}
+
+	return { manualRecords, nameserverRecords };
+}
+
 export function dnsPurposeKey(record: RequiredDomainRecord) {
 	const normalizedPurpose = record.purpose.toLowerCase();
 	const type = record.type;
 	const name = record.name.toLowerCase();
+
+	if (isNameserverRecord(record)) {
+		return "settings.domains.dnsPurposeNameserver" as const;
+	}
 
 	if (type === "TXT" || normalizedPurpose.includes("ownership")) {
 		return "settings.domains.dnsPurposeOwnership" as const;

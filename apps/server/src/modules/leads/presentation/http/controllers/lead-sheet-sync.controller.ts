@@ -1,20 +1,12 @@
 // Sheet-sync endpoints for the Leads tab: GET answers "is Google connected /
 // which sheet", POST performs the full-rewrite sync. Behind the global
 // AuthGuard; ownership is proven in the repository join.
-import {
-	Controller,
-	Get,
-	HttpCode,
-	Inject,
-	Param,
-	Post,
-	UseGuards,
-} from "@nestjs/common";
+import { Controller, Get, HttpCode, Inject, Param, Post } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import { type LeadSheetSyncState, uuidSchema } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
@@ -41,7 +33,6 @@ export class LeadSheetSyncController {
 	}
 
 	// Sync is idempotent (full rewrite), so a repeat POST is safe — 200, not 201.
-	@UseGuards(EarlyAccessGuard)
 	@Post("projects/:projectId/leads/sheet-sync")
 	@HttpCode(200)
 	syncNow(

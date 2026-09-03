@@ -455,7 +455,7 @@ export function MockChatThread({
 					<p className="mb-[13px] text-[13px] text-muted-foreground leading-[1.5]">
 						Regenerating all shots needs{" "}
 						<span className="font-mono text-ember-text">12</span> credits — you
-						have <span className="font-mono text-ember-text">1</span>.
+						have <span className="font-mono text-ember-text">0.4</span>.
 					</p>
 					<div className="flex gap-2">
 						<Button size="sm" className="h-8 flex-1 text-[13px]">

@@ -8,7 +8,7 @@
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
-import type { ComposerMetadata } from "@wandit/contracts";
+import type { ChatUsageResponse, ComposerMetadata } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
@@ -39,6 +39,24 @@ type UiMessageToInsert = {
 	metadata?: unknown;
 	parts: unknown[];
 	role: "user" | "assistant";
+};
+
+export type MessageFailureColumns = {
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
+	sentryEventId: string | null;
+};
+
+type ChatUsageDbRow = {
+	cache_read_tokens: number | string | null;
+	cache_write_tokens: number | string | null;
+	cost_usd_micros: number | string | null;
+	credits_centi: number | string | null;
+	input_tokens: number | string | null;
+	output_tokens: number | string | null;
 };
 
 @Injectable()
@@ -110,6 +128,38 @@ export class ChatsRepository {
 			.orderBy(asc(messages.seq));
 	}
 
+	async getUsage(chatId: string): Promise<ChatUsageResponse> {
+		const result = await this.db.execute<ChatUsageDbRow>(sql`
+			select
+				sum(e.input_tokens)::bigint as input_tokens,
+				sum(e.output_tokens)::bigint as output_tokens,
+				sum(e.cache_read_tokens)::bigint as cache_read_tokens,
+				sum(e.cache_write_tokens)::bigint as cache_write_tokens,
+				sum(
+					coalesce(e.reconciled_cost_usd_micros, e.estimated_cost_usd_micros)
+				)::bigint as cost_usd_micros,
+				sum(coalesce(e.final_credits, e.reserved_credits))::bigint as credits_centi
+			from ai_usage_events e
+			where
+				e.chat_id = ${chatId}::uuid
+				or e.parent_event_id in (
+					select parent_event.id
+					from ai_usage_events parent_event
+					where parent_event.chat_id = ${chatId}::uuid
+				)
+		`);
+		const row = result.rows[0];
+
+		return {
+			inputTokens: toNullableNumber(row?.input_tokens),
+			outputTokens: toNullableNumber(row?.output_tokens),
+			cacheReadTokens: toNullableNumber(row?.cache_read_tokens),
+			cacheWriteTokens: toNullableNumber(row?.cache_write_tokens),
+			costUsdMicros: toNullableNumber(row?.cost_usd_micros),
+			creditsCenti: toNullableNumber(row?.credits_centi),
+		};
+	}
+
 	// Ids of already-persisted messages: server-hydrated history, as opposed
 	// to new content the current request is submitting for the first time.
 	async listMessageIds(chatId: string): Promise<Set<string>> {
@@ -152,6 +202,7 @@ export class ChatsRepository {
 	async insertUiMessagesIfAbsent(
 		chatId: string,
 		inputMessages: readonly UiMessageToInsert[],
+		assistantFailure: MessageFailureColumns | null,
 	): Promise<void> {
 		if (inputMessages.length === 0) {
 			return;
@@ -160,13 +211,21 @@ export class ChatsRepository {
 		await this.db
 			.insert(messages)
 			.values(
-				inputMessages.map((message) => ({
-					chatId,
-					id: message.id,
-					metadata: message.metadata ?? null,
-					parts: message.parts,
-					role: message.role,
-				})),
+				inputMessages.map((message) => {
+					const failure =
+						message.role === "assistant" && assistantFailure
+							? assistantFailure
+							: EMPTY_FAILURE_COLUMNS;
+
+					return {
+						chatId,
+						...failure,
+						id: message.id,
+						metadata: message.metadata ?? null,
+						parts: message.parts,
+						role: message.role,
+					};
+				}),
 			)
 			.onConflictDoNothing({ target: messages.id });
 	}
@@ -180,11 +239,18 @@ export class ChatsRepository {
 	async upsertUiMessage(
 		chatId: string,
 		message: UiMessageToInsert,
+		assistantFailure: MessageFailureColumns | null,
 	): Promise<void> {
+		const failure =
+			message.role === "assistant" && assistantFailure
+				? assistantFailure
+				: EMPTY_FAILURE_COLUMNS;
+
 		await this.db
 			.insert(messages)
 			.values({
 				chatId,
+				...failure,
 				id: message.id,
 				metadata: message.metadata ?? null,
 				parts: message.parts,
@@ -192,11 +258,51 @@ export class ChatsRepository {
 			})
 			.onConflictDoUpdate({
 				set: {
+					failureKind: sql`excluded.failure_kind`,
+					failureProvider: sql`excluded.failure_provider`,
+					failureProviderMessage: sql`excluded.failure_provider_message`,
+					failureRequestId: sql`excluded.failure_request_id`,
+					failureSource: sql`excluded.failure_source`,
 					metadata: sql`excluded.metadata`,
 					parts: sql`excluded.parts`,
+					sentryEventId: sql`excluded.sentry_event_id`,
 				},
 				target: messages.id,
 			});
+	}
+
+	// Retry may remove only the failed assistant row it is replacing. The
+	// message id, chat id, role, and terminal turn-error precondition are all
+	// checked by the same DELETE statement, so a stale or cross-chat id is safe.
+	async deleteTerminalFailedAssistantMessage(
+		chatId: string,
+		messageId: string,
+	): Promise<boolean> {
+		const deleted = await this.db
+			.delete(messages)
+			.where(
+				and(
+					eq(messages.id, messageId),
+					eq(messages.chatId, chatId),
+					eq(messages.role, "assistant"),
+					sql`EXISTS (
+						SELECT 1
+						FROM jsonb_array_elements(
+							CASE
+								WHEN jsonb_typeof(${messages.parts}) = 'array'
+								THEN ${messages.parts}
+								ELSE '[]'::jsonb
+							END
+						) AS part
+						WHERE part ->> 'type' = 'data-ai-error'
+							AND part #>> '{data,terminal}' = 'true'
+							AND part #>> '{data,toolCallId}' IS NULL
+					)`,
+				),
+			)
+			.returning({ id: messages.id });
+
+		return deleted.length > 0;
 	}
 
 	// Cleanup used if saving succeeded but queueing failed.
@@ -212,4 +318,19 @@ export class ChatsRepository {
 
 		return row;
 	}
+}
+
+const EMPTY_FAILURE_COLUMNS: MessageFailureColumns = {
+	failureKind: null,
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: null,
+	sentryEventId: null,
+};
+
+function toNullableNumber(
+	value: number | string | null | undefined,
+): number | null {
+	return value === null || value === undefined ? null : Number(value);
 }

@@ -9,7 +9,7 @@
 			"googlePendingCta": "Ouverture de Google...",
 			"googleError": "Impossible de lancer la connexion Google. Réessaie.",
 			"devModeCta": "Continuer en mode dev",
-			"betaHint": "Bêta — tes 10 premières pages sont offertes"
+			"betaHint": "Bêta — tes 5 premières pages sont offertes"
 		}
 	},
 	"home": {
@@ -24,22 +24,69 @@
 		},
 		"tryHint": "Essaie : page COD pour une montre vintage →",
 		"tryPrompt": "Une page produit COD pour une montre vintage en cuir — photo héro, trois blocs bénéfices, et un formulaire de commande avec wilaya et commune.",
-		"createProjectError": "Impossible de créer le projet. Réessaie."
+		"createProjectError": "Impossible de créer le projet. Réessaie.",
+		"greetingNeutral": "On lance quoi aujourd'hui ?"
 	},
 	"drawer": {
 		"signOut": "Se déconnecter",
 		"language": "Langue",
 		"createProject": "Créer un projet",
-		"filterCreatedByMe": "Créés par moi",
 		"myWandit": "Mon Wandit",
 		"searchLabel": "Rechercher des projets",
 		"searchPlaceholder": "Rechercher des projets",
-		"cancelSearchLabel": "Fermer la recherche",
 		"projectsLoading": "Chargement des projets…",
-		"projectsError": "Les projets n'ont pas pu charger.",
+		"projectsError": "Impossible de charger les projets.",
 		"retry": "Réessayer",
-		"emptyProjects": "Aucun projet pour l'instant",
-		"emptySearch": "Aucun résultat"
+		"selectLanguageLabel": "Passer en {language}",
+		"clearSearchLabel": "Effacer la recherche",
+		"searchingProjects": "Recherche de projets…",
+		"resultCount": {
+			"zero": "{count} résultat",
+			"one": "{count} résultat",
+			"two": "{count} résultats",
+			"few": "{count} résultats",
+			"many": "{count} résultats",
+			"other": "{count} résultats"
+		},
+		"projectsListLabel": "Projets",
+		"openProjectLabel": "Ouvrir le projet « {project} »",
+		"emptyProjectsTitle": "Aucun projet pour l'instant",
+		"emptyProjectsDescription": "Crée ton premier projet pour commencer.",
+		"emptySearchTitle": "Aucun projet correspondant",
+		"emptySearchDescription": "Aucun projet ne correspond à « {query} ».",
+		"newProjectLabel": "Nouveau projet",
+		"filterAll": "Tous",
+		"filterBuilding": "En cours",
+		"filterLive": "En ligne",
+		"filterDrafts": "Brouillons",
+		"selectFilterLabel": "Afficher les projets : {filter}",
+		"groupToday": "Aujourd'hui",
+		"groupThisWeek": "Cette semaine",
+		"groupEarlier": "Plus tôt",
+		"buildingMeta": "Création en cours…",
+		"draftMeta": "Brouillon · {time}",
+		"projectActionsLabel": "Options pour « {project} »",
+		"projectActionsHint": "Appuie longuement pour afficher les options",
+		"rename": "Renommer",
+		"renameTitle": "Renommer le projet",
+		"renameSave": "Enregistrer",
+		"renamed": "Renommé en « {name} »",
+		"renameError": "Impossible de renommer le projet.",
+		"openLive": "Ouvrir la page en ligne",
+		"delete": "Supprimer",
+		"deleteTitle": "Supprimer ce projet ?",
+		"deleteBody": "« {name} » et sa page publiée seront supprimées. Action irréversible.",
+		"deleteKeep": "Conserver",
+		"deleted": "Projet supprimé",
+		"deleteError": "Impossible de supprimer le projet.",
+		"cancel": "Annuler",
+		"accountLabel": "Compte",
+		"languageTitle": "Langue de l'app",
+		"languageSubtitle": "Change l'interface. Les pages publiées gardent la langue dans laquelle elles ont été écrites.",
+		"emptyFilterTitle": "Rien ici pour l'instant",
+		"emptyBuildingDescription": "Aucun projet en cours de création.",
+		"emptyLiveDescription": "Aucun projet en ligne pour le moment.",
+		"emptyDraftsDescription": "Aucun brouillon pour le moment."
 	},
 	"workspace": {
 		"composerPlaceholder": "Décris une modification…",
@@ -73,20 +120,76 @@
 				"busy": "Wandit travaille déjà sur une réponse.",
 				"credits": "Tu n'as pas assez de crédits.",
 				"creditsDetails": "Il faut {requiredCredits} crédits ; tu en as {availableCredits}.",
-				"unavailable": "Le chat n'a pas pu charger. Réessaie."
+				"unavailable": "Le chat n'a pas pu charger. Réessaie.",
+				"tool": "Cette étape n'a pas pu être terminée.",
+				"replayed": "Cette requête a déjà été traitée. Envoie un nouveau message pour continuer.",
+				"memberLimit": "Tu as atteint ta limite mensuelle de crédits pour cet espace. Demande à un admin de l'augmenter.",
+				"streamKicker": "Réponse interrompue"
+			},
+			"aiError": {
+				"kicker": {
+					"provider": "Problème côté fournisseur",
+					"moderated": "Règles de contenu",
+					"connector": "Problème de connecteur",
+					"ours": "Un problème est survenu"
+				},
+				"providerFallback": "Le fournisseur d’IA",
+				"retry": "Réessayer",
+				"retryHint": "Réessayer lance une nouvelle tentative.",
+				"queuedHint": "Les générations déjà lancées se termineront d’elles-mêmes.",
+				"notCharged": "Aucun crédit ne t’a été retiré.",
+				"connectorRefunded": "Tes crédits Wandit ont été restitués. Vérifie ton solde sur {connector}.",
+				"attribution": {
+					"viaGateway": "{provider} via Vercel AI Gateway",
+					"viaOpenrouter": "{provider} via OpenRouter",
+					"refusedPrompt": "{provider} a refusé ce prompt : {text}",
+					"refusedPromptNoText": "{provider} a refusé ce prompt.",
+					"outputFilter": "Le filtre de contenu de {provider} a arrêté cette génération.",
+					"reasonGiven": "Motif indiqué : {text}",
+					"connectorReturned": "{connector} a répondu : {text}",
+					"connectorNoReason": "{connector} a échoué sans donner de raison."
+				},
+				"tryAgainPrefill": {
+					"image": "Réessayer l’image",
+					"video": "Réessayer la vidéo",
+					"marketing": "Réessayer l’asset marketing",
+					"connector": "Réessayer avec le connecteur",
+					"hint": "Cela lance une nouvelle génération."
+				}
 			},
 			"tray": {
 				"preparing": "Préparation de la question…",
 				"needsDetail": "Détail à préciser",
 				"decideForMe": "Choisis pour moi",
 				"dismiss": "Ignorer la demande",
-				"useThese": "Utiliser ces choix",
 				"typingOverride": "tu réponds avec tes mots ↓",
 				"pickBelow": "Choisis ci-dessous ↓",
 				"answerBelow": "Réponds ci-dessous ↓",
 				"skipped": "Passée",
 				"pickedForYou": "Wandit a choisi pour toi",
-				"wanditPicked": "Choix de Wandit"
+				"questionStep": "Question {current} sur {total}",
+				"needsFiles": "Fichiers demandés",
+				"answer": "Répondre",
+				"chooseAnOption": "Choisis une option",
+				"chooseOptions": "Choisis des options",
+				"chooseSelected": {
+					"one": "Choisis cette option",
+					"other": "Choisis ces {count} options"
+				},
+				"sendFiles": "Envoyer {count} fichier(s)",
+				"filesSent": "{count} fichier(s) envoyé(s)",
+				"addFiles": "Ajoute tes fichiers",
+				"addMore": "Ajoute d'autres fichiers",
+				"paste": "Coller",
+				"orBrowse": "ou parcours",
+				"decrease": "Diminuer",
+				"increase": "Augmenter"
+			},
+			"askUser": {
+				"questionsTitle": "Quelques questions",
+				"questionCount": "{count} questions",
+				"answeredCount": "{answered}/{total} répondues",
+				"upNext": "À suivre"
 			}
 		},
 		"artifact": {
@@ -97,6 +200,155 @@
 			"arfr": "AR & FR prêts",
 			"cod": "Formulaires COD",
 			"publish": "Publication gratuite"
+		},
+		"dock": {
+			"assets": "Assets",
+			"marketing": "Marketing",
+			"leads": "Leads"
+		},
+		"hub": {
+			"timeAgo": "il y a {time}",
+			"justNow": "à l’instant",
+			"statLeads": {
+				"one": "{count} aujourd’hui",
+				"other": "{count} aujourd’hui"
+			},
+			"statMarketing": {
+				"one": "{count} en cours",
+				"other": "{count} en cours"
+			},
+			"statAssets": {
+				"zero": "{count} média",
+				"one": "{count} média",
+				"other": "{count} médias"
+			},
+			"cardAssetsSub": {
+				"zero": "{count} média généré",
+				"one": "{count} média généré",
+				"other": "{count} médias générés"
+			},
+			"cardMarketingSub": {
+				"zero": "{count} asset · {working} en cours",
+				"one": "{count} asset · {working} en cours",
+				"other": "{count} assets · {working} en cours"
+			},
+			"cardLeadsSub": {
+				"zero": "{count} lead · {today} aujourd’hui",
+				"one": "{count} lead · {today} aujourd’hui",
+				"other": "{count} leads · {today} aujourd’hui"
+			},
+			"switchLabel": "Changer de section",
+			"closeLabel": "Fermer le sélecteur de section"
+		},
+		"leadsView": {
+			"subtitle": "La collecte de leads est toujours gratuite.",
+			"exportLabel": "Exporter en CSV",
+			"exportEmpty": "Aucun lead à exporter",
+			"exportDone": "{count} leads exportés en CSV",
+			"statToday": "Aujourd’hui",
+			"statWeek": "Cette semaine",
+			"statTotal": "Total des leads",
+			"statRate": "Taux de confirmation",
+			"sheets": {
+				"title": "Google Sheets",
+				"lastSync": "Dernière synchro {time}",
+				"autoSync": "Synchronisation automatique toutes les {minutes} min",
+				"justNow": "à l’instant",
+				"sync": "Synchroniser",
+				"syncing": "Synchro…",
+				"syncDone": "{count} leads synchronisés vers Google Sheets",
+				"open": "Ouverture de la feuille Google Sheets",
+				"notConnected": "Non connecté",
+				"connect": "Connecter",
+				"connectToast": "Redirection vers Google — autorisation Sheets",
+				"neverSynced": "Pas encore synchronisée"
+			},
+			"searchPlaceholder": "Rechercher un nom ou un téléphone…",
+			"filters": {
+				"allSources": "Toutes les sources",
+				"allStatuses": "Tous les statuts",
+				"allDates": "Toutes les dates",
+				"today": "Aujourd’hui",
+				"last7": "7 derniers jours",
+				"last30": "30 derniers jours",
+				"active": "Actifs",
+				"archived": "Archivés",
+				"allLeads": "Tous les leads"
+			},
+			"sheetTitles": {
+				"source": "Source",
+				"status": "Statut",
+				"date": "Date",
+				"visibility": "Visibilité",
+				"leadStatus": "Statut de la commande"
+			},
+			"status": {
+				"toConfirm": "À confirmer",
+				"confirmed": "Confirmé",
+				"shipped": "Expédié",
+				"delivered": "Livré",
+				"returned": "Retourné",
+				"cancelled": "Annulé"
+			},
+			"sources": {
+				"facebook": "Facebook",
+				"tiktok": "TikTok",
+				"direct": "Direct"
+			},
+			"archivedTag": "Archivé",
+			"statusChanged": "{name} → {status}",
+			"callLabel": "Appeler",
+			"whatsappLabel": "WhatsApp",
+			"noResultsTitle": "Aucun lead correspondant",
+			"noResultsBody": "Essaie une autre recherche ou efface les filtres.",
+			"clearFilters": "Effacer les filtres",
+			"emptyTitle": "Aucun lead",
+			"emptyBody": "Publie ta page pour commencer à collecter des commandes.",
+			"emptyCta": "Ouvrir les réglages de publication",
+			"emptyCtaToast": "Réglages de publication",
+			"pageInfo": "1–{count} sur {total}",
+			"loadMore": "Charger plus",
+			"changeError": "La modification a échoué. Réessaie.",
+			"exportError": "L’export a échoué. Réessaie."
+		},
+		"marketingView": {
+			"subtitle": "Assets HTML, copy et scripts générés par Wandit.",
+			"refreshLabel": "Actualiser",
+			"generatingToast": "Génération en cours…",
+			"downloadLabel": "Télécharger le HTML",
+			"downloadError": "Le téléchargement a échoué. Réessaie."
+		},
+		"assetsView": {
+			"subtitle": "Images et vidéos générées pour ce projet.",
+			"countAll": {
+				"zero": "{count} élément",
+				"one": "{count} élément",
+				"other": "{count} éléments"
+			},
+			"countImages": {
+				"zero": "{count} image",
+				"one": "{count} image",
+				"other": "{count} images"
+			},
+			"countVideos": {
+				"zero": "{count} vidéo",
+				"one": "{count} vidéo",
+				"other": "{count} vidéos"
+			},
+			"chipAll": "Tous",
+			"chipImages": "Images",
+			"chipVideos": "Vidéos",
+			"refreshLabel": "Actualiser",
+			"srcGeneration": "Génération",
+			"srcVideo": "Vidéo",
+			"srcAnimation": "Animation",
+			"srcPageBuild": "Build de page",
+			"downloadLabel": "Télécharger",
+			"loadError": "Impossible de charger les assets.",
+			"retry": "Réessayer",
+			"emptyTitle": "Aucun asset pour le moment",
+			"emptyBody": "Les images et vidéos générées par l'IA apparaîtront ici.",
+			"downloadError": "Le téléchargement a échoué. Réessaie."
 		}
 	},
 	"notFound": {
@@ -112,7 +364,13 @@
 		"browseFiles": "Parcourir les fichiers",
 		"cancel": "Annuler",
 		"remove": "Retirer la pièce jointe",
-		"attachedMeta": "joint · {size}"
+		"attachedMeta": "joint · {size}",
+		"connectApps": "Connecter des apps",
+		"cameraPermissionDenied": "L'accès à l'appareil photo est requis pour prendre une photo. Active-le dans Réglages.",
+		"limitReached": "Tu peux joindre jusqu'à 6 fichiers.",
+		"tooLarge": "Les fichiers doivent faire moins de 15 Mo.",
+		"unsupported": "Ce type de fichier n'est pas pris en charge.",
+		"uploadFailed": "Échec de l'envoi. Retire la pièce jointe et réessaie."
 	},
 	"voiceDictation": {
 		"permissionDenied": "Accès au micro refusé. Active-le dans les réglages pour utiliser la saisie vocale Wandit.",
@@ -155,5 +413,154 @@
 		"week": "sem",
 		"month": "mois",
 		"year": "an"
+	},
+	"page": {
+		"bar": {
+			"chat": "Chat",
+			"comment": "Commenter un bloc",
+			"edit": "Modifier"
+		},
+		"chip": {
+			"comment": "Mode commentaire",
+			"edit": "Mode édition"
+		},
+		"comment": {
+			"exit": "Quitter le mode commentaire",
+			"emptyHint": "Touche un bloc pour le commenter",
+			"reviewHint": "Vérifie avant d'envoyer",
+			"send": "Envoyer",
+			"placeholder": "Décris le changement souhaité ici…",
+			"add": "Ajouter le commentaire",
+			"update": "Modifier la note",
+			"sendOne": "Envoyer à Wandit",
+			"sendMany": "Envoyer {count} à Wandit",
+			"countLabel": {
+				"zero": "{count} commentaire",
+				"one": "{count} commentaire",
+				"two": "{count} commentaires",
+				"few": "{count} commentaires",
+				"many": "{count} commentaires",
+				"other": "{count} commentaires"
+			},
+			"clearAll": "Tout effacer",
+			"cancel": "Annuler",
+			"remove": "Supprimer le commentaire",
+			"handoffIntro": "Applique ces modifications à la landing page :",
+			"queueFull": "Tu peux envoyer jusqu'à 10 commentaires à la fois"
+		},
+		"edit": {
+			"hint": "Touche une section pour la modifier",
+			"theme": "Thème",
+			"done": "Terminé",
+			"reset": "Rétablir le thème d'origine",
+			"resetShort": "Rétablir",
+			"colors": "Couleurs",
+			"corners": "Arrondis",
+			"radius": {
+				"sharp": "Net",
+				"subtle": "Léger",
+				"soft": "Doux",
+				"round": "Rond"
+			},
+			"presets": "Palettes",
+			"headingFont": "Police des titres",
+			"bodyFont": "Police du texte",
+			"themeUnavailable": "Cette page date d'avant les jetons de thème — demande à Wandit de la restyler dans le chat.",
+			"targetLadder": "Cible",
+			"textLabel": "Texte",
+			"paddingTop": "Espace au-dessus",
+			"paddingBottom": "Espace en dessous",
+			"sectionBackground": "Fond de la section",
+			"removeElement": "Supprimer cet élément",
+			"padding": {
+				"none": "Aucun",
+				"s": "S",
+				"m": "M",
+				"l": "L",
+				"xl": "XL"
+			},
+			"tokens": {
+				"background": "Fond",
+				"foreground": "Texte",
+				"primary": "Primaire",
+				"primaryForeground": "Sur primaire",
+				"secondary": "Secondaire",
+				"accent": "Accent",
+				"muted": "Atténué",
+				"border": "Bordure"
+			}
+		},
+		"publish": {
+			"publish": "Publier",
+			"update": "Mettre à jour",
+			"title": "Publie ta page",
+			"subtitle": "Gratuit pour toujours — tu ne dépenses des crédits que lorsque l'IA travaille pour toi.",
+			"addressEdit": "Modifier",
+			"cta": "Publier la page",
+			"liveTitle": "Ta page est en ligne",
+			"liveSubtitle": "Lance tes pubs vers cette adresse — les commandes arrivent dans Leads.",
+			"copy": "Copier",
+			"copied": "Copié ✓",
+			"viewSite": "Voir le site",
+			"done": "Terminé",
+			"autoAddress": "Adresse choisie à la publication",
+			"publishing": "Publication…",
+			"failed": "La publication a échoué — réessaie",
+			"save": "Enregistrer",
+			"cancel": "Annuler",
+			"slugChecking": "Vérification de la disponibilité…",
+			"slugInvalid": "Lettres minuscules, chiffres et tirets uniquement",
+			"slugTaken": "Cette adresse est déjà prise",
+			"slugReserved": "Cette adresse est réservée",
+			"slugAvailable": "Disponible",
+			"liveVersion": "v{n} en ligne",
+			"updateReady": "v{n} est prête à publier",
+			"updateCta": "Publier v{n}",
+			"retry": "Réessayer",
+			"failedTitle": "La publication a échoué",
+			"unpublish": "Mettre le site hors ligne",
+			"unpublishTitle": "Mettre le site hors ligne ?",
+			"unpublishBody": "Ta page ne sera plus accessible à son adresse.",
+			"unpublishConfirm": "Mettre hors ligne",
+			"unpublishedToast": "Site mis hors ligne",
+			"publishedToast": "En ligne sur {url}",
+			"rolledBackToast": "Version {n} restaurée",
+			"history": "Historique",
+			"historyLive": "En ligne",
+			"historyRestore": "Restaurer",
+			"historyPending": "En cours",
+			"historyFailed": "Échec"
+		},
+		"editor": {
+			"changesCount": {
+				"zero": "{count} modification",
+				"one": "{count} modification",
+				"two": "{count} modifications",
+				"few": "{count} modifications",
+				"many": "{count} modifications",
+				"other": "{count} modifications"
+			},
+			"save": "Enregistrer",
+			"discard": "Annuler",
+			"discardTitle": "Abandonner tes modifications ?",
+			"discardKeep": "Continuer l'édition",
+			"conflictTitle": "La page a changé ailleurs",
+			"conflictBody": "Une version plus récente de la page existe. Recharge la dernière version, puis refais tes modifications.",
+			"conflictReload": "Recharger la dernière",
+			"saved": "Enregistré — version {n}",
+			"saveFailed": "Échec de l'enregistrement : {reason}",
+			"superseded": "Une nouvelle version de la page est arrivée — tes modifications non enregistrées ont été abandonnées",
+			"targetRemoved": "Un bloc commenté n'existe plus — sa note a été retirée",
+			"askAiFailed": "L'envoi à Wandit a échoué — tes notes sont toujours là"
+		},
+		"state": {
+			"emptyTitle": "Pas encore de page",
+			"emptyBody": "Demande à Wandit de créer ta landing page dans le chat.",
+			"generatingTitle": "Création de ta page…",
+			"generatingBody": "Wandit génère ta landing page. Elle apparaîtra ici.",
+			"failedTitle": "La création de la page a échoué",
+			"failedBody": "Demande à Wandit de réessayer dans le chat.",
+			"laterBuildFailed": "La dernière création a échoué — cette version reste en place"
+		}
 	}
 }

@@ -9,13 +9,17 @@ import type {
 import {
 	dollarsStringToUsdMicros,
 	gatewayModelToPersistedPrice,
+	imageEstimateUsdMicros,
 	imageUsageCostUsdMicros,
 	type ModelPrice,
 	normalizeTokenUsage,
 	parseGatewayModelsResponse,
 	perTokenDollarsStringToUsdMicrosPerMTok,
+	pricingSnapshot,
 	tokenUsageCostUsdMicros,
-	usdMicrosToCredits,
+	transcriptionEstimateUsdMicros,
+	usdMicrosToCentiCredits,
+	videoEstimateUsdMicros,
 } from "./model-pricing";
 
 const GENERATED_AT = new Date("2026-08-01T12:00:00.000Z");
@@ -44,6 +48,9 @@ function modelPrice(overrides: Partial<ModelPrice> = {}): ModelPrice {
 		raw: {},
 		refreshedAt: GENERATED_AT,
 		source: "database",
+		transcriptionUsdMicrosPerSecond: null,
+		variantPricing: null,
+		videoUsdMicrosPerSecond: null,
 		...overrides,
 	};
 }
@@ -60,8 +67,20 @@ function row(overrides: Partial<ModelPriceRow> = {}): ModelPriceRow {
 		provider: "openai",
 		raw: {},
 		refreshedAt: GENERATED_AT,
+		transcriptionUsdMicrosPerSecond: null,
+		variantPricing: null,
+		videoUsdMicrosPerSecond: null,
 		...overrides,
 	};
+}
+
+function gatewayPrice(model: unknown) {
+	const payload = parseGatewayModelsResponse(seed([model]));
+	const gatewayModel = payload.data[0];
+	if (!gatewayModel) {
+		throw new Error("Expected the test gateway model");
+	}
+	return gatewayModelToPersistedPrice(gatewayModel, GENERATED_AT);
 }
 
 function seed(
@@ -140,6 +159,125 @@ describe("model pricing math", () => {
 		});
 	});
 
+	it("parses video per-second variants and keeps the cheapest as the default", () => {
+		const kling = gatewayPrice({
+			id: "klingai/kling",
+			owned_by: "klingai",
+			pricing: {
+				video_duration_pricing: [
+					{ cost_per_second: "0.042", mode: "std" },
+					{ audio: false, cost_per_second: "0.07", mode: "pro" },
+					{ audio: true, cost_per_second: "0.14", mode: "pro" },
+				],
+			},
+			type: "video",
+		});
+		const veo = gatewayPrice({
+			id: "google/veo",
+			owned_by: "google",
+			pricing: {
+				video_duration_pricing: [
+					{ audio: false, cost_per_second: "0.1", resolution: "720p" },
+					{ audio: true, cost_per_second: "0.15", resolution: "720p" },
+					{ audio: false, cost_per_second: "0.3", resolution: "4k" },
+				],
+			},
+			type: "video",
+		});
+
+		expect(kling.videoUsdMicrosPerSecond).toBe(42_000);
+		expect(kling.variantPricing?.video).toHaveLength(3);
+		expect(veo.videoUsdMicrosPerSecond).toBe(100_000);
+
+		const klingPrice = { ...kling, source: "database" as const };
+		const veoPrice = { ...veo, source: "database" as const };
+		expect(videoEstimateUsdMicros(klingPrice, { durationSeconds: 5 })).toBe(
+			210_000,
+		);
+		expect(
+			videoEstimateUsdMicros(klingPrice, { durationSeconds: 5, mode: "std" }),
+		).toBe(210_000);
+		expect(
+			videoEstimateUsdMicros(klingPrice, {
+				audio: true,
+				durationSeconds: 10,
+				mode: "pro",
+			}),
+		).toBe(1_400_000);
+		expect(
+			videoEstimateUsdMicros(veoPrice, {
+				audio: false,
+				durationSeconds: 6,
+				resolution: "4k",
+			}),
+		).toBe(1_800_000);
+		expect(videoEstimateUsdMicros(modelPrice(), { durationSeconds: 5 })).toBe(
+			null,
+		);
+	});
+
+	it("parses the transcription per-second rate", () => {
+		const whisper = gatewayPrice({
+			id: "openai/whisper",
+			owned_by: "openai",
+			pricing: {
+				input: "0.0000000001",
+				transcription_duration_cost_per_second: "0.0001",
+			},
+			type: "transcription",
+		});
+
+		expect(whisper.transcriptionUsdMicrosPerSecond).toBe(100);
+		expect(
+			transcriptionEstimateUsdMicros({ ...whisper, source: "database" }, 61.5),
+		).toBe(6_150);
+		expect(transcriptionEstimateUsdMicros(modelPrice(), 60)).toBe(null);
+	});
+
+	it("selects image variants by size and falls back to the default rate", () => {
+		const gemini = gatewayPrice({
+			id: "google/image",
+			owned_by: "google",
+			pricing: {
+				image_dimension_quality_pricing: [
+					{ cost: "0.1344", size: "1K" },
+					{ cost: "0.24", size: "4K" },
+					{ cost: "0.1344", size: "default" },
+				],
+			},
+			type: "language",
+		});
+		const price = { ...gemini, source: "database" as const };
+
+		expect(imageEstimateUsdMicros(price, 2)).toBe(268_800);
+		expect(imageEstimateUsdMicros(price, 1, "4K")).toBe(240_000);
+		expect(imageEstimateUsdMicros(price, 1, "8K")).toBe(134_400);
+		expect(
+			imageEstimateUsdMicros(modelPrice({ imageUsdMicros: null }), 1),
+		).toBe(null);
+	});
+
+	it("drops unparseable duration variants without rejecting the model", () => {
+		const price = gatewayPrice({
+			id: "odd/video",
+			owned_by: "odd",
+			pricing: {
+				transcription_duration_cost_per_second: "free",
+				video_duration_pricing: [
+					{ cost_per_second: "n/a", mode: "std" },
+					{ cost_per_second: "0.05", mode: "pro" },
+				],
+			},
+			type: "video",
+		});
+
+		expect(price.transcriptionUsdMicrosPerSecond).toBe(null);
+		expect(price.videoUsdMicrosPerSecond).toBe(50_000);
+		expect(price.variantPricing?.video).toEqual([
+			{ mode: "pro", usdMicrosPerSecond: 50_000 },
+		]);
+	});
+
 	it("rejects malformed known pricing fields instead of persisting zero", () => {
 		expect(() =>
 			parseGatewayModelsResponse({
@@ -191,11 +329,16 @@ describe("model pricing math", () => {
 		).toBe(1_000);
 	});
 
-	it("applies max(1, ceil(cost / usdPerCredit))", () => {
-		expect(usdMicrosToCredits(0)).toBe(1);
-		expect(usdMicrosToCredits(50_000)).toBe(1);
-		expect(usdMicrosToCredits(50_001)).toBe(2);
-		expect(usdMicrosToCredits(125_000, 50_000)).toBe(3);
+	it("applies max(1, ceil(cost * 100 / usdPerWholeCredit)) in centi-credits", () => {
+		expect(usdMicrosToCentiCredits(0)).toBe(1);
+		expect(usdMicrosToCentiCredits(400)).toBe(1);
+		expect(usdMicrosToCentiCredits(401)).toBe(2);
+		expect(usdMicrosToCentiCredits(40_000)).toBe(100);
+		expect(usdMicrosToCentiCredits(125_000, 50_000)).toBe(250);
+	});
+
+	it("stamps the default $0.04 anchor into pricing snapshots", () => {
+		expect(pricingSnapshot(modelPrice()).usdMicrosPerCredit).toBe(40_000);
 	});
 
 	it("prices provider image cost per successful image", () => {
@@ -204,6 +347,16 @@ describe("model pricing math", () => {
 });
 
 describe("ModelPricingService", () => {
+	it("defaults the credit anchor to $0.04 (40,000 micros) when env is unset", () => {
+		const repository = new FakeModelPricesRepository();
+		const service = new ModelPricingService(
+			repository as unknown as ModelPricesRepository,
+			{ seedResponse: seed() },
+		);
+
+		expect(service.usdMicrosPerCredit).toBe(40_000);
+	});
+
 	it("reads through the database and retains an entry until its one-hour TTL", async () => {
 		let now = GENERATED_AT;
 		const repository = new FakeModelPricesRepository(
@@ -274,6 +427,40 @@ describe("ModelPricingService", () => {
 			source: "seed",
 		});
 		expect(await service.get("missing/model")).toBeNull();
+	});
+
+	it("fills the media rates from the checked-in seed", async () => {
+		const repository = new FakeModelPricesRepository();
+		const service = new ModelPricingService(
+			repository as unknown as ModelPricesRepository,
+		);
+
+		expect(await service.get("klingai/kling-v2.5-turbo-i2v")).toMatchObject({
+			videoUsdMicrosPerSecond: 42_000,
+		});
+		expect(await service.get("google/veo-3.0-generate-001")).toMatchObject({
+			videoUsdMicrosPerSecond: 200_000,
+		});
+		expect(await service.get("openai/whisper-1")).toMatchObject({
+			transcriptionUsdMicrosPerSecond: 100,
+		});
+		expect(
+			await service.quoteVideoEstimate("klingai/kling-v2.5-turbo-i2v", {
+				durationSeconds: 5,
+				mode: "std",
+			}),
+		).toMatchObject({ costUsdMicros: 210_000, credits: 525 });
+		expect(
+			await service.quoteImageEstimate("google/gemini-3-pro-image", 1, "4K"),
+		).toMatchObject({ costUsdMicros: 240_000, credits: 600 });
+		// A token-priced transcription model has no per-second rate.
+		expect(
+			await service.quoteTranscriptionEstimate(
+				"openai/gpt-4o-mini-transcribe",
+				60,
+			),
+		).toBe(null);
+		expect(await service.quoteImageEstimate("missing/model", 1)).toBe(null);
 	});
 
 	it("loads the checked-in gateway catalog and covers every repo model default or selector", async () => {

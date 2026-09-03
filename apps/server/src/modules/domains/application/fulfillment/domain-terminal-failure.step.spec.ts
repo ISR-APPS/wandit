@@ -76,6 +76,9 @@ function setup(
 		deleteDomainPointer: vi.fn(async (name: string) => {
 			events.push(`delete-pointer:${name}`);
 		}),
+		deleteZone: vi.fn(async (id: string) => {
+			events.push(`delete-zone:${id}`);
+		}),
 		dispatchRefund: vi.fn(async (_id: string, failureReason: string) => {
 			events.push(`dispatch-refund:${failureReason}`);
 		}),
@@ -239,6 +242,92 @@ describe("DomainTerminalFailureStep", () => {
 		);
 		expect(fixture.domain.status).toBe("failed");
 		expect(fixture.order.status).toBe("failed");
+	});
+
+	it("deletes the apex custom hostname alongside the www hostname after terminalization", async () => {
+		const fixture = setup(
+			domain("registering", {
+				dns: { apexCustomHostnameId: "cf_apex", purchaseDnsConfigured: true },
+			}),
+			order("fulfilling"),
+		);
+
+		await expect(
+			fixture.step.execute(
+				fixture.domain,
+				new TerminalDomainFulfillmentError("Domain is not available"),
+			),
+		).resolves.toEqual({ status: "failed" });
+
+		expect(fixture.events.slice(-3)).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-hostname:cf_apex",
+			"delete-pointer:example.com",
+		]);
+		expect(fixture.dependencies.deleteZone).not.toHaveBeenCalled();
+	});
+
+	it("deletes a pipeline-created zone whose nameservers never moved, but leaves a delegated one", async () => {
+		const created = setup(
+			domain("registering", {
+				dns: { zoneCreated: true, zoneId: "zone_new" },
+			}),
+			order("fulfilling"),
+		);
+
+		await created.step.execute(
+			created.domain,
+			new TerminalDomainFulfillmentError("Domain is not available"),
+		);
+
+		expect(created.events.slice(-3)).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-zone:zone_new",
+			"delete-pointer:example.com",
+		]);
+
+		const delegated = setup(
+			domain("configuring", {
+				dns: { apexConfigured: true, zoneCreated: true, zoneId: "zone_live" },
+			}),
+			order("fulfilling"),
+		);
+
+		await delegated.step.execute(
+			delegated.domain,
+			new TerminalDomainFulfillmentError(
+				"Cloudflare SSL verification timed out",
+			),
+		);
+
+		expect(delegated.dependencies.deleteZone).not.toHaveBeenCalled();
+		expect(delegated.dependencies.logger.warn).toHaveBeenCalledWith(
+			`Leaving Cloudflare zone zone_live for domain ${domainId} in place`,
+			"nameservers were already delegated to the zone",
+		);
+	});
+
+	it("leaves a zone in place when the nameserver handover started but the apex marker never landed", async () => {
+		// Window: setNameservers reached the registrar, then the final persist
+		// lost the fence to a concurrent refund (or a DB error) before
+		// apexConfigured was written. Only zoneDelegated is durable.
+		const fixture = setup(
+			domain("failed", {
+				dns: { zoneCreated: true, zoneDelegated: true, zoneId: "zone_race" },
+			}),
+			order("refunded"),
+		);
+
+		await fixture.step.execute(
+			fixture.domain,
+			new TerminalDomainFulfillmentError("Order was refunded"),
+		);
+
+		expect(fixture.dependencies.deleteZone).not.toHaveBeenCalled();
+		expect(fixture.dependencies.logger.warn).toHaveBeenCalledWith(
+			`Leaving Cloudflare zone zone_race for domain ${domainId} in place`,
+			"nameservers were already delegated to the zone",
+		);
 	});
 
 	it("does not terminalize or clean up until durable refund dispatch succeeds", async () => {
@@ -506,6 +595,40 @@ describe("DomainTerminalFailureStep", () => {
 		expect(fixture.dependencies.reportError).toHaveBeenCalledWith(
 			expect.any(TerminalDomainFulfillmentError),
 			{ domainId, orderId: "none" },
+		);
+	});
+
+	it("never deletes an external row's zone on an orderless terminal failure, even one created and never delegated", async () => {
+		const fixture = setup(
+			domain("configuring", {
+				dns: {
+					apexCustomHostnameId: "cf_apex",
+					zoneCreated: true,
+					zoneId: "zone_external",
+				},
+				paymentOrderId: null,
+				provider: null,
+				source: "external",
+			}),
+		);
+
+		await expect(
+			fixture.step.execute(
+				fixture.domain,
+				new TerminalDomainFulfillmentError("Operator failed the row"),
+			),
+		).resolves.toEqual({ status: "failed" });
+
+		expect(fixture.events).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-hostname:cf_apex",
+			"delete-pointer:example.com",
+			"mark-domain-failed:Operator failed the row",
+		]);
+		expect(fixture.dependencies.deleteZone).not.toHaveBeenCalled();
+		expect(fixture.dependencies.logger.warn).toHaveBeenCalledWith(
+			`Leaving Cloudflare zone zone_external for domain ${domainId} in place`,
+			"the zone's nameservers were exposed to the domain owner",
 		);
 	});
 

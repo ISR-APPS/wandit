@@ -1,8 +1,11 @@
 import { relations, sql } from "drizzle-orm";
 import {
+	type AnyPgColumn,
+	boolean,
 	check,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -37,9 +40,27 @@ export const imageToVideoMotion = pgEnum("image_to_video_motion", [
 	"dynamic",
 ]);
 
-// Mutable lifecycle row for one five-second image-to-video request. Trigger.dev
-// receives only this row's id plus ownership ids; every generation parameter
-// is snapshotted here before work starts.
+export const mediaGenerationKind = pgEnum("media_generation_kind", [
+	"image-animation",
+	"text-to-video",
+	"video-product",
+	"video-edit",
+	"video-extension",
+]);
+
+// Voiceover request captured with a video attempt. Text-to-video uses native
+// Kling voice control; extension work synthesizes one track over the joined
+// source and continuation legs.
+export type MediaGenerationVoiceover = {
+	deliveryStatus?: "delivered" | "failed" | null;
+	language: "en" | "fr" | "ar";
+	script?: string;
+};
+
+// Mutable lifecycle row for one video workflow, discriminated by `kind`.
+// Trigger.dev receives only this row's id plus ownership ids; every generation
+// parameter — including the director-crafted prompt — is snapshotted here
+// before work starts.
 export const mediaGenerationAttempts = pgTable(
 	"media_generation_attempts",
 	{
@@ -56,17 +77,45 @@ export const mediaGenerationAttempts = pgTable(
 		// both a repeated tool call and a new tool call after a lost stream.
 		requestKey: text("request_key").notNull(),
 		status: mediaGenerationStatus("status").notNull().default("queued"),
-		sourceImageUrl: text("source_image_url").notNull(),
-		sourceMediaType: imageToVideoSourceMediaType("source_media_type").notNull(),
+		kind: mediaGenerationKind("kind").notNull().default("image-animation"),
+		// Nullable lineage keeps edited/extended results after a source attempt is
+		// deleted. The URL/type snapshot below remains the execution authority.
+		sourceAttemptId: uuid("source_attempt_id").references(
+			(): AnyPgColumn => mediaGenerationAttempts.id,
+			{ onDelete: "set null" },
+		),
+		// Nullable for attempts created before renderer-tier snapshots landed.
+		model: text("model"),
+		quality: text("quality"),
+		talking: boolean("talking"),
+		// Required for image animation, always null for text-to-video — the
+		// kind CHECK below enforces the pairing.
+		sourceImageUrl: text("source_image_url"),
+		sourceMediaType: imageToVideoSourceMediaType("source_media_type"),
+		sourceVideoUrl: text("source_video_url"),
+		sourceVideoMediaType: text("source_video_media_type"),
+		sourceDurationMs: integer("source_duration_ms"),
+		actualDurationMs: integer("actual_duration_ms"),
+		chainDepth: integer("chain_depth").notNull().default(0),
 		aspect: imageToVideoAspect("aspect").notNull(),
-		motion: imageToVideoMotion("motion").notNull(),
+		motion: imageToVideoMotion("motion"),
 		prompt: text("prompt").notNull(),
 		durationSeconds: integer("duration_seconds").notNull().default(5),
+		// User-facing display name for cards and the Assets tab. Animation rows
+		// predate titles and stay null.
+		title: text("title"),
+		voiceover: jsonb("voiceover").$type<MediaGenerationVoiceover>(),
 		// Trigger.dev run id for operations/debugging; not exposed to the client.
 		triggerRunId: text("trigger_run_id"),
 		videoUrl: text("video_url"),
 		videoMediaType: text("video_media_type"),
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -77,6 +126,7 @@ export const mediaGenerationAttempts = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("media_generation_attempts_createdAt_idx").on(table.createdAt),
 		index("media_generation_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,
@@ -90,13 +140,51 @@ export const mediaGenerationAttempts = pgTable(
 			table.status,
 			table.startedAt,
 		),
+		index("media_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("media_generation_attempts_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,
 		),
 		check(
 			"media_generation_attempts_duration_ck",
-			sql`${table.durationSeconds} = 5`,
+			sql`${table.durationSeconds} BETWEEN 4 AND 45`,
+		),
+		check(
+			"media_generation_attempts_kind_ck",
+			sql`(
+				(
+					${table.kind} = 'image-animation'
+					AND ${table.sourceImageUrl} IS NOT NULL
+					AND ${table.sourceMediaType} IS NOT NULL
+					AND ${table.motion} IS NOT NULL
+					AND ${table.durationSeconds} = 5
+				)
+				OR (
+					${table.kind} = 'text-to-video'
+					AND ${table.sourceImageUrl} IS NULL
+					AND ${table.sourceMediaType} IS NULL
+				)
+				OR (
+					${table.kind}::text = 'video-product'
+					AND ${table.sourceImageUrl} IS NOT NULL
+					AND ${table.sourceMediaType} IS NOT NULL
+					AND ${table.durationSeconds} = 5
+					AND ${table.sourceVideoUrl} IS NULL
+					AND ${table.sourceVideoMediaType} IS NULL
+				)
+				OR (
+					${table.kind}::text = 'video-edit'
+					AND ${table.sourceVideoUrl} IS NOT NULL
+					AND ${table.sourceVideoMediaType} IS NOT NULL
+				)
+				OR (
+					${table.kind}::text = 'video-extension'
+					AND ${table.sourceVideoUrl} IS NOT NULL
+					AND ${table.sourceVideoMediaType} IS NOT NULL
+				)
+			)`,
 		),
 		check(
 			"media_generation_attempts_lifecycle_ck",

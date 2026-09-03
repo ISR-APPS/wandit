@@ -157,7 +157,7 @@ THE MANDATORY SET:
 
 MICRO-INTERACTIONS (CSS): the primary pill lifts 2px and fills crust to braise over .25s with a DECOUPLED .25s translateX(4px) on its arrow — two transitions, not one · the ghost button's drawn outline cross-fades to a second wobble over .2s so the line looks REDRAWN · inputs change three properties together on focus over .28s (border-color crust, box-shadow 0 0 0 3px rgba(crust,.18), background lightening) · nav links grow a 1.5px crust underline from the inline start over .28s · the du-jour board straightens from rotate(-.6deg) to 0 over .5s on hover.
 
-LENIS IS OPTIONAL AND OFF BY DEFAULT. If the brief asks for it: lerp .085, expose window.__lenis, wire lenis.on("scroll", ScrollTrigger.update) plus gsap.ticker.add((t)=>lenis.raf(t*1000)) with gsap.ticker.lagSmoothing(0). If you cannot wire it correctly, do not add it.
+SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE in this runtime — native scroll only. Do not load Lenis or any smooth-scroll script; every ScrollTrigger works directly on native scroll.
 
 ## The showpiece: LA POUSSE (the rise — the oven timeline)
 One pinned, scrubbed scene with three times the ambition of any other, narrating the making — rest, shape, bake, counter. The STAGES come from the brief; the FORM is yours.
@@ -185,7 +185,7 @@ One pinned, scrubbed scene with three times the ambition of any other, narrating
 - FOOT OF THE SLIP: a border-top hairline row, space-between, padding-top 1.5rem — a live TOTAL in the display face at 1.9rem weight 700 tabular-nums under a .8rem/.18em uppercase label, recomputing on every quantity and delivery change — beside the submit pill, with a .8rem line stating exactly what happens next, from the brief's facts. VALIDATION IS BLUR-GATED: a touched map so an error appears only after a field's first blur; errors in ember, full sentences in the baker's voice, min-height:1.2em reserved so nothing reflows.
 - SUBMIT: a 700ms pending state with a human present-tense label, then the slip CROSS-FADES IN PLACE into a success panel absolutely positioned over it in the same box (success in over .6s with .2s delay; form out over .4s to translateY(-8px) with visibility 0s .4s so focus never lands on a hidden element). The panel opens on a DRAWN STAMP — a hand-drawn circle-and-text SVG rotated -8deg scaling from .82 with autoAlpha 0 to 1 over .5s back.out(1.7), the order number in tabular display numerals inside it, the copy echoing the buyer's own name and choices. Persist in localStorage and restore the success state instantly on return.
 - TRUST STRIP: four items, each a drawn 1.6em doodle (scooter, coin, clock, phone) in THIS world's stroke language — irregular, round-capped, varied widths, never a Feather icon — over a .76rem/.2em uppercase micro-label and a .82rem body line. Between hairlines on farine, or with no rules at all on a beurre band. The one block whose cells may be centred.
-- Forms never pretend to POST to a server — though the moment validation passes, as the stamp lands, the page passes the order over the counter by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus quantité and delivery choice), and the slip carries one off-canvas decoy input marked data-wandit-hp that the page's own script never touches. The WhatsApp link and the tel: link work with JavaScript completely disabled.
+- Forms never pretend to POST to a server — though the moment validation passes, as the stamp lands, the page passes the order over the counter by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected), and the slip carries one off-canvas decoy input marked data-wandit-hp that the page's own script never touches. The WhatsApp link and the tel: link work with JavaScript completely disabled.
 
 ## Editorial furniture (REQUIRED — this is the fournil's voice)
 - MARGIN NOTES in the hand face, five maximum, rotated -4deg to +3deg, crust at .9, max-width 16ch, absolutely placed in a gutter with a FLÈCHE pointing at what they annotate (inline below 900px, arrow dropped). Always about the making — an hour, a quantity, a temperature, a person.
@@ -204,7 +204,7 @@ One pinned, scrubbed scene with three times the ambition of any other, narrating
 - Mirror the wave masks with transform:scaleX(-1) so an Arabic page's crest rhythm is not a carbon copy, mirror doodle rotations (-7deg becomes +7deg), and reverse the ticker so it reads with the language.
 
 ## Global rules this world overrides (state them, then do them)
-1. gsap.defaults({ease:"power2.out", duration:.75}) replaces power3.out/1.1, and the reveal band is .6-.9s not .9-1.4s. 2. Masked line-rise stagger is .07-.10 and the rise is yPercent 108. 3. back.out(1.6) is permitted, under strict caps (small objects, 14px, .5s). 4. Soft border-radius is NATIVE here in a family of five values; the ban on uniform card grids still holds in full. 5. Real 1.5-2.4px borders are legal and encouraged — they are ink lines. 6. A ticker is REQUIRED once, at 28s. 7. Centred text is permitted in exactly three places: trust-strip cells, the du-jour board's head, the closing wordmark. 8. Gradients are rationed to the five named jobs. 9. Lenis is permitted with its wiring contract; native scroll is the default.
+1. gsap.defaults({ease:"power2.out", duration:.75}) replaces power3.out/1.1, and the reveal band is .6-.9s not .9-1.4s. 2. Masked line-rise stagger is .07-.10 and the rise is yPercent 108. 3. back.out(1.6) is permitted, under strict caps (small objects, 14px, .5s). 4. Soft border-radius is NATIVE here in a family of five values; the ban on uniform card grids still holds in full. 5. Real 1.5-2.4px borders are legal and encouraged — they are ink lines. 6. A ticker is REQUIRED once, at 28s. 7. Centred text is permitted in exactly three places: trust-strip cells, the du-jour board's head, the closing wordmark. 8. Gradients are rationed to the five named jobs. 9. Smooth-scroll libraries are unavailable; native scroll is the only scroll.
 
 ## Fournil ban list (in addition to the global one)
 Pure white grounds or pure white text · neutral or cool grays · hairline or sub-400 display type (this world's display is FAT) · a three-card grid of "Petit-déjeuner / Déjeuner / Dîner" with icons on top · icon sets of any kind (Feather, Heroicons, Font Awesome, Material) and perfectly geometric badges · emoji anywhere, especially as food icons · a green WhatsApp blob · prices set inside body paragraphs instead of menu rows or price blocks · a menu row with a background, a radius or a shadow · a hero that is a wide shot of empty tables or a smiling stock team · white-background packshots · symmetric sine-wave dividers, CSS-triangle diagonals and blob dividers (the wave is HAND-CUT and asymmetric or it does not exist) · more than one handwriting face · more than five margin notes · more than eight ember appearances · steam over something cold · countdown timers and fake urgency · a full-width solid rectangle button · box-shadows on buttons, chips in flow, nav or menu rows · bouncing chevron scroll cues · per-character text splitting · more than one ambient loop · canvas · any hidden state authored in CSS · a page where the menu is a small block near the footer.
@@ -212,6 +212,7 @@ Pure white grounds or pure white text · neutral or cool grays · hairline or su
 ## Intensity
 This world fails by being merely pleasant. Warm colours and a rounded font buy a nice-looking takeaway template in twenty minutes — exactly the thing this world exists to beat. The difference lives in the parts a hurried build skips: leader dots running to every price, a wave genuinely hand-cut and different at every seam, six drawn glyphs with varied stroke weights that draw themselves in, five notes in a real hand pointing at real facts, a menu chapter designed with as much care as the hero, and a pinned rise that turns "we bake fresh daily" into something you watch happen. At 60 percent this is a beige page with a nice font. At 100 percent — flour dust over warm paper, a fat crust-coloured headline cropped tight with a drawn line under one word, a chalkboard leaning on a photograph, a conveyor of product names running past, and a menu you could actually order from — it looks like a shop that has fed the same street for twenty years and finally got a page worth its bread. Push INTO the warmth and INTO the specificity. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "boulange",
 	id: "fournil",
 	industries: [
 		"bakery",
@@ -232,6 +233,13 @@ This world fails by being merely pleasant. Warm colours and a rounded font buy a
 	kind: "website",
 	mood: ["warm", "handmade", "appetizing", "generous", "playful"],
 	name: "Fournil",
+	preview: {
+		ground: "#F6EFE1",
+		ink: "#2E2013",
+		accent: "#C1743A",
+		fontFamily: "Fraunces",
+		sampleWord: "Le fournil",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Flour-dusted warm paper, a fat rounded serif you almost want to bite, hand-drawn wheat and steam curling across every seam, and your menu typeset like a real board with dotted lines running to each DZD price — the page smells like the shop at six in the morning.",

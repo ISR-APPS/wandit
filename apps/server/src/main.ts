@@ -16,6 +16,7 @@ import {
 	FastifyAdapter,
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { feedbackRoutes } from "@wandit/contracts";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
@@ -68,6 +69,17 @@ async function bootstrap() {
 				done(null, body);
 			},
 		);
+	// Fastify accepts 1 MiB of JSON by default, and every route keeps that limit
+	// except feedback: its screenshot data URL alone can reach 2.6 MB. Nest
+	// registers the controller routes in `app.init()`, which `app.listen()` calls
+	// below, so this hook is in place before the feedback route is added.
+	adapter.getInstance().addHook("onRoute", (route) => {
+		const methods = Array.isArray(route.method) ? route.method : [route.method];
+
+		if (methods.includes("POST") && route.url === feedbackRoutes.create) {
+			route.bodyLimit = 4 * 1024 * 1024;
+		}
+	});
 	// All API routes start with `/api`, for example `/api/v1/chats/...`.
 	app.setGlobalPrefix("api", {
 		exclude: [{ path: "/", method: RequestMethod.GET }],
@@ -82,6 +94,7 @@ async function bootstrap() {
 			env.ADMIN_ORIGIN,
 		].filter((origin): origin is string => Boolean(origin)),
 		credentials: true,
+		exposedHeaders: ["Content-Disposition"],
 		methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 		allowedHeaders: [
 			"Content-Type",
@@ -122,6 +135,31 @@ async function bootstrap() {
 			whitelist: true,
 		}),
 	);
+	// Hardening headers for the API host (the web apps get theirs from
+	// vercel.json). HSTS only where TLS terminates for real.
+	const hstsEnabled = new URL(env.BETTER_AUTH_URL).protocol === "https:";
+	adapter.getInstance().addHook("onSend", (_request, reply, payload, done) => {
+		reply.header("X-Content-Type-Options", "nosniff");
+		if (hstsEnabled) {
+			reply.header(
+				"Strict-Transport-Security",
+				"max-age=31536000; includeSubDomains",
+			);
+		}
+		done(null, payload);
+	});
+
+	// `app.init()` is where Nest registers its default body parsers and routes.
+	// Nest adds an application/x-www-form-urlencoded parser that nothing here
+	// needs: every client sends JSON (or multipart for uploads, text/plain for
+	// the lead beacon). The only thing that speaks urlencoded to this API is a
+	// cross-site <form> forging a write, so drop the parser and let Fastify
+	// answer 415 before any handler runs — independent of the Origin guard.
+	await app.init();
+	const fastify = adapter.getInstance();
+	if (fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
+		fastify.removeContentTypeParser("application/x-www-form-urlencoded");
+	}
 
 	// Start listening after all setup is ready.
 	await app.listen({ host: "0.0.0.0", port: env.PORT });

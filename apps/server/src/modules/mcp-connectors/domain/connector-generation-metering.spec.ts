@@ -4,6 +4,8 @@ import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
 	connectorGenerationReference,
+	connectorProviderJobId,
+	sanitizeProviderReceipt,
 } from "./connector-generation-metering";
 
 describe("connector generation metering", () => {
@@ -18,14 +20,62 @@ describe("connector generation metering", () => {
 			childUnits: 1,
 		});
 		expect(connectorGenerationPlan("reframe", {})).toEqual({
-			childOperation: "image",
+			childOperation: "video",
 			childUnits: 1,
 		});
 		expect(connectorGenerationPlan("generateVideo", {})).toEqual({
 			childOperation: "video",
 			childUnits: 1,
 		});
+		expect(
+			connectorGenerationPlan("personal_clipper_create", { clips_num: 20 }),
+		).toEqual({
+			childOperation: "video",
+			childUnits: 1,
+		});
+		for (const toolName of [
+			"show_marketing_studio",
+			"video_analysis_create",
+			"video_analysis_status",
+			"video_analysis_jobs",
+		]) {
+			expect(connectorGenerationPlan(toolName, {})).toBeNull();
+		}
 		expect(connectorGenerationPlan("ads_get_ad_accounts", {})).toBeNull();
+	});
+
+	it.each([
+		"personal_clipper_jobs",
+		"personal_clipper_status",
+	])("keeps %s free on a monetized connector", (toolName) => {
+		expect(connectorGenerationPlan(toolName, {}, "higgsfield")).toBeNull();
+	});
+
+	it("reads the requested image count from Higgsfield's nested params", () => {
+		expect(
+			connectorGenerationPlan("generate_image", { params: { count: 4 } }),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 4,
+		});
+		expect(
+			connectorGenerationPlan("generate_image", {
+				params: JSON.stringify({ count: 3, prompt: "a vase" }),
+			}),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 3,
+		});
+		// Top-level count still wins when no nested params carry one.
+		expect(
+			connectorGenerationPlan("generate_image", {
+				count: 2,
+				params: { prompt: "a vase" },
+			}),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 2,
+		});
 	});
 
 	it("builds a stable operation reference from the tool-call identity", () => {
@@ -65,5 +115,67 @@ describe("connector generation metering", () => {
 						.gateway.generationId,
 			),
 		).toEqual(["gen-1", "gen-2"]);
+	});
+
+	it("fails closed for unknown tools on monetized connectors and open elsewhere", () => {
+		// Unknown Higgsfield tool: connector-billed (1 cc hold), tracked.
+		expect(connectorGenerationPlan("lipsync_pro", {}, "higgsfield")).toEqual(
+			{},
+		);
+		// Known free surfaces stay unmetered.
+		expect(connectorGenerationPlan("job_status", {}, "higgsfield")).toBeNull();
+		expect(
+			connectorGenerationPlan("media_import_url", {}, "higgsfield"),
+		).toBeNull();
+		expect(
+			connectorGenerationPlan("list_workspaces", {}, "higgsfield"),
+		).toBeNull();
+		expect(connectorGenerationPlan("get_cost", {}, "higgsfield")).toBeNull();
+		// Non-monetized connectors keep the open default; recovery callers pass
+		// no slug and keep it too.
+		expect(connectorGenerationPlan("lipsync_pro", {}, "meta-ads")).toBeNull();
+		expect(connectorGenerationPlan("lipsync_pro", {})).toBeNull();
+		// Registered generations are unaffected by the slug.
+		expect(connectorGenerationPlan("generate_video", {}, "higgsfield")).toEqual(
+			{ childOperation: "video", childUnits: 1 },
+		);
+	});
+
+	it("extracts the provider job id from a submit receipt but not echoed request ids", () => {
+		expect(
+			connectorProviderJobId({
+				content: [
+					{
+						text: JSON.stringify({ job_set_id: "js-1", request_id: "req-9" }),
+						type: "text",
+					},
+				],
+			}),
+		).toBe("js-1");
+		expect(
+			connectorProviderJobId({ jobs: [{ id: "x", job_id: "job-2" }] }),
+		).toBe("job-2");
+		expect(connectorProviderJobId({ row_id: 90210 })).toBe("90210");
+		expect(
+			connectorProviderJobId({
+				content: [
+					{
+						text: JSON.stringify({
+							request_id: "req-10",
+							row_id: "clip-row-3",
+						}),
+					},
+				],
+			}),
+		).toBe("clip-row-3");
+		expect(connectorProviderJobId({ request_id: "req-9" })).toBeNull();
+		expect(connectorProviderJobId("not json")).toBeNull();
+	});
+
+	it("bounds the stored receipt preview", () => {
+		expect(sanitizeProviderReceipt({ a: 1 })).toEqual({ a: 1 });
+		expect(sanitizeProviderReceipt({ a: "x".repeat(5_000) })).toMatchObject({
+			truncated: true,
+		});
 	});
 });

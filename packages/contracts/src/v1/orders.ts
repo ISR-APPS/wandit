@@ -22,10 +22,25 @@ export const paymentOrderStatusSchema = z.enum(paymentOrderStatuses);
 
 export type PaymentOrderStatus = z.infer<typeof paymentOrderStatusSchema>;
 
+const checkoutReturnPathSchema = z
+	.string()
+	.max(2048)
+	.startsWith("/")
+	.refine((path) => !path.startsWith("//"), {
+		message: "Return path must not include a host",
+	})
+	.refine((path) => !path.includes("\\"), {
+		message: "Return path must not contain backslashes",
+	})
+	.refine((path) => !/\p{Cc}/u.test(path), {
+		message: "Return path must not contain control characters",
+	});
+
 export const createDomainOrderBodySchema = z.object({
 	domain: domainNameSchema,
 	registrant: registrantSchema,
 	projectId: uuidSchema.optional(),
+	returnPath: checkoutReturnPathSchema.optional(),
 	whoisPrivacy: z.boolean().optional(),
 });
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
 	AffiliateAdminAffiliateRecord,
 	AffiliateAdminAffiliateRow,
+	AffiliateAdminAttributionRecord,
 	AffiliateAdminLinkRecord,
 	AffiliateAdminPayoutRow,
 	AffiliateAdminProgramRecord,
@@ -19,7 +20,13 @@ const LINK_ID = "33333333-3333-4333-8333-333333333333";
 const PAYOUT_ID = "44444444-4444-4444-8444-444444444444";
 const REQUEST_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = new Date("2026-08-02T12:00:00.000Z");
+const FIRST_PAID_AT = new Date("2026-07-01T12:00:00.000Z");
 const affiliateTransaction = {} as never;
+const LINKED_USER = {
+	id: "user_1",
+	name: "Ada User",
+	email: "ada.user@example.com",
+};
 
 function programRow(
 	overrides: Partial<AffiliateAdminProgramRow> = {},
@@ -89,6 +96,10 @@ function affiliateRecord(
 			uniqueVisitorCount: 20,
 			attributedUserCount: 8,
 			paidCustomerCount: 5,
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
 			paidInvoiceCount: 12,
 			lastConversionAt: NOW,
 			currencies: [],
@@ -128,6 +139,42 @@ function linkRecord(expiresAt: Date | null = null): AffiliateAdminLinkRecord {
 	};
 }
 
+function attributionRecord(): AffiliateAdminAttributionRecord {
+	return {
+		attribution: {
+			id: REQUEST_ID,
+			userId: "user_2",
+			linkId: LINK_ID,
+			affiliateId: AFFILIATE_ID,
+			programId: PROGRAM_ID,
+			programKind: "percentage_recurring",
+			commissionRateBps: 2_000,
+			fixedAmountCents: null,
+			fixedCurrency: null,
+			commissionDurationMonths: 12,
+			clickedAt: FIRST_PAID_AT,
+			lockedAt: FIRST_PAID_AT,
+			source: "manual",
+			status: "active",
+			fraudFlags: [],
+			createdAt: FIRST_PAID_AT,
+			updatedAt: NOW,
+		},
+		user: { id: "user_2", name: "Grace Customer", email: "grace@example.com" },
+		link: { id: LINK_ID, code: "ada-ref", label: "Main" },
+		program: {
+			id: PROGRAM_ID,
+			kind: "percentage_recurring",
+			name: "Partner program",
+			status: "active",
+		},
+		paidInvoiceCount: 2,
+		firstPaidAt: FIRST_PAID_AT,
+		lastPaidAt: NOW,
+		currencies: [],
+	};
+}
+
 function payoutRow(): AffiliateAdminPayoutRow {
 	return {
 		id: PAYOUT_ID,
@@ -157,6 +204,7 @@ function setup() {
 		archiveProgram: vi.fn(),
 		listAffiliates: vi.fn(),
 		getAffiliate: vi.fn(),
+		findUserIdentity: vi.fn().mockResolvedValue(LINKED_USER),
 		createAffiliate: vi.fn(),
 		updateAffiliate: vi.fn(),
 		listLinks: vi.fn(),
@@ -233,6 +281,12 @@ describe("AffiliateAdminService", () => {
 		expect(result.total).toBe(18);
 		expect(result.summary.activeAffiliateCount).toBe(14);
 		expect(result.items[0]?.affiliate.createdAt).toBe(NOW.toISOString());
+		expect(result.items[0]?.aggregates).toMatchObject({
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
+		});
 		expect(result.items[0]?.aggregates.lastConversionAt).toBe(
 			NOW.toISOString(),
 		);
@@ -256,6 +310,56 @@ describe("AffiliateAdminService", () => {
 			selfReferralService.recheckAffiliate,
 		);
 		expect(result.payoutDetails).toEqual({ account: "hidden" });
+		expect(result.linkedUser).toEqual(LINKED_USER);
+		expect(result.aggregates).toMatchObject({
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
+		});
+	});
+
+	it("returns the linked web user identity in affiliate detail", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.listAllLinks.mockResolvedValue([]);
+
+		const result = await service.getAffiliate(AFFILIATE_ID);
+
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("user_1");
+		expect(result.linkedUser).toEqual(LINKED_USER);
+	});
+
+	it("returns a null linked user when the affiliate has no user id", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(
+			affiliateRecord({ userId: null }),
+		);
+		repository.listAllLinks.mockResolvedValue([]);
+
+		const result = await service.getAffiliate(AFFILIATE_ID);
+
+		expect(repository.findUserIdentity).not.toHaveBeenCalled();
+		expect(result.linkedUser).toBeNull();
+	});
+
+	it("rejects an unknown linked user before creating or rechecking", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.createAffiliate({
+			userId: "missing_user",
+			name: "Ada Partner",
+			email: "ada@example.com",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Linked user not found");
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("missing_user");
+		expect(repository.createAffiliate).not.toHaveBeenCalled();
+		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
 	});
 
 	it("does not run a self-referral recheck when an update target is missing", async () => {
@@ -268,6 +372,24 @@ describe("AffiliateAdminService", () => {
 		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
 	});
 
+	it("checks the update target before validating a linked user", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.getAffiliate.mockResolvedValue(null);
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.updateAffiliate(AFFILIATE_ID, {
+			userId: "missing_user",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Affiliate not found");
+		expect(repository.getAffiliate).toHaveBeenCalledWith(AFFILIATE_ID);
+		expect(repository.findUserIdentity).not.toHaveBeenCalled();
+		expect(repository.updateAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
+	});
+
 	it("updates affiliate identity and rechecks self-referral in one locked mutation", async () => {
 		const { repository, selfReferralService, service } = setup();
 		repository.updateAffiliate.mockResolvedValue(affiliateRow());
@@ -276,6 +398,10 @@ describe("AffiliateAdminService", () => {
 
 		await service.updateAffiliate(AFFILIATE_ID, { userId: "user_1" });
 
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("user_1");
+		expect(repository.findUserIdentity).toHaveBeenCalledBefore(
+			selfReferralService.mutateAndRecheckAffiliate,
+		);
 		expect(selfReferralService.mutateAndRecheckAffiliate).toHaveBeenCalledWith(
 			AFFILIATE_ID,
 			expect.any(Function),
@@ -285,6 +411,24 @@ describe("AffiliateAdminService", () => {
 			{ userId: "user_1" },
 			affiliateTransaction,
 		);
+		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unknown linked user before updating or rechecking", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.updateAffiliate(AFFILIATE_ID, {
+			userId: "missing_user",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Linked user not found");
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("missing_user");
+		expect(repository.updateAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
 		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
 	});
 
@@ -337,6 +481,29 @@ describe("AffiliateAdminService", () => {
 		});
 
 		expect(result.items[0]?.link.status).toBe("expired");
+		expect(result.items[0]?.aggregates.lastConversionAt).toBe(
+			NOW.toISOString(),
+		);
+	});
+
+	it("maps attribution aggregate dates to API timestamps", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.listAttributions.mockResolvedValue({
+			items: [attributionRecord()],
+			page: 1,
+			pageSize: 20,
+			total: 1,
+		});
+
+		const result = await service.listAttributions(AFFILIATE_ID, {
+			fraud: "all",
+			page: 1,
+			pageSize: 20,
+		});
+
+		expect(result.items[0]?.firstPaidAt).toBe(FIRST_PAID_AT.toISOString());
+		expect(result.items[0]?.lastPaidAt).toBe(NOW.toISOString());
 	});
 
 	it("passes the authenticated admin id to the atomic payout builder", async () => {
@@ -374,6 +541,7 @@ describe("AffiliateAdminService", () => {
 				}),
 				aggregates: {
 					...affiliateRecord().aggregates,
+					referredLtvCents: null,
 					currencies: [
 						{
 							currency: "eur",
@@ -401,10 +569,15 @@ describe("AffiliateAdminService", () => {
 
 		expect(download.fileName).toBe("affiliates.csv");
 		expect(lines).toHaveLength(3);
-		expect(lines[0]?.split(",")).toHaveLength(24);
+		expect(lines[0]?.split(",")).toHaveLength(28);
+		expect(lines[0]).toContain(
+			"healthy_trials,churned_customers,referred_mrr_cents,referred_ltv_cents",
+		);
 		expect(lines[0]?.match(/attributed_revenue_cents/g)).toHaveLength(1);
 		expect(lines[1]).toContain("'=IMPORTXML");
 		expect(lines[1]).toContain('"Acme, ""Labs"""');
+		expect(lines[1]).toContain(",5,3,2,12500,,12,");
+		expect(lines[1]).toContain(`,12,${NOW.toISOString()},eur,`);
 		expect(lines[1]).toContain(",eur,");
 		expect(lines[2]).toContain(",usd,");
 	});

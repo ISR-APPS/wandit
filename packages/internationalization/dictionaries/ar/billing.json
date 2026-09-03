@@ -17,8 +17,7 @@
 		"subscriptionTitle": "الخطة الحالية",
 		"subscriptionDescription": "حالة اشتراكك وتفاصيل التجديد.",
 		"noSubscriptionTitle": "لا يوجد اشتراك نشط",
-		"noSubscriptionBody": "اختر فئة أرصدة Pro عندما تصبح مستعدًا للاشتراك.",
-		"proPlan": "Pro",
+		"noSubscriptionBody": "اختر خطة عندما تصبح مستعدًا للاشتراك.",
 		"statusLabel": "الحالة",
 		"renewsLabel": "يتجدد في",
 		"endsLabel": "ينتهي في",
@@ -30,6 +29,20 @@
 		"cancelPlan": "إلغاء الخطة",
 		"cancelTitle": "هل تريد إلغاء اشتراكك؟",
 		"cancelBody": "تبقى خطتك نشطة حتى نهاية فترة الفوترة الحالية. يمكنك استئنافها قبل ذلك.",
+		"cancelReasonPrompt": "ما السبب الرئيسي لإلغاء اشتراكك؟",
+		"cancelReasons": {
+			"too_expensive": "السعر مرتفع جدًا",
+			"not_using_enough": "لا أستخدمه بما يكفي",
+			"missing_features": "تنقصه ميزات أحتاج إليها",
+			"technical_issues": "مشكلات تقنية",
+			"switching_provider": "سأنتقل إلى أداة أخرى",
+			"temporary_pause": "سأتوقف مؤقتًا في الوقت الحالي",
+			"other": "سبب آخر"
+		},
+		"cancelDetailsLabel": "أخبرنا بالمزيد",
+		"cancelDetailsOptional": "(اختياري)",
+		"cancelDetailsPlaceholder": "شارك أي تفاصيل قد تساعدنا على التحسين.",
+		"cancelDetailsRequired": "يرجى تزويدنا ببعض التفاصيل.",
 		"keepPlan": "الاحتفاظ بالخطة",
 		"confirmCancel": "الإلغاء في نهاية الفترة",
 		"cancelling": "جارٍ جدولة الإلغاء…",
@@ -44,7 +57,25 @@
 		"ledgerDescription": "سجل كامل للمنح والاستخدام والانتهاء وعمليات الشحن.",
 		"previousPage": "السابق",
 		"nextPage": "التالي",
-		"pageStatus": "الصفحة {page} من {totalPages}"
+		"pageStatus": "الصفحة {page} من {totalPages}",
+		"offline": {
+			"badge": "مدفوع خارج المنصة",
+			"expiresLabel": "ينتهي في",
+			"requestChange": "طلب التجديد أو التغيير",
+			"graceTitle": "موعد الدفع خارج المنصة",
+			"graceNotice": "انتهت فترة اشتراكك المدفوعة في ⁨{endDate}⁩. جدّد قبل ⁨{accessEndDate}⁩ للاحتفاظ بخطتك.",
+			"pending": {
+				"title": "طلب الدفع خارج المنصة قيد الانتظار",
+				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
+				"cancel": "إلغاء الطلب",
+				"cancelling": "جارٍ الإلغاء…",
+				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
+				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
+				"keep": "الاحتفاظ بالطلب",
+				"confirmCancel": "إلغاء الطلب",
+				"cancelSuccess": "تم إلغاء طلبك."
+			}
+		}
 	},
 	"status": {
 		"active": "نشط",
@@ -67,8 +98,37 @@
 		"betaBadge": "نسخة تجريبية خاصة",
 		"betaTitle": "عمليات الشراء غير متاحة بعد",
 		"betaBody": "تبقى أرصدتك الحالية متاحة أثناء توقف الاشتراكات وحزم الشحن.",
-		"chooseTitle": "اختر خطة Pro",
+		"chooseTitle": "اختر خطتك",
 		"chooseDescription": "اختر دورة الفوترة وكمية الأرصدة الشهرية المناسبة لعملك.",
+		"starterName": "Starter",
+		"starterTagline": "لمتجرك الأول وحملاتك الأولى",
+		"proName": "Pro",
+		"proTagline": "للبائعين الذين ينشئون ويحسّنون أعمالهم كل شهر",
+		"popularBadge": "الأكثر رواجًا",
+		"businessName": "الأعمال",
+		"businessTagline": "للفرق التي تتشارك رصيدًا واحدًا",
+		"businessFromPrice": "ابتداءً من {price}",
+		"starterFeatures": [
+			"توليد الصور والفيديو بالذكاء الاصطناعي",
+			"نطاقات مخصصة",
+			"النشر مجاني دائمًا"
+		],
+		"proFeatures": [
+			"رصيد خطة جديد كل شهر",
+			"أدوات تسويق وحملات بالذكاء الاصطناعي",
+			"توليد الصور والفيديو بالذكاء الاصطناعي",
+			"مكتبة الأصول",
+			"نطاقات مخصصة",
+			"ربط التطبيقات والتكاملات",
+			"إدارة العملاء المحتملين لطلباتك",
+			"النشر مجاني دائمًا"
+		],
+		"businessFeatures": [
+			"كل ما في باقة Pro",
+			"رصيد مشترك واحد لكامل الفريق",
+			"أدوار ودعوات وحدود رصيد لكل عضو",
+			"مقاعد غير محدودة — تدفع مقابل الرصيد لا الأشخاص"
+		],
 		"changeTitle": "تغيير خطتك",
 		"changeDescription": "عاين المبلغ الدقيق وتغيير الأرصدة قبل التأكيد.",
 		"currentPlan": "الاشتراك الحالي",
@@ -80,6 +140,14 @@
 		"twoMonthsFree": "شهران مجانًا",
 		"yearlyToMonthlyUnavailable": "التحويل من الخطة السنوية إلى الشهرية غير متاح في هذا الإصدار.",
 		"creditTier": "الأرصدة شهريًا",
+		"creditsEveryMonth": {
+			"zero": "لا أرصدة كل شهر",
+			"one": "رصيد واحد كل شهر",
+			"two": "رصيدان كل شهر",
+			"few": "{count} أرصدة كل شهر",
+			"many": "{count} رصيدًا كل شهر",
+			"other": "{count} رصيد كل شهر"
+		},
 		"selectedPrice": "سعر الخطة",
 		"perMonth": "/ شهر",
 		"perYear": "/ سنة",
@@ -89,11 +157,12 @@
 		"currentSelection": "الخطة الحالية",
 		"preparing": "جارٍ التحضير…",
 		"previewChange": "معاينة التغيير",
-		"continueToCheckout": "المتابعة إلى الدفع",
+		"continueToCheckout": "ترقية",
 		"previewTitle": "مراجعة تغيير الخطة",
 		"previewDescription": "تُثبّت هذه المعاينة لفترة قصيرة حتى يبقى المبلغ المؤكد متسقًا.",
 		"newPlan": "الخطة الجديدة",
 		"payNowCredits": "ادفع {amount} الآن · {credits} رصيدًا",
+		"upgradeExplanation": "يُحصَّل سعر الفئة الجديدة كاملًا الآن ويُعاد إليك المبلغ عن المدة غير المستخدمة من فئتك الحالية. تُعاد أرصدة خطتك فورًا إلى الحصة الكاملة للفئة الجديدة.",
 		"changesAtRenewal": "يتغير عند التجديد",
 		"downgradeExplanation": "تبقى فئتك الحالية نشطة حتى نهاية هذه الفترة. تبدأ الفئة الأقل عند التجديد.",
 		"back": "رجوع",
@@ -119,6 +188,100 @@
 		"paymentAttentionTitle": "أصلح دفعة الاشتراك",
 		"paymentAttentionBody": "افتح بوابة الفوترة لمعالجة الدفع قبل تغيير الفئة.",
 		"openPortal": "فتح بوابة الفوترة",
-		"close": "إغلاق"
+		"close": "إغلاق",
+		"offline": {
+			"tabs": {
+				"ariaLabel": "طريقة الدفع",
+				"card": "البطاقة",
+				"offline": "الدفع عند الاستلام"
+			},
+			"managed": {
+				"title": "تُدار خطتك خارج المنصة",
+				"body": "أرسل إلينا طلبًا لتغييرها أو تجديدها."
+			},
+			"cardActive": {
+				"title": "خطتك مدفوعة بالبطاقة",
+				"body": "للتحول إلى الدفع نقدًا أو بالتحويل، ألغِ اشتراكك بالبطاقة أولًا — يبقى نشطًا حتى نهاية الفترة المدفوعة — ثم أرسل لنا طلبًا."
+			},
+			"title": "الدفع نقدًا أو بالتحويل",
+			"description": "اختر خطتك وأدخل بيانات التواصل. سنتصل بك لترتيب الدفع.",
+			"localPriceNote": "سنتفق معك على السعر المحلي أثناء المكالمة.",
+			"steps": {
+				"label": "الخطوة {current} من {total}",
+				"plan": "اختر خطتك"
+			},
+			"continue": "متابعة",
+			"changePlan": "تغيير",
+			"form": {
+				"title": "بيانات التواصل",
+				"description": "أدخل البيانات التي سنستخدمها للتواصل معك بشأن هذا الطلب.",
+				"required": "مطلوب",
+				"optional": "اختياري",
+				"fullNameLabel": "الاسم الكامل",
+				"fullNamePlaceholder": "أدخل اسمك الكامل",
+				"phoneLabel": "رقم الهاتف",
+				"phonePlaceholder": "مثال: ⁨+213 555 12 34 56⁩",
+				"phoneHint": "أدخل رمز الاتصال الدولي.",
+				"companyLabel": "الشركة",
+				"companyPlaceholder": "اسم الشركة",
+				"countryLabel": "البلد",
+				"countryPlaceholder": "اختر بلدًا",
+				"cityLabel": "المدينة",
+				"cityPlaceholder": "اسم المدينة",
+				"preferredMethodLabel": "طريقة الدفع المفضلة",
+				"preferredMethodPlaceholder": "اختر طريقة دفع",
+				"noMethodPreference": "لا تفضيل",
+				"notesLabel": "ملاحظات",
+				"notesPlaceholder": "أضف أي تفاصيل قد تساعد أثناء المكالمة."
+			},
+			"methods": {
+				"cash_on_delivery": "الدفع نقدًا عند الاستلام",
+				"bank_transfer": "تحويل بنكي",
+				"ccp": "الحساب البريدي الجاري (⁨CCP⁩)",
+				"baridimob": "بريدي موب (⁨BaridiMob⁩)",
+				"other": "طريقة أخرى"
+			},
+			"countries": {
+				"DZ": "الجزائر",
+				"TN": "تونس",
+				"MA": "المغرب",
+				"OTHER": "بلد آخر"
+			},
+			"validation": {
+				"plan": "اختر خطة صالحة.",
+				"tierCredits": "اختر فئة أرصدة.",
+				"interval": "اختر دورة فوترة.",
+				"fullName": "أدخل اسمًا من حرفين على الأقل وبحد أقصى 120 حرفًا.",
+				"phone": "أدخل رقم هاتف صالحًا.",
+				"company": "يجب ألا يتجاوز اسم الشركة 120 حرفًا.",
+				"country": "اختر بلدًا.",
+				"city": "يجب ألا يتجاوز اسم المدينة 120 حرفًا.",
+				"preferredPaymentMethod": "اختر طريقة دفع صالحة.",
+				"notes": "يجب ألا تتجاوز الملاحظات ألف حرف.",
+				"generic": "تحقق من هذا الحقل."
+			},
+			"submit": "إرسال الطلب",
+			"submitting": "جارٍ الإرسال…",
+			"close": "إغلاق",
+			"success": {
+				"title": "تم استلام الطلب",
+				"body": "استلمنا طلبك. سنتصل بك قريبًا على الرقم ⁨{phone}⁩."
+			},
+			"pending": {
+				"title": "طلب الدفع خارج المنصة قيد الانتظار",
+				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
+				"planLabel": "الخطة",
+				"tierLabel": "فئة الأرصدة",
+				"cycleLabel": "دورة الفوترة",
+				"createdLabel": "تاريخ الإرسال",
+				"cancel": "إلغاء الطلب",
+				"cancelling": "جارٍ الإلغاء…",
+				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
+				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
+				"keep": "الاحتفاظ بالطلب",
+				"confirmCancel": "إلغاء الطلب",
+				"cancelSuccess": "تم إلغاء طلبك."
+			}
+		}
 	}
 }

@@ -29,6 +29,18 @@ describe("DomainsController rate limits", () => {
 		});
 	});
 
+	it("rate-limits DNS diagnostics to ten checks per minute", () => {
+		expect(
+			reflect.getMetadata(
+				"domain_rate_limit",
+				DomainsController.prototype.dnsStatus,
+			),
+		).toEqual({
+			limit: 10,
+			windowMs: 60_000,
+		});
+	});
+
 	it("no longer exposes the credits-era purchase and renew routes", () => {
 		const prototype = DomainsController.prototype as unknown as Record<
 			string,

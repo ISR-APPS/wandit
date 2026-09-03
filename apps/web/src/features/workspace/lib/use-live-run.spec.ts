@@ -14,7 +14,26 @@ vi.mock("@trigger.dev/react-hooks", () => ({
 		error: options.id ? transports.errorsByRunId[options.id] : transports.error,
 		run: transports.streamedRun,
 	}),
-	useRun: () => ({ run: transports.polledRun }),
+	// Mirrors the real hook's sharp edges: a token-less call survives ONLY
+	// when it is explicitly disabled — otherwise useApiClient throws in
+	// render — and a null SWR key never fetches, so the null-key gate is the
+	// mechanism that actually stops the poll.
+	useRun: (
+		runId: string | null,
+		options?: { accessToken?: string; enabled?: boolean },
+	) => {
+		if (!options?.accessToken) {
+			if (options?.enabled === false) {
+				return { run: undefined };
+			}
+
+			throw new Error(
+				"Missing accessToken in TriggerAuthContext or useApiClient options",
+			);
+		}
+
+		return { run: runId === null ? undefined : transports.polledRun };
+	},
 }));
 
 import { pickFresher, useLiveRun } from "./use-live-run";
@@ -140,6 +159,17 @@ describe("pickFresher", () => {
 });
 
 describe("useLiveRun", () => {
+	it("renders disabled without a handle instead of throwing (crashed-retry regression)", async () => {
+		const view = await renderLiveRunHook({
+			enabled: true,
+			handle: undefined,
+		});
+
+		expect(view.result.status).toBeUndefined();
+		expect(view.result.settled).toBe(false);
+		expect(view.result.failed).toBe(false);
+	});
+
 	it("keeps a polled terminal snapshot after teardown reveals a stale fixing stream", async () => {
 		const onSettled = vi.fn();
 		transports.streamedRun = {

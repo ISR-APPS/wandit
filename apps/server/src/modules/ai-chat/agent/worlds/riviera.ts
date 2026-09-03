@@ -145,9 +145,9 @@ Copy at z-index 2: an authored h1 in linen with ONE italic word, a lede capped a
 - CENTERING IS ALLOWED IN TWO PLACES ONLY: the italic line inside LE LARGE and the closing wordmark.
 - RESPONSIVE: below 1024px two-column grids become one and sticky becomes static; below 900px LA CÔTE stacks and the mobile reservation bar appears; below 720px --sea becomes 50%, the sun hides, plates un-rotate, the QUAI becomes 2x2. Structural collapse only — never delete a scene on mobile.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis OPTIONAL and welcome here)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set() inside that branch; no stylesheet here contains opacity:0 or a transform on content. If the CDN dies, the page is a complete, readable folio with a hard-cut day arc.
-Lenis is the one library this world genuinely wants — the tide reads better on eased scroll (lerp .085, wheelMultiplier 1). If you load it: expose window.__lenis, drive ScrollTrigger from its scroll event, kill it under reduced motion, and keep every anchor working without it.
+Smooth-scroll libraries are unavailable in this runtime — native scroll only. The tide is choreographed directly on native scroll: long scrub distances and gentle eases carry the eased feeling, and every anchor works natively.
 
 SHARED IDENTITY: gsap.defaults({ease:"power3.out", duration:1.1}); all CSS transitions on cubic-bezier(.22,.68,.16,1); power4.out for masked rises, power3.inOut for clip openings, power2.inOut for rules drawing, sine.inOut for ambient, none for scrubbed.
 TIMING BANDS: .25-.4s interaction · .5-.7s component state · .9-1.5s narrative reveals · 1.6s rule draws · 1.9s image settle · 2.4-3.6s ambient swells · 34s marquee.
@@ -213,7 +213,7 @@ Every page ships all of these, in the page's language and the world's voice. The
 1. HAIRLINES: global calls a 1px rule the weakest seam and allows at most ONE per page. Here the horizon rule is a MOTIF, not a seam, and recurs in every scene — while scene BOUNDARIES still use the seam vocabulary above, so a bare rule plus whitespace is never a boundary.
 2. RADIUS: global tolerates soft rounded containers; here radius exists in exactly three treatments (var(--radius) pills and steppers, 50% true circles, min(var(--radius), 3px) on the textarea) and a 12-16px radius on any content container is a ban-list violation. Shape is carried by four aspect ratios instead.
 3. TONAL ROLE COUNT: eleven ground, text and accent roles, all routed through the fixed tokens; validation is a mix of var(--primary) and var(--foreground), never an outside hue.
-4. SMOOTH SCROLL: Lenis is permitted and welcome here under the wiring contract above, because the tide reads better on eased scroll; native scroll remains a complete fallback.
+4. SMOOTH SCROLL: smooth-scroll libraries are unavailable — the tide runs on native scroll, with long scrub distances doing the easing work.
 5. AMBIENT LOOPS: global allows one; here up to THREE elements swell simultaneously on de-synced 2.6 / 3.2 / 3.6s cycles, because water does not move in unison. A fourth is banned.
 6. CENTRING: permitted in exactly two places — the interlude's written line and the closing wordmark.
 
@@ -223,6 +223,7 @@ Cyan-to-blue gradients and any tropical-travel-agency palette · a booking or da
 ## Intensity
 This world fails in exactly one way: half-committed. A horizon rule drawn in three scenes instead of eleven; a ground arc with two stops instead of six; a photograph cropped at the default center; one italic word forgotten. Each of those is invisible on its own and together they turn Riviera into a nice blue hotel page — precisely the thing it exists to replace. Executed at 100% — one line held at 58% down every scene, the sea welding to the paper, the sun descending as you read, the ground turning from breakfast light to after-dinner blue, a stamped postcard lying across the water — the page reads like a folio somebody printed because they love the place. Push INTO the light. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "promenade",
 	id: "riviera",
 	industries: [
 		"hotel",
@@ -243,6 +244,13 @@ This world fails in exactly one way: half-committed. A horizon rule drawn in thr
 	kind: "website",
 	mood: ["luminous", "coastal", "romantic", "unhurried", "sunlit"],
 	name: "Riviera",
+	preview: {
+		ground: "#FBF6EC",
+		ink: "#1C1A16",
+		accent: "#F2DFC6",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "La Riviera",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Mediterranean light on paper: one hairline horizon running through every scene, stamped postcards lying across the water, and a page whose background travels from morning white to after-dinner blue as you scroll.",

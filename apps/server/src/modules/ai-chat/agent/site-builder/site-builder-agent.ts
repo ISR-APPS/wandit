@@ -10,8 +10,11 @@
  * The loop is ONE deliberate build pass → code review → rendered review →
  * finish. Successful writes and edits count as their own source review.
  */
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
+
+import {
+	MAX_SOURCE_IMAGES_PER_GENERATION,
+	PAGE_TOKEN_NAMES,
+} from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
 	isStepCount,
@@ -22,14 +25,30 @@ import {
 } from "ai";
 import * as cheerio from "cheerio";
 import { z } from "zod";
+import {
+	createLlmModel,
+	gatewayRoutingForModel,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
+import {
+	type MeasuredOperationReservation,
+	measuredDirectSettlement,
+	measuredReserveCredits,
+	reservationTermsFromEvent,
+} from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { MeasuredCostEstimateInput } from "../../../metering/application/services/model-pricing.service";
 import {
 	fixedGenerationStepUsage,
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
-	withGatewayAttribution,
 } from "../../../metering/domain/gateway-metering";
-import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
+import { ensureDocumentTitle } from "../../../pages/domain/document-title";
+import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
+import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
+import { optimizeImageMarkup } from "../../../pages/domain/optimize-image-markup";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
 	isStampableContainer,
@@ -37,7 +56,9 @@ import {
 	stampHtml,
 } from "../../../pages/domain/stamp";
 import type { BuilderReasoningOption } from "../tools/builder-model-options";
+import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
+import { composeBuildStartMessages } from "./build-start-messages";
 import {
 	BUILD_IMAGE_ASPECTS,
 	type BuildImageAspect,
@@ -47,8 +68,10 @@ import {
 import {
 	type BuildVideoAspect,
 	generateBuildVideo,
+	IMAGE_VIDEO_DURATION_SECONDS,
 	MAX_VIDEOS,
 	VIDEO_ASPECTS,
+	videoCostEstimateInput,
 } from "./generate-video";
 import {
 	modelNeedsToolImageRelocation,
@@ -82,6 +105,12 @@ export type SiteBuildParams = {
 	onGenerationError?: (error: unknown) => Promise<void> | void;
 	/** Durable per-step metering sink; awaited before the next agent step. */
 	onStepEnd?: (step: SiteBuildMeteringStep) => Promise<void> | void;
+	/**
+	 * COD build path: "simple" keeps the cheap 2-pass review profile its
+	 * prompt promises; "max" (and legacy undefined) runs the deep 4-pass
+	 * review. Validation always keys on pageKind alone.
+	 */
+	codMode?: "simple" | "max";
 	/** Selects the validation contract for the generated landing page. */
 	pageKind?: "cod" | "website";
 	/** Generated images upload under this project's R2 prefix. */
@@ -354,6 +383,7 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	codMode?: "simple" | "max";
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	pageKind?: "cod" | "website";
@@ -381,9 +411,12 @@ type GenerateImageOutput =
 	| { message: string; status: "failed" | "unavailable" }
 	| {
 			aspect: BuildImageAspect;
+			/** Intrinsic pixels of the stored object; absent on older parts. */
+			height?: number;
 			role: string;
 			status: "generated";
 			url: string;
+			width?: number;
 	  };
 
 type ScreenshotPageOutput =
@@ -426,7 +459,12 @@ export type BuilderTools = {
 	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
-		{ aspect: BuildImageAspect; prompt: string; role: string },
+		{
+			aspect: BuildImageAspect;
+			prompt: string;
+			role: string;
+			sourceImageUrls?: string[];
+		},
 		GenerateImageOutput
 	>;
 	list_files: Tool<
@@ -465,8 +503,12 @@ function createEditContext(
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const { pageKind = "website", screenshots, state, vfs } = params;
-	const requiredScreenshotPasses = REQUIRED_SCREENSHOT_PASSES_BY_KIND[pageKind];
-	const maxScreenshotPasses = MAX_SCREENSHOT_PASSES_BY_KIND[pageKind];
+	// Simple COD keeps the cheap 2-pass profile its prompt promises; only max
+	// COD runs the deep 4-pass review. Validation still keys on pageKind.
+	const passKind: BuilderPageKind =
+		pageKind === "cod" && params.codMode === "simple" ? "website" : pageKind;
+	const requiredScreenshotPasses = REQUIRED_SCREENSHOT_PASSES_BY_KIND[passKind];
+	const maxScreenshotPasses = MAX_SCREENSHOT_PASSES_BY_KIND[passKind];
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
@@ -489,8 +531,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"OPTIONAL: animate ONE existing image (a generate_image URL or a " +
 				"user asset from the brief) into a short (~5s) looping ambient " +
-				"background video. Use it ONLY when subtle motion genuinely " +
-				"elevates a section — a hero atmosphere, a fabric drift — never by " +
+				"background video. User uploads may be JPEG, PNG, or WebP; the " +
+				"platform automatically repairs source format, size, and aspect where " +
+				"possible, but refuses images beyond 1:4–4:1 or over 25 MB, and very " +
+				"small photos can animate softly. Use it ONLY when subtle motion " +
+				"genuinely elevates a section — a hero atmosphere, a fabric drift — never by " +
 				`default, never more than ${MAX_VIDEOS} per build. Embed the ` +
 				'result as <video autoplay muted loop playsinline poster="<posterUrl>"> ' +
 				"with the still image as poster. On unavailable/failed, keep the " +
@@ -516,19 +561,30 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videosGenerated += 1;
 				state.videoSequence += 1;
 				const index = state.videoSequence;
-				const childEvent =
+				const plan = resolveVideoGenerationPlan({
+					durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
+					kind: "i2v",
+					multiShot: false,
+					narration: false,
+					quality: "standard",
+					talking: false,
+				});
+				const childReservation =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve(
-								"video",
-								params.subject,
-								{
+						? await reserveMeasuredChild(params.meteringService, "video", {
 								attemptRef: `${params.attemptId}:video:${index}`,
-								credits: fixedOperationCredits("video"),
+								estimate: videoCostEstimateInput({
+									audio: false,
+									durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
+									modelId: plan.modelId,
+								}),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
-								model: env.AI_VIDEO_MODEL ?? null,
+								model: plan.modelId,
 								parentEventId: params.usageEventId,
+								subject: params.subject,
 							})
 						: null;
+				const childEvent = childReservation?.event ?? null;
 				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildVideo({
@@ -537,6 +593,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
+					modelId: plan.modelId,
 					metering: {
 						operation: "video",
 						organizationId: params.subject.organizationId ?? null,
@@ -561,11 +618,12 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 							}
 						: {}),
 					projectId: params.projectId,
+					voiceControl: false,
 				});
 
 				if (result.status !== "generated") {
 					state.videosGenerated -= 1;
-					if (childEvent && params.meteringService) {
+					if (childReservation && childEvent && params.meteringService) {
 						if (hasGatewayGenerationMetadata(result)) {
 							const providerUnits =
 								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
@@ -578,21 +636,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 										stepUsage: fixedGenerationStepUsage(
 											result.usage,
 											providerUnits,
+											providerUnits === 0 ? "refunded_failure" : undefined,
 										),
 									},
 								);
 							}
 							await params.meteringService.settle(childEvent.id, {
-								finalCredits:
-									providerUnits === 0
-										? 0
-										: fixedOperationCredits("video", providerUnits),
+								...measuredDirectSettlement(childReservation.reservation, {
+									completedUnits: providerUnits,
+								}),
 								model: result.model,
-								pricing: "direct",
-								pricingSnapshot: {
-									...fixedPricingSnapshot("video"),
-									units: providerUnits,
-								},
 								rawUsage: result.usage ?? null,
 							});
 						} else {
@@ -607,7 +660,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return { message: result.message, status: result.status };
 				}
 
-				if (childEvent && params.meteringService) {
+				if (childReservation && childEvent && params.meteringService) {
 					if (!generationCapturedBeforeDelivery) {
 						await captureRequiredGeneration(
 							params.meteringService,
@@ -619,10 +672,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						);
 					}
 					await params.meteringService.settle(childEvent.id, {
-						finalCredits: fixedOperationCredits("video"),
+						...measuredDirectSettlement(childReservation.reservation),
 						model: result.model,
-						pricing: "direct",
-						pricingSnapshot: fixedPricingSnapshot("video"),
 						rawUsage: result.usage ?? null,
 					});
 				}
@@ -884,13 +935,35 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				prompt: z.string().min(20),
 				role: z.string().min(1),
 				// User asset URLs from the brief's BRAND ASSETS — edit the user's
-				// real photos instead of inventing the product.
-				sourceImageUrls: z.array(z.url()).max(3).optional(),
+				// real photos instead of inventing the product. No zod maximum: the
+				// first MAX_SOURCE_IMAGES_PER_GENERATION are kept below.
+				sourceImageUrls: z
+					.array(z.url())
+					.optional()
+					.describe(
+						"Exact user photo URLs from the brief, at most " +
+							`${MAX_SOURCE_IMAGES_PER_GENERATION}.`,
+					),
 			}),
 			execute: async (
-				{ aspect, prompt, role, sourceImageUrls },
+				{ aspect, prompt, role, sourceImageUrls: requestedSourceImageUrls },
 				{ toolCallId },
-			) => {
+			): Promise<GenerateImageOutput> => {
+				// Keep the first MAX_SOURCE_IMAGES_PER_GENERATION distinct sources:
+				// the edit model takes no more, and a rejected call would cost the
+				// builder a step.
+				const sourceImageUrls = [
+					...new Set(requestedSourceImageUrls ?? []),
+				].slice(0, MAX_SOURCE_IMAGES_PER_GENERATION);
+				const requestedSourceCount = requestedSourceImageUrls?.length ?? 0;
+
+				if (sourceImageUrls.length < requestedSourceCount) {
+					log(
+						`generate_image (${role}): kept ${sourceImageUrls.length} of ` +
+							`${requestedSourceCount} source photos`,
+					);
+				}
+
 				if (state.imageSequence >= MAX_IMAGES) {
 					return {
 						message:
@@ -908,22 +981,24 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imageSequence += 1;
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
-				const childEvent =
+				const imageModel =
+					sourceImageUrls.length > 0 && env.AI_IMAGE_EDIT_MODEL
+						? env.AI_IMAGE_EDIT_MODEL
+						: (env.AI_IMAGE_MODEL ?? null);
+				const childReservation =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve(
-								"image",
-								params.subject,
-								{
+						? await reserveMeasuredChild(params.meteringService, "image", {
 								attemptRef: `${params.attemptId}:image:${index}`,
-								credits: fixedOperationCredits("image"),
+								estimate: imageModel
+									? { count: 1, kind: "image", modelId: imageModel }
+									: null,
 								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
-								model:
-									sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
-										? env.AI_IMAGE_EDIT_MODEL
-										: (env.AI_IMAGE_MODEL ?? null),
+								model: imageModel,
 								parentEventId: params.usageEventId,
+								subject: params.subject,
 							})
 						: null;
+				const childEvent = childReservation?.event ?? null;
 				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildImage({
@@ -955,12 +1030,12 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						: {}),
 					projectId: params.projectId,
 					prompt,
-					...(sourceImageUrls?.length ? { sourceImageUrls } : {}),
+					...(sourceImageUrls.length > 0 ? { sourceImageUrls } : {}),
 				});
 
 				if (result.status !== "generated") {
 					state.imagesGenerated -= 1;
-					if (childEvent && params.meteringService) {
+					if (childReservation && childEvent && params.meteringService) {
 						if (hasGatewayGenerationMetadata(result)) {
 							const providerUnits =
 								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
@@ -973,21 +1048,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 										stepUsage: fixedGenerationStepUsage(
 											result.usage,
 											providerUnits,
+											providerUnits === 0 ? "refunded_failure" : undefined,
 										),
 									},
 								);
 							}
 							await params.meteringService.settle(childEvent.id, {
-								finalCredits:
-									providerUnits === 0
-										? 0
-										: fixedOperationCredits("image", providerUnits),
+								...measuredDirectSettlement(childReservation.reservation, {
+									completedUnits: providerUnits,
+								}),
 								model: result.model,
-								pricing: "direct",
-								pricingSnapshot: {
-									...fixedPricingSnapshot("image"),
-									units: providerUnits,
-								},
 								rawUsage: result.usage ?? null,
 							});
 						} else {
@@ -1002,7 +1072,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return { message: result.message, status: result.status };
 				}
 
-				if (childEvent && params.meteringService) {
+				if (childReservation && childEvent && params.meteringService) {
 					if (!generationCapturedBeforeDelivery) {
 						await captureRequiredGeneration(
 							params.meteringService,
@@ -1014,10 +1084,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						);
 					}
 					await params.meteringService.settle(childEvent.id, {
-						finalCredits: fixedOperationCredits("image"),
+						...measuredDirectSettlement(childReservation.reservation),
 						model: result.model,
-						pricing: "direct",
-						pricingSnapshot: fixedPricingSnapshot("image"),
 						rawUsage: result.usage ?? null,
 					});
 				}
@@ -1031,9 +1099,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				return {
 					aspect,
+					// Real stored pixels, so the model can write width/height
+					// attributes that match the object instead of guessing.
+					height: result.height,
 					role,
 					status: "generated" as const,
 					url: result.url,
+					width: result.width,
 				};
 			},
 			toModelOutput: ({ output, toolCallId }) => {
@@ -1047,14 +1119,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				}
 
 				const image = imageByCall.get(toolCallId);
+				// Real stored pixels when this part carries them (parts persisted
+				// before dimensions existed do not).
+				const pixels =
+					output.width && output.height
+						? `, ${output.width}x${output.height}px — use those pixels as the img width/height attributes`
+						: "";
 
 				return {
 					type: "content",
 					value: [
 						{
 							text:
-								`Generated (${output.role}, ${output.aspect}): ${output.url} ` +
-								"— judge whether it fits the design before placing it.",
+								`Generated (${output.role}, ${output.aspect}${pixels}): ` +
+								`${output.url} — judge whether it fits the design before ` +
+								"placing it.",
 							type: "text",
 						},
 						...(image
@@ -1330,13 +1409,56 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	};
 }
 
-function fixedPricingSnapshot(operation: "image" | "video") {
+/**
+ * Inline Builder media child: one measured hold sized by the local catalog
+ * estimate (floor when none), settled provisionally from the same estimate
+ * and repriced by gateway reconciliation.
+ */
+async function reserveMeasuredChild(
+	meteringService: MeteringService,
+	operation: "image" | "video",
+	input: {
+		attemptRef: string;
+		estimate: MeasuredCostEstimateInput | null;
+		idempotencyKey: string;
+		model: string | null;
+		parentEventId: string;
+		subject: MeteringSubject;
+	},
+): Promise<{
+	event: Awaited<ReturnType<MeteringService["reserve"]>>;
+	reservation: MeasuredOperationReservation;
+}> {
+	const quote = input.estimate
+		? await meteringService.estimateMeasuredCost(input.estimate)
+		: null;
+	const estimatedCostUsdMicros = quote?.costUsdMicros ?? null;
+	const event = await meteringService.reserve(operation, input.subject, {
+		attemptRef: input.attemptRef,
+		credits: measuredReserveCredits(
+			operation,
+			1,
+			estimatedCostUsdMicros,
+			meteringService.usdMicrosPerCredit,
+		),
+		estimatedCostUsdMicros,
+		idempotencyKey: input.idempotencyKey,
+		measuredTerms: { estimatedUnitUsdMicros: estimatedCostUsdMicros, units: 1 },
+		model: input.model,
+		parentEventId: input.parentEventId,
+	});
+
 	return {
-		creditsPerUnit: fixedOperationCredits(operation),
-		mode: "fixed",
-		operation,
-		source: "operation_registry",
-		unit: operation === "image" ? "image" : "operation",
+		event,
+		reservation: {
+			credits: event.reservedCredits,
+			eventId: event.id,
+			operation,
+			referenceId: input.attemptRef,
+			replay: "none",
+			terms: reservationTermsFromEvent(event),
+			units: 1,
+		},
 	};
 }
 
@@ -1383,7 +1505,19 @@ export async function runSiteBuild(
 	// "auto" defers to the provider. Gateway attribution is merged with (and
 	// preserves) model-specific routing.
 	const reasoningEffort = resolveBuilderReasoningEffort(params.reasoningEffort);
-	const providerOptions = withGatewayAttribution(
+	const buildMeteringContext = {
+		operation: "page_build" as const,
+		organizationId: params.subject.organizationId ?? null,
+		userId: params.subject.actorUserId,
+	};
+	// The same routing preference feeds gateway.order (Vercel providerOptions
+	// below) and OpenRouter's provider.order model setting.
+	const routingOrder = params.model.startsWith("moonshotai/kimi-k2")
+		? ["novita"]
+		: params.model.startsWith("alibaba/")
+			? ["fireworks"]
+			: undefined;
+	const providerOptions = withLlmAttribution(
 		{
 			...(reasoningEffort
 				? {
@@ -1410,22 +1544,22 @@ export async function runSiteBuild(
 				: {}),
 			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
 			// Moonshot). K3 measured faster on official Moonshot routing, so the
-			// preference stays scoped to K2-era models.
-			...(params.model.startsWith("moonshotai/kimi-k2")
-				? { gateway: { order: ["novita"] } }
-				: {}),
-			// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
-			// Fireworks serves the same models at ~330 tps (gateway P50 chart,
-			// 2026-07-26). The others stay as fallback.
-			...(params.model.startsWith("alibaba/")
-				? { gateway: { order: ["fireworks"] } }
-				: {}),
+			// preference stays scoped to K2-era models. Qwen's default routing
+			// lands on Alibaba Cloud/Together at ~55 tps; Fireworks serves the
+			// same models at ~330 tps (gateway P50 chart, 2026-07-26).
+			// An openai/* builder (luna in prod) is pinned to OpenAI itself, and
+			// zai/* (GLM) prefers Friendli→Baseten→Fireworks — see
+			// gatewayRoutingForModel.
+			// The two knobs never overlap: gatewayRoutingForModel covers openai/*
+			// and zai/*, the local order preferences cover Kimi/Qwen, so the
+			// spread below never clobbers one with the other.
+			gateway: {
+				...gatewayRoutingForModel(params.model),
+				...(routingOrder ? { order: routingOrder } : {}),
+			},
 		},
-		{
-			operation: "page_build",
-			organizationId: params.subject.organizationId ?? null,
-			userId: params.subject.actorUserId,
-		},
+		buildMeteringContext,
+		"page_build",
 	);
 
 	log(
@@ -1444,7 +1578,12 @@ export async function runSiteBuild(
 		const agent = new ToolLoopAgent({
 			instructions: params.system,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			model: params.model,
+			model: createLlmModel(params.model, {
+				context: buildMeteringContext,
+				reasoningEffort,
+				routingOrder,
+				task: "page_build",
+			}),
 			...(params.onStepEnd ? { onStepEnd: params.onStepEnd } : {}),
 			providerOptions,
 			// Kimi/Moonshot rejects image parts inside tool results (they fall
@@ -1476,12 +1615,14 @@ export async function runSiteBuild(
 					}
 				: {}),
 			stopWhen: buildStopConditions(state),
+			telemetry: { functionId: "page_build.agent" },
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
 				...(params.meteringService
 					? { meteringService: params.meteringService }
 					: {}),
+				...(params.codMode ? { codMode: params.codMode } : {}),
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
 				pageKind: params.pageKind ?? "website",
 				projectId: params.projectId,
@@ -1498,12 +1639,25 @@ export async function runSiteBuild(
 		// write step routinely exceeds Node's 5-minute undici headersTimeout
 		// (observed as GatewayTimeoutError 408). Streaming receives headers
 		// immediately; nothing here consumes deltas — the stream is just drained.
-		const stream = await agent.stream({
-			abortSignal: params.abortSignal,
-			prompt:
-				`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
-				`BRIEF:\n${params.brief}`,
-		});
+		const userPhotoUrls = screenshotRequired
+			? extractBriefUserPhotoUrls(params.brief)
+			: [];
+		const stream =
+			userPhotoUrls.length > 0
+				? await agent.stream({
+						abortSignal: params.abortSignal,
+						messages: composeBuildStartMessages({
+							brief: params.brief,
+							title: params.title,
+							userPhotoUrls,
+						}),
+					})
+				: await agent.stream({
+						abortSignal: params.abortSignal,
+						prompt:
+							`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
+							`BRIEF:\n${params.brief}`,
+					});
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires
@@ -1570,13 +1724,50 @@ export async function runSiteBuild(
 		// Deterministic stamping pass (spec §4): every editable leaf gets a
 		// stable data-wid before upload, so every version's canonical HTML in
 		// R2 is fully stamped. The model is never asked to do this itself.
+		// The sanctioned GSAP CDN tags are inlined first, so the canonical HTML
+		// never depends on a third-party CDN request. The font stylesheet links
+		// are then hoisted above the inline <style>, so the browser starts the
+		// render-blocking font request in the first bytes of <head> instead of
+		// after 20-40 KB of CSS. The <img> markup is then normalized to one
+		// prioritized LCP image and lazy everything else — srcset stays out of
+		// drafts, because the editor's swap path strips it and building one
+		// costs storage probes a generation must not pay for. A page that
+		// forgot its <title> finally falls back to the Brain's short human
+		// title, so the browser tab never reads as a URL.
 		const rawHtml = vfs.read("index.html");
 
 		if (rawHtml !== null) {
-			vfs.write("index.html", stampHtml(rawHtml));
+			vfs.write(
+				"index.html",
+				ensureDocumentTitle(
+					stampHtml(
+						optimizeImageMarkup(
+							optimizeFontLoading(inlineKnownCdnScripts(rawHtml)),
+						),
+					),
+					params.title,
+				),
+			);
 		}
 
-		assertValidSite(vfs, params.pageKind ?? "website");
+		try {
+			assertValidSite(vfs, params.pageKind ?? "website");
+		} catch (error) {
+			// Name-tag for classifyBuildFailure, and keep the provider failure
+			// that interrupted the build as the cause — "no index.html" because
+			// the model's provider 429'd mid-write is a PROVIDER failure, and
+			// replacing that evidence with a bare validation string would make
+			// the chat card blame Wandit for it.
+			if (error instanceof Error) {
+				error.name = "PageValidationError";
+
+				if (streamError !== undefined && error.cause === undefined) {
+					error.cause = streamError;
+				}
+			}
+
+			throw error;
+		}
 
 		if (!state.finishAccepted) {
 			log(
@@ -1623,6 +1814,13 @@ const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
 const JAVASCRIPT_IDENTIFIER_SOURCE = String.raw`[$A-Z_a-z][$\w]*`;
 const LEAD_EVENT_LITERAL_SOURCE =
 	"(?:\"wandit:lead\"|'wandit:lead'|`wandit:lead`)";
+/**
+ * Acknowledgement event the injected leads runtime answers with. The page's
+ * success UI is gated on it, so a COD page that never names it can only ever
+ * show an unacknowledged success — a plain text scan is enough, because any
+ * listener (however written) must carry the literal.
+ */
+const LEAD_RESULT_EVENT_NAME = "wandit:lead:result";
 const CUSTOM_EVENT_CONSTRUCTOR_SOURCE = String.raw`new\s+(?:(?:window|globalThis|self)\s*\.\s*)?CustomEvent\s*\(\s*`;
 const NAME_AUTOCOMPLETE_TOKENS = new Set([
 	"additional-name",
@@ -2038,9 +2236,41 @@ function assertValidSite(
 					`honeypot (found ${honeypots.length})`,
 			);
 		}
+
+		const handlesLeadResult = $("script")
+			.toArray()
+			.some((node) => ($(node).html() ?? "").includes(LEAD_RESULT_EVENT_NAME));
+
+		if (!handlesLeadResult) {
+			throw new Error(
+				`COD index.html must handle the "${LEAD_RESULT_EVENT_NAME}" ` +
+					"acknowledgement event in a <script> element — install that " +
+					"listener before dispatching the lead, and gate the final " +
+					"success UI on it",
+			);
+		}
 	}
 
 	assertValidBrandMarkers(html, pageKind);
+
+	// The finish tool validates BEFORE the publish-time inlining pass runs, so
+	// apply the (idempotent) inliner here: the sanctioned GSAP CDN tags pass,
+	// everything else external is rejected.
+	const $inlined = cheerio.load(inlineKnownCdnScripts(html));
+	const externalScriptUrls = $inlined("script[src]")
+		.toArray()
+		.map((node) => ($inlined(node).attr("src") ?? "").trim())
+		.filter((src) => /^(?:https?:)?\/\//i.test(src));
+
+	if (externalScriptUrls.length > 0) {
+		throw new Error(
+			`index.html loads external scripts (${externalScriptUrls.join(", ")}) — ` +
+				"the published page must be self-contained, so write ALL JavaScript " +
+				"inline in <script> elements; the pinned GSAP 3 core and " +
+				"ScrollTrigger tags from jsdelivr/unpkg/cdnjs are auto-inlined at " +
+				"finish and are the only sanctioned external scripts",
+		);
+	}
 
 	const firstStyle = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/i.exec(html);
 

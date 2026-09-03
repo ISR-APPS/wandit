@@ -49,6 +49,8 @@ export function hasGatewayGenerationMetadata(
 	);
 }
 
+const REFUNDED_FAILURE_CUSTOMER_BILLING = "refunded_failure";
+
 /**
  * Fixed-price reconciliation must use completed customer units, not the
  * reservation size. Nest the provider's native usage so the durable unit
@@ -57,15 +59,46 @@ export function hasGatewayGenerationMetadata(
 export function fixedGenerationStepUsage(
 	providerUsage: unknown,
 	fixedUnits: number,
-): { metering: { fixedUnits: number }; providerUsage: unknown } {
+	outcome?: typeof REFUNDED_FAILURE_CUSTOMER_BILLING,
+): {
+	metering: { customerBilling?: string; fixedUnits: number };
+	providerUsage: unknown;
+} {
 	if (!Number.isSafeInteger(fixedUnits) || fixedUnits < 0) {
 		throw new Error("Fixed generation units must be a non-negative integer");
 	}
 
 	return {
-		metering: { fixedUnits },
+		metering: {
+			fixedUnits,
+			...(outcome === undefined ? {} : { customerBilling: outcome }),
+		},
 		providerUsage: providerUsage ?? null,
 	};
+}
+
+/**
+ * A provider generation that failed before any deliverable reached the user.
+ * Reconciliation excludes it from the customer-billable cost (the user was
+ * refunded) while the event still records its real provider cost.
+ */
+export function isRefundedFailureStepUsage(stepUsage: unknown): boolean {
+	if (
+		typeof stepUsage !== "object" ||
+		stepUsage === null ||
+		!("metering" in stepUsage)
+	) {
+		return false;
+	}
+
+	const metering = stepUsage.metering;
+
+	return (
+		typeof metering === "object" &&
+		metering !== null &&
+		"customerBilling" in metering &&
+		metering.customerBilling === REFUNDED_FAILURE_CUSTOMER_BILLING
+	);
 }
 
 /**
@@ -75,7 +108,21 @@ export function fixedGenerationStepUsage(
  * error links and guard against cyclic causes.
  */
 export function gatewayGenerationIdFromError(error: unknown): string | null {
-	return findGatewayGenerationId(error, new Set<unknown>());
+	return findGenerationIdByKey(error, "generationId", new Set<unknown>());
+}
+
+/**
+ * The OpenRouter stream wrapper tags failed calls with the distinct
+ * `openrouterGenerationId` key (never `generationId`, so a Vercel id can
+ * never be confused with an OpenRouter one — they reconcile against
+ * different cost APIs). Same error-link walk as the gateway variant.
+ */
+export function openrouterGenerationIdFromError(error: unknown): string | null {
+	return findGenerationIdByKey(
+		error,
+		"openrouterGenerationId",
+		new Set<unknown>(),
+	);
 }
 
 /** Build the successful-result metadata shape expected by MeteringService. */
@@ -86,6 +133,29 @@ export function gatewayGenerationCaptureFromError(
 
 	return generationId
 		? { providerMetadata: { gateway: { generationId } } }
+		: null;
+}
+
+/**
+ * Error capture for TEXT call sites, which can run on either provider. Tries
+ * the Vercel shape first, then the OpenRouter tag, and returns metadata in
+ * the matching provider's shape so capture records the right source. Media
+ * call sites keep using gatewayGenerationCaptureFromError — they never run
+ * on OpenRouter.
+ */
+export function llmGenerationCaptureFromError(
+	error: unknown,
+): CapturedGeneration | null {
+	const gatewayCapture = gatewayGenerationCaptureFromError(error);
+
+	if (gatewayCapture) {
+		return gatewayCapture;
+	}
+
+	const generationId = openrouterGenerationIdFromError(error);
+
+	return generationId
+		? { providerMetadata: { openrouter: { generationId } } }
 		: null;
 }
 
@@ -121,8 +191,9 @@ function asRecord(value: unknown): Record<string, JSONValue> {
 		: {};
 }
 
-function findGatewayGenerationId(
+function findGenerationIdByKey(
 	value: unknown,
+	key: "generationId" | "openrouterGenerationId",
 	visited: Set<unknown>,
 ): string | null {
 	if (!isUnknownRecord(value) || visited.has(value)) {
@@ -130,14 +201,15 @@ function findGatewayGenerationId(
 	}
 
 	visited.add(value);
-	const generationId = validGenerationId(value.generationId);
+	const generationId = validGenerationId(value[key]);
 
 	if (generationId) {
 		return generationId;
 	}
 
-	const lastErrorGenerationId = findGatewayGenerationId(
+	const lastErrorGenerationId = findGenerationIdByKey(
 		value.lastError,
+		key,
 		visited,
 	);
 
@@ -147,8 +219,9 @@ function findGatewayGenerationId(
 
 	if (Array.isArray(value.errors)) {
 		for (let index = value.errors.length - 1; index >= 0; index -= 1) {
-			const nestedGenerationId = findGatewayGenerationId(
+			const nestedGenerationId = findGenerationIdByKey(
 				value.errors[index],
+				key,
 				visited,
 			);
 
@@ -158,7 +231,7 @@ function findGatewayGenerationId(
 		}
 	}
 
-	return findGatewayGenerationId(value.cause, visited);
+	return findGenerationIdByKey(value.cause, key, visited);
 }
 
 function validGenerationId(value: unknown): string | null {

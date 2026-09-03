@@ -18,12 +18,15 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { adminNavigation } from "@/lib/navigation";
+import { useEffectiveAdminPermissions } from "@/features/auth/lib/permissions";
+import { getVisibleAdminNavigation } from "@/lib/navigation";
 
 export default function Search() {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const navigate = useNavigate();
+	const { map } = useEffectiveAdminPermissions();
+	const navigation = useMemo(() => getVisibleAdminNavigation(map), [map]);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -40,15 +43,15 @@ export default function Search() {
 	const results = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
 		if (!normalizedQuery) {
-			return adminNavigation;
+			return navigation;
 		}
 
-		return adminNavigation.filter((item) =>
+		return navigation.filter((item) =>
 			`${item.title} ${item.description}`
 				.toLowerCase()
 				.includes(normalizedQuery),
 		);
-	}, [query]);
+	}, [navigation, query]);
 
 	return (
 		<div className="lg:flex-1">

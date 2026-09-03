@@ -19,6 +19,12 @@ import {
 	useImageGenerationAttemptQuery,
 } from "../../../api/image-generations.queries";
 import { imageGenerationDownloadUrl } from "../../../api/image-generations.services";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
@@ -30,8 +36,17 @@ type GenerateImageToolPart = Extract<
 	{ type: "tool-generate_image" }
 >;
 
-export function GenerateImagePart({ part }: { part: GenerateImageToolPart }) {
+export function GenerateImagePart({
+	part,
+	messageParts,
+}: {
+	part: GenerateImageToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
+	const { prefillComposer } = useSharedAiChat();
+	const prompt =
+		typeof part.input?.prompt === "string" ? part.input.prompt : undefined;
 
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		const text =
@@ -46,6 +61,23 @@ export function GenerateImagePart({ part }: { part: GenerateImageToolPart }) {
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			const copy = durableAiErrorPresentation(failure, t);
+			return (
+				<AnnouncedStatus text={`${copy.kicker}. ${copy.body}`}>
+					<FailureMessage
+						title={copy.kicker}
+						body={copy.body}
+						attribution={copy.attribution}
+						onPrefill={prefillComposer}
+						prompt={prompt}
+						showPrefill={copy.showRetry}
+					/>
+				</AnnouncedStatus>
+			);
+		}
+
 		return (
 			<AnnouncedStatus text={t("workspace.chat.generateImage.failedToStart")}>
 				<FailureMessage
@@ -57,9 +89,30 @@ export function GenerateImagePart({ part }: { part: GenerateImageToolPart }) {
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		const copy = durableAiErrorPresentation(outputFailure, t);
+		return (
+			<AnnouncedStatus text={`${copy.kicker}. ${copy.body}`}>
+				<FailureMessage
+					title={copy.kicker}
+					body={copy.body}
+					attribution={copy.attribution}
+					onPrefill={prefillComposer}
+					prompt={prompt}
+					showPrefill={copy.showRetry}
+				/>
+			</AnnouncedStatus>
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.attemptId) {
-		return <ImageGenerationCard attemptId={part.output.attemptId} />;
+		return (
+			<ImageGenerationCard
+				attemptId={part.output.attemptId}
+				onPrefill={prefillComposer}
+			/>
+		);
 	}
 
 	return (
@@ -71,38 +124,20 @@ export function GenerateImagePart({ part }: { part: GenerateImageToolPart }) {
 	);
 }
 
-function ImageGenerationCard({ attemptId }: { attemptId: string }) {
+function ImageGenerationCard({
+	attemptId,
+	onPrefill,
+}: {
+	attemptId: string;
+	onPrefill: (prompt: string) => void;
+}) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
-	const queryClient = useQueryClient();
 	const {
 		data: attempt,
 		error,
 		refetch,
 		isFetching,
-	} = useImageGenerationAttemptQuery(attemptId);
-
-	// Once the images exist, the Assets tab should show them without a manual
-	// refresh. Placement stays pending briefly after image success, so this
-	// effect runs again when the worker records its final outcome.
-	const succeeded = attempt?.status === "succeeded";
-	const terminalStatus =
-		attempt?.status === "succeeded" || attempt?.status === "failed"
-			? attempt.status
-			: null;
-	useEffect(() => {
-		if (!terminalStatus) return;
-		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
-	}, [queryClient, terminalStatus]);
-
-	useEffect(() => {
-		if (!succeeded) return;
-		invalidateCompletedImageGeneration(
-			queryClient,
-			projectId,
-			attempt.placement?.status,
-		);
-	}, [attempt?.placement?.status, projectId, queryClient, succeeded]);
+	} = usePolledImageGenerationAttempt(attemptId);
 
 	if (error) {
 		return (
@@ -138,12 +173,77 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 		);
 	}
 
+	return <ImageGenerationAttemptView attempt={attempt} onPrefill={onPrefill} />;
+}
+
+/**
+ * Shared durable-attempt lifecycle for both the standalone card and a batch
+ * card. Keeping polling plus terminal cache invalidation here prevents the two
+ * presentations from drifting as the worker protocol evolves.
+ */
+export function usePolledImageGenerationAttempt(attemptId: string) {
+	const { projectId } = useWorkspace();
+	const queryClient = useQueryClient();
+	const query = useImageGenerationAttemptQuery(attemptId);
+	const attempt = query.data;
+
+	// Once the images exist, the Assets tab should show them without a manual
+	// refresh. Placement stays pending briefly after image success, so this
+	// effect runs again when the worker records its final outcome.
+	const succeeded = attempt?.status === "succeeded";
+	const terminalStatus =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.status
+			: null;
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
+
+	useEffect(() => {
+		if (!succeeded) return;
+		invalidateCompletedImageGeneration(
+			queryClient,
+			projectId,
+			attempt.placement?.status,
+		);
+	}, [attempt?.placement?.status, projectId, queryClient, succeeded]);
+
+	return query;
+}
+
+export function ImageGenerationAttemptView({
+	attempt,
+	onPrefill,
+}: {
+	attempt: ImageGenerationAttempt | undefined;
+	onPrefill?: (prompt: string) => void;
+}) {
+	const { t } = useTranslation();
+	const succeeded = attempt?.status === "succeeded";
+
 	if (attempt?.status === "failed") {
+		if (attempt.failure) {
+			const copy = durableAiErrorPresentation(attempt.failure, t);
+			return (
+				<AnnouncedStatus text={`${copy.kicker}. ${copy.body}`}>
+					<FailureMessage
+						title={copy.kicker}
+						body={copy.body}
+						attribution={copy.attribution}
+						onPrefill={onPrefill}
+						prompt={attempt.prompt}
+						showPrefill={copy.showRetry}
+					/>
+				</AnnouncedStatus>
+			);
+		}
+
 		return (
 			<AnnouncedStatus text={t("workspace.chat.generateImage.failedTitle")}>
 				<FailureMessage
 					title={t("workspace.chat.generateImage.failedTitle")}
-					body={t("workspace.chat.generateImage.failedBody")}
+					body={attempt.error ?? t("workspace.chat.generateImage.failedBody")}
 				/>
 			</AnnouncedStatus>
 		);
@@ -152,7 +252,7 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	if (succeeded && attempt.images && attempt.images.length > 0) {
 		return (
 			<AnnouncedStatus text={t("workspace.chat.generateImage.readyTitle")}>
-				<ImageGenerationResult attempt={attempt} />
+				<ImageGenerationResult attempt={attempt} onPrefill={onPrefill} />
 			</AnnouncedStatus>
 		);
 	}
@@ -161,6 +261,14 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 		attempt?.status === "generating"
 			? t("workspace.chat.generateImage.generatingTitle")
 			: t("workspace.chat.generateImage.queuedTitle");
+	const total = attempt?.count ?? 1;
+	const partialImages =
+		attempt?.status === "queued" || attempt?.status === "generating"
+			? attempt.images
+			: null;
+	const hasIndexed = partialImages?.some((image) => image.index !== undefined);
+	const ready = Math.min(partialImages?.length ?? 0, total);
+	const showReadyCount = partialImages !== null;
 
 	return (
 		<AnnouncedStatus text={working}>
@@ -174,17 +282,60 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 				<div
 					className={cn(
 						"grid gap-2",
-						(attempt?.count ?? 1) > 1 ? "grid-cols-2" : "grid-cols-1",
+						total > 4
+							? "grid-cols-3"
+							: total > 1
+								? "grid-cols-2"
+								: "grid-cols-1",
 					)}
 				>
-					{Array.from({ length: attempt?.count ?? 1 }, (_, index) => (
-						<Skeleton
-							// biome-ignore lint/suspicious/noArrayIndexKey: fixed-size placeholder grid
-							key={index}
-							className={cn("w-full rounded-lg", aspectClass(attempt?.aspect))}
-						/>
-					))}
+					{Array.from({ length: total }, (_, slot) => {
+						const image = hasIndexed
+							? partialImages?.find((image) => image.index === slot + 1)
+							: partialImages?.[slot];
+
+						return image ? (
+							<a
+								// biome-ignore lint/suspicious/noArrayIndexKey: each index is one stable requested slot
+								key={slot}
+								href={image.url}
+								target="_blank"
+								rel="noreferrer"
+								className={cn(
+									"block overflow-hidden rounded-lg border border-border bg-secondary",
+									imageGenerationAspectClass(attempt?.aspect),
+								)}
+							>
+								<img
+									src={image.url}
+									alt={`${attempt?.title ?? working} ${image.index ?? slot + 1}`}
+									loading="lazy"
+									className="block size-full object-cover"
+								/>
+							</a>
+						) : (
+							<Skeleton
+								// biome-ignore lint/suspicious/noArrayIndexKey: each index is one stable requested slot
+								key={slot}
+								className={cn(
+									"w-full rounded-lg",
+									imageGenerationAspectClass(attempt?.aspect),
+								)}
+							/>
+						);
+					})}
 				</div>
+				{showReadyCount ? (
+					<p
+						dir="auto"
+						className="mt-2 font-mono text-[10px] text-muted-foreground"
+					>
+						{t("workspace.chat.generateImage.readyCount", {
+							ready,
+							total,
+						})}
+					</p>
+				) : null}
 			</div>
 		</AnnouncedStatus>
 	);
@@ -192,11 +343,16 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 
 export function ImageGenerationResult({
 	attempt,
+	onPrefill,
 }: {
 	attempt: ImageGenerationAttempt;
+	onPrefill?: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
 	const images = attempt.images ?? [];
+	const partialFailure = attempt.failure
+		? durableAiErrorPresentation(attempt.failure, t)
+		: null;
 
 	return (
 		<div className="overflow-hidden rounded-[14px] border border-border bg-background p-3">
@@ -207,14 +363,51 @@ export function ImageGenerationResult({
 				{attempt.title}
 			</p>
 			<ChatMediaGallery
-				items={images.map((image, index) => ({
-					key: image.url,
-					kind: "image" as const,
-					url: image.url,
-					label: `${attempt.title} ${index + 1}`,
-					downloadUrl: imageGenerationDownloadUrl(attempt.id, index + 1),
-				}))}
+				items={images.map((image, position) => {
+					const generationIndex = image.index ?? position + 1;
+
+					return {
+						key: image.url,
+						kind: "image" as const,
+						url: image.url,
+						label: `${attempt.title} ${generationIndex}`,
+						downloadUrl: imageGenerationDownloadUrl(
+							attempt.id,
+							generationIndex,
+						),
+					};
+				})}
 			/>
+			{partialFailure ? (
+				<div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/[0.03] p-2.5">
+					<p dir="auto" className="text-[12px] text-muted-foreground">
+						{t("workspace.chat.generateImage.partialFailure", {
+							sentence: partialFailure.body,
+						})}
+					</p>
+					{partialFailure.attribution ? (
+						<p dir="auto" className="mt-1 text-[11px] text-muted-foreground">
+							{partialFailure.attribution}
+						</p>
+					) : null}
+					{partialFailure.showRetry && onPrefill ? (
+						<div className="mt-2">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 rounded-lg px-2.5 text-xs"
+								onClick={() => onPrefill(attempt.prompt)}
+							>
+								{t("workspace.chat.aiError.tryAgainPrefill.image")}
+							</Button>
+							<p className="mt-1 text-[10.5px] text-muted-foreground">
+								{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+							</p>
+						</div>
+					) : null}
+				</div>
+			) : null}
 			<p className="mt-2 font-mono text-[10px] text-muted-foreground">
 				{t("workspace.chat.generateImage.inAssetsTab")}
 			</p>
@@ -227,7 +420,22 @@ export function ImageGenerationResult({
 	);
 }
 
-function FailureMessage({ title, body }: { title: string; body: string }) {
+function FailureMessage({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill = false,
+}: {
+	title: string;
+	body: string;
+	attribution?: string | null;
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+	showPrefill?: boolean;
+}) {
+	const { t } = useTranslation();
 	return (
 		<div>
 			<StatusMessageHeader
@@ -240,6 +448,27 @@ function FailureMessage({ title, body }: { title: string; body: string }) {
 			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 				{body}
 			</p>
+			{attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{attribution}
+				</p>
+			) : null}
+			{showPrefill && prompt && onPrefill ? (
+				<div className="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 rounded-lg px-2.5 text-xs"
+						onClick={() => onPrefill(prompt)}
+					>
+						{t("workspace.chat.aiError.tryAgainPrefill.image")}
+					</Button>
+					<p className="mt-1 text-[10.5px] text-muted-foreground">
+						{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+					</p>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -275,7 +504,9 @@ function AnnouncedStatus({
 	);
 }
 
-function aspectClass(aspect: ImageGenerationAttempt["aspect"] | undefined) {
+export function imageGenerationAspectClass(
+	aspect: ImageGenerationAttempt["aspect"] | undefined,
+) {
 	switch (aspect) {
 		case "1:1":
 			return "aspect-square";

@@ -36,6 +36,7 @@ export const leads = pgTable(
 		// pair below; deployment rows are only ever deleted with the whole
 		// project, so leads keep their provenance for the project's lifetime.
 		deploymentId: uuid("deployment_id"),
+		productSku: text("product_sku"),
 		name: text("name").notNull(),
 		// Canonical E.164 (+213…) — the capture endpoint normalizes (folds
 		// Arabic-Indic digits, maps 0 / 00213 prefixes) before insert and keeps
@@ -53,21 +54,29 @@ export const leads = pgTable(
 		attribution: jsonb("attribution"),
 		status: leadStatus("status").notNull().default("to_confirm"),
 		statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true })
 			.defaultNow()
-			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.$onUpdate(() => sql`now()`)
 			.notNull(),
 	},
 	(table) => [
 		index("leads_projectId_createdAt_idx").on(table.projectId, table.createdAt),
+		index("leads_active_projectId_createdAt_idx")
+			.on(table.projectId, table.createdAt)
+			.where(sql`${table.archivedAt} is null`),
 		index("leads_projectId_status_createdAt_idx").on(
 			table.projectId,
 			table.status,
 			table.createdAt,
 		),
+		// Dashboard aggregate list: newest-first keyset across every project in
+		// scope has no project_id equality, so it needs a bare recency index (a
+		// backward scan serves created_at DESC, id DESC).
+		index("leads_createdAt_id_idx").on(table.createdAt, table.id),
 		// A lead's deployment must belong to the lead's own project.
 		foreignKey({
 			columns: [table.projectId, table.deploymentId],

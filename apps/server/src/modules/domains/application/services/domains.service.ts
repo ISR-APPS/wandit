@@ -1,17 +1,14 @@
 import { randomUUID } from "node:crypto";
-
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { Inject, Injectable, type Logger } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
 	type DetachDomainResponse,
-	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	type DomainAvailabilityStatus,
-	type DomainDns,
 	type DomainTld,
 	domainDnsSchema,
+	domainRetailUsdCentsFromWholesale,
 	domainTlds,
 	isReservedDomainName,
 	isValidDomainLabel,
@@ -27,6 +24,7 @@ import {
 	type VerifyDomainResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	mergeRequiredDomainRecords,
 	validationRequiredDomainRecords,
@@ -36,6 +34,7 @@ import {
 import {
 	DomainBlockedError,
 	DomainNotAvailableError,
+	ExternalDomainUnregisteredError,
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
@@ -49,12 +48,19 @@ import {
 	type DomainTaskDispatcher,
 } from "../../domain/ports/domain-task-dispatcher.port";
 import { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
+import { CustomerZoneService } from "../../infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
+import { DomainRegistrationCheckService } from "../../infrastructure/dns/domain-registration-check.service";
 import { mapDomain } from "../../infrastructure/mappers/domain.mapper";
 import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import {
+	apexCustomHostnameIdOf,
+	customerZoneIdOf,
+} from "../fulfillment/domain-assets-cleanup";
+import { withdrawnCustomerZoneDnsPatch } from "../fulfillment/withdrawn-customer-zone";
 
 export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
 
@@ -78,6 +84,10 @@ export class DomainsService {
 		private readonly domainProvider: DomainProvider,
 		@Inject(CustomHostnameService)
 		private readonly customHostnameService: CustomHostnameService,
+		@Inject(CustomerZoneService)
+		private readonly customerZoneService: CustomerZoneService,
+		@Inject(DomainRegistrationCheckService)
+		private readonly domainRegistrationCheckService: DomainRegistrationCheckService,
 		@Inject(DomainRoutingService)
 		private readonly domainRoutingService: DomainRoutingService,
 		@Inject(DOMAINS_LOGGER)
@@ -108,11 +118,13 @@ export class DomainsService {
 				return {
 					availability: publicAvailability,
 					name: candidate.name,
-					// Retail price from the catalog, only for safely purchasable
-					// results. The registrar's wholesale quote never crosses the wire.
+					// publicAvailability already validates this quote as finite, positive,
+					// and under the TLD ceiling. The quote itself never crosses the wire.
 					registrationPriceUsd:
-						publicAvailability === "available"
-							? DOMAIN_REGISTRATION_USD_CENTS[candidate.tld] / 100
+						publicAvailability === "available" &&
+						typeof result?.wholesalePriceUsd === "number"
+							? domainRetailUsdCentsFromWholesale(result.wholesalePriceUsd) /
+								100
 							: null,
 					tld: candidate.tld,
 				};
@@ -171,6 +183,13 @@ export class DomainsService {
 		const parsed = this.parseSafeExternalDomainName(body.name);
 
 		await this.domainsRepository.assertProjectAccessible(scope, projectId);
+		const registration = await this.domainRegistrationCheckService.check(
+			parsed.name,
+		);
+
+		if (registration.status === "unregistered") {
+			throw new ExternalDomainUnregisteredError(parsed.name);
+		}
 
 		const row = await this.domainsRepository.createExternalReplacingTerminal({
 			name: parsed.name,
@@ -186,14 +205,13 @@ export class DomainsService {
 				parsed.name,
 			);
 			customHostnameId = hostname.id;
-			const requiredRecords = this.requiredRecords(
+			const wwwRecords = this.requiredRecords(
 				parsed.name,
 				hostname.requiredRecords,
 			);
-			const dns = this.dnsWithRequiredRecords(requiredRecords);
 			const updated = await this.domainsRepository.updateById(row.id, {
 				cfCustomHostnameId: hostname.id,
-				dns,
+				dns: { records: wwwRecords },
 			});
 
 			const nonce = String(updated.updatedAt.getTime());
@@ -205,7 +223,7 @@ export class DomainsService {
 
 			return {
 				domain: mapDomain(updated),
-				requiredRecords,
+				requiredRecords: wwwRecords,
 			};
 		} catch (error) {
 			if (customHostnameId) {
@@ -234,25 +252,54 @@ export class DomainsService {
 		const status = await this.customHostnameService.getCustomHostnameStatus(
 			row.cfCustomHostnameId,
 		);
+		// The nameservers shown for option A must belong to a zone that still
+		// exists; otherwise they leave the records before they are handed back.
+		const checked = await this.withdrawLostExternalZone(row);
 		const requiredRecords = this.requiredRecords(
-			row.name,
+			checked.name,
 			status.requiredRecords,
-			row,
+			checked,
 		);
+		const dns = domainDnsSchema.safeParse(checked.dns);
+		const currentDns = dns.success ? dns.data : {};
+		const current =
+			checked.source === "external" &&
+			!this.sameRequiredRecords(currentDns.records ?? [], requiredRecords)
+				? ((await this.domainsRepository.mergeDnsIfStatus(
+						checked.id,
+						["configuring", "active"],
+						{ records: requiredRecords },
+					)) ??
+					(await this.domainsRepository.getByIdForScope(checked.id, scope)))
+				: checked;
+		const hostnameActive = this.isHostnameActive(status.status);
+		const externalConfiguring =
+			current.source === "external" && current.status === "configuring";
 
-		if (this.isHostnameActive(status.status)) {
-			const active = await this.activateDomain(row);
+		if (hostnameActive && !externalConfiguring) {
+			const active = await this.activateDomain(current);
 
 			return { domain: mapDomain(active), requiredRecords };
 		}
 
-		await this.domainTaskDispatcher.triggerConfiguration({
-			domainId: row.id,
-			nonce: `manual:${randomUUID()}`,
-		});
+		const pending =
+			current.source === "external"
+				? await this.redispatchExternalVerification(
+						current,
+						scope,
+						hostnameActive && externalConfiguring,
+					)
+				: current;
+
+		if (current.source === "purchased") {
+			await this.domainTaskDispatcher.triggerConfiguration({
+				domainId: current.id,
+				nonce: `manual:${randomUUID()}`,
+			});
+		}
 
 		return {
-			domain: mapDomain(row),
+			domain: mapDomain(pending),
 			requiredRecords,
 		};
 	}
@@ -296,6 +343,26 @@ export class DomainsService {
 
 		if (row.cfCustomHostnameId) {
 			await this.bestEffortDeleteCustomHostname(row.cfCustomHostnameId, row.id);
+		}
+
+		// Purchased and external domains may also hold an apex custom hostname
+		// (recorded in dns).
+		const apexCustomHostnameId = apexCustomHostnameIdOf(row.dns);
+
+		if (apexCustomHostnameId) {
+			await this.bestEffortDeleteCustomHostname(apexCustomHostnameId, row.id);
+		}
+
+		// The domain's Cloudflare zone stays: the registry (or the owner of an
+		// external domain) still delegates to it, so deleting it would black-hole
+		// the customer's DNS. Detach only releases the project attachment, never
+		// the registration or its DNS.
+		const zoneId = customerZoneIdOf(row.dns);
+
+		if (zoneId) {
+			this.logger.log(
+				`Leaving Cloudflare zone ${zoneId} for detached domain ${row.id} in place`,
+			);
 		}
 
 		const updated = await this.domainsRepository.detach(id, scope);
@@ -358,14 +425,17 @@ export class DomainsService {
 			source: "domain",
 		});
 
-		const active = await this.domainsRepository.updateIfStatusOrNull(
-			row.id,
-			["configuring"],
-			{
-				error: null,
-				status: "active",
-			},
-		);
+		const active =
+			row.source === "external"
+				? await this.domainsRepository.activateAndClearExternalVerification(
+						row.id,
+						["configuring"],
+					)
+				: await this.domainsRepository.updateIfStatusOrNull(
+						row.id,
+						["configuring"],
+						{ error: null, status: "active" },
+					);
 
 		if (active) {
 			return active;
@@ -506,8 +576,210 @@ export class DomainsService {
 		return mergeRequiredDomainRecords(existingRecords, records);
 	}
 
-	private dnsWithRequiredRecords(records: RequiredDomainRecord[]): DomainDns {
-		return { records };
+	private async redispatchExternalVerification(
+		row: DomainRow,
+		scope: ProjectScope,
+		forceRestart = false,
+	): Promise<DomainRow> {
+		const dns = domainDnsSchema.safeParse(row.dns);
+		const marker = dns.success ? dns.data.externalVerification : undefined;
+
+		if (forceRestart) {
+			return this.forceRestartExternalVerification(row.id, scope);
+		}
+
+		if (marker) {
+			const restart =
+				await this.domainsRepository.prepareExternalVerificationRestart(row.id);
+
+			if (!restart) {
+				const current = await this.domainsRepository.getByIdForScope(
+					row.id,
+					scope,
+				);
+				const currentDns = domainDnsSchema.safeParse(current.dns);
+
+				if (
+					current.status !== "configuring" ||
+					!currentDns.success ||
+					!currentDns.data.externalVerification
+				) {
+					return current;
+				}
+
+				throw new InvalidDomainStateError(
+					"External domain verification could not be restarted",
+				);
+			}
+
+			await this.domainTaskDispatcher.triggerConfiguration({
+				domainId: row.id,
+				nonce: restart.nonce,
+			});
+			await this.domainsRepository.clearExternalVerificationMarker(
+				row.id,
+				restart.stalledAt,
+			);
+
+			return this.domainsRepository.getByIdForScope(row.id, scope);
+		}
+
+		const cursor = await this.domainsRepository.readCursor(row.id);
+
+		await this.domainTaskDispatcher.triggerConfiguration({
+			domainId: row.id,
+			nonce: cursor?.nonce ?? String(row.updatedAt.getTime()),
+		});
+
+		return this.domainsRepository.getByIdForScope(row.id, scope);
+	}
+
+	private async forceRestartExternalVerification(
+		domainId: string,
+		scope: ProjectScope,
+	): Promise<DomainRow> {
+		const nonce = `manual-restart:${randomUUID()}`;
+		let expectedCursor = await this.domainsRepository.readCursor(domainId);
+
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			const restart =
+				await this.domainsRepository.prepareExternalVerificationRestart(
+					domainId,
+					{
+						expectedNonce: expectedCursor?.nonce ?? null,
+						nonce,
+					},
+				);
+
+			if (restart) {
+				return this.handoffExternalVerificationRestart(
+					domainId,
+					scope,
+					restart.nonce,
+				);
+			}
+
+			const current = await this.domainsRepository.getByIdForScope(
+				domainId,
+				scope,
+			);
+
+			if (current.source !== "external" || current.status !== "configuring") {
+				return current;
+			}
+
+			const winner = await this.domainsRepository.readCursor(domainId);
+
+			if (
+				winner &&
+				winner.nonce !== expectedCursor?.nonce &&
+				winner.nonce.startsWith("manual-restart:")
+			) {
+				return this.handoffExternalVerificationRestart(
+					domainId,
+					scope,
+					winner.nonce,
+				);
+			}
+
+			expectedCursor = winner;
+		}
+
+		throw new InvalidDomainStateError(
+			"External domain verification could not be restarted",
+		);
+	}
+
+	private async handoffExternalVerificationRestart(
+		domainId: string,
+		scope: ProjectScope,
+		nonce: string,
+	): Promise<DomainRow> {
+		await this.domainTaskDispatcher.triggerConfiguration({ domainId, nonce });
+
+		const current = await this.domainsRepository.getByIdForScope(
+			domainId,
+			scope,
+		);
+		const dns = domainDnsSchema.safeParse(current.dns);
+		const marker = dns.success ? dns.data.externalVerification : undefined;
+
+		if (!marker) {
+			return current;
+		}
+
+		await this.domainsRepository.clearExternalVerificationMarker(
+			domainId,
+			marker.stalledAt,
+		);
+
+		return this.domainsRepository.getByIdForScope(domainId, scope);
+	}
+
+	/**
+	 * Manual verify of an external row that exposes a zone: when that zone no
+	 * longer exists in Cloudflare (deleted out of band, purged while pending),
+	 * its nameservers are withdrawn from `dns.records` and the zone keys are
+	 * cleared, so no UI keeps recommending option A for a zone nobody hosts. A
+	 * `configuring` row is redispatched so the fulfillment runner can apply its
+	 * current ownership gate before replacing the zone; an `active` row stays on
+	 * option B. A failed check is logged and changes nothing.
+	 */
+	private async withdrawLostExternalZone(row: DomainRow): Promise<DomainRow> {
+		const dns = domainDnsSchema.safeParse(row.dns);
+		const zoneId = dns.success ? dns.data.zoneId : undefined;
+
+		if (row.source !== "external" || !dns.success || !zoneId) {
+			return row;
+		}
+
+		let status: string | null;
+
+		try {
+			status = await this.customerZoneService.getZoneStatus(zoneId);
+		} catch (error) {
+			this.logger.warn(
+				`Cloudflare zone check deferred for external domain ${row.id}`,
+				error instanceof Error ? error.message : String(error),
+			);
+
+			return row;
+		}
+
+		if (status !== null) {
+			return row;
+		}
+
+		this.logger.warn(
+			`Cloudflare zone ${zoneId} for domain ${row.id} no longer exists; its nameservers are withdrawn`,
+		);
+
+		const withdrawn = await this.domainsRepository.mergeDnsIfStatus(
+			row.id,
+			["configuring", "active"],
+			withdrawnCustomerZoneDnsPatch(dns.data, zoneId),
+		);
+
+		return withdrawn ?? row;
+	}
+
+	private sameRequiredRecords(
+		current: readonly RequiredDomainRecord[],
+		next: readonly RequiredDomainRecord[],
+	): boolean {
+		return (
+			current.length === next.length &&
+			current.every((record, index) => {
+				const candidate = next[index];
+
+				return (
+					candidate?.name === record.name &&
+					candidate.purpose === record.purpose &&
+					candidate.type === record.type &&
+					candidate.value === record.value
+				);
+			})
+		);
 	}
 
 	private isHostnameActive(status: string) {

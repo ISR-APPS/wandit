@@ -4,7 +4,18 @@ import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gte, ilike, notInArray, or, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gte,
+	ilike,
+	inArray,
+	notInArray,
+	or,
+	sql,
+} from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import {
 	organizationBillingCustomers,
@@ -23,6 +34,11 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	AI_SPEND_STATUSES,
+	aiUsageEventCostProvenance,
+	aiUsageEventCostUsdMicros,
+} from "./ai-usage-cost.sql";
 
 export type AdminOrganizationSummaryRow = {
 	id: string;
@@ -54,12 +70,15 @@ export type AdminUserMembershipRow = {
 };
 
 export type AdminOrgSubscriptionRow = {
+	id: string;
+	provider: string;
 	plan: (typeof subscriptions.plan)["_"]["data"];
 	status: string;
 	interval: (typeof subscriptions.interval)["_"]["data"];
 	currentPeriodEnd: Date;
 	cancelAtPeriodEnd: boolean;
 	tierCredits: number;
+	pendingTierCredits: number | null;
 	purchasedByUserId: string | null;
 };
 
@@ -72,6 +91,15 @@ export type AdminOrgLedgerRow = {
 	createdAt: Date;
 	actorUserId: string | null;
 	actorName: string | null;
+	aiModel: string | null;
+	aiProvider: string | null;
+	aiCostUsdMicros: number | null;
+	aiCostProvenance: string | null;
+};
+
+export type AdminOrgAiSpendRow = {
+	totalCostUsdMicros: number;
+	meteredOperations: number;
 };
 
 const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
@@ -80,6 +108,8 @@ const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
 // (packages/db/src/schema/billing.ts) and AdminRepository — there is no shared
 // constant to import.
 const TERMINAL_SUBSCRIPTION_STATUSES = ["canceled", "incomplete_expired"];
+
+type AdminOrganizationsDbClient = Pick<Database, "select">;
 
 @Injectable()
 export class AdminOrganizationsRepository {
@@ -143,8 +173,11 @@ export class AdminOrganizationsRepository {
 	}
 
 	/** All team workspaces a user belongs to — the user-detail sidebar list. */
-	listUserMemberships(userId: string): Promise<AdminUserMembershipRow[]> {
-		return this.db
+	listUserMemberships(
+		userId: string,
+		client: AdminOrganizationsDbClient = this.db,
+	): Promise<AdminUserMembershipRow[]> {
+		return client
 			.select({
 				organizationId: member.organizationId,
 				name: organization.name,
@@ -198,12 +231,15 @@ export class AdminOrganizationsRepository {
 	): Promise<AdminOrgSubscriptionRow | null> {
 		const [row] = await this.db
 			.select({
+				id: subscriptions.id,
+				provider: subscriptions.provider,
 				plan: subscriptions.plan,
 				status: subscriptions.status,
 				interval: subscriptions.interval,
 				currentPeriodEnd: subscriptions.currentPeriodEnd,
 				cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
 				tierCredits: subscriptions.tierCredits,
+				pendingTierCredits: subscriptions.pendingTierCredits,
 				purchasedByUserId: subscriptions.userId,
 			})
 			.from(subscriptions)
@@ -223,22 +259,67 @@ export class AdminOrganizationsRepository {
 		organizationId: string,
 		limit: number,
 	): Promise<AdminOrgLedgerRow[]> {
-		return this.db
+		return (
+			this.db
+				.select({
+					id: creditLedger.id,
+					delta: creditLedger.delta,
+					kind: creditLedger.kind,
+					bucket: creditLedger.bucket,
+					meta: creditLedger.meta,
+					createdAt: creditLedger.createdAt,
+					actorUserId: creditLedger.userId,
+					actorName: user.name,
+					aiModel: aiUsageEvents.model,
+					aiProvider: aiUsageEvents.provider,
+					// Cost only on consume rows: metering refund grants link to the
+					// same operation but are credit compensation, not new spend.
+					aiCostUsdMicros: sql<
+						number | null
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
+					aiCostProvenance: sql<
+						string | null
+					>`case when ${creditLedger.kind} = 'consume' and ${aiUsageEventCostUsdMicros} is not null then ${aiUsageEventCostProvenance} end`,
+				})
+				.from(creditLedger)
+				.leftJoin(user, eq(user.id, creditLedger.userId))
+				// Metering rows (reserve/settle consumes and refund grants) carry the
+				// operation id in meta.usageEventId; every other kind joins to
+				// nothing. Text comparison: a malformed historical id must not fail
+				// the whole query with a cast error.
+				.leftJoin(
+					aiUsageEvents,
+					sql`${creditLedger.meta} ->> 'usageEventId' = ${aiUsageEvents.id}::text`,
+				)
+				.where(eq(creditLedger.organizationId, organizationId))
+				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
+				.limit(limit)
+		);
+	}
+
+	// Actual AI-provider spend charged to this org's pool, across all acting
+	// members. Completed operations only; ops without any recorded provider
+	// cost count 0. Bigint: lifetime micros can pass 2^31.
+	async sumAiSpend(organizationId: string): Promise<AdminOrgAiSpendRow> {
+		const [row] = await this.db
 			.select({
-				id: creditLedger.id,
-				delta: creditLedger.delta,
-				kind: creditLedger.kind,
-				bucket: creditLedger.bucket,
-				meta: creditLedger.meta,
-				createdAt: creditLedger.createdAt,
-				actorUserId: creditLedger.userId,
-				actorName: user.name,
+				totalCostUsdMicros:
+					sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
+				meteredOperations: sql<number>`count(*)::int`,
 			})
-			.from(creditLedger)
-			.leftJoin(user, eq(user.id, creditLedger.userId))
-			.where(eq(creditLedger.organizationId, organizationId))
-			.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
-			.limit(limit);
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.organizationId, organizationId),
+					inArray(aiUsageEvents.status, [...AI_SPEND_STATUSES]),
+				),
+			);
+
+		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
 
 	async countPendingInvitations(organizationId: string): Promise<number> {
@@ -255,9 +336,7 @@ export class AdminOrganizationsRepository {
 		return row?.total ?? 0;
 	}
 
-	async findDefaultMemberLimit(
-		organizationId: string,
-	): Promise<number | null> {
+	async findDefaultMemberLimit(organizationId: string): Promise<number | null> {
 		const [row] = await this.db
 			.select({
 				defaultMemberMonthlyCreditLimit:
@@ -270,9 +349,7 @@ export class AdminOrganizationsRepository {
 		return row?.defaultMemberMonthlyCreditLimit ?? null;
 	}
 
-	async listMemberLimits(
-		organizationId: string,
-	): Promise<Map<string, number>> {
+	async listMemberLimits(organizationId: string): Promise<Map<string, number>> {
 		const rows = await this.db
 			.select({
 				userId: organizationMemberCreditLimits.userId,

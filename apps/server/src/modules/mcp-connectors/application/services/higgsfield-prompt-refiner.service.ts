@@ -1,13 +1,15 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
-import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../metering/domain/gateway-metering";
-import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import { helperStepUsage } from "../../../metering/domain/metering";
 
 const PROMPT_REFINER_CAPTURE_ATTEMPTS = 3;
 const PROMPT_REFINER_UNKNOWN_MODEL = "unknown";
@@ -29,8 +31,15 @@ type HiggsfieldPromptRefinerInput = {
 };
 
 type PromptTarget = {
+	aspectRatio?: string;
+	bypassVideoDirector?: boolean;
+	durationSeconds?: number;
 	model: string;
 	prompt: string;
+	referenceMediaCount?: number;
+	talking?: boolean;
+	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 	withRefinedPrompt: (refined: string) => Record<string, unknown>;
 };
 
@@ -41,12 +50,19 @@ export class HiggsfieldPromptRefinerService {
 	constructor(
 		@Inject(MeteringService)
 		private readonly meteringService: MeteringService,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 	) {}
 
 	/**
 	 * Rewrites the generation prompt inside the raw MCP arguments. Any failure
 	 * degrades to the original arguments: a refinement must never block or fail
 	 * a paid generation.
+	 *
+	 * New-video prompts do NOT use the generic refiner below: they go through
+	 * the one creative director (VideoDirectorService) so a Higgsfield render
+	 * and a gateway render use the same brain. Surgical edit instructions bypass
+	 * all rewriting because the provider must receive them verbatim.
 	 */
 	async refineGenerationArgs(
 		input: HiggsfieldPromptRefinerInput,
@@ -61,33 +77,69 @@ export class HiggsfieldPromptRefinerService {
 			return input.args;
 		}
 
-		if (!env.AI_GATEWAY_API_KEY) {
+		if (input.toolName === "generate_video") {
+			if (target.bypassVideoDirector) {
+				return input.args;
+			}
+
+			// craftConnectorVideoPrompt never throws — it degrades to its own
+			// deterministic fallback, which still wraps the brief.
+			const crafted = await this.videoDirector.craftConnectorVideoPrompt({
+				aspect: target.aspectRatio,
+				brief: target.prompt,
+				durationSeconds: target.durationSeconds,
+				model: target.model,
+				organizationId: input.organizationId,
+				parentEventId: input.parentEventId,
+				referenceMediaCount: target.referenceMediaCount,
+				...(target.talking === undefined ? {} : { talking: target.talking }),
+				userId: input.userId,
+				...(target.voiceoverLanguage
+					? { voiceoverLanguage: target.voiceoverLanguage }
+					: {}),
+				...(target.voiceoverScript
+					? { voiceoverScript: target.voiceoverScript }
+					: {}),
+			});
+
+			return target.withRefinedPrompt(crafted.prompt);
+		}
+
+		if (!hasLlmProviderKey("prompt_refine")) {
 			this.logger.warn(
-				"Higgsfield prompt refinement skipped: AI gateway is not configured",
+				"Higgsfield prompt refinement skipped: AI provider is not configured",
 			);
 			return input.args;
 		}
 
+		const meteringContext = {
+			operation: "chat" as const,
+			organizationId: input.organizationId,
+			userId: input.userId,
+		};
+
 		try {
 			const result = await generateText({
 				maxOutputTokens: 600,
-				model: env.AI_PROMPT_REFINER_MODEL,
+				model: createLlmModel(env.AI_PROMPT_REFINER_MODEL, {
+					context: meteringContext,
+					reasoningEffort: "medium",
+					task: "prompt_refine",
+				}),
 				prompt: buildRefinementPrompt(input.toolName, target),
-				providerOptions: withGatewayAttribution(
+				providerOptions: withLlmAttribution(
 					{ openai: { reasoningEffort: "medium" } },
-					{
-						operation: "chat",
-						organizationId: input.organizationId,
-						userId: input.userId,
-					},
+					meteringContext,
+					"prompt_refine",
 				),
 				system: HIGGSFIELD_PROMPT_REFINER_PROMPT,
+				telemetry: { functionId: "connector.prompt_refine" },
 			});
 
 			if (input.parentEventId) {
 				await this.captureGeneration(input.parentEventId, {
 					providerMetadata: result.providerMetadata,
-					stepUsage: bundledUnmeteredStepUsage("prompt_refine", result.usage),
+					stepUsage: helperStepUsage("prompt_refine", result.usage),
 				});
 			}
 
@@ -99,13 +151,13 @@ export class HiggsfieldPromptRefinerService {
 
 			return target.withRefinedPrompt(refined);
 		} catch (error) {
-			const errorCapture = gatewayGenerationCaptureFromError(error);
+			const errorCapture = llmGenerationCaptureFromError(error);
 
 			if (input.parentEventId && errorCapture) {
 				try {
 					await this.captureGeneration(input.parentEventId, {
 						providerMetadata: errorCapture.providerMetadata,
-						stepUsage: bundledUnmeteredStepUsage("prompt_refine", null),
+						stepUsage: helperStepUsage("prompt_refine", null),
 					});
 				} catch (captureError) {
 					this.logger.warn(
@@ -174,6 +226,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(params),
 			model: nonEmptyString(params.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -197,6 +250,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(parsed),
 			model: nonEmptyString(parsed.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -217,10 +271,110 @@ function locatePromptTarget(
 	}
 
 	return {
+		...promptContext(args),
 		model: nonEmptyString(args.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 		prompt,
 		withRefinedPrompt: (refined) => ({ ...args, prompt: refined }),
 	};
+}
+
+/**
+ * Read-only view of the generation prompt inside raw MCP arguments — the
+ * brief gate in mcp-chat-tools uses it to inspect a call before any LLM
+ * rewrite or reservation happens.
+ */
+export function locateGenerationPrompt(args: unknown): string | null {
+	if (!isRecord(args)) {
+		return null;
+	}
+
+	return locatePromptTarget(args)?.prompt ?? null;
+}
+
+// Media roles that carry sound or motion, not a visual frame: a call whose
+// only references are these has NO existing first frame, and the director
+// must not be told to "write motion-first from that frame".
+const FRAMELESS_MEDIA_ROLE = /audio|voice|sound|music|motion|video/i;
+
+/**
+ * Aspect/duration/reference-media context carried next to the prompt
+ * (free-form values). `referenceMediaCount` counts only frame-carrying
+ * `medias` entries (start_image, image, end_image…): those mean the call
+ * animates an existing frame, and the director must know, or it rewrites the
+ * brief as a from-scratch text-to-video scene. Audio/motion references never
+ * count — they add sound or movement to a render that still needs its scene
+ * described in full.
+ */
+function promptContext(record: Record<string, unknown>): {
+	aspectRatio?: string;
+	bypassVideoDirector?: boolean;
+	durationSeconds?: number;
+	referenceMediaCount?: number;
+	talking?: boolean;
+	voiceoverLanguage?: string;
+	voiceoverScript?: string;
+} {
+	const aspectRatio = nonEmptyString(record.aspect_ratio);
+	const duration =
+		typeof record.duration === "number" && Number.isFinite(record.duration)
+			? record.duration
+			: typeof record.duration === "string" &&
+					Number.isFinite(Number(record.duration))
+				? Number(record.duration)
+				: undefined;
+	const referenceMediaCount = Array.isArray(record.medias)
+		? record.medias.filter((media) => {
+				const role = isRecord(media) ? media.role : undefined;
+				return typeof role !== "string" || !FRAMELESS_MEDIA_ROLE.test(role);
+			}).length
+		: 0;
+	const talking =
+		typeof record.talking === "boolean" ? record.talking : undefined;
+	const voiceoverLanguage = nonEmptyString(record.voiceoverLanguage);
+	const voiceoverScript = nonEmptyString(record.voiceoverScript);
+
+	return {
+		...(aspectRatio ? { aspectRatio } : {}),
+		...(isVideoEditCall(record) ? { bypassVideoDirector: true } : {}),
+		...(duration && duration > 0 ? { durationSeconds: duration } : {}),
+		...(referenceMediaCount > 0 ? { referenceMediaCount } : {}),
+		...(talking === undefined ? {} : { talking }),
+		...(voiceoverLanguage ? { voiceoverLanguage } : {}),
+		...(voiceoverScript ? { voiceoverScript } : {}),
+	};
+}
+
+/**
+ * Accept singular, plural, snake-case, kebab-case, and camel-case spellings for
+ * the video-reference role. Compacting the token keeps edit detection stable
+ * without treating an ordinary video or motion reference as a surgical edit.
+ */
+function isVideoEditCall(record: Record<string, unknown>): boolean {
+	if (compactProviderToken(record.mode) === "videoedit") {
+		return true;
+	}
+
+	return (
+		Array.isArray(record.medias) &&
+		record.medias.some((media) => {
+			if (!isRecord(media)) {
+				return false;
+			}
+
+			const role = compactProviderToken(media.role);
+
+			return role === "videoreference" || role === "videoreferences";
+		})
+	);
+}
+
+function compactProviderToken(value: unknown): string | null {
+	return typeof value === "string"
+		? value
+				.trim()
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "")
+		: null;
 }
 
 function buildRefinementPrompt(

@@ -1,14 +1,23 @@
-// /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { Sentry } from "@wandit/observability/node";
 
-import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
+import {
+	isTerminalFixedOperationReplay,
+	type MeasuredSettlementInput,
+} from "../../../metering/application/services/fixed-operation-billing";
 import {
 	fixedGenerationStepUsage,
 	type GatewayGenerationFailure,
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import type { MeteredTokenUsage } from "../../../metering/domain/model-pricing";
 import type {
 	MarketingAssetBilling,
 	MarketingAssetReservation,
@@ -70,7 +79,7 @@ export type MarketingAssetDocument = {
 export type MarketingAssetProviderResult =
 	| ({ status: "generated" } & MarketingAssetDocument &
 			GatewayGenerationMetadata)
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure: NormalizedAiError })
 	| { message: string; status: "unavailable" };
 
 export type MarketingAssetRunnerDependencies = {
@@ -84,7 +93,13 @@ export type MarketingAssetRunnerDependencies = {
 			completedAt: Date;
 			error: string;
 			expectedStatus: Extract<MarketingAssetJobStatus, "queued" | "generating">;
+			failureKind: string;
+			failureProvider: string | null;
+			failureProviderMessage: string | null;
+			failureRequestId: string | null;
+			failureSource: string;
 			reason: string;
+			sentryEventId: string | null;
 		},
 	) => Promise<boolean>;
 	generate: (
@@ -100,6 +115,7 @@ export type MarketingAssetRunnerDependencies = {
 		asset: MarketingAssetJob,
 		document: MarketingAssetDocument,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredDocument: (
@@ -322,7 +338,12 @@ export async function runMarketingAssetGeneration(
 			payload.parentEventId,
 			payload.billingMode,
 		);
-		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			loaded,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -377,7 +398,12 @@ export async function runMarketingAssetGeneration(
 				payload.parentEventId,
 				payload.billingMode,
 			);
-			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
+			return recoverOrSettleGenerating(
+				raced,
+				subject,
+				dependencies,
+				reservation,
+			);
 		}
 
 		throw new Error(
@@ -399,21 +425,25 @@ export async function runMarketingAssetGeneration(
 			payload.billingMode,
 		);
 	} catch (error) {
-		// Insufficient credits is an expected outcome; anything else here is
-		// billing/DB infrastructure failing and must be visible.
-		if (
-			!(error instanceof Error && error.name === "InsufficientCreditsError")
-		) {
-			Sentry.captureException(error, {
-				tags: { assetId: claimed.id, userId: claimed.userId },
-			});
-		}
-		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
+		await failAndRefund(
+			claimed,
+			subject,
+			dependencies,
+			"reservation_failed",
+			classifyRunnerError(error, { refunded: true, route: "none" }),
+			error,
+			true,
+		);
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			claimed,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	let generated: MarketingAssetProviderResult;
@@ -433,40 +463,58 @@ export async function runMarketingAssetGeneration(
 			},
 		);
 	} catch (error) {
-		// User aborts are expected; anything else was previously invisible.
-		if (!input.signal?.aborted) {
-			Sentry.captureException(error, {
-				tags: { assetId: claimed.id, userId: claimed.userId },
-			});
-		}
-		await failAndRefund(claimed, subject, dependencies, "generation_failed");
+		const failure = classifyRunnerError(error, {
+			abortSignal: input.signal,
+			refunded: true,
+			route: "none",
+		});
+		await failAndRefund(
+			claimed,
+			subject,
+			dependencies,
+			"generation_failed",
+			failure,
+			error,
+			true,
+			failure.kind === "internal" ? USER_SAFE_MARKETING_ASSET_ERROR : undefined,
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (generated.status !== "generated") {
-		// The provider's message is about to be replaced by a generic
-		// "generation_failed" — keep the original reason.
-		Sentry.captureMessage(`Marketing asset failed: ${generated.message}`, {
-			level: "error",
-			tags: { assetId: claimed.id, userId: claimed.userId },
-		});
 		const providerUnits =
 			"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
 		if (hasGatewayGenerationMetadata(generated)) {
 			if (!generationCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
 					providerMetadata: generated.providerMetadata,
-					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					// A zero-unit provider failure is refunded to the user; the marker
+					// keeps its gateway cost out of the customer charge.
+					stepUsage: fixedGenerationStepUsage(
+						generated.usage,
+						providerUnits,
+						providerUnits === 0 ? "refunded_failure" : undefined,
+					),
 				});
 			}
-			await dependencies.settle(reservation, providerUnits);
+			await dependencies.settle(reservation, {
+				completedUnits: providerUnits,
+				tokenUsage: marketingTokenUsage(generated),
+			});
 		}
 		await failAndRefund(
 			claimed,
 			subject,
 			dependencies,
 			"generation_failed",
+			"failure" in generated
+				? generated.failure
+				: internalFailure("Marketing generation is unavailable", false),
+			"failure" in generated
+				? errorForNormalized(generated.failure)
+				: new Error("Marketing generation is unavailable"),
 			!hasGatewayGenerationMetadata(generated),
+			"failure" in generated ? undefined : USER_SAFE_MARKETING_ASSET_ERROR,
 		);
 		return { reason: "generation_failed", status: "failed" };
 	}
@@ -478,27 +526,31 @@ export async function runMarketingAssetGeneration(
 				stepUsage: fixedGenerationStepUsage(generated.usage, 1),
 			});
 		} catch (error) {
-			Sentry.captureException(error, {
-				tags: { assetId: claimed.id, userId: claimed.userId },
-			});
 			await failAndRefund(
 				claimed,
 				subject,
 				dependencies,
 				"generation_capture_failed",
+				internalFailure("Marketing generation capture failed", false),
+				error,
 				false,
+				USER_SAFE_MARKETING_ASSET_ERROR,
 			);
 			return { reason: "generation_failed", status: "failed" };
 		}
 	}
 
 	// A succeeded asset is user-visible, so settle before publishing that state.
-	await dependencies.settle(reservation);
+	await dependencies.settle(reservation, {
+		completedUnits: 1,
+		tokenUsage: marketingTokenUsage(generated),
+	});
 
 	const persisted = await dependencies.markSucceeded(
 		claimed,
 		generated,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -535,6 +587,7 @@ async function recoverOrSettleGenerating(
 			asset,
 			recovered,
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -555,7 +608,16 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(asset, subject, dependencies, "terminal_billing", false);
+		await failAndRefund(
+			asset,
+			subject,
+			dependencies,
+			"terminal_billing",
+			internalFailure("Marketing terminal billing recovery failed", false),
+			new Error("Marketing terminal billing recovery failed"),
+			false,
+			USER_SAFE_MARKETING_ASSET_ERROR,
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -563,7 +625,16 @@ async function recoverOrSettleGenerating(
 		throw new MarketingAssetSettlementPendingError(asset.id);
 	}
 
-	await failAndRefund(asset, subject, dependencies, "stale_generation");
+	await failAndRefund(
+		asset,
+		subject,
+		dependencies,
+		"stale_generation",
+		internalFailure("Marketing generation became stale", true),
+		new Error("Marketing generation became stale"),
+		true,
+		USER_SAFE_MARKETING_ASSET_ERROR,
+	);
 	return { reason: "stale_generation", status: "failed" };
 }
 
@@ -589,6 +660,7 @@ async function recoverStoredDocumentWithExistingSettlement(
 		asset,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -620,13 +692,28 @@ async function failAndRefund(
 	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	reason: string,
+	failure: NormalizedAiError,
+	error: unknown,
 	shouldRefund = true,
+	legacyMessage?: string,
 ): Promise<void> {
+	const persistedFailure = captureFailure(
+		error,
+		{ ...failure, refunded: shouldRefund },
+		asset,
+		subject,
+	);
 	const failed = await dependencies.fail(asset, {
 		completedAt: dependencies.now(),
-		error: USER_SAFE_MARKETING_ASSET_ERROR,
+		error: legacyMessage ?? renderAiErrorSentence(persistedFailure),
 		expectedStatus: "generating",
+		failureKind: persistedFailure.kind,
+		failureProvider: persistedFailure.provider,
+		failureProviderMessage: persistedFailure.providerMessage,
+		failureRequestId: persistedFailure.requestId,
+		failureSource: persistedFailure.source,
 		reason,
+		sentryEventId: persistedFailure.sentryEventId,
 	});
 
 	if (!failed) {
@@ -671,6 +758,14 @@ async function settleDeletedProject(
 		completedAt: dependencies.now(),
 		error: USER_SAFE_MARKETING_ASSET_ERROR,
 		expectedStatus: asset.status,
+		...failurePersistence(
+			captureFailure(
+				new Error("Marketing asset project was deleted"),
+				internalFailure("Marketing asset project was deleted", shouldRefund),
+				asset,
+				subject,
+			),
+		),
 		reason: "project_deleted",
 	});
 
@@ -726,6 +821,96 @@ async function resolveSuccessCasLoss(
 	);
 }
 
+function internalFailure(
+	message: string,
+	refunded: boolean,
+): NormalizedAiError {
+	return classifyRunnerError(new Error(message), {
+		refunded,
+		route: "none",
+	});
+}
+
+function classifyRunnerError(
+	error: unknown,
+	context: Pick<AiErrorContext, "abortSignal" | "refunded" | "route">,
+): NormalizedAiError {
+	const failure = classifyAiError(error, {
+		...context,
+		surface: "marketing",
+	});
+
+	if (failure) return failure;
+
+	const fallback = classifyAiError(new Error("Marketing generation failed"), {
+		refunded: context.refunded,
+		route: "none",
+		surface: "marketing",
+	});
+
+	if (!fallback) {
+		throw new Error("Marketing failure classification returned no result");
+	}
+
+	return fallback;
+}
+
+function captureFailure(
+	error: unknown,
+	failure: NormalizedAiError,
+	asset: MarketingAssetJob,
+	subject: MeteringSubject,
+): NormalizedAiError {
+	const sentryEventId = captureAiError(error, failure, {
+		functionId: "marketing.html",
+		generationId: asset.id,
+		projectId: asset.projectId,
+		refunded: failure.refunded,
+		route: routeForFailure(failure),
+		surface: "marketing",
+		userId: subject.actorUserId,
+	});
+
+	return { ...failure, sentryEventId };
+}
+
+function routeForFailure(failure: NormalizedAiError): AiErrorContext["route"] {
+	if (failure.source === "openrouter") return "openrouter";
+	if (failure.source === "gateway" || failure.source.startsWith("provider:")) {
+		return "vercel";
+	}
+	return "none";
+}
+
+function failurePersistence(failure: NormalizedAiError): {
+	failureKind: string;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string;
+	sentryEventId: string | null;
+} {
+	return {
+		failureKind: failure.kind,
+		failureProvider: failure.provider,
+		failureProviderMessage: failure.providerMessage,
+		failureRequestId: failure.requestId,
+		failureSource: failure.source,
+		sentryEventId: failure.sentryEventId,
+	};
+}
+
+function errorForNormalized(failure: NormalizedAiError): Error {
+	const error = new Error(
+		failure.raw.message || renderAiErrorSentence(failure),
+	);
+	if (failure.raw.name) error.name = failure.raw.name;
+	if (failure.raw.cause !== null && failure.raw.cause !== undefined) {
+		error.cause = failure.raw.cause;
+	}
+	return error;
+}
+
 function isStaleGenerating(
 	asset: Pick<MarketingAssetJob, "startedAt">,
 	now: Date,
@@ -752,4 +937,28 @@ function succeededResult(
 		recovered,
 		status: "succeeded",
 	};
+}
+
+/** Token settlement input from the provider evidence, when usage is known. */
+function marketingTokenUsage(
+	generated: Partial<GatewayGenerationMetadata>,
+): NonNullable<MeasuredSettlementInput["tokenUsage"]> | null {
+	if (!generated.model || !isTokenUsage(generated.usage)) {
+		return null;
+	}
+
+	return {
+		modelId: generated.model,
+		provider: generated.provider ?? null,
+		rawUsage: generated.usage,
+		usage: generated.usage,
+	};
+}
+
+function isTokenUsage(value: unknown): value is MeteredTokenUsage {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		("inputTokens" in value || "outputTokens" in value)
+	);
 }

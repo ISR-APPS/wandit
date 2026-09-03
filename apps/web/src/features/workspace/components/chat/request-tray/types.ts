@@ -6,7 +6,18 @@
 // twelve body kinds; the live ask_user plumbing will build these states from
 // stream parts later.
 
-export type ChipOption = { id: string; label: string };
+import type { WorldCard } from "@wandit/contracts";
+
+export type ChipOption = { id: string; label: string; worldId?: string };
+
+/** One taste-card option: the ask_user option plus the design world's card
+    face resolved from the get_direction_candidates cards in the transcript.
+    `card` absent = the id didn't resolve — renders as a neutral card. */
+export type WorldCardOption = {
+	id: string;
+	label: string;
+	card?: WorldCard;
+};
 
 /** Gradient swatch card for visual picks (hero directions, palettes).
     `preview` is a CSS background — decorative artwork, not chrome tokens. */
@@ -35,6 +46,10 @@ export type TrayBody =
 	| { kind: "free-text" } // 10b — the composer input IS the answer
 	| { kind: "single-choice"; options: ChipOption[]; selectedId?: string } // 10c
 	| { kind: "multi-select"; options: ChipOption[]; selectedIds?: string[] } // 10d
+	// Taste cards — a single-choice whose options are design-world specimen
+	// cards (real font + real colors from the sampled menu). Same draft/CTA
+	// flow as single-choice.
+	| { kind: "world-pick"; options: WorldCardOption[]; selectedId?: string }
 	| { kind: "segmented"; options: ChipOption[]; selectedId?: string } // 10e
 	| {
 			kind: "visual-pick"; // 10f

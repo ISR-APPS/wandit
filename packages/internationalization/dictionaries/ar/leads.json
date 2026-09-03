@@ -2,6 +2,14 @@
 	"title": "العملاء المحتملون",
 	"searchPlaceholder": "ابحث بالاسم أو الهاتف…",
 	"filterAll": "كل الحالات",
+	"filterActive": "النشطة",
+	"filterArchived": "المؤرشفة",
+	"filterAllLeads": "كل العملاء المحتملين",
+	"allDates": "كل التواريخ",
+	"dateToday": "اليوم",
+	"dateLast7Days": "آخر 7 أيام",
+	"dateLast30Days": "آخر 30 يومًا",
+	"datePickDay": "اختر يومًا",
 	"exportCsv": "تصدير CSV",
 	"exportedToast": {
 		"zero": "لم يُصدَّر أي عميل",
@@ -20,14 +28,21 @@
 	"colPhone": "الهاتف",
 	"colLocation": "الولاية / البلدية",
 	"colDate": "التاريخ",
+	"colSku": "SKU",
 	"colStatus": "الحالة",
+	"colSource": "المصدر",
+	"colActions": "الإجراءات",
 	"call": "اتصال",
 	"whatsapp": "WhatsApp",
+	"archive": "أرشفة",
+	"unarchive": "إلغاء الأرشفة",
+	"archivedToast": "تمت أرشفة {name}",
+	"unarchivedToast": "تمت استعادة {name}",
 	"emptyTitle": "لا عملاء محتملين بعد",
 	"emptyBody": "انشر صفحتك لتبدأ في جمع الطلبات.",
 	"emptyCta": "فتح إعدادات النشر",
 	"noResultsTitle": "لا عملاء مطابقين",
-	"noResultsBody": "جرّب بحثًا آخر أو امسح مرشّح الحالة.",
+	"noResultsBody": "جرّب بحثًا آخر أو امسح المرشّحات.",
 	"clearFilters": "مسح المرشّحات",
 	"statusUpdated": "{name}: {status}",
 	"pageInfo": "{from}–{to} من {total}",
@@ -40,6 +55,7 @@
 		"syncNow": "مزامنة الآن",
 		"open": "فتح الجدول",
 		"lastSynced": "آخر مزامنة {time}",
+		"autoSync": "مزامنة تلقائية كل {minutes} دقيقة",
 		"syncedToast": {
 			"zero": "لم يُزامَن أي عميل",
 			"one": "تمت مزامنة عميل واحد",
@@ -49,6 +65,10 @@
 			"other": "تمت مزامنة {count} عميل"
 		},
 		"errorToast": "فشلت المزامنة مع Google Sheets. حاول مجددًا."
+	},
+	"codPilotSync": {
+		"sync": "مزامنة COD Pilot",
+		"comingSoon": "مزامنة COD Pilot — قريبًا"
 	},
 	"status": {
 		"to_confirm": "بانتظار التأكيد",
@@ -65,6 +85,26 @@
 		"البلدية",
 		"الحالة",
 		"المصدر",
-		"التاريخ"
-	]
+		"الحملة",
+		"التاريخ",
+		"SKU"
+	],
+	"csvOrderHeaders": ["المنتج", "الكمية", "السعر", "التوصيل", "المجموع"],
+	"orderTotal": "المجموع",
+	"source": {
+		"facebook": "فيسبوك",
+		"tiktok": "تيك توك",
+		"direct": "مباشر"
+	},
+	"campaignTooltip": "الحملة: {campaign}",
+	"metaTitle": "العملاء المحتملون — Wandit",
+	"subtitle": "كل الطلبات المُلتقطة عبر مشاريعك.",
+	"colProject": "المشروع",
+	"allProjects": "كل المشاريع",
+	"allSources": "كل المصادر",
+	"dashEmptyTitle": "لا عملاء محتملين بعد",
+	"dashEmptyBody": "انشر صفحة وستصل كل الطلبات التي تلتقطها إلى هنا، من كل مشاريعك.",
+	"loadError": "تعذّر تحميل العملاء المحتملين.",
+	"retry": "إعادة المحاولة",
+	"noResultsBodyFilters": "جرّب بحثًا آخر أو امسح المرشّحات."
 }

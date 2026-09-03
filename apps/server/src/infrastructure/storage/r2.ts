@@ -9,6 +9,11 @@
  * All R2_* env vars are optional (the server boots before credentials
  * exist), so callers MUST check isR2Configured() before touching storage.
  */
+import { createWriteStream } from "node:fs";
+import { rm } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -111,6 +116,36 @@ export function siteVideoKey(
 	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
 }
 
+// IMPORTANT: only the FINAL deliverable may use siteVideoKey(..., 1, ...).
+// Recovery treats vid-1.* as proof the whole attempt finished, and published
+// asset URLs are immutable-cached, so intermediates must never occupy that key
+// or be overwritten there later.
+export function siteVideoFrameKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/frames/frame-${index}.${extension}`;
+}
+
+export function siteVideoSegmentKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/segments/segment-${index}.${extension}`;
+}
+
+export function siteVideoSoundtrackKey(
+	projectId: string,
+	attemptId: string,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/audio/soundtrack.${extension}`;
+}
+
 // Review screenshots the build publishes for the chat progress card. Under
 // sites/{id}/shots/ — NOT sites/{id}/assets/ — so the Assets tab's
 // build-asset prefix listing never picks them up as user assets:
@@ -176,6 +211,45 @@ export function userUploadKey(
 ): string {
 	return `uploads/${userId}/${uuid}/${filename}`;
 }
+
+// Admin-panel copy of the in-app feedback screenshot. Each feedback row owns
+// one object, so a retry safely replaces the same key.
+export function feedbackScreenshotKey(
+	feedbackId: string,
+	extension: "png" | "jpg",
+): string {
+	return `feedback/${feedbackId}/screenshot.${extension}`;
+}
+
+// Narrower renditions of an image object live BESIDE it, in the same
+// directory, so every key keeps its segment count:
+// {directory}/{stem}.w{width}.webp
+// Same-directory matters: isUserUploadUrl / isWanditUploadUrl and
+// brief-user-photos both require uploads/ keys to be exactly 4 segments, and
+// an extra segment would silently drop a user photo from the builder's view.
+export function variantKey(baseKey: string, width: number): string {
+	const slash = baseKey.lastIndexOf("/");
+	const directory = slash >= 0 ? baseKey.slice(0, slash + 1) : "";
+	const filename = baseKey.slice(slash + 1);
+	const dot = filename.lastIndexOf(".");
+	const stem = dot > 0 ? filename.slice(0, dot) : filename;
+
+	return `${directory}${stem}.w${width}.webp`;
+}
+
+// The shape variantKey writes. Prefix listings (the Assets tab) use it to
+// keep renditions out of the user-facing file list.
+export const VARIANT_FILENAME_PATTERN = /\.w\d+\.webp$/;
+
+// Cache header for uuid-addressed media objects (uploads, build assets,
+// generated images, videos). A given key is written ONCE and never rewritten,
+// which is what makes "immutable" honest.
+//
+// CONSEQUENCE for any future backfill: re-optimizing an existing object must
+// write a NEW key and repoint the HTML at it. Rewriting bytes in place would
+// leave every edge and browser serving the old copy for a year.
+export const IMMUTABLE_ASSET_CACHE_CONTROL =
+	"public, max-age=31536000, immutable";
 
 // Browser-reachable URL for an object key, through the bucket's public base
 // URL (Cloudflare public dev URL or custom domain). Callers MUST check that
@@ -315,15 +389,21 @@ export function contentTypeFor(path: string): string {
 
 // Upload one file of a generated site (the builder may emit more than just
 // index.html). Same overwrite semantics as putPageHtml.
+//
+// cacheControl is opt-in per call, NOT derived from the content type: page
+// screenshots and dashboard thumbnails are images too, and they are not the
+// long-lived page assets that earn IMMUTABLE_ASSET_CACHE_CONTROL.
 export async function putSiteFile(
 	key: string,
 	body: string | Uint8Array,
 	contentType: string,
+	cacheControl?: string,
 ): Promise<void> {
 	await r2Client().send(
 		new PutObjectCommand({
 			Body: body,
 			Bucket: env.R2_BUCKET,
+			...(cacheControl ? { CacheControl: cacheControl } : {}),
 			ContentType: contentType,
 			Key: key,
 		}),
@@ -379,6 +459,47 @@ export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
 }
 
 /**
+ * Stream one object directly to a local file. Video-processing workers use
+ * this instead of getObjectBytes so source clips and segments never coexist
+ * as full in-memory buffers. A partial destination is removed on any failure.
+ */
+export async function downloadObjectToFile(
+	key: string,
+	destinationPath: string,
+): Promise<boolean> {
+	try {
+		const result = await r2Client().send(
+			new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+
+		if (!(result.Body instanceof Readable)) {
+			throw new Error(`R2 object ${key} did not provide a readable body.`);
+		}
+
+		try {
+			await pipeline(
+				result.Body,
+				createWriteStream(destinationPath, { flags: "wx" }),
+			);
+		} catch (error) {
+			await rm(destinationPath, { force: true }).catch(() => undefined);
+			throw error;
+		}
+
+		return true;
+	} catch (error) {
+		if (
+			error instanceof NoSuchKey ||
+			(isAwsNotFoundError(error) && error.$metadata.httpStatusCode === 404)
+		) {
+			return false;
+		}
+
+		throw error;
+	}
+}
+
+/**
  * Read one object's content type without downloading its body. A media worker
  * uses this to recover after a crash between the deterministic R2 upload and
  * the database's succeeded transition.
@@ -401,6 +522,24 @@ export async function getObjectContentType(
 		}
 
 		throw error;
+	}
+}
+
+/**
+ * Does this object exist? A HEAD, so no body is transferred. Answers false on
+ * ANY error (missing key, credentials, network): callers use it to decide
+ * whether to reference an optional object such as an image rendition, and a
+ * storage hiccup must degrade to "do not reference it", never to a throw.
+ */
+export async function r2ObjectExists(key: string): Promise<boolean> {
+	try {
+		await r2Client().send(
+			new HeadObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+
+		return true;
+	} catch {
+		return false;
 	}
 }
 

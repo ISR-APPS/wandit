@@ -43,15 +43,6 @@ export const composerModeSchema = z.enum(composerModes);
 // TypeScript type for composer mode.
 export type ComposerMode = z.infer<typeof composerModeSchema>;
 
-// Prompt quality setting.
-export const composerQualities = ["standard", "max"] as const;
-
-// Runtime validator for quality.
-export const composerQualitySchema = z.enum(composerQualities);
-
-// TypeScript type for quality.
-export type ComposerQuality = z.infer<typeof composerQualitySchema>;
-
 // Stable idempotency token carried only by Video composer submissions.
 // It lives inside `options` so old clients and non-video modes stay compatible.
 export const videoSubmissionIdSchema = uuidSchema;
@@ -59,15 +50,13 @@ export const videoSubmissionIdSchema = uuidSchema;
 // Extra settings attached to a prompt.
 export const composerMetadataSchema = z.object({
 	mode: composerModeSchema,
-	// If quality is missing, treat it as "standard".
-	quality: composerQualitySchema.default("standard"),
 	// Flexible fields for future prompt-box options.
 	output: z.string().min(1).optional(),
 	skills: z.array(z.string().min(1)).optional(),
 	options: z.record(z.string(), z.unknown()).optional(),
 });
 
-// Type after Zod applies defaults.
+// Validated composer metadata.
 export type ComposerMetadata = z.infer<typeof composerMetadataSchema>;
 
 // AI SDK message parts. Kept flexible for future text/images/tools/etc.
@@ -135,6 +124,18 @@ export const chatMessagesResponseSchema = z.object({
 // TypeScript chat history response.
 export type ChatMessagesResponse = z.infer<typeof chatMessagesResponseSchema>;
 
+// Staff-only aggregate of all metered work attached to one conversation.
+export const chatUsageResponseSchema = z.object({
+	inputTokens: z.number().int().nonnegative().nullable(),
+	outputTokens: z.number().int().nonnegative().nullable(),
+	cacheReadTokens: z.number().int().nonnegative().nullable(),
+	cacheWriteTokens: z.number().int().nonnegative().nullable(),
+	costUsdMicros: z.number().int().nonnegative().nullable(),
+	creditsCenti: z.number().int().nonnegative().nullable(),
+});
+
+export type ChatUsageResponse = z.infer<typeof chatUsageResponseSchema>;
+
 // Events that can arrive over the chat stream.
 // `type` tells the frontend which event shape it is.
 export const chatStreamEventSchema = z.discriminatedUnion("type", [
@@ -176,6 +177,8 @@ export const chatsRoutes = {
 	byProject: (projectId: string) => `/api/v1/chats/by-project/${projectId}`,
 	// GET loads history, POST sends a message.
 	messages: (chatId: string) => `/api/v1/chats/${chatId}/messages`,
+	// Staff-only conversation cost and token aggregate.
+	usage: (chatId: string) => `/api/v1/chats/${chatId}/usage`,
 	// SSE stream endpoint.
 	stream: (chatId: string) => `/api/v1/chats/${chatId}/stream`,
 } as const;

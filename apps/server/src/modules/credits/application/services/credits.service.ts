@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
 	CREDIT_SPEND_ORDER,
-	type CreditBalanceResponse,
+	type CreditActivityQuery,
 	type CreditBucket,
 	type CreditLedgerQuery,
 	SIGNUP_GRANT_CREDITS,
@@ -14,11 +14,13 @@ import {
 } from "../../domain/credit-owner";
 import { InsufficientCreditsError } from "../../domain/errors/insufficient-credits.error";
 import {
+	type CreditBalance,
 	type CreditLedgerRow,
 	type CreditPlanHoldPoolRow,
 	type CreditPlanHoldRow,
 	CreditsRepository,
 	type CreditsTransaction,
+	type SettledBalanceSnapshot,
 } from "../../infrastructure/persistence/credits.repository";
 
 type CreditMeta = Record<string, unknown> & {
@@ -26,6 +28,13 @@ type CreditMeta = Record<string, unknown> & {
 };
 
 type CreditWriteOptions = {
+	/**
+	 * Ruling 5 admission: any POSITIVE balance admits the full amount (the
+	 * remainder overdrafts into topup); a zero-or-negative balance refuses.
+	 * Metering reserves use this so a run can start on 1 cc but nothing new
+	 * starts while the balance is negative.
+	 */
+	admission?: "requirePositiveBalance";
 	/** Metering-only escape hatch for post-provider settlement debt. */
 	allowOverdraft?: boolean;
 	/**
@@ -77,6 +86,14 @@ type RevokeCreditOptions = CreditWriteOptions & {
 	bucket?: CreditBucket;
 };
 
+/**
+ * UNIT: integer centi-credits, like CreditBalance. settledBalance and the
+ * settled* buckets have the in-flight reserve holds added back: what the
+ * balance will read once running generations settle at estimated-or-lower
+ * cost.
+ */
+export type SettledCreditBalance = SettledBalanceSnapshot;
+
 @Injectable()
 export class CreditsService {
 	constructor(
@@ -84,14 +101,40 @@ export class CreditsService {
 		private readonly creditsRepository: CreditsRepository,
 	) {}
 
-	getBalance(owner: CreditOwner): Promise<CreditBalanceResponse> {
+	/** Internal balance in integer centi-credits; callers convert for the API. */
+	getBalance(owner: CreditOwner): Promise<CreditBalance> {
 		return this.creditsRepository.getBalance(owner);
+	}
+
+	/** Net lifetime consumption for a personal owner, in centi-credits. */
+	netConsumedCentiCredits(
+		userId: string,
+		transaction?: CreditsTransaction,
+	): Promise<number> {
+		return this.creditsRepository.netConsumedCentiCredits(userId, transaction);
+	}
+
+	/**
+	 * Balance plus the reserved add-back, all integer centi-credits. While a
+	 * usage event stays reserved its ledger dip equals its reserved_credits, so
+	 * the sum restores exactly what settlement will return at worst.
+	 */
+	async getSettledBalance(owner: CreditOwner): Promise<SettledCreditBalance> {
+		// One SQL statement = one snapshot under READ COMMITTED: the balance and
+		// the reserved add-back can never straddle a concurrent settle.
+		return this.creditsRepository.getSettledBalanceSnapshot(owner);
 	}
 
 	listLedger(owner: CreditOwner, query: CreditLedgerQuery) {
 		return this.creditsRepository.listByOwner(owner, query);
 	}
 
+	/** One row per operation plus the non-usage ledger rows; see the repository. */
+	listActivity(owner: CreditOwner, query: CreditActivityQuery) {
+		return this.creditsRepository.listActivityByOwner(owner, query);
+	}
+
+	/** All amounts on this service are INTEGER CENTI-CREDITS (1 = 0.01 credit). */
 	async consume(
 		owner: CreditOwner,
 		amount: number,
@@ -117,6 +160,7 @@ export class CreditsService {
 					amount,
 					action,
 					options.allowOverdraft === true,
+					options.admission ?? null,
 					options.planHold ?? null,
 					options.idempotencyKey,
 				);
@@ -133,14 +177,19 @@ export class CreditsService {
 
 			const balance = await this.creditsRepository.getBalance(owner, tx);
 
-			if (!options.allowOverdraft && balance.balance < amount) {
+			if (options.admission === "requirePositiveBalance") {
+				if (balance.balance <= 0) {
+					throw new InsufficientCreditsError(amount, balance.balance);
+				}
+			} else if (!options.allowOverdraft && balance.balance < amount) {
 				throw new InsufficientCreditsError(amount, balance.balance);
 			}
 
 			const bucketSplit = this.buildConsumeBucketSplit(
 				balance,
 				amount,
-				options.allowOverdraft === true,
+				options.allowOverdraft === true ||
+					options.admission === "requirePositiveBalance",
 			);
 			const rows: CreditLedgerRow[] = [];
 
@@ -168,6 +217,7 @@ export class CreditsService {
 								amount,
 								action,
 								options.allowOverdraft === true,
+								options.admission ?? null,
 								bucketSplit,
 								options.planHold ?? null,
 							),
@@ -185,6 +235,7 @@ export class CreditsService {
 					amount,
 					action,
 					options.allowOverdraft === true,
+					options.admission ?? null,
 					options.planHold ?? null,
 					options.idempotencyKey,
 				);
@@ -317,6 +368,7 @@ export class CreditsService {
 				fingerprintAmount,
 				fingerprintAction,
 				fingerprint?.allowOverdraft === true,
+				this.readAdmissionMode(fingerprint?.admission),
 				this.readPlanHoldMode(fingerprint?.planHold),
 				consumeIdempotencyKey,
 			);
@@ -683,7 +735,12 @@ export class CreditsService {
 				);
 
 				if (existingGrant) {
-					this.assertGrantReplayMatches(existingGrant, owner, allotment, "plan");
+					this.assertGrantReplayMatches(
+						existingGrant,
+						owner,
+						allotment,
+						"plan",
+					);
 					this.assertCappedRefillReplayMatches(
 						existingGrant,
 						allotment,
@@ -835,7 +892,11 @@ export class CreditsService {
 					newPoolId = pool.id;
 				}
 
-				await this.creditsRepository.applyPlanHoldBoundary(owner, newPoolId, tx);
+				await this.creditsRepository.applyPlanHoldBoundary(
+					owner,
+					newPoolId,
+					tx,
+				);
 				await this.creditsRepository.closePlanHoldPools(
 					owner,
 					oldPoolIds.filter((poolId) => poolId !== newPoolId),
@@ -884,25 +945,40 @@ export class CreditsService {
 		);
 	}
 
+	/** amount is centi-credits: billing converts pack credits x100 before calling. */
 	async topup(
 		owner: CreditOwner,
 		amount: number,
 		options: CreditWriteOptions = {},
+		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withOwnerLock(owner, (tx) =>
-			this.creditsRepository.insertLedgerEntry(
-				{
-					bucket: "topup",
-					delta: amount,
-					idempotencyKey: options.idempotencyKey,
-					kind: "topup",
-					meta: this.withReason(options.meta, "topup"),
-					...ownerColumns(owner),
-				},
-				tx,
-			),
+		return this.creditsRepository.withOwnerLock(
+			owner,
+			async (tx) => {
+				const row = await this.creditsRepository.insertLedgerEntry(
+					{
+						bucket: "topup",
+						delta: amount,
+						idempotencyKey: options.idempotencyKey,
+						kind: "topup",
+						meta: this.withTopupFingerprint(options.meta, owner, amount),
+						...ownerColumns(owner),
+					},
+					tx,
+				);
+
+				// The insert returns the WINNING row after ON CONFLICT: a replayed key
+				// with a different amount or owner must conflict loudly, never silently
+				// hand back the old row as if this request had been applied.
+				if (options.idempotencyKey) {
+					this.assertTopupReplayMatches(row, owner, amount);
+				}
+
+				return row;
+			},
+			transaction,
 		);
 	}
 
@@ -1008,28 +1084,43 @@ export class CreditsService {
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
+		// Preserve the existing top-up default for untouched callers.
+		const bucket = options.bucket ?? "topup";
+
 		return this.creditsRepository.withOwnerLock(
 			owner,
-			(tx) =>
-				this.creditsRepository.insertLedgerEntry(
+			async (tx) => {
+				const row = await this.creditsRepository.insertLedgerEntry(
 					{
-						// Preserve the existing top-up default for untouched callers.
-						bucket: options.bucket ?? "topup",
+						bucket,
 						delta: -amount,
 						idempotencyKey: options.idempotencyKey,
 						kind: "revoke",
-						meta: this.withReason(options.meta, "revoke"),
+						meta: this.withRevokeFingerprint(options.meta, owner, amount),
 						...ownerColumns(owner),
 					},
 					tx,
-				),
+				);
+
+				// Same replay contract as topup: the returned row may belong to an
+				// earlier write of this key and must match this request exactly.
+				if (options.idempotencyKey) {
+					this.assertRevokeReplayMatches(row, owner, amount, bucket);
+				}
+
+				return row;
+			},
 			transaction,
 		);
 	}
 
 	grantSignupCredits(
 		userId: string,
-		amount = SIGNUP_GRANT_CREDITS,
+		// SIGNUP_GRANT_CREDITS is a whole-display-credit contract constant; the
+		// ledger unit is centi-credits, so the default converts x100 here (the
+		// only place). Explicit amounts (the signup outbox) already arrive in
+		// centi-credits — product_settings stores centi-credits post-v4.
+		amount = SIGNUP_GRANT_CREDITS * 100,
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		return this.grant(
@@ -1202,6 +1293,88 @@ export class CreditsService {
 		};
 	}
 
+	private withTopupFingerprint(
+		meta: CreditMeta | undefined,
+		owner: CreditOwner,
+		amount: number,
+	) {
+		return {
+			...this.withReason(meta, "topup"),
+			idempotencyFingerprint: {
+				amount,
+				...this.ownerFingerprintFields(owner, null),
+			},
+		};
+	}
+
+	private withRevokeFingerprint(
+		meta: CreditMeta | undefined,
+		owner: CreditOwner,
+		amount: number,
+	) {
+		return {
+			...this.withReason(meta, "revoke"),
+			idempotencyFingerprint: {
+				amount,
+				...this.ownerFingerprintFields(owner, null),
+			},
+		};
+	}
+
+	/**
+	 * Rows written before this deploy lack the fingerprint — those validate on
+	 * the row columns alone (they always exist); a present fingerprint must
+	 * also match. Never reject for a missing fingerprint.
+	 */
+	private assertTopupReplayMatches(
+		row: CreditLedgerRow,
+		owner: CreditOwner,
+		amount: number,
+	): void {
+		const fingerprint = this.consumeFingerprint(row);
+		const fingerprintMatches =
+			fingerprint === null ||
+			(this.fingerprintOwnerMatches(fingerprint, owner) &&
+				fingerprint.amount === amount);
+
+		if (
+			!this.rowOwnerMatches(row, owner) ||
+			row.kind !== "topup" ||
+			row.bucket !== "topup" ||
+			row.delta !== amount ||
+			!fingerprintMatches
+		) {
+			throw new Error(
+				`Credit topup idempotency replay conflict for key ${row.idempotencyKey ?? "<missing>"}`,
+			);
+		}
+	}
+
+	private assertRevokeReplayMatches(
+		row: CreditLedgerRow,
+		owner: CreditOwner,
+		amount: number,
+		bucket: CreditBucket,
+	): void {
+		const fingerprint = this.consumeFingerprint(row);
+		const fingerprintMatches =
+			fingerprint === null ||
+			(this.fingerprintOwnerMatches(fingerprint, owner) &&
+				fingerprint.amount === amount);
+
+		if (
+			!this.rowOwnerMatches(row, owner) ||
+			row.kind !== "revoke" ||
+			row.bucket !== bucket ||
+			row.delta !== -amount ||
+			!fingerprintMatches
+		) {
+			throw new Error(
+				`Credit revoke idempotency replay conflict for key ${row.idempotencyKey ?? "<missing>"}`,
+			);
+		}
+	}
+
 	private cappedRefillReplay(grant: CreditLedgerRow): CappedRefillResult {
 		const meta = this.isRecord(grant.meta) ? grant.meta : null;
 		const refill = this.isRecord(meta?.refill) ? meta.refill : null;
@@ -1346,6 +1519,20 @@ export class CreditsService {
 		return value === "active" || value === "inactive" ? value : null;
 	}
 
+	private readAdmissionMode(value: unknown): "requirePositiveBalance" | null {
+		return value === "requirePositiveBalance" ? value : null;
+	}
+
+	/** Rows written before the admission field existed replay as legacy. */
+	private admissionFingerprintMatches(
+		value: unknown,
+		expected: "requirePositiveBalance" | null,
+	): boolean {
+		return expected === null
+			? value === null || value === undefined
+			: value === expected;
+	}
+
 	private planHoldFingerprintMatches(
 		value: unknown,
 		expected: "active" | "inactive" | null,
@@ -1362,6 +1549,7 @@ export class CreditsService {
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
+		admission: "requirePositiveBalance" | null,
 		bucketSplit: CreditBucketSplit,
 		planHold: "active" | "inactive" | null,
 	) {
@@ -1369,6 +1557,7 @@ export class CreditsService {
 			...this.withReason(meta, "consume"),
 			idempotencyFingerprint: {
 				action,
+				admission,
 				allowOverdraft,
 				amount,
 				bucketSplit,
@@ -1437,6 +1626,7 @@ export class CreditsService {
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
+		admission: "requirePositiveBalance" | null,
 		planHold: "active" | "inactive" | null,
 		idempotencyKey: string | undefined,
 	): void {
@@ -1449,6 +1639,10 @@ export class CreditsService {
 			firstFingerprint.amount !== amount ||
 			firstFingerprint.action !== action ||
 			(firstFingerprint.allowOverdraft === true) !== allowOverdraft ||
+			!this.admissionFingerprintMatches(
+				firstFingerprint.admission,
+				admission,
+			) ||
 			!this.planHoldFingerprintMatches(firstFingerprint.planHold, planHold) ||
 			bucketSplit === null ||
 			CREDIT_SPEND_ORDER.reduce(
@@ -1486,6 +1680,7 @@ export class CreditsService {
 						amount,
 						action,
 						allowOverdraft,
+						admission,
 						bucketSplit,
 						planHold,
 					)
@@ -1513,6 +1708,7 @@ export class CreditsService {
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
+		admission: "requirePositiveBalance" | null,
 		bucketSplit: CreditBucketSplit,
 		planHold: "active" | "inactive" | null,
 	) {
@@ -1525,6 +1721,7 @@ export class CreditsService {
 			fingerprint.amount === amount &&
 			fingerprint.action === action &&
 			(fingerprint.allowOverdraft === true) === allowOverdraft &&
+			this.admissionFingerprintMatches(fingerprint.admission, admission) &&
 			this.planHoldFingerprintMatches(fingerprint.planHold, planHold) &&
 			rowBucketSplit !== null &&
 			CREDIT_SPEND_ORDER.every(
@@ -1718,6 +1915,9 @@ export class CreditsService {
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
+	// Amounts are integer centi-credits: the minimum billable amount is
+	// 1 centi-credit (0.01 credit). A caller that forgot the x100 conversion
+	// still passes this guard, so every boundary must convert before calling.
 	private assertPositiveCreditAmount(amount: number) {
 		if (!Number.isInteger(amount) || amount <= 0) {
 			throw new BadRequestException("Credit amount must be a positive integer");

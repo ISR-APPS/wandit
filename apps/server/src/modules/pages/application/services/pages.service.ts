@@ -4,28 +4,67 @@
 // The controller receives HTTP, this service decides the steps, and the
 // repository talks to the database. R2 access goes through the plain storage
 // module (no Nest wrapper) because the Trigger.dev task shares it.
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+	BadGatewayException,
+	Inject,
+	Injectable,
+	Logger,
+	NotFoundException,
+} from "@nestjs/common";
+import { runs } from "@trigger.dev/sdk";
 import type {
+	AiErrorData,
+	AiErrorKind,
 	ListPageVersionsResponse,
+	PageAttemptDetail,
 	PageOverview,
 	PageVersionHtml,
+	PageVersionListItem,
+	PaginatedResult,
+	RetryPageAttemptResponse,
+	StopPageAttemptBody,
 } from "@wandit/contracts";
-import { pageVersionSourceSchema } from "@wandit/contracts";
+import {
+	aiErrorKindSchema,
+	aiErrorSourceSchema,
+	pageBuildFailureCodeReadSchema,
+	pageVersionSourceSchema,
+} from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import {
+	classifyAiError,
+	sanitizeProviderText,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { stampHtml } from "../../domain/stamp";
-import { PagesRepository } from "../../infrastructure/persistence/pages.repository";
+import {
+	type PageAttemptDetailRow,
+	PagesRepository,
+	type VersionListRow,
+} from "../../infrastructure/persistence/pages.repository";
+import {
+	isDefinitiveTriggerRejection,
+	mintRealtimeHandle,
+	triggerGeneratePageTask,
+} from "../page-build-handoff";
 
 @Injectable()
 export class PagesService {
+	private readonly logger = new Logger(PagesService.name);
+
 	constructor(
 		@Inject(PagesRepository)
 		private readonly pagesRepository: PagesRepository,
 	) {}
 
 	// One request answers "what should the Page tab show right now?".
-	async overview(scope: ProjectScope, projectId: string): Promise<PageOverview> {
+	async overview(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<PageOverview> {
 		const rows = await this.pagesRepository.findOverviewByProject(
 			scope,
 			projectId,
@@ -50,12 +89,252 @@ export class PagesService {
 				? {
 						createdAt: rows.latestAttempt.createdAt.toISOString(),
 						error: rows.latestAttempt.error,
+						failure: mapPersistedFailure(rows.latestAttempt),
+						failureCode: pageBuildFailureCodeReadSchema.parse(
+							rows.latestAttempt.failureCode,
+						),
 						id: rows.latestAttempt.id,
 						status: rows.latestAttempt.status,
 						versionId: rows.latestAttempt.versionId,
 					}
 				: null,
 		};
+	}
+
+	// Durable state of one build attempt — the chat card polls this while
+	// queued/generating and reads it once more after any terminal state.
+	async attemptDetail(
+		scope: ProjectScope,
+		projectId: string,
+		attemptId: string,
+	): Promise<PageAttemptDetail> {
+		const row = await this.pagesRepository.findAttemptDetail(
+			scope,
+			projectId,
+			attemptId,
+		);
+
+		if (!row) {
+			throw new NotFoundException();
+		}
+
+		return mapAttemptDetail(row);
+	}
+
+	/**
+	 * User Stop. Ownership first, then CAS queued/generating → canceled, then
+	 * best-effort Trigger run cancellation. Idempotent: stopping an already
+	 * terminal attempt just answers with current truth.
+	 */
+	async stopAttempt(
+		scope: ProjectScope,
+		projectId: string,
+		attemptId: string,
+		body: StopPageAttemptBody,
+	): Promise<PageAttemptDetail> {
+		const existing = await this.pagesRepository.findAttemptDetail(
+			scope,
+			projectId,
+			attemptId,
+		);
+
+		if (!existing) {
+			throw new NotFoundException();
+		}
+
+		const canceled = await this.pagesRepository.cancelAttempt(
+			attemptId,
+			body.observedPercent,
+		);
+
+		// Cancel the background run AFTER the row flip: the task's own catch
+		// then sees a non-"generating" row and cannot overwrite the decision.
+		const runId = canceled?.triggerRunId ?? null;
+
+		if (canceled && runId && env.TRIGGER_SECRET_KEY) {
+			try {
+				await runs.cancel(runId);
+			} catch (error) {
+				// The row already says canceled; a failed remote cancel only means
+				// the worker burns until its own abort signal / TTL catches up.
+				this.logger.warn(
+					`Trigger cancel for run ${runId} failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+		}
+
+		return this.attemptDetail(scope, projectId, attemptId);
+	}
+
+	/**
+	 * Retry a failed build / resume a stopped one: SAME attempt row back to
+	 * "queued" on a fresh Trigger run, with a fresh Realtime handle so the
+	 * chat card follows the new run live. A concurrent double-click loses the
+	 * CAS and simply gets current truth without a second run.
+	 */
+	async retryAttempt(
+		scope: ProjectScope,
+		projectId: string,
+		attemptId: string,
+	): Promise<RetryPageAttemptResponse> {
+		const existing = await this.pagesRepository.findAttemptDetail(
+			scope,
+			projectId,
+			attemptId,
+		);
+
+		if (!existing) {
+			throw new NotFoundException();
+		}
+
+		let reset = await this.pagesRepository.resetAttemptForRetry(attemptId);
+
+		if (!reset) {
+			// An OOM/crash kill (or an out-of-band cancel) never reaches the
+			// task's own terminal writes, so the row can sit in "queued" or
+			// "generating" while its run is long dead — and the CAS above cannot
+			// claim it. Settle such a row from the run's terminal truth, then
+			// claim again UNCONDITIONALLY: a concurrent writer (self-heal, a
+			// second click) can flip the row between the two attempts.
+			await this.settleAttemptForDeadRun(scope, attemptId, existing);
+			reset = await this.pagesRepository.resetAttemptForRetry(attemptId);
+		}
+
+		if (!reset) {
+			// Run still alive (double-click) or already succeeded — answer truth.
+			return { attempt: await this.attemptDetail(scope, projectId, attemptId) };
+		}
+
+		let handle: { id: string };
+
+		try {
+			handle = await triggerGeneratePageTask({
+				attemptId,
+				...(scope.kind === "org" && scope.actorIsLimitExempt
+					? { actorIsLimitExempt: true }
+					: {}),
+				actorUserId: scope.userId,
+				// A fresh nonce per retry — the attempt-scoped global idempotency
+				// key would otherwise resolve this queue to the original dead run.
+				idempotencyNonce: crypto.randomUUID(),
+				projectId,
+			});
+		} catch (error) {
+			this.logger.error(
+				`Retry handoff for attempt ${attemptId} failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+
+			if (isDefinitiveTriggerRejection(error)) {
+				await this.pagesRepository.markAttemptFailed(
+					attemptId,
+					"The background page builder rejected this retry. Please try again.",
+					scope.userId,
+				);
+
+				throw new BadGatewayException(
+					"The background builder rejected the retry",
+				);
+			}
+
+			// Timeout/lost response: Trigger may still have accepted the queue.
+			// Leave the row queued; the card's poll settles it either way.
+			return { attempt: await this.attemptDetail(scope, projectId, attemptId) };
+		}
+
+		try {
+			await this.pagesRepository.markAttemptTriggered(attemptId, handle.id);
+		} catch (error) {
+			this.logger.warn(
+				`Could not persist run id for retried attempt ${attemptId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+
+		const realtime = await mintRealtimeHandle(handle.id, (message) =>
+			this.logger.warn(message),
+		);
+
+		return {
+			attempt: await this.attemptDetail(scope, projectId, attemptId),
+			...(realtime ? { realtime } : {}),
+		};
+	}
+
+	/**
+	 * A platform-killed run (OOM, worker crash) or an out-of-band cancel dies
+	 * before the task's catch can write terminal state, so the row stays
+	 * "queued" or "generating" forever. Confirm the linked run really is
+	 * settled, then record the outcome so a retry can claim the row. A no-op
+	 * whenever the run may still be alive.
+	 */
+	private async settleAttemptForDeadRun(
+		scope: ProjectScope,
+		attemptId: string,
+		existing: PageAttemptDetailRow,
+	): Promise<void> {
+		if (
+			(existing.status !== "generating" && existing.status !== "queued") ||
+			!existing.triggerRunId ||
+			!env.TRIGGER_SECRET_KEY
+		) {
+			return;
+		}
+
+		try {
+			const run = await runs.retrieve(existing.triggerRunId);
+
+			if (!(run.isCompleted || run.isCancelled || run.finishedAt)) {
+				return;
+			}
+
+			await this.pagesRepository.settleStrandedAttempt(
+				attemptId,
+				existing.triggerRunId,
+				run.isCancelled
+					? {
+							error: "The build was canceled outside the app.",
+							status: "canceled",
+						}
+					: {
+							error: `The build machine stopped before finishing (run ${run.status.toLowerCase()}).`,
+							status: "failed",
+						},
+				scope.userId,
+			);
+		} catch (error) {
+			// Unknown run state — never settle a row that might still be building.
+			this.logger.warn(
+				`Run lookup for stuck attempt ${attemptId} failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	// Discard/Dismiss the terminal chat card. Idempotent by construction.
+	async dismissAttempt(
+		scope: ProjectScope,
+		projectId: string,
+		attemptId: string,
+	): Promise<PageAttemptDetail> {
+		const existing = await this.pagesRepository.findAttemptDetail(
+			scope,
+			projectId,
+			attemptId,
+		);
+
+		if (!existing) {
+			throw new NotFoundException();
+		}
+
+		await this.pagesRepository.dismissAttempt(attemptId);
+
+		return this.attemptDetail(scope, projectId, attemptId);
 	}
 
 	// Full version history (Settings history, version switcher, rollback).
@@ -73,16 +352,50 @@ export class PagesService {
 		}
 
 		return {
-			versions: rows.map((row) => ({
-				createdAt: row.createdAt.toISOString(),
-				id: row.id,
-				isBuilderOrigin: versionIsBuilderOrigin(row.meta),
-				isLive: row.isLive,
-				label: versionLabel(row.meta),
-				number: row.number,
-				source: versionSource(row.meta),
-			})),
+			versions: rows.map(mapVersionListRow),
 		};
+	}
+
+	async listVersionsPaginated(
+		scope: ProjectScope,
+		projectId: string,
+		query: { page: number; pageSize: number },
+	): Promise<PaginatedResult<PageVersionListItem & { isActive: boolean }>> {
+		const result = await this.pagesRepository.listVersionsForProjectPaginated(
+			scope,
+			projectId,
+			{
+				limit: query.pageSize,
+				offset: (query.page - 1) * query.pageSize,
+			},
+		);
+
+		if (!result) {
+			throw new NotFoundException();
+		}
+
+		return {
+			items: result.rows.map((row) => ({
+				...mapVersionListRow(row),
+				isActive: row.isActive,
+			})),
+			page: query.page,
+			pageSize: query.pageSize,
+			total: result.total,
+		};
+	}
+
+	async countVersions(scope: ProjectScope, projectId: string): Promise<number> {
+		const total = await this.pagesRepository.countVersionsForProject(
+			scope,
+			projectId,
+		);
+
+		if (total === null) {
+			throw new NotFoundException();
+		}
+
+		return total;
 	}
 
 	// Full HTML of one immutable version, fetched from R2.
@@ -109,6 +422,117 @@ export class PagesService {
 
 		return { html: stampHtml(html), versionId: version.id };
 	}
+}
+
+// DB row → contract shape. failureCode is re-validated through the tolerant
+// read schema so an unknown stored code degrades to null, never a 500.
+function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
+	return {
+		completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+		createdAt: row.createdAt.toISOString(),
+		dismissed: row.dismissedAt !== null,
+		error: row.error,
+		failure: mapPersistedFailure(row),
+		failureCode: pageBuildFailureCodeReadSchema.parse(row.failureCode),
+		id: row.id,
+		lastProgressPercent: row.lastProgressPercent,
+		status: row.status,
+		triggerRunId: row.triggerRunId,
+		versionId: row.versionId,
+	};
+}
+
+function mapPersistedFailure(row: {
+	failureKind: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string | null;
+}): AiErrorData | null {
+	const kind = aiErrorKindSchema.safeParse(row.failureKind);
+	if (!kind.success) return null;
+	const source = aiErrorSourceSchema.safeParse(row.failureSource);
+	const route =
+		source.success && source.data === "openrouter"
+			? "openrouter"
+			: source.success &&
+					(source.data === "gateway" || source.data.startsWith("provider:"))
+				? "vercel"
+				: "none";
+	const normalized = classifyAiError(new Error("Persisted page failure"), {
+		...(row.failureProvider
+			? { model: `${row.failureProvider}/persisted` }
+			: {}),
+		route,
+		surface: "page_build",
+	});
+
+	if (!normalized) return null;
+
+	normalized.kind = kind.data;
+	normalized.source = source.success ? source.data : "unknown";
+	normalized.provider = row.failureProvider;
+	normalized.providerLabel = persistedProviderLabel(row.failureProvider);
+	normalized.providerMessage = row.failureProviderMessage
+		? sanitizeProviderText(row.failureProviderMessage, {
+				kind: kind.data,
+				provider: row.failureProvider,
+			})
+		: null;
+	normalized.requestId = row.failureRequestId?.slice(0, 80) ?? null;
+	normalized.retryable = persistedRetryable(kind.data);
+	normalized.terminal = true;
+	normalized.refunded = null;
+	normalized.moderationStage = null;
+
+	return toClientAiError(normalized);
+}
+
+function persistedProviderLabel(provider: string | null): string | null {
+	if (!provider) return null;
+	const known: Record<string, string> = {
+		anthropic: "Anthropic",
+		bedrock: "Amazon Bedrock",
+		bytedance: "Seedance",
+		google: "Google",
+		higgsfield: "Higgsfield",
+		klingai: "Kling",
+		openai: "OpenAI",
+		openrouter: "OpenRouter",
+		xai: "xAI",
+	};
+	return (
+		known[provider] ??
+		provider
+			.split(/[-_]+/u)
+			.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+			.join(" ")
+	).slice(0, 40);
+}
+
+function persistedRetryable(kind: AiErrorKind): boolean {
+	return (
+		kind === "internal" ||
+		kind === "rate_limited" ||
+		kind === "capacity" ||
+		kind === "provider_error" ||
+		kind === "timeout" ||
+		kind === "network" ||
+		kind === "connector_unreachable" ||
+		kind === "unknown"
+	);
+}
+
+function mapVersionListRow(row: VersionListRow): PageVersionListItem {
+	return {
+		createdAt: row.createdAt.toISOString(),
+		id: row.id,
+		isBuilderOrigin: versionIsBuilderOrigin(row.meta),
+		isLive: row.isLive,
+		label: versionLabel(row.meta),
+		number: row.number,
+		source: versionSource(row.meta),
+	};
 }
 
 function versionIsBuilderOrigin(meta: unknown): boolean {

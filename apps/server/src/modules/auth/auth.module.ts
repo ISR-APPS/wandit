@@ -7,7 +7,7 @@ import {
 	type Provider,
 } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { type Auth, createAuth } from "@wandit/auth";
+import { type AdminAuth, type Auth, adminAuth, createAuth } from "@wandit/auth";
 import { canonicalizeEmail } from "@wandit/auth/email-canonical";
 import { isAdminRole } from "@wandit/contracts";
 import { eq, inArray, sql } from "@wandit/db";
@@ -19,23 +19,35 @@ import {
 	type Database,
 } from "../../infrastructure/database/database.constants";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { AdminSecurityModule } from "../admin/admin-security.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
+import { UtmAttributionService } from "../attribution/application/services/utm-attribution.service";
+import { AttributionModule } from "../attribution/attribution.module";
 import { CreditsModule } from "../credits/credits.module";
-import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
 import { EmailService } from "../email/application/services/email.service";
+import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
 import { EmailModule } from "../email/email.module";
+import { LifecycleEventsService } from "../lifecycle-events/application/services/lifecycle-events.service";
+import {
+	EVENT_HOLD_MS,
+	lifecycleEventIdempotencyKey,
+} from "../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
-import { AUTH_INSTANCE } from "./auth.constants";
+import { UserActivityService } from "./application/services/user-activity.service";
+import { ADMIN_AUTH_INSTANCE, AUTH_INSTANCE } from "./auth.constants";
 import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
+import { BetterAuthRedisSecondaryStorage } from "./infrastructure/redis/better-auth-redis-secondary-storage";
 import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
+import { AdminAuthController } from "./presentation/http/controllers/admin-auth.controller";
+import { AdminSignupGrantsController } from "./presentation/http/controllers/admin-signup-grants.controller";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
-import { EarlyAccessGuard } from "./presentation/http/guards/early-access.guard";
+import { CrossSiteWriteGuard } from "./presentation/http/guards/cross-site-write.guard";
 
 const logger = new Logger("AuthModule");
 
@@ -53,23 +65,30 @@ const authProvider: Provider<Auth> = {
 	provide: AUTH_INSTANCE,
 	inject: [
 		AffiliateAttributionService,
+		UtmAttributionService,
 		SignupGrantsService,
+		LifecycleEventsService,
 		DATABASE,
 		AnalyticsService,
 		ProductSettingsService,
 		EmailService,
 		EmailSendPolicyService,
+		BetterAuthRedisSecondaryStorage,
 	],
 	useFactory: (
 		affiliateAttributionService: AffiliateAttributionService,
+		utmAttributionService: UtmAttributionService,
 		signupGrantsService: SignupGrantsService,
+		lifecycleEvents: LifecycleEventsService,
 		db: Database,
 		analytics: AnalyticsService,
 		productSettings: ProductSettingsService,
 		emailService: EmailService,
 		emailSendPolicy: EmailSendPolicyService,
+		secondaryStorage: BetterAuthRedisSecondaryStorage,
 	) =>
 		createAuth({
+			secondaryStorage,
 			// Workspace creation is a beta-gated admission — the organizations
 			// toggle is the same class of kill switch as paid subscriptions.
 			canCreateOrganization: async () => {
@@ -95,10 +114,14 @@ const authProvider: Provider<Auth> = {
 				emailSendPolicy.assertDomainAllowed(email);
 			},
 			onInvitationCreated: async (invitation) => {
-				analytics.capture(invitation.inviterUserId, "workspace_member_invited", {
-					organizationId: invitation.organizationId,
-					role: invitation.role,
-				});
+				analytics.capture(
+					invitation.inviterUserId,
+					"workspace_member_invited",
+					{
+						organizationId: invitation.organizationId,
+						role: invitation.role,
+					},
+				);
 
 				// Delivery is best-effort by contract: the copyable invite link
 				// and the in-app pending-invitations banner remain the fallback,
@@ -147,7 +170,29 @@ const authProvider: Provider<Auth> = {
 					logger.error("Affiliate attribution lock failed", error);
 				}
 
+				try {
+					await utmAttributionService.lockForCreatedUser(newUser, ctx);
+				} catch (error) {
+					logger.error("UTM attribution lock failed", error);
+				}
+
 				analytics.capture(newUser.id, "user_signed_up");
+
+				try {
+					await lifecycleEvents.enqueue({
+						dispatchAfter: new Date(
+							Date.now() + EVENT_HOLD_MS.signup_completed,
+						),
+						event: "signup_completed",
+						idempotencyKey: lifecycleEventIdempotencyKey(
+							"signup_completed",
+							newUser.id,
+						),
+						userId: newUser.id,
+					});
+				} catch (error) {
+					logger.error("Signup lifecycle event enqueue failed", error);
+				}
 
 				try {
 					await signupGrantsService.handleUserCreated(newUser.id);
@@ -174,25 +219,47 @@ const authProvider: Provider<Auth> = {
 		}),
 };
 
+const adminAuthProvider: Provider<AdminAuth> = {
+	provide: ADMIN_AUTH_INSTANCE,
+	useValue: adminAuth,
+};
+
 @Global()
 @Module({
-	controllers: [AuthController, AuthMeController],
-	exports: [AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
+	controllers: [
+		AdminAuthController,
+		AdminSignupGrantsController,
+		AuthController,
+		AuthMeController,
+	],
+	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard],
 	imports: [
+		AdminSecurityModule,
 		AffiliatesModule,
+		AttributionModule,
 		CreditsModule,
 		DatabaseModule,
 		EmailModule,
 		SettingsModule,
 	],
 	providers: [
+		adminAuthProvider,
+		BetterAuthRedisSecondaryStorage,
 		authProvider,
 		AuthGuard,
-		EarlyAccessGuard,
 		SignupGrantOutboxRepository,
 		SignupGrantOutboxService,
 		SignupGrantsService,
 		TriggerSignupGrantDispatcherService,
+		UserActivityService,
+		CrossSiteWriteGuard,
+		// ORDERING: global guards run in registration order. The CSRF check
+		// goes first so a forged cross-site write is refused before any
+		// session lookup, and before the workspace guard that follows AuthGuard.
+		{
+			provide: APP_GUARD,
+			useExisting: CrossSiteWriteGuard,
+		},
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,

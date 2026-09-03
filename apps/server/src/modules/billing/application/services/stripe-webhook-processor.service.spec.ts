@@ -1,4 +1,3 @@
-import { Logger } from "@nestjs/common";
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
@@ -403,6 +402,20 @@ class FakeSubscriptionsRepository {
 					(owner.type === "user"
 						? row.userId === owner.userId && row.organizationId === null
 						: row.organizationId === owner.organizationId) &&
+					row.status !== "canceled" &&
+					row.status !== "incomplete_expired",
+			) ?? null
+		);
+	}
+
+	async findActiveByOwnerAndProvider(owner: CreditOwner, provider: string) {
+		return (
+			[...this.rows.values()].find(
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					row.provider === provider &&
 					row.status !== "canceled" &&
 					row.status !== "incomplete_expired",
 			) ?? null
@@ -836,6 +849,11 @@ class FakeBillingCreditLedgerRepository {
 	);
 
 	readonly cancelPendingRefillSlotsForCharge = vi.fn(async () => 0);
+	readonly restorePendingRefillSlotsForCharge = vi.fn(async () => ({
+		restored: [] as string[],
+		skipped: [] as string[],
+	}));
+	readonly findExpiredPlanCreditsForPayment = vi.fn(async () => 0);
 
 	readonly findRevocationRowsForPayment = vi.fn(
 		async (input: { chargeId: string; paymentIntentId: string | null }) =>
@@ -959,6 +977,8 @@ class FakePaymentProvider {
 class FakeStripeProvider {
 	readonly charges = new Map<string, Stripe.Charge>();
 	readonly disputesByCharge = new Map<string, Stripe.Dispute[]>();
+	/** Fresh dispute state answered by retrieveDispute for ids not listed by charge. */
+	readonly disputes = new Map<string, Stripe.Dispute>();
 	readonly invoices = new Map<string, Stripe.Invoice>();
 	readonly paymentIntents = new Map<string, Stripe.PaymentIntent>();
 	readonly subscriptions = new Map<string, Stripe.Subscription>();
@@ -1016,6 +1036,21 @@ class FakeStripeProvider {
 		return this.disputesByCharge.get(chargeId) ?? [];
 	});
 
+	readonly retrieveDispute = vi.fn(async (disputeId: string) => {
+		for (const disputes of this.disputesByCharge.values()) {
+			const found = disputes.find((candidate) => candidate.id === disputeId);
+
+			if (found) {
+				return found;
+			}
+		}
+
+		return (
+			this.disputes.get(disputeId) ??
+			({ id: disputeId, status: "needs_response" } as Stripe.Dispute)
+		);
+	});
+
 	readonly lookupKeyForPriceId = vi.fn(async (priceId: string) => {
 		return this.lookupKeyByPriceId.get(priceId) ?? null;
 	});
@@ -1051,7 +1086,7 @@ function setup(
 	paymentProvider.seedSubscriptions("cus_1", [
 		stripeSubscription({
 			id: "sub_1",
-			lookupKey: "pro_100_month",
+			lookupKey: "pro_250_month",
 			userId: "user_1",
 		}),
 	]);
@@ -1068,10 +1103,16 @@ function setup(
 		orderRefundHandler,
 		stripe as unknown as StripeProvider,
 	);
+	const reconciliationOutbox = {
+		enqueue: vi.fn(async () => null),
+		markDoneForCharge: vi.fn(async () => 0),
+	};
+	const lifecycleEvents = { enqueue: vi.fn(async () => null) };
 	const subscriptionRefill = new SubscriptionRefillService(
 		subscriptionCreditsRepository as unknown as SubscriptionCreditsRepository,
 		credits as unknown as CreditsService,
 		paymentRefunds,
+		reconciliationOutbox as never,
 	);
 	const subscriptionCredits = new SubscriptionCreditsService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1083,6 +1124,9 @@ function setup(
 		subscriptionRefill,
 		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
 		{ findByProviderCustomerId: async () => null } as never,
+		reconciliationOutbox as never,
+		{ insertIfAbsent: vi.fn(async () => null) } as never,
+		lifecycleEvents as never,
 	);
 	const billingService = new BillingService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1100,6 +1144,7 @@ function setup(
 		{
 			get: async () => ({ organizationsEnabled: false }),
 		} as never,
+		{} as never,
 	);
 	const router = new StripeEventRouter(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1127,6 +1172,7 @@ function setup(
 		changeIntents,
 		checkoutAttempts,
 		credits,
+		lifecycleEvents,
 		orderRefundHandler,
 		paymentProvider,
 		paymentRefunds,
@@ -1271,6 +1317,7 @@ function invoiceLine(input: {
 
 function stripeInvoice(input: {
 	amountPaid?: number;
+	currency?: string;
 	billingReason:
 		| "subscription_create"
 		| "subscription_cycle"
@@ -1294,8 +1341,9 @@ function stripeInvoice(input: {
 			: []);
 
 	return {
-		amount_paid: input.amountPaid,
+		amount_paid: input.amountPaid ?? 0,
 		billing_reason: input.billingReason,
+		currency: input.currency ?? "usd",
 		customer: input.customer ?? "cus_1",
 		id: input.id,
 		lines: {
@@ -1362,7 +1410,7 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 		const invoice = stripeInvoice({
 			billingReason: "subscription_create",
 			id: `in_${status}`,
-			lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 			userId: "user_1",
 		});
 		stripe.invoices.set(invoice.id, invoice);
@@ -1372,7 +1420,7 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			100,
+			25_000,
 			expect.objectContaining({
 				idempotencyKey: `inv:${invoice.id}:grant`,
 			}),
@@ -1576,7 +1624,7 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 		credits.topup.mockRejectedValueOnce(error);
 		checkoutAttempts.seed({
 			id: "attempt_throw",
-			packId: "topup_500",
+			packId: "topup_1000",
 			providerSessionId: "cs_throw",
 			purpose: "topup",
 		});
@@ -1586,13 +1634,13 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 				stripeEvent(
 					"checkout.session.completed",
 					checkoutSession({
-						amountTotal: 12_500,
+						amountTotal: 10_000,
 						attemptId: "attempt_throw",
-						credits: "500",
+						credits: "1000",
 						currency: "usd",
 						id: "cs_throw",
 						mode: "payment",
-						packId: "topup_500",
+						packId: "topup_1000",
 						purpose: "topup",
 						userId: "user_1",
 					}) as unknown as Record<string, unknown>,
@@ -1628,15 +1676,22 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 
 describe("StripeEventRouter checkout routing", () => {
 	it("completes a persisted payment-mode top-up attempt", async () => {
-		const { checkoutAttempts, credits, paymentRefunds, processor, stripe } =
-			setup();
+		const {
+			checkoutAttempts,
+			credits,
+			lifecycleEvents,
+			paymentRefunds,
+			processor,
+			stripe,
+			subscriptionCreditsRepository,
+		} = setup();
 		const reconcileChargeAfterGrant = vi.spyOn(
 			paymentRefunds,
 			"reconcileChargeAfterGrant",
 		);
 		checkoutAttempts.seed({
 			id: "attempt_topup_1",
-			packId: "topup_500",
+			packId: "topup_1000",
 			providerSessionId: "cs_1",
 			purpose: "topup",
 		});
@@ -1645,13 +1700,13 @@ describe("StripeEventRouter checkout routing", () => {
 			stripeEvent(
 				"checkout.session.completed",
 				checkoutSession({
-					amountTotal: 12_500,
+					amountTotal: 10_000,
 					attemptId: "attempt_topup_1",
-					credits: "500",
+					credits: "1000",
 					currency: "usd",
 					id: "cs_1",
 					mode: "payment",
-					packId: "topup_500",
+					packId: "topup_1000",
 					paymentIntentId: "pi_1",
 					purpose: "topup",
 					userId: "user_1",
@@ -1660,26 +1715,47 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 500, {
-			idempotencyKey: "topup:cs_1",
-			meta: {
-				chargeId: "ch_pi_1",
-				packId: "topup_500",
-				paymentIntentId: "pi_1",
-				reason: "topup_purchase",
-				sessionId: "cs_1",
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			100_000,
+			{
+				idempotencyKey: "topup:cs_1",
+				meta: {
+					chargeId: "ch_pi_1",
+					packId: "topup_1000",
+					paymentIntentId: "pi_1",
+					reason: "topup_purchase",
+					sessionId: "cs_1",
+				},
 			},
-		});
+			subscriptionCreditsRepository.transactionClient,
+		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			{
+				event: "payment_completed",
+				idempotencyKey: "payment_completed:user_1",
+				payload: { interval: "topup" },
+				userId: "user_1",
+			},
+			subscriptionCreditsRepository.transactionClient,
+		);
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_1");
 		expect(reconcileChargeAfterGrant).toHaveBeenCalledWith("ch_pi_1");
 		expect(checkoutAttempts.row("attempt_topup_1")?.status).toBe("completed");
 	});
 
 	it("handles an explicitly purposed async success as a top-up", async () => {
-		const { checkoutAttempts, credits, processor, stripe } = setup();
+		const {
+			checkoutAttempts,
+			credits,
+			lifecycleEvents,
+			processor,
+			stripe,
+			subscriptionCreditsRepository,
+		} = setup();
 		checkoutAttempts.seed({
 			id: "attempt_topup_async",
-			packId: "topup_1000",
+			packId: "topup_2500",
 			providerSessionId: "cs_async",
 			purpose: "topup",
 		});
@@ -1690,11 +1766,11 @@ describe("StripeEventRouter checkout routing", () => {
 				checkoutSession({
 					amountTotal: 25_000,
 					attemptId: "attempt_topup_async",
-					credits: "1000",
+					credits: "2500",
 					currency: "usd",
 					id: "cs_async",
 					mode: "payment",
-					packId: "topup_1000",
+					packId: "topup_2500",
 					paymentIntentId: "pi_async",
 					purpose: "topup",
 					userId: "user_1",
@@ -1703,16 +1779,28 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 1000, {
-			idempotencyKey: "topup:cs_async",
-			meta: {
-				chargeId: "ch_pi_async",
-				packId: "topup_1000",
-				paymentIntentId: "pi_async",
-				reason: "topup_purchase",
-				sessionId: "cs_async",
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			250_000,
+			{
+				idempotencyKey: "topup:cs_async",
+				meta: {
+					chargeId: "ch_pi_async",
+					packId: "topup_2500",
+					paymentIntentId: "pi_async",
+					reason: "topup_purchase",
+					sessionId: "cs_async",
+				},
 			},
-		});
+			subscriptionCreditsRepository.transactionClient,
+		);
+		expect(lifecycleEvents.enqueue).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: "payment_completed:user_1",
+				payload: { interval: "topup" },
+			}),
+			subscriptionCreditsRepository.transactionClient,
+		);
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_async");
 	});
 
@@ -1723,10 +1811,10 @@ describe("StripeEventRouter checkout routing", () => {
 			stripeEvent(
 				"checkout.session.completed",
 				checkoutSession({
-					credits: "500",
+					credits: "1000",
 					id: "cs_unpaid",
 					mode: "payment",
-					packId: "topup_500",
+					packId: "topup_1000",
 					paymentStatus: "unpaid",
 					purpose: "topup",
 					userId: "user_1",
@@ -1749,10 +1837,10 @@ describe("StripeEventRouter checkout routing", () => {
 			stripeEvent(
 				"checkout.session.completed",
 				checkoutSession({
-					credits: "500",
+					credits: "1000",
 					id: "cs_unknown_purpose",
 					mode: "payment",
-					packId: "topup_500",
+					packId: "topup_1000",
 					purpose: "domain",
 					userId: "user_1",
 				}) as unknown as Record<string, unknown>,
@@ -1794,7 +1882,7 @@ describe("StripeEventRouter checkout routing", () => {
 		} = setup();
 		checkoutAttempts.seed({
 			id: "attempt_subscription",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_subscription",
 			purpose: "subscription",
 			userId: "user_checkout",
@@ -1807,7 +1895,7 @@ describe("StripeEventRouter checkout routing", () => {
 		const subscription = stripeSubscription({
 			customer: "cus_checkout",
 			id: "sub_checkout",
-			lookupKey: "pro_100_month",
+			lookupKey: "pro_250_month",
 		});
 		paymentProvider.seedSubscriptions("cus_checkout", [subscription]);
 
@@ -1821,7 +1909,7 @@ describe("StripeEventRouter checkout routing", () => {
 				mode: "subscription",
 				plan: "pro",
 				purpose: "subscription",
-				tierCredits: "100",
+				tierCredits: "250",
 				userId: "user_checkout",
 			}) as unknown as Record<string, unknown>,
 			"evt_subscription_checkout",
@@ -1861,7 +1949,7 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		checkoutAttempts.seed({
 			id: "attempt_subscription_empty",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_subscription_empty",
 			purpose: "subscription",
 			userId: "user_empty",
@@ -1878,7 +1966,7 @@ describe("StripeEventRouter checkout routing", () => {
 					mode: "subscription",
 					plan: "pro",
 					purpose: "subscription",
-					tierCredits: "100",
+					tierCredits: "250",
 					userId: "user_empty",
 				}) as unknown as Record<string, unknown>,
 				"evt_subscription_empty",
@@ -1904,7 +1992,7 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		checkoutAttempts.seed({
 			id: "attempt_subscription_unrecognized",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_subscription_unrecognized",
 			purpose: "subscription",
 			userId: "user_unrecognized",
@@ -1928,7 +2016,7 @@ describe("StripeEventRouter checkout routing", () => {
 					mode: "subscription",
 					plan: "pro",
 					purpose: "subscription",
-					tierCredits: "100",
+					tierCredits: "250",
 					userId: "user_unrecognized",
 				}) as unknown as Record<string, unknown>,
 				"evt_subscription_unrecognized",
@@ -1956,7 +2044,7 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		checkoutAttempts.seed({
 			id: "attempt_subscription_canceled",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_subscription_canceled",
 			purpose: "subscription",
 			userId: "user_canceled",
@@ -1965,7 +2053,7 @@ describe("StripeEventRouter checkout routing", () => {
 			stripeSubscription({
 				customer: "cus_canceled",
 				id: "sub_canceled",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_250_month",
 				status: "canceled",
 			}),
 		]);
@@ -1981,7 +2069,7 @@ describe("StripeEventRouter checkout routing", () => {
 					mode: "subscription",
 					plan: "pro",
 					purpose: "subscription",
-					tierCredits: "100",
+					tierCredits: "250",
 					userId: "user_canceled",
 				}) as unknown as Record<string, unknown>,
 				"evt_subscription_canceled",
@@ -2004,7 +2092,7 @@ describe("StripeEventRouter checkout routing", () => {
 		} = setup();
 		checkoutAttempts.seed({
 			id: "attempt_subscription_failed",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_subscription_failed",
 			purpose: "subscription",
 		});
@@ -2023,7 +2111,7 @@ describe("StripeEventRouter checkout routing", () => {
 						mode: "subscription",
 						plan: "pro",
 						purpose: "subscription",
-						tierCredits: "100",
+						tierCredits: "250",
 						userId: "user_1",
 					}) as unknown as Record<string, unknown>,
 					"evt_subscription_failed",
@@ -2049,7 +2137,7 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		checkoutAttempts.seed({
 			id: "attempt_expired_subscription",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_expired_subscription",
 			purpose: "subscription",
 		});
@@ -2088,7 +2176,7 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		checkoutAttempts.seed({
 			id: "attempt_older_subscription",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSessionId: "cs_older_subscription",
 			purpose: "subscription",
 		});
@@ -2199,7 +2287,7 @@ describe("StripeEventRouter subscription synchronization", () => {
 		} = setup();
 		const providerSubscription = stripeSubscription({
 			id: `sub_${eventType}`,
-			lookupKey: "pro_200_month",
+			lookupKey: "pro_500_month",
 			status:
 				eventType === "customer.subscription.deleted" ? "canceled" : "active",
 			userId: "user_1",
@@ -2220,8 +2308,8 @@ describe("StripeEventRouter subscription synchronization", () => {
 		expect(subscriptions.lockCustomerIds).toEqual(["cus_1"]);
 		expect(subscriptions.row(providerSubscription.id)).toMatchObject({
 			plan: "pro",
-			priceLookupKey: "pro_200_month",
-			tierCredits: 200,
+			priceLookupKey: "pro_500_month",
+			tierCredits: 500,
 			userId: "user_1",
 		});
 		expect(subscriptions.upsertClients).toEqual([
@@ -2251,7 +2339,7 @@ describe("StripeEventRouter subscription synchronization", () => {
 		const subscription = stripeSubscription({
 			customer: { id: "cus_expanded" },
 			id: "sub_bad_customer",
-			lookupKey: "pro_100_month",
+			lookupKey: "pro_250_month",
 		});
 
 		await expect(
@@ -2300,7 +2388,7 @@ describe("StripeEventRouter invoice allowlist", () => {
 			const invoice = stripeInvoice({
 				billingReason: "subscription_create",
 				id: invoiceId,
-				lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+				lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 				userId: "user_1",
 			});
 			stripe.invoices.set(invoice.id, invoice);
@@ -2332,7 +2420,7 @@ describe("StripeEventRouter invoice allowlist", () => {
 		if (eventType === "invoice.paid") {
 			expect(credits.grant).toHaveBeenCalledWith(
 				userOwner("user_1"),
-				100,
+				25_000,
 				expect.objectContaining({
 					idempotencyKey: `inv:${invoiceId}:grant`,
 				}),
@@ -2356,7 +2444,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		const invoice = stripeInvoice({
 			billingReason: "subscription_cycle",
 			id: "in_missing_entitled_mirror",
-			lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 			subscription: "sub_not_canonical",
 			userId: "user_1",
 		});
@@ -2372,10 +2460,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 	});
 
-	it("logs and skips a paid invoice with an unrecognized price", async () => {
-		const warning = vi
-			.spyOn(Logger.prototype, "warn")
-			.mockImplementation(() => undefined);
+	it("fails a paid invoice with an unrecognized price so it retries and dead-letters", async () => {
 		const { credits, processor, stripe, webhookEvents } = setup();
 		const subscription = stripeSubscription({
 			id: "sub_unknown_invoice",
@@ -2391,16 +2476,70 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		});
 		stripe.invoices.set(invoice.id, invoice);
 
-		await processor.process(
-			paidInvoiceEvent(invoice.id, "evt_unknown_invoice_price"),
+		await expect(
+			processor.process(
+				paidInvoiceEvent(invoice.id, "evt_unknown_invoice_price"),
+			),
+		).rejects.toThrow(
+			"Stripe invoice in_unknown_price (subscription_create) has an unrecognized or missing price lookup key",
 		);
 
 		expect(credits.grant).not.toHaveBeenCalled();
-		expect(webhookEvents.statusOf("evt_unknown_invoice_price")).toBe(
-			"processed",
+		expect(webhookEvents.statusOf("evt_unknown_invoice_price")).toBe("failed");
+	});
+
+	it("fails a create invoice whose paid amount does not match the catalog, accepts trials and rejects non-usd", async () => {
+		const { credits, processor, stripe, webhookEvents } = setup();
+		const mismatch = stripeInvoice({
+			amountPaid: 1_000,
+			billingReason: "subscription_create",
+			id: "in_amount_mismatch",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(mismatch.id, mismatch);
+
+		await expect(
+			processor.process(paidInvoiceEvent(mismatch.id, "evt_amount_mismatch")),
+		).rejects.toThrow(
+			"Stripe invoice in_amount_mismatch (subscription_create) paid 1000 minor units but the catalog price of pro_250_month is 2500",
 		);
-		expect(warning).toHaveBeenCalledWith(
-			"Skipping Stripe invoice in_unknown_price credit grant: unrecognized or missing price lookup key",
+		expect(webhookEvents.statusOf("evt_amount_mismatch")).toBe("failed");
+
+		const foreign = stripeInvoice({
+			amountPaid: 2_500,
+			billingReason: "subscription_create",
+			currency: "eur",
+			id: "in_eur",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(foreign.id, foreign);
+
+		await expect(
+			processor.process(paidInvoiceEvent(foreign.id, "evt_eur")),
+		).rejects.toThrow(
+			"Stripe invoice in_eur is in eur; only usd invoices grant credits",
+		);
+		expect(credits.grant).not.toHaveBeenCalled();
+
+		const trial = stripeInvoice({
+			amountPaid: 0,
+			billingReason: "subscription_create",
+			id: "in_trial",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(trial.id, trial);
+
+		await processor.process(paidInvoiceEvent(trial.id, "evt_trial"));
+
+		expect(webhookEvents.statusOf("evt_trial")).toBe("processed");
+		expect(credits.grant).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			25_000,
+			expect.objectContaining({ idempotencyKey: "inv:in_trial:grant" }),
+			expect.anything(),
 		);
 	});
 
@@ -2419,7 +2558,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		const invoice = stripeInvoice({
 			billingReason: "subscription_create",
 			id: "in_create",
-			lines: [invoiceLine({ lookupKey: "pro_100_year" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_year" })],
 			paymentIntentId: "pi_invoice_create",
 			userId: "user_1",
 		});
@@ -2429,7 +2568,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			100,
+			25_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_create:grant",
@@ -2444,7 +2583,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 		expect(subscriptionCreditsRepository.refillSlots()).toHaveLength(11);
 		expect(subscriptionCreditsRepository.refillSlots()[0]).toMatchObject({
-			credits: 100,
+			credits: 25_000,
 			fundingChargeId: "ch_pi_invoice_create",
 			fundingInvoiceId: "in_create",
 			periodOrdinal: 2,
@@ -2465,10 +2604,10 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			"reconcileChargeAfterGrant",
 		);
 		const invoice = stripeInvoice({
-			amountPaid: 1_000,
+			amountPaid: 2_500,
 			billingReason: "subscription_create",
 			id: "in_retry_payment",
-			lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 			payments: [
 				{ paymentIntent: "pi_canceled", status: "canceled" },
 				{ paymentIntent: "pi_paid", status: "paid" },
@@ -2483,7 +2622,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_paid");
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			100,
+			25_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_retry_payment:grant",
@@ -2507,10 +2646,10 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			"reconcileChargeAfterGrant",
 		);
 		const invoice = stripeInvoice({
-			amountPaid: 1_000,
+			amountPaid: 2_500,
 			billingReason: "subscription_create",
 			id: "in_multiple_paid",
-			lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 			payments: [
 				{ paymentIntent: "pi_paid_1", status: "paid" },
 				{ paymentIntent: "pi_paid_2", status: "paid" },
@@ -2538,14 +2677,14 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		paymentProvider.seedSubscriptions("cus_1", [
 			stripeSubscription({
 				id: "sub_1",
-				lookupKey: "pro_200_month",
+				lookupKey: "pro_500_month",
 				userId: "user_1",
 			}),
 		]);
 		const invoice = stripeInvoice({
 			billingReason: "subscription_cycle",
 			id: "in_cycle",
-			lines: [invoiceLine({ lookupKey: "pro_200_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_500_month" })],
 			userId: "user_1",
 		});
 		stripe.invoices.set(invoice.id, invoice);
@@ -2554,7 +2693,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			200,
+			50_000,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_cycle:grant",
 				meta: expect.objectContaining({
@@ -2573,8 +2712,8 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			setup();
 		await subscriptionCreditsRepository.seedApplication({
 			billingReason: "subscription_cycle",
-			creditsDelta: 100,
-			newPriceLookupKey: "pro_100_month",
+			creditsDelta: 250,
+			newPriceLookupKey: "pro_250_month",
 			oldPriceLookupKey: null,
 			periodEnd: new Date(Date.UTC(2026, 2, 1)),
 			periodStart: new Date(Date.UTC(2026, 1, 1)),
@@ -2584,7 +2723,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		const staleInvoice = stripeInvoice({
 			billingReason: "subscription_cycle",
 			id: "in_stale_cycle",
-			lines: [invoiceLine({ lookupKey: "pro_100_month" })],
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
 			userId: "user_1",
 		});
 		stripe.invoices.set(staleInvoice.id, staleInvoice);
@@ -2613,7 +2752,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		} = setup();
 		const subscription = stripeSubscription({
 			id: "sub_update",
-			lookupKey: "pro_2000_month",
+			lookupKey: "pro_5000_month",
 			userId: "user_1",
 		});
 		const invoice = stripeInvoice({
@@ -2622,12 +2761,12 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			lines: [
 				invoiceLine({
 					amount: -1_200,
-					lookupKey: "pro_1200_month",
+					lookupKey: "pro_3000_month",
 					proration: true,
 				}),
 				invoiceLine({
 					amount: 1_000,
-					lookupKey: "pro_2000_month",
+					lookupKey: "pro_5000_month",
 					proration: true,
 				}),
 			],
@@ -2639,21 +2778,21 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		paymentProvider.seedSubscriptions("cus_1", [subscription]);
 		await subscriptionCreditsRepository.seedPriceApplication(
 			subscription.id,
-			"pro_1200_month",
+			"pro_3000_month",
 		);
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_upgrade"));
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			800,
+			200_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_upgrade:grant",
 				meta: expect.objectContaining({
 					invoiceId: "in_upgrade",
-					newPriceLookupKey: "pro_2000_month",
-					oldPriceLookupKey: "pro_1200_month",
+					newPriceLookupKey: "pro_5000_month",
+					oldPriceLookupKey: "pro_3000_month",
 					reason: "subscription_update",
 				}),
 			}),
@@ -2673,7 +2812,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		} = setup();
 		const subscription = stripeSubscription({
 			id: "sub_update",
-			lookupKey: "pro_400_month",
+			lookupKey: "pro_1000_month",
 			userId: "user_1",
 		});
 		const invoice = stripeInvoice({
@@ -2682,12 +2821,12 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			lines: [
 				invoiceLine({
 					amount: -1_200,
-					lookupKey: "pro_1200_month",
+					lookupKey: "pro_3000_month",
 					proration: true,
 				}),
 				invoiceLine({
 					amount: 100,
-					lookupKey: "pro_400_month",
+					lookupKey: "pro_1000_month",
 					proration: true,
 				}),
 			],
@@ -2699,7 +2838,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		paymentProvider.seedSubscriptions("cus_1", [subscription]);
 		await subscriptionCreditsRepository.seedPriceApplication(
 			subscription.id,
-			"pro_1200_month",
+			"pro_3000_month",
 		);
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_downgrade"));
@@ -2720,7 +2859,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		} = setup();
 		const subscription = stripeSubscription({
 			id: "sub_update",
-			lookupKey: "pro_100_year",
+			lookupKey: "pro_250_year",
 			userId: "user_1",
 		});
 		const invoice = stripeInvoice({
@@ -2729,12 +2868,12 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			lines: [
 				invoiceLine({
 					amount: -500,
-					lookupKey: "pro_100_month",
+					lookupKey: "pro_250_month",
 					proration: true,
 				}),
 				invoiceLine({
 					amount: 25_000,
-					lookupKey: "pro_100_year",
+					lookupKey: "pro_250_year",
 					proration: false,
 				}),
 			],
@@ -2746,14 +2885,14 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		paymentProvider.seedSubscriptions("cus_1", [subscription]);
 		await subscriptionCreditsRepository.seedPriceApplication(
 			subscription.id,
-			"pro_100_month",
+			"pro_250_month",
 		);
 
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_interval"));
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			100,
+			25_000,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_interval:grant",
 				meta: expect.objectContaining({
@@ -2772,7 +2911,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		const { credits, paymentProvider, processor } = setup();
 		const subscription = stripeSubscription({
 			id: "sub_deleted",
-			lookupKey: "pro_100_month",
+			lookupKey: "pro_250_month",
 			status: "canceled",
 			userId: "user_1",
 		});
@@ -2811,19 +2950,19 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		const deleted = stripeSubscription({
 			created: 100,
 			id: "sub_duplicate_deleted",
-			lookupKey: "pro_100_month",
+			lookupKey: "pro_250_month",
 			status: "canceled",
 			userId: "user_1",
 		});
 		const canonical = stripeSubscription({
 			created: 200,
 			id: "sub_duplicate_canonical",
-			lookupKey: "pro_200_month",
+			lookupKey: "pro_500_month",
 			status: "active",
 			userId: "user_1",
 		});
 		subscriptions.seed({
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_250_month",
 			providerSubscriptionId: deleted.id,
 			status: "canceled",
 			userId: "user_1",
@@ -2844,6 +2983,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
 		).toHaveBeenCalledWith(
 			subscriptions.row(deleted.id)?.id,
+			{ reason: "ownership" },
 			expect.anything(),
 		);
 		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
@@ -2876,7 +3016,7 @@ describe("PaymentRefundsService routing", () => {
 			375,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_1:500",
+				idempotencyKey: "refund:ch_1:cum:375",
 				meta: {
 					chargeId: "ch_1",
 					paymentIntentId: "pi_refund",
@@ -3109,7 +3249,7 @@ describe("PaymentRefundsService routing", () => {
 			250,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_delayed_grant:500",
+				idempotencyKey: "refund:ch_delayed_grant:cum:250",
 				meta: {
 					chargeId: "ch_delayed_grant",
 					paymentIntentId: "pi_delayed_grant",

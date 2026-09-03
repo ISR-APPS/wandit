@@ -28,13 +28,16 @@ function DataTablePagination<TData>({
 	const pageCount = table.getPageCount();
 	const currentPage =
 		pageCount === 0 ? 0 : table.getState().pagination.pageIndex + 1;
+	const selectedCount = table.getFilteredSelectedRowModel().rows.length;
 
 	return (
 		<div className="flex items-center justify-between gap-2 px-2">
-			<p className="hidden flex-1 text-muted-foreground text-sm lg:block">
-				{table.getFilteredSelectedRowModel().rows.length} of{" "}
-				{table.getFilteredRowModel().rows.length} row(s) selected.
-			</p>
+			{selectedCount > 0 ? (
+				<p className="hidden flex-1 text-muted-foreground text-sm lg:block">
+					{selectedCount} of {table.getFilteredRowModel().rows.length} row(s)
+					selected.
+				</p>
+			) : null}
 			<div className="ml-auto flex items-center gap-4 lg:gap-8">
 				<div className="flex items-center gap-2">
 					<p className="hidden font-medium text-sm lg:block">Rows per page</p>

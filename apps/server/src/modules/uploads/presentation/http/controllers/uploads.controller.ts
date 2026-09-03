@@ -14,19 +14,25 @@ import {
 	PayloadTooLargeException,
 	Post,
 	Req,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type { UploadAttachmentResponse } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
 
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
-import { UploadsService } from "../../../application/services/uploads.service";
+import { CurrentUser } from "../../../../auth";
+import {
+	attachmentSizeLimitFor,
+	UploadsService,
+} from "../../../application/services/uploads.service";
 
 // The multipart plugin adds `request.file()` at runtime.
 type MultipartRequest = FastifyRequest & {
-	file: () => Promise<MultipartFile | undefined>;
+	file: (options?: {
+		limits?: { fileSize?: number };
+	}) => Promise<MultipartFile | undefined>;
 };
+
+const MAX_ATTACHMENT_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 // main.ts adds `/api`, so this route is `/api/v1/attachments`.
 @Controller("v1")
@@ -38,7 +44,6 @@ export class UploadsController {
 
 	// Accept ONE uploaded file and return its hosted reference. Clients loop
 	// over this endpoint for several files (contract §7.2).
-	@UseGuards(EarlyAccessGuard)
 	@Post("attachments")
 	async upload(
 		@Req() request: FastifyRequest,
@@ -57,7 +62,12 @@ export class UploadsController {
 	// Read the uploaded file object from the request.
 	private async readFile(request: MultipartRequest): Promise<MultipartFile> {
 		try {
-			const file = await request.file();
+			// The global multipart limit stays at 15 MiB for every other endpoint.
+			// Attachments need the video ceiling; UploadsService applies the lower
+			// image/document and audio limits once it knows the declared media type.
+			const file = await request.file({
+				limits: { fileSize: MAX_ATTACHMENT_UPLOAD_BYTES },
+			});
 
 			// No file part in the form body.
 			if (!file) {
@@ -87,11 +97,12 @@ export class UploadsController {
 		try {
 			return await file.toBuffer();
 		} catch (error) {
-			// Upload was too large for the configured Fastify limit (15 MiB).
+			// Upload exceeded the attachment route's absolute 50 MiB limit. Use
+			// the lower declared-category limit so the caller gets a useful retry cap.
 			if (this.isMultipartLimitError(error)) {
 				throw new PayloadTooLargeException({
 					code: "ATTACHMENT_FILE_TOO_LARGE",
-					message: "The uploaded file is too large",
+					message: attachmentSizeLimitFor(file.mimetype).message,
 				});
 			}
 

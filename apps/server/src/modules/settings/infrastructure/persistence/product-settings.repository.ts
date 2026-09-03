@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { PatchProductSettingsBody } from "@wandit/contracts";
 import { and, eq, sql } from "@wandit/db";
-import { productSettings } from "@wandit/db/schema/billing";
+import { productSettings, signupGrantOutbox } from "@wandit/db/schema/billing";
 
 import {
 	DATABASE,
@@ -48,6 +48,16 @@ export class ProductSettingsRepository {
 		}
 
 		return existing;
+	}
+
+	/** Users who signed up while the signup grant was off. */
+	async countSkippedSignupGrants(): Promise<number> {
+		const [row] = await this.db
+			.select({ count: sql<number>`count(*)::int`.mapWith(Number) })
+			.from(signupGrantOutbox)
+			.where(eq(signupGrantOutbox.status, "skipped"));
+
+		return row?.count ?? 0;
 	}
 
 	async updateIfVersion(

@@ -1,6 +1,7 @@
 import type { PatchProductSettingsBody } from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
+	CalendarClockIcon,
 	GiftIcon,
 	Loader2Icon,
 	RefreshCwIcon,
@@ -45,6 +46,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { ProductSettingsView } from "@/features/settings/api/settings.dto";
 import { useUpdateProductSettingsMutation } from "@/features/settings/api/settings.mutations";
 import { isApiClientError } from "@/lib/api-client";
@@ -52,12 +54,13 @@ import { isApiClientError } from "@/lib/api-client";
 const SETTINGS_CONFLICT_MESSAGE = "settings changed elsewhere — reload";
 
 const BOOLEAN_SETTING_KEYS = [
-	"earlyAccessRequired",
 	"signupGrantEnabled",
 	"paidSubscriptionsEnabled",
+	"manualPaymentsEnabled",
 	"topupsEnabled",
 	"organizationsEnabled",
 	"emailAuthEnabled",
+	"lifecycleEmailsEnabled",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -67,6 +70,8 @@ type PendingToggle = {
 	nextValue: boolean;
 };
 
+type NumericSettingKey = "signupGrantCredits" | "manualGraceDays";
+
 type ToggleDetails = {
 	description: string;
 	label: string;
@@ -74,22 +79,13 @@ type ToggleDetails = {
 };
 
 const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
-	earlyAccessRequired: {
-		label: "Require early access",
-		description:
-			"Keep the product limited to admins and accounts explicitly enrolled in beta.",
-		consequence: (nextValue) =>
-			nextValue
-				? "Only admins and users with beta access will be admitted. Other signed-in users will return to the early-access preview."
-				: "This opens the product to every signed-in user. Existing accounts will no longer need an early-access grant.",
-	},
 	signupGrantEnabled: {
 		label: "Signup credit grant",
 		description:
 			"Control whether new accounts receive the configured promotional balance.",
 		consequence: (nextValue, signupGrantCredits) =>
 			nextValue
-				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant.`
+				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant unless you run the signup grant backfill.`
 				: "Future signups will stop receiving promo credits. Credits already granted to existing accounts will remain available.",
 	},
 	paidSubscriptionsEnabled: {
@@ -100,6 +96,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "Signed-in users will be able to start, change, or resume paid subscriptions. Existing paid fulfillment already continues regardless of this switch."
 				: "New paid checkouts, plan changes, and subscription resumes will be blocked. Payments already made will still be fulfilled.",
+	},
+	manualPaymentsEnabled: {
+		label: "Offline payments",
+		description:
+			"Control whether users can request subscriptions paid by cash or transfer.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Users will see Cash / transfer and can submit offline subscription requests. Administrators must still collect payment and grant each subscription."
+				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests and offline subscriptions remain available for administrators to grant, renew, or end.",
 	},
 	topupsEnabled: {
 		label: "Credit top-ups",
@@ -127,6 +132,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 				? "The auth dialog will offer email sign-in: users receive a magic link or 6-digit code, and any verified email address can create an account. Requires a configured email provider (RESEND_API_KEY)."
 				: "The email form disappears from the auth dialog and sign-in emails stop being sent (already-sent links/codes stay valid for up to 10 minutes). Google sign-in is unaffected. Accounts created via email stay intact but cannot sign in again until this is re-enabled — unless their address is also a Google account.",
 	},
+	lifecycleEmailsEnabled: {
+		label: "Lifecycle emails",
+		description:
+			"Control delivery of lifecycle email automations from the durable event outbox.",
+		consequence: (nextValue) =>
+			nextValue
+				? "New eligible lifecycle events will be delivered to Resend automations. Events dropped while this switch was disabled will not be replayed."
+				: "Queued and future lifecycle events will be recorded but dropped without sending. Transactional emails such as sign-in links, invitations, and receipts are unaffected.",
+	},
 };
 
 type ProductControlsCardProps = {
@@ -145,25 +159,43 @@ export function ProductControlsCard({
 		String(settings.signupGrantCredits),
 	);
 	const [grantSubmitted, setGrantSubmitted] = useState(false);
+	const [graceDays, setGraceDays] = useState(String(settings.manualGraceDays));
+	const [graceSubmitted, setGraceSubmitted] = useState(false);
+	const [pendingNumericSetting, setPendingNumericSetting] =
+		useState<NumericSettingKey | null>(null);
 	const [conflict, setConflict] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isReloading, setIsReloading] = useState(false);
 	const toggleTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const mutation = useUpdateProductSettingsMutation();
+	const canManage = useAdminPermission({ settings: ["manage"] });
 
 	useEffect(() => {
 		setGrantCredits(String(settings.signupGrantCredits));
 		setGrantSubmitted(false);
 	}, [settings.signupGrantCredits]);
 
+	useEffect(() => {
+		setGraceDays(String(settings.manualGraceDays));
+		setGraceSubmitted(false);
+	}, [settings.manualGraceDays]);
+
 	const parsedGrantCredits = Number(grantCredits);
 	const grantCreditsAreValid =
 		Number.isSafeInteger(parsedGrantCredits) && parsedGrantCredits > 0;
 	const grantCreditsChanged =
 		grantCreditsAreValid && parsedGrantCredits !== settings.signupGrantCredits;
+	const parsedGraceDays = Number(graceDays);
+	const graceDaysAreValid =
+		graceDays.trim().length > 0 &&
+		Number.isSafeInteger(parsedGraceDays) &&
+		parsedGraceDays >= 0 &&
+		parsedGraceDays <= 30;
+	const graceDaysChanged =
+		graceDaysAreValid && parsedGraceDays !== settings.manualGraceDays;
 
 	function requestToggle(key: BooleanSettingKey, nextValue: boolean) {
-		if (nextValue === settings[key] || conflict) {
+		if (!canManage || nextValue === settings[key] || conflict) {
 			return;
 		}
 
@@ -193,9 +225,14 @@ export function ProductControlsCard({
 		} as PatchProductSettingsBody;
 
 		try {
-			await mutation.mutateAsync(input);
+			const updated = await mutation.mutateAsync(input);
 			toast.success(
 				`${details.label} ${pendingToggle.nextValue ? "enabled" : "disabled"}.`,
+				updated.signupGrantSkippedCount
+					? {
+							description: `${updated.signupGrantSkippedCount.toLocaleString()} user${updated.signupGrantSkippedCount === 1 ? "" : "s"} signed up while it was off. Use the signup grant backfill to grant them.`,
+						}
+					: undefined,
 			);
 			setPendingToggle(null);
 			setErrorMessage(null);
@@ -212,10 +249,16 @@ export function ProductControlsCard({
 		setGrantSubmitted(true);
 		setErrorMessage(null);
 
-		if (!grantCreditsAreValid || !grantCreditsChanged || conflict) {
+		if (
+			!canManage ||
+			!grantCreditsAreValid ||
+			!grantCreditsChanged ||
+			conflict
+		) {
 			return;
 		}
 
+		setPendingNumericSetting("signupGrantCredits");
 		try {
 			await mutation.mutateAsync({
 				signupGrantCredits: parsedGrantCredits,
@@ -225,6 +268,32 @@ export function ProductControlsCard({
 			setGrantSubmitted(false);
 		} catch (error) {
 			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setPendingNumericSetting(null);
+		}
+	}
+
+	async function saveGraceDays(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setGraceSubmitted(true);
+		setErrorMessage(null);
+
+		if (!canManage || !graceDaysAreValid || !graceDaysChanged || conflict) {
+			return;
+		}
+
+		setPendingNumericSetting("manualGraceDays");
+		try {
+			await mutation.mutateAsync({
+				manualGraceDays: parsedGraceDays,
+				version: settings.version,
+			});
+			toast.success("Offline grace period updated.");
+			setGraceSubmitted(false);
+		} catch (error) {
+			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setPendingNumericSetting(null);
 		}
 	}
 
@@ -274,8 +343,8 @@ export function ProductControlsCard({
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<CardTitle>Admission controls</CardTitle>
 						<CardDescription className="max-w-2xl">
-							Kill switches affect new admissions only. Paid entitlements and
-							credits already issued remain intact.
+							Kill switches control new admissions and lifecycle delivery. Paid
+							entitlements and credits already issued remain intact.
 						</CardDescription>
 					</div>
 				</div>
@@ -353,7 +422,7 @@ export function ProductControlsCard({
 										toggleTriggerRef.current = event.currentTarget;
 									}}
 									checked={checked}
-									disabled={mutation.isPending || conflict}
+									disabled={mutation.isPending || conflict || !canManage}
 									onCheckedChange={(nextValue) => requestToggle(key, nextValue)}
 									aria-label={`${checked ? "Disable" : "Enable"} ${details.label.toLowerCase()}`}
 								/>
@@ -392,7 +461,7 @@ export function ProductControlsCard({
 									step={1}
 									value={grantCredits}
 									onChange={(event) => setGrantCredits(event.target.value)}
-									disabled={mutation.isPending || conflict}
+									disabled={mutation.isPending || conflict || !canManage}
 									aria-invalid={grantSubmitted && !grantCreditsAreValid}
 									aria-describedby="signup-grant-description signup-grant-error"
 								/>
@@ -402,10 +471,12 @@ export function ProductControlsCard({
 								disabled={
 									mutation.isPending ||
 									conflict ||
+									!canManage ||
 									(grantCreditsAreValid && !grantCreditsChanged)
 								}
 							>
-								{mutation.isPending && !pendingToggle ? (
+								{mutation.isPending &&
+								pendingNumericSetting === "signupGrantCredits" ? (
 									<Loader2Icon
 										data-icon="inline-start"
 										className="animate-spin"
@@ -414,7 +485,8 @@ export function ProductControlsCard({
 								) : (
 									<SaveIcon data-icon="inline-start" aria-hidden="true" />
 								)}
-								{mutation.isPending && !pendingToggle
+								{mutation.isPending &&
+								pendingNumericSetting === "signupGrantCredits"
 									? "Saving…"
 									: "Save amount"}
 							</Button>
@@ -424,6 +496,78 @@ export function ProductControlsCard({
 							>
 								{grantSubmitted && !grantCreditsAreValid
 									? "Enter a positive whole number of credits."
+									: null}
+							</FieldError>
+						</Field>
+					</FieldGroup>
+				</form>
+
+				<form
+					onSubmit={saveGraceDays}
+					noValidate
+					className="border-t bg-muted/20 px-5 py-5"
+				>
+					<FieldGroup>
+						<Field
+							data-invalid={graceSubmitted && !graceDaysAreValid}
+							className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+						>
+							<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+								<div className="flex items-center gap-2 font-medium text-sm">
+									<CalendarClockIcon aria-hidden="true" />
+									Offline grace days
+								</div>
+								<FieldDescription id="offline-grace-days-description">
+									Days of access after an offline period ends before the cron
+									cancels it. 0 = strict.
+								</FieldDescription>
+							</div>
+							<div className="flex flex-col gap-2">
+								<FieldLabel htmlFor="offline-grace-days">Days</FieldLabel>
+								<Input
+									id="offline-grace-days"
+									type="number"
+									inputMode="numeric"
+									min={0}
+									max={30}
+									step={1}
+									value={graceDays}
+									onChange={(event) => setGraceDays(event.target.value)}
+									disabled={mutation.isPending || conflict || !canManage}
+									aria-invalid={graceSubmitted && !graceDaysAreValid}
+									aria-describedby="offline-grace-days-description offline-grace-days-error"
+								/>
+							</div>
+							<Button
+								type="submit"
+								disabled={
+									mutation.isPending ||
+									conflict ||
+									!canManage ||
+									(graceDaysAreValid && !graceDaysChanged)
+								}
+							>
+								{mutation.isPending &&
+								pendingNumericSetting === "manualGraceDays" ? (
+									<Loader2Icon
+										data-icon="inline-start"
+										className="animate-spin"
+										aria-hidden="true"
+									/>
+								) : (
+									<SaveIcon data-icon="inline-start" aria-hidden="true" />
+								)}
+								{mutation.isPending &&
+								pendingNumericSetting === "manualGraceDays"
+									? "Saving…"
+									: "Save days"}
+							</Button>
+							<FieldError
+								id="offline-grace-days-error"
+								className="sm:col-span-2 sm:col-start-2"
+							>
+								{graceSubmitted && !graceDaysAreValid
+									? "Enter a whole number from 0 to 30."
 									: null}
 							</FieldError>
 						</Field>
@@ -471,7 +615,7 @@ export function ProductControlsCard({
 						</AlertDialogCancel>
 						<AlertDialogAction
 							variant={pendingToggle?.nextValue ? "default" : "destructive"}
-							disabled={mutation.isPending}
+							disabled={mutation.isPending || !canManage}
 							onClick={confirmToggle}
 						>
 							{mutation.isPending ? (

@@ -15,6 +15,7 @@ import {
 	type AttachExternalDomainResponse,
 	attachExternalDomainBodySchema,
 	type DetachDomainResponse,
+	type GetDomainDnsStatusResponse,
 	type ListDomainsResponse,
 	type SearchDomainsQuery,
 	type SearchDomainsResponse,
@@ -29,13 +30,14 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { DomainDnsDiagnosticsService } from "../../../application/services/domain-dns-diagnostics.service";
 import { DomainsService } from "../../../application/services/domains.service";
 import {
 	DomainRateLimit,
@@ -47,6 +49,8 @@ export class DomainsController {
 	constructor(
 		@Inject(DomainsService)
 		private readonly domainsService: DomainsService,
+		@Inject(DomainDnsDiagnosticsService)
+		private readonly domainDnsDiagnosticsService: DomainDnsDiagnosticsService,
 	) {}
 
 	@UseGuards(DomainRateLimitGuard)
@@ -73,7 +77,22 @@ export class DomainsController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
+	@UseGuards(DomainRateLimitGuard)
+	@DomainRateLimit({ limit: 10, windowMs: 60_000 })
+	@Get("domains/:id/dns-status")
+	dnsStatus(
+		@Param("id", new ZodValidationPipe(uuidSchema))
+		id: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<GetDomainDnsStatusResponse> {
+		return this.domainDnsDiagnosticsService.getStatus(
+			id,
+			projectScopeFrom(workspace, user.id),
+		);
+	}
+
+	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@RequireWorkspacePermission("domain", "manage")
 	@Post("projects/:projectId/domains/external")
@@ -92,7 +111,7 @@ export class DomainsController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
+	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 10, windowMs: 60_000 })
 	@RequireWorkspacePermission("domain", "manage")
 	@Post("domains/:id/verify")
@@ -151,9 +170,6 @@ export class DomainsController {
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<DetachDomainResponse> {
-		return this.domainsService.detach(
-			id,
-			projectScopeFrom(workspace, user.id),
-		);
+		return this.domainsService.detach(id, projectScopeFrom(workspace, user.id));
 	}
 }

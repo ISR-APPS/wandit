@@ -17,7 +17,7 @@ import { type LeadCaptureResponse, uuidSchema } from "@wandit/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { Public } from "../../../../auth";
+import { AllowCrossSiteWrite, Public } from "../../../../auth";
 import {
 	LeadsCaptureRateLimitException,
 	LeadsCaptureService,
@@ -31,8 +31,12 @@ export class LeadsCaptureController {
 		private readonly leadsCaptureService: LeadsCaptureService,
 	) {}
 
-	// 200 (not 201) on purpose: success, honeypot discard, and duplicate drop
+	// 200 (not 201) on purpose: success, honeypot discard, and in-window update
 	// must be indistinguishable to the caller.
+	// Merchant sites on any origin post their forms here (see the `origin: "*"`
+	// CORS policy in main.ts). No session is involved, so cross-site is by
+	// design. Handler-level on purpose: a future method stays guarded.
+	@AllowCrossSiteWrite()
 	@Post(":publicFormId")
 	@HttpCode(200)
 	async capture(

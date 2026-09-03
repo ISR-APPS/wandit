@@ -23,6 +23,7 @@ export function AskUserGroupCard({
 	ownsActiveAsk,
 	isAfterActiveAsk,
 	showHeader = true,
+	defaultOpen = false,
 }: {
 	parts: AskUserToolPart[];
 	activeAskToolCallId?: string;
@@ -31,16 +32,17 @@ export function AskUserGroupCard({
 	/** MessageParts hoists one Wandit header per assistant turn — the card
 	 * must not repeat it inside the same turn. */
 	showHeader?: boolean;
+	/** Initial expansion only — the card never auto-opens after mount. */
+	defaultOpen?: boolean;
 }) {
 	const { t } = useTranslation();
 	const activeAskIndex = parts.findIndex(
 		(part) => part.toolCallId === activeAskToolCallId,
 	);
 
-	// Collapsible: open while the round still needs answers, folded into a
-	// one-line receipt once everything settled (long question lists otherwise
-	// dominate the thread). Manual toggle always wins until the next
-	// open/settled transition.
+	// Collapsible, CLOSED by default — the composer already carries the live
+	// question, so the card starts as a one-line summary and only expands by
+	// hand. It still folds back into the receipt when the round settles.
 	const hasOpenAsk = parts.some(
 		(part) =>
 			part.state === "input-streaming" || part.state === "input-available",
@@ -49,13 +51,13 @@ export function AskUserGroupCard({
 	const answeredCount = parts.filter(
 		(part) => part.state === "output-available" && !part.output.dismissed,
 	).length;
-	const [open, setOpen] = useState(hasOpenAsk);
+	const [open, setOpen] = useState(defaultOpen);
 	const previousHasOpenAsk = useRef(hasOpenAsk);
 
 	useEffect(() => {
 		if (previousHasOpenAsk.current !== hasOpenAsk) {
 			previousHasOpenAsk.current = hasOpenAsk;
-			setOpen(hasOpenAsk);
+			if (!hasOpenAsk) setOpen(false);
 		}
 	}, [hasOpenAsk]);
 
@@ -158,6 +160,28 @@ function AskReceiptLine({
 		);
 	}
 
+	const value = askAnswerValue(output);
+	if (value) {
+		return (
+			<p className="mt-2 flex items-center gap-[7px] text-[12.5px] text-muted-foreground">
+				<span className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success/16">
+					<Check className="size-2 text-success" strokeWidth={3} />
+				</span>
+				<span dir="auto" className="min-w-0 truncate">
+					{value}
+				</span>
+				{output.files?.length ? (
+					<span className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground/80">
+						<Paperclip aria-hidden className="size-3" />
+						{t("workspace.chat.tray.filesSent", {
+							count: output.files.length,
+						})}
+					</span>
+				) : null}
+			</p>
+		);
+	}
+
 	// Attachments ask settled with uploads — count receipt instead of text.
 	if (output.files?.length) {
 		return (
@@ -182,17 +206,5 @@ function AskReceiptLine({
 		);
 	}
 
-	const value = askAnswerValue(output);
-	if (!value) return null;
-
-	return (
-		<p className="mt-2 flex items-center gap-[7px] text-[12.5px] text-muted-foreground">
-			<span className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success/16">
-				<Check className="size-2 text-success" strokeWidth={3} />
-			</span>
-			<span dir="auto" className="min-w-0 truncate">
-				{value}
-			</span>
-		</p>
-	);
+	return null;
 }

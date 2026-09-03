@@ -1,6 +1,13 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+
+import type { VideoVoiceover } from "@wandit/contracts";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { Sentry } from "@wandit/observability/node";
 
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import {
@@ -11,11 +18,31 @@ import {
 } from "../../../metering/domain/gateway-metering";
 import type {
 	ImageAnimationBilling,
+	ImageAnimationEstimateInput,
 	ImageAnimationReservation,
 } from "./image-animation-billing";
+import {
+	type AiFailurePersistenceFields,
+	aiFailurePersistenceFields,
+	errorForCapturedFailure,
+	internalMediaFailure,
+	withMediaRefundOutcome,
+} from "./media-generation-failure";
 
 export const USER_SAFE_IMAGE_ANIMATION_ERROR =
 	"We couldn't animate this image. Please try again in a moment.";
+
+export const USER_SAFE_TEXT_TO_VIDEO_ERROR =
+	"We couldn't finish this video. Please try again in a moment.";
+
+/** The persisted failure copy is user-facing — pick it per attempt kind. */
+export function userSafeGenerationError(
+	kind: ImageAnimationAttempt["kind"],
+): string {
+	return kind === "text-to-video"
+		? USER_SAFE_TEXT_TO_VIDEO_ERROR
+		: USER_SAFE_IMAGE_ANIMATION_ERROR;
+}
 
 export const IMAGE_ANIMATION_PROVIDER_TIMEOUT_MS = 5 * 60_000;
 export const IMAGE_ANIMATION_RECOVERY_GRACE_MS = 2 * 60_000;
@@ -44,20 +71,29 @@ export type ImageAnimationAttemptStatus =
 export type ImageAnimationAttempt = {
 	aspect: "16:9" | "9:16" | "1:1";
 	completedAt: Date | null;
+	durationSeconds: number;
 	error: string | null;
 	id: string;
-	motion: "subtle" | "balanced" | "dynamic";
+	kind: "image-animation" | "text-to-video";
+	// Null only on rows created before model snapshots were introduced.
+	model: string | null;
+	// Null only for kind "text-to-video" (enforced by the DB kind CHECK).
+	motion: "subtle" | "balanced" | "dynamic" | null;
 	organizationId: string | null;
 	projectDeletedAt: Date | null;
 	projectId: string;
 	prompt: string;
-	sourceImageUrl: string;
+	quality: string | null;
+	sourceImageUrl: string | null;
 	startedAt: Date | null;
 	status: ImageAnimationAttemptStatus;
+	// Null only on legacy rows; new queue paths persist the exact provider flag.
+	talking: boolean | null;
 	triggerRunId: string | null;
 	userId: string;
 	videoMediaType: string | null;
 	videoUrl: string | null;
+	voiceover: VideoVoiceover | null;
 };
 
 export type ImageAnimationVideo = {
@@ -65,10 +101,21 @@ export type ImageAnimationVideo = {
 	url: string;
 };
 
+type ImageAnimationProviderFailureDetails = {
+	failure?: NormalizedAiError;
+	/** Stable classifier for analytics; raw provider messages remain internal. */
+	reasonCode?: string;
+	/** Explicitly safe to persist and show to the user. */
+	userMessage?: string;
+};
+
 export type ImageAnimationProviderResult =
 	| ({ status: "generated" } & ImageAnimationVideo & GatewayGenerationMetadata)
-	| GatewayGenerationFailure
-	| { message: string; status: "unavailable" };
+	| (GatewayGenerationFailure & ImageAnimationProviderFailureDetails)
+	| ({
+			message: string;
+			status: "unavailable";
+	  } & ImageAnimationProviderFailureDetails);
 
 export type ImageAnimationRunnerDependencies = {
 	claimQueued: (
@@ -85,7 +132,7 @@ export type ImageAnimationRunnerDependencies = {
 				"queued" | "generating"
 			>;
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	) => Promise<boolean>;
 	generate: (
 		attempt: ImageAnimationAttempt,
@@ -100,6 +147,7 @@ export type ImageAnimationRunnerDependencies = {
 		attempt: ImageAnimationAttempt,
 		video: ImageAnimationVideo,
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	recoverStoredVideo: (
@@ -260,6 +308,25 @@ function payloadSubject(payload: ImageAnimationPayload): MeteringSubject {
 	};
 }
 
+/**
+ * Estimate input from the durable row: the Brain-picked renderer snapshot,
+ * the requested duration, and whether Kling voice control will be on
+ * (talking person or native narration).
+ */
+export function videoEstimateForAttempt(
+	attempt: Pick<
+		ImageAnimationAttempt,
+		"durationSeconds" | "kind" | "model" | "talking" | "voiceover"
+	>,
+): ImageAnimationEstimateInput {
+	return {
+		audio: (attempt.talking ?? false) || Boolean(attempt.voiceover?.script),
+		durationSeconds: attempt.durationSeconds,
+		kind: attempt.kind,
+		modelId: attempt.model,
+	};
+}
+
 export async function runImageAnimation(
 	payload: ImageAnimationPayload,
 	input: {
@@ -297,6 +364,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(loaded),
 		);
 		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
@@ -326,8 +394,14 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(loaded),
 		);
-		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			loaded,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -352,6 +426,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				videoEstimateForAttempt(raced),
 			);
 			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
@@ -381,8 +456,14 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				videoEstimateForAttempt(raced),
 			);
-			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
+			return recoverOrSettleGenerating(
+				raced,
+				subject,
+				dependencies,
+				reservation,
+			);
 		}
 
 		throw new Error(
@@ -402,23 +483,41 @@ export async function runImageAnimation(
 			claimed.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(claimed),
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
 		// billing/DB infrastructure failing and must be visible.
+		let failure =
+			classifyAiError(error, {
+				model: claimed.model ?? undefined,
+				refunded: true,
+				route: "none",
+				surface: "video",
+			}) ??
+			internalMediaFailure({
+				model: claimed.model,
+				refunded: true,
+			});
 		if (
 			!(error instanceof Error && error.name === "InsufficientCreditsError")
 		) {
-			Sentry.captureException(error, {
-				tags: { animationId: claimed.id, userId: claimed.userId },
-			});
+			failure = captureAnimationFailure(error, failure, claimed, "none");
 		}
-		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
+		await failAndRefund(claimed, subject, dependencies, {
+			failure,
+			reason: "reservation_failed",
+		});
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			claimed,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	let generated: ImageAnimationProviderResult;
@@ -438,41 +537,63 @@ export async function runImageAnimation(
 			},
 		);
 	} catch (error) {
-		// User aborts are expected; anything else was previously invisible.
-		if (!input.signal?.aborted) {
-			Sentry.captureException(error, {
-				tags: { animationId: claimed.id, userId: claimed.userId },
-			});
-		}
-		await failAndRefund(claimed, subject, dependencies, "generation_failed");
+		let failure =
+			classifyAiError(error, {
+				abortSignal: input.signal,
+				model: claimed.model ?? undefined,
+				refunded: true,
+				route: "vercel",
+				surface: "video",
+			}) ?? internalMediaFailure({ model: claimed.model, refunded: true });
+		failure = captureAnimationFailure(error, failure, claimed, "vercel");
+		await failAndRefund(claimed, subject, dependencies, {
+			failure,
+			reason: "generation_failed",
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (generated.status !== "generated") {
-		// The provider's message is about to be replaced by a generic
-		// "generation_failed" — keep the original reason.
-		Sentry.captureMessage(`Image animation failed: ${generated.message}`, {
-			level: "error",
-			tags: { animationId: claimed.id, userId: claimed.userId },
-		});
 		const providerUnits =
 			"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
+		const shouldRefund = !hasGatewayGenerationMetadata(generated);
+		let failure = withMediaRefundOutcome(
+			generated.failure ??
+				internalMediaFailure({
+					model: claimed.model,
+					refunded: shouldRefund,
+				}),
+			shouldRefund,
+		);
+		failure = captureAnimationFailure(
+			errorForCapturedFailure(failure),
+			failure,
+			claimed,
+			"vercel",
+		);
 		if (hasGatewayGenerationMetadata(generated)) {
 			if (!generationCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
 					providerMetadata: generated.providerMetadata,
-					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					// A zero-unit provider failure is refunded to the user; the marker
+					// keeps its gateway cost out of the customer charge.
+					stepUsage: fixedGenerationStepUsage(
+						generated.usage,
+						providerUnits,
+						providerUnits === 0 ? "refunded_failure" : undefined,
+					),
 				});
 			}
 			await dependencies.settle(reservation, providerUnits);
 		}
-		await failAndRefund(
-			claimed,
-			subject,
-			dependencies,
-			"generation_failed",
-			!hasGatewayGenerationMetadata(generated),
-		);
+		await failAndRefund(claimed, subject, dependencies, {
+			failure,
+			reason: generated.reasonCode ?? "generation_failed",
+			shouldRefund,
+			...(generated.userMessage !== undefined
+				? { userMessage: generated.userMessage }
+				: {}),
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -483,16 +604,16 @@ export async function runImageAnimation(
 				stepUsage: fixedGenerationStepUsage(generated.usage, 1),
 			});
 		} catch (error) {
-			Sentry.captureException(error, {
-				tags: { animationId: claimed.id, userId: claimed.userId },
+			let failure = internalMediaFailure({
+				model: claimed.model,
+				refunded: false,
 			});
-			await failAndRefund(
-				claimed,
-				subject,
-				dependencies,
-				"generation_capture_failed",
-				false,
-			);
+			failure = captureAnimationFailure(error, failure, claimed, "none");
+			await failAndRefund(claimed, subject, dependencies, {
+				failure,
+				reason: "generation_capture_failed",
+				shouldRefund: false,
+			});
 			return { reason: "generation_failed", status: "failed" };
 		}
 	}
@@ -504,6 +625,7 @@ export async function runImageAnimation(
 		claimed,
 		generated,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -541,6 +663,7 @@ async function recoverOrSettleGenerating(
 			attempt,
 			recovered,
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -562,7 +685,10 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(attempt, subject, dependencies, "terminal_billing", false);
+		await failAndRefund(attempt, subject, dependencies, {
+			reason: "terminal_billing",
+			shouldRefund: false,
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -570,7 +696,9 @@ async function recoverOrSettleGenerating(
 		throw new ImageAnimationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, subject, dependencies, "stale_generation");
+	await failAndRefund(attempt, subject, dependencies, {
+		reason: "stale_generation",
+	});
 	return { reason: "stale_generation", status: "failed" };
 }
 
@@ -596,6 +724,7 @@ async function recoverStoredVideoWithExistingSettlement(
 		attempt,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -631,14 +760,36 @@ async function failAndRefund(
 	attempt: ImageAnimationAttempt,
 	subject: MeteringSubject,
 	dependencies: ImageAnimationRunnerDependencies,
-	reason: string,
-	shouldRefund = true,
+	options: {
+		failure?: NormalizedAiError;
+		reason: string;
+		shouldRefund?: boolean;
+		userMessage?: string;
+	},
 ): Promise<void> {
+	const shouldRefund = options.shouldRefund ?? true;
+	let failure = withMediaRefundOutcome(
+		options.failure ??
+			internalMediaFailure({
+				model: attempt.model,
+				refunded: shouldRefund,
+			}),
+		shouldRefund,
+	);
+	if (options.failure === undefined) {
+		failure = captureAnimationFailure(
+			new Error(`Image animation runner failure: ${options.reason}`),
+			failure,
+			attempt,
+			"none",
+		);
+	}
 	const failed = await dependencies.fail(attempt, {
+		...aiFailurePersistenceFields(failure),
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+		error: options.userMessage ?? renderAiErrorSentence(failure),
 		expectedStatus: "generating",
-		reason,
+		reason: options.reason,
 	});
 
 	if (!failed) {
@@ -679,9 +830,20 @@ async function settleDeletedProject(
 		return { reason: "already_failed", status: "failed" };
 	}
 
+	let failure = internalMediaFailure({
+		model: attempt.model,
+		refunded: shouldRefund,
+	});
+	failure = captureAnimationFailure(
+		new Error("Image animation project was deleted"),
+		failure,
+		attempt,
+		"none",
+	);
 	const failed = await dependencies.fail(attempt, {
+		...aiFailurePersistenceFields(failure),
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+		error: renderAiErrorSentence(failure),
 		expectedStatus: attempt.status,
 		reason: "project_deleted",
 	});
@@ -704,6 +866,28 @@ async function settleDeletedProject(
 		await dependencies.refund(subject, attempt.id);
 	}
 	return { reason: "project_deleted", status: "failed" };
+}
+
+function captureAnimationFailure(
+	error: unknown,
+	failure: NormalizedAiError,
+	attempt: ImageAnimationAttempt,
+	route: "vercel" | "none",
+): NormalizedAiError {
+	const sentryEventId = captureAiError(error, failure, {
+		functionId:
+			attempt.kind === "text-to-video"
+				? "video.generate_text"
+				: "video.animate_image",
+		generationId: attempt.id,
+		projectId: attempt.projectId,
+		refunded: failure.refunded,
+		route,
+		surface: "video",
+		userId: attempt.userId,
+	});
+
+	return { ...failure, sentryEventId };
 }
 
 async function resolveSuccessCasLoss(

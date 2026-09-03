@@ -1,11 +1,12 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { isAdminRole } from "@wandit/contracts";
+import { isStaffRole } from "@wandit/contracts";
 import { Loader2Icon, ShieldAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { LoginVisualPanel } from "@/features/auth/components/login-visual-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { buildAdminAuthCallbackUrls } from "@/features/auth/lib/auth-navigation";
 import { getSession, signOut } from "@/features/auth/lib/session";
 
 export function LoginPage() {
@@ -19,7 +20,7 @@ export function LoginPage() {
 		let cancelled = false;
 
 		void getSession().then((session) => {
-			if (!cancelled && isAdminRole(session?.user.role)) {
+			if (!cancelled && isStaffRole(session?.user.role)) {
 				void navigate({ to: "/dashboard" });
 			}
 		});
@@ -34,10 +35,13 @@ export function LoginPage() {
 		setLocalError(null);
 
 		try {
+			const { callbackURL, errorCallbackURL } = buildAdminAuthCallbackUrls(
+				window.location.origin,
+			);
 			const result = await authClient.signIn.social({
 				provider: "google",
-				callbackURL: `${window.location.origin}/dashboard`,
-				errorCallbackURL: `${window.location.origin}/login?error=oauth`,
+				callbackURL,
+				errorCallbackURL,
 			});
 
 			if (result.error) {
@@ -70,7 +74,7 @@ export function LoginPage() {
 
 	const isForbidden = search.error === "forbidden";
 	const errorMessage = isForbidden
-		? "This Google account doesn't have admin access."
+		? "This Google account doesn't have access to the admin dashboard."
 		: search.error === "oauth"
 			? "Google sign-in failed, try again."
 			: localError;
@@ -84,7 +88,7 @@ export function LoginPage() {
 					<div className="text-center">
 						<h1 className="mt-6 font-bold text-3xl">Welcome back</h1>
 						<p className="mt-2 text-muted-foreground text-sm">
-							Sign in with your Google admin account
+							Sign in with your Wandit staff Google account
 						</p>
 					</div>
 
@@ -159,7 +163,7 @@ export function LoginPage() {
 					</Button>
 
 					<p className="text-center text-muted-foreground text-xs">
-						Access is limited to Wandit administrators.
+						Access is limited to Wandit staff.
 					</p>
 				</div>
 			</div>

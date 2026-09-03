@@ -349,6 +349,10 @@ export const affiliateAggregateSchema = z
 		uniqueVisitorCount: z.int().nonnegative(),
 		attributedUserCount: z.int().nonnegative(),
 		paidCustomerCount: z.int().nonnegative(),
+		healthyTrials: z.int().nonnegative(),
+		churnedCustomers: z.int().nonnegative(),
+		referredMrrCents: z.int().nonnegative(),
+		referredLtvCents: z.int().nonnegative().nullable(),
 		paidInvoiceCount: z.int().nonnegative(),
 		lastConversionAt: isoDateTimeSchema.nullable(),
 		currencies: z.array(affiliateCurrencyAggregateSchema),
@@ -568,18 +572,6 @@ export type AffiliateLinksResponse = z.infer<
 	typeof affiliateLinksResponseSchema
 >;
 
-export const affiliateDetailSchema = z
-	.object({
-		affiliate: affiliateSchema,
-		aggregates: affiliateAggregateSchema,
-		payoutDetails: z.record(z.string(), z.unknown()).nullable(),
-		notes: z.string().nullable(),
-		links: z.array(affiliateLinkListItemSchema),
-	})
-	.strict();
-
-export type AffiliateDetail = z.infer<typeof affiliateDetailSchema>;
-
 export const affiliateClickBodySchema = z
 	.object({
 		code: affiliateCodeSchema,
@@ -619,6 +611,21 @@ export const affiliateLinkIdentitySchema = z
 	.strict();
 
 export type AffiliateLinkIdentity = z.infer<typeof affiliateLinkIdentitySchema>;
+
+export const affiliateDetailSchema = z
+	.object({
+		affiliate: affiliateSchema,
+		aggregates: affiliateAggregateSchema,
+		payoutDetails: z.record(z.string(), z.unknown()).nullable(),
+		notes: z.string().nullable(),
+		// The web-app account this partner profile is linked to (affiliates.userId),
+		// resolved to an identity so the admin can see who gets portal access.
+		linkedUser: affiliateUserIdentitySchema.nullable(),
+		links: z.array(affiliateLinkListItemSchema),
+	})
+	.strict();
+
+export type AffiliateDetail = z.infer<typeof affiliateDetailSchema>;
 
 const affiliateAttributionRecordShape = {
 	id: uuidSchema,
@@ -944,10 +951,245 @@ export type DeleteAffiliateResourceResponse = z.infer<
 	typeof deleteAffiliateResourceResponseSchema
 >;
 
+// ---------------------------------------------------------------------------
+// Affiliate portal — the self-serve view a partner gets inside the web app.
+//
+// User-scoped: the API resolves the caller's affiliate row through
+// affiliates.userId (UNIQUE) and never accepts an affiliateId from the client.
+// Referred users are PII-masked (maskedEmail only) and Stripe/internal ids,
+// admin notes and fraud details are deliberately absent from every schema.
+// ---------------------------------------------------------------------------
+
+export const affiliatePortalProfileSchema = z
+	.object({
+		id: uuidSchema,
+		name: z.string().min(1),
+		email: z.email(),
+		status: affiliateStatusSchema,
+		payoutMethod: affiliatePayoutMethodSchema,
+		createdAt: isoDateTimeSchema,
+	})
+	.strict();
+
+export type AffiliatePortalProfile = z.infer<
+	typeof affiliatePortalProfileSchema
+>;
+
+/**
+ * `affiliate` is null when the signed-in user is not linked to any partner
+ * profile. 200 + null (not 404) so clients can cache "not an affiliate" as
+ * data and gate navigation without treating it as an error.
+ */
+export const affiliatePortalMeResponseSchema = z
+	.object({
+		affiliate: affiliatePortalProfileSchema.nullable(),
+	})
+	.strict();
+
+export type AffiliatePortalMeResponse = z.infer<
+	typeof affiliatePortalMeResponseSchema
+>;
+
+export const affiliatePortalAggregateSchema = z
+	.object({
+		linkCount: z.int().nonnegative(),
+		activeLinkCount: z.int().nonnegative(),
+		clickCount: z.int().nonnegative(),
+		uniqueVisitorCount: z.int().nonnegative(),
+		attributedUserCount: z.int().nonnegative(),
+		paidCustomerCount: z.int().nonnegative(),
+		paidInvoiceCount: z.int().nonnegative(),
+		lastConversionAt: isoDateTimeSchema.nullable(),
+		currencies: z.array(affiliateCurrencyAggregateSchema),
+	})
+	.strict();
+
+export type AffiliatePortalAggregate = z.infer<
+	typeof affiliatePortalAggregateSchema
+>;
+
+/** One of the partner's links with the full program terms it pays under. */
+export const affiliatePortalLinkSchema = z
+	.object({
+		link: affiliateLinkSchema,
+		program: affiliateProgramSchema,
+		aggregates: affiliateLinkAggregateSchema,
+	})
+	.strict();
+
+export type AffiliatePortalLink = z.infer<typeof affiliatePortalLinkSchema>;
+
+export const affiliatePortalOverviewSchema = z
+	.object({
+		affiliate: affiliatePortalProfileSchema,
+		aggregates: affiliatePortalAggregateSchema,
+		links: z.array(affiliatePortalLinkSchema),
+	})
+	.strict();
+
+export type AffiliatePortalOverview = z.infer<
+	typeof affiliatePortalOverviewSchema
+>;
+
+/** A referred signup, identity-masked. `signedUpAt` is the attribution lock. */
+export const affiliatePortalReferralSchema = z
+	.object({
+		id: uuidSchema,
+		maskedEmail: z.string().min(1),
+		signedUpAt: isoDateTimeSchema,
+		status: affiliateAttributionStatusSchema,
+		link: affiliateLinkIdentitySchema,
+		program: affiliateProgramIdentitySchema,
+		programKind: affiliateProgramKindSchema,
+		commissionRateBps: affiliateCommissionRateBpsSchema.nullable(),
+		fixedAmountCents: affiliatePositiveCentsSchema.nullable(),
+		fixedCurrency: affiliateCurrencySchema.nullable(),
+		commissionDurationMonths: z.int().positive().nullable(),
+		paidInvoiceCount: z.int().nonnegative(),
+		firstPaidAt: isoDateTimeSchema.nullable(),
+		lastPaidAt: isoDateTimeSchema.nullable(),
+		currencies: z.array(affiliateCurrencyAggregateSchema),
+	})
+	.strict();
+
+export type AffiliatePortalReferral = z.infer<
+	typeof affiliatePortalReferralSchema
+>;
+
+export const listAffiliatePortalReferralsQuerySchema = paginationQuerySchema
+	.extend({
+		status: affiliateAttributionStatusSchema.optional(),
+	})
+	.strict();
+
+export type ListAffiliatePortalReferralsQuery = z.infer<
+	typeof listAffiliatePortalReferralsQuerySchema
+>;
+
+export const affiliatePortalReferralsResponseSchema = paginatedResultSchema(
+	affiliatePortalReferralSchema,
+).strict();
+
+export type AffiliatePortalReferralsResponse = z.infer<
+	typeof affiliatePortalReferralsResponseSchema
+>;
+
+/**
+ * Closed set of adjustment reasons shown to partners. The ledger column is
+ * free text and may carry Stripe object ids (e.g. `dispute_won:dp_…`); the
+ * portal mapper reduces it to one of these codes so no Stripe id leaks.
+ */
+export const affiliatePortalReversalReasons = [
+	"charge_refunded",
+	"charge_dispute_created",
+	"dispute_won",
+	"dispute_closed",
+] as const;
+
+export const affiliatePortalReversalReasonSchema = z.enum(
+	affiliatePortalReversalReasons,
+);
+
+export type AffiliatePortalReversalReason = z.infer<
+	typeof affiliatePortalReversalReasonSchema
+>;
+
+export const affiliatePortalCommissionSchema = z
+	.object({
+		id: uuidSchema,
+		entryType: affiliateCommissionEntryTypeSchema,
+		status: affiliateCommissionStatusSchema,
+		currency: affiliateCurrencySchema,
+		baseAmountCents: z.int().nonnegative(),
+		rateBps: affiliateCommissionRateBpsSchema.nullable(),
+		// Positive for earnings, negative (or compensating positive) for adjustments.
+		amountCents: z.int(),
+		holdUntil: isoDateTimeSchema,
+		payoutId: uuidSchema.nullable(),
+		reversalReason: affiliatePortalReversalReasonSchema.nullable(),
+		createdAt: isoDateTimeSchema,
+		referral: z
+			.object({
+				id: uuidSchema,
+				maskedEmail: z.string().min(1),
+			})
+			.strict(),
+		link: affiliateLinkIdentitySchema,
+	})
+	.strict();
+
+export type AffiliatePortalCommission = z.infer<
+	typeof affiliatePortalCommissionSchema
+>;
+
+export const listAffiliatePortalCommissionsQuerySchema = paginationQuerySchema
+	.extend({
+		entryType: affiliateCommissionEntryTypeSchema.optional(),
+		status: affiliateCommissionStatusSchema.optional(),
+		currency: affiliateCurrencySchema.optional(),
+	})
+	.strict();
+
+export type ListAffiliatePortalCommissionsQuery = z.infer<
+	typeof listAffiliatePortalCommissionsQuerySchema
+>;
+
+export const affiliatePortalCommissionsResponseSchema = paginatedResultSchema(
+	affiliatePortalCommissionSchema,
+).strict();
+
+export type AffiliatePortalCommissionsResponse = z.infer<
+	typeof affiliatePortalCommissionsResponseSchema
+>;
+
+export const affiliatePortalPayoutSchema = z
+	.object({
+		id: uuidSchema,
+		totalCents: affiliatePositiveCentsSchema,
+		currency: affiliateCurrencySchema,
+		method: affiliatePayoutMethodSchema,
+		externalRef: z.string().nullable(),
+		status: affiliatePayoutStatusSchema,
+		periodStart: isoDateTimeSchema,
+		periodEnd: isoDateTimeSchema,
+		paidAt: isoDateTimeSchema.nullable(),
+		entryCount: z.int().nonnegative(),
+		createdAt: isoDateTimeSchema,
+	})
+	.strict();
+
+export type AffiliatePortalPayout = z.infer<typeof affiliatePortalPayoutSchema>;
+
+export const listAffiliatePortalPayoutsQuerySchema = paginationQuerySchema
+	.extend({
+		status: affiliatePayoutStatusSchema.optional(),
+	})
+	.strict();
+
+export type ListAffiliatePortalPayoutsQuery = z.infer<
+	typeof listAffiliatePortalPayoutsQuerySchema
+>;
+
+export const affiliatePortalPayoutsResponseSchema = paginatedResultSchema(
+	affiliatePortalPayoutSchema,
+).strict();
+
+export type AffiliatePortalPayoutsResponse = z.infer<
+	typeof affiliatePortalPayoutsResponseSchema
+>;
+
 const adminAffiliatesRoot = "/api/v1/admin/affiliates";
+const affiliatePortalRoot = "/api/v1/affiliates/me";
 
 export const affiliatesRoutes = {
 	click: "/api/v1/affiliates/click",
+	// Self-serve portal (user-scoped; the caller's affiliate row is resolved
+	// from the session, never from a client-supplied id).
+	portalMe: affiliatePortalRoot,
+	portalOverview: `${affiliatePortalRoot}/overview`,
+	portalReferrals: `${affiliatePortalRoot}/referrals`,
+	portalCommissions: `${affiliatePortalRoot}/commissions`,
+	portalPayouts: `${affiliatePortalRoot}/payouts`,
 	adminAffiliates: adminAffiliatesRoot,
 	adminAffiliate: (affiliateId: string) =>
 		`${adminAffiliatesRoot}/${encodeURIComponent(affiliateId)}`,

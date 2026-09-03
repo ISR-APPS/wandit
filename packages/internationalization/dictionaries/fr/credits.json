@@ -4,14 +4,25 @@
 	"balanceUnavailableShort": "Crédits —",
 	"balanceLoadError": "Impossible de charger ton solde de crédits. Réessaie.",
 	"recentActivity": "Activité récente",
-	"emptyLedger": "Aucune activité pour l'instant.",
-	"ledgerLoadError": "Impossible de charger l’activité des crédits.",
+	"emptyActivity": "Aucune activité pour l'instant.",
+	"activityLoadError": "Impossible de charger l’activité des crédits.",
 	"topUpChip": "Recharger les crédits",
 	"manageBilling": "Voir la facturation",
 	"topUpDialog": "Voir les offres et recharges",
 	"insufficientTitle": "Crédits insuffisants",
 	"insufficientBody": "Cette action coûte plus de crédits que ton solde actuel.",
-	"costLabel": "Coût",
+	"outOfCredits": {
+		"title": "Tu n'as plus de crédits",
+		"body": "Passe à une offre supérieure pour continuer à créer.",
+		"memberBody": "Cet espace de travail n'a plus de crédits. Demande à un propriétaire de mettre à niveau l'offre.",
+		"cta": "Mettre à niveau",
+		"pausedBody": "L'achat de crédits est en pause pendant la bêta."
+	},
+	"elsewhere": {
+		"chipHint": "Vos crédits sont dans {name}",
+		"dialogHint": "Vous avez {balance} crédits dans {name}",
+		"switch": "Changer"
+	},
 	"buckets": {
 		"plan": "Offre",
 		"promo": "Promotionnels",
@@ -24,6 +35,21 @@
 		"expire": "Crédits expirés",
 		"revoke": "Crédits annulés"
 	},
+	"activityOperations": {
+		"chat": "Message IA",
+		"page_build": "Création de page",
+		"image": "Image",
+		"video": "Vidéo",
+		"marketing": "Visuel marketing",
+		"connector": "Outil connecteur",
+		"lead_scrape": "Extraction de prospects",
+		"transcription": "Transcription vocale",
+		"topup_adjust": "Ajustement du solde"
+	},
+	"activityStatus": {
+		"inProgress": "En cours",
+		"refunded": "Remboursé"
+	},
 	"creditUnit": {
 		"zero": "{count} crédit",
 		"one": "{count} crédit",
@@ -31,17 +57,5 @@
 		"few": "{count} crédits",
 		"many": "{count} crédits",
 		"other": "{count} crédits"
-	},
-	"priceTag": {
-		"zero": "{action} — {count} crédit",
-		"one": "{action} — {count} crédit",
-		"two": "{action} — {count} crédits",
-		"few": "{action} — {count} crédits",
-		"many": "{action} — {count} crédits",
-		"other": "{action} — {count} crédits"
-	},
-	"actions": {
-		"generation": "Générer",
-		"chatMessage": "Envoyer"
 	}
 }

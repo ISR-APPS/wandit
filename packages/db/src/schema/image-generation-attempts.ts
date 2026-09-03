@@ -25,7 +25,12 @@ export const imageGenerationAspect = pgEnum("image_generation_aspect", [
 	"16:9",
 ]);
 
-export type GeneratedImageRef = { mediaType: string; url: string };
+export type GeneratedImageRef = {
+	/** 1-based generation slot. Absent only on rows written before indexing. */
+	index?: number;
+	mediaType: string;
+	url: string;
+};
 
 // Mutable lifecycle row for one standalone image-generation request (the
 // chat's generate_image tool — distinct from the images the site builder
@@ -55,13 +60,20 @@ export const imageGenerationAttempts = pgTable(
 			.$type<string[]>()
 			.notNull()
 			.default(sql`'[]'::jsonb`),
-		// Set on success: one entry per generated image, in index order.
+		// Partial while generating, authoritative on success. Entries are sorted
+		// by their 1-based generation index and may omit failed slots.
 		images: jsonb("images").$type<GeneratedImageRef[]>(),
 		// Non-queryable snapshot extras: composer output id, options, quality.
 		spec: jsonb("spec").$type<Record<string, unknown>>(),
 		// Trigger.dev run id for operations/debugging; not exposed to the client.
 		triggerRunId: text("trigger_run_id"),
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -71,6 +83,7 @@ export const imageGenerationAttempts = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("image_generation_attempts_createdAt_idx").on(table.createdAt),
 		index("image_generation_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,
@@ -80,13 +93,16 @@ export const imageGenerationAttempts = pgTable(
 			table.status,
 			table.createdAt,
 		),
+		index("image_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("image_generation_attempts_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,
 		),
 		check(
 			"image_generation_attempts_count_ck",
-			sql`${table.count} between 1 and 4`,
+			sql`${table.count} between 1 and 6`,
 		),
 	],
 );

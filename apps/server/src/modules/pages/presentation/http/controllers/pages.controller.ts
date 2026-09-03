@@ -4,31 +4,27 @@
 //
 // Route prefix is "v1" (not "v1/pages") because the routes live under
 // different roots: /v1/projects/:id/page and /v1/pages/versions/:id/html.
-import {
-	Body,
-	Controller,
-	Get,
-	Inject,
-	Param,
-	Post,
-	UseGuards,
-} from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type ApplyPageOpsBody,
 	type ApplyPageOpsResponse,
 	applyPageOpsBodySchema,
 	type ListPageVersionsResponse,
+	type PageAttemptDetail,
 	type PageOverview,
 	type PageVersionHtml,
 	type RestorePageVersionBody,
 	type RestorePageVersionResponse,
+	type RetryPageAttemptResponse,
 	restorePageVersionBodySchema,
+	type StopPageAttemptBody,
+	stopPageAttemptBodySchema,
 	uuidSchema,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -49,8 +45,8 @@ export class PagesController {
 
 	// One inline-editor/theme-panel Save = one op batch = one NEW immutable
 	// version (spec §7/§14). The body schema only accepts client op kinds —
-	// a replace-section op 400s at validation (the browser never sends HTML).
-	@UseGuards(EarlyAccessGuard)
+	// server-internal surgical HTML ops 400 at validation (the browser never
+	// sends HTML).
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/ops")
 	applyOps(
@@ -82,6 +78,82 @@ export class PagesController {
 		);
 	}
 
+	// Durable state of one build attempt: the chat card's polling fallback
+	// and its terminal source of truth (status, failure code, frozen percent).
+	@Get("projects/:projectId/page/attempts/:attemptId")
+	attemptDetail(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.attemptDetail(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+		);
+	}
+
+	// User Stop: flips the attempt to canceled and cancels the Trigger run.
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/stop")
+	stopAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@Body(new ZodValidationPipe(stopPageAttemptBodySchema))
+		body: StopPageAttemptBody,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.stopAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+			body,
+		);
+	}
+
+	// Retry a failed build / resume a stopped one — same attempt row, new
+	// Trigger run, fresh Realtime handle for the chat card.
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/retry")
+	retryAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<RetryPageAttemptResponse> {
+		return this.pagesService.retryAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+		);
+	}
+
+	// Discard/Dismiss the terminal chat card (design card 16's "Discard").
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/dismiss")
+	dismissAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.dismissAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+		);
+	}
+
 	// Version history, newest first, with the live version marked.
 	@Get("projects/:projectId/page/versions")
 	versions(
@@ -99,7 +171,6 @@ export class PagesController {
 	// Copy a historical version forward as a new immutable active version.
 	// The expected pointer gives restores the same compare-and-swap discipline
 	// as inline edit batches.
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/versions/:versionId/restore")
 	restoreVersion(

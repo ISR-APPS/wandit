@@ -1,10 +1,15 @@
-import { CircleCheckIcon, CreditCardIcon, RotateCcwIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+	CircleCheckIcon,
+	CreditCardIcon,
+	RotateCcwIcon,
+	UserRoundPlusIcon,
+} from "lucide-react";
 import { Bar, BarChart } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -19,6 +24,8 @@ import {
 import type {
 	OverviewGenerationPoint,
 	OverviewGenerationSummary,
+	OverviewSignal,
+	OverviewSignalKind,
 } from "@/features/overview/api/overview.dto";
 import {
 	formatOverviewLatency,
@@ -31,48 +38,27 @@ import { cn } from "@/lib/utils";
 type GenerationHealthCardProps = {
 	generation: OverviewGenerationSummary;
 	points: OverviewGenerationPoint[];
+	signals: OverviewSignal[];
 	generatedAt: string;
 };
 
 type ActivityTone = "success" | "warning" | "neutral";
 
+// Successful must match the emerald the progress bar above the chart uses,
+// so one card encodes "success" with one color.
 const generationChartConfig = {
 	successful: {
 		label: "Successful",
-		color: "var(--chart-1)",
+		theme: {
+			light: "var(--color-emerald-600)",
+			dark: "var(--color-emerald-500)",
+		},
 	},
 	failed: {
 		label: "Failed",
 		color: "var(--destructive)",
 	},
 } satisfies ChartConfig;
-
-const recentSignals = [
-	{
-		id: "payment",
-		title: "Chargily payment captured",
-		detail: "Leila Kaci · DZD 6,500",
-		offsetMinutes: 4,
-		icon: CreditCardIcon,
-		tone: "success" as ActivityTone,
-	},
-	{
-		id: "generation",
-		title: "Website generated in 42s",
-		detail: "Aya Benali · Portfolio launch",
-		offsetMinutes: 9,
-		icon: CircleCheckIcon,
-		tone: "success" as ActivityTone,
-	},
-	{
-		id: "retry",
-		title: "Generation retried automatically",
-		detail: "Nassim Guerroudj · Asset timeout",
-		offsetMinutes: 18,
-		icon: RotateCcwIcon,
-		tone: "warning" as ActivityTone,
-	},
-] as const;
 
 const activityToneClasses: Record<ActivityTone, string> = {
 	success:
@@ -82,57 +68,82 @@ const activityToneClasses: Record<ActivityTone, string> = {
 	neutral: "border-border bg-muted text-muted-foreground",
 };
 
+const signalPresentation: Record<
+	OverviewSignalKind,
+	{ icon: LucideIcon; tone: ActivityTone }
+> = {
+	payment: { icon: CreditCardIcon, tone: "success" },
+	page_generation_succeeded: { icon: CircleCheckIcon, tone: "success" },
+	page_generation_failed: { icon: RotateCcwIcon, tone: "warning" },
+	lead: { icon: UserRoundPlusIcon, tone: "neutral" },
+};
+
 function formatPercentagePointDelta(value: number) {
 	const sign = value > 0 ? "+" : value < 0 ? "−" : "";
 	return `${sign}${Math.abs(value).toFixed(1)} pp`;
 }
 
-function getSignalDateTime(generatedAt: string, offsetMinutes: number) {
-	const parsedGeneratedAt = Date.parse(generatedAt);
-	const safeGeneratedAt = Number.isNaN(parsedGeneratedAt)
-		? Date.now()
-		: parsedGeneratedAt;
+function formatSignalAge(generatedAt: string, occurredAt: string) {
+	const elapsedMinutes = Math.max(
+		0,
+		Math.floor((Date.parse(generatedAt) - Date.parse(occurredAt)) / 60_000),
+	);
 
-	return new Date(safeGeneratedAt - offsetMinutes * 60_000).toISOString();
+	if (elapsedMinutes < 1) {
+		return "now";
+	}
+
+	if (elapsedMinutes < 60) {
+		return `${elapsedMinutes} min`;
+	}
+
+	const elapsedHours = Math.floor(elapsedMinutes / 60);
+	if (elapsedHours < 24) {
+		return `${elapsedHours} hr`;
+	}
+
+	return `${Math.floor(elapsedHours / 24)} d`;
+}
+
+function MockOperationalStatusBadge() {
+	// MOCK DATA: operational platform status — no health/status source exists.
+	return (
+		<Badge
+			variant="outline"
+			className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+		>
+			<span className="size-1.5 rounded-full bg-current" />
+			Operational · Mock
+		</Badge>
+	);
 }
 
 function GenerationHealthCard({
 	generation,
 	points,
+	signals,
 	generatedAt,
 }: GenerationHealthCardProps) {
-	const successDelta =
-		generation.successRatePercent - generation.previousSuccessRatePercent;
-	const latencyDelta =
-		generation.previousAverageLatencyMs > 0
-			? ((generation.averageLatencyMs - generation.previousAverageLatencyMs) /
-					generation.previousAverageLatencyMs) *
-				100
-			: 0;
+	const successDelta = generation.successRateChangePoints;
+	const latencyDelta = generation.latencyChangePercent;
 
 	return (
-		<Card className="h-full shadow-none">
-			<CardHeader className="border-b">
-				<div>
-					<CardTitle>
-						<h2>Generation health</h2>
-					</CardTitle>
-					<CardDescription className="mt-1">
-						Completion quality and recent platform signals
-					</CardDescription>
+		<Card className="h-full gap-0 py-0 shadow-none">
+			<CardHeader className="border-b pt-6">
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-[200px] flex-1">
+						<CardTitle>
+							<h2>Generation health</h2>
+						</CardTitle>
+						<CardDescription className="mt-1">
+							Completion quality and recent platform signals
+						</CardDescription>
+					</div>
+					<MockOperationalStatusBadge />
 				</div>
-				<CardAction>
-					<Badge
-						variant="outline"
-						className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-					>
-						<span className="size-1.5 rounded-full bg-current" />
-						Operational
-					</Badge>
-				</CardAction>
 			</CardHeader>
 
-			<CardContent className="space-y-5 pt-5">
+			<CardContent className="flex min-h-0 flex-1 flex-col gap-5 pt-5 pb-6">
 				<div>
 					<div className="flex items-end justify-between gap-4">
 						<div>
@@ -243,39 +254,51 @@ function GenerationHealthCard({
 					</div>
 				</div>
 
-				<div className="border-t pt-4">
+				<div className="flex-1 border-t pt-4">
 					<div className="mb-2 flex items-center justify-between">
 						<h3 className="font-medium text-sm">Recent signals</h3>
-						<span className="text-muted-foreground text-xs">Live mock</span>
 					</div>
 					<div className="divide-y">
-						{recentSignals.map((signal) => (
-							<div key={signal.id} className="flex items-start gap-3 py-3">
-								<div
-									className={cn(
-										"flex size-8 shrink-0 items-center justify-center rounded-md border",
-										activityToneClasses[signal.tone],
-									)}
-								>
-									<signal.icon className="size-4" />
-								</div>
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-medium text-sm">{signal.title}</p>
-									<p className="mt-0.5 truncate text-muted-foreground text-xs">
-										{signal.detail}
-									</p>
-								</div>
-								<time
-									dateTime={getSignalDateTime(
-										generatedAt,
-										signal.offsetMinutes,
-									)}
-									className="shrink-0 text-muted-foreground text-xs tabular-nums"
-								>
-									{signal.offsetMinutes} min
-								</time>
-							</div>
-						))}
+						{signals.length === 0 ? (
+							<p className="py-4 text-muted-foreground text-sm">
+								No recent signals.
+							</p>
+						) : (
+							signals.map((signal) => {
+								const presentation = signalPresentation[signal.kind];
+								const SignalIcon = presentation.icon;
+
+								return (
+									<div
+										key={`${signal.kind}:${signal.id}`}
+										className="flex items-start gap-3 py-3"
+									>
+										<div
+											className={cn(
+												"flex size-8 shrink-0 items-center justify-center rounded-md border",
+												activityToneClasses[presentation.tone],
+											)}
+										>
+											<SignalIcon className="size-4" />
+										</div>
+										<div className="min-w-0 flex-1">
+											<p className="break-words font-medium text-sm leading-snug">
+												{signal.title}
+											</p>
+											<p className="mt-0.5 break-words text-muted-foreground text-xs leading-relaxed">
+												{signal.detail}
+											</p>
+										</div>
+										<time
+											dateTime={signal.occurredAt}
+											className="shrink-0 text-muted-foreground text-xs tabular-nums"
+										>
+											{formatSignalAge(generatedAt, signal.occurredAt)}
+										</time>
+									</div>
+								);
+							})
+						)}
 					</div>
 				</div>
 			</CardContent>

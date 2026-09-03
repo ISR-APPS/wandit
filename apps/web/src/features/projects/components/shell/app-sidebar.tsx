@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -11,24 +12,33 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
+	useSidebar,
 } from "@wandit/ui/components/sidebar";
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
+import { useAffiliatePortalMeQuery } from "@/features/affiliates/api/affiliates.queries";
+import { UpgradeCard } from "@/features/billing/components/upgrade-button";
+import { isChatwootConfigured, openSupportChat } from "@/features/support";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
-import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
+import {
+	AFFILIATE_NAV_GROUP,
+	NAV_GROUPS,
+	type NavItem,
+} from "../../lib/nav-config";
 
 function NavEntry({ item }: { item: NavItem }) {
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const { t } = useTranslation();
+	const { isMobile, setOpenMobile } = useSidebar();
 	const title = t(item.titleKey);
 
 	if (item.type === "route") {
 		return (
 			<SidebarMenuButton
 				asChild
-				isActive={pathname === item.to}
+				isActive={pathname === item.to || pathname.startsWith(`${item.to}/`)}
 				tooltip={title}
 			>
 				<Link to={item.to}>
@@ -50,6 +60,26 @@ function NavEntry({ item }: { item: NavItem }) {
 		);
 	}
 
+	if (item.type === "action") {
+		// Only "open-support-chat" exists today; disabled when the widget is
+		// not configured so the button never silently does nothing.
+		return (
+			<SidebarMenuButton
+				disabled={!isChatwootConfigured}
+				onClick={() => {
+					// The mobile sidebar is a modal sheet: while open it sets
+					// body pointer-events:none, which the chat window inherits.
+					if (isMobile) setOpenMobile(false);
+					openSupportChat();
+				}}
+				tooltip={title}
+			>
+				<item.icon />
+				<span>{title}</span>
+			</SidebarMenuButton>
+		);
+	}
+
 	return (
 		<>
 			<SidebarMenuButton disabled tooltip={title}>
@@ -65,6 +95,11 @@ function NavEntry({ item }: { item: NavItem }) {
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 	const { t } = useTranslation();
+	const affiliateQuery = useAffiliatePortalMeQuery();
+	const showAffiliateNavigation =
+		!affiliateQuery.isPending &&
+		!affiliateQuery.isError &&
+		Boolean(affiliateQuery.data?.affiliate);
 	return (
 		<Sidebar
 			collapsible="icon"
@@ -107,9 +142,28 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 						</SidebarGroupContent>
 					</SidebarGroup>
 				))}
+				{showAffiliateNavigation ? (
+					<SidebarGroup>
+						<SidebarGroupLabel>
+							{t(AFFILIATE_NAV_GROUP.titleKey)}
+						</SidebarGroupLabel>
+						<SidebarGroupContent>
+							<SidebarMenu>
+								{AFFILIATE_NAV_GROUP.items.map((item) => (
+									<SidebarMenuItem key={item.titleKey}>
+										<NavEntry item={item} />
+									</SidebarMenuItem>
+								))}
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
+				) : null}
 			</SidebarContent>
-			{/* Credits card intentionally absent for the launch window — the top
-			    bar chip is the only credits surface until top-ups exist. */}
+			{/* The upgrade card gates itself on purchases + free plan, so this
+			    stays invisible until billing opens (ship-dark launch policy). */}
+			<SidebarFooter className="group-data-[collapsible=icon]:hidden">
+				<UpgradeCard />
+			</SidebarFooter>
 			<SidebarRail
 				aria-label={t("projects.sidebar.toggleSidebar")}
 				title={t("projects.sidebar.toggleSidebar")}

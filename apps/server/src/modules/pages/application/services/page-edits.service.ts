@@ -1,7 +1,7 @@
 /**
  * The write side of page editing (V2 spec §5/§7/§14): every mutation — an
- * inline-editor/theme-panel ops batch over HTTP, the chat agent's
- * replace_section, or a historical-version restore — copies source HTML,
+ * inline-editor/theme-panel ops batch over HTTP, the chat agent's surgical
+ * HTML operations, or a historical-version restore — copies source HTML,
  * applies the ops, re-stamps, uploads a NEW immutable version to R2, and flips
  * the artifact's active pointer in one transaction. No in-place mutation,
  * ever.
@@ -31,13 +31,14 @@ import {
 	pageHtmlKey,
 	putPageHtml,
 } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { reconcileFeatureShelf } from "../../domain/feature-shelf";
 import {
 	type ApplyOpsContext,
 	applyOps,
 	extractRootTokens,
 } from "../../domain/ops";
 import { stampHtml } from "../../domain/stamp";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	PagesRepository,
 	VersionConflictError,
@@ -326,11 +327,11 @@ export class PageEditsService {
 		return { status: "applied", versionNumber: outcome.version.number };
 	}
 
-	// Shared flow: load base HTML → apply ops → restamp → upload NEW version
-	// object → insert row + flip pointer atomically.
+	// Shared flow: load base HTML → apply ops → reconcile shelf → restamp →
+	// upload NEW version object → insert row + flip pointer atomically.
 	private async mutate(input: {
 		artifactId: string;
-		baseVersion: { id: string; r2Key: string };
+		baseVersion: { id: string; productSku: string | null; r2Key: string };
 		context?: ApplyOpsContext;
 		expectedActiveVersionId: string;
 		ops: readonly EditOp[];
@@ -359,7 +360,8 @@ export class PageEditsService {
 			};
 		}
 
-		const stamped = stampHtml(result.html);
+		const reconciled = reconcileFeatureShelf(result.html);
+		const stamped = stampHtml(reconciled);
 		const newVersionId = crypto.randomUUID();
 		const key = pageHtmlKey(input.projectId, newVersionId);
 
@@ -386,6 +388,7 @@ export class PageEditsService {
 					source: input.source,
 				},
 				projectId: input.projectId,
+				productSku: input.baseVersion.productSku,
 				...(input.receipt ? { receipt: input.receipt } : {}),
 				r2Key: key,
 				versionId: newVersionId,

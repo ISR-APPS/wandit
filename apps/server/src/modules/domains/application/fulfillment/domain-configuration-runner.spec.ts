@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CustomHostnameVerificationResult } from "./custom-hostname-verification.step";
 import { DomainActivationTransientError } from "./domain-activation.step";
 import {
 	DomainConfigurationRunner,
@@ -14,6 +15,24 @@ import { domainFailureSummary } from "./domain-fulfillment.errors";
 const domainId = "11111111-1111-4111-8111-111111111111";
 const orderId = "22222222-2222-4222-8222-222222222222";
 const purchaseNonce = buildDomainPurchaseNonce(orderId);
+
+function verificationResult(
+	hostnameStatus: string | null,
+	sslStatus: string | null,
+): CustomHostnameVerificationResult {
+	return {
+		hostnameStatus,
+		sslStatus,
+		status:
+			hostnameStatus === "active" && sslStatus === "active"
+				? "active"
+				: "pending",
+	};
+}
+
+const fullyActiveVerification = () => verificationResult("active", "active");
+const pendingVerification = () =>
+	verificationResult("pending", "pending_validation");
 
 function domain(
 	overrides: Partial<DomainFulfillmentRow> = {},
@@ -44,6 +63,10 @@ function domain(
 
 function setup(
 	input: {
+		apexZone?: (
+			row: DomainFulfillmentRow,
+			options: { allowZoneCreation: boolean },
+		) => Promise<DomainFulfillmentRow>;
 		cursor?: DomainConfigurationCursor | null;
 		now?: Date;
 		row?: DomainFulfillmentRow | null;
@@ -55,9 +78,7 @@ function setup(
 	let loseNextAdvance = false;
 	const waits: Date[] = [];
 	const probes: string[] = [];
-	const verificationResults: Array<
-		{ status: "active" | "pending" } | { error: unknown; status: "transient" }
-	> = [];
+	const verificationResults: CustomHostnameVerificationResult[] = [];
 	const activationResults: Array<
 		| Error
 		| { processed: false; reason: "detached" | "state_changed" }
@@ -121,6 +142,67 @@ function setup(
 		cursor = null;
 		return true;
 	});
+	const markExternalVerificationStalled = vi.fn(
+		async (
+			_id: string,
+			input: {
+				attempts: number;
+				expectedAttempt: number;
+				nonce: string;
+				stalledAt: Date;
+			},
+		) => {
+			if (
+				row?.source !== "external" ||
+				row.status !== "configuring" ||
+				!cursor ||
+				cursor.nonce !== input.nonce ||
+				cursor.nextAttempt !== input.expectedAttempt
+			) {
+				return false;
+			}
+
+			row = {
+				...row,
+				dns: {
+					externalVerification: {
+						attempts: input.attempts,
+						stalledAt: input.stalledAt.toISOString(),
+					},
+				},
+			};
+
+			return true;
+		},
+	);
+	const mergeDnsIfStatus = vi.fn(
+		async (
+			_id: string,
+			statuses: ("active" | "configuring")[],
+			patch: Record<string, unknown>,
+		) => {
+			if (!row || !statuses.includes(row.status as "active" | "configuring")) {
+				return null;
+			}
+
+			const dns: Record<string, unknown> =
+				row.dns && typeof row.dns === "object" && !Array.isArray(row.dns)
+					? { ...row.dns }
+					: {};
+
+			for (const [key, value] of Object.entries(patch)) {
+				if (value === null) {
+					delete dns[key];
+				} else if (value !== undefined) {
+					dns[key] = value;
+				}
+			}
+
+			row = { ...row, dns };
+
+			return row;
+		},
+	);
 	const waitUntil = vi.fn(async ({ date }: { date: Date }) => {
 		waits.push(date);
 		now = date;
@@ -157,15 +239,19 @@ function setup(
 	const verification = vi.fn(async (id: string) => {
 		probes.push(id);
 
-		return verificationResults.shift() ?? { status: "pending" as const };
+		return verificationResults.shift() ?? pendingVerification();
 	});
+	const apexZone = input.apexZone ? vi.fn(input.apexZone) : undefined;
 	const runner = new DomainConfigurationRunner({
 		activation: { execute: activation },
+		apexZone: apexZone ? { execute: apexZone } : undefined,
 		cursors: {
 			advanceCursor,
 			clearCursor,
 			findDomain: vi.fn(async () => row),
 			initializeCursor,
+			markExternalVerificationStalled,
+			mergeDnsIfStatus,
 			readCursor: vi.fn(async () => cursor),
 		},
 		now: () => now,
@@ -178,11 +264,14 @@ function setup(
 		activation,
 		activationResults,
 		advanceCursor,
+		apexZone,
 		clearCursor,
 		get cursor() {
 			return cursor;
 		},
 		initializeCursor,
+		markExternalVerificationStalled,
+		mergeDnsIfStatus,
 		loseNextAdvance() {
 			loseNextAdvance = true;
 		},
@@ -235,13 +324,14 @@ describe("DomainConfigurationRunner", () => {
 		expect(delays.slice(0, 7)).toEqual([30, 60, 120, 240, 480, 900, 900]);
 		expect(delays.reduce((total, delay) => total + delay, 0)).toBe(86_430);
 		expect(fixture.terminalFailure).toHaveBeenCalledTimes(1);
+		expect(fixture.markExternalVerificationStalled).not.toHaveBeenCalled();
 		expect(domainFailureSummary(fixture.terminalErrors[0])).toBe(
 			"Domain registration failed",
 		);
 		expect(fixture.cursor).toBeNull();
 	});
 
-	it("leaves an external domain and its exhausted cursor pending", async () => {
+	it("marks an exhausted external domain while leaving it pending", async () => {
 		const fixture = setup({
 			row: domain({ paymentOrderId: null, source: "external" }),
 		});
@@ -257,6 +347,15 @@ describe("DomainConfigurationRunner", () => {
 		expect(fixture.probes).toHaveLength(101);
 		expect(fixture.waits).toHaveLength(100);
 		expect(fixture.terminalFailure).not.toHaveBeenCalled();
+		expect(fixture.markExternalVerificationStalled).toHaveBeenCalledWith(
+			domainId,
+			{
+				attempts: 101,
+				expectedAttempt: 100,
+				nonce: "manual:1",
+				stalledAt: new Date("2026-08-02T00:00:30.000Z"),
+			},
+		);
 		expect(fixture.cursor).toMatchObject({
 			nextAttempt: 100,
 			nonce: "manual:1",
@@ -265,7 +364,7 @@ describe("DomainConfigurationRunner", () => {
 
 	it("activates on an exact active probe and clears only its cursor", async () => {
 		const fixture = setup();
-		fixture.verificationResults.push({ status: "active" });
+		fixture.verificationResults.push(fullyActiveVerification());
 
 		await expect(
 			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
@@ -286,10 +385,10 @@ describe("DomainConfigurationRunner", () => {
 			error: new Error("Cloudflare unavailable"),
 			status: "transient" as const,
 		},
-		{ status: "pending" as const },
+		pendingVerification(),
 	])("advances and durably waits after $status verification", async (first) => {
 		const fixture = setup();
-		fixture.verificationResults.push(first, { status: "active" });
+		fixture.verificationResults.push(first, fullyActiveVerification());
 
 		await expect(
 			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
@@ -304,11 +403,378 @@ describe("DomainConfigurationRunner", () => {
 		expect(fixture.probes).toHaveLength(2);
 	});
 
+	it("runs the best-effort apex zone pass before every probe of a purchased row and activates with its latest row without waiting for the zone", async () => {
+		const zoneEvents: string[] = [];
+		let passes = 0;
+		const fixture = setup({
+			// Simulates ApexZoneStep: pass 1 configures, pass 2 polls a pending
+			// zone (activation check), pass 3 sees the zone active and nudges the
+			// apex hostname once. The www verification is independent of it.
+			apexZone: async (row) => {
+				passes += 1;
+				const dns = (row.dns ?? {}) as Record<string, unknown>;
+				let updated: DomainFulfillmentRow;
+
+				if (passes === 1) {
+					updated = {
+						...row,
+						dns: { ...dns, apexConfigured: true, zoneId: "zone_1" },
+					};
+				} else if (passes === 2) {
+					zoneEvents.push("activation-check");
+					updated = { ...row, dns: { ...dns, zoneStatus: "pending" } };
+				} else {
+					zoneEvents.push("apex-nudge");
+					updated = {
+						...row,
+						dns: {
+							...dns,
+							apexCustomHostnameNudged: true,
+							zoneActive: true,
+							zoneStatus: "active",
+						},
+					};
+				}
+
+				fixture.row = updated;
+
+				return updated;
+			},
+		});
+		fixture.verificationResults.push(
+			pendingVerification(),
+			pendingVerification(),
+			fullyActiveVerification(),
+		);
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.apexZone).toHaveBeenCalledTimes(3);
+		expect(fixture.probes).toHaveLength(3);
+		expect(fixture.apexZone).toHaveBeenCalledBefore(fixture.verification);
+		expect(zoneEvents).toEqual(["activation-check", "apex-nudge"]);
+		expect(fixture.apexZone).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				dns: expect.objectContaining({ apexConfigured: true }),
+			}),
+			{ allowZoneCreation: true },
+		);
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneActive: true }),
+			}),
+		);
+		// The apex pass never adds a wait: only the www probe schedule applies.
+		expect(fixture.waits).toEqual([
+			new Date("2026-08-01T00:00:30.000Z"),
+			new Date("2026-08-01T00:01:30.000Z"),
+		]);
+	});
+
+	it("activates on an active www probe even while the apex zone is still pending", async () => {
+		const fixture = setup({
+			apexZone: async (row) => {
+				const updated = {
+					...row,
+					dns: {
+						apexConfigured: true,
+						zoneId: "zone_1",
+						zoneStatus: "pending",
+					},
+				};
+				fixture.row = updated;
+
+				return updated;
+			},
+		});
+		fixture.verificationResults.push(fullyActiveVerification());
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.apexZone).toHaveBeenCalledTimes(1);
+		expect(fixture.waitUntil).not.toHaveBeenCalled();
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneStatus: "pending" }),
+			}),
+		);
+	});
+
+	it("probes an external hostname before the apex pass, unlocks zone creation on ownership, and waits for SSL before activation", async () => {
+		let zoneCreations = 0;
+		const fixture = setup({
+			apexZone: async (row, options) => {
+				if (!options.allowZoneCreation) {
+					return row;
+				}
+
+				const dns = (row.dns ?? {}) as Record<string, unknown>;
+				if (typeof dns.zoneId === "string") {
+					return row;
+				}
+
+				zoneCreations += 1;
+				const updated = {
+					...row,
+					dns: {
+						...dns,
+						apexConfigured: true,
+						zoneDelegated: true,
+						zoneId: "zone_1",
+					},
+				};
+				fixture.row = updated;
+
+				return updated;
+			},
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+		fixture.verificationResults.push(
+			pendingVerification(),
+			verificationResult("active", "pending_validation"),
+			fullyActiveVerification(),
+		);
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:1" }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+		const apexZone = fixture.apexZone;
+		if (!apexZone) {
+			throw new Error("Expected the apex zone pass to be wired");
+		}
+		expect(apexZone).toHaveBeenCalledTimes(3);
+		expect(fixture.verification).toHaveBeenCalledBefore(apexZone);
+		expect(fixture.apexZone).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ source: "external" }),
+			{ allowZoneCreation: false },
+		);
+		expect(fixture.apexZone).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ source: "external" }),
+			{ allowZoneCreation: true },
+		);
+		expect(zoneCreations).toBe(1);
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneId: "zone_1" }),
+				source: "external",
+			}),
+		);
+		expect(fixture.waits).toEqual([
+			new Date("2026-08-01T00:00:30.000Z"),
+			new Date("2026-08-01T00:01:30.000Z"),
+		]);
+	});
+
+	it("withdraws only advertised nameservers when an external apex pass fails before activation", async () => {
+		const wwwTrafficRecord = {
+			name: "www",
+			purpose: "traffic",
+			type: "CNAME" as const,
+			value: "fallback.example",
+		};
+		const nameserverRecords = ["ada.ns.example", "bob.ns.example"].map(
+			(value) => ({
+				name: "@",
+				purpose: "nameserver",
+				type: "NS" as const,
+				value,
+			}),
+		);
+		const exposedAt = "2026-08-01T00:00:00.000Z";
+		const fixture = setup({
+			apexZone: async (row) => {
+				const updated = {
+					...row,
+					dns: {
+						apexError: "hostname quota",
+						records: [wwwTrafficRecord, ...nameserverRecords],
+						zoneCreated: true,
+						zoneDelegated: true,
+						zoneId: "zone_incomplete",
+						zoneNameServers: nameserverRecords.map((record) => record.value),
+						zoneNameserversExposedAt: exposedAt,
+						zoneStatus: "pending",
+					},
+				};
+				fixture.row = updated;
+
+				return updated;
+			},
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+		fixture.verificationResults.push(fullyActiveVerification());
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:activation" }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.mergeDnsIfStatus).toHaveBeenCalledExactlyOnceWith(
+			domainId,
+			["configuring"],
+			{ records: [wwwTrafficRecord] },
+		);
+		const activationRow = fixture.activation.mock.calls[0]?.[0];
+		expect(activationRow?.dns).toMatchObject({
+			apexError: "hostname quota",
+			records: [wwwTrafficRecord],
+			zoneCreated: true,
+			zoneDelegated: true,
+			zoneId: "zone_incomplete",
+			zoneNameServers: ["ada.ns.example", "bob.ns.example"],
+			zoneNameserversExposedAt: exposedAt,
+			zoneStatus: "pending",
+		});
+		expect(activationRow?.dns).not.toHaveProperty("apexConfigured");
+	});
+
+	it("does not activate when the incomplete-zone dns fence loses", async () => {
+		const fixture = setup({
+			row: domain({
+				dns: {
+					records: [
+						{
+							name: "@",
+							purpose: "nameserver",
+							type: "NS",
+							value: "ada.ns.example",
+						},
+					],
+					zoneDelegated: true,
+					zoneId: "zone_incomplete",
+				},
+				paymentOrderId: null,
+				source: "external",
+			}),
+		});
+		fixture.verificationResults.push(fullyActiveVerification());
+		fixture.mergeDnsIfStatus.mockResolvedValueOnce(null);
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:fence-lost" }),
+		).resolves.toEqual({
+			processed: false,
+			reason: "state_changed",
+			terminalized: false,
+		});
+
+		expect(fixture.activation).not.toHaveBeenCalled();
+		expect(fixture.clearCursor).not.toHaveBeenCalled();
+	});
+
+	it("maintains an existing external zone while ownership is pending", async () => {
+		const fixture = setup({
+			apexZone: async (row, options) => {
+				const updated = {
+					...row,
+					dns: {
+						...((row.dns ?? {}) as Record<string, unknown>),
+						zoneStatus: "pending",
+					},
+				};
+				fixture.row = updated;
+
+				expect(options).toEqual({ allowZoneCreation: false });
+				return updated;
+			},
+			row: domain({
+				dns: { zoneId: "zone_1", zoneNameServers: ["ns1.example"] },
+				paymentOrderId: null,
+				source: "external",
+			}),
+		});
+		fixture.verificationResults.push(pendingVerification());
+		fixture.loseNextAdvance();
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:pending" }),
+		).resolves.toEqual({
+			processed: false,
+			reason: "state_changed",
+			terminalized: false,
+		});
+
+		const apexZone = fixture.apexZone;
+		if (!apexZone) {
+			throw new Error("Expected the apex zone pass to be wired");
+		}
+		expect(apexZone).toHaveBeenCalledOnce();
+		expect(fixture.verification).toHaveBeenCalledBefore(apexZone);
+	});
+
+	it("does not authorize a replacement when an external zone is lost before ownership", async () => {
+		let replacementAttempts = 0;
+		const fixture = setup({
+			apexZone: async (row, options) => {
+				if (options.allowZoneCreation) {
+					replacementAttempts += 1;
+				}
+
+				const updated = { ...row, dns: { records: [] } };
+				fixture.row = updated;
+
+				return updated;
+			},
+			row: domain({
+				dns: { zoneId: "zone_gone", zoneNameServers: ["ns1.example"] },
+				paymentOrderId: null,
+				source: "external",
+			}),
+		});
+		fixture.verificationResults.push(pendingVerification());
+		fixture.loseNextAdvance();
+
+		await fixture.runner.execute({ domainId, nonce: "manual:lost" });
+
+		expect(fixture.apexZone).toHaveBeenCalledWith(expect.anything(), {
+			allowZoneCreation: false,
+		});
+		expect(replacementAttempts).toBe(0);
+	});
+
+	it("skips the apex zone pass entirely when none is wired", async () => {
+		const fixture = setup({
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+		fixture.verificationResults.push(fullyActiveVerification());
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:1" }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+		expect(fixture.apexZone).toBeUndefined();
+	});
+
 	it("uses the same persisted wait policy for a transient KV activation failure", async () => {
 		const fixture = setup();
 		fixture.verificationResults.push(
-			{ status: "active" },
-			{ status: "active" },
+			fullyActiveVerification(),
+			fullyActiveVerification(),
 		);
 		fixture.activationResults.push(
 			new DomainActivationTransientError(new Error("KV unavailable")),
@@ -329,7 +795,7 @@ describe("DomainConfigurationRunner", () => {
 	it("propagates database or order-completion activation errors to task retry", async () => {
 		const fixture = setup();
 		const error = new Error("order completion unavailable");
-		fixture.verificationResults.push({ status: "active" });
+		fixture.verificationResults.push(fullyActiveVerification());
 		fixture.activationResults.push(error);
 
 		await expect(
@@ -347,7 +813,7 @@ describe("DomainConfigurationRunner", () => {
 			cursor: { nextAttempt: 7, nextProbeAt: deadline, nonce: "manual:resume" },
 			row: domain({ paymentOrderId: null, source: "external" }),
 		});
-		fixture.verificationResults.push({ status: "active" });
+		fixture.verificationResults.push(fullyActiveVerification());
 
 		await expect(
 			fixture.runner.execute({ domainId, nonce: "manual:resume" }),
@@ -394,7 +860,7 @@ describe("DomainConfigurationRunner", () => {
 			cursor: { nextAttempt: 100, nextProbeAt: null, nonce: "old-manual" },
 			row: domain({ paymentOrderId: null, source: "external" }),
 		});
-		fixture.verificationResults.push({ status: "active" });
+		fixture.verificationResults.push(fullyActiveVerification());
 
 		await fixture.runner.execute({ domainId, nonce: "new-manual" });
 
@@ -413,7 +879,7 @@ describe("DomainConfigurationRunner", () => {
 				nonce: "purchase:old-run",
 			},
 		});
-		fixture.verificationResults.push({ status: "active" });
+		fixture.verificationResults.push(fullyActiveVerification());
 
 		await fixture.runner.execute({
 			domainId,

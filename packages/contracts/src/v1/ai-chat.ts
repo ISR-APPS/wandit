@@ -1,20 +1,28 @@
 import { z } from "zod";
 import { paymentRequiredDetailsSchema } from "../http/error-codes";
-import { memberCreditLimitDetailsSchema } from "./workspaces";
+import type { AiErrorData } from "./ai-errors";
 import { attachmentMediaTypeSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 import {
 	imageGenerationAspectSchema,
 	MAX_IMAGES_PER_GENERATION,
+	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "./image-generations";
 import { marketingAssetTypeSchema } from "./marketing-assets";
 import {
 	imageToVideoAspectSchema,
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
+	videoDurationSecondsSchema,
+	videoQualitySchema,
+	videoVoiceoverLanguageSchema,
+	videoVoiceoverSchema,
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
 import { PAGE_TOKEN_NAMES } from "./page-theme";
+import { productSkuSchema } from "./shared/primitives";
+import { triggerRealtimeHandleSchema } from "./shared/trigger-realtime";
+import { memberCreditLimitDetailsSchema } from "./workspaces";
 
 // AI SDK v7 LanguageModelUsage-compatible fields kept on assistant messages.
 // The nested detail names deliberately follow v7: the old top-level
@@ -46,8 +54,28 @@ export type AiChatBillingErrorData = z.infer<
 	typeof aiChatBillingErrorDataSchema
 >;
 
+/**
+ * Sent ONCE per turn, after the metering settle transaction has committed
+ * (wire key `data-credits-settled`). Clients move the visible balance from
+ * `settledBalance` and then refetch; no reserve/give-back is ever shown.
+ */
+export const aiChatCreditsSettledDataSchema = z.object({
+	usageEventId: z.string(),
+	// Decimal credits charged for this turn (positive number).
+	credits: z.number().nonnegative(),
+	// Decimal credits, post-settle settled balance (same rule as
+	// creditBalanceResponseSchema.settledBalance).
+	settledBalance: z.number(),
+});
+
+export type AiChatCreditsSettledData = z.infer<
+	typeof aiChatCreditsSettledDataSchema
+>;
+
 export type AiChatDataParts = {
+	"ai-error": AiErrorData;
 	"billing-error": AiChatBillingErrorData;
+	"credits-settled": AiChatCreditsSettledData;
 };
 
 export const aiChatMessageUsageSchema = z.object({
@@ -79,6 +107,17 @@ export const aiChatSelectedTargetSchema = z.object({
 export const aiChatMessageMetadataSchema = z.object({
 	model: z.string().min(1).optional(),
 	usage: aiChatMessageUsageSchema.optional(),
+	stepCount: z.number().int().nonnegative().optional(),
+	lastStepUsage: aiChatMessageUsageSchema.optional(),
+	// Keep the request context on the user row so regenerate can faithfully
+	// replay the turn after a browser refresh or native app restart.
+	composer: composerMetadataSchema.optional(),
+	selectedWids: z.array(widSchema).min(1).max(10).optional(),
+	// Provider outcome of the turn, kept on `finish` for the admin inspector.
+	finishReason: z.string().optional(),
+	rawFinishReason: z.string().optional(),
+	provider: z.string().optional(),
+	gatewayGenerationId: z.string().optional(),
 	selectedTarget: aiChatSelectedTargetSchema.optional(),
 	selectedTargets: z
 		.array(aiChatSelectedTargetSchema)
@@ -112,6 +151,12 @@ export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
 export const askUserOptionSchema = z.object({
 	id: z.string().min(1),
 	label: z.string().min(1),
+	// Design-world taste cards: when set, the option refers to a world from the
+	// most recent get_direction_candidates result, and the tray renders it as a
+	// specimen card (real font + real colors from that result's cards data)
+	// instead of a text chip. Optional so every pre-cards row stays valid, and
+	// unknown ids simply fall back to the chip rendering.
+	worldId: z.string().min(1).optional(),
 });
 
 // How the tray should render the question. Optional on input so old
@@ -139,7 +184,7 @@ export const askUserInputSchema = z.object({
 	// kind "attachments" only — what the drop tray should accept (default
 	// ["image"]) and how many files at most (default 3). Optional so every
 	// pre-attachments row stays valid (spec §11 / contract §10.5).
-	accept: z.array(z.enum(["image", "document"])).optional(),
+	accept: z.array(z.enum(["image", "document", "video", "audio"])).optional(),
 	// Optional exact MIME allowlist. This narrows a broad category such as
 	// "image" when a workflow only supports still JPEG/PNG/WebP sources.
 	// Kept optional so persisted asks from before this field remain valid.
@@ -176,11 +221,22 @@ export type AskUserInput = z.infer<typeof askUserInputSchema>;
 export type AskUserOutput = z.infer<typeof askUserOutputSchema>;
 
 /**
- * read_skill — RETIRED. The live agent no longer exposes this tool (the
- * builder carries its design guidance in its own system prompt now), but the
- * schemas must survive so chats that called it still validate and render.
+ * read_skill — progressive disclosure for the brain's playbooks.
+ *
+ * The six `ads-*` slugs are the live ads skills (the composer chips use the
+ * same ids). `landing-page-design` is RETIRED (the builder carries its design
+ * guidance itself) but stays in the enum so chats that called it still
+ * validate and render. Never rename a slug: it is persisted in chat history.
  */
-export const skillSlugSchema = z.enum(["landing-page-design"]);
+export const skillSlugSchema = z.enum([
+	"landing-page-design",
+	"ads-fundamentals",
+	"ads-creative",
+	"ads-audiences",
+	"ads-measurement",
+	"ads-cod-maghreb",
+	"ads-diagnostic",
+]);
 
 export const readSkillInputSchema = z.object({
 	skill: skillSlugSchema,
@@ -225,6 +281,129 @@ export type ReadAttachmentInput = z.infer<typeof readAttachmentInputSchema>;
 export type ReadAttachmentOutput = z.infer<typeof readAttachmentOutputSchema>;
 
 /**
+ * inspect_video — analyzes one video attached to the conversation and returns
+ * advisory creative direction for generate_video. The url must exactly match
+ * an attachment from the conversation; authorization is enforced server-side.
+ */
+export const inspectVideoInputSchema = z
+	.object({
+		url: z.url(),
+		focus: z.enum(["motion", "style", "structure", "product"]),
+	})
+	.strict();
+
+export const inspectVideoOutputSchema = z.discriminatedUnion("status", [
+	z
+		.object({
+			status: z.literal("ok"),
+			brief: z.string().max(4_000),
+			suggested: z
+				.object({
+					aspect: imageToVideoAspectSchema,
+					durationSeconds: videoDurationSecondsSchema,
+					quality: videoQualitySchema,
+					talking: z.boolean(),
+					multiShot: z.boolean(),
+				})
+				.strict(),
+			shotList: z
+				.array(
+					z
+						.object({
+							startSeconds: z.number(),
+							endSeconds: z.number(),
+							description: z.string(),
+							talking: z.boolean(),
+						})
+						.strict(),
+				)
+				.optional(),
+			voiceoverScript: z.string().max(600).optional(),
+			voiceoverLanguage: videoVoiceoverLanguageSchema.optional(),
+		})
+		.strict(),
+	z
+		.object({
+			status: z.literal("unavailable"),
+			message: z.string().min(1),
+		})
+		.strict(),
+]);
+
+export type InspectVideoInput = z.infer<typeof inspectVideoInputSchema>;
+export type InspectVideoOutput = z.infer<typeof inspectVideoOutputSchema>;
+
+/**
+ * read_lead_performance — the merchant's own lead funnel for the chat's
+ * project (the Leads tab, the backend truth for COD): counts and rates over
+ * the last N days, grouped by source, campaign, or status. Read-only; the
+ * input stays tiny on purpose so the model cannot misuse it.
+ */
+export const readLeadPerformanceWindowDays = [7, 14, 30, 90] as const;
+export const readLeadPerformanceGroupBys = [
+	"source",
+	"campaign",
+	"status",
+	"none",
+] as const;
+
+export const readLeadPerformanceInputSchema = z
+	.object({
+		// Window: N full Africa/Algiers days before today, plus today so far
+		// (from Algiers midnight N days ago to now).
+		days: z
+			.union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
+			.optional(),
+		// source = facebook | tiktok | direct (derived from click ids and
+		// utm_source); campaign = utm_campaign; status = lead status; none =
+		// totals only.
+		groupBy: z.enum(readLeadPerformanceGroupBys).optional(),
+	})
+	.strict();
+
+const leadFunnelCountsSchema = z.object({
+	total: z.number().int().nonnegative(),
+	to_confirm: z.number().int().nonnegative(),
+	confirmed: z.number().int().nonnegative(),
+	shipped: z.number().int().nonnegative(),
+	delivered: z.number().int().nonnegative(),
+	returned: z.number().int().nonnegative(),
+	cancelled: z.number().int().nonnegative(),
+});
+
+export const readLeadPerformanceOutputSchema = z.object({
+	// N as requested: N full Africa/Algiers days before today, plus today so far.
+	windowDays: z.number().int().positive(),
+	// ISO timestamps of the window bounds (from = Algiers midnight N days ago).
+	from: z.string(),
+	to: z.string(),
+	totals: leadFunnelCountsSchema.extend({
+		// (confirmed + shipped + delivered + returned) / total — the share of
+		// all leads in the window that were confirmed (to_confirm still counts
+		// in the denominator). null when total is 0.
+		confirmationRate: z.number().min(0).max(1).nullable(),
+		// delivered / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		deliveryRate: z.number().min(0).max(1).nullable(),
+		// returned / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		returnRate: z.number().min(0).max(1).nullable(),
+	}),
+	// At most 50 groups, ordered by total desc. Empty when groupBy is "none".
+	groups: z.array(leadFunnelCountsSchema.extend({ key: z.string() })),
+	// Plain-language caveats: scope, exclusions, and the rate definitions.
+	note: z.string(),
+});
+
+export type ReadLeadPerformanceInput = z.infer<
+	typeof readLeadPerformanceInputSchema
+>;
+export type ReadLeadPerformanceOutput = z.infer<
+	typeof readLeadPerformanceOutputSchema
+>;
+export type LeadFunnelCounts = z.infer<typeof leadFunnelCountsSchema>;
+
+/**
  * get_direction_candidates — the Brain samples a bounded random menu of
  * palettes, font pairings, skeletons, layout moves, interactions, motion
  * vocabularies and finishes, then commits to choices from it in the brief.
@@ -243,11 +422,35 @@ export const getDirectionCandidatesInputSchema = z.object({
 	industryHints: z.array(z.string().min(1)).max(4).optional(),
 });
 
+/**
+ * A design world's card face for the taste question: the world's real skin
+ * (ground/ink/accent + display face + specimen word) plus its user-facing
+ * name and tagline. Server-authored from the world registry — the full doc
+ * never leaves the backend. The tray renders these as tappable specimen
+ * cards when an ask_user option carries a matching worldId.
+ */
+export const worldCardSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().min(1),
+	tagline: z.string().min(1),
+	preview: z.object({
+		ground: z.string().min(1),
+		ink: z.string().min(1),
+		accent: z.string().min(1),
+		fontFamily: z.string().min(1),
+		sampleWord: z.string().min(1),
+	}),
+});
+
 export const getDirectionCandidatesOutputSchema = z.object({
 	// The formatted candidate menu (formatCandidates() text) the model reads.
 	candidates: z.string(),
+	// Card faces for every sampled world that ships a preview, keyed by the
+	// same ids as the menu text. Optional so historical menus stay valid.
+	cards: z.array(worldCardSchema).optional(),
 });
 
+export type WorldCard = z.infer<typeof worldCardSchema>;
 export type GetDirectionCandidatesInput = z.infer<
 	typeof getDirectionCandidatesInputSchema
 >;
@@ -280,26 +483,31 @@ export const generatePageInputSchema = z.object({
 	// Durable page classification. Optional so historical tool calls continue
 	// to validate unchanged.
 	pageKind: z.enum(["website", "cod"]).optional(),
+	// COD page type. "simple" = the clean few-block funnel built WITHOUT
+	// design worlds (a server-sampled recipe owns the skin); "max" = the full
+	// world-driven funnel. Optional so historical calls stay valid; when
+	// absent on a COD build the server infers "max" when worldIds ride along
+	// and "simple" otherwise.
+	codMode: z.enum(["simple", "max"]).optional(),
+	// Merchant-provided identifier snapshotted onto COD page versions. Optional
+	// here so historical tool calls and queued attempts keep parsing.
+	productSku: productSkuSchema.optional(),
 });
 
-/**
- * Live-progress subscription handle for a queued background job: the
- * Trigger.dev run id plus a read-scoped public access token the chat card
- * uses with Realtime (no polling). Absent when Realtime is unavailable
- * (missing credentials, token minting failure, or messages persisted before
- * this field existed) — cards fall back to polling the attempt endpoint.
- */
-export const triggerRealtimeHandleSchema = z.object({
-	runId: z.string().min(1),
-	publicAccessToken: z.string().min(1),
-});
-
-export type TriggerRealtimeHandle = z.infer<typeof triggerRealtimeHandleSchema>;
+// Definition moved to shared/trigger-realtime.ts (leaf module) so pages.ts
+// can use it without closing an ESM import cycle; re-exported here to keep
+// every existing "@wandit/contracts" consumer working unchanged.
+export {
+	type TriggerRealtimeHandle,
+	triggerRealtimeHandleSchema,
+} from "./shared/trigger-realtime";
 
 export const generatePageOutputSchema = z.object({
 	// "unavailable" = server missing R2/Trigger credentials; the model relays
 	// that honestly instead of pretending a page is coming.
-	status: z.enum(["queued", "unavailable"]),
+	// "needs-input" = the request is valid but missing user-owned information;
+	// the model follows the message, collects it, and then retries the tool.
+	status: z.enum(["queued", "unavailable", "needs-input"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
 	// Resolved gateway model snapshotted onto the queued attempt. Optional for
@@ -426,6 +634,12 @@ export const animateImageInputSchema = z.object({
 	aspect: imageToVideoAspectSchema,
 	motion: imageToVideoMotionSchema,
 	prompt: z.string().min(1).max(2_000),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
 });
 
 export const animateImageOutputSchema = z.object({
@@ -438,6 +652,152 @@ export const animateImageOutputSchema = z.object({
 
 export type AnimateImageInput = z.infer<typeof animateImageInputSchema>;
 export type AnimateImageOutput = z.infer<typeof animateImageOutputSchema>;
+
+/**
+ * product_video — queues a deterministic five-second commercial from one
+ * authorized product image. The server selects the fixed renderer and prompt.
+ */
+export const productVideoInputSchema = z.object({
+	title: z.string().min(1).max(120),
+	image: z.object({
+		url: z.url(),
+		mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+	}),
+	preset: z.enum(["orbit", "hero", "lifestyle"]),
+	productName: z.string().min(1).max(80),
+	productDetails: z.string().max(500).optional(),
+});
+
+export const productVideoOutputSchema = z.object({
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
+	message: z.string().min(1),
+});
+
+export type ProductVideoInput = z.infer<typeof productVideoInputSchema>;
+export type ProductVideoOutput = z.infer<typeof productVideoOutputSchema>;
+
+/**
+ * generate_video — queues a text-to-video generation from a creative brief.
+ * The Brain gathers the brief (video type, subject, mood, format, voiceover)
+ * in conversation; the server's video director rewrites it into one
+ * domain-language provider prompt at queue time and snapshots it on the
+ * durable attempt. No source image involved — that is animate_image's job.
+ */
+export const generateVideoInputSchema = z.object({
+	// Display name for the chat card and the Assets tab, in the user's
+	// language (e.g. "Pub 9:16 — Lancement PulseBuds").
+	title: z.string().min(1).max(120),
+	// The complete creative brief composed from the conversation: subject,
+	// video type (commercial, UGC, cinematic…), audience, key moment/action,
+	// setting, mood, brand colors, every real fact the clip may use. The
+	// director sees ONLY this.
+	brief: z.string().min(30).max(4_000),
+	aspect: imageToVideoAspectSchema,
+	durationSeconds: videoDurationSecondsSchema.default(10),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
+	// The Brain sets this when the request needs deliberate cuts or shots. The
+	// server enforces capability caps and may upgrade the tier.
+	multiShot: z.boolean().default(false),
+	// Present only when the user asked for a voiceover. The Brain writes the
+	// short script in the requested language. Talking-person speech and
+	// off-camera narration both render through Kling native voice control.
+	voiceover: videoVoiceoverSchema.optional(),
+});
+
+export const generateVideoOutputSchema = z.object({
+	// "unavailable" means the server is missing video-provider or storage
+	// configuration; the model must say so instead of promising a result.
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
+	message: z.string().min(1),
+});
+
+export type GenerateVideoInput = z.infer<typeof generateVideoInputSchema>;
+export type GenerateVideoOutput = z.infer<typeof generateVideoOutputSchema>;
+
+/** edit_video — edits one succeeded video attempt from a plain instruction. */
+export const editVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	instruction: z.string().min(1).max(2_000),
+});
+
+export const editVideoOutputSchema = generateVideoOutputSchema;
+
+export type EditVideoInput = z.infer<typeof editVideoInputSchema>;
+export type EditVideoOutput = z.infer<typeof editVideoOutputSchema>;
+
+/** extend_video — queues one to three continuation legs for an existing video. */
+export const extendVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	continuationBrief: z.string().min(1).max(2_000),
+	legCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+	legDurationSeconds: z.union([z.literal(5), z.literal(10)]).default(5),
+	voiceover: videoVoiceoverSchema.nullish(),
+	acceptSilent: z.boolean().default(false),
+});
+
+export const extendVideoOutputSchema = generateVideoOutputSchema;
+
+export type ExtendVideoInput = z.infer<typeof extendVideoInputSchema>;
+export type ExtendVideoOutput = z.infer<typeof extendVideoOutputSchema>;
+
+/**
+ * Live video-generation progress the worker pushes over Trigger Realtime
+ * (metadata key "progress"). Same wire-tolerance rule as
+ * pageBuildProgressSchema: every field carries .catch() so one bad field
+ * degrades alone instead of blanking the card mid-render.
+ */
+export const videoBuildPhaseSchema = z.enum([
+	"starting",
+	"rendering",
+	"publishing",
+	"finishing",
+]);
+
+export type VideoBuildPhase = z.infer<typeof videoBuildPhaseSchema>;
+
+export const videoBuildProgressSchema = z.object({
+	// 0-100, monotonically non-decreasing (the tracker clamps regressions).
+	percent: z.number().min(0).max(100).catch(2),
+	phase: videoBuildPhaseSchema.catch("starting"),
+	stage: z
+		.enum([
+			"starting",
+			"rendering",
+			"rendering-leg",
+			"extracting-frame",
+			"joining",
+			"soundtrack",
+			"publishing",
+			"finishing",
+		])
+		.nullish()
+		.catch(null),
+	// One short present-tense line for the card header. English chrome, same
+	// rule as the page-build card.
+	headline: z.string().min(1).catch("Working on the video…"),
+	// Leading slice of the director-crafted provider prompt — the card shows
+	// the "director's cut" that is actually rendering.
+	promptExcerpt: z.string().max(400).optional().catch(undefined),
+	aspect: imageToVideoAspectSchema.catch("16:9"),
+	durationSeconds: z.number().int().min(1).catch(10),
+	voiceoverLanguage: z.string().max(8).optional().catch(undefined),
+	// Milliseconds spent inside the provider render so far — the card clock.
+	elapsedMs: z.number().int().min(0).catch(0),
+	done: z.boolean().catch(false),
+});
+
+export type VideoBuildProgress = z.infer<typeof videoBuildProgressSchema>;
 
 /**
  * generate_marketing_asset — the Brain queues one named marketing deliverable
@@ -483,7 +843,7 @@ export type GenerateImagePlacement = z.infer<
 >;
 
 /**
- * generate_image — queues one image generation (1-4 images). Can start from
+ * generate_image — queues one image generation (1-6 separate images). Can start from
  * text alone or EDIT user-uploaded source images (product photo, logo) so
  * outputs stay faithful to the real product. A bounded optional placement
  * replaces one existing page image when generation finishes. Distinct from
@@ -499,8 +859,19 @@ export const generateImageInputSchema = z.object({
 	aspect: imageGenerationAspectSchema,
 	count: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).default(1),
 	// URLs of images the user attached in this conversation to edit or stay
-	// faithful to. Each MUST exactly match a user-provided attachment.
-	sourceImageUrls: z.array(z.url()).max(3).default([]),
+	// faithful to. Each MUST exactly match a user-provided attachment. No zod
+	// maximum on purpose: the tool keeps the first
+	// MAX_SOURCE_IMAGES_PER_GENERATION and reports the rest, so a long list
+	// degrades gracefully instead of failing tool-input validation.
+	sourceImageUrls: z
+		.array(z.url())
+		.default([])
+		.describe(
+			"Exact URLs of images the user attached in this conversation, at " +
+				`most ${MAX_SOURCE_IMAGES_PER_GENERATION}. Only the first ` +
+				`${MAX_SOURCE_IMAGES_PER_GENERATION} are used; extras are skipped ` +
+				"and reported back.",
+		),
 	placement: generateImagePlacementSchema.optional(),
 });
 
@@ -517,7 +888,11 @@ export type GenerateImageOutput = z.infer<typeof generateImageOutputSchema>;
 
 /** apply_element_ops — a bounded batch of targeted, AI-safe page mutations. */
 export const applyElementOpsInputSchema = z.object({
-	ops: z.array(aiElementOpSchema).min(1).max(20),
+	ops: z
+		.array(aiElementOpSchema)
+		.min(1)
+		.max(20)
+		.describe("1 to 20 ops. Never send an empty list."),
 });
 
 export const applyElementOpsOutputSchema = z.object({
@@ -599,7 +974,11 @@ export type ReadSectionOutput = z.infer<typeof readSectionOutputSchema>;
 /** replace_section — DOM surgery producing a NEW immutable version. */
 export const replaceSectionInputSchema = z.object({
 	wid: widSchema,
-	html: z.string().min(20).max(60_000),
+	html: z
+		.string()
+		.min(20)
+		.max(60_000)
+		.describe("Section HTML only; never JavaScript or scripts."),
 });
 
 export const replaceSectionOutputSchema = z.object({
@@ -611,6 +990,22 @@ export const replaceSectionOutputSchema = z.object({
 export type ReplaceSectionInput = z.infer<typeof replaceSectionInputSchema>;
 export type ReplaceSectionOutput = z.infer<typeof replaceSectionOutputSchema>;
 
+/** insert_section — inserts one section relative to an existing section. */
+export const insertSectionInputSchema = z.object({
+	anchorWid: widSchema,
+	position: z.enum(["before", "after"]).default("after"),
+	html: z.string().min(20).max(60_000),
+});
+
+export const insertSectionOutputSchema = z.object({
+	status: z.enum(["applied", "rejected", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	message: z.string().min(1),
+});
+
+export type InsertSectionInput = z.infer<typeof insertSectionInputSchema>;
+export type InsertSectionOutput = z.infer<typeof insertSectionOutputSchema>;
+
 /** Tool map for typing UIMessage on both web and server without sharing runtime code. */
 export type AiChatTools = {
 	ask_user: { input: AskUserInput; output: AskUserOutput };
@@ -618,6 +1013,14 @@ export type AiChatTools = {
 	read_attachment: {
 		input: ReadAttachmentInput;
 		output: ReadAttachmentOutput;
+	};
+	inspect_video: {
+		input: InspectVideoInput;
+		output: InspectVideoOutput;
+	};
+	read_lead_performance: {
+		input: ReadLeadPerformanceInput;
+		output: ReadLeadPerformanceOutput;
 	};
 	get_direction_candidates: {
 		input: GetDirectionCandidatesInput;
@@ -631,6 +1034,10 @@ export type AiChatTools = {
 	generate_image: { input: GenerateImageInput; output: GenerateImageOutput };
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
+	generate_video: { input: GenerateVideoInput; output: GenerateVideoOutput };
+	product_video: { input: ProductVideoInput; output: ProductVideoOutput };
+	edit_video: { input: EditVideoInput; output: EditVideoOutput };
+	extend_video: { input: ExtendVideoInput; output: ExtendVideoOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;
@@ -645,6 +1052,10 @@ export type AiChatTools = {
 	replace_section: {
 		input: ReplaceSectionInput;
 		output: ReplaceSectionOutput;
+	};
+	insert_section: {
+		input: InsertSectionInput;
+		output: InsertSectionOutput;
 	};
 };
 

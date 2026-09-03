@@ -1,6 +1,12 @@
-import { and, asc, type createDb, eq, lt, sql } from "@wandit/db";
-import { aiUsageEvents } from "@wandit/db/schema/credits";
+// This runtime is imported only by Trigger tasks, so the SDK logger is safe.
+import { logger } from "@trigger.dev/sdk";
+import { and, asc, type createDb, eq, inArray, lt, or, sql } from "@wandit/db";
+import {
+	aiUsageEvents,
+	aiUsageGenerationRefs,
+} from "@wandit/db/schema/credits";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
+import { mediaGenerationLegs } from "@wandit/db/schema/media-generation-legs";
 import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
@@ -14,7 +20,13 @@ import {
 	publicAssetUrl,
 	siteVideoKey,
 } from "../infrastructure/storage/r2";
-import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
+import {
+	generateBuildVideo,
+	generateTextToVideo,
+	VIDEO_NEGATIVE_PROMPT,
+} from "../modules/ai-chat/agent/site-builder/generate-video";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
@@ -23,33 +35,92 @@ import {
 	allocateImageAnimationReconciliationCapacity,
 	type ImageAnimationReconcilerDependencies,
 	type ImageAnimationReconciliationCandidate,
+	type MediaGenerationReconciliationAttempt,
 } from "../modules/media-generations/application/services/image-animation-reconciler";
 import type {
 	ImageAnimationAttempt,
 	ImageAnimationRunnerDependencies,
 	ImageAnimationVideo,
 } from "../modules/media-generations/application/services/image-animation-runner";
+import type { AiFailurePersistenceFields } from "../modules/media-generations/application/services/media-generation-failure";
+import type { MediaGenerationGeneratingCutoffs } from "../modules/media-generations/application/services/media-generation-staleness";
+import {
+	createVideoBilling,
+	type VideoDeliveredUnits,
+	type VideoReservationUnits,
+} from "../modules/media-generations/application/services/video-billing";
+import { resolveVideoGenerationPlan } from "../modules/media-generations/domain/video-quality-models";
 import { createTriggerMetering } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
+const MEDIA_GENERATION_RECONCILIATION_KINDS = [
+	"image-animation",
+	"text-to-video",
+	"video-edit",
+	"video-extension",
+	"video-product",
+] as const;
+
 const ATTEMPT_COLUMNS = {
 	aspect: mediaGenerationAttempts.aspect,
 	completedAt: mediaGenerationAttempts.completedAt,
+	durationSeconds: mediaGenerationAttempts.durationSeconds,
 	error: mediaGenerationAttempts.error,
 	id: mediaGenerationAttempts.id,
+	kind: mediaGenerationAttempts.kind,
+	model: mediaGenerationAttempts.model,
 	motion: mediaGenerationAttempts.motion,
 	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: mediaGenerationAttempts.projectId,
 	prompt: mediaGenerationAttempts.prompt,
+	quality: mediaGenerationAttempts.quality,
 	sourceImageUrl: mediaGenerationAttempts.sourceImageUrl,
 	startedAt: mediaGenerationAttempts.startedAt,
 	status: mediaGenerationAttempts.status,
+	talking: mediaGenerationAttempts.talking,
 	triggerRunId: mediaGenerationAttempts.triggerRunId,
 	userId: projects.userId,
 	videoMediaType: mediaGenerationAttempts.videoMediaType,
 	videoUrl: mediaGenerationAttempts.videoUrl,
+	voiceover: mediaGenerationAttempts.voiceover,
+} as const;
+
+const RECONCILIATION_ATTEMPT_COLUMNS = {
+	...ATTEMPT_COLUMNS,
+	deliveredUnits: sql<number>`greatest(
+		case
+			when ${mediaGenerationAttempts.kind} = 'video-extension' then (
+				select count(*)::integer
+				from ${mediaGenerationLegs}
+				where ${mediaGenerationLegs.attemptId} = ${mediaGenerationAttempts.id}
+					and ${mediaGenerationLegs.status} = 'succeeded'
+			)
+			else 0
+		end,
+		coalesce((
+			select sum(
+				case
+					when jsonb_typeof(${aiUsageGenerationRefs.stepUsage} -> 'metering' -> 'fixedUnits') = 'number'
+					then (${aiUsageGenerationRefs.stepUsage} -> 'metering' ->> 'fixedUnits')::integer
+					else 0
+				end
+			)::integer
+			from ${aiUsageGenerationRefs}
+			inner join ${aiUsageEvents}
+				on ${aiUsageEvents.id} = ${aiUsageGenerationRefs.usageEventId}
+			where ${aiUsageEvents.idempotencyKey} = ('video:' || ${mediaGenerationAttempts.id}::text)
+		), 0)
+	)`,
+	plannedUnits: sql<number>`case
+		when ${mediaGenerationAttempts.kind} = 'video-extension' then (
+			select count(*)::integer
+			from ${mediaGenerationLegs}
+			where ${mediaGenerationLegs.attemptId} = ${mediaGenerationAttempts.id}
+		)
+		else 1
+	end`,
 } as const;
 
 export type ImageAnimationRuntime = {
@@ -67,6 +138,10 @@ export function createImageAnimationRuntime(
 	analytics: AnalyticsCapture,
 ): ImageAnimationRuntime {
 	const billing = createBilling(db);
+	const reconciliationBilling = createVideoBilling({
+		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+		meteringService: createTriggerMetering(db),
+	});
 	const persistence = createPersistence(db, analytics);
 	const recoverStoredVideo = createStoredVideoRecovery();
 
@@ -74,36 +149,92 @@ export function createImageAnimationRuntime(
 		reconciler: {
 			failFromStatus: persistence.failFromStatus,
 			listCandidates: persistence.listReconciliationCandidates,
+			latestLegActivityAt: persistence.latestLegActivityAt,
 			markSucceeded: persistence.markSucceeded,
 			now: () => new Date(),
 			recoverStoredVideo,
-			refund: billing.refund,
-			settleExisting: billing.settleExisting,
+			refund: reconciliationBilling.refund,
+			settleExisting: reconciliationBilling.settleExisting,
 		},
 		runner: {
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: (attempt, subject, signal, onProviderGeneration) =>
-				generateBuildVideo({
+			generate: (attempt, subject, signal, onProviderGeneration) => {
+				// Metering identity comes from the queue-time subject: the acting
+				// member (not the project creator) with the paying entity.
+				const metering = {
+					operation: "video" as const,
+					organizationId: subject.organizationId ?? null,
+					userId: subject.actorUserId,
+				};
+				const durationSeconds = normalizeVideoDuration(attempt.durationSeconds);
+				// Rows created before model snapshots landed are still renderable. Resolve
+				// the standard tier by kind (and let the cap resolver defend duration)
+				// instead of consulting the now-retired environment model switches.
+				const modelId =
+					attempt.model ??
+					resolveVideoGenerationPlan({
+						durationSeconds,
+						kind: attempt.kind === "text-to-video" ? "t2v" : "i2v",
+						multiShot: false,
+						narration: false,
+						quality: "standard",
+						talking: false,
+					}).modelId;
+				const voiceControl =
+					(attempt.talking ?? false) || Boolean(attempt.voiceover?.script);
+
+				if (attempt.kind === "text-to-video") {
+					return generateTextToVideo({
+						abortSignal: signal,
+						aspect: attempt.aspect,
+						attemptId: attempt.id,
+						durationSeconds,
+						index: 1,
+						metering,
+						modelId,
+						negativePrompt: VIDEO_NEGATIVE_PROMPT,
+						...(onProviderGeneration ? { onProviderGeneration } : {}),
+						prompt: attempt.prompt,
+						projectId: attempt.projectId,
+						voiceControl,
+					}).then((result) => {
+						if (result.status === "generated" && result.warnings?.length) {
+							logger.warn(
+								`Text-to-video ${attempt.id}: provider ignored settings`,
+								{ warnings: result.warnings },
+							);
+						}
+						return result;
+					});
+				}
+
+				if (attempt.sourceImageUrl === null) {
+					// The DB kind CHECK makes this unreachable; guard anyway so a
+					// broken row fails cleanly instead of hitting the provider.
+					return Promise.resolve({
+						message: "image animation row is missing its source image",
+						status: "failed" as const,
+					});
+				}
+
+				return generateBuildVideo({
 					abortSignal: signal,
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					imageUrl: attempt.sourceImageUrl,
 					index: 1,
-					// Metering identity comes from the queue-time subject: the acting
-					// member (not the project creator) with the paying entity.
-					metering: {
-						operation: "video",
-						organizationId: subject.organizationId ?? null,
-						userId: subject.actorUserId,
-					},
-					motion: attempt.motion,
+					metering,
+					modelId,
+					motion: attempt.motion ?? "balanced",
 					motionPrompt: attempt.prompt,
 					...(onProviderGeneration ? { onProviderGeneration } : {}),
 					profile: "image-animation",
 					projectId: attempt.projectId,
-				}),
+					voiceControl,
+				});
+			},
 			loadAttempt: persistence.loadAttempt,
 			markSucceeded: persistence.markSucceeded,
 			now: () => new Date(),
@@ -116,6 +247,14 @@ export function createImageAnimationRuntime(
 	};
 }
 
+function normalizeVideoDuration(durationSeconds: number): 5 | 10 | 15 {
+	if (durationSeconds === 10 || durationSeconds === 15) {
+		return durationSeconds;
+	}
+
+	return 5;
+}
+
 function createBilling(db: TriggerDatabase): ImageAnimationBilling {
 	return createImageAnimationBilling({
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
@@ -124,6 +263,10 @@ function createBilling(db: TriggerDatabase): ImageAnimationBilling {
 }
 
 function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageAnimationAttempt | null> => {
@@ -134,7 +277,17 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			.where(eq(mediaGenerationAttempts.id, attemptId))
 			.limit(1);
 
-		return row ?? null;
+		if (!row) {
+			return null;
+		}
+
+		if (!isImageAnimationAttempt(row)) {
+			throw new Error(
+				`Legacy image-animation runtime cannot process ${row.kind} attempt ${row.id}`,
+			);
+		}
+
+		return row;
 	};
 
 	const claimQueued = async (
@@ -162,62 +315,99 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	};
 
 	const markSucceeded = async (
-		attempt: ImageAnimationAttempt,
+		attempt: ImageAnimationAttempt | MediaGenerationReconciliationAttempt,
 		video: ImageAnimationVideo,
 		completedAt: Date,
+		actorUserId?: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(mediaGenerationAttempts)
-			.set({
-				completedAt,
-				error: null,
-				status: "succeeded",
-				videoMediaType: video.mediaType,
-				videoUrl: video.url,
-			})
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attempt.id),
-					eq(mediaGenerationAttempts.projectId, attempt.projectId),
-					eq(mediaGenerationAttempts.status, "generating"),
-					sql`exists (
-						select 1
-						from ${projects}
-						where ${projects.id} = ${mediaGenerationAttempts.projectId}
-							and ${projects.userId} = ${attempt.userId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: mediaGenerationAttempts.id });
+		const completion = await db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(mediaGenerationAttempts)
+				.set({
+					completedAt,
+					error: null,
+					status: "succeeded",
+					videoMediaType: video.mediaType,
+					videoUrl: video.url,
+				})
+				.where(
+					and(
+						eq(mediaGenerationAttempts.id, attempt.id),
+						eq(mediaGenerationAttempts.projectId, attempt.projectId),
+						eq(mediaGenerationAttempts.status, "generating"),
+						sql`exists (
+							select 1
+							from ${projects}
+							where ${projects.id} = ${mediaGenerationAttempts.projectId}
+								and ${projects.userId} = ${attempt.userId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: mediaGenerationAttempts.id });
 
-		if (updated) {
+			let resolvedActorUserId = actorUserId;
+
+			if (succeeded && !resolvedActorUserId) {
+				const [usageEvent] = await transaction
+					.select({ userId: aiUsageEvents.userId })
+					.from(aiUsageEvents)
+					.where(eq(aiUsageEvents.idempotencyKey, `video:${attempt.id}`))
+					.limit(1);
+				resolvedActorUserId = usageEvent?.userId;
+			}
+
+			if (succeeded && resolvedActorUserId) {
+				await lifecycleEvents.enqueue(
+					{
+						event: "video_generated",
+						idempotencyKey: `video_generated:${resolvedActorUserId}`,
+						userId: resolvedActorUserId,
+					},
+					transaction,
+				);
+			}
+
+			// The scheduled stale reconciler has no queue payload, so recover its
+			// actor from the durable metering event. Billing-off attempts have
+			// no such row and deliberately skip rather than use projects.userId.
+			return { actorUserId: resolvedActorUserId, succeeded };
+		});
+
+		if (completion.succeeded) {
 			captureGenerationCompleted(
 				analytics,
-				attempt.userId,
-				"animation",
+				completion.actorUserId ?? attempt.userId,
+				attempt.kind === "image-animation" ? "animation" : "video",
 				attempt.projectId,
 				attempt.id,
 			);
 		}
 
-		return Boolean(updated);
+		return Boolean(completion.succeeded);
 	};
 
 	const failFromStatus = async (
-		attempt: ImageAnimationAttempt,
+		attempt: ImageAnimationAttempt | MediaGenerationReconciliationAttempt,
 		input: {
+			activityBefore?: Date;
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
 			reason: string;
-		},
+		} & AiFailurePersistenceFields,
 	): Promise<boolean> => {
 		const [updated] = await db
 			.update(mediaGenerationAttempts)
 			.set({
 				completedAt: input.completedAt,
 				error: input.error.slice(0, 2_000),
+				failureKind: input.failureKind,
+				failureProvider: input.failureProvider,
+				failureProviderMessage: input.failureProviderMessage,
+				failureRequestId: input.failureRequestId,
+				failureSource: input.failureSource,
+				sentryEventId: input.sentryEventId,
 				status: "failed",
 			})
 			.where(
@@ -225,6 +415,12 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 					eq(mediaGenerationAttempts.id, attempt.id),
 					eq(mediaGenerationAttempts.projectId, attempt.projectId),
 					eq(mediaGenerationAttempts.status, input.expectedStatus),
+					input.activityBefore === undefined
+						? undefined
+						: lt(mediaGenerationAttempts.startedAt, input.activityBefore),
+					input.activityBefore === undefined
+						? undefined
+						: noLegActivityAtOrAfter(input.activityBefore),
 				),
 			)
 			.returning({ id: mediaGenerationAttempts.id });
@@ -233,7 +429,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			captureGenerationFailed(
 				analytics,
 				attempt.userId,
-				"animation",
+				attempt.kind === "image-animation" ? "animation" : "video",
 				attempt.projectId,
 				attempt.id,
 				input.reason,
@@ -243,8 +439,24 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		return Boolean(updated);
 	};
 
+	const latestLegActivityAt = async (
+		attemptId: string,
+	): Promise<Date | null> => {
+		const [row] = await db
+			.select({
+				activityAt:
+					sql<Date | null>`max(greatest(${mediaGenerationLegs.startedAt}, ${mediaGenerationLegs.completedAt}))`.mapWith(
+						mediaGenerationLegs.startedAt,
+					),
+			})
+			.from(mediaGenerationLegs)
+			.where(eq(mediaGenerationLegs.attemptId, attemptId));
+
+		return row?.activityAt ?? null;
+	};
+
 	const listReconciliationCandidates = async (input: {
-		generatingBefore: Date;
+		generatingBefore: MediaGenerationGeneratingCutoffs;
 		limit: number;
 		queuedBefore: Date;
 	}): Promise<ImageAnimationReconciliationCandidate[]> => {
@@ -253,7 +465,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			capacity.failedRefund === 0
 				? []
 				: await db
-						.select(ATTEMPT_COLUMNS)
+						.select(RECONCILIATION_ATTEMPT_COLUMNS)
 						.from(mediaGenerationAttempts)
 						.innerJoin(
 							projects,
@@ -262,6 +474,10 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 						.where(
 							and(
 								eq(mediaGenerationAttempts.status, "failed"),
+								inArray(
+									mediaGenerationAttempts.kind,
+									MEDIA_GENERATION_RECONCILIATION_KINDS,
+								),
 								missingImageAnimationRefund(),
 							),
 						)
@@ -271,7 +487,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			capacity.staleGenerating === 0
 				? []
 				: await db
-						.select(ATTEMPT_COLUMNS)
+						.select(RECONCILIATION_ATTEMPT_COLUMNS)
 						.from(mediaGenerationAttempts)
 						.innerJoin(
 							projects,
@@ -280,7 +496,53 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 						.where(
 							and(
 								eq(mediaGenerationAttempts.status, "generating"),
-								lt(mediaGenerationAttempts.startedAt, input.generatingBefore),
+								inArray(
+									mediaGenerationAttempts.kind,
+									MEDIA_GENERATION_RECONCILIATION_KINDS,
+								),
+								or(
+									and(
+										eq(mediaGenerationAttempts.kind, "image-animation"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["image-animation"],
+										),
+									),
+									and(
+										eq(mediaGenerationAttempts.kind, "text-to-video"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["text-to-video"],
+										),
+									),
+									and(
+										eq(mediaGenerationAttempts.kind, "video-product"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["video-product"],
+										),
+									),
+									and(
+										eq(mediaGenerationAttempts.kind, "video-edit"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["video-edit"],
+										),
+										noLegActivityAtOrAfter(
+											input.generatingBefore["video-edit"],
+										),
+									),
+									and(
+										eq(mediaGenerationAttempts.kind, "video-extension"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["video-extension"],
+										),
+										noLegActivityAtOrAfter(
+											input.generatingBefore["video-extension"],
+										),
+									),
+								),
 							),
 						)
 						.orderBy(asc(mediaGenerationAttempts.startedAt))
@@ -289,7 +551,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			capacity.staleQueued === 0
 				? []
 				: await db
-						.select(ATTEMPT_COLUMNS)
+						.select(RECONCILIATION_ATTEMPT_COLUMNS)
 						.from(mediaGenerationAttempts)
 						.innerJoin(
 							projects,
@@ -298,6 +560,10 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 						.where(
 							and(
 								eq(mediaGenerationAttempts.status, "queued"),
+								inArray(
+									mediaGenerationAttempts.kind,
+									MEDIA_GENERATION_RECONCILIATION_KINDS,
+								),
 								lt(mediaGenerationAttempts.createdAt, input.queuedBefore),
 							),
 						)
@@ -317,16 +583,90 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 				...attempt,
 				reconciliationReason: "stale_queued" as const,
 			})),
-		];
+		].map(toImageAnimationReconciliationCandidate);
 	};
 
 	return {
 		claimQueued,
 		failFromStatus,
+		latestLegActivityAt,
 		listReconciliationCandidates,
 		loadAttempt,
 		markSucceeded,
 	};
+}
+
+function noLegActivityAtOrAfter(cutoff: Date) {
+	return sql<boolean>`not exists (
+		select 1
+		from ${mediaGenerationLegs}
+		where ${mediaGenerationLegs.attemptId} = ${mediaGenerationAttempts.id}
+			and (
+				${mediaGenerationLegs.startedAt} >= ${cutoff}
+				or ${mediaGenerationLegs.completedAt} >= ${cutoff}
+			)
+	)`;
+}
+
+function isImageAnimationAttempt<T extends { kind: string }>(
+	attempt: T,
+): attempt is T & { kind: ImageAnimationAttempt["kind"] } {
+	return attempt.kind === "image-animation" || attempt.kind === "text-to-video";
+}
+
+function toImageAnimationReconciliationCandidate(
+	attempt: {
+		deliveredUnits: number;
+		kind: string;
+		plannedUnits: number;
+		reconciliationReason: string;
+	} & Record<string, unknown>,
+): ImageAnimationReconciliationCandidate {
+	if (!isMediaGenerationReconciliationKind(attempt.kind)) {
+		throw new Error(`Unsupported reconciliation kind ${attempt.kind}`);
+	}
+
+	const plannedUnits = videoReservationUnits(attempt.plannedUnits);
+	const deliveredUnits = videoDeliveredUnits(
+		attempt.deliveredUnits,
+		plannedUnits,
+	);
+
+	return {
+		...attempt,
+		deliveredUnits,
+		kind: attempt.kind,
+		plannedUnits,
+	} as ImageAnimationReconciliationCandidate;
+}
+
+function isMediaGenerationReconciliationKind(
+	kind: string,
+): kind is (typeof MEDIA_GENERATION_RECONCILIATION_KINDS)[number] {
+	return MEDIA_GENERATION_RECONCILIATION_KINDS.some(
+		(candidate) => candidate === kind,
+	);
+}
+
+function videoReservationUnits(units: number): VideoReservationUnits {
+	if (!Number.isSafeInteger(units) || units < 1 || units > 3) {
+		throw new Error(
+			"Reconciled video must reserve between one and three units",
+		);
+	}
+
+	return units as VideoReservationUnits;
+}
+
+function videoDeliveredUnits(
+	units: number,
+	plannedUnits: VideoReservationUnits,
+): VideoDeliveredUnits {
+	if (!Number.isSafeInteger(units) || units < 0 || units > plannedUnits) {
+		throw new Error("Reconciled delivered units exceed the video plan");
+	}
+
+	return units as VideoDeliveredUnits;
 }
 
 /**

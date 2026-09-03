@@ -1,8 +1,7 @@
 import { ExportIcon } from "@phosphor-icons/react/Export";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	Sheet,
@@ -12,17 +11,28 @@ import {
 	SheetTitle,
 } from "@/components/ui/sheet";
 import {
+	useDeleteFeedbackMutation,
+	useUpdateFeedbackMutation,
+} from "@/features/feedback/api/feedback.mutations";
+import {
+	useFeedbackDetailQuery,
+	useFeedbackListQuery,
+	useFeedbackStatsQuery,
+} from "@/features/feedback/api/feedback.queries";
+import {
 	FeedbackDetail,
 	FeedbackDetailEmpty,
+	FeedbackDetailError,
+	FeedbackDetailSkeleton,
 } from "@/features/feedback/components/feedback-detail";
-import { FeedbackList } from "@/features/feedback/components/feedback-list";
+import {
+	FeedbackList,
+	FeedbackListSkeleton,
+} from "@/features/feedback/components/feedback-list";
 import { FeedbackSummary } from "@/features/feedback/components/feedback-summary";
 import { FeedbackToolbar } from "@/features/feedback/components/feedback-toolbar";
-import {
-	filterFeedback,
-	titleCaseFeedbackValue,
-} from "@/features/feedback/lib/feedback";
-import { MOCK_FEEDBACK } from "@/features/feedback/lib/mock-feedback";
+import { titleCaseFeedbackValue } from "@/features/feedback/lib/feedback";
+import { exportFeedbackToCsv } from "@/features/feedback/lib/feedback-export";
 import type {
 	FeedbackItem,
 	FeedbackPriority,
@@ -33,130 +43,202 @@ import type {
 } from "@/features/feedback/types";
 import { useIsTablet } from "@/hooks/use-mobile";
 
-type FeedbackViewState = {
-	query: string;
-	status: FeedbackStatusFilter;
-	type: FeedbackTypeFilter;
-	sort: FeedbackSort;
-	selectedId: string | null;
-};
-
-const initialViewState: FeedbackViewState = {
-	query: "",
-	status: "all",
-	type: "all",
-	sort: "newest",
-	selectedId: MOCK_FEEDBACK[0]?.id ?? null,
-};
+const FEEDBACK_PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
 function FeedbackPage() {
-	const [items, setItems] = useState<FeedbackItem[]>(MOCK_FEEDBACK);
-	const [view, setView] = useState<FeedbackViewState>(initialViewState);
+	const [searchValue, setSearchValue] = useState("");
+	const [query, setQuery] = useState("");
+	const [status, setStatus] = useState<FeedbackStatusFilter>("all");
+	const [type, setType] = useState<FeedbackTypeFilter>("all");
+	const [sort, setSort] = useState<FeedbackSort>("newest");
+	const [page, setPage] = useState(1);
+	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [detailOpen, setDetailOpen] = useState(false);
+	const [isExporting, setIsExporting] = useState(false);
 	const isTablet = useIsTablet();
-	const { query, status, type, sort, selectedId } = view;
 
-	const filteredItems = useMemo(
-		() =>
-			filterFeedback(items, {
-				query,
-				status,
-				type,
-				sort,
-			}),
-		[items, query, sort, status, type],
-	);
-	const selectedItem =
-		filteredItems.find((item) => item.id === selectedId) ??
-		filteredItems[0] ??
-		null;
+	useEffect(() => {
+		const handle = setTimeout(() => {
+			setQuery(searchValue.trim());
+		}, SEARCH_DEBOUNCE_MS);
+
+		return () => clearTimeout(handle);
+	}, [searchValue]);
+
+	// New search text, filters, or sort order restart from the first page.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: page reset is intentional
+	useEffect(() => {
+		setPage(1);
+	}, [query, status, type, sort]);
+
+	const listQuery = useFeedbackListQuery({
+		page,
+		pageSize: FEEDBACK_PAGE_SIZE,
+		q: query || undefined,
+		sort,
+		status: status === "all" ? undefined : [status],
+		category: type === "all" ? undefined : [type],
+	});
+	const statsQuery = useFeedbackStatsQuery();
+	const items = listQuery.data?.items ?? [];
+	const effectiveSelectedId = items.some((item) => item.id === selectedId)
+		? selectedId
+		: (items[0]?.id ?? null);
+	const detailQuery = useFeedbackDetailQuery(effectiveSelectedId);
+	const updateMutation = useUpdateFeedbackMutation();
+	const deleteMutation = useDeleteFeedbackMutation();
+	const total = listQuery.data?.total ?? 0;
+	const fetchedPage = listQuery.data?.page;
+	const totalPages = Math.max(1, Math.ceil(total / FEEDBACK_PAGE_SIZE));
 	const hasFilters =
-		query.trim().length > 0 || status !== "all" || type !== "all";
+		searchValue.trim().length > 0 || status !== "all" || type !== "all";
+
+	// Keep the stored selection aligned with the current, fully fetched page.
+	useEffect(() => {
+		if (listQuery.isPlaceholderData || fetchedPage !== page) {
+			return;
+		}
+
+		if (selectedId !== effectiveSelectedId) {
+			setSelectedId(effectiveSelectedId);
+		}
+	}, [
+		effectiveSelectedId,
+		fetchedPage,
+		listQuery.isPlaceholderData,
+		page,
+		selectedId,
+	]);
+
+	// A write can remove the final row from the current filtered page.
+	useEffect(() => {
+		if (listQuery.data && !listQuery.isPlaceholderData && page > totalPages) {
+			setPage(totalPages);
+		}
+	}, [listQuery.data, listQuery.isPlaceholderData, page, totalPages]);
 
 	function clearFilters() {
-		setView({
-			...initialViewState,
-			selectedId: items[0]?.id ?? null,
-		});
+		setSearchValue("");
+		setQuery("");
+		setStatus("all");
+		setType("all");
+		setSort("newest");
+		setPage(1);
+		setSelectedId(null);
 	}
 
 	function selectFeedback(item: FeedbackItem) {
-		setView((current) => ({ ...current, selectedId: item.id }));
+		setSelectedId(item.id);
 		if (isTablet) {
 			setDetailOpen(true);
 		}
 	}
 
-	function updateStatus(id: string, status: FeedbackStatus) {
-		setItems((current) =>
-			current.map((item) => {
-				if (item.id !== id || item.status === status) {
-					return item;
-				}
-
-				return {
-					...item,
-					status,
-					activity: [
-						{
-							id: `activity-${id}-${Date.now()}`,
-							label:
-								status === "resolved"
-									? "Marked resolved"
-									: `Moved to ${titleCaseFeedbackValue(status).toLocaleLowerCase()}`,
-							description: "Status updated in the mock admin workspace.",
-							createdAt: new Date().toISOString(),
-							tone: status === "resolved" ? "success" : "default",
-						},
-						...item.activity,
-					],
-				};
-			}),
-		);
-		toast.success(`Feedback moved to ${titleCaseFeedbackValue(status)}`);
-	}
-
-	function updatePriority(id: string, priority: FeedbackPriority) {
-		setItems((current) =>
-			current.map((item) => (item.id === id ? { ...item, priority } : item)),
-		);
-		toast.success(`Priority changed to ${titleCaseFeedbackValue(priority)}`);
-	}
-
-	function saveNote(id: string, note: string) {
-		setItems((current) =>
-			current.map((item) => {
-				if (item.id !== id || item.adminNote === note) {
-					return item;
-				}
-
-				return {
-					...item,
-					adminNote: note,
-					activity: [
-						{
-							id: `activity-${id}-${Date.now()}`,
-							label: "Internal note updated",
-							description: note
-								? "Investigation context was saved for administrators."
-								: "The internal note was cleared.",
-							createdAt: new Date().toISOString(),
-							tone: "default",
-						},
-						...item.activity,
-					],
-				};
-			}),
-		);
-		toast.success("Internal note saved");
-	}
-
-	function exportMockView() {
-		toast.success(
-			`${filteredItems.length.toLocaleString()} mock records prepared`,
+	function updateStatus(feedbackId: string, nextStatus: FeedbackStatus) {
+		updateMutation.mutate(
+			{ feedbackId, status: nextStatus },
 			{
-				description: "Connect the backend later to enable a real export.",
+				onSuccess: () => {
+					toast.success(
+						`Feedback moved to ${titleCaseFeedbackValue(nextStatus)}`,
+					);
+				},
+				onError: (error) => toast.error(error.message),
 			},
+		);
+	}
+
+	function updatePriority(feedbackId: string, nextPriority: FeedbackPriority) {
+		updateMutation.mutate(
+			{ feedbackId, priority: nextPriority },
+			{
+				onSuccess: () => {
+					toast.success(
+						`Priority changed to ${titleCaseFeedbackValue(nextPriority)}`,
+					);
+				},
+				onError: (error) => toast.error(error.message),
+			},
+		);
+	}
+
+	function saveNote(feedbackId: string, adminNote: string) {
+		updateMutation.mutate(
+			{ feedbackId, adminNote },
+			{
+				onSuccess: () => toast.success("Internal note saved"),
+				onError: (error) => toast.error(error.message),
+			},
+		);
+	}
+
+	function removeFeedback(feedbackId: string) {
+		deleteMutation.mutate(feedbackId, {
+			onSuccess: () => {
+				toast.success("Feedback deleted");
+				setSelectedId(null);
+				setDetailOpen(false);
+			},
+			onError: (error) => toast.error(error.message),
+		});
+	}
+
+	async function handleExport() {
+		if (isExporting) {
+			return;
+		}
+
+		setIsExporting(true);
+		try {
+			await exportFeedbackToCsv({
+				q: query || undefined,
+				sort,
+				status: status === "all" ? undefined : [status],
+				category: type === "all" ? undefined : [type],
+			});
+			toast.success("Feedback exported");
+		} catch {
+			toast.error("Feedback could not be exported");
+		} finally {
+			setIsExporting(false);
+		}
+	}
+
+	function renderDetail(domId: string, onClose?: () => void) {
+		if (listQuery.isPending) {
+			return <FeedbackDetailSkeleton />;
+		}
+
+		if (!effectiveSelectedId) {
+			return <FeedbackDetailEmpty />;
+		}
+
+		if (detailQuery.isPending) {
+			return <FeedbackDetailSkeleton />;
+		}
+
+		if (detailQuery.isError) {
+			return <FeedbackDetailError onRetry={() => void detailQuery.refetch()} />;
+		}
+
+		if (!detailQuery.data) {
+			return <FeedbackDetailEmpty />;
+		}
+
+		return (
+			<FeedbackDetail
+				key={`${domId}-${detailQuery.data.id}`}
+				item={detailQuery.data}
+				domId={`${domId}-${detailQuery.data.id}`}
+				isSaving={updateMutation.isPending}
+				isDeleting={deleteMutation.isPending}
+				onStatusChange={updateStatus}
+				onPriorityChange={updatePriority}
+				onSaveNote={saveNote}
+				onDelete={removeFeedback}
+				onClose={onClose}
+			/>
 		);
 	}
 
@@ -165,68 +247,58 @@ function FeedbackPage() {
 			<div className="mx-auto w-full max-w-[1600px] space-y-5">
 				<div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 					<div className="min-w-0">
-						<div className="flex flex-wrap items-center gap-2">
-							<p className="font-medium text-muted-foreground text-xs uppercase tracking-[0.16em]">
-								Product signals
-							</p>
-							<Badge
-								variant="outline"
-								className="border-primary/15 bg-primary/5 font-medium text-primary text-xs"
-							>
-								Mock data
-							</Badge>
-						</div>
+						<p className="font-medium text-muted-foreground text-xs uppercase tracking-[0.16em]">
+							Product signals
+						</p>
 						<h1 className="mt-1 font-semibold text-2xl tracking-tight">
 							Feedback
 						</h1>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-sm">
-							Triage user reports, preserve the context behind each signal, and
-							keep product follow-up in one operational view.
+							Triage user reports, keep the context behind each signal, and
+							track follow-up in one place.
 						</p>
 					</div>
 
-					<Button type="button" variant="outline" onClick={exportMockView}>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={isExporting}
+						onClick={() => void handleExport()}
+					>
 						<ExportIcon aria-hidden="true" />
-						Export view
+						{isExporting ? "Exporting…" : "Export view"}
 					</Button>
 				</div>
 
-				<FeedbackSummary items={items} />
+				<FeedbackSummary
+					stats={statsQuery.data}
+					isLoading={statsQuery.isPending}
+				/>
 
 				<section
 					aria-label="Feedback inbox"
 					className="overflow-hidden rounded-2xl border bg-background"
 				>
 					<FeedbackToolbar
-						items={items}
-						query={query}
+						stats={statsQuery.data}
+						query={searchValue}
 						status={status}
 						type={type}
 						sort={sort}
-						onQueryChange={(value) =>
-							setView((current) => ({ ...current, query: value }))
-						}
-						onStatusChange={(value) =>
-							setView((current) => ({ ...current, status: value }))
-						}
-						onTypeChange={(value) =>
-							setView((current) => ({ ...current, type: value }))
-						}
-						onSortChange={(value) =>
-							setView((current) => ({ ...current, sort: value }))
-						}
+						onQueryChange={setSearchValue}
+						onStatusChange={setStatus}
+						onTypeChange={setType}
+						onSortChange={setSort}
 					/>
 
-					<div className="xl:grid xl:h-[720px] xl:grid-cols-[minmax(0,1.08fr)_minmax(390px,0.92fr)]">
-						<div className="min-w-0 xl:min-h-0 xl:overflow-y-auto">
+					<div className="min-[1200px]:grid min-[1200px]:h-[720px] min-[1200px]:grid-cols-[minmax(0,1.08fr)_minmax(390px,0.92fr)]">
+						<div className="min-w-0 min-[1200px]:flex min-[1200px]:min-h-0 min-[1200px]:flex-col">
 							<div className="flex items-center justify-between gap-3 border-b bg-muted/15 px-4 py-2.5 sm:px-5">
 								<p className="text-muted-foreground text-xs">
 									<span className="font-medium text-foreground tabular-nums">
-										{filteredItems.length}
+										{total.toLocaleString()}
 									</span>{" "}
-									{filteredItems.length === 1
-										? "conversation"
-										: "conversations"}
+									conversations
 								</p>
 								{hasFilters ? (
 									<Button
@@ -241,35 +313,63 @@ function FeedbackPage() {
 									<p className="text-muted-foreground text-xs">All channels</p>
 								)}
 							</div>
-							<FeedbackList
-								items={filteredItems}
-								selectedId={selectedItem?.id ?? null}
-								hasFilters={hasFilters}
-								onSelect={selectFeedback}
-								onClearFilters={clearFilters}
-							/>
+
+							<div className="min-[1200px]:min-h-0 min-[1200px]:flex-1 min-[1200px]:overflow-y-auto">
+								{listQuery.isPending ? (
+									<FeedbackListSkeleton />
+								) : listQuery.isError ? (
+									<FeedbackListError onRetry={() => void listQuery.refetch()} />
+								) : (
+									<FeedbackList
+										items={items}
+										selectedId={effectiveSelectedId}
+										hasFilters={hasFilters}
+										onSelect={selectFeedback}
+										onClearFilters={clearFilters}
+									/>
+								)}
+							</div>
+
+							{totalPages > 1 ? (
+								<div className="flex items-center justify-between gap-3 border-t bg-muted/10 px-4 py-3 sm:px-5">
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={page === 1 || listQuery.isFetching}
+										onClick={() =>
+											setPage((current) => Math.max(1, current - 1))
+										}
+									>
+										Prev
+									</Button>
+									<p className="text-muted-foreground text-xs tabular-nums">
+										Page {page} of {totalPages}
+									</p>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={page >= totalPages || listQuery.isFetching}
+										onClick={() =>
+											setPage((current) => Math.min(totalPages, current + 1))
+										}
+									>
+										Next
+									</Button>
+								</div>
+							) : null}
 						</div>
 
-						<div className="hidden min-h-0 border-l xl:flex">
-							{selectedItem ? (
-								<FeedbackDetail
-									key={selectedItem.id}
-									item={selectedItem}
-									domId={`panel-${selectedItem.id}`}
-									onStatusChange={updateStatus}
-									onPriorityChange={updatePriority}
-									onSaveNote={saveNote}
-								/>
-							) : (
-								<FeedbackDetailEmpty />
-							)}
+						<div className="hidden min-h-0 border-l min-[1200px]:flex">
+							{renderDetail("panel")}
 						</div>
 					</div>
 				</section>
 			</div>
 
 			<Sheet
-				open={detailOpen && Boolean(selectedItem)}
+				open={detailOpen && Boolean(effectiveSelectedId)}
 				onOpenChange={setDetailOpen}
 			>
 				<SheetContent
@@ -279,24 +379,41 @@ function FeedbackPage() {
 					<SheetHeader className="sr-only">
 						<SheetTitle>Feedback details</SheetTitle>
 						<SheetDescription>
-							Inspect the selected feedback conversation and update its mock
+							Inspect the selected feedback conversation and update its
 							workflow.
 						</SheetDescription>
 					</SheetHeader>
-					{selectedItem ? (
-						<FeedbackDetail
-							key={`sheet-${selectedItem.id}`}
-							item={selectedItem}
-							domId={`sheet-${selectedItem.id}`}
-							onStatusChange={updateStatus}
-							onPriorityChange={updatePriority}
-							onSaveNote={saveNote}
-							onClose={() => setDetailOpen(false)}
-						/>
-					) : null}
+					{renderDetail("sheet", () => setDetailOpen(false))}
 				</SheetContent>
 			</Sheet>
 		</>
+	);
+}
+
+function FeedbackListError({ onRetry }: { onRetry: () => void }) {
+	return (
+		<div
+			role="alert"
+			className="grid min-h-[460px] place-items-center px-6 py-12 text-center"
+		>
+			<div className="max-w-sm">
+				<h2 className="font-semibold text-base">
+					Feedback could not be loaded
+				</h2>
+				<p className="mt-1.5 text-muted-foreground text-sm leading-relaxed">
+					The server did not respond. Retry the request to restore the inbox.
+				</p>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					className="mt-4"
+					onClick={onRetry}
+				>
+					Retry
+				</Button>
+			</div>
+		</div>
 	);
 }
 

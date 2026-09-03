@@ -1,7 +1,12 @@
 import type { DeploymentCurrent } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
-import { canPublish, displaySlug, slugVerdict } from "./publish-state";
+import {
+	canPublish,
+	displaySlug,
+	publishableVersion,
+	slugVerdict,
+} from "./publish-state";
 
 function current(patch: Partial<DeploymentCurrent> = {}): DeploymentCurrent {
 	return {
@@ -99,5 +104,133 @@ describe("canPublish", () => {
 				current({ pendingVersionId: crypto.randomUUID(), uiState: "failed" }),
 			),
 		).toBe(true);
+	});
+});
+
+describe("publishableVersion", () => {
+	it("returns null without a previewed version", () => {
+		expect(publishableVersion(current(), null, null)).toBeNull();
+	});
+
+	it("offers the previewed version when the site has never been published", () => {
+		const preview = { id: crypto.randomUUID(), number: 1 };
+
+		expect(
+			publishableVersion(
+				current({ pendingVersionId: preview.id }),
+				preview,
+				null,
+			),
+		).toBe(preview);
+	});
+
+	it("returns null while publishing is in flight", () => {
+		const preview = { id: crypto.randomUUID(), number: 2 };
+
+		expect(
+			publishableVersion(
+				current({
+					pendingVersionId: preview.id,
+					publishedVersionId: crypto.randomUUID(),
+					uiState: "publishing",
+				}),
+				preview,
+				null,
+			),
+		).toBeNull();
+	});
+
+	it("falls back to a newer latest version when the preview is live", () => {
+		const preview = { id: crypto.randomUUID(), number: 1 };
+		const latest = { id: crypto.randomUUID(), number: 3 };
+
+		expect(
+			publishableVersion(
+				current({
+					publishedVersionId: preview.id,
+					uiState: "published",
+				}),
+				preview,
+				latest,
+			),
+		).toBe(latest);
+	});
+
+	it("returns null when the preview and latest version are already live", () => {
+		const preview = { id: crypto.randomUUID(), number: 1 };
+
+		expect(
+			publishableVersion(
+				current({
+					publishedVersionId: preview.id,
+					uiState: "published",
+				}),
+				preview,
+				preview,
+			),
+		).toBeNull();
+	});
+
+	it("returns null when the preview is live without a latest version", () => {
+		const preview = { id: crypto.randomUUID(), number: 1 };
+
+		expect(
+			publishableVersion(
+				current({
+					publishedVersionId: preview.id,
+					uiState: "published",
+				}),
+				preview,
+				null,
+			),
+		).toBeNull();
+	});
+
+	it("offers a newer draft than the live version", () => {
+		const preview = { id: crypto.randomUUID(), number: 2 };
+
+		expect(
+			publishableVersion(
+				current({
+					pendingVersionId: preview.id,
+					publishedVersionId: crypto.randomUUID(),
+					uiState: "published",
+				}),
+				preview,
+				preview,
+			),
+		).toBe(preview);
+	});
+
+	it("offers a historical version behind the live version", () => {
+		const preview = { id: crypto.randomUUID(), number: 1 };
+		const latest = { id: crypto.randomUUID(), number: 3 };
+
+		expect(
+			publishableVersion(
+				current({
+					publishedVersionId: crypto.randomUUID(),
+					uiState: "published",
+				}),
+				preview,
+				latest,
+			),
+		).toBe(preview);
+	});
+
+	it("offers the previewed version again after a failed publish", () => {
+		const preview = { id: crypto.randomUUID(), number: 2 };
+
+		expect(
+			publishableVersion(
+				current({
+					pendingVersionId: preview.id,
+					publishedVersionId: crypto.randomUUID(),
+					uiState: "failed",
+				}),
+				preview,
+				preview,
+			),
+		).toBe(preview);
 	});
 });

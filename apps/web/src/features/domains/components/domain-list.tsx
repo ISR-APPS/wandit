@@ -28,11 +28,14 @@ import {
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
 import {
+	AlertTriangle,
 	Check,
 	CircleDashed,
 	Copy,
 	KeyRound,
+	ListChecks,
 	Loader2,
+	RefreshCw,
 	Trash2,
 } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -40,24 +43,30 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import type { Domain } from "../api/domains.dto";
+import type { Domain, RequiredDomainRecord } from "../api/domains.dto";
 import {
 	useDetachDomain,
 	useSetPrimaryDomain,
 	useTransferUnlockDomain,
 	useVerifyDomain,
 } from "../api/domains.mutations";
-import { safeDomainErrorSummary } from "../lib/helpers";
+import { useDomainDnsStatusQuery } from "../api/domains.queries";
+import { domainLiveUrl, safeDomainErrorSummary } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
-import { DnsRecordsTable } from "./dns-records-table";
 import { DomainStatusChip } from "./domain-status-chip";
+import { ExternalDomainSetupOptions } from "./external-domain-setup-options";
 
 type DomainListProps = {
 	projectId: string;
 	domains: Domain[];
+	canManageDomains?: boolean;
 };
 
-export function DomainList({ projectId, domains }: DomainListProps) {
+export function DomainList({
+	projectId,
+	domains,
+	canManageDomains = true,
+}: DomainListProps) {
 	const { t } = useTranslation();
 
 	if (domains.length === 0) {
@@ -95,6 +104,7 @@ export function DomainList({ projectId, domains }: DomainListProps) {
 						key={domain.id}
 						projectId={projectId}
 						domain={domain}
+						canManageDomains={canManageDomains}
 					/>
 				))}
 			</TableBody>
@@ -105,9 +115,11 @@ export function DomainList({ projectId, domains }: DomainListProps) {
 function DomainListRow({
 	projectId,
 	domain,
+	canManageDomains,
 }: {
 	projectId: string;
 	domain: Domain;
+	canManageDomains: boolean;
 }) {
 	const { t, locale } = useTranslation();
 	const verify = useVerifyDomain(projectId);
@@ -122,11 +134,32 @@ function DomainListRow({
 	} | null>(null);
 	const [transferError, setTransferError] = useState<string | null>(null);
 	const [externalRecordsOpen, setExternalRecordsOpen] = useState(false);
-	const [externalRecords, setExternalRecords] = useState(
-		domain.dns?.records ?? [],
+	const persistedExternalRecords = domain.dns?.records ?? [];
+	const persistedExternalRecordsKey = requiredRecordsKey(
+		persistedExternalRecords,
 	);
+	const [externalRecordsOverlay, setExternalRecordsOverlay] = useState<{
+		domainUpdatedAt: string;
+		persistedRecordsKey: string;
+		records: RequiredDomainRecord[];
+	} | null>(null);
+	const externalRecords =
+		externalRecordsOverlay?.domainUpdatedAt === domain.updatedAt &&
+		externalRecordsOverlay.persistedRecordsKey === persistedExternalRecordsKey
+			? externalRecordsOverlay.records
+			: persistedExternalRecords;
 	const [externalVerifyError, setExternalVerifyError] = useState<string | null>(
 		null,
+	);
+	const dnsStatus = useDomainDnsStatusQuery(
+		domain.source === "external" ? domain.id : null,
+		{
+			enabled: externalRecordsOpen,
+			// Row details are refresh-on-demand. Polling stays scoped to the single
+			// open connect wizard so several expanded rows cannot exhaust the shared
+			// per-user diagnostics limit.
+			poll: false,
+		},
 	);
 
 	const expiresAt = domain.expiresAt
@@ -142,12 +175,14 @@ function DomainListRow({
 		domain.status !== "transferred_out";
 	const canSetPrimary = domain.status === "active" && !domain.isPrimary;
 	const canVerifyExternal =
+		canManageDomains &&
 		domain.source === "external" &&
 		domain.status !== "active" &&
 		domain.status !== "failed";
+	const stalledVerification = domain.dns?.externalVerification;
 
 	const handlePrimary = () => {
-		if (!canSetPrimary) return;
+		if (!canManageDomains || !canSetPrimary) return;
 		setPrimary.mutate(domain.id, {
 			onSuccess: () => toast.success(t("settings.domains.primarySuccess")),
 			onError: (error) => toast.error(getApiErrorMessage(error)),
@@ -169,12 +204,22 @@ function DomainListRow({
 		verify.mutate(domain.id, {
 			onSuccess: (result) => {
 				if (result.requiredRecords) {
-					setExternalRecords(result.requiredRecords);
+					setExternalRecordsOverlay({
+						domainUpdatedAt: result.domain.updatedAt,
+						persistedRecordsKey: requiredRecordsKey(
+							result.domain.dns?.records ?? [],
+						),
+						records: result.requiredRecords,
+					});
 				}
 
 				if (result.domain.status === "active") {
 					toast.success(t("settings.domains.verifySuccess"));
+				} else if (stalledVerification) {
+					toast.success(t("settings.domains.checkAgainStarted"));
 				}
+
+				void dnsStatus.refetch();
 			},
 			onError: (error) => setExternalVerifyError(getApiErrorMessage(error)),
 		});
@@ -215,6 +260,20 @@ function DomainListRow({
 								</p>
 							</div>
 						) : null}
+						{domain.source === "external" ? (
+							<p
+								dir="ltr"
+								className="truncate font-mono text-muted-foreground text-xs"
+							>
+								{domainLiveUrl(domain)}
+							</p>
+						) : null}
+						{stalledVerification ? (
+							<div className="mt-1 flex items-start gap-1.5 text-amber-800 text-xs dark:text-amber-200">
+								<AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+								<p>{t("settings.domains.verificationStalled")}</p>
+							</div>
+						) : null}
 					</div>
 				</TableCell>
 				<TableCell>
@@ -224,7 +283,9 @@ function DomainListRow({
 							name={`primary-domain-${projectId}`}
 							className="size-4 accent-primary"
 							checked={domain.isPrimary}
-							disabled={!canSetPrimary && !domain.isPrimary}
+							disabled={
+								!canManageDomains || (!canSetPrimary && !domain.isPrimary)
+							}
 							onChange={handlePrimary}
 							aria-label={t("settings.domains.makePrimary")}
 						/>
@@ -251,7 +312,7 @@ function DomainListRow({
 				</TableCell>
 				<TableCell className="font-mono text-xs">{expiresAt}</TableCell>
 				<TableCell>
-					<div className="flex justify-end gap-1">
+					<div className="flex flex-wrap justify-end gap-1">
 						<Button
 							type="button"
 							variant="ghost"
@@ -266,7 +327,33 @@ function DomainListRow({
 								<KeyRound />
 							)}
 						</Button>
-						{canVerifyExternal ? (
+						{domain.source === "external" ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								aria-label={t("settings.domains.dnsDetails")}
+								onClick={() => setExternalRecordsOpen((open) => !open)}
+							>
+								<ListChecks />
+							</Button>
+						) : null}
+						{canVerifyExternal && stalledVerification ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="xs"
+								disabled={verify.isPending}
+								onClick={handleVerifyExternal}
+							>
+								{verify.isPending ? (
+									<Loader2 className="animate-spin" />
+								) : (
+									<RefreshCw />
+								)}
+								{t("settings.domains.checkAgain")}
+							</Button>
+						) : canVerifyExternal ? (
 							<Button
 								type="button"
 								variant="ghost"
@@ -282,16 +369,18 @@ function DomainListRow({
 								)}
 							</Button>
 						) : null}
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label={t("settings.domains.detach")}
-							disabled={detach.isPending}
-							onClick={() => setDetachOpen(true)}
-						>
-							<Trash2 />
-						</Button>
+						{canManageDomains ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								aria-label={t("settings.domains.detach")}
+								disabled={detach.isPending}
+								onClick={() => setDetachOpen(true)}
+							>
+								<Trash2 />
+							</Button>
+						) : null}
 					</div>
 				</TableCell>
 			</TableRow>
@@ -351,8 +440,19 @@ function DomainListRow({
 									{externalVerifyError}
 								</p>
 							) : null}
-							{externalRecords.length > 0 ? (
-								<DnsRecordsTable records={externalRecords} />
+							{domain.source === "external" ? (
+								<ExternalDomainSetupOptions
+									name={domain.name}
+									records={externalRecords}
+									diagnostics={dnsStatus.data?.records}
+									isRefreshing={dnsStatus.isFetching}
+									onRefresh={() => void dnsStatus.refetch()}
+								/>
+							) : null}
+							{dnsStatus.isError ? (
+								<p className="text-destructive text-xs">
+									{t("settings.domains.dnsStatusError")}
+								</p>
 							) : null}
 						</div>
 					</TableCell>
@@ -388,4 +488,8 @@ function DomainListRow({
 			</AlertDialog>
 		</Fragment>
 	);
+}
+
+function requiredRecordsKey(records: RequiredDomainRecord[]) {
+	return JSON.stringify(records);
 }

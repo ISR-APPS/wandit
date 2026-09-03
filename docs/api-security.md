@@ -17,6 +17,23 @@ Every API slice must pass this checklist before merge.
 | PLANNED | Auth rate limits | ISRECOM-41: enable Better Auth `rateLimit` on `/api/auth/*`; memory storage for MVP, Redis secondary storage at scale. |
 | PLANNED | Global body limit | ISRECOM-41: set an explicit global Fastify `bodyLimit` around 1 MiB. |
 
+## Admin surface
+
+The admin dashboard uses a separate Better Auth instance mounted at `/api/admin-auth`. Routes
+that serve the dashboard carry `@AdminOnly()`, which couples them to that session surface and
+installs `AdminGuard`; each handler also declares its resource/action requirement with
+`@AdminPermission(...)`.
+
+Platform roles may be stored as comma-joined values. A role containing `support` or `admin` is
+staff and may discover the admin surface. Non-staff callers receive 404. Staff callers who are
+authenticated but lack a declared permission receive 403 with error code
+`ADMIN_PERMISSION_REQUIRED`; see `docs/features/admin-permissions.md` for the matrix and safe
+full-admin fallback.
+
+Admin writes retain the explicit SPA CSRF posture: the request must use a JSON content type and
+its `Origin` must match `ADMIN_ORIGIN`. These checks run before permission evaluation for every
+non-safe HTTP method.
+
 ## Per-endpoint checklist
 
 1. Validate every input.

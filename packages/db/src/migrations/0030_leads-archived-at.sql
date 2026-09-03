@@ -1,0 +1,2 @@
+ALTER TABLE "leads" ADD COLUMN "archived_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "leads_active_projectId_createdAt_idx" ON "leads" USING btree ("project_id","created_at") WHERE "leads"."archived_at" is null;

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
-import type { GenerateImageInput } from "@wandit/contracts";
+import {
+	type GenerateImageInput,
+	generateImageInputSchema,
+	MAX_IMAGES_PER_GENERATION,
+} from "@wandit/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -13,6 +17,7 @@ import type { ImageGenerationsRepository } from "../../../image-generations/infr
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import type { AvailableImage } from "./animate-image.tool";
 import { createGenerateImageTool } from "./generate-image.tool";
 
 const mockEnv = vi.hoisted(() => ({
@@ -53,7 +58,13 @@ const INPUT = {
 	title: "Hero product image",
 } satisfies GenerateImageInput;
 
-function setup(options: { parentEventId?: string; quality?: string } = {}) {
+function setup(
+	options: {
+		availableImages?: readonly AvailableImage[];
+		organizationId?: string;
+		parentEventId?: string;
+	} = {},
+) {
 	const imageGenerationsRepository = {
 		insertAttempt: vi.fn(),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
@@ -66,14 +77,14 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		reserveWithReplay: vi.fn().mockResolvedValue({
 			event: {
 				id: "usage_event_1",
-				reservedCredits: 10,
+				reservedCredits: 600,
 				status: "reserved",
 			},
 			replay: "none",
 			replayed: false,
 		}),
 		settle: vi.fn(),
-		settleFixedFromEvidence: vi.fn(),
+		settleMeasuredFromEvidence: vi.fn(),
 	};
 	const pagesRepository = {
 		findActivePageByProjectUnchecked: vi.fn().mockResolvedValue({
@@ -82,7 +93,7 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		}),
 	};
 	const imageTool = createGenerateImageTool({
-		availableImages: [],
+		availableImages: options.availableImages ?? [],
 		chatId: "chat_1",
 		imageGenerationsRepository:
 			imageGenerationsRepository as unknown as ImageGenerationsRepository,
@@ -90,9 +101,13 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		parentEventId: options.parentEventId ?? "parent_event_1",
 		projectId: "project_1",
-		quality: options.quality,
 		requestKeySeed: REQUEST_KEY_SEED,
-		subject: { actorUserId: "user_1" },
+		subject: {
+			actorUserId: "user_1",
+			...(options.organizationId
+				? { organizationId: options.organizationId }
+				: {}),
+		},
 		userId: "user_1",
 	});
 	const run = imageTool.execute;
@@ -208,6 +223,20 @@ describe("generate_image placement", () => {
 		expect(imageGenerationsRepository.insertAttempt).toHaveBeenCalledOnce();
 	});
 
+	it("accepts up to six separate images per call and no more", () => {
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		expect(MAX_IMAGES_PER_GENERATION).toBe(6);
+		expect(
+			generateImageInputSchema.safeParse({ ...standaloneInput, count: 6 })
+				.success,
+		).toBe(true);
+		expect(
+			generateImageInputSchema.safeParse({ ...standaloneInput, count: 7 })
+				.success,
+		).toBe(false);
+	});
+
 	it("rejects an image index outside the generated count", async () => {
 		const { execute, imageGenerationsRepository, pagesRepository } = setup();
 
@@ -228,9 +257,7 @@ describe("generate_image placement", () => {
 	});
 
 	it("persists placement, reserves the image count, and triggers the billed child run", async () => {
-		const { execute, imageGenerationsRepository, meteringService } = setup({
-			quality: "high",
-		});
+		const { execute, imageGenerationsRepository, meteringService } = setup();
 		imageGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: true,
 			id: ATTEMPT_ID,
@@ -264,7 +291,6 @@ describe("generate_image placement", () => {
 			sourceImageUrls: [],
 			spec: {
 				placement: { ...PLACEMENT, status: "pending" },
-				quality: "high",
 			},
 			title: INPUT.title,
 		});
@@ -273,8 +299,11 @@ describe("generate_image placement", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 10,
+				// No catalog rate in this double: 2 × the 350 cc image floor.
+				credits: 700,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 2 },
 				parentEventId: "parent_event_1",
 			},
 		);
@@ -293,10 +322,34 @@ describe("generate_image placement", () => {
 				userId: "user_1",
 			},
 			expect.objectContaining({
+				concurrencyKey: "user:user_1",
 				idempotencyKey: "global-image-generation-key",
 			}),
 		);
 		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+	});
+
+	it("partitions the task queue by organization payer", async () => {
+		const { execute, imageGenerationsRepository } = setup({
+			organizationId: "org_1",
+		});
+		imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_org",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		await execute(standaloneInput);
+
+		expect(tasks.trigger).toHaveBeenCalledWith(
+			"generate-image",
+			expect.objectContaining({ organizationId: "org_1" }),
+			expect.objectContaining({ concurrencyKey: "org:org_1" }),
+		);
 	});
 
 	it("keeps standalone generation independent of active page HTML", async () => {
@@ -342,8 +395,10 @@ describe("generate_image billing", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 15,
+				credits: 1050,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 3 },
 				parentEventId: "parent_event_1",
 			},
 		);
@@ -360,7 +415,7 @@ describe("generate_image billing", () => {
 		meteringService.reserveWithReplay.mockResolvedValue({
 			event: {
 				id: "usage_event_1",
-				reservedCredits: 5,
+				reservedCredits: 300,
 				status: "settled",
 			},
 			replay: "settled",
@@ -373,5 +428,104 @@ describe("generate_image billing", () => {
 		).rejects.toBeInstanceOf(MeteringStateConflictError);
 
 		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+});
+
+describe("generate_image source photos", () => {
+	const sourceUrls = Array.from(
+		{ length: 8 },
+		(_, index) =>
+			`https://assets.example.com/uploads/user_1/photo-${index + 1}.jpg`,
+	);
+	const standaloneInput: GenerateImageInput = {
+		aspect: INPUT.aspect,
+		count: 1,
+		prompt: INPUT.prompt,
+		sourceImageUrls: [],
+		title: INPUT.title,
+	};
+
+	function queueable(availableUrls: readonly string[]) {
+		const context = setup({
+			availableImages: availableUrls.map((url) => ({
+				mediaType: "image/jpeg" as const,
+				url,
+			})),
+		});
+		context.imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		return context;
+	}
+
+	it("keeps the first six distinct sources and tells the model about the rest", async () => {
+		const { execute, imageGenerationsRepository } = queueable(sourceUrls);
+
+		const output = await execute({
+			...standaloneInput,
+			// A repeated URL is one photo, not a skipped one.
+			sourceImageUrls: [...sourceUrls, sourceUrls[0] as string],
+		});
+
+		expect(imageGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ sourceImageUrls: sourceUrls.slice(0, 6) }),
+		);
+		expect(output).toMatchObject({
+			attemptId: ATTEMPT_ID,
+			message: expect.stringContaining(
+				"the first 6 were used and 2 were skipped",
+			),
+			status: "queued",
+		});
+		expect((output as { message: string }).message).toContain(
+			"Tell the user this gently",
+		);
+	});
+
+	it("never checks ownership of a skipped source", async () => {
+		// Only the six kept photos are attachments; the two extras are not.
+		const { execute } = queueable(sourceUrls.slice(0, 6));
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls,
+		});
+
+		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+	});
+
+	it("keeps the note when Trigger.dev does not confirm the handoff", async () => {
+		const { execute } = queueable(sourceUrls);
+		vi.mocked(tasks.trigger).mockRejectedValue(new Error("socket hang up"));
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls,
+		});
+
+		expect(output).toMatchObject({
+			attemptId: ATTEMPT_ID,
+			message: expect.stringContaining("did not confirm the handoff"),
+			status: "queued",
+		});
+		expect((output as { message: string }).message).toContain("2 were skipped");
+	});
+
+	it("adds no note when every source fits", async () => {
+		const { execute } = queueable(sourceUrls);
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls.slice(0, 6),
+		});
+
+		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+		expect((output as { message: string }).message).not.toContain("skipped");
 	});
 });

@@ -1,4 +1,7 @@
-import { workspaceAccessControl, workspaceRoles } from "@wandit/auth/permissions";
+import {
+	workspaceAccessControl,
+	workspaceRoles,
+} from "@wandit/auth/permissions";
 import { env } from "@wandit/env/web";
 import {
 	adminClient,
@@ -31,6 +34,18 @@ export const authClient = createAuthClient({
 		},
 	},
 	plugins: [
+		inferAdditionalFields({
+			user: {
+				displayEmail: {
+					type: "string",
+					required: false,
+				},
+				onboardingCompletedAt: {
+					type: "date",
+					required: false,
+				},
+			},
+		}),
 		adminClient(),
 		// Email sign-in (magic link + OTP fallback) — dark behind the
 		// emailAuthEnabled public setting; the auth modal gates the UI.
@@ -41,15 +56,6 @@ export const authClient = createAuthClient({
 		organizationClient({
 			ac: workspaceAccessControl,
 			roles: workspaceRoles,
-		}),
-		inferAdditionalFields({
-			user: {
-				earlyAccess: {
-					type: "boolean",
-					defaultValue: false,
-					input: false,
-				},
-			},
 		}),
 	],
 });

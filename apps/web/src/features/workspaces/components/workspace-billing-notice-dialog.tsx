@@ -14,6 +14,8 @@ import {
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
 
+import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
+import { formatCreditAmount } from "@/features/credits/lib/format-credits";
 import { useTranslation } from "@/lib/i18n";
 
 export type WorkspaceBillingNoticeKind = "memberLimit" | "poolEmptyMember";
@@ -29,7 +31,7 @@ export function WorkspaceBillingNoticeDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const title =
 		kind === "memberLimit"
 			? t("workspaces.errors.memberLimitTitle")
@@ -37,13 +39,16 @@ export function WorkspaceBillingNoticeDialog({
 	const body =
 		kind === "memberLimit"
 			? t("workspaces.errors.memberLimitBody", {
-					limit: limitCredits ?? 0,
+					limit: formatCreditAmount(limitCredits ?? 0, locale),
 				})
 			: t("workspaces.errors.poolEmptyBodyMember");
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-sm">
+				{/* A member cannot refill this pool, but their own credits may sit
+				    in another workspace — offer the switch before the shrug. */}
+				<CreditsElsewhereNotice onSwitched={() => onOpenChange(false)} />
 				<DialogHeader className="text-start">
 					<DialogTitle className="font-display tracking-tight">
 						{title}

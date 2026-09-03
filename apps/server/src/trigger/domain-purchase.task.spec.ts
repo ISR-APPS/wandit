@@ -81,7 +81,7 @@ describe("domainPurchaseTask", () => {
 		});
 		mocks.assertPurchase.mockReset().mockImplementation(() => {
 			mocks.events.push("purchase-config");
-			return { fallbackOrigin: "customers.wandit.app" };
+			return { apexZoneEnabled: false, fallbackOrigin: "customers.wandit.app" };
 		});
 		mocks.createDb.mockReset().mockImplementation(() => {
 			mocks.events.push("db");
@@ -138,12 +138,15 @@ describe("domainPurchaseTask", () => {
 		expect(mocks.purchaseExecute).toHaveBeenCalledWith(payload);
 
 		const runtimeOptions = mocks.createPurchaseRuntime.mock.calls[0]?.[1] as {
+			apexZoneEnabled: boolean;
 			fallbackOrigin: string;
 			wait: { until(input: { date: Date }): Promise<void> };
 		};
 		const date = new Date("2026-08-01T00:00:00.000Z");
 
 		expect(runtimeOptions.fallbackOrigin).toBe("customers.wandit.app");
+		// The apex kill switch travels from preflight into the runtime untouched.
+		expect(runtimeOptions.apexZoneEnabled).toBe(false);
 		await runtimeOptions.wait.until({ date });
 		expect(mocks.waitUntil).toHaveBeenCalledWith({ date });
 		expect(mocks.createDb).toHaveBeenCalledOnce();

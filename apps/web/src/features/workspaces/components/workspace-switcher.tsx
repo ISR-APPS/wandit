@@ -4,7 +4,14 @@
  * Selecting an entry flips the shared scope store, so every subsequent
  * request (axios + AI stream) carries the new scope automatically.
  */
-import { Avatar, AvatarFallback, AvatarImage } from "@wandit/ui/components/avatar";
+
+import { Link } from "@tanstack/react-router";
+import { PERSONAL_WORKSPACE, type WorkspaceSummary } from "@wandit/contracts";
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@wandit/ui/components/avatar";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -13,19 +20,16 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
-import type { WorkspaceSummary } from "@wandit/contracts";
+import { cn } from "@wandit/ui/lib/utils";
 import { Check, ChevronsUpDown, Gauge, Plus, User, Users } from "lucide-react";
-
 import { useState } from "react";
-
-import { Link } from "@tanstack/react-router";
-
 import { useSession } from "@/features/auth";
-import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
+import { useWorkspaceCreditBalancesQuery } from "@/features/credits/api/credits.queries";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
-import { cn } from "@wandit/ui/lib/utils";
 
 function workspaceInitials(name: string): string {
 	return name
@@ -34,6 +38,18 @@ function workspaceInitials(name: string): string {
 		.slice(0, 2)
 		.map((word) => word[0]?.toUpperCase() ?? "")
 		.join("");
+}
+
+function SettledBalanceValue({ value }: { value: string | null }) {
+	if (value === null) {
+		return null;
+	}
+
+	return (
+		<span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
+			{value}
+		</span>
+	);
 }
 
 function roleLabelKey(
@@ -53,15 +69,14 @@ function roleLabelKey(
 	return "workspaces.switcher.roleMember";
 }
 
-export function WorkspaceSwitcher({
-	className,
-}: {
-	className?: string;
-}) {
-	const { t } = useTranslation();
+export function WorkspaceSwitcher({ className }: { className?: string }) {
+	const { locale, t } = useTranslation();
 	const [createOpen, setCreateOpen] = useState(false);
 	const { data: session } = useSession();
 	const settingsQuery = usePublicSettingsQuery();
+	const balancesQuery = useWorkspaceCreditBalancesQuery({
+		enabled: Boolean(session),
+	});
 	const {
 		activeWorkspace,
 		activeWorkspaceId,
@@ -70,10 +85,27 @@ export function WorkspaceSwitcher({
 		workspaces,
 	} = useWorkspace();
 
+	// Each entry's settled credit pool, right-aligned and muted. Settled
+	// balances (holds added back) so a running generation never bounces the
+	// number mid-dropdown.
+	const settledBalanceFor = (workspaceId: string): string | null => {
+		const item = balancesQuery.data?.items.find(
+			(entry) => entry.workspaceId === workspaceId,
+		);
+
+		return item ? formatCreditBalance(item.settledBalance, locale) : null;
+	};
+
 	// Ships dark: without the kill switch (or memberships) the switcher
 	// renders nothing and the app looks exactly like pre-teams.
 	const organizationsEnabled =
 		settingsQuery.data?.organizationsEnabled ?? false;
+	// Creating a workspace goes straight into a Business subscription
+	// checkout, so it also needs the paid-subscriptions switch — otherwise it
+	// creates an org whose checkout the server then rejects.
+	const canCreateWorkspace =
+		organizationsEnabled &&
+		settingsQuery.data?.paidSubscriptionsEnabled === true;
 
 	if (!session || (!organizationsEnabled && workspaces.length === 0)) {
 		return null;
@@ -110,9 +142,7 @@ export function WorkspaceSwitcher({
 				<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-64">
-				<DropdownMenuLabel>
-					{t("workspaces.switcher.label")}
-				</DropdownMenuLabel>
+				<DropdownMenuLabel>{t("workspaces.switcher.label")}</DropdownMenuLabel>
 				<DropdownMenuItem
 					onSelect={() => switchWorkspace("personal")}
 					className="gap-2"
@@ -130,6 +160,7 @@ export function WorkspaceSwitcher({
 							{t("workspaces.switcher.personalDescription")}
 						</span>
 					</span>
+					<SettledBalanceValue value={settledBalanceFor(PERSONAL_WORKSPACE)} />
 					{isPersonal ? <Check className="size-4 shrink-0" /> : null}
 				</DropdownMenuItem>
 				{workspaces.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -151,6 +182,7 @@ export function WorkspaceSwitcher({
 								{t(roleLabelKey(entry))}
 							</span>
 						</span>
+						<SettledBalanceValue value={settledBalanceFor(entry.id)} />
 						{activeWorkspaceId === entry.id ? (
 							<Check className="size-4 shrink-0" />
 						) : null}
@@ -173,7 +205,7 @@ export function WorkspaceSwitcher({
 						</DropdownMenuItem>
 					</>
 				) : null}
-				{organizationsEnabled ? (
+				{canCreateWorkspace ? (
 					<>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem

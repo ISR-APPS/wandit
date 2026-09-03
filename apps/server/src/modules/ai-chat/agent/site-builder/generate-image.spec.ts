@@ -1,10 +1,15 @@
+import { randomBytes } from "node:crypto";
+
 import { generateImage } from "ai";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import { SINGLE_FRAME_INSTRUCTION } from "../../../image-generations/application/services/image-generator";
 import { generateBuildImage } from "./generate-image";
 
 // Env is a mutable stub so each test controls exactly which keys exist; the
@@ -17,7 +22,10 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
-vi.mock("ai", () => ({ generateImage: vi.fn() }));
+vi.mock("ai", async (importOriginal) => ({
+	...(await importOriginal<typeof import("ai")>()),
+	generateImage: vi.fn(),
+}));
 
 vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
 	const original =
@@ -94,7 +102,7 @@ describe("generateBuildImage", () => {
 
 		expect(generateImage).toHaveBeenCalledWith({
 			model: "openai/gpt-image-2",
-			prompt: PARAMS.prompt,
+			prompt: `${PARAMS.prompt}\n${SINGLE_FRAME_INSTRUCTION}`,
 			providerOptions: {
 				gateway: {
 					tags: ["op:image", "ws:personal"],
@@ -107,8 +115,12 @@ describe("generateBuildImage", () => {
 			"sites/project_1/assets/attempt_1/img-2.png",
 			new Uint8Array([1, 2, 3]),
 			"image/png",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toEqual({
+			// Three bytes are not a readable image, so the provider canvas for
+			// the requested aspect is what the dimensions fall back to.
+			height: 1024,
 			// Base64 is now derived from the uploaded bytes, so transcript and
 			// bucket can never disagree.
 			imageBase64: "AQID",
@@ -118,6 +130,7 @@ describe("generateBuildImage", () => {
 			status: "generated",
 			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+			width: 1536,
 		});
 	});
 
@@ -149,6 +162,67 @@ describe("generateBuildImage", () => {
 		});
 	});
 
+	it("recompresses heavy raster output to webp before upload", async () => {
+		// Noise defeats PNG compression, so the 2500px canvas is comfortably
+		// over the optimizer's 150KB threshold.
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+		vi.mocked(generateImage).mockResolvedValue({
+			image: {
+				base64: bigPng.toString("base64"),
+				mediaType: "image/png",
+				uint8Array: new Uint8Array(bigPng),
+			},
+			providerMetadata: { gateway: { generationId: "generation_1" } },
+			usage: { inputTokens: 10, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateImage>>);
+
+		const result = await generateBuildImage(PARAMS);
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			"sites/project_1/assets/attempt_1/img-2.webp",
+			expect.any(Uint8Array),
+			"image/webp",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
+
+		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
+		const metadata = await sharp(uploaded).metadata();
+		expect(metadata.format).toBe("webp");
+		expect(metadata.width).toBe(1920);
+
+		expect(result).toMatchObject({
+			// Measured from the stored bytes, not from the requested canvas.
+			height: 230,
+			mediaType: "image/webp",
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.webp",
+			width: 1920,
+		});
+
+		// The srcset renditions land beside the primary object.
+		expect(
+			vi
+				.mocked(putSiteFile)
+				.mock.calls.slice(1)
+				.map((call) => call[0]),
+		).toEqual([
+			"sites/project_1/assets/attempt_1/img-2.w480.webp",
+			"sites/project_1/assets/attempt_1/img-2.w960.webp",
+			"sites/project_1/assets/attempt_1/img-2.w1600.webp",
+		]);
+
+		if (result.status !== "generated") {
+			throw new Error("expected a generated result");
+		}
+
+		// Transcript payload and bucket must carry the SAME optimized bytes.
+		expect(result.imageBase64).toBe(Buffer.from(uploaded).toString("base64"));
+	});
+
 	it("derives the object extension from the returned media type", async () => {
 		mockGeneratedImage("image/jpeg");
 
@@ -158,7 +232,35 @@ describe("generateBuildImage", () => {
 			"sites/project_1/assets/attempt_1/img-2.jpg",
 			expect.anything(),
 			"image/jpeg",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
+	});
+
+	it("keeps the image when a rendition upload fails", async () => {
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+		vi.mocked(generateImage).mockResolvedValue({
+			image: {
+				base64: bigPng.toString("base64"),
+				mediaType: "image/png",
+				uint8Array: new Uint8Array(bigPng),
+			},
+			providerMetadata: { gateway: { generationId: "generation_1" } },
+			usage: { inputTokens: 10, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateImage>>);
+		// The primary object stores; every rendition is refused.
+		vi.mocked(putSiteFile).mockImplementation(async (key) =>
+			/\.w\d+\.webp$/.test(key)
+				? Promise.reject(new Error("R2 said no"))
+				: undefined,
+		);
+
+		const result = await generateBuildImage(PARAMS);
+
+		expect(result).toMatchObject({ status: "generated" });
 	});
 
 	it("maps every brief aspect onto a supported canvas", async () => {
@@ -189,7 +291,13 @@ describe("generateBuildImage", () => {
 
 		const result = await generateBuildImage(PARAMS);
 
-		expect(result).toEqual({ message: "gateway exploded", status: "failed" });
+		expect(result).toMatchObject({
+			failure: { kind: "internal", source: "ours" },
+			message: "Something went wrong on our side. Please try again.",
+			status: "failed",
+		});
+		if (result.status !== "failed") throw new Error("expected failed result");
+		expect(result.message).not.toContain("gateway exploded");
 		expect(putSiteFile).not.toHaveBeenCalled();
 	});
 

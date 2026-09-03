@@ -9,7 +9,7 @@
 			"googlePendingCta": "Opening Google...",
 			"googleError": "Could not start Google sign-in. Please try again.",
 			"devModeCta": "Continue in dev mode",
-			"betaHint": "Beta — your first 10 pages are on us"
+			"betaHint": "Beta — your first 5 pages are on us"
 		}
 	},
 	"home": {
@@ -24,22 +24,69 @@
 		},
 		"tryHint": "Try: COD page for a vintage watch →",
 		"tryPrompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields.",
-		"createProjectError": "Couldn't create the project. Try again."
+		"createProjectError": "Couldn't create the project. Try again.",
+		"greetingNeutral": "What are we launching today?"
 	},
 	"drawer": {
 		"signOut": "Sign out",
 		"language": "Language",
 		"createProject": "Create new project",
-		"filterCreatedByMe": "Created by me",
 		"myWandit": "My Wandit",
 		"searchLabel": "Search projects",
 		"searchPlaceholder": "Search projects",
-		"cancelSearchLabel": "Close search",
 		"projectsLoading": "Loading projects…",
 		"projectsError": "Projects couldn't load.",
 		"retry": "Retry",
-		"emptyProjects": "No projects yet",
-		"emptySearch": "No matches"
+		"selectLanguageLabel": "Switch language to {language}",
+		"clearSearchLabel": "Clear search",
+		"searchingProjects": "Searching projects…",
+		"resultCount": {
+			"zero": "{count} results",
+			"one": "{count} result",
+			"two": "{count} results",
+			"few": "{count} results",
+			"many": "{count} results",
+			"other": "{count} results"
+		},
+		"projectsListLabel": "Projects",
+		"openProjectLabel": "Open project “{project}”",
+		"emptyProjectsTitle": "No projects yet",
+		"emptyProjectsDescription": "Create your first project to get started.",
+		"emptySearchTitle": "No matching projects",
+		"emptySearchDescription": "No projects match “{query}”.",
+		"newProjectLabel": "New project",
+		"filterAll": "All",
+		"filterBuilding": "Building",
+		"filterLive": "Live",
+		"filterDrafts": "Drafts",
+		"selectFilterLabel": "Show {filter} projects",
+		"groupToday": "Today",
+		"groupThisWeek": "This week",
+		"groupEarlier": "Earlier",
+		"buildingMeta": "Building…",
+		"draftMeta": "Draft · {time}",
+		"projectActionsLabel": "Options for “{project}”",
+		"projectActionsHint": "Press and hold for options",
+		"rename": "Rename",
+		"renameTitle": "Rename project",
+		"renameSave": "Save",
+		"renamed": "Renamed to “{name}”",
+		"renameError": "Couldn't rename the project.",
+		"openLive": "Open live page",
+		"delete": "Delete",
+		"deleteTitle": "Delete this project?",
+		"deleteBody": "“{name}” and its published page will be removed. This cannot be undone.",
+		"deleteKeep": "Keep",
+		"deleted": "Project deleted",
+		"deleteError": "Couldn't delete the project.",
+		"cancel": "Cancel",
+		"accountLabel": "Account",
+		"languageTitle": "App language",
+		"languageSubtitle": "Changes the interface. Pages you publish keep the language they were written in.",
+		"emptyFilterTitle": "Nothing here yet",
+		"emptyBuildingDescription": "No projects are building right now.",
+		"emptyLiveDescription": "No live projects yet.",
+		"emptyDraftsDescription": "No drafts yet."
 	},
 	"workspace": {
 		"composerPlaceholder": "Describe a change…",
@@ -73,20 +120,76 @@
 				"busy": "Wandit is already working on a reply.",
 				"credits": "You don't have enough credits.",
 				"creditsDetails": "This needs {requiredCredits} credits; you have {availableCredits}.",
-				"unavailable": "Chat couldn't load. Try again."
+				"unavailable": "Chat couldn't load. Try again.",
+				"tool": "This step could not be completed.",
+				"replayed": "This request already ran. Send a new message to continue.",
+				"memberLimit": "You reached your monthly credit limit for this workspace. Ask an admin to raise it.",
+				"streamKicker": "Reply interrupted"
+			},
+			"aiError": {
+				"kicker": {
+					"provider": "Provider issue",
+					"moderated": "Content rules",
+					"connector": "Connector issue",
+					"ours": "Something went wrong"
+				},
+				"providerFallback": "The AI provider",
+				"retry": "Retry",
+				"retryHint": "Retry starts a new attempt.",
+				"queuedHint": "Generations already started will finish on their own.",
+				"notCharged": "You were not charged.",
+				"connectorRefunded": "Your Wandit credits were returned. Check your {connector} balance.",
+				"attribution": {
+					"viaGateway": "{provider} via Vercel AI Gateway",
+					"viaOpenrouter": "{provider} via OpenRouter",
+					"refusedPrompt": "{provider} refused this prompt: {text}",
+					"refusedPromptNoText": "{provider} refused this prompt.",
+					"outputFilter": "The content filter of {provider} stopped this generation.",
+					"reasonGiven": "Reason given: {text}",
+					"connectorReturned": "{connector} returned: {text}",
+					"connectorNoReason": "{connector} failed without giving a reason."
+				},
+				"tryAgainPrefill": {
+					"image": "Try the image again",
+					"video": "Try the video again",
+					"marketing": "Try the marketing asset again",
+					"connector": "Try the connector again",
+					"hint": "This starts a new generation."
+				}
 			},
 			"tray": {
 				"preparing": "Preparing the question…",
 				"needsDetail": "Needs a detail",
 				"decideForMe": "Decide for me",
 				"dismiss": "Dismiss request",
-				"useThese": "Use these",
 				"typingOverride": "answering in your own words ↓",
 				"pickBelow": "Pick below ↓",
 				"answerBelow": "Answer below ↓",
 				"skipped": "Skipped",
 				"pickedForYou": "Wandit picked for you",
-				"wanditPicked": "Wandit picked"
+				"questionStep": "Question {current} of {total}",
+				"needsFiles": "Files requested",
+				"answer": "Answer",
+				"chooseAnOption": "Choose an option",
+				"chooseOptions": "Choose options",
+				"chooseSelected": {
+					"one": "Choose this option",
+					"other": "Choose these {count} options"
+				},
+				"sendFiles": "Send {count} file(s)",
+				"filesSent": "{count} file(s) sent",
+				"addFiles": "Add your files",
+				"addMore": "Add more files",
+				"paste": "Paste",
+				"orBrowse": "or browse",
+				"decrease": "Decrease",
+				"increase": "Increase"
+			},
+			"askUser": {
+				"questionsTitle": "A few questions",
+				"questionCount": "{count} questions",
+				"answeredCount": "{answered}/{total} answered",
+				"upNext": "Up next"
 			}
 		},
 		"artifact": {
@@ -97,6 +200,148 @@
 			"arfr": "AR & FR ready",
 			"cod": "COD forms",
 			"publish": "Publish free"
+		},
+		"dock": {
+			"assets": "Assets",
+			"marketing": "Marketing",
+			"leads": "Leads"
+		},
+		"hub": {
+			"timeAgo": "{time} ago",
+			"justNow": "just now",
+			"statLeads": {
+				"one": "{count} today",
+				"other": "{count} today"
+			},
+			"statMarketing": {
+				"one": "{count} in progress",
+				"other": "{count} in progress"
+			},
+			"statAssets": {
+				"one": "{count} media file",
+				"other": "{count} media files"
+			},
+			"cardAssetsSub": {
+				"one": "{count} media file generated",
+				"other": "{count} media files generated"
+			},
+			"cardMarketingSub": {
+				"one": "1 asset · {working} in progress",
+				"other": "{count} assets · {working} in progress"
+			},
+			"cardLeadsSub": {
+				"one": "1 lead · {today} today",
+				"other": "{count} leads · {today} today"
+			},
+			"switchLabel": "Switch section",
+			"closeLabel": "Close the section switcher"
+		},
+		"leadsView": {
+			"subtitle": "Lead collection is always free.",
+			"exportLabel": "Export as CSV",
+			"exportEmpty": "No leads to export",
+			"exportDone": "{count} leads exported as CSV",
+			"statToday": "Today",
+			"statWeek": "This week",
+			"statTotal": "Total leads",
+			"statRate": "Confirmation rate",
+			"sheets": {
+				"title": "Google Sheets",
+				"lastSync": "Last sync {time}",
+				"autoSync": "Syncs automatically every {minutes} min",
+				"justNow": "just now",
+				"sync": "Sync",
+				"syncing": "Syncing…",
+				"syncDone": "{count} leads synced to Google Sheets",
+				"open": "Opening the Google Sheet",
+				"notConnected": "Not connected",
+				"connect": "Connect",
+				"connectToast": "Redirecting to Google — Sheets authorization",
+				"neverSynced": "Not synced yet"
+			},
+			"searchPlaceholder": "Search a name or phone number…",
+			"filters": {
+				"allSources": "All sources",
+				"allStatuses": "All statuses",
+				"allDates": "All dates",
+				"today": "Today",
+				"last7": "Last 7 days",
+				"last30": "Last 30 days",
+				"active": "Active",
+				"archived": "Archived",
+				"allLeads": "All leads"
+			},
+			"sheetTitles": {
+				"source": "Source",
+				"status": "Status",
+				"date": "Date",
+				"visibility": "Visibility",
+				"leadStatus": "Order status"
+			},
+			"status": {
+				"toConfirm": "To confirm",
+				"confirmed": "Confirmed",
+				"shipped": "Shipped",
+				"delivered": "Delivered",
+				"returned": "Returned",
+				"cancelled": "Cancelled"
+			},
+			"sources": {
+				"facebook": "Facebook",
+				"tiktok": "TikTok",
+				"direct": "Direct"
+			},
+			"archivedTag": "Archived",
+			"statusChanged": "{name} → {status}",
+			"callLabel": "Call",
+			"whatsappLabel": "WhatsApp",
+			"noResultsTitle": "No matching leads",
+			"noResultsBody": "Try another search or clear the filters.",
+			"clearFilters": "Clear filters",
+			"emptyTitle": "No leads",
+			"emptyBody": "Publish your page to start collecting orders.",
+			"emptyCta": "Open publish settings",
+			"emptyCtaToast": "Publish settings",
+			"pageInfo": "1–{count} of {total}",
+			"loadMore": "Load more",
+			"changeError": "The change failed. Try again.",
+			"exportError": "Export failed. Try again."
+		},
+		"marketingView": {
+			"subtitle": "HTML assets, copy and scripts generated by Wandit.",
+			"refreshLabel": "Refresh",
+			"generatingToast": "Generation in progress…",
+			"downloadLabel": "Download the HTML",
+			"downloadError": "Download failed. Try again."
+		},
+		"assetsView": {
+			"subtitle": "Images and videos generated for this project.",
+			"countAll": {
+				"one": "{count} item",
+				"other": "{count} items"
+			},
+			"countImages": {
+				"one": "{count} image",
+				"other": "{count} images"
+			},
+			"countVideos": {
+				"one": "{count} video",
+				"other": "{count} videos"
+			},
+			"chipAll": "All",
+			"chipImages": "Images",
+			"chipVideos": "Videos",
+			"refreshLabel": "Refresh",
+			"srcGeneration": "Generation",
+			"srcVideo": "Video",
+			"srcAnimation": "Animation",
+			"srcPageBuild": "Page build",
+			"downloadLabel": "Download",
+			"loadError": "The assets could not be loaded.",
+			"retry": "Try again",
+			"emptyTitle": "No assets yet",
+			"emptyBody": "Images and videos generated by the AI will appear here.",
+			"downloadError": "Download failed. Try again."
 		}
 	},
 	"notFound": {
@@ -112,7 +357,13 @@
 		"browseFiles": "Browse files",
 		"cancel": "Cancel",
 		"remove": "Remove attachment",
-		"attachedMeta": "attached · {size}"
+		"attachedMeta": "attached · {size}",
+		"connectApps": "Connect apps",
+		"cameraPermissionDenied": "Camera access is needed to take a photo. Enable it in Settings.",
+		"limitReached": "You can attach up to 6 files.",
+		"tooLarge": "Files must be under 15 MB.",
+		"unsupported": "That file type isn't supported.",
+		"uploadFailed": "Upload failed. Remove the attachment and try again."
 	},
 	"voiceDictation": {
 		"permissionDenied": "Microphone access denied. Enable it in settings to use Wandit voice input.",
@@ -155,5 +406,154 @@
 		"week": "w",
 		"month": "mo",
 		"year": "y"
+	},
+	"page": {
+		"bar": {
+			"chat": "Chat",
+			"comment": "Comment on a block",
+			"edit": "Edit"
+		},
+		"chip": {
+			"comment": "Comment mode",
+			"edit": "Edit mode"
+		},
+		"comment": {
+			"exit": "Exit comment mode",
+			"emptyHint": "Tap a block to comment on it",
+			"reviewHint": "Review before sending",
+			"send": "Send",
+			"placeholder": "Describe the change you want here…",
+			"add": "Add comment",
+			"update": "Update note",
+			"sendOne": "Send to Wandit",
+			"sendMany": "Send {count} to Wandit",
+			"countLabel": {
+				"zero": "{count} comments",
+				"one": "{count} comment",
+				"two": "{count} comments",
+				"few": "{count} comments",
+				"many": "{count} comments",
+				"other": "{count} comments"
+			},
+			"clearAll": "Clear all",
+			"cancel": "Cancel",
+			"remove": "Remove comment",
+			"handoffIntro": "Apply these changes to the landing page:",
+			"queueFull": "You can send up to 10 comments at once"
+		},
+		"edit": {
+			"hint": "Tap a section to edit it",
+			"theme": "Theme",
+			"done": "Done",
+			"reset": "Reset to original theme",
+			"resetShort": "Reset",
+			"colors": "Colors",
+			"corners": "Corners",
+			"radius": {
+				"sharp": "Sharp",
+				"subtle": "Subtle",
+				"soft": "Soft",
+				"round": "Round"
+			},
+			"presets": "Palettes",
+			"headingFont": "Heading font",
+			"bodyFont": "Body font",
+			"themeUnavailable": "This page was built before theme tokens — ask Wandit in the chat to restyle it.",
+			"targetLadder": "Target",
+			"textLabel": "Text",
+			"paddingTop": "Space above",
+			"paddingBottom": "Space below",
+			"sectionBackground": "Section background",
+			"removeElement": "Remove this element",
+			"padding": {
+				"none": "None",
+				"s": "S",
+				"m": "M",
+				"l": "L",
+				"xl": "XL"
+			},
+			"tokens": {
+				"background": "Background",
+				"foreground": "Text",
+				"primary": "Primary",
+				"primaryForeground": "On primary",
+				"secondary": "Secondary",
+				"accent": "Accent",
+				"muted": "Muted",
+				"border": "Border"
+			}
+		},
+		"publish": {
+			"publish": "Publish",
+			"update": "Update",
+			"title": "Publish your page",
+			"subtitle": "Free forever — you only spend credits when the AI works for you.",
+			"addressEdit": "Edit",
+			"cta": "Publish page",
+			"liveTitle": "Your page is live",
+			"liveSubtitle": "Run your ads to this address — orders land in Leads.",
+			"copy": "Copy",
+			"copied": "Copied ✓",
+			"viewSite": "View site",
+			"done": "Done",
+			"autoAddress": "Address chosen at publish",
+			"publishing": "Publishing…",
+			"failed": "Publishing failed — try again",
+			"save": "Save",
+			"cancel": "Cancel",
+			"slugChecking": "Checking availability…",
+			"slugInvalid": "Lowercase letters, numbers and hyphens only",
+			"slugTaken": "This address is already taken",
+			"slugReserved": "This address is reserved",
+			"slugAvailable": "Available",
+			"liveVersion": "v{n} live",
+			"updateReady": "v{n} is ready to publish",
+			"updateCta": "Publish v{n}",
+			"retry": "Try again",
+			"failedTitle": "Publishing failed",
+			"unpublish": "Take site offline",
+			"unpublishTitle": "Take the site offline?",
+			"unpublishBody": "Your page will no longer be reachable at its address.",
+			"unpublishConfirm": "Take offline",
+			"unpublishedToast": "Site taken offline",
+			"publishedToast": "Live at {url}",
+			"rolledBackToast": "Version {n} restored",
+			"history": "History",
+			"historyLive": "Live",
+			"historyRestore": "Restore",
+			"historyPending": "In progress",
+			"historyFailed": "Failed"
+		},
+		"editor": {
+			"changesCount": {
+				"zero": "{count} changes",
+				"one": "{count} change",
+				"two": "{count} changes",
+				"few": "{count} changes",
+				"many": "{count} changes",
+				"other": "{count} changes"
+			},
+			"save": "Save",
+			"discard": "Discard",
+			"discardTitle": "Discard your changes?",
+			"discardKeep": "Keep editing",
+			"conflictTitle": "The page changed elsewhere",
+			"conflictBody": "A newer version of the page exists. Reload the latest version, then redo your edits.",
+			"conflictReload": "Reload latest",
+			"saved": "Saved — version {n}",
+			"saveFailed": "Save failed: {reason}",
+			"superseded": "A newer page version arrived — your unsaved edits were discarded",
+			"targetRemoved": "A commented block no longer exists — its note was removed",
+			"askAiFailed": "Sending to Wandit failed — your notes are still here"
+		},
+		"state": {
+			"emptyTitle": "No page yet",
+			"emptyBody": "Ask Wandit in the chat to build your landing page.",
+			"generatingTitle": "Building your page…",
+			"generatingBody": "Wandit is generating your landing page. It will appear here.",
+			"failedTitle": "The page build failed",
+			"failedBody": "Ask Wandit in the chat to try again.",
+			"laterBuildFailed": "The last build failed — this version still stands"
+		}
 	}
 }

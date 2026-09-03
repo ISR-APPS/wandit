@@ -178,7 +178,7 @@ A scene at container max-width 62rem holding THREE TIERS stacked vertically. Eac
 - THE RULED TIES — the world's best moment. An SVG overlay absolutely positioned across the whole pyramid (inset 0, pointer-events none, preserveAspectRatio="none", viewBox in percentage-friendly coordinates such as 0 0 100 100) draws ONE continuous 1px path in rgba(gold,.28) that leaves the first tier mark, ties across to its first note plate, then descends and curves into the second tier mark, and again into the third — a single trail falling through the composition. Draw it on scroll: read path.getTotalLength(), set strokeDasharray and strokeDashoffset to that length, then animate strokeDashoffset to 0 over 1.8s power2.inOut at start "top 78%", once:true. FALLBACK CONTRACT: if getTotalLength is unavailable or returns 0, set pathLength="1" on the path and animate dasharray 1 / dashoffset 1 to 0 instead; if GSAP is absent, the path renders fully drawn with no animation. It must NEVER render invisible.
 - CONTENT LAW: the notes come only from the brief. If the brief names no notes, keep the identical architecture and fill it with whatever three-tier truth the product actually has — for a candle: mèche / cire / parfum; for a body oil: texture / absorption / peau; for a soap: matière / mousse / après. NEVER invent a fragrance note, a concentration, or a hold time.
 
-## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — Lenis optional, and if used, expose it as window.__lenis)
+## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST AND IS NON-NEGOTIABLE. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches; hasGsap = typeof window.gsap !== "undefined"; animate = hasGsap && !reduced. EVERY hidden initial state — every autoAlpha 0, every y offset, every scaleX 0, every dashoffset — is set with gsap.set() INSIDE the animate branch. Never author opacity:0 or visibility:hidden in CSS for an animated element. If the CDN fails or motion is reduced, the page is fully visible, fully readable and fully orderable. Add a CSS prefers-reduced-motion block that, beyond the blanket .01ms override, sets the vapor paths and the drift rail to animation:none, stops the halo breath, renders the tie and the envelope in their final state, and disables the dissolve blur.
 
 gsap.defaults({ ease: "power2.out", duration: 1.2 }) — this world OVERRIDES the global power3.out / 1.1s default. power3's deceleration is too abrupt for air; everything here settles late and softly.
@@ -237,7 +237,7 @@ MICRO-INTERACTION KIT (all CSS, all inside the timing bands, all on the shared e
   3. THE FLAP CLOSES: a triangle path pointing UP above the body's top edge, with transform-box: fill-box and transform-origin: 50% 0%, animating scaleY(1) to scaleY(-1) over .7s on the shared ease — two declarations, and it reads as a hand folding a letter.
   4. THE WAX: a circle at the flap's point, r 14, fill rgba(gold,.9), a 1px velvet inner ring, and the merchant's initial from the brief in the display face at 12px in velvet — scaling .4 to 1 over .5s with back.out(2.2) at timeline position .9.
   5. Then the order reference in the display face at 1.7rem with tabular-nums, a .62rem/.30em uppercase sub-label, and ONE line echoing the buyer's own name and wilaya: "Nadia, on vous appelle à Oran avant ce soir."
-  About 2.1 seconds total. IT NEVER CELEBRATES: no confetti, no checkmark burst, no green tick, no exclamation mark. Under reduced motion or without GSAP the envelope renders already sealed with the reference present. And as the seal begins — the instant validation passes — the letter is truly entrusted: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as written, wilaya, commune, plus contenance and quantité), while one off-canvas decoy input marked data-wandit-hp lies in the commande, never read by the page's own script.
+  About 2.1 seconds total. IT NEVER CELEBRATES: no confetti, no checkmark burst, no green tick, no exclamation mark. Under reduced motion or without GSAP the envelope renders already sealed with the reference present. And as the seal begins — the instant validation passes — the letter is truly entrusted: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as written, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected, and contenance under its own key), while one off-canvas decoy input marked data-wandit-hp lies in the commande, never read by the page's own script.
 - THE STICKY MOBILE ORDER BAR (below 860px only), appearing once the hero's bottom crosses 60 percent of the viewport via ScrollTrigger with an IntersectionObserver fallback so it survives a GSAP failure: position fixed, inset-inline 0, bottom 0, height 4.4rem, z-index 80, background color-mix(in srgb, var(--background) 82%, transparent), backdrop-filter blur(16px), a FOIL SEAM as its block-start edge, box-shadow 0 -14px 34px -20px color-mix(in srgb, var(--background) 70%, transparent), padding-inline clamp(1rem,4vw,1.4rem), padding-block-end env(safe-area-inset-bottom), flex, align-items center, gap .9rem. It carries the price whisper at .9 scale (label .58rem/.30em), the 2.9rem circular WhatsApp button, and the foil pill on the remaining width with its label at .68rem/.24em. Enters from autoAlpha 0 / yPercent 100 over .7s — and, the detail almost every page in this market misses, IT HIDES AGAIN while the commande is in view, so the bar never covers the form it points at.
 - CROSS-SCENE STATE: if the brief gives more than one contenance, a chooser anywhere on the page rewrites the price whisper in the hero, the order plate and the sticky bar at the same instant, each over .6s, and pre-selects the matching ruled radio row. Persist the choice and the completed order in localStorage; on return, restore the choice and paint the sealed envelope INSTANTLY with no animation, so a returning buyer is never asked to order twice.
 - Every conversion element works with JavaScript degraded: the form validates and shows an honest success state without GSAP, the WhatsApp link is a real href, and the price is in the HTML, never written by script.
@@ -288,6 +288,7 @@ It fails UP into fog: blur on every panel, four ambient loops, a shimmer that ne
 
 Executed at 100 percent — three warm near-blacks cutting between chapters, three plumes drifting forever at 22, 27 and 31 seconds, a bottle breathing in its own light above a reflection cut at 46 percent, a gold tie drawn down through three ruled tiers of notes, two scenes that evaporate upward into the next, a price whispered in small caps and never the loudest thing on its screen, and an order slip of ruled lines that folds itself into a sealed envelope — a buyer scrolling on a phone in Algiers feels the room the merchant just walked out of. Push INTO the quiet. Every number above is load-bearing.`,
 	energy: "quiet",
+	family: "dark-luxury",
 	id: "sillage",
 	industries: [
 		"perfume",
@@ -308,6 +309,13 @@ Executed at 100 percent — three warm near-blacks cutting between chapters, thr
 	kind: "product",
 	mood: ["dark", "hushed", "sensual", "drifting", "opulent"],
 	name: "Sillage",
+	preview: {
+		ground: "#0B0908",
+		ink: "#EFE6D8",
+		accent: "#B9932F",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "Le sillage",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Near-black velvet with gold that only catches the light when a finger comes near it, your bottle breathing above its own reflection while scent drifts up the page — and every scene evaporates into the next instead of simply ending.",

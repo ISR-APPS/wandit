@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	index,
 	jsonb,
@@ -56,6 +56,12 @@ export const marketingAssets = pgTable(
 		// Trigger.dev run id for operations/debugging; not exposed to the client.
 		triggerRunId: text("trigger_run_id"),
 		error: text("error"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -65,12 +71,16 @@ export const marketingAssets = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("marketing_assets_createdAt_idx").on(table.createdAt),
 		index("marketing_assets_project_idx").on(table.projectId, table.createdAt),
 		index("marketing_assets_chat_idx").on(table.chatId),
 		index("marketing_assets_status_created_idx").on(
 			table.status,
 			table.createdAt,
 		),
+		index("marketing_assets_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		uniqueIndex("marketing_assets_chat_request_uq").on(
 			table.chatId,
 			table.requestKey,

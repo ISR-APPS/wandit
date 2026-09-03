@@ -1,6 +1,8 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { Sentry } from "@wandit/observability/browser";
 
+import { adminMyPermissionsQueryKey } from "@/features/auth/api/admin-permissions.queries";
+import { invalidateSessionCache } from "@/features/auth/lib/session";
 import { isApiClientError } from "@/lib/api-client";
 
 // HTTP responses the API answered deliberately (4xx guard/business outcomes,
@@ -11,12 +13,22 @@ function isExpectedApiResponse(error: unknown): boolean {
 	return isApiClientError(error) && error.status >= 400;
 }
 
+function invalidateSessionOnPermissionError(error: unknown): void {
+	if (isApiClientError(error) && error.code === "ADMIN_PERMISSION_REQUIRED") {
+		invalidateSessionCache();
+		void queryClient.invalidateQueries({
+			queryKey: adminMyPermissionsQueryKey,
+		});
+	}
+}
+
 export const queryClient = new QueryClient({
 	// Global error reporting: fires once per failed query/mutation (after
 	// retries). Only the key's first element is recorded — full keys can
 	// embed user-typed search input.
 	queryCache: new QueryCache({
 		onError: (error, query) => {
+			invalidateSessionOnPermissionError(error);
 			if (isExpectedApiResponse(error)) {
 				return;
 			}
@@ -30,6 +42,7 @@ export const queryClient = new QueryClient({
 	}),
 	mutationCache: new MutationCache({
 		onError: (error, _variables, _context, mutation) => {
+			invalidateSessionOnPermissionError(error);
 			if (isExpectedApiResponse(error)) {
 				return;
 			}

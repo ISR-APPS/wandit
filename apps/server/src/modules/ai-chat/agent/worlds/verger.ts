@@ -137,7 +137,7 @@ Real table markup: border-collapse collapse, a caption, thead with scope="col", 
 - THE HARD RULE, and the most important sentence in this document: EVERY NUMBER IN THIS TABLE COMES FROM THE BRIEF. Three facts means three rows and it looks deliberate. Inventing a humidity percentage, an acidity level, a vitamin content, a lab name or a certification is not a style choice — in the food trade it is a correctness bug and a legal one. A short table is fine; a fabricated table is a failed build.
 - THE PURITY METER, optional and only for a real measurable on a real scale: a 4px track at rgba(ink,.14) radius min(var(--radius), 2px) with a linear-gradient(to right, leaf, honey) fill whose width is written by JavaScript at the moment the count-up fires and transitioned over 1.3s. Never a made-up quality score, never five stars.
 
-## Motion identity (GSAP 3 + ScrollTrigger from a CDN; Lenis optional and welcome here)
+## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST AND IS NON-NEGOTIABLE. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state — autoAlpha 0, y offsets, strokeDashoffset, start scales — is set with gsap.set() INSIDE the animate branch; never author opacity:0, visibility:hidden or a dash offset in CSS for an animated element. If the CDN fails or motion is reduced, the page is fully visible, fully drawn and fully functional, with the wax seal at animation:none and nothing pinned. Ship a CSS prefers-reduced-motion block that, beyond the blanket .01ms override, sets the wax seal and the mobile band rail to animation:none and width:auto, parks the light wash at its resting opacity, leaves the silhouette fully drawn AND filled, and shows the seasonality bar, ticks and marker at their final values. CANVAS IS NOT USED IN THIS WORLD — every drawn thing is inline SVG.
 TIMING BANDS — every duration belongs to one: .28-.45s interaction feedback · .55-.75s component state · .9-1.4s narrative reveals · 1.6-2.0s the hero photograph settle · 5.5s the one ambient loop · 46s the decorative seal. ONE shared CSS easing token cubic-bezier(.24,.62,.18,1) across roughly twenty transitions. gsap.defaults({ease:"power2.out", duration:1.1}) — this world is unhurried; a .4s reveal here feels like being hurried out of an orchard. Eases: power3.out entrances, power2.out settles and counters, power2.inOut stroke draws, power3.inOut the pour wipe, sine.inOut the ambient loop, "none" every scrub.
 TRAVEL IS SMALL: y offsets of 12 / 24 / 40 only, all three inside the hero to encode three depth planes · scales .965 / 1.06 / 1.12 · hover lift -2px · glyph nudge 4px · parallax yPercent -6 to 6 and never more. Nothing travels 100px.
@@ -188,7 +188,7 @@ The page's one pinned moment and the fourth appearance of the silhouette. The se
   - THE FOOT: border-top 1.5px rgba(ink,.4), the docket's total rule, padding-top 1.3rem, space-between — the label "TOTAL À PAYER À LA LIVRAISON" in mono .68rem / .22em uppercase rgba(ink,.5) and the total in display serif 500 at 2rem, tabular-nums, thin-space thousands. It recomputes on every weight, quantity and wilaya change with the .32s blink, never a count-up.
   - VALIDATION IS BLUR-GATED: a touched map so an error appears only after a field's first blur, never while someone is typing into a fresh field, and never blocking typing. Errors are full sentences in the merchant's voice in the error mix of var(--primary) and var(--foreground) at .76rem with min-height 1.15em reserved so nothing reflows; aria-invalid, aria-describedby and aria-live="polite" wired properly.
   - SUBMIT: the primary pill at full width inside the plate — the one place a full-width button is legal here — labelled "Commander — paiement à la livraison", with a deliberate 750ms pending state replacing the label with a present-tense human sentence and a disabled flag for double-submit protection.
-- THE SUCCESS STATE — LE BON TAMPONNÉ. The form transitions opacity to 0 over .48s with visibility 0s .48s so focus never lands on a hidden control, while a panel absolutely positioned over it INSIDE THE SAME BOX fades in over .75s with a .28s delay; the plate's height is never animated. The instant validation passes — as the panel begins — the harvest is entered in the register: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus weight and quantity), while one off-canvas decoy input marked data-wandit-hp rests in the docket, never read by the page's own script.
+- THE SUCCESS STATE — LE BON TAMPONNÉ. The form transitions opacity to 0 over .48s with visibility 0s .48s so focus never lands on a hidden control, while a panel absolutely positioned over it INSIDE THE SAME BOX fades in over .75s with a .28s delay; the plate's height is never animated. The instant validation passes — as the panel begins — the harvest is entered in the register: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected, and weight under its own key), while one off-canvas decoy input marked data-wandit-hp rests in the docket, never read by the page's own script.
   - It opens on THE STAMP: the silhouette at 9rem, stroke 1.6 HONEY, strokeDashoffset 100 to 0 over 1.2s power2.inOut at a .35s delay, then the honey fill rect rising inside it over 1.1s power2.out at +.5s — the jar fills as the confirmation. Above it "COMMANDE ENREGISTRÉE" in mono .68rem / .28em uppercase LEAF.
   - Below it, THE BUYER'S ORDER RENDERED AS A DATELINE, in the exact dateline format: their name · wilaya · weight · quantity · total, middot-separated in mono .74rem with HONEY middots. The customer's order becomes provenance — the whole world in twenty lines of markup. Then the WhatsApp ghost pill so they can confirm in one tap, and one sentence saying who calls and when, only if the brief supplies it.
   - PERSIST IT: store the order and chosen weight in localStorage; on return restore the weight and paint the success state INSTANTLY with no animation, so a returning buyer is never asked to order twice.
@@ -237,6 +237,7 @@ This world fails by being merely BEIGE. A cream page with a serif headline, a ho
 Executed at 60 percent — cream background, gold button, rounded cards, a stock honey photo, a made-up nutrition table — this is exactly the generic produit-naturel page it exists to replace, and the invented table makes it worse than generic. Executed at 100 percent, a buyer scrolling on a phone in Oran feels the low sun on a valley they could find on a map, understands in nine seconds what was picked, when, by whom, in what quantity and what it costs at their door, and orders because the page never once asked them to take anything on faith. Push INTO the specificity. Every number above is load-bearing.
 `,
 	energy: "medium",
+	family: "verger",
 	id: "verger",
 	industries: [
 		"food",
@@ -257,6 +258,13 @@ Executed at 60 percent — cream background, gold button, rounded cards, a stock
 	kind: "product",
 	mood: ["sunlit", "rooted", "unhurried", "wholesome", "documentary"],
 	name: "Verger",
+	preview: {
+		ground: "#F7F1E3",
+		ink: "#1E241A",
+		accent: "#C88A21",
+		fontFamily: "Newsreader",
+		sampleWord: "Le Verger",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Unbleached paper under low golden light, a harvest date and a valley printed above everything like provenance on a bottle of oil, and your jar's outline drawn in one honey line that follows the buyer all the way down — until it draws itself, fills up, and stamps their order at the bottom.",

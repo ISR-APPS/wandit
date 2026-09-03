@@ -61,7 +61,10 @@ export function applyOps(
 			return { index, ok: false, reason };
 		}
 
-		if (op.kind === "set-tokens" || op.kind === "reset-tokens") {
+		if (op.kind === "set-page-title") {
+			// Head-level op: no wid, so it gets its own sentinel.
+			editedWids.add("__title__");
+		} else if (op.kind === "set-tokens" || op.kind === "reset-tokens") {
 			tokensTouched = true;
 			resetTokensTouched ||= op.kind === "reset-tokens";
 
@@ -118,6 +121,10 @@ function applyOne(
 		appendOriginalFontLinks($, context.originalTheme.fontLinkHrefs);
 
 		return null;
+	}
+
+	if (op.kind === "set-page-title") {
+		return applyPageTitle($, op.value);
 	}
 
 	const match = $(`[data-wid="${op.wid}"]`);
@@ -297,7 +304,7 @@ function applyOne(
 			// Re-check the allowlist here (defense in depth): the AI path
 			// builds EditOps with no zod schema between it and the DOM.
 			if (!isSafeLinkHref(op.value)) {
-				return "href must use https, http, tel: or mailto:";
+				return "href must use https, http, tel:, mailto:, or a same-page #anchor";
 			}
 
 			if (!match.is("a")) {
@@ -358,19 +365,88 @@ function applyOne(
 
 			return null;
 		}
+		case "insert-element": {
+			if (
+				op.position === "append" &&
+				VOID_ELEMENT_TAGS.has((match.prop("tagName") ?? "").toLowerCase())
+			) {
+				return "append is not supported for a void element like <img> or <input> — use position before or after";
+			}
+
+			const fragment = cheerio.load(op.value, undefined, false);
+
+			if (!hasExactlyOneElementRoot(fragment)) {
+				return "inserted HTML must contain exactly one element";
+			}
+
+			const unsafe = findActiveContent(fragment, "inserted HTML");
+
+			if (unsafe !== null) {
+				return unsafe;
+			}
+
+			fragment("[data-wid]").removeAttr("data-wid");
+			const insertedHtml = fragment.html() ?? "";
+
+			switch (op.position) {
+				case "before":
+					match.before(insertedHtml);
+					break;
+				case "after":
+					match.after(insertedHtml);
+					break;
+				case "append":
+					match.append(insertedHtml);
+					break;
+			}
+
+			return null;
+		}
+		case "insert-section": {
+			if (!isTopLevelSection($, match[0])) {
+				return "anchor is not a top-level section";
+			}
+
+			const fragment = cheerio.load(op.value, undefined, false);
+
+			if (!hasExactlyOneElementRoot(fragment)) {
+				return "inserted HTML must contain exactly one element";
+			}
+
+			if (!fragment.root().children().first().is(SECTIONISH_SELECTOR)) {
+				return "inserted HTML root is not a section element";
+			}
+
+			const unsafe = findActiveContent(fragment, "inserted HTML");
+
+			if (unsafe !== null) {
+				return unsafe;
+			}
+
+			fragment("[data-wid]").removeAttr("data-wid");
+			const insertedHtml = fragment.html() ?? "";
+
+			if (op.position === "before") {
+				match.before(insertedHtml);
+			} else {
+				match.after(insertedHtml);
+			}
+
+			return null;
+		}
 		case "replace-section": {
 			// Parse the fragment on its own first: it must contain at least one
-			// element and no ACTIVE content — the preview iframe allows scripts
-			// and the same HTML ships in published pages, so surgical
-			// replacements must be inert. The AI adds scripts through full
-			// rebuilds, never through surgery.
+			// element and no active content except constrained embeds — the preview
+			// iframe allows scripts and the same HTML ships in published pages, so
+			// surgical replacements must otherwise be inert. The AI adds scripts
+			// through full rebuilds, never through surgery.
 			const fragment = cheerio.load(op.value, undefined, false);
 
 			if (fragment.root().children().length === 0) {
 				return "replacement HTML contains no element";
 			}
 
-			const unsafe = findActiveContent(fragment);
+			const unsafe = findActiveContent(fragment, "replacement HTML");
 
 			if (unsafe !== null) {
 				return unsafe;
@@ -399,6 +475,23 @@ const BRAND_LOGO_MARKER = "data-wandit-brand-logo";
 const BRAND_IMAGE_STYLE =
 	"display:block;width:auto;height:auto;max-width:min(12rem,40vw);" +
 	"max-height:3rem;object-fit:contain;object-position:center";
+const SECTIONISH_SELECTOR = "header, section, footer, aside, nav";
+const VOID_ELEMENT_TAGS = new Set([
+	"area",
+	"base",
+	"br",
+	"col",
+	"embed",
+	"hr",
+	"img",
+	"input",
+	"link",
+	"meta",
+	"param",
+	"source",
+	"track",
+	"wbr",
+]);
 
 type PageElement = ReturnType<CheerioAPI>;
 type PageNode = ReturnType<CheerioAPI>[number];
@@ -604,7 +697,6 @@ const FORBIDDEN_FRAGMENT_TAGS = new Set([
 	"embed",
 	"frame",
 	"frameset",
-	"iframe",
 	"link",
 	"meta",
 	"object",
@@ -621,6 +713,54 @@ const URL_ATTRIBUTES = new Set([
 	"xlink:href",
 ]);
 
+function isAllowedIframeEmbedUrl(value: string | undefined): boolean {
+	if (value === undefined) {
+		return false;
+	}
+
+	const trimmed = value.trim();
+	const authority = /^https:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(trimmed)?.[1];
+
+	if (authority === undefined) {
+		return false;
+	}
+
+	let url: URL;
+
+	try {
+		url = new URL(trimmed);
+	} catch {
+		return false;
+	}
+
+	if (
+		url.protocol !== "https:" ||
+		url.username !== "" ||
+		url.password !== "" ||
+		url.port !== "" ||
+		authority.toLowerCase() !== url.hostname.toLowerCase()
+	) {
+		return false;
+	}
+
+	switch (url.hostname.toLowerCase()) {
+		case "www.youtube.com":
+		case "www.youtube-nocookie.com":
+			return /^\/embed\/[^/]+$/.test(url.pathname);
+		case "player.vimeo.com":
+			return /^\/video\/\d+$/.test(url.pathname);
+		case "www.google.com":
+			return (
+				url.pathname === "/maps/embed" ||
+				url.pathname.startsWith("/maps/embed/")
+			);
+		case "maps.google.com":
+			return url.pathname === "/maps/embed" || url.pathname === "/embed";
+		default:
+			return false;
+	}
+}
+
 // Browsers strip ASCII whitespace/control characters inside URL schemes
 // ("java\tscript:" runs) — compact before the scheme check.
 function compactUrl(value: string): string {
@@ -635,14 +775,29 @@ function compactUrl(value: string): string {
 	return out.toLowerCase();
 }
 
+function hasExactlyOneElementRoot($: CheerioAPI): boolean {
+	if ($.root().children().length !== 1) {
+		return false;
+	}
+
+	return $.root()
+		.contents()
+		.toArray()
+		.every((node) => node.type !== "text" || $(node).text().trim() === "");
+}
+
 /**
- * Stored-XSS guard for replace-section fragments: returns a relayable
- * rejection reason when the fragment carries active content (script-bearing
- * elements, event-handler attributes, script-scheme URLs, srcdoc, CSS
- * @import), or null when it is inert. Rejection over stripping — the model
- * retries with clean markup instead of silently losing what it wrote.
+ * Stored-XSS guard for raw-HTML fragments: returns a relayable rejection
+ * reason when the fragment carries active content (script-bearing elements,
+ * event-handler attributes, script-scheme URLs, srcdoc, CSS @import). It
+ * permits no active content except constrained embeds. Rejection over
+ * stripping — the model retries with clean markup instead of silently losing
+ * what it wrote.
  */
-function findActiveContent($: CheerioAPI): string | null {
+function findActiveContent(
+	$: CheerioAPI,
+	fragmentLabel: "inserted HTML" | "replacement HTML",
+): string | null {
 	let reason: string | null = null;
 
 	$("*").each((_, node) => {
@@ -654,7 +809,7 @@ function findActiveContent($: CheerioAPI): string | null {
 		const tag = (element.prop("tagName") ?? "").toLowerCase();
 
 		if (FORBIDDEN_FRAGMENT_TAGS.has(tag)) {
-			reason = `replacement HTML must not contain <${tag}> elements`;
+			reason = `${fragmentLabel} must not contain <${tag}> elements`;
 
 			return;
 		}
@@ -663,13 +818,13 @@ function findActiveContent($: CheerioAPI): string | null {
 			const lowered = name.toLowerCase();
 
 			if (lowered.startsWith("on")) {
-				reason = `replacement HTML must not carry event-handler attributes ("${name}")`;
+				reason = `${fragmentLabel} must not carry event-handler attributes ("${name}")`;
 
 				return;
 			}
 
 			if (lowered === "srcdoc") {
-				reason = 'replacement HTML must not carry "srcdoc" attributes';
+				reason = `${fragmentLabel} must not carry "srcdoc" attributes`;
 
 				return;
 			}
@@ -682,15 +837,21 @@ function findActiveContent($: CheerioAPI): string | null {
 					compact.startsWith("vbscript:") ||
 					compact.startsWith("data:text/html")
 				) {
-					reason = `replacement HTML must not use script-scheme URLs ("${name}")`;
+					reason = `${fragmentLabel} must not use script-scheme URLs ("${name}")`;
 
 					return;
 				}
 			}
 		}
 
+		if (tag === "iframe" && !isAllowedIframeEmbedUrl(element.attr("src"))) {
+			reason = `${fragmentLabel} <iframe> src must be an allowed HTTPS embed URL (YouTube, Vimeo, or Google Maps)`;
+
+			return;
+		}
+
 		if (tag === "style" && /@import/i.test(element.text())) {
-			reason = "replacement HTML must not use CSS @import";
+			reason = `${fragmentLabel} must not use CSS @import`;
 		}
 	});
 
@@ -817,6 +978,29 @@ function ensureRootBlock(
 	}
 
 	return injected;
+}
+
+// Document <title> (the browser tab). The lookup is scoped to the head so an
+// inline SVG <title> in the body is never touched, and the value goes through
+// text() — cheerio escapes it, so a "</title><script>" value stays inert.
+function applyPageTitle($: CheerioAPI, value: string): string | null {
+	const head = $("head").first();
+
+	if (head.length === 0) {
+		return "this page has no <head> element";
+	}
+
+	let title = head.children("title").first();
+
+	if (title.length === 0) {
+		// Appended, never prepended: <meta charset> must stay first in the head.
+		head.append("<title></title>");
+		title = head.children("title").last();
+	}
+
+	title.text(value);
+
+	return null;
 }
 
 function applySetTokens(

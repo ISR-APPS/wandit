@@ -1,30 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
-	BetaEnrollUserInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
-	SetUserAccessInput,
+	SetUserAdminViewsInput,
 	SetUserBannedInput,
 	UserDetail,
 } from "./users.dto";
 import { userKeys } from "./users.queries";
 import {
-	betaEnrollUser,
 	changeUserRole,
 	grantUserCredits,
-	setUserAccess,
+	setUserAdminViews,
 	setUserBanned,
 } from "./users.services";
-
-export function useBetaEnrollUserMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: BetaEnrollUserInput) => betaEnrollUser(input),
-		onSuccess: (user) => syncUserQueries(queryClient, user),
-	});
-}
 
 export function useGrantCreditsMutation() {
 	const queryClient = useQueryClient();
@@ -44,11 +33,11 @@ export function useChangeUserRoleMutation() {
 	});
 }
 
-export function useSetUserAccessMutation() {
+export function useSetAdminViewsMutation() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: (input: SetUserAccessInput) => setUserAccess(input),
+		mutationFn: (input: SetUserAdminViewsInput) => setUserAdminViews(input),
 		onSuccess: (user) => syncUserQueries(queryClient, user),
 	});
 }
@@ -72,5 +61,4 @@ function syncUserQueries(
 
 export const useGrantUserCredits = useGrantCreditsMutation;
 export const useChangeUserRole = useChangeUserRoleMutation;
-export const useSetUserAccess = useSetUserAccessMutation;
 export const useSetUserBanned = useSetUserBannedMutation;

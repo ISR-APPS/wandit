@@ -110,14 +110,16 @@ function unwrapBillingErrorSource(
 	return source;
 }
 
+// Pricing v4 details carry decimal credits (requiredCredits can be 0.1,
+// availableCredits can be a negative fraction) — accept any finite number.
 function isPaymentRequiredDetails(
 	value: unknown,
 ): value is PaymentRequiredDetails {
 	return (
 		isRecord(value) &&
-		Number.isInteger(value.requiredCredits) &&
-		(value.requiredCredits as number) > 0 &&
-		Number.isInteger(value.availableCredits)
+		isFiniteNumber(value.requiredCredits) &&
+		value.requiredCredits > 0 &&
+		isFiniteNumber(value.availableCredits)
 	);
 }
 
@@ -126,10 +128,14 @@ function isMemberLimitDetails(
 ): value is MemberCreditLimitDetails {
 	return (
 		isRecord(value) &&
-		Number.isInteger(value.limitCredits) &&
-		Number.isInteger(value.spentCredits) &&
-		Number.isInteger(value.requiredCredits)
+		isFiniteNumber(value.limitCredits) &&
+		isFiniteNumber(value.spentCredits) &&
+		isFiniteNumber(value.requiredCredits)
 	);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

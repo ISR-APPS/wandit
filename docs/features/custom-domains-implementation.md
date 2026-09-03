@@ -1,6 +1,6 @@
 # Custom Domains — Journal d'implémentation et décisions
 
-**Prototype initial :** 2026-07-04 → 2026-07-05 · **Architecture actuelle mise à jour :** 2026-08-01 (Name.com + Stripe + Trigger.dev v4)
+**Prototype initial :** 2026-07-04 → 2026-07-05 · **Architecture actuelle mise à jour :** 2026-08-17 (Name.com + Stripe + Trigger.dev v4 + zone Cloudflare pour l'apex, achats et domaines externes)
 **Spécification de référence :** `docs/features/custom-domains.md`
 
 Ce document sépare volontairement l'état actuel des notes historiques. Les décisions des sections 1 à 9 font foi; la section 10 est exclusivement historique.
@@ -10,10 +10,11 @@ Ce document sépare volontairement l'état actuel des notes historiques. Les dé
 - **Registrar : Name.com CORE v1.** L'adapter utilise l'API CORE, son sandbox fonctionnel et l'authentification Basic username + API token derrière le port `DomainProvider`.
 - **Paiement direct, jamais en crédits Wandit.** L'achat passe par `POST /api/v1/orders/domain` → `payment_orders` → Stripe Checkout → réconciliation/webhook → `DomainRegistrationFulfillment` → tâche Trigger `domain-purchase`.
 - **Le paiement vérifié est l'autorité.** Le retour navigateur « success » ne déclenche rien par lui-même : `reconcile-session` relit la session chez Stripe et vérifie montant/devise/customer/mode/purpose. Les webhooks signés couvrent les paiements asynchrones, remboursements et litiges.
-- **Prix retail sur le fil, wholesale côté serveur.** La recherche expose `DOMAIN_REGISTRATION_USD_CENTS`; la quote wholesale Name.com reste privée et sert de garde-fou avant Stripe puis juste avant l'achat registrar.
+- **Prix retail sur le fil, wholesale côté serveur.** La recherche expose la quote wholesale Name.com arrondie aux cents plus une marge exacte de 2 USD; la quote wholesale reste privée et sert de garde-fou avant Stripe puis juste avant l'achat registrar.
 - **Le client reste registrant légal.** Ses coordonnées sont envoyées à Name.com; le produit doit suivre et expliquer la vérification de contact.
 - **Wandit pilote les renouvellements.** L'autorenew Name.com est désactivé. Le flag local exprime une intention mais aucun renouvellement n'est permis sans paiement confirmé.
 - **Premium, aftermarket, `.dz`, IDN et transferts entrants sont exclus du v1.** Une quote absente ou supérieure au plafond bloque l'achat.
+- **Hôte canonique et apex.** `www.{domain}` sert le site (CNAME vers `customers.wandit.app`). Pour les domaines achetés — et, en option réalisée par le propriétaire, pour les domaines externes (« connecter mon domaine ») — l'apex `https://{domain}` est aussi servi par Cloudflare : `ApexZoneStep` héberge le DNS du domaine dans une zone Cloudflare de **notre** compte (`CLOUDFLARE_ACCOUNT_ID`), y écrit des CNAME DNS-only (`{domain}` et `www.{domain}` → origine de repli) plus les TXT de propriété des deux hostnames, crée un second custom hostname pour le nom nu, puis délègue les nameservers Name.com à la zone. `apps/edge` redirige ensuite l'apex vers `https://www.{domain}` en 301. Le forwarding URL Name.com reste écrit en premier comme repli (et reste le mécanisme apex quand `DOMAINS_APEX_ZONE_ENABLED=false`) : son hôte n'a pas de certificat TLS. Un ANAME/forwarding côté registrar ne peut pas fonctionner sur le plan Free : le vérificateur Cloudflare for SaaS répond `Zone does not have apex proxying entitlement and custom hostname does not CNAME to zone.` (tentative annulée, PR #173/#176); seul un CNAME apex DNS-only dans une zone Cloudflare est vu comme un CNAME par le vérificateur.
 
 ## 2. Architecture Trigger.dev actuelle
 
@@ -25,10 +26,11 @@ Les étapes métier sont testables indépendamment, sans NestJS ni SDK Trigger, 
 
 - `DomainFulfillmentStateService` : association ordre/domaine, branches de replay, transition `paid → fulfilling` et fence pré-dépense;
 - `DomainRegistrationStep` : disponibilité/plafond, registrant, appel Name.com idempotent et persistance CAS du reçu;
-- `PurchasedDomainDnsStep` : CNAME `www`, forwarding apex et marqueur DNS;
-- `CustomHostnameConfigurationStep` : hostname Cloudflare, challenges et propagation TXT;
-- `CustomHostnameVerificationStep` : exactement une sonde de statut, sans boucle ni planification;
-- `DomainConfigurationRunner` : curseur persistant, boucle bornée et attente durable;
+- `PurchasedDomainDnsStep` : CNAME `www`, forwarding apex (repli) et marqueur DNS — inchangé;
+- `CustomHostnameConfigurationStep` : hostname Cloudflare `www`, challenges et propagation TXT;
+- `ApexZoneStep` (best-effort, ne lève jamais; désactivable par `DOMAINS_APEX_ZONE_ENABLED=false`; options `{ enabled, fallbackOrigin, sources }` et autorisation explicite de créer pour chaque appel) : une ligne qui porte déjà `dns.zoneId` est toujours maintenue, sondée et configurée, même sans autorisation de création. Une zone persistée disparue est retirée (`getZoneStatus` → `null` sur 404), mais une remplaçante externe n'est trouvée/adoptée/créée que si l'autorisation courante le permet. La configuration supprime d'abord les A/AAAA/CNAME en conflit à `www`, écrit le CNAME DNS-only `www` + son TXT de propriété, puis crée/adopte le hostname apex et écrit le CNAME apex + TXT; un échec apex ne prive donc jamais de `www` un propriétaire déjà délégué. Les clés `dns` sont fusionnées par `DomainsRepository.mergeDnsIfStatus`. Pour une ligne externe, la première écriture de `zoneId` + NS persiste atomiquement `dns.zoneNameserversExposedAt`, puis l'import DNS unique (`zoneScanned` / `zoneScanRecordsAdded`) et la normalisation DNS-only précèdent nos enregistrements; il n'y a aucun appel registrar. Les compositions achat/backfill gardent leur ordre existant. La composition `domain-configure` sonde au contraire le hostname `www` **avant** la passe apex et n'autorise une nouvelle zone que si `hostnameStatus === "active"`; une erreur de zone reste sans effet sur l'activation;
+- `CustomHostnameVerificationStep` : exactement une sonde, sans boucle ni planification, qui expose séparément `hostnameStatus` (preuve de propriété) et `sslStatus`;
+- `DomainConfigurationRunner` : curseur persistant, boucle bornée et attente durable; pour une ligne externe, sonde `www` → passe apex autorisée ou non → activation seulement si hostname et SSL sont tous deux actifs;
 - `DomainActivationStep` : politique source/projet, KV, CAS d'activation et ordre fulfilled;
 - `DomainTerminalFailureStep` : classification sûre, handoff du refund sous fence, écritures terminales, nettoyage;
 - `OrderRefundStep` et `OrderRefundRunner` : effet Stripe protégé et retry durable;
@@ -40,8 +42,9 @@ Les étapes métier sont testables indépendamment, sans NestJS ni SDK Trigger, 
 paiement Stripe vérifié
   -> ligne domaine sous fence + handoff global domain-purchase
   -> wrapper + runtime local au run
-  -> état -> Name.com -> DNS -> hostname/challenges Cloudflare
-  -> runner de vérification avec curseur DB + wait.until
+  -> état -> Name.com -> DNS www + forwarding -> hostname/challenges Cloudflare www
+  -> zone Cloudflare apex best-effort (zone + hostname apex + DNS zone + NS)
+  -> runner de vérification avec curseur DB + wait.until (zone sondée avant chaque sonde)
   -> activation KV + domaine active + ordre fulfilled
   -> échec terminal : acceptation de order-refund avant écritures terminales
   -> runner refund + clé Stripe dérivée de l'ordre
@@ -104,13 +107,15 @@ Le module orders/billing possède `payment_orders`, Stripe Checkout, l'inbox web
 3. Stripe Checkout (`mode: payment`, metadata `{ orderId, purpose: "order" }`).
 4. `reconcile-session` ou webhook vérifie le paiement, puis l'ordre passe `paid → fulfilling`.
 5. `DomainRegistrationFulfillment` crée/réutilise la ligne domaine sous advisory lock puis déclenche globalement `domain-purchase`.
-6. Juste avant la dépense, `DomainRegistrationStep` reprend la fence et revalide l'ordre/quote. Name.com reçoit `X-Idempotency-Key: domain-purchase:{domainRowId}`; le reçu, DNS, forwarding, hostname/challenges Cloudflare, activation et fulfillment sont persistés par CAS.
+6. Juste avant la dépense, `DomainRegistrationStep` reprend la fence et revalide l'ordre/quote. Name.com reçoit `X-Idempotency-Key: domain-purchase:{domainRowId}`; le reçu, DNS, forwarding, hostname/challenges Cloudflare (www puis zone/hostname apex best-effort), activation et fulfillment sont persistés par CAS (les clés apex par fusion jsonb).
+
+Nettoyage : partout où le hostname `www` est supprimé (échec terminal, nettoyage d'une ligne `failed` à l'activation, détachement), le hostname apex `dns.apexCustomHostnameId` l'est aussi, best-effort. La zone n'est supprimée que sur **échec terminal d'achat**, et seulement si `dns.zoneCreated` est posé sans `dns.zoneDelegated` ni `dns.apexConfigured` (zone créée par nous, appel `setNameservers` jamais atteint). `dns.zoneDelegated` est persisté (fusion jsonb fencée) AVANT l'appel `setNameservers` Name.com : un appel expiré, un fence perdu ou un crash après l'appel comptent donc comme délégués. Une zone adoptée ou déjà déléguée est laissée en place et journalisée; le détachement/dépublication ne supprime jamais la zone (le registre y délègue encore : la supprimer couperait le DNS du client).
 
 En cas d'échec terminal après paiement, `DomainTerminalFailureStep` demande l'acceptation durable de `order-refund` **dans la fence ordre+domaine et avant toute écriture terminale**. Un échec de handoff annule la transaction et laisse les lignes récupérables. Aucun mouvement n'utilise `credit_ledger`.
 
 ### BYO et renouvellement
 
-BYO crée une ligne externe, un hostname Cloudflare et les enregistrements requis, puis déclenche `domain-configure` avec une clé globale domaine+nonce. Il ne requiert ni Name.com ni Stripe.
+BYO exécute d'abord le contrôle d'enregistrement, crée une ligne externe et le hostname Cloudflare `www`, puis ne persiste à l'attache que le CNAME `www`, les TXT de propriété/validation et `cfCustomHostnameId`. Aucun lookup, création, rollback ou enregistrement d'erreur de zone n'a lieu dans `DomainsService`. L'API renvoie ces enregistrements et déclenche `domain-configure` avec une clé globale domaine+nonce. À chaque passe externe, le runner sonde d'abord le hostname `www`; `hostnameStatus === "active"` prouve la propriété et autorise alors `ApexZoneStep` à trouver/adopter/créer la zone, même si `sslStatus` reste `pending_validation`. Une zone déjà persistée est toujours maintenue; si elle a disparu, elle n'est remplacée que lorsque la propriété est actuellement vérifiée. La première exposition des NS écrit `zoneId`, les NS et `zoneNameserversExposedAt` dans la même fusion fencée. Les échecs de zone restent best-effort et n'empêchent pas l'activation lorsque hostname et SSL sont tous deux actifs. L'interface commence donc par le CNAME + TXT avec une explication de la preuve de propriété; elle ne débloque ensuite que l'option **A — nameservers Wandit** (apex + `www`) aux côtés de l'option **B — enregistrements DNS seulement** (`www` + redirection de l'apex). Le `verify` manuel d'une ligne externe `configuring` redéclenche ce runner au lieu de l'activer en ligne, et ne peut donc pas contourner le gate. Les anciennes lignes actives sans zone ne sont pas backfillées. La zone d'une ligne externe n'est jamais supprimée par le nettoyage; le détachement la laisse en place. BYO ne requiert ni Name.com ni Stripe.
 
 Le renouvellement payé n'est pas câblé. `auto_renew=false`, l'API refuse son activation et la tâche quotidienne n'écrit que les avis T-30. Un futur renouvellement exige un kind `domain_renewal` dans `payment_orders`; aucun renouvellement ni débit silencieux n'est possible.
 
@@ -141,15 +146,17 @@ La production doit les définir explicitement, même lorsqu'un défaut local exi
 | `NAMECOM_USERNAME` | Achat et sync registrar | Requis; suffixe `-test` si et seulement si l'environnement est sandbox. |
 | `NAMECOM_API_TOKEN` | Achat et sync registrar | Secret Basic-auth Name.com requis. |
 | `CLOUDFLARE_API_TOKEN` | Achat, configuration BYO, activation/nettoyage | Hostname custom, zone et KV. |
-| `CLOUDFLARE_ZONE_ID_WANDIT_APP` | Achat, configuration BYO, activation/nettoyage | Zone hostname et résolution du compte Cloudflare; aucun `CLOUDFLARE_ACCOUNT_ID` requis. |
+| `CLOUDFLARE_ZONE_ID_WANDIT_APP` | Achat, configuration BYO, activation/nettoyage | Zone hostname et résolution du compte Cloudflare pour KV. |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | Activation/nettoyage achat et BYO | Mutations du pointeur KV `domain:{host}`. |
-| `DOMAINS_FALLBACK_ORIGIN` | DNS géré des achats | Cible CNAME `www`; à définir explicitement (défaut partagé actuel : `customers.wandit.app`). |
+| `CLOUDFLARE_ACCOUNT_ID` | Achat (étape zone apex), configuration BYO (étape zone apex externe), backfill | Compte propriétaire des zones par domaine (`POST /zones`). Non asserté au préflight : absent, l'étape apex écrit `dns.apexError` et le domaine reste www-only. |
+| `DOMAINS_APEX_ZONE_ENABLED` | Achat et configuration BYO (étape zone apex), backfill | Kill switch, défaut `true`. `false` = pas de nouvelle zone : forwarding URL registrar pour un apex acheté et aucune option nameservers pour une nouvelle ligne externe; une ligne externe qui a déjà exposé sa zone (`dns.zoneId`) est quand même terminée. |
+| `DOMAINS_FALLBACK_ORIGIN` | DNS géré des achats | Cible CNAME `www` chez Name.com et des deux CNAME dans la zone Cloudflare du domaine; à définir explicitement (défaut partagé actuel : `customers.wandit.app`). |
 | `STRIPE_SECRET_KEY` | Refund et préflight achat | Permet le remboursement; l'achat l'exige avant toute dépense Name.com. |
 
 Première opération par tâche :
 
 - `domain-purchase` valide DB, toutes les valeurs Name.com + leur pairing sandbox, les trois valeurs Cloudflare, fallback origin et secret Stripe avant disponibilité, mutation DB ou registration. Une erreur de config utilise les cinq tentatives puis le même chemin de refund.
-- `domain-configure` valide DB + les trois valeurs Cloudflare avant la première sonde/mutation KV; une ligne externe n'exige ni Name.com ni Stripe.
+- `domain-configure` valide DB + les trois valeurs Cloudflare avant la première sonde/mutation KV et lit le kill switch apex + fallback origin (`assertDomainConfigurationConfiguration()` renvoie désormais `apexZoneEnabled` et `fallbackOrigin`; `domainApexZoneOptions()` est le lecteur partagé); une ligne externe n'exige ni Name.com ni Stripe.
 - `order-refund` valide DB + Stripe dans la boucle durable; une config absente attend 60 s puis recommence.
 - `domain-registrar-sync` valide DB + Name.com/pairing. Les avis de renouvellement et les deux reconcilers exigent seulement DB.
 
@@ -174,7 +181,7 @@ Le tableau métier est le contrat fonctionnel; cette liste est uniquement une co
 - `QUEUE_ENABLED`, `QUEUE_PREFIX` et `REDIS_URL` ne sont pas des dépendances Trigger. Ils restent nécessaires aux fonctions génération/chat et à l'infrastructure Redis du worker restant.
 - `STRIPE_WEBHOOK_SECRET` appartient uniquement au webhook API.
 - R2, modèles/gateway AI et `SITES_DOMAIN` sont hors de cette migration.
-- Aucune nouvelle clé ni modification de `packages/env/src/server.ts` n'est nécessaire.
+- Seules `CLOUDFLARE_ACCOUNT_ID` (optionnelle) et le kill switch `DOMAINS_APEX_ZONE_ENABLED` ont été ajoutés à `packages/env/src/server.ts` pour l'étape zone apex; ils sont consommés par les runtimes Trigger, pas par l'attache externe.
 
 ## 7. Opérations Name.com
 
@@ -188,6 +195,19 @@ Le tableau métier est le contrat fonctionnel; cette liste est uniquement une co
 | Idempotence registrar | `X-Idempotency-Key: domain-purchase:{domainRowId}` |
 
 Le compte registrar doit être financé et monitoré. Les prix publics doivent couvrir prix Name.com, renouvellement, privacy, fiscalité et marge. Name.com webhooks devraient compléter le sync hebdomadaire pour transferts, rejets registry et vérification de contact.
+
+Port `DomainProvider` : `checkAvailability`, `register`, `renew`, `setDnsRecords` (A/AAAA/CNAME/NS/TXT), `setNameservers` (`POST /core/v1/domains/{domain}:setNameservers`), `setUrlForwarding` (repli apex), `getAuthCode`, `setTransferLock`, `getDomainInfo`. Adapters Cloudflare : `CustomHostnameService` (hostname www canonicalisé, hostname apex nom nu, recherche par nom, statut, PATCH de revalidation, suppression) et `CustomerZoneService` (zones par domaine dans notre compte : recherche par nom, création avec `CLOUDFLARE_ACCOUNT_ID`, statut (`null` si la zone n'existe plus), activation check, upsert d'enregistrement DNS-only, import du DNS public `scanDnsRecords` (`POST /zones/{id}/dns_records/scan`, timeout propre de 60 s), `disableProxyOnAllRecords`, `deleteDnsRecords` (A/AAAA à un nom exact et tout CNAME différent de l'origine de repli), suppression).
+
+### Backfill des domaines déjà achetés
+
+```bash
+cd apps/server
+pnpm domains:backfill-apex -- --dry-run            # liste les candidats, aucune écriture
+pnpm domains:backfill-apex                         # traite tous les candidats
+pnpm domains:backfill-apex -- --domain example.com # un seul domaine
+```
+
+Sélectionne les lignes achetées/`namecom` en `configuring` ou `active` sans `dns.apexConfigured` et exécute le même `ApexZoneStep` que le runtime d'achat (zone et hostname apex existants adoptés par nom — les domaines configurés à la main sont donc simplement enregistrés). Relançable sans risque; sortie non nulle tant qu'un domaine reste à reprendre; refuse de tourner si `DOMAINS_APEX_ZONE_ENABLED=false`.
 
 ## 8. Production cutover — runbook opérationnel
 
@@ -215,7 +235,7 @@ L'ordre suivant est restart-safe et préserve le temps de polling déjà écoul�
 
 ## 9. Prochaines étapes et vigilance
 
-1. Vérifier l'adapter contre Name.com sandbox : availability, register idempotent, contacts, DNS, forwarding (apex `host: ""`), lock/auth code et erreurs retryables.
+1. Vérifier l'adapter contre Name.com sandbox : availability, register idempotent, contacts, DNS, forwarding (apex `host: ""`), `setNameservers`, lock/auth code et erreurs retryables.
 2. Smoke test complet : checkout test → `paid → fulfilling → fulfilled`, domaine `registering → configuring → active`, reçu persisté; puis échec terminal → acceptation refund avant écritures terminales.
 3. Calibrer le catalogue retail sur le coût complet et configurer financement/alertes de solde registrar.
 4. Ajouter suivi de vérification contact, procédures support et webhooks Name.com.

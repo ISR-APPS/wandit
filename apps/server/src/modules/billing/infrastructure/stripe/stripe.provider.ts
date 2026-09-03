@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import {
+	Injectable,
+	InternalServerErrorException,
+	Logger,
+} from "@nestjs/common";
 import {
 	type BillingInterval,
 	type BillingPlanId,
@@ -25,14 +29,16 @@ import type {
 	ScheduleSubscriptionDowngradeParams,
 	SubscriptionChangePreviewProviderResult,
 	SubscriptionChangeProviderResult,
+	SwitchSubscriptionPriceWithoutProrationParams,
 } from "../../domain/ports/payment-provider.port";
+import { STRIPE_API_VERSION } from "./stripe.constants";
 
-const STRIPE_API_VERSION = "2026-02-25.clover";
 const RESTRICTED_PORTAL_CONFIGURATION_NAME =
-	"Wandit restricted billing portal v1";
+	"Wandit restricted billing portal v2";
 
 @Injectable()
 export class StripeProvider implements PaymentProvider {
+	private readonly logger = new Logger(StripeProvider.name);
 	private readonly priceIdByLookupKey = new Map<string, string>();
 	private readonly priceLookupKeyById = new Map<string, string | null>();
 	private client: Stripe | null = null;
@@ -363,6 +369,51 @@ export class StripeProvider implements PaymentProvider {
 		}
 	}
 
+	async switchSubscriptionPriceWithoutProration(
+		params: SwitchSubscriptionPriceWithoutProrationParams,
+	): Promise<void> {
+		const stripe = this.stripe();
+		const [subscription, priceId] = await Promise.all([
+			stripe.subscriptions.retrieve(params.providerSubscriptionId),
+			this.resolvePriceId(params.newPriceLookupKey),
+		]);
+		const [item, unexpectedItem] = subscription.items.data;
+
+		if (!item || unexpectedItem) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} must have exactly one subscription item`,
+			);
+		}
+
+		if (subscription.pending_update) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} has a pending update`,
+			);
+		}
+
+		if (
+			item.price.id !== priceId &&
+			item.price.lookup_key !== params.currentPriceLookupKey
+		) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} has price ${item.price.lookup_key ?? "<missing>"}, expected ${params.currentPriceLookupKey}`,
+			);
+		}
+
+		if (item.price.id === priceId) {
+			return;
+		}
+
+		await stripe.subscriptions.update(
+			params.providerSubscriptionId,
+			{
+				items: [{ id: item.id, price: priceId }],
+				proration_behavior: "none",
+			},
+			{ idempotencyKey: params.idempotencyKey },
+		);
+	}
+
 	async cancelScheduledSubscriptionDowngrade(
 		providerSubscriptionId: string,
 		idempotencyKey: string,
@@ -400,11 +451,38 @@ export class StripeProvider implements PaymentProvider {
 				stripe.subscriptions.retrieve(params.providerSubscriptionId),
 				this.resolvePriceId(params.newPriceLookupKey),
 			]);
-			const item = subscription.items.data[0];
+			const [item, unexpectedItem] = subscription.items.data;
 
-			if (!item) {
+			if (!item || unexpectedItem) {
 				throw new InternalServerErrorException(
-					"Stripe subscription has no subscription items",
+					`Stripe subscription ${subscription.id} must have exactly one subscription item`,
+				);
+			}
+
+			if (item.price.lookup_key !== params.currentPriceLookupKey) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has price ${item.price.lookup_key ?? "<missing>"}, expected ${params.currentPriceLookupKey}`,
+				);
+			}
+
+			if (subscription.cancel_at_period_end) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} is set to cancel at period end`,
+				);
+			}
+
+			if (
+				subscription.status !== "active" &&
+				subscription.status !== "trialing"
+			) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has non-entitled status ${subscription.status}`,
+				);
+			}
+
+			if (subscription.pending_update) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has a pending update`,
 				);
 			}
 
@@ -416,11 +494,47 @@ export class StripeProvider implements PaymentProvider {
 					subscription,
 					params.idempotencyKey,
 				);
+
+				const replaysCurrentSchedulingAttempt =
+					(schedule.metadata?.wanditScheduleIntent === params.idempotencyKey &&
+						schedule.metadata.wanditScheduleTarget ===
+							params.newPriceLookupKey) ||
+					(subscription.metadata.wanditScheduleOwner ===
+						"period_end_downgrade" &&
+						subscription.metadata.wanditScheduleIntent ===
+							params.idempotencyKey &&
+						subscription.metadata.wanditScheduleTarget ===
+							params.newPriceLookupKey);
+
+				if (
+					params.expectedScheduleTarget === null &&
+					(!params.allowSameIntentRecovery || !replaysCurrentSchedulingAttempt)
+				) {
+					throw new InternalServerErrorException(
+						`Stripe subscription ${subscription.id} has an attached downgrade schedule, but no schedule was expected`,
+					);
+				}
+
+				if (
+					params.expectedScheduleTarget !== null &&
+					schedule.metadata?.wanditScheduleTarget !==
+						params.expectedScheduleTarget
+				) {
+					throw new InternalServerErrorException(
+						`Stripe subscription schedule ${schedule.id} targets ${schedule.metadata?.wanditScheduleTarget ?? "<missing>"}, expected ${params.expectedScheduleTarget}`,
+					);
+				}
 				// An attached application-owned schedule is durable partial state
 				// from this intent or an earlier pending downgrade. Do not terminalize
 				// the intent if a later configure step fails.
 				priorRemoteMutation = true;
 			} else {
+				if (params.expectedScheduleTarget !== null) {
+					throw new InternalServerErrorException(
+						`Stripe subscription ${subscription.id} has no attached downgrade schedule, expected ${params.expectedScheduleTarget}`,
+					);
+				}
+
 				await stripe.subscriptions.update(
 					params.providerSubscriptionId,
 					{
@@ -559,14 +673,34 @@ export class StripeProvider implements PaymentProvider {
 		);
 	}
 
-	retrieveInvoice(invoiceId: string): Promise<Stripe.Invoice> {
-		return this.stripe().invoices.retrieve(invoiceId, {
-			expand: [
-				"lines.data.pricing.price_details.price",
-				"parent.subscription_details.subscription",
-				"payments.data.payment.payment_intent.latest_charge",
-			],
-		});
+	async retrieveInvoice(invoiceId: string): Promise<Stripe.Invoice> {
+		try {
+			return await this.stripe().invoices.retrieve(invoiceId, {
+				// Stripe caps expansion depth at 4 levels — expanding the payment
+				// intent's latest_charge on top of payments.data.payment exceeds it
+				// and Stripe rejects the whole retrieve. Every consumer accepts
+				// unexpanded ID strings, so stop at the payment intent.
+				expand: [
+					"lines.data.pricing.price_details.price",
+					"parent.subscription_details.subscription",
+					"payments.data.payment.payment_intent",
+				],
+			});
+		} catch (error) {
+			if (!this.isExpansionRejection(error)) {
+				throw error;
+			}
+
+			// Keep only the subscription expansion (owner attribution needs its
+			// metadata); lines and payments resolve through per-ID fallbacks.
+			this.logger.warn(
+				`Stripe rejected invoice ${invoiceId} expansions; retrying with the minimal set`,
+			);
+
+			return this.stripe().invoices.retrieve(invoiceId, {
+				expand: ["parent.subscription_details.subscription"],
+			});
+		}
 	}
 
 	async listInvoicePayments(
@@ -574,12 +708,20 @@ export class StripeProvider implements PaymentProvider {
 	): Promise<Stripe.InvoicePayment[]> {
 		return this.stripe()
 			.invoicePayments.list({
-				expand: ["data.payment.payment_intent.latest_charge"],
+				expand: ["data.payment.payment_intent"],
 				invoice: invoiceId,
 				limit: 100,
 				status: "paid",
 			})
 			.autoPagingToArray({ limit: 10_000 });
+	}
+
+	private isExpansionRejection(error: unknown): boolean {
+		return (
+			error instanceof Stripe.errors.StripeInvalidRequestError &&
+			(error.param?.startsWith("expand") === true ||
+				error.message.includes("expand"))
+		);
 	}
 
 	retrievePrice(priceId: string): Promise<Stripe.Price> {
@@ -610,6 +752,10 @@ export class StripeProvider implements PaymentProvider {
 		return this.stripe()
 			.refunds.list({ charge: chargeId, limit: 100 })
 			.autoPagingToArray({ limit: 10_000 });
+	}
+
+	retrieveDispute(disputeId: string): Promise<Stripe.Dispute> {
+		return this.stripe().disputes.retrieve(disputeId);
 	}
 
 	async listDisputesForCharge(chargeId: string): Promise<Stripe.Dispute[]> {
@@ -689,6 +835,9 @@ export class StripeProvider implements PaymentProvider {
 
 		try {
 			const schedule = await this.attachedSchedule(subscription);
+			const scheduleScopedIdempotencyKey = schedule
+				? `${idempotencyKey}:${schedule.id}`
+				: idempotencyKey;
 			const hasStaleOwnershipMarker =
 				subscription.metadata.wanditScheduleOwner === "period_end_downgrade";
 
@@ -711,7 +860,7 @@ export class StripeProvider implements PaymentProvider {
 				await this.stripe().subscriptionSchedules.release(
 					schedule.id,
 					{},
-					{ idempotencyKey },
+					{ idempotencyKey: scheduleScopedIdempotencyKey },
 				);
 				priorRemoteMutation = true;
 			}
@@ -725,7 +874,7 @@ export class StripeProvider implements PaymentProvider {
 						wanditScheduleTarget: "",
 					},
 				},
-				{ idempotencyKey: `${idempotencyKey}:clear-owner` },
+				{ idempotencyKey: `${scheduleScopedIdempotencyKey}:clear-owner` },
 			);
 
 			return true;
@@ -778,20 +927,22 @@ export class StripeProvider implements PaymentProvider {
 	}
 
 	private restrictedPortalConfiguration(): Promise<string> {
-		if (env.STRIPE_PORTAL_CONFIGURATION_ID) {
-			return Promise.resolve(env.STRIPE_PORTAL_CONFIGURATION_ID);
-		}
-
 		if (this.restrictedPortalConfigurationPromise) {
 			return this.restrictedPortalConfigurationPromise;
 		}
 
-		this.restrictedPortalConfigurationPromise =
-			this.findOrCreateRestrictedPortalConfiguration().catch((error) => {
+		const configurationPromise = env.STRIPE_PORTAL_CONFIGURATION_ID
+			? this.enforceRestrictedPortalConfiguration(
+					env.STRIPE_PORTAL_CONFIGURATION_ID,
+				)
+			: this.findOrCreateRestrictedPortalConfiguration();
+		this.restrictedPortalConfigurationPromise = configurationPromise.catch(
+			(error) => {
 				// Allow a transient Stripe failure to be retried by the next request.
 				this.restrictedPortalConfigurationPromise = null;
 				throw error;
-			});
+			},
+		);
 
 		return this.restrictedPortalConfigurationPromise;
 	}
@@ -808,18 +959,28 @@ export class StripeProvider implements PaymentProvider {
 		const params = this.restrictedPortalConfigurationParams();
 
 		if (existing) {
-			const enforced = await configurations.update(existing.id, params, {
-				idempotencyKey: `billing-portal:restricted:v1:enforce:${existing.id}`,
-			});
-
-			return enforced.id;
+			return this.enforceRestrictedPortalConfiguration(existing.id);
 		}
 
 		const created = await configurations.create(params, {
-			idempotencyKey: "billing-portal:restricted:v1",
+			idempotencyKey: "billing-portal:restricted:v2",
 		});
 
 		return created.id;
+	}
+
+	private async enforceRestrictedPortalConfiguration(
+		configurationId: string,
+	): Promise<string> {
+		const enforced = await this.stripe().billingPortal.configurations.update(
+			configurationId,
+			this.restrictedPortalConfigurationParams(),
+			{
+				idempotencyKey: `billing-portal:restricted:v2:enforce:${configurationId}`,
+			},
+		);
+
+		return enforced.id;
 	}
 
 	private restrictedPortalConfigurationParams(): Stripe.BillingPortal.ConfigurationCreateParams {
@@ -828,10 +989,7 @@ export class StripeProvider implements PaymentProvider {
 				customer_update: { allowed_updates: [], enabled: false },
 				invoice_history: { enabled: true },
 				payment_method_update: { enabled: true },
-				subscription_cancel: {
-					enabled: true,
-					mode: "at_period_end",
-				},
+				subscription_cancel: { enabled: false },
 				subscription_update: { enabled: false },
 			},
 			name: RESTRICTED_PORTAL_CONFIGURATION_NAME,

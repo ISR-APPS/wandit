@@ -8,7 +8,7 @@
  * download cross-origin).
  */
 import { z } from "zod";
-import { isoDateTimeSchema } from "./shared/primitives";
+import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 export const PROJECT_ASSET_KINDS = ["image", "video"] as const;
 
@@ -20,6 +20,7 @@ export type ProjectAssetKind = z.infer<typeof projectAssetKindSchema>;
 export const projectAssetSourceSchema = z.enum([
 	"image-generation",
 	"image-animation",
+	"video-generation",
 	"page-build",
 ]);
 
@@ -48,9 +49,35 @@ export const projectAssetsResponseSchema = z.object({
 
 export type ProjectAssetsResponse = z.infer<typeof projectAssetsResponseSchema>;
 
+// Dashboard-level aggregate: one asset with its project attached, so the
+// grid can label tiles, filter by project, and build the project-scoped
+// download link.
+export const workspaceAssetSchema = projectAssetSchema.extend({
+	projectId: uuidSchema,
+	projectName: z.string().min(1),
+});
+
+export type WorkspaceAsset = z.infer<typeof workspaceAssetSchema>;
+
+export const workspaceAssetsResponseSchema = z.object({
+	assets: z.array(workspaceAssetSchema),
+	// True when the newest-first list was cut at the server cap; the full
+	// history of a single project stays reachable from its own Assets tab.
+	truncated: z.boolean(),
+});
+
+export type WorkspaceAssetsResponse = z.infer<
+	typeof workspaceAssetsResponseSchema
+>;
+
 export const projectAssetsRoutes = {
 	/** GET — every AI-generated media asset of one owned project, newest first. */
 	list: (projectId: string) => `/api/v1/projects/${projectId}/assets`,
+	/**
+	 * GET — the dashboard Assets page: every asset across every project the
+	 * active workspace can see, newest first, capped server-side.
+	 */
+	listForWorkspace: "/api/v1/assets",
 	/**
 	 * GET — ownership-checked attachment download. `key` must be one of the
 	 * project's own asset keys (the server enforces the prefix).

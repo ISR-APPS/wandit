@@ -1,5 +1,4 @@
 import { ActivityIcon, RefreshCwIcon } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,10 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import type { OverviewRange } from "@/features/overview/api/overview.dto";
+import type {
+	OverviewQuery,
+	OverviewSnapshot,
+} from "@/features/overview/api/overview.dto";
 import { useOverviewQuery } from "@/features/overview/api/overview.queries";
 import { GenerationHealthCard } from "@/features/overview/components/generation-health-card";
 import { GrowthTrendCard } from "@/features/overview/components/growth-trend-card";
@@ -20,6 +22,11 @@ import { OverviewHeader } from "@/features/overview/components/overview-header";
 import { OverviewMetrics } from "@/features/overview/components/overview-metrics";
 import { OverviewPageSkeleton } from "@/features/overview/components/overview-page-skeleton";
 import { RevenuePerformanceCard } from "@/features/overview/components/revenue-performance-card";
+
+type OverviewPageProps = {
+	query: OverviewQuery;
+	onQueryChange: (query: OverviewQuery) => void;
+};
 
 function OverviewErrorState({ onRetry }: { onRetry: () => void }) {
 	return (
@@ -30,8 +37,7 @@ function OverviewErrorState({ onRetry }: { onRetry: () => void }) {
 				</EmptyMedia>
 				<EmptyTitle>Overview could not be loaded</EmptyTitle>
 				<EmptyDescription>
-					The mock platform snapshot did not respond. Retry to restore the
-					dashboard.
+					The platform snapshot did not respond. Retry to restore the dashboard.
 				</EmptyDescription>
 			</EmptyHeader>
 			<EmptyContent>
@@ -61,17 +67,39 @@ function OverviewEmptyState() {
 	);
 }
 
-function OverviewPage() {
-	const [range, setRange] = useState<OverviewRange>("30d");
-	const { data, isError, isFetching, isPending, refetch } =
-		useOverviewQuery(range);
+function hasOverviewActivity(snapshot: OverviewSnapshot) {
+	const { generation, healthyTrials, mrrMinor, revenue, totals } = snapshot;
+	const periodStart = Date.parse(`${snapshot.periodStart}T00:00:00.000Z`);
+	const periodEnd = Date.parse(`${snapshot.periodEnd}T23:59:59.999Z`);
+	const hasSignalInPeriod = snapshot.recentSignals.some(({ occurredAt }) => {
+		const occurredAtMs = Date.parse(occurredAt);
 
-	const hasActivity = Boolean(
-		data &&
-			(data.revenueSeries.length > 0 ||
-				data.growthSeries.length > 0 ||
-				data.generationSeries.length > 0),
+		return occurredAtMs >= periodStart && occurredAtMs <= periodEnd;
+	});
+
+	return (
+		hasSignalInPeriod ||
+		[
+			revenue.totalUsdMinor,
+			mrrMinor,
+			healthyTrials.count,
+			totals.tokensUsed,
+			totals.tokenCostUsdMinor,
+			totals.websitesGenerated,
+			totals.assetsGenerated,
+			totals.imagesGenerated,
+			totals.signups,
+			totals.activeUsers,
+			generation.attempts,
+		].some((value) => value > 0)
 	);
+}
+
+function OverviewPage({ query, onQueryChange }: OverviewPageProps) {
+	const { data, isError, isFetching, isPending, refetch } =
+		useOverviewQuery(query);
+
+	const hasActivity = data ? hasOverviewActivity(data) : false;
 
 	async function handleRefresh() {
 		const result = await refetch();
@@ -87,10 +115,10 @@ function OverviewPage() {
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-5">
 			<OverviewHeader
-				range={range}
+				query={query}
 				generatedAt={data?.generatedAt}
 				isRefreshing={isFetching}
-				onRangeChange={setRange}
+				onQueryChange={onQueryChange}
 				onRefresh={() => void handleRefresh()}
 			/>
 
@@ -106,35 +134,41 @@ function OverviewPage() {
 
 					<section
 						aria-label="Revenue and model usage"
-						className="grid items-stretch gap-5 xl:grid-cols-12"
+						className="grid items-stretch gap-5 lg:grid-cols-12"
 					>
-						<div className="min-w-0 xl:col-span-8">
+						<div className="min-w-0 lg:col-span-8">
 							<RevenuePerformanceCard
 								revenue={data.revenue}
 								points={data.revenueSeries}
 								rangeLabel={data.rangeLabel}
 							/>
 						</div>
-						<div className="min-w-0 xl:col-span-4">
-							<ModelUsageCard models={data.modelUsage} />
+						{/* From lg the model card fills the row height set by the revenue
+						    card instead of setting it: its long model list scrolls inside
+						    the card, so the revenue card never stretches around it. */}
+						<div className="relative min-w-0 lg:col-span-4">
+							<div className="min-w-0 lg:absolute lg:inset-0">
+								<ModelUsageCard models={data.modelUsage} />
+							</div>
 						</div>
 					</section>
 
 					<section
 						aria-label="Growth and generation health"
-						className="grid items-stretch gap-5 xl:grid-cols-12"
+						className="grid items-stretch gap-5 lg:grid-cols-12"
 					>
-						<div className="min-w-0 xl:col-span-7">
+						<div className="min-w-0 lg:col-span-7">
 							<GrowthTrendCard
 								points={data.growthSeries}
 								totals={data.totals}
 								rangeLabel={data.rangeLabel}
 							/>
 						</div>
-						<div className="min-w-0 xl:col-span-5">
+						<div className="min-w-0 lg:col-span-5">
 							<GenerationHealthCard
 								generation={data.generation}
 								points={data.generationSeries}
+								signals={data.recentSignals}
 								generatedAt={data.generatedAt}
 							/>
 						</div>
@@ -145,4 +179,5 @@ function OverviewPage() {
 	);
 }
 
+export type { OverviewPageProps };
 export { OverviewPage };

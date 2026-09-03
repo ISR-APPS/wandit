@@ -5,22 +5,28 @@
 // page layout renders behind it (see pages/workspace-page.tsx).
 
 import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
+import { GraduationCap } from "lucide-react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
+import { UpgradeButton } from "@/features/billing/components/upgrade-button";
 import { CreditsChip } from "@/features/credits";
-import { useTranslation } from "@/lib/i18n";
+import { FeedbackButton } from "@/features/feedback";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
+import { useTranslation } from "@/lib/i18n";
+import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
 
 export function WorkspaceHeader() {
 	const { t } = useTranslation();
+	const { chatId } = useSharedAiChat();
 	return (
 		<header className="relative z-40 flex h-[52px] shrink-0 items-center gap-[11px] border-b bg-background/72 px-4 backdrop-blur-sm">
 			<Tooltip>
@@ -51,7 +57,19 @@ export function WorkspaceHeader() {
 					<span aria-hidden className="size-1.5 rounded-full bg-success" />
 					{t("workspace.autosaved")}
 				</span>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button asChild size="icon-sm" variant="ghost">
+							<Link to="/academy" aria-label={t("academy.navLabel")}>
+								<GraduationCap className="size-4" aria-hidden />
+							</Link>
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
+				</Tooltip>
+				<FeedbackButton chatId={chatId} />
 				<CreditsChip />
+				<UpgradeButton />
 				<PublishButton />
 				<UserMenu />
 			</div>

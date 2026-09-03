@@ -15,10 +15,13 @@ import {
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import { Separator } from "@wandit/ui/components/separator";
+import { Switch } from "@wandit/ui/components/switch";
 import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useBillingSubscriptionQuery } from "@/features/billing/api/billing.queries";
+import { useUpdateProjectBadge } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import {
@@ -28,8 +31,8 @@ import {
 import { PUBLISHED_DOMAIN, SLUG_CHECK_DEBOUNCE_MS } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
 import {
-	canPublish as canPublishFor,
 	displaySlug,
+	publishableVersion,
 	slugVerdict,
 } from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
@@ -43,10 +46,10 @@ export function PublishSection() {
 		project,
 		projectId,
 		previewVersion,
-		isPreviewingHistorical,
 		publish,
 		publishPending,
 		rollbackTo,
+		serverActiveVersion,
 		unpublish,
 		updateSlug,
 		versions,
@@ -109,10 +112,32 @@ export function PublishSection() {
 		[versions],
 	);
 
-	const canPublish =
-		Boolean(previewVersion) &&
-		(canPublishFor(deployment) || isPreviewingHistorical) &&
-		!publishPending;
+	const versionToPublish = publishableVersion(
+		deployment,
+		previewVersion,
+		serverActiveVersion,
+	);
+	const canPublish = versionToPublish !== null && !publishPending;
+
+	// "Made with Wandit" badge: shown on every published page; only an
+	// entitled (paid) owner can switch it off. The server enforces the same
+	// rule at publish time, so this gate is purely presentational.
+	const subscriptionQuery = useBillingSubscriptionQuery();
+	const badgeMutation = useUpdateProjectBadge();
+	const ownerIsEntitled =
+		subscriptionQuery.data?.subscription?.entitled ?? false;
+	// EFFECTIVE state, the exact server expression: a stored hide flag from a
+	// lapsed subscription no longer hides anything, and the switch must say so.
+	const badgeShown = !((project?.hideWanditBadge ?? false) && ownerIsEntitled);
+
+	const handleBadgeToggle = (checked: boolean) => {
+		badgeMutation.mutate(
+			{ id: projectId, hideWanditBadge: !checked },
+			{
+				onSuccess: () => toast.success(t("settings.badgeSaved")),
+			},
+		);
+	};
 
 	return (
 		<Card>
@@ -168,6 +193,7 @@ export function PublishSection() {
 							</p>
 							<Button
 								onClick={() => {
+									if (versionToPublish === null) return;
 									// Carry a valid unsaved slug edit into the publish so the
 									// site doesn't go live on a stale name-derived slug.
 									const publishSlug =
@@ -177,7 +203,7 @@ export function PublishSection() {
 									if (publishSlug) {
 										updateSlug(slug);
 									}
-									publish(publishSlug ? { slug: publishSlug } : undefined);
+									publish({ slug: publishSlug, version: versionToPublish });
 								}}
 								disabled={!canPublish || publishing}
 							>
@@ -199,15 +225,15 @@ export function PublishSection() {
 					) : null}
 					{liveUrl ? (
 						<div className="flex flex-wrap items-center gap-2">
-							{isPreviewingHistorical && previewVersion ? (
+							{versionToPublish !== null ? (
 								<Button
 									size="sm"
-									onClick={() => publish()}
+									onClick={() => publish({ version: versionToPublish })}
 									disabled={!canPublish || publishing}
 									dir="auto"
 								>
 									{t("workspace.publish.confirmVersion", {
-										n: previewVersion.number,
+										n: versionToPublish.number,
 									})}
 								</Button>
 							) : null}
@@ -271,6 +297,25 @@ export function PublishSection() {
 							{t("settings.slugAvailable")}
 						</p>
 					) : null}
+				</div>
+
+				<div className="flex items-center justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="settings-wandit-badge">
+							{t("settings.badgeTitle")}
+						</Label>
+						<p className="text-muted-foreground text-xs">
+							{ownerIsEntitled
+								? t("settings.badgeDescription")
+								: t("settings.badgePaidHint")}
+						</p>
+					</div>
+					<Switch
+						id="settings-wandit-badge"
+						checked={badgeShown}
+						disabled={!ownerIsEntitled || badgeMutation.isPending}
+						onCheckedChange={handleBadgeToggle}
+					/>
 				</div>
 
 				<Separator />

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
 export const DEFAULT_MODEL_PRICE_CACHE_TTL_MS = 60 * 60 * 1000;
-export const DEFAULT_USD_MICROS_PER_CREDIT = 50_000;
+export const DEFAULT_USD_MICROS_PER_CREDIT = 40_000;
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const NON_NEGATIVE_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d+)?$/u;
@@ -24,6 +24,17 @@ const imageVariantPriceSchema = z
 	})
 	.passthrough();
 
+// Duration rates are parsed leniently: one malformed variant must not reject
+// the whole gateway catalog refresh, it only drops that variant.
+const videoVariantPriceSchema = z
+	.object({
+		audio: z.boolean().optional(),
+		cost_per_second: z.string(),
+		mode: z.string().optional(),
+		resolution: z.string().optional(),
+	})
+	.passthrough();
+
 export const gatewayModelSchema = z
 	.object({
 		id: z.string().min(1),
@@ -38,6 +49,8 @@ export const gatewayModelSchema = z
 				input_cache_read: pricingStringSchema.optional(),
 				input_cache_write: pricingStringSchema.optional(),
 				output: pricingStringSchema.optional(),
+				transcription_duration_cost_per_second: z.string().optional(),
+				video_duration_pricing: z.array(videoVariantPriceSchema).optional(),
 			})
 			.passthrough(),
 		type: z.string().min(1),
@@ -56,6 +69,26 @@ export type GatewayModelsResponse = z.infer<typeof gatewayModelsResponseSchema>;
 
 export type ModelPriceSource = "database" | "seed";
 
+export type ImageVariantPrice = {
+	operation?: string;
+	size?: string;
+	style?: string;
+	usdMicros: number;
+};
+
+export type VideoVariantPrice = {
+	audio?: boolean;
+	mode?: string;
+	resolution?: string;
+	usdMicrosPerSecond: number;
+};
+
+/** Size/mode/resolution-specific media rates kept next to the default rate. */
+export type MediaVariantPricing = {
+	image?: ImageVariantPrice[];
+	video?: VideoVariantPrice[];
+};
+
 export type ModelPrice = {
 	cacheReadUsdMicrosPerMTok: number | null;
 	cacheWriteUsdMicrosPerMTok: number | null;
@@ -68,6 +101,16 @@ export type ModelPrice = {
 	raw: Record<string, unknown>;
 	refreshedAt: Date;
 	source: ModelPriceSource;
+	transcriptionUsdMicrosPerSecond: number | null;
+	variantPricing: MediaVariantPricing | null;
+	videoUsdMicrosPerSecond: number | null;
+};
+
+export type VideoEstimateInput = {
+	audio?: boolean;
+	durationSeconds: number;
+	mode?: string;
+	resolution?: string;
 };
 
 export type PersistedModelPrice = Omit<ModelPrice, "source">;
@@ -101,11 +144,25 @@ export type PricingSnapshot = {
 	provider: string;
 	refreshedAt: string;
 	source: ModelPriceSource;
+	transcriptionUsdMicrosPerSecond: number | null;
+	/** Micros per WHOLE credit (40,000), never per centi-credit. */
 	usdMicrosPerCredit: number;
+	videoUsdMicrosPerSecond: number | null;
+};
+
+/** Local (pre-gateway) provider cost estimate for one measured operation. */
+export type MeasuredCostEstimate = {
+	costUsdMicros: number;
+	/** Integer centi-credits (1 credit = 100 cc). */
+	credits: number;
+	pricingSnapshot: PricingSnapshot;
+	/** Cost of one unit (image, second) the estimate was built from. */
+	unitUsdMicros: number;
 };
 
 export type TokenUsageQuote = {
 	costUsdMicros: number;
+	/** Integer centi-credits (1 credit = 100 cc). */
 	credits: number;
 	pricingSnapshot: PricingSnapshot;
 	usage: NormalizedTokenUsage;
@@ -144,14 +201,24 @@ export function perTokenDollarsStringToUsdMicrosPerMTok(value: string): number {
 	return decimalStringToScaledInteger(value, 12, "USD micros per MTok");
 }
 
-export function usdMicrosToCredits(
+/**
+ * Convert provider cost to integer CENTI-credits (1 credit = 100 cc).
+ * `usdMicrosPerCredit` stays micros per WHOLE credit (40,000); this function
+ * owns the ×100. Minimum charge is 1 cc (0.01 credit).
+ */
+export function usdMicrosToCentiCredits(
 	costUsdMicros: number,
 	usdMicrosPerCredit = DEFAULT_USD_MICROS_PER_CREDIT,
 ): number {
 	assertNonNegativeSafeInteger(costUsdMicros, "costUsdMicros");
 	assertPositiveSafeInteger(usdMicrosPerCredit, "usdMicrosPerCredit");
 
-	return Math.max(1, Math.ceil(costUsdMicros / usdMicrosPerCredit));
+	const centiCredits = divideRoundingUp(
+		BigInt(costUsdMicros) * 100n,
+		BigInt(usdMicrosPerCredit),
+	);
+
+	return Math.max(1, bigintToSafeNumber(centiCredits));
 }
 
 export function normalizeTokenUsage(
@@ -239,6 +306,115 @@ export function imageUsageCostUsdMicros(
 	return bigintToSafeNumber(BigInt(price.imageUsdMicros) * BigInt(imageCount));
 }
 
+/** Per-image rate for a requested size, else the default image rate. */
+export function imageUnitUsdMicros(
+	price: ModelPrice,
+	size?: string,
+): number | null {
+	const variants = price.variantPricing?.image;
+
+	if (size !== undefined && variants) {
+		const match = variants.find(
+			(variant) =>
+				variant.size?.toLowerCase() === size.toLowerCase() &&
+				variant.style === undefined &&
+				(variant.operation === undefined || variant.operation === "generate"),
+		);
+
+		if (match) {
+			return match.usdMicros;
+		}
+	}
+
+	return price.imageUsdMicros;
+}
+
+export function imageEstimateUsdMicros(
+	price: ModelPrice,
+	count: number,
+	size?: string,
+): number | null {
+	assertPositiveSafeInteger(count, "count");
+	const unit = imageUnitUsdMicros(price, size);
+
+	return unit === null
+		? null
+		: bigintToSafeNumber(BigInt(unit) * BigInt(count));
+}
+
+/**
+ * Per-second video rate for the requested variant. Mode, resolution, and
+ * audio each narrow the match only when the catalog variant declares them;
+ * with no usable match the cheapest (default) rate applies.
+ */
+export function videoUnitUsdMicrosPerSecond(
+	price: ModelPrice,
+	input: Omit<VideoEstimateInput, "durationSeconds"> = {},
+): number | null {
+	const variants = price.variantPricing?.video;
+
+	if (variants && variants.length > 0) {
+		const candidates = variants.filter(
+			(variant) =>
+				(input.mode === undefined ||
+					variant.mode === undefined ||
+					variant.mode.toLowerCase() === input.mode.toLowerCase()) &&
+				(input.resolution === undefined ||
+					variant.resolution === undefined ||
+					variant.resolution.toLowerCase() ===
+						input.resolution.toLowerCase()) &&
+				(input.audio === undefined ||
+					variant.audio === undefined ||
+					variant.audio === input.audio),
+		);
+		// Prefer the variant that confirms the most requested dimensions, then
+		// the cheapest (an unspecified dimension never buys a pricier tier).
+		const ranked = [...candidates].sort((left, right) => {
+			const specificity = (variant: VideoVariantPrice) =>
+				Number(input.mode !== undefined && variant.mode !== undefined) +
+				Number(
+					input.resolution !== undefined && variant.resolution !== undefined,
+				) +
+				Number(input.audio !== undefined && variant.audio !== undefined);
+			const bySpecificity = specificity(right) - specificity(left);
+
+			return bySpecificity !== 0
+				? bySpecificity
+				: left.usdMicrosPerSecond - right.usdMicrosPerSecond;
+		});
+		const best = ranked[0];
+
+		if (best) {
+			return best.usdMicrosPerSecond;
+		}
+	}
+
+	return price.videoUsdMicrosPerSecond;
+}
+
+export function videoEstimateUsdMicros(
+	price: ModelPrice,
+	input: VideoEstimateInput,
+): number | null {
+	assertPositiveFinite(input.durationSeconds, "durationSeconds");
+	const rate = videoUnitUsdMicrosPerSecond(price, input);
+
+	return rate === null ? null : Math.ceil(rate * input.durationSeconds);
+}
+
+export function transcriptionEstimateUsdMicros(
+	price: ModelPrice,
+	durationSeconds: number,
+): number | null {
+	if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
+		throw new Error("durationSeconds must be a non-negative number");
+	}
+
+	return price.transcriptionUsdMicrosPerSecond === null
+		? null
+		: Math.ceil(price.transcriptionUsdMicrosPerSecond * durationSeconds);
+}
+
 export function pricingSnapshot(
 	price: ModelPrice,
 	usdMicrosPerCredit = DEFAULT_USD_MICROS_PER_CREDIT,
@@ -256,7 +432,9 @@ export function pricingSnapshot(
 		provider: price.provider,
 		refreshedAt: price.refreshedAt.toISOString(),
 		source: price.source,
+		transcriptionUsdMicrosPerSecond: price.transcriptionUsdMicrosPerSecond,
 		usdMicrosPerCredit,
+		videoUsdMicrosPerSecond: price.videoUsdMicrosPerSecond,
 	};
 }
 
@@ -285,7 +463,81 @@ export function gatewayModelToPersistedPrice(
 		provider: model.owned_by,
 		raw: model,
 		refreshedAt,
+		transcriptionUsdMicrosPerSecond: transcriptionRate(model),
+		variantPricing: variantPricing(model),
+		videoUsdMicrosPerSecond: videoRate(model),
 	};
+}
+
+function variantPricing(model: GatewayModel): MediaVariantPricing | null {
+	const image = (model.pricing.image_dimension_quality_pricing ?? []).flatMap(
+		(variant): ImageVariantPrice[] => {
+			const usdMicros = lenientUsdMicros(variant.cost);
+
+			return usdMicros === null
+				? []
+				: [
+						{
+							...(variant.operation === undefined
+								? {}
+								: { operation: variant.operation }),
+							...(variant.size === undefined ? {} : { size: variant.size }),
+							...(variant.style === undefined ? {} : { style: variant.style }),
+							usdMicros,
+						},
+					];
+		},
+	);
+	const video = (model.pricing.video_duration_pricing ?? []).flatMap(
+		(variant): VideoVariantPrice[] => {
+			const usdMicrosPerSecond = lenientUsdMicros(variant.cost_per_second);
+
+			return usdMicrosPerSecond === null
+				? []
+				: [
+						{
+							...(variant.audio === undefined ? {} : { audio: variant.audio }),
+							...(variant.mode === undefined ? {} : { mode: variant.mode }),
+							...(variant.resolution === undefined
+								? {}
+								: { resolution: variant.resolution }),
+							usdMicrosPerSecond,
+						},
+					];
+		},
+	);
+
+	if (image.length === 0 && video.length === 0) {
+		return null;
+	}
+
+	return {
+		...(image.length === 0 ? {} : { image }),
+		...(video.length === 0 ? {} : { video }),
+	};
+}
+
+/** Cheapest declared per-second rate: the "std"/no-audio default tier. */
+function videoRate(model: GatewayModel): number | null {
+	const rates = (model.pricing.video_duration_pricing ?? [])
+		.map((variant) => lenientUsdMicros(variant.cost_per_second))
+		.filter((rate): rate is number => rate !== null);
+
+	return rates.length === 0 ? null : Math.min(...rates);
+}
+
+function transcriptionRate(model: GatewayModel): number | null {
+	const value = model.pricing.transcription_duration_cost_per_second;
+
+	return value === undefined ? null : lenientUsdMicros(value);
+}
+
+function lenientUsdMicros(value: string): number | null {
+	try {
+		return dollarsStringToUsdMicros(value);
+	} catch {
+		return null;
+	}
 }
 
 function imageRate(model: GatewayModel): number | null {
@@ -380,6 +632,12 @@ function assertNonNegativeSafeInteger(value: number, label: string): void {
 function assertPositiveSafeInteger(value: number, label: string): void {
 	if (!Number.isSafeInteger(value) || value <= 0) {
 		throw new Error(`${label} must be a positive safe integer`);
+	}
+}
+
+function assertPositiveFinite(value: number, label: string): void {
+	if (!Number.isFinite(value) || value <= 0) {
+		throw new Error(`${label} must be a positive number`);
 	}
 }
 

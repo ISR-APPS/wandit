@@ -10,19 +10,23 @@ import {
 
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import type {
+	BillingCancelRequest,
 	BillingSubscriptionViewResponse,
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	CreateManualSubscriptionRequestBody,
 	PreviewBillingSubscriptionChangeBody,
 } from "./billing.dto";
 import { billingKeys } from "./billing.queries";
 import {
 	cancelBillingSubscription,
+	cancelManualSubscriptionRequest,
 	changeBillingSubscription,
 	createBillingCheckout,
 	createBillingPortal,
 	createBillingTopupCheckout,
+	createManualSubscriptionRequest,
 	previewBillingSubscriptionChange,
 	resumeBillingSubscription,
 	syncBillingSubscription,
@@ -32,9 +36,6 @@ export function useCreateBillingCheckout() {
 	return useMutation({
 		mutationFn: (body: CreateBillingCheckoutBody) =>
 			createBillingCheckout(body),
-		onSuccess: ({ url }) => {
-			window.location.assign(url);
-		},
 	});
 }
 
@@ -53,6 +54,31 @@ export function useCreateBillingPortal() {
 		mutationFn: createBillingPortal,
 		onSuccess: ({ url }) => {
 			window.location.assign(url);
+		},
+	});
+}
+
+export function useCreateManualSubscriptionRequest() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: (body: CreateManualSubscriptionRequestBody) =>
+			createManualSubscriptionRequest(body),
+		onMutate: () => ({ queryKey: billingKeys.manualRequest() }),
+		onSuccess: (view, _body, context) => {
+			queryClient.setQueryData(context.queryKey, view);
+		},
+	});
+}
+
+export function useCancelManualSubscriptionRequest() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: cancelManualSubscriptionRequest,
+		onMutate: () => ({ queryKey: billingKeys.manualRequest() }),
+		onSuccess: (view, _variables, context) => {
+			queryClient.setQueryData(context.queryKey, view);
 		},
 	});
 }
@@ -85,7 +111,7 @@ export function useCancelBillingSubscription() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: cancelBillingSubscription,
+		mutationFn: (body: BillingCancelRequest) => cancelBillingSubscription(body),
 		onSuccess: (subscriptionView) => {
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
 			refreshCreditCaches(queryClient, subscriptionView, false);
@@ -126,6 +152,6 @@ function refreshCreditCaches(
 	void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
 
 	if (invalidateLedger) {
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 	}
 }

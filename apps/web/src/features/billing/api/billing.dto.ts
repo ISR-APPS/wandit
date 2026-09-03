@@ -2,6 +2,7 @@
 // the source of truth; this feature layer only re-exports inferred types.
 
 export type {
+	BillingCancelRequest,
 	BillingCheckoutResponse,
 	BillingPlansResponse,
 	BillingPortalResponse,
@@ -9,10 +10,17 @@ export type {
 	BillingSubscriptionChangePreviewResponse,
 	BillingSubscriptionChangeTarget,
 	BillingSubscriptionViewResponse,
+	CancellationReasonCode,
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	CreateManualSubscriptionRequestBody,
 	CreditBalanceResponse,
 	CreditBucket,
+	ManualBillingCountry,
+	ManualPaymentMethod,
+	ManualSubscriptionRequest,
+	ManualSubscriptionRequestStatus,
+	ManualSubscriptionRequestViewResponse,
 	PreviewBillingSubscriptionChangeBody,
 } from "@wandit/contracts";

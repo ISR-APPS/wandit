@@ -4,6 +4,10 @@
  * OWNER to Business checkout (the workspace header now scopes the checkout to
  * the new org, so the subscription lands on the org, never the person).
  */
+
+import { useQueryClient } from "@tanstack/react-query";
+import type { BillingInterval } from "@wandit/contracts";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -11,7 +15,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
-import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import {
@@ -21,18 +24,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@wandit/ui/components/select";
-import type {
-	BillingInterval,
-	CreateBillingCheckoutBody,
-} from "@wandit/contracts";
 import { useMemo, useState } from "react";
-
-import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
+import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
+import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
 import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
-import { useQueryClient } from "@tanstack/react-query";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
 function slugify(name: string): string {
@@ -70,21 +68,24 @@ export function CreateWorkspaceDialog({
 	const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
 
 	const business = useMemo(
-		() =>
-			plansQuery.data?.plans.find((plan) => plan.id === "business") ?? null,
+		() => plansQuery.data?.plans.find((plan) => plan.id === "business") ?? null,
 		[plansQuery.data],
 	);
 	const [tierCredits, setTierCredits] = useState<number | null>(null);
 	const selectedTier =
-		business?.tiers.find(
-			(tier) => tier.tierCredits === (tierCredits ?? 100),
-		) ?? business?.tiers[0];
+		business?.tiers.find((tier) => tier.tierCredits === tierCredits) ??
+		business?.tiers[0] ??
+		null;
 
 	const submit = async () => {
 		const trimmed = name.trim();
 
 		if (!createdOrgId && !trimmed) {
 			setError(t("workspaces.create.errors.nameRequired"));
+			return;
+		}
+		if (!selectedTier) {
+			setError(t("workspaces.create.errors.checkoutFailed"));
 			return;
 		}
 
@@ -123,13 +124,12 @@ export function CreateWorkspaceDialog({
 			}
 
 			try {
-				await checkout.mutateAsync({
+				const { url } = await checkout.mutateAsync({
 					plan: "business",
-					tierCredits: (selectedTier?.tierCredits ??
-						100) as CreateBillingCheckoutBody["tierCredits"],
+					tierCredits: selectedTier.tierCredits,
 					interval,
 				});
-				// Success navigates to Stripe; no further UI state needed.
+				await completeCardCheckoutStart(url, "create_workspace");
 			} catch {
 				// The workspace exists — only payment failed to start. Distinct
 				// copy so the user retries checkout instead of re-creating.
@@ -167,12 +167,12 @@ export function CreateWorkspaceDialog({
 							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
-					{business && business.tiers.length > 0 ? (
+					{business && selectedTier ? (
 						<div className="grid grid-cols-2 gap-3">
 							<div className="flex flex-col gap-2">
 								<Label>{t("billing.planPicker.creditTier")}</Label>
 								<Select
-									value={String(selectedTier?.tierCredits ?? 100)}
+									value={String(selectedTier.tierCredits)}
 									onValueChange={(value) => setTierCredits(Number(value))}
 								>
 									<SelectTrigger>
@@ -220,7 +220,7 @@ export function CreateWorkspaceDialog({
 					) : null}
 					<Button
 						type="button"
-						disabled={creating || checkout.isPending}
+						disabled={!selectedTier || creating || checkout.isPending}
 						onClick={() => void submit()}
 					>
 						{creating || checkout.isPending

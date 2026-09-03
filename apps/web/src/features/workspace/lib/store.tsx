@@ -66,7 +66,6 @@ import {
 	type PreviewVersion,
 	resolvePreviewVersion,
 } from "./page-version-state";
-import { getPublishErrorMessage } from "./publish-error";
 
 export type Viewport = "mobile" | "desktop";
 export type { GenerationPhase, PreviewVersion } from "./page-version-state";
@@ -106,8 +105,8 @@ type WorkspaceContextValue = {
 	generationPhase: GenerationPhase;
 	isGenerating: boolean;
 	pendingVersionNumber: number;
-	/** Opens the version-aware confirmation for the resolved canvas version. */
-	publish: (options?: { slug?: string }) => void;
+	/** Opens the version-aware confirmation, defaulting to the resolved canvas version. */
+	publish: (options?: { slug?: string; version?: PreviewVersion }) => void;
 	publishCandidateVersion: PreviewVersion | null;
 	confirmPublish: () => void;
 	cancelPublish: () => void;
@@ -213,8 +212,11 @@ export function WorkspaceProvider({
 		setChatOpen(nextOpen);
 	}, [chatOpen, persistChatOpen]);
 
+	// Copy-then-sort instead of toSorted(): toSorted needs Chrome 110 / Safari 16
+	// / Firefox 115 and is never polyfilled by the Vite build, so older Android
+	// Chrome crashes the whole workspace route with "toSorted is not a function".
 	const versions = useMemo(
-		() => (versionsQuery.data ?? []).toSorted((a, b) => a.number - b.number),
+		() => [...(versionsQuery.data ?? [])].sort((a, b) => a.number - b.number),
 		[versionsQuery.data],
 	);
 
@@ -292,24 +294,17 @@ export function WorkspaceProvider({
 
 	// --- publishing ------------------------------------------------------------
 
-	const publishErrorToast = useCallback(
-		(error: unknown) => {
-			toast.error(
-				getPublishErrorMessage(
-					error,
-					t("workspace.publish.earlyAccessRequired"),
-				),
-			);
-		},
-		[t],
-	);
+	const publishErrorToast = useCallback((error: unknown) => {
+		toast.error(getApiErrorMessage(error));
+	}, []);
 
 	const publish = useCallback(
-		(options?: { slug?: string }) => {
-			if (!previewVersion || publishMutation.isPending) return;
+		(options?: { slug?: string; version?: PreviewVersion }) => {
+			const version = options?.version ?? previewVersion;
+			if (!version || publishMutation.isPending) return;
 			const slug = options?.slug ?? draftSlug;
 			setPublishCandidate({
-				version: previewVersion,
+				version,
 				...(slug ? { slug } : {}),
 			});
 		},

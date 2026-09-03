@@ -126,7 +126,7 @@ A figure caption row sits under the plate in the gutter; at the floor, the scrol
 - GRADE: overexposed by a third of a stop, one soft directional source, no flash. Apply filter saturate(.92) contrast(.96) brightness(1.02) to every plate; if one still fights the paper, add an ::after wash of paper at .10 alpha at mix-blend-mode soft-light. Tint, never stylize.
 - BANNED: smiling staff in a row facing camera · a stethoscope on white · stock handshakes · a person pointing at a screen · pure white cyclorama · any visible text or watermark.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis OPTIONAL and welcome here)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST. One flag: animate = hasGsap && !matchMedia("(prefers-reduced-motion: reduce)").matches, where hasGsap checks window.gsap AND window.ScrollTrigger. EVERY hidden initial state — autoAlpha 0, y offset, clip-path, scaleX 0 — is set with gsap.set INSIDE that branch; no stylesheet here may contain opacity:0 or a transform on content. If the CDN dies, the page is a complete, readable paper document.
 - gsap.defaults({ease:"power3.out", duration:1.15}). ONE shared CSS easing token for every transition in the file: cubic-bezier(.19,.72,.24,1) — the porcelain ease.
 - TIMING BANDS, and every duration belongs to one: .28-.44s interaction feedback · .55-.75s component state · 1.0-1.45s narrative reveals · 1.5s plate clip with a 2.0s counter-zoom inside it (deliberately de-synced) · 2.6s hero plate settle · 6s the single ambient loop.
@@ -144,7 +144,7 @@ THE MANDATORY SET
 8. STAGGERED RISES (autoAlpha 0 to 1, y 26 to 0, .95s, stagger .08, start "top 88%", once) on running heads, ledger rows, definition rows, portraits, trust-strip items, colophon columns, FORM FIELDS one at a time, and the footer wordmark rising yPercent 104 to 0 out of its own mask over 1.5s power4.out.
 9. AT MOST ONE COUNT-UP PER PAGE, and NEVER on a price — overriding the global instruction, because a price that spins is a sale. If a real figure earns it: a proxy tween over 1.9s power2.out with tabular figures, once, start "top 88%", plus a 3500ms setTimeout fallback. The true value is hard-coded in the HTML so a no-JS visitor sees truth, not zero.
 
-LENIS IS OPTIONAL AND SUITS THIS WORLD, the one world where smooth scroll earns its request. Pin the version, lerp .085, wheelMultiplier .9, wire lenis.on("scroll", ScrollTrigger.update), drive it from gsap.ticker with lagSmoothing(0), expose window.__lenis, destroy it under reduced motion, and keep every anchor working if the library fails.
+SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE in this runtime — native scroll only. The slowness this world wants comes from the choreography itself: long durations, gentle eases, and generous scrub distances on native scroll. Every anchor works natively.
 
 MICRO-INTERACTION KIT (CSS, inside the bands and a hover:hover query, with keyboard parity): rule-link underline drawn by transitioning right 100% to 0 over .4s, rgba(ink,.20) to accent · outline pill inverting border, background and label together over .38s, never darkening · ledger row running three decoupled transitions at once — border to accent over .3s, name shifting inline .35rem over .35s, a 72x86 arch thumbnail fading in at the row end from scale .96 over .45s · plate images swelling scale(1.02) over 1.6s on a WRAPPER GSAP is not transforming · fields moving THREE properties together on :focus-within over .3s (rule to accent at 1.5px, label to accent-deep, a 40px accent tick drawing in) · an accordion icon whose 1px plus loses its vertical bar via scaleY 1 to 0 over .4s — it does not rotate, because nothing here rotates. Ship the reduced-motion block: animation-duration .01ms, iteration-count 1, transition-duration .01ms, scroll-behavior auto.
 
@@ -189,7 +189,7 @@ All of this furniture invents ZERO business facts — it is typesetting. Fill it
 - Numerals, coordinates, phone numbers, prices and the wa.me link stay LTR inside dir="ltr" spans with tabular figures, so a phone number never renders in a mangled order.
 
 ## Global rules this world overrides (declared, and honoured)
-HAIRLINES: global calls a hairline the weakest seam and allows one per page; Clarté overrides that for TYPESET rules — inset, labelled, drawn on scroll, dozens of them — while keeping the global law for SEAMS, so a bare hairline is never the sole boundary between two scenes. SHADOWS: one declaration, two elements. COUNT-UPS: never on prices, at most one per page. ACCENT JOBS: nine of twelve, not six. PINNED SCROLL: global asks for at least one pinned or scrubbed desktop moment; here it is answered by the sticky-split journey plus one scrubbed parallax, with pinning and horizontal rails banned outright. SMOOTH SCROLL: Lenis is permitted and encouraged here under the wiring contract above, because slowness is the point.
+HAIRLINES: global calls a hairline the weakest seam and allows one per page; Clarté overrides that for TYPESET rules — inset, labelled, drawn on scroll, dozens of them — while keeping the global law for SEAMS, so a bare hairline is never the sole boundary between two scenes. SHADOWS: one declaration, two elements. COUNT-UPS: never on prices, at most one per page. ACCENT JOBS: nine of twelve, not six. PINNED SCROLL: global asks for at least one pinned or scrubbed desktop moment; here it is answered by the sticky-split journey plus one scrubbed parallax, with pinning and horizontal rails banned outright. SMOOTH SCROLL: smooth-scroll libraries are unavailable — slowness comes from long durations and gentle eases on native scroll, because slowness is the point.
 
 ## Clarté ban list (in addition to the global one)
 Pure #ffffff or #000000 anywhere · a dark chapter of any kind including the footer (this world has no night) · any detached gray that is not an alpha of the ink · box-shadows on cards, panels, nav, buttons, ledgers, portraits or the sticky bar · a uniform 12-16px border-radius as the page's shape · ANY font-weight above 500 in the sans or 400 in the serif · circular avatars · icon grids, icon fonts, emoji, or icons outside the trust strip · three-column feature cards with backgrounds · a 50/50 grid · centred body copy (only the closing wordmark and one caption may be centred) · marquees, tickers and any infinite loop besides the daylight · pinned sections and horizontal rails · rotation on any element, ever · glassmorphism (the only two blurs are the masthead and the sticky bar) · gradients as decoration — exactly three may exist: the plate scrim, the hero top scrim and the daylight radial · exclamation marks · countdown timers, fake scarcity, chat-bubble popups · testimonial carousels · stock photography of smiling staff facing camera · a bouncing chevron scroll cue · a solid rectangle CTA · prices that animate · per-character text splitting · any hidden state authored in CSS.
@@ -199,6 +199,7 @@ This world fails one comfortable decision at a time, and every wrong decision lo
 
 Executed at 100 percent it is unmistakable: warm paper with a tooth you can almost feel, hairline serif headlines at a size that would be arrogant if the page were not so quiet, rules that draw themselves across the margin, a room photographed at ten in the morning dissolving with no edge back into the page, a care path gliding past a single sticky numeral, an appointment colophon set like the last page of a book. Nothing shouts, nothing spins, nothing sells. The nerve is in the emptiness — hold it. Push INTO the air, never back toward filling it.`,
 	energy: "quiet",
+	family: "clarte",
 	id: "clarte",
 	industries: [
 		"medical",
@@ -219,6 +220,13 @@ Executed at 100 percent it is unmistakable: warm paper with a tooth you can almo
 	kind: "website",
 	mood: ["calm", "luminous", "airy", "editorial", "unhurried"],
 	name: "Clarté",
+	preview: {
+		ground: "#FBF8F3",
+		ink: "#23201C",
+		accent: "#F2EDE4",
+		fontFamily: "Fraunces",
+		sampleWord: "Clarté",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Warm off-white paper with far more air than ink: hairline serif headlines you could hold up to the light, rooms photographed at ten in the morning dissolving softly back into the page, and an appointment block set like the last page of a book — the site of a practice people trust before they arrive.",

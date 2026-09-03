@@ -1,17 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { AuthUser } from "@wandit/auth";
 import {
 	CHECKOUT_PURPOSE,
 	type CreateDomainOrderBody,
 	type CreateOrderResponse,
-	DOMAIN_REGISTRATION_USD_CENTS,
+	domainRetailUsdCentsFromWholesale,
 	type PaymentOrder,
 	uuidSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type Stripe from "stripe";
-
 import { BillingCustomerService } from "../../../billing/application/services/billing-customer.service";
 import {
 	PAYMENT_PROVIDER,
@@ -29,6 +27,7 @@ import {
 	PremiumDomainBlockedError,
 } from "../../../domains/domain/errors/domain.errors";
 import { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { OrderInvariantViolationError } from "../../domain/errors/payment-order.errors";
 import {
 	domainRegistrationOrderMetadataSchema,
@@ -63,6 +62,19 @@ type StripeFinancialReversal =
 			chargeId: string;
 			kind: "refund";
 	  };
+
+function checkoutReturnUrl(returnPath: string, search: string): string {
+	const hashIndex = returnPath.indexOf("#");
+	const pathAndSearch =
+		hashIndex === -1 ? returnPath : returnPath.slice(0, hashIndex);
+	const hash = hashIndex === -1 ? "" : returnPath.slice(hashIndex);
+	const queryIndex = pathAndSearch.indexOf("?");
+	const queryIsOpen =
+		queryIndex === pathAndSearch.length - 1 || pathAndSearch.endsWith("&");
+	const separator = queryIndex === -1 ? "?" : queryIsOpen ? "" : "&";
+
+	return `${env.CORS_ORIGIN}${pathAndSearch}${separator}${search}${hash}`;
+}
 
 @Injectable()
 export class OrdersService implements WebhookOrderReconciler {
@@ -99,7 +111,9 @@ export class OrdersService implements WebhookOrderReconciler {
 			body.domain,
 			body.projectId,
 		);
-		const amountCents = DOMAIN_REGISTRATION_USD_CENTS[prepared.tld];
+		const amountCents = domainRetailUsdCentsFromWholesale(
+			prepared.quotedWholesaleUsd,
+		);
 
 		// Never contact Stripe for a purchase that would lose money: the retail
 		// charge must stay above the registrar's live wholesale quote.
@@ -132,13 +146,20 @@ export class OrdersService implements WebhookOrderReconciler {
 		});
 		const checkout = await this.paymentProvider.createOrderCheckout({
 			amountCents,
-			cancelUrl: `${env.CORS_ORIGIN}/billing/cancel`,
+			cancelUrl: body.returnPath
+				? checkoutReturnUrl(body.returnPath, "checkout=cancel")
+				: `${env.CORS_ORIGIN}/billing/cancel`,
 			currency: "usd",
 			customerId: customer.providerCustomerId,
 			kind: order.kind,
 			orderId: order.id,
 			productName: `Domain registration: ${prepared.name}`,
-			successUrl: `${env.CORS_ORIGIN}/billing/success?purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+			successUrl: body.returnPath
+				? checkoutReturnUrl(
+						body.returnPath,
+						"checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}",
+					)
+				: `${env.CORS_ORIGIN}/billing/success?purpose=order&session_id={CHECKOUT_SESSION_ID}`,
 			userId: user.id,
 		});
 		const attached = await this.paymentOrdersRepository.attachCheckoutSession(

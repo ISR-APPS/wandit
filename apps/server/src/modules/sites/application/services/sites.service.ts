@@ -8,7 +8,9 @@
  *
  * Money-shaped invariant, same as generation: R2 writes happen BEFORE the
  * row is promoted — an active deployment must never point at bytes that do
- * not exist.
+ * not exist. If the live-byte flip succeeds but promotion fails, best-effort
+ * compensation restores the previous live state because R2, KV, and Postgres
+ * share no transaction.
  */
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
@@ -31,20 +33,34 @@ import {
 	deleteObject,
 	getPageHtml,
 	isR2Configured,
+	publicAssetKeyFromUrl,
 	publishedArchiveKey,
 	publishedCurrentKey,
 	putPageHtml,
+	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
 	buildLeadsCaptureUrl,
 	injectLeadsRuntime,
 } from "../../../leads/runtime/inject-leads-runtime";
+import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
+import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
+import {
+	emitResponsiveImages,
+	optimizeImageMarkup,
+} from "../../../pages/domain/optimize-image-markup";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	collectAssetUrls,
+	verifyAssetUrls,
+} from "../../domain/asset-validator";
+import { injectWanditBadge } from "../../domain/badge-injector";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
 	PublishUnavailableError,
+	SiteAssetsUnreachableError,
 	SlugReservedError,
 	SlugTakenError,
 } from "../../domain/errors/site.errors";
@@ -60,6 +76,19 @@ import {
 } from "../../infrastructure/persistence/deployments.repository";
 
 const SLUG_SUFFIX_ATTEMPTS = 5;
+
+/**
+ * Does this candidate rendition URL point at an object that really exists?
+ * emitResponsiveImages speaks in public URLs (that is what it writes into the
+ * HTML), R2 speaks in object keys, so the boundary is translated here. A URL
+ * outside our bucket, or any storage error, answers false — the srcset then
+ * simply omits that width.
+ */
+async function publishedVariantExists(url: string): Promise<boolean> {
+	const key = publicAssetKeyFromUrl(url);
+
+	return key === null ? false : r2ObjectExists(key);
+}
 
 @Injectable()
 export class SitesService {
@@ -166,13 +195,12 @@ export class SitesService {
 			throw new NotFoundException("Deployment not found");
 		}
 
-		// Prefer the archived published bytes (pixels already injected). Fall
-		// back to re-building from the version's draft bytes when the archive
-		// predates archiving or was cleaned up.
+		// Prefer the archived published bytes as input. Fall back to the version's
+		// draft bytes when the archive predates archiving or was cleaned up; the
+		// deterministic publish transforms run again in either case.
 		let html = await getPageHtml(
 			publishedArchiveKey(projectId, target.id),
 		).catch(() => null);
-		let alreadyInjected = true;
 
 		if (html === null) {
 			const version = await this.deploymentsRepository.findVersionForProject(
@@ -185,14 +213,12 @@ export class SitesService {
 			}
 
 			html = await this.readDraftHtml(version.r2Key);
-			alreadyInjected = false;
 		}
 
 		const deployment = await this.runPublishPipeline({
 			html,
 			project,
 			requestedSlug: undefined,
-			skipInjection: alreadyInjected,
 			versionId: target.versionId,
 		});
 
@@ -227,13 +253,14 @@ export class SitesService {
 	/*
 	 * The shared pipeline behind publish and rollback:
 	 * validate slug → pending row → R2 writes → KV pointer → promote.
-	 * Every throw after the pending row exists marks it failed first.
+	 * Once the live flip starts, storage compensation has priority over the
+	 * best-effort failed-row write; neither cleanup path may replace the
+	 * original publish error.
 	 */
 	private async runPublishPipeline(input: {
 		html: string;
 		project: OwnedProjectRow;
 		requestedSlug: string | undefined;
-		skipInjection?: boolean;
 		versionId: string;
 	}): Promise<DeploymentRow> {
 		if (!isR2Configured()) {
@@ -255,26 +282,61 @@ export class SitesService {
 			slug,
 			versionId: input.versionId,
 		});
+		let liveBytesFlipped = false;
+		let promoted: DeploymentRow | null = null;
 
 		try {
-			const withPixels = input.skipInjection
-				? input.html
-				: injectPixels(input.html, {
-						metaPixelId: input.project.metaPixelId,
-						tiktokPixelId: input.project.tiktokPixelId,
-					});
+			// Unconditional and idempotent like the injectors below: drafts and
+			// archives generated before CDN inlining existed still publish
+			// self-contained instead of depending on jsdelivr at view time.
+			const inlined = inlineKnownCdnScripts(input.html);
 
-			// Unconditional on purpose: the injector is idempotent (id marker),
-			// so fresh publishes gain the lead-capture runtime and rollbacks of
-			// pre-runtime archives gain it too instead of losing lead capture.
-			const published = injectLeadsRuntime(withPixels, {
+			// Same reasoning, one layer up the page: the font stylesheet link
+			// is hoisted above the inline <style> so the browser discovers the
+			// render-blocking font request immediately. Pure and idempotent, so
+			// already-optimized drafts and replayed archives pass through
+			// unchanged and old sites are fixed by their next publish.
+			const withFonts = optimizeFontLoading(inlined);
+
+			// One prioritized LCP image, everything else lazy, then a srcset
+			// built only from renditions this pass just verified in R2. Both
+			// run BEFORE the preflight below, so every URL they emit is one of
+			// the URLs the preflight probes. Both are idempotent: the markup
+			// pass returns the identical string once the attributes already
+			// read that way, and the srcset pass skips any <img> that already
+			// carries one, so replayed archives keep their bytes.
+			const withImages = await emitResponsiveImages(
+				optimizeImageMarkup(withFonts),
+				{ exists: publishedVariantExists },
+			);
+
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched.
+			const withPixels = injectPixels(withImages, {
+				metaPixelId: input.project.metaPixelId,
+				tiktokPixelId: input.project.tiktokPixelId,
+			});
+
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched.
+			const withRuntime = injectLeadsRuntime(withPixels, {
 				captureUrl: buildLeadsCaptureUrl(
 					env.BETTER_AUTH_URL,
 					input.project.publicFormId,
 				),
+				deploymentId: pending.id,
+			});
+
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched. The hide
+			// toggle only counts for an entitled owner.
+			const published = injectWanditBadge(withRuntime, {
+				hide: input.project.hideWanditBadge && input.project.ownerIsEntitled,
 			});
 
 			assertNoEditorArtifacts(published);
+
+			await this.assertPublishedAssetsReachable(published);
 
 			// Archive first, then flip the live bytes: the mutable key must
 			// never point at a publish that has no immutable audit copy.
@@ -283,13 +345,14 @@ export class SitesService {
 				published,
 			);
 			await putPageHtml(publishedCurrentKey(input.project.id), published);
+			liveBytesFlipped = true;
 
 			// Always write the host pointer: it is one idempotent PUT, and
 			// skipping it when the slug "already exists" strands sites whose
 			// first publish ran before Cloudflare credentials were configured.
 			await this.writeSlugPointer(input.project.id, slug, kvConfigured);
 
-			const promoted = await this.deploymentsRepository.promoteToActive(
+			promoted = await this.deploymentsRepository.promoteToActive(
 				pending.id,
 				input.project.id,
 			);
@@ -301,12 +364,43 @@ export class SitesService {
 
 			return promoted;
 		} catch (error) {
-			await this.deploymentsRepository.markFailed(
-				pending.id,
-				failureSummary(error),
-			);
+			if (liveBytesFlipped && promoted === null) {
+				try {
+					await this.restorePreviousLiveState({
+						activeSnapshot: active,
+						projectId: input.project.id,
+						slug,
+					});
+				} catch (restoreError) {
+					this.logger.error(
+						`Publish compensation failed for project ${input.project.id}`,
+						restoreError instanceof Error
+							? (restoreError.stack ?? restoreError.message)
+							: String(restoreError),
+					);
+				}
+			}
 
-			if (error instanceof SlugTakenError) {
+			// Failure-state persistence is best-effort: an outage leaves this row
+			// pending for healStalePending to reclaim on the next project read.
+			try {
+				await this.deploymentsRepository.markFailed(
+					pending.id,
+					failureSummary(error),
+				);
+			} catch (markFailedError) {
+				this.logger.error(
+					`Publish failure state could not be recorded for deployment ${pending.id}`,
+					markFailedError instanceof Error
+						? (markFailedError.stack ?? markFailedError.message)
+						: String(markFailedError),
+				);
+			}
+
+			if (
+				error instanceof SlugTakenError ||
+				error instanceof SiteAssetsUnreachableError
+			) {
 				throw error;
 			}
 
@@ -318,6 +412,34 @@ export class SitesService {
 			throw error instanceof PublishFailedError
 				? error
 				: new PublishFailedError(failureSummary(error));
+		}
+	}
+
+	// Preflight the final bytes before any R2 write: a publish whose media can
+	// never load must fail loudly instead of going live half-blank. Only
+	// structural failures block (relative URLs, 404/410/403); transient probe
+	// trouble is logged and the publish proceeds.
+	private async assertPublishedAssetsReachable(html: string): Promise<void> {
+		// Validated envs hold the transformed boolean; SKIP_ENV_VALIDATION envs
+		// (tests, local scripts) hold the raw string. Both spell "off" the same.
+		if (String(env.SITE_PUBLISH_ASSET_CHECK) === "false") {
+			return;
+		}
+
+		const urls = collectAssetUrls(html);
+
+		if (urls.length === 0) {
+			return;
+		}
+
+		const { broken, warnings } = await verifyAssetUrls(urls);
+
+		for (const url of warnings) {
+			this.logger.warn(`Publish asset check could not verify ${url}`);
+		}
+
+		if (broken.length > 0) {
+			throw new SiteAssetsUnreachableError(broken);
 		}
 	}
 
@@ -462,6 +584,47 @@ export class SitesService {
 		}
 
 		await this.domainRoutingService.deleteHostPointer(this.slugHost(slug));
+	}
+
+	// Live bytes must never reference a deployment row that was not promoted.
+	// Compensation is best-effort because R2, KV, and Postgres share no
+	// transaction; when an old archive is missing, keeping the new bytes is
+	// safer than taking an existing site down.
+	private async restorePreviousLiveState(input: {
+		activeSnapshot: DeploymentRow | null;
+		projectId: string;
+		slug: string;
+	}): Promise<void> {
+		const active = await this.deploymentsRepository
+			.findActiveByProject(input.projectId)
+			.catch(() => {
+				// Promotion failure commonly means Postgres is unavailable; the stale
+				// pre-pipeline snapshot still permits a best-effort restore.
+				return input.activeSnapshot;
+			});
+
+		if (active === null) {
+			await deleteObject(publishedCurrentKey(input.projectId));
+			await this.deleteSlugPointer(input.slug);
+
+			return;
+		}
+
+		const previousHtml = await getPageHtml(
+			publishedArchiveKey(input.projectId, active.id),
+		).catch(() => null);
+
+		if (previousHtml === null) {
+			this.logger.error(
+				`Publish compensation could not read archived bytes for deployment ${active.id}`,
+			);
+		} else {
+			await putPageHtml(publishedCurrentKey(input.projectId), previousHtml);
+		}
+
+		if (input.slug !== active.slug) {
+			await this.deleteSlugPointer(input.slug);
+		}
 	}
 
 	private async buildCurrent(projectId: string): Promise<DeploymentCurrent> {

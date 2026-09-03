@@ -2,10 +2,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
 	type ParsedPriceLookupKey,
+	PERSISTED_TOPUP_PACKS,
 	parsePriceLookupKey,
+	persistedTopupPackIdSchema,
 	priceLookupKey,
-	TOPUP_PACKS,
-	topupPackIdSchema,
+	priceUsdFor,
 } from "@wandit/contracts";
 import type Stripe from "stripe";
 
@@ -13,14 +14,18 @@ import { CreditsService } from "../../../credits/application/services/credits.se
 import {
 	type CreditOwner,
 	creditOwnerKey,
-	ownerFromIds,
 	orgOwner,
+	ownerFromIds,
 	sameCreditOwner,
 	userOwner,
 } from "../../../credits/domain/credit-owner";
 import type { CreditsTransaction } from "../../../credits/infrastructure/persistence/credits.repository";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { BillingTopupReceiptsRepository } from "../../infrastructure/persistence/billing-topup-receipts.repository";
+import { FinancialReconciliationOutboxRepository } from "../../infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
 	type InvoiceApplicationRow,
@@ -50,9 +55,22 @@ type PaymentReferences = {
 };
 
 type SubscriptionUpdatePlans = {
-	newPlan: { lookupKey: string; parsed: ParsedPriceLookupKey };
+	newPlan: {
+		line: ParsedInvoiceLine;
+		lookupKey: string;
+		parsed: ParsedPriceLookupKey;
+	};
 	oldPlan: ParsedInvoiceLine | null;
 };
+
+type InvoiceGrantOutcome = {
+	/** UNIT: centi-credits. */
+	creditsDelta: number;
+	/** Funding charges of catch-up refill slots granted inside this invoice. */
+	slotFundingChargeIds: string[];
+};
+
+const NO_SLOT_CHARGES: string[] = [];
 
 @Injectable()
 export class SubscriptionCreditsService {
@@ -77,6 +95,12 @@ export class SubscriptionCreditsService {
 		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
 		@Inject(OrganizationBillingCustomersRepository)
 		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
+		@Inject(FinancialReconciliationOutboxRepository)
+		private readonly reconciliationOutbox: FinancialReconciliationOutboxRepository,
+		@Inject(BillingTopupReceiptsRepository)
+		private readonly topupReceiptsRepository: BillingTopupReceiptsRepository,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async grantTopup(session: Stripe.Checkout.Session): Promise<void> {
@@ -169,7 +193,7 @@ export class SubscriptionCreditsService {
 		}
 
 		const metadataPackId = this.requiredMetadata(session.metadata, "packId");
-		const parsedPackId = topupPackIdSchema.safeParse(metadataPackId);
+		const parsedPackId = persistedTopupPackIdSchema.safeParse(metadataPackId);
 
 		if (!parsedPackId.success) {
 			throw new Error(
@@ -185,7 +209,9 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		const pack = TOPUP_PACKS[packId];
+		const pack = PERSISTED_TOPUP_PACKS[packId];
+		// Stripe session metadata carries WHOLE display credits (pack identity);
+		// the metadata check therefore compares whole credits.
 		const credits = this.positiveIntegerMetadata(session.metadata, "credits");
 
 		if (credits !== pack.credits) {
@@ -258,17 +284,67 @@ export class SubscriptionCreditsService {
 			session.payment_intent,
 		);
 
-		await this.creditsService.topup(owner, credits, {
-			idempotencyKey: `topup:${session.id}`,
-			meta: this.withPaymentReferences(
-				{
-					packId,
-					reason: "topup_purchase",
-					sessionId: session.id,
-				},
-				paymentReferences,
-			),
-		});
+		// The ledger takes centi-credits: convert the whole-credit pack amount
+		// exactly once at this grant boundary.
+		await this.subscriptionCreditsRepository.withOwnerLock(
+			owner,
+			async (tx) => {
+				await this.creditsService.topup(
+					owner,
+					credits * 100,
+					{
+						idempotencyKey: `topup:${session.id}`,
+						meta: this.withPaymentReferences(
+							{
+								packId,
+								reason: "topup_purchase",
+								sessionId: session.id,
+							},
+							paymentReferences,
+						),
+					},
+					tx,
+				);
+
+				await this.topupReceiptsRepository.insertIfAbsent(
+					{
+						amountCents: session.amount_total ?? expectedAmountTotal,
+						chargeId: paymentReferences.chargeId,
+						currency: session.currency?.toLowerCase() ?? "usd",
+						organizationId: metadataOrganizationId,
+						packId,
+						paidAt: this.checkoutSessionPaidAt(session),
+						paymentIntentId: paymentReferences.paymentIntentId,
+						sessionId: session.id,
+						userId,
+					},
+					tx,
+				);
+
+				await this.lifecycleEvents.enqueue(
+					{
+						event: "payment_completed",
+						idempotencyKey: lifecycleEventIdempotencyKey(
+							"payment_completed",
+							userId,
+						),
+						payload: { interval: "topup" },
+						userId,
+					},
+					tx,
+				);
+			},
+		);
+
+		// Reconciliation remains a separate idempotent insert. A later crash leaves
+		// the webhook failed so replay completes it, while the ledger, cash receipt,
+		// and payment lifecycle row above are already committed atomically.
+		if (paymentReferences.chargeId) {
+			await this.reconciliationOutbox.enqueue({
+				chargeId: paymentReferences.chargeId,
+				triggerRef: `topup:${session.id}`,
+			});
+		}
 
 		if (attempt.status === "session_attached") {
 			const completed = await this.checkoutAttemptsRepository.withUserLock(
@@ -336,6 +412,7 @@ export class SubscriptionCreditsService {
 
 				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
 					deleted.id,
+					{ reason: "ownership" },
 					tx,
 				);
 				const anotherEntitled =
@@ -391,12 +468,19 @@ export class SubscriptionCreditsService {
 				: await this.currentPlanFromInvoice(invoice, lines));
 
 		if (!currentPlan) {
-			this.logger.warn(
-				`Skipping Stripe invoice ${invoice.id} credit grant: unrecognized or missing price lookup key`,
+			// Throwing keeps the durable webhook row failed (retry, then
+			// dead-letter) instead of acking a paid invoice with zero credits.
+			throw new Error(
+				`Stripe invoice ${invoice.id} (${billingReason}) has an unrecognized or missing price lookup key; line prices: ${this.invoiceLinePriceIds(invoice).join(", ") || "none"}`,
 			);
-
-			return false;
 		}
+
+		this.assertInvoiceAmountMatchesCatalog(
+			invoice,
+			billingReason,
+			currentPlan,
+			updatePlans,
+		);
 
 		const owner = await this.requiredOwnerForInvoice(invoice);
 		const providerSubscriptionId = this.subscriptionIdFromInvoice(invoice);
@@ -407,6 +491,7 @@ export class SubscriptionCreditsService {
 
 		const paymentReferences = await this.paymentReferencesFromInvoice(invoice);
 		let replayHasGrossGrant = false;
+		let slotFundingChargeIds: string[] = NO_SLOT_CHARGES;
 		const applied = await this.subscriptionCreditsRepository.withOwnerLock(
 			owner,
 			async (tx) => {
@@ -477,9 +562,17 @@ export class SubscriptionCreditsService {
 					this.lookupKeyForParsedPlan(effectiveCurrentPlan);
 				const oldLookupKey = updatePlans?.oldPlan?.lookupKey ?? null;
 				const applicationBase = {
+					amountPaidMinor:
+						typeof invoice.amount_paid === "number"
+							? invoice.amount_paid
+							: null,
 					billingReason,
+					currency: invoice.currency ?? null,
 					newPriceLookupKey: newLookupKey,
 					oldPriceLookupKey: oldLookupKey,
+					paidAt: invoice.status_transitions?.paid_at
+						? new Date(invoice.status_transitions.paid_at * 1000)
+						: null,
 					periodEnd: period.end,
 					periodStart: period.start,
 					stripeInvoiceId: invoice.id,
@@ -519,11 +612,11 @@ export class SubscriptionCreditsService {
 					...paymentReferences,
 					invoiceId: invoice.id,
 				};
-				let creditsDelta = 0;
+				let outcome: InvoiceGrantOutcome;
 
 				switch (billingReason) {
 					case "subscription_create":
-						creditsDelta = await this.handleInitialSubscriptionInvoice(
+						outcome = await this.handleInitialSubscriptionInvoice(
 							invoice,
 							policySubscription,
 							effectiveCurrentPlan,
@@ -532,7 +625,7 @@ export class SubscriptionCreditsService {
 						);
 						break;
 					case "subscription_cycle":
-						creditsDelta = await this.handleSubscriptionCycleInvoice(
+						outcome = await this.handleSubscriptionCycleInvoice(
 							invoice,
 							policySubscription,
 							effectiveCurrentPlan,
@@ -541,7 +634,7 @@ export class SubscriptionCreditsService {
 						);
 						break;
 					case "subscription_update":
-						creditsDelta = await this.handleSubscriptionUpdateInvoice(
+						outcome = await this.handleSubscriptionUpdateInvoice(
 							invoice,
 							policySubscription,
 							effectiveCurrentPlan,
@@ -552,10 +645,37 @@ export class SubscriptionCreditsService {
 						break;
 				}
 
+				slotFundingChargeIds = outcome.slotFundingChargeIds;
 				await this.subscriptionCreditsRepository.insertInvoiceApplication(
-					{ ...applicationBase, creditsDelta },
+					{ ...applicationBase, creditsDelta: outcome.creditsDelta },
 					tx,
 				);
+
+				if (billingReason === "subscription_create") {
+					await this.lifecycleEvents.enqueue(
+						{
+							event: "payment_completed",
+							idempotencyKey: lifecycleEventIdempotencyKey(
+								"payment_completed",
+								canonical.userId,
+							),
+							payload: { interval: effectiveCurrentPlan.interval },
+							userId: canonical.userId,
+						},
+						tx,
+					);
+				}
+
+				if (paymentReferences.chargeId) {
+					await this.reconciliationOutbox.enqueue(
+						{
+							chargeId: paymentReferences.chargeId,
+							triggerRef: `inv:${invoice.id}`,
+						},
+						tx,
+					);
+				}
+
 				if (
 					billingReason === "subscription_cycle" &&
 					canonical.pendingAppliedBy !== null
@@ -574,7 +694,151 @@ export class SubscriptionCreditsService {
 			await this.reconcileFinancialAdjustments(paymentReferences);
 		}
 
+		// Catch-up slots granted inside this invoice may be funded by an older
+		// charge; each one gets the same fresh-charge recheck.
+		for (const chargeId of slotFundingChargeIds) {
+			if (chargeId !== paymentReferences.chargeId) {
+				await this.reconcileFinancialAdjustments({
+					chargeId,
+					paymentIntentId: null,
+				});
+			}
+		}
+
 		return true;
+	}
+
+	/**
+	 * Paid-invoice safety: the money Stripe collected must match the catalog
+	 * before any credits are minted. Exact match (or $0 for trials, or a short
+	 * payment whose gap is exactly the Stripe customer balance applied) on
+	 * create/cycle; at most the full new price on updates (proration
+	 * arithmetic); USD only. Any other value dead-letters for a human.
+	 */
+	private assertInvoiceAmountMatchesCatalog(
+		invoice: Stripe.Invoice,
+		billingReason:
+			| "subscription_create"
+			| "subscription_cycle"
+			| "subscription_update",
+		plan: ParsedPriceLookupKey,
+		updatePlans: SubscriptionUpdatePlans | null,
+	): void {
+		const currency = invoice.currency?.toLowerCase();
+
+		if (currency !== "usd") {
+			throw new Error(
+				`Stripe invoice ${invoice.id} is in ${currency ?? "an unknown currency"}; only usd invoices grant credits`,
+			);
+		}
+
+		const amountPaid = invoice.amount_paid;
+
+		if (!Number.isSafeInteger(amountPaid) || amountPaid < 0) {
+			throw new Error(
+				`Stripe invoice ${invoice.id} has an invalid amount_paid`,
+			);
+		}
+
+		const expectedMinor = this.catalogPriceMinor(plan);
+
+		if (billingReason === "subscription_update") {
+			if (
+				updatePlans?.oldPlan &&
+				!parsePriceLookupKey(updatePlans.oldPlan.lookupKey)
+			) {
+				throw new Error(
+					`Stripe invoice ${invoice.id} old price ${updatePlans.oldPlan.lookupKey} is not in the catalog`,
+				);
+			}
+
+			if (amountPaid > expectedMinor) {
+				throw new Error(
+					`Stripe invoice ${invoice.id} paid ${amountPaid} minor units, above the ${expectedMinor} catalog price of ${this.lookupKeyForParsedPlan(plan)}`,
+				);
+			}
+
+			return;
+		}
+
+		if (amountPaid === 0 || amountPaid === expectedMinor) {
+			return;
+		}
+
+		// An anchor reset (ruling 7, e.g. year -> month) credits the unused
+		// remainder to the Stripe customer balance. The next cycle invoices are
+		// then paid partly from that balance: amount_paid is below the catalog
+		// price, but the invoice total (pre-balance) still matches and the gap
+		// equals the balance Stripe applied.
+		const balanceApplied = this.customerBalanceAppliedMinor(invoice);
+
+		if (
+			amountPaid < expectedMinor &&
+			balanceApplied > 0 &&
+			amountPaid + balanceApplied === expectedMinor
+		) {
+			return;
+		}
+
+		throw new Error(
+			`Stripe invoice ${invoice.id} (${billingReason}) paid ${amountPaid} minor units but the catalog price of ${this.lookupKeyForParsedPlan(plan)} is ${expectedMinor}; coupons and discounts are not modeled, review manually`,
+		);
+	}
+
+	/**
+	 * Customer balance Stripe consumed on this invoice, in minor units. Stripe
+	 * stores credit as a negative balance: starting_balance -2000 and
+	 * ending_balance 0 means 2000 minor units were applied. Falls back to
+	 * `total - amount_paid` when the balance fields are absent and the
+	 * pre-balance total is known.
+	 */
+	private customerBalanceAppliedMinor(invoice: Stripe.Invoice): number {
+		const starting = invoice.starting_balance;
+		const ending = invoice.ending_balance;
+
+		if (Number.isSafeInteger(starting) && Number.isSafeInteger(ending)) {
+			return Math.max(0, (ending as number) - (starting as number));
+		}
+
+		if (
+			Number.isSafeInteger(invoice.total) &&
+			Number.isSafeInteger(invoice.amount_paid)
+		) {
+			return Math.max(0, invoice.total - invoice.amount_paid);
+		}
+
+		return 0;
+	}
+
+	private catalogPriceMinor(plan: ParsedPriceLookupKey): number {
+		return Math.round(
+			priceUsdFor(plan.plan, plan.tierCredits, plan.interval) * 100,
+		);
+	}
+
+	private invoiceLinePriceIds(invoice: Stripe.Invoice): string[] {
+		return invoice.lines.data.flatMap((line) => {
+			const price = line.pricing?.price_details?.price;
+
+			return price ? [typeof price === "string" ? price : price.id] : [];
+		});
+	}
+
+	/**
+	 * Ruling 7 fulfillment: an upgrade that reset the billing anchor carries a
+	 * full-period line at the full catalog price for the new plan plus the
+	 * negative proration credit for the old one. A delta-priced (pre-deploy)
+	 * update invoice has proration lines only and keeps the delta path.
+	 */
+	private isAnchorResetUpdate(plans: SubscriptionUpdatePlans): boolean {
+		const line = plans.newPlan.line;
+
+		return (
+			!line.proration &&
+			line.amount === this.catalogPriceMinor(plans.newPlan.parsed) &&
+			plans.oldPlan !== null &&
+			plans.oldPlan.amount < 0
+		);
 	}
 
 	private async handleInitialSubscriptionInvoice(
@@ -583,7 +847,7 @@ export class SubscriptionCreditsService {
 		currentPlan: ParsedPriceLookupKey,
 		funding: RefillFundingReferences,
 		tx: CreditsTransaction,
-	): Promise<number> {
+	): Promise<InvoiceGrantOutcome> {
 		await this.creditsService.grant(
 			ownerFromIds(subscription.userId, subscription.organizationId),
 			this.allotment(currentPlan),
@@ -605,7 +869,7 @@ export class SubscriptionCreditsService {
 		if (currentPlan.interval === "year") {
 			await this.subscriptionRefillService.createYearlySlots(
 				{
-					credits: currentPlan.tierCredits,
+					credits: this.allotment(currentPlan),
 					funding,
 					remainingAfter: subscription.currentPeriodStart,
 					subscription,
@@ -614,7 +878,10 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		return currentPlan.tierCredits;
+		return {
+			creditsDelta: this.allotment(currentPlan),
+			slotFundingChargeIds: NO_SLOT_CHARGES,
+		};
 	}
 
 	private async handleSubscriptionCycleInvoice(
@@ -623,13 +890,19 @@ export class SubscriptionCreditsService {
 		currentPlan: ParsedPriceLookupKey,
 		funding: RefillFundingReferences,
 		tx: CreditsTransaction,
-	): Promise<number> {
+	): Promise<InvoiceGrantOutcome> {
+		const slotFundingChargeIds = new Set<string>();
+
 		if (currentPlan.interval === "year") {
-			await this.subscriptionRefillService.grantDuePendingSlots(
+			const due = await this.subscriptionRefillService.grantDuePendingSlots(
 				subscription,
 				this.invoicePaidAt(invoice),
 				tx,
 			);
+
+			for (const chargeId of due.fundingChargeIds) {
+				slotFundingChargeIds.add(chargeId);
+			}
 		}
 
 		const refill = await this.creditsService.applyCappedRefill(
@@ -650,19 +923,29 @@ export class SubscriptionCreditsService {
 		);
 
 		if (currentPlan.interval === "year") {
-			await this.subscriptionRefillService.replacePendingYearlySlots(
-				{
-					credits: currentPlan.tierCredits,
-					funding,
-					grantDueThrough: this.invoicePaidAt(invoice),
-					remainingAfter: subscription.currentPeriodStart,
-					subscription,
-				},
-				tx,
-			);
+			const replaced =
+				await this.subscriptionRefillService.replacePendingYearlySlots(
+					{
+						credits: this.allotment(currentPlan),
+						funding,
+						grantDueThrough: this.invoicePaidAt(invoice),
+						remainingAfter: subscription.currentPeriodStart,
+						subscription,
+					},
+					tx,
+				);
+
+			for (const chargeId of replaced.fundingChargeIds) {
+				slotFundingChargeIds.add(chargeId);
+			}
 		}
 
-		return currentPlan.tierCredits - refill.expiredCredits;
+		// Both terms are centi-credits (allotment converts; expiredCredits is
+		// ledger-native), so the stored creditsDelta stays in one unit.
+		return {
+			creditsDelta: this.allotment(currentPlan) - refill.expiredCredits,
+			slotFundingChargeIds: [...slotFundingChargeIds],
+		};
 	}
 
 	private async handleSubscriptionUpdateInvoice(
@@ -672,7 +955,7 @@ export class SubscriptionCreditsService {
 		plans: SubscriptionUpdatePlans | null,
 		funding: RefillFundingReferences,
 		tx: CreditsTransaction,
-	): Promise<number> {
+	): Promise<InvoiceGrantOutcome> {
 		const oldPlan = plans?.oldPlan;
 		const newPlan = plans?.newPlan;
 		if (!oldPlan || !newPlan) {
@@ -690,19 +973,29 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		if (oldPlan.parsed.interval === newPlan.parsed.interval) {
-			const delta = currentPlan.tierCredits - oldPlan.parsed.tierCredits;
+		const slotFundingChargeIds = new Set<string>();
+		const anchorReset = plans ? this.isAnchorResetUpdate(plans) : false;
+
+		if (oldPlan.parsed.interval === newPlan.parsed.interval && !anchorReset) {
+			// Delta-priced update (proration only): the customer paid the tier
+			// difference, so the ledger gets the tier difference.
+			const delta =
+				this.allotment(currentPlan) - this.allotment(oldPlan.parsed);
 
 			if (delta <= 0) {
-				return 0;
+				return { creditsDelta: 0, slotFundingChargeIds: NO_SLOT_CHARGES };
 			}
 
 			if (currentPlan.interval === "year") {
-				await this.subscriptionRefillService.grantDuePendingSlots(
+				const due = await this.subscriptionRefillService.grantDuePendingSlots(
 					subscription,
 					this.invoicePaidAt(invoice),
 					tx,
 				);
+
+				for (const chargeId of due.fundingChargeIds) {
+					slotFundingChargeIds.add(chargeId);
+				}
 			}
 
 			await this.creditsService.grant(
@@ -726,24 +1019,35 @@ export class SubscriptionCreditsService {
 			);
 
 			if (currentPlan.interval === "year") {
-				await this.subscriptionRefillService.replacePendingYearlySlots(
-					{
-						credits: currentPlan.tierCredits,
-						funding,
-						grantDueThrough: this.invoicePaidAt(invoice),
-						remainingAfter: this.invoicePaidAt(invoice),
-						subscription,
-					},
-					tx,
-				);
+				const replaced =
+					await this.subscriptionRefillService.replacePendingYearlySlots(
+						{
+							credits: this.allotment(currentPlan),
+							funding,
+							grantDueThrough: this.invoicePaidAt(invoice),
+							remainingAfter: this.invoicePaidAt(invoice),
+							subscription,
+						},
+						tx,
+					);
+
+				for (const chargeId of replaced.fundingChargeIds) {
+					slotFundingChargeIds.add(chargeId);
+				}
 			}
 
-			return delta;
+			return {
+				creditsDelta: delta,
+				slotFundingChargeIds: [...slotFundingChargeIds],
+			};
 		}
 
+		// Anchor reset (Ruling 7) or interval change: the customer paid the full
+		// new price now, so the old plan's remainder expires above one allotment
+		// and the full new allotment is granted — exactly what the preview quoted.
 		const refill = await this.creditsService.applyCappedRefill(
 			ownerFromIds(subscription.userId, subscription.organizationId),
-			currentPlan.tierCredits,
+			this.allotment(currentPlan),
 			{
 				idempotencyKey: `inv:${invoice.id}:grant`,
 				meta: this.withPaymentReferences(
@@ -751,7 +1055,10 @@ export class SubscriptionCreditsService {
 						invoiceId: invoice.id,
 						newPriceLookupKey: newPlan.lookupKey,
 						oldPriceLookupKey: oldPlan.lookupKey,
-						reason: "subscription_update_interval_change",
+						reason:
+							oldPlan.parsed.interval === newPlan.parsed.interval
+								? "subscription_update_anchor_reset"
+								: "subscription_update_interval_change",
 						subscriptionId: subscription.id,
 					},
 					funding,
@@ -760,19 +1067,27 @@ export class SubscriptionCreditsService {
 			tx,
 		);
 		if (newPlan.parsed.interval === "year") {
-			await this.subscriptionRefillService.replacePendingYearlySlots(
-				{
-					credits: newPlan.parsed.tierCredits,
-					funding,
-					grantDueThrough: this.invoicePaidAt(invoice),
-					remainingAfter: subscription.currentPeriodStart,
-					subscription,
-				},
-				tx,
-			);
+			const replaced =
+				await this.subscriptionRefillService.replacePendingYearlySlots(
+					{
+						credits: this.allotment(newPlan.parsed),
+						funding,
+						grantDueThrough: this.invoicePaidAt(invoice),
+						remainingAfter: subscription.currentPeriodStart,
+						subscription,
+					},
+					tx,
+				);
+
+			for (const chargeId of replaced.fundingChargeIds) {
+				slotFundingChargeIds.add(chargeId);
+			}
 		}
 
-		return currentPlan.tierCredits - refill.expiredCredits;
+		return {
+			creditsDelta: this.allotment(currentPlan) - refill.expiredCredits,
+			slotFundingChargeIds: [...slotFundingChargeIds],
+		};
 	}
 
 	private async assertSubscriptionOwnership(
@@ -1025,6 +1340,7 @@ export class SubscriptionCreditsService {
 
 		return {
 			newPlan: {
+				line: currentPlan,
 				lookupKey: currentPlan.lookupKey,
 				parsed: currentPlan.parsed,
 			},
@@ -1144,8 +1460,13 @@ export class SubscriptionCreditsService {
 		invoice: Stripe.Invoice,
 	): Promise<PaymentReferences> {
 		const references: PaymentReferences[] = [];
+		// The payments expansion on the invoice retrieve is best-effort (Stripe
+		// depth caps can strip it); the list endpoint recovers the same rows.
+		const payments =
+			invoice.payments?.data ??
+			(await this.stripeProvider.listInvoicePayments(invoice.id));
 
-		for (const payment of invoice.payments?.data ?? []) {
+		for (const payment of payments) {
 			if (payment.status !== "paid") {
 				continue;
 			}
@@ -1254,7 +1575,9 @@ export class SubscriptionCreditsService {
 	private allotment(parsed: ParsedPriceLookupKey) {
 		// A yearly payment funds twelve monthly refills; it never mints all
 		// twelve allotments into the ledger up front.
-		return parsed.tierCredits;
+		// tierCredits is the WHOLE-credit tier identity (Stripe lookup keys);
+		// this is the single x100 conversion to ledger centi-credits.
+		return parsed.tierCredits * 100;
 	}
 
 	private invoicePeriod(
@@ -1340,6 +1663,18 @@ export class SubscriptionCreditsService {
 		await this.paymentRefundsService.reconcileChargeAfterGrant(
 			references.chargeId,
 		);
+		// Fast path done; the sweep only sees rows a crash left pending.
+		await this.reconciliationOutbox.markDoneForCharge(references.chargeId);
+	}
+
+	private checkoutSessionPaidAt(session: Stripe.Checkout.Session): Date {
+		const paymentIntent = session.payment_intent;
+		const created =
+			typeof paymentIntent === "object" && paymentIntent !== null
+				? paymentIntent.created
+				: session.created;
+
+		return new Date(created * 1000);
 	}
 
 	private withPaymentReferences(

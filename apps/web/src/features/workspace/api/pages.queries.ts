@@ -10,17 +10,27 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import type { PageOverview } from "@wandit/contracts";
+import type {
+	PageAttemptDetail,
+	PageOverview,
+	StopPageAttemptBody,
+} from "@wandit/contracts";
 
 import {
+	dismissPageAttempt,
+	getPageAttempt,
 	getPageOverview,
 	getPageVersions,
 	getVersionHtml,
 	restorePageVersion,
+	retryPageAttempt,
+	stopPageAttempt,
 } from "./pages.services";
 
 export const pageKeys = {
 	all: ["pages"] as const,
+	attempt: (projectId: string, attemptId: string) =>
+		[...pageKeys.all, "attempt", projectId, attemptId] as const,
 	overview: (projectId: string) =>
 		[...pageKeys.all, "overview", projectId] as const,
 	versionHtml: (versionId: string) =>
@@ -37,6 +47,85 @@ export function usePageOverviewQuery(projectId: string) {
 			const status = query.state.data?.latestAttempt?.status;
 			// Poll only while a build is actually in flight.
 			return status === "queued" || status === "generating" ? 1500 : false;
+		},
+	});
+}
+
+/**
+ * Durable truth for ONE build attempt's chat card. Polls while the attempt
+ * is queued/generating (the Trigger Realtime stream may be absent or dead)
+ * and stops itself on any terminal state.
+ */
+export function usePageAttemptQuery(
+	projectId: string,
+	attemptId: string | undefined,
+) {
+	return useQuery({
+		queryKey: pageKeys.attempt(projectId, attemptId ?? "none"),
+		queryFn: () => getPageAttempt(projectId, attemptId as string),
+		enabled: Boolean(attemptId),
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status === "queued" || status === "generating" ? 1600 : false;
+		},
+	});
+}
+
+/** Stop button on the live build card. */
+export function useStopPageAttempt(projectId: string) {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: ({
+			attemptId,
+			body,
+		}: {
+			attemptId: string;
+			body: StopPageAttemptBody;
+		}) => stopPageAttempt(projectId, attemptId, body),
+		onSuccess: (attempt) => {
+			queryClient.setQueryData<PageAttemptDetail>(
+				pageKeys.attempt(projectId, attempt.id),
+				attempt,
+			);
+			void queryClient.invalidateQueries({
+				queryKey: pageKeys.overview(projectId),
+			});
+		},
+	});
+}
+
+/** Retry a failed build / Resume a stopped one. */
+export function useRetryPageAttempt(projectId: string) {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: ({ attemptId }: { attemptId: string }) =>
+			retryPageAttempt(projectId, attemptId),
+		onSuccess: ({ attempt }) => {
+			queryClient.setQueryData<PageAttemptDetail>(
+				pageKeys.attempt(projectId, attempt.id),
+				attempt,
+			);
+			void queryClient.invalidateQueries({
+				queryKey: pageKeys.overview(projectId),
+			});
+		},
+	});
+}
+
+/** Discard/Dismiss the terminal chat card. */
+export function useDismissPageAttempt(projectId: string) {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: ({ attemptId }: { attemptId: string }) =>
+			dismissPageAttempt(projectId, attemptId),
+		onSuccess: (attempt) => {
+			queryClient.setQueryData<PageAttemptDetail>(
+				pageKeys.attempt(projectId, attempt.id),
+				attempt,
+			);
 		},
 	});
 }

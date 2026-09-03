@@ -149,8 +149,8 @@ THE MARKED WORD — the highest-leverage device here, exactly once per headline:
 - OVERFLOW IS COMPOSITIONAL: exactly five things break their container — the passe-partout offsets, the chevauchement overlaps, the corner mounts at -12px, the cut discs hanging off a card's edge, and the closing wordmark. Safe only because overflow:clip sits on every scene containing a piercing element. Any parallaxed image is top -12%, height 124% inside its clipped parent, so travel never exposes an edge inside the mask.
 - RESPONSIVE: below 1024px two-column grids become one and sticky becomes static; below 900px LA TOISE unpins and the mobile bar appears; below 640px rotations halve, cut edges drop to 34px, floaters drop to one per scene, friendly numerals cap at 4.2rem, and every mask STAYS — the masks are the world, never fall back to rectangles on mobile. Structural collapse only; never delete a scene.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis optional at lerp .09)
-THE SAFETY CONTRACT COMES FIRST. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set() inside that branch; no stylesheet here contains opacity:0 or a transform on content. If the CDN dies, the page is a complete readable collage — the paper does not depend on JavaScript. With Lenis, expose window.__lenis, drive ScrollTrigger from its scroll event, and kill it under reduced motion.
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
+THE SAFETY CONTRACT COMES FIRST. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set() inside that branch; no stylesheet here contains opacity:0 or a transform on content. If the CDN dies, the page is a complete readable collage — the paper does not depend on JavaScript.
 
 SHARED IDENTITY: gsap.defaults({ease:"power3.out", duration:.9}). CSS transitions on cubic-bezier(.22,.7,.2,1). power4.out for masked line rises, power3.inOut for clip openings, power2.out for stroke draws, sine.inOut for ambient, none for scrubbed.
 
@@ -224,6 +224,7 @@ This world fails in exactly one way: half-cut. Two seams done properly and the r
 
 Executed at 100% — sheets overlapping with real shadows, cut edges drawing themselves as you arrive, a photograph punched into a pebble with a second sheet peeking behind it, one word underlined in wax, a paper-doll chain along the footer, and a small line in the margin saying that shoes come off at the door — the page feels like a room somebody prepared for your child. Push INTO the paper. Every number above is load-bearing, and the counts are as load-bearing as the numbers.`,
 	energy: "medium",
+	family: "ribambelle",
 	id: "ribambelle",
 	industries: [
 		"baby",
@@ -244,6 +245,13 @@ Executed at 100% — sheets overlapping with real shadows, cut edges drawing the
 	kind: "website",
 	mood: ["warm", "playful", "handmade", "gentle", "sunny"],
 	name: "Ribambelle",
+	preview: {
+		ground: "#FBF7F0",
+		ink: "#2A2018",
+		accent: "#F7E3DC",
+		fontFamily: "Bricolage Grotesque",
+		sampleWord: "Ribambelle",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Cut-paper warmth: pastel sheets laid over each other with real shadows and scalloped edges, photographs punched out in pebble shapes, one word underlined in wax crayon — the page of a place that prepared the room for your child.",

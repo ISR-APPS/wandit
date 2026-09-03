@@ -27,9 +27,53 @@ export interface InitBrowserSentryOptions extends WanditSentryOptions {
 
 let initialized = false;
 
+/** The last error Sentry accepted in this tab. */
+export interface LastCapturedError {
+	eventId: string;
+	at: number;
+}
+
+let lastCapturedError: LastCapturedError | null = null;
+
+/**
+ * The id of the most recent error event sent from this tab, for the in-app
+ * feedback widget. Returns null until an error survives scrubbing.
+ */
+export function getLastCapturedError(): LastCapturedError | null {
+	return lastCapturedError;
+}
+
 // URLs can carry user content (the preview route serializes the full prompt
 // into its query string) — never let a query string reach Sentry.
 const stripQuery = (url: string): string => url.split("?")[0] ?? url;
+
+/**
+ * Whether the browser's page translator rewrote the DOM. Chrome stamps
+ * `translated-ltr` / `translated-rtl` on <html> and wraps text in
+ * `<font style="vertical-align: inherit">`; Edge marks text with
+ * `_msttexthash`. A translated page is the trigger for the React
+ * insertBefore/removeChild NotFoundError family, so every event carries it.
+ */
+function isPageTranslated(): boolean {
+	// Structural type: this package compiles without the DOM lib.
+	const doc = (globalThis as { document?: TranslationProbeDocument }).document;
+	if (!doc) {
+		return false;
+	}
+	const root = doc.documentElement;
+	return (
+		root.classList.contains("translated-ltr") ||
+		root.classList.contains("translated-rtl") ||
+		doc.querySelector(
+			'font[style*="vertical-align: inherit"], [_msttexthash]',
+		) !== null
+	);
+}
+
+interface TranslationProbeDocument {
+	documentElement: { classList: { contains(token: string): boolean } };
+	querySelector(selectors: string): unknown;
+}
 
 /**
  * Initialize Sentry for a Vite/React SPA. Call once in main.tsx, after
@@ -68,7 +112,17 @@ export function initBrowserSentry(options: InitBrowserSentryOptions): void {
 			if (event.request?.url) {
 				event.request.url = stripQuery(event.request.url);
 			}
-			return scrubEvent(event);
+			event.tags = {
+				...event.tags,
+				page_translated: isPageTranslated() ? "yes" : "no",
+			};
+			const scrubbed = scrubEvent(event);
+			// Record only the events Sentry keeps: a dropped event has no id
+			// to link from a feedback report.
+			if (scrubbed?.event_id) {
+				lastCapturedError = { eventId: scrubbed.event_id, at: Date.now() };
+			}
+			return scrubbed;
 		},
 		beforeSendTransaction: (event) => {
 			if (event.request?.url) {

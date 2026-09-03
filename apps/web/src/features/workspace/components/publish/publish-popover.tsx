@@ -16,6 +16,7 @@ import {
 	Copy,
 	ExternalLink,
 	Globe2,
+	Link2,
 	Loader2,
 	Pencil,
 } from "lucide-react";
@@ -24,21 +25,62 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import { ExternalDomainConnectDialog } from "@/features/domains";
 import type { Domain } from "@/features/domains/api/domains.dto";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
-import { domainLiveUrl } from "@/features/domains/lib/helpers";
+import {
+	domainLiveUrl,
+	isDomainTransitional,
+} from "@/features/domains/lib/helpers";
+import { useWorkspace as useActiveWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
-import {
-	canPublish as canPublishFor,
-	displaySlug,
-} from "../../lib/publish-state";
+import { displaySlug, publishableVersion } from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
 import { DomainPurchaseDialog } from "./domain-purchase-dialog";
 
+const PUBLISH_DOMAIN_POLL_INTERVAL_MS = 12_000;
+
+type PublishDomain = Pick<Domain, "isPrimary" | "name" | "source" | "status">;
+
+export function selectPublishDomains(domains: PublishDomain[]) {
+	const purchasedDomain =
+		domains.find(
+			(domain) =>
+				domain.source === "purchased" && isDomainTransitional(domain.status),
+		) ??
+		domains.find(
+			(domain) =>
+				domain.source === "purchased" &&
+				domain.status === "active" &&
+				domain.isPrimary,
+		) ??
+		domains.find(
+			(domain) => domain.source === "purchased" && domain.status === "active",
+		) ??
+		null;
+	const activeExternalDomain =
+		domains.find(
+			(domain) =>
+				domain.source === "external" &&
+				domain.status === "active" &&
+				domain.isPrimary,
+		) ??
+		domains.find(
+			(domain) => domain.source === "external" && domain.status === "active",
+		) ??
+		null;
+	const customDomain =
+		(purchasedDomain?.status === "active" ? purchasedDomain : null) ??
+		activeExternalDomain;
+
+	return { activeExternalDomain, customDomain, purchasedDomain };
+}
+
 export function PublishPopover() {
 	const { t } = useTranslation();
+	const { actorCanManageWorkspace } = useActiveWorkspace();
 	const {
 		deployment,
 		deploymentPending,
@@ -46,18 +88,17 @@ export function PublishPopover() {
 		project,
 		projectId,
 		previewVersion,
-		isPreviewingHistorical,
 		publish,
 		publishPending,
+		serverActiveVersion,
 		updateSlug,
+		versions,
 	} = useWorkspace();
-	const domains = useDomainsQuery(projectId);
-	const customDomain =
-		(domains.data ?? []).find(
-			(domain) => domain.status === "active" && domain.isPrimary,
-		) ??
-		(domains.data ?? []).find((domain) => domain.status === "active") ??
-		null;
+	const domains = useDomainsQuery(projectId, {
+		refetchInterval: PUBLISH_DOMAIN_POLL_INTERVAL_MS,
+	});
+	const { activeExternalDomain, customDomain, purchasedDomain } =
+		selectPublishDomains(domains.data ?? []);
 
 	// Display + intent only: the server generates the real slug when the first
 	// publish omits one, so an unresolvable name just shows a placeholder stem.
@@ -66,6 +107,7 @@ export function PublishPopover() {
 
 	const [popoverOpen, setPopoverOpen] = useState(false);
 	const [purchaseOpen, setPurchaseOpen] = useState(false);
+	const [connectOpen, setConnectOpen] = useState(false);
 	const [editingSlug, setEditingSlug] = useState(false);
 	const [slugDraft, setSlugDraft] = useState(slug);
 
@@ -80,13 +122,23 @@ export function PublishPopover() {
 	const publishing = deployment.uiState === "publishing" || publishPending;
 	const published = deployment.uiState === "published";
 	const failed = deployment.uiState === "failed";
-	const canPublish =
-		Boolean(previewVersion) &&
-		(canPublishFor(deployment) || isPreviewingHistorical) &&
-		!publishPending;
-	const historicalVersionNumber = isPreviewingHistorical
-		? (previewVersion?.number ?? null)
-		: null;
+	const versionToPublish = publishableVersion(
+		deployment,
+		previewVersion,
+		serverActiveVersion,
+	);
+	const canPublish = versionToPublish !== null && !publishPending;
+	const publishableVersionNumber = versionToPublish?.number ?? null;
+	const liveVersionNumber =
+		versions.find((version) => version.id === deployment.publishedVersionId)
+			?.number ?? null;
+	const latestVersionNeedsPublishing =
+		published &&
+		serverActiveVersion !== null &&
+		serverActiveVersion.id !== deployment.publishedVersionId;
+	const showPurchasedDomainCard =
+		purchasedDomain !== null &&
+		(purchasedDomain.status !== "active" || !published);
 
 	const saveSlug = () => {
 		const normalized = isValidSlug(slugDraft) ? slugDraft : slug;
@@ -105,9 +157,15 @@ export function PublishPopover() {
 		setPurchaseOpen(true);
 	};
 
-	const requestPublish = () => {
+	const openConnect = () => {
 		setPopoverOpen(false);
-		publish();
+		setConnectOpen(true);
+	};
+
+	const requestPublish = () => {
+		if (versionToPublish === null) return;
+		setPopoverOpen(false);
+		publish({ version: versionToPublish });
 	};
 
 	const handlePurchaseOpenChange = (nextOpen: boolean) => {
@@ -117,12 +175,26 @@ export function PublishPopover() {
 		}
 	};
 
+	const handleConnectOpenChange = (nextOpen: boolean) => {
+		setConnectOpen(nextOpen);
+		if (!nextOpen) {
+			queueMicrotask(() => setPopoverOpen(true));
+		}
+	};
+
+	const publishFromConnect = () => {
+		setConnectOpen(false);
+		requestPublish();
+	};
+
 	// Published state comes from the deployment only — owning a custom domain
 	// does not mean the page is live on it.
 	const triggerLabel = publishing
 		? t("workspace.publish.publishing")
 		: published
-			? t("workspace.publish.published")
+			? latestVersionNeedsPublishing
+				? t("workspace.publish.update")
+				: t("workspace.publish.published")
 			: t("workspace.publish.publish");
 
 	return (
@@ -132,7 +204,7 @@ export function PublishPopover() {
 					<Button size="sm" className="h-8 px-4">
 						{publishing ? (
 							<Loader2 data-icon="inline-start" className="animate-spin" />
-						) : published ? (
+						) : published && !latestVersionNeedsPublishing ? (
 							<Check data-icon="inline-start" />
 						) : (
 							<ArrowUp data-icon="inline-start" />
@@ -158,12 +230,20 @@ export function PublishPopover() {
 					className="w-[min(404px,calc(100vw-1.5rem))] overflow-hidden rounded-[18px] p-0 shadow-[0_34px_70px_-26px_rgb(0_0_0/0.4),0_0_0_0.5px_rgb(0_0_0/0.03)]"
 				>
 					<PopoverArrow className="size-3" />
-					{customDomain && published ? (
+					{customDomain && published && !showPurchasedDomainCard ? (
 						<CustomDomainLiveContent
+							canPublish={canPublish}
 							domain={customDomain}
+							latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+							liveVersionNumber={liveVersionNumber}
+							publishableVersionNumber={publishableVersionNumber}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
-							historicalVersionNumber={historicalVersionNumber}
+							secondaryDomain={
+								customDomain.source === "purchased"
+									? activeExternalDomain
+									: null
+							}
 							onCopy={copyUrl}
 							onPublish={requestPublish}
 						/>
@@ -173,10 +253,15 @@ export function PublishPopover() {
 							slugDraft={slugDraft}
 							subdomain={subdomain}
 							live={published}
+							latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+							liveVersionNumber={liveVersionNumber}
 							publishing={publishing}
 							failed={failed}
 							failedDetail={deployment.error}
 							canPublish={canPublish}
+							publishableVersionNumber={publishableVersionNumber}
+							purchasedDomain={purchasedDomain}
+							secondaryDomain={published ? activeExternalDomain : null}
 							editingSlug={editingSlug}
 							onSlugDraftChange={setSlugDraft}
 							onEditSlug={() => setEditingSlug(true)}
@@ -186,27 +271,45 @@ export function PublishPopover() {
 							}}
 							onSaveSlug={saveSlug}
 							onCopy={copyUrl}
-							onOpenPurchase={openPurchase}
-							historicalVersionNumber={historicalVersionNumber}
+							onOpenConnect={actorCanManageWorkspace ? openConnect : undefined}
+							onOpenPurchase={
+								actorCanManageWorkspace ? openPurchase : undefined
+							}
 							onPublish={requestPublish}
 						/>
 					)}
 				</PopoverContent>
 			</Popover>
 
-			<DomainPurchaseDialog
-				open={purchaseOpen}
-				onOpenChange={handlePurchaseOpenChange}
-				projectId={projectId}
-				suggestedStem={slug.replaceAll("-", "")}
-			/>
+			{actorCanManageWorkspace ? (
+				<>
+					<DomainPurchaseDialog
+						open={purchaseOpen}
+						onOpenChange={handlePurchaseOpenChange}
+						projectId={projectId}
+						suggestedStem={slug.replaceAll("-", "")}
+					/>
+					<ExternalDomainConnectDialog
+						open={connectOpen}
+						onOpenChange={handleConnectOpenChange}
+						projectId={projectId}
+						isPublished={deployment.publishedVersionId !== null}
+						canPublish={canPublish}
+						onPublish={publishFromConnect}
+					/>
+				</>
+			) : null}
 		</>
 	);
 }
 
 function PublishStatusHeader({
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
 	state,
 }: {
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
 	state: "draft" | "publishing" | "published" | "failed";
 }) {
 	const { t } = useTranslation();
@@ -240,7 +343,11 @@ function PublishStatusHeader({
 				</div>
 				{state === "published" ? (
 					<div className="mt-0.5 text-muted-foreground text-xs">
-						{t("workspace.publish.popover.publishedMeta")}
+						{latestVersionNeedsPublishing && liveVersionNumber !== null
+							? t("workspace.publish.popover.liveVersionMeta", {
+									n: liveVersionNumber,
+								})
+							: t("workspace.publish.popover.publishedMeta")}
 					</div>
 				) : null}
 			</div>
@@ -253,36 +360,46 @@ function SubdomainContent({
 	slugDraft,
 	subdomain,
 	live,
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
 	publishing,
 	failed,
 	failedDetail,
 	canPublish,
+	publishableVersionNumber,
+	purchasedDomain,
+	secondaryDomain,
 	editingSlug,
 	onSlugDraftChange,
 	onEditSlug,
 	onCancelSlug,
 	onSaveSlug,
 	onCopy,
+	onOpenConnect,
 	onOpenPurchase,
-	historicalVersionNumber,
 	onPublish,
 }: {
 	slug: string;
 	slugDraft: string;
 	subdomain: string;
 	live: boolean;
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
 	publishing: boolean;
 	failed: boolean;
 	failedDetail: string | null;
 	canPublish: boolean;
+	publishableVersionNumber: number | null;
+	purchasedDomain: Pick<Domain, "name" | "source" | "status"> | null;
+	secondaryDomain: Pick<Domain, "name" | "source"> | null;
 	editingSlug: boolean;
 	onSlugDraftChange: (value: string) => void;
 	onEditSlug: () => void;
 	onCancelSlug: () => void;
 	onSaveSlug: () => void;
 	onCopy: (url: string) => Promise<void>;
-	onOpenPurchase: () => void;
-	historicalVersionNumber: number | null;
+	onOpenConnect?: () => void;
+	onOpenPurchase?: () => void;
 	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
@@ -297,7 +414,11 @@ function SubdomainContent({
 
 	return (
 		<>
-			<PublishStatusHeader state={state} />
+			<PublishStatusHeader
+				latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+				liveVersionNumber={liveVersionNumber}
+				state={state}
+			/>
 
 			<div className="flex flex-col gap-[9px] px-4 pb-3.5">
 				<div className="mt-0.5 font-medium text-muted-foreground text-xs">
@@ -391,24 +512,19 @@ function SubdomainContent({
 					</span>
 				</div>
 
-				<button
-					type="button"
-					onClick={onOpenPurchase}
-					className="group flex w-full items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
-				>
-					<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
-						<Globe2 className="size-[17px]" strokeWidth={1.8} />
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="block font-medium text-sm">
-							{t("workspace.publish.popover.customDomainTitle")}
-						</span>
-						<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
-							{t("workspace.publish.popover.customDomainDescription")}
-						</span>
-					</span>
-					<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
-				</button>
+				{purchasedDomain ? (
+					<>
+						<PurchasedDomainCard domain={purchasedDomain} onCopy={onCopy} />
+						{secondaryDomain ? (
+							<SecondaryDomainLink domain={secondaryDomain} />
+						) : null}
+					</>
+				) : onOpenConnect && onOpenPurchase ? (
+					<DomainEntryActions
+						onOpenConnect={onOpenConnect}
+						onOpenPurchase={onOpenPurchase}
+					/>
+				) : null}
 			</div>
 
 			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
@@ -419,7 +535,12 @@ function SubdomainContent({
 					)}
 				>
 					{live
-						? t("workspace.publish.popover.publishedHint")
+						? publishableVersionNumber !== null && liveVersionNumber !== null
+							? t("workspace.publish.popover.updateHint", {
+									live: liveVersionNumber,
+									n: publishableVersionNumber,
+								})
+							: t("workspace.publish.popover.publishedHint")
 						: failed
 							? (failedDetail ?? t("workspace.publish.failedHint"))
 							: t("workspace.publish.popover.freeTiming")}
@@ -432,7 +553,7 @@ function SubdomainContent({
 								{t("workspace.publish.popover.openLivePage")}
 							</a>
 						</Button>
-						{historicalVersionNumber !== null ? (
+						{publishableVersionNumber !== null ? (
 							<Button
 								size="lg"
 								onClick={onPublish}
@@ -441,7 +562,7 @@ function SubdomainContent({
 							>
 								<ArrowUp data-icon="inline-start" />
 								{t("workspace.publish.confirmVersion", {
-									n: historicalVersionNumber,
+									n: publishableVersionNumber,
 								})}
 							</Button>
 						) : null}
@@ -469,18 +590,173 @@ function SubdomainContent({
 	);
 }
 
-export function CustomDomainLiveContent({
+export function DomainEntryActions({
+	onOpenConnect,
+	onOpenPurchase,
+}: {
+	onOpenConnect: () => void;
+	onOpenPurchase: () => void;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<DomainEntryAction
+				title={t("workspace.publish.popover.buyDomainTitle")}
+				description={t("workspace.publish.popover.buyDomainDescription")}
+				icon={Globe2}
+				onClick={onOpenPurchase}
+			/>
+			<DomainEntryAction
+				title={t("workspace.publish.popover.connectOwnedTitle")}
+				description={t("workspace.publish.popover.connectOwnedDescription")}
+				icon={Link2}
+				onClick={onOpenConnect}
+			/>
+		</div>
+	);
+}
+
+function DomainEntryAction({
+	title,
+	description,
+	icon: Icon,
+	onClick,
+}: {
+	title: string;
+	description: string;
+	icon: typeof Globe2;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="group flex min-h-[104px] w-full flex-col items-start gap-2 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
+		>
+			<span className="flex w-full items-center justify-between gap-2">
+				<span className="grid size-[32px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
+					<Icon className="size-4" strokeWidth={1.8} />
+				</span>
+				<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
+			</span>
+			<span>
+				<span className="block font-medium text-[13px] leading-snug">
+					{title}
+				</span>
+				<span className="mt-1 block text-[11px] text-muted-foreground leading-relaxed">
+					{description}
+				</span>
+			</span>
+		</button>
+	);
+}
+
+export function PurchasedDomainCard({
 	domain,
+	onCopy,
+}: {
+	domain: Pick<Domain, "name" | "source" | "status">;
+	onCopy: (url: string) => Promise<void>;
+}) {
+	const { t } = useTranslation();
+	const active = domain.status === "active";
+	const domainUrl = domainLiveUrl(domain);
+
+	return (
+		<div className="flex min-h-[58px] items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3">
+			<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
+				{active ? (
+					<Check className="size-[17px]" strokeWidth={1.8} />
+				) : (
+					<Loader2 className="size-[17px] animate-spin" strokeWidth={1.8} />
+				)}
+			</span>
+			<span className="min-w-0 flex-1">
+				<span dir="ltr" className="block truncate font-semibold text-sm">
+					{active ? domainUrl : domain.name}
+				</span>
+				{active ? null : (
+					<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
+						{t("workspace.publish.popover.domainConfiguring")}
+					</span>
+				)}
+			</span>
+			{active ? (
+				<>
+					<Button
+						size="icon-sm"
+						variant="ghost"
+						onClick={() => void onCopy(domainUrl)}
+						aria-label={t("workspace.publish.copyLink")}
+					>
+						<Copy />
+					</Button>
+					<Button size="icon-sm" variant="ghost" asChild>
+						<a
+							href={domainUrl}
+							target="_blank"
+							rel="noreferrer"
+							aria-label={t("workspace.publish.popover.openDomain")}
+						>
+							<ExternalLink />
+						</a>
+					</Button>
+				</>
+			) : null}
+		</div>
+	);
+}
+
+function SecondaryDomainLink({
+	domain,
+}: {
+	domain: Pick<Domain, "name" | "source">;
+}) {
+	const { t } = useTranslation();
+	const domainUrl = domainLiveUrl(domain);
+
+	return (
+		<Button
+			variant="ghost"
+			className="h-auto min-w-0 justify-start gap-2 self-start px-2 py-1.5 text-muted-foreground text-xs"
+			asChild
+		>
+			<a
+				href={domainUrl}
+				target="_blank"
+				rel="noreferrer"
+				aria-label={t("workspace.publish.popover.openDomain")}
+			>
+				<ExternalLink className="size-3.5" />
+				<span dir="ltr" className="truncate">
+					{domainUrl}
+				</span>
+			</a>
+		</Button>
+	);
+}
+
+export function CustomDomainLiveContent({
+	canPublish,
+	domain,
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
+	publishableVersionNumber,
 	subdomain,
 	subdomainPublishing,
-	historicalVersionNumber,
+	secondaryDomain,
 	onCopy,
 	onPublish,
 }: {
+	canPublish: boolean;
 	domain: Pick<Domain, "isPrimary" | "name" | "source">;
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
+	publishableVersionNumber: number | null;
 	subdomain: string;
 	subdomainPublishing: boolean;
-	historicalVersionNumber: number | null;
+	secondaryDomain?: Pick<Domain, "name" | "source"> | null;
 	onCopy: (url: string) => Promise<void>;
 	onPublish: () => void;
 }) {
@@ -489,7 +765,11 @@ export function CustomDomainLiveContent({
 
 	return (
 		<>
-			<PublishStatusHeader state="published" />
+			<PublishStatusHeader
+				latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+				liveVersionNumber={liveVersionNumber}
+				state="published"
+			/>
 
 			<div className="flex flex-col gap-[9px] px-4 pb-3.5">
 				<div className="mt-0.5 font-medium text-muted-foreground text-xs">
@@ -556,6 +836,10 @@ export function CustomDomainLiveContent({
 						{t("workspace.publish.popover.visibility")}
 					</span>
 				</div>
+
+				{secondaryDomain ? (
+					<SecondaryDomainLink domain={secondaryDomain} />
+				) : null}
 			</div>
 
 			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
@@ -569,16 +853,16 @@ export function CustomDomainLiveContent({
 							{t("workspace.publish.popover.openDomain")}
 						</a>
 					</Button>
-					{historicalVersionNumber !== null ? (
+					{publishableVersionNumber !== null ? (
 						<Button
 							size="lg"
 							onClick={onPublish}
-							disabled={subdomainPublishing}
+							disabled={!canPublish || subdomainPublishing}
 							dir="auto"
 						>
 							<ArrowUp data-icon="inline-start" />
 							{t("workspace.publish.confirmVersion", {
-								n: historicalVersionNumber,
+								n: publishableVersionNumber,
 							})}
 						</Button>
 					) : null}

@@ -17,8 +17,7 @@
 		"subscriptionTitle": "Offre actuelle",
 		"subscriptionDescription": "État de votre abonnement et détails du renouvellement.",
 		"noSubscriptionTitle": "Aucun abonnement actif",
-		"noSubscriptionBody": "Choisissez un niveau de crédits Pro lorsque vous serez prêt à vous abonner.",
-		"proPlan": "Pro",
+		"noSubscriptionBody": "Choisissez une offre lorsque vous serez prêt à vous abonner.",
 		"statusLabel": "État",
 		"renewsLabel": "Renouvellement",
 		"endsLabel": "Fin",
@@ -30,6 +29,20 @@
 		"cancelPlan": "Annuler l’offre",
 		"cancelTitle": "Annuler votre abonnement ?",
 		"cancelBody": "Votre offre reste active jusqu’à la fin de la période en cours. Vous pouvez la reprendre avant cette date.",
+		"cancelReasonPrompt": "Quelle est la principale raison de votre départ ?",
+		"cancelReasons": {
+			"too_expensive": "C’est trop cher",
+			"not_using_enough": "Je ne l’utilise pas assez",
+			"missing_features": "Il manque des fonctionnalités dont j’ai besoin",
+			"technical_issues": "Problèmes techniques",
+			"switching_provider": "Je passe à un autre outil",
+			"temporary_pause": "Je fais simplement une pause",
+			"other": "Autre"
+		},
+		"cancelDetailsLabel": "Dites-nous-en plus",
+		"cancelDetailsOptional": "(facultatif)",
+		"cancelDetailsPlaceholder": "Partagez tout détail qui pourrait nous aider à nous améliorer.",
+		"cancelDetailsRequired": "Merci de nous en dire un peu plus.",
 		"keepPlan": "Conserver l’offre",
 		"confirmCancel": "Annuler en fin de période",
 		"cancelling": "Planification de l’annulation…",
@@ -44,7 +57,25 @@
 		"ledgerDescription": "Historique complet des attributions, utilisations, expirations et recharges.",
 		"previousPage": "Précédent",
 		"nextPage": "Suivant",
-		"pageStatus": "Page {page} sur {totalPages}"
+		"pageStatus": "Page {page} sur {totalPages}",
+		"offline": {
+			"badge": "Payé hors ligne",
+			"expiresLabel": "Expire le",
+			"requestChange": "Demander un renouvellement ou un changement",
+			"graceTitle": "Paiement hors ligne attendu",
+			"graceNotice": "Votre période payée a pris fin le {endDate}. Renouvelez avant le {accessEndDate} pour conserver votre offre.",
+			"pending": {
+				"title": "Demande de paiement hors ligne en attente",
+				"body": "Nous vous appellerons au {phone}.",
+				"cancel": "Annuler la demande",
+				"cancelling": "Annulation…",
+				"cancelTitle": "Annuler cette demande ?",
+				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
+				"keep": "Conserver la demande",
+				"confirmCancel": "Annuler la demande",
+				"cancelSuccess": "Votre demande a été annulée."
+			}
+		}
 	},
 	"status": {
 		"active": "Actif",
@@ -67,8 +98,37 @@
 		"betaBadge": "Bêta privée",
 		"betaTitle": "Les achats ne sont pas encore ouverts",
 		"betaBody": "Vos crédits actuels restent disponibles pendant la pause des abonnements et recharges.",
-		"chooseTitle": "Choisissez votre offre Pro",
+		"chooseTitle": "Choisissez votre offre",
 		"chooseDescription": "Choisissez un cycle de facturation et le volume mensuel adapté à votre activité.",
+		"starterName": "Starter",
+		"starterTagline": "Pour votre première boutique et vos premières campagnes",
+		"proName": "Pro",
+		"proTagline": "Pour les vendeurs qui créent et améliorent chaque mois",
+		"popularBadge": "Populaire",
+		"businessName": "Business",
+		"businessTagline": "Pour les équipes qui partagent un pool de crédits",
+		"businessFromPrice": "À partir de {price}",
+		"starterFeatures": [
+			"Génération d'images et de vidéos IA",
+			"Domaines personnalisés",
+			"Publication toujours gratuite"
+		],
+		"proFeatures": [
+			"De nouveaux crédits chaque mois",
+			"Outils marketing & campagnes IA",
+			"Génération d'images et de vidéos IA",
+			"Bibliothèque d'assets",
+			"Domaines personnalisés",
+			"Connexion d'apps & intégrations",
+			"CRM de leads pour vos commandes",
+			"Publication toujours gratuite"
+		],
+		"businessFeatures": [
+			"Tout ce qui est inclus dans Pro",
+			"Un pool de crédits partagé pour toute l'équipe",
+			"Rôles, invitations et limites par membre",
+			"Sièges illimités — payez les crédits, pas les personnes"
+		],
 		"changeTitle": "Changer votre offre",
 		"changeDescription": "Consultez le montant exact et les crédits avant de confirmer.",
 		"currentPlan": "Abonnement actuel",
@@ -80,6 +140,14 @@
 		"twoMonthsFree": "2 mois offerts",
 		"yearlyToMonthlyUnavailable": "Le passage d’une offre annuelle à mensuelle n’est pas disponible dans cette version.",
 		"creditTier": "Crédits par mois",
+		"creditsEveryMonth": {
+			"zero": "{count} crédit chaque mois",
+			"one": "{count} crédit chaque mois",
+			"two": "{count} crédits chaque mois",
+			"few": "{count} crédits chaque mois",
+			"many": "{count} crédits chaque mois",
+			"other": "{count} crédits chaque mois"
+		},
 		"selectedPrice": "Prix de l’offre",
 		"perMonth": "/ mois",
 		"perYear": "/ an",
@@ -89,11 +157,12 @@
 		"currentSelection": "Offre actuelle",
 		"preparing": "Préparation…",
 		"previewChange": "Prévisualiser",
-		"continueToCheckout": "Continuer vers le paiement",
+		"continueToCheckout": "Mettre à niveau",
 		"previewTitle": "Vérifier le changement",
 		"previewDescription": "Cet aperçu est verrouillé brièvement afin de conserver le montant confirmé.",
 		"newPlan": "Nouvelle offre",
 		"payNowCredits": "Payer {amount} maintenant · {credits} crédits",
+		"upgradeExplanation": "Le nouveau niveau complet est facturé maintenant et le temps non utilisé de votre niveau actuel est remboursé. Vos crédits de forfait sont réinitialisés immédiatement à la dotation complète du nouveau niveau.",
 		"changesAtRenewal": "Changement au renouvellement",
 		"downgradeExplanation": "Votre niveau actuel reste actif jusqu’à la fin de cette période. Le niveau inférieur commence au renouvellement.",
 		"back": "Retour",
@@ -119,6 +188,100 @@
 		"paymentAttentionTitle": "Corrigez le paiement de l’abonnement",
 		"paymentAttentionBody": "Ouvrez le portail de facturation pour régler le paiement avant de changer de niveau.",
 		"openPortal": "Ouvrir le portail",
-		"close": "Fermer"
+		"close": "Fermer",
+		"offline": {
+			"tabs": {
+				"ariaLabel": "Mode de paiement",
+				"card": "Carte",
+				"offline": "Paiement à la livraison"
+			},
+			"managed": {
+				"title": "Votre offre est gérée hors ligne",
+				"body": "Envoyez-nous une demande pour la modifier ou la renouveler."
+			},
+			"cardActive": {
+				"title": "Votre offre est facturée par carte",
+				"body": "Pour passer au paiement en espèces ou par virement, annulez d'abord votre abonnement par carte — il reste actif jusqu'à la fin de la période payée — puis envoyez-nous une demande."
+			},
+			"title": "Espèces ou virement",
+			"description": "Choisissez votre offre et indiquez-nous comment vous joindre. Nous vous appellerons pour organiser le paiement.",
+			"localPriceNote": "Nous conviendrons du prix local pendant l’appel.",
+			"steps": {
+				"label": "Étape {current} sur {total}",
+				"plan": "Choisissez votre offre"
+			},
+			"continue": "Continuer",
+			"changePlan": "Modifier",
+			"form": {
+				"title": "Coordonnées",
+				"description": "Indiquez-nous comment vous joindre au sujet de cette demande.",
+				"required": "Obligatoire",
+				"optional": "Facultatif",
+				"fullNameLabel": "Nom complet",
+				"fullNamePlaceholder": "Saisissez votre nom complet",
+				"phoneLabel": "Numéro de téléphone",
+				"phonePlaceholder": "ex. +213 555 12 34 56",
+				"phoneHint": "Indiquez l’indicatif du pays.",
+				"companyLabel": "Entreprise",
+				"companyPlaceholder": "Nom de l’entreprise",
+				"countryLabel": "Pays",
+				"countryPlaceholder": "Choisissez un pays",
+				"cityLabel": "Ville",
+				"cityPlaceholder": "Ville",
+				"preferredMethodLabel": "Mode de paiement préféré",
+				"preferredMethodPlaceholder": "Choisissez un mode de paiement",
+				"noMethodPreference": "Aucune préférence",
+				"notesLabel": "Remarques",
+				"notesPlaceholder": "Ajoutez toute précision utile pour l’appel."
+			},
+			"methods": {
+				"cash_on_delivery": "Paiement en espèces à la livraison",
+				"bank_transfer": "Virement bancaire",
+				"ccp": "CCP",
+				"baridimob": "BaridiMob",
+				"other": "Autre"
+			},
+			"countries": {
+				"DZ": "Algérie",
+				"TN": "Tunisie",
+				"MA": "Maroc",
+				"OTHER": "Autre"
+			},
+			"validation": {
+				"plan": "Choisissez une offre valide.",
+				"tierCredits": "Choisissez un niveau de crédits.",
+				"interval": "Choisissez un cycle de facturation.",
+				"fullName": "Saisissez un nom de 2 à 120 caractères.",
+				"phone": "Saisissez un numéro de téléphone valide.",
+				"company": "Le nom de l’entreprise ne doit pas dépasser 120 caractères.",
+				"country": "Choisissez un pays.",
+				"city": "Le nom de la ville ne doit pas dépasser 120 caractères.",
+				"preferredPaymentMethod": "Choisissez un mode de paiement valide.",
+				"notes": "Les remarques ne doivent pas dépasser 1 000 caractères.",
+				"generic": "Vérifiez ce champ."
+			},
+			"submit": "Envoyer la demande",
+			"submitting": "Envoi…",
+			"close": "Fermer",
+			"success": {
+				"title": "Demande reçue",
+				"body": "Nous avons reçu votre demande. Nous vous appellerons bientôt au {phone}."
+			},
+			"pending": {
+				"title": "Demande de paiement hors ligne en attente",
+				"body": "Nous vous appellerons au {phone}.",
+				"planLabel": "Offre",
+				"tierLabel": "Niveau de crédits",
+				"cycleLabel": "Cycle de facturation",
+				"createdLabel": "Envoyée le",
+				"cancel": "Annuler la demande",
+				"cancelling": "Annulation…",
+				"cancelTitle": "Annuler cette demande ?",
+				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
+				"keep": "Conserver la demande",
+				"confirmCancel": "Annuler la demande",
+				"cancelSuccess": "Votre demande a été annulée."
+			}
+		}
 	}
 }

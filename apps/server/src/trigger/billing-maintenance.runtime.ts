@@ -12,19 +12,27 @@ import { SignupGrantOutboxService } from "../modules/auth/application/services/s
 import { SignupGrantOutboxRepository } from "../modules/auth/infrastructure/persistence/signup-grant-outbox.repository";
 import { BillingCustomerService } from "../modules/billing/application/services/billing-customer.service";
 import { BillingWebhookRetryService } from "../modules/billing/application/services/billing-webhook-retry.service";
+import { FinancialReconciliationService } from "../modules/billing/application/services/financial-reconciliation.service";
+import { ManualSubscriptionsService } from "../modules/billing/application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "../modules/billing/application/services/stripe-webhook-processor.service";
 import { SubscriptionCreditsService } from "../modules/billing/application/services/subscription-credits.service";
+import { SubscriptionLifecycleService } from "../modules/billing/application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "../modules/billing/application/services/subscription-refill.service";
 import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastructure/persistence/billing-checkout-attempts.repository";
-import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
-import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
+import { BillingPaymentAdjustmentsRepository } from "../modules/billing/infrastructure/persistence/billing-payment-adjustments.repository";
+import { BillingTopupReceiptsRepository } from "../modules/billing/infrastructure/persistence/billing-topup-receipts.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
+import { FinancialReconciliationOutboxRepository } from "../modules/billing/infrastructure/persistence/financial-reconciliation-outbox.repository";
+import { ManualSubscriptionPaymentsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-payments.repository";
+import { ManualSubscriptionRequestsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-requests.repository";
+import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
+import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
 import { StripeProvider } from "../modules/billing/infrastructure/stripe/stripe.provider";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
@@ -32,7 +40,9 @@ import { CreditsRepository } from "../modules/credits/infrastructure/persistence
 import { DomainsService } from "../modules/domains/application/services/domains.service";
 import type { DomainTaskDispatcher } from "../modules/domains/domain/ports/domain-task-dispatcher.port";
 import { CustomHostnameService } from "../modules/domains/infrastructure/cloudflare/custom-hostname.service";
+import { CustomerZoneService } from "../modules/domains/infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
+import { DomainRegistrationCheckService } from "../modules/domains/infrastructure/dns/domain-registration-check.service";
 import { NamecomProvider } from "../modules/domains/infrastructure/namecom/namecom.provider";
 import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
 import {
@@ -40,6 +50,8 @@ import {
 	triggerDomainConfigurationTask,
 	triggerDomainPurchaseTask,
 } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
 import { DomainRegistrationFulfillment } from "../modules/orders/application/fulfillment/domain-registration.fulfillment";
 import { OrderFulfillmentRegistry } from "../modules/orders/application/services/order-fulfillment.registry";
 import { OrderRefundsService } from "../modules/orders/application/services/order-refunds.service";
@@ -50,6 +62,9 @@ import {
 	recoverOrderRefundTask,
 	triggerOrderRefundTask,
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
+import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
+import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
+import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
@@ -63,6 +78,45 @@ export function createSubscriptionRefillRuntime(db: TriggerDatabase) {
 			new SubscriptionCreditsRepository(db),
 			core.credits,
 			core.paymentRefunds,
+			core.reconciliationOutbox,
+		),
+	};
+}
+
+export function createFinancialReconciliationRuntime(db: TriggerDatabase) {
+	const core = createPaymentCore(db);
+
+	return {
+		reconciliation: new FinancialReconciliationService(
+			core.reconciliationOutbox,
+			core.paymentRefunds,
+		),
+	};
+}
+
+export function createManualBillingRuntime(db: TriggerDatabase) {
+	const core = createPaymentCore(db);
+	const subscriptions = new SubscriptionsRepository(db);
+	const subscriptionCredits = new SubscriptionCreditsRepository(db);
+	const refills = new SubscriptionRefillService(
+		subscriptionCredits,
+		core.credits,
+		core.paymentRefunds,
+		core.reconciliationOutbox,
+	);
+
+	return {
+		manualSubscriptions: new ManualSubscriptionsService(
+			subscriptions,
+			subscriptionCredits,
+			core.credits,
+			refills,
+			new ManualSubscriptionPaymentsRepository(db),
+			new ManualSubscriptionRequestsRepository(db),
+			new SubscriptionStateEventsRepository(db),
+			new BillingCheckoutAttemptsRepository(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
+			createLifecycleEvents(db),
 		),
 	};
 }
@@ -87,6 +141,7 @@ export function createSignupGrantRuntime(db: TriggerDatabase) {
 		outbox: new SignupGrantOutboxService(
 			new SignupGrantOutboxRepository(db),
 			createCredits(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),
 	};
 }
@@ -115,6 +170,7 @@ export function createBillingWebhookRuntime(
 		subscriptionCreditsRepository,
 		payment.credits,
 		payment.paymentRefunds,
+		payment.reconciliationOutbox,
 	);
 	const subscriptionCredits = new SubscriptionCreditsService(
 		billingCustomers,
@@ -126,6 +182,9 @@ export function createBillingWebhookRuntime(
 		refills,
 		checkoutAttempts,
 		new OrganizationBillingCustomersRepository(db),
+		payment.reconciliationOutbox,
+		new BillingTopupReceiptsRepository(db),
+		createLifecycleEvents(db),
 	);
 	const subscriptionSync = new StripeSubscriptionSyncService(
 		billingCustomers,
@@ -139,6 +198,13 @@ export function createBillingWebhookRuntime(
 		billingCustomers,
 		affiliate.affiliates,
 	);
+	const subscriptionLifecycle = new SubscriptionLifecycleService(
+		new SubscriptionStateEventsRepository(db),
+		new BillingPaymentAdjustmentsRepository(db),
+		subscriptions,
+		billingCustomers,
+		new OrganizationBillingCustomersRepository(db),
+	);
 	const router = new StripeEventRouter(
 		billingCustomers,
 		new OrganizationBillingCustomersRepository(db),
@@ -149,6 +215,7 @@ export function createBillingWebhookRuntime(
 		orderReconciler,
 		affiliate.commission,
 		affiliate.clawback,
+		subscriptionLifecycle,
 	);
 	const events = new BillingWebhookEventsRepository(db);
 	const processor = new StripeWebhookProcessor(
@@ -179,6 +246,7 @@ function createPaymentCore(db: TriggerDatabase) {
 		orderRefunds,
 		paymentOrders,
 		paymentRefunds,
+		reconciliationOutbox: new FinancialReconciliationOutboxRepository(db),
 		stripe,
 	};
 }
@@ -205,6 +273,10 @@ function createCredits(db: TriggerDatabase): CreditsService {
 	return new CreditsService(new CreditsRepository(db));
 }
 
+function createLifecycleEvents(db: TriggerDatabase): LifecycleEventsService {
+	return new LifecycleEventsService(new LifecycleEventsRepository(db));
+}
+
 function createOrderReconciler(
 	db: TriggerDatabase,
 	payment: ReturnType<typeof createPaymentCore>,
@@ -227,6 +299,8 @@ function createOrderReconciler(
 		payment.domains,
 		new NamecomProvider(),
 		new CustomHostnameService(),
+		new CustomerZoneService(),
+		new DomainRegistrationCheckService(),
 		routing,
 		{
 			error: (message: unknown) =>

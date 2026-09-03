@@ -3,6 +3,7 @@ import {
 	type AffiliateCommissionsResponse,
 	type AffiliateCsvExportQuery,
 	type AffiliateDetail,
+	type AffiliatesResponse,
 	affiliateAttributionsResponseSchema,
 	affiliateCommissionsResponseSchema,
 	affiliateCsvExportQuerySchema,
@@ -111,7 +112,9 @@ export async function archiveAffiliateProgram(programId: string) {
 	return deleteAffiliateResourceResponseSchema.parse(payload);
 }
 
-export async function listAffiliates(query: AffiliatesQueryInput = {}) {
+export async function listAffiliates(
+	query: AffiliatesQueryInput = {},
+): Promise<AffiliatesResponse> {
 	const parsed = listAffiliatesQuerySchema.parse(query);
 	const payload = await apiGet<unknown>(
 		affiliatesRoutes.adminAffiliates,

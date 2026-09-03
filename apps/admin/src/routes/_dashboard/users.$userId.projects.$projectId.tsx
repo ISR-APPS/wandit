@@ -1,18 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-import { ProjectDetailPage } from "@/features/projects/pages/project-detail-page";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute(
 	"/_dashboard/users/$userId/projects/$projectId",
 )({
-	component: ProjectDetailRoute,
-	head: () => ({
-		meta: [{ title: "Project details | Wandit Admin" }],
-	}),
+	component: ProjectDetailLayout,
 });
 
-function ProjectDetailRoute() {
-	const { projectId, userId } = Route.useParams();
-
-	return <ProjectDetailPage projectId={projectId} userId={userId} />;
+function ProjectDetailLayout() {
+	return <Outlet />;
 }

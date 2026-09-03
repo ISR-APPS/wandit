@@ -169,7 +169,7 @@ MICRO-INTERACTION KIT (all CSS, all inside the timing bands):
 - QUANTITY is a stepper, not a number input: an inline-flex group at border-radius var(--radius) with 2.9rem true-circle buttons at 50% and an output element at min-width 2.6rem in the display face at 1.25rem. It has a cap, and THE CAP IS GIVEN A REASON in the hint text.
 - THE FOOT OF THE FORM is a border-top hairline row, space-between, padding-top 1.6rem: a live TOTAL in the display face at 2rem weight 600 with tabular-nums under a .82rem / .1em uppercase label, plus a struck was-total in the body face with the accent strike, both recomputing on every quantity, variant and delivery change — beside the submit pill. Below, a .8rem note.
 - VALIDATION IS BLUR-GATED: keep a touched map so an error only appears after a field's first blur, never while someone is still typing into a fresh field. Errors are full sentences in brand voice, in the error mix of var(--primary) and var(--foreground), with min-height reserved.
-- SUBMIT HAS A DELIBERATE 750ms PENDING STATE — the button label becomes a human present-tense sentence — and then the form CROSS-FADES IN PLACE into a success panel absolutely positioned over it inside the same box: the success side transitions opacity, transform and visibility over .7s with transition-delay .25s, .25s, 0s; the form leaves over .45s to translateY(-10px) with visibility 0s .45s, so focus never lands on a hidden element. The success panel opens on a large order number inside an 11rem SVG ring drawn by stroke-dashoffset — a circle with pathLength 100, stroke-dasharray 101, stroke-dashoffset 101 to 0 over 1.4s with a .5s delay, stroke-width 1.5, rotated -90deg — with the numeral at 2.6rem display weight 600 and a .62rem / .26em uppercase sub-label. Layer a GSAP pop on the numeral: fromTo({scale:.85, autoAlpha:0}, {scale:1, autoAlpha:1, duration:.9, delay:.35, ease:"power3.out"}). The success copy echoes the buyer's own name and choices back to them. The instant validation clears — as the success side begins its entrance — the page hands the entry to the house ledger by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus colorway, quantity…), and the form keeps its one off-canvas decoy input marked data-wandit-hp that the page's own script never reads or validates.
+- SUBMIT HAS A DELIBERATE 750ms PENDING STATE — the button label becomes a human present-tense sentence — and then the form CROSS-FADES IN PLACE into a success panel absolutely positioned over it inside the same box: the success side transitions opacity, transform and visibility over .7s with transition-delay .25s, .25s, 0s; the form leaves over .45s to translateY(-10px) with visibility 0s .45s, so focus never lands on a hidden element. The success panel opens on a large order number inside an 11rem SVG ring drawn by stroke-dashoffset — a circle with pathLength 100, stroke-dasharray 101, stroke-dashoffset 101 to 0 over 1.4s with a .5s delay, stroke-width 1.5, rotated -90deg — with the numeral at 2.6rem display weight 600 and a .62rem / .26em uppercase sub-label. Layer a GSAP pop on the numeral: fromTo({scale:.85, autoAlpha:0}, {scale:1, autoAlpha:1, duration:.9, delay:.35, ease:"power3.out"}). The success copy echoes the buyer's own name and choices back to them. The instant validation clears — as the success side begins its entrance — the page hands the entry to the house ledger by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected, and colorway under its own key), and the form keeps its one off-canvas decoy input marked data-wandit-hp that the page's own script never reads or validates.
 - PERSIST IT: store the order and the chosen colorway in localStorage; on return, restore the colorway and show the success state INSTANTLY (no animation) so a returning buyer is not asked to order twice.
 - CROSS-SECTION STATE LINKS: a CTA in an earlier chapter sets the colorway AND then smooth-scrolls to the order section, so a button in section four rewrites section eight before travelling to it. Sections talk to each other.
 - CTAs anywhere else on the page: the pill with the sliding arrow, or the quiet hairline text link. There is never a full-width solid rectangle button.
@@ -191,6 +191,7 @@ Neutral grays of any kind · pure white text or a pure white ground · box-shado
 ## Intensity
 This world fails softly and invisibly: every wrong decision here is a small comfortable default. A gray border instead of ink-at-16-percent. A 16px radius instead of an arch. A card instead of a ledger row. A photo instead of a stage. A headline with one clause instead of a turn. Executed at 60 percent this is exactly the generic page it is meant to replace. Executed at 100 percent — grain over tinted paper, one accent doing fifteen jobs, an object lit by its own breathing glow with a seal hanging off its corner, ledgers and wall labels and a form that talks like a person — it looks like a workshop that has been selling to people who know, for years. Push INTO the specificity. Every single number above is load-bearing.`,
 	energy: "medium",
+	family: "atelier",
 	id: "atelier",
 	industries: [
 		"ecommerce",
@@ -211,6 +212,13 @@ This world fails softly and invisibly: every wrong decision here is a small comf
 	kind: "both",
 	mood: ["warm", "crafted", "tactile", "editorial", "collectible"],
 	name: "Atelier",
+	preview: {
+		ground: "#F4EEE3",
+		ink: "#211B15",
+		accent: "#A9834C",
+		fontFamily: "Space Grotesk",
+		sampleWord: "L'Atelier",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Tinted paper with a grain you can almost feel, one brass thread running through everything, and your product lit like a museum piece with its own edition number — a shop that looks hand-made, right down to the order form.",

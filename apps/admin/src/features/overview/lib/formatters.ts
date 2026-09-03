@@ -1,33 +1,10 @@
-import type { OverviewCurrency } from "../api/overview.dto";
-
-export function formatOverviewCurrencyMinor(
-	amountMinor: number,
-	currency: OverviewCurrency,
-	locale = "en-US",
-) {
+export function formatOverviewUsdMinor(amountMinor: number, locale = "en-US") {
 	return new Intl.NumberFormat(locale, {
 		style: "currency",
-		currency,
+		currency: "USD",
 		currencyDisplay: "narrowSymbol",
 		minimumFractionDigits: 0,
 		maximumFractionDigits: amountMinor % 100 === 0 ? 0 : 2,
-	}).format(amountMinor / 100);
-}
-
-export function formatOverviewUsdMinor(amountMinor: number, locale = "en-US") {
-	return formatOverviewCurrencyMinor(amountMinor, "USD", locale);
-}
-
-export function formatOverviewRoundedCurrencyMinor(
-	amountMinor: number,
-	currency: OverviewCurrency,
-	locale = "en-US",
-) {
-	return new Intl.NumberFormat(locale, {
-		style: "currency",
-		currency,
-		currencyDisplay: "narrowSymbol",
-		maximumFractionDigits: 0,
 	}).format(amountMinor / 100);
 }
 
@@ -35,20 +12,11 @@ export function formatOverviewRoundedUsdMinor(
 	amountMinor: number,
 	locale = "en-US",
 ) {
-	return formatOverviewRoundedCurrencyMinor(amountMinor, "USD", locale);
-}
-
-export function formatOverviewCompactCurrency(
-	amountMinor: number,
-	currency: OverviewCurrency,
-	locale = "en-US",
-) {
 	return new Intl.NumberFormat(locale, {
 		style: "currency",
-		currency,
+		currency: "USD",
 		currencyDisplay: "narrowSymbol",
-		notation: "compact",
-		maximumFractionDigits: 1,
+		maximumFractionDigits: 0,
 	}).format(amountMinor / 100);
 }
 

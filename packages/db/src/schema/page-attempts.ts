@@ -1,6 +1,7 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	index,
+	integer,
 	jsonb,
 	pgEnum,
 	pgTable,
@@ -13,12 +14,14 @@ import { chats } from "./chats";
 import { projects } from "./projects";
 
 // Lifecycle of one background page build. Terminal states are
-// succeeded/failed; the web polls until it sees one of those.
+// succeeded/failed/canceled; the web polls until it sees one of those.
+// "canceled" is a user decision (the Stop button), never a failure.
 export const pageGenerationStatus = pgEnum("page_generation_status", [
 	"queued",
 	"generating",
 	"succeeded",
 	"failed",
+	"canceled",
 ]);
 
 // Mutable lifecycle row for one background page generation. Versions stay
@@ -55,13 +58,38 @@ export const pageGenerationAttempts = pgTable(
 		}),
 		// Human-readable failure reason, shown in the Page tab error state.
 		error: text("error"),
+		// Bounded machine classification of the failure (contract
+		// pageBuildFailureCodeSchema) — lets the UI say WHO failed (the model
+		// provider vs us) without parsing the raw error string.
+		failureCode: text("failure_code"),
+		failureKind: text("failure_kind"),
+		failureSource: text("failure_source"),
+		failureProvider: text("failure_provider"),
+		failureProviderMessage: text("failure_provider_message"),
+		failureRequestId: text("failure_request_id"),
+		sentryEventId: text("sentry_event_id"),
+		// Percent at the moment the attempt stopped or failed, so the stopped
+		// card can show "62%" after a reload. Live percent stays in Trigger
+		// run metadata; this is only the terminal snapshot.
+		lastProgressPercent: integer("last_progress_percent"),
+		// User pressed Discard/Dismiss on the terminal chat card — the card
+		// collapses to a quiet receipt on every future render.
+		dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
 		// When the attempt reached a terminal state (succeeded or failed).
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("page_generation_attempts_completedAt_idx").on(table.completedAt),
+		index("page_generation_attempts_pageKind_idx").on(
+			sql`(${table.spec} ->> 'pageKind')`,
+		),
+		index("page_generation_attempts_failureKind_createdAt_idx")
+			.on(table.failureKind, table.createdAt)
+			.where(sql`${table.failureKind} IS NOT NULL`),
 		index("page_attempts_project_idx").on(table.projectId),
 		index("page_attempts_artifact_idx").on(table.artifactId),
 	],

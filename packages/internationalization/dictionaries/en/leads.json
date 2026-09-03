@@ -2,6 +2,14 @@
 	"title": "Leads",
 	"searchPlaceholder": "Search name or phone…",
 	"filterAll": "All statuses",
+	"filterActive": "Active",
+	"filterArchived": "Archived",
+	"filterAllLeads": "All leads",
+	"allDates": "All dates",
+	"dateToday": "Today",
+	"dateLast7Days": "Last 7 days",
+	"dateLast30Days": "Last 30 days",
+	"datePickDay": "Pick a day",
 	"exportCsv": "Export CSV",
 	"exportedToast": {
 		"zero": "Exported {count} leads",
@@ -20,14 +28,21 @@
 	"colPhone": "Phone",
 	"colLocation": "Wilaya / Commune",
 	"colDate": "Date",
+	"colSku": "SKU",
 	"colStatus": "Status",
+	"colSource": "Source",
+	"colActions": "Actions",
 	"call": "Call",
 	"whatsapp": "WhatsApp",
+	"archive": "Archive",
+	"unarchive": "Unarchive",
+	"archivedToast": "{name} archived",
+	"unarchivedToast": "{name} restored",
 	"emptyTitle": "No leads yet",
 	"emptyBody": "Publish your page to start collecting orders.",
 	"emptyCta": "Open publish settings",
 	"noResultsTitle": "No matching leads",
-	"noResultsBody": "Try another search or clear the status filter.",
+	"noResultsBody": "Try another search or clear the filters.",
 	"clearFilters": "Clear filters",
 	"statusUpdated": "{name} → {status}",
 	"pageInfo": "{from}–{to} of {total}",
@@ -40,6 +55,7 @@
 		"syncNow": "Sync now",
 		"open": "Open sheet",
 		"lastSynced": "Last synced {time}",
+		"autoSync": "Syncs automatically every {minutes} min",
 		"syncedToast": {
 			"zero": "{count} leads synced",
 			"one": "1 lead synced",
@@ -49,6 +65,10 @@
 			"other": "{count} leads synced"
 		},
 		"errorToast": "Google Sheets sync failed. Try again."
+	},
+	"codPilotSync": {
+		"sync": "Sync COD Pilot",
+		"comingSoon": "COD Pilot sync — coming soon"
 	},
 	"status": {
 		"to_confirm": "To confirm",
@@ -65,6 +85,26 @@
 		"Commune",
 		"Status",
 		"Source",
-		"Date"
-	]
+		"Campaign",
+		"Date",
+		"SKU"
+	],
+	"csvOrderHeaders": ["Product", "Quantity", "Price", "Delivery", "Total"],
+	"orderTotal": "Total",
+	"source": {
+		"facebook": "Facebook",
+		"tiktok": "TikTok",
+		"direct": "Direct"
+	},
+	"campaignTooltip": "Campaign: {campaign}",
+	"metaTitle": "Leads — Wandit",
+	"subtitle": "Every order captured across your projects.",
+	"colProject": "Project",
+	"allProjects": "All projects",
+	"allSources": "All sources",
+	"dashEmptyTitle": "No leads yet",
+	"dashEmptyBody": "Publish a page and every order it captures will land here, across all your projects.",
+	"loadError": "Could not load your leads.",
+	"retry": "Retry",
+	"noResultsBodyFilters": "Try another search or clear the filters."
 }

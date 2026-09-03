@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { PushNotificationsModule } from "../push-notifications/push-notifications.module";
+import { LeadSheetAutoSyncService } from "./application/services/lead-sheet-auto-sync.service";
 import { LeadSheetSyncService } from "./application/services/lead-sheet-sync.service";
 import { LeadsService } from "./application/services/leads.service";
 import { LeadsCaptureService } from "./application/services/leads-capture.service";
@@ -18,10 +20,16 @@ import { LeadsCaptureController } from "./presentation/http/controllers/leads-ca
 		LeadsController,
 		LeadSheetSyncController,
 	],
-	exports: [LeadSheetSyncService, LeadsRepository, LeadsService],
-	imports: [DatabaseModule],
+	exports: [
+		LeadSheetAutoSyncService,
+		LeadSheetSyncService,
+		LeadsRepository,
+		LeadsService,
+	],
+	imports: [DatabaseModule, PushNotificationsModule],
 	providers: [
 		GoogleSheetsClient,
+		LeadSheetAutoSyncService,
 		LeadSheetSyncService,
 		LeadSheetSyncsRepository,
 		LeadsCaptureService,

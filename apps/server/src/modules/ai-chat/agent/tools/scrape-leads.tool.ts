@@ -7,6 +7,7 @@
  * returns only the "queued"/"unavailable" answer the model relays. The chat
  * card polls the attempt endpoint for live progress and the download.
  */
+import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { Logger } from "@nestjs/common";
 import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
@@ -18,13 +19,12 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
-
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process. The type is enough to make
 // tasks.trigger() check the payload shape.
 import type { scrapeLeadsTask } from "../../../../trigger/scrape-leads.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	refundLeadScrapeUsageIfReserved,
 	reserveLeadScrapeUsage,
@@ -72,12 +72,10 @@ export function createScrapeLeadsTool(
 			"request; progress appears live in the conversation.",
 		inputSchema: scrapeLeadsInputSchema,
 		outputSchema: scrapeLeadsOutputSchema,
-		execute: async ({
-			country,
-			limit,
-			location,
-			query,
-		}): Promise<ScrapeLeadsOutput> => {
+		execute: async (
+			{ country, limit, location, query },
+			options,
+		): Promise<ScrapeLeadsOutput> => {
 			// Checked at CALL time, not boot time: the server must run before
 			// credentials exist, and the model must answer honestly when they don't.
 			if (
@@ -109,11 +107,40 @@ export function createScrapeLeadsTool(
 				version: 1,
 			};
 
+			// Request idempotency: a duplicated delivery of this exact tool call
+			// (same toolCallId) must land on the same attempt row — one scrape,
+			// one reservation, one Trigger handoff.
+			const requestKey = createHash("sha256")
+				.update(JSON.stringify({ request: options.toolCallId, spec }))
+				.digest("hex");
+
 			const attempt = await deps.leadScrapesRepository.insertAttempt({
 				chatId: deps.chatId,
 				projectId: deps.projectId,
+				requestKey,
 				spec,
 			});
+
+			if (!attempt.created && attempt.status === "failed") {
+				return {
+					message:
+						"This exact lead scrape request already failed. Tell the user " +
+						"and wait for a new request before retrying.",
+					status: "unavailable",
+				};
+			}
+
+			if (!attempt.created) {
+				// Billing alignment: the reservation is keyed by attemptId, so the
+				// original delivery's usage event already covers this request.
+				return {
+					attemptId: attempt.id,
+					message:
+						"This lead scrape request was already accepted. Its existing " +
+						"progress card appears in the conversation.",
+					status: "queued",
+				};
+			}
 
 			logger.log(
 				`Queued lead scrape "${spec.query}" in ${spec.location ?? spec.countryCode ?? "anywhere"} ` +
@@ -132,6 +159,7 @@ export function createScrapeLeadsTool(
 					usageEvent = await reserveLeadScrapeUsage(deps.meteringService, {
 						attemptId: attempt.id,
 						parentEventId: deps.parentEventId,
+						requestedLimit: spec.limit,
 						subject: deps.subject,
 					});
 				} catch (error) {
@@ -181,6 +209,8 @@ export function createScrapeLeadsTool(
 									await refundLeadScrapeUsageIfReserved(deps.meteringService, {
 										attemptId: attempt.id,
 										eventId: usageEvent.id,
+										// Rejected before dispatch: no Serper page was sent.
+										serperPages: 0,
 										subject: deps.subject,
 									});
 								} catch (refundError) {

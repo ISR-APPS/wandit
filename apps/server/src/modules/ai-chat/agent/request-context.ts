@@ -1,16 +1,22 @@
 /**
  * Per-request context block appended to the chat system prompt (V2 spec
- * §5/§6/§10, contract §10): the prompt-box mode settings, the element the
- * user selected in the preview, and the wids they manually edited since the
- * last AI change. Metadata BIASES the model; the user's words always win.
+ * §5/§6/§10, contract §10): the prompt-box mode settings, the current page's
+ * start-of-request outline, the user-selected preview element, and the wids
+ * they manually edited since the last AI change. Metadata BIASES the model;
+ * the user's words always win.
  */
 import {
 	type AiChatRequestMetadata,
 	videoSubmissionIdSchema,
 } from "@wandit/contracts";
+import type { OutlineSection } from "../../pages/domain/stamp";
 import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
+	activePageOutline?: {
+		sections: OutlineSection[];
+		versionNumber: number;
+	} | null;
 	manualEdits: string[];
 	metadata?: AiChatRequestMetadata;
 	// ISO alpha-2 country derived from the request IP at the edge (e.g. "DZ"),
@@ -28,18 +34,28 @@ export type ChatRequestContext = {
 
 const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
 
+const COD_MODES = ["simple", "max"] as const;
+
 type PageGoal = (typeof PAGE_GOALS)[number];
+
+type CodMode = (typeof COD_MODES)[number];
 
 const GOAL_LINES: Record<PageGoal, string> = {
 	cod:
-		"  Objectif: Vente COD — this is a COD funnel build; run the COD intake, including the optional block question.\n" +
-		'  Sample COD worlds, then pass the chosen worldIds (base first) and pageKind: "cod" to generate_page. This setting is cargo, never law; the user\'s words still win.',
+		"  Objectif: Vente COD — this is a COD funnel build; run the COD intake for the committed page type (simple or max).\n" +
+		'  For MAX sample COD worlds and pass the chosen worldIds (base first); for SIMPLE pass none. Always pass pageKind: "cod" and codMode to generate_page. This setting is cargo, never law; the user\'s words still win.',
 	leads:
 		"  Objectif: Capture de leads — the page converts through a lead form (name + phone).",
 	promo:
 		"  Objectif: Promo — a promotional offer page pushing one time-limited deal.",
 	service:
 		"  Objectif: Service — present a service; conversion is contact/booking (WhatsApp, call, form).",
+};
+
+const COD_MODE_LINES: Record<CodMode, string> = {
+	simple:
+		'  Type: Simple — the user pre-selected the SIMPLE COD page type: the clean fast funnel. Do not ask about the type. Skip design-world sampling and the taste/block questions, and pass codMode: "simple" (and no worldIds) to generate_page.',
+	max: '  Type: Max — the user pre-selected the MAX COD page type: the full world-driven funnel. Do not ask about the type. Run the normal COD intake and pass codMode: "max" to generate_page.',
 };
 
 const MODE_LINES: Record<string, string> = {
@@ -49,8 +65,7 @@ const MODE_LINES: Record<string, string> = {
 	marketing:
 		"- Mode: Marketing — the user wants a marketing deliverable generated as a named HTML document with generate_marketing_asset (it appears as a card in their Marketing tab). Gather any missing facts first. Do not queue a page build unless they clearly ask for a page.",
 	page: "- Mode: Site web — the user wants a website built.",
-	video:
-		"- Mode: Animer une image — animate the single uploaded source image with animate_image. This is image-to-video, never text-to-video.",
+	video: "- Mode: Vidéo — the user wants a video made.",
 };
 
 const OUTPUT_LINES: Record<string, string> = {
@@ -100,9 +115,16 @@ const OPTION_LABELS: Record<string, string> = {
 	variants: "Number of variants",
 };
 
+// Document-level edit sentinels the ops layer records instead of a data-wid.
+const MANUAL_EDIT_LABELS: Record<string, string> = {
+	__title__: "the page title",
+	__tokens__: "the global theme (colors/fonts)",
+};
+
 // Transport/internal keys, or keys already rendered by a dedicated block.
 const HANDLED_OPTION_KEYS = new Set([
 	"builderModel",
+	"codMode",
 	"goal",
 	"motion",
 	"ratio",
@@ -213,6 +235,12 @@ export function buildChatRequestContext(
 			if (typeof goal === "string" && isPageGoal(goal)) {
 				lines.push(GOAL_LINES[goal]);
 			}
+
+			const codMode = composer.options?.codMode;
+
+			if (typeof codMode === "string" && isCodMode(codMode)) {
+				lines.push(COD_MODE_LINES[codMode]);
+			}
 		}
 
 		if (composer.mode === "marketing" || composer.mode === "image") {
@@ -228,9 +256,24 @@ export function buildChatRequestContext(
 		}
 
 		if (composer.mode === "video") {
-			if (composer.output === "image-animation") {
+			// A missing output means a legacy client where image animation was
+			// the only video output — keep its behavior byte-for-byte.
+			const isCreator = composer.output === "video-creator";
+
+			if (isCreator) {
 				lines.push(
-					'  Output: "Image animation" — one silent five-second clip.',
+					'  Output: "Video creator" — create a video from scratch with ' +
+						"generate_video (text-to-video). Run the creative-director " +
+						"intake for anything not settled below; never re-ask a " +
+						"setting this block supplies. Use animate_image only if the " +
+						"user explicitly asks to animate an uploaded image instead.",
+				);
+			} else {
+				lines.push(
+					'  Output: "Image animation" — animate the single uploaded ' +
+						"source image with animate_image. This is image-to-video: one " +
+						"five-second clip from the supplied still. Use the talking/max " +
+						"path only when a person must visibly speak to camera.",
 				);
 			}
 
@@ -255,9 +298,52 @@ export function buildChatRequestContext(
 			if (aspect) {
 				lines.push(`  Required video aspect ratio: ${aspect}.`);
 			}
+
+			if (isCreator) {
+				const duration = videoDurationFromOption(composer.options?.duration);
+
+				if (duration) {
+					lines.push(`  Required duration: ${duration} seconds.`);
+				}
+
+				const voice = composer.options?.voice;
+
+				if (voice === "none") {
+					lines.push(
+						"  Voiceover: none — the user chose no narration; do not ask.",
+					);
+				} else if (isVoiceLanguage(voice)) {
+					lines.push(
+						`  Voiceover: yes, in ${VOICE_LANGUAGE_NAMES[voice]} — write ` +
+							"the short script yourself and pass it in voiceover; do " +
+							"not ask about the voiceover again.",
+					);
+				}
+				// "auto" (or absent): the intake decides whether narration serves
+				// the video — no line on purpose.
+			}
 		}
 
 		paragraphs.push(lines.join("\n"));
+	}
+
+	if (context.activePageOutline) {
+		const outlineLines = context.activePageOutline.sections.map(
+			(section) =>
+				`- data-wid="${section.wid}" | <${section.tag}> | ${JSON.stringify(section.snippet)}`,
+		);
+
+		paragraphs.push(
+			[
+				"The current page outline at the start of this request " +
+					`(version ${context.activePageOutline.versionNumber}):`,
+				...outlineLines,
+				"A page already exists — edit it with the surgical tools. Do not " +
+					"call get_page_outline again; the outline is right here. Call " +
+					"generate_page only when the user asks for a new page or a full " +
+					"redesign.",
+			].join("\n"),
+		);
 	}
 
 	const selectedWids = context.metadata?.selectedWids;
@@ -283,8 +369,11 @@ export function buildChatRequestContext(
 		paragraphs.push(
 			"The user selected an element in the page preview for THIS message: " +
 				`data-wid="${selectedWid}". When they say "this", "here", "ça", ` +
-				'"هذا" they mean that element. Call get_page_outline / ' +
-				"read_section to see it before answering or editing.",
+				'"هذا" they mean that element. ' +
+				(context.activePageOutline
+					? "Call read_section directly to see it before answering or editing."
+					: "Call get_page_outline / read_section to see it before answering " +
+						"or editing."),
 		);
 	}
 
@@ -299,9 +388,7 @@ export function buildChatRequestContext(
 
 	if (context.manualEdits.length > 0) {
 		const edited = context.manualEdits
-			.map((wid) =>
-				wid === "__tokens__" ? "the global theme (colors/fonts)" : wid,
-			)
+			.map((wid) => MANUAL_EDIT_LABELS[wid] ?? wid)
 			.join(", ");
 
 		paragraphs.push(
@@ -342,10 +429,34 @@ function isPageGoal(goal: string): goal is PageGoal {
 	return (PAGE_GOALS as readonly string[]).includes(goal);
 }
 
+function isCodMode(codMode: string): codMode is CodMode {
+	return (COD_MODES as readonly string[]).includes(codMode);
+}
+
 function isVideoMotion(
 	value: unknown,
 ): value is "subtle" | "balanced" | "dynamic" {
 	return value === "subtle" || value === "balanced" || value === "dynamic";
+}
+
+const VOICE_LANGUAGE_NAMES = {
+	ar: "Arabic",
+	en: "English",
+	fr: "French",
+} as const;
+
+function isVoiceLanguage(
+	value: unknown,
+): value is keyof typeof VOICE_LANGUAGE_NAMES {
+	return value === "ar" || value === "en" || value === "fr";
+}
+
+function videoDurationFromOption(value: unknown): "5" | "10" | null {
+	if (value === "5" || value === "10") {
+		return value;
+	}
+
+	return null;
 }
 
 function videoAspectFromRatio(value: unknown): "9:16" | "1:1" | "16:9" | null {

@@ -1,12 +1,26 @@
 import { expo } from "@better-auth/expo";
-import { createDb } from "@wandit/db";
+import { isStaffRole } from "@wandit/contracts";
+import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
-import { corsWebOrigins } from "@wandit/env/cors-origins";
+import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
+import { corsWebOrigins, expoDevOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
-import { betterAuth } from "better-auth";
+import {
+	type BetterAuthRateLimitStorage,
+	betterAuth,
+	type GoogleOptions,
+	type RateLimit,
+	type SecondaryStorage,
+} from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware, getIp } from "better-auth/api";
+import {
+	APIError,
+	createAuthMiddleware,
+	getIp,
+	getOAuthState,
+} from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import {
 	admin,
 	captcha,
@@ -14,7 +28,13 @@ import {
 	magicLink,
 	organization,
 } from "better-auth/plugins";
+import { adminAccessControl, adminRoles } from "./admin-permissions";
 import { canonicalizeEmail } from "./email-canonical";
+import { emailMagicLinkUrl } from "./email-magic-link-url";
+import {
+	assertTrustedAuthorizationUrl,
+	EXPO_AUTHORIZATION_PROXY_PATH,
+} from "./expo-authorization-proxy";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 
@@ -22,6 +42,46 @@ import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 // organization plugin needs `organization`, `member`, and `invitation` present
 // or every /api/auth/organization/* route fails with "model not found".
 const schema = { ...authSchema, ...orgSchema };
+const db = createDb();
+
+// The admin plugin is kept for its schema fields (role/banned/banExpires), but
+// every HTTP route it mounts is served by NestJS admin controllers instead.
+// Better Auth answers 404 in onRequest before routing; server-side
+// `auth.api.*` calls are unaffected. Enumerated from
+// better-auth/dist/plugins/admin/routes.mjs — keep in sync on upgrades.
+const ADMIN_PLUGIN_DISABLED_PATHS = [
+	"/admin/set-role",
+	"/admin/get-user",
+	"/admin/create-user",
+	"/admin/update-user",
+	"/admin/list-users",
+	"/admin/list-user-sessions",
+	"/admin/unban-user",
+	"/admin/ban-user",
+	"/admin/impersonate-user",
+	"/admin/stop-impersonating",
+	"/admin/revoke-user-session",
+	"/admin/revoke-user-sessions",
+	"/admin/remove-user",
+	"/admin/set-user-password",
+	"/admin/has-permission",
+];
+
+// The email-otp plugin mounts a whole password-reset and email-change surface
+// the web app does not use. Enumerated from
+// better-auth/dist/plugins/email-otp/routes.mjs — keep in sync on upgrades.
+const EMAIL_OTP_DISABLED_PATHS = [
+	"/email-otp/request-password-reset",
+	"/email-otp/reset-password",
+	"/forget-password/email-otp",
+	"/email-otp/verify-email",
+	"/email-otp/request-email-change",
+	"/email-otp/change-email",
+	"/email-otp/check-verification-otp",
+];
+
+// Surfaced by the OAuth callback as `?error=...` — keep the string stable.
+export const ADMIN_ACCESS_REQUIRED_ERROR_CODE = "ADMIN_ACCESS_REQUIRED";
 
 export type OrganizationInvitationCreated = {
 	invitationId: string;
@@ -67,6 +127,11 @@ export type EmailAuthDelivery = {
 };
 
 export type CreateAuthOptions = {
+	/**
+	 * Server-owned secondary storage for distributed rate-limit counters.
+	 * If it is absent, the factory keeps its existing database rate limiter.
+	 */
+	secondaryStorage?: SecondaryStorage;
 	onUserCreated?: OnUserCreated;
 	/**
 	 * Admission gate for workspace creation — wired to the
@@ -111,9 +176,7 @@ export type CreateAuthOptions = {
 	}) => Promise<void> | void;
 };
 
-export function createAuth(options: CreateAuthOptions = {}) {
-	const db = createDb();
-
+function createBaseAuthOptions() {
 	// See TRUSTED_PROXY_CIDRS in @wandit/env: without these, a request whose
 	// X-Forwarded-For has more than one hop resolves to NO client IP, and
 	// Better Auth then rate-limits every such caller through a single shared
@@ -123,6 +186,223 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		.map((cidr) => cidr.trim())
 		.filter((cidr) => cidr.length > 0);
 
+	// https deployments set the cookie attributes explicitly. SameSite decides
+	// whether a cross-site HTML form can carry the session cookie (CSRF):
+	// - production: wandit.dev, admin.wandit.dev and api.wandit.dev are one
+	//   site, so "lax" works for sign-in AND blocks forged cross-site writes;
+	// - staging: the web on vercel.app and the API on api-staging.wandit.dev
+	//   are different sites, so every auth cookie (OAuth state, session) must
+	//   be SameSite=None;Secure or browsers drop it on the cross-site hop —
+	//   the symptom is "State mismatch: State not persisted correctly" on the
+	//   Google callback. The API's CrossSiteWriteGuard covers CSRF there.
+	// Local dev is same-site localhost over plain http, where None+Secure
+	// would itself be rejected — keep Better Auth's defaults there.
+	const httpsCookies = new URL(env.BETTER_AUTH_URL).protocol === "https:";
+	const cookieSameSite = resolveAuthCookieSameSite({
+		apiUrl: env.BETTER_AUTH_URL,
+		browserOrigins: [
+			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
+			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
+		],
+		override: env.AUTH_COOKIE_SAME_SITE,
+	});
+
+	return {
+		advanced: {
+			...(httpsCookies
+				? {
+						defaultCookieAttributes: {
+							sameSite: cookieSameSite,
+							secure: true,
+						},
+					}
+				: {}),
+			...(trustedProxies.length > 0 ? { ipAddress: { trustedProxies } } : {}),
+		},
+		account: { encryptOAuthTokens: true },
+		database: drizzleAdapter(db, {
+			provider: "pg" as const,
+			schema: schema,
+		}),
+		disabledPaths: [...ADMIN_PLUGIN_DISABLED_PATHS],
+		secret: env.BETTER_AUTH_SECRET,
+		baseURL: env.BETTER_AUTH_URL,
+		// The database store survives restarts and is shared by every API
+		// process. Enablement keeps Better Auth's default (production only).
+		rateLimit: {
+			storage: "database" as const,
+		},
+	};
+}
+
+const baseAuthOptions = createBaseAuthOptions();
+
+function parseRateLimit(value: unknown): RateLimit | null {
+	let parsed = value;
+
+	if (typeof value === "string") {
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return null;
+		}
+	}
+
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		!("key" in parsed) ||
+		typeof parsed.key !== "string" ||
+		!("count" in parsed) ||
+		typeof parsed.count !== "number" ||
+		!("lastRequest" in parsed) ||
+		typeof parsed.lastRequest !== "number"
+	) {
+		return null;
+	}
+
+	return parsed as RateLimit;
+}
+
+/**
+ * Use the injected SecondaryStorage-shaped port only for rate limiting.
+ * Better Auth 1.6.22 routes session-list and bulk-revocation operations to
+ * root secondaryStorage without a database fallback, even when
+ * storeSessionInDatabase is true.
+ */
+function createRateLimitStorage(
+	secondaryStorage: SecondaryStorage,
+): BetterAuthRateLimitStorage {
+	return {
+		async consume(key, rule) {
+			if (secondaryStorage.increment) {
+				const count = await secondaryStorage.increment(key, rule.window);
+
+				return count <= rule.max
+					? { allowed: true, retryAfter: null }
+					: { allowed: false, retryAfter: rule.window };
+			}
+
+			// Compatibility path for a minimal get/set/delete port. The server's
+			// Redis implementation uses atomic increment instead.
+			const now = Date.now();
+			const current = parseRateLimit(await secondaryStorage.get(key));
+			const windowInMs = rule.window * 1_000;
+
+			if (!current || now - current.lastRequest > windowInMs) {
+				await secondaryStorage.set(
+					key,
+					JSON.stringify({ count: 1, key, lastRequest: now }),
+					rule.window,
+				);
+				return { allowed: true, retryAfter: null };
+			}
+
+			if (current.count >= rule.max) {
+				return {
+					allowed: false,
+					retryAfter: Math.max(
+						1,
+						Math.ceil((current.lastRequest + windowInMs - now) / 1_000),
+					),
+				};
+			}
+
+			await secondaryStorage.set(
+				key,
+				JSON.stringify({
+					...current,
+					count: current.count + 1,
+					lastRequest: now,
+				}),
+				rule.window,
+			);
+			return { allowed: true, retryAfter: null };
+		},
+		async get(key) {
+			return parseRateLimit(await secondaryStorage.get(key));
+		},
+		async set(key, value) {
+			await secondaryStorage.set(key, JSON.stringify(value));
+		},
+	};
+}
+
+const GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY = "wanditGoogleDisplayEmail";
+
+async function getGoogleDisplayEmailFromOAuthState(data: { email?: unknown }) {
+	try {
+		if (typeof data.email !== "string") {
+			return;
+		}
+		const oauthState = await getOAuthState();
+		const displayEmail = oauthState?.[GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY];
+		if (
+			typeof displayEmail !== "string" ||
+			canonicalizeEmail(displayEmail) !== data.email
+		) {
+			return;
+		}
+		return { data: { displayEmail } };
+	} catch {
+		// A cosmetic field must never abort Google sign-in.
+	}
+}
+
+async function refreshExistingGoogleDisplayEmail(
+	canonicalEmail: string,
+	displayEmail: string,
+) {
+	try {
+		await db
+			.update(authSchema.user)
+			.set({ displayEmail })
+			.where(
+				and(
+					eq(authSchema.user.email, canonicalEmail),
+					sql`${authSchema.user.displayEmail} is distinct from ${displayEmail}`,
+				),
+			);
+	} catch {
+		// A cosmetic refresh must never abort Google sign-in.
+	}
+}
+
+function createGoogleProviderOptions(): GoogleOptions {
+	return {
+		// offline → Google issues a refresh token whenever its consent screen is
+		// shown. No global `prompt`: forcing consent on every sign-in would hurt
+		// the funnel.
+		accessType: "offline",
+		clientId: env.GOOGLE_CLIENT_ID,
+		clientSecret: env.GOOGLE_CLIENT_SECRET,
+		mapProfileToUser: async (profile) => {
+			const displayEmail = profile.email.trim();
+			const canonicalEmail = canonicalizeEmail(profile.email);
+			try {
+				// better-auth/dist/oauth2/state.mjs makes callback state request-scoped,
+				// so DB hooks can recover the spelling after provider input is filtered.
+				const oauthState = await getOAuthState();
+				if (oauthState) {
+					oauthState[GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY] = displayEmail;
+				}
+			} catch {
+				// A cosmetic field must never abort Google sign-in.
+			}
+			// better-auth/dist/oauth2/link-account.mjs leaves linked users unchanged
+			// without full profile override, which would clobber onboarding-owned name.
+			// Refresh only the cosmetic field before Better Auth reads the user row.
+			await refreshExistingGoogleDisplayEmail(canonicalEmail, displayEmail);
+			return {
+				// Keep Google and email sign-in on the same canonical inbox/user row.
+				displayEmail,
+				email: canonicalEmail,
+			};
+		},
+	};
+}
+
+export function createAuth(options: CreateAuthOptions = {}) {
 	const emailAuthDisabledError = () =>
 		APIError.from("FORBIDDEN", {
 			code: EMAIL_AUTH_DISABLED_ERROR_CODE,
@@ -144,126 +424,68 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		return emailAuth;
 	};
 
-	// Staging serves the web (vercel.app) and API (api-staging.wandit.dev) from
-	// different sites, so every auth cookie (OAuth state, session) must be
-	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
-	// symptom is "State mismatch: State not persisted correctly" on the
-	// Google callback. Local dev is same-site localhost over plain http,
-	// where None+Secure would itself be rejected — keep defaults there.
-	// Production uses wandit.dev and api.wandit.dev, which are the same site.
-	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
-
 	return betterAuth({
-		advanced: {
-			...(crossSiteCookies
-				? {
-						defaultCookieAttributes: {
-							sameSite: "none" as const,
-							secure: true,
+		...baseAuthOptions,
+		basePath: "/api/auth",
+		...(options.secondaryStorage
+			? {
+					rateLimit: {
+						customStorage: createRateLimitStorage(options.secondaryStorage),
+						storage: "secondary-storage" as const,
+					},
+					// Keep durable auth records in Postgres. Do not set Better Auth's
+					// root secondaryStorage here; in 1.6.22 it also takes over session
+					// list and bulk-revocation reads without a database fallback.
+					session: {
+						storeSessionInDatabase: true,
+						// `organization.create` updates the DB session but leaves
+						// activeOrganizationId stale in this cookie. Clients must call
+						// `organization.setActive(newOrg.id)` afterward or pass an explicit
+						// `organizationId` to organization endpoints.
+						cookieCache: {
+							enabled: true,
+							maxAge: 300,
+							strategy: "compact" as const,
 						},
-					}
-				: {}),
-			...(trustedProxies.length > 0 ? { ipAddress: { trustedProxies } } : {}),
-		},
-		account: { encryptOAuthTokens: true },
-		database: drizzleAdapter(db, {
-			provider: "pg",
-
-			schema: schema,
-		}),
+					},
+					verification: { storeInDatabase: true },
+				}
+			: {}),
 		user: {
 			additionalFields: {
-				earlyAccess: {
-					type: "boolean",
-					defaultValue: false,
+				// Server-owned: exposed on session users, never accepted from client input.
+				displayEmail: {
+					type: "string",
+					required: false,
+					input: false,
+				},
+				onboardingCompletedAt: {
+					type: "date",
+					required: false,
 					input: false,
 				},
 			},
 		},
-		// The admin plugin is kept for its schema fields (role/banned/banExpires)
-		// and its banned-user session hook, but every HTTP route it mounts is taken
-		// off the wire: those are served by our @Public() catch-all auth controller,
-		// so they bypass the AdminGuard, the AdminUsersService invariants
-		// (self-role-change block, admins-cannot-be-banned) and the audit log.
-		// Better Auth answers 404 in onRequest before routing; server-side
-		// `auth.api.*` calls are unaffected. Enumerated from
-		// better-auth/dist/plugins/admin/routes.mjs — keep in sync on upgrades.
+		// The email-otp plugin mounts password-reset and email-change routes this
+		// passwordless product does not use. Left mounted they would be publicly
+		// reachable through the auth catch-all and write verification rows.
 		disabledPaths: [
-			"/admin/set-role",
-			"/admin/get-user",
-			"/admin/create-user",
-			"/admin/update-user",
-			"/admin/list-users",
-			"/admin/list-user-sessions",
-			"/admin/unban-user",
-			"/admin/ban-user",
-			"/admin/impersonate-user",
-			"/admin/stop-impersonating",
-			"/admin/revoke-user-session",
-			"/admin/revoke-user-sessions",
-			"/admin/remove-user",
-			"/admin/set-user-password",
-			"/admin/has-permission",
-			// The email-otp plugin mounts a whole password-reset and
-			// email-change surface we do not use: this product has no
-			// passwords, and the only verification that matters happens by
-			// signing in. Left mounted they would be publicly reachable
-			// (the auth controller is a @Public() catch-all), write
-			// `verification` rows for unauthenticated callers, and — through
-			// /email-otp/reset-password — set a credential on an account.
-			// check-verification-otp is dropped too: we never call it, and it
-			// answers questions about codes we would rather not answer.
-			// Enumerated from better-auth/dist/plugins/email-otp/routes.mjs —
-			// keep in sync on upgrades.
-			"/email-otp/request-password-reset",
-			"/email-otp/reset-password",
-			"/forget-password/email-otp",
-			"/email-otp/verify-email",
-			"/email-otp/request-email-change",
-			"/email-otp/change-email",
-			"/email-otp/check-verification-otp",
+			...baseAuthOptions.disabledPaths,
+			...EMAIL_OTP_DISABLED_PATHS,
 		],
 		trustedOrigins: [
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
-			// Admin dashboard origin (apps/admin); only set where the admin runs.
-			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
 			"wandit://",
 			"exp://",
-			"http://localhost:8081",
+			// Expo web / Metro dev origin, only while the API itself runs on
+			// localhost. A hosted deployment never has a reason to trust it.
+			...expoDevOrigins(env.BETTER_AUTH_URL),
 		],
 		socialProviders: {
-			google: {
-				// offline → Google issues a refresh token whenever its consent
-				// screen is shown (first sign-up, or the linkSocial re-consent
-				// that requests the Sheets scope). Server-side Sheets sync then
-				// mints fresh access tokens via auth.api.getAccessToken without
-				// the user present. No global `prompt` on purpose: forcing the
-				// consent screen on every sign-in would hurt the funnel.
-				accessType: "offline",
-				clientId: env.GOOGLE_CLIENT_ID,
-				clientSecret: env.GOOGLE_CLIENT_SECRET,
-				// One inbox = one user row: Google-reported emails go through the
-				// same canonical form as magic-link/OTP entries, so a gmail user
-				// lands in the same account whichever door they use (returning
-				// OAuth users are matched by provider account id, not email, so
-				// this only shapes creation + email-based linking).
-				mapProfileToUser: (profile) => ({
-					email: canonicalizeEmail(profile.email),
-				}),
-			},
-		},
-		secret: env.BETTER_AUTH_SECRET,
-		baseURL: env.BETTER_AUTH_URL,
-		// The limiter's default memory store forgets counters on every restart
-		// and never shares them between instances; the database store (the
-		// rate_limit table) survives both. Enablement keeps Better Auth's
-		// default (production only). Path rules ship with the plugins:
-		// magic-link 5/60s and email-otp 3/60s, keyed by client IP.
-		rateLimit: {
-			storage: "database",
+			google: createGoogleProviderOptions(),
 		},
 		hooks: {
-			// Two jobs, both of which MUST run in the hook pipeline (hook
+			// The before hook has two jobs that MUST run in the hook pipeline (hook
 			// errors always propagate to the client; the email-otp plugin
 			// backgrounds its send callback, so in-callback errors would be
 			// swallowed into a fake `success: true`):
@@ -275,8 +497,20 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			//    disposable blocklist, per-email/per-IP caps. A vetoed request
 			//    never reaches the plugin, so no verification row is created
 			//    and the client gets the real error code.
+			// 3. Pin the expo authorization proxy target (first branch below).
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
+				// 3. Pin the expo authorization proxy to the Google URL this API
+				//    issues (see expo-authorization-proxy.ts): no open redirect, no
+				//    state-cookie fixation. Runs before the plugin's own handler.
+				if (path === EXPO_AUTHORIZATION_PROXY_PATH) {
+					const query = ctx.query as { authorizationURL?: unknown } | undefined;
+					assertTrustedAuthorizationUrl(query?.authorizationURL, {
+						googleClientId: env.GOOGLE_CLIENT_ID,
+						googleCallbackUrl: `${new URL(env.BETTER_AUTH_URL).origin}/api/auth/callback/google`,
+					});
+					return;
+				}
 				const sendKind: EmailAuthSendKind | null =
 					path === "/sign-in/magic-link"
 						? "magic-link"
@@ -295,6 +529,10 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				if (!body || typeof body.email !== "string") {
 					return;
 				}
+				const rawSignInEmail =
+					path === "/sign-in/email-otp" ? body.email.trim() : undefined;
+				// Magic-link verification carries only the token. Capturing spelling on
+				// its unauthenticated send would let an alias mutate another user's display.
 				const email = canonicalizeEmail(body.email);
 				if (isInvitePath) {
 					await options.guardInviteEmail?.({ email });
@@ -326,13 +564,67 @@ export function createAuth(options: CreateAuthOptions = {}) {
 						kind: sendKind,
 					});
 				}
-				return { context: { body: { ...body, email } } };
+				return {
+					context: {
+						body: { ...body, email },
+						...(rawSignInEmail === undefined ? {} : { rawSignInEmail }),
+					},
+				};
+			}),
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== "/sign-in/email-otp") {
+					return;
+				}
+				const rawSignInEmail = (
+					ctx as typeof ctx & { rawSignInEmail?: unknown }
+				).rawSignInEmail;
+				const newSession = ctx.context.newSession;
+				if (typeof rawSignInEmail !== "string" || !newSession) {
+					return;
+				}
+				const user = newSession.user;
+				if (
+					canonicalizeEmail(rawSignInEmail) !== user.email ||
+					user.displayEmail === rawSignInEmail
+				) {
+					return;
+				}
+				try {
+					const updatedUser = await ctx.context.internalAdapter.updateUser(
+						user.id,
+						{
+							displayEmail: rawSignInEmail,
+						},
+					);
+					const returned = ctx.context.returned;
+					if (
+						typeof returned === "object" &&
+						returned !== null &&
+						"user" in returned &&
+						typeof returned.user === "object" &&
+						returned.user !== null
+					) {
+						(returned.user as { displayEmail?: string | null }).displayEmail =
+							rawSignInEmail;
+					}
+					// The OTP route serialized the original user before after-hooks run.
+					// Reissue this same session so its cookie cache is immediately fresh.
+					await setSessionCookie(ctx, {
+						session: newSession.session,
+						user: updatedUser,
+					});
+				} catch {
+					// A cosmetic write must never turn a successful OTP into a failure.
+				}
 			}),
 		},
 		// Production cross-subdomain cookie policy is configured at deploy time.
 		databaseHooks: {
 			user: {
 				create: {
+					// better-auth/dist/db/schema.mjs filters input:false provider fields.
+					// Re-inject this server-owned value after provider input parsing.
+					before: getGoogleDisplayEmailFromOAuthState,
 					after: createUserCreatedHook(options.onUserCreated),
 				},
 			},
@@ -422,9 +714,21 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				storeToken: "hashed",
 				expiresIn: 60 * 10,
 				// Delivery only — admission gating happens in hooks.before.
-				sendMagicLink: async ({ email, url }) => {
+				sendMagicLink: async ({ email, url, token }) => {
 					const emailAuth = await requireEmailAuth();
-					await emailAuth.sendMagicLink({ email, url });
+					// The emailed link shows the web origin, not the raw API verify
+					// URL (see email-magic-link-url.ts).
+					await emailAuth.sendMagicLink({
+						email,
+						url: emailMagicLinkUrl({
+							verifyUrl: url,
+							token,
+							trustedWebOrigins: corsWebOrigins(
+								env.CORS_ORIGIN,
+								env.CORS_EXTRA_ORIGINS,
+							),
+						}),
+					});
 				},
 			}),
 			emailOTP({
@@ -464,8 +768,69 @@ export function createAuth(options: CreateAuthOptions = {}) {
 	});
 }
 
+export function createAdminAuth() {
+	const googleProvider = createGoogleProviderOptions();
+
+	return betterAuth({
+		...baseAuthOptions,
+		basePath: "/api/admin-auth",
+		advanced: {
+			...baseAuthOptions.advanced,
+			// Do not set explicit names in advanced.cookies: doing so bypasses
+			// cookiePrefix and would let this instance collide with web auth.
+			cookiePrefix: "wandit-admin",
+		},
+		// Shared database table keys strip basePath and collide across instances.
+		// Admin traffic is tiny, so memory-store restart amnesia is acceptable.
+		rateLimit: { storage: "memory" },
+		trustedOrigins: [...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : [])],
+		socialProviders: {
+			google: {
+				...googleProvider,
+				// disableImplicitSignUp alone can be overridden by a caller sending
+				// requestSignUp=true; disableSignUp is the non-bypassable gate.
+				disableImplicitSignUp: true,
+				disableSignUp: true,
+			},
+		},
+		databaseHooks: {
+			session: {
+				create: {
+					before: async (session, context) => {
+						const user = context
+							? await context.context.internalAdapter.findUserById(
+									session.userId,
+								)
+							: null;
+						const role =
+							user && "role" in user && typeof user.role === "string"
+								? user.role
+								: null;
+						if (!isStaffRole(role)) {
+							throw APIError.from("FORBIDDEN", {
+								code: ADMIN_ACCESS_REQUIRED_ERROR_CODE,
+								message: "This account does not have admin dashboard access.",
+							});
+						}
+					},
+				},
+			},
+		},
+		plugins: [
+			admin({
+				defaultRole: "user",
+				adminRoles: ["admin"],
+				ac: adminAccessControl,
+				roles: adminRoles,
+			}),
+		],
+	});
+}
+
 export const auth = createAuth();
+export const adminAuth = createAdminAuth();
 
 export type Auth = ReturnType<typeof createAuth>;
+export type AdminAuth = ReturnType<typeof createAdminAuth>;
 export type AuthSession = Auth["$Infer"]["Session"]["session"];
 export type AuthUser = Auth["$Infer"]["Session"]["user"];

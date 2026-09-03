@@ -1,25 +1,28 @@
 import {
+	type AdminAiSpend,
 	type AdminCreditLedgerEntry,
 	type AdminUserDetail,
 	type AdminUserPlan,
 	type AdminUserProject,
-	type AdminUserRole,
 	type AdminUserSubscription,
 	type AdminUserSummary,
 	type AdminUserWorkspace,
 	billingPlanIdSchema,
 	billingPlanIds,
-	isAdminRole,
+	centiCreditsToCredits,
+	countryIsoCodePattern,
+	normalizeStoredRole,
 } from "@wandit/contracts";
-
-import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
 import type {
+	AdminAiSpendRow,
 	AdminCreditLedgerRow,
 	AdminProjectRow,
 	AdminSubscriptionRow,
 	AdminUserDetailRow,
 	AdminUserSummaryRow,
 } from "../persistence/admin.repository";
+import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
+import { normalizeCostProvenance } from "./ai-cost-provenance.mapper";
 
 export function mapAdminUserSummary(
 	row: AdminUserSummaryRow,
@@ -28,15 +31,18 @@ export function mapAdminUserSummary(
 		id: row.id,
 		name: row.name,
 		email: row.email,
+		phone: normalizePhone(row.phone),
+		countryCode: normalizeCountryCode(row.countryCode),
 		emailVerified: row.emailVerified,
 		image: row.image,
-		role: normalizeRole(row.role),
-		earlyAccess: row.earlyAccess,
+		role: normalizeStoredRole(row.role),
 		banned: row.banned ?? false,
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
 		plan: normalizePlan(row.plan),
-		creditsBalance: Number(row.creditsBalance),
+		// Ledger sums are integer centi-credits; the API carries decimal credits.
+		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
+		creditsConsumed: centiCreditsToCredits(Number(row.creditsConsumed)),
 		projectsCount: Number(row.projectsCount),
 	};
 }
@@ -47,15 +53,26 @@ export function mapAdminUserDetail(
 	projects: AdminProjectRow[],
 	creditLedger: AdminCreditLedgerRow[],
 	memberships: AdminUserMembershipRow[],
+	aiSpend: AdminAiSpendRow,
+	adminViews: AdminUserDetail["adminViews"],
 ): AdminUserDetail {
 	return {
 		...mapAdminUserSummary(row),
+		adminViews,
 		updatedAt: toIso(row.updatedAt),
 		banReason: row.banReason,
 		subscription: subscription ? mapAdminUserSubscription(subscription) : null,
 		projects: projects.map(mapAdminUserProject),
 		creditLedger: creditLedger.map(mapAdminCreditLedgerEntry),
 		workspaces: memberships.map(mapAdminUserWorkspace),
+		aiSpend: mapAdminAiSpend(aiSpend),
+	};
+}
+
+function mapAdminAiSpend(row: AdminAiSpendRow): AdminAiSpend {
+	return {
+		totalCostUsdMicros: Number(row.totalCostUsdMicros),
+		meteredOperations: Number(row.meteredOperations),
 	};
 }
 
@@ -75,15 +92,20 @@ function mapAdminUserSubscription(
 	row: AdminSubscriptionRow,
 ): AdminUserSubscription {
 	return {
+		id: row.id,
+		provider: row.provider,
 		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,
+		tierCredits: Number(row.tierCredits),
+		pendingTierCredits:
+			row.pendingTierCredits === null ? null : Number(row.pendingTierCredits),
 		currentPeriodEnd: row.currentPeriodEnd ? toIso(row.currentPeriodEnd) : null,
 		cancelAtPeriodEnd: row.cancelAtPeriodEnd,
 	};
 }
 
-function mapAdminUserProject(row: AdminProjectRow): AdminUserProject {
+export function mapAdminUserProject(row: AdminProjectRow): AdminUserProject {
 	return {
 		id: row.id,
 		name: row.name,
@@ -96,17 +118,20 @@ function mapAdminCreditLedgerEntry(
 ): AdminCreditLedgerEntry {
 	return {
 		id: row.id,
-		delta: row.delta,
+		delta: centiCreditsToCredits(row.delta),
 		kind: row.kind,
 		bucket: row.bucket,
 		meta: isRecord(row.meta) ? row.meta : null,
 		createdAt: toIso(row.createdAt),
+		aiModel: row.aiModel,
+		aiProvider: row.aiProvider,
+		aiCostUsdMicros:
+			row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
+		aiCostProvenance:
+			row.aiCostUsdMicros === null
+				? null
+				: normalizeCostProvenance(row.aiCostProvenance),
 	};
-}
-
-// Defensive: any role value outside the contract enum maps to plain "user".
-function normalizeRole(role: string | null | undefined): AdminUserRole {
-	return isAdminRole(role) ? "admin" : "user";
 }
 
 // "free" is derived: no entitled subscription row means the free plan.
@@ -116,6 +141,20 @@ function normalizePlan(plan: string | null): AdminUserPlan {
 	}
 
 	return "free";
+}
+
+function normalizePhone(phone: string | null): string | null {
+	const normalized = phone?.trim();
+
+	return normalized ? normalized : null;
+}
+
+function normalizeCountryCode(countryCode: string | null): string | null {
+	const normalized = countryCode?.trim().toUpperCase();
+
+	return normalized && countryIsoCodePattern.test(normalized)
+		? normalized
+		: null;
 }
 
 // Raw SQL expressions can surface as Date or string depending on pg parsers.

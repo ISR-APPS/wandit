@@ -10,10 +10,12 @@ import {
 	Loader2Icon,
 	PlusIcon,
 	RefreshCwIcon,
+	UserRoundCheckIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { MetricInfoTooltip } from "@/components/metric-info-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,6 +33,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { AffiliateTableRow } from "../api/affiliates.dto";
 import { mapAffiliateListItemToTableRow } from "../api/affiliates.dto";
 import { useUpdateAffiliateMutation } from "../api/affiliates.mutations";
@@ -41,7 +49,9 @@ import {
 import { downloadAffiliateCsv } from "../api/affiliates.services";
 import {
 	formatAffiliateDateTime,
+	formatAffiliateMoney,
 	formatAffiliateNumber,
+	formatNullableAffiliateMoney,
 	titleCaseAffiliateValue,
 } from "../lib/formatters";
 import { AffiliateDetailSheet } from "./affiliate-detail-sheet";
@@ -57,6 +67,7 @@ import {
 const PAGE_SIZE = 15;
 
 export function AffiliatesTab() {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const [page, setPage] = useState(1);
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState<AffiliateStatus | "all">("all");
@@ -127,10 +138,12 @@ export function AffiliatesTab() {
 						)}
 						{exporting ? "Exporting…" : "Export CSV"}
 					</Button>
-					<Button type="button" onClick={() => setCreateOpen(true)}>
-						<PlusIcon />
-						Create affiliate
-					</Button>
+					{canManage ? (
+						<Button type="button" onClick={() => setCreateOpen(true)}>
+							<PlusIcon />
+							Create affiliate
+						</Button>
+					) : null}
 				</div>
 			</div>
 
@@ -213,7 +226,7 @@ export function AffiliatesTab() {
 			</div>
 
 			{affiliatesQuery.isPending ? (
-				<AffiliateTableLoading columns={10} />
+				<AffiliateTableLoading columns={14} />
 			) : affiliatesQuery.isError || !affiliatesQuery.data ? (
 				<AffiliateSectionMessage
 					title="Affiliates could not be loaded"
@@ -236,16 +249,18 @@ export function AffiliatesTab() {
 					title="No affiliates found"
 					description="Create a partner or clear the filters to see affiliates."
 					action={
-						<Button type="button" onClick={() => setCreateOpen(true)}>
-							<PlusIcon />
-							Create affiliate
-						</Button>
+						canManage ? (
+							<Button type="button" onClick={() => setCreateOpen(true)}>
+								<PlusIcon />
+								Create affiliate
+							</Button>
+						) : undefined
 					}
 				/>
 			) : (
 				<div className="overflow-hidden rounded-lg border bg-background">
 					<div className="overflow-x-auto">
-						<Table className="min-w-[1150px]">
+						<Table className="min-w-[1680px]">
 							<TableHeader>
 								<TableRow>
 									<TableHead>Affiliate</TableHead>
@@ -253,6 +268,30 @@ export function AffiliatesTab() {
 									<TableHead>Links</TableHead>
 									<TableHead>Traffic</TableHead>
 									<TableHead>Conversions</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Healthy trials"
+											tooltip="Attributed free users at least seven days old who consumed at least 3 credits and completed at least two successful generations in their first seven days."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Churned"
+											tooltip="Attributed customers whose subscription ended and who have no live subscription at the current snapshot."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Referred MRR"
+											tooltip="Current monthly list-price value of live subscriptions referred by this affiliate. Annual plans are divided by 12."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Referred LTV"
+											tooltip="Approximate — small samples. Referred ARPU divided by estimated monthly churn; a dash means there is not enough churn history to calculate it."
+										/>
+									</TableHead>
 									<TableHead>Revenue</TableHead>
 									<TableHead>Balance</TableHead>
 									<TableHead>Payout</TableHead>
@@ -280,11 +319,13 @@ export function AffiliatesTab() {
 				</div>
 			)}
 
-			<AffiliateEditorDialog
-				open={createOpen}
-				onOpenChange={setCreateOpen}
-				onSaved={setSelectedAffiliateId}
-			/>
+			{canManage ? (
+				<AffiliateEditorDialog
+					open={createOpen}
+					onOpenChange={setCreateOpen}
+					onSaved={setSelectedAffiliateId}
+				/>
+			) : null}
 			<AffiliateDetailSheet
 				affiliateId={selectedAffiliateId}
 				open={Boolean(selectedAffiliateId)}
@@ -305,6 +346,7 @@ function AffiliateRow({
 	row: AffiliateTableRow;
 	onOpen: () => void;
 }) {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const mutation = useUpdateAffiliateMutation();
 	const nextStatus = row.status === "active" ? "paused" : "active";
 
@@ -329,16 +371,35 @@ function AffiliateRow({
 	return (
 		<TableRow>
 			<TableCell>
-				<button
-					type="button"
-					className="text-left hover:underline"
-					onClick={onOpen}
-				>
-					<span className="block font-medium">{row.name}</span>
-					<span className="block text-muted-foreground text-xs">
-						{row.email}
-					</span>
-				</button>
+				<div className="flex items-start gap-1.5">
+					<button
+						type="button"
+						className="min-w-0 text-left hover:underline"
+						onClick={onOpen}
+					>
+						<span className="block font-medium">{row.name}</span>
+						<span className="block text-muted-foreground text-xs">
+							{row.email}
+						</span>
+					</button>
+					{row.userId ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label={`Portal access on for ${row.name}`}
+									className="mt-0.5 inline-flex shrink-0 cursor-help rounded-full text-emerald-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-emerald-400"
+									onClick={onOpen}
+								>
+									<UserRoundCheckIcon aria-hidden="true" className="size-4" />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={6}>
+								Portal access on
+							</TooltipContent>
+						</Tooltip>
+					) : null}
+				</div>
 				<p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
 					{row.company ? `${row.company} · ` : ""}
 					{row.id}
@@ -366,6 +427,12 @@ function AffiliateRow({
 					{formatAffiliateNumber(row.paidInvoiceCount)} invoices
 				</p>
 			</TableCell>
+			<TableCell>{formatAffiliateNumber(row.healthyTrials)}</TableCell>
+			<TableCell>{formatAffiliateNumber(row.churnedCustomers)}</TableCell>
+			<TableCell>{formatAffiliateMoney(row.referredMrrCents, "usd")}</TableCell>
+			<TableCell>
+				{formatNullableAffiliateMoney(row.referredLtvCents, "usd")}
+			</TableCell>
 			<TableCell>
 				<CurrencyValues
 					currencies={row.currencies}
@@ -385,29 +452,46 @@ function AffiliateRow({
 			<TableCell>
 				<div className="flex justify-end gap-1">
 					<Button type="button" variant="outline" size="sm" onClick={onOpen}>
-						Manage
+						{canManage ? "Manage" : "Details"}
 					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						disabled={mutation.isPending}
-						onClick={() => void changeStatus()}
-					>
-						{mutation.isPending ? (
-							<Loader2Icon className="animate-spin" />
-						) : nextStatus === "active" ? (
-							<CirclePlayIcon />
-						) : (
-							<CirclePauseIcon />
-						)}
-						<span className="sr-only">
-							{nextStatus === "active" ? "Activate" : "Pause"} {row.name}
-						</span>
-					</Button>
+					{canManage ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							disabled={mutation.isPending}
+							onClick={() => void changeStatus()}
+						>
+							{mutation.isPending ? (
+								<Loader2Icon className="animate-spin" />
+							) : nextStatus === "active" ? (
+								<CirclePlayIcon />
+							) : (
+								<CirclePauseIcon />
+							)}
+							<span className="sr-only">
+								{nextStatus === "active" ? "Activate" : "Pause"} {row.name}
+							</span>
+						</Button>
+					) : null}
 				</div>
 			</TableCell>
 		</TableRow>
+	);
+}
+
+function AffiliateTableHeading({
+	label,
+	tooltip,
+}: {
+	label: string;
+	tooltip: string;
+}) {
+	return (
+		<div className="flex items-center gap-1">
+			<span>{label}</span>
+			<MetricInfoTooltip label={label} content={tooltip} />
+		</div>
 	);
 }
 

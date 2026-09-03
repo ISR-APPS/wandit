@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	ConflictException,
 	HttpException,
@@ -12,6 +12,7 @@ import {
 	type AiChatMessageMetadata,
 	type AiChatMessageUsage,
 	type AiChatRequestMetadata,
+	type AiErrorData,
 	type AnimateImageInput,
 	type AnimateImageOutput,
 	type ApplyElementOpsInput,
@@ -23,20 +24,40 @@ import {
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
+	type EditVideoInput,
+	type EditVideoOutput,
+	type ExtendVideoInput,
+	type ExtendVideoOutput,
+	editVideoInputSchema,
+	extendVideoInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
 	type GenerateMarketingAssetInput,
 	type GenerateMarketingAssetOutput,
 	type GeneratePageInput,
 	type GeneratePageOutput,
+	type GenerateVideoInput,
+	type GenerateVideoOutput,
 	type GetDirectionCandidatesInput,
 	type GetDirectionCandidatesOutput,
 	type GetPageOutlineOutput,
 	generateImageInputSchema,
 	generateMarketingAssetInputSchema,
 	generatePageInputSchema,
+	generateVideoInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
+	type InsertSectionInput,
+	type InsertSectionOutput,
+	type InspectVideoInput,
+	type InspectVideoOutput,
+	insertSectionInputSchema,
+	inspectVideoInputSchema,
+	type ProductVideoInput,
+	type ProductVideoOutput,
+	productVideoInputSchema,
+	type ReadAttachmentInput,
+	type ReadAttachmentOutput,
 	type ReadElementsInput,
 	type ReadElementsOutput,
 	type ReadSectionOutput,
@@ -45,6 +66,7 @@ import {
 	type ReadThemeOutput,
 	type ReplaceSectionInput,
 	type ReplaceSectionOutput,
+	readAttachmentInputSchema,
 	readElementsInputSchema,
 	readSectionInputSchema,
 	readSkillInputSchema,
@@ -65,28 +87,51 @@ import {
 	type LanguageModelUsage,
 	pipeUIMessageStreamToResponse,
 	smoothStream,
+	type UIMessageStreamWriter,
 } from "ai";
 import type { FastifyReply } from "fastify";
 
-import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
+import {
+	getPageHtml,
+	isUserUploadUrl,
+} from "../../../../infrastructure/storage/r2";
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	classifyFinish,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
+import { llmProviderForTask } from "../../../ai-provider/domain/llm-provider";
+import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type MeteringSubject,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
+import {
+	ChatsRepository,
+	type MessageFailureColumns,
+} from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
+import { LeadsRepository } from "../../../leads/infrastructure/persistence/leads.repository";
 import { MarketingAssetsRepository } from "../../../marketing-assets/infrastructure/persistence/marketing-assets.repository";
 import {
 	type McpChatToolsResult,
 	McpChatToolsService,
 } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
-import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import {
 	type AiUsageEvent,
 	type CapturedGeneration,
-	gatewayGenerationId,
+	capturedGenerationRef,
 	type MeteringReserveOutcome,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
@@ -96,12 +141,26 @@ import {
 } from "../../../metering/domain/model-pricing";
 import { operationPricing } from "../../../metering/domain/operation-registry";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
+import { extractOutline, stampHtml } from "../../../pages/domain/stamp";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
-import { annotateUserFileParts } from "../../agent/annotate-file-parts";
+import {
+	ADS_CONNECTOR_SLUGS,
+	type AdsTrackingFacts,
+	composeAdsBlock,
+	isAdsSkillSlug,
+} from "../../agent/ads";
+import {
+	annotateAskUserAnswerFiles,
+	annotateUserFileParts,
+} from "../../agent/annotate-file-parts";
+import {
+	annotateGeneratedAssets,
+	generatedAssetsFromAnnotatedMessages,
+} from "../../agent/annotate-generated-assets";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
 	estimateAiChatTokenUsage,
@@ -118,6 +177,7 @@ import {
 	resolveBuilderModelOption,
 	resolveBuilderReasoningOption,
 } from "../../agent/tools/builder-model-options";
+import type { AvailableVideo } from "../../agent/tools/inspect-video.tool";
 import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
@@ -136,9 +196,21 @@ const AI_CHAT_TURN_KEY_GENERATIONS = 4;
 // bounds adoption at 5 minutes; use 4 for margin. Older holds are superseded
 // (refunded + re-reserved), which restarts the recovery clock.
 const AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS = 4 * 60_000;
+// Durable cross-replica execution lease on the turn's hold: the TTL is 5x the
+// heartbeat so one missed write never loses a live stream's lease, and it
+// stays far under the 40-minute stranded-recovery line so an expired lease
+// never extends a dead hold's life materially.
+const AI_CHAT_LEASE_TTL_MS = 5 * 60_000;
+const AI_CHAT_LEASE_HEARTBEAT_MS = 60_000;
+
+type StreamedAiErrorData = AiErrorData & {
+	provider?: string | null;
+};
 
 export type PreparedAiChatStream = {
 	readonly eventId: string | null;
+	/** Execution-lease token when this request owns the hold's lease. */
+	readonly leaseToken: string | null;
 	readonly release: () => void;
 };
 
@@ -151,6 +223,8 @@ export class AiChatService {
 	constructor(
 		@Inject(ChatsRepository)
 		private readonly chatsRepository: ChatsRepository,
+		@Inject(ConnectorGenerationsRepository)
+		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
 		@Inject(PagesRepository)
 		private readonly pagesRepository: PagesRepository,
 		@Inject(PageEditsService)
@@ -159,6 +233,8 @@ export class AiChatService {
 		private readonly leadScrapesRepository: LeadScrapesRepository,
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 		@Inject(MarketingAssetsRepository)
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
 		@Inject(ImageGenerationsRepository)
@@ -169,12 +245,51 @@ export class AiChatService {
 		private readonly meteringService: MeteringService,
 		@Inject(ModelPricingService)
 		private readonly modelPricingService: ModelPricingService,
+		@Inject(LeadsRepository)
+		private readonly leadsRepository: LeadsRepository,
+		@Inject(CreditsService)
+		private readonly creditsService: CreditsService,
 	) {}
+
+	/**
+	 * Wandit-side tracking facts for the ads block — read only when the
+	 * request is an ads request, and never fatal: a failed lookup just drops
+	 * the tracking line from the block.
+	 */
+	private async loadAdsTrackingFacts(
+		projectId: string,
+		input: {
+			connectedSlugs: readonly string[];
+			selectedSkills: readonly string[];
+		},
+	): Promise<AdsTrackingFacts | null> {
+		const adsRequest =
+			input.connectedSlugs.some((slug) => ADS_CONNECTOR_SLUGS.has(slug)) ||
+			input.selectedSkills.some(isAdsSkillSlug);
+
+		if (!adsRequest) {
+			return null;
+		}
+
+		try {
+			return await this.leadsRepository.getAdsTrackingFacts(projectId);
+		} catch (error) {
+			this.logger.warn(
+				`Ads tracking facts lookup failed for project ${projectId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return null;
+		}
+	}
 
 	async prepareStream(options: {
 		chatId: string;
 		messages: WanditUIMessage[];
+		/** Request metadata (composer pickers) — only its size matters here. */
+		metadata?: AiChatRequestMetadata;
 		projectId: string;
+		regenerateMessageId?: string;
 		requestId?: string;
 		scope: ProjectScope;
 	}): Promise<PreparedAiChatStream> {
@@ -185,8 +300,10 @@ export class AiChatService {
 		let release = releaseSlot;
 
 		try {
-			const modelBoundMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+			const modelBoundMessages = annotateAskUserAnswerFiles(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+				),
 			);
 			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
 			const requestId =
@@ -217,7 +334,12 @@ export class AiChatService {
 					});
 
 				if (creationEvent) {
-					return { eventId: creationEvent.id, release };
+					await this.deleteRegenerationTargetAfterAdmission(options);
+					// The bundled hold may be adoptable from ANY replica: the lease is
+					// the cross-replica proof no other stream is using it right now.
+					const leaseToken = await this.acquireStreamLease(creationEvent.id);
+
+					return { eventId: creationEvent.id, leaseToken, release };
 				}
 			} catch (error) {
 				if (error instanceof MeteringStateConflictError) {
@@ -259,22 +381,53 @@ export class AiChatService {
 					}
 				}
 
-				return { eventId: null, release };
+				await this.deleteRegenerationTargetAfterAdmission(options);
+				return { eventId: null, leaseToken: null, release };
 			}
 
-			const estimate = await this.estimateReservation(modelBoundMessages);
-			const event = await this.admitTurnReservation(subject, operationKey, {
+			const estimate = await this.estimateReservation(
+				modelBoundMessages,
+				// Selected ads playbooks are inlined into the prompt for this
+				// message (agent/ads): the only large, predictable context block.
+				// Pure composition, no I/O — connectors and tracking are unknown
+				// at admission time and cost little.
+				composeAdsBlock({
+					connectedSlugs: [],
+					selectedSkills: options.metadata?.composer?.skills ?? [],
+					tracking: null,
+				}),
+			);
+			const admitted = await this.admitTurnReservation(subject, operationKey, {
 				chatId: options.chatId,
 				credits: estimate.credits,
 				estimatedCostUsdMicros: estimate.costUsdMicros,
 				messageId,
 			});
+			await this.deleteRegenerationTargetAfterAdmission(options);
 
-			return { eventId: event.id, release };
+			return {
+				eventId: admitted.event.id,
+				leaseToken: admitted.leaseToken,
+				release,
+			};
 		} catch (error) {
 			release();
 			throw error;
 		}
+	}
+
+	private async deleteRegenerationTargetAfterAdmission(options: {
+		chatId: string;
+		regenerateMessageId?: string;
+	}): Promise<void> {
+		if (!options.regenerateMessageId) {
+			return;
+		}
+
+		await this.chatsRepository.deleteTerminalFailedAssistantMessage(
+			options.chatId,
+			options.regenerateMessageId,
+		);
 	}
 
 	private chatReplayConflict(): ConflictException {
@@ -354,7 +507,7 @@ export class AiChatService {
 			estimatedCostUsdMicros: number | null;
 			messageId: string;
 		},
-	): Promise<AiUsageEvent> {
+	): Promise<{ event: AiUsageEvent; leaseToken: string }> {
 		for (
 			let generation = 1;
 			generation <= AI_CHAT_TURN_KEY_GENERATIONS;
@@ -411,14 +564,27 @@ export class AiChatService {
 			}
 
 			if (outcome.replay === "none") {
-				return outcome.event;
+				// A lease failure on a FRESH reserve means another replica raced the
+				// same key between insert and here — its stream is live: busy 409.
+				return {
+					event: outcome.event,
+					leaseToken: await this.acquireStreamLease(outcome.event.id),
+				};
 			}
 
 			if (outcome.replay === "reserved") {
 				const heldForMs = Date.now() - outcome.event.createdAt.getTime();
 
 				if (heldForMs <= AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS) {
-					return outcome.event;
+					// Adoption replaces trust-by-age with the lease CAS: a hold whose
+					// lease is still live belongs to a stream running on another
+					// replica, and the duplicate POST must wait (409), not attach.
+					// The age ceiling above stays as the rollout fallback while old
+					// replicas that never take leases may still be streaming.
+					return {
+						event: outcome.event,
+						leaseToken: await this.acquireStreamLease(outcome.event.id),
+					};
 				}
 
 				// Too old to trust for a whole stream (see the adoption-ceiling
@@ -435,15 +601,57 @@ export class AiChatService {
 	}
 
 	/**
+	 * Take the durable cross-replica lease on a reserved hold, or 409 when a
+	 * live stream elsewhere provably owns it. Single-statement CAS: exactly
+	 * one racer wins.
+	 */
+	private async acquireStreamLease(eventId: string): Promise<string> {
+		const token = randomUUID();
+		const leased = await this.meteringService.acquireExecutionLease(
+			eventId,
+			token,
+			AI_CHAT_LEASE_TTL_MS,
+		);
+
+		if (!leased) {
+			throw new ConflictException({
+				code: "AI_CHAT_TURN_ACTIVE",
+				message: "This AI chat turn is currently streaming",
+			});
+		}
+
+		return token;
+	}
+
+	/**
 	 * Void a crashed attempt's hold so the next key generation can reserve
 	 * fresh. refund() keeps events with durable generation refs reserved for
 	 * reconciliation instead of voiding paid provider work — the fresh hold
 	 * then simply coexists with the old one until the sweep prices it.
+	 *
+	 * A hold whose execution lease is live belongs to a stream still running
+	 * on another replica (a long tool call before any ref is captured): it is
+	 * never refunded. The lease CAS decides — a miss is the busy 409.
 	 */
 	private async supersedeStaleHold(eventId: string): Promise<void> {
+		const leaseToken = await this.acquireStreamLease(eventId);
+
 		try {
-			await this.meteringService.refund(eventId, "ai_chat_retry_supersede");
+			const refunded = await this.meteringService.refund(
+				eventId,
+				"ai_chat_retry_supersede",
+			);
+
+			if (refunded.status === "reserved") {
+				// Kept reserved for reconciliation (durable refs): the sweep owns
+				// it now, so do not hold its lease until the TTL.
+				await this.meteringService.releaseExecutionLease(eventId, leaseToken);
+			}
 		} catch (error) {
+			// The refund transaction rolled back: hand the lease back so a live
+			// retry does not wait out the TTL.
+			await this.meteringService.releaseExecutionLease(eventId, leaseToken);
+
 			if (error instanceof MeteringStateConflictError) {
 				// The hold completed (settled/reconciled) between the replay read
 				// and this refund — that is a finished turn: hard replay.
@@ -482,14 +690,38 @@ export class AiChatService {
 		// are actor-scoped even when the org pool pays.
 		const userId = scope.userId;
 		const subject = meteringSubjectFrom(scope);
+		// Internal aborter: a lost execution lease must stop the stream itself
+		// (settlement stays safe — settle replays are idempotent under the
+		// event lock), not just its admission bookkeeping.
+		const leaseLossAbort = new AbortController();
 		const abortSignal = AbortSignal.any([
 			clientAbortSignal,
 			AbortSignal.timeout(AI_CHAT_MAX_STREAM_DURATION_MS),
+			leaseLossAbort.signal,
 		]);
-		const releaseStream = this.releaseOnAbort(abortSignal, prepared.release);
+		const route = llmProviderForTask("chat");
+		const stopLeaseHeartbeat = this.startLeaseHeartbeat(
+			prepared,
+			leaseLossAbort,
+		);
+		const releaseStream = this.releaseOnAbort(abortSignal, () => {
+			stopLeaseHeartbeat();
+
+			if (prepared.eventId && prepared.leaseToken) {
+				// Fire-and-forget: the lease self-expires; an explicit release just
+				// lets an immediate retry adopt without waiting out the TTL.
+				void this.meteringService.releaseExecutionLease(
+					prepared.eventId,
+					prepared.leaseToken,
+				);
+			}
+
+			prepared.release();
+		});
 		const mcpResultPromise = this.mcpChatToolsService.resolveToolsForUser(
 			subject,
 			prepared.eventId ?? undefined,
+			chatId,
 		);
 		let resolvedMcpResult: McpChatToolsResult | undefined;
 		const pendingGatewayErrorCaptures = new Map<string, Promise<void>>();
@@ -498,9 +730,10 @@ export class AiChatService {
 				return;
 			}
 
-			const capture = gatewayGenerationCaptureFromError(error);
+			const capture = llmGenerationCaptureFromError(error);
 			const generationId = capture
-				? gatewayGenerationId(capture.providerMetadata)
+				? (capturedGenerationRef(capture.providerMetadata)?.generationId ??
+					null)
 				: null;
 
 			if (
@@ -533,13 +766,16 @@ export class AiChatService {
 		try {
 			// Per-request context and connector discovery are independent. Start
 			// both together so zero-connection users add no wall-clock wait.
-			const [manualEdits, mcpResult] = await Promise.all([
+			const [manualEdits, mcpResult, activePageOutline] = await Promise.all([
 				this.pagesRepository.collectManualEditTrail(projectId),
 				mcpResultPromise,
+				loadActivePageOutline(this.pagesRepository, projectId),
 			]);
 			resolvedMcpResult = mcpResult;
 			const availableImages = collectAvailableImages(messages);
 			const availableDocuments = collectAvailableDocuments(messages);
+			const availableVideos = collectAvailableVideos(messages);
+			const conversationUserLinks = collectUserHttpUrls(messages);
 			const selectedSourceImage = resolveSelectedSourceImage(
 				metadata,
 				availableImages,
@@ -553,6 +789,7 @@ export class AiChatService {
 				findFinalUserMessage(messages)?.id,
 			);
 			const context = buildChatRequestContext({
+				activePageOutline,
 				manualEdits,
 				metadata,
 				requestCountryCode,
@@ -568,15 +805,62 @@ export class AiChatService {
 							.map((notice) => `- ${notice}`)
 							.join("\n")}`
 					: null;
-			const contextWithMcpNotices = [context, mcpNoticeBlock]
+			// Ads block: only when an ads connector resolved tools or the user
+			// picked ads skills in the composer. The project's tracking facts are
+			// one cheap read, paid only by ads requests (see agent/ads/index.ts).
+			const adsBlock = composeAdsBlock({
+				connectedSlugs: mcpResult.connectedSlugs,
+				selectedSkills: metadata?.composer?.skills ?? [],
+				tracking: await this.loadAdsTrackingFacts(projectId, {
+					connectedSlugs: mcpResult.connectedSlugs,
+					selectedSkills: metadata?.composer?.skills ?? [],
+				}),
+			});
+			const contextWithMcpNotices = [context, mcpNoticeBlock, adsBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
+			// Five transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// 1. complete tool calls that never got a result (typed-past ask_user,
+			//    or a stream aborted mid-execute) — providers reject a history that
+			//    carries a tool call without a matching result,
+			// 2. elide outputs from the retired read_skill tool so large stale
+			//    guidance does not cost tokens on every request,
+			// 3. follow user file parts with a text marker exposing their URL —
+			//    without it the model sees the image but cannot reference it in
+			//    generate_image/animate_image and asks for an already-sent photo,
+			// 4. follow settled generation tool parts with a [Generated …] marker
+			//    exposing the finished asset's URL — without it the model never
+			//    learns any generated URL and asks the user to re-attach media
+			//    that Wandit itself produced,
+			// 5. follow ask_user answers carrying provider-safe files with a user
+			//    message that exposes their contents to the model; the tool-result
+			//    JSON alone exposes URLs, not the image or document contents.
+			// Runs BEFORE the agent is built: generate_page receives the marker
+			// URLs so a brief can never silently drop this chat's generated media.
+			const agentMessages = await annotateGeneratedAssets(
+				annotateAskUserAnswerFiles(
+					annotateUserFileParts(
+						elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+					),
+				),
+				{
+					connectorGenerationsRepository: this.connectorGenerationsRepository,
+					imageGenerationsRepository: this.imageGenerationsRepository,
+					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					projectId,
+					scope,
+				},
+			);
 			// Per-request agent: generate_page, scrape_leads, and the page-edit
 			// tools need to know which project/chat they act for (see chat-agent.ts).
 			const agent = createChatAgent(
 				{
 					availableDocuments,
 					availableImages,
+					availableVideos,
+					conversationAssets:
+						generatedAssetsFromAnnotatedMessages(agentMessages),
+					conversationUserLinks,
 					// Composer's model picker: per-message builder override, validated
 					// against the allow-list; undefined = env default.
 					builderModel: resolveBuilderModelOption(
@@ -588,8 +872,11 @@ export class AiChatService {
 						metadata?.composer?.options?.builderReasoning,
 					),
 					chatId,
+					hasHiggsfieldConnector:
+						mcpResult.configuredSlugs.includes("higgsfield"),
 					imageGenerationsRepository: this.imageGenerationsRepository,
 					leadScrapesRepository: this.leadScrapesRepository,
+					leadsRepository: this.leadsRepository,
 					marketingAssetsRepository: this.marketingAssetsRepository,
 					mediaGenerationsRepository: this.mediaGenerationsRepository,
 					meteringService: this.meteringService,
@@ -597,39 +884,229 @@ export class AiChatService {
 					pagesRepository: this.pagesRepository,
 					parentEventId: prepared.eventId ?? undefined,
 					projectId,
-					// Snapshotted into generation specs for later model swapping; no
-					// generator reads it yet.
-					quality: metadata?.composer?.quality,
-					requireSelectedSource: metadata?.composer?.mode === "video",
+					// Only the image-animation output hard-requires a validated source
+					// still. Video mode's other output (video-creator) is
+					// text-to-video; a missing output means a legacy client where
+					// image-animation was the only video output.
+					requireSelectedSource:
+						metadata?.composer?.mode === "video" &&
+						(metadata.composer.output ?? "image-animation") ===
+							"image-animation",
 					requestKeySeed,
 					requestCountryCode: requestCountryCode ?? null,
 					selectedSourceImage,
 					subject,
 					userId,
+					videoDirector: this.videoDirector,
 				},
 				contextWithMcpNotices || null,
 				mcpResult.tools,
 				mcpResult.approvalMap,
 			);
-			// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
-			// 1. complete tool calls that never got a result (typed-past ask_user,
-			//    or a stream aborted mid-execute) — providers reject a history that
-			//    carries a tool call without a matching result,
-			// 2. elide outputs from the retired read_skill tool so large stale
-			//    guidance does not cost tokens on every request,
-			// 3. follow user file parts with a text marker exposing their URL —
-			//    without it the model sees the image but cannot reference it in
-			//    generate_image/animate_image and asks for an already-sent photo.
-			const agentMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
-			);
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
-			const stepUsages: MeteredTokenUsage[] = [];
+			const stepUsages: LanguageModelUsage[] = [];
+			let writerClosed = false;
+			let streamWriter: UIMessageStreamWriter<WanditUIMessage> | null = null;
+			let wroteBillingError = false;
+			let wroteTerminalAiError = false;
+			let terminalAiError: NormalizedAiError | null = null;
+			const wroteToolAiErrorIds = new Set<string>();
+			let streamErrorCaptured = false;
+			let pendingWarningReplay = false;
+			let skipNextAgentStreamError = false;
+			let lastProviderMetadata: unknown;
+			let sawErrorPart = false;
+			let sawOutputText = false;
+			let agentFinished = false;
+			const processedStreamErrors = new Map<
+				unknown,
+				NormalizedAiError | null
+			>();
+			const toolErrorScopes = new Map<
+				unknown,
+				{ toolCallId: string; toolName?: string }
+			>();
+			let removeAbortListener: (() => void) | null = null;
+			const aiErrorContext = (
+				overrides: Partial<AiErrorContext> = {},
+			): AiErrorContext => ({
+				abortSignal,
+				model: env.AI_CHAT_MODEL,
+				providerMetadata: lastProviderMetadata,
+				route,
+				surface: "chat",
+				...overrides,
+			});
+			const writeAiError = (
+				normalized: NormalizedAiError,
+				toolCallId?: string,
+			): boolean => {
+				const writer = streamWriter;
+
+				if (!writer || writerClosed) {
+					return false;
+				}
+
+				const data: StreamedAiErrorData = {
+					...toClientAiError(normalized, toolCallId),
+					provider: normalized.provider,
+				};
+
+				if (!normalized.terminal) {
+					if (toolCallId !== undefined) {
+						if (wroteToolAiErrorIds.has(toolCallId)) {
+							return false;
+						}
+
+						wroteToolAiErrorIds.add(toolCallId);
+					}
+
+					writer.write({ type: "data-ai-error", transient: true, data });
+					return true;
+				}
+
+				if (toolCallId !== undefined) {
+					if (wroteToolAiErrorIds.has(toolCallId)) {
+						return false;
+					}
+
+					wroteToolAiErrorIds.add(toolCallId);
+					writer.write({
+						type: "data-ai-error",
+						id: `ai-error:${toolCallId}`,
+						data,
+					});
+					return true;
+				}
+
+				if (wroteTerminalAiError) {
+					return false;
+				}
+
+				wroteTerminalAiError = true;
+				terminalAiError = normalized;
+				writer.write({ type: "data-ai-error", id: "ai-error", data });
+				return true;
+			};
+			const captureAndWriteStreamError = (
+				error: unknown,
+				scope?: { toolCallId: string; toolName?: string },
+			): NormalizedAiError | null => {
+				if (processedStreamErrors.has(error)) {
+					const processed = processedStreamErrors.get(error) ?? null;
+
+					if (processed && scope) {
+						writeAiError(processed, scope.toolCallId);
+					}
+
+					return processed;
+				}
+
+				const normalized = classifyAiError(error, aiErrorContext());
+				processedStreamErrors.set(error, normalized);
+
+				if (!normalized) {
+					this.handleStreamWarning(error, { chatId, projectId, userId });
+					pendingWarningReplay = true;
+					return null;
+				}
+
+				const captured = this.handleStreamError(error, normalized, {
+					chatId,
+					functionId: "chat.agent",
+					projectId,
+					route,
+					toolName: scope?.toolName,
+					userId,
+				});
+				processedStreamErrors.set(error, captured);
+				streamErrorCaptured = true;
+				writeAiError(captured, scope?.toolCallId);
+				return captured;
+			};
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
-					let wroteBillingError = false;
-					let streamErrorCaptured = false;
+					streamWriter = writer;
+					for (const notice of mcpResult.notices) {
+						const data = connectorUnreachableNoticeData(
+							notice,
+							mcpResult.configuredSlugs,
+						);
+
+						if (data) {
+							writer.write({ type: "data-ai-error", transient: true, data });
+						}
+					}
+
+					const onAbort = (): void => {
+						if (agentFinished || wroteTerminalAiError || wroteBillingError) {
+							return;
+						}
+
+						const error = abortSignal.reason;
+
+						if (processedStreamErrors.has(error)) {
+							return;
+						}
+
+						const normalized = classifyAiError(error, aiErrorContext());
+						processedStreamErrors.set(error, normalized);
+
+						// Closing the browser is an expected user action. It produces no
+						// banner and no failure event. Budget and lease aborts are failures.
+						if (!normalized || normalized.kind === "cancelled") {
+							return;
+						}
+
+						const captured = this.handleStreamError(error, normalized, {
+							chatId,
+							functionId: "chat.agent",
+							projectId,
+							route,
+							userId,
+						});
+						processedStreamErrors.set(error, captured);
+						writeAiError(captured);
+					};
+					abortSignal.addEventListener("abort", onAbort, { once: true });
+					removeAbortListener = () =>
+						abortSignal.removeEventListener("abort", onAbort);
+
+					if (abortSignal.aborted) {
+						onAbort();
+					}
+
+					// The settle signal must never reach a writer the outer onEnd
+					// already closed.
+					const writeCreditsSettled = async (
+						settled: AiUsageEvent,
+					): Promise<void> => {
+						if (writerClosed) {
+							return;
+						}
+
+						const snapshot = await this.creditsService.getSettledBalance(
+							subjectPayer(subject),
+						);
+
+						if (writerClosed) {
+							return;
+						}
+
+						// Transient: the client applies it in onData; it is never
+						// stored in the message, so a history replay cannot re-apply
+						// a stale balance.
+						writer.write({
+							type: "data-credits-settled",
+							transient: true,
+							data: {
+								usageEventId: settled.id,
+								credits: (settled.finalCredits ?? 0) / 100,
+								settledBalance: snapshot.settledBalance / 100,
+							},
+						});
+					};
 					const writeBillingError = (error: unknown): boolean => {
 						const data = this.billingErrorData(error);
 
@@ -637,7 +1114,7 @@ export class AiChatService {
 							return false;
 						}
 
-						if (!wroteBillingError) {
+						if (!wroteBillingError && !writerClosed) {
 							wroteBillingError = true;
 							writer.write({ type: "data-billing-error", data });
 						}
@@ -645,10 +1122,20 @@ export class AiChatService {
 						return true;
 					};
 					// The agent stream sees provider/tool failures first. Expected 402s
-					// become a typed data part; other failures keep the existing capture-
-					// once behavior and generic client message.
+					// keep their existing typed path. Every other error is normalized,
+					// captured once, and masked on the UI error chunk.
 					const onAgentStreamError = (error: unknown): string => {
 						queueGatewayErrorCapture(error);
+
+						if (skipNextAgentStreamError) {
+							skipNextAgentStreamError = false;
+							return this.streamErrorMessage();
+						}
+
+						if (pendingWarningReplay && typeof error === "string") {
+							pendingWarningReplay = false;
+							return this.streamErrorMessage();
+						}
 
 						if (writeBillingError(error)) {
 							// The SDK's synthetic second invocation (see below) must
@@ -657,21 +1144,14 @@ export class AiChatService {
 							return "Insufficient credits.";
 						}
 
-						// The SDK invokes onError twice per failure: first with the
-						// real error, then with a synthetic Error built from the
-						// sanitized errorText while the finish wrapper replays the
-						// chunk stream. Only the first carries signal — capture that
-						// one and keep answering with the client-safe message.
-						if (streamErrorCaptured) {
-							return this.streamErrorMessage(error);
+						const wasProcessedWarning =
+							processedStreamErrors.has(error) &&
+							processedStreamErrors.get(error) === null;
+						captureAndWriteStreamError(error, toolErrorScopes.get(error));
+						if (wasProcessedWarning) {
+							pendingWarningReplay = false;
 						}
-						streamErrorCaptured = true;
-
-						return this.handleStreamError(error, {
-							chatId,
-							projectId,
-							userId,
-						});
+						return this.streamErrorMessage();
 					};
 
 					try {
@@ -683,6 +1163,28 @@ export class AiChatService {
 							new TransformStream({
 								transform: (part, controller) => {
 									if (
+										part.type === "text-delta" &&
+										part.text.trim().length > 0
+									) {
+										sawOutputText = true;
+									}
+
+									if (part.type === "error") {
+										sawErrorPart = true;
+									}
+
+									if (
+										part.type === "tool-error" &&
+										pendingWarningReplay &&
+										typeof part.error === "string"
+									) {
+										pendingWarningReplay = false;
+										skipNextAgentStreamError = true;
+										controller.enqueue(part);
+										return;
+									}
+
+									if (
 										part.type === "tool-error" &&
 										writeBillingError(part.error)
 									) {
@@ -692,6 +1194,15 @@ export class AiChatService {
 										// suppress the tool-error chunk, and prevent another step.
 										stopStream();
 										return;
+									}
+
+									if (part.type === "tool-error") {
+										const scope = {
+											toolCallId: part.toolCallId,
+											toolName: part.toolName,
+										};
+										toolErrorScopes.set(part.error, scope);
+										captureAndWriteStreamError(part.error, scope);
 									}
 
 									controller.enqueue(part);
@@ -715,10 +1226,59 @@ export class AiChatService {
 									return { model: env.AI_CHAT_MODEL };
 								}
 
+								if (part.type === "finish-step") {
+									lastProviderMetadata = part.providerMetadata;
+									return undefined;
+								}
+
 								if (part.type === "finish") {
+									agentFinished = true;
+									removeAbortListener?.();
+									removeAbortListener = null;
 									finalUsage = part.totalUsage;
+									const provider = providerFromAiMetadata(lastProviderMetadata);
+									const gatewayGenerationId =
+										gatewayGenerationIdFromAiMetadata(lastProviderMetadata);
+									const lastStepUsage = stepUsages.at(-1);
+									const finishError = classifyFinish(
+										aiErrorContext({
+											finishReason: part.finishReason,
+											outputText: sawOutputText ? "output" : "",
+											rawFinishReason: part.rawFinishReason,
+											sawErrorPart,
+										}),
+									);
+
+									if (finishError) {
+										const error = new Error(
+											`AI chat finished with ${finishError.kind}`,
+										);
+										const captured = this.handleStreamError(
+											error,
+											finishError,
+											{
+												chatId,
+												functionId: "chat.agent",
+												projectId,
+												route,
+												userId,
+											},
+										);
+										writeAiError(captured);
+									}
+
 									return {
+										finishReason: part.finishReason,
+										...(gatewayGenerationId ? { gatewayGenerationId } : {}),
+										...(lastStepUsage
+											? { lastStepUsage: toAiChatMessageUsage(lastStepUsage) }
+											: {}),
 										model: env.AI_CHAT_MODEL,
+										...(provider ? { provider } : {}),
+										...(part.rawFinishReason !== undefined
+											? { rawFinishReason: part.rawFinishReason }
+											: {}),
+										stepCount: stepUsages.length,
 										usage: toAiChatMessageUsage(part.totalUsage),
 									};
 								}
@@ -727,6 +1287,9 @@ export class AiChatService {
 							},
 							onError: onAgentStreamError,
 							onEnd: async () => {
+								// Settlement clears the lease columns; stop renewing first so
+								// a post-settle CAS miss cannot read as a stolen lease.
+								stopLeaseHeartbeat();
 								await flushGatewayErrorCaptures();
 
 								if (!prepared.eventId) {
@@ -744,17 +1307,36 @@ export class AiChatService {
 									return;
 								}
 
+								let settled: AiUsageEvent;
+
 								try {
-									await this.meteringService.settle(prepared.eventId, {
-										modelId: env.AI_CHAT_MODEL,
-										pricing: "token",
-										rawUsage: finalUsage ?? stepUsages,
-										usage,
-									});
+									settled = await this.meteringService.settle(
+										prepared.eventId,
+										{
+											modelId: env.AI_CHAT_MODEL,
+											pricing: "token",
+											rawUsage: finalUsage ?? stepUsages,
+											usage,
+										},
+									);
 								} catch (error) {
 									if (!writeBillingError(error)) {
 										throw error;
 									}
+
+									return;
+								}
+
+								// One visible balance move per turn: the client applies
+								// the post-settle balance from this part, not a refetch
+								// racing the settle transaction. The settle is committed;
+								// a failed signal must not fail the turn.
+								try {
+									await writeCreditsSettled(settled);
+								} catch (error) {
+									this.logger.warn(
+										`credits-settled signal failed for ${settled.id}: ${String(error)}`,
+									);
 								}
 							},
 							onStepEnd: async (step) => {
@@ -794,20 +1376,35 @@ export class AiChatService {
 							return;
 						}
 
-						// Setup failures never reach the agent stream's onError —
-						// capture here, then rethrow so the SDK still emits an error
-						// chunk for the client.
-						Sentry.captureException(error, {
-							tags: { chatId, projectId, userId },
-						});
+						// Setup failures never reach the agent stream's onError. Normalize
+						// here, then rethrow so the SDK still emits its masked error chunk.
+						captureAndWriteStreamError(error);
 						throw error;
 					}
 				},
 				onError: (error: unknown) => {
 					queueGatewayErrorCapture(error);
-					return this.streamErrorMessage(error);
+
+					// The finish reducer replays a terminal error as a new Error made
+					// from the already masked errorText. It has no provider signal and
+					// must not replace the id-reconciled terminal data part.
+					if (
+						!(
+							streamErrorCaptured &&
+							(isMaskedStreamError(error) || wroteBillingError)
+						)
+					) {
+						captureAndWriteStreamError(error);
+					}
+
+					return this.streamErrorMessage();
 				},
 				onEnd: async ({ isContinuation, responseMessage }) => {
+					writerClosed = true;
+					removeAbortListener?.();
+					removeAbortListener = null;
+					streamWriter = null;
+
 					try {
 						await flushGatewayErrorCaptures();
 
@@ -817,10 +1414,14 @@ export class AiChatService {
 						// below would hit the id conflict and silently drop all of that,
 						// so continuations overwrite the existing row instead.
 						if (isContinuation) {
-							await this.chatsRepository.upsertUiMessage(chatId, {
-								...responseMessage,
-								role: "assistant" as const,
-							});
+							await this.chatsRepository.upsertUiMessage(
+								chatId,
+								{
+									...responseMessage,
+									role: "assistant" as const,
+								},
+								messageFailureColumns(terminalAiError),
+							);
 
 							return;
 						}
@@ -839,6 +1440,7 @@ export class AiChatService {
 						await this.chatsRepository.insertUiMessagesIfAbsent(
 							chatId,
 							messagesToInsert,
+							messageFailureColumns(terminalAiError),
 						);
 					} finally {
 						try {
@@ -872,8 +1474,30 @@ export class AiChatService {
 			await flushGatewayErrorCaptures();
 
 			// The controller hijacked the reply before calling us, so the global
-			// exception filter sees reply.sent and skips — capture here or lose it.
-			Sentry.captureException(error, { tags: { chatId, projectId, userId } });
+			// exception filter sees reply.sent and skips. Use the same channel split
+			// as stream errors instead of making every provider failure an issue.
+			const normalized = classifyAiError(error, {
+				abortSignal,
+				model: env.AI_CHAT_MODEL,
+				route,
+				surface: "chat",
+			});
+
+			if (
+				normalized &&
+				normalized.kind !== "billing" &&
+				normalized.kind !== "cancelled"
+			) {
+				this.handleStreamError(error, normalized, {
+					chatId,
+					functionId: "chat.agent",
+					projectId,
+					route,
+					userId,
+				});
+			} else if (!normalized) {
+				this.handleStreamWarning(error, { chatId, projectId, userId });
+			}
 			const mcpResult =
 				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
 			try {
@@ -915,6 +1539,67 @@ export class AiChatService {
 			}
 
 			this.inFlightStreamsByUser.set(userId, current - 1);
+		};
+	}
+
+	/**
+	 * Renew the hold's execution lease while the stream runs. Only a CONFIRMED
+	 * CAS miss (`lost`: the row is no longer reserved under our token, e.g. a
+	 * long DB outage let a duplicate adopt) aborts this stream — its settle
+	 * replay stays idempotent under the event lock. A transport error
+	 * (`error`) proves nothing: the lease is still ours until its known
+	 * expiry, so keep retrying and abort only once that expiry has passed
+	 * without a renewal. Returns the (idempotent) stopper.
+	 */
+	private startLeaseHeartbeat(
+		prepared: PreparedAiChatStream,
+		leaseLossAbort: AbortController,
+	): () => void {
+		if (!prepared.eventId || !prepared.leaseToken) {
+			return () => {};
+		}
+
+		const eventId = prepared.eventId;
+		const leaseToken = prepared.leaseToken;
+		// The lease was taken at admission, just before the stream started.
+		let leaseExpiresAt = Date.now() + AI_CHAT_LEASE_TTL_MS;
+		const interval = setInterval(() => {
+			void this.meteringService
+				.heartbeatExecutionLease(eventId, leaseToken, AI_CHAT_LEASE_TTL_MS)
+				.then((result) => {
+					if (result === "renewed") {
+						leaseExpiresAt = Date.now() + AI_CHAT_LEASE_TTL_MS;
+						return;
+					}
+
+					if (result === "lost") {
+						this.logger.warn(
+							`AI chat stream lost its execution lease for event ${eventId}; aborting`,
+						);
+						leaseLossAbort.abort(new Error("AI chat execution lease was lost"));
+						return;
+					}
+
+					if (Date.now() < leaseExpiresAt) {
+						this.logger.warn(
+							`AI chat lease heartbeat for event ${eventId} failed; retrying until the lease expiry`,
+						);
+						return;
+					}
+
+					this.logger.warn(
+						`AI chat lease for event ${eventId} expired without a confirmed renewal; aborting`,
+					);
+					leaseLossAbort.abort(
+						new Error("AI chat execution lease expired without renewal"),
+					);
+				});
+		}, AI_CHAT_LEASE_HEARTBEAT_MS);
+
+		interval.unref?.();
+
+		return () => {
+			clearInterval(interval);
 		};
 	}
 
@@ -969,13 +1654,15 @@ export class AiChatService {
 		throw lastError;
 	}
 
+	/** `credits` is integer centi-credits: quote vs the 10 cc (0.10) chat floor. */
 	private async estimateReservation(
 		modelBoundMessages: readonly WanditUIMessage[],
+		contextBlock: string | null = null,
 	): Promise<{ costUsdMicros: number | null; credits: number }> {
 		try {
 			const quote = await this.modelPricingService.quoteTokenUsage(
 				env.AI_CHAT_MODEL,
-				estimateAiChatTokenUsage(modelBoundMessages),
+				estimateAiChatTokenUsage(modelBoundMessages, contextBlock),
 			);
 
 			return {
@@ -1038,21 +1725,162 @@ export class AiChatService {
 
 	private handleStreamError(
 		error: unknown,
-		context: { chatId: string; projectId: string; userId: string },
-	): string {
-		// Stream onError never reaches any exception filter — capture explicitly.
-		Sentry.captureException(error, { tags: context });
+		normalized: NormalizedAiError,
+		context: {
+			chatId: string;
+			functionId?: string;
+			projectId: string;
+			route: AiErrorContext["route"];
+			toolName?: string;
+			userId: string;
+		},
+	): NormalizedAiError {
+		const capturedEventId = captureAiError(error, normalized, {
+			...context,
+			surface: "chat",
+		});
 		this.logger.error("AI chat stream failed", error);
 
-		return this.streamErrorMessage(error);
+		return {
+			...normalized,
+			sentryEventId:
+				typeof capturedEventId === "string" ? capturedEventId : null,
+		};
+	}
+
+	private handleStreamWarning(
+		error: unknown,
+		context: { chatId: string; projectId: string; userId: string },
+	): void {
+		if (InvalidToolInputError.isInstance(error)) {
+			// The SDK hands the validation error back to the model and the tool
+			// loop continues, so this is a warning, not a failed request. One
+			// fingerprint per tool keeps distinct schema gaps from grouping under
+			// the SDK's shared parse-tool-call frame.
+			Sentry.captureException(error, {
+				fingerprint: ["ai-chat", "invalid-tool-input", error.toolName],
+				level: "warning",
+				tags: { ...context, toolName: error.toolName },
+			});
+			this.logger.warn(
+				`AI chat tool input rejected for ${error.toolName}: ${error.message}`,
+			);
+			return;
+		}
+
+		this.logger.warn("AI chat stream warning", error);
 	}
 
 	/** User-facing message only — no capture, no log (see capture-once note). */
-	private streamErrorMessage(error: unknown): string {
-		return InvalidToolInputError.isInstance(error)
-			? error.message
-			: "An error occurred.";
+	private streamErrorMessage(): string {
+		return "An error occurred.";
 	}
+}
+
+function isMaskedStreamError(error: unknown): boolean {
+	return (
+		error === "An error occurred." ||
+		(error instanceof Error && error.message === "An error occurred.")
+	);
+}
+
+function providerFromAiMetadata(providerMetadata: unknown): string | null {
+	const metadata = unknownRecord(providerMetadata);
+	const gateway = unknownRecord(metadata?.gateway);
+	const routing = unknownRecord(gateway?.routing);
+	const finalProvider = routing?.finalProvider;
+
+	if (typeof finalProvider === "string" && finalProvider.trim()) {
+		return finalProvider.trim();
+	}
+
+	const openrouter = unknownRecord(metadata?.openrouter);
+	const openrouterProvider =
+		openrouter?.provider ??
+		openrouter?.providerName ??
+		openrouter?.finalProvider;
+
+	if (typeof openrouterProvider === "string" && openrouterProvider.trim()) {
+		return openrouterProvider.trim();
+	}
+
+	const modelProvider = env.AI_CHAT_MODEL.split("/", 1)[0]?.trim();
+	return modelProvider || null;
+}
+
+function gatewayGenerationIdFromAiMetadata(
+	providerMetadata: unknown,
+): string | null {
+	const metadata = unknownRecord(providerMetadata);
+	const gateway = unknownRecord(metadata?.gateway);
+	const generationId = gateway?.generationId;
+
+	return typeof generationId === "string" && generationId.length > 0
+		? generationId
+		: null;
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function connectorUnreachableNoticeData(
+	notice: string,
+	configuredSlugs: readonly string[],
+): StreamedAiErrorData | null {
+	const match =
+		/^The user's (.{1,80}?) connection could not be used \(connector unreachable\)\./u.exec(
+			notice,
+		);
+
+	if (!match?.[1]) {
+		return null;
+	}
+
+	const providerLabel = match[1].trim().slice(0, 40) || null;
+	const labelSlug = providerLabel
+		?.toLowerCase()
+		.replaceAll(/[^a-z0-9_-]+/gu, "-")
+		.replaceAll(/^-+|-+$/gu, "");
+	const provider = configuredSlugs.find((slug) => slug === labelSlug) ?? null;
+	const source =
+		provider === "higgsfield"
+			? "higgsfield"
+			: provider && /^[a-z0-9_-]{1,40}$/u.test(provider)
+				? (`provider:${provider}` as const)
+				: "unknown";
+
+	return {
+		kind: "connector_unreachable",
+		moderationStage: null,
+		provider,
+		providerLabel,
+		providerMessage: null,
+		refunded: null,
+		requestId: null,
+		retryable: true,
+		source,
+		terminal: false,
+	};
+}
+
+function messageFailureColumns(
+	failure: NormalizedAiError | null,
+): MessageFailureColumns | null {
+	if (!failure) {
+		return null;
+	}
+
+	return {
+		failureKind: failure.kind,
+		failureProvider: failure.provider?.slice(0, 40) ?? null,
+		failureProviderMessage: failure.providerMessage?.slice(0, 240) ?? null,
+		failureRequestId: failure.requestId?.slice(0, 80) ?? null,
+		failureSource: failure.source,
+		sentryEventId: failure.sentryEventId,
+	};
 }
 
 function toAiChatMessageUsage(usage: LanguageModelUsage): AiChatMessageUsage {
@@ -1197,8 +2025,72 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	motion: "balanced",
 	prompt:
 		"The motion direction was lost when the request stream was interrupted.",
+	quality: "standard",
 	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
 	sourceMediaType: "image/jpeg",
+	talking: false,
+};
+
+const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
+	message:
+		"The video request was interrupted before it could be queued. If the " +
+		"user still wants it, call generate_video again with the brief.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
+	aspect: "16:9",
+	brief: "The creative brief was lost when the request stream was interrupted.",
+	durationSeconds: 10,
+	multiShot: false,
+	quality: "standard",
+	talking: false,
+	title: "Interrupted video request",
+};
+
+const INTERRUPTED_PRODUCT_VIDEO_OUTPUT: ProductVideoOutput = {
+	message:
+		"The product video request was interrupted before it could be queued. " +
+		"If the user still wants it, call product_video again with the product image.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_PRODUCT_VIDEO_INPUT: ProductVideoInput = {
+	image: { url: "https://invalid.local/interrupted-product-image.jpg" },
+	preset: "orbit",
+	productName: "Unknown product",
+	title: "Interrupted product video",
+};
+
+const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
+	message:
+		"The video edit request was interrupted before it could be queued. If " +
+		"the user still wants it, call edit_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EDIT_VIDEO_INPUT: EditVideoInput = {
+	instruction:
+		"The requested video change was lost when the request stream was interrupted.",
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video edit",
+};
+
+const INTERRUPTED_EXTEND_VIDEO_OUTPUT: ExtendVideoOutput = {
+	message:
+		"The video extension request was interrupted before it could be queued. " +
+		"If the user still wants it, call extend_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EXTEND_VIDEO_INPUT: ExtendVideoInput = {
+	acceptSilent: false,
+	continuationBrief:
+		"The continuation brief was lost when the request stream was interrupted.",
+	legCount: 1,
+	legDurationSeconds: 5,
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video extension",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -1283,6 +2175,43 @@ const INTERRUPTED_REPLACE_SECTION_OUTPUT: ReplaceSectionOutput = {
 const INCOMPLETE_REPLACE_SECTION_INPUT: ReplaceSectionInput = {
 	html: "<!-- the replacement HTML did not finish streaming -->",
 	wid: "unknown",
+};
+
+const INTERRUPTED_INSERT_SECTION_OUTPUT: InsertSectionOutput = {
+	message:
+		"The insertion was interrupted mid-stream — it may or may not have been " +
+		"applied. Call get_page_outline to check the current version before " +
+		"retrying.",
+	status: "rejected",
+};
+
+const INCOMPLETE_INSERT_SECTION_INPUT: InsertSectionInput = {
+	anchorWid: "unknown",
+	html: "<!-- the inserted HTML did not finish streaming -->",
+	position: "after",
+};
+
+const INTERRUPTED_READ_ATTACHMENT_OUTPUT: ReadAttachmentOutput = {
+	message:
+		"The attachment read was interrupted before it finished — call " +
+		"read_attachment again if the document is still needed.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_READ_ATTACHMENT_INPUT: ReadAttachmentInput = {
+	url: "https://wandit.invalid/interrupted-attachment",
+};
+
+const INTERRUPTED_INSPECT_VIDEO_OUTPUT: InspectVideoOutput = {
+	message:
+		"The video inspection was interrupted before it finished — call " +
+		"inspect_video again if the reference is still needed.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_INSPECT_VIDEO_INPUT: InspectVideoInput = {
+	focus: "structure",
+	url: "https://wandit.invalid/interrupted-video",
 };
 
 /**
@@ -1471,6 +2400,94 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_ANIMATE_IMAGE_INPUT,
 					output: INTERRUPTED_ANIMATE_IMAGE_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-generate_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = generateVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_GENERATE_VIDEO_INPUT,
+					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-product_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = productVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_PRODUCT_VIDEO_INPUT,
+					output: INTERRUPTED_PRODUCT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-edit_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = editVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EDIT_VIDEO_INPUT,
+					output: INTERRUPTED_EDIT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-extend_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = extendVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EXTEND_VIDEO_INPUT,
+					output: INTERRUPTED_EXTEND_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -1679,6 +2696,72 @@ export function completeDanglingToolCalls(
 				};
 			}
 
+			if (part.type === "tool-insert_section") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = insertSectionInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_INSERT_SECTION_INPUT,
+					output: INTERRUPTED_INSERT_SECTION_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-inspect_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = inspectVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_INSPECT_VIDEO_INPUT,
+					output: INTERRUPTED_INSPECT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-read_attachment") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = readAttachmentInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_READ_ATTACHMENT_INPUT,
+					output: INTERRUPTED_READ_ATTACHMENT_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
 			return part;
 		});
 
@@ -1781,6 +2864,104 @@ const IMAGE_TO_VIDEO_MEDIA_TYPE_SET = new Set<string>(
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 );
 
+const ACTIVE_PAGE_OUTLINE_LOAD_TIMEOUT_MS = 1_500;
+
+async function loadActivePageOutline(
+	pagesRepository: PagesRepository,
+	projectId: string,
+) {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+
+	try {
+		return await Promise.race([
+			(async () => {
+				const page =
+					await pagesRepository.findActivePageByProjectUnchecked(projectId);
+
+				if (!page?.version) {
+					return null;
+				}
+
+				const html = await getPageHtml(page.version.r2Key);
+
+				if (html === null) {
+					return null;
+				}
+
+				const sections = extractOutline(stampHtml(html)).sections;
+
+				if (sections.length === 0) {
+					return null;
+				}
+
+				return {
+					sections,
+					versionNumber: page.version.number,
+				};
+			})(),
+			new Promise<null>((resolve) => {
+				timeout = setTimeout(
+					() => resolve(null),
+					ACTIVE_PAGE_OUTLINE_LOAD_TIMEOUT_MS,
+				);
+			}),
+		]);
+	} catch {
+		return null;
+	} finally {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
+	}
+}
+
+const USER_HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/giu;
+const ANNOTATED_ASSET_MARKER_PATTERN =
+	/\[(?:Attached|Generated)\b[^\]\r\n]*\]/giu;
+const TRAILING_URL_SYNTAX_PATTERN = /[.,;:!?…。，、；：！？\p{Pe}\p{Pf}]+$/gu;
+const URL_MARKDOWN_WRAPPERS = ["**", "__", "~~", "*", "_", "~"] as const;
+
+function stripTrailingUrlSyntax(
+	candidate: string,
+	leadingText: string,
+): string {
+	const url = candidate.replace(TRAILING_URL_SYNTAX_PATTERN, "");
+	const wrapper = URL_MARKDOWN_WRAPPERS.find(
+		(syntax) => leadingText.endsWith(syntax) && url.endsWith(syntax),
+	);
+
+	return wrapper ? url.slice(0, -wrapper.length) : url;
+}
+
+function collectUserHttpUrls(messages: readonly WanditUIMessage[]): string[] {
+	const links = new Set<string>();
+
+	for (const message of messages) {
+		if (message.role !== "user") {
+			continue;
+		}
+
+		for (const part of message.parts) {
+			if (part.type !== "text") {
+				continue;
+			}
+
+			const text = part.text.replace(ANNOTATED_ASSET_MARKER_PATTERN, "");
+
+			for (const match of text.matchAll(USER_HTTP_URL_PATTERN)) {
+				const leadingText = text.slice(0, match.index);
+				const url = stripTrailingUrlSyntax(match[0], leadingText);
+
+				if (url) {
+					links.add(url);
+				}
+			}
+		}
+	}
+
+	return [...links];
+}
+
 /**
  * The tool's source allowlist is derived from validated transcript parts,
  * not from model input. Include ask_user attachment answers because those
@@ -1822,7 +3003,12 @@ function collectAvailableImages(
 }
 
 const DOCUMENT_MEDIA_TYPE_SET = new Set<string>(
-	ATTACHMENT_MEDIA_TYPES.filter((mediaType) => !mediaType.startsWith("image/")),
+	ATTACHMENT_MEDIA_TYPES.filter(
+		(mediaType) =>
+			!mediaType.startsWith("image/") &&
+			!mediaType.startsWith("video/") &&
+			!mediaType.startsWith("audio/"),
+	),
 );
 
 /**
@@ -1863,6 +3049,46 @@ function collectAvailableDocuments(
 	}
 
 	return [...documents.values()];
+}
+
+/**
+ * Video twin of collectAvailableDocuments: inspect_video's URL allowlist,
+ * derived from the same validated transcript parts before video files are
+ * replaced by text markers in the model-bound copy.
+ */
+function collectAvailableVideos(
+	messages: readonly WanditUIMessage[],
+): AvailableVideo[] {
+	const videos = new Map<string, AvailableVideo>();
+
+	const add = (url: string, mediaType: string, filename?: string) => {
+		if (!mediaType.startsWith("video/")) {
+			return;
+		}
+
+		videos.set(url, {
+			...(filename ? { filename } : {}),
+			mediaType,
+			url,
+		});
+	};
+
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (message.role === "user" && part.type === "file") {
+				add(part.url, part.mediaType, part.filename);
+				continue;
+			}
+
+			if (part.type === "tool-ask_user" && part.state === "output-available") {
+				for (const file of part.output.files ?? []) {
+					add(file.url, file.mediaType, file.filename);
+				}
+			}
+		}
+	}
+
+	return [...videos.values()];
 }
 
 /**

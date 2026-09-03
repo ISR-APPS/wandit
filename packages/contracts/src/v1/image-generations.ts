@@ -7,6 +7,7 @@
  * The chat card polls the attempt route until it reaches a terminal state.
  */
 import { z } from "zod";
+import { aiErrorDataSchema } from "./ai-errors";
 import { mediaGenerationStatusSchema } from "./media-generations";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
@@ -25,11 +26,24 @@ export const imageGenerationAspectSchema = z.enum(IMAGE_GENERATION_ASPECTS);
 export type ImageGenerationAspect = z.infer<typeof imageGenerationAspectSchema>;
 
 // Hard cap per attempt — image calls are the most expensive quick action.
-export const MAX_IMAGES_PER_GENERATION = 4;
+// Every image is its own provider call and its own file; the chat agent asks
+// the user how many when a "shoot" is requested without a number.
+export const MAX_IMAGES_PER_GENERATION = 6;
+
+/**
+ * Source photos one generation edits. The edit model (Gemini 3 Pro Image)
+ * keeps up to 6 objects faithful per request, and the composer, ask_user, and
+ * the builder brief cap user photos at 6 as well. Tools KEEP the first 6 and
+ * report the rest instead of rejecting the call: a model that dutifully passes
+ * every attached photo must degrade gracefully, never fail schema validation.
+ */
+export const MAX_SOURCE_IMAGES_PER_GENERATION = 6;
 
 export const generatedImageSchema = z.object({
-	url: z.url(),
+	// Added after launch; old durable rows intentionally omit it.
+	index: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).optional(),
 	mediaType: z.string().min(1),
+	url: z.url(),
 });
 
 export type GeneratedImage = z.infer<typeof generatedImageSchema>;
@@ -50,11 +64,14 @@ export const imageGenerationAttemptSchema = z.object({
 	aspect: imageGenerationAspectSchema,
 	count: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION),
 	sourceImageUrls: z.array(z.url()),
-	// One entry per generated image in index order; null until succeeded.
+	// Partial progress may be present while generating. Entries are sorted by
+	// optional 1-based index and may omit failed slots; old rows are positional.
 	images: z.array(generatedImageSchema).nullable(),
 	// Present only when generate_image was asked to replace a page image.
 	placement: imageGenerationPlacementStatusSchema.optional(),
 	error: z.string().nullable(),
+	// Normalized failure detail (docs/features/ai-error-normalization-and-observability.md).
+	failure: aiErrorDataSchema.nullable().optional(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),
 });

@@ -1,17 +1,30 @@
-import type { AskUserOutput } from "@wandit/contracts";
 import { useTranslation } from "@wandit/internationalization/react";
-import { useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import {
+	AccessibilityInfo,
+	Platform,
+	ScrollView,
+	Text,
+	View,
+} from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RadialGlow } from "@/components/radial-glow";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { PromptBox, useProject } from "@/features/projects";
+import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
+import {
+	CHAT_PROMPT_MAX_LENGTH,
+	PromptBox,
+	type PromptDraft,
+	useProject,
+} from "@/features/projects";
 
 import { ChatHeader } from "../components/chat-header";
 import {
+	ChatAiErrorBlock,
+	ChatAiErrorNotices,
 	ChatEmptyState,
 	ChatErrorBanner,
 	ChatLoadingState,
@@ -23,15 +36,17 @@ import { RequestTray } from "../components/request-tray/request-tray";
 import { TrayReveal } from "../components/request-tray/tray-reveal";
 import { useRequestTray } from "../components/request-tray/use-request-tray";
 import {
-	type ChatThreadMessage,
-	extractChatMessageText,
-	parseAskUserParts,
-} from "../lib/chat-message";
+	chatErrorPresentation,
+	findLastTerminalAiErrorMessage,
+	messageHasQueuedToolOutput,
+} from "../lib/ai-error-copy";
 import {
-	MOCK_ASK_THREAD_ENABLED,
-	useMockAskThread,
-} from "../lib/mock-ask-thread";
-import { useProjectChat } from "../lib/use-project-chat";
+	assistantTurnHasThinkingDismissal,
+	coalesceMessageParts,
+	entryRendersContent,
+} from "../lib/chat-message";
+import { pageCommentHandoff } from "../lib/page-preview/comment-handoff";
+import { useAiChat } from "../lib/use-ai-chat";
 
 /** Project chat: header, live thread (or empty state), and composer — with
     the request tray docked into the top of the composer while an ask_user
@@ -44,123 +59,175 @@ export function ChatScreen() {
 	const insets = useSafeAreaInsets();
 	const { isDark } = useAppTheme();
 	const scrollRef = useRef<ScrollView>(null);
+	const wasSubmittingRef = useRef(false);
 	const [sheetOpen, setSheetOpen] = useState(false);
+	const [composerPrefill, setComposerPrefill] = useState({
+		revision: 0,
+		value: "",
+	});
 
 	const projectId =
 		typeof routeProjectId === "string" ? routeProjectId : undefined;
 	const { data: project } = useProject(projectId);
 	const projectName = project?.name ?? t("native.workspace.newProject");
 	const {
-		messages: liveMessages,
-		streamingMessages,
-		errorMessage,
-		chatUnavailable,
+		messages,
+		status,
+		streamError,
+		historyError,
+		aiError,
+		notices,
+		billingIntent,
 		isResolvingChat,
 		isLoadingMessages,
-		isGenerating,
-		sendMessage,
-	} = useProjectChat(projectId);
-	const mock = useMockAskThread();
-
-	const messages = MOCK_ASK_THREAD_ENABLED ? mock.messages : liveMessages;
+		sendText,
+		answerAskUser,
+		addToolApprovalResponse,
+		retryTurn,
+	} = useAiChat(projectId);
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
 	// know when typed text should override its chips.
 	const [composerText, setComposerText] = useState("");
 
-	// LIVE ANSWER SEAM — blocked on the /ai-stream migration. The legacy
-	// transport (POST /chats/:id/messages + named-event SSE) runs a plain
-	// streamText worker with NO tools: it can neither produce an ask_user
-	// call nor accept its output (a dangling call even crashes its history
-	// conversion). Completing a real ask means POSTing the full UI-message
-	// transcript, with the tool part switched to output-available, to
-	// POST /chats/:chatId/ai-stream and reading back the AI SDK chunk stream.
-	// Until that lands the tray only derives from the scripted mock thread.
-	const answerAskUserLive = useCallback(
-		(_toolCallId: string, _output: AskUserOutput) => {},
-		[],
-	);
+	// The balance, not the refusal, is the composer lock's authority (web
+	// parity): the 15s poll plus billing-error invalidation engage it, and a
+	// recovered balance lifts it with no manual unlock path — a refusal-driven
+	// lock would trap the user, since billingIntent only clears on send. The
+	// same signal expires a stale insufficient-credits banner once the balance
+	// recovers; a member-limit refusal is not balance-shaped, so its banner
+	// stays until the next send clears the intent.
+	const { outOfCredits } = useOutOfCredits();
+	const bannerIntent =
+		billingIntent &&
+		(billingIntent.code === "MEMBER_CREDIT_LIMIT_REACHED" || outOfCredits)
+			? billingIntent
+			: null;
 
-	// The live "waiting on you" state: derives the docked ask from the message
-	// list and answers it through one callback (chips, free text, escape hatch
-	// and dismiss all complete the same tool call).
 	const tray = useRequestTray({
 		messages,
 		composerText,
-		enabled: MOCK_ASK_THREAD_ENABLED,
-		onAnswer: MOCK_ASK_THREAD_ENABLED ? mock.answerAskUser : answerAskUserLive,
+		onAnswer: answerAskUser,
 	});
-
-	const threadMessages = useMemo<ChatThreadMessage[]>(() => {
-		const persisted = messages
-			.map((message) => ({
-				id: message.id,
-				role: message.role,
-				text: extractChatMessageText(message.parts),
-				asks:
-					message.role === "assistant"
-						? parseAskUserParts(message.parts)
-						: undefined,
-			}))
-			// An assistant message that only asked has no text — keep it for its
-			// question instead of dropping it with the blank rows.
-			.filter(
-				(message) =>
-					message.text.trim().length > 0 || (message.asks?.length ?? 0) > 0,
-			);
-
-		const streaming = streamingMessages.map((message) => ({
-			id: `streaming-${message.messageId}`,
-			role: "assistant" as const,
-			text: message.text,
-			isStreaming: true,
+	const prefillComposer = (value: string) => {
+		if (!value.trim()) return;
+		setComposerPrefill((current) => ({
+			revision: current.revision + 1,
+			value,
 		}));
+	};
 
-		return MOCK_ASK_THREAD_ENABLED ? persisted : [...persisted, ...streaming];
-	}, [messages, streamingMessages]);
+	const pending = isResolvingChat || isLoadingMessages;
+	// History failures (the transcript could not load) and stream failures (the
+	// live turn broke) are different problems with different fixes — the web
+	// pane separates them and so do we. The generic stream banner stays hidden
+	// while a billing refusal is active: the composer banner already tells the
+	// user exactly what happened, and two banners would say it twice.
+	const visibleError = historyError
+		? t("native.workspace.chat.errors.unavailable")
+		: null;
+	const failedAssistantMessage = findLastTerminalAiErrorMessage(messages);
+	const failedMessageIsLast =
+		failedAssistantMessage?.id === messages.at(-1)?.id;
+	const failedMessageHasQueuedWork = failedAssistantMessage
+		? messageHasQueuedToolOutput(failedAssistantMessage)
+		: false;
+	const streamErrorPresentation =
+		(aiError ?? streamError) &&
+		!billingIntent &&
+		aiError?.kind !== "cancelled" &&
+		aiError?.kind !== "billing"
+			? chatErrorPresentation(streamError, aiError, t)
+			: null;
+	const showStreamRetry = Boolean(
+		aiError &&
+			streamErrorPresentation?.retryable &&
+			status !== "submitted" &&
+			status !== "streaming" &&
+			failedMessageIsLast &&
+			!failedMessageHasQueuedWork,
+	);
+	const showQueuedHint = Boolean(
+		aiError &&
+			streamErrorPresentation?.retryable &&
+			failedMessageIsLast &&
+			failedMessageHasQueuedWork,
+	);
+	const thinkingLabel = t("native.workspace.chat.thinking");
+	const isSubmitting = status === "submitted" || status === "streaming";
+	const lastMessage = messages.at(-1);
+	const showThinking =
+		isSubmitting && !assistantTurnHasThinkingDismissal(lastMessage);
 
-	const streamingText = streamingMessages
-		.map((message) => message.text)
-		.join("");
-	const pending =
-		!MOCK_ASK_THREAD_ENABLED && (isResolvingChat || isLoadingMessages);
-	const visibleError = MOCK_ASK_THREAD_ENABLED
-		? null
-		: (errorMessage ??
-			(chatUnavailable ? t("native.workspace.chat.errors.unavailable") : null));
-	const isSubmitting = MOCK_ASK_THREAD_ENABLED ? false : isGenerating;
-	const hasMessages = threadMessages.length > 0;
-	const showThinking = isSubmitting && streamingMessages.length === 0;
-	const showThread = hasMessages || showThinking || Boolean(visibleError);
+	useEffect(() => {
+		if (Platform.OS === "ios" && isSubmitting && !wasSubmittingRef.current) {
+			AccessibilityInfo.announceForAccessibility(thinkingLabel);
+		}
+		wasSubmittingRef.current = isSubmitting;
+	}, [isSubmitting, thinkingLabel]);
+
+	const hasMessages = useMemo(
+		() =>
+			messages.some((message) =>
+				coalesceMessageParts(message.parts).some(entryRendersContent),
+			),
+		[messages],
+	);
+	const showThread =
+		hasMessages ||
+		showThinking ||
+		Boolean(visibleError) ||
+		Boolean(streamErrorPresentation) ||
+		notices.length > 0;
+	const scrollVersion = JSON.stringify({
+		messageCount: messages.length,
+		parts: lastMessage?.parts ?? [],
+		trayActive: tray.active,
+		visibleError,
+		streamErrorPresentation,
+		notices,
+	});
 
 	// tray.active is a re-scroll trigger too: the tray growing out of the
 	// composer shrinks the thread viewport, hiding the message that asked.
 	useEffect(() => {
-		if (!showThread) return;
+		if (!showThread || scrollVersion.length === 0) return;
 		requestAnimationFrame(() =>
 			scrollRef.current?.scrollToEnd({ animated: true }),
 		);
-	}, [
-		showThread,
-		threadMessages.length,
-		streamingText,
-		visibleError,
-		tray.active,
-	]);
+	}, [showThread, scrollVersion]);
 
-	// Submit routing: while an ask is docked, typed text ANSWERS it (free-text
-	// ask, or typing-override on a chips ask) instead of opening a new user
-	// turn; otherwise it's a normal message. `false` from sendMessage keeps
-	// the draft (PromptBox clearOnSubmit contract).
-	function handleSubmit(prompt: string) {
+	// Page comment batches (§5a "Send to Wandit") arrive when the preview
+	// screen pops back to the chat: consume the handoff once per focus and
+	// ship it as ONE user message carrying the ordered wid targets (agent
+	// metadata) + display snapshots (history chips) — the web batch format.
+	// A failed send re-stashes so the batch survives a retry.
+	useFocusEffect(
+		useCallback(() => {
+			if (!projectId) return;
+			const pending = pageCommentHandoff.consume(projectId);
+			if (!pending) return;
+			void (async () => {
+				const accepted = await sendText(pending.text, {
+					selectedWids: pending.selectedWids,
+					selectedTargets: pending.selectedTargets,
+				});
+				if (!accepted) pageCommentHandoff.stash(projectId, pending);
+			})();
+		}, [projectId, sendText]),
+	);
+
+	// Submit routing: while an ask is docked, PromptBox routes submits through
+	// submitOverride (the answer CTA) instead of onSubmit — this path only
+	// handles normal user turns. `false` from sendMessage keeps the draft
+	// (PromptBox clearOnSubmit contract).
+	async function handleSubmit({ text, composer, files }: PromptDraft) {
 		if (tray.answerable) {
-			tray.answerFreeText(prompt);
+			tray.answerFreeText(text);
 			setComposerText("");
 			return true;
 		}
-		const accepted = MOCK_ASK_THREAD_ENABLED
-			? mock.sendText(prompt)
-			: sendMessage(prompt);
+		const accepted = await sendText(text, { composer, files });
 		if (accepted) {
 			requestAnimationFrame(() =>
 				scrollRef.current?.scrollToEnd({ animated: true }),
@@ -168,6 +235,23 @@ export function ChatScreen() {
 		}
 		return accepted;
 	}
+
+	// The send arrow becomes the answer CTA while an ask is docked — its
+	// label names the confirm action for the current answer mode (web parity).
+	const answerCtaLabel =
+		tray.answerMode === "text"
+			? t("native.workspace.chat.tray.answer")
+			: tray.answerMode === "attachments"
+				? t("native.workspace.chat.tray.sendFiles", {
+						count: tray.readyFileCount,
+					})
+				: tray.selectedCount > 0
+					? t("native.workspace.chat.tray.chooseSelected", {
+							count: tray.selectedCount,
+						})
+					: tray.answerMode === "single"
+						? t("native.workspace.chat.tray.chooseAnOption")
+						: t("native.workspace.chat.tray.chooseOptions");
 
 	return (
 		<View className="flex-1 bg-background">
@@ -202,7 +286,11 @@ export function ChatScreen() {
 			<ChatHeader
 				projectName={projectName}
 				onOpenProjectSheet={() => setSheetOpen(true)}
+				onOpenPreview={() => {
+					if (projectId) router.push(`/project/${projectId}/page`);
+				}}
 				previewActive={hasMessages}
+				trayActive={tray.active}
 			/>
 
 			{pending ? (
@@ -214,51 +302,103 @@ export function ChatScreen() {
 					contentContainerClassName="gap-3.5 px-4 pt-2 pb-3"
 				>
 					{visibleError ? <ChatErrorBanner message={visibleError} /> : null}
-					<ChatMessages
-						messages={threadMessages}
-						activeAskToolCallId={tray.toolCallId}
-					/>
+					{projectId ? (
+						<ChatMessages
+							messages={messages}
+							status={status}
+							projectId={projectId}
+							activeAskToolCallId={tray.toolCallId}
+							onToolApprovalResponse={addToolApprovalResponse}
+							onPrefillComposer={prefillComposer}
+							hideAiErrorMessageId={
+								aiError ? failedAssistantMessage?.id : undefined
+							}
+							onRetryAiError={retryTurn}
+						/>
+					) : null}
+					{/* Notices belong to the active turn. Keep them at the live edge so
+					    scroll-to-end reveals them instead of leaving them above history. */}
+					<ChatAiErrorNotices notices={notices} />
 					{showThinking ? (
-						<ChatThinkingIndicator
-							label={t("native.workspace.chat.thinking")}
+						<ChatThinkingIndicator label={thinkingLabel} />
+					) : null}
+					{streamErrorPresentation ? (
+						// The live turn broke — the report sits at the bottom of the
+						// thread where the user was reading, with normalized copy and
+						// safe attribution only (never the transport Error.message).
+						<ChatAiErrorBlock
+							presentation={streamErrorPresentation}
+							showQueuedHint={showQueuedHint}
+							showRetry={showStreamRetry}
+							onRetry={retryTurn}
 						/>
 					) : null}
 				</ScrollView>
 			) : (
-				<ChatEmptyState />
+				<ChatEmptyState
+					onSuggestion={(suggestion) => {
+						void sendText(suggestion);
+					}}
+				/>
 			)}
 
 			<KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
 				<View className="gap-2.5" style={{ paddingBottom: insets.bottom + 10 }}>
 					<View className="px-4">
-						<PromptBox
-							variant="compact"
-							clearOnSubmit
-							placeholder={t("native.workspace.composerPlaceholder")}
-							onSubmit={handleSubmit}
-							onValueChange={setComposerText}
-							isSubmitting={isSubmitting}
-							// The tray fuses into the composer card — it grows out of the
-							// top and collapses on answer/dismiss (TrayReveal's height
-							// animation; the key remounts it per ask).
-							topSlot={
-								tray.active && tray.state ? (
-									<TrayReveal key={tray.toolCallId ?? "ask"}>
-										<RequestTray
-											state={tray.state}
-											onEscape={tray.delegate}
-											onDismiss={tray.dismiss}
-											bodyCallbacks={{
-												onPick: tray.onPick,
-												multiSelectedIds: tray.multiSelectedIds,
-												onToggleMulti: tray.onToggleMulti,
-												onConfirmMulti: tray.onConfirmMulti,
-											}}
-										/>
+						<OutOfCreditsBanner active={outOfCredits} intent={bannerIntent}>
+							<PromptBox
+								key={composerPrefill.revision}
+								variant="compact"
+								initialValue={composerPrefill.value}
+								clearOnSubmit
+								disabled={outOfCredits}
+								maxLength={CHAT_PROMPT_MAX_LENGTH}
+								placeholder={t("native.workspace.composerPlaceholder")}
+								onSubmit={handleSubmit}
+								submitOverride={
+									tray.active
+										? {
+												label: answerCtaLabel,
+												disabled: !tray.canConfirm,
+												onSubmit: tray.confirmDraft,
+											}
+										: undefined
+								}
+								onValueChange={setComposerText}
+								isSubmitting={isSubmitting}
+								// The tray fuses into the composer card — it grows out of the
+								// top and collapses on answer/dismiss. TrayReveal stays mounted
+								// and owns both motions: revealKey names the docked ask, and
+								// the outgoing tray collapses inert (no touches).
+								topSlot={
+									<TrayReveal
+										revealKey={
+											tray.active && tray.state
+												? (tray.toolCallId ?? "ask")
+												: null
+										}
+									>
+										{tray.active && tray.state ? (
+											<RequestTray
+												state={tray.state}
+												notice={tray.notice}
+												onEscape={tray.delegate}
+												onDismiss={tray.dismiss}
+												bodyCallbacks={{
+													onPick: tray.onPick,
+													multiSelectedIds: tray.multiSelectedIds,
+													onToggleMulti: tray.onToggleMulti,
+													onAttachCamera: () => void tray.onAttachCamera(),
+													onAttachLibrary: () => void tray.onAttachLibrary(),
+													onAttachBrowse: () => void tray.onAttachBrowse(),
+													onRemoveAttachment: tray.onRemoveAttachment,
+												}}
+											/>
+										) : null}
 									</TrayReveal>
-								) : null
-							}
-						/>
+								}
+							/>
+						</OutOfCreditsBanner>
 						<View className="mt-[13px] flex-row justify-center">
 							<Text className="font-mono text-[9.5px] text-muted">
 								{t("native.workspace.hints.arfr")}

@@ -758,7 +758,7 @@ describe("applyOps", () => {
 		).toBe(false);
 	});
 
-	it("keeps client ops visible and replace-section internal", () => {
+	it("keeps client ops visible and raw-HTML operations internal", () => {
 		const placeholder = {
 			kind: "set-placeholder",
 			value: "Name",
@@ -767,6 +767,18 @@ describe("applyOps", () => {
 		const replacement = {
 			kind: "replace-section",
 			value: "<section><p>Replacement copy</p></section>",
+			wid: "hero",
+		};
+		const elementInsertion = {
+			kind: "insert-element",
+			position: "append",
+			value: "<button>Order now</button>",
+			wid: "hero",
+		};
+		const sectionInsertion = {
+			kind: "insert-section",
+			position: "before",
+			value: "<aside><p>Free delivery today</p></aside>",
 			wid: "hero",
 		};
 		const imagePlaceholder = { kind: "placeholder-image", wid: "e-3" };
@@ -788,6 +800,10 @@ describe("applyOps", () => {
 		expect(editOpSchema.safeParse(tokenReset).success).toBe(true);
 		expect(clientEditOpSchema.safeParse(replacement).success).toBe(false);
 		expect(editOpSchema.safeParse(replacement).success).toBe(true);
+		expect(clientEditOpSchema.safeParse(elementInsertion).success).toBe(false);
+		expect(editOpSchema.safeParse(elementInsertion).success).toBe(true);
+		expect(clientEditOpSchema.safeParse(sectionInsertion).success).toBe(false);
+		expect(editOpSchema.safeParse(sectionInsertion).success).toBe(true);
 		expect(
 			setPlaceholderOpSchema.safeParse({
 				...placeholder,
@@ -888,6 +904,65 @@ describe("applyOps", () => {
 			ok: false,
 			reason: "no original theme is available for this page",
 		});
+	});
+
+	it("rewrites an existing document title and records the head sentinel", () => {
+		// The inline SVG title in the body must stay untouched.
+		const html = PAGE.replace("<head>", "<head><title>Old tab</title>").replace(
+			"<body>",
+			"<body><svg><title>Icon</title></svg>",
+		);
+		const result = applied(html, [
+			{ kind: "set-page-title", value: "Maison Noor — Livraison" },
+		]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title").text()).toBe("Maison Noor — Livraison");
+		expect($("head > title")).toHaveLength(1);
+		expect($("svg title").text()).toBe("Icon");
+		expect(result.editedWids).toEqual(["__title__"]);
+	});
+
+	it("creates the title tag when the page has none, after the charset meta", () => {
+		const html = PAGE.replace("<head>", '<head><meta charset="utf-8">');
+		const result = applied(html, [
+			{ kind: "set-page-title", value: "Atelier Saha" },
+		]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title").text()).toBe("Atelier Saha");
+		expect($("head").children().first().is("meta")).toBe(true);
+	});
+
+	it("escapes hostile title content instead of closing the tag", () => {
+		const value = "</title><script>alert(1)</script><title>x";
+		const result = applied(PAGE, [{ kind: "set-page-title", value }]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title")).toHaveLength(1);
+		expect($("head > title").text()).toBe(value);
+		expect($("script")).toHaveLength(0);
+		expect(result.html).not.toContain("<script>");
+	});
+
+	it("still titles a document whose source markup has no head", () => {
+		// The parser synthesizes the head, so the branch's head guard is defense
+		// in depth rather than a path a stored page can reach.
+		const result = applied("<p>bare fragment</p>", [
+			{ kind: "set-page-title", value: "Bare" },
+		]);
+
+		expect(cheerio.load(result.html)("head > title").text()).toBe("Bare");
+	});
+
+	it("keeps the title sentinel beside element wids in a mixed batch", () => {
+		const result = applied(PAGE, [
+			{ kind: "text", value: "T", wid: "e-1" },
+			{ kind: "set-page-title", value: "New tab" },
+			{ kind: "set-tokens", value: { primary: "#123456" } },
+		]);
+
+		expect(result.editedWids).toEqual(["e-1", "__title__", "__tokens__"]);
 	});
 
 	it("extracts raw values from the first :root token block", () => {
@@ -1036,6 +1111,375 @@ describe("applyOps", () => {
 		expect($("style").first().text()).toContain(
 			'--font-body: "Cairo", sans-serif;',
 		);
+	});
+
+	it("inserts elements in batch order and removes fragment-provided wids", () => {
+		const result = applied(PAGE, [
+			{
+				kind: "insert-element",
+				position: "before",
+				value:
+					'<p data-wid="stolen-before"><span data-wid="stolen-child">Before</span></p>',
+				wid: "e-1",
+			},
+			{
+				kind: "insert-element",
+				position: "after",
+				value: '<button data-wid="stolen-after">After</button>',
+				wid: "e-1",
+			},
+			{
+				kind: "insert-element",
+				position: "append",
+				value: '<a data-wid="stolen-append" href="#order">Append</a>',
+				wid: "hero",
+			},
+		]);
+		const $ = cheerio.load(result.html);
+		const children = $('[data-wid="hero"]')
+			.children()
+			.map((_, node) => `${$(node).prop("tagName")}:${$(node).text()}`)
+			.get();
+
+		expect(children).toEqual([
+			"P:Before",
+			"H1:Old title",
+			"BUTTON:After",
+			"P:Old copy",
+			"IMG:",
+			"A:+212 600 000 000",
+			"A:Append",
+		]);
+		expect($('[data-wid^="stolen-"]').length).toBe(0);
+		expect(result.editedWids).toEqual(["e-1", "hero"]);
+	});
+
+	it.each([
+		["img", PAGE, "e-3"],
+		[
+			"input",
+			'<!doctype html><html><body><input data-wid="field"></body></html>',
+			"field",
+		],
+	])("rejects appending an element into a stamped <%s>", (_, html, wid) => {
+		expect(
+			applyOps(html, [
+				{
+					kind: "insert-element",
+					position: "append",
+					value: "<span>New content</span>",
+					wid,
+				},
+			]),
+		).toEqual({
+			index: 0,
+			ok: false,
+			reason:
+				"append is not supported for a void element like <img> or <input> — use position before or after",
+		});
+	});
+
+	it("inserts elements before and after a stamped <img>", () => {
+		const result = applied(PAGE, [
+			{
+				kind: "insert-element",
+				position: "before",
+				value: '<span class="before-image">Before image</span>',
+				wid: "e-3",
+			},
+			{
+				kind: "insert-element",
+				position: "after",
+				value: '<span class="after-image">After image</span>',
+				wid: "e-3",
+			},
+		]);
+		const $ = cheerio.load(result.html);
+		const image = $('[data-wid="e-3"]');
+
+		expect(image.prev().attr("class")).toBe("before-image");
+		expect(image.prev().text()).toBe("Before image");
+		expect(image.next().attr("class")).toBe("after-image");
+		expect(image.next().text()).toBe("After image");
+	});
+
+	it("inserts section roots before and after top-level anchors", () => {
+		const result = applied(PAGE, [
+			{
+				kind: "insert-section",
+				position: "before",
+				value:
+					'<aside data-wid="stolen-top"><p data-wid="stolen-copy">Notice</p></aside>',
+				wid: "hero",
+			},
+			{
+				kind: "insert-section",
+				position: "after",
+				value:
+					'<footer data-wid="stolen-bottom"><p data-wid="stolen-footer-copy">Footer</p></footer>',
+				wid: "reviews",
+			},
+		]);
+		const $ = cheerio.load(result.html);
+		const sections = $("body")
+			.children("header, section, footer, aside, nav")
+			.map((_, node) => $(node).text().replace(/\s+/g, " ").trim())
+			.get();
+
+		expect(sections).toEqual([
+			"Notice",
+			"Old title Old copy +212 600 000 000",
+			"Reviews",
+			"Footer",
+		]);
+		expect($('[data-wid^="stolen-"]').length).toBe(0);
+		expect(result.editedWids).toEqual(["hero", "reviews"]);
+	});
+
+	it.each([
+		[
+			"insert-element target",
+			{
+				kind: "insert-element" as const,
+				position: "after" as const,
+				value: "<p>New copy</p>",
+				wid: "missing",
+			},
+			'no element with data-wid="missing"',
+		],
+		[
+			"insert-section anchor",
+			{
+				kind: "insert-section" as const,
+				position: "after" as const,
+				value: "<section><p>New section</p></section>",
+				wid: "e-1",
+			},
+			"anchor is not a top-level section",
+		],
+	])("rejects an invalid %s", (_, op, reason) => {
+		expect(applyOps(PAGE, [op])).toEqual({
+			index: 0,
+			ok: false,
+			reason,
+		});
+	});
+
+	it.each([
+		[
+			"multiple element roots",
+			{
+				kind: "insert-element" as const,
+				position: "append" as const,
+				value: "<p>One</p><p>Two</p>",
+				wid: "hero",
+			},
+			"inserted HTML must contain exactly one element",
+		],
+		[
+			"non-section root",
+			{
+				kind: "insert-section" as const,
+				position: "after" as const,
+				value: "<div><p>Not a section</p></div>",
+				wid: "hero",
+			},
+			"inserted HTML root is not a section element",
+		],
+	])("rejects inserted HTML with %s", (_, op, reason) => {
+		expect(applyOps(PAGE, [op])).toEqual({
+			index: 0,
+			ok: false,
+			reason,
+		});
+	});
+
+	it.each([
+		[
+			"a forbidden tag",
+			"<script>alert(1)</script>",
+			"must not contain <script> elements",
+		],
+		[
+			"an event handler",
+			'<button onclick="alert(1)">Buy</button>',
+			'must not carry event-handler attributes ("onclick")',
+		],
+		[
+			"srcdoc",
+			'<div srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></div>',
+			'must not carry "srcdoc" attributes',
+		],
+		[
+			"a script-scheme URL",
+			'<a href="java&#x09;script:alert(1)">Buy</a>',
+			'must not use script-scheme URLs ("href")',
+		],
+		[
+			"CSS @import",
+			'<style>@import url("https://evil.example/style.css");</style>',
+			"must not use CSS @import",
+		],
+	])("rejects raw HTML carrying %s before insertion", (_, active, reason) => {
+		const rawOps = [
+			{
+				kind: "insert-element" as const,
+				position: "append" as const,
+				value: `<div>${active}</div>`,
+				wid: "hero",
+			},
+			{
+				kind: "insert-section" as const,
+				position: "after" as const,
+				value: `<section>${active}</section>`,
+				wid: "hero",
+			},
+			{
+				kind: "replace-section" as const,
+				value: `<section>${active}</section>`,
+				wid: "reviews",
+			},
+		];
+
+		for (const [index, op] of rawOps.entries()) {
+			const label = index === 2 ? "replacement HTML" : "inserted HTML";
+
+			expect(applyOps(PAGE, [op])).toEqual({
+				index: 0,
+				ok: false,
+				reason: `${label} ${reason}`,
+			});
+		}
+	});
+
+	it.each([
+		["YouTube", "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0"],
+		[
+			"YouTube privacy-enhanced",
+			"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+		],
+		["Vimeo", "https://player.vimeo.com/video/123456789"],
+		["Google Maps", "https://www.google.com/maps/embed?pb=map"],
+		["Google Maps legacy path", "https://maps.google.com/maps/embed?pb=map"],
+		["Google Maps short path", "https://maps.google.com/embed?pb=map"],
+	])("accepts an HTTPS %s iframe embed", (_, src) => {
+		const result = applied(PAGE, [
+			{
+				kind: "replace-section",
+				value: `<section><iframe src="${src}" title="Map"></iframe></section>`,
+				wid: "reviews",
+			},
+		]);
+		const iframe = cheerio.load(result.html)("iframe");
+
+		expect(iframe).toHaveLength(1);
+		expect(iframe.attr("src")).toBe(src);
+	});
+
+	it("allows constrained iframe embeds through every raw-HTML fragment op", () => {
+		const src = "https://www.youtube.com/embed/dQw4w9WgXcQ";
+		const result = applied(PAGE, [
+			{
+				kind: "insert-element",
+				position: "append",
+				value: `<iframe src="${src}" title="Element embed"></iframe>`,
+				wid: "hero",
+			},
+			{
+				kind: "insert-section",
+				position: "after",
+				value: `<aside><iframe src="${src}" title="Section embed"></iframe></aside>`,
+				wid: "hero",
+			},
+			{
+				kind: "replace-section",
+				value: `<section><iframe src="${src}" title="Replacement embed"></iframe></section>`,
+				wid: "reviews",
+			},
+		]);
+
+		expect(cheerio.load(result.html)("iframe")).toHaveLength(3);
+	});
+
+	it.each([
+		["HTTP", '<iframe src="http://www.youtube.com/embed/video"></iframe>'],
+		["a missing src", "<iframe></iframe>"],
+		[
+			"a lookalike YouTube host",
+			'<iframe src="https://www.youtube.com.evil.example/embed/video"></iframe>',
+		],
+		[
+			"a YouTube watch path",
+			'<iframe src="https://www.youtube.com/watch?v=video"></iframe>',
+		],
+		[
+			"a non-numeric Vimeo ID",
+			'<iframe src="https://player.vimeo.com/video/not-numeric"></iframe>',
+		],
+		[
+			"a non-embed Google Maps path",
+			'<iframe src="https://www.google.com/maps/place/Algiers"></iframe>',
+		],
+		[
+			"URL credentials",
+			'<iframe src="https://attacker@www.youtube.com/embed/video"></iframe>',
+		],
+		[
+			"a nonstandard port",
+			'<iframe src="https://www.youtube.com:444/embed/video"></iframe>',
+		],
+		[
+			"an explicit default port",
+			'<iframe src="https://www.youtube.com:443/embed/video"></iframe>',
+		],
+	])("rejects an iframe embed using %s", (_, iframe) => {
+		expect(
+			applyOps(PAGE, [
+				{
+					kind: "replace-section",
+					value: `<section>${iframe}</section>`,
+					wid: "reviews",
+				},
+			]),
+		).toEqual({
+			index: 0,
+			ok: false,
+			reason:
+				"replacement HTML <iframe> src must be an allowed HTTPS embed URL (YouTube, Vimeo, or Google Maps)",
+		});
+	});
+
+	it.each([
+		[
+			"srcdoc",
+			'<iframe src="https://www.youtube.com/embed/video" srcdoc="&lt;p&gt;Injected&lt;/p&gt;"></iframe>',
+			'replacement HTML must not carry "srcdoc" attributes',
+		],
+		[
+			"a script-scheme src",
+			'<iframe src="java&#x09;script:alert(1)"></iframe>',
+			'replacement HTML must not use script-scheme URLs ("src")',
+		],
+		[
+			"an event handler",
+			'<iframe src="https://www.youtube.com/embed/video" onload="alert(1)"></iframe>',
+			'replacement HTML must not carry event-handler attributes ("onload")',
+		],
+		[
+			"another forbidden active-content tag",
+			'<iframe src="https://www.youtube.com/embed/video"></iframe><object></object>',
+			"replacement HTML must not contain <object> elements",
+		],
+	])("rejects an otherwise allowed iframe carrying %s", (_, active, reason) => {
+		expect(
+			applyOps(PAGE, [
+				{
+					kind: "replace-section",
+					value: `<section>${active}</section>`,
+					wid: "reviews",
+				},
+			]),
+		).toEqual({ index: 0, ok: false, reason });
 	});
 
 	it("applies replace-section and records the wid", () => {
@@ -1235,6 +1679,16 @@ describe("applyOps", () => {
 		);
 	});
 
+	it("accepts same-page anchors on set-link-href", () => {
+		const result = applied(PAGE, [
+			{ kind: "set-link-href", value: "#gallery", wid: "e-5" },
+		]);
+
+		expect(cheerio.load(result.html)('[data-wid="e-5"]').attr("href")).toBe(
+			"#gallery",
+		);
+	});
+
 	it("rejects set-link-href on a non-anchor target", () => {
 		const result = applyOps(PAGE, [
 			{ kind: "set-link-href", value: "https://example.com/", wid: "e-1" },
@@ -1257,7 +1711,8 @@ describe("applyOps", () => {
 		expect(result).toEqual({
 			index: 0,
 			ok: false,
-			reason: "href must use https, http, tel: or mailto:",
+			reason:
+				"href must use https, http, tel:, mailto:, or a same-page #anchor",
 		});
 	});
 

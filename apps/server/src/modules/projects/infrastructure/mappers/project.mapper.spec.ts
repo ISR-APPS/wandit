@@ -10,6 +10,7 @@ function projectRow(
 	return {
 		activeSlug: null,
 		createdAt: new Date("2026-07-31T08:00:00.000Z"),
+		hideWanditBadge: false,
 		id: "project_1",
 		leadCount: 0,
 		logoUrl,

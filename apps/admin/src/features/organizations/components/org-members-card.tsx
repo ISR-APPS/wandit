@@ -1,5 +1,5 @@
 import { AlertTriangleIcon, Loader2Icon, UsersRoundIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -13,7 +13,6 @@ import {
 	AlertDialogMedia,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import {
 	Card,
 	CardContent,
@@ -36,6 +35,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type {
 	AdminWorkspaceRole,
 	OrganizationMember,
@@ -46,6 +46,7 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
+import { formatCreditAmount } from "@/lib/credit-format";
 
 const WORKSPACE_ROLES: AdminWorkspaceRole[] = ["owner", "admin", "member"];
 
@@ -83,6 +84,13 @@ export function OrgMembersCard({
 }) {
 	const [pending, setPending] = useState<PendingRoleChange | null>(null);
 	const mutation = useSetOrganizationMemberRoleMutation();
+	const canManage = useAdminPermission({ organizations: ["manage"] });
+
+	useEffect(() => {
+		if (!canManage && pending !== null) {
+			setPending(null);
+		}
+	}, [canManage, pending]);
 
 	const hasOwner = members.some((row) => primaryRole(row.role) === "owner");
 	const demotingLastOwner =
@@ -92,7 +100,7 @@ export function OrgMembersCard({
 		members.filter((row) => primaryRole(row.role) === "owner").length === 1;
 
 	async function confirmRoleChange() {
-		if (!pending) {
+		if (!pending || !canManage) {
 			return;
 		}
 
@@ -132,13 +140,10 @@ export function OrgMembersCard({
 						role="alert"
 						className="mb-4 flex items-start gap-3 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive text-sm"
 					>
-						<AlertTriangleIcon
-							className="mt-0.5 shrink-0"
-							aria-hidden="true"
-						/>
+						<AlertTriangleIcon className="mt-0.5 shrink-0" aria-hidden="true" />
 						<p>
-							This workspace has no owner. Promote a member to owner so the
-							team can manage billing again.
+							This workspace has no owner. Promote a member to owner so the team
+							can manage billing again.
 						</p>
 					</div>
 				) : null}
@@ -173,7 +178,7 @@ export function OrgMembersCard({
 									<TableCell>
 										<Select
 											value={primaryRole(row.role)}
-											disabled={mutation.isPending}
+											disabled={mutation.isPending || !canManage}
 											onValueChange={(value) => {
 												const nextRole = value as AdminWorkspaceRole;
 
@@ -207,7 +212,7 @@ export function OrgMembersCard({
 											: formatWholeNumber(row.monthlyCreditLimit)}
 									</TableCell>
 									<TableCell className="text-end font-mono text-sm tabular-nums">
-										{formatWholeNumber(row.spentThisMonth)}
+										{formatCreditAmount(row.spentThisMonth)}
 									</TableCell>
 								</TableRow>
 							))}
@@ -217,7 +222,7 @@ export function OrgMembersCard({
 			</CardContent>
 
 			<AlertDialog
-				open={pending !== null}
+				open={canManage && pending !== null}
 				onOpenChange={(open) => {
 					if (!open && !mutation.isPending) {
 						setPending(null);

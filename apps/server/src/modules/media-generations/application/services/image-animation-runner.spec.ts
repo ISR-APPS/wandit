@@ -1,4 +1,13 @@
+import {
+	GatewayInternalServerError,
+	GatewayInvalidRequestError,
+	GatewayResponseError,
+} from "@ai-sdk/gateway";
+import { APICallError } from "ai";
 import { describe, expect, it, vi } from "vitest";
+
+import { classifyAiError } from "../../../ai-errors/domain";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 
 import {
 	IMAGE_ANIMATION_STALE_GENERATING_MS,
@@ -8,6 +17,8 @@ import {
 	parseImageAnimationPayload,
 	runImageAnimation,
 	USER_SAFE_IMAGE_ANIMATION_ERROR,
+	USER_SAFE_TEXT_TO_VIDEO_ERROR,
+	userSafeGenerationError,
 } from "./image-animation-runner";
 
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
@@ -16,12 +27,26 @@ const USER_ID = "user_123";
 const SUBJECT = { actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const NOW = new Date("2026-07-24T12:00:00.000Z");
+const INTERNAL_ERROR = "Something went wrong on our side. Please try again.";
+const INTERNAL_FAILURE_FIELDS = {
+	failureKind: "internal",
+	failureProvider: null,
+	failureProviderMessage: null,
+	failureRequestId: null,
+	failureSource: "ours",
+};
 const RESERVATION = {
 	credits: 25,
 	eventId: "33333333-3333-4333-8333-333333333333",
 	operation: "video" as const,
 	referenceId: ATTEMPT_ID,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 1,
 };
 
@@ -105,10 +130,19 @@ describe("runImageAnimation", () => {
 			ATTEMPT_ID,
 			undefined,
 			"enforce",
+			{
+				audio: false,
+				durationSeconds: 5,
+				kind: "image-animation",
+				modelId: "klingai/kling-v2.6-i2v",
+			},
 		);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(dependencies.markSucceeded).mock.calls[0]?.[3]).toBe(
+			USER_ID,
+		);
 		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
 		expect(
 			vi.mocked(dependencies.settle).mock.invocationCallOrder[0],
@@ -154,10 +188,12 @@ describe("runImageAnimation", () => {
 			status: "failed",
 		});
 		expect(dependencies.fail).toHaveBeenCalledWith(deleted, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: INTERNAL_ERROR,
 			expectedStatus: "queued",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
@@ -189,10 +225,12 @@ describe("runImageAnimation", () => {
 			status: "failed",
 		});
 		expect(dependencies.fail).toHaveBeenCalledWith(deleted, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: INTERNAL_ERROR,
 			expectedStatus: "generating",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.recoverStoredVideo).not.toHaveBeenCalled();
@@ -244,10 +282,12 @@ describe("runImageAnimation", () => {
 		});
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.fail).toHaveBeenCalledWith(deletedGenerating, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: INTERNAL_ERROR,
 			expectedStatus: "generating",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
@@ -286,10 +326,12 @@ describe("runImageAnimation", () => {
 		});
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.fail).toHaveBeenCalledWith(deletedGenerating, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: INTERNAL_ERROR,
 			expectedStatus: "generating",
 			reason: "project_deleted",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
@@ -435,10 +477,12 @@ describe("runImageAnimation", () => {
 		});
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.fail).toHaveBeenCalledWith(attempt, {
+			...INTERNAL_FAILURE_FIELDS,
 			completedAt: NOW,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: INTERNAL_ERROR,
 			expectedStatus: "generating",
 			reason: "stale_generation",
+			sentryEventId: expect.any(String),
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
@@ -464,6 +508,31 @@ describe("runImageAnimation", () => {
 		expect(dependencies.refund).toHaveBeenCalled();
 	});
 
+	it("persists an insufficient-credit reservation rejection as billing", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies(attempt);
+		vi.mocked(dependencies.reserve).mockRejectedValueOnce(
+			new InsufficientCreditsError(500, 0),
+		);
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_billing_rejection",
+			}),
+		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error: "Not enough credits for this action.",
+				failureKind: "billing",
+				failureSource: "ours",
+				sentryEventId: null,
+			}),
+		);
+		expect(dependencies.generate).not.toHaveBeenCalled();
+	});
+
 	it("persists a safe failure and refunds when provider generation fails", async () => {
 		const attempt = makeAttempt();
 		const dependencies = makeDependencies(attempt);
@@ -483,11 +552,140 @@ describe("runImageAnimation", () => {
 		});
 		expect(dependencies.fail).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ error: USER_SAFE_IMAGE_ANIMATION_ERROR }),
+			expect.objectContaining({
+				error: INTERNAL_ERROR,
+				failureKind: "internal",
+				failureSource: "ours",
+				sentryEventId: expect.any(String),
+			}),
 		);
 		expect(dependencies.fail).not.toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({ error: "raw provider secret" }),
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+	});
+
+	it("persists moderation from a gateway error cause and refunds", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies(attempt);
+		const providerError = new GatewayInvalidRequestError({
+			cause: new APICallError({
+				data: {
+					error: {
+						code: "moderation_blocked",
+						moderation_details: { moderation_stage: "input" },
+					},
+				},
+				message: "provider rejected content",
+				requestBodyValues: {},
+				statusCode: 400,
+				url: "https://provider.invalid/video",
+			}),
+		});
+		const failure = classifyAiError(providerError, {
+			model: attempt.model ?? undefined,
+			route: "vercel",
+			surface: "video",
+		});
+		if (!failure) throw new Error("fixture did not classify");
+		vi.mocked(dependencies.generate).mockResolvedValueOnce({
+			failure,
+			message: "safe adapter message",
+			status: "failed",
+		});
+
+		await runImageAnimation(payload(), {
+			dependencies,
+			runId: "run_moderation",
+		});
+
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				error:
+					"Kling declined this request because of its content rules. Change the prompt and try again.",
+				failureKind: "content_moderated",
+				failureProvider: "klingai",
+				failureSource: "provider:klingai",
+			}),
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+	});
+
+	it.each([
+		[
+			"capacity",
+			new GatewayInternalServerError({ statusCode: 529 }),
+			"Kling is over capacity right now. Please try again in a minute.",
+		],
+		[
+			"timeout",
+			new GatewayResponseError({
+				cause: new DOMException("timed out", "TimeoutError"),
+				response: {},
+				statusCode: 500,
+			}),
+			"Kling took too long to answer. Please try again.",
+		],
+	] as const)("persists a gateway %s classification", async (kind, error, copy) => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies(attempt);
+		const failure = classifyAiError(error, {
+			model: attempt.model ?? undefined,
+			route: "vercel",
+			surface: "video",
+		});
+		if (!failure) throw new Error("fixture did not classify");
+		vi.mocked(dependencies.generate).mockResolvedValueOnce({
+			failure,
+			message: "safe adapter message",
+			status: "failed",
+		});
+
+		await runImageAnimation(payload(), {
+			dependencies,
+			runId: `run_${kind}`,
+		});
+
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ error: copy, failureKind: kind }),
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+	});
+
+	it("persists a classified provider failure's user-safe copy and reason", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies(attempt);
+		vi.mocked(dependencies.generate).mockResolvedValueOnce({
+			message: "provider rejected source pixels",
+			reasonCode: "aspect_extreme",
+			status: "failed",
+			userMessage:
+				"This image is 8192×512 px (16:1). Please send a less stretched image.",
+		});
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_preflight_failure",
+			}),
+		).resolves.toEqual({
+			reason: "generation_failed",
+			status: "failed",
+		});
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.objectContaining({ id: attempt.id, status: "generating" }),
+			expect.objectContaining({
+				...INTERNAL_FAILURE_FIELDS,
+				completedAt: NOW,
+				error:
+					"This image is 8192×512 px (16:1). Please send a less stretched image.",
+				expectedStatus: "generating",
+				reason: "aspect_extreme",
+				sentryEventId: expect.any(String),
+			}),
 		);
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
@@ -672,20 +870,26 @@ function makeAttempt(
 	return {
 		aspect: "16:9",
 		completedAt: null,
+		durationSeconds: 5,
 		error: null,
 		id: ATTEMPT_ID,
+		kind: "image-animation",
+		model: "klingai/kling-v2.6-i2v",
 		motion: "balanced",
 		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "A gentle camera move",
+		quality: "standard",
 		sourceImageUrl: "https://assets.test/source.webp",
 		startedAt: null,
 		status: "queued",
+		talking: false,
 		triggerRunId: null,
 		userId: USER_ID,
 		videoMediaType: null,
 		videoUrl: null,
+		voiceover: null,
 		...overrides,
 	};
 }
@@ -724,3 +928,47 @@ function makeDependencies(
 		settleExisting: vi.fn(async () => true),
 	};
 }
+
+describe("userSafeGenerationError", () => {
+	it("keeps the animation copy for image-animation rows", () => {
+		expect(userSafeGenerationError("image-animation")).toBe(
+			USER_SAFE_IMAGE_ANIMATION_ERROR,
+		);
+	});
+
+	it("never mentions an image for text-to-video rows", () => {
+		expect(userSafeGenerationError("text-to-video")).toBe(
+			USER_SAFE_TEXT_TO_VIDEO_ERROR,
+		);
+		expect(userSafeGenerationError("text-to-video")).not.toMatch(/image/i);
+	});
+
+	it("persists the video copy when a text-to-video generation fails", async () => {
+		const attempt = makeAttempt({
+			durationSeconds: 10,
+			kind: "text-to-video",
+			motion: null,
+			sourceImageUrl: null,
+		});
+		const dependencies = makeDependencies(attempt);
+		dependencies.generate = vi.fn(async () => ({
+			message: "provider exploded",
+			status: "failed" as const,
+		}));
+
+		const result = await runImageAnimation(payload(), {
+			dependencies,
+			runId: "run_t2v",
+		});
+
+		expect(result.status).toBe("failed");
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "text-to-video" }),
+			expect.objectContaining({
+				error: INTERNAL_ERROR,
+				failureKind: "internal",
+				failureSource: "ours",
+			}),
+		);
+	});
+});

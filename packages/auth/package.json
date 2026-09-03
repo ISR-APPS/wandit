@@ -12,6 +12,7 @@
 	"scripts": {},
 	"dependencies": {
 		"@better-auth/expo": "catalog:",
+		"@wandit/contracts": "workspace:*",
 		"@wandit/db": "workspace:*",
 		"@wandit/env": "workspace:*",
 		"better-auth": "catalog:",

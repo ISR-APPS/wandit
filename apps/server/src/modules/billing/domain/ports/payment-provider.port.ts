@@ -3,7 +3,7 @@ import type {
 	BillingPlanId,
 	CreditTier,
 	PaymentOrderKind,
-	TopupPackId,
+	PersistedTopupPackId,
 } from "@wandit/contracts";
 import type Stripe from "stripe";
 
@@ -17,6 +17,10 @@ export type CreateSubscriptionCheckoutParams = {
 	/** Set for org (Business) checkouts: the paying pool's identity. */
 	organizationId?: string | null;
 	plan: BillingPlanId;
+	/**
+	 * WHOLE display credits (Stripe-boundary unit): tier identity embedded in
+	 * price lookup keys and session metadata — never centi-credits.
+	 */
 	tierCredits: CreditTier;
 	userId: string;
 };
@@ -50,11 +54,18 @@ export type CreateRefundParams = {
 
 export type CreateTopupCheckoutParams = {
 	attemptId: string;
+	/**
+	 * WHOLE display credits (Stripe-boundary unit): the pack's credit count as
+	 * stamped into session metadata — never centi-credits. The grant path
+	 * converts x100 once when writing the ledger.
+	 */
 	credits: number;
 	customerId: string;
 	/** Set for org top-ups: the pool that receives the credits. */
 	organizationId?: string | null;
-	packId: TopupPackId;
+	// Internal recovery can replay a checkout attempt written before a pack was
+	// retired. Public request schemas still accept only current TopupPackId ids.
+	packId: PersistedTopupPackId;
 	userId: string;
 };
 
@@ -75,7 +86,18 @@ export type SubscriptionChangeProviderResult = {
 	pendingExpiresAt?: Date;
 };
 
+export type SwitchSubscriptionPriceWithoutProrationParams = {
+	currentPriceLookupKey: string;
+	idempotencyKey: string;
+	newPriceLookupKey: string;
+	providerSubscriptionId: string;
+};
+
 export type ScheduleSubscriptionDowngradeParams = {
+	/** Recover only a schedule stamped with this same idempotency key and target. */
+	allowSameIntentRecovery?: boolean;
+	currentPriceLookupKey: string;
+	expectedScheduleTarget: string | null;
 	idempotencyKey: string;
 	newPriceLookupKey: string;
 	providerSubscriptionId: string;
@@ -139,5 +161,8 @@ export interface PaymentProvider {
 	setCancelAtPeriodEnd(
 		providerSubscriptionId: string,
 		flag: boolean,
+	): Promise<void>;
+	switchSubscriptionPriceWithoutProration(
+		params: SwitchSubscriptionPriceWithoutProrationParams,
 	): Promise<void>;
 }

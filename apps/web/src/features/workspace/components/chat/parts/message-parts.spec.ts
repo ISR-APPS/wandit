@@ -6,19 +6,56 @@ import {
 	hydrateAiChatMessages,
 	type WanditUIMessage,
 } from "../../../lib/use-ai-chat";
+import { ConversationContextMeter, ConversationCost } from "../token-usage";
 import {
 	coalesceMessageParts,
+	isTransparentMessagePart,
 	MessageParts,
 	orderMessagePartEntries,
 } from "./message-parts";
+import { isVisibleAssistantReplyPart } from "./visible-reply-part";
 
 vi.mock("@/lib/i18n", () => ({
+	formatNumber: (value: number) => new Intl.NumberFormat("en").format(value),
 	useTranslation: () => ({
+		locale: "en",
 		t: (key: string, params?: Record<string, unknown>) => {
-			const value =
-				key === "workspace.chat.usage.message"
-					? "Input {input} · Output {output} · Total {total} tokens"
-					: key;
+			const values: Record<string, string> = {
+				"errors.ai.capacity":
+					"{provider} is over capacity right now. Please try again in a minute.",
+				"workspace.chat.aiError.attribution.viaGateway":
+					"{provider} via Vercel AI Gateway",
+				"workspace.chat.aiError.kicker.provider": "Provider issue",
+				"workspace.chat.aiError.queuedHint":
+					"Generations already started will finish on their own.",
+				"workspace.chat.aiError.retry": "Retry",
+				"workspace.chat.aiError.retryHint": "Retry starts a new attempt.",
+				"workspace.chat.pageEdit.editing": "Editing the page",
+				"workspace.chat.pageEdit.inspected": "Inspected the page",
+				"workspace.chat.pageEdit.receiptUpdatedSingle":
+					"Page updated - v{n} · 1 edit",
+				"workspace.chat.pageEdit.labels.insertSection":
+					"Adding a section {position} {wid}",
+				"workspace.chat.pageEdit.positions.after": "after",
+				"workspace.chat.generateImage.queueing": "Queueing the generation…",
+				"workspace.chat.usage.message":
+					"Input {input} · Output {output} · Total {total} tokens",
+				"workspace.chat.usage.messageWithSteps": "Σ {count} steps · {message}",
+				"workspace.chat.usage.cached": "({tokens} cached)",
+				"workspace.chat.usage.reasoning": "({tokens} reasoning)",
+				"workspace.chat.usage.messageBreakdown":
+					"No-cache tokens {noCache} · Cache-read tokens {cacheRead} · Cache-write tokens {cacheWrite} · Text tokens {text} · Reasoning tokens {reasoning}",
+				"workspace.chat.usage.context": "Context",
+				"workspace.chat.usage.conversationTotal":
+					"{total} tokens total spent this conversation",
+				"workspace.chat.usage.conversationCumulative":
+					"Cumulative input {input} · Cumulative output {output}",
+				"workspace.chat.usage.latestCacheReadShare":
+					"Latest-turn cache-read share {share}",
+				"workspace.chat.usage.conversationCost": "Cost {cost}",
+				"workspace.chat.usage.conversationCredits": "{credits} credits",
+			};
+			const value = values[key] ?? key;
 
 			return value.replace(/\{(\w+)\}/g, (_, name: string) =>
 				String(params?.[name] ?? `{${name}}`),
@@ -44,6 +81,10 @@ vi.mock("@/lib/i18n", () => ({
 			},
 		},
 	}),
+}));
+
+vi.mock("../../../lib/ai-chat-context", () => ({
+	useSharedAiChat: () => ({ prefillComposer: vi.fn() }),
 }));
 
 function asMessageParts(parts: unknown[]): WanditUIMessage["parts"] {
@@ -222,6 +263,38 @@ describe("coalesceMessageParts", () => {
 		expect(entries[0].parts).toHaveLength(2);
 	});
 
+	it("keeps one MCP receipt across a tool-scoped AI error part", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				dynamicPart("mcp-1"),
+				{
+					type: "data-ai-error",
+					data: {
+						kind: "connector_rejected",
+						source: "higgsfield",
+						providerLabel: "Higgsfield",
+						retryable: false,
+						terminal: true,
+						refunded: true,
+						moderationStage: null,
+						providerMessage: null,
+						requestId: "request-1",
+						toolCallId: "mcp-1",
+					},
+				},
+				dynamicPart("mcp-2"),
+			]),
+		);
+
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.kind).toBe("mcp-run");
+		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
+		expect(entries[0].parts.map((part) => part.toolCallId)).toEqual([
+			"mcp-1",
+			"mcp-2",
+		]);
+	});
+
 	it("starts a new dynamic run after non-empty text", () => {
 		const entries = coalesceMessageParts(
 			asMessageParts([
@@ -291,6 +364,177 @@ describe("coalesceMessageParts", () => {
 		expect(entries[0].parts).toHaveLength(2);
 	});
 
+	it("renders page tools as their own run instead of bridging MCP receipts", () => {
+		const insertSectionPart = {
+			type: "tool-insert_section",
+			toolCallId: "insert-section-1",
+			state: "output-available",
+			input: {
+				anchorWid: "hero",
+				position: "after",
+				html: "<section><h2>New section</h2></section>",
+			},
+			output: { status: "applied", versionNumber: 3, message: "Done" },
+		};
+
+		expect(
+			isTransparentMessagePart(
+				insertSectionPart as WanditUIMessage["parts"][number],
+			),
+		).toBe(false);
+
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				dynamicPart("mcp-1"),
+				insertSectionPart,
+				dynamicPart("mcp-2"),
+			]),
+		);
+		expect(entries.map((entry) => entry.kind)).toEqual([
+			"mcp-run",
+			"page-edit-run",
+			"mcp-run",
+		]);
+		if (entries[1]?.kind !== "page-edit-run") {
+			throw new Error("Expected page-edit run");
+		}
+		expect(entries[1].parts).toHaveLength(1);
+
+		const html = renderMessage("assistant", [
+			insertSectionPart,
+			{ type: "text", text: "Section added.", state: "done" },
+		]);
+		expect(html).toContain("Section added.");
+		expect(html).toContain("Page updated - v3 · 1 edit");
+	});
+
+	it("coalesces consecutive page tools across stream markers", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				{
+					type: "tool-get_page_outline",
+					toolCallId: "outline-1",
+					state: "output-available",
+					input: {},
+					output: { status: "ok", versionNumber: 2 },
+				},
+				{ type: "step-start" },
+				{
+					type: "tool-replace_section",
+					toolCallId: "replace-1",
+					state: "input-available",
+					input: {
+						wid: "hero",
+						html: "<section>Updated hero content</section>",
+					},
+				},
+			]),
+		);
+
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.kind).toBe("page-edit-run");
+		if (entries[0]?.kind !== "page-edit-run") {
+			throw new Error("Expected page-edit run");
+		}
+		expect(entries[0].parts.map((part) => part.toolCallId)).toEqual([
+			"outline-1",
+			"replace-1",
+		]);
+	});
+
+	it.each([
+		"tool-get_page_outline",
+		"tool-apply_element_ops",
+		"tool-read_elements",
+		"tool-read_theme",
+		"tool-read_section",
+		"tool-insert_section",
+		"tool-replace_section",
+	])("keeps %s visible to the page-edit renderer", (type) => {
+		expect(
+			isTransparentMessagePart({ type } as WanditUIMessage["parts"][number]),
+		).toBe(false);
+	});
+
+	it("splits page-edit runs at visible message boundaries", () => {
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				{
+					type: "tool-read_theme",
+					toolCallId: "theme-1",
+					state: "output-available",
+					input: {},
+					output: { status: "ok", versionNumber: 2 },
+				},
+				{ type: "text", text: "I found the current theme.", state: "done" },
+				{
+					type: "tool-read_section",
+					toolCallId: "section-1",
+					state: "input-available",
+					input: { wid: "hero" },
+				},
+			]),
+		);
+
+		expect(entries.map((entry) => entry.kind)).toEqual([
+			"page-edit-run",
+			"part",
+			"page-edit-run",
+		]);
+	});
+
+	it("batches multiple image calls in one message but preserves one-call fallback", () => {
+		const single = coalesceMessageParts(
+			asMessageParts([toolPart("tool-generate_image", "image-1")]),
+		);
+		expect(single).toHaveLength(1);
+		expect(single[0]?.kind).toBe("part");
+
+		const multiple = coalesceMessageParts(
+			asMessageParts([
+				toolPart("tool-generate_image", "image-1"),
+				{ type: "text", text: "Two shots are on the way.", state: "done" },
+				toolPart("tool-generate_image", "image-2"),
+			]),
+		);
+
+		expect(multiple.map((entry) => entry.kind)).toEqual([
+			"image-batch",
+			"part",
+		]);
+		if (multiple[0]?.kind !== "image-batch") {
+			throw new Error("Expected image batch");
+		}
+		expect(multiple[0].parts.map((part) => part.toolCallId)).toEqual([
+			"image-1",
+			"image-2",
+		]);
+		expect(orderMessagePartEntries(multiple).map(entryLabel)).toEqual([
+			"text",
+			"image-batch",
+		]);
+	});
+
+	it("renders a single image call through the existing standalone status UI", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "tool-generate_image",
+				toolCallId: "image-only",
+				state: "input-available",
+				input: {
+					title: "Single studio shot",
+					prompt: "A detailed studio image of the product",
+					aspect: "1:1",
+					count: 1,
+					sourceImageUrls: [],
+				},
+			},
+		]);
+
+		expect(html).toContain("Queueing the generation…");
+		expect(html).not.toContain("workspace.chat.imageBatch");
+	});
+
 	it("groups ask_user calls independently across step-start", () => {
 		const entries = coalesceMessageParts(
 			asMessageParts([
@@ -344,6 +588,23 @@ describe("orderMessagePartEntries", () => {
 			"text",
 			"tool-scrape_leads",
 		]);
+	});
+
+	it("moves the product-video card after the closing text", () => {
+		const entries = orderMessagePartEntries(
+			coalesceMessageParts(
+				asMessageParts([
+					toolPart("tool-product_video", "product-video-1"),
+					{
+						text: "Your product clip is rendering.",
+						state: "done",
+						type: "text",
+					},
+				]),
+			),
+		);
+
+		expect(entries.map(entryLabel)).toEqual(["text", "tool-product_video"]);
 	});
 
 	it("keeps connector receipts chronological when the run has no deliverables", () => {
@@ -494,6 +755,7 @@ function renderMessage(
 				role,
 				parts: asMessageParts(parts),
 			} as WanditUIMessage,
+			tokenUsageVisible: true,
 			isStreaming,
 			isLastAssistantMessage: role === "assistant",
 			onToolApprovalResponse: () => {},
@@ -511,13 +773,68 @@ describe("MessageParts turn block", () => {
 		output: { ok: true },
 	};
 
+	it.each([
+		{
+			expectedCopy: "workspace.chat.videoAttempt.product.queueing",
+			input: {
+				image: {
+					mediaType: "image/png",
+					url: "https://assets.example.com/product.png",
+				},
+				preset: "orbit",
+				productName: "PulseBuds",
+				title: "PulseBuds product video",
+			},
+			type: "tool-product_video",
+		},
+		{
+			expectedCopy: "workspace.chat.videoAttempt.edit.queueing",
+			input: {
+				instruction: "Keep the framing and change the bottle to blue.",
+				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
+				title: "Blue bottle edit",
+			},
+			type: "tool-edit_video",
+		},
+		{
+			expectedCopy: "workspace.chat.videoAttempt.extend.queueing",
+			input: {
+				continuationBrief: "Continue the orbit into a close-up.",
+				legCount: 1,
+				legDurationSeconds: 5,
+				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
+				title: "Extended orbit",
+			},
+			type: "tool-extend_video",
+		},
+	])("renders and counts $type as visible reply content", (testCase) => {
+		const [part] = asMessageParts([
+			{
+				input: testCase.input,
+				state: "input-available",
+				toolCallId: `${testCase.type}-1`,
+				type: testCase.type,
+			},
+		]);
+		if (!part) throw new Error("Expected a video attempt tool part");
+
+		expect(isVisibleAssistantReplyPart(part)).toBe(true);
+
+		const html = renderMessage("assistant", [part]);
+		expect(html).toContain(testCase.expectedCopy);
+		expect(html.match(/>Wandit</g)).toHaveLength(1);
+	});
+
 	it("keeps the existing treatment for a single image", () => {
 		const html = renderMessage("user", [imagePart("solo")]);
 
 		expect(html).toContain(
-			'class="block max-w-48 overflow-hidden rounded-xl border border-border"',
+			'class="relative block aspect-[6/5] w-48 max-w-full overflow-hidden rounded-xl border border-border bg-muted"',
 		);
-		expect(html).toContain('class="block max-h-40 w-full object-cover"');
+		expect(html).toContain('data-slot="skeleton"');
+		expect(html).toContain(
+			'class="absolute inset-0 size-full object-cover opacity-0"',
+		);
 		expect(html).toContain('href="https://example.com/solo.png"');
 		expect(html).toContain('alt="solo.png"');
 		expect(html).toContain('loading="lazy"');
@@ -537,7 +854,10 @@ describe("MessageParts turn block", () => {
 			'class="grid w-full max-w-[86%] grid-cols-2 gap-1.5"',
 		);
 		expect(html.match(/aspect-square/g)).toHaveLength(4);
-		expect(html.match(/class="block size-full object-cover"/g)).toHaveLength(4);
+		expect(
+			html.match(/class="absolute inset-0 size-full object-cover opacity-0"/g),
+		).toHaveLength(4);
+		expect(html.match(/data-slot="skeleton"/g)).toHaveLength(4);
 		expect(html.match(/loading="lazy"/g)).toHaveLength(4);
 		for (const name of ["one", "two", "three", "four"]) {
 			expect(html).toContain(`href="https://example.com/${name}.png"`);
@@ -588,6 +908,109 @@ describe("MessageParts turn block", () => {
 		]);
 
 		expect(html).toBe("");
+	});
+
+	it("silently ignores the credits-settled signal consumed by the chat hook", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "data-credits-settled",
+				data: {
+					usageEventId: "usage-event-1",
+					credits: 0.37,
+					settledBalance: 12.63,
+				},
+			},
+		]);
+
+		expect(html).toBe("");
+	});
+
+	describe("persisted AI errors", () => {
+		const errorPart = {
+			type: "data-ai-error",
+			errorText: "RAW_ERROR_TEXT_MUST_NOT_RENDER",
+			data: {
+				kind: "capacity",
+				source: "provider:anthropic",
+				providerLabel: "Anthropic",
+				retryable: true,
+				terminal: true,
+				refunded: false,
+				moderationStage: null,
+				providerMessage: null,
+				requestId: "request-1",
+			},
+		};
+
+		function renderPersistedError({
+			status = "error",
+			isLast = true,
+			queued = false,
+		}: {
+			status?: "error" | "ready" | "streaming";
+			isLast?: boolean;
+			queued?: boolean;
+		} = {}) {
+			return renderToStaticMarkup(
+				createElement(MessageParts, {
+					message: {
+						id: "failed-assistant",
+						role: "assistant",
+						parts: asMessageParts([
+							errorPart,
+							...(queued
+								? [
+										{
+											type: "tool-read_skill",
+											toolCallId: "queued-work",
+											state: "output-available",
+											input: {},
+											output: { status: "queued" },
+										},
+									]
+								: []),
+						]),
+					} as WanditUIMessage,
+					tokenUsageVisible: true,
+					isStreaming: status === "streaming",
+					isLastAssistantMessage: isLast,
+					chatStatus: status,
+					onRetry: () => {},
+					onToolApprovalResponse: () => {},
+				}),
+			);
+		}
+
+		it("renders distinct kicker, body, attribution and safe Retry copy", () => {
+			const html = renderPersistedError();
+
+			expect(html).toContain("Provider issue");
+			expect(html).toContain(
+				"Anthropic is over capacity right now. Please try again in a minute.",
+			);
+			expect(html).toContain("Anthropic via Vercel AI Gateway");
+			expect(html).toContain(">Retry<");
+			expect(html).not.toContain("RAW_ERROR_TEXT_MUST_NOT_RENDER");
+		});
+
+		it("hides Retry while streaming", () => {
+			expect(renderPersistedError({ status: "streaming" })).not.toContain(
+				">Retry<",
+			);
+		});
+
+		it("hides Retry and explains already queued work", () => {
+			const html = renderPersistedError({ queued: true });
+
+			expect(html).not.toContain(">Retry<");
+			expect(html).toContain(
+				"Generations already started will finish on their own.",
+			);
+		});
+
+		it("hides Retry on a non-last failed message", () => {
+			expect(renderPersistedError({ isLast: false })).not.toContain(">Retry<");
+		});
 	});
 
 	it("renders a persisted target chip above a targeted user message", () => {
@@ -679,6 +1102,7 @@ describe("MessageParts turn block", () => {
 		const html = renderToStaticMarkup(
 			createElement(MessageParts, {
 				message: hydrated,
+				tokenUsageVisible: true,
 				isStreaming: false,
 				isLastAssistantMessage: false,
 				onToolApprovalResponse: () => {},
@@ -715,7 +1139,10 @@ describe("MessageParts turn block", () => {
 		]);
 
 		expect(html.match(/>Wandit</g)).toHaveLength(1);
-		expect(html).toContain("Quel budget ?");
+		// The ask card itself starts collapsed: its summary row is present, the
+		// question text stays behind the toggle.
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Quel budget ?");
 	});
 
 	it("folds the settled receipt below the closing text once the turn ends", () => {
@@ -786,15 +1213,81 @@ describe("MessageParts turn block", () => {
 			false,
 			{
 				model: "provider/model",
+				stepCount: 3,
 				usage: {
 					inputTokens: 8_421,
+					inputTokenDetails: {
+						noCacheTokens: 421,
+						cacheReadTokens: 8_000,
+						cacheWriteTokens: 300,
+					},
 					outputTokens: 950,
+					outputTokenDetails: {
+						textTokens: 700,
+						reasoningTokens: 250,
+					},
 					totalTokens: 9_371,
 				},
 			},
 		);
 
-		expect(html).toContain("Input 8.4k · Output 950 · Total 9.4k tokens");
+		expect(html).toContain(
+			"Σ 3 steps · Input 8.4k (8k cached) · Output 950 (250 reasoning) · Total 9.4k tokens",
+		);
+		expect(html).toContain(
+			'title="No-cache tokens 421 · Cache-read tokens 8,000 · Cache-write tokens 300 · Text tokens 700 · Reasoning tokens 250"',
+		);
 		expect(html.match(/Input 8\.4k/g)).toHaveLength(1);
+	});
+
+	it("shows cumulative usage and the latest cache share in the context tooltip", () => {
+		const html = renderToStaticMarkup(
+			createElement(ConversationContextMeter, {
+				messages: [
+					{
+						id: "assistant-1",
+						role: "assistant",
+						parts: [],
+						metadata: {
+							usage: {
+								inputTokens: 120_000,
+								inputTokenDetails: { cacheReadTokens: 90_000 },
+								outputTokens: 3_400,
+								totalTokens: 125_000,
+							},
+						},
+					} as WanditUIMessage,
+				],
+			}),
+		);
+
+		expect(html).toContain(
+			'title="125,000 tokens total spent this conversation · Cumulative input 120,000 · Cumulative output 3,400 · Latest-turn cache-read share 75%"',
+		);
+	});
+
+	it("renders reconciled conversation cost and credits when available", () => {
+		const html = renderToStaticMarkup(
+			createElement(ConversationCost, {
+				usage: {
+					inputTokens: 190_000,
+					outputTokens: 4_000,
+					cacheReadTokens: 120_000,
+					cacheWriteTokens: null,
+					costUsdMicros: 130_000,
+					creditsCenti: 123,
+				},
+			}),
+		);
+
+		expect(html).toContain("Cost $0.13 · 1.23 credits");
+	});
+
+	it("hides conversation spend when the staff endpoint has no data", () => {
+		expect(
+			renderToStaticMarkup(
+				createElement(ConversationCost, { usage: undefined }),
+			),
+		).toBe("");
 	});
 });

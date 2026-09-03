@@ -1,20 +1,18 @@
-import { getMockOverviewSnapshot } from "../lib/mock-overview";
-import type { OverviewRange, OverviewSnapshot } from "./overview.dto";
+import {
+	adminOverviewQuerySchema,
+	adminOverviewSnapshotSchema,
+	adminRoutes,
+} from "@wandit/contracts";
 
-const MOCK_LATENCY_MS = 180;
+import { apiGet } from "@/lib/api-client";
+
+import type { OverviewQuery, OverviewSnapshot } from "./overview.dto";
 
 export async function getOverview(
-	range: OverviewRange,
+	query: OverviewQuery,
 ): Promise<OverviewSnapshot> {
-	await mockLatency();
-	return {
-		...getMockOverviewSnapshot(range),
-		generatedAt: new Date().toISOString(),
-	};
-}
+	const parsedQuery = adminOverviewQuerySchema.parse(query);
+	const payload = await apiGet<unknown>(adminRoutes.overviewStats, parsedQuery);
 
-function mockLatency() {
-	return new Promise<void>((resolve) => {
-		globalThis.setTimeout(resolve, MOCK_LATENCY_MS);
-	});
+	return adminOverviewSnapshotSchema.parse(payload);
 }

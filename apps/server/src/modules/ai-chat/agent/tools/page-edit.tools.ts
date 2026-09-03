@@ -1,12 +1,12 @@
 /**
  * The chat agent's surgical page-edit tools (V2 spec §5, contract §8):
  * get_page_outline / apply_element_ops / read_elements / read_theme /
- * read_section / replace_section. They run inline in the conversation
- * (seconds, not minutes) against the CURRENT active version; writes route
- * through the same ops pipeline as the HTTP endpoint and produce a NEW
- * immutable version.
+ * read_section / insert_section / replace_section. They run inline in the
+ * conversation (seconds, not minutes) against the CURRENT active version;
+ * writes route through the same ops pipeline as the HTTP endpoint and produce
+ * a NEW immutable version.
  *
- * One factory for all six (they share deps), mirroring generate_page's
+ * One factory for all seven (they share deps), mirroring generate_page's
  * per-request factory pattern.
  */
 import {
@@ -19,6 +19,10 @@ import {
 	type GetPageOutlineOutput,
 	getPageOutlineInputSchema,
 	getPageOutlineOutputSchema,
+	type InsertSectionInput,
+	type InsertSectionOutput,
+	insertSectionInputSchema,
+	insertSectionOutputSchema,
 	type ReadElementsInput,
 	type ReadElementsOutput,
 	type ReadSectionInput,
@@ -61,6 +65,7 @@ export type PageEditTools = {
 	read_elements: Tool<ReadElementsInput, ReadElementsOutput>;
 	read_theme: Tool<ReadThemeInput, ReadThemeOutput>;
 	read_section: Tool<ReadSectionInput, ReadSectionOutput>;
+	insert_section: Tool<InsertSectionInput, InsertSectionOutput>;
 	replace_section: Tool<ReplaceSectionInput, ReplaceSectionOutput>;
 };
 
@@ -130,15 +135,21 @@ export function createPageEditTools(deps: PageEditToolsDeps): PageEditTools {
 			description:
 				"Use for small targeted page changes: text content, image replacement " +
 				"with image-src when a final Wandit-hosted URL is known, element " +
-				"styles, link hrefs, removing an element, hosted section backgrounds " +
-				"and padding, or " +
+				"styles, link hrefs, removing an element, inserting one element inside " +
+				"an existing section or container, hosted section backgrounds and " +
+				"padding, the browser-tab page title with set-page-title, or " +
 				"theme-wide changes with set-tokens. set-tokens edits the page's 11 " +
 				":root tokens and restyles the whole page consistently. Use one op " +
-				"per user ask when possible. For restructuring one section's layout " +
-				"or content, use read_section + replace_section; for multi-section " +
-				"redesigns, use generate_page. Never introduce raw colors when a " +
-				"token fits. set-tokens values: colors are hex; radius is px, rem, " +
-				`or em; font-heading and font-body are curated font IDs: ${CURATED_FONT_IDS}.`,
+				"per user ask when possible. For one new section, use insert_section. " +
+				"For restructuring one section's layout or content, use read_section + " +
+				"replace_section; for multi-section redesigns, use generate_page. Never " +
+				"introduce raw colors when a token fits. Feature additions or removals " +
+				"require read_section + replace_section. " +
+				"set-tokens values: colors are hex; radius is px, rem, " +
+				`or em; font-heading and font-body are curated font IDs: ${CURATED_FONT_IDS}. ` +
+				"ops holds 1 to 20 ops — never send an empty list. set-link-href " +
+				"values must be absolute https/http URLs, tel:, mailto:, or a " +
+				"same-page anchor like #gallery; relative paths are rejected.",
 			inputSchema: applyElementOpsInputSchema,
 			outputSchema: applyElementOpsOutputSchema,
 			execute: async ({ ops }): Promise<ApplyElementOpsOutput> => {
@@ -272,10 +283,63 @@ export function createPageEditTools(deps: PageEditToolsDeps): PageEditTools {
 				}
 			},
 		}),
+		insert_section: tool({
+			description:
+				"Surgically insert ONE new section before or after an existing section " +
+				"(matched by data-wid). Writes a NEW page version and makes it live. " +
+				"You do not need to preserve data-wid attributes; the server stamps them. " +
+				"For interactive features, use the data-wandit-* catalog described by " +
+				"replace_section. " +
+				"For broader redesigns, use generate_page with a full brief instead.",
+			inputSchema: insertSectionInputSchema,
+			outputSchema: insertSectionOutputSchema,
+			execute: async ({
+				anchorWid,
+				html,
+				position,
+			}): Promise<InsertSectionOutput> => {
+				try {
+					const result = await deps.pageEditsService.applyAiOps(
+						deps.projectId,
+						[
+							{
+								kind: "insert-section",
+								position,
+								value: html,
+								wid: anchorWid,
+							},
+						],
+					);
+
+					if (result.status === "applied") {
+						return {
+							message: `Done — version ${result.versionNumber} is live in the Page tab.`,
+							status: "applied",
+							versionNumber: result.versionNumber,
+						};
+					}
+
+					return { message: result.message, status: result.status };
+				} catch (error) {
+					return {
+						message:
+							"The edit could not be applied: " +
+							(error instanceof Error ? error.message : String(error)),
+						status: "rejected",
+					};
+				}
+			},
+		}),
 		replace_section: tool({
 			description:
 				"Surgically replace ONE section (matched by data-wid) with new " +
-				"HTML. Writes a NEW page version and makes it live. Keep the " +
+				"HTML. Return HTML only, never JavaScript. Interactive behavior uses " +
+				"data-wandit-toast, data-wandit-carousel, data-wandit-lightbox, " +
+				"data-wandit-counter, data-wandit-phone-mask, data-wandit-confetti, " +
+				"data-wandit-countdown, data-wandit-stock-counter, or " +
+				"data-wandit-whatsapp-float marker attributes. Iframes are limited to " +
+				"HTTPS YouTube, Vimeo, or Google Maps embeds. Writes a NEW page version " +
+				"and makes it live. Keep the " +
 				"section's data-wid on the root element you return. For redesigns " +
 				"touching several sections or the overall look, use generate_page " +
 				"with a full brief instead.",
@@ -333,6 +397,10 @@ export const pageEditToolsSchemaOnly: PageEditTools = {
 	read_section: tool({
 		inputSchema: readSectionInputSchema,
 		outputSchema: readSectionOutputSchema,
+	}),
+	insert_section: tool({
+		inputSchema: insertSectionInputSchema,
+		outputSchema: insertSectionOutputSchema,
 	}),
 	replace_section: tool({
 		inputSchema: replaceSectionInputSchema,

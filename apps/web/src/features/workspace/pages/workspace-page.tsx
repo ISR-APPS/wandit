@@ -19,6 +19,8 @@ import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
+import { useDomainCheckoutReturn } from "@/features/domains/lib/use-domain-checkout-return";
+import { setSupportChatBubbleVisible } from "@/features/support";
 import { useTranslation } from "@/lib/i18n";
 import type { WorkspaceTab } from "../api/dto";
 import { AssetsTab } from "../components/assets/assets-tab";
@@ -46,6 +48,8 @@ export default function WorkspacePage({
 	projectId: string;
 	tab: WorkspaceTab;
 }) {
+	useDomainCheckoutReturn(projectId);
+
 	return (
 		<WorkspaceProvider key={projectId} projectId={projectId} tab={tab}>
 			{/* The editor and ONE AI SDK chat instance wrap both left panes. Their
@@ -73,6 +77,15 @@ function WorkspaceLayout() {
 	useEffect(() => {
 		if (tab !== "page" && mode !== "browse") requestMode("browse");
 	}, [tab, mode, requestMode]);
+
+	// On phones the chat/edit overlay fills the screen and its composer sits
+	// at the bottom, exactly where the fixed live-chat launcher renders.
+	// Hide the launcher here; the sidebar "Support" action still opens it.
+	useEffect(() => {
+		if (!isMobile) return;
+		setSupportChatBubbleVisible(false);
+		return () => setSupportChatBubbleVisible(true);
+	}, [isMobile]);
 
 	if (projectMissing) return <ProjectNotFound />;
 

@@ -21,12 +21,14 @@ import {
 	orderReturnStateFor,
 	shouldPollOrder,
 } from "@/features/billing/lib/order-return-state";
+import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
 import { subscriptionReturnStateFor } from "@/features/billing/lib/subscription-return-state";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { domainKeys } from "@/features/domains/api/domains.queries";
 import { useReconcileSession } from "@/features/orders/api/orders.mutations";
 import { useOrderQuery } from "@/features/orders/api/orders.queries";
-import { formatNumber, useTranslation } from "@/lib/i18n";
+import { formatNumber, useDictionary, useTranslation } from "@/lib/i18n";
 
 const ORDER_POLL_INTERVAL_MS = 3_000;
 const ORDER_TIMEOUT_MS = 3 * 60_000;
@@ -85,7 +87,7 @@ function TopupSuccessFlow() {
 
 	useEffect(() => {
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 	}, [queryClient]);
 
 	return (
@@ -100,6 +102,7 @@ function TopupSuccessFlow() {
 
 function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 	const { locale } = useTranslation();
+	const planPickerCopy = useDictionary().billing.planPicker;
 	const copy = getBillingReturnCopy(locale);
 	const queryClient = useQueryClient();
 	const sync = useSyncBillingSubscription();
@@ -109,7 +112,7 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 
 	useEffect(() => {
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 
 		if (syncStarted.current) {
 			return;
@@ -175,14 +178,17 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 				<dl className="grid gap-3 sm:grid-cols-2">
 					<ReturnDetail
 						label={copy.subscription.planLabel}
-						value={`${subscription.plan.toUpperCase()} · ${formatNumber(
+						value={`${getBillingPlanName(subscription.plan, planPickerCopy)} · ${formatNumber(
 							subscription.tierCredits,
 							locale,
 						)}`}
 					/>
 					<ReturnDetail
 						label={copy.subscription.creditsLabel}
-						value={formatNumber(sync.data.balance.balance, locale)}
+						value={formatCreditBalance(
+							sync.data.balance.settledBalance,
+							locale,
+						)}
 					/>
 				</dl>
 			}

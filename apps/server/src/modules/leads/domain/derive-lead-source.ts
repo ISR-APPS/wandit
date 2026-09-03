@@ -8,14 +8,42 @@
  */
 import type { LeadSource } from "@wandit/contracts";
 
-const FACEBOOK_UTM_SOURCES = new Set([
+// Exported so the leads repository's SQL source filter can be built from the
+// same lists — the derivation must behave identically in JS and in SQL.
+export const FACEBOOK_UTM_SOURCES = [
 	"facebook",
 	"fb",
 	"instagram",
 	"ig",
 	"meta",
-]);
-const TIKTOK_UTM_SOURCES = new Set(["tiktok", "tt"]);
+] as const;
+export const TIKTOK_UTM_SOURCES = ["tiktok", "tt"] as const;
+
+const FACEBOOK_UTM_SOURCE_SET = new Set<string>(FACEBOOK_UTM_SOURCES);
+const TIKTOK_UTM_SOURCE_SET = new Set<string>(TIKTOK_UTM_SOURCES);
+
+/** Campaign name cap on the wire — matches the capture-side utm limit. */
+const MAX_CAMPAIGN_LENGTH = 200;
+
+/**
+ * The human campaign label for one lead: utm_campaign as the merchant (or
+ * the agent's UTM tagging) wrote it, trimmed and capped. Null when the ad
+ * link carried no utm_campaign — click ids alone cannot name a campaign.
+ */
+export function deriveLeadCampaign(attribution: unknown): string | null {
+	if (typeof attribution !== "object" || attribution === null) {
+		return null;
+	}
+
+	const campaign = (attribution as Record<string, unknown>).utm_campaign;
+	if (typeof campaign !== "string") {
+		return null;
+	}
+
+	const trimmed = campaign.trim().slice(0, MAX_CAMPAIGN_LENGTH);
+
+	return trimmed.length > 0 ? trimmed : null;
+}
 
 export function deriveLeadSource(attribution: unknown): LeadSource {
 	if (typeof attribution !== "object" || attribution === null) {
@@ -34,10 +62,10 @@ export function deriveLeadSource(attribution: unknown): LeadSource {
 		typeof record.utm_source === "string"
 			? record.utm_source.trim().toLowerCase()
 			: "";
-	if (FACEBOOK_UTM_SOURCES.has(utmSource)) {
+	if (FACEBOOK_UTM_SOURCE_SET.has(utmSource)) {
 		return "facebook";
 	}
-	if (TIKTOK_UTM_SOURCES.has(utmSource)) {
+	if (TIKTOK_UTM_SOURCE_SET.has(utmSource)) {
 		return "tiktok";
 	}
 

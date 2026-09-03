@@ -51,6 +51,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	useArchiveAffiliateProgramMutation,
 	useCreateAffiliateProgramMutation,
@@ -74,6 +75,7 @@ import {
 const PAGE_SIZE = 12;
 
 export function ProgramsTab() {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const [page, setPage] = useState(1);
 	const [query, setQuery] = useState("");
 	const [kind, setKind] = useState<AffiliateProgramKind | "all">("all");
@@ -123,10 +125,12 @@ export function ProgramsTab() {
 						Program terms are snapshotted when a user is attributed.
 					</p>
 				</div>
-				<Button type="button" onClick={openCreate}>
-					<PlusIcon />
-					Create program
-				</Button>
+				{canManage ? (
+					<Button type="button" onClick={openCreate}>
+						<PlusIcon />
+						Create program
+					</Button>
+				) : null}
 			</div>
 
 			<div className="flex flex-col gap-2 rounded-lg border bg-background p-3 sm:flex-row">
@@ -196,10 +200,12 @@ export function ProgramsTab() {
 					title="No programs found"
 					description="Create a program or clear the filters to see program terms."
 					action={
-						<Button type="button" onClick={openCreate}>
-							<PlusIcon />
-							Create program
-						</Button>
+						canManage ? (
+							<Button type="button" onClick={openCreate}>
+								<PlusIcon />
+								Create program
+							</Button>
+						) : undefined
 					}
 				/>
 			) : (
@@ -268,31 +274,33 @@ export function ProgramsTab() {
 											<AffiliateStatusBadge status={item.program.status} />
 										</TableCell>
 										<TableCell>
-											<div className="flex justify-end gap-1">
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													onClick={() => openEdit(item)}
-												>
-													<PencilIcon />
-													<span className="sr-only">
-														Edit {item.program.name}
-													</span>
-												</Button>
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													disabled={item.program.status === "archived"}
-													onClick={() => setArchiveTarget(item)}
-												>
-													<ArchiveIcon />
-													<span className="sr-only">
-														Archive {item.program.name}
-													</span>
-												</Button>
-											</div>
+											{canManage ? (
+												<div className="flex justify-end gap-1">
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon-sm"
+														onClick={() => openEdit(item)}
+													>
+														<PencilIcon />
+														<span className="sr-only">
+															Edit {item.program.name}
+														</span>
+													</Button>
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon-sm"
+														disabled={item.program.status === "archived"}
+														onClick={() => setArchiveTarget(item)}
+													>
+														<ArchiveIcon />
+														<span className="sr-only">
+															Archive {item.program.name}
+														</span>
+													</Button>
+												</div>
+											) : null}
 										</TableCell>
 									</TableRow>
 								))}
@@ -308,14 +316,16 @@ export function ProgramsTab() {
 				</div>
 			)}
 
-			<ProgramEditorDialog
-				open={editorOpen}
-				onOpenChange={setEditorOpen}
-				item={editing}
-			/>
+			{canManage ? (
+				<ProgramEditorDialog
+					open={editorOpen}
+					onOpenChange={setEditorOpen}
+					item={editing}
+				/>
+			) : null}
 
 			<AlertDialog
-				open={Boolean(archiveTarget)}
+				open={canManage && Boolean(archiveTarget)}
 				onOpenChange={(open) => {
 					if (!open && !archiveMutation.isPending) {
 						setArchiveTarget(null);

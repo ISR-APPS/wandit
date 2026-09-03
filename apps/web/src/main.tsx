@@ -19,18 +19,18 @@ import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
 import RouteError, { ErrorScreen } from "./components/route-error";
-import { migrateLegacyPreviewPromptUrl } from "./features/projects/lib/preview-prompt";
+import { installDomTranslationGuard } from "./lib/dom-translation-guard";
 import {
 	getCurrentLocale,
 	setCurrentDictionary,
 } from "./lib/i18n/locale-store";
 import { routeTree } from "./routeTree.gen";
 
-// Replay initializes before React, so remove rollout-era prompt query params
-// synchronously while preserving the prompt in reload-safe history state.
-// Key history first so TanStack preserves that state and tracks the replacement.
+// Before any React commit: browser page translation (Chrome/Edge) rewrites
+// React's DOM and would otherwise crash the next update with NotFoundError.
+installDomTranslationGuard();
+
 const history = createBrowserHistory();
-migrateLegacyPreviewPromptUrl();
 
 const router = createRouter({
 	history,

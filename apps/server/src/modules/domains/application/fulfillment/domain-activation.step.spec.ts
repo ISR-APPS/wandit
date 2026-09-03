@@ -59,6 +59,38 @@ function setup(
 		warn: vi.fn(),
 	};
 	const dependencies = {
+		activateExternalDomain: vi.fn(
+			async (
+				_id: string,
+				statuses: Extract<
+					DomainFulfillmentRow["status"],
+					"active" | "configuring"
+				>[],
+			) => {
+				events.push(`activate-external:${statuses.join("|")}`);
+
+				if (
+					currentDomain.source !== "external" ||
+					!statuses.includes(currentDomain.status as "active" | "configuring")
+				) {
+					return null;
+				}
+
+				const dns =
+					typeof currentDomain.dns === "object" && currentDomain.dns !== null
+						? { ...(currentDomain.dns as Record<string, unknown>) }
+						: {};
+				delete dns.externalVerification;
+				currentDomain = {
+					...currentDomain,
+					dns,
+					error: null,
+					status: "active",
+				};
+
+				return currentDomain;
+			},
+		),
 		deleteCustomHostname: vi.fn(async (id: string) => {
 			events.push(`delete-hostname:${id}`);
 		}),
@@ -168,6 +200,87 @@ describe("DomainActivationStep", () => {
 		);
 		expect(fixture.domain).toMatchObject({ error: null, status: "active" });
 		expect(fixture.order.status).toBe("fulfilled");
+	});
+
+	it("clears a stalled external marker as part of activation", async () => {
+		const fixture = setup(
+			domain("configuring", {
+				dns: {
+					externalVerification: {
+						attempts: 101,
+						stalledAt: "2026-08-02T00:00:30.000Z",
+					},
+					records: [],
+					triggerConfiguration: {
+						nextAttempt: 100,
+						nextProbeAt: null,
+						nonce: "manual:private",
+					},
+				},
+				paymentOrderId: null,
+				provider: null,
+				source: "external",
+			}),
+		);
+
+		await expect(fixture.step.execute(fixture.domain)).resolves.toMatchObject({
+			processed: true,
+			status: "active",
+		});
+
+		expect(fixture.domain.dns).toMatchObject({
+			records: [],
+			triggerConfiguration: {
+				nextAttempt: 100,
+				nonce: "manual:private",
+			},
+		});
+		expect(fixture.domain.dns).not.toHaveProperty("externalVerification");
+		expect(fixture.events).toContain("activate-external:configuring");
+	});
+
+	it("preserves a newer external cursor while activation clears the warning", async () => {
+		const fixture = setup(
+			domain("configuring", {
+				dns: {
+					externalVerification: {
+						attempts: 101,
+						stalledAt: "2026-08-02T00:00:30.000Z",
+					},
+					records: [],
+					triggerConfiguration: {
+						nextAttempt: 100,
+						nextProbeAt: null,
+						nonce: "old-run",
+					},
+				},
+				paymentOrderId: null,
+				provider: null,
+				source: "external",
+			}),
+		);
+		const staleRow = fixture.domain;
+		fixture.setDomain({
+			...fixture.domain,
+			dns: {
+				...(fixture.domain.dns as Record<string, unknown>),
+				triggerConfiguration: {
+					nextAttempt: 3,
+					nextProbeAt: "2026-08-02T00:10:00.000Z",
+					nonce: "new-run",
+				},
+			},
+		});
+
+		await expect(fixture.step.execute(staleRow)).resolves.toMatchObject({
+			processed: true,
+			status: "active",
+		});
+
+		expect(fixture.domain.dns).toMatchObject({
+			triggerConfiguration: { nextAttempt: 3, nonce: "new-run" },
+		});
+		expect(fixture.domain.dns).not.toHaveProperty("externalVerification");
 	});
 
 	it("never attempts the activation CAS when publishing the pointer fails", async () => {
@@ -317,6 +430,30 @@ describe("DomainActivationStep", () => {
 		});
 		expect(fixture.dependencies.putDomainPointer).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFulfilled).not.toHaveBeenCalled();
+	});
+
+	it("deletes the apex custom hostname next to the www hostname when cleaning a failed row", async () => {
+		const fixture = setup(
+			domain("failed", {
+				dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex" },
+			}),
+		);
+
+		await expect(fixture.step.execute(fixture.domain)).resolves.toEqual({
+			processed: false,
+			reason: "state_changed",
+		});
+
+		expect(fixture.events).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-hostname:cf_apex",
+			"delete-pointer:example.com",
+			"cas:failed:same",
+		]);
+		expect(fixture.domain).toMatchObject({
+			cfCustomHostnameId: null,
+			dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex" },
+		});
 	});
 
 	it("does not reactivate an already-failed delivery and tolerates cleanup failure", async () => {

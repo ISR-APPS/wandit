@@ -1,5 +1,8 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+	type AiErrorKind,
+	aiErrorKindSchema,
+	aiErrorSourceSchema,
 	generateImagePlacementSchema,
 	type ImageGenerationAttempt,
 } from "@wandit/contracts";
@@ -7,10 +10,6 @@ import { and, eq, lt } from "@wandit/db";
 import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-attempts";
 import { env } from "@wandit/env/server";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
-import {
-	meteringSubjectFrom,
-	type ProjectScope,
-} from "../../../projects/domain/project-scope";
 import {
 	captureGenerationCompleted,
 	captureGenerationFailed,
@@ -21,18 +20,27 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 import {
 	getObjectBytes,
-	getObjectContentType,
-	imageGenerationKey,
 	publicAssetKeyFromUrl,
-	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import {
 	type ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
 import { createImageGenerationBilling } from "./image-generation-billing";
 import { ImageGenerationPlacementService } from "./image-generation-placement.service";
+import { createStoredImagesRecovery } from "./stored-images-recovery";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -40,6 +48,7 @@ const STALE_GENERATION_ERROR =
 	"The images did not finish. Please try generating them again.";
 const STALE_QUEUED_ERROR =
 	"The image request did not reach the background generator. Please try again.";
+const recoverStoredImages = createStoredImagesRecovery();
 
 const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"image/jpeg": "jpg",
@@ -61,6 +70,8 @@ export class ImageGenerationsService {
 		@Inject(DATABASE) private readonly db: Database,
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEventsService: LifecycleEventsService,
 	) {}
 
 	async attempt(
@@ -151,7 +162,15 @@ export class ImageGenerationsService {
 			throw new NotFoundException();
 		}
 
-		const image = row.images[index - 1];
+		// Indexed rows use their stable generation slots strictly so a missing
+		// slot cannot serve a different image. Only legacy unindexed rows use
+		// their rendered array position.
+		const hasIndexedImages = row.images.some(
+			(candidate) => candidate.index !== undefined,
+		);
+		const image = hasIndexedImages
+			? row.images.find((candidate) => candidate.index === index)
+			: row.images[index - 1];
 
 		if (!image) {
 			throw new NotFoundException();
@@ -204,9 +223,10 @@ export class ImageGenerationsService {
 			return false;
 		}
 
-		const recovered = await this.recoverStoredImages(row);
+		const recovered = await recoverStoredImages(row);
 
 		if (recovered) {
+			const actorUserId = await this.recoveryActorUserId(row, scope);
 			// The deterministic upload proves provider work completed. Repair the
 			// existing hold before publishing success; lookup avoids inventing an
 			// unknown parent relationship for legacy/billing-off rows.
@@ -215,26 +235,45 @@ export class ImageGenerationsService {
 				meteringService: this.meteringService,
 			}).settleExisting(meteringSubjectFrom(scope), row.id, recovered.length);
 
-			const [completed] = await this.db
-				.update(imageGenerationAttempts)
-				.set({
-					completedAt: new Date(),
-					error: null,
-					images: recovered,
-					status: "succeeded",
-				})
-				.where(
-					and(
-						eq(imageGenerationAttempts.id, row.id),
-						eq(imageGenerationAttempts.status, "generating"),
-					),
-				)
-				.returning({ projectId: imageGenerationAttempts.projectId });
+			const completed = await this.db.transaction(async (tx) => {
+				const [updated] = await tx
+					.update(imageGenerationAttempts)
+					.set({
+						completedAt: new Date(),
+						error: null,
+						images: recovered,
+						status: "succeeded",
+					})
+					.where(
+						and(
+							eq(imageGenerationAttempts.id, row.id),
+							eq(imageGenerationAttempts.status, "generating"),
+						),
+					)
+					.returning({ projectId: imageGenerationAttempts.projectId });
 
-			if (completed) {
+				if (!updated) {
+					return null;
+				}
+
+				if (actorUserId) {
+					await this.lifecycleEventsService.enqueue(
+						{
+							event: "image_generated",
+							idempotencyKey: `image_generated:${actorUserId}`,
+							userId: actorUserId,
+						},
+						tx,
+					);
+				}
+
+				return updated;
+			});
+
+			if (completed && actorUserId) {
 				captureGenerationCompleted(
 					this.analyticsService,
-					scope.userId,
+					actorUserId,
 					"image",
 					completed.projectId,
 					row.id,
@@ -244,11 +283,26 @@ export class ImageGenerationsService {
 			return true;
 		}
 
+		const staleError = new Error("Image generation became stale");
+		const classified = classifyAiError(staleError, {
+			refunded: true,
+			route: "none",
+			surface: "image",
+		});
+		if (!classified) {
+			throw new Error("Stale image failure classification returned no result");
+		}
 		const [failed] = await this.db
 			.update(imageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: STALE_GENERATION_ERROR,
+				failureKind: classified.kind,
+				failureProvider: classified.provider,
+				failureProviderMessage: classified.providerMessage,
+				failureRequestId: classified.requestId,
+				failureSource: classified.source,
+				sentryEventId: null,
 				status: "failed",
 			})
 			.where(
@@ -261,6 +315,25 @@ export class ImageGenerationsService {
 			.returning({ projectId: imageGenerationAttempts.projectId });
 
 		if (failed) {
+			const sentryEventId = captureAiError(staleError, classified, {
+				generationId: row.id,
+				projectId: row.projectId,
+				refunded: true,
+				route: "none",
+				surface: "image",
+				userId: scope.userId,
+			});
+			if (sentryEventId) {
+				await this.db
+					.update(imageGenerationAttempts)
+					.set({ sentryEventId })
+					.where(
+						and(
+							eq(imageGenerationAttempts.id, row.id),
+							eq(imageGenerationAttempts.status, "failed"),
+						),
+					);
+			}
 			captureGenerationFailed(
 				this.analyticsService,
 				scope.userId,
@@ -274,49 +347,43 @@ export class ImageGenerationsService {
 		return true;
 	}
 
-	private async recoverStoredImages(
+	private async recoveryActorUserId(
 		row: ImageGenerationAttemptRow,
-	): Promise<{ mediaType: string; url: string }[] | null> {
-		const images: { mediaType: string; url: string }[] = [];
+		scope: ProjectScope,
+	): Promise<string | null> {
+		const snapshotActor = actorUserIdFromAttemptSpec(row.spec);
 
-		for (let index = 1; index <= row.count; index += 1) {
-			let found: { mediaType: string; url: string } | null = null;
-
-			for (const candidate of [
-				{ extension: "png", mediaType: "image/png" },
-				{ extension: "jpg", mediaType: "image/jpeg" },
-				{ extension: "webp", mediaType: "image/webp" },
-			] as const) {
-				const key = imageGenerationKey(
-					row.projectId,
-					row.id,
-					index,
-					candidate.extension,
-				);
-				const storedMediaType = await getObjectContentType(key);
-
-				if (!storedMediaType) {
-					continue;
-				}
-
-				found = {
-					mediaType: storedMediaType.startsWith("image/")
-						? storedMediaType
-						: candidate.mediaType,
-					url: publicAssetUrl(key),
-				};
-				break;
-			}
-
-			if (!found) {
-				break;
-			}
-
-			images.push(found);
+		if (snapshotActor) {
+			return snapshotActor;
 		}
 
-		return images.length > 0 ? images : null;
+		// Pre-snapshot metered attempts retain the original queue actor on their
+		// attempt-keyed usage event. Org lookup is payer-scoped, so another member
+		// may safely perform recovery without replacing that actor.
+		const usageEvent = await this.meteringService.findByIdempotencyKey(
+			`image:${row.id}`,
+			meteringSubjectFrom(scope),
+		);
+
+		if (usageEvent) {
+			return usageEvent.userId;
+		}
+
+		// Personal attempts have only one authorized actor, so the polling scope is
+		// a safe legacy fallback. A pre-snapshot org attempt admitted with billing
+		// off has no recoverable actor; settle it without emitting a false milestone.
+		return scope.kind === "personal" ? scope.userId : null;
 	}
+}
+
+function actorUserIdFromAttemptSpec(
+	spec: Record<string, unknown> | null,
+): string | null {
+	const actorUserId = spec?.actorUserId;
+
+	return typeof actorUserId === "string" && actorUserId.length > 0
+		? actorUserId
+		: null;
 }
 
 function sanitizeFileName(title: string): string {
@@ -337,6 +404,7 @@ function mapAttemptRow(row: ImageGenerationAttemptRow): ImageGenerationAttempt {
 		count: row.count,
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,
+		failure: mapFailure(row),
 		id: row.id,
 		images: row.images,
 		placement: mapPlacementStatus(row.spec, row.status),
@@ -345,6 +413,91 @@ function mapAttemptRow(row: ImageGenerationAttemptRow): ImageGenerationAttempt {
 		status: row.status,
 		title: row.title,
 	};
+}
+
+function mapFailure(
+	row: ImageGenerationAttemptRow,
+): ImageGenerationAttempt["failure"] {
+	const kindResult = aiErrorKindSchema.safeParse(row.failureKind);
+	const sourceResult = aiErrorSourceSchema.safeParse(row.failureSource);
+	if (!kindResult.success || !sourceResult.success) return null;
+
+	const kind = kindResult.data;
+	const provider = row.failureProvider;
+	const normalized: NormalizedAiError = {
+		gatewayGenerationId:
+			sourceResult.data === "gateway" ? row.failureRequestId : null,
+		kind,
+		model: null,
+		moderationStage:
+			kind === "content_moderated"
+				? provider === "google"
+					? "output"
+					: "input"
+				: null,
+		openrouterGenerationId: null,
+		provider,
+		providerLabel: imageProviderLabel(provider),
+		providerMessage: row.failureProviderMessage,
+		raw: {
+			cause: null,
+			message: row.error ?? "",
+			name: null,
+			providerAttempts: null,
+			responseBody: null,
+		},
+		refunded:
+			row.status === "succeeded"
+				? false
+				: sourceResult.data === "ours"
+					? null
+					: row.failureRequestId === null,
+		requestId: row.failureRequestId,
+		retryable: retryableImageFailure(kind),
+		sentryEventId: row.sentryEventId,
+		source: sourceResult.data,
+		statusCode: null,
+		terminal: true,
+		userMessage: {
+			key: `errors.ai.${kind}`,
+			params: {},
+		},
+	};
+
+	return toClientAiError(normalized);
+}
+
+function retryableImageFailure(kind: AiErrorKind): boolean {
+	return !new Set<AiErrorKind>([
+		"auth_config",
+		"billing",
+		"cancelled",
+		"connector_account",
+		"connector_unreachable",
+		"content_moderated",
+		"invalid_request",
+		"model_not_found",
+	]).has(kind);
+}
+
+function imageProviderLabel(provider: string | null): string | null {
+	if (!provider) return null;
+	return (
+		{
+			anthropic: "Anthropic",
+			bytedance: "ByteDance",
+			google: "Google",
+			klingai: "Kling",
+			openai: "OpenAI",
+			xai: "xAI",
+		}[provider] ??
+		provider
+			.split(/[-_]/u)
+			.filter(Boolean)
+			.map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+			.join(" ")
+			.slice(0, 40)
+	);
 }
 
 function mapPlacementStatus(

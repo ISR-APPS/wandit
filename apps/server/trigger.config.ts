@@ -1,6 +1,7 @@
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
 import { esbuildPlugin } from "@trigger.dev/build/extensions";
+import { ffmpeg } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 
 /**
@@ -64,6 +65,9 @@ export default defineConfig({
 	// browser binaries relative to its own package) — never bundle it.
 	build: {
 		extensions: [
+			// Installs ffmpeg + ffprobe in the deployed worker image and exposes
+			// their paths through FFMPEG_PATH / FFPROBE_PATH. Local dev uses PATH.
+			ffmpeg(),
 			playwrightChromium(),
 			// Uploads source maps to Sentry on `trigger.dev deploy` so task
 			// stack traces map to TS sources. No-op without SENTRY_AUTH_TOKEN
@@ -78,6 +82,9 @@ export default defineConfig({
 				{ placement: "last", target: "deploy" },
 			),
 		],
-		external: ["playwright"],
+		// sharp stays external too: 0.35 moved its entry to dist/index.cjs and
+		// the bundler's copied-node_modules resolution can't find it; externals
+		// are installed from package.json in dev and deploy instead.
+		external: ["playwright", "sharp"],
 	},
 });

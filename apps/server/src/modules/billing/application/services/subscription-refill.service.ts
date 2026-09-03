@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { ownerFromIds } from "../../../credits/domain/credit-owner";
+import { FinancialReconciliationOutboxRepository } from "../../infrastructure/persistence/financial-reconciliation-outbox.repository";
 import {
 	type InsertRefillSlot,
 	type SubscriptionCreditRow,
@@ -17,6 +18,11 @@ export type RefillFundingReferences = {
 };
 
 export type YearlySlotPlan = {
+	/**
+	 * UNIT: integer centi-credits. Callers convert the whole-credit tier x100
+	 * (subscription-credits.service allotment) before building the plan; slot
+	 * rows store centi-credits and flow into applyCappedRefill unchanged.
+	 */
 	credits: number;
 	funding: RefillFundingReferences;
 	grantDueThrough?: Date;
@@ -31,6 +37,12 @@ export type SubscriptionRefillSweepResult = {
 	skipped: number;
 };
 
+export type DueSlotGrantResult = {
+	/** Distinct funding charges of the claimed slots, for post-commit reconciliation. */
+	fundingChargeIds: string[];
+	granted: number;
+};
+
 @Injectable()
 export class SubscriptionRefillService {
 	private readonly logger = new Logger(SubscriptionRefillService.name);
@@ -42,35 +54,46 @@ export class SubscriptionRefillService {
 		private readonly creditsService: CreditsService,
 		@Inject(PaymentRefundsService)
 		private readonly paymentRefundsService: PaymentRefundsService,
+		@Inject(FinancialReconciliationOutboxRepository)
+		private readonly reconciliationOutbox: FinancialReconciliationOutboxRepository,
 	) {}
 
+	/**
+	 * Grants the slots already due, cancels the rest as `replaced` by the new
+	 * invoice, and plans the new invoice's slots. Returns the funding charges
+	 * of the slots granted on the way so the caller reconciles each of them
+	 * after commit (a claimed slot's charge can differ from the invoice's).
+	 */
 	async replacePendingYearlySlots(
 		plan: YearlySlotPlan,
 		transaction: SubscriptionCreditsTransaction,
-	): Promise<number> {
-		await this.grantDuePendingSlots(
+	): Promise<DueSlotGrantResult> {
+		const due = await this.grantDuePendingSlots(
 			plan.subscription,
 			plan.grantDueThrough ?? plan.remainingAfter,
 			transaction,
 		);
 		await this.repository.cancelPendingSlotsForSubscription(
 			plan.subscription.id,
+			{ reason: "replaced", supersededByInvoiceId: plan.funding.invoiceId },
 			transaction,
 		);
+		await this.createYearlySlots(plan, transaction);
 
-		return this.createYearlySlots(plan, transaction);
+		return due;
 	}
 
 	async grantDuePendingSlots(
 		subscription: SubscriptionCreditRow,
 		dueThrough: Date,
 		transaction: SubscriptionCreditsTransaction,
-	): Promise<number> {
+	): Promise<DueSlotGrantResult> {
 		const dueSlots = await this.repository.findDuePendingSlotsForSubscription(
 			subscription.id,
 			dueThrough,
 			transaction,
 		);
+		const fundingChargeIds = new Set<string>();
 		let granted = 0;
 
 		for (const slot of dueSlots) {
@@ -106,9 +129,20 @@ export class SubscriptionRefillService {
 				transaction,
 			);
 			granted += 1;
+
+			if (claimed.fundingChargeId) {
+				fundingChargeIds.add(claimed.fundingChargeId);
+				await this.reconciliationOutbox.enqueue(
+					{
+						chargeId: claimed.fundingChargeId,
+						triggerRef: `slot:${claimed.id}`,
+					},
+					transaction,
+				);
+			}
 		}
 
-		return granted;
+		return { fundingChargeIds: [...fundingChargeIds], granted };
 	}
 
 	async createYearlySlots(
@@ -215,7 +249,11 @@ export class SubscriptionRefillService {
 				);
 
 				if (!canonical || canonical.id !== current.subscription.id) {
-					await this.repository.cancelPendingSlot(slotId, tx);
+					await this.repository.cancelPendingSlot(
+						slotId,
+						{ reason: "ownership" },
+						tx,
+					);
 
 					return "canceled" as const;
 				}
@@ -249,16 +287,25 @@ export class SubscriptionRefillService {
 					tx,
 				);
 
+				if (claimed.fundingChargeId) {
+					await this.reconciliationOutbox.enqueue(
+						{ chargeId: claimed.fundingChargeId, triggerRef: `slot:${slotId}` },
+						tx,
+					);
+				}
+
 				return "granted" as const;
 			},
 		);
 
 		// Re-read Stripe only after the slot and ledger commit. A refund/dispute
-		// racing this grant is then reconciled from fresh charge state.
+		// racing this grant is then reconciled from fresh charge state. The
+		// outbox row enqueued in the transaction covers a crash before this.
 		if (outcome === "granted" && fundingChargeId) {
 			await this.paymentRefundsService.reconcileChargeAfterGrant(
 				fundingChargeId,
 			);
+			await this.reconciliationOutbox.markDoneForCharge(fundingChargeId);
 		}
 
 		return outcome;

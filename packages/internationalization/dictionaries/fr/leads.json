@@ -2,6 +2,14 @@
 	"title": "Leads",
 	"searchPlaceholder": "Rechercher un nom ou un téléphone…",
 	"filterAll": "Tous les statuts",
+	"filterActive": "Actifs",
+	"filterArchived": "Archivés",
+	"filterAllLeads": "Tous les leads",
+	"allDates": "Toutes les dates",
+	"dateToday": "Aujourd'hui",
+	"dateLast7Days": "7 derniers jours",
+	"dateLast30Days": "30 derniers jours",
+	"datePickDay": "Choisir un jour",
 	"exportCsv": "Exporter en CSV",
 	"exportedToast": {
 		"zero": "{count} lead exporté",
@@ -20,14 +28,21 @@
 	"colPhone": "Téléphone",
 	"colLocation": "Wilaya / Commune",
 	"colDate": "Date",
+	"colSku": "SKU",
 	"colStatus": "Statut",
+	"colSource": "Source",
+	"colActions": "Actions",
 	"call": "Appeler",
 	"whatsapp": "WhatsApp",
+	"archive": "Archiver",
+	"unarchive": "Désarchiver",
+	"archivedToast": "{name} archivé",
+	"unarchivedToast": "{name} restauré",
 	"emptyTitle": "Aucun lead",
 	"emptyBody": "Publie ta page pour commencer à collecter des commandes.",
 	"emptyCta": "Ouvrir les réglages de publication",
 	"noResultsTitle": "Aucun lead correspondant",
-	"noResultsBody": "Essaie une autre recherche ou efface le filtre de statut.",
+	"noResultsBody": "Essaie une autre recherche ou efface les filtres.",
 	"clearFilters": "Effacer les filtres",
 	"statusUpdated": "{name} → {status}",
 	"pageInfo": "{from}–{to} sur {total}",
@@ -40,6 +55,7 @@
 		"syncNow": "Synchroniser",
 		"open": "Ouvrir la feuille",
 		"lastSynced": "Dernière synchro {time}",
+		"autoSync": "Synchronisation automatique toutes les {minutes} min",
 		"syncedToast": {
 			"zero": "{count} lead synchronisé",
 			"one": "{count} lead synchronisé",
@@ -49,6 +65,10 @@
 			"other": "{count} leads synchronisés"
 		},
 		"errorToast": "Échec de la synchronisation Google Sheets. Réessaie."
+	},
+	"codPilotSync": {
+		"sync": "Synchroniser COD Pilot",
+		"comingSoon": "Synchronisation COD Pilot — bientôt disponible"
 	},
 	"status": {
 		"to_confirm": "À confirmer",
@@ -65,6 +85,26 @@
 		"Commune",
 		"Statut",
 		"Source",
-		"Date"
-	]
+		"Campagne",
+		"Date",
+		"SKU"
+	],
+	"csvOrderHeaders": ["Produit", "Quantité", "Prix", "Livraison", "Total"],
+	"orderTotal": "Total",
+	"source": {
+		"facebook": "Facebook",
+		"tiktok": "TikTok",
+		"direct": "Direct"
+	},
+	"campaignTooltip": "Campagne : {campaign}",
+	"metaTitle": "Leads — Wandit",
+	"subtitle": "Toutes les commandes capturées dans tes projets.",
+	"colProject": "Projet",
+	"allProjects": "Tous les projets",
+	"allSources": "Toutes les sources",
+	"dashEmptyTitle": "Aucun lead",
+	"dashEmptyBody": "Publie une page et chaque commande capturée arrivera ici, pour tous tes projets.",
+	"loadError": "Impossible de charger tes leads.",
+	"retry": "Réessayer",
+	"noResultsBodyFilters": "Essaie une autre recherche ou efface les filtres."
 }

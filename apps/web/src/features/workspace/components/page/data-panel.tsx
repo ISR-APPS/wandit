@@ -78,6 +78,8 @@ const HOME_HREFS = new Set(["#", "#hero", "/", "./"]);
 const CTA_TEXT_RE =
 	/^(home|menu|about|services?|contact|shop|book|start|get started|learn more|discover|order now|buy now|accueil|menu|à propos|services?|contact|boutique|réserver|commander|acheter|الرئيسية|القائمة|من نحن|الخدمات|اتصل|احجز|اطلب الآن|اشتر الآن)$/i;
 const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/avif";
+/** Mirrors the set-page-title contract bound — the op is rejected past it. */
+const PAGE_TITLE_MAX_LENGTH = 120;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -327,6 +329,80 @@ export function availableBrandTargets(
 ): BrandTarget[] {
 	const removed = new Set(pendingRemovals);
 	return targets.filter((target) => !removed.has(target.wid));
+}
+
+/** Apply is live only for a non-empty title that actually CHANGES the
+ *  effective value (the saved HTML's title, overlaid by any pending edit).
+ *  The op trims too, so a pure whitespace change is never a change. */
+export function canApplyPageTitle(draft: string, effective: string): boolean {
+	const trimmed = draft.trim();
+	return trimmed !== "" && trimmed !== effective;
+}
+
+/** Browser-tab title. Head-level like the theme tokens: no wid, no live
+ *  preview (an iframe's document.title is invisible) — the field's effective
+ *  value IS the feedback until Save writes the new version. */
+function PageTitleCard({ html }: { html: string }) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	// Draft null = show the effective value; applying drops it rather than
+	// letting it dangle over the value the editor now holds.
+	const [draft, setDraft] = useState<string | null>(null);
+	const baseTitle = useMemo(
+		() =>
+			html ? new DOMParser().parseFromString(html, "text/html").title : "",
+		[html],
+	);
+	const effective = editor.pendingPageTitle ?? baseTitle;
+	// A Discard, a save, or a foreign version can change the effective title
+	// while the panel stays mounted; a dangling draft would then mask the real
+	// value as if it were saved data — drop it and show reality.
+	const [seenEffective, setSeenEffective] = useState(effective);
+	if (seenEffective !== effective) {
+		setSeenEffective(effective);
+		setDraft(null);
+	}
+	const value = draft ?? effective;
+	const canApply = canApplyPageTitle(value, effective);
+
+	const apply = () => {
+		if (!canApply) return;
+		editor.applyPageTitle(value.trim());
+		setDraft(null);
+	};
+
+	return (
+		<div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2.5">
+			<div className="min-w-0">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.dataPageTitle")}
+				</span>
+				<p className="text-[10px] text-muted-foreground/80">
+					{t("workspace.page.editor.dataPageTitleHint")}
+				</p>
+			</div>
+			<div className="flex items-center gap-1.5">
+				<Input
+					value={value}
+					maxLength={PAGE_TITLE_MAX_LENGTH}
+					aria-label={t("workspace.page.editor.dataPageTitle")}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") apply();
+					}}
+					className="h-7 min-w-0 flex-1 px-2 text-xs"
+				/>
+				<Button
+					size="sm"
+					className="h-7 shrink-0"
+					disabled={!canApply}
+					onClick={apply}
+				>
+					{t("workspace.page.editor.dataApply")}
+				</Button>
+			</div>
+		</div>
+	);
 }
 
 function BrandCard({ html }: { html: string }) {
@@ -622,6 +698,7 @@ export function DataPanel({ html }: { html: string }) {
 					{t("workspace.page.editor.dataHint")}
 				</p>
 			</header>
+			<PageTitleCard html={html} />
 			<BrandCard html={html} />
 
 			{sections.length === 0 ? (

@@ -110,7 +110,7 @@ Photography or photoreal renders · thin/didone/high-contrast serifs · ANY ital
 ## Intensity
 This world lives or dies on THREE things at 100%: the DRAWN SCENES (a MATIÈRE page with weak or missing miniatures is a beige template — the scenes are the photography budget spent in code), the MATIÉRIAUTHÈQUE actually retinting the world, and the ARCH DISCIPLINE (one straying sharp-cornered frame breaks the spell). The grain, the arch pills, the provenance captions and the brass rationing cost almost nothing and are what separate this from a generated page. When in doubt, add another lamp glow inside a drawing — warmth is this world's voltage.`,
 	energy: "medium",
-	// fusesWith: ["calque"],
+	family: "matiere",
 	id: "matiere",
 	industries: [
 		"interior-design",
@@ -132,6 +132,13 @@ This world lives or dies on THREE things at 100%: the DRAWN SCENES (a MATIÈRE p
 	kind: "website",
 	mood: ["warm", "tactile", "sunlit", "artisanal", "generous"],
 	name: "Matière",
+	preview: {
+		ground: "#EDE0D2",
+		ink: "#2A1B10",
+		accent: "#B8552F",
+		fontFamily: "Young Serif",
+		sampleWord: "La matière",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A sun-warmed wall of materials: arches as the only geometry, rooms painted as CSS/SVG miniatures with light glowing inside them, a chunky serif that never whispers, and a cabinet of drawn material samples that re-tints the whole page when touched — the warmth of a real atelier, zero photography.",

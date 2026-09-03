@@ -27,9 +27,19 @@ import {
 import type { AdminCreditLedgerEntry } from "@/features/users/api/users.dto";
 import {
 	formatAdminDateTime,
-	formatWholeNumber,
+	formatUsdMicros,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount } from "@/lib/credit-format";
 import { cn } from "@/lib/utils";
+
+const costProvenanceTitle: Record<
+	NonNullable<AdminCreditLedgerEntry["aiCostProvenance"]>,
+	string
+> = {
+	contract: "Catalog price snapshotted at settlement",
+	estimate: "Reservation estimate, not yet reconciled",
+	measured: "Reconciled from the gateway's actual charge",
+};
 
 import { DetailPagination } from "./detail-pagination";
 import { titleCase } from "./user-detail-helpers";
@@ -94,6 +104,8 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 						<TableHead>Kind</TableHead>
 						<TableHead>Bucket</TableHead>
 						<TableHead>Reason</TableHead>
+						<TableHead>Model</TableHead>
+						<TableHead className="text-right">AI cost</TableHead>
 						<TableHead className="pr-6 text-right">Delta</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -123,6 +135,50 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 										<span className="text-muted-foreground">—</span>
 									)}
 								</TableCell>
+								<TableCell>
+									{entry.aiModel ? (
+										<span
+											className="block max-w-48 truncate"
+											title={
+												entry.aiProvider
+													? `${entry.aiModel} · ${entry.aiProvider}`
+													: entry.aiModel
+											}
+										>
+											{entry.aiModel}
+										</span>
+									) : (
+										<span className="text-muted-foreground">—</span>
+									)}
+								</TableCell>
+								<TableCell
+									className="text-right tabular-nums"
+									// Reserve + settle rows of one operation share the SAME
+									// operation-total cost — the figure is per operation, not
+									// per row.
+									title={
+										entry.aiCostUsdMicros === null
+											? undefined
+											: "Actual provider cost of the linked operation"
+									}
+								>
+									{entry.aiCostUsdMicros === null ? (
+										<span className="text-muted-foreground">—</span>
+									) : (
+										<span className="inline-flex items-center justify-end gap-1.5">
+											{formatUsdMicros(entry.aiCostUsdMicros)}
+											{entry.aiCostProvenance ? (
+												<Badge
+													variant="outline"
+													className="px-1.5 py-0 font-normal text-[10px] text-muted-foreground"
+													title={costProvenanceTitle[entry.aiCostProvenance]}
+												>
+													{entry.aiCostProvenance}
+												</Badge>
+											) : null}
+										</span>
+									)}
+								</TableCell>
 								<TableCell
 									className={cn(
 										"pr-6 text-right font-medium tabular-nums",
@@ -130,7 +186,7 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 									)}
 								>
 									{entry.delta > 0 ? "+" : ""}
-									{formatWholeNumber(entry.delta)}
+									{formatCreditAmount(entry.delta)}
 								</TableCell>
 							</TableRow>
 						);

@@ -26,12 +26,19 @@ const imageGenerationQueue = queue({
  */
 export const generateImageTask = schemaTask({
 	id: "generate-image",
-	maxDuration: 420,
+	// Up to MAX_IMAGES_PER_GENERATION (6) calls in waves of
+	// IMAGE_GENERATION_CONCURRENCY (2), each bounded by the 2-minute provider
+	// timeout: three worst-case waves plus uploads must fit.
+	maxDuration: 600,
 	queue: imageGenerationQueue,
+	// The retry budget must outlast IMAGE_GENERATION_STALE_GENERATING_MS (14
+	// min): a run that keeps finding the row "generating" throws a pending
+	// settlement error until that window has passed, and only then settles or
+	// refunds. 5+10+20+40+80+6x120 s of backoff is about 14.6 min.
 	retry: {
 		factor: 2,
 		maxAttempts: 12,
-		maxTimeoutInMs: 60_000,
+		maxTimeoutInMs: 120_000,
 		minTimeoutInMs: 5_000,
 		randomize: true,
 	},
@@ -41,6 +48,7 @@ export const generateImageTask = schemaTask({
 	ttl: "25m",
 	run: async (payload, { ctx, signal }) => {
 		const db = createDb();
+		const runtime = createImageGenerationRuntime(db, triggerAnalytics);
 
 		try {
 			metadata
@@ -48,7 +56,6 @@ export const generateImageTask = schemaTask({
 				.set("projectId", payload.projectId)
 				.set("stage", "settling");
 
-			const runtime = createImageGenerationRuntime(db, triggerAnalytics);
 			const result = await runImageGeneration(payload, {
 				dependencies: runtime.runner,
 				runId: ctx.run.id,
@@ -65,6 +72,9 @@ export const generateImageTask = schemaTask({
 
 			return result;
 		} finally {
+			// Deferred renditions are best-effort but must be observed before the
+			// Trigger worker exits; the primary URLs are already durable/visible.
+			await runtime.flushDeferredWork();
 			await db.$client.end();
 		}
 	},

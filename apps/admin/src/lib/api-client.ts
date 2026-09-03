@@ -34,6 +34,10 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 	return request<T>(path, { method: "POST", body });
 }
 
+export function apiPut<T>(path: string, body?: unknown): Promise<T> {
+	return request<T>(path, { method: "PUT", body });
+}
+
 export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 	return request<T>(path, { method: "PATCH", body });
 }
@@ -65,7 +69,7 @@ export async function apiGetRaw(
 }
 
 type RequestOptions = {
-	method: "GET" | "POST" | "PATCH" | "DELETE";
+	method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	body?: unknown;
 	params?: ApiQueryParams;
 	accept?: string;
@@ -73,6 +77,10 @@ type RequestOptions = {
 
 async function request<T>(path: string, options: RequestOptions): Promise<T> {
 	const response = await fetchResponse(path, options);
+
+	if (response.status === 204) {
+		return undefined as T;
+	}
 
 	const payload = await parseJson(response);
 
@@ -103,7 +111,7 @@ async function fetchResponse(
 	}
 
 	try {
-		return await fetch(buildUrl(path, params), {
+		return await fetch(buildApiUrl(path, params), {
 			method,
 			headers,
 			body: isWrite ? JSON.stringify(body ?? {}) : undefined,
@@ -121,7 +129,7 @@ async function fetchResponse(
 	}
 }
 
-function buildUrl(path: string, params?: ApiQueryParams): string {
+export function buildApiUrl(path: string, params?: ApiQueryParams): string {
 	const url = `${getServerUrl()}${path}`;
 
 	if (!params) {

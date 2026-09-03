@@ -16,6 +16,7 @@
 // as the request-tray chrome); they move to the dictionary later.
 
 import { useQueryClient } from "@tanstack/react-query";
+import type { PageBuildFailureCode } from "@wandit/contracts";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -36,10 +37,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useVersionHtmlQuery } from "../../api/pages.queries";
 import { useAiChatControls } from "../../lib/ai-chat-context";
+import { buildFailureCopy } from "../../lib/build-failure-copy";
 import { shouldShowSaveBar } from "../../lib/page-editor-state";
 import { injectPreviewEditor } from "../../lib/preview-editor/inject";
 import {
@@ -363,7 +365,9 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	} = useWorkspace();
 	const attempt = pageOverview?.latestAttempt ?? null;
 	const terminalAttemptId =
-		attempt?.status === "succeeded" || attempt?.status === "failed"
+		attempt?.status === "succeeded" ||
+		attempt?.status === "failed" ||
+		attempt?.status === "canceled"
 			? attempt.id
 			: null;
 	const editor = usePageEditor();
@@ -375,7 +379,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 
 	useEffect(() => {
 		if (!terminalAttemptId) return;
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		invalidateBalanceAfterGenerationTerminal(queryClient, "settled");
 	}, [queryClient, terminalAttemptId]);
 
 	// A historical canvas is strictly read-only. Pending edits made against the
@@ -546,7 +550,10 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 				{isGenerating ? (
 					<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
 				) : attempt?.status === "failed" ? (
-					<FailedPanel error={attempt.error} />
+					<FailedPanel
+						error={attempt.error}
+						failureCode={attempt.failureCode}
+					/>
 				) : (
 					<EmptyPreview />
 				)}
@@ -579,18 +586,17 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 			ref={stageRef}
 			className="relative flex h-full items-center justify-center p-4 md:p-6"
 		>
-			<span className="absolute start-4 top-3.5 z-10 text-muted-foreground text-xs">
-				{mobile
-					? t("workspace.page.viewportMobile")
-					: t("workspace.page.viewportDesktop")}
-			</span>
 			{attempt?.status === "failed" ? (
 				// A later build failed but this version still stands — quiet note
-				// instead of hijacking the whole stage.
+				// instead of hijacking the whole stage. The classified copy names
+				// the responsible side; the raw error only fills the gap for
+				// legacy rows without a code.
 				<div className="absolute top-3 left-1/2 z-10 flex max-w-[80%] -translate-x-1/2 items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1 text-destructive text-xs">
 					<AlertTriangle className="size-3 shrink-0" aria-hidden />
 					<span className="min-w-0 truncate">
-						{attempt.error ?? "The last build failed."}
+						{attempt.failureCode
+							? buildFailureCopy(attempt.failureCode).title
+							: (attempt.error ?? "The last build failed.")}
 					</span>
 				</div>
 			) : null}
@@ -763,20 +769,30 @@ function GeneratingPanel({
 	);
 }
 
-/** A build failed and there's no earlier version to fall back to. The error
-    comes straight off the attempt row — honest, not prettified. */
-function FailedPanel({ error }: { error: string | null }) {
+/** A build failed and there's no earlier version to fall back to. The
+    classified copy says WHO failed (provider vs us); the raw attempt error
+    only fills the gap for legacy rows without a code. */
+function FailedPanel({
+	error,
+	failureCode,
+}: {
+	error: string | null;
+	failureCode: PageBuildFailureCode | null;
+}) {
 	const { chatOpen, toggleChat } = useWorkspace();
+	const copy = failureCode ? buildFailureCopy(failureCode) : null;
 	return (
 		<div className="relative flex max-w-sm flex-col items-center gap-2.5 text-center">
 			<span className="grid size-11 place-items-center rounded-full border border-destructive/30 bg-destructive/10">
 				<AlertTriangle className="size-4 text-destructive" aria-hidden />
 			</span>
 			<p className="font-display font-semibold text-base">
-				The page build failed
+				{copy ? copy.title : "The page build failed"}
 			</p>
 			<p dir="auto" className="text-muted-foreground text-sm leading-relaxed">
-				{error ?? "Something went wrong while generating your page."}
+				{copy
+					? copy.message
+					: (error ?? "Something went wrong while generating your page.")}
 			</p>
 			<p className="text-muted-foreground text-xs">
 				Ask Wandit in the chat to try again.

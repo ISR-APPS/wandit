@@ -4,6 +4,7 @@
 
 import {
 	type Lead,
+	type LeadArchiveBody,
 	type LeadStatus,
 	type LeadStatusUpdateBody,
 	type LeadsQuery,
@@ -24,9 +25,13 @@ export async function listLeads(
 		leadsRoutes.listByProject(projectId),
 		{
 			query: {
+				archived: query.archived,
 				cursor: query.cursor,
+				createdFrom: query.createdFrom,
+				createdTo: query.createdTo,
 				pageSize: query.pageSize,
 				q: query.q,
+				source: query.source,
 				status: query.status,
 			},
 		},
@@ -78,6 +83,19 @@ export async function updateLeadStatus(
 	const data = await apiClient.patch<unknown, LeadStatusUpdateBody>(
 		leadsRoutes.updateStatus(projectId, leadId),
 		{ status },
+	);
+	return leadResponseSchema.parse(data).lead;
+}
+
+/** Archive or restore one owned-project lead; returns the updated row. */
+export async function updateLeadArchive(
+	projectId: string,
+	leadId: string,
+	archived: boolean,
+): Promise<Lead> {
+	const data = await apiClient.patch<unknown, LeadArchiveBody>(
+		leadsRoutes.archive(projectId, leadId),
+		{ archived },
 	);
 	return leadResponseSchema.parse(data).lead;
 }

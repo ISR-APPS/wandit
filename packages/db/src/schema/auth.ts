@@ -17,6 +17,9 @@ export const user = pgTable(
 		id: text("id").primaryKey(),
 		name: text("name").notNull(),
 		email: text("email").notNull().unique(),
+		// Cosmetic only: the spelling last presented at sign-in. `email` remains
+		// the canonical identity key; never use this field for lookups.
+		displayEmail: text("display_email"),
 		emailVerified: boolean("email_verified").default(false).notNull(),
 		image: text("image"),
 		// Better Auth admin plugin fields (role/banned/banReason/banExpires) —
@@ -26,6 +29,11 @@ export const user = pgTable(
 		// Server-owned Better Auth additional field. The auth config exposes it
 		// on session users but rejects it from signup/update input.
 		earlyAccess: boolean("early_access").default(false).notNull(),
+		// Server-owned Better Auth additional field. Null means the user must still
+		// onboard; accounts predating the feature are backfilled to created_at.
+		onboardingCompletedAt: timestamp("onboarding_completed_at", {
+			withTimezone: true,
+		}),
 		banned: boolean("banned").default(false).notNull(),
 		banReason: text("ban_reason"),
 		banExpires: timestamp("ban_expires", { withTimezone: true }),

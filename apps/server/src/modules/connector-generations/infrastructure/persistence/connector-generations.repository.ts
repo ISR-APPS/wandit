@@ -6,7 +6,7 @@
  * Nest and talks to the same table through createDb(), like the other tasks.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, isNull, lt, sql } from "@wandit/db";
+import { and, eq, inArray, isNull, lt, ne, or, sql } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -15,6 +15,12 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../../../ai-errors/domain";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 
 export type ConnectorGenerationAttemptRow = {
@@ -28,14 +34,21 @@ export type ConnectorGenerationAttemptRow = {
 	status: "queued" | "running" | "succeeded" | "failed";
 	media: unknown;
 	error: string | null;
+	failureKind: string | null;
+	failureSource: string | null;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	sentryEventId: string | null;
 	createdAt: Date;
 	completedAt: Date | null;
 };
 
-// Trigger can wait five minutes before starting a 30-minute task. Keep three
-// minutes for final billing + DB commit so polling cannot fail a live run at
-// the exact queue/runtime boundary.
+// Most connector tasks can wait five minutes before starting a 30-minute
+// task. Keep three minutes for final billing + DB commit. Personal Clipper can
+// run for 60 minutes, so only its rows receive the longer window.
 export const CONNECTOR_ATTEMPT_STALE_MS = 38 * 60 * 1000;
+export const PERSONAL_CLIPPER_ATTEMPT_STALE_MS = 68 * 60 * 1000;
 
 @Injectable()
 export class ConnectorGenerationsRepository {
@@ -45,24 +58,64 @@ export class ConnectorGenerationsRepository {
 		private readonly analyticsService: AnalyticsService,
 	) {}
 
-	// One attempt row per intercepted generation call, born "queued".
+	// One attempt row per intercepted generation REQUEST: a duplicated tool
+	// call (same chatId + requestKey) lands on the existing row instead of a
+	// second generation. chatId NULL disables the dedupe by design (NULLs are
+	// distinct); the Trigger-side idempotency key stays the second guard.
 	async insertAttempt(input: {
 		userId: string;
 		organizationId: string | null;
+		chatId: string | null;
+		requestKey: string;
 		connectorSlug: string;
 		toolName: string;
 		args: unknown;
-	}): Promise<{ id: string }> {
+	}): Promise<{
+		created: boolean;
+		id: string;
+		status: ConnectorGenerationAttemptRow["status"];
+	}> {
 		const [row] = await this.db
 			.insert(connectorGenerationAttempts)
 			.values(input)
-			.returning({ id: connectorGenerationAttempts.id });
+			.onConflictDoNothing({
+				target: [
+					connectorGenerationAttempts.chatId,
+					connectorGenerationAttempts.requestKey,
+				],
+			})
+			.returning({
+				id: connectorGenerationAttempts.id,
+				status: connectorGenerationAttempts.status,
+			});
 
-		if (!row) {
-			throw new Error("Connector generation insert did not return a row");
+		if (row) {
+			return { ...row, created: true };
 		}
 
-		return row;
+		const [existing] = await this.db
+			.select({
+				id: connectorGenerationAttempts.id,
+				status: connectorGenerationAttempts.status,
+			})
+			.from(connectorGenerationAttempts)
+			.where(
+				and(
+					input.chatId === null
+						? isNull(connectorGenerationAttempts.chatId)
+						: eq(connectorGenerationAttempts.chatId, input.chatId),
+					eq(connectorGenerationAttempts.requestKey, input.requestKey),
+				),
+			)
+			.limit(1);
+
+		if (!existing) {
+			throw new Error(
+				"Connector generation idempotency conflict did not return an attempt",
+			);
+		}
+
+		return { ...existing, created: false };
 	}
 
 	async markAttemptTriggered(
@@ -75,10 +128,21 @@ export class ConnectorGenerationsRepository {
 			.where(eq(connectorGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+	async markAttemptFailed(attemptId: string, error: unknown): Promise<boolean> {
+		const normalized = connectorInfrastructureFailure(error);
 		const [failed] = await this.db
 			.update(connectorGenerationAttempts)
-			.set({ completedAt: new Date(), error, status: "failed" })
+			.set({
+				completedAt: new Date(),
+				error: renderAiErrorSentence(normalized),
+				failureKind: normalized.kind,
+				failureProvider: normalized.provider,
+				failureProviderMessage: normalized.providerMessage,
+				failureRequestId: normalized.requestId,
+				failureSource: normalized.source,
+				sentryEventId: normalized.sentryEventId,
+				status: "failed",
+			})
 			.where(
 				and(
 					eq(connectorGenerationAttempts.id, attemptId),
@@ -93,6 +157,23 @@ export class ConnectorGenerationsRepository {
 		if (!failed) {
 			return false;
 		}
+		normalized.sentryEventId = captureAiError(error, normalized, {
+			generationId: failed.id,
+			route: "none",
+			surface: "connector",
+			userId: failed.userId,
+		});
+		if (normalized.sentryEventId) {
+			try {
+				await this.db
+					.update(connectorGenerationAttempts)
+					.set({ sentryEventId: normalized.sentryEventId })
+					.where(eq(connectorGenerationAttempts.id, failed.id));
+			} catch {
+				// The terminal row already won its CAS. A failed observability-link
+				// write must not keep its associated hold open.
+			}
+		}
 
 		captureGenerationFailed(
 			this.analyticsService,
@@ -104,6 +185,43 @@ export class ConnectorGenerationsRepository {
 		);
 
 		return true;
+	}
+
+	// Generated-asset markers for the model-bound transcript: only settled,
+	// successful attempts with media, and only ids that came from the chat's
+	// own tool parts (the scope filter is defense in depth, not discovery).
+	// Same payer-snapshot semantics as findAccessibleAttempt below — in a
+	// shared org chat, a teammate's transcript must resolve the markers of an
+	// attempt another member queued.
+	async listSucceededByIdsForScope(
+		scope: ProjectScope,
+		attemptIds: readonly string[],
+	): Promise<Array<Pick<ConnectorGenerationAttemptRow, "id" | "media">>> {
+		if (attemptIds.length === 0) {
+			return [];
+		}
+
+		const scopePredicate =
+			scope.kind === "personal"
+				? and(
+						eq(connectorGenerationAttempts.userId, scope.userId),
+						isNull(connectorGenerationAttempts.organizationId),
+					)
+				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+
+		return this.db
+			.select({
+				id: connectorGenerationAttempts.id,
+				media: connectorGenerationAttempts.media,
+			})
+			.from(connectorGenerationAttempts)
+			.where(
+				and(
+					inArray(connectorGenerationAttempts.id, [...attemptIds]),
+					scopePredicate,
+					eq(connectorGenerationAttempts.status, "succeeded"),
+				),
+			);
 	}
 
 	// Ownership is by user id (the MCP connection is per-user). Missing and
@@ -173,11 +291,21 @@ export class ConnectorGenerationsRepository {
 	// Read-time janitor: a queued/running row this old is an orphaned run
 	// (worker crash, lost handoff) — settle it so the card can conclude.
 	private async settleStaleAttempt(attemptId: string): Promise<void> {
-		await this.db
+		const now = Date.now();
+		const staleError = new Error("Connector generation attempt became stale");
+		const normalized = connectorInfrastructureFailure(staleError);
+
+		const [stale] = await this.db
 			.update(connectorGenerationAttempts)
 			.set({
 				completedAt: new Date(),
 				error: "The generation stopped before finishing.",
+				failureKind: normalized.kind,
+				failureProvider: normalized.provider,
+				failureProviderMessage: normalized.providerMessage,
+				failureRequestId: normalized.requestId,
+				failureSource: normalized.source,
+				sentryEventId: normalized.sentryEventId,
 				status: "failed",
 			})
 			.where(
@@ -185,11 +313,67 @@ export class ConnectorGenerationsRepository {
 					eq(connectorGenerationAttempts.id, attemptId),
 					inArray(connectorGenerationAttempts.status, ["queued", "running"]),
 					isNull(connectorGenerationAttempts.media),
-					lt(
-						connectorGenerationAttempts.createdAt,
-						new Date(Date.now() - CONNECTOR_ATTEMPT_STALE_MS),
+					or(
+						and(
+							eq(
+								connectorGenerationAttempts.toolName,
+								"personal_clipper_create",
+							),
+							lt(
+								connectorGenerationAttempts.createdAt,
+								new Date(now - PERSONAL_CLIPPER_ATTEMPT_STALE_MS),
+							),
+						),
+						and(
+							ne(
+								connectorGenerationAttempts.toolName,
+								"personal_clipper_create",
+							),
+							lt(
+								connectorGenerationAttempts.createdAt,
+								new Date(now - CONNECTOR_ATTEMPT_STALE_MS),
+							),
+						),
 					),
 				),
-			);
+			)
+			.returning({
+				id: connectorGenerationAttempts.id,
+				toolName: connectorGenerationAttempts.toolName,
+				userId: connectorGenerationAttempts.userId,
+			});
+
+		if (!stale) return;
+		normalized.sentryEventId = captureAiError(staleError, normalized, {
+			generationId: stale.id,
+			route: "none",
+			surface: "connector",
+			toolName: stale.toolName,
+			userId: stale.userId,
+		});
+		if (normalized.sentryEventId) {
+			try {
+				await this.db
+					.update(connectorGenerationAttempts)
+					.set({ sentryEventId: normalized.sentryEventId })
+					.where(eq(connectorGenerationAttempts.id, stale.id));
+			} catch {
+				// The stale row is already terminal; keep the read path available when
+				// only the optional Sentry link could not be persisted.
+			}
+		}
 	}
+}
+
+function connectorInfrastructureFailure(error: unknown): NormalizedAiError {
+	return (
+		classifyAiError(error, {
+			route: "none",
+			surface: "connector",
+		}) ??
+		(classifyAiError(new Error("Connector generation failed"), {
+			route: "none",
+			surface: "connector",
+		}) as NormalizedAiError)
+	);
 }

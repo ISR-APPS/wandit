@@ -1,4 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
+import { adminProjectVersionsQuerySchema } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DomainsService } from "../../../domains/application/services/domains.service";
@@ -38,7 +39,14 @@ function setup() {
 		listAssets: vi.fn().mockResolvedValue([]),
 	};
 	const pagesService = {
-		listVersions: vi.fn().mockResolvedValue({ versions: [] }),
+		countVersions: vi.fn().mockResolvedValue(0),
+		listVersions: vi.fn(),
+		listVersionsPaginated: vi.fn().mockResolvedValue({
+			items: [],
+			page: 1,
+			pageSize: 8,
+			total: 0,
+		}),
 		overview: vi.fn().mockResolvedValue({
 			activeVersion: null,
 			artifactId: null,
@@ -103,6 +111,24 @@ function setup() {
 	};
 }
 
+describe("adminProjectVersionsQuerySchema", () => {
+	it("defaults to eight items and enforces the 24-item maximum", () => {
+		expect(adminProjectVersionsQuerySchema.parse({})).toEqual({
+			page: 1,
+			pageSize: 8,
+		});
+		expect(
+			adminProjectVersionsQuerySchema.parse({ page: "3", pageSize: "24" }),
+		).toEqual({ page: 3, pageSize: 24 });
+		expect(
+			adminProjectVersionsQuerySchema.safeParse({ pageSize: "25" }).success,
+		).toBe(false);
+		expect(
+			adminProjectVersionsQuerySchema.safeParse({ pageSize: "0" }).success,
+		).toBe(false);
+	});
+});
+
 describe("AdminProjectsService", () => {
 	it("resolves the owner first and uses that owner for every scoped read", async () => {
 		const {
@@ -135,10 +161,11 @@ describe("AdminProjectsService", () => {
 			PROJECT_ID,
 		);
 		expect(pagesService.overview).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
-		expect(pagesService.listVersions).toHaveBeenCalledWith(
+		expect(pagesService.countVersions).toHaveBeenCalledWith(
 			OWNER_SCOPE,
 			PROJECT_ID,
 		);
+		expect(pagesService.listVersions).not.toHaveBeenCalled();
 		expect(sitesService.current).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
 		expect(sitesService.list).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
 		expect(marketingAssetsService.list).toHaveBeenCalledWith(
@@ -170,14 +197,49 @@ describe("AdminProjectsService", () => {
 		});
 	});
 
+	it("uses the cheap version count without changing the detail total", async () => {
+		const { pagesService, service } = setup();
+		pagesService.countVersions.mockResolvedValue(17);
+
+		const detail = await service.getProjectDetail(PROJECT_ID);
+
+		expect(detail.website.versionsCount).toBe(17);
+		expect(pagesService.listVersions).not.toHaveBeenCalled();
+	});
+
+	it("lists project versions through the resolved owner scope", async () => {
+		const { pagesService, service } = setup();
+		const response = {
+			items: [],
+			page: 3,
+			pageSize: 8,
+			total: 17,
+		};
+		pagesService.listVersionsPaginated.mockResolvedValue(response);
+
+		await expect(
+			service.listProjectVersions(PROJECT_ID, { page: 3, pageSize: 8 }),
+		).resolves.toBe(response);
+		expect(pagesService.listVersionsPaginated).toHaveBeenCalledWith(
+			OWNER_SCOPE,
+			PROJECT_ID,
+			{ page: 3, pageSize: 8 },
+		);
+	});
+
 	it("returns 404 before scoped reads when the project is missing or deleted", async () => {
-		const { adminRepository, projectAssetsService, service } = setup();
+		const { adminRepository, pagesService, projectAssetsService, service } =
+			setup();
 		adminRepository.findProjectDetail.mockResolvedValue(null);
 
 		await expect(service.getProjectDetail(PROJECT_ID)).rejects.toBeInstanceOf(
 			NotFoundException,
 		);
 		expect(projectAssetsService.listAssets).not.toHaveBeenCalled();
+		await expect(
+			service.listProjectVersions(PROJECT_ID, { page: 1, pageSize: 8 }),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(pagesService.listVersionsPaginated).not.toHaveBeenCalled();
 	});
 
 	it("turns nested not-found responses into empty project sections", async () => {
@@ -196,7 +258,7 @@ describe("AdminProjectsService", () => {
 
 		projectAssetsService.listAssets.mockRejectedValue(notFound());
 		pagesService.overview.mockRejectedValue(notFound());
-		pagesService.listVersions.mockRejectedValue(notFound());
+		pagesService.countVersions.mockRejectedValue(notFound());
 		sitesService.current.mockRejectedValue(notFound());
 		sitesService.list.mockRejectedValue(notFound());
 		marketingAssetsService.list.mockRejectedValue(notFound());

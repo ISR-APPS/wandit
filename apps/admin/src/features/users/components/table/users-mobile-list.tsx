@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
 
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
-import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
+	PhoneCell,
 	PlanBadge,
 	RoleBadge,
 	StatusBadge,
@@ -31,6 +32,12 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 						<UserRowActions user={user} />
 					</div>
 
+					<div className="border-b">
+						<MobileDatum label="Phone">
+							<PhoneCell phone={user.phone} />
+						</MobileDatum>
+					</div>
+
 					<div className="grid grid-cols-2 divide-x border-b">
 						<MobileDatum label="Role">
 							<RoleBadge role={user.role} />
@@ -40,10 +47,15 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 						</MobileDatum>
 					</div>
 
-					<div className="grid grid-cols-2 divide-x border-b">
+					<div className="grid grid-cols-3 divide-x border-b">
 						<MobileDatum label="Credits">
 							<p className="font-medium font-mono tabular-nums">
-								{formatWholeNumber(user.creditsBalance)}
+								{formatCreditBalance(user.creditsBalance)}
+							</p>
+						</MobileDatum>
+						<MobileDatum label="Credits used">
+							<p className="font-medium font-mono tabular-nums">
+								{formatCreditAmount(user.creditsConsumed)}
 							</p>
 						</MobileDatum>
 						<MobileDatum label="Projects">
@@ -55,10 +67,7 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 
 					<div className="grid grid-cols-2 divide-x border-b">
 						<MobileDatum label="Status">
-							<div className="flex flex-wrap items-center gap-1.5">
-								<StatusBadge user={user} />
-								<EarlyAccessBadge user={user} />
-							</div>
+							<StatusBadge user={user} />
 						</MobileDatum>
 						<MobileDatum label="Last seen">
 							<p className="text-muted-foreground tabular-nums">

@@ -8,14 +8,17 @@ import {
 	Param,
 	Patch,
 	Post,
-	UseGuards,
+	Query,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type CreateProjectBody,
 	type CreateProjectResponse,
 	createProjectBodySchema,
+	type ListProjectsPageResponse,
+	type ListProjectsQuery,
 	type ListProjectsResponse,
+	listProjectsQuerySchema,
 	type Project,
 	type UpdateProjectBody,
 	updateProjectBodySchema,
@@ -23,7 +26,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
@@ -50,7 +53,19 @@ export class ProjectsController {
 		return this.projectsService.list(projectScopeFrom(workspace, user.id));
 	}
 
-	@UseGuards(EarlyAccessGuard)
+	@Get("paged")
+	listPaged(
+		@Query(new ZodValidationPipe(listProjectsQuerySchema))
+		query: ListProjectsQuery,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<ListProjectsPageResponse> {
+		return this.projectsService.listPaged(
+			projectScopeFrom(workspace, user.id),
+			query,
+		);
+	}
+
 	@RequireWorkspacePermission("project", "create")
 	@Post()
 	create(

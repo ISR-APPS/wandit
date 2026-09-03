@@ -1,7 +1,10 @@
 import { resetAnalytics } from "@wandit/analytics/browser";
 import { Sentry } from "@wandit/observability/browser";
 
+import { resetSupportChat } from "@/features/support";
+
 import { authClient } from "./auth-client";
+import { promptStash } from "./prompt-stash";
 
 export type SessionUser = (typeof authClient)["$Infer"]["Session"]["user"];
 
@@ -77,12 +80,39 @@ export function invalidateSessionCache(): void {
 	inFlightSession = null;
 }
 
+/**
+ * Call after a non-auth endpoint mutates the user row (e.g. onboarding
+ * rewrites the name and stamps onboardingCompletedAt). Three caches go stale
+ * otherwise: the route-guard cache here, Better Auth's signed session-cache
+ * cookie (Redis-backed deploys keep it for minutes, and only Better Auth's own
+ * `/update-user`-style routes rewrite it), and the reactive `useSession()`
+ * atom. `disableCookieCache` makes the server re-read the user row and
+ * re-issue the cache cookie, so the atom refetch that follows sees fresh data.
+ */
+export async function refreshSession(): Promise<void> {
+	invalidateSessionCache();
+	const result = await authClient.getSession({
+		query: { disableCookieCache: true },
+	});
+	cachedSession = {
+		value: toSessionSnapshot(result.data),
+		expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+	};
+	authClient.$store.notify("$sessionSignal");
+}
+
 export async function signOut(): Promise<void> {
 	try {
 		await authClient.signOut();
 	} finally {
 		resetAnalytics();
+		// Chatwoot keeps the conversation in a cookie; without a reset the
+		// next account on this browser would see the previous user's chat.
+		resetSupportChat();
 		invalidateSessionCache();
 		syncSentryUser(null);
+		// A draft stashed under this account must never auto-create a project
+		// (and charge credits) for whoever signs in next on this tab.
+		promptStash.clear();
 	}
 }

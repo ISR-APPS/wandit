@@ -58,6 +58,22 @@ const parts = [
 ] satisfies AskPart[];
 
 describe("AskUserGroupCard", () => {
+	it("starts collapsed: the summary row renders, the questions do not", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts,
+				activeAskToolCallId: "ask-2",
+				ownsActiveAsk: true,
+				isAfterActiveAsk: false,
+			}),
+		);
+
+		expect(html).toContain("A few questions");
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Where is your audience?");
+		expect(html).not.toContain("What is your budget?");
+	});
+
 	it("renders one Wandit header with answered, active, queued, and delegated statuses", () => {
 		const html = renderToStaticMarkup(
 			createElement(AskUserGroupCard, {
@@ -65,6 +81,7 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-2",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 
@@ -83,6 +100,7 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-2",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 
@@ -107,9 +125,73 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-active",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 
 		expect(html.match(/Up next/g)).toHaveLength(1);
+	});
+
+	it("shows the answer value and attachment count in the same receipt", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts: [
+					{
+						type: "tool-ask_user",
+						toolCallId: "ask-with-files",
+						state: "output-available",
+						input: { question: "What should we build?", options: [] },
+						output: {
+							text: "Build the product page",
+							files: [
+								{
+									url: "https://example.com/product.png",
+									mediaType: "image/png",
+									filename: "product.png",
+								},
+							],
+						},
+					} satisfies AskPart,
+				],
+				ownsActiveAsk: false,
+				isAfterActiveAsk: false,
+				defaultOpen: true,
+			}),
+		);
+
+		expect(html).toContain("Build the product page");
+		expect(html).toContain("1 file(s) sent");
+		expect(html).toMatch(
+			/<p[^>]*>.*Build the product page.*1 file\(s\) sent.*<\/p>/,
+		);
+	});
+
+	it("keeps a pure attachment answer as a file-count receipt", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts: [
+					{
+						type: "tool-ask_user",
+						toolCallId: "ask-files-only",
+						state: "output-available",
+						input: { question: "Attach a reference", options: [] },
+						output: {
+							files: [
+								{
+									url: "https://example.com/reference.pdf",
+									mediaType: "application/pdf",
+									filename: "reference.pdf",
+								},
+							],
+						},
+					} satisfies AskPart,
+				],
+				ownsActiveAsk: false,
+				isAfterActiveAsk: false,
+				defaultOpen: true,
+			}),
+		);
+
+		expect(html).toContain("1 file(s) sent");
 	});
 });

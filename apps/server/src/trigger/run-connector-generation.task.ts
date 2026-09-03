@@ -27,13 +27,26 @@ import {
 	captureGenerationFailed,
 	machineFailureReason,
 } from "../infrastructure/analytics/generation-events";
+import {
+	type AiErrorContext,
+	captureAiError,
+	classifyAiError,
+	classifyMcpResult,
+	type NormalizedAiError,
+	renderAiErrorSentence,
+} from "../modules/ai-errors/domain";
 import { extractMediaUrls } from "../modules/connector-generations/domain/extract-media-urls";
+import {
+	followDeadlineFor,
+	statusToolFor,
+} from "../modules/connector-generations/domain/provider-job-follow";
 import {
 	type ConnectorGenerationReservations,
 	captureConnectorGenerationResult,
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
 	hasTerminalConnectorGenerationReplay,
+	recordConnectorSubmitReceipt,
 } from "../modules/mcp-connectors/application/services/connector-generation-billing";
 import { McpConnectionsService } from "../modules/mcp-connectors/application/services/mcp-connections.service";
 import { connectorGatewayCaptures } from "../modules/mcp-connectors/domain/connector-generation-metering";
@@ -45,6 +58,10 @@ import { createTriggerMetering } from "./metering.runtime";
 import { recoverSettledConnectorCompletion } from "./settled-completion-recovery";
 
 export type RunConnectorGenerationPayload = {
+	// Prompt-refined arguments produced AFTER the reservation (reserve-before-
+	// refine): the claim persists them on the attempt row as the durable record
+	// of what was sent. Absent for payloads queued before this field existed.
+	args?: Record<string, unknown>;
 	attemptId: string;
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
@@ -54,9 +71,10 @@ export type RunConnectorGenerationPayload = {
 
 export const runConnectorGenerationTask = task({
 	id: "run-connector-generation",
-	// Provider-side generation is minutes; the ceiling is a safety net. The
-	// repository's stale-row self-heal (35 min) must stay ABOVE this.
-	maxDuration: 1800,
+	// Personal Clipper gets a 50-minute follow window; the ceiling leaves ten
+	// minutes for submission and settlement. The stale-row self-heal stays
+	// above the queue delay plus this full runtime.
+	maxDuration: 3600,
 	retry: { maxAttempts: 1 },
 	run: async (payload: RunConnectorGenerationPayload, { ctx, signal }) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
@@ -66,8 +84,20 @@ export const runConnectorGenerationTask = task({
 		// Only the run that WON the claim may settle the row on error — a
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
-		let claimedAttempt: { organizationId: string | null; userId: string } | undefined;
+		let claimedAttempt:
+			| {
+					chatId: string | null;
+					connectorSlug: string;
+					organizationId: string | null;
+					toolName: string;
+					userId: string;
+			  }
+			| undefined;
 		let providerCompleted = false;
+		let submitResultCaptureFailed = false;
+		// Provider job id persisted with the submit receipt: proof the provider
+		// accepted work even when this run later loses track of it.
+		let providerJobId: string | null = null;
 		let completionCheckpointed = false;
 		const generationBilling = createConnectorGenerationBilling({
 			// Reservations were created by the API before this task was enqueued.
@@ -109,8 +139,10 @@ export const runConnectorGenerationTask = task({
 			const [claim] = await db
 				.update(connectorGenerationAttempts)
 				.set({
+					...(payload.args ? { args: payload.args } : {}),
 					completedAt: null,
 					error: null,
+					startedAt: new Date(),
 					status: "running",
 					triggerRunId: ctx.run.id,
 				})
@@ -129,7 +161,10 @@ export const runConnectorGenerationTask = task({
 			}
 			claimed = true;
 			claimedAttempt = {
+				chatId: attempt.chatId,
+				connectorSlug: attempt.connectorSlug,
 				organizationId: attempt.organizationId,
+				toolName: attempt.toolName,
 				userId: attempt.userId,
 			};
 			// A terminal replay proves provider work already completed in an older
@@ -137,7 +172,11 @@ export const runConnectorGenerationTask = task({
 			providerCompleted = hasTerminalConnectorGenerationReplay(payload.billing);
 			assertBillingPayload(payload.billing, payload.billingMode, attempt.id);
 
-			metadata.set("stage", "generating");
+			// Still "queued" for the card: the provider has not accepted a job
+			// yet — announcing "generating" here would make the chip move
+			// backwards when the first status poll reports the provider's own
+			// queued state.
+			metadata.set("stage", "queued");
 
 			// Hand-wired mcp-connectors services (no Nest DI in this process).
 			const connectorsRepository = new McpConnectorsRepository(db);
@@ -178,25 +217,120 @@ export const runConnectorGenerationTask = task({
 
 			// The blocking provider call — the whole reason this runs here.
 			const result = await client.callTool({
-				arguments: (attempt.args ?? {}) as Record<string, unknown>,
+				arguments: (payload.args ?? attempt.args ?? {}) as Record<
+					string,
+					unknown
+				>,
 				name: attempt.toolName,
 				options: { signal },
 			});
-			providerCompleted =
-				(await captureConnectorGenerationResult(
-					generationBilling,
-					payload.billing,
-					result,
-				)) || providerCompleted;
+			try {
+				providerCompleted =
+					(await captureConnectorGenerationResult(
+						generationBilling,
+						payload.billing,
+						result,
+					)) || providerCompleted;
+			} catch (captureError) {
+				// Preserve the provider result in the redacted AI error context while
+				// leaving both holds open.
+				// Refunding after provider evidence failed to persist could create a
+				// free-generation race; the stale sweep remains the backstop.
+				submitResultCaptureFailed = true;
+				logger.error(
+					`Connector submit-result capture failed for attempt ${payload.attemptId}`,
+					{ error: captureError },
+				);
+
+				if (isMcpToolError(result)) {
+					const normalized = requireAiClassification(
+						captureError,
+						connectorAiContext(attempt.connectorSlug, attempt.toolName),
+					);
+					normalized.raw.cause = result;
+					throw attachConnectorFailure(
+						new ProviderResultCaptureError(
+							"Connector submit-result capture failed",
+							{ cause: captureError },
+						),
+						normalized,
+					);
+				}
+
+				throw captureError;
+			}
 
 			// MCP reports tool failures as a RESULT with isError, not a thrown
 			// error — settling that as "succeeded" would show a dead card.
 			if (isMcpToolError(result)) {
-				throw new Error(
-					mcpErrorText(result) ??
-						`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`,
+				const normalized = requireMcpClassification(
+					result,
+					connectorAiContext(attempt.connectorSlug, attempt.toolName),
+				);
+
+				logger.warn(
+					"Connector generation submit was rejected by the provider",
+					{
+						kind: normalized.kind,
+					},
+				);
+
+				if (
+					normalized.kind !== "connector_rejected" ||
+					normalized.providerMessage !== null
+				) {
+					throw attachConnectorFailure(
+						new ProviderSubmitRejectedError(renderAiErrorSentence(normalized)),
+						normalized,
+						result,
+					);
+				}
+
+				throw attachConnectorFailure(
+					new ProviderUnknownSubmitError(renderAiErrorSentence(normalized)),
+					normalized,
+					result,
 				);
 			}
+
+			// Higgsfield can answer a generate call with a plan QUESTION instead
+			// of a job ("unlim_choice": use the unlimited allowance or paid
+			// credits?). Nothing was submitted — settling that as "succeeded with
+			// no media" reads as "nothing happened". Fail honestly with the
+			// provider's own question so the card explains itself and the holds
+			// are refunded.
+			if (isUnlimChoiceReceipt(result)) {
+				const normalized = requireMcpClassification(
+					result,
+					connectorAiContext(attempt.connectorSlug, attempt.toolName),
+				);
+				throw attachConnectorFailure(
+					new ProviderJobFailedError(renderAiErrorSentence(normalized)),
+					normalized,
+					result,
+				);
+			}
+
+			// The provider accepted the call — from here on the render is the
+			// provider's work; the follow loop overwrites this with the
+			// provider's own state string on every poll.
+			metadata.set("stage", "generating");
+
+			// Durable receipt BEFORE following: a timeout below must never read as
+			// "the provider did nothing" once the job id is on disk.
+			providerJobId = await recordConnectorSubmitReceipt(
+				generationBilling,
+				payload.billing,
+				{
+					connectorSlug: attempt.connectorSlug,
+					plan: {
+						childOperation: payload.billing.child?.operation,
+						childUnits: payload.billing.child?.units,
+					},
+					referenceId: attempt.id,
+					result,
+				},
+			);
 
 			const providerResults: unknown[] = [result];
 			let media = extractMediaUrls(result);
@@ -217,6 +351,8 @@ export const runConnectorGenerationTask = task({
 
 				const followed = await followProviderJob(
 					client,
+					attempt.connectorSlug,
+					attempt.toolName,
 					result,
 					signal,
 					async (providerResult) => {
@@ -343,8 +479,9 @@ export const runConnectorGenerationTask = task({
 
 			return { mediaCount: media.length };
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+
 			if (claimed) {
-				const message = error instanceof Error ? error.message : String(error);
 				let durableCheckpoint = completionCheckpointed;
 
 				if (!durableCheckpoint) {
@@ -362,6 +499,28 @@ export const runConnectorGenerationTask = task({
 				}
 
 				if (durableCheckpoint) {
+					const context = connectorAiContext(
+						claimedAttempt?.connectorSlug,
+						claimedAttempt?.toolName,
+					);
+					const normalized = classifyConnectorTaskFailure(error, context);
+					normalized.sentryEventId = captureAiError(error, normalized, {
+						...(claimedAttempt?.chatId
+							? { chatId: claimedAttempt.chatId }
+							: {}),
+						generationId: payload.attemptId,
+						refunded: null,
+						route: "mcp",
+						surface: "connector",
+						...(claimedAttempt?.toolName
+							? { toolName: claimedAttempt.toolName }
+							: {}),
+						...(claimedAttempt?.userId
+							? { userId: claimedAttempt.userId }
+							: payload.userId
+								? { userId: payload.userId }
+								: {}),
+					});
 					// Keep the row running: the metering sweep or the next card poll
 					// replays settlement from the checkpoint and publishes it.
 					logger.error(
@@ -371,11 +530,94 @@ export const runConnectorGenerationTask = task({
 					throw error;
 				}
 
+				let refunded: boolean | null = providerCompleted ? false : null;
+
+				if (
+					!providerCompleted &&
+					claimedAttempt &&
+					providerJobId !== null &&
+					!isProviderVerdict(error)
+				) {
+					// The provider accepted job `providerJobId` and never reported a
+					// verdict (follow timeout, unreadable status): the work most likely
+					// ran on the user's subscription. Close the holds as a zero-unit
+					// settlement on top of the persisted receipt instead of a refund
+					// that would claim nothing happened.
+					try {
+						await finalizeConnectorGenerationBilling(
+							generationBilling,
+							payload.billing,
+							[],
+							{ childUnits: payload.billing.child ? 0 : undefined },
+						);
+						providerCompleted = true;
+						refunded = false;
+					} catch (settleError) {
+						logger.error(
+							`Provider-accepted settlement failed for attempt ${payload.attemptId}`,
+							{ error: settleError },
+						);
+					}
+				}
+
+				if (
+					!providerCompleted &&
+					!submitResultCaptureFailed &&
+					claimedAttempt
+				) {
+					try {
+						await generationBilling.refund(
+							{
+								actorUserId: claimedAttempt.userId,
+								...(claimedAttempt.organizationId
+									? { organizationId: claimedAttempt.organizationId }
+									: {}),
+							},
+							payload.attemptId,
+							payload.billing.child?.operation,
+						);
+						refunded = true;
+					} catch (refundError) {
+						logger.error(
+							`Connector metering refund failed for attempt ${payload.attemptId}`,
+							{ error: refundError },
+						);
+					}
+				}
+
+				const context = connectorAiContext(
+					claimedAttempt?.connectorSlug,
+					claimedAttempt?.toolName,
+					refunded,
+				);
+				const normalized = classifyConnectorTaskFailure(error, context);
+				normalized.sentryEventId = captureAiError(error, normalized, {
+					...(claimedAttempt?.chatId ? { chatId: claimedAttempt.chatId } : {}),
+					generationId: payload.attemptId,
+					refunded,
+					route: "mcp",
+					surface: "connector",
+					...(claimedAttempt?.toolName
+						? { toolName: claimedAttempt.toolName }
+						: {}),
+					...(claimedAttempt?.userId
+						? { userId: claimedAttempt.userId }
+						: payload.userId
+							? { userId: payload.userId }
+							: {}),
+				});
+
 				const [failed] = await db
 					.update(connectorGenerationAttempts)
 					.set({
 						completedAt: new Date(),
-						error: message,
+						error: renderAiErrorSentence(normalized),
+						failureKind: normalized.kind,
+						failureProvider: normalized.provider,
+						failureProviderMessage: normalized.providerMessage,
+						failureRequestId: normalized.requestId,
+						failureSource: normalized.source,
+						sentryEventId: normalized.sentryEventId,
 						status: "failed",
 					})
 					.where(
@@ -400,26 +642,24 @@ export const runConnectorGenerationTask = task({
 						machineFailureReason(error),
 					);
 				}
+			} else {
+				const context = connectorAiContext();
+				const normalized = classifyConnectorTaskFailure(error, context);
+				captureAiError(error, normalized, {
+					generationId: payload.attemptId,
+					refunded: null,
+					route: "mcp",
+					surface: "connector",
+					...(payload.userId ? { userId: payload.userId } : {}),
+				});
+			}
 
-				if (!providerCompleted && claimedAttempt) {
-					try {
-						await generationBilling.refund(
-							{
-								actorUserId: claimedAttempt.userId,
-								...(claimedAttempt.organizationId
-									? { organizationId: claimedAttempt.organizationId }
-									: {}),
-							},
-							payload.attemptId,
-							payload.billing.child?.operation,
-						);
-					} catch (refundError) {
-						logger.error(
-							`Connector metering refund failed for attempt ${payload.attemptId}`,
-							{ error: refundError },
-						);
-					}
-				}
+			if (error instanceof ProviderSubmitRejectedError) {
+				return {
+					mediaCount: 0,
+					outcome: "provider_rejected",
+					reason: message,
+				};
 			}
 
 			throw error;
@@ -525,7 +765,6 @@ function assertBillingPayload(
 
 // How the provider job is followed. The status checks live INSIDE this
 // background task — the chat stream, the model, and the browser never poll.
-const STATUS_TOOL_NAME = "job_status";
 const FOLLOW_POLL_INTERVAL_MS = 5_000;
 // A status-endpoint hiccup (gateway 5xx, "Something went wrong. Please try
 // again.") is indistinguishable in shape from a job verdict, but a hiccup
@@ -533,9 +772,6 @@ const FOLLOW_POLL_INTERVAL_MS = 5_000;
 // sink (and refund) a job that is still rendering. 12 polls ≈ one minute of
 // continuous errors before the job's fate is declared unknowable.
 const MAX_CONSECUTIVE_STATUS_ERRORS = 12;
-// Below maxDuration (1800s) so a stuck provider fails THIS way, with a
-// readable error, instead of via the duration kill.
-const FOLLOW_DEADLINE_MS = 25 * 60 * 1000;
 const ID_KEY_PATTERN =
 	/(^|_)(job_set|jobset|job|generation|request|task)?_?ids?$/i;
 const FAILED_STATE_PATTERN = /fail|error|cancel|nsfw|moderat/i;
@@ -550,8 +786,113 @@ const SETTLE_GRACE_MS = 90_000;
 
 /** The provider itself decided the job's fate (failed/moderated/timed out)
     — never masked by receipt-media fallbacks, unlike transient follow
-    errors. */
-class ProviderJobFailedError extends Error {}
+    errors. `verdict` separates a provider-reported failure (refundable) from
+    a fate this run could not read (timeout, unreadable status). */
+class ProviderJobFailedError extends Error {
+	constructor(
+		message: string,
+		readonly verdict: boolean = true,
+	) {
+		super(message);
+	}
+}
+
+/** Expected submit-time refusal: fail/refund the row without failing the run. */
+class ProviderSubmitRejectedError extends ProviderJobFailedError {}
+
+class ProviderSubmitError extends Error {}
+
+/** Unknown provider refusal: raw diagnostics stay in the redacted AI error context. */
+class ProviderUnknownSubmitError extends ProviderSubmitError {}
+
+/** Capture uncertainty must fail the run while stale recovery owns both holds. */
+class ProviderResultCaptureError extends ProviderSubmitError {}
+
+type ClassifiedConnectorFailure = Error & {
+	mcpResult?: unknown;
+	normalizedAiError?: NormalizedAiError;
+};
+
+function connectorAiContext(
+	connectorSlug = "higgsfield",
+	toolName?: string,
+	refunded?: boolean | null,
+): AiErrorContext {
+	return {
+		connectorSlug,
+		...(refunded === undefined ? {} : { refunded }),
+		route: "mcp",
+		surface: "connector",
+		...(toolName ? { toolName } : {}),
+	};
+}
+
+function requireAiClassification(
+	error: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	return (
+		classifyAiError(error, context) ??
+		(classifyAiError(
+			new Error("Connector generation failed"),
+			context,
+		) as NormalizedAiError)
+	);
+}
+
+function requireMcpClassification(
+	result: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	return (
+		classifyMcpResult(result, context) ??
+		requireAiClassification(
+			new Error("MCP result could not be classified"),
+			context,
+		)
+	);
+}
+
+function attachConnectorFailure<T extends Error>(
+	error: T,
+	normalized: NormalizedAiError,
+	mcpResult?: unknown,
+): T {
+	const classified = error as T & ClassifiedConnectorFailure;
+	classified.normalizedAiError = normalized;
+	if (mcpResult !== undefined) classified.mcpResult = mcpResult;
+	return error;
+}
+
+function classifyConnectorTaskFailure(
+	error: unknown,
+	context: AiErrorContext,
+): NormalizedAiError {
+	const classified =
+		error instanceof Error ? (error as ClassifiedConnectorFailure) : null;
+	if (classified?.mcpResult !== undefined) {
+		return requireMcpClassification(classified.mcpResult, context);
+	}
+
+	if (classified?.normalizedAiError) {
+		const refunded = context.refunded ?? classified.normalizedAiError.refunded;
+		return {
+			...classified.normalizedAiError,
+			refunded,
+			retryable:
+				classified.normalizedAiError.kind === "connector_rejected"
+					? classified.normalizedAiError.providerMessage === null &&
+						refunded === true
+					: classified.normalizedAiError.retryable,
+		};
+	}
+
+	return requireAiClassification(error, context);
+}
+
+function isProviderVerdict(error: unknown): boolean {
+	return error instanceof ProviderJobFailedError && error.verdict;
+}
 
 /**
  * Follow a submit-style generation to completion via the connector's own
@@ -563,18 +904,47 @@ class ProviderJobFailedError extends Error {}
  */
 async function followProviderJob(
 	client: MCPClient,
+	connectorSlug: string,
+	submittedToolName: string,
 	submitResult: unknown,
 	signal: AbortSignal,
 	onResult: (result: unknown) => Promise<void>,
 ): Promise<unknown | null> {
+	const statusRoute = statusToolFor(connectorSlug, submittedToolName);
+	const isPersonalClipperRoute =
+		statusRoute.toolName === "personal_clipper_status" &&
+		statusRoute.idProperty === "row_id";
+	const cannotFollow = (): null => {
+		if (isPersonalClipperRoute) {
+			const failureResult = {
+				cannotFollow: true,
+				state: "processing",
+			};
+			const normalized = requireMcpClassification(
+				failureResult,
+				connectorAiContext(connectorSlug, submittedToolName),
+			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(
+					"Higgsfield accepted the clipping job but Wandit could not follow it. Check your Higgsfield account for the clips.",
+					false,
+				),
+				normalized,
+				failureResult,
+			);
+		}
+
+		return null;
+	};
+
 	const ids = collectIdCandidates(submitResult);
-	if (ids.size === 0) return null;
+	if (ids.size === 0) return cannotFollow();
 
 	const definitions = await client.listTools();
 	const statusTool = definitions.tools.find(
-		(tool) => tool.name === STATUS_TOOL_NAME,
+		(tool) => tool.name === statusRoute.toolName,
 	);
-	if (!statusTool) return null;
+	if (!statusTool) return cannotFollow();
 
 	const schemaProperties = Object.keys(
 		(statusTool.inputSchema as { properties?: Record<string, unknown> })
@@ -582,28 +952,35 @@ async function followProviderJob(
 	);
 	const argumentsValue: Record<string, unknown> = {};
 
-	for (const property of schemaProperties) {
-		const match = ids.get(property.toLowerCase());
-		if (match !== undefined) argumentsValue[property] = match;
+	if (statusRoute.idProperty) {
+		const exactId = ids.get(statusRoute.idProperty.toLowerCase());
+		if (exactId === undefined) return cannotFollow();
+		argumentsValue[statusRoute.idProperty] = exactId;
+	} else {
+		for (const property of schemaProperties) {
+			const match = ids.get(property.toLowerCase());
+			if (match !== undefined) argumentsValue[property] = match;
+		}
+
+		if (Object.keys(argumentsValue).length === 0) {
+			// No exact key match: pair the first id with the first id-shaped prop.
+			const fallbackProperty = schemaProperties.find((property) =>
+				/ids?$/i.test(property),
+			);
+			const firstId = [...ids.values()][0];
+			if (!fallbackProperty || firstId === undefined) return null;
+			argumentsValue[fallbackProperty] = firstId;
+		}
 	}
 
-	if (Object.keys(argumentsValue).length === 0) {
-		// No exact key match: pair the first id with the first id-shaped prop.
-		const fallbackProperty = schemaProperties.find((property) =>
-			/ids?$/i.test(property),
-		);
-		const firstId = [...ids.values()][0];
-		if (!fallbackProperty || firstId === undefined) return null;
-		argumentsValue[fallbackProperty] = firstId;
-	}
-
-	logger.info(`Following provider job via ${STATUS_TOOL_NAME}`, {
+	logger.info(`Following provider job via ${statusRoute.toolName}`, {
 		arguments: argumentsValue,
 	});
 
-	const deadline = Date.now() + FOLLOW_DEADLINE_MS;
+	const deadline = Date.now() + followDeadlineFor(submittedToolName);
 	let settledSince: number | null = null;
 	let lastSettledStatus: unknown = null;
+	let lastMediaStatus: unknown = null;
 	let consecutiveStatusErrors = 0;
 
 	while (Date.now() < deadline) {
@@ -611,7 +988,7 @@ async function followProviderJob(
 
 		const status = await client.callTool({
 			arguments: argumentsValue,
-			name: STATUS_TOOL_NAME,
+			name: statusRoute.toolName,
 			options: { signal },
 		});
 		await onResult(status);
@@ -633,8 +1010,18 @@ async function followProviderJob(
 			// media fallback here — the receipt can embed catalog garnish that
 			// is not the render, and settling on it would charge the user for
 			// media they never got.
-			throw new ProviderJobFailedError(
-				errorText ?? "The provider reported a job error",
+			const failureResult = {
+				consecutiveStatusErrors,
+				result: status,
+			};
+			const normalized = requireMcpClassification(
+				failureResult,
+				connectorAiContext(connectorSlug, submittedToolName),
+			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(renderAiErrorSentence(normalized), false),
+				normalized,
+				failureResult,
 			);
 		}
 		consecutiveStatusErrors = 0;
@@ -647,29 +1034,44 @@ async function followProviderJob(
 			states.find((state) => IN_FLIGHT_STATE_PATTERN.test(state)) ?? states[0];
 		if (displayState) metadata.set("stage", displayState);
 
-		const media = extractMediaUrls(status);
-		if (media.length > 0) return status;
-
 		const anyInFlight = states.some((state) =>
 			IN_FLIGHT_STATE_PATTERN.test(state),
 		);
+		const media = extractMediaUrls(status);
 
 		// One failed auxiliary item must not sink a set whose main item is
-		// still rendering — failure is terminal only once nothing is
-		// in-flight (the media check above already caught partial successes).
+		// still rendering. Once nothing is in flight, the provider's failed
+		// verdict wins over arbitrary URLs echoed in the status JSON (input URLs
+		// and catalog garnish are not proof of a successful output).
 		const failedState = states.find((state) =>
 			FAILED_STATE_PATTERN.test(state),
 		);
-		if (failedState && !anyInFlight) {
-			throw new ProviderJobFailedError(
-				mcpErrorText(status) ?? `The provider job ended as "${failedState}"`,
+		if (
+			failedState &&
+			!anyInFlight &&
+			!states.some((state) => SETTLED_STATE_PATTERN.test(state))
+		) {
+			const normalized = requireMcpClassification(
+				status,
+				connectorAiContext(connectorSlug, submittedToolName),
 			);
+			throw attachConnectorFailure(
+				new ProviderJobFailedError(renderAiErrorSentence(normalized)),
+				normalized,
+				status,
+			);
+		}
+
+		if (media.length > 0) {
+			if (!isPersonalClipperRoute) return status;
+			lastMediaStatus = status;
 		}
 
 		const allSettled =
 			states.length > 0 &&
 			!anyInFlight &&
 			states.every((state) => SETTLED_STATE_PATTERN.test(state));
+		if (allSettled && media.length > 0) return status;
 
 		// Every state reads settled but no media URL we recognize yet — grace
 		// period first (URLs propagate late), then return what we have so the
@@ -686,10 +1088,22 @@ async function followProviderJob(
 
 	// The deadline can expire mid-grace: a job that settled in the window's
 	// final seconds is still a settled job, not a timeout.
+	if (isPersonalClipperRoute && lastMediaStatus !== null)
+		return lastMediaStatus;
 	if (lastSettledStatus !== null) return lastSettledStatus;
 
-	throw new ProviderJobFailedError(
-		"Timed out waiting for the provider to finish generating",
+	const failureResult = { deadline: true, state: "processing" };
+	const normalized = requireMcpClassification(
+		failureResult,
+		connectorAiContext(connectorSlug, submittedToolName),
+	);
+	throw attachConnectorFailure(
+		new ProviderJobFailedError(
+			"Timed out waiting for the provider to finish generating",
+			false,
+		),
+		normalized,
+		failureResult,
 	);
 }
 
@@ -726,8 +1140,13 @@ function collectIdCandidates(
 	}
 
 	for (const [key, nested] of Object.entries(value)) {
-		if (typeof nested === "string" && ID_KEY_PATTERN.test(key)) {
-			if (!found.has(key.toLowerCase())) found.set(key.toLowerCase(), nested);
+		if (
+			(typeof nested === "string" || typeof nested === "number") &&
+			ID_KEY_PATTERN.test(key)
+		) {
+			if (!found.has(key.toLowerCase())) {
+				found.set(key.toLowerCase(), String(nested));
+			}
 		} else {
 			collectIdCandidates(nested, found, seen);
 		}
@@ -797,6 +1216,37 @@ function isMcpToolError(result: unknown): boolean {
 		typeof result === "object" &&
 		(result as { isError?: unknown }).isError === true
 	);
+}
+
+/**
+ * A submit receipt that carries Higgsfield's "unlim_choice" question and no
+ * followable JOB id: the provider is waiting for a plan decision, nothing is
+ * rendering. Deliberately stricter than the follow heuristic — an echoed
+ * preset_id/soul_id/request_id in the question receipt must not read as a
+ * submitted job (following it would poll a nonexistent job for minutes).
+ */
+const JOB_ID_KEY_PATTERN = /^(?:job_set|jobset|job|generation|task)_?ids?$/i;
+
+function isUnlimChoiceReceipt(result: unknown): boolean {
+	if (!safeJsonPreviewFull(result).includes("unlim_choice")) {
+		return false;
+	}
+
+	for (const key of collectIdCandidates(result).keys()) {
+		if (JOB_ID_KEY_PATTERN.test(key)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function safeJsonPreviewFull(value: unknown): string {
+	try {
+		return JSON.stringify(value) ?? "";
+	} catch {
+		return String(value);
+	}
 }
 
 function mcpErrorText(result: unknown): string | null {

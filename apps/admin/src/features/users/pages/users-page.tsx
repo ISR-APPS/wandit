@@ -1,5 +1,6 @@
 import { RefreshCwIcon, UsersRoundIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +11,22 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import type { AdminListUsersSort } from "@/features/users/api/users.dto";
+import type {
+	AdminListUsersSort,
+	UserCountryFilter,
+	UserCreditsUsedRange,
+	UserFreeCreditsFilter,
+	UserPlanFilter,
+	UserPublishedFilter,
+	UserRoleFilter,
+	UserStatusFilter,
+	UserVerifiedFilter,
+} from "@/features/users/api/users.dto";
 import { useUsersQuery } from "@/features/users/api/users.queries";
 import { UsersDataTable } from "@/features/users/components/table/users-data-table";
 import { UsersTableLoading } from "@/features/users/components/table/users-table-loading";
 import { USER_TABLE_DEFAULT_PAGE_SIZE } from "@/features/users/lib/constants";
+import { exportUsersToExcel } from "@/features/users/lib/users-export";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -22,8 +34,17 @@ function UsersPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(USER_TABLE_DEFAULT_PAGE_SIZE);
 	const [sort, setSort] = useState<AdminListUsersSort>("newest");
+	const [country, setCountry] = useState<UserCountryFilter>();
+	const [freeCredits, setFreeCredits] = useState<UserFreeCreditsFilter>();
+	const [plan, setPlan] = useState<UserPlanFilter>();
+	const [role, setRole] = useState<UserRoleFilter>();
+	const [status, setStatus] = useState<UserStatusFilter>();
+	const [verified, setVerified] = useState<UserVerifiedFilter>();
+	const [published, setPublished] = useState<UserPublishedFilter>();
+	const [creditsUsed, setCreditsUsed] = useState<UserCreditsUsedRange>();
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
+	const [isExporting, setIsExporting] = useState(false);
 
 	useEffect(() => {
 		const handle = setTimeout(() => {
@@ -33,22 +54,94 @@ function UsersPage() {
 		return () => clearTimeout(handle);
 	}, [searchValue]);
 
-	// New search text, sort, or page size all restart from the first page.
+	// New search text, sort, filters, or page size restart from the first page.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: page reset is intentional
 	useEffect(() => {
 		setPage(1);
-	}, [debouncedQuery, sort, pageSize]);
+	}, [
+		debouncedQuery,
+		sort,
+		pageSize,
+		country,
+		freeCredits,
+		plan,
+		role,
+		status,
+		verified,
+		published,
+		creditsUsed,
+	]);
 
 	const usersQuery = useUsersQuery({
 		page,
 		pageSize,
 		sort,
 		q: debouncedQuery || undefined,
+		country,
+		freeCredits,
+		plan,
+		role,
+		status,
+		verified,
+		published,
+		creditsUsedMin: creditsUsed?.min,
+		creditsUsedMax: creditsUsed?.max,
 	});
 
 	const result = usersQuery.data;
+	const hasActiveFilters = Boolean(
+		country?.length ||
+			freeCredits?.length ||
+			plan?.length ||
+			role?.length ||
+			status?.length ||
+			verified?.length ||
+			published?.length ||
+			creditsUsed,
+	);
 	const isEmptyDirectory =
-		result !== undefined && result.total === 0 && debouncedQuery.length === 0;
+		result !== undefined &&
+		result.total === 0 &&
+		!usersQuery.isFetching &&
+		debouncedQuery.length === 0 &&
+		!hasActiveFilters;
+	const clearAllFilters = () => {
+		setSearchValue("");
+		setCountry(undefined);
+		setFreeCredits(undefined);
+		setPlan(undefined);
+		setRole(undefined);
+		setStatus(undefined);
+		setVerified(undefined);
+		setPublished(undefined);
+		setCreditsUsed(undefined);
+	};
+	const handleExport = async () => {
+		if (isExporting) {
+			return;
+		}
+
+		setIsExporting(true);
+		try {
+			await exportUsersToExcel({
+				q: debouncedQuery || undefined,
+				sort,
+				country,
+				freeCredits,
+				plan,
+				role,
+				status,
+				verified,
+				published,
+				creditsUsedMin: creditsUsed?.min,
+				creditsUsedMax: creditsUsed?.max,
+			});
+		} catch {
+			toast.error("Users could not be exported");
+		} finally {
+			setIsExporting(false);
+		}
+	};
 
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-5">
@@ -65,7 +158,7 @@ function UsersPage() {
 				</div>
 			</div>
 
-			{/* Stale rows stay on screen so the search and sort controls — which live
+			{/* Stale rows stay on screen so the search, filter, and sort controls — which live
 			    in the table toolbar — remain available to undo the failing params. */}
 			{usersQuery.isError && result ? (
 				<div
@@ -127,10 +220,29 @@ function UsersPage() {
 					pageSize={pageSize}
 					total={result.total}
 					sort={sort}
+					country={country}
+					freeCredits={freeCredits}
+					plan={plan}
+					role={role}
+					status={status}
+					verified={verified}
+					published={published}
+					creditsUsed={creditsUsed}
 					searchValue={searchValue}
 					isFetching={usersQuery.isFetching}
+					isExporting={isExporting}
 					onSearchChange={setSearchValue}
 					onSortChange={setSort}
+					onCountryChange={setCountry}
+					onFreeCreditsChange={setFreeCredits}
+					onPlanChange={setPlan}
+					onRoleChange={setRole}
+					onStatusChange={setStatus}
+					onVerifiedChange={setVerified}
+					onPublishedChange={setPublished}
+					onCreditsUsedChange={setCreditsUsed}
+					onClearAllFilters={clearAllFilters}
+					onExport={() => void handleExport()}
 					onPageChange={setPage}
 					onPageSizeChange={setPageSize}
 				/>

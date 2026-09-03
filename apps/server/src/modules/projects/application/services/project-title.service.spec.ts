@@ -90,8 +90,8 @@ describe("ProjectTitleService", () => {
 				providerMetadata: { gateway: { generationId: "generation_1" } },
 				stepUsage: {
 					metering: {
-						customerBilling: "bundled_unmetered",
-						operation: "project_title",
+						customerBilling: "helper_billable",
+						task: "project_title",
 					},
 					providerUsage: { inputTokens: 12, outputTokens: 4 },
 				},
@@ -196,7 +196,7 @@ describe("ProjectTitleService", () => {
 		await expect(service.generate(INPUT)).resolves.toBe(INPUT.fallbackTitle);
 		expect(generateText).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledWith(
-			"Project title generation skipped: AI gateway is not configured",
+			"Project title generation skipped: AI provider is not configured",
 		);
 	});
 
@@ -230,8 +230,8 @@ describe("ProjectTitleService", () => {
 				},
 				stepUsage: {
 					metering: {
-						customerBilling: "bundled_unmetered",
-						operation: "project_title",
+						customerBilling: "helper_billable",
+						task: "project_title",
 					},
 					providerUsage: null,
 				},

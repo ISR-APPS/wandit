@@ -21,6 +21,7 @@
 export {
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
+	attachmentMaxBytesFor,
 	uploadAttachment,
 } from "./api/attachments.services";
 export type { Project, ProjectStatus } from "./api/dto";
@@ -28,6 +29,7 @@ export type { Project, ProjectStatus } from "./api/dto";
 export {
 	useDeleteProject,
 	useRenameProject,
+	useUpdateProjectBadge,
 	useUpdateProjectLogo,
 	useUpdateProjectPixels,
 } from "./api/projects.mutations";

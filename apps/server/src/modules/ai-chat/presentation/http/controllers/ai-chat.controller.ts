@@ -8,26 +8,27 @@ import {
 	Post,
 	Req,
 	Res,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	aiChatBillingErrorDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRequestMetadataSchema,
+	aiErrorDataSchema,
 	uuidSchema,
 } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/nestjs";
 import { validateUIMessages } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-
+import { readRequestCountryCode } from "../../../../../infrastructure/http/request-country-code";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import {
 	isUserUploadUrl,
 	isWanditUploadUrl,
 } from "../../../../../infrastructure/storage/r2";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
@@ -85,7 +86,6 @@ export class AiChatController {
 		private readonly chatsRepository: ChatsRepository,
 	) {}
 
-	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/ai-stream")
 	@SkipResponseEnvelope()
 	async stream(
@@ -108,6 +108,10 @@ export class AiChatController {
 			throw new NotFoundException();
 		}
 
+		const { projectId } = chat;
+		Sentry.getIsolationScope().setTags({ chatId, projectId });
+		Sentry.setConversationId(chatId);
+
 		if (hasSystemMessage(body.messages)) {
 			throw new BadRequestException({
 				code: "SYSTEM_MESSAGES_NOT_ALLOWED",
@@ -129,7 +133,10 @@ export class AiChatController {
 		const prepared = await this.aiChatService.prepareStream({
 			chatId: chat.id,
 			messages,
+			metadata: body.metadata,
 			projectId: chat.projectId,
+			regenerateMessageId:
+				body.trigger === "regenerate-message" ? body.messageId : undefined,
 			requestId: streamRequestId(body),
 			scope,
 		});
@@ -175,7 +182,10 @@ export class AiChatController {
 
 		try {
 			validated = await validateUIMessages<WanditUIMessage>({
-				dataSchemas: { "billing-error": aiChatBillingErrorDataSchema },
+				dataSchemas: {
+					"ai-error": aiErrorDataSchema,
+					"billing-error": aiChatBillingErrorDataSchema,
+				},
 				messages: nonEmptyMessages,
 				metadataSchema: aiChatValidationMetadataSchema,
 				tools: aiChatToolsForValidation,
@@ -242,25 +252,6 @@ export function assertOwnedFileParts(
 			}
 		}
 	}
-}
-
-/**
- * Country of the visitor as reported by the trusted edge (Vercel proxy or
- * Cloudflare). Best-effort context, not security input: it only biases the
- * lead-scrape default location, so an absent/garbage header degrades to null.
- * "XX"/"T1" are Cloudflare's unknown/Tor sentinels.
- */
-function readRequestCountryCode(
-	headers: FastifyRequest["headers"],
-): string | null {
-	const raw = headers["x-vercel-ip-country"] ?? headers["cf-ipcountry"];
-	const value = (Array.isArray(raw) ? raw[0] : raw)?.trim().toUpperCase();
-
-	if (!value || !/^[A-Z]{2}$/.test(value) || value === "XX" || value === "T1") {
-		return null;
-	}
-
-	return value;
 }
 
 function hasEmptyParts(message: unknown): boolean {

@@ -3,23 +3,49 @@ import { describe, expect, it, vi } from "vitest";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { createImageGenerationBilling } from "./image-generation-billing";
 
+const MEASURED_SNAPSHOT = {
+	estimatedUnitUsdMicros: 134_400,
+	mode: "measured",
+	operation: "image",
+	reserveFloorCredits: 350,
+	source: "operation_registry_reservation",
+	unit: "image",
+	units: 4,
+	usdMicrosPerCredit: 40_000,
+};
+
+function meteringServiceDouble(
+	event: Record<string, unknown>,
+	estimate: { costUsdMicros: number; unitUsdMicros: number } | null,
+) {
+	return {
+		captureGeneration: vi.fn().mockResolvedValue(null),
+		estimateMeasuredCost: vi.fn().mockResolvedValue(estimate),
+		findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+		refund: vi.fn().mockResolvedValue(event),
+		reserveWithReplay: vi.fn().mockResolvedValue({
+			event,
+			replay: "none",
+			replayed: false,
+		}),
+		settle: vi.fn().mockResolvedValue(event),
+		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(event),
+		usdMicrosPerCredit: 40_000,
+	};
+}
+
 describe("createImageGenerationBilling", () => {
-	it("prices the requested image count at five credits per image", async () => {
-		const event = { id: "event_1", reservedCredits: 20 } as Awaited<
-			ReturnType<MeteringService["reserve"]>
-		>;
-		const meteringService = {
-			captureGeneration: vi.fn().mockResolvedValue(null),
-			findByIdempotencyKey: vi.fn().mockResolvedValue(event),
-			refund: vi.fn().mockResolvedValue(event),
-			reserveWithReplay: vi.fn().mockResolvedValue({
-				event,
-				replay: "none",
-				replayed: false,
-			}),
-			settle: vi.fn().mockResolvedValue(event),
-			settleFixedFromEvidence: vi.fn().mockResolvedValue(event),
-		};
+	it("reserves the catalog estimate for the requested count and settles it", async () => {
+		const event = {
+			id: "event_1",
+			operation: "image",
+			pricingSnapshot: MEASURED_SNAPSHOT,
+			reservedCredits: 1400,
+		} as unknown as Awaited<ReturnType<MeteringService["reserve"]>>;
+		const meteringService = meteringServiceDouble(event, {
+			costUsdMicros: 537_600,
+			unitUsdMicros: 134_400,
+		});
 		const billing = createImageGenerationBilling({
 			isBillingDisabled: () => false,
 			meteringService,
@@ -33,52 +59,93 @@ describe("createImageGenerationBilling", () => {
 		);
 		await billing.settle(reservation);
 
+		expect(meteringService.estimateMeasuredCost).toHaveBeenCalledWith(
+			expect.objectContaining({ count: 4, kind: "image" }),
+		);
+		// 4 × $0.1344 = $0.5376 → 1,344 cc, below the 4 × 350 cc floor.
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 20,
+				credits: 1400,
+				estimatedCostUsdMicros: 537_600,
 				idempotencyKey: "image:attempt_1",
+				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 4 },
 				parentEventId: "parent_1",
 			},
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("event_1", {
-			finalCredits: 20,
+			costUsdMicros: 537_600,
+			finalCredits: 1344,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerUnit: 5,
-				mode: "fixed",
+				estimatedUnitUsdMicros: 134_400,
+				mode: "measured",
 				operation: "image",
-				source: "operation_registry",
+				outcome: "delivered",
+				source: "measured_local",
 				unit: "image",
 				units: 4,
+				usdMicrosPerCredit: 40_000,
 			},
 		});
 	});
 
+	it("reserves the floor when the model has no catalog rate", async () => {
+		const event = {
+			id: "event_floor",
+			operation: "image",
+			pricingSnapshot: { ...MEASURED_SNAPSHOT, estimatedUnitUsdMicros: null },
+			reservedCredits: 1400,
+		} as unknown as Awaited<ReturnType<MeteringService["reserve"]>>;
+		const meteringService = meteringServiceDouble(event, null);
+		const billing = createImageGenerationBilling({
+			isBillingDisabled: () => false,
+			meteringService,
+		});
+
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			4,
+		);
+		await billing.settle(reservation, 0);
+
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+			"image",
+			{ actorUserId: "user_1" },
+			expect.objectContaining({ credits: 1400, estimatedCostUsdMicros: null }),
+		);
+		expect(meteringService.settle).toHaveBeenCalledWith(
+			"event_floor",
+			expect.objectContaining({
+				costUsdMicros: null,
+				finalCredits: 0,
+				pricingSnapshot: expect.objectContaining({
+					outcome: "failed_no_deliverable",
+					units: 0,
+				}),
+			}),
+		);
+	});
+
 	it("settles partial output at the reservation-time unit price after registry drift", async () => {
-		const event = { id: "event_old_price", reservedCredits: 16 } as Awaited<
+		const event = { id: "event_old_price", reservedCredits: 1600 } as Awaited<
 			ReturnType<MeteringService["reserve"]>
 		>;
-		const meteringService = {
-			captureGeneration: vi.fn().mockResolvedValue(null),
-			findByIdempotencyKey: vi.fn().mockResolvedValue(event),
-			refund: vi.fn().mockResolvedValue(event),
-			reserveWithReplay: vi.fn(),
-			settle: vi.fn().mockResolvedValue(event),
-			settleFixedFromEvidence: vi.fn().mockResolvedValue(event),
-		};
+		const meteringService = meteringServiceDouble(event, null);
 		const billing = createImageGenerationBilling({
 			isBillingDisabled: () => false,
 			meteringService,
 		});
 		const oldPriceReservation = {
-			credits: 16,
+			credits: 1600,
 			eventId: "event_old_price",
 			operation: "image" as const,
 			referenceId: "attempt_old_price",
 			replay: "none" as const,
+			terms: { creditsPerUnit: 400, mode: "fixed" as const, unit: "image" },
 			units: 4,
 		};
 
@@ -87,9 +154,9 @@ describe("createImageGenerationBilling", () => {
 		expect(meteringService.settle).toHaveBeenCalledWith(
 			"event_old_price",
 			expect.objectContaining({
-				finalCredits: 4,
+				finalCredits: 400,
 				pricingSnapshot: expect.objectContaining({
-					creditsPerUnit: 4,
+					creditsPerUnit: 400,
 					units: 1,
 				}),
 			}),

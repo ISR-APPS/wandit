@@ -41,9 +41,11 @@
 // source of TypeScript types) plus chatsRoutes, a tiny map of URL-builder
 // functions (e.g. chatsRoutes.messages(id) -> "/api/v1/chats/<id>/messages").
 import {
+	type ChatUsageResponse,
 	chatByProjectResponseSchema,
 	chatMessagesResponseSchema,
 	chatsRoutes,
+	chatUsageResponseSchema,
 	type SendChatMessageBody,
 	sendChatMessageResponseSchema,
 } from "@wandit/contracts";
@@ -82,10 +84,16 @@ export async function getChatMessages(chatId: string) {
 	return chatMessagesResponseSchema.parse(data);
 }
 
+/** Aggregate token, cost, and credit usage for one staff-visible conversation. */
+export async function getChatUsage(chatId: string): Promise<ChatUsageResponse> {
+	const data = await apiClient.get<unknown>(chatsRoutes.usage(chatId));
+	return chatUsageResponseSchema.parse(data);
+}
+
 /**
  * Send the user's message to a chat. The body is { text, composer? } where
  * `composer` carries the composer chips' settings (mode like "page" or
- * "marketing", quality "standard"/"max", etc.).
+ * "marketing", output options, etc.).
  *
  * IMPORTANT MENTAL MODEL: this is fire-and-acknowledge, not request/reply.
  * The server saves the user message, enqueues a background AI job, and

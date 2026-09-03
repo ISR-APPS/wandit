@@ -29,6 +29,11 @@ export const env = createEnv({
 		// Cloudflare Turnstile site key. Unset = no captcha widget; must match
 		// the server's TURNSTILE_SECRET_KEY pair when email auth is live.
 		VITE_TURNSTILE_SITE_KEY: z.string().min(1).optional(),
+		// Chatwoot live chat (website inbox). Both unset = widget not loaded
+		// (local dev). BASE_URL is the Chatwoot installation, e.g.
+		// https://app.chatwoot.com; the token is the inbox's public website token.
+		VITE_CHATWOOT_BASE_URL: z.url().optional(),
+		VITE_CHATWOOT_WEBSITE_TOKEN: z.string().min(1).optional(),
 	},
 	runtimeEnv: (import.meta as any).env,
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,

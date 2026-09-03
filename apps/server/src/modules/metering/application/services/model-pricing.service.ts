@@ -8,7 +8,12 @@ import {
 	dollarsStringToUsdMicros,
 	gatewayModelToPersistedPrice,
 	type ImageUsageQuote,
+	type ImageVariantPrice,
+	imageEstimateUsdMicros,
+	imageUnitUsdMicros,
 	imageUsageCostUsdMicros,
+	type MeasuredCostEstimate,
+	type MediaVariantPricing,
 	type MeteredTokenUsage,
 	type ModelPrice,
 	ModelPriceUnavailableError,
@@ -17,7 +22,12 @@ import {
 	pricingSnapshot,
 	type TokenUsageQuote,
 	tokenUsageCostUsdMicros,
-	usdMicrosToCredits,
+	transcriptionEstimateUsdMicros,
+	usdMicrosToCentiCredits,
+	type VideoEstimateInput,
+	type VideoVariantPrice,
+	videoEstimateUsdMicros,
+	videoUnitUsdMicrosPerSecond,
 } from "../../domain/model-pricing";
 import {
 	type ModelPriceRow,
@@ -52,6 +62,11 @@ export type ModelPricingOptions = {
 	usdMicrosPerCredit?: number;
 };
 
+export type MeasuredCostEstimateInput =
+	| { count: number; kind: "image"; modelId: string; size?: string }
+	| ({ kind: "video"; modelId: string } & VideoEstimateInput)
+	| { durationSeconds: number; kind: "transcription"; modelId: string };
+
 export type ModelPriceRefreshResult = {
 	fetched: number;
 	persisted: number;
@@ -82,9 +97,11 @@ export class ModelPricingService {
 
 		this.fetchModels = options.fetch ?? defaultFetchModels;
 		this.now = options.now ?? (() => new Date());
+		// The ?? repeats the env schema default because SKIP_ENV_VALIDATION
+		// (tests) bypasses zod defaults and leaves the value undefined.
 		this.usdMicrosPerCredit =
 			options.usdMicrosPerCredit ??
-			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.05));
+			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.04));
 		this.seedByModelId = buildSeedMap(options.seedResponse ?? modelPriceSeed);
 	}
 
@@ -130,16 +147,12 @@ export class ModelPricingService {
 
 		return {
 			costUsdMicros,
-			credits: usdMicrosToCredits(costUsdMicros, usdMicrosPerCredit),
+			credits: usdMicrosToCentiCredits(costUsdMicros, usdMicrosPerCredit),
 			pricingSnapshot: pricingSnapshot(price, usdMicrosPerCredit),
 			usage: normalizedUsage,
 		};
 	}
 
-	/**
-	 * Provider cost for image reconciliation. Customer debits remain the fixed
-	 * operation-registry price (5 credits/image), not usdMicrosToCredits here.
-	 */
 	async quoteImages(
 		modelId: string,
 		imageCount: number,
@@ -151,6 +164,119 @@ export class ModelPricingService {
 			costUsdMicros: imageUsageCostUsdMicros(price, imageCount),
 			imageCount,
 			pricingSnapshot: pricingSnapshot(price, usdMicrosPerCredit),
+		};
+	}
+
+	/**
+	 * Local provider-cost estimates for measured operations. They size the
+	 * reserve and the provisional settlement; gateway reconciliation replaces
+	 * them with the exact cost. `null` means the catalog has no usable rate
+	 * for this model (caller falls back to the registry floor).
+	 */
+	async quoteImageEstimate(
+		modelId: string,
+		count: number,
+		size?: string,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		const price = await this.get(modelId);
+		const unitUsdMicros = price ? imageUnitUsdMicros(price, size) : null;
+
+		if (!price || unitUsdMicros === null) {
+			return null;
+		}
+
+		const costUsdMicros = imageEstimateUsdMicros(price, count, size) ?? 0;
+
+		return this.measuredEstimate(
+			price,
+			costUsdMicros,
+			unitUsdMicros,
+			usdMicrosPerCredit,
+		);
+	}
+
+	async quoteVideoEstimate(
+		modelId: string,
+		input: VideoEstimateInput,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		const price = await this.get(modelId);
+		const costUsdMicros = price ? videoEstimateUsdMicros(price, input) : null;
+
+		if (!price || costUsdMicros === null) {
+			return null;
+		}
+
+		return this.measuredEstimate(
+			price,
+			costUsdMicros,
+			videoUnitUsdMicrosPerSecond(price, input) ?? 0,
+			usdMicrosPerCredit,
+		);
+	}
+
+	async quoteTranscriptionEstimate(
+		modelId: string,
+		durationSeconds: number,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		const price = await this.get(modelId);
+		const costUsdMicros = price
+			? transcriptionEstimateUsdMicros(price, durationSeconds)
+			: null;
+
+		if (!price || costUsdMicros === null) {
+			return null;
+		}
+
+		return this.measuredEstimate(
+			price,
+			costUsdMicros,
+			price.transcriptionUsdMicrosPerSecond ?? 0,
+			usdMicrosPerCredit,
+		);
+	}
+
+	/** Dispatches on the operation kind; see the three quote*Estimate methods. */
+	async quoteMeasuredEstimate(
+		input: MeasuredCostEstimateInput,
+		usdMicrosPerCredit = this.usdMicrosPerCredit,
+	): Promise<MeasuredCostEstimate | null> {
+		switch (input.kind) {
+			case "image":
+				return this.quoteImageEstimate(
+					input.modelId,
+					input.count,
+					input.size,
+					usdMicrosPerCredit,
+				);
+			case "video":
+				return this.quoteVideoEstimate(
+					input.modelId,
+					input,
+					usdMicrosPerCredit,
+				);
+			case "transcription":
+				return this.quoteTranscriptionEstimate(
+					input.modelId,
+					input.durationSeconds,
+					usdMicrosPerCredit,
+				);
+		}
+	}
+
+	private measuredEstimate(
+		price: ModelPrice,
+		costUsdMicros: number,
+		unitUsdMicros: number,
+		usdMicrosPerCredit: number,
+	): MeasuredCostEstimate {
+		return {
+			costUsdMicros,
+			credits: usdMicrosToCentiCredits(costUsdMicros, usdMicrosPerCredit),
+			pricingSnapshot: pricingSnapshot(price, usdMicrosPerCredit),
+			unitUsdMicros,
 		};
 	}
 
@@ -232,6 +358,44 @@ function databaseRowToModelPrice(row: ModelPriceRow): ModelPrice {
 		raw: asRawRecord(row.raw),
 		refreshedAt: row.refreshedAt,
 		source: "database",
+		transcriptionUsdMicrosPerSecond: row.transcriptionUsdMicrosPerSecond,
+		variantPricing: asVariantPricing(row.variantPricing),
+		videoUsdMicrosPerSecond: row.videoUsdMicrosPerSecond,
+	};
+}
+
+function asVariantPricing(value: unknown): MediaVariantPricing | null {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return null;
+	}
+
+	const record = value as Record<string, unknown>;
+	const image = Array.isArray(record.image)
+		? record.image.filter(
+				(variant): variant is ImageVariantPrice =>
+					typeof variant === "object" &&
+					variant !== null &&
+					Number.isSafeInteger((variant as ImageVariantPrice).usdMicros),
+			)
+		: [];
+	const video = Array.isArray(record.video)
+		? record.video.filter(
+				(variant): variant is VideoVariantPrice =>
+					typeof variant === "object" &&
+					variant !== null &&
+					Number.isSafeInteger(
+						(variant as VideoVariantPrice).usdMicrosPerSecond,
+					),
+			)
+		: [];
+
+	if (image.length === 0 && video.length === 0) {
+		return null;
+	}
+
+	return {
+		...(image.length === 0 ? {} : { image }),
+		...(video.length === 0 ? {} : { video }),
 	};
 }
 

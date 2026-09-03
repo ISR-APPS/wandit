@@ -4,8 +4,9 @@
 // fullscreen lightbox (arrows + download); videos play inline with controls.
 
 import { Button } from "@wandit/ui/components/button";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -20,12 +21,165 @@ export type ChatMediaGalleryItem = {
 	downloadUrl?: string;
 };
 
+export type ChatMediaImageStatus = "loading" | "loaded" | "failed";
+export type ChatMediaImageVariant = "single" | "filmstrip" | "lightbox";
+
+/** A failed request only replaces the exact URL that emitted the error. */
+export function getChatMediaImageStatus(
+	imageUrl: string,
+	loadedImageUrl: string | null,
+	failedImageUrl: string | null,
+): ChatMediaImageStatus {
+	if (failedImageUrl === imageUrl) return "failed";
+	return loadedImageUrl === imageUrl ? "loaded" : "loading";
+}
+
+function imageFrameClassName(variant: ChatMediaImageVariant): string {
+	if (variant === "single") {
+		return "aspect-video min-h-40 max-h-80 w-full";
+	}
+	if (variant === "filmstrip") {
+		return "h-52 min-w-52 w-auto max-w-80 shrink-0";
+	}
+	return "aspect-video max-h-full min-h-0 min-w-0 w-full max-w-5xl flex-1";
+}
+
+export function ChatMediaImageFallback({
+	item,
+	variant,
+}: {
+	item: ChatMediaGalleryItem;
+	variant: ChatMediaImageVariant;
+}) {
+	const { t } = useTranslation();
+	const errorLabel = t("workspace.chat.media.imageLoadError");
+
+	return (
+		<a
+			href={item.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			aria-label={`${errorLabel}: ${item.label}`}
+			className={cn(
+				"pointer-events-auto relative flex flex-col items-center justify-center gap-1.5 overflow-hidden border border-border bg-muted px-4 text-center text-muted-foreground",
+				imageFrameClassName(variant),
+				variant === "lightbox" ? "rounded-lg shadow-2xl" : "rounded-[14px]",
+			)}
+		>
+			<span className="flex min-w-0 max-w-full items-center gap-2">
+				<ImageOff className="size-4 shrink-0" aria-hidden />
+				<span className="truncate font-medium text-xs" title={item.label}>
+					{item.label}
+				</span>
+			</span>
+			<span className="text-[11px]">{errorLabel}</span>
+		</a>
+	);
+}
+
+export function ChatMediaImageView({
+	item,
+	variant,
+	status,
+	onLoad,
+	onError,
+	onOpen,
+}: {
+	item: ChatMediaGalleryItem;
+	variant: ChatMediaImageVariant;
+	status: ChatMediaImageStatus;
+	onLoad?: () => void;
+	onError?: () => void;
+	onOpen?: () => void;
+}) {
+	if (status === "failed") {
+		return <ChatMediaImageFallback item={item} variant={variant} />;
+	}
+
+	const content = (
+		<>
+			{status === "loading" ? (
+				<Skeleton className="absolute inset-0 size-full rounded-none" />
+			) : null}
+			<img
+				key={item.url}
+				src={item.url}
+				alt={item.label}
+				loading={variant === "lightbox" ? "eager" : "lazy"}
+				decoding="async"
+				onLoad={onLoad}
+				onError={onError}
+				className={cn(
+					variant === "filmstrip"
+						? "relative block h-full w-auto min-w-52 max-w-80 object-cover"
+						: "absolute inset-0 size-full object-contain",
+					status === "loading" ? "opacity-0" : "opacity-100",
+				)}
+			/>
+		</>
+	);
+	const frameClassName = cn(
+		"relative overflow-hidden bg-secondary",
+		imageFrameClassName(variant),
+		variant === "lightbox"
+			? "pointer-events-auto rounded-lg shadow-2xl"
+			: "rounded-[14px] border border-border",
+	);
+
+	if (onOpen) {
+		return (
+			<button
+				type="button"
+				onClick={onOpen}
+				aria-busy={status === "loading"}
+				className={cn("cursor-zoom-in", frameClassName)}
+			>
+				{content}
+			</button>
+		);
+	}
+
+	return (
+		<div aria-busy={status === "loading"} className={frameClassName}>
+			{content}
+		</div>
+	);
+}
+
+function ResilientChatMediaImage({
+	item,
+	variant,
+	onOpen,
+}: {
+	item: ChatMediaGalleryItem;
+	variant: ChatMediaImageVariant;
+	onOpen?: () => void;
+}) {
+	const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
+	const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+	const status = getChatMediaImageStatus(
+		item.url,
+		loadedImageUrl,
+		failedImageUrl,
+	);
+
+	return (
+		<ChatMediaImageView
+			item={item}
+			variant={variant}
+			status={status}
+			onLoad={() => setLoadedImageUrl(item.url)}
+			onError={() => setFailedImageUrl(item.url)}
+			onOpen={onOpen}
+		/>
+	);
+}
+
 export function ChatMediaGallery({ items }: { items: ChatMediaGalleryItem[] }) {
 	const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
 	if (items.length === 0) return null;
 
-	const openable = (item: ChatMediaGalleryItem) => item.kind === "image";
 	const single = items.length === 1;
 
 	return (
@@ -56,26 +210,12 @@ export function ChatMediaGallery({ items }: { items: ChatMediaGalleryItem[] }) {
 							<track kind="captions" />
 						</video>
 					) : (
-						<button
+						<ResilientChatMediaImage
 							key={item.key}
-							type="button"
-							onClick={() => openable(item) && setLightboxIndex(index)}
-							className={cn(
-								"cursor-zoom-in overflow-hidden rounded-[14px] border border-border bg-secondary",
-								single ? "block w-full" : "h-52 w-auto shrink-0",
-							)}
-						>
-							<img
-								src={item.url}
-								alt={item.label}
-								loading="lazy"
-								className={cn(
-									single
-										? "block max-h-80 w-full object-contain"
-										: "h-full w-auto max-w-80 object-cover",
-								)}
-							/>
-						</button>
+							item={item}
+							variant={single ? "single" : "filmstrip"}
+							onOpen={() => setLightboxIndex(index)}
+						/>
 					),
 				)}
 			</div>
@@ -92,7 +232,9 @@ export function ChatMediaGallery({ items }: { items: ChatMediaGalleryItem[] }) {
 	);
 }
 
-function ChatMediaLightbox({
+// Exported for cards that open one media item full screen from their own
+// chrome (generate_video's stage) — same overlay, focus and download rules.
+export function ChatMediaLightbox({
 	items,
 	index,
 	onNavigate,
@@ -235,11 +377,7 @@ function ChatMediaLightbox({
 						<track kind="captions" />
 					</video>
 				) : (
-					<img
-						src={item.url}
-						alt={item.label}
-						className="pointer-events-auto max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl"
-					/>
+					<ResilientChatMediaImage item={item} variant="lightbox" />
 				)}
 
 				{hasMany ? (

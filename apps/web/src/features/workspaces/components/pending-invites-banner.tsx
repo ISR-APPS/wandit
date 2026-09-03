@@ -45,10 +45,7 @@ export function PendingInvitesBanner({ className }: { className?: string }) {
 				{t("workspaces.invite.pendingBanner", { count: pending.length })}
 			</p>
 			<Button asChild size="sm" variant="outline" className="shrink-0">
-				<Link
-					to="/invite/$invitationId"
-					params={{ invitationId: first.id }}
-				>
+				<Link to="/invite/$invitationId" params={{ invitationId: first.id }}>
 					{t("workspaces.invite.pendingBannerCta")}
 				</Link>
 			</Button>

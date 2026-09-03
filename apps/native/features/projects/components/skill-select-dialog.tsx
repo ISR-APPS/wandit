@@ -6,7 +6,7 @@ import {
 	Dialog,
 	useThemeColor,
 } from "heroui-native";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { Text, TextInput, useWindowDimensions, View } from "react-native";
 import { ScrollView } from "react-native-gesture-handler";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
@@ -47,14 +47,14 @@ export function SkillSelectDialog({
 	const muted = useThemeColor("muted");
 	const { height } = useWindowDimensions();
 	const insets = useSafeAreaInsets();
-	const [query, setQuery] = useState("re");
+	const [query, setQuery] = useState("");
 
-	// Fresh search every time the dialog reopens.
-	useEffect(() => {
-		if (!isOpen) {
+	const handleOpenChange = (open: boolean) => {
+		if (!open) {
 			setQuery("");
 		}
-	}, [isOpen]);
+		onOpenChange(open);
+	};
 
 	const insetTop = insets.top + 12;
 	// Fixed height (reference layout) so the list doesn't jump as the
@@ -116,7 +116,7 @@ export function SkillSelectDialog({
 	};
 
 	return (
-		<Dialog isOpen={isOpen} onOpenChange={onOpenChange}>
+		<Dialog isOpen={isOpen} onOpenChange={handleOpenChange}>
 			<Dialog.Portal>
 				<Dialog.Overlay className="bg-black/45" />
 				<KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={24}>
@@ -152,11 +152,9 @@ export function SkillSelectDialog({
 								bounces={false}
 								keyboardShouldPersistTaps="handled"
 							>
-								{trimmedQuery ? (
-									filteredSkills.map(renderSkillRow)
-								) : (
-									<>
-										{SKILL_GROUPS.map((group, groupIndex) => (
+								{trimmedQuery
+									? filteredSkills.map(renderSkillRow)
+									: SKILL_GROUPS.map((group, groupIndex) => (
 											<Fragment key={group.id}>
 												{groupIndex > 0 ? (
 													<View className="my-2 h-px bg-separator" />
@@ -167,8 +165,6 @@ export function SkillSelectDialog({
 												{group.skills.map(renderSkillRow)}
 											</Fragment>
 										))}
-									</>
-								)}
 							</ScrollView>
 						)}
 					</Dialog.Content>

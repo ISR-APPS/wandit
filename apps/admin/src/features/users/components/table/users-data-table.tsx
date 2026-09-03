@@ -33,6 +33,14 @@ import {
 import type {
 	AdminListUsersSort,
 	AdminUserSummary,
+	UserCountryFilter,
+	UserCreditsUsedRange,
+	UserFreeCreditsFilter,
+	UserPlanFilter,
+	UserPublishedFilter,
+	UserRoleFilter,
+	UserStatusFilter,
+	UserVerifiedFilter,
 } from "@/features/users/api/users.dto";
 import { cn } from "@/lib/utils";
 
@@ -46,10 +54,29 @@ type UsersDataTableProps = {
 	pageSize: number;
 	total: number;
 	sort: AdminListUsersSort;
+	country?: UserCountryFilter;
+	freeCredits?: UserFreeCreditsFilter;
+	plan?: UserPlanFilter;
+	role?: UserRoleFilter;
+	status?: UserStatusFilter;
+	verified?: UserVerifiedFilter;
+	published?: UserPublishedFilter;
+	creditsUsed?: UserCreditsUsedRange;
 	searchValue: string;
 	isFetching?: boolean;
+	isExporting: boolean;
 	onSearchChange: (value: string) => void;
 	onSortChange: (sort: AdminListUsersSort) => void;
+	onCountryChange: (country: UserCountryFilter | undefined) => void;
+	onFreeCreditsChange: (freeCredits: UserFreeCreditsFilter | undefined) => void;
+	onPlanChange: (plan: UserPlanFilter | undefined) => void;
+	onRoleChange: (role: UserRoleFilter | undefined) => void;
+	onStatusChange: (status: UserStatusFilter | undefined) => void;
+	onVerifiedChange: (verified: UserVerifiedFilter | undefined) => void;
+	onPublishedChange: (published: UserPublishedFilter | undefined) => void;
+	onCreditsUsedChange: (creditsUsed: UserCreditsUsedRange | undefined) => void;
+	onClearAllFilters: () => void;
+	onExport: () => void;
 	onPageChange: (page: number) => void;
 	onPageSizeChange: (pageSize: number) => void;
 };
@@ -60,10 +87,29 @@ function UsersDataTable({
 	pageSize,
 	total,
 	sort,
+	country,
+	freeCredits,
+	plan,
+	role,
+	status,
+	verified,
+	published,
+	creditsUsed,
 	searchValue,
 	isFetching = false,
+	isExporting,
 	onSearchChange,
 	onSortChange,
+	onCountryChange,
+	onFreeCreditsChange,
+	onPlanChange,
+	onRoleChange,
+	onStatusChange,
+	onVerifiedChange,
+	onPublishedChange,
+	onCreditsUsedChange,
+	onClearAllFilters,
+	onExport,
 	onPageChange,
 	onPageSizeChange,
 }: UsersDataTableProps) {
@@ -109,7 +155,18 @@ function UsersDataTable({
 	});
 
 	const visibleRows = table.getRowModel().rows;
-	const isFiltered = searchValue.trim().length > 0;
+	const isFiltered =
+		searchValue.trim().length > 0 ||
+		Boolean(
+			country?.length ||
+				freeCredits?.length ||
+				plan?.length ||
+				role?.length ||
+				status?.length ||
+				verified?.length ||
+				published?.length ||
+				creditsUsed,
+		);
 
 	return (
 		<div className="space-y-4">
@@ -118,8 +175,27 @@ function UsersDataTable({
 					table={table}
 					searchValue={searchValue}
 					sort={sort}
+					country={country}
+					freeCredits={freeCredits}
+					plan={plan}
+					role={role}
+					status={status}
+					verified={verified}
+					published={published}
+					creditsUsed={creditsUsed}
+					isExporting={isExporting}
 					onSearchChange={onSearchChange}
 					onSortChange={onSortChange}
+					onCountryChange={onCountryChange}
+					onFreeCreditsChange={onFreeCreditsChange}
+					onPlanChange={onPlanChange}
+					onRoleChange={onRoleChange}
+					onStatusChange={onStatusChange}
+					onVerifiedChange={onVerifiedChange}
+					onPublishedChange={onPublishedChange}
+					onCreditsUsedChange={onCreditsUsedChange}
+					onClearAllFilters={onClearAllFilters}
+					onExport={onExport}
 				/>
 			</div>
 
@@ -128,7 +204,7 @@ function UsersDataTable({
 			) : (
 				<FilteredEmptyState
 					isFiltered={isFiltered}
-					onClear={() => onSearchChange("")}
+					onClear={onClearAllFilters}
 					className="lg:hidden"
 				/>
 			)}
@@ -140,7 +216,7 @@ function UsersDataTable({
 				)}
 				data-testid="users-table"
 			>
-				<Table className="min-w-[1200px]">
+				<Table className="min-w-[1320px]">
 					<TableHeader>
 						{table.getHeaderGroups().map((headerGroup) => (
 							<TableRow key={headerGroup.id}>
@@ -193,7 +269,7 @@ function UsersDataTable({
 								>
 									<FilteredEmptyState
 										isFiltered={isFiltered}
-										onClear={() => onSearchChange("")}
+										onClear={onClearAllFilters}
 									/>
 								</TableCell>
 							</TableRow>
@@ -211,9 +287,7 @@ function getStickyClass(columnId: string, isHeader: boolean) {
 	if (columnId === "user") {
 		return cn(
 			"sticky left-0 z-20 border-r px-4 pr-7",
-			isHeader
-				? "bg-background"
-				: "bg-background group-hover:bg-muted",
+			isHeader ? "bg-background" : "bg-background group-hover:bg-muted",
 		);
 	}
 
@@ -228,9 +302,7 @@ function getStickyClass(columnId: string, isHeader: boolean) {
 	if (columnId === "actions") {
 		return cn(
 			"sticky right-0 z-20 w-14 min-w-14 max-w-14 border-l px-2 text-center",
-			isHeader
-				? "bg-background"
-				: "bg-background group-hover:bg-muted",
+			isHeader ? "bg-background" : "bg-background group-hover:bg-muted",
 		);
 	}
 
@@ -328,11 +400,13 @@ function FilteredEmptyState({
 					<SearchXIcon />
 				</EmptyMedia>
 				<EmptyTitle>
-					{isFiltered ? "No users match this search" : "No users on this page"}
+					{isFiltered
+						? "No users match these filters"
+						: "No users on this page"}
 				</EmptyTitle>
 				<EmptyDescription>
 					{isFiltered
-						? "Try a different name or email, or clear the search."
+						? "Try a different search or filter value, or reset them."
 						: "Go back to an earlier page of the directory."}
 				</EmptyDescription>
 			</EmptyHeader>
@@ -340,7 +414,7 @@ function FilteredEmptyState({
 				<EmptyContent>
 					<Button type="button" variant="outline" size="sm" onClick={onClear}>
 						<XIcon data-icon="inline-start" />
-						Clear search
+						Reset filters
 					</Button>
 				</EmptyContent>
 			)}

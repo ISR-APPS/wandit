@@ -11,7 +11,7 @@ export const CHECKOUT_PURPOSE = {
 export type CheckoutPurpose =
 	(typeof CHECKOUT_PURPOSE)[keyof typeof CHECKOUT_PURPOSE];
 
-export const billingPlanIds = ["pro", "business"] as const;
+export const billingPlanIds = ["starter", "pro", "business"] as const;
 
 export const billingPlanIdSchema = z.enum(billingPlanIds);
 
@@ -30,69 +30,176 @@ export const ENTITLED_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 export type EntitledSubscriptionStatus =
 	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
+// Pricing v6 separates tiers offered to new buyers from legacy Stripe tier
+// identities. CREDIT_TIERS is the parse/validation universe; purchase flows
+// must use PLAN_TIERS or isPurchasableTier so legacy subscriptions keep
+// working without retired tiers returning to the plan picker.
+export const LEGACY_CREDIT_TIERS = [
+	250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
+] as const;
+
 export const CREDIT_TIERS = [
-	100, 200, 400, 800, 1200, 2000, 3000, 4000, 5000,
+	50, 175, 250, 350, 500, 700, 1000, 1400, 2000, 2100, 3000, 3500, 5000, 5250,
+	7000, 7500, 8750, 10000, 12500,
 ] as const;
 
 export type CreditTier = (typeof CREDIT_TIERS)[number];
 
-export const creditTierSchema = z.union([
-	z.literal(100),
-	z.literal(200),
-	z.literal(400),
-	z.literal(800),
-	z.literal(1200),
-	z.literal(2000),
-	z.literal(3000),
-	z.literal(4000),
-	z.literal(5000),
-]);
+export type LegacyCreditTier = (typeof LEGACY_CREDIT_TIERS)[number];
 
-export const topupPackIds = ["topup_100", "topup_500", "topup_1000"] as const;
+const V6_TIER_BY_LEGACY = {
+	250: 175,
+	500: 350,
+	1000: 700,
+	2000: 1400,
+	3000: 2100,
+	5000: 3500,
+	7500: 5250,
+	10000: 7000,
+	12500: 8750,
+} as const satisfies Record<LegacyCreditTier, CreditTier>;
+
+export const creditTierSchema = z.literal(CREDIT_TIERS);
+
+export const PLAN_TIERS = {
+	starter: [50],
+	pro: [175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750],
+	business: [175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750],
+} as const satisfies Record<BillingPlanId, readonly CreditTier[]>;
+
+export function purchasableTiersFor(
+	plan: BillingPlanId,
+): readonly CreditTier[] {
+	return PLAN_TIERS[plan];
+}
+
+export function isPurchasableTier(
+	plan: BillingPlanId,
+	tierCredits: number,
+): tierCredits is CreditTier {
+	return (PLAN_TIERS[plan] as readonly number[]).includes(tierCredits);
+}
+
+export function isLegacyTier(
+	tierCredits: number,
+): tierCredits is LegacyCreditTier {
+	return (LEGACY_CREDIT_TIERS as readonly number[]).includes(tierCredits);
+}
+
+export function v6TierForLegacy(tierCredits: number): CreditTier | null {
+	return isLegacyTier(tierCredits) ? V6_TIER_BY_LEGACY[tierCredits] : null;
+}
+
+export function isKnownTier(tierCredits: number): tierCredits is CreditTier {
+	return (CREDIT_TIERS as readonly number[]).includes(tierCredits);
+}
+
+export const topupPackIds = ["topup_175", "topup_700", "topup_1750"] as const;
 
 export const topupPackIdSchema = z.enum(topupPackIds);
 
 export type TopupPackId = z.infer<typeof topupPackIdSchema>;
 
+// Old ids are stored in checkout attempts, receipts, Stripe metadata, and
+// credit-ledger metadata. Historical readers accept both sets; new checkout
+// requests and the public catalog use topupPackIdSchema/topupPackIds only.
+export const LEGACY_TOPUP_PACK_IDS = [
+	"topup_250",
+	"topup_1000",
+	"topup_2500",
+] as const;
+
+export type LegacyTopupPackId = (typeof LEGACY_TOPUP_PACK_IDS)[number];
+
+export const persistedTopupPackIds = [
+	...topupPackIds,
+	...LEGACY_TOPUP_PACK_IDS,
+] as const;
+
+export const persistedTopupPackIdSchema = z.enum(persistedTopupPackIds);
+
+export type PersistedTopupPackId = z.infer<typeof persistedTopupPackIdSchema>;
+
+// Top-ups stay disabled in v6. These prices match the Pro base rate so they
+// cannot undercut a subscription if the existing switch is re-enabled.
 export const TOPUP_PACKS = {
-	topup_100: { credits: 100, usd: 25 },
-	topup_500: { credits: 500, usd: 125 },
-	topup_1000: { credits: 1000, usd: 250 },
+	topup_175: { credits: 175, usd: 25 },
+	topup_700: { credits: 700, usd: 100 },
+	topup_1750: { credits: 1750, usd: 250 },
 } as const;
+
+export const LEGACY_TOPUP_PACKS = {
+	topup_250: { credits: 250, usd: 25 },
+	topup_1000: { credits: 1000, usd: 100 },
+	topup_2500: { credits: 2500, usd: 250 },
+} as const;
+
+export const PERSISTED_TOPUP_PACKS = {
+	...TOPUP_PACKS,
+	...LEGACY_TOPUP_PACKS,
+} as const satisfies Record<
+	PersistedTopupPackId,
+	{ readonly credits: number; readonly usd: number }
+>;
 
 export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
 	plans: {
-		pro: {
-			basePer100Usd: 25,
+		starter: {
+			basePer100Usd: 16,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
-				100: 25,
-				200: 50,
-				400: 100,
-				800: 200,
-				1200: 294,
-				2000: 480,
-				3000: 705,
-				4000: 920,
-				5000: 1125,
+				50: 8,
+			},
+		},
+		pro: {
+			basePer100Usd: (25 / 175) * 100,
+			features: { seats: false, teamWorkspace: false },
+			monthlyPricesUsd: {
+				175: 25,
+				250: 25,
+				350: 50,
+				500: 50,
+				700: 100,
+				1000: 100,
+				1400: 200,
+				2000: 200,
+				2100: 294,
+				3000: 294,
+				3500: 480,
+				5000: 480,
+				5250: 705,
+				7000: 920,
+				7500: 705,
+				8750: 1125,
+				10000: 920,
+				12500: 1125,
 			},
 		},
 		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
 		// what's priced. Purchasable only with org workspace scope (pairing rule).
 		business: {
-			basePer100Usd: 50,
+			basePer100Usd: (50 / 175) * 100,
 			features: { seats: true, teamWorkspace: true },
 			monthlyPricesUsd: {
-				100: 50,
-				200: 100,
-				400: 200,
-				800: 400,
-				1200: 588,
-				2000: 960,
-				3000: 1410,
-				4000: 1840,
-				5000: 2250,
+				175: 50,
+				250: 50,
+				350: 100,
+				500: 100,
+				700: 200,
+				1000: 200,
+				1400: 400,
+				2000: 400,
+				2100: 588,
+				3000: 588,
+				3500: 960,
+				5000: 960,
+				5250: 1410,
+				7000: 1840,
+				7500: 1410,
+				8750: 2250,
+				10000: 1840,
+				12500: 2250,
 			},
 		},
 	},
@@ -104,15 +211,35 @@ export function priceUsdFor(
 	plan: BillingPlanId,
 	tierCredits: CreditTier,
 	interval: BillingInterval,
-) {
-	const monthlyPriceUsd =
-		BILLING_CATALOG.plans[plan].monthlyPricesUsd[tierCredits];
+): number {
+	const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
 
-	if (interval === "month") {
-		return monthlyPriceUsd;
+	if (priceUsd === null) {
+		throw new Error(
+			`No billing price for plan "${plan}" at ${tierCredits} credits`,
+		);
 	}
 
-	return monthlyPriceUsd * BILLING_CATALOG.yearlyPriceMultiplier;
+	return priceUsd;
+}
+
+export function tryPriceUsdFor(
+	plan: BillingPlanId,
+	tierCredits: number,
+	interval: BillingInterval,
+): number | null {
+	const prices = BILLING_CATALOG.plans[plan].monthlyPricesUsd as Readonly<
+		Partial<Record<CreditTier, number>>
+	>;
+	const monthlyPriceUsd = prices[tierCredits as CreditTier];
+
+	if (monthlyPriceUsd === undefined) {
+		return null;
+	}
+
+	return interval === "month"
+		? monthlyPriceUsd
+		: monthlyPriceUsd * BILLING_CATALOG.yearlyPriceMultiplier;
 }
 
 export function priceLookupKey(
@@ -144,7 +271,11 @@ export function parsePriceLookupKey(
 
 	const tierCredits = Number(tierCreditsValue);
 
-	if (!Number.isInteger(tierCredits) || !isCreditTier(tierCredits)) {
+	if (
+		!Number.isInteger(tierCredits) ||
+		!isKnownTier(tierCredits) ||
+		tryPriceUsdFor(plan, tierCredits, "month") === null
+	) {
 		return null;
 	}
 
@@ -161,10 +292,6 @@ function isBillingPlanId(value: string): value is BillingPlanId {
 
 function isBillingInterval(value: string): value is BillingInterval {
 	return (billingIntervals as readonly string[]).includes(value);
-}
-
-function isCreditTier(value: number): value is CreditTier {
-	return (CREDIT_TIERS as readonly number[]).includes(value);
 }
 
 export const subscriptionSchema = z.object({
@@ -238,11 +365,16 @@ export type BillingSubscriptionViewResponse = z.infer<
 	typeof billingSubscriptionViewResponseSchema
 >;
 
-export const createBillingCheckoutBodySchema = z.object({
-	plan: billingPlanIdSchema,
-	tierCredits: creditTierSchema,
-	interval: billingIntervalSchema,
-});
+export const createBillingCheckoutBodySchema = z
+	.object({
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
 
 export type CreateBillingCheckoutBody = z.infer<
 	typeof createBillingCheckoutBodySchema
@@ -277,7 +409,9 @@ export const billingSubscriptionChangePreviewResponseSchema = z.object({
 	intentId: uuidSchema,
 	amountDueMinor: z.int(),
 	currency: z.string().min(1),
-	creditsDelta: z.int(),
+	// Decimal credits: computed against the centi-credit plan balance, so a
+	// monthly->yearly preview can carry a fractional expiry remainder.
+	creditsDelta: z.number(),
 	expiresAt: isoDateTimeSchema,
 });
 
@@ -319,6 +453,202 @@ export const billingPortalResponseSchema = z.object({
 
 export type BillingPortalResponse = z.infer<typeof billingPortalResponseSchema>;
 
+export const cancellationReasonCodeSchema = z.enum([
+	"too_expensive",
+	"not_using_enough",
+	"missing_features",
+	"technical_issues",
+	"switching_provider",
+	"temporary_pause",
+	"other",
+]);
+
+export type CancellationReasonCode = z.infer<
+	typeof cancellationReasonCodeSchema
+>;
+
+export const billingCancelRequestSchema = z
+	.object({
+		reason: cancellationReasonCodeSchema,
+		details: z.string().trim().min(1).max(1000).optional(),
+	})
+	.superRefine((request, context) => {
+		if (request.reason === "other" && request.details === undefined) {
+			context.addIssue({
+				code: "custom",
+				message: "details is required when reason is other",
+				path: ["details"],
+			});
+		}
+	});
+
+export type BillingCancelRequest = z.infer<typeof billingCancelRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Offline / manual billing ("cash on delivery", wire transfer, CCP…).
+//
+// A user who cannot (or does not want to) pay by card files a manual
+// subscription REQUEST from the plan picker. An admin calls them, collects the
+// payment outside Stripe, and grants a `provider = "manual"` subscription in
+// the admin app. Manual subscriptions never auto-renew: a Trigger.dev sweep
+// ends them at `currentPeriodEnd`; renewing is an admin action after contact.
+// ---------------------------------------------------------------------------
+
+export const SUBSCRIPTION_PROVIDERS = {
+	manual: "manual",
+	stripe: "stripe",
+} as const;
+
+export type SubscriptionProvider =
+	(typeof SUBSCRIPTION_PROVIDERS)[keyof typeof SUBSCRIPTION_PROVIDERS];
+
+export function isManualSubscription(
+	subscription: Pick<Subscription, "provider"> | null | undefined,
+): boolean {
+	return subscription?.provider === SUBSCRIPTION_PROVIDERS.manual;
+}
+
+export const manualPaymentMethods = [
+	"cash_on_delivery",
+	"bank_transfer",
+	"ccp",
+	"baridimob",
+	"other",
+] as const;
+
+export const manualPaymentMethodSchema = z.enum(manualPaymentMethods);
+
+export type ManualPaymentMethod = z.infer<typeof manualPaymentMethodSchema>;
+
+export const manualSubscriptionRequestStatuses = [
+	"pending",
+	"contacted",
+	"approved",
+	"rejected",
+	"canceled",
+] as const;
+
+export const manualSubscriptionRequestStatusSchema = z.enum(
+	manualSubscriptionRequestStatuses,
+);
+
+export type ManualSubscriptionRequestStatus = z.infer<
+	typeof manualSubscriptionRequestStatusSchema
+>;
+
+/** Statuses an admin still has to act on. */
+export const OPEN_MANUAL_REQUEST_STATUSES = ["pending", "contacted"] as const;
+
+export const manualBillingCountries = ["DZ", "TN", "MA", "OTHER"] as const;
+
+export const manualBillingCountrySchema = z.enum(manualBillingCountries);
+
+export type ManualBillingCountry = z.infer<typeof manualBillingCountrySchema>;
+
+// Loose international phone check: leading + or digit, then digits with the
+// usual separators. The admin calls the number by hand, so this only has to
+// reject garbage, not validate carriers.
+const phoneSchema = z
+	.string()
+	.trim()
+	.min(6)
+	.max(32)
+	.regex(/^[+\d][\d\s().-]{5,}$/, "Enter a valid phone number")
+	// The admin calls this number by hand — separators alone must not pass.
+	.refine(
+		(value) => (value.match(/\d/g)?.length ?? 0) >= 6,
+		"Enter a valid phone number",
+	);
+
+export const createManualSubscriptionRequestBodySchema = z
+	.object({
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+		fullName: z.string().trim().min(2).max(120),
+		phone: phoneSchema,
+		company: z.string().trim().min(1).max(120).optional(),
+		country: manualBillingCountrySchema,
+		city: z.string().trim().min(1).max(120).optional(),
+		preferredPaymentMethod: manualPaymentMethodSchema.optional(),
+		notes: z.string().trim().min(1).max(1000).optional(),
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
+
+export type CreateManualSubscriptionRequestBody = z.infer<
+	typeof createManualSubscriptionRequestBodySchema
+>;
+
+export const manualSubscriptionRequestSchema = z.object({
+	id: uuidSchema,
+	status: manualSubscriptionRequestStatusSchema,
+	organizationId: z.string().nullable(),
+	plan: billingPlanIdSchema,
+	// Plain positive int (not creditTierSchema) so a request filed against a
+	// retired tier still renders.
+	tierCredits: z.int().positive(),
+	interval: billingIntervalSchema,
+	fullName: z.string(),
+	phone: z.string(),
+	company: z.string().nullable(),
+	country: z.string(),
+	city: z.string().nullable(),
+	preferredPaymentMethod: manualPaymentMethodSchema.nullable(),
+	notes: z.string().nullable(),
+	subscriptionId: uuidSchema.nullable(),
+	handledAt: isoDateTimeSchema.nullable(),
+	createdAt: isoDateTimeSchema,
+	updatedAt: isoDateTimeSchema,
+});
+
+export type ManualSubscriptionRequest = z.infer<
+	typeof manualSubscriptionRequestSchema
+>;
+
+/** The caller's most recent OPEN request for the active workspace, if any. */
+export const manualSubscriptionRequestViewResponseSchema = z.object({
+	request: manualSubscriptionRequestSchema.nullable(),
+});
+
+export type ManualSubscriptionRequestViewResponse = z.infer<
+	typeof manualSubscriptionRequestViewResponseSchema
+>;
+
+/**
+ * Adds one billing interval on the UTC calendar (the same month arithmetic the
+ * yearly refill slots use): Jan 31 + 1 month = Feb 28/29, never Mar 3.
+ */
+export function addBillingInterval(
+	anchor: Date,
+	interval: BillingInterval,
+	count = 1,
+): Date {
+	const months = (interval === "year" ? 12 : 1) * count;
+	const targetMonthIndex = anchor.getUTCMonth() + months;
+	const targetYear =
+		anchor.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+	const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+	const lastDay = new Date(
+		Date.UTC(targetYear, targetMonth + 1, 0),
+	).getUTCDate();
+	const targetDay = Math.min(anchor.getUTCDate(), lastDay);
+
+	return new Date(
+		Date.UTC(
+			targetYear,
+			targetMonth,
+			targetDay,
+			anchor.getUTCHours(),
+			anchor.getUTCMinutes(),
+			anchor.getUTCSeconds(),
+			anchor.getUTCMilliseconds(),
+		),
+	);
+}
+
 export const billingRoutes = {
 	plans: "/api/v1/billing/plans",
 	subscription: "/api/v1/billing/subscription",
@@ -330,5 +660,7 @@ export const billingRoutes = {
 	cancel: "/api/v1/billing/cancel",
 	resume: "/api/v1/billing/resume",
 	sync: "/api/v1/billing/sync",
+	manualRequest: "/api/v1/billing/manual-request",
+	manualRequestCancel: "/api/v1/billing/manual-request/cancel",
 	webhook: "/api/webhooks/stripe",
 } as const;

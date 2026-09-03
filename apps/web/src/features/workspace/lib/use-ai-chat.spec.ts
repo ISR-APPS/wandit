@@ -1,15 +1,19 @@
+import { QueryClient } from "@tanstack/react-query";
 import {
 	aiChatMessageMetadataSchema,
 	type ChatMessage,
 } from "@wandit/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { toUpgradeModalIntent } from "@/features/billing/lib/billing-error-dispatch";
-import { ApiClientError } from "@/lib/api-client";
+import { creditsKeys } from "@/features/credits/api/credits.queries";
 import {
-	chatStreamErrorKey,
+	applyCreditsSettled,
+	findLastTerminalAiErrorMessage,
+	findRetryRequestMetadata,
 	hydrateAiChatMessages,
 	isAppliedPageEditPart,
+	messageHasQueuedToolWork,
 	nextBillingErrorInTurn,
 	type WanditUIMessage,
 } from "./use-ai-chat";
@@ -30,6 +34,12 @@ function chatRow(
 }
 
 describe("AI chat target metadata", () => {
+	const composer = {
+		mode: "video" as const,
+		output: "video-creator",
+		options: { builderModel: "anthropic/claude-sonnet-4.5" },
+	};
+
 	it("accepts ordered target descriptors", () => {
 		expect(
 			aiChatMessageMetadataSchema.parse({
@@ -76,6 +86,26 @@ describe("AI chat target metadata", () => {
 			},
 			{ wid: "cta", tag: "button", excerpt: "Start now" },
 		]);
+	});
+
+	it("accepts durable request context on a user message", () => {
+		expect(
+			aiChatMessageMetadataSchema.parse({
+				composer,
+				selectedWids: ["hero", "cta"],
+			}),
+		).toEqual({ composer, selectedWids: ["hero", "cta"] });
+	});
+
+	it("normalizes dashboard rows that stored composer metadata directly", () => {
+		const [message] = hydrateAiChatMessages([
+			chatRow("user", { mode: "page", skills: ["ads-meta"] }),
+		]);
+
+		expect(message?.metadata?.composer).toEqual({
+			mode: "page",
+			skills: ["ads-meta"],
+		});
 	});
 
 	it("continues to hydrate a legacy single target", () => {
@@ -126,32 +156,150 @@ describe("billing error turn state", () => {
 	});
 });
 
-describe("replay conflict detection", () => {
-	function apiError(code: string, statusCode: number) {
-		return new ApiClientError({
-			code,
-			message: "conflict",
-			path: "/v1/chats/chat-1/ai-stream",
-			requestId: "req-1",
-			statusCode,
-			timestamp: "2026-08-04T19:16:58.000Z",
+describe("credits-settled data part", () => {
+	const settled = {
+		credits: 0.37,
+		settledBalance: 12.63,
+		usageEventId: "usage-event-1",
+	};
+
+	it("seeds the cached settled balance once, then refetches all credits queries", () => {
+		const queryClient = new QueryClient();
+		const invalidate = vi
+			.spyOn(queryClient, "invalidateQueries")
+			.mockResolvedValue(undefined);
+		queryClient.setQueryData(creditsKeys.balance(), {
+			balance: 12,
+			plan: 12,
+			promo: 0,
+			settledBalance: 13,
+			settledPlan: 13,
+			settledPromo: 0,
+			settledTopup: 0,
+			topup: 0,
 		});
+
+		applyCreditsSettled(queryClient, settled);
+
+		expect(queryClient.getQueryData(creditsKeys.balance())).toEqual(
+			expect.objectContaining({ balance: 12, settledBalance: 12.63 }),
+		);
+		expect(invalidate).toHaveBeenCalledWith({ queryKey: creditsKeys.all });
+	});
+
+	it("does not create a partial balance row when nothing is cached", () => {
+		const queryClient = new QueryClient();
+		vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+
+		applyCreditsSettled(queryClient, settled);
+
+		expect(queryClient.getQueryData(creditsKeys.balance())).toBeUndefined();
+	});
+});
+
+describe("AI error turn lookup", () => {
+	function message(
+		id: string,
+		role: WanditUIMessage["role"],
+		parts: unknown[],
+	): WanditUIMessage {
+		return { id, role, parts } as WanditUIMessage;
 	}
 
-	it("maps each server refusal to its own copy and everything else to generic", () => {
+	const terminalError = {
+		type: "data-ai-error",
+		data: {
+			kind: "capacity",
+			source: "gateway",
+			providerLabel: null,
+			retryable: true,
+			terminal: true,
+			refunded: null,
+			moderationStage: null,
+			providerMessage: null,
+			requestId: null,
+		},
+	};
+
+	it("selects the last assistant row with a whole-turn terminal part", () => {
+		const first = message("assistant-1", "assistant", [terminalError]);
+		const toolScoped = message("assistant-2", "assistant", [
+			{
+				...terminalError,
+				data: { ...terminalError.data, toolCallId: "tool-1" },
+			},
+		]);
+		const last = message("assistant-3", "assistant", [terminalError]);
+
+		expect(findLastTerminalAiErrorMessage([first, toolScoped, last])?.id).toBe(
+			"assistant-3",
+		);
+	});
+
+	it("detects queued tool output on the failed row", () => {
+		const failed = message("assistant-1", "assistant", [
+			terminalError,
+			{
+				type: "tool-generate_image",
+				toolCallId: "image-1",
+				state: "output-available",
+				input: {},
+				output: { status: "queued", attemptId: "attempt-1" },
+			},
+		]);
+
+		expect(messageHasQueuedToolWork(failed)).toBe(true);
 		expect(
-			chatStreamErrorKey(apiError("AI_CHAT_OPERATION_REPLAYED", 409)),
-		).toBe("workspace.chat.errors.replayed");
-		expect(chatStreamErrorKey(apiError("AI_CHAT_TURN_ACTIVE", 409))).toBe(
-			"workspace.chat.errors.busy",
-		);
-		expect(chatStreamErrorKey(apiError("INSUFFICIENT_CREDITS", 402))).toBe(
-			"workspace.chat.errors.stream",
-		);
-		expect(chatStreamErrorKey(new Error("stream died"))).toBe(
-			"workspace.chat.errors.stream",
-		);
-		expect(chatStreamErrorKey(undefined)).toBe("workspace.chat.errors.stream");
+			messageHasQueuedToolWork(
+				message("assistant-2", "assistant", [terminalError]),
+			),
+		).toBe(false);
+	});
+
+	it("restores composer and target ids before retrying a reloaded turn", () => {
+		const composer = {
+			mode: "video" as const,
+			output: "video-creator",
+			options: { builderModel: "anthropic/claude-sonnet-4.5" },
+		};
+		const user = {
+			id: "user-1",
+			role: "user",
+			parts: [{ type: "text", text: "Make this move", state: "done" }],
+			metadata: {
+				composer,
+				selectedWids: ["hero", "cta"],
+				selectedTargets: [
+					{ wid: "hero", tag: "section", excerpt: "Hero" },
+					{ wid: "cta", tag: "button", excerpt: "Start" },
+				],
+			},
+		} as WanditUIMessage;
+		const failed = message("assistant-1", "assistant", [terminalError]);
+
+		expect(findRetryRequestMetadata([user, failed], failed.id)).toEqual({
+			composer,
+			selectedWids: ["hero", "cta"],
+		});
+	});
+
+	it("derives target ids from legacy selected-target snapshots", () => {
+		const user = {
+			id: "user-legacy",
+			role: "user",
+			parts: [{ type: "text", text: "Change these", state: "done" }],
+			metadata: {
+				selectedTargets: [
+					{ wid: "hero", tag: "section", excerpt: null },
+					{ wid: "cta", tag: "button", excerpt: null },
+				],
+			},
+		} as WanditUIMessage;
+		const failed = message("assistant-legacy", "assistant", [terminalError]);
+
+		expect(findRetryRequestMetadata([user, failed], failed.id)).toEqual({
+			selectedWids: ["hero", "cta"],
+		});
 	});
 });
 
@@ -160,23 +308,16 @@ describe("page edit invalidation", () => {
 		return value as WanditUIMessage["parts"][number];
 	}
 
-	it("recognizes applied section replacements and element-op batches", () => {
+	it.each([
+		["section replacement", "tool-replace_section"],
+		["element-op batch", "tool-apply_element_ops"],
+		["section insertion", "tool-insert_section"],
+	])("recognizes an applied %s", (_label, type) => {
 		expect(
 			isAppliedPageEditPart(
 				part({
-					type: "tool-replace_section",
-					toolCallId: "replace-1",
-					state: "output-available",
-					input: {},
-					output: { status: "applied", message: "Done" },
-				}),
-			),
-		).toBe(true);
-		expect(
-			isAppliedPageEditPart(
-				part({
-					type: "tool-apply_element_ops",
-					toolCallId: "ops-1",
+					type,
+					toolCallId: "edit-1",
 					state: "output-available",
 					input: {},
 					output: { status: "applied", message: "Done" },
@@ -185,18 +326,24 @@ describe("page edit invalidation", () => {
 		).toBe(true);
 	});
 
-	it("ignores rejected and unfinished page edits", () => {
+	it.each([
+		["rejected element-op batch", "tool-apply_element_ops"],
+		["rejected section insertion", "tool-insert_section"],
+	])("ignores a %s", (_label, type) => {
 		expect(
 			isAppliedPageEditPart(
 				part({
-					type: "tool-apply_element_ops",
-					toolCallId: "ops-1",
+					type,
+					toolCallId: "edit-1",
 					state: "output-available",
 					input: {},
 					output: { status: "rejected", message: "No change" },
 				}),
 			),
 		).toBe(false);
+	});
+
+	it("ignores an unfinished page edit", () => {
 		expect(
 			isAppliedPageEditPart(
 				part({

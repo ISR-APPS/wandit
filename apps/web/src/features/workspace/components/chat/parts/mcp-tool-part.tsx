@@ -17,6 +17,10 @@ import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import {
+	durableAiErrorPresentation,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { ChatMediaGallery } from "./chat-media";
@@ -111,7 +115,9 @@ function connectorMonogram(connectorSlug: string): string {
 	);
 }
 
-const NOISE_TOKENS = new Set(["api", "tool"]);
+// "mcp" must never surface in a user-facing label, even from an unparseable
+// tool name — the product never says MCP anywhere in the UI.
+const NOISE_TOKENS = new Set(["api", "mcp", "tool"]);
 const CHECK_NOUNS = new Set([
 	"balance",
 	"health",
@@ -222,6 +228,7 @@ export function isMcpRunFullySettled(parts: McpToolPartValue[]): boolean {
 export function mcpRunHasDeliverables(parts: McpToolPartValue[]): boolean {
 	return parts.some((part) => {
 		if (part.state !== "output-available") return false;
+		if (isMcpErrorOutput(part.output)) return false;
 		if (connectorGenerationQueuedOutputSchema.safeParse(part.output).success) {
 			return true;
 		}
@@ -239,6 +246,7 @@ export function McpActivityCard({
 	section = "all",
 	isTurnLive = false,
 	isRunConcluded = false,
+	onPrefillComposer,
 }: {
 	parts: McpToolPartValue[];
 	isApprovalActionable: boolean;
@@ -257,6 +265,7 @@ export function McpActivityCard({
 	 * join it). Mid-stream, a concluded receipt animates out of the thread;
 	 * it reappears as the bottom chip once the turn ends. */
 	isRunConcluded?: boolean;
+	onPrefillComposer?: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
 	const dictionary = useDictionary();
@@ -269,6 +278,7 @@ export function McpActivityCard({
 	// would read "done" while the provider is still generating.
 	const backgroundGenerations = parts.flatMap((part) => {
 		if (part.state !== "output-available") return [];
+		if (isMcpErrorOutput(part.output)) return [];
 		const parsed = connectorGenerationQueuedOutputSchema.safeParse(part.output);
 		return parsed.success ? [{ output: parsed.data, part }] : [];
 	});
@@ -373,6 +383,7 @@ export function McpActivityCard({
 	const seenMediaUrls = new Set<string>();
 	const media = visibleParts.flatMap((part) =>
 		part.state === "output-available" &&
+		!isMcpErrorOutput(part.output) &&
 		!isInputEchoTool(part.toolName, part.input)
 			? findMediaPreviews(part.output)
 					.filter((preview) => {
@@ -412,14 +423,17 @@ export function McpActivityCard({
 			)
 		: null;
 	const singleDonePart =
-		visibleParts.length === 1 && visibleParts[0]?.state === "output-available"
+		visibleParts.length === 1 &&
+		visibleParts[0]?.state === "output-available" &&
+		!isMcpErrorOutput(visibleParts[0].output)
 			? visibleParts[0]
 			: undefined;
 	// The live pill narrates; the settled pill must stay truthful — count
 	// only tools that actually EXECUTED, and name what happened when none
 	// did (declined, expired approval, failed, interrupted).
 	const executedCount = visibleParts.filter(
-		(part) => part.state === "output-available",
+		(part) =>
+			part.state === "output-available" && !isMcpErrorOutput(part.output),
 	).length;
 	const showLive = isRunning || (isTurnLive && visibleParts.length > 0);
 	const pillLabel = showLive
@@ -441,7 +455,12 @@ export function McpActivityCard({
 						? t("workspace.chat.mcpTool.skippedDeclined")
 						: visibleParts.some((part) => part.state === "approval-requested")
 							? t("workspace.chat.mcpTool.expired")
-							: visibleParts.some((part) => part.state === "output-error")
+							: visibleParts.some(
+										(part) =>
+											part.state === "output-error" ||
+											(part.state === "output-available" &&
+												isMcpErrorOutput(part.output)),
+									)
 								? t("workspace.chat.mcpTool.stepFailed")
 								: t("workspace.chat.mcpTool.interrupted");
 
@@ -649,7 +668,9 @@ export function McpActivityCard({
 					{backgroundGenerations.map(({ output, part }) => (
 						<ConnectorGenerationCard
 							key={part.toolCallId}
+							args={part.input}
 							attemptId={output.attemptId}
+							connectorName={connectorDisplayName(output.connector)}
 							realtime={output.realtime}
 							title={humanizeMcpToolLabel(
 								part.toolName,
@@ -659,6 +680,8 @@ export function McpActivityCard({
 								toolLabels,
 								genericLabels,
 							)}
+							toolName={output.tool}
+							onPrefillComposer={onPrefillComposer}
 						/>
 					))}
 				</>
@@ -905,6 +928,31 @@ function ActivityStatusLine({
 	const { t } = useTranslation();
 
 	if (row.status === "error") {
+		let failure: ReturnType<typeof toolOutputAiError> = null;
+		for (const part of row.parts) {
+			if (part.state !== "output-available") continue;
+			failure = toolOutputAiError(part.output);
+			if (failure) break;
+		}
+		if (failure) {
+			const copy = durableAiErrorPresentation(failure, t);
+			return (
+				<div className="mt-1">
+					<p className="font-medium text-[11.5px] text-destructive">
+						{copy.kicker}
+					</p>
+					<p dir="auto" className="text-[11.5px] text-muted-foreground">
+						{copy.body}
+					</p>
+					{copy.attribution ? (
+						<p dir="auto" className="text-[10.5px] text-muted-foreground">
+							{copy.attribution}
+						</p>
+					) : null}
+				</div>
+			);
+		}
+
 		return (
 			<p className="mt-1 text-[11.5px] text-destructive">
 				{t("workspace.chat.mcpTool.stepFailed")}
@@ -979,12 +1027,12 @@ function ApprovalBlock({
 		: t("workspace.chat.mcpTool.workingWith");
 	const argumentsPreview = isPlatformToolWrapper(part.toolName)
 		? isRecord(part.input) && isRecord(part.input.params)
-			? summarizeTopLevelArguments(part.input.params).filter(
+			? summarizeTopLevelArguments(part.input.params, connectorSlug).filter(
 					({ key }) =>
 						key !== "connector" && key !== "tool_name" && key !== "params",
 				)
 			: []
-		: summarizeTopLevelArguments(part.input);
+		: summarizeTopLevelArguments(part.input, connectorSlug);
 
 	return (
 		<div className="mt-3 border-border border-t pt-3">
@@ -1208,12 +1256,21 @@ function activityStatus(part: McpToolPartValue, live: boolean): ActivityStatus {
 			if (!live) return "interrupted";
 			return part.approval.approved ? "approval-approved" : "approval-denied";
 		case "output-available":
-			return "done";
+			return isMcpErrorOutput(part.output) ? "error" : "done";
 		case "output-error":
 			return "error";
 		case "output-denied":
 			return "denied";
 	}
+}
+
+function isMcpErrorOutput(output: unknown): boolean {
+	return (
+		typeof output === "object" &&
+		output !== null &&
+		"isError" in output &&
+		output.isError === true
+	);
 }
 
 function activityLabel(
@@ -1310,13 +1367,130 @@ function isInputEchoTool(toolName: string, input: unknown): boolean {
 	);
 }
 
-function summarizeTopLevelArguments(input: unknown) {
+// Ad platforms charge in US dollars, so a bare "Budget 50" on the approval
+// card is dangerously ambiguous for merchants who think in DA — this is the
+// user's LAST look before money moves. Numbers only; text passes untouched.
+// Daily vs lifetime budgets are told apart too: Meta names the key
+// (daily_budget / lifetime_budget), TikTok sends `budget` + a sibling
+// `budget_mode` (BUDGET_MODE_DAY / BUDGET_MODE_TOTAL).
+const AD_CONNECTOR_SLUGS = new Set(["meta-ads", "tiktok-ads"]);
+const MONEY_ARGUMENT_KEY_PATTERN = /budget|spend|bid/i;
+const TIKTOK_BUDGET_MODE_UNITS: Record<string, string> = {
+	BUDGET_MODE_DAY: "USD daily",
+	BUDGET_MODE_TOTAL: "USD lifetime",
+};
+
+type ArgumentPreviewEntry = { key: string; value: string };
+
+function resolveAdBudgetUnit(
+	leafKey: string,
+	siblings: Record<string, unknown>,
+): string {
+	const tokens = tokenizeToolName(leafKey);
+	if (!tokens.includes("budget")) return "USD";
+	if (tokens.includes("lifetime") || tokens.includes("total")) {
+		return "USD lifetime";
+	}
+	if (tokens.includes("daily") || tokens.includes("day")) return "USD daily";
+
+	const budgetMode = siblings.budget_mode ?? siblings.budgetMode;
+	return typeof budgetMode === "string"
+		? (TIKTOK_BUDGET_MODE_UNITS[budgetMode] ?? "USD")
+		: "USD";
+}
+
+function withAdBudgetUnit(
+	connectorSlug: string | null,
+	entry: ArgumentPreviewEntry,
+	context: { leafKey: string; siblings: Record<string, unknown> },
+): ArgumentPreviewEntry {
+	if (!connectorSlug || !AD_CONNECTOR_SLUGS.has(connectorSlug)) return entry;
+	if (!MONEY_ARGUMENT_KEY_PATTERN.test(context.leafKey)) return entry;
+	if (!/^\d+(\.\d+)?$/.test(entry.value)) return entry;
+
+	return {
+		...entry,
+		value: `${entry.value} ${resolveAdBudgetUnit(context.leafKey, context.siblings)}`,
+	};
+}
+
+// Approval cards list the arguments one level deep: a nested object (the
+// adset inside a campaign payload) or an array of objects is flattened into
+// "parent.child" rows so a nested budget is rendered — and labelled — instead
+// of hidden behind "…". Anything deeper still collapses to "…". Arrays show
+// their first items plus a "+N more" row, and the whole preview stops at a
+// fixed row count with a trailing "…" row so a bulk payload cannot flood the
+// card.
+const MAX_ARGUMENT_PREVIEW_DEPTH = 1;
+const MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS = 3;
+const MAX_ARGUMENT_PREVIEW_ROWS = 24;
+const ARGUMENT_PREVIEW_OVERFLOW_ROW: ArgumentPreviewEntry = {
+	key: "…",
+	value: "…",
+};
+
+function summarizeTopLevelArguments(
+	input: unknown,
+	connectorSlug: string | null = null,
+): ArgumentPreviewEntry[] {
 	if (!isRecord(input)) return [];
 
-	return Object.entries(input).map(([key, value]) => ({
-		key,
-		value: summarizeArgumentValue(value),
-	}));
+	const rows = summarizeArgumentRecord(input, connectorSlug, "", 0);
+	if (rows.length <= MAX_ARGUMENT_PREVIEW_ROWS) return rows;
+
+	return [
+		...rows.slice(0, MAX_ARGUMENT_PREVIEW_ROWS),
+		ARGUMENT_PREVIEW_OVERFLOW_ROW,
+	];
+}
+
+function summarizeArgumentRecord(
+	record: Record<string, unknown>,
+	connectorSlug: string | null,
+	prefix: string,
+	depth: number,
+): ArgumentPreviewEntry[] {
+	return Object.entries(record).flatMap(([key, value]) => {
+		const path = prefix ? `${prefix}.${key}` : key;
+		if (depth < MAX_ARGUMENT_PREVIEW_DEPTH) {
+			const nested = isRecord(value)
+				? summarizeArgumentRecord(value, connectorSlug, path, depth + 1)
+				: Array.isArray(value) && value.length > 0 && value.every(isRecord)
+					? summarizeArgumentArray(value, connectorSlug, path, depth + 1)
+					: null;
+			if (nested && nested.length > 0) return nested;
+		}
+
+		return [
+			withAdBudgetUnit(
+				connectorSlug,
+				{ key: path, value: summarizeArgumentValue(value) },
+				{ leafKey: key, siblings: record },
+			),
+		];
+	});
+}
+
+function summarizeArgumentArray(
+	items: readonly Record<string, unknown>[],
+	connectorSlug: string | null,
+	path: string,
+	depth: number,
+): ArgumentPreviewEntry[] {
+	const rows = items
+		.slice(0, MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS)
+		.flatMap((item, index) =>
+			summarizeArgumentRecord(
+				item,
+				connectorSlug,
+				`${path}.${index + 1}`,
+				depth,
+			),
+		);
+	const hidden = items.length - MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS;
+	if (hidden > 0) rows.push({ key: path, value: `+${hidden} more` });
+
+	return rows;
 }
 
 function summarizeArgumentValue(value: unknown): string {

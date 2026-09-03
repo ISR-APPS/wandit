@@ -2,12 +2,15 @@ import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { APIError } from "better-auth/api";
 import { Resend } from "resend";
-
+import type { LifecycleEventName } from "../../../lifecycle-events/domain/lifecycle-event";
 import {
-	invitationEmail,
-	magicLinkEmail,
-	otpEmail,
 	type EmailContent,
+	externalDomainDelegationReminderEmail,
+	invitationEmail,
+	type ManualRequestEmailData,
+	magicLinkEmail,
+	manualRequestEmail,
+	otpEmail,
 } from "../../templates/auth-email-templates";
 
 /**
@@ -67,10 +70,56 @@ export class EmailService {
 		);
 	}
 
+	async sendExternalDomainDelegationReminder(input: {
+		dashboardUrl: string;
+		domainId: string;
+		domainName: string;
+		idempotencyKey: string;
+		nameServers: readonly string[];
+		to: string;
+	}): Promise<void> {
+		await this.deliver(
+			input.to,
+			externalDomainDelegationReminderEmail(input),
+			`external domain delegation reminder: ${input.domainName}`,
+			{
+				idempotencyKey: input.idempotencyKey,
+			},
+		);
+	}
+
+	async sendManualRequestEmail(
+		to: readonly string[],
+		data: ManualRequestEmailData,
+	): Promise<void> {
+		await this.deliver(
+			[...to],
+			manualRequestEmail(data),
+			`offline subscription request: ${data.fullName}`,
+		);
+	}
+
+	async sendLifecycleEvent(input: {
+		event: LifecycleEventName;
+		email: string;
+		payload: Record<string, unknown>;
+	}): Promise<void> {
+		if (!this.resend) {
+			throw new Error("Lifecycle email delivery is unavailable");
+		}
+
+		const { error } = await this.resend.events.send(input);
+
+		if (error) {
+			throw error;
+		}
+	}
+
 	private async deliver(
-		to: string,
+		to: string | string[],
 		content: EmailContent,
 		devSummary: string,
+		options?: { idempotencyKey?: string },
 	): Promise<void> {
 		if (!this.resend) {
 			if (!this.canLogToConsole) {
@@ -86,13 +135,16 @@ export class EmailService {
 			return;
 		}
 
-		const { error } = await this.resend.emails.send({
+		const payload = {
 			from: env.EMAIL_FROM,
 			to,
 			subject: content.subject,
 			html: content.html,
 			text: content.text,
-		});
+		};
+		const { error } = options
+			? await this.resend.emails.send(payload, options)
+			: await this.resend.emails.send(payload);
 
 		if (error) {
 			this.logger.error(

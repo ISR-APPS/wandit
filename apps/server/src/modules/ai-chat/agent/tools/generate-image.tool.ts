@@ -1,6 +1,8 @@
 /**
- * generate_image — queues one image generation (1-4 images), optionally
- * placing one result into a current page image when it finishes.
+ * generate_image — queues one image generation (1-6 SEPARATE images, one
+ * provider call each), optionally placing one result into a current page
+ * image when it finishes. The runtime appends a single-frame instruction to
+ * the prompt, so a "shoot" can never come back as a collage in one picture.
  *
  * Two paths share one attempt: pure text-to-image, and EDIT mode when the
  * model passes user-attached source images (product photo, logo) so outputs
@@ -17,6 +19,8 @@ import {
 	type GenerateImageOutput,
 	generateImageInputSchema,
 	generateImageOutputSchema,
+	MAX_IMAGES_PER_GENERATION,
+	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
@@ -30,11 +34,11 @@ import {
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateImageTask } from "../../../../trigger/generate-image.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../../../image-generations/application/services/image-generation-billing";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
@@ -54,9 +58,6 @@ export type GenerateImageToolDeps = {
 	parentEventId?: string;
 	pagesRepository: PagesRepository;
 	projectId: string;
-	// Composer quality tier, snapshotted for later model swapping — the
-	// generator does not read it yet.
-	quality?: string;
 	requestKeySeed?: string;
 	/** Pays for the generation: the org pool in an org workspace. */
 	subject: MeteringSubject;
@@ -73,16 +74,27 @@ export function createGenerateImageTool(
 
 	return tool({
 		description:
-			"Queue an image generation (1-4 images) that runs in the background; " +
-			"results appear in the conversation and in the user's Assets tab. " +
+			"Queue an image generation that runs in the background; results " +
+			"appear in the conversation and in the user's Assets tab. count " +
+			`(1-${MAX_IMAGES_PER_GENERATION}) is the number of SEPARATE image ` +
+			"files, each its own render of the prompt — so the prompt must " +
+			"describe exactly ONE frame, never a grid, collage, contact sheet, " +
+			"split-screen, or 'several shots/angles in one picture'. For a " +
+			"shoot with different shots (front, detail, lifestyle…), call this " +
+			"tool once per distinct shot in the same reply, each with its own " +
+			`prompt, at most ${MAX_IMAGES_PER_GENERATION} images in total; use ` +
+			"count above 1 only for variations of the same shot. " +
 			"When replacing an existing page image, pass placement with that " +
 			"image's verified data-wid; the selected generated result is applied " +
 			"to the page automatically when ready. Do not ask for an attachment " +
 			"just to place a generated image. To feature the user's REAL product " +
-			"or logo faithfully, pass the " +
-			"exact URLs of images they attached as sourceImageUrls — the " +
-			"generator edits/stays faithful to them. Without sources it " +
-			"generates from the prompt alone. Call once per requested set.",
+			"or logo faithfully, pass the exact URLs of images they attached as " +
+			`sourceImageUrls (at most ${MAX_SOURCE_IMAGES_PER_GENERATION}) — the ` +
+			"generator edits/stays faithful to them. When the user attached " +
+			"more, pick the most representative ones (front, back, details, " +
+			"logo); any extras are skipped and the result says so — relay that " +
+			"gently to the user. Without sources it generates from the prompt " +
+			"alone. Call once per distinct shot, never again because it feels slow.",
 		inputSchema: generateImageInputSchema,
 		outputSchema: generateImageOutputSchema,
 		execute: async (input, options): Promise<GenerateImageOutput> => {
@@ -102,7 +114,22 @@ export function createGenerateImageTool(
 				};
 			}
 
-			const sourceImageUrls = input.sourceImageUrls ?? [];
+			// Keep the first MAX_SOURCE_IMAGES_PER_GENERATION distinct sources and
+			// tell the model about the rest: a user who attached eight photos gets
+			// a gentle note, never a rejected tool call.
+			const distinctSourceImageUrls = [...new Set(input.sourceImageUrls ?? [])];
+			const sourceImageUrls = distinctSourceImageUrls.slice(
+				0,
+				MAX_SOURCE_IMAGES_PER_GENERATION,
+			);
+			const skippedSourceCount =
+				distinctSourceImageUrls.length - sourceImageUrls.length;
+			// Every "queued" answer carries the note: the generation runs with the
+			// kept photos whichever handoff path reported it.
+			const skippedNote =
+				skippedSourceCount > 0
+					? ` ${skippedSourcesNote(sourceImageUrls.length, skippedSourceCount)}`
+					: "";
 
 			if (sourceImageUrls.length > 0 && !env.AI_IMAGE_EDIT_MODEL) {
 				return {
@@ -125,7 +152,11 @@ export function createGenerateImageTool(
 						message:
 							"A source is not an eligible image attached by this user. " +
 							"Every sourceImageUrl must exactly match one of their " +
-							"JPEG, PNG, or WebP attachments. Ask for the photo first.",
+							"JPEG, PNG, or WebP attachments. Sources must be USER " +
+							"uploads: to place an already-generated asset somewhere, " +
+							"use its [Generated …] marker URL with the page-edit " +
+							"tools instead — only ask for a photo when the user " +
+							"never attached one.",
 						status: "unavailable",
 					};
 				}
@@ -175,17 +206,14 @@ export function createGenerateImageTool(
 					)
 					.digest("hex");
 
-				const spec = {
-					...(deps.quality ? { quality: deps.quality } : {}),
-					...(input.placement
-						? {
-								placement: {
-									...input.placement,
-									status: "pending" as const,
-								},
-							}
-						: {}),
-				};
+				const spec = input.placement
+					? {
+							placement: {
+								...input.placement,
+								status: "pending" as const,
+							},
+						}
+					: undefined;
 
 				attempt = await deps.imageGenerationsRepository.insertAttempt({
 					aspect: input.aspect,
@@ -195,7 +223,7 @@ export function createGenerateImageTool(
 					prompt: input.prompt.trim(),
 					requestKey,
 					sourceImageUrls,
-					spec: Object.keys(spec).length > 0 ? spec : undefined,
+					spec,
 					title: input.title.trim(),
 				});
 			} catch (error) {
@@ -231,7 +259,7 @@ export function createGenerateImageTool(
 					attemptId: attempt.id,
 					message:
 						"This image request was already accepted. Its existing " +
-						"progress or result card appears in the conversation.",
+						`progress or result card appears in the conversation.${skippedNote}`,
 					status: "queued",
 				};
 			}
@@ -243,6 +271,8 @@ export function createGenerateImageTool(
 				attempt.id,
 				input.count,
 				deps.parentEventId,
+				undefined,
+				{ hasSourceImages: sourceImageUrls.length > 0 },
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);
@@ -314,24 +344,42 @@ export function createGenerateImageTool(
 					message:
 						"The image request is saved, but Trigger.dev did not confirm " +
 						"the handoff yet. Its card will keep checking, and the same " +
-						"request can be retried safely.",
+						`request can be retried safely.${skippedNote}`,
 					status: "queued",
 				};
 			}
 
+			const queuedMessage = input.placement
+				? "Queued: the images are being generated in the background, and " +
+					"the selected result will replace the page image when ready. " +
+					"Progress and the results appear here and in the Assets tab."
+				: "Queued: the images are being generated in the background. " +
+					"Progress and the results appear here in the conversation and " +
+					"in the Assets tab.";
+
 			return {
 				attemptId: attempt.id,
-				message: input.placement
-					? "Queued: the images are being generated in the background, and " +
-						"the selected result will replace the page image when ready. " +
-						"Progress and the results appear here and in the Assets tab."
-					: "Queued: the images are being generated in the background. " +
-						"Progress and the results appear here in the conversation and " +
-						"in the Assets tab.",
+				message: `${queuedMessage}${skippedNote}`,
 				status: "queued",
 			};
 		},
 	});
+}
+
+/**
+ * Model-facing note when the call named more sources than one generation can
+ * use. The chat card hides this message, so the model must relay it in prose.
+ */
+export function skippedSourcesNote(
+	usedCount: number,
+	skippedCount: number,
+): string {
+	return (
+		`Note: the generator uses at most ${MAX_SOURCE_IMAGES_PER_GENERATION} ` +
+		`source photos per request, so the first ${usedCount} were used and ` +
+		`${skippedCount} ${skippedCount === 1 ? "was" : "were"} skipped. Tell ` +
+		"the user this gently in one short sentence, in their language."
+	);
 }
 
 async function validatePlacementTarget(
@@ -402,6 +450,9 @@ async function triggerGenerateImageTask(payload: {
 				"generate-image",
 				payload,
 				{
+					concurrencyKey: payload.organizationId
+						? `org:${payload.organizationId}`
+						: `user:${payload.userId}`,
 					idempotencyKey,
 					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
 					tags: [

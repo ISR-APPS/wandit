@@ -24,6 +24,12 @@ export type DomainPurchaseRunResult =
 	  };
 
 type DomainPurchaseOrchestratorDependencies = {
+	apexZone: {
+		execute(
+			row: DomainFulfillmentRow,
+			options: { allowZoneCreation: boolean },
+		): Promise<DomainFulfillmentRow>;
+	};
 	configuration: {
 		execute(input: {
 			domainId: string;
@@ -102,6 +108,11 @@ export class DomainPurchaseOrchestrator {
 			row = await this.dependencies.registration.execute(row, state.orderId);
 			row = await this.dependencies.purchasedDns.execute(row);
 			row = await this.dependencies.customHostname.execute(row);
+			// Best-effort by contract: the apex zone step never throws, so an apex
+			// hiccup cannot fail or delay the www path below.
+			row = await this.dependencies.apexZone.execute(row, {
+				allowZoneCreation: true,
+			});
 			row = await this.dependencies.state.transitionToConfiguring(row);
 
 			return await this.dependencies.configuration.execute({

@@ -1,3 +1,4 @@
+import { db } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
@@ -28,6 +29,11 @@ function repositoryWithVersions(
 }
 
 const ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
+const VERSION_SCOPE = { kind: "personal", userId: "user_1" } as const;
+
+function normalizeSql(value: string): string {
+	return value.replaceAll(/\s+/g, " ").trim();
+}
 
 function repositoryWithAttemptUpdate(returned: unknown[]) {
 	const returning = vi.fn().mockResolvedValue(returned);
@@ -121,6 +127,160 @@ describe("PagesRepository.findLatestBuilderVersion", () => {
 		await expect(
 			repository.findLatestBuilderVersion("artifact-1"),
 		).resolves.toBeNull();
+	});
+});
+
+describe("PagesRepository paginated version history", () => {
+	it("compiles artifact-indexed descending pagination and its matching count", () => {
+		const repository = new PagesRepository(db as Database, {
+			capture: vi.fn(),
+		});
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builders private.
+		const page = repository["buildVersionPageQuery"]("artifact_1", {
+			limit: 8,
+			offset: 16,
+		});
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builders private.
+		const count = repository["buildVersionCountQuery"]("artifact_1");
+		const pageSql = page.toSQL();
+		const countSql = count.toSQL();
+		const normalizedPageSql = normalizeSql(pageSql.sql);
+		const normalizedCountSql = normalizeSql(countSql.sql);
+
+		expect(normalizedPageSql).toContain('from "versions"');
+		expect(normalizedPageSql).toContain('where "versions"."artifact_id" =');
+		expect(normalizedPageSql).toContain(
+			'order by "versions"."number" desc limit',
+		);
+		expect(normalizedPageSql).toContain("offset");
+		expect(normalizedPageSql).not.toContain("r2_key");
+		expect(pageSql.params).toEqual(["artifact_1", 8, 16]);
+
+		expect(normalizedCountSql).toContain(
+			'select count(*)::int from "versions"',
+		);
+		expect(normalizedCountSql).toContain('where "versions"."artifact_id" =');
+		expect(countSql.params).toEqual(["artifact_1"]);
+	});
+
+	it("filters the resolved artifact, paginates, and maps draft/live pointers", async () => {
+		const projectLimit = vi.fn().mockResolvedValue([{ id: "project_1" }]);
+		const artifactLimit = vi
+			.fn()
+			.mockResolvedValue([{ activeVersionId: "version_9", id: "artifact_1" }]);
+		const deploymentLimit = vi
+			.fn()
+			.mockResolvedValue([{ versionId: "version_8" }]);
+		const offset = vi.fn().mockResolvedValue([
+			{
+				createdAt: new Date("2026-08-08T12:00:00.000Z"),
+				id: "version_9",
+				meta: { source: "inline" },
+				number: 9,
+			},
+			{
+				createdAt: new Date("2026-08-07T12:00:00.000Z"),
+				id: "version_8",
+				meta: { source: "builder" },
+				number: 8,
+			},
+		]);
+		const pageLimit = vi.fn(() => ({ offset }));
+		const pageOrderBy = vi.fn(() => ({ limit: pageLimit }));
+		const pageWhere = vi.fn((_predicate: unknown) => ({
+			orderBy: pageOrderBy,
+		}));
+		const select = vi
+			.fn()
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({ limit: projectLimit })),
+				})),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({ limit: artifactLimit })),
+				})),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({ limit: deploymentLimit })),
+				})),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: pageWhere })),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({
+					where: vi.fn().mockResolvedValue([{ total: 19 }]),
+				})),
+			});
+		const repository = new PagesRepository({ select } as unknown as Database, {
+			capture: vi.fn(),
+		});
+
+		await expect(
+			repository.listVersionsForProjectPaginated(VERSION_SCOPE, "project_1", {
+				limit: 8,
+				offset: 16,
+			}),
+		).resolves.toEqual({
+			rows: [
+				{
+					createdAt: new Date("2026-08-08T12:00:00.000Z"),
+					id: "version_9",
+					isActive: true,
+					isLive: false,
+					meta: { source: "inline" },
+					number: 9,
+				},
+				{
+					createdAt: new Date("2026-08-07T12:00:00.000Z"),
+					id: "version_8",
+					isActive: false,
+					isLive: true,
+					meta: { source: "builder" },
+					number: 8,
+				},
+			],
+			total: 19,
+		});
+		expect(pageLimit).toHaveBeenCalledWith(8);
+		expect(offset).toHaveBeenCalledWith(16);
+		expect(sqlParameterValues(pageWhere.mock.calls[0]?.[0])).toEqual([
+			"artifact_1",
+		]);
+		expect(select.mock.calls[3]?.[0]).not.toHaveProperty("r2Key");
+		expect(select).toHaveBeenCalledTimes(5);
+	});
+
+	it("returns an empty list and zero count when no landing artifact exists", async () => {
+		const selectResult = (rows: unknown[]) => ({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({
+					limit: vi.fn().mockResolvedValue(rows),
+				})),
+			})),
+		});
+		const select = vi
+			.fn()
+			.mockReturnValueOnce(selectResult([{ id: "project_1" }]))
+			.mockReturnValueOnce(selectResult([]))
+			.mockReturnValueOnce(selectResult([{ id: "project_1" }]))
+			.mockReturnValueOnce(selectResult([]));
+		const repository = new PagesRepository({ select } as unknown as Database, {
+			capture: vi.fn(),
+		});
+
+		await expect(
+			repository.listVersionsForProjectPaginated(VERSION_SCOPE, "project_1", {
+				limit: 8,
+				offset: 0,
+			}),
+		).resolves.toEqual({ rows: [], total: 0 });
+		await expect(
+			repository.countVersionsForProject(VERSION_SCOPE, "project_1"),
+		).resolves.toBe(0);
 	});
 });
 
@@ -259,6 +419,7 @@ describe("PagesRepository.insertVersionAndActivate placement receipt", () => {
 					source: "ai-edit",
 				},
 				projectId: "project-1",
+				productSku: "SKU-1",
 				receipt: {
 					attemptId: "attempt-1",
 					kind: "image-generation-placement",

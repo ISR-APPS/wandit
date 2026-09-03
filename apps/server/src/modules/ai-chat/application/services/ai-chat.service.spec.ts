@@ -1,15 +1,28 @@
+import { GatewayRateLimitError } from "@ai-sdk/gateway";
 import { BadRequestException, HttpException } from "@nestjs/common";
 import {
 	applyElementOpsInputSchema,
 	applyElementOpsOutputSchema,
 	askUserOutputSchema,
+	editVideoInputSchema,
+	editVideoOutputSchema,
+	extendVideoInputSchema,
+	extendVideoOutputSchema,
+	insertSectionInputSchema,
+	insertSectionOutputSchema,
+	inspectVideoInputSchema,
+	inspectVideoOutputSchema,
+	productVideoInputSchema,
+	productVideoOutputSchema,
+	readAttachmentInputSchema,
+	readAttachmentOutputSchema,
 	readElementsInputSchema,
 	readElementsOutputSchema,
 	readThemeInputSchema,
 	readThemeOutputSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import type { DynamicToolUIPart, Tool } from "ai";
+import { type DynamicToolUIPart, InvalidToolInputError, type Tool } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +34,43 @@ const aiMocks = vi.hoisted(() => ({
 const chatAgentMocks = vi.hoisted(() => ({
 	createChatAgent: vi.fn(),
 }));
+const r2Mocks = vi.hoisted(() => ({
+	getPageHtml: vi.fn(),
+}));
+const sentryMocks = vi.hoisted(() => ({
+	captureException: vi.fn(),
+	warn: vi.fn(),
+}));
+
+vi.mock("@wandit/observability/nestjs", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@wandit/observability/nestjs")>();
+
+	return {
+		...actual,
+		Sentry: {
+			...actual.Sentry,
+			captureException: sentryMocks.captureException,
+		},
+	};
+});
+
+vi.mock("@wandit/observability/node", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@wandit/observability/node")>();
+
+	return {
+		...actual,
+		Sentry: {
+			...actual.Sentry,
+			captureException: sentryMocks.captureException,
+			logger: {
+				...actual.Sentry.logger,
+				warn: sentryMocks.warn,
+			},
+		},
+	};
+});
 
 vi.mock("ai", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("ai")>();
@@ -37,6 +87,18 @@ vi.mock("../../agent/chat-agent", () => ({
 	aiChatToolsForValidation: {},
 	createChatAgent: chatAgentMocks.createChatAgent,
 }));
+
+vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("../../../../infrastructure/storage/r2")
+		>();
+
+	return {
+		...actual,
+		getPageHtml: r2Mocks.getPageHtml,
+	};
+});
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
@@ -61,6 +123,7 @@ type CapturedStreamOptions = {
 			write: (part: unknown) => void;
 		};
 	}) => Promise<void>;
+	onError?: (error: unknown) => string;
 	onEnd?: (options: {
 		isContinuation: boolean;
 		responseMessage: WanditUIMessage;
@@ -84,6 +147,7 @@ function buildService({
 	pricingOverrides?: Record<string, unknown>;
 } = {}) {
 	const chatsRepository = {
+		deleteTerminalFailedAssistantMessage: vi.fn().mockResolvedValue(true),
 		findAccessibleChatById: vi.fn().mockResolvedValue({
 			id: CHAT_ID,
 			projectId: PROJECT_ID,
@@ -94,19 +158,36 @@ function buildService({
 	};
 	const pagesRepository = {
 		collectManualEditTrail: vi.fn().mockResolvedValue([]),
+		findActivePageByProjectUnchecked: vi.fn().mockResolvedValue(null),
 	};
 	const pageEditsService = {};
 	const leadScrapesRepository = {};
 	const mediaGenerationsRepository = {};
 	const marketingAssetsRepository = {};
 	const imageGenerationsRepository = {};
+	const leadsRepository = {
+		getAdsTrackingFacts: vi.fn().mockResolvedValue({
+			metaPixelSet: true,
+			published: false,
+			tiktokPixelSet: false,
+		}),
+		getFunnelCountsForProject: vi.fn().mockResolvedValue([]),
+	};
 	const mcpChatToolsService = {
 		resolveToolsForUser: vi.fn().mockResolvedValue(mcpResult),
 	};
 	const meteringService = {
+		acquireExecutionLease: vi
+			.fn()
+			.mockImplementation(async (eventId: string) => ({
+				id: eventId,
+				status: "reserved",
+			})),
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
 		claimBundledReservation: vi.fn().mockResolvedValue(null),
 		findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+		heartbeatExecutionLease: vi.fn().mockResolvedValue("renewed"),
+		releaseExecutionLease: vi.fn().mockResolvedValue(undefined),
 		refund: vi.fn().mockResolvedValue({
 			id: "usage-event-1",
 			status: "refunded",
@@ -123,10 +204,20 @@ function buildService({
 			replayed: false,
 		}),
 		settle: vi.fn().mockResolvedValue({
+			finalCredits: 37,
 			id: "usage-event-1",
 			status: "settled",
 		}),
 		...meteringOverrides,
+	};
+	const creditsService = {
+		getSettledBalance: vi.fn().mockResolvedValue({
+			balance: 1_200,
+			plan: 1_200,
+			promo: 0,
+			settledBalance: 1_263,
+			topup: 0,
+		}),
 	};
 	const modelPricingService = {
 		quoteTokenUsage: vi.fn().mockResolvedValue({
@@ -135,21 +226,37 @@ function buildService({
 		}),
 		...pricingOverrides,
 	};
+	const videoDirector = {
+		craftVideoPrompt: vi.fn().mockResolvedValue({
+			directed: false,
+			negativePrompt: "",
+			prompt: "One continuous shot.",
+		}),
+	};
+	const connectorGenerationsRepository = {
+		listSucceededByIdsForScope: vi.fn().mockResolvedValue([]),
+	};
 	const service = new AiChatService(
 		chatsRepository as unknown as AiChatServiceDependencies[0],
-		pagesRepository as unknown as AiChatServiceDependencies[1],
-		pageEditsService as unknown as AiChatServiceDependencies[2],
-		leadScrapesRepository as unknown as AiChatServiceDependencies[3],
-		mediaGenerationsRepository as unknown as AiChatServiceDependencies[4],
-		marketingAssetsRepository as unknown as AiChatServiceDependencies[5],
-		imageGenerationsRepository as unknown as AiChatServiceDependencies[6],
-		mcpChatToolsService as unknown as AiChatServiceDependencies[7],
-		meteringService as unknown as AiChatServiceDependencies[8],
-		modelPricingService as unknown as AiChatServiceDependencies[9],
+		connectorGenerationsRepository as unknown as AiChatServiceDependencies[1],
+		pagesRepository as unknown as AiChatServiceDependencies[2],
+		pageEditsService as unknown as AiChatServiceDependencies[3],
+		leadScrapesRepository as unknown as AiChatServiceDependencies[4],
+		mediaGenerationsRepository as unknown as AiChatServiceDependencies[5],
+		videoDirector as unknown as AiChatServiceDependencies[6],
+		marketingAssetsRepository as unknown as AiChatServiceDependencies[7],
+		imageGenerationsRepository as unknown as AiChatServiceDependencies[8],
+		mcpChatToolsService as unknown as AiChatServiceDependencies[9],
+		meteringService as unknown as AiChatServiceDependencies[10],
+		modelPricingService as unknown as AiChatServiceDependencies[11],
+		leadsRepository as unknown as AiChatServiceDependencies[12],
+		creditsService as unknown as AiChatServiceDependencies[13],
 	);
 
 	return {
 		chatsRepository,
+		creditsService,
+		leadsRepository,
 		meteringService,
 		mcpChatToolsService,
 		modelPricingService,
@@ -191,6 +298,8 @@ function createMcpResult(
 	return {
 		approvalMap: {},
 		close: vi.fn().mockResolvedValue(undefined),
+		configuredSlugs: [],
+		connectedSlugs: [],
 		notices: [],
 		tools: {},
 		...overrides,
@@ -202,7 +311,7 @@ function streamOptions(messages: WanditUIMessage[] = [userMessage()]) {
 		abortSignal: new AbortController().signal,
 		chatId: CHAT_ID,
 		messages,
-		prepared: { eventId: "usage-event-1", release: vi.fn() },
+		prepared: { eventId: "usage-event-1", leaseToken: null, release: vi.fn() },
 		projectId: PROJECT_ID,
 		reply: { raw: {} } as FastifyReply,
 		scope: PERSONAL_SCOPE,
@@ -228,6 +337,20 @@ function assistantMessage(
 	};
 }
 
+function finishUsage() {
+	return {
+		inputTokenDetails: {
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			noCacheTokens: 100,
+		},
+		inputTokens: 100,
+		outputTokenDetails: { reasoningTokens: 5, textTokens: 15 },
+		outputTokens: 20,
+		totalTokens: 120,
+	};
+}
+
 function capturedOnEnd() {
 	const onEnd = capturedStreamOptions?.onEnd;
 
@@ -236,6 +359,16 @@ function capturedOnEnd() {
 	}
 
 	return onEnd;
+}
+
+function capturedOuterError() {
+	const onError = capturedStreamOptions?.onError;
+
+	if (!onError) {
+		throw new Error("createUIMessageStream did not receive onError");
+	}
+
+	return onError;
 }
 
 function capturedExecute() {
@@ -261,7 +394,9 @@ function capturedAgentStreamOptions() {
 describe("AiChatService MCP lifecycle", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		sentryMocks.captureException.mockReturnValue("sentry-event-1");
 		capturedStreamOptions = undefined;
+		r2Mocks.getPageHtml.mockResolvedValue(null);
 		chatAgentMocks.createChatAgent.mockReturnValue({});
 		aiMocks.createAgentUIStream.mockResolvedValue(new ReadableStream());
 		aiMocks.createUIMessageStream.mockImplementation((options: unknown) => {
@@ -285,6 +420,62 @@ describe("AiChatService MCP lifecycle", () => {
 		).toBeLessThan(
 			vi.mocked(reply.hijack).mock.invocationCallOrder[0] ?? Number.MAX_VALUE,
 		);
+	});
+
+	it("accepts a persisted assistant AI error through controller validation", async () => {
+		const { chatsRepository, service } = buildService();
+		const prepareStream = vi.spyOn(service, "prepareStream");
+		const serviceStream = vi.spyOn(service, "stream");
+		const failedAssistant = {
+			id: "persisted-failed-assistant",
+			parts: [
+				{
+					data: {
+						kind: "rate_limited",
+						moderationStage: null,
+						provider: null,
+						providerLabel: "Vercel AI Gateway",
+						providerMessage: null,
+						refunded: null,
+						requestId: "generation-rate-limited",
+						retryable: true,
+						sentryEventId: null,
+						source: "gateway",
+						terminal: true,
+					},
+					id: "ai-error",
+					type: "data-ai-error",
+				},
+			],
+			role: "assistant",
+		};
+		const nextUserMessage = {
+			id: "user-message-after-failure",
+			parts: [{ text: "Try a different approach", type: "text" }],
+			role: "user",
+		};
+		chatsRepository.listMessageIds.mockResolvedValue(
+			new Set([failedAssistant.id]),
+		);
+
+		await streamThroughController(service, chatsRepository, [
+			failedAssistant,
+			nextUserMessage,
+		]);
+
+		expect(prepareStream).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					expect.objectContaining({
+						id: failedAssistant.id,
+						parts: [expect.objectContaining({ type: "data-ai-error" })],
+						role: "assistant",
+					}),
+					nextUserMessage,
+				],
+			}),
+		);
+		expect(serviceStream).toHaveBeenCalledOnce();
 	});
 
 	it("reuses the still-reserved project-creation event", async () => {
@@ -323,6 +514,62 @@ describe("AiChatService MCP lifecycle", () => {
 		});
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		prepared.release();
+	});
+
+	it("deletes the scoped failed assistant only after admitting its regeneration", async () => {
+		const { chatsRepository, meteringService, service } = buildService();
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			regenerateMessageId: "failed-assistant-message",
+			requestId: "failed-assistant-message",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("usage-event-1");
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage,
+		).toHaveBeenCalledWith(CHAT_ID, "failed-assistant-message");
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage.mock
+				.invocationCallOrder[0],
+		).toBeGreaterThan(
+			meteringService.claimBundledReservation.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage.mock
+				.invocationCallOrder[0],
+		).toBeGreaterThan(
+			meteringService.reserveWithReplay.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(
+			meteringService.reserveWithReplay.mock.calls[0]?.[2]?.idempotencyKey,
+		).toBe(`ai-chat:${CHAT_ID}:failed-assistant-message`);
+
+		prepared.release();
+	});
+
+	it("keeps the failed assistant when retry admission is refused", async () => {
+		const { chatsRepository, meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockRejectedValueOnce(
+			new InsufficientCreditsError(500, 0),
+		);
+
+		await expect(
+			service.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				regenerateMessageId: "failed-assistant-message",
+				requestId: "failed-assistant-message",
+				scope: PERSONAL_SCOPE,
+			}),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
+		expect(
+			chatsRepository.deleteTerminalFailedAssistantMessage,
+		).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -543,6 +790,329 @@ describe("AiChatService MCP lifecycle", () => {
 		prepared.release();
 	});
 
+	it("takes the cross-replica execution lease on a fresh reserve", async () => {
+		const { meteringService, service } = buildService();
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "fresh-lease-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"usage-event-1",
+			expect.stringMatching(/^[0-9a-f-]{36}$/),
+			5 * 60_000,
+		);
+		expect(prepared.leaseToken).toBe(
+			meteringService.acquireExecutionLease.mock.calls[0]?.[1],
+		);
+		prepared.release();
+	});
+
+	it("409s when a fresh reserve loses the lease race to another replica", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "raced-lease-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+	});
+
+	it("refuses to adopt a young hold whose lease is live on another replica", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 60_000),
+				id: "remote-live-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "remote-live-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+		// The duplicate never attaches to, refunds, or supersedes the foreign hold.
+		expect(meteringService.refund).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+	});
+
+	it("adopts a young hold once its lease is expired or absent", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 60_000),
+				id: "expired-lease-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "expired-lease-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("expired-lease-hold");
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"expired-lease-hold",
+			expect.any(String),
+			5 * 60_000,
+		);
+		expect(prepared.leaseToken).not.toBeNull();
+		prepared.release();
+	});
+
+	it("leases the adopted bundled project-creation hold", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.claimBundledReservation.mockResolvedValueOnce({
+			chatId: CHAT_ID,
+			createdAt: new Date(),
+			id: "creation-event",
+			operation: "chat",
+			status: "reserved",
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "bundled-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("creation-event");
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"creation-event",
+			expect.any(String),
+			5 * 60_000,
+		);
+		prepared.release();
+	});
+
+	it("heartbeats the lease while streaming and stops on release", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+
+			await vi.advanceTimersByTimeAsync(60_000);
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(2);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledWith(
+				"usage-event-1",
+				"lease-token",
+				5 * 60_000,
+			);
+
+			// The agent's onEnd settles: renewals stop before the settle write.
+			await capturedAgentStreamOptions().onEnd?.();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(2);
+
+			await capturedOnEnd()({
+				isContinuation: false,
+				responseMessage: assistantMessage(),
+			});
+
+			expect(meteringService.releaseExecutionLease).toHaveBeenCalledWith(
+				"usage-event-1",
+				"lease-token",
+			);
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("aborts the stream when a heartbeat CAS reports the lease as stolen", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			meteringService.heartbeatExecutionLease.mockResolvedValue("lost");
+			const writer = { merge: vi.fn(), write: vi.fn() };
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({ writer });
+			const agentOptions = capturedAgentStreamOptions();
+
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(writer.write).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					kind: "internal",
+					source: "ours",
+					terminal: true,
+				}),
+				id: "ai-error",
+				type: "data-ai-error",
+			});
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps streaming through transient heartbeat errors until the lease expiry passes", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			// Reviewer scenario: a transient pool timeout during a 20-minute page
+			// build. The lease (5-minute TTL) was not lost, so the stream must not
+			// abort and bill the partial turn.
+			meteringService.heartbeatExecutionLease.mockResolvedValue("error");
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+			const agentOptions = capturedAgentStreamOptions();
+
+			// Four failed heartbeats (t = 1..4 min) stay inside the 5-minute TTL.
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(4);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// A renewal resets the known expiry.
+			meteringService.heartbeatExecutionLease.mockResolvedValueOnce("renewed");
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// Errors again: still live for four more minutes after that renewal.
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// The known expiry passes with no confirmed renewal: abort.
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("never heartbeats a stream that owns no lease", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+
+			await service.stream(streamOptions());
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+			await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+			expect(meteringService.heartbeatExecutionLease).not.toHaveBeenCalled();
+			expect(meteringService.releaseExecutionLease).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reserves for the inlined ads playbooks when the composer selected ads skills", async () => {
+		const plain = buildService();
+		const withSkills = buildService();
+
+		const plainPrepared = await plain.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "plain-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		plainPrepared.release();
+		const skilledPrepared = await withSkills.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			metadata: {
+				composer: {
+					mode: "auto",
+					skills: ["ads-diagnostic"],
+				},
+			},
+			projectId: PROJECT_ID,
+			requestId: "skilled-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		skilledPrepared.release();
+
+		const plainTokens =
+			plain.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1].inputTokens;
+		const skilledTokens =
+			withSkills.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1]
+				.inputTokens;
+		// One playbook is ~14 KB ≈ 3.5k tokens at the /4 estimate.
+		expect(skilledTokens - plainTokens).toBeGreaterThan(2_000);
+	});
+
 	it("409s a duplicate of a turn that is actively streaming in this process", async () => {
 		const { meteringService, service } = buildService();
 
@@ -657,6 +1227,93 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(
 			meteringService.reserveWithReplay.mock.calls[1]?.[2]?.idempotencyKey,
 		).toBe(`ai-chat:${CHAT_ID}:retry-near-deadline#2`);
+		prepared.release();
+	});
+
+	it("never refunds a stale hold whose execution lease is live (409 instead)", async () => {
+		// Reviewer scenario: a duplicate POST more than 4 minutes after the
+		// hold was reserved while the first stream still runs on another
+		// replica (long tool call, no ref yet) and heartbeats its lease.
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 5 * 60_000),
+				id: "leased-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "duplicate-of-live-stream",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"leased-hold",
+			expect.any(String),
+			5 * 60_000,
+		);
+		expect(meteringService.refund).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+	});
+
+	it("takes the lease before superseding and hands it back when the hold stays reserved", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay
+			.mockResolvedValueOnce({
+				event: {
+					createdAt: new Date(Date.now() - 5 * 60_000),
+					id: "stale-hold-with-refs",
+					status: "reserved",
+				},
+				replay: "reserved",
+				replayed: true,
+			})
+			.mockResolvedValueOnce({
+				event: { createdAt: new Date(), id: "fresh-hold", status: "reserved" },
+				replay: "none",
+				replayed: false,
+			});
+		// refund() keeps a hold with durable refs reserved for the sweep.
+		meteringService.refund.mockResolvedValueOnce({
+			id: "stale-hold-with-refs",
+			status: "reserved",
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-with-refs",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("fresh-hold");
+		const leaseToken = meteringService.acquireExecutionLease.mock.calls[0]?.[1];
+		expect(meteringService.acquireExecutionLease.mock.calls[0]?.[0]).toBe(
+			"stale-hold-with-refs",
+		);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"stale-hold-with-refs",
+			"ai_chat_retry_supersede",
+		);
+		expect(meteringService.releaseExecutionLease).toHaveBeenCalledWith(
+			"stale-hold-with-refs",
+			leaseToken,
+		);
 		prepared.release();
 	});
 
@@ -862,6 +1519,362 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
+	it("emits only connector-unreachable MCP notices as transient AI errors", async () => {
+		const unreachableNotice =
+			"The user's Higgsfield connection could not be used (connector unreachable). Try again shortly.";
+		const reconnectNotice =
+			"The user's Higgsfield connection could not be used (reconnect required). Reconnect it in Settings.";
+		const { service } = buildService({
+			mcpResult: createMcpResult({
+				configuredSlugs: ["higgsfield"],
+				notices: [unreachableNotice, reconnectNotice],
+			}),
+		});
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+
+		expect(writer.write).toHaveBeenCalledOnce();
+		expect(writer.write).toHaveBeenCalledWith({
+			data: {
+				kind: "connector_unreachable",
+				moderationStage: null,
+				provider: "higgsfield",
+				providerLabel: "Higgsfield",
+				providerMessage: null,
+				refunded: null,
+				requestId: null,
+				retryable: true,
+				source: "higgsfield",
+				terminal: false,
+			},
+			transient: true,
+			type: "data-ai-error",
+		});
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
+		options.prepared.release();
+	});
+
+	it("writes one terminal rate-limit part, masks both SDK error callbacks, and persists the failed assistant", async () => {
+		const { chatsRepository, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const gatewayError = new GatewayRateLimitError({
+			generationId: "generation-rate-limited",
+		});
+
+		const errorText = capturedAgentStreamOptions().onError?.(gatewayError);
+		expect(errorText).toBe("An error occurred.");
+		const firstAiErrorPart = writer.write.mock.calls
+			.map(([part]) => part)
+			.find(
+				(part) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "data-ai-error",
+			);
+		expect(firstAiErrorPart).toEqual({
+			data: expect.objectContaining({
+				kind: "rate_limited",
+				requestId: "generation-rate-limited",
+				retryable: true,
+				source: "gateway",
+				terminal: true,
+			}),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
+
+		// AI SDK v7's finish reducer invokes the outer callback with a new Error
+		// made from the already masked text. It must not replace the first part.
+		expect(capturedOuterError()(new Error(errorText))).toBe(
+			"An error occurred.",
+		);
+		expect(
+			writer.write.mock.calls.filter(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					part.type === "data-ai-error",
+			),
+		).toHaveLength(1);
+		expect(sentryMocks.warn).toHaveBeenCalledOnce();
+		expect(sentryMocks.warn).toHaveBeenCalledWith(
+			"ai.call.failed",
+			expect.objectContaining({
+				errorKind: "rate_limited",
+				gatewayGenerationId: "generation-rate-limited",
+				source: "gateway",
+			}),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+
+		if (!firstAiErrorPart) {
+			throw new Error("The gateway failure did not write an AI error part");
+		}
+		expect(firstAiErrorPart).not.toHaveProperty("data.sentryEventId");
+		const failedAssistant = {
+			id: "failed-assistant-message",
+			parts: [firstAiErrorPart] as WanditUIMessage["parts"],
+			role: "assistant" as const,
+		};
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage: failedAssistant,
+		});
+
+		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			CHAT_ID,
+			[
+				expect.objectContaining({ id: "user-message", role: "user" }),
+				failedAssistant,
+			],
+			expect.objectContaining({
+				failureKind: "rate_limited",
+				failureRequestId: "generation-rate-limited",
+				failureSource: "gateway",
+				sentryEventId: null,
+			}),
+		);
+	});
+
+	it("keeps the SDK tool-output-error masked and writes one scoped manual failure", async () => {
+		const actualAi = await vi.importActual<typeof import("ai")>("ai");
+		const toolError = new Error("private tool stack and arguments");
+		const toolCallId = "tool-call-failed";
+		const fakeAgent = {
+			stream: vi.fn(
+				async ({
+					experimental_transform,
+				}: {
+					experimental_transform?: unknown;
+				}) => {
+					const transformFactories = Array.isArray(experimental_transform)
+						? experimental_transform
+						: [experimental_transform];
+					const captureToolFailure = transformFactories[0] as
+						| ((options: {
+								stopStream: () => void;
+								tools: Record<string, never>;
+						  }) => TransformStream<unknown, unknown>)
+						| undefined;
+					let rawStream = new ReadableStream<unknown>({
+						start(controller) {
+							controller.enqueue({
+								dynamic: true,
+								input: {},
+								toolCallId,
+								toolName: "generate_page",
+								type: "tool-call",
+							});
+							controller.enqueue({
+								dynamic: true,
+								error: toolError,
+								input: {},
+								toolCallId,
+								toolName: "generate_page",
+								type: "tool-error",
+							});
+							controller.close();
+						},
+					});
+
+					if (captureToolFailure) {
+						rawStream = rawStream.pipeThrough(
+							captureToolFailure({ stopStream: vi.fn(), tools: {} }),
+						);
+					}
+
+					return { stream: rawStream };
+				},
+			),
+			tools: {},
+		};
+		chatAgentMocks.createChatAgent.mockReturnValue(fakeAgent);
+		aiMocks.createAgentUIStream.mockImplementation((options) =>
+			actualAi.createAgentUIStream(options as never),
+		);
+		const { service } = buildService();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(streamOptions());
+		await capturedExecute()({ writer });
+		const mergedStream = writer.merge.mock.calls[0]?.[0] as
+			| ReadableStream<unknown>
+			| undefined;
+		if (!mergedStream) {
+			throw new Error("The agent UI stream was not merged");
+		}
+		const chunks: unknown[] = [];
+		const reader = mergedStream.getReader();
+		while (true) {
+			const result = await reader.read();
+			if (result.done) break;
+			chunks.push(result.value);
+		}
+
+		expect(chunks).toContainEqual({
+			dynamic: true,
+			errorText: "An error occurred.",
+			toolCallId,
+			type: "tool-output-error",
+		});
+		expect(
+			writer.write.mock.calls.filter(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"id" in part &&
+					part.id === `ai-error:${toolCallId}`,
+			),
+		).toEqual([
+			[
+				{
+					data: expect.objectContaining({
+						kind: "internal",
+						terminal: true,
+						toolCallId,
+					}),
+					id: `ai-error:${toolCallId}`,
+					type: "data-ai-error",
+				},
+			],
+		]);
+		expect(
+			writer.write.mock.calls.find(
+				([part]) =>
+					typeof part === "object" &&
+					part !== null &&
+					"id" in part &&
+					part.id === `ai-error:${toolCallId}`,
+			)?.[0],
+		).not.toHaveProperty("data.sentryEventId");
+		expect(sentryMocks.captureException).toHaveBeenCalledOnce();
+		expect(sentryMocks.captureException).toHaveBeenCalledWith(
+			toolError,
+			expect.objectContaining({
+				tags: expect.objectContaining({ toolName: "generate_page" }),
+			}),
+		);
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
+	});
+
+	it("captures a real stream failure after an invalid tool input warning", async () => {
+		const { service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		const invalidInput = new InvalidToolInputError({
+			cause: new Error("Too big: expected array to have <=6 items"),
+			toolInput: '{"sourceImageUrls":[]}',
+			toolName: "generate_image",
+		});
+		const providerError = new Error("gateway failed");
+
+		// The SDK reports an invalid call twice: the error, then its text for the
+		// tool-error chunk. Neither may arm the fatal-error latch: the tool loop
+		// continues, and a later real failure still needs its capture.
+		expect(agentOptions.onError?.(invalidInput)).toBe("An error occurred.");
+		expect(agentOptions.onError?.(String(invalidInput))).toBe(
+			"An error occurred.",
+		);
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
+		expect(agentOptions.onError?.(providerError)).toBe("An error occurred.");
+		expect(writer.write).toHaveBeenCalledWith({
+			data: expect.objectContaining({ kind: "internal", terminal: true }),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
+
+		expect(sentryMocks.captureException).toHaveBeenCalledTimes(2);
+		expect(sentryMocks.captureException).toHaveBeenNthCalledWith(
+			1,
+			invalidInput,
+			expect.objectContaining({
+				fingerprint: ["ai-chat", "invalid-tool-input", "generate_image"],
+				level: "warning",
+				tags: expect.objectContaining({ toolName: "generate_image" }),
+			}),
+		);
+		expect(sentryMocks.captureException).toHaveBeenNthCalledWith(
+			2,
+			providerError,
+			expect.objectContaining({
+				tags: expect.objectContaining({ chatId: expect.any(String) }),
+			}),
+		);
+		options.prepared.release();
+	});
+
+	it("writes a moderated terminal part for a content-filter finish without an error chunk", async () => {
+		const { service } = buildService();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(streamOptions());
+		await capturedExecute()({ writer });
+		const messageMetadata = capturedAgentStreamOptions().messageMetadata;
+		if (!messageMetadata) {
+			throw new Error("messageMetadata was not configured");
+		}
+		expect(
+			messageMetadata({
+				part: {
+					providerMetadata: {
+						gateway: {
+							generationId: "generation-moderated",
+							routing: { finalProvider: "anthropic" },
+						},
+					},
+					type: "finish-step",
+				},
+			} as never),
+		).toBeUndefined();
+		expect(
+			messageMetadata({
+				part: {
+					finishReason: "content-filter",
+					rawFinishReason: "SAFETY",
+					totalUsage: finishUsage(),
+					type: "finish",
+				},
+			} as never),
+		).toMatchObject({
+			finishReason: "content-filter",
+			gatewayGenerationId: "generation-moderated",
+			provider: "anthropic",
+			rawFinishReason: "SAFETY",
+		});
+
+		expect(writer.write).toHaveBeenCalledWith({
+			data: expect.objectContaining({
+				kind: "content_moderated",
+				moderationStage: "input",
+				providerLabel: "Anthropic",
+				source: "provider:anthropic",
+				terminal: true,
+			}),
+			id: "ai-error",
+			type: "data-ai-error",
+		});
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+	});
+
 	it("retries a step generation capture without replaying the model step", async () => {
 		const { meteringService, service } = buildService();
 		meteringService.captureGeneration
@@ -950,34 +1963,195 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
-	it("aborts and releases a stream before stale-reservation recovery can race it", async () => {
+	it("emits a timeout part when the stream budget aborts", async () => {
 		const timeoutController = new AbortController();
 		const timeout = vi
 			.spyOn(AbortSignal, "timeout")
 			.mockReturnValue(timeoutController.signal);
+
+		try {
+			const { service } = buildService();
+			const options = streamOptions();
+			const writer = { merge: vi.fn(), write: vi.fn() };
+
+			await service.stream(options);
+			await capturedExecute()({ writer });
+			const agentOptions = capturedAgentStreamOptions();
+
+			expect(timeout).toHaveBeenCalledWith(35 * 60 * 1_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			timeoutController.abort(new DOMException("budget", "TimeoutError"));
+
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(writer.write).toHaveBeenCalledWith({
+				data: expect.objectContaining({
+					kind: "timeout",
+					source: "ours",
+					terminal: true,
+				}),
+				id: "ai-error",
+				type: "data-ai-error",
+			});
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
+	it("does not write an AI error when the budget aborts after a successful finish", async () => {
+		const timeoutController = new AbortController();
+		const timeout = vi
+			.spyOn(AbortSignal, "timeout")
+			.mockReturnValue(timeoutController.signal);
+
+		try {
+			const { service } = buildService();
+			const writer = { merge: vi.fn(), write: vi.fn() };
+
+			await service.stream(streamOptions());
+			await capturedExecute()({ writer });
+			const messageMetadata = capturedAgentStreamOptions().messageMetadata;
+			if (!messageMetadata) {
+				throw new Error("messageMetadata was not configured");
+			}
+			messageMetadata({
+				part: {
+					finishReason: "stop",
+					totalUsage: finishUsage(),
+					type: "finish",
+				},
+			} as never);
+
+			timeoutController.abort(new DOMException("budget", "TimeoutError"));
+
+			expect(writer.write).not.toHaveBeenCalledWith(
+				expect.objectContaining({ type: "data-ai-error" }),
+			);
+			expect(sentryMocks.captureException).not.toHaveBeenCalled();
+			expect(sentryMocks.warn).not.toHaveBeenCalled();
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
+	it("does not emit an AI error when the user aborts the stream", async () => {
+		const clientAbort = new AbortController();
 		const { service } = buildService();
-		const options = streamOptions();
+		const options = {
+			...streamOptions(),
+			abortSignal: clientAbort.signal,
+		};
+		const writer = { merge: vi.fn(), write: vi.fn() };
 
 		await service.stream(options);
-		await capturedExecute()({
-			writer: { merge: vi.fn(), write: vi.fn() },
-		});
-		const agentOptions = capturedAgentStreamOptions();
+		await capturedExecute()({ writer });
+		clientAbort.abort(new DOMException("closed", "AbortError"));
 
-		expect(timeout).toHaveBeenCalledWith(35 * 60 * 1_000);
-		expect(agentOptions.abortSignal.aborted).toBe(false);
-
-		timeoutController.abort();
-
-		expect(agentOptions.abortSignal.aborted).toBe(true);
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
 		expect(options.prepared.release).toHaveBeenCalledTimes(1);
-		timeout.mockRestore();
+	});
+
+	it("emits the credits-settled part with the post-settle balance after end settlement", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).toHaveBeenCalledWith({
+			type: "user",
+			userId: USER_ID,
+		});
+		expect(
+			creditsService.getSettledBalance.mock.invocationCallOrder[0],
+		).toBeGreaterThan(meteringService.settle.mock.invocationCallOrder[0] ?? 0);
+		expect(writer.write).toHaveBeenCalledWith({
+			data: {
+				credits: 0.37,
+				settledBalance: 12.63,
+				usageEventId: "usage-event-1",
+			},
+			transient: true,
+			type: "data-credits-settled",
+		});
+		options.prepared.release();
+	});
+
+	it("does not emit the credits-settled part when settlement throws", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		meteringService.settle.mockRejectedValue(
+			new InsufficientCreditsError(400, 100),
+		);
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).not.toHaveBeenCalled();
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
+	});
+
+	it("does not write the credits-settled part after the stream writer closed", async () => {
+		const { creditsService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		// The outer onEnd closes the writer before the balance read resolves.
+		let resolveBalance: (value: unknown) => void = () => {};
+		creditsService.getSettledBalance.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveBalance = resolve;
+				}),
+		);
+		const agentEnd = agentOptions.onEnd?.({} as never);
+		await vi.waitFor(() =>
+			expect(creditsService.getSettledBalance).toHaveBeenCalledTimes(1),
+		);
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage: assistantMessage(),
+		});
+		resolveBalance({ settledBalance: 1_263 });
+		await agentEnd;
+
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
 	});
 
 	it("emits the typed billing data part when end settlement exhausts credits", async () => {
 		const { meteringService, service } = buildService();
 		meteringService.settle.mockRejectedValue(
-			new InsufficientCreditsError(4, 1),
+			// Centi-credit inputs: details carry 4.00 / 1.00 decimal credits.
+			new InsufficientCreditsError(400, 100),
 		);
 		const options = streamOptions();
 		const writer = { merge: vi.fn(), write: vi.fn() };
@@ -1011,6 +2185,11 @@ describe("AiChatService MCP lifecycle", () => {
 			},
 			type: "data-billing-error",
 		});
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-ai-error" }),
+		);
+		expect(sentryMocks.captureException).not.toHaveBeenCalled();
+		expect(sentryMocks.warn).not.toHaveBeenCalled();
 		options.prepared.release();
 	});
 
@@ -1036,7 +2215,8 @@ describe("AiChatService MCP lifecycle", () => {
 		const reader = new ReadableStream({
 			start(controller) {
 				controller.enqueue({
-					error: new InsufficientCreditsError(25, 3),
+					// Centi-credit inputs: details carry 25.00 / 3.00 decimal credits.
+					error: new InsufficientCreditsError(2500, 300),
 					input: {},
 					toolCallId: "tool_1",
 					toolName: "animate_image",
@@ -1064,6 +2244,389 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
+	it("loads and injects the active page outline into request context", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-7",
+				number: 7,
+				r2Key: "sites/project-1/version-7/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockResolvedValue(
+			"<!doctype html><html><body>" +
+				'<section data-wid="hero"><h1>Launch faster</h1></section>' +
+				"</body></html>",
+		);
+
+		await service.stream(streamOptions());
+
+		expect(
+			pagesRepository.findActivePageByProjectUnchecked,
+		).toHaveBeenCalledWith(PROJECT_ID);
+		expect(r2Mocks.getPageHtml).toHaveBeenCalledWith(
+			"sites/project-1/version-7/index.html",
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("hero");
+		expect(context).toContain("Launch faster");
+		expect(context).toContain("7");
+	});
+
+	it("omits active page outline context when the project has no active page", async () => {
+		const { pagesRepository, service } = buildService();
+
+		await service.stream(streamOptions());
+
+		expect(
+			pagesRepository.findActivePageByProjectUnchecked,
+		).toHaveBeenCalledWith(PROJECT_ID);
+		expect(r2Mocks.getPageHtml).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("appends the ads block with tracking facts when an ads connector is connected", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["meta-ads"] }),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Ads context for THIS request");
+		expect(context).toContain("Connected ad platforms: Meta Ads");
+		expect(context).toContain("Meta pixel id set: yes");
+		expect(context).toContain("page published: no");
+		expect(context).toContain("ads-diagnostic:");
+	});
+
+	it("injects the selected ads skill even without a connected ad platform", async () => {
+		const { leadsRepository, service } = buildService();
+
+		await service.stream({
+			...streamOptions(),
+			metadata: {
+				composer: {
+					mode: "auto",
+					skills: ["ads-creative", "seo-review"],
+				},
+			},
+		});
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("No ad platform is connected");
+		expect(context).toContain("--- ads-creative ---");
+		expect(context).toContain("# ADS SKILL");
+		expect(context).not.toContain("seo-review");
+	});
+
+	it("gates inspect_video for a configured Higgsfield connector without resolved tools", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({
+				configuredSlugs: ["higgsfield"],
+				connectedSlugs: [],
+			}),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({ hasHiggsfieldConnector: true }),
+		);
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps the turn running when the tracking facts lookup fails", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["tiktok-ads"] }),
+		});
+		leadsRepository.getAdsTrackingFacts.mockRejectedValue(new Error("db down"));
+
+		await service.stream(streamOptions());
+
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Connected ad platforms: TikTok Ads");
+		expect(context).not.toContain("Tracking facts");
+	});
+
+	it("keeps the chat turn running when active page HTML cannot be loaded", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-3",
+				number: 3,
+				r2Key: "sites/project-1/version-3/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockRejectedValue(new Error("R2 unavailable"));
+
+		await expect(service.stream(streamOptions())).resolves.toBeUndefined();
+
+		expect(chatAgentMocks.createChatAgent).toHaveBeenCalledTimes(1);
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps fallback page-read guidance when the active page has no outline sections", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-4",
+				number: 4,
+				r2Key: "sites/project-1/version-4/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockResolvedValue(
+			"<!doctype html><html><body>" +
+				'<div data-wid="shell"><h1>Launch faster</h1></div>' +
+				"</body></html>",
+		);
+
+		await service.stream({
+			...streamOptions(),
+			metadata: { selectedWids: ["hero-title"] },
+		});
+
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).not.toContain("The current page outline");
+		expect(context).not.toContain("Do not call get_page_outline");
+		expect(context).toContain("Call get_page_outline / read_section");
+	});
+
+	it("times out a stalled active page load and builds context without its outline", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { pagesRepository, service } = buildService();
+			pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+				artifactId: "artifact-1",
+				version: {
+					id: "version-5",
+					number: 5,
+					r2Key: "sites/project-1/version-5/index.html",
+				},
+			});
+			r2Mocks.getPageHtml.mockReturnValue(new Promise(() => {}));
+
+			const turn = service.stream({
+				...streamOptions(),
+				metadata: { selectedWids: ["hero-title"] },
+			});
+
+			await vi.advanceTimersByTimeAsync(1_499);
+			expect(chatAgentMocks.createChatAgent).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(1);
+			await expect(turn).resolves.toBeUndefined();
+
+			const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+			expect(context).not.toContain("The current page outline");
+			expect(context).toContain("Call get_page_outline / read_section");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("passes only user-authored HTTP links to the page generator dependencies", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "user-links-1",
+				parts: [
+					{
+						text:
+							"See [the demo](https://video.example/watch?v=abc), then " +
+							"<https://docs.example/guide>! " +
+							"[Attached image (image/png): https://assets.example/attached.png] " +
+							"[Generated video: https://assets.example/generated.mp4]",
+						type: "text",
+					},
+					{
+						mediaType: "image/png",
+						type: "file",
+						url: "https://assets.example/file-part.png",
+					},
+				],
+				role: "user",
+			},
+			{
+				id: "assistant-links",
+				parts: [
+					{
+						text: "Assistant reference: https://assistant.example/ignore-me",
+						type: "text",
+					},
+				],
+				role: "assistant",
+			},
+			{
+				id: "user-links-2",
+				parts: [
+					{
+						text:
+							"Duplicate https://video.example/watch?v=abc. " +
+							"Also **https://wrapped.example/page**;",
+						type: "text",
+					},
+				],
+				role: "user",
+			},
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				conversationUserLinks: [
+					"https://video.example/watch?v=abc",
+					"https://docs.example/guide",
+					"https://wrapped.example/page",
+				],
+			}),
+		);
+	});
+
+	it("collects attached videos separately from read_attachment documents", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "user-attachments",
+				parts: [
+					{
+						filename: "brief.pdf",
+						mediaType: "application/pdf",
+						type: "file",
+						url: "https://assets.example.com/brief.pdf",
+					},
+					{
+						filename: "reference.mp4",
+						mediaType: "video/mp4",
+						type: "file",
+						url: "https://assets.example.com/reference.mp4",
+					},
+				],
+				role: "user",
+			},
+			{
+				id: "assistant-attachments",
+				parts: [
+					{
+						input: {
+							kind: "attachments",
+							options: [],
+							question: "Attach the remaining files",
+						},
+						output: {
+							files: [
+								{
+									filename: "notes.csv",
+									mediaType: "text/csv",
+									url: "https://assets.example.com/notes.csv",
+								},
+								{
+									filename: "soundtrack.mp3",
+									mediaType: "audio/mpeg",
+									url: "https://assets.example.com/soundtrack.mp3",
+								},
+								{
+									filename: "second-reference.webm",
+									mediaType: "video/webm",
+									url: "https://assets.example.com/second-reference.webm",
+								},
+							],
+						},
+						state: "output-available",
+						toolCallId: "ask-attachments",
+						type: "tool-ask_user",
+					},
+				],
+				role: "assistant",
+			},
+			userMessage(),
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				availableDocuments: [
+					{
+						filename: "brief.pdf",
+						mediaType: "application/pdf",
+						url: "https://assets.example.com/brief.pdf",
+					},
+					{
+						filename: "notes.csv",
+						mediaType: "text/csv",
+						url: "https://assets.example.com/notes.csv",
+					},
+				],
+			}),
+		);
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				availableVideos: [
+					{
+						filename: "reference.mp4",
+						mediaType: "video/mp4",
+						url: "https://assets.example.com/reference.mp4",
+					},
+					{
+						filename: "second-reference.webm",
+						mediaType: "video/webm",
+						url: "https://assets.example.com/second-reference.webm",
+					},
+				],
+			}),
+		);
+	});
+
+	it("stops pasted URLs at markup and trims sentence punctuation", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "pasted-links",
+				parts: [
+					{
+						text:
+							'<a href="https://acme.dz/boutique">Notre boutique</a> ' +
+							"https://comma.example/path, " +
+							"https://period.example/path. " +
+							"https://paren.example/path) " +
+							"https://cjk.example/path。 " +
+							"https://legal.example/path_~*",
+						type: "text",
+					},
+				],
+				role: "user",
+			},
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				conversationUserLinks: [
+					"https://acme.dz/boutique",
+					"https://comma.example/path",
+					"https://period.example/path",
+					"https://paren.example/path",
+					"https://cjk.example/path",
+					"https://legal.example/path_~*",
+				],
+			}),
+		);
+	});
+
 	it("preserves a clean selected target through UI validation and history seeding", async () => {
 		const selectedTarget = {
 			excerpt: "A focused launch headline",
@@ -1089,6 +2652,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
 			CHAT_ID,
 			[rawUserMessage, responseMessage],
+			null,
 		);
 		const insertedUserMessage =
 			chatsRepository.insertUiMessagesIfAbsent.mock.calls[0]?.[1]?.[0];
@@ -1180,6 +2744,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.upsertUiMessage).toHaveBeenCalledWith(
 			CHAT_ID,
 			responseMessage,
+			null,
 		);
 		expect(chatsRepository.insertUiMessagesIfAbsent).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);
@@ -1196,17 +2761,56 @@ describe("AiChatService MCP lifecycle", () => {
 		const agentOptions = aiMocks.createAgentUIStream.mock.calls[0]?.[0] as
 			| {
 					messageMetadata?: (options: { part: unknown }) => unknown;
+					onStepEnd?: (options: unknown) => Promise<void>;
 			  }
 			| undefined;
 		const messageMetadata = agentOptions?.messageMetadata;
 		if (!messageMetadata) throw new Error("messageMetadata was not configured");
+		if (!agentOptions.onStepEnd)
+			throw new Error("onStepEnd was not configured");
+		const lastStepUsage = {
+			inputTokens: 100,
+			inputTokenDetails: {
+				cacheReadTokens: 20,
+				cacheWriteTokens: 5,
+				noCacheTokens: 75,
+			},
+			outputTokens: 20,
+			outputTokenDetails: {
+				reasoningTokens: 10,
+				textTokens: 10,
+			},
+			totalTokens: 120,
+		};
 
 		expect(messageMetadata({ part: { type: "start" } })).toEqual({
 			model: env.AI_CHAT_MODEL,
 		});
+		await agentOptions.onStepEnd({
+			providerMetadata: undefined,
+			usage: {
+				inputTokens: 20,
+				inputTokenDetails: {
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					noCacheTokens: 20,
+				},
+				outputTokens: 10,
+				outputTokenDetails: {
+					reasoningTokens: 0,
+					textTokens: 10,
+				},
+				totalTokens: 30,
+			},
+		});
+		await agentOptions.onStepEnd({
+			providerMetadata: undefined,
+			usage: lastStepUsage,
+		});
 		expect(
 			messageMetadata({
 				part: {
+					finishReason: "stop",
 					type: "finish",
 					totalUsage: {
 						inputTokens: 120,
@@ -1225,7 +2829,11 @@ describe("AiChatService MCP lifecycle", () => {
 				},
 			}),
 		).toEqual({
+			finishReason: "stop",
+			lastStepUsage,
 			model: env.AI_CHAT_MODEL,
+			provider: env.AI_CHAT_MODEL.split("/", 1)[0],
+			stepCount: 2,
 			usage: {
 				inputTokens: 120,
 				inputTokenDetails: {
@@ -1267,6 +2875,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
 			CHAT_ID,
 			[userMessage(), responseMessage],
+			null,
 		);
 		expect(chatsRepository.upsertUiMessage).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);
@@ -1298,6 +2907,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(mcpChatToolsService.resolveToolsForUser).toHaveBeenCalledWith(
 			{ actorUserId: USER_ID },
 			"usage-event-1",
+			CHAT_ID,
 		);
 		expect(pagesRepository.collectManualEditTrail).toHaveBeenCalledWith(
 			PROJECT_ID,
@@ -1459,6 +3069,80 @@ describe("completeDanglingToolCalls ask_user", () => {
 	});
 });
 
+describe("completeDanglingToolCalls video revision tools", () => {
+	it("repairs an incomplete product_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { productName: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-product-video",
+			type: "tool-product_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				image: {
+					url: "https://invalid.local/interrupted-product-image.jpg",
+				},
+				preset: "orbit",
+				productName: "Unknown product",
+				title: "Interrupted product video",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(productVideoInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(productVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs an incomplete edit_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { instruction: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-edit-video",
+			type: "tool-edit_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+				title: "Interrupted video edit",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(editVideoInputSchema.safeParse(repaired.input).success).toBe(true);
+		expect(editVideoOutputSchema.safeParse(repaired.output).success).toBe(true);
+	});
+
+	it("repairs an incomplete extend_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { continuationBrief: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-extend-video",
+			type: "tool-extend_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				legCount: 1,
+				legDurationSeconds: 5,
+				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+				title: "Interrupted video extension",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(extendVideoInputSchema.safeParse(repaired.input).success).toBe(true);
+		expect(extendVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+});
+
 describe("completeDanglingToolCalls page tools", () => {
 	it("repairs apply_element_ops with schema-valid rejected output", () => {
 		const repaired = repairBuiltInPart({
@@ -1526,6 +3210,83 @@ describe("completeDanglingToolCalls page tools", () => {
 		});
 		expect(readThemeInputSchema.safeParse(repaired.input).success).toBe(true);
 		expect(readThemeOutputSchema.safeParse(repaired.output).success).toBe(true);
+	});
+
+	it("repairs insert_section with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { html: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-insert-section",
+			type: "tool-insert_section",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				anchorWid: "unknown",
+				position: "after",
+			},
+			output: {
+				status: "rejected",
+			},
+			state: "output-available",
+		});
+		expect(insertSectionInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(insertSectionOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs read_attachment with a schema-valid unavailable result", () => {
+		const repaired = repairBuiltInPart({
+			input: { url: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-read-attachment",
+			type: "tool-read_attachment",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				url: "https://wandit.invalid/interrupted-attachment",
+			},
+			output: {
+				status: "unavailable",
+			},
+			state: "output-available",
+		});
+		expect(readAttachmentInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(readAttachmentOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs inspect_video with a schema-valid unavailable result", () => {
+		const repaired = repairBuiltInPart({
+			input: { focus: "structure", url: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-inspect-video",
+			type: "tool-inspect_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				focus: "structure",
+				url: "https://wandit.invalid/interrupted-video",
+			},
+			output: {
+				status: "unavailable",
+			},
+			state: "output-available",
+		});
+		expect(inspectVideoInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(inspectVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
 	});
 });
 

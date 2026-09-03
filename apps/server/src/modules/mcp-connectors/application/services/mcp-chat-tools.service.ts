@@ -1,6 +1,5 @@
+import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMCPClient,
 	type ListToolsResult,
@@ -16,28 +15,59 @@ import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/nestjs";
 import { dynamicTool, type Tool, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
-
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process.
 import type { runConnectorGenerationTask } from "../../../../trigger/run-connector-generation.task";
+import {
+	captureAiError,
+	classifyAiError,
+	classifyMcpResult,
+	type NormalizedAiError,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import {
+	type LifecycleEventName,
+	lifecycleEventIdempotencyKey,
+} from "../../../lifecycle-events/domain/lifecycle-event";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
 	gatewayGenerationCaptureFromError,
 } from "../../../metering/domain/gateway-metering";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
+import { assertUsdAdBudgetArgs } from "../../domain/ad-budget-guard";
+import {
+	classifyAdsToolApproval,
+	isAdsApprovalConnector,
+} from "../../domain/ads-approval-policy";
+import { evaluateAdsChangeWindow } from "../../domain/ads-change-window-guard";
+import {
+	adsPlatformError,
+	extractAdsCreatedEntityIds,
+	extractAdsTargetEntityIds,
+	isAdsCreateToolName,
+	resultPayloads,
+} from "../../domain/ads-target-entity";
+import { isCampaignLaunch } from "../../domain/campaign-launch";
 import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
 	connectorGenerationReference,
+	IMAGE_GENERATION_TOOLS,
 	normalizeConnectorToolName,
+	VIDEO_GENERATION_TOOLS,
 } from "../../domain/connector-generation-metering";
+import { sanitizeConnectorOperationError } from "../../domain/connector-operation-error";
+import { classifyToolName } from "../../domain/mcp-tool-classification";
 import {
 	type McpToolApprovalMap,
 	mcpToolPolicySchema,
 } from "../../domain/mcp-tool-policy";
+import { ConnectorOperationEventsRepository } from "../../infrastructure/persistence/connector-operation-events.repository";
 import type { McpConnectionRow } from "../../infrastructure/persistence/mcp-connections.repository";
 import { McpConnectionsRepository } from "../../infrastructure/persistence/mcp-connections.repository";
 import type { McpConnectorRow } from "../../infrastructure/persistence/mcp-connectors.repository";
@@ -49,8 +79,12 @@ import {
 	connectorBillingAdmissionMode,
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
+	recordConnectorSubmitReceipt,
 } from "./connector-generation-billing";
-import { HiggsfieldPromptRefinerService } from "./higgsfield-prompt-refiner.service";
+import {
+	HiggsfieldPromptRefinerService,
+	locateGenerationPrompt,
+} from "./higgsfield-prompt-refiner.service";
 import { McpConnectionsService } from "./mcp-connections.service";
 import {
 	type McpCatalogTool,
@@ -67,82 +101,78 @@ const VALID_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const PLATFORM_TOOL_RESULT_LIMIT = 12;
 const PLATFORM_TOOL_SUMMARY_LENGTH = 160;
 const TIKTOK_GATEWAY_TOOLS = new Set(["tool_execute", "tool_get", "tool_list"]);
-const WRITE_VERBS = new Set([
-	"create",
-	"update",
-	"delete",
-	"remove",
-	"add",
-	"set",
-	"activate",
-	"deactivate",
-	"pause",
-	"resume",
-	"enable",
-	"disable",
-	"publish",
-	"deploy",
-	"boost",
-	"schedule",
-	"send",
-	"upload",
-	"buy",
-	"purchase",
-	"confirm",
-	"cancel",
-	"subscribe",
-	"launch",
-	"connect",
-	"disconnect",
-	"sync",
-	"rename",
-	"import",
-	"invoke",
-	"exec",
-	"execute",
-	"participate",
+const ADS_CHANGE_WINDOW_ACK_TTL_MS = 30 * 60 * 1000;
+const GENERIC_WRAPPER_TOOLS = new Set(["tool_execute"]);
+// Reachable only through the run_platform_tool door (never in the visible
+// set): they render for minutes inline with no billing plan and no card.
+const HIGGSFIELD_BATCH_TOOLS = new Set([
+	"generate_audio_batch",
+	"generate_image_batch",
+	"generate_video_batch",
 ]);
-const READ_VERBS = new Set([
+const HIGGSFIELD_READ_TOOLS = new Set([
+	"personal_clipper_jobs",
+	"personal_clipper_status",
+	"video_analysis_jobs",
+	"video_analysis_status",
+]);
+const HIGGSFIELD_USE_UNLIM_TOOLS = new Set([
+	"generate_audio",
+	"generate_image",
+	"generate_video",
+]);
+const HIGGSFIELD_MARKETING_STUDIO_READ_ACTIONS = new Set([
 	"get",
 	"list",
-	"search",
-	"read",
-	"fetch",
-	"query",
-	"describe",
-	"show",
-	"check",
-	"count",
-	"view",
-	"retrieve",
-	"download",
-	"export",
-	"report",
-	"preview",
-	"status",
-	"health",
-	"explore",
-	"insights",
-	"balance",
-	"transactions",
-	"reveal",
-	"display",
+	"presets",
 ]);
-const GENERIC_WRAPPER_TOOLS = new Set(["tool_execute"]);
+const HIGGSFIELD_JOB_ID_KEY_PATTERN =
+	/^(?:job_set|jobset|job|generation|task)_?ids?$/i;
 
-// Connector tools whose provider call runs for MINUTES (video generation…):
-// executing them inline would block the chat stream and die on the API
-// process's 5-minute undici ceiling. They are intercepted and replayed by
-// the run-connector-generation Trigger.dev task instead; the chat card
-// follows the run over Realtime. Names are normalized (normalizeToolName).
-const BACKGROUND_GENERATION_TOOLS: Record<string, Set<string>> = {
-	higgsfield: new Set(["generate_video"]),
+// Connector tools whose provider call is a SUBMIT-style generation (a job
+// receipt in ~1s, the render minutes later) or simply runs for minutes:
+// executing them inline would block the chat stream, die on the API
+// process's 5-minute undici ceiling, and — for submit-style tools — hand the
+// model a receipt with demo garnish instead of the render. They are
+// intercepted and replayed by the run-connector-generation Trigger.dev task,
+// which follows the provider job to its real media; the chat card follows
+// the run over Realtime. The set is exactly the metering registry's image +
+// video generations, so every billed generation gets a live card. Names are
+// normalized (normalizeToolName).
+const BACKGROUND_GENERATION_TOOLS: Record<string, ReadonlySet<string>> = {
+	higgsfield: new Set([...IMAGE_GENERATION_TOOLS, ...VIDEO_GENERATION_TOOLS]),
 };
 
 function isBackgroundGenerationTool(slug: string, toolName: string): boolean {
 	return (
 		BACKGROUND_GENERATION_TOOLS[slug]?.has(normalizeToolName(toolName)) ?? false
 	);
+}
+
+function isConnectorReadTool(slug: string, toolName: string): boolean {
+	return (
+		(slug === "higgsfield" &&
+			HIGGSFIELD_READ_TOOLS.has(normalizeToolName(toolName))) ||
+		classifyToolName(toolName) === "read"
+	);
+}
+
+function shouldRetryConnectorTool(
+	slug: string,
+	toolName: string,
+	args: unknown,
+): boolean {
+	if (
+		slug === "higgsfield" &&
+		normalizeToolName(toolName) === "show_marketing_studio"
+	) {
+		const action = readStringProperty(args, "action")?.trim().toLowerCase();
+		return action
+			? HIGGSFIELD_MARKETING_STUDIO_READ_ACTIONS.has(action)
+			: false;
+	}
+
+	return isConnectorReadTool(slug, toolName);
 }
 
 // Creative generations whose prompt is rewritten by the refiner model before
@@ -154,25 +184,252 @@ const PROMPT_REFINED_TOOLS: Record<string, ReadonlySet<string>> = {
 function isPromptRefinedTool(slug: string, toolName: string): boolean {
 	return PROMPT_REFINED_TOOLS[slug]?.has(normalizeToolName(toolName)) ?? false;
 }
-const HIGGSFIELD_AUTO_TOOLS = [
+
+// Higgsfield nests its real arguments as `params` (object or JSON string);
+// bare top-level arguments are the degenerate fallback shape.
+function readHiggsfieldParams(args: unknown): Record<string, unknown> | null {
+	if (typeof args !== "object" || args === null) {
+		return null;
+	}
+
+	const record = args as Record<string, unknown>;
+
+	return typeof record.params === "object" &&
+		record.params !== null &&
+		!Array.isArray(record.params)
+		? (record.params as Record<string, unknown>)
+		: typeof record.params === "string"
+			? tryParseJsonRecord(record.params)
+			: record;
+}
+
+// Higgsfield's `get_cost: true` turns a generate call into a fast, free cost
+// preflight: queueing or billing it would reserve credits, insert an attempt
+// row, and show a phantom progress card for a call that renders nothing.
+function isCostPreflight(args: unknown): boolean {
+	return readHiggsfieldParams(args)?.get_cost === true;
+}
+
+function tryParseJsonRecord(value: string): Record<string, unknown> | null {
+	try {
+		const parsed: unknown = JSON.parse(value);
+		return typeof parsed === "object" &&
+			parsed !== null &&
+			!Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+// Higgsfield may return an `unlim_choice` question instead of submitting a
+// job when use_unlim is omitted. A generation admission pins the paid path
+// unless the agent explicitly chose an unlimited generation for the user.
+function pinHiggsfieldQueuedUseUnlim(
+	connectorSlug: string,
+	toolName: string,
+	args: Record<string, unknown>,
+): Record<string, unknown>;
+function pinHiggsfieldQueuedUseUnlim(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): unknown;
+function pinHiggsfieldQueuedUseUnlim(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): unknown {
+	if (
+		connectorSlug !== "higgsfield" ||
+		!HIGGSFIELD_USE_UNLIM_TOOLS.has(normalizeToolName(toolName))
+	) {
+		return args;
+	}
+
+	if (typeof args !== "object" || args === null || Array.isArray(args)) {
+		return { params: { use_unlim: false } };
+	}
+
+	const record = args as Record<string, unknown>;
+	const params = record.params;
+
+	if (typeof params === "object" && params !== null && !Array.isArray(params)) {
+		const paramsRecord = params as Record<string, unknown>;
+		return Object.hasOwn(paramsRecord, "use_unlim")
+			? args
+			: { ...record, params: { ...paramsRecord, use_unlim: false } };
+	}
+
+	if (typeof params === "string") {
+		const parsedParams = tryParseJsonRecord(params);
+		if (!parsedParams || Object.hasOwn(parsedParams, "use_unlim")) {
+			return args;
+		}
+
+		return {
+			...record,
+			params: JSON.stringify({ ...parsedParams, use_unlim: false }),
+		};
+	}
+
+	// Keep the legacy bare-argument fallback shape intact. Live Higgsfield
+	// schemas use `params`, but older stored/provider definitions may not.
+	return Object.hasOwn(record, "use_unlim")
+		? args
+		: { ...record, use_unlim: false };
+}
+
+// The unified creative director applies to EVERY from-scratch video render:
+// a Higgsfield generate_video call must carry a composed creative brief (the
+// same intake as the gateway generate_video tool), never a one-line wish.
+// The floor is deliberately low — it only catches calls that plainly skipped
+// the intake, and the rejection costs nothing (no reservation, no row).
+const VIDEO_BRIEF_MIN_CHARS = 40;
+
+function videoBriefGateError(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): Record<string, unknown> | null {
+	if (
+		connectorSlug !== "higgsfield" ||
+		normalizeToolName(toolName) !== "generate_video" ||
+		isCostPreflight(args)
+	) {
+		return null;
+	}
+
+	// Image-to-video and motion-transfer calls carry reference media — that
+	// is animate-an-existing-asset territory, not a from-scratch commercial:
+	// a short motion hint next to a start_image is legitimate, never gated.
+	const medias = readHiggsfieldParams(args)?.medias;
+
+	if (Array.isArray(medias) && medias.length > 0) {
+		return null;
+	}
+
+	const prompt = locateGenerationPrompt(args);
+
+	if (!prompt || prompt.trim().length >= VIDEO_BRIEF_MIN_CHARS) {
+		return null;
+	}
+
+	return platformToolError(
+		"This video call needs a complete creative brief, not a one-line " +
+			"prompt. Run the creative-director intake first (ask_user: video " +
+			"type, key moment, setting, mood, audience — plus format and " +
+			"duration when unset), then call again with the composed CREATIVE " +
+			"BRIEF as the prompt. Wandit's video director turns that brief into " +
+			"the provider's own prompt language automatically.",
+	);
+}
+
+// Higgsfield's upload surfaces are dead ends in this client: Wandit cannot
+// render the Apps-UI upload widget (the chat card has nothing to click), and
+// the chat agent has no shell for media_upload's presigned-URL curl flow.
+// Models land on them because the provider's own descriptions claim chat
+// attachments are unreadable — untrue in Wandit, where every attachment is
+// already a public HTTPS URL that media_import_url can ingest. The rejection
+// is free (no provider call, no reservation) and self-corrects in-turn.
+const HIGGSFIELD_UPLOAD_SURFACE_TOOLS = new Set([
 	"media_upload",
 	"media_upload_widget",
+]);
+
+function uploadSurfaceRedirectError(
+	connectorSlug: string,
+	toolName: string,
+): Record<string, unknown> | null {
+	if (
+		connectorSlug !== "higgsfield" ||
+		!HIGGSFIELD_UPLOAD_SURFACE_TOOLS.has(normalizeToolName(toolName))
+	) {
+		return null;
+	}
+
+	return platformToolError(
+		"This chat cannot display Higgsfield's upload widget or run its " +
+			"presigned-URL uploads — media_upload and media_upload_widget never " +
+			"work here. Files the user attached to this chat are ALREADY hosted " +
+			"at public HTTPS URLs: find the [Attached image/video/audio/file …] marker in " +
+			"the conversation and call media_import_url with that exact URL — " +
+			"it returns a confirmed media_id to pass in the generation's " +
+			"medias. If no attachment exists yet, ask the user to attach the " +
+			'file to a chat message (ask_user kind "attachments"), then import ' +
+			"its marker URL the same way.",
+	);
+}
+
+// Clipify belongs to Higgsfield's dedicated Personal Clipper surface. The
+// legacy generate_video model spelling cannot accept that tool's YouTube
+// inputs, so redirect before the creative-brief gate or any paid work.
+const HIGGSFIELD_CLIPPER_REDIRECT_MODELS = new Set([
+	"clipify",
+	"personal_clipper",
+]);
+
+function clipifyRedirectError(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): Record<string, unknown> | null {
+	const model = readHiggsfieldParams(args)?.model;
+
+	if (
+		connectorSlug !== "higgsfield" ||
+		normalizeToolName(toolName) !== "generate_video" ||
+		typeof model !== "string" ||
+		!HIGGSFIELD_CLIPPER_REDIRECT_MODELS.has(model.trim().toLowerCase())
+	) {
+		return null;
+	}
+
+	return platformToolError(
+		"Do not call generate_video with the clipify or personal_clipper model. " +
+			"Personal Clipper is the tool `personal_clipper_create`: pass the exact " +
+			"YouTube URL(s) in `urls`. If any settings are not yet known, ask the user " +
+			"for `clips_num` (1–20), `clip_aspect` (9:16 | 1:1 | 16:9), and " +
+			"`subtitle_font` (Noto Sans | Noto Serif | Noto Sans Display | IBM Plex " +
+			"Sans | M PLUS Rounded 1c | Bebas Neue | Archivo Black | Unbounded | " +
+			"Inter | Montserrat | Bangers | Permanent Marker | Playfair Display | " +
+			"Caveat), then call `personal_clipper_create`. The job runs in the " +
+			"background for 10–30 minutes.",
+	);
+}
+
+// DEMO-SAFE: the provider's own tool descriptions pass through UNCHANGED.
+// A Wandit-authored rewrite here once dropped Higgsfield's model-id
+// documentation and the chat model started inventing ids ("higgsfield_soul")
+// — a failed, refunded generation. Any future rewrite must keep the exact
+// model ids and the media_id rules from the live descriptions.
+const HIGGSFIELD_AUTO_TOOLS = [
 	"media_import_url",
-	"media_confirm",
-	"select_workspace",
 	"generate_image",
 	"generate_video",
 	"generate_audio",
-	"generate_3d",
-	"animation_actions",
-	"outpaint_image",
+	"personal_clipper_create",
 	"reframe",
-	"remove_background",
-	"upscale_image",
 	"upscale_video",
 	"motion_control",
-	"voice_change",
-	"dubbing",
+	"video_analysis_create",
+] as const;
+const HIGGSFIELD_VISIBLE_READ_TOOLS = [
+	"show_marketing_studio",
+	"personal_clipper_status",
+	"personal_clipper_jobs",
+	"video_analysis_status",
+	"video_analysis_jobs",
+	"list_voices",
+	"models_explore",
+	"job_status",
+	"job_display",
+	"show_generations",
+] as const;
+const HIGGSFIELD_DEFAULT_VISIBLE_TOOLS = [
+	...HIGGSFIELD_AUTO_TOOLS,
+	...HIGGSFIELD_VISIBLE_READ_TOOLS,
 ] as const;
 const HIGGSFIELD_TIKTOK_AUTO_TOOLS = [
 	"tiktok_accounts",
@@ -183,23 +440,23 @@ const HIGGSFIELD_TIKTOK_AUTO_TOOLS = [
 	"tiktok_publish_status",
 	"tiktok_reconnect",
 ] as const;
+const HIGGSFIELD_AUTO_APPROVE_TOOLS = [
+	...HIGGSFIELD_TIKTOK_AUTO_TOOLS,
+	// These calls are intercepted locally with media_import_url guidance. Keep
+	// them card-free when an old turn or DB override still exposes one.
+	...HIGGSFIELD_UPLOAD_SURFACE_TOOLS,
+] as const;
 const CONNECTOR_TOOL_OVERRIDES: Record<
 	string,
 	{ autoTools: readonly string[]; autoApproveTools?: readonly string[] }
 > = {
 	higgsfield: {
-		autoApproveTools: HIGGSFIELD_TIKTOK_AUTO_TOOLS,
+		autoApproveTools: HIGGSFIELD_AUTO_APPROVE_TOOLS,
 		autoTools: HIGGSFIELD_AUTO_TOOLS,
 	},
 };
 const DEFAULT_VISIBLE_TOOLS: Record<string, readonly string[]> = {
-	higgsfield: [
-		...HIGGSFIELD_AUTO_TOOLS,
-		"models_explore",
-		"job_status",
-		"job_display",
-		"show_generations",
-	],
+	higgsfield: HIGGSFIELD_DEFAULT_VISIBLE_TOOLS,
 	"meta-ads": [
 		"ads_get_ad_accounts",
 		"ads_get_ad_entities",
@@ -226,6 +483,43 @@ const DEFAULT_VISIBLE_TOOLS: Record<string, readonly string[]> = {
 		"smart_plus_campaign_get",
 	],
 };
+
+function higgsfieldEnrolledToolNames(
+	connector: McpConnectorRow,
+): readonly string[] {
+	const policy = mcpToolPolicySchema.safeParse(connector.toolPolicy);
+	const configured = policy.success ? policy.data.allowlist : undefined;
+
+	return configured && configured.length > 0
+		? configured
+		: HIGGSFIELD_DEFAULT_VISIBLE_TOOLS;
+}
+
+function higgsfieldEnrollmentError(
+	connector: McpConnectorRow,
+	toolName: string,
+	catalog: McpCatalogTool[],
+): Record<string, unknown> | null {
+	if (connector.slug !== "higgsfield") {
+		return null;
+	}
+
+	const enrolled = higgsfieldEnrolledToolNames(connector);
+	const enrolledNames = new Set(enrolled.map(normalizeToolName));
+	if (enrolledNames.has(normalizeToolName(toolName))) {
+		return null;
+	}
+
+	const available = catalog
+		.filter((tool) => enrolledNames.has(normalizeToolName(tool.name)))
+		.map((tool) => tool.name)
+		.sort(compareStrings);
+
+	return platformToolError(
+		`Tool "${toolName}" is not enrolled for Higgsfield here and cannot be run. ` +
+			`Available Higgsfield tools: ${available.length > 0 ? available.join(", ") : "none currently advertised by the connector"}.`,
+	);
+}
 
 const platformConnectorSchema = z.enum([
 	"tiktok-ads",
@@ -271,14 +565,18 @@ const SKIP_REASON_GUIDANCE: Record<McpSkipReason, string> = {
 	policy_invalid:
 		"Tell the user that its connector configuration must be fixed by an administrator if they ask for it.",
 	reconnect_required:
-		"Tell the user to reconnect it in Settings → Connectors if they ask for it.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 	unreachable:
-		"Tell the user it is temporarily unavailable and to try again later if they ask for it.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 };
 
 export type McpChatToolsResult = {
 	approvalMap: McpToolApprovalMap;
 	close: () => Promise<void>;
+	/** Sorted unique slugs with an enabled connector and stored user token. */
+	configuredSlugs: string[];
+	/** Sorted unique slugs of the connectors that contributed tools. */
+	connectedSlugs: string[];
 	notices: string[];
 	tools: Record<string, Tool>;
 };
@@ -317,8 +615,16 @@ type UnknownToolExecute = (
 @Injectable()
 export class McpChatToolsService {
 	private readonly logger = new Logger(McpChatToolsService.name);
+	/**
+	 * userId:connectorSlug:targetEntityIds(sorted):toolName -> acknowledgement
+	 * expiry (ms). Keyed per actor AND per operation, so a different write on
+	 * the same entity cannot consume another call's acknowledgement.
+	 */
+	private readonly adsChangeWindowAcknowledgements = new Map<string, number>();
 
 	constructor(
+		@Inject(ConnectorOperationEventsRepository)
+		private readonly connectorOperationEventsRepository: ConnectorOperationEventsRepository,
 		@Inject(McpConnectionsRepository)
 		private readonly connectionsRepository: McpConnectionsRepository,
 		@Inject(McpConnectorsRepository)
@@ -333,11 +639,16 @@ export class McpChatToolsService {
 		private readonly meteringService: MeteringService,
 		@Inject(HiggsfieldPromptRefinerService)
 		private readonly promptRefiner: HiggsfieldPromptRefinerService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	async resolveToolsForUser(
 		subject: MeteringSubject,
 		parentEventId?: string,
+		// Requesting chat, when there is one: scopes background-generation
+		// request idempotency to (chatId, requestKey).
+		chatId?: string,
 	): Promise<McpChatToolsResult> {
 		// Connections belong to the acting member; the subject's payer (org pool
 		// in an org workspace) funds connector generations.
@@ -354,6 +665,13 @@ export class McpChatToolsService {
 		const connectorsById = new Map(
 			connectors.map((connector) => [connector.id, connector]),
 		);
+		const configuredSlugs = new Set<string>();
+		for (const connection of connections) {
+			const connector = connectorsById.get(connection.connectorId);
+			if (connector) {
+				configuredSlugs.add(connector.slug);
+			}
+		}
 		const closers: RegisteredCloser[] = [];
 		const registerCloser = (client: MCPClient): RegisteredCloser => {
 			let closePromise: Promise<void> | undefined;
@@ -380,6 +698,7 @@ export class McpChatToolsService {
 					return await this.resolveConnectorTools(
 						subject,
 						parentEventId,
+						chatId ?? null,
 						connection,
 						connector,
 						registerCloser,
@@ -387,9 +706,12 @@ export class McpChatToolsService {
 				} catch (error) {
 					// The chat silently continues without this connector — without a
 					// capture the failure is invisible in production.
-					Sentry.captureException(error, {
-						tags: { connectorId: connector.id, connectorSlug: connector.slug },
-					});
+					this.captureConnectorUnreachable(
+						error,
+						subject,
+						chatId ?? null,
+						connector,
+					);
 					return skippedConnector(connector, "unreachable");
 				}
 			}),
@@ -398,9 +720,17 @@ export class McpChatToolsService {
 		const approvalMap: McpToolApprovalMap = {};
 		const notices: string[] = [];
 		const runtimes: ConnectorRuntimeContext[] = [];
+		const connectedSlugs = new Set<string>();
 
 		for (const result of connectorResults) {
 			let hasNameCollision = false;
+
+			if (
+				result.connector &&
+				(result.runtime || Object.keys(result.tools).length > 0)
+			) {
+				connectedSlugs.add(result.connector.slug);
+			}
 
 			for (const [name, tool] of Object.entries(result.tools)) {
 				if (Object.hasOwn(tools, name)) {
@@ -429,9 +759,21 @@ export class McpChatToolsService {
 		if (runtimes.length > 0) {
 			Object.assign(
 				tools,
-				this.createDiscoveryDoors(subject, parentEventId, runtimes),
+				this.createDiscoveryDoors(
+					subject,
+					parentEventId,
+					chatId ?? null,
+					runtimes,
+				),
 			);
-			approvalMap.run_platform_tool = classifyPlatformToolApproval;
+			const connectorsBySlug = new Map<string, McpConnectorRow>();
+			for (const runtime of runtimes) {
+				if (!connectorsBySlug.has(runtime.connector.slug)) {
+					connectorsBySlug.set(runtime.connector.slug, runtime.connector);
+				}
+			}
+			approvalMap.run_platform_tool = (input: unknown) =>
+				classifyPlatformToolApproval(input, connectorsBySlug);
 		}
 
 		return {
@@ -439,6 +781,8 @@ export class McpChatToolsService {
 			close: async () => {
 				await Promise.all(closers.map((close) => close()));
 			},
+			configuredSlugs: [...configuredSlugs].sort(),
+			connectedSlugs: [...connectedSlugs].sort(),
 			notices,
 			tools: sortRecord(tools),
 		};
@@ -447,6 +791,7 @@ export class McpChatToolsService {
 	private async resolveConnectorTools(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connection: McpConnectionRow,
 		connector: McpConnectorRow,
 		registerCloser: (client: MCPClient) => RegisteredCloser,
@@ -476,6 +821,12 @@ export class McpChatToolsService {
 		}
 
 		if (!connector.mcpServerUrl) {
+			this.captureConnectorUnreachable(
+				new Error(`Connector ${connector.slug} has no MCP server URL`),
+				subject,
+				chatId,
+				connector,
+			);
 			return skippedConnector(connector, "unreachable");
 		}
 
@@ -490,9 +841,7 @@ export class McpChatToolsService {
 			// reconnect_required is an expected state (user must re-auth) — only
 			// genuine reachability failures go to Sentry.
 			if (!(error instanceof ConflictException)) {
-				Sentry.captureException(error, {
-					tags: { connectorId: connector.id, connectorSlug: connector.slug },
-				});
+				this.captureConnectorUnreachable(error, subject, chatId, connector);
 			}
 			return skippedConnector(
 				connector,
@@ -512,9 +861,7 @@ export class McpChatToolsService {
 				registerCloser,
 			);
 		} catch (error) {
-			Sentry.captureException(error, {
-				tags: { connectorId: connector.id, connectorSlug: connector.slug },
-			});
+			this.captureConnectorUnreachable(error, subject, chatId, connector);
 			return skippedConnector(connector, "unreachable");
 		}
 
@@ -549,6 +896,7 @@ export class McpChatToolsService {
 						tool,
 						subject,
 						parentEventId,
+						chatId,
 						connector.slug,
 						toolName,
 					)
@@ -576,8 +924,22 @@ export class McpChatToolsService {
 			}
 
 			if (GENERIC_WRAPPER_TOOLS.has(normalizedToolName)) {
-				approvalMap[namespacedName] = classifyWrappedToolApproval;
-			} else if (classifyToolName(toolName) === "write") {
+				const wrapperSlug = connector.slug;
+				approvalMap[namespacedName] = isAdsApprovalConnector(wrapperSlug)
+					? (input: unknown) =>
+							classifyAdsWrappedToolApproval(wrapperSlug, input)
+					: classifyWrappedToolApproval;
+			} else if (isAdsApprovalConnector(connector.slug)) {
+				// Ads tools use the money-based policy: build steps run free,
+				// only launch / money / delete moments keep the card. The verdict
+				// depends on the ARGUMENTS (paused vs live status), so it is a
+				// call-time function, never a static "user-approval" — and it is
+				// registered for read-NAMED tools too, so a status-setter whose
+				// name reads like a read still gets its arguments inspected.
+				const adsSlug = connector.slug;
+				approvalMap[namespacedName] = (input: unknown) =>
+					classifyAdsToolApproval(adsSlug, toolName, input);
+			} else if (!isConnectorReadTool(connector.slug, toolName)) {
 				approvalMap[namespacedName] = "user-approval";
 			}
 		}
@@ -595,6 +957,54 @@ export class McpChatToolsService {
 			},
 			tools,
 		};
+	}
+
+	private captureConnectorUnreachable(
+		error: unknown,
+		subject: MeteringSubject,
+		chatId: string | null,
+		connector: McpConnectorRow,
+	): void {
+		const context = {
+			connectorSlug: connector.slug,
+			route: "mcp" as const,
+			surface: "connector" as const,
+		};
+		const classified = classifyAiError(error, context);
+		const fallback =
+			classified ??
+			(classifyAiError(
+				new Error("Connector discovery failed"),
+				context,
+			) as NormalizedAiError);
+		const provider = connector.slug.toLowerCase().slice(0, 40);
+		const normalized: NormalizedAiError =
+			fallback.kind === "connector_unreachable"
+				? fallback
+				: {
+						...fallback,
+						kind: "connector_unreachable",
+						provider,
+						providerLabel: connector.name.slice(0, 40),
+						providerMessage: null,
+						refunded: null,
+						retryable: true,
+						source: (provider === "higgsfield"
+							? "higgsfield"
+							: `provider:${provider}`) as NormalizedAiError["source"],
+						terminal: false,
+						userMessage: {
+							key: "errors.ai.connector_unreachable",
+							params: { provider: connector.name.slice(0, 40) },
+						},
+					};
+
+		captureAiError(error, normalized, {
+			...(chatId === null ? {} : { chatId }),
+			route: "mcp",
+			surface: "connector",
+			userId: subject.actorUserId,
+		});
 	}
 
 	private async discoverTools(
@@ -790,6 +1200,7 @@ export class McpChatToolsService {
 	private createDiscoveryDoors(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		runtimes: ConnectorRuntimeContext[],
 	): Record<string, Tool> {
 		const runtimesBySlug = new Map<string, ConnectorRuntimeContext>();
@@ -834,6 +1245,7 @@ export class McpChatToolsService {
 					return this.runPlatformTool(
 						subject,
 						parentEventId,
+						chatId,
 						runtimesBySlug,
 						parsed.data,
 						options,
@@ -1072,6 +1484,7 @@ export class McpChatToolsService {
 	private async runPlatformTool(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		runtimesBySlug: Map<string, ConnectorRuntimeContext>,
 		input: z.infer<typeof runPlatformToolInputSchema>,
 		options: ToolExecutionOptions<unknown>,
@@ -1094,6 +1507,30 @@ export class McpChatToolsService {
 
 		const catalog = await this.ensureCatalog(runtime, options);
 
+		// Batch generations run for minutes inline with no attempt row, no
+		// billing plan, and no card — the media then "suddenly appears" with
+		// zero progress. Route the model to the supported single-shot tools.
+		if (
+			runtime.connector.slug === "higgsfield" &&
+			HIGGSFIELD_BATCH_TOOLS.has(normalizeToolName(input.tool_name))
+		) {
+			return platformToolError(
+				`Tool "${input.tool_name}" is not supported here. Call ` +
+					"generate_image / generate_video instead (once per asset; the " +
+					"count parameter covers multiples) — each call gets its own " +
+					"live progress card.",
+			);
+		}
+
+		const enrollmentError = higgsfieldEnrollmentError(
+			runtime.connector,
+			input.tool_name,
+			catalog,
+		);
+		if (enrollmentError) {
+			return enrollmentError;
+		}
+
 		// Long-running generations never execute inline — same intercept as
 		// their namespaced tool, so the door cannot bypass the background path.
 		// The CANONICAL catalog name is queued (never the raw model spelling),
@@ -1108,45 +1545,79 @@ export class McpChatToolsService {
 			);
 
 			if (canonical) {
+				const clipperRedirect = clipifyRedirectError(
+					runtime.connector.slug,
+					canonical.name,
+					input.params,
+				);
+
+				if (clipperRedirect) {
+					return clipperRedirect;
+				}
+
+				const briefGateError = videoBriefGateError(
+					runtime.connector.slug,
+					canonical.name,
+					input.params,
+				);
+
+				if (briefGateError) {
+					return briefGateError;
+				}
+
+				// Cost preflight: fast, free, unbilled — never queued.
+				if (isCostPreflight(input.params)) {
+					return this.executeInlineConnectorTool({
+						connectorSlug: runtime.connector.slug,
+						input: input.params,
+						invoke: (args) =>
+							callMcpTool(
+								runtime.client,
+								canonical.name,
+								args as Record<string, unknown>,
+								options,
+								false,
+							),
+						options,
+						parentEventId,
+						retryProviderExecution: true,
+						subject,
+						toolName: canonical.name,
+					});
+				}
+
 				return this.queueBackgroundGeneration(
 					subject,
 					parentEventId,
+					chatId,
 					runtime.connector.slug,
 					canonical.name,
-					await this.refinePromptedGenerationArgs(
-						subject,
-						parentEventId,
-						runtime.connector.slug,
-						canonical.name,
-						input.params,
-					),
+					input.params,
+					options.toolCallId,
 				);
 			}
 		}
 
 		const catalogTool = catalog.find((tool) => tool.name === input.tool_name);
 		if (catalogTool) {
-			const refinedParams = await this.refinePromptedGenerationArgs(
-				subject,
-				parentEventId,
-				runtime.connector.slug,
-				catalogTool.name,
-				input.params,
-			);
-
 			return this.executeInlineConnectorTool({
 				connectorSlug: runtime.connector.slug,
-				input: refinedParams,
-				invoke: () =>
+				input: input.params,
+				invoke: (args) =>
 					callMcpTool(
 						runtime.client,
 						catalogTool.name,
-						refinedParams,
+						args as Record<string, unknown>,
 						options,
-						classifyToolName(catalogTool.name) === "read",
+						false,
 					),
 				options,
 				parentEventId,
+				retryProviderExecution: shouldRetryConnectorTool(
+					runtime.connector.slug,
+					catalogTool.name,
+					input.params,
+				),
 				subject,
 				toolName: catalogTool.name,
 			});
@@ -1165,19 +1636,21 @@ export class McpChatToolsService {
 				return this.executeInlineConnectorTool({
 					connectorSlug: runtime.connector.slug,
 					input: input.params,
-					invoke: () =>
+					invoke: (args) =>
 						callMcpTool(
 							runtime.client,
 							"tool_execute",
 							{
-								params: input.params,
+								params: args,
 								tool_name: hiddenOperation.name,
 							},
 							options,
-							classifyToolName(hiddenOperation.name) === "read",
+							false,
 						),
 					options,
 					parentEventId,
+					retryProviderExecution:
+						classifyToolName(hiddenOperation.name) === "read",
 					subject,
 					toolName: hiddenOperation.name,
 				});
@@ -1204,32 +1677,61 @@ export class McpChatToolsService {
 		const execute = executable.execute;
 		return {
 			...executable,
-			execute: async (input, options) => {
-				const effectiveToolName = GENERIC_WRAPPER_TOOLS.has(
+			execute: async (rawInput, options) => {
+				const isGenericWrapper = GENERIC_WRAPPER_TOOLS.has(
 					normalizeToolName(toolName),
-				)
+				);
+
+				// Ads wrapper calls sometimes carry params as a JSON STRING the
+				// gateway would happily parse — but the USD guard, the 72 h
+				// guard, and the telemetry walk objects, so a string params
+				// would blind all of them at once. Normalize it to the parsed
+				// object (the provider accepts both); an unparseable string is
+				// rejected outright, free and self-correcting in-turn.
+				let input = rawInput;
+
+				if (
+					isGenericWrapper &&
+					isAdsApprovalConnector(connectorSlug) &&
+					typeof rawInput === "object" &&
+					rawInput !== null &&
+					typeof (rawInput as Record<string, unknown>).params === "string"
+				) {
+					const parsedParams = tryParseJsonRecord(
+						(rawInput as Record<string, unknown>).params as string,
+					);
+
+					if (!parsedParams) {
+						return platformToolError(
+							"params must be a JSON OBJECT, not a string. Resend the " +
+								"same call with params as an object.",
+						);
+					}
+
+					input = {
+						...(rawInput as Record<string, unknown>),
+						params: parsedParams,
+					};
+				}
+
+				const effectiveToolName = isGenericWrapper
 					? (readStringProperty(input, "tool_name") ?? toolName)
 					: toolName;
 				const shouldRetry = GENERIC_WRAPPER_TOOLS.has(
 					normalizeToolName(toolName),
 				)
 					? classifyNestedToolName(input) === "read"
-					: classifyToolName(toolName) === "read";
-				const refinedInput = await this.refinePromptedGenerationArgs(
-					subject,
-					parentEventId,
-					connectorSlug,
-					toolName,
-					input,
-				);
-				const invoke = () => Promise.resolve(execute(refinedInput, options));
+					: shouldRetryConnectorTool(connectorSlug, toolName, input);
+				const invoke = (args: unknown) =>
+					Promise.resolve(execute(args, options));
 
 				return this.executeInlineConnectorTool({
 					connectorSlug,
-					input: refinedInput,
-					invoke: () => (shouldRetry ? withReadRetry(invoke) : invoke()),
+					input,
+					invoke,
 					options,
 					parentEventId,
+					retryProviderExecution: shouldRetry,
 					subject,
 					toolName: effectiveToolName,
 				});
@@ -1237,9 +1739,10 @@ export class McpChatToolsService {
 		} as Tool;
 	}
 
-	// Rewrites the generation prompt before any metering reservation or attempt
-	// insert, so a refiner failure costs nothing and the persisted args are the
-	// durable record of what was actually sent.
+	// Rewrites the generation prompt AFTER the metering reservation (the
+	// refiner's own LLM call is billable inside the parent chat event, so it
+	// must not run for a request that cannot hold credits). A refiner failure
+	// degrades to the original arguments.
 	private async refinePromptedGenerationArgs<TArgs>(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
@@ -1268,15 +1771,87 @@ export class McpChatToolsService {
 	private async executeInlineConnectorTool(input: {
 		connectorSlug: string;
 		input: unknown;
-		invoke: () => Promise<unknown>;
+		/** Receives the (possibly prompt-refined) arguments to send. */
+		invoke: (args: unknown) => Promise<unknown>;
 		options: ToolExecutionOptions<unknown>;
 		parentEventId?: string;
+		retryProviderExecution?: boolean;
 		subject: MeteringSubject;
 		toolName: string;
 	}): Promise<unknown> {
-		const plan = connectorGenerationPlan(input.toolName, input.input);
+		const clipperRedirect = clipifyRedirectError(
+			input.connectorSlug,
+			input.toolName,
+			input.input,
+		);
+		if (clipperRedirect) {
+			return clipperRedirect;
+		}
+
+		// Dead-end upload surfaces are rejected before any provider call or
+		// reservation — this shared choke point covers the visible namespaced
+		// tools and the run_platform_tool door alike.
+		const uploadRedirect = uploadSurfaceRedirectError(
+			input.connectorSlug,
+			input.toolName,
+		);
+		if (uploadRedirect) {
+			return uploadRedirect;
+		}
+
+		// Money-safety backstop BEFORE any reservation or provider call: an ad
+		// budget written in dinars must never reach a platform that will spend
+		// the number as US dollars. Covers direct tools, run_platform_tool, and
+		// TikTok hidden operations alike — this is the one shared choke point.
+		assertUsdAdBudgetArgs(input.connectorSlug, input.input);
+
+		// 72-hour change window: a write that targets a campaign / ad set / ad
+		// Wandit touched less than 72 h ago is refused ONCE with an instructive
+		// error (free, self-correcting in-turn); the same call repeated after
+		// the user insists passes — the insistence is the approval (under the
+		// money-based policy only money-moving, activating, or destructive
+		// writes also show a confirmation card). The extractor runs on the
+		// exact args object the provider receives (for TikTok hidden
+		// operations that is input.params, already unwrapped by the caller),
+		// including plural id arrays of bulk updates.
+		const targetEntityIds = extractAdsTargetEntityIds(
+			input.connectorSlug,
+			input.toolName,
+			input.input,
+		);
+		const guardError =
+			targetEntityIds.length === 0
+				? null
+				: await this.adsChangeWindowError({ ...input, targetEntityIds });
+		if (guardError) {
+			return guardError;
+		}
+
+		const providerInput = {
+			args: input.input,
+			connectorSlug: input.connectorSlug,
+			invoke: () => input.invoke(input.input),
+			parentEventId: input.parentEventId,
+			retryProviderExecution: input.retryProviderExecution,
+			subject: input.subject,
+			targetEntityIds,
+			toolName: input.toolName,
+		};
+
+		// A cost preflight renders nothing — the inline generation tools that
+		// accept it (generate_audio, generate_3d) must not pay the connector
+		// fee for a free price check, same carve-out as the background paths.
+		if (input.connectorSlug === "higgsfield" && isCostPreflight(input.input)) {
+			return this.invokeProviderTool(providerInput);
+		}
+
+		const plan = connectorGenerationPlan(
+			input.toolName,
+			input.input,
+			input.connectorSlug,
+		);
 		if (!plan) {
-			return input.invoke();
+			return this.invokeProviderTool(providerInput);
 		}
 
 		const referenceId = connectorGenerationReference({
@@ -1292,10 +1867,32 @@ export class McpChatToolsService {
 			parentEventId: input.parentEventId,
 		});
 		assertFreshInlineConnectorReservations(reservations);
+
+		// Reserve-before-refine: the refiner's own LLM spend lands on the parent
+		// chat event only once the user's hold for this generation exists. A
+		// refiner failure degrades to the original arguments and keeps the hold.
+		// Higgsfield renders run on the user's own subscription: pin use_unlim
+		// on the queued generate_* tools so the provider never asks a plan
+		// question mid-render (an unlim_choice receipt still refunds below).
+		const executeInput = pinHiggsfieldQueuedUseUnlim(
+			input.connectorSlug,
+			input.toolName,
+			await this.refinePromptedGenerationArgs(
+				input.subject,
+				input.parentEventId,
+				input.connectorSlug,
+				input.toolName,
+				input.input,
+			),
+		);
 		let result: unknown;
 
 		try {
-			result = await input.invoke();
+			result = await this.invokeProviderTool({
+				...providerInput,
+				args: executeInput,
+				invoke: () => input.invoke(executeInput),
+			});
 		} catch (error) {
 			const capture = gatewayGenerationCaptureFromError(error);
 
@@ -1336,6 +1933,32 @@ export class McpChatToolsService {
 			// responses with isError=true. Capture any Gateway evidence before the
 			// terminal-aware refund decides whether provider work occurred.
 			await captureConnectorGenerationResult(billing, reservations, result);
+			const refunded = await this.refundGenerationWithoutMasking(
+				billing,
+				input.subject,
+				referenceId,
+				plan.childOperation,
+				input.connectorSlug,
+				input.toolName,
+			);
+			const normalized = classifyMcpResult(result, {
+				connectorSlug: input.connectorSlug,
+				refunded: refunded ? true : null,
+				route: "mcp",
+				surface: "connector",
+				toolName: input.toolName,
+			});
+			return normalized
+				? {
+						...(result as Record<string, unknown>),
+						wanditError: toClientAiError(normalized),
+					}
+				: result;
+		}
+
+		if (input.connectorSlug === "higgsfield" && isUnlimChoiceReceipt(result)) {
+			// The provider asked a plan question and submitted no render. Return
+			// that question to the agent, but release both admission holds.
 			await this.refundGenerationWithoutMasking(
 				billing,
 				input.subject,
@@ -1348,8 +1971,14 @@ export class McpChatToolsService {
 		}
 
 		// Provider work has completed, so failures below propagate without a
-		// refund. Persist every discovered gateway id before settling and before
-		// the result can be delivered to the caller.
+		// refund. Persist the durable provider receipt and every discovered
+		// gateway id before settling and before the result can be delivered.
+		await recordConnectorSubmitReceipt(billing, reservations, {
+			connectorSlug: input.connectorSlug,
+			plan,
+			referenceId,
+			result,
+		});
 		const childUnits = deliveredInlineConnectorChildUnits(
 			plan.childOperation,
 			plan.childUnits,
@@ -1365,6 +1994,270 @@ export class McpChatToolsService {
 		return result;
 	}
 
+	/**
+	 * Returns the change-window error for this write, or null when it may
+	 * proceed. The first refusal records an acknowledgement key (30-minute
+	 * TTL); the next call for the same user + connector + entities + operation
+	 * consumes it and passes — that is the "user explicitly insists" path.
+	 *
+	 * The user's insistence IS the approval: the model relays the rule, the
+	 * user says "do it anyway", the model repeats the call, and it runs —
+	 * under the money-based policy most window-blocked writes show no card,
+	 * so the acknowledged insistence is the only gate; money-moving writes
+	 * keep their card. The guard never decides for the user.
+	 *
+	 * The lookup is scoped to the platform entity (organization, or the
+	 * personal space), while the acknowledgement is per actor: the person who
+	 * was told the rule is the one whose repeat counts.
+	 */
+	private async adsChangeWindowError(input: {
+		connectorSlug: string;
+		input: unknown;
+		subject: MeteringSubject;
+		targetEntityIds: string[];
+		toolName: string;
+	}): Promise<unknown> {
+		const now = Date.now();
+		const evaluate = (lastWriteAt: Date | null, acknowledged: boolean) =>
+			evaluateAdsChangeWindow({
+				acknowledged,
+				args: input.input,
+				connectorSlug: input.connectorSlug,
+				lastWriteAt,
+				now: new Date(now),
+				targetEntityIds: input.targetEntityIds,
+				toolName: input.toolName,
+			});
+
+		// Reads and creates can never be blocked — skip the lookup for them.
+		if (!evaluate(new Date(now), false).blocked) {
+			return null;
+		}
+
+		const key = [
+			input.subject.actorUserId,
+			input.connectorSlug,
+			[...input.targetEntityIds].sort().join(","),
+			input.toolName,
+		].join(":");
+		const acknowledgedUntil = this.adsChangeWindowAcknowledgements.get(key);
+		const acknowledged =
+			acknowledgedUntil !== undefined && acknowledgedUntil > now;
+		// The acknowledgement is consumed synchronously, BEFORE the lookup
+		// await, so two parallel copies of the same call cannot both pass on
+		// one approval; it is restored below when the verdict turns out to be
+		// a refusal anyway (the refusal re-arms the key for the next repeat).
+		if (acknowledgedUntil !== undefined) {
+			this.adsChangeWindowAcknowledgements.delete(key);
+		}
+
+		let lastWriteAt: Date | null = null;
+		try {
+			lastWriteAt =
+				await this.connectorOperationEventsRepository.findLatestWriteAt({
+					connectorSlug: input.connectorSlug,
+					organizationId: input.subject.organizationId ?? null,
+					targetEntityIds: input.targetEntityIds,
+					userId: input.subject.actorUserId,
+				});
+		} catch {
+			// The guard is a courtesy, never a gate on the provider call.
+			this.logger.warn("Ads change-window lookup failed");
+			return null;
+		}
+
+		const verdict = evaluate(lastWriteAt, acknowledged);
+
+		if (verdict.blocked) {
+			// Drop expired keys so the map cannot grow without bound.
+			for (const [entry, expiry] of this.adsChangeWindowAcknowledgements) {
+				if (expiry <= now) {
+					this.adsChangeWindowAcknowledgements.delete(entry);
+				}
+			}
+
+			// No await between the verdict and this set: the key is armed
+			// before the refusal is returned.
+			this.adsChangeWindowAcknowledgements.set(
+				key,
+				now + ADS_CHANGE_WINDOW_ACK_TTL_MS,
+			);
+			return platformToolError(verdict.message);
+		}
+
+		return null;
+	}
+
+	private async invokeProviderTool(input: {
+		args: unknown;
+		connectorSlug: string;
+		invoke: () => Promise<unknown>;
+		// Narrower than executeInlineConnectorTool's invoke: callers bind the
+		// arguments first (raw for unbilled paths, refined after a reservation).
+		parentEventId?: string;
+		retryProviderExecution?: boolean;
+		subject: MeteringSubject;
+		targetEntityIds?: string[];
+		toolName: string;
+	}): Promise<unknown> {
+		const invokeOnce = async () => {
+			const startedAt = performance.now();
+
+			try {
+				const result = await input.invoke();
+
+				if (isMcpErrorResult(result)) {
+					await this.recordConnectorOperation(
+						input,
+						"failed",
+						startedAt,
+						result,
+					);
+					const normalized = classifyMcpResult(result, {
+						connectorSlug: input.connectorSlug,
+						refunded: null,
+						route: "mcp",
+						surface: "connector",
+						toolName: input.toolName,
+					});
+					return normalized
+						? {
+								...(result as Record<string, unknown>),
+								wanditError: toClientAiError(normalized),
+							}
+						: result;
+				}
+
+				// A platform-level failure travels as a successful transport
+				// response (TikTok { code != 0 }, Meta { error }): record it as
+				// failed — a failed write never reset learning, so no target ids.
+				const platformFailure = adsPlatformFailure(input.connectorSlug, result);
+				if (platformFailure) {
+					await this.recordConnectorOperation(
+						input,
+						"failed",
+						startedAt,
+						platformFailure.payload,
+						platformFailure.errorCode,
+					);
+					return result;
+				}
+
+				// A create records the CREATED entity's id (read from the
+				// provider result — the arguments carry none of its own), never
+				// the parent ids its arguments name: creating an ad set inside
+				// a campaign resets nothing on the campaign, and a parent id
+				// recorded here would falsely arm the 72 h window against later
+				// legitimate edits of the parent.
+				const isCreate = isAdsCreateToolName(input.toolName);
+				const targetEntityIds = isCreate
+					? extractAdsCreatedEntityIds(
+							input.connectorSlug,
+							input.toolName,
+							result,
+						)
+					: (input.targetEntityIds ?? []);
+				await this.recordConnectorOperation(
+					{ ...input, targetEntityIds },
+					"succeeded",
+					startedAt,
+				);
+				return result;
+			} catch (error) {
+				await this.recordConnectorOperation(input, "failed", startedAt, error);
+				throw error;
+			}
+		};
+
+		return input.retryProviderExecution
+			? withReadRetry(invokeOnce)
+			: invokeOnce();
+	}
+
+	private async recordConnectorOperation(
+		input: {
+			args: unknown;
+			connectorSlug: string;
+			parentEventId?: string;
+			subject: MeteringSubject;
+			targetEntityIds?: string[];
+			toolName: string;
+		},
+		status: "failed" | "succeeded",
+		startedAt: number,
+		error?: unknown,
+		platformErrorCode?: string | null,
+	): Promise<void> {
+		const feature = connectorOperationFeature(
+			input.connectorSlug,
+			input.toolName,
+		);
+
+		try {
+			const sanitizedError =
+				status === "failed" ? sanitizeConnectorOperationError(error) : null;
+			// Target ids only ride on successful rows: a failed write never
+			// reset learning, so it must never arm the change-window guard.
+			const targetEntityIds =
+				status === "succeeded" &&
+				input.targetEntityIds &&
+				input.targetEntityIds.length > 0
+					? input.targetEntityIds
+					: null;
+			await this.connectorOperationEventsRepository.insert({
+				connectorSlug: input.connectorSlug,
+				durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+				errorCode: platformErrorCode ?? sanitizedError?.errorCode ?? null,
+				errorMessage: sanitizedError?.errorMessage ?? null,
+				feature,
+				organizationId: input.subject.organizationId ?? null,
+				parentEventId: input.parentEventId,
+				status,
+				targetEntityIds,
+				toolName: input.toolName,
+				userId: input.subject.actorUserId,
+			});
+		} catch {
+			this.logger.warn("Connector operation event insert failed");
+		}
+
+		if (status !== "succeeded") {
+			return;
+		}
+
+		if (feature === "ads_analysis") {
+			await this.enqueueAdsMilestone(
+				"ads_analysis_completed",
+				input.subject.actorUserId,
+			);
+		}
+
+		if (isCampaignLaunch(input.connectorSlug, input.toolName, input.args)) {
+			await this.enqueueAdsMilestone(
+				"campaign_launched",
+				input.subject.actorUserId,
+			);
+		}
+	}
+
+	private async enqueueAdsMilestone(
+		event: Extract<
+			LifecycleEventName,
+			"ads_analysis_completed" | "campaign_launched"
+		>,
+		userId: string,
+	): Promise<void> {
+		try {
+			await this.lifecycleEvents.enqueue({
+				event,
+				idempotencyKey: lifecycleEventIdempotencyKey(event, userId),
+				userId,
+			});
+		} catch {
+			this.logger.warn(`Lifecycle ${event} enqueue failed`);
+		}
+	}
+
 	// Same schema and description as the provider tool, but execute queues a
 	// durable attempt + Trigger.dev run instead of blocking the chat stream.
 	// Without a Trigger key the legacy inline call is kept — degraded but
@@ -1373,6 +2266,7 @@ export class McpChatToolsService {
 		tool: Tool,
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connectorSlug: string,
 		toolName: string,
 	): Tool {
@@ -1382,13 +2276,47 @@ export class McpChatToolsService {
 		return {
 			...executable,
 			execute: async (input, options) => {
-				const refinedInput = await this.refinePromptedGenerationArgs(
-					subject,
-					parentEventId,
+				const clipperRedirect = clipifyRedirectError(
 					connectorSlug,
 					toolName,
 					input,
 				);
+
+				if (clipperRedirect) {
+					return clipperRedirect;
+				}
+
+				// A missing brief costs nothing here: no refine, no reservation,
+				// no attempt row — the model corrects itself in the same turn.
+				const briefGateError = videoBriefGateError(
+					connectorSlug,
+					toolName,
+					input,
+				);
+
+				if (briefGateError) {
+					return briefGateError;
+				}
+
+				// A cost preflight is fast and free — run it inline, unbilled,
+				// with the arguments untouched (no LLM rewrite for a price check).
+				if (isCostPreflight(input)) {
+					if (typeof inlineExecute !== "function") {
+						return platformToolError(
+							`Tool "${toolName}" is not executable on this server.`,
+						);
+					}
+
+					return this.executeInlineConnectorTool({
+						connectorSlug,
+						input,
+						invoke: (args) => Promise.resolve(inlineExecute(args, options)),
+						options,
+						parentEventId,
+						subject,
+						toolName,
+					});
+				}
 
 				if (!env.TRIGGER_SECRET_KEY) {
 					if (typeof inlineExecute !== "function") {
@@ -1399,8 +2327,8 @@ export class McpChatToolsService {
 
 					return this.executeInlineConnectorTool({
 						connectorSlug,
-						input: refinedInput,
-						invoke: () => Promise.resolve(inlineExecute(refinedInput, options)),
+						input,
+						invoke: (args) => Promise.resolve(inlineExecute(args, options)),
 						options,
 						parentEventId,
 						subject,
@@ -1411,9 +2339,11 @@ export class McpChatToolsService {
 				return this.queueBackgroundGeneration(
 					subject,
 					parentEventId,
+					chatId,
 					connectorSlug,
 					toolName,
-					refinedInput,
+					input,
+					options.toolCallId,
 				);
 			},
 		} as Tool;
@@ -1422,19 +2352,64 @@ export class McpChatToolsService {
 	private async queueBackgroundGeneration(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connectorSlug: string,
 		toolName: string,
 		args: unknown,
+		toolCallId: string,
 	): Promise<Record<string, unknown>> {
+		// Request idempotency: a duplicated delivery of this exact tool call
+		// (same toolCallId) lands on the original attempt — one generation, one
+		// reservation, one Trigger handoff. Without a chat the (chatId,
+		// requestKey) index never conflicts and the Trigger key is the guard.
+		const requestKey = createHash("sha256")
+			.update(
+				JSON.stringify({ args, connectorSlug, request: toolCallId, toolName }),
+			)
+			.digest("hex");
+		// Higgsfield renders run on the user's own subscription: pin use_unlim
+		// on the queued generate_* tools so the provider never answers with a
+		// plan question instead of a job.
+		const admittedArgs = pinHiggsfieldQueuedUseUnlim(
+			connectorSlug,
+			toolName,
+			args,
+		);
 		const attempt = await this.connectorGenerationsRepository.insertAttempt({
-			args: args !== null && typeof args === "object" ? args : {},
+			args:
+				admittedArgs !== null && typeof admittedArgs === "object"
+					? admittedArgs
+					: {},
+			chatId,
 			connectorSlug,
 			organizationId: subject.organizationId ?? null,
+			requestKey,
 			toolName,
 			userId: subject.actorUserId,
 		});
 
-		const plan = connectorGenerationPlan(toolName, args);
+		if (!attempt.created && attempt.status === "failed") {
+			return platformToolError(
+				"This exact generation request already failed. Tell the user and " +
+					"wait for a new request before retrying.",
+			);
+		}
+
+		if (!attempt.created) {
+			return {
+				attemptId: attempt.id,
+				connector: connectorSlug,
+				kind: CONNECTOR_GENERATION_OUTPUT_KIND,
+				note:
+					"This generation request was already accepted. Its existing " +
+					"progress or result card appears in the conversation — do not " +
+					"start a second generation.",
+				status: "queued",
+				tool: toolName,
+			};
+		}
+
+		const plan = connectorGenerationPlan(toolName, admittedArgs, connectorSlug);
 		if (!plan) {
 			const error = new Error(
 				`${connectorSlug}/${toolName} is not a registered connector generation`,
@@ -1457,10 +2432,31 @@ export class McpChatToolsService {
 			throw error;
 		}
 
+		// Reserve-before-refine: the refined arguments travel in the payload and
+		// the task's claim persists them on the attempt row (the durable record
+		// of what was sent). A refiner failure keeps the original arguments.
+		// The refiner may rebuild the params object; re-pin so the pinned
+		// paid-path choice also reaches the provider.
+		const executeArgs = pinHiggsfieldQueuedUseUnlim(
+			connectorSlug,
+			toolName,
+			await this.refinePromptedGenerationArgs(
+				subject,
+				parentEventId,
+				connectorSlug,
+				toolName,
+				admittedArgs,
+			),
+		);
+
 		let handle: { id: string };
 
 		try {
 			handle = await triggerConnectorGenerationTask({
+				args:
+					executeArgs !== null && typeof executeArgs === "object"
+						? (executeArgs as Record<string, unknown>)
+						: undefined,
 				attemptId: attempt.id,
 				billing: reservations,
 				billingMode: connectorBillingAdmissionMode(reservations),
@@ -1479,7 +2475,7 @@ export class McpChatToolsService {
 				try {
 					closed = await this.connectorGenerationsRepository.markAttemptFailed(
 						attempt.id,
-						message,
+						error,
 					);
 				} catch (markError) {
 					Sentry.captureException(markError, {
@@ -1548,7 +2544,10 @@ export class McpChatToolsService {
 				"account. Progress and the finished media render automatically " +
 				"in the conversation — do NOT poll job_status and do NOT wait. " +
 				"Confirm the launch to the user in one short sentence and end " +
-				"your turn.",
+				"your turn. In LATER turns the finished asset appears as a " +
+				"[Generated image/video …] marker carrying its hosted URL — " +
+				"reuse that URL directly (for pages: place it in the HTML); " +
+				"never ask the user to attach media that was generated here.",
 			realtime: await this.mintRealtimeHandle(handle.id),
 			status: "queued",
 			tool: toolName,
@@ -1569,13 +2568,15 @@ export class McpChatToolsService {
 		childOperation: "image" | "video" | undefined,
 		connectorSlug: string,
 		toolName: string,
-	): Promise<void> {
+	): Promise<boolean> {
 		try {
 			await billing.refund(subject, referenceId, childOperation);
+			return true;
 		} catch (error) {
 			Sentry.captureException(error, {
 				tags: { connectorSlug, referenceId, toolName },
 			});
+			return false;
 		}
 	}
 
@@ -1586,7 +2587,7 @@ export class McpChatToolsService {
 		try {
 			await this.connectorGenerationsRepository.markAttemptFailed(
 				attemptId,
-				error instanceof Error ? error.message : String(error),
+				error,
 			);
 		} catch (markError) {
 			Sentry.captureException(markError, { tags: { attemptId } });
@@ -1617,6 +2618,7 @@ export class McpChatToolsService {
 }
 
 async function triggerConnectorGenerationTask(input: {
+	args?: Record<string, unknown>;
 	attemptId: string;
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
@@ -1634,6 +2636,7 @@ async function triggerConnectorGenerationTask(input: {
 			return await tasks.trigger<typeof runConnectorGenerationTask>(
 				"run-connector-generation",
 				{
+					...(input.args ? { args: input.args } : {}),
 					attemptId: input.attemptId,
 					billing: input.billing,
 					billingMode: input.billingMode,
@@ -1647,7 +2650,7 @@ async function triggerConnectorGenerationTask(input: {
 						`connector:${input.connectorSlug}`,
 					],
 					// A generation that cannot START within 5 minutes expires instead
-					// of running later: the repository's 35-minute stale-row janitor
+					// of running later: the repository's tool-scoped stale-row janitor
 					// can then safely close a stranded card.
 					ttl: "5m",
 				},
@@ -1729,15 +2732,15 @@ function normalizeToolName(toolName: string): string {
 	return normalizeConnectorToolName(toolName);
 }
 
-function classifyToolName(toolName: string): "read" | "write" {
-	const normalizedName = normalizeToolName(toolName);
-	const tokens = normalizedName ? normalizedName.split("_") : [];
-
-	if (tokens.some((token) => WRITE_VERBS.has(token))) {
-		return "write";
+function connectorOperationFeature(
+	connectorSlug: string,
+	toolName: string,
+): "ads_analysis" | "ads_launch" | "other" {
+	if (connectorSlug !== "meta-ads" && connectorSlug !== "tiktok-ads") {
+		return "other";
 	}
 
-	return tokens.some((token) => READ_VERBS.has(token)) ? "read" : "write";
+	return classifyToolName(toolName) === "write" ? "ads_launch" : "ads_analysis";
 }
 
 function classifyNestedToolName(input: unknown): "read" | "write" {
@@ -1753,8 +2756,55 @@ function classifyWrappedToolApproval(
 		: "user-approval";
 }
 
+// Generic wrapper (tool_execute) on an ads connector: the nested tool name
+// plus its params decide under the money-based policy. A wrapper call whose
+// nested name is missing, or whose params are an unparseable string, stays
+// on the safe side — a JSON-string params the gateway would happily parse
+// must not blind the status/budget walk.
+function classifyAdsWrappedToolApproval(
+	connectorSlug: string,
+	input: unknown,
+): "not-applicable" | "user-approval" {
+	const nestedToolName = readStringProperty(input, "tool_name");
+
+	if (!nestedToolName) {
+		return "user-approval";
+	}
+
+	const args = wrappedToolArgs(input);
+
+	if (args === null) {
+		return "user-approval";
+	}
+
+	return classifyAdsToolApproval(connectorSlug, nestedToolName, args);
+}
+
+// tool_execute nests the provider arguments under `params` (object or JSON
+// string); scanning the unwrapped object keeps the status/budget walk at
+// the same depth as a direct catalog call. Returns null for a string params
+// that does not parse — the caller fails closed.
+function wrappedToolArgs(input: unknown): unknown {
+	if (typeof input !== "object" || input === null) {
+		return input;
+	}
+
+	const record = input as Record<string, unknown>;
+
+	if (typeof record.params === "object" && record.params !== null) {
+		return record.params;
+	}
+
+	if (typeof record.params === "string") {
+		return tryParseJsonRecord(record.params);
+	}
+
+	return input;
+}
+
 function classifyPlatformToolApproval(
 	input: unknown,
+	connectorsBySlug: ReadonlyMap<string, McpConnectorRow>,
 ): "not-applicable" | "user-approval" {
 	const parsed = runPlatformToolInputSchema.safeParse(input);
 	if (!parsed.success) {
@@ -1762,6 +2812,15 @@ function classifyPlatformToolApproval(
 	}
 
 	const { connector, tool_name: nestedToolName } = parsed.data;
+	const runtimeConnector = connectorsBySlug.get(connector);
+	if (runtimeConnector?.slug === "higgsfield") {
+		const enrolledNames = new Set(
+			higgsfieldEnrolledToolNames(runtimeConnector).map(normalizeToolName),
+		);
+		if (!enrolledNames.has(normalizeToolName(nestedToolName))) {
+			return "not-applicable";
+		}
+	}
 	const autoTools = CONNECTOR_TOOL_OVERRIDES[connector]?.autoTools ?? [];
 	if (autoTools.includes(normalizeToolName(nestedToolName))) {
 		return "not-applicable";
@@ -1773,7 +2832,15 @@ function classifyPlatformToolApproval(
 		return "not-applicable";
 	}
 
-	return classifyToolName(nestedToolName) === "read"
+	if (isAdsApprovalConnector(connector)) {
+		return classifyAdsToolApproval(
+			connector,
+			nestedToolName,
+			parsed.data.params,
+		);
+	}
+
+	return isConnectorReadTool(connector, nestedToolName)
 		? "not-applicable"
 		: "user-approval";
 }
@@ -1783,11 +2850,25 @@ function requiresApproval(connector: string, toolName: string): boolean {
 	const autoApproveTools =
 		CONNECTOR_TOOL_OVERRIDES[connector]?.autoApproveTools ?? [];
 	const normalizedToolName = normalizeToolName(toolName);
-	return (
-		!autoTools.includes(normalizedToolName) &&
-		!autoApproveTools.includes(normalizedToolName) &&
-		classifyToolName(toolName) === "write"
-	);
+
+	if (
+		autoTools.includes(normalizedToolName) ||
+		autoApproveTools.includes(normalizedToolName)
+	) {
+		return false;
+	}
+
+	// Catalog hint only (no arguments yet): under the money-based ads policy
+	// a create shown as approval-needed still runs free when called with an
+	// explicit paused status — the call-time classifier has the final word.
+	if (isAdsApprovalConnector(connector)) {
+		return (
+			classifyAdsToolApproval(connector, toolName, undefined) ===
+			"user-approval"
+		);
+	}
+
+	return !isConnectorReadTool(connector, toolName);
 }
 
 async function callMcpTool(
@@ -1867,13 +2948,68 @@ function wait(delayMs: number): Promise<void> {
 	});
 }
 
+/**
+ * Platform-level failure inside a successful transport response, for Meta /
+ * TikTok only: the first payload (content text JSON or the plain object) that
+ * carries a TikTok non-zero code or a Meta error object.
+ */
+function adsPlatformFailure(
+	connectorSlug: string,
+	result: unknown,
+): { errorCode: string | null; payload: unknown } | null {
+	if (connectorSlug !== "meta-ads" && connectorSlug !== "tiktok-ads") {
+		return null;
+	}
+
+	for (const payload of resultPayloads(result)) {
+		const failure = adsPlatformError(connectorSlug, payload);
+		if (failure) {
+			return { errorCode: failure.errorCode, payload };
+		}
+	}
+
+	return null;
+}
+
 function isMcpErrorResult(result: unknown): boolean {
-	return (
-		typeof result === "object" &&
-		result !== null &&
-		"isError" in result &&
-		result.isError === true
-	);
+	try {
+		return (
+			typeof result === "object" &&
+			result !== null &&
+			"isError" in result &&
+			result.isError === true
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** Higgsfield asked a plan question and did not return a followable job id. */
+function isUnlimChoiceReceipt(result: unknown): boolean {
+	let serialized: string;
+	try {
+		serialized = JSON.stringify(result) ?? "";
+	} catch {
+		serialized = String(result);
+	}
+	if (!serialized.includes("unlim_choice")) {
+		return false;
+	}
+
+	let hasJobId = false;
+	walkJsonObjects(result, (record) => {
+		for (const [key, value] of Object.entries(record)) {
+			if (
+				HIGGSFIELD_JOB_ID_KEY_PATTERN.test(key) &&
+				typeof value === "string" &&
+				value.length > 0
+			) {
+				hasJobId = true;
+			}
+		}
+	});
+
+	return !hasJobId;
 }
 
 function assertFreshInlineConnectorReservations(
@@ -2148,6 +3284,8 @@ function emptyResult(): McpChatToolsResult {
 	return {
 		approvalMap: {},
 		close: async () => {},
+		configuredSlugs: [],
+		connectedSlugs: [],
 		notices: [],
 		tools: {},
 	};

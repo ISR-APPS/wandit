@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Inject, Post, UseGuards } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type BillingCancelRequest,
 	type BillingCheckoutResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
 	type BillingSubscriptionChangeOutcomeResponse,
 	type BillingSubscriptionChangePreviewResponse,
 	type BillingSubscriptionViewResponse,
+	billingCancelRequestSchema,
 	type ChangeBillingSubscriptionBody,
 	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
@@ -18,7 +20,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard, Public } from "../../../../auth";
+import { CurrentUser, Public } from "../../../../auth";
 import {
 	SubscriptionsEnabledGuard,
 	TopupsEnabledGuard,
@@ -56,7 +58,7 @@ export class BillingController {
 		return this.billingService.getSubscriptionView(user.id, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("checkout")
 	checkout(
@@ -68,7 +70,7 @@ export class BillingController {
 		return this.billingService.checkout(user, body, workspace);
 	}
 
-	@UseGuards(TopupsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(TopupsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("topup")
 	topup(
@@ -89,7 +91,7 @@ export class BillingController {
 		return this.billingService.portal(user, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("change/preview")
 	previewChange(
@@ -101,7 +103,7 @@ export class BillingController {
 		return this.billingService.previewChange(user, body, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("change")
 	change(
@@ -118,11 +120,16 @@ export class BillingController {
 	cancel(
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Body(new ZodValidationPipe(billingCancelRequestSchema))
+		body: BillingCancelRequest,
 	): Promise<BillingSubscriptionViewResponse> {
-		return this.billingService.cancel(user, workspace);
+		return this.billingService.cancel(user, body, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	// No SubscriptionsEnabledGuard here: a MANUAL subscriber must be able to
+	// undo a scheduled cancellation even in an offline-only rollout (Stripe
+	// subscriptions paused). BillingService.resume enforces the switch for
+	// Stripe subscriptions itself.
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("resume")
 	resume(

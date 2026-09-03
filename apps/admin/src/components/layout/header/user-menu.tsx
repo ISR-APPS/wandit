@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { LogOutIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -12,6 +13,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { sessionRoleLabel } from "@/features/auth/lib/permissions";
 import { signOut, useSession } from "@/features/auth/lib/session";
 
 function getInitials(name: string) {
@@ -33,6 +35,7 @@ export default function UserMenu() {
 	const email = user?.email ?? "";
 	const image = user?.image ?? undefined;
 	const initials = getInitials(name);
+	const roleLabel = sessionRoleLabel(user?.role ?? "user");
 
 	async function handleLogOut() {
 		await signOut();
@@ -58,7 +61,12 @@ export default function UserMenu() {
 							<AvatarFallback>{initials}</AvatarFallback>
 						</Avatar>
 						<div className="grid flex-1 text-left text-sm leading-tight">
-							<span className="truncate font-semibold">{name}</span>
+							<div className="flex min-w-0 items-center gap-2">
+								<span className="truncate font-semibold">{name}</span>
+								<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+									{roleLabel}
+								</Badge>
+							</div>
 							<span className="truncate text-muted-foreground text-xs">
 								{email}
 							</span>

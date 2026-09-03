@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "./cod-builder-prompt";
@@ -13,6 +14,7 @@ import {
 	type ScreenshotSession,
 	ScreenshotUnavailableError,
 } from "./screenshot";
+import { buildSimpleCodSiteBuilderSystemPrompt } from "./simple-cod-builder-prompt";
 import {
 	buildStopConditions,
 	createBuilderTools,
@@ -44,6 +46,10 @@ vi.mock("./generate-video", async (importOriginal) => {
 
 	return { ...original, generateBuildVideo: vi.fn() };
 });
+
+vi.mock("./brief-user-photos", () => ({
+	extractBriefUserPhotoUrls: vi.fn(),
+}));
 
 const HTML = `<!doctype html>
 <html>
@@ -101,6 +107,9 @@ const COD_LEAD_SCRIPT = `<script>
 	orderForm.addEventListener("submit", function (event) {
 		event.preventDefault();
 		const fields = new FormData(orderForm);
+		document.addEventListener("wandit:lead:result", function (result) {
+			orderForm.hidden = result.detail.ok === true;
+		}, { once: true });
 		document.dispatchEvent(new CustomEvent("wandit:lead", {
 			detail: {
 				name: fields.get("name"),
@@ -114,6 +123,13 @@ const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
 	.replace("<h1>page</h1>", `<h1>page</h1>${COD_PRODUCT_IMG}`)
 	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
+
+// Same page, minus the acknowledgement listener: the lead still dispatches,
+// so only the success gate can reject it.
+const COD_HTML_WITHOUT_LEAD_RESULT = COD_HTML.replace(
+	/\s*document\.addEventListener\("wandit:lead:result"[\s\S]*?\{ once: true \}\);/,
+	"",
+);
 
 const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
 const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
@@ -209,7 +225,25 @@ function materialize<T>(value: T | AsyncIterable<T> | undefined): T {
 	return value as T;
 }
 
+function mockSiteBuildStream() {
+	return vi
+		.spyOn(ToolLoopAgent.prototype, "stream")
+		.mockImplementation(async function (this: ToolLoopAgent) {
+			const tools = this.tools as unknown as ReturnType<typeof setup>["tools"];
+			await tools.write_file.execute?.({ content: HTML, path: "index.html" }, {
+				messages: [],
+				toolCallId: "build_start_write",
+			} as never);
+
+			return {
+				fullStream: (async function* () {})(),
+				steps: Promise.resolve([]),
+			} as never;
+		});
+}
+
 beforeEach(() => {
+	vi.mocked(extractBriefUserPhotoUrls).mockReset().mockReturnValue([]);
 	vi.mocked(generateBuildImage).mockReset();
 	vi.mocked(generateBuildVideo).mockReset();
 });
@@ -1290,6 +1324,43 @@ describe("COD builder prompt", () => {
 	});
 });
 
+describe("PHOTO QUALITY GATE prompts", () => {
+	it("requires visual judgment, faithful enhancement, and a raw-photo fallback in every mode", async () => {
+		const prompts = await Promise.all([
+			buildSiteBuilderSystemPrompt(),
+			buildCodSiteBuilderSystemPrompt(),
+			buildSimpleCodSiteBuilderSystemPrompt(),
+		]);
+
+		for (const prompt of prompts) {
+			expect(prompt).toContain("PHOTO QUALITY GATE");
+			expect(prompt).toContain("Before writing HTML, LOOK at every one");
+			expect(prompt).toContain("MUST NOT be placed raw in a prime");
+			expect(prompt).toContain("product stays EXACTLY as photographed");
+			expect(prompt).toContain(
+				"NEVER invent the product from text when a real photo exists",
+			);
+			expect(prompt).toContain(
+				"a weak image of the real product still beats no product",
+			);
+			expect(prompt).toContain(
+				"enhancement never adds features, badges, text, or packaging",
+			);
+			expect(prompt).toContain(
+				"Trust your own eyes first and any per-photo quality note",
+			);
+		}
+	});
+
+	it("adds the low-quality prime-slot check to SIMPLE COD pass 2", async () => {
+		const prompt = await buildSimpleCodSiteBuilderSystemPrompt();
+
+		expect(prompt).toContain(
+			"no low-quality raw photo occupies a prime slot when an enhanced edit exists or could have been made within budget",
+		);
+	});
+});
+
 describe("page-theme finish gate", () => {
 	it("describes the enforced root position and token-borne radius law", async () => {
 		const prompt = await buildSiteBuilderSystemPrompt();
@@ -1797,6 +1868,11 @@ describe("COD finish gate", () => {
 			label: "multiple honeypots",
 			message: /exactly one data-wandit-hp honeypot \(found 2\)/,
 		},
+		{
+			html: COD_HTML_WITHOUT_LEAD_RESULT,
+			label: "an unacknowledged success state",
+			message: /must handle the "wandit:lead:result" acknowledgement event/,
+		},
 	])("rejects $label", async ({ html, message }) => {
 		const { options, tools } = setup({
 			pageKind: "cod",
@@ -1850,12 +1926,182 @@ describe("COD finish gate", () => {
 	});
 });
 
+describe("self-contained script finish gate", () => {
+	const GSAP_CDN_TAGS =
+		'<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>' +
+		'<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>';
+	const HTML_WITH_GSAP_CDN = HTML.replace("</body>", `${GSAP_CDN_TAGS}</body>`);
+
+	it("sanctions the pinned GSAP CDN pair — it will be auto-inlined", async () => {
+		const { options, tools } = setup({ screenshotRequired: false });
+		await tools.write_file.execute?.(
+			{ content: HTML_WITH_GSAP_CDN, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "GSAP page." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("rejects any other external script with corrective guidance", async () => {
+		const { options, state, tools } = setup({ screenshotRequired: false });
+		const withLenis = HTML_WITH_GSAP_CDN.replace(
+			"</body>",
+			'<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script></body>',
+		);
+		await tools.write_file.execute?.(
+			{ content: withLenis, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Lenis page." }, options()),
+		).rejects.toThrow(
+			/loads external scripts \(https:\/\/cdn\.jsdelivr\.net\/npm\/lenis.*only\s+sanctioned external scripts/s,
+		);
+		expect(state.finishAccepted).toBe(false);
+	});
+
+	it("runSiteBuild ships the CDN pair inlined into the canonical HTML", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML_WITH_GSAP_CDN, path: "index.html" },
+					{ messages: [], toolCallId: "gsap_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_gsap",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "GSAP page",
+			});
+			const index = build.files.find((file) => file.path === "index.html");
+
+			expect(index?.content).toContain("/*gsap core 3.12.5 inlined*/");
+			expect(index?.content).toContain("/*gsap ScrollTrigger 3.12.5 inlined*/");
+			expect(index?.content).not.toContain("cdn.jsdelivr.net");
+			expect(index?.content).toContain("data-wid=");
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	});
+});
+
+describe("finish-pass document title", () => {
+	async function buildWith(html: string, title: string) {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: html, path: "index.html" },
+					{ messages: [], toolCallId: "title_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_title",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title,
+			});
+
+			return build.files.find((file) => file.path === "index.html")?.content;
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	}
+
+	it("fills a missing <title> with the Brain's short human title", async () => {
+		// The HTML fixture's <head> carries only the token <style>.
+		const content = await buildWith(HTML, "Huile d argan bio");
+
+		expect(content).toContain("<title>Huile d argan bio</title>");
+	});
+
+	it("keeps the title the builder wrote", async () => {
+		const authored = HTML.replace(
+			"<head>",
+			"<head><title>Serum Éclat — livraison 48 h</title>",
+		);
+		const content = await buildWith(authored, "Huile d argan bio");
+
+		expect(content).toContain("<title>Serum Éclat — livraison 48 h</title>");
+		expect(content).not.toContain("Huile d");
+	});
+});
+
+const IMAGE_CHILD_EVENT = {
+	id: "image_event_1",
+	operation: "image",
+	pricingSnapshot: {
+		estimatedUnitUsdMicros: 134_400,
+		mode: "measured",
+		operation: "image",
+		source: "operation_registry_reservation",
+		unit: "image",
+		usdMicrosPerCredit: 40_000,
+	},
+	reservedCredits: 350,
+};
+const VIDEO_CHILD_EVENT = {
+	id: "video_event_1",
+	operation: "video",
+	pricingSnapshot: {
+		estimatedUnitUsdMicros: 210_000,
+		mode: "measured",
+		operation: "video",
+		source: "operation_registry_reservation",
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
+	reservedCredits: 550,
+};
+
 describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			// gemini-3-pro-image default: $0.1344 → 336 cc, below the 350 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 134_400,
+				credits: 336,
+				unitUsdMicros: 134_400,
+			})),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -1866,12 +2112,14 @@ describe("generate_image tool", () => {
 		};
 		const usage = { inputTokens: 9, outputTokens: 2 };
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata,
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage,
 		});
 
@@ -1882,8 +2130,10 @@ describe("generate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:image:1",
-				credits: 5,
+				credits: 350,
+				estimatedCostUsdMicros: 134_400,
 				idempotencyKey: "page-build-image:page_event_1:1",
+				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -1896,16 +2146,31 @@ describe("generate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
-			expect.objectContaining({ finalCredits: 5, pricing: "direct" }),
+			expect.objectContaining({
+				costUsdMicros: 134_400,
+				finalCredits: 336,
+				pricing: "direct",
+				pricingSnapshot: expect.objectContaining({
+					mode: "measured",
+					outcome: "delivered",
+					source: "measured_local",
+				}),
+			}),
 		);
 	});
 
 	it("charges a provider-completed image when direct R2 storage fails", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 134_400,
+				credits: 336,
+				unitUsdMicros: 134_400,
+			})),
 			refund: vi.fn(async () => undefined),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, state, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -1937,7 +2202,7 @@ describe("generate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
 			expect.objectContaining({
-				finalCredits: 5,
+				finalCredits: 336,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);
@@ -1947,20 +2212,24 @@ describe("generate_image tool", () => {
 	it("does not settle an image child without a durable gateway reference", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => null),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			estimateMeasuredCost: vi.fn(async () => null),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
 			usageEventId: "page_event_1",
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage: { inputTokens: 9, outputTokens: 2 },
 		});
 
@@ -1974,7 +2243,9 @@ describe("generate_image tool", () => {
 	it("propagates a child reservation refusal before calling the image provider", async () => {
 		const refusal = new Error("payment required");
 		const metering = {
+			estimateMeasuredCost: vi.fn(async () => null),
 			reserve: vi.fn(async () => Promise.reject(refusal)),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2005,12 +2276,14 @@ describe("generate_image tool", () => {
 		const url =
 			"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png";
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url,
+			width: 1536,
 		});
 
 		const output = materialize(
@@ -2027,9 +2300,11 @@ describe("generate_image tool", () => {
 		});
 		expect(output).toEqual({
 			aspect: "16:9",
+			height: 1024,
 			role: "hero background",
 			status: "generated",
 			url,
+			width: 1536,
 		});
 		expect(state.imagesGenerated).toBe(1);
 		// The raw bytes must never land in the transcript output.
@@ -2057,6 +2332,10 @@ describe("generate_image tool", () => {
 				type: "file",
 			},
 		]);
+		// The real pixels reach the model, so it can write width/height on the
+		// <img> instead of guessing a box.
+		const [marker] = modelOutput.value;
+		expect(marker?.type === "text" && marker.text).toContain("1536x1024px");
 	});
 
 	it("passes handler failures through without counting the image", async () => {
@@ -2074,12 +2353,14 @@ describe("generate_image tool", () => {
 		// The key sequence is never reused: a retry after a failure must not
 		// collide with an image a concurrent call may have uploaded meanwhile.
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+			width: 1536,
 		});
 		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_2"));
 		expect(generateBuildImage).toHaveBeenLastCalledWith(
@@ -2092,12 +2373,14 @@ describe("generate_image tool", () => {
 		state.imagesGenerated = MAX_IMAGES - 2;
 		state.imageSequence = MAX_IMAGES - 2;
 		vi.mocked(generateBuildImage).mockImplementation(async ({ index }) => ({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: `https://assets.example.com/img-${index}.png`,
+			width: 1536,
 		}));
 
 		// The SDK executes one step's tool calls concurrently (Promise.all), so
@@ -2122,14 +2405,54 @@ describe("generate_image tool", () => {
 		);
 		expect(state.imagesGenerated).toBe(MAX_IMAGES);
 	});
+
+	it("keeps the first six distinct source photos", async () => {
+		const { options, tools } = setup();
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
+			imageBase64: "aW1n",
+			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
+			status: "generated",
+			url: "https://assets.example.com/img-sources.png",
+			width: 1536,
+			usage: { inputTokens: 9, outputTokens: 2 },
+		});
+		const sourceImageUrls = Array.from(
+			{ length: 8 },
+			(_, index) => `https://assets.example.com/uploads/u/photo-${index}.jpg`,
+		);
+
+		const output = await tools.generate_image.execute?.(
+			{
+				...IMAGE_INPUT,
+				// A repeated URL is one photo; the two extras are dropped.
+				sourceImageUrls: [sourceImageUrls[0] as string, ...sourceImageUrls],
+			},
+			options("img_sources"),
+		);
+
+		expect(output).toMatchObject({ status: "generated" });
+		expect(generateBuildImage).toHaveBeenLastCalledWith(
+			expect.objectContaining({ sourceImageUrls: sourceImageUrls.slice(0, 6) }),
+		);
+	});
 });
 
 describe("animate_image tool", () => {
 	it("creates and settles a video child event under the page-build event", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
-			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 210_000,
+				credits: 525,
+				unitUsdMicros: 42_000,
+			})),
+			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2153,8 +2476,11 @@ describe("animate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:video:1",
-				credits: 25,
+				credits: 550,
+				estimatedCostUsdMicros: 210_000,
+				measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
 				idempotencyKey: "page-build-video:page_event_1:1",
+				model: "klingai/kling-v2.6-i2v",
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -2167,7 +2493,11 @@ describe("animate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
-			expect.objectContaining({ finalCredits: 25, pricing: "direct" }),
+			expect.objectContaining({
+				costUsdMicros: 210_000,
+				finalCredits: 525,
+				pricing: "direct",
+			}),
 		);
 	});
 
@@ -2175,8 +2505,15 @@ describe("animate_image tool", () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
 			refund: vi.fn(async () => undefined),
-			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 210_000,
+				credits: 525,
+				unitUsdMicros: 42_000,
+			})),
+			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, state, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2207,7 +2544,7 @@ describe("animate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
 			expect.objectContaining({
-				finalCredits: 25,
+				finalCredits: 525,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);
@@ -2249,8 +2586,10 @@ describe("animate_image tool", () => {
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
 			metering: { operation: "video", organizationId: null, userId: "user_1" },
+			modelId: "klingai/kling-v2.6-i2v",
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
+			voiceControl: false,
 		});
 		expect(output).toEqual({
 			posterUrl: VIDEO_INPUT.imageUrl,
@@ -2322,6 +2661,97 @@ describe("runSiteBuild", () => {
 		expect(resolveBuilderReasoningEffort("low")).toBe("low");
 		expect(resolveBuilderReasoningEffort("auto")).toBeUndefined();
 		expect(resolveBuilderReasoningEffort()).toBeUndefined();
+	});
+
+	it("starts a vision-capable build with the brief's user photos attached", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const firstPhoto =
+			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
+		const secondPhoto =
+			"https://assets.example.com/public/uploads/user_2/upload_2/side.webp";
+		const brief = `BRAND ASSETS:\n- ${firstPhoto}\n- ${secondPhoto}`;
+		vi.mocked(extractBriefUserPhotoUrls).mockReturnValue([
+			firstPhoto,
+			secondPhoto,
+		]);
+		const streamSpy = mockSiteBuildStream();
+
+		try {
+			await runSiteBuild({
+				attemptId: "attempt_photos",
+				brief,
+				model: "openai/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Photo page",
+			});
+
+			expect(extractBriefUserPhotoUrls).toHaveBeenCalledWith(brief);
+			expect(streamSpy).toHaveBeenCalledWith({
+				abortSignal: undefined,
+				messages: [
+					{
+						content: [
+							{
+								text: `Build the landing page now.\n\nTITLE: Photo page\n\nBRIEF:\n${brief}`,
+								type: "text",
+							},
+							{
+								text: `[User photo 1 — URL: ${firstPhoto}]`,
+								type: "text",
+							},
+							{ data: firstPhoto, mediaType: "image", type: "file" },
+							{
+								text: `[User photo 2 — URL: ${secondPhoto}]`,
+								type: "text",
+							},
+							{ data: secondPhoto, mediaType: "image", type: "file" },
+							{
+								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
+								type: "text",
+							},
+						],
+						role: "user",
+					},
+				],
+			});
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	});
+
+	it("keeps the plain prompt path for a text-only DeepSeek build", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const photo =
+			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
+		const brief = `BRAND ASSETS:\n- ${photo}`;
+		vi.mocked(extractBriefUserPhotoUrls).mockReturnValue([photo]);
+		const streamSpy = mockSiteBuildStream();
+
+		try {
+			await runSiteBuild({
+				attemptId: "attempt_text_only",
+				brief,
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Text-only page",
+			});
+
+			expect(extractBriefUserPhotoUrls).not.toHaveBeenCalled();
+			expect(streamSpy).toHaveBeenCalledWith({
+				abortSignal: undefined,
+				prompt:
+					"Build the landing page now.\n\nTITLE: Text-only page\n\n" +
+					`BRIEF:\n${brief}`,
+			});
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
 	});
 
 	it("ships a valid step-limit revision and aggregates usage", async () => {
@@ -2447,12 +2877,14 @@ describe("progress events", () => {
 			onEvent: (event) => events.push(event),
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+			width: 1536,
 		});
 
 		await tools.write_file.execute?.(

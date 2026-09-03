@@ -8,15 +8,19 @@
  */
 import { env } from "@wandit/env/server";
 
+import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	publicAssetUrl,
 	putSiteFile,
 	siteAssetKey,
 } from "../../../../infrastructure/storage/r2";
+import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
 import {
 	editImageFromSources,
 	generateImageFromPrompt,
+	withSingleFrameInstruction,
 } from "../../../image-generations/application/services/image-generator";
 import type {
 	GatewayGenerationFailure,
@@ -57,11 +61,15 @@ export type GeneratedBuildImage =
 	| GatewayGenerationFailure
 	| { message: string; status: "unavailable" }
 	| ({
+			/** Intrinsic height of the STORED object, for the img attribute. */
+			height: number;
 			/** Raw bytes for toModelOutput only — never stored in the transcript. */
 			imageBase64: string;
 			mediaType: string;
 			status: "generated";
 			url: string;
+			/** Intrinsic width of the STORED object, for the img attribute. */
+			width: number;
 	  } & GatewayGenerationMetadata);
 
 export async function generateBuildImage(params: {
@@ -92,6 +100,8 @@ export async function generateBuildImage(params: {
 	}
 
 	let metadata: GatewayGenerationMetadata | null = null;
+	// One SHOT LIST line is one frame: never let a shot come back as a collage.
+	const prompt = withSingleFrameInstruction(params.prompt);
 
 	try {
 		let mediaType: string;
@@ -108,7 +118,7 @@ export async function generateBuildImage(params: {
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				aspect: params.aspect,
 				metering: params.metering,
-				prompt: params.prompt,
+				prompt,
 				sourceImageUrls: params.sourceImageUrls,
 			});
 
@@ -125,7 +135,7 @@ export async function generateBuildImage(params: {
 				aspect: params.aspect,
 				metering: params.metering,
 				model: env.AI_IMAGE_MODEL,
-				prompt: params.prompt,
+				prompt,
 				size: SIZE_BY_ASPECT[params.aspect],
 			});
 
@@ -140,25 +150,44 @@ export async function generateBuildImage(params: {
 
 		await params.onProviderGeneration?.(metadata);
 
-		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
+		// Providers answer raw PNGs of 1-2MB each — recompress before the bytes
+		// become part of a published page (and of the model transcript).
+		const optimized = await optimizeImage(bytes, {
+			contentType: mediaType,
+			ext: EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png",
+		});
 		const key = siteAssetKey(
 			params.projectId,
 			params.attemptId,
 			params.index,
-			extension,
+			optimized.ext,
 		);
 
-		await putSiteFile(key, bytes, mediaType);
+		await putSiteFile(
+			key,
+			optimized.bytes,
+			optimized.contentType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
+		// Renditions ride beside the primary object. Best effort by contract —
+		// a build must never fail because a srcset width did not encode.
+		await storeImageVariants(key, optimized.bytes);
+
+		// The provider canvas is the fallback: it is the size we ASKED for, so
+		// it is right whenever sharp could not measure the bytes back.
+		const canvas = canvasDimensions(params.aspect);
 
 		return {
-			imageBase64: Buffer.from(bytes).toString("base64"),
-			mediaType,
+			height: optimized.height ?? canvas.height,
+			imageBase64: Buffer.from(optimized.bytes).toString("base64"),
+			mediaType: optimized.contentType,
 			model: metadata.model,
 			...(metadata.provider ? { provider: metadata.provider } : {}),
 			providerMetadata: metadata.providerMetadata,
 			status: "generated",
 			url: publicAssetUrl(key),
 			...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
+			width: optimized.width ?? canvas.width,
 		};
 	} catch (error) {
 		return {
@@ -168,4 +197,16 @@ export async function generateBuildImage(params: {
 			status: "failed",
 		};
 	}
+}
+
+// "1536x1024" -> { height: 1024, width: 1536 }.
+function canvasDimensions(aspect: BuildImageAspect): {
+	height: number;
+	width: number;
+} {
+	const [width = 0, height = 0] = SIZE_BY_ASPECT[aspect]
+		.split("x")
+		.map((part) => Number.parseInt(part, 10));
+
+	return { height, width };
 }

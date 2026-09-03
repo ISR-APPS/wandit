@@ -1,7 +1,9 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import type {
-	PutWorkspaceMemberLimitsBody,
-	WorkspaceMemberLimitsResponse,
+import {
+	centiCreditsToCredits,
+	creditsToCentiCredits,
+	type PutWorkspaceMemberLimitsBody,
+	type WorkspaceMemberLimitsResponse,
 } from "@wandit/contracts";
 
 import { WorkspaceMembersRepository } from "../../infrastructure/persistence/members.repository";
@@ -42,16 +44,28 @@ export class MemberLimitsService {
 			);
 		}
 
+		// Stored limits and spend sums are internal centi-credits; the API
+		// exposes limits in whole credits (stored x100) and spend as decimal
+		// credits.
+		const defaultLimit = settings?.defaultMemberMonthlyCreditLimit ?? null;
+
 		return {
 			defaultMemberMonthlyCreditLimit:
-				settings?.defaultMemberMonthlyCreditLimit ?? null,
-			members: memberRows.map((memberRow) => ({
-				email: memberRow.email,
-				monthlyCreditLimit: limitByUser.get(memberRow.userId) ?? null,
-				name: memberRow.name,
-				spentThisMonth: spentByUser.get(memberRow.userId) ?? 0,
-				userId: memberRow.userId,
-			})),
+				defaultLimit === null ? null : centiCreditsToCredits(defaultLimit),
+			members: memberRows.map((memberRow) => {
+				const limit = limitByUser.get(memberRow.userId) ?? null;
+
+				return {
+					email: memberRow.email,
+					monthlyCreditLimit:
+						limit === null ? null : centiCreditsToCredits(limit),
+					name: memberRow.name,
+					spentThisMonth: centiCreditsToCredits(
+						spentByUser.get(memberRow.userId) ?? 0,
+					),
+					userId: memberRow.userId,
+				};
+			}),
 		};
 	}
 
@@ -73,11 +87,15 @@ export class MemberLimitsService {
 
 		// The org credit lock serializes these writes against in-flight metering
 		// reserves (which hold the same lock while they check the limit).
+		// Limit inputs arrive in whole credits; storage (and the metering gate
+		// that reads it) is centi-credits — multiply exactly once here.
 		await this.limits.withOrgCreditLock(organizationId, async (tx) => {
 			if (body.defaultMemberMonthlyCreditLimit !== undefined) {
 				await this.limits.upsertSettings(
 					organizationId,
-					body.defaultMemberMonthlyCreditLimit,
+					body.defaultMemberMonthlyCreditLimit === null
+						? null
+						: creditsToCentiCredits(body.defaultMemberMonthlyCreditLimit),
 					actorUserId,
 					tx,
 				);
@@ -85,16 +103,12 @@ export class MemberLimitsService {
 
 			for (const entry of body.members ?? []) {
 				if (entry.monthlyCreditLimit === null) {
-					await this.limits.deleteMemberLimit(
-						organizationId,
-						entry.userId,
-						tx,
-					);
+					await this.limits.deleteMemberLimit(organizationId, entry.userId, tx);
 				} else {
 					await this.limits.upsertMemberLimit(
 						organizationId,
 						entry.userId,
-						entry.monthlyCreditLimit,
+						creditsToCentiCredits(entry.monthlyCreditLimit),
 						actorUserId,
 						tx,
 					);

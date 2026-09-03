@@ -111,7 +111,7 @@ This world uses ZERO whitespace-plus-hairline seams — stricter than the global
 - MOBILE COLLAPSE IS SURGICAL: two-column grids become 1fr; the welded grid drops 4 columns to 2 and keeps its accent gaps; --rise stays vw-derived so the angle is identical at 390px; the pinned showpiece becomes stacked panels; rotated rosters keep their rotation but drop to one at a slower speed; the nav status line and one link disappear.
 - THE CLOSING MOVE: the business name as an outlined monument at clamp(4rem,18vw,17rem), stroke 4px accent, -.02em, positioned so the LOWER HALF OF THE LETTERFORMS IS CLIPPED by the end of the document. Above it one mono line — the address or the hours. The page ends the way a set ends.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis optional)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST. animate = (typeof window.gsap !== "undefined") && !matchMedia("(prefers-reduced-motion: reduce)").matches. EVERY hidden initial state is set with gsap.set INSIDE that branch — no opacity:0, no transform, no clip-path start state in CSS. If the CDN dies the page is a complete, converting poster, and every counter's REAL final number is hard-coded in the HTML so a no-JS visitor reads truth, not zeros.
 
 TIMING — this world explicitly OVERRIDES the global bands, because a training floor is fast:
@@ -132,7 +132,7 @@ THE MANDATORY SET
 8. THE ONE AMBIENT LOOP (maximum one per page): the "en ce moment" status dot — a true 50% accent circle at 8px running opacity 1 to .25 over 1.1s ease-in-out alternate infinite, with a ring scaling 1 to 2.2 and fading to 0 over 1.6s. Only if the brief gives real live information. No breathing glows, no floating blobs.
 9. HOVER MICRO-CRAFT (CSS, .12-.22s): outline slabs FILL from the leading edge via a ::before at scaleX(0), transform-origin:left, to 1 over .22s while the label inverts at a 40ms delay; welded cells invert whole; image plates swell scale(1.04) over .55s on a WRAPPER, never on the element GSAP transforms; arrow glyphs translate X 5px on their own transition; schedule rows grow their accent tick 3px to 12px. Every :hover lives inside @media (hover:hover), with parity via :focus-visible and an .is-open class toggled by click, Enter and Space.
 10. REDUCED MOTION: the global block (animation-duration .01ms, animation-iteration-count 1, transition-duration .01ms, scroll-behavior auto) PLUS designed stills — counters at final values, the pinned timeline as the stacked grid, marquees frozen with full text visible, the status dot solid.
-LENIS IS PERMITTED (lerp .09, wheelMultiplier 1.05) since the scrub choreography benefits from it; expose it as window.__lenis and stay correct on native scroll. CANVAS IS NOT REQUIRED and should usually be skipped; if the concept demands one (a bar-path trace, a heart-rate line), an inline SVG polyline of the same shape is authored in the HTML and hidden only AFTER the context is created, the loop is gated by an IntersectionObserver at threshold .05 and paused on visibilitychange, reduced motion draws one static frame, devicePixelRatio capped at 1.5.
+SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE — the scrub choreography runs directly on native scroll, and generous scrub distances keep it fluid. CANVAS IS NOT REQUIRED and should usually be skipped; if the concept demands one (a bar-path trace, a heart-rate line), an inline SVG polyline of the same shape is authored in the HTML and hidden only AFTER the context is created, the loop is gated by an IntersectionObserver at threshold .05 and paused on visibilitychange, reduced motion draws one static frame, devicePixelRatio capped at 1.5.
 
 ## Components
 - SLABS (this world's buttons): border-radius: var(--radius), padding 1em 2rem, mono or body 800 uppercase at .82-.95rem with .1em tracking, line-height 1. PRIMARY is accent-filled with ink type; SECONDARY is transparent with a 3px accent border, filling on hover. Both may take the SKEW variant — transform:skewX(calc(var(--cut) * -1)) with the label counter-skewed upright. Pressed: translateY(2px) with the hard offset shadow collapsing 6px 6px 0 to 2px 2px 0 over .1s. Disabled at .34 alpha. Never full-width on desktop.
@@ -185,6 +185,7 @@ This world has one failure mode and it is TIMIDITY. A 6deg cut instead of 8. A 9
 
 Executed at 100% — one angle cutting the page eight times at the identical degree, a name at fifteen percent of the viewport width, bodies printed in ink and acid, twelve counters that only move when the visitor scrolls, a schedule typeset like a real wall, a pinned twelve-week timeline, and a form that talks like a coach — the page reads like the front door of a room where people actually work. Push INTO the hardness. Every number above is load-bearing, and the angle is the same number every single time.`,
 	energy: "loud",
+	family: "fitness-impact",
 	id: "palestre",
 	industries: [
 		"gym",
@@ -205,6 +206,13 @@ Executed at 100% — one angle cutting the page eight times at the identical deg
 	kind: "website",
 	mood: ["explosive", "gritty", "athletic", "high-contrast", "disciplined"],
 	name: "Palestre",
+	preview: {
+		ground: "#0B0B0D",
+		ink: "#EDEBE6",
+		accent: "#CEFF00",
+		fontFamily: "Barlow Condensed",
+		sampleWord: "PALESTRE",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Your name at the width of the whole screen, the page sliced by the same hard diagonal eight times, bodies printed in ink and acid, and counters that only move when the visitor scrolls — a page with the physics of the room you actually train in.",

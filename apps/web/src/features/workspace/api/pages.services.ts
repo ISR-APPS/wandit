@@ -8,15 +8,20 @@ import {
 	type ApplyPageOpsResponse,
 	applyPageOpsResponseSchema,
 	listPageVersionsResponseSchema,
+	type PageAttemptDetail,
 	type PageOverview,
 	type PageVersionHtml,
 	type PageVersionListItem,
+	pageAttemptDetailSchema,
 	pageOverviewSchema,
 	pagesRoutes,
 	pageVersionHtmlSchema,
 	type RestorePageVersionBody,
 	type RestorePageVersionResponse,
+	type RetryPageAttemptResponse,
 	restorePageVersionResponseSchema,
+	retryPageAttemptResponseSchema,
+	type StopPageAttemptBody,
 } from "@wandit/contracts";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
@@ -64,6 +69,56 @@ export async function getPageVersions(
 		}
 		throw error;
 	}
+}
+
+// ── Build attempts (chat card lifecycle) ───────────────────────────────────
+
+/** Durable state of one build attempt — polled while queued/generating. */
+export async function getPageAttempt(
+	projectId: string,
+	attemptId: string,
+): Promise<PageAttemptDetail> {
+	const data = await apiClient.get<unknown>(
+		pagesRoutes.attempt(projectId, attemptId),
+	);
+	return pageAttemptDetailSchema.parse(data);
+}
+
+/** Stop a running build; body carries the percent the card last saw. */
+export async function stopPageAttempt(
+	projectId: string,
+	attemptId: string,
+	body: StopPageAttemptBody,
+): Promise<PageAttemptDetail> {
+	const data = await apiClient.post<unknown>(
+		pagesRoutes.stopAttempt(projectId, attemptId),
+		body,
+	);
+	return pageAttemptDetailSchema.parse(data);
+}
+
+/** Retry a failed build / resume a stopped one (same attempt, new run). */
+export async function retryPageAttempt(
+	projectId: string,
+	attemptId: string,
+): Promise<RetryPageAttemptResponse> {
+	const data = await apiClient.post<unknown>(
+		pagesRoutes.retryAttempt(projectId, attemptId),
+		{},
+	);
+	return retryPageAttemptResponseSchema.parse(data);
+}
+
+/** Discard/Dismiss the terminal chat card. */
+export async function dismissPageAttempt(
+	projectId: string,
+	attemptId: string,
+): Promise<PageAttemptDetail> {
+	const data = await apiClient.post<unknown>(
+		pagesRoutes.dismissAttempt(projectId, attemptId),
+		{},
+	);
+	return pageAttemptDetailSchema.parse(data);
 }
 
 // ── Edit ops (contract §7.1) ───────────────────────────────────────────────

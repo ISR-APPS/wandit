@@ -7,6 +7,7 @@ import type {
 } from "@wandit/contracts";
 
 import { isValidSlug, slugify } from "./helpers";
+import type { PreviewVersion } from "./page-version-state";
 
 /**
  * The slug the UI should show before/while editing: the live slug wins, then
@@ -67,4 +68,32 @@ export function canPublish(deployment: DeploymentCurrent | undefined): boolean {
 		deployment.pendingVersionId != null &&
 		deployment.uiState !== "publishing"
 	);
+}
+
+/**
+ * Returns the version the UI may offer to publish. Publishing is unavailable
+ * without a preview or while an attempt is in flight. A non-live preview is
+ * always publishable; when the live version is previewed, the server-active
+ * draft head is publishable only when it differs from the live version.
+ */
+export function publishableVersion(
+	deployment: DeploymentCurrent | undefined,
+	previewVersion: PreviewVersion | null,
+	latestVersion: PreviewVersion | null,
+): PreviewVersion | null {
+	if (!deployment || !previewVersion || deployment.uiState === "publishing") {
+		return null;
+	}
+
+	if (
+		deployment.publishedVersionId != null &&
+		previewVersion.id === deployment.publishedVersionId
+	) {
+		return latestVersion !== null &&
+			latestVersion.id !== deployment.publishedVersionId
+			? latestVersion
+			: null;
+	}
+
+	return previewVersion;
 }

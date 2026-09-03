@@ -3,6 +3,7 @@ import {
 	AlertCircleIcon,
 	ArrowLeftIcon,
 	Building2Icon,
+	HandCoinsIcon,
 	MailIcon,
 	WalletCardsIcon,
 } from "lucide-react";
@@ -26,6 +27,8 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
+import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
 import { GrantOrgCreditsDialog } from "@/features/organizations/components/grant-org-credits-dialog";
@@ -37,6 +40,7 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
+import { formatCreditBalance } from "@/lib/credit-format";
 
 type OrganizationDetailPageProps = {
 	organizationId: string;
@@ -46,7 +50,12 @@ export function OrganizationDetailPage({
 	organizationId,
 }: OrganizationDetailPageProps) {
 	const [grantOpen, setGrantOpen] = useState(false);
+	const [offlineGrantOpen, setOfflineGrantOpen] = useState(false);
 	const organizationQuery = useOrganizationQuery(organizationId);
+	const canManageOrganization = useAdminPermission({
+		organizations: ["manage"],
+	});
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (organizationQuery.isLoading) {
 		return (
@@ -87,10 +96,7 @@ export function OrganizationDetailPage({
 					</EmptyHeader>
 					<EmptyContent>
 						{isMissing ? null : (
-							<Button
-								type="button"
-								onClick={() => organizationQuery.refetch()}
-							>
+							<Button type="button" onClick={() => organizationQuery.refetch()}>
 								Try again
 							</Button>
 						)}
@@ -111,15 +117,34 @@ export function OrganizationDetailPage({
 	if (!detail) {
 		return null;
 	}
+	const attributionMember = detail.attributionUserId
+		? detail.members.find(
+				(member) => member.userId === detail.attributionUserId,
+			)
+		: undefined;
+	const offlineBillingUser = detail.attributionUserId
+		? {
+				id: detail.attributionUserId,
+				name: attributionMember?.name,
+				email: attributionMember?.email,
+			}
+		: undefined;
 
 	return (
 		<DetailContainer>
-			<DetailHeader detail={detail} onGrantCredits={() => setGrantOpen(true)} />
+			<DetailHeader
+				detail={detail}
+				onGrantCredits={() => setGrantOpen(true)}
+				onGrantOffline={() => setOfflineGrantOpen(true)}
+			/>
 			<BalanceMetrics detail={detail} />
 
 			<div className="grid gap-6 xl:grid-cols-2">
 				{detail.subscription ? (
-					<UserSubscriptionCard subscription={detail.subscription} />
+					<UserSubscriptionCard
+						subscription={detail.subscription}
+						ownerLabel={detail.name}
+					/>
 				) : null}
 				<AttributionCard
 					detail={detail}
@@ -130,18 +155,28 @@ export function OrganizationDetailPage({
 			<OrgMembersCard
 				organizationId={detail.id}
 				members={detail.members}
-				defaultMemberMonthlyCreditLimit={
-					detail.defaultMemberMonthlyCreditLimit
-				}
+				defaultMemberMonthlyCreditLimit={detail.defaultMemberMonthlyCreditLimit}
 			/>
 
 			<UserCreditLedger entries={detail.creditLedger} />
 
-			<GrantOrgCreditsDialog
-				organization={detail}
-				open={grantOpen}
-				onOpenChange={setGrantOpen}
-			/>
+			{canManageOrganization ? (
+				<GrantOrgCreditsDialog
+					organization={detail}
+					open={grantOpen}
+					onOpenChange={setGrantOpen}
+				/>
+			) : null}
+			{canManageBilling ? (
+				<GrantManualSubscriptionDialog
+					open={offlineGrantOpen}
+					onOpenChange={setOfflineGrantOpen}
+					prefill={{
+						user: offlineBillingUser,
+						organization: { id: detail.id, name: detail.name },
+					}}
+				/>
+			) : null}
 		</DetailContainer>
 	);
 }
@@ -149,10 +184,17 @@ export function OrganizationDetailPage({
 function DetailHeader({
 	detail,
 	onGrantCredits,
+	onGrantOffline,
 }: {
 	detail: OrganizationDetail;
 	onGrantCredits: () => void;
+	onGrantOffline: () => void;
 }) {
+	const canManageOrganization = useAdminPermission({
+		organizations: ["manage"],
+	});
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+
 	return (
 		<div className="flex flex-wrap items-start justify-between gap-4">
 			<div className="flex min-w-0 items-start gap-3">
@@ -176,17 +218,30 @@ function DetailHeader({
 					</p>
 				</div>
 			</div>
-			<div className="flex items-center gap-2">
+			<div className="flex flex-wrap items-center gap-2">
 				<Button asChild variant="outline" size="sm">
 					<Link to="/organizations">
 						<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
 						All organizations
 					</Link>
 				</Button>
-				<Button type="button" size="sm" onClick={onGrantCredits}>
-					<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
-					Grant credits
-				</Button>
+				{canManageBilling && !detail.subscription ? (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={onGrantOffline}
+					>
+						<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
+						Grant offline subscription
+					</Button>
+				) : null}
+				{canManageOrganization ? (
+					<Button type="button" size="sm" onClick={onGrantCredits}>
+						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
+						Grant credits
+					</Button>
+				) : null}
 			</div>
 		</div>
 	);
@@ -207,7 +262,7 @@ function BalanceMetrics({ detail }: { detail: OrganizationDetail }) {
 					<CardContent className="py-4">
 						<p className="text-muted-foreground text-xs">{metric.label}</p>
 						<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
-							{formatWholeNumber(metric.value)}
+							{formatCreditBalance(metric.value)}
 						</p>
 					</CardContent>
 				</Card>
@@ -277,10 +332,7 @@ function AttributionCard({
 	);
 }
 
-function FactItem({
-	label,
-	children,
-}: PropsWithChildren<{ label: string }>) {
+function FactItem({ label, children }: PropsWithChildren<{ label: string }>) {
 	return (
 		<div className="flex min-w-0 flex-col gap-1">
 			<dt className="text-muted-foreground text-xs">{label}</dt>

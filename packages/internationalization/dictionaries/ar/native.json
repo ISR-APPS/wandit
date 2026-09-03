@@ -9,7 +9,7 @@
 			"googlePendingCta": "جارٍ فتح Google...",
 			"googleError": "تعذّر بدء تسجيل الدخول عبر Google. حاول مرة أخرى.",
 			"devModeCta": "المتابعة في وضع التطوير",
-			"betaHint": "نسخة تجريبية — أول 10 صفحات مجانًا"
+			"betaHint": "نسخة تجريبية — أول 5 صفحات مجانًا"
 		}
 	},
 	"home": {
@@ -24,22 +24,69 @@
 		},
 		"tryHint": "جرّب: صفحة دفع عند الاستلام لساعة كلاسيكية ←",
 		"tryPrompt": "صفحة منتج بالدفع عند الاستلام لساعة جلدية كلاسيكية — صورة رئيسية، ثلاثة مزايا، ونموذج طلب بالولاية والبلدية.",
-		"createProjectError": "تعذّر إنشاء المشروع. حاول مرة أخرى."
+		"createProjectError": "تعذّر إنشاء المشروع. حاول مرة أخرى.",
+		"greetingNeutral": "ماذا سنطلق اليوم؟"
 	},
 	"drawer": {
 		"signOut": "تسجيل الخروج",
 		"language": "اللغة",
 		"createProject": "إنشاء مشروع جديد",
-		"filterCreatedByMe": "من إنشائي",
 		"myWandit": "Wandit الخاص بي",
 		"searchLabel": "البحث في المشاريع",
 		"searchPlaceholder": "البحث في المشاريع",
-		"cancelSearchLabel": "إغلاق البحث",
 		"projectsLoading": "جارٍ تحميل المشاريع…",
 		"projectsError": "تعذّر تحميل المشاريع.",
 		"retry": "إعادة المحاولة",
-		"emptyProjects": "لا توجد مشاريع بعد",
-		"emptySearch": "لا توجد نتائج"
+		"selectLanguageLabel": "تغيير اللغة إلى {language}",
+		"clearSearchLabel": "مسح البحث",
+		"searchingProjects": "جارٍ البحث في المشاريع…",
+		"resultCount": {
+			"zero": "لا توجد نتائج",
+			"one": "نتيجة واحدة",
+			"two": "نتيجتان",
+			"few": "{count} نتائج",
+			"many": "{count} نتيجة",
+			"other": "{count} نتيجة"
+		},
+		"projectsListLabel": "المشاريع",
+		"openProjectLabel": "فتح مشروع «{project}»",
+		"emptyProjectsTitle": "لا توجد مشاريع بعد",
+		"emptyProjectsDescription": "أنشئ مشروعك الأول للبدء.",
+		"emptySearchTitle": "لا توجد مشاريع مطابقة",
+		"emptySearchDescription": "لا توجد مشاريع تطابق «{query}».",
+		"newProjectLabel": "مشروع جديد",
+		"filterAll": "الكل",
+		"filterBuilding": "قيد الإنشاء",
+		"filterLive": "منشور",
+		"filterDrafts": "مسودات",
+		"selectFilterLabel": "عرض المشاريع: {filter}",
+		"groupToday": "اليوم",
+		"groupThisWeek": "هذا الأسبوع",
+		"groupEarlier": "أقدم",
+		"buildingMeta": "قيد الإنشاء…",
+		"draftMeta": "مسودة · {time}",
+		"projectActionsLabel": "خيارات «{project}»",
+		"projectActionsHint": "اضغط مطولًا لعرض الخيارات",
+		"rename": "إعادة تسمية",
+		"renameTitle": "إعادة تسمية المشروع",
+		"renameSave": "حفظ",
+		"renamed": "أعيدت التسمية إلى «{name}»",
+		"renameError": "تعذّرت إعادة تسمية المشروع.",
+		"openLive": "فتح الصفحة المنشورة",
+		"delete": "حذف",
+		"deleteTitle": "حذف هذا المشروع؟",
+		"deleteBody": "سيتم حذف «{name}» وصفحته المنشورة. لا يمكن التراجع عن هذا الإجراء.",
+		"deleteKeep": "الاحتفاظ",
+		"deleted": "تم حذف المشروع",
+		"deleteError": "تعذّر حذف المشروع.",
+		"cancel": "إلغاء",
+		"accountLabel": "الحساب",
+		"languageTitle": "لغة التطبيق",
+		"languageSubtitle": "تغيّر واجهة التطبيق. الصفحات التي تنشرها تحتفظ باللغة التي كُتبت بها.",
+		"emptyFilterTitle": "لا يوجد شيء هنا بعد",
+		"emptyBuildingDescription": "لا توجد مشاريع قيد الإنشاء الآن.",
+		"emptyLiveDescription": "لا توجد مشاريع منشورة بعد.",
+		"emptyDraftsDescription": "لا توجد مسودات بعد."
 	},
 	"workspace": {
 		"composerPlaceholder": "صِف تعديلاً…",
@@ -73,20 +120,80 @@
 				"busy": "Wandit يعمل على إجابة بالفعل.",
 				"credits": "ليس لديك رصيد كافٍ.",
 				"creditsDetails": "يحتاج هذا الإجراء إلى {requiredCredits} من الرصيد؛ لديك {availableCredits}.",
-				"unavailable": "تعذّر تحميل المحادثة. حاول مرة أخرى."
+				"unavailable": "تعذّر تحميل المحادثة. حاول مرة أخرى.",
+				"tool": "تعذّر إكمال هذه الخطوة.",
+				"replayed": "تمت معالجة هذا الطلب من قبل. أرسل رسالة جديدة للمتابعة.",
+				"memberLimit": "لقد بلغت حدك الشهري من الرصيد في مساحة العمل هذه. اطلب من المسؤول رفعه.",
+				"streamKicker": "انقطع الرد"
+			},
+			"aiError": {
+				"kicker": {
+					"provider": "مشكلة لدى المزوّد",
+					"moderated": "قواعد المحتوى",
+					"connector": "مشكلة في الموصّل",
+					"ours": "حدث خطأ ما"
+				},
+				"providerFallback": "مزوّد الذكاء الاصطناعي",
+				"retry": "حاول مرة أخرى",
+				"retryHint": "عند إعادة المحاولة، تبدأ محاولة جديدة.",
+				"queuedHint": "ستكتمل عمليات التوليد التي بدأت بالفعل من تلقاء نفسها.",
+				"notCharged": "لم يتم تحصيل رسوم منك.",
+				"connectorRefunded": "تمت إعادة أرصدة Wandit إليك. تحقّق من رصيدك لدى {connector}.",
+				"attribution": {
+					"viaGateway": "{provider} عبر Vercel AI Gateway",
+					"viaOpenrouter": "{provider} عبر OpenRouter",
+					"refusedPrompt": "رفض {provider} هذا الأمر النصي: {text}",
+					"refusedPromptNoText": "رفض {provider} هذا الأمر النصي.",
+					"outputFilter": "أوقف عامل تصفية المحتوى لدى {provider} عملية التوليد هذه.",
+					"reasonGiven": "السبب المذكور: {text}",
+					"connectorReturned": "كانت استجابة {connector}: {text}",
+					"connectorNoReason": "فشل {connector} دون توضيح السبب."
+				},
+				"tryAgainPrefill": {
+					"image": "جرّب الصورة مرة أخرى",
+					"video": "جرّب الفيديو مرة أخرى",
+					"marketing": "جرّب الأصل التسويقي مرة أخرى",
+					"connector": "جرّب الموصّل مرة أخرى",
+					"hint": "سيبدأ هذا عملية توليد جديدة."
+				}
 			},
 			"tray": {
 				"preparing": "جارٍ تحضير السؤال…",
 				"needsDetail": "نحتاج توضيحًا",
 				"decideForMe": "قرّر بدلًا مني",
 				"dismiss": "تجاهل الطلب",
-				"useThese": "استخدم هذه",
 				"typingOverride": "تجيب بكلماتك الخاصة ↓",
 				"pickBelow": "اختر بالأسفل ↓",
 				"answerBelow": "أجب بالأسفل ↓",
 				"skipped": "تم التخطي",
 				"pickedForYou": "اختار Wandit نيابةً عنك",
-				"wanditPicked": "اختيار Wandit"
+				"questionStep": "السؤال {current} من {total}",
+				"needsFiles": "ملفات مطلوبة",
+				"answer": "أجب",
+				"chooseAnOption": "اختر خيارًا",
+				"chooseOptions": "اختر خيارات",
+				"chooseSelected": {
+					"zero": "اختر الخيارات",
+					"one": "اختر هذا الخيار",
+					"two": "اختر هذين الخيارين",
+					"few": "اختر هذه الخيارات الـ{count}",
+					"many": "اختر هذه الخيارات الـ{count}",
+					"other": "اختر هذه الخيارات الـ{count}"
+				},
+				"sendFiles": "أرسل {count} ملف(ات)",
+				"filesSent": "تم إرسال {count} ملف(ات)",
+				"addFiles": "أضف ملفاتك",
+				"addMore": "أضف مزيدًا من الملفات",
+				"paste": "لصق",
+				"orBrowse": "أو استعرض",
+				"decrease": "إنقاص",
+				"increase": "زيادة"
+			},
+			"askUser": {
+				"questionsTitle": "بضعة أسئلة",
+				"questionCount": "{count} أسئلة",
+				"answeredCount": "تمت الإجابة على {answered}/{total}",
+				"upNext": "التالي"
 			}
 		},
 		"artifact": {
@@ -97,6 +204,184 @@
 			"arfr": "جاهز بالعربية والفرنسية",
 			"cod": "نماذج الدفع عند الاستلام",
 			"publish": "النشر مجاني"
+		},
+		"dock": {
+			"assets": "الأصول",
+			"marketing": "التسويق",
+			"leads": "العملاء"
+		},
+		"hub": {
+			"timeAgo": "منذ {time}",
+			"justNow": "الآن",
+			"statLeads": {
+				"zero": "لا عملاء اليوم",
+				"one": "عميل واحد اليوم",
+				"two": "عميلان اليوم",
+				"few": "{count} عملاء اليوم",
+				"many": "{count} عميلًا اليوم",
+				"other": "{count} عميل اليوم"
+			},
+			"statMarketing": {
+				"zero": "لا شيء قيد الإنجاز",
+				"one": "واحد قيد الإنجاز",
+				"two": "اثنان قيد الإنجاز",
+				"few": "{count} قيد الإنجاز",
+				"many": "{count} قيد الإنجاز",
+				"other": "{count} قيد الإنجاز"
+			},
+			"statAssets": {
+				"zero": "لا وسائط",
+				"one": "ملف وسائط واحد",
+				"two": "ملفا وسائط",
+				"few": "{count} ملفات وسائط",
+				"many": "{count} ملف وسائط",
+				"other": "{count} ملف وسائط"
+			},
+			"cardAssetsSub": {
+				"zero": "لا وسائط منشأة",
+				"one": "ملف وسائط واحد منشأ",
+				"two": "ملفا وسائط منشآن",
+				"few": "{count} ملفات وسائط منشأة",
+				"many": "{count} ملف وسائط منشأ",
+				"other": "{count} ملف وسائط منشأ"
+			},
+			"cardMarketingSub": {
+				"zero": "لا أصول · {working} قيد الإنجاز",
+				"one": "أصل واحد · {working} قيد الإنجاز",
+				"two": "أصلان · {working} قيد الإنجاز",
+				"few": "{count} أصول · {working} قيد الإنجاز",
+				"many": "{count} أصلًا · {working} قيد الإنجاز",
+				"other": "{count} أصل · {working} قيد الإنجاز"
+			},
+			"cardLeadsSub": {
+				"zero": "لا عملاء · {today} اليوم",
+				"one": "عميل واحد · {today} اليوم",
+				"two": "عميلان · {today} اليوم",
+				"few": "{count} عملاء · {today} اليوم",
+				"many": "{count} عميلًا · {today} اليوم",
+				"other": "{count} عميل · {today} اليوم"
+			},
+			"switchLabel": "تغيير القسم",
+			"closeLabel": "إغلاق محدد الأقسام"
+		},
+		"leadsView": {
+			"subtitle": "جمع العملاء المحتملين مجاني دائمًا.",
+			"exportLabel": "تصدير CSV",
+			"exportEmpty": "لا يوجد عملاء للتصدير",
+			"exportDone": "تم تصدير {count} عملاء بصيغة CSV",
+			"statToday": "اليوم",
+			"statWeek": "هذا الأسبوع",
+			"statTotal": "إجمالي العملاء",
+			"statRate": "معدل التأكيد",
+			"sheets": {
+				"title": "Google Sheets",
+				"lastSync": "آخر مزامنة {time}",
+				"autoSync": "مزامنة تلقائية كل {minutes} دقيقة",
+				"justNow": "الآن",
+				"sync": "مزامنة",
+				"syncing": "جارٍ المزامنة…",
+				"syncDone": "تمت مزامنة {count} عملاء مع Google Sheets",
+				"open": "فتح جدول Google Sheets",
+				"notConnected": "غير متصل",
+				"connect": "ربط",
+				"connectToast": "إعادة التوجيه إلى Google — إذن Sheets",
+				"neverSynced": "لم تتم المزامنة بعد"
+			},
+			"searchPlaceholder": "ابحث عن اسم أو رقم هاتف…",
+			"filters": {
+				"allSources": "كل المصادر",
+				"allStatuses": "كل الحالات",
+				"allDates": "كل التواريخ",
+				"today": "اليوم",
+				"last7": "آخر 7 أيام",
+				"last30": "آخر 30 يومًا",
+				"active": "النشطون",
+				"archived": "المؤرشفون",
+				"allLeads": "كل العملاء"
+			},
+			"sheetTitles": {
+				"source": "المصدر",
+				"status": "الحالة",
+				"date": "التاريخ",
+				"visibility": "الظهور",
+				"leadStatus": "حالة الطلب"
+			},
+			"status": {
+				"toConfirm": "بانتظار التأكيد",
+				"confirmed": "مؤكد",
+				"shipped": "تم الشحن",
+				"delivered": "تم التسليم",
+				"returned": "مرتجع",
+				"cancelled": "ملغى"
+			},
+			"sources": {
+				"facebook": "فيسبوك",
+				"tiktok": "تيك توك",
+				"direct": "مباشر"
+			},
+			"archivedTag": "مؤرشف",
+			"statusChanged": "{name} ← {status}",
+			"callLabel": "اتصال",
+			"whatsappLabel": "واتساب",
+			"noResultsTitle": "لا يوجد عملاء مطابقون",
+			"noResultsBody": "جرّب بحثًا آخر أو امسح عوامل التصفية.",
+			"clearFilters": "مسح عوامل التصفية",
+			"emptyTitle": "لا يوجد عملاء",
+			"emptyBody": "انشر صفحتك لبدء استقبال الطلبات.",
+			"emptyCta": "فتح إعدادات النشر",
+			"emptyCtaToast": "إعدادات النشر",
+			"pageInfo": "1–{count} من {total}",
+			"loadMore": "تحميل المزيد",
+			"changeError": "فشل التغيير. حاول مرة أخرى.",
+			"exportError": "فشل التصدير. حاول مرة أخرى."
+		},
+		"marketingView": {
+			"subtitle": "أصول HTML ونصوص إعلانية وسكربتات من إنشاء Wandit.",
+			"refreshLabel": "تحديث",
+			"generatingToast": "الإنشاء قيد التقدم…",
+			"downloadLabel": "تنزيل HTML",
+			"downloadError": "فشل التنزيل. حاول مرة أخرى."
+		},
+		"assetsView": {
+			"subtitle": "صور وفيديوهات منشأة لهذا المشروع.",
+			"countAll": {
+				"zero": "لا عناصر",
+				"one": "عنصر واحد",
+				"two": "عنصران",
+				"few": "{count} عناصر",
+				"many": "{count} عنصرًا",
+				"other": "{count} عنصر"
+			},
+			"countImages": {
+				"zero": "لا صور",
+				"one": "صورة واحدة",
+				"two": "صورتان",
+				"few": "{count} صور",
+				"many": "{count} صورة",
+				"other": "{count} صورة"
+			},
+			"countVideos": {
+				"zero": "لا فيديوهات",
+				"one": "فيديو واحد",
+				"two": "فيديوهان",
+				"few": "{count} فيديوهات",
+				"many": "{count} فيديو",
+				"other": "{count} فيديو"
+			},
+			"chipAll": "الكل",
+			"chipImages": "صور",
+			"chipVideos": "فيديوهات",
+			"refreshLabel": "تحديث",
+			"srcGeneration": "إنشاء",
+			"srcVideo": "فيديو",
+			"srcAnimation": "تحريك",
+			"srcPageBuild": "بناء صفحة",
+			"downloadLabel": "تنزيل",
+			"loadError": "تعذّر تحميل الوسائط.",
+			"retry": "إعادة المحاولة",
+			"emptyTitle": "لا توجد وسائط بعد",
+			"emptyBody": "ستظهر هنا الصور والفيديوهات التي ينشئها الذكاء الاصطناعي.",
+			"downloadError": "فشل التنزيل. حاول مرة أخرى."
 		}
 	},
 	"notFound": {
@@ -112,7 +397,13 @@
 		"browseFiles": "تصفّح الملفات",
 		"cancel": "إلغاء",
 		"remove": "إزالة المرفق",
-		"attachedMeta": "مرفق · {size}"
+		"attachedMeta": "مرفق · {size}",
+		"connectApps": "ربط التطبيقات",
+		"cameraPermissionDenied": "الوصول إلى الكاميرا مطلوب لالتقاط صورة. فعِّله من الإعدادات.",
+		"limitReached": "يمكنك إرفاق ما يصل إلى 6 ملفات.",
+		"tooLarge": "يجب أن يكون حجم الملف أقل من 15 ميغابايت.",
+		"unsupported": "نوع الملف هذا غير مدعوم.",
+		"uploadFailed": "فشل الرفع. أزل المرفق وحاول مجددًا."
 	},
 	"voiceDictation": {
 		"permissionDenied": "تم رفض الوصول إلى الميكروفون. فعّله من الإعدادات لاستخدام الإدخال الصوتي في Wandit.",
@@ -155,5 +446,154 @@
 		"week": "أ",
 		"month": "ش",
 		"year": "سنة"
+	},
+	"page": {
+		"bar": {
+			"chat": "الدردشة",
+			"comment": "التعليق على عنصر",
+			"edit": "تعديل"
+		},
+		"chip": {
+			"comment": "وضع التعليق",
+			"edit": "وضع التعديل"
+		},
+		"comment": {
+			"exit": "الخروج من وضع التعليق",
+			"emptyHint": "اضغط على عنصر للتعليق عليه",
+			"reviewHint": "راجع قبل الإرسال",
+			"send": "إرسال",
+			"placeholder": "صف التغيير الذي تريده هنا…",
+			"add": "إضافة تعليق",
+			"update": "تحديث الملاحظة",
+			"sendOne": "إرسال إلى Wandit",
+			"sendMany": "إرسال {count} إلى Wandit",
+			"countLabel": {
+				"zero": "{count} تعليق",
+				"one": "تعليق واحد",
+				"two": "تعليقان",
+				"few": "{count} تعليقات",
+				"many": "{count} تعليقًا",
+				"other": "{count} تعليق"
+			},
+			"clearAll": "مسح الكل",
+			"cancel": "إلغاء",
+			"remove": "حذف التعليق",
+			"handoffIntro": "طبّق هذه التغييرات على صفحة الهبوط:",
+			"queueFull": "يمكنك إرسال حتى 10 تعليقات دفعة واحدة"
+		},
+		"edit": {
+			"hint": "اضغط على قسم لتعديله",
+			"theme": "السمة",
+			"done": "تم",
+			"reset": "استعادة السمة الأصلية",
+			"resetShort": "استعادة",
+			"colors": "الألوان",
+			"corners": "الزوايا",
+			"radius": {
+				"sharp": "حاد",
+				"subtle": "خفيف",
+				"soft": "ناعم",
+				"round": "دائري"
+			},
+			"presets": "لوحات الألوان",
+			"headingFont": "خط العناوين",
+			"bodyFont": "خط النص",
+			"themeUnavailable": "أُنشئت هذه الصفحة قبل رموز السمة — اطلب من Wandit في الدردشة إعادة تصميمها.",
+			"targetLadder": "الهدف",
+			"textLabel": "النص",
+			"paddingTop": "مسافة أعلى",
+			"paddingBottom": "مسافة أسفل",
+			"sectionBackground": "خلفية القسم",
+			"removeElement": "حذف هذا العنصر",
+			"padding": {
+				"none": "بلا",
+				"s": "S",
+				"m": "M",
+				"l": "L",
+				"xl": "XL"
+			},
+			"tokens": {
+				"background": "الخلفية",
+				"foreground": "النص",
+				"primary": "الأساسي",
+				"primaryForeground": "على الأساسي",
+				"secondary": "الثانوي",
+				"accent": "التمييز",
+				"muted": "الخافت",
+				"border": "الحدود"
+			}
+		},
+		"publish": {
+			"publish": "نشر",
+			"update": "تحديث",
+			"title": "انشر صفحتك",
+			"subtitle": "مجاني للأبد — لا تُنفق الرصيد إلا عندما يعمل الذكاء الاصطناعي من أجلك.",
+			"addressEdit": "تعديل",
+			"cta": "نشر الصفحة",
+			"liveTitle": "صفحتك متاحة الآن",
+			"liveSubtitle": "وجّه إعلاناتك إلى هذا العنوان — تصل الطلبات إلى العملاء.",
+			"copy": "نسخ",
+			"copied": "تم النسخ ✓",
+			"viewSite": "عرض الموقع",
+			"done": "تم",
+			"autoAddress": "يُختار العنوان عند النشر",
+			"publishing": "جارٍ النشر…",
+			"failed": "فشل النشر — حاول مجددًا",
+			"save": "حفظ",
+			"cancel": "إلغاء",
+			"slugChecking": "جارٍ التحقق من التوفر…",
+			"slugInvalid": "أحرف لاتينية صغيرة وأرقام وشرطات فقط",
+			"slugTaken": "هذا العنوان مستخدم بالفعل",
+			"slugReserved": "هذا العنوان محجوز",
+			"slugAvailable": "متاح",
+			"liveVersion": "الإصدار v{n} منشور",
+			"updateReady": "الإصدار v{n} جاهز للنشر",
+			"updateCta": "نشر v{n}",
+			"retry": "إعادة المحاولة",
+			"failedTitle": "فشل النشر",
+			"unpublish": "إيقاف نشر الموقع",
+			"unpublishTitle": "إيقاف نشر الموقع؟",
+			"unpublishBody": "لن تعود صفحتك متاحة على عنوانها.",
+			"unpublishConfirm": "إيقاف النشر",
+			"unpublishedToast": "تم إيقاف نشر الموقع",
+			"publishedToast": "منشور على {url}",
+			"rolledBackToast": "تمت استعادة الإصدار {n}",
+			"history": "السجل",
+			"historyLive": "منشور",
+			"historyRestore": "استعادة",
+			"historyPending": "قيد التنفيذ",
+			"historyFailed": "فشل"
+		},
+		"editor": {
+			"changesCount": {
+				"zero": "لا تعديلات",
+				"one": "تعديل واحد",
+				"two": "تعديلان",
+				"few": "{count} تعديلات",
+				"many": "{count} تعديلًا",
+				"other": "{count} تعديل"
+			},
+			"save": "حفظ",
+			"discard": "تجاهل",
+			"discardTitle": "هل تريد تجاهل تعديلاتك؟",
+			"discardKeep": "متابعة التحرير",
+			"conflictTitle": "تغيّرت الصفحة في مكان آخر",
+			"conflictBody": "توجد نسخة أحدث من الصفحة. أعد تحميل النسخة الأخيرة ثم أعد تعديلاتك.",
+			"conflictReload": "تحميل الأحدث",
+			"saved": "تم الحفظ — النسخة {n}",
+			"saveFailed": "فشل الحفظ: {reason}",
+			"superseded": "وصلت نسخة أحدث من الصفحة — تم تجاهل تعديلاتك غير المحفوظة",
+			"targetRemoved": "لم يعد أحد المقاطع المعلَّق عليها موجودًا — حُذفت ملاحظته",
+			"askAiFailed": "فشل الإرسال إلى Wandit — ملاحظاتك ما زالت هنا"
+		},
+		"state": {
+			"emptyTitle": "لا توجد صفحة بعد",
+			"emptyBody": "اطلب من Wandit في الدردشة إنشاء صفحتك.",
+			"generatingTitle": "جارٍ إنشاء صفحتك…",
+			"generatingBody": "يقوم Wandit بإنشاء صفحتك وستظهر هنا.",
+			"failedTitle": "فشل إنشاء الصفحة",
+			"failedBody": "اطلب من Wandit المحاولة مجددًا في الدردشة.",
+			"laterBuildFailed": "فشل الإنشاء الأخير — هذه النسخة ما زالت قائمة"
+		}
 	}
 }

@@ -2,6 +2,7 @@ import type {
 	AffiliateDetail,
 	AffiliatePayoutMethod,
 	AffiliateStatus,
+	AffiliateUserIdentity,
 	CreateAffiliateInput,
 	UpdateAffiliateInput,
 } from "@wandit/contracts";
@@ -32,6 +33,7 @@ import {
 	useCreateAffiliateMutation,
 	useUpdateAffiliateMutation,
 } from "../api/affiliates.mutations";
+import { PortalAccessControl } from "./portal-access-control";
 
 export function AffiliateEditorDialog({
 	open,
@@ -49,13 +51,14 @@ export function AffiliateEditorDialog({
 	const pending = createMutation.isPending || updateMutation.isPending;
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
-	const [userId, setUserId] = useState("");
+	const [linkedUser, setLinkedUser] = useState<AffiliateUserIdentity | null>(
+		null,
+	);
 	const [company, setCompany] = useState("");
 	const [channel, setChannel] = useState("");
 	const [country, setCountry] = useState("");
 	const [payoutMethod, setPayoutMethod] =
 		useState<AffiliatePayoutMethod>("manual");
-	const [payoutDetails, setPayoutDetails] = useState("");
 	const [status, setStatus] = useState<AffiliateStatus>("active");
 	const [notes, setNotes] = useState("");
 	const [requestError, setRequestError] = useState<string | null>(null);
@@ -66,16 +69,11 @@ export function AffiliateEditorDialog({
 		}
 		setName(initial?.affiliate.name ?? "");
 		setEmail(initial?.affiliate.email ?? "");
-		setUserId(initial?.affiliate.userId ?? "");
+		setLinkedUser(initial?.linkedUser ?? null);
 		setCompany(initial?.affiliate.company ?? "");
 		setChannel(initial?.affiliate.channel ?? "");
 		setCountry(initial?.affiliate.country ?? "");
 		setPayoutMethod(initial?.affiliate.payoutMethod ?? "manual");
-		setPayoutDetails(
-			initial?.payoutDetails
-				? JSON.stringify(initial.payoutDetails, null, 2)
-				: "",
-		);
 		setStatus(initial?.affiliate.status ?? "active");
 		setNotes(initial?.notes ?? "");
 		setRequestError(null);
@@ -85,25 +83,14 @@ export function AffiliateEditorDialog({
 		event.preventDefault();
 		setRequestError(null);
 
-		let parsedPayoutDetails: Record<string, unknown> | null = null;
-		try {
-			parsedPayoutDetails = parsePayoutDetails(payoutDetails);
-		} catch (error) {
-			setRequestError(
-				error instanceof Error ? error.message : "Payout details are invalid.",
-			);
-			return;
-		}
-
 		const data = {
-			userId: nullable(userId),
+			userId: linkedUser?.id ?? null,
 			name: name.trim(),
 			email: email.trim(),
 			company: nullable(company),
 			channel: nullable(channel),
 			country: nullable(country),
 			payoutMethod,
-			payoutDetails: parsedPayoutDetails,
 			status,
 			notes: nullable(notes),
 		};
@@ -166,14 +153,6 @@ export function AffiliateEditorDialog({
 								maxLength={320}
 							/>
 						</FormField>
-						<FormField label="Linked user ID" htmlFor="affiliate-user-id">
-							<Input
-								id="affiliate-user-id"
-								value={userId}
-								onChange={(event) => setUserId(event.target.value)}
-								placeholder="Optional"
-							/>
-						</FormField>
 						<FormField label="Company" htmlFor="affiliate-company">
 							<Input
 								id="affiliate-company"
@@ -234,20 +213,15 @@ export function AffiliateEditorDialog({
 						</FormField>
 					</div>
 
-					<FormField
-						label="Payout details (JSON)"
-						htmlFor="affiliate-payout-details"
-					>
-						<Textarea
-							id="affiliate-payout-details"
-							value={payoutDetails}
-							onChange={(event) => setPayoutDetails(event.target.value)}
-							placeholder={
-								'Optional, for example {"email":"partner@example.com"}'
-							}
-							className="min-h-24 font-mono text-xs"
-						/>
-					</FormField>
+					<PortalAccessControl
+						key={`${initial?.affiliate.id ?? "new"}-${open ? "open" : "closed"}`}
+						dialogOpen={open}
+						linkedUser={linkedUser}
+						affiliateEmail={email}
+						suggestExactMatch={!linkedUser}
+						onLinkedUserChange={setLinkedUser}
+					/>
+
 					<FormField label="Internal notes" htmlFor="affiliate-notes">
 						<Textarea
 							id="affiliate-notes"
@@ -306,15 +280,4 @@ function FormField({
 
 function nullable(value: string) {
 	return value.trim() || null;
-}
-
-function parsePayoutDetails(value: string): Record<string, unknown> | null {
-	if (!value.trim()) {
-		return null;
-	}
-	const parsed: unknown = JSON.parse(value);
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		throw new Error("Payout details must be a JSON object.");
-	}
-	return parsed as Record<string, unknown>;
 }

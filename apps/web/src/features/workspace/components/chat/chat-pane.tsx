@@ -30,28 +30,37 @@ import {
 	PanelLeftClose,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
+import { useChatUsageQuery } from "../../api/chat.queries";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
+import { chatErrorPresentation } from "../../lib/ai-error-copy";
 import { useWorkspace } from "../../lib/store";
-import { chatStreamErrorKey } from "../../lib/use-ai-chat";
+import {
+	aiErrorNoticeKey,
+	findLastTerminalAiErrorMessage,
+	messageHasQueuedToolWork,
+} from "../../lib/use-ai-chat";
 import { usePageEditor } from "../../lib/use-page-editor";
+import { useTokenUsageVisible } from "../../lib/use-token-usage-visible";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { ConversationModelIndicator } from "./model-indicator";
 import { MessageParts } from "./parts/message-parts";
+import { isVisibleAssistantReplyPart } from "./parts/visible-reply-part";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { TrayStatusPill } from "./request-tray/tray-signals";
 import { useRequestTray } from "./request-tray/use-request-tray";
 import { StatusMessageHeader } from "./status-message-header";
 import { TargetChip } from "./target-chip";
-import { ConversationContextMeter } from "./token-usage";
+import { ConversationContextMeter, ConversationCost } from "./token-usage";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
@@ -62,21 +71,66 @@ export function ChatPane({ className }: { className?: string }) {
 		status,
 		error,
 		billingError,
+		aiError,
+		notices,
+		chatId,
 		isResolvingChat,
 		isLoadingMessages,
+		composerPrefill,
+		retryTurn,
 		sendText,
 		answerAskUser,
 		addToolApprovalResponse,
 	} = useSharedAiChat();
 	const editor = usePageEditor();
+	const tokenUsageVisible = useTokenUsageVisible();
+	const completedAssistantMessageCount = useMemo(
+		() =>
+			messages.reduce(
+				(count, message) =>
+					message.role === "assistant" && message.metadata?.usage
+						? count + 1
+						: count,
+				0,
+			),
+		[messages],
+	);
+	const chatUsageQuery = useChatUsageQuery(
+		chatId,
+		completedAssistantMessageCount,
+	);
+	// Empty pool: the composer locks and the banner above it owns the upgrade
+	// CTA. Derived from the polled balance query, so a resubscribe or top-up
+	// unlocks it without any manual refresh.
+	const { outOfCredits } = useOutOfCredits();
 
-	// A replay/busy refusal must not be answered with "try again" copy:
-	// retrying resubmits the identical transcript and reproduces the refusal.
-	const streamErrorKey = chatStreamErrorKey(error);
+	const errorPresentation = chatErrorPresentation(error, aiError, t);
+	const failedMessage = useMemo(
+		() => findLastTerminalAiErrorMessage(messages),
+		[messages],
+	);
+	const failedMessageIsLast =
+		failedMessage !== undefined && failedMessage.id === messages.at(-1)?.id;
+	const failedMessageHasQueuedWork = messageHasQueuedToolWork(failedMessage);
+	const retryIsIdle = status !== "submitted" && status !== "streaming";
+	const showRetry =
+		errorPresentation.showRetry &&
+		retryIsIdle &&
+		failedMessageIsLast &&
+		!failedMessageHasQueuedWork;
+	const showQueuedHint =
+		errorPresentation.retryable &&
+		retryIsIdle &&
+		failedMessageIsLast &&
+		failedMessageHasQueuedWork;
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
 	// know when typed text should override its chips (design 10n state 2).
 	const [composerText, setComposerText] = useState("");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: revision must replay an identical prefill after the user edited the previous draft
+	useEffect(() => {
+		setComposerText(composerPrefill.value);
+	}, [composerPrefill.revision, composerPrefill.value]);
 	const [pickerBuilderModel, setPickerBuilderModel] = useState<
 		string | undefined
 	>(() => (import.meta.env.DEV ? readStoredBuilderGatewayModel() : undefined));
@@ -102,17 +156,7 @@ export function ChatPane({ className }: { className?: string }) {
 	const lastMessage = messages[messages.length - 1];
 	const replyHasVisibleContent =
 		lastMessage?.role === "assistant" &&
-		lastMessage.parts.some(
-			(part) =>
-				(part.type === "text" && part.text.length > 0) ||
-				part.type === "tool-ask_user" ||
-				part.type === "tool-generate_page" ||
-				part.type === "tool-generate_marketing_asset" ||
-				part.type === "tool-generate_image" ||
-				part.type === "tool-scrape_leads" ||
-				part.type === "tool-animate_image" ||
-				part.type === "dynamic-tool",
-		);
+		lastMessage.parts.some(isVisibleAssistantReplyPart);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 
 	// Click-to-target (contract §12): the active selection renders as a
@@ -129,7 +173,7 @@ export function ChatPane({ className }: { className?: string }) {
 		attachments: UploadAttachmentResponse[],
 	) => {
 		if (tray.answerable) {
-			tray.answerFreeText(prompt);
+			tray.answerFreeText(prompt, attachments);
 			setComposerText("");
 			return true;
 		}
@@ -179,7 +223,7 @@ export function ChatPane({ className }: { className?: string }) {
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
-	}, [messages, status, pending, error]);
+	}, [messages, status, pending, error, aiError, notices]);
 
 	// The Page tab's overview query only POLLS once it has seen a running
 	// attempt — so a build queued right now would go unnoticed (the tab stays
@@ -211,6 +255,33 @@ export function ChatPane({ className }: { className?: string }) {
 	}, [queuedAttemptId, queryClient, projectId]);
 
 	const isEmpty = !pending && messages.length === 0 && !error;
+	let noticeOwnerMessageId: string | undefined;
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		if (messages[index]?.role === "assistant") {
+			noticeOwnerMessageId = messages[index]?.id;
+			break;
+		}
+	}
+	const noticeRows = notices.map((notice) => {
+		const presentation = chatErrorPresentation(null, notice, t);
+		return (
+			<div key={aiErrorNoticeKey(notice)}>
+				<StatusMessageHeader
+					avatarClass="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+					kickerClass="text-amber-700 dark:text-amber-300"
+					kicker={presentation.kicker}
+				>
+					<AlertTriangle className="size-3" aria-hidden />
+				</StatusMessageHeader>
+				<p
+					dir="auto"
+					className="text-[13px] text-muted-foreground leading-[1.5]"
+				>
+					{presentation.body}
+				</p>
+			</div>
+		);
+	});
 
 	return (
 		<aside
@@ -326,29 +397,40 @@ export function ChatPane({ className }: { className?: string }) {
 					) : (
 						<div className="flex flex-col gap-5">
 							{messages.map((message, index) => (
-								<MessageParts
-									key={message.id}
-									message={message}
-									isStreaming={
-										status === "streaming" && index === messages.length - 1
-									}
-									isLastAssistantMessage={
-										message.role === "assistant" &&
-										index === messages.length - 1
-									}
-									activeAskToolCallId={tray.toolCallId}
-									onToolApprovalResponse={addToolApprovalResponse}
-								/>
+								<Fragment key={message.id}>
+									{message.id === noticeOwnerMessageId ? noticeRows : null}
+									<MessageParts
+										message={message}
+										tokenUsageVisible={tokenUsageVisible}
+										isStreaming={
+											status === "streaming" && index === messages.length - 1
+										}
+										isLastAssistantMessage={
+											message.role === "assistant" &&
+											index === messages.length - 1
+										}
+										chatStatus={status}
+										onRetry={retryTurn}
+										suppressAiError={
+											aiError !== null && message.id === failedMessage?.id
+										}
+										activeAskToolCallId={tray.toolCallId}
+										onToolApprovalResponse={addToolApprovalResponse}
+									/>
+								</Fragment>
 							))}
+							{noticeOwnerMessageId ? null : noticeRows}
 							{showThinking ? (
 								<ThinkingIndicator label={t("workspace.chat.thinking")} />
 							) : null}
-							{error && !billingError ? (
+							{(aiError ?? error) &&
+							errorPresentation.showBanner &&
+							!billingError ? (
 								<div>
 									<StatusMessageHeader
 										avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 										kickerClass="text-destructive"
-										kicker={t(streamErrorKey)}
+										kicker={errorPresentation.kicker}
 									>
 										<AlertTriangle className="size-3" aria-hidden />
 									</StatusMessageHeader>
@@ -356,8 +438,35 @@ export function ChatPane({ className }: { className?: string }) {
 										dir="auto"
 										className="text-[13px] text-muted-foreground leading-[1.5]"
 									>
-										{t(streamErrorKey)}
+										{errorPresentation.body}
 									</p>
+									{errorPresentation.attribution ? (
+										<p
+											dir="auto"
+											className="mt-1 text-[12px] text-muted-foreground leading-[1.5]"
+										>
+											{errorPresentation.attribution}
+										</p>
+									) : null}
+									{showRetry ? (
+										<div className="mt-3 flex flex-col items-start gap-1">
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={retryTurn}
+											>
+												{t("workspace.chat.aiError.retry")}
+											</Button>
+											<span className="text-[11px] text-muted-foreground">
+												{t("workspace.chat.aiError.retryHint")}
+											</span>
+										</div>
+									) : showQueuedHint ? (
+										<p className="mt-2 text-[11px] text-muted-foreground">
+											{t("workspace.chat.aiError.queuedHint")}
+										</p>
+									) : null}
 								</div>
 							) : null}
 						</div>
@@ -365,11 +474,18 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
-					<ConversationContextMeter messages={messages} />
-					<ConversationModelIndicator
-						messages={messages}
-						pickerBuilderModel={pickerBuilderModel}
-					/>
+					{tokenUsageVisible ? (
+						<>
+							<ConversationContextMeter messages={messages} />
+							<ConversationCost
+								usage={chatUsageQuery.isError ? undefined : chatUsageQuery.data}
+							/>
+							<ConversationModelIndicator
+								messages={messages}
+								pickerBuilderModel={pickerBuilderModel}
+							/>
+						</>
+					) : null}
 					{/* Click-to-target chip (contract §12) — sibling of the tray slot
 					    on purpose: the tray owns topSlot. Edit-mode selection stays
 					    within the manual inspector. */}
@@ -393,53 +509,57 @@ export function ChatPane({ className }: { className?: string }) {
 							{t("workspace.page.editor.targetHint")}
 						</div>
 					) : null}
-					<PromptBox
-						variant="compact"
-						showEngines
-						showPriceTag
-						clearOnSubmit
-						attachmentsEnabled
-						placeholder={t("workspace.chat.placeholder")}
-						onSubmit={handleComposerSubmit}
-						onValueChange={setComposerText}
-						onBuilderModelChange={
-							import.meta.env.DEV ? setPickerBuilderModel : undefined
-						}
-						isSubmitting={isSubmitting}
-						submitOverride={
-							tray.active
-								? {
-										label: answerSubmitLabel,
-										disabled: !tray.canConfirm,
-										onSubmit: tray.confirmDraft,
-									}
-								: undefined
-						}
-						// The tray fuses into the composer card (design turn 10) — it
-						// grows out of the top and collapses on answer/dismiss thanks to
-						// AnimatePresence + TrayReveal's height animation. Keying by
-						// toolCallId also makes each stepper advance exit/re-enter.
-						topSlot={
-							<AnimatePresence initial={false}>
-								{tray.active && tray.state ? (
-									<TrayReveal key={tray.toolCallId ?? "ask"}>
-										<RequestTray
-											state={tray.state}
-											onEscape={tray.delegate}
-											onDismiss={tray.dismiss}
-											bodyCallbacks={{
-												onPick: tray.onPick,
-												multiSelectedIds: tray.multiSelectedIds,
-												onToggleMulti: tray.onToggleMulti,
-												onBrowseFiles: tray.onBrowseFiles,
-												onRemoveAttachment: tray.onRemoveAttachment,
-											}}
-										/>
-									</TrayReveal>
-								) : null}
-							</AnimatePresence>
-						}
-					/>
+					<OutOfCreditsBanner active={outOfCredits}>
+						<PromptBox
+							key={composerPrefill.revision}
+							variant="compact"
+							showEngines
+							clearOnSubmit
+							attachmentsEnabled
+							disabled={outOfCredits}
+							placeholder={t("workspace.chat.placeholder")}
+							initialValue={composerPrefill.value}
+							onSubmit={handleComposerSubmit}
+							onValueChange={setComposerText}
+							onBuilderModelChange={
+								import.meta.env.DEV ? setPickerBuilderModel : undefined
+							}
+							isSubmitting={isSubmitting}
+							submitOverride={
+								tray.active
+									? {
+											label: answerSubmitLabel,
+											disabled: !tray.canConfirm,
+											onSubmit: tray.confirmDraft,
+										}
+									: undefined
+							}
+							// The tray fuses into the composer card (design turn 10) — it
+							// grows out of the top and collapses on answer/dismiss thanks to
+							// AnimatePresence + TrayReveal's height animation. Keying by
+							// toolCallId also makes each stepper advance exit/re-enter.
+							topSlot={
+								<AnimatePresence initial={false}>
+									{tray.active && tray.state ? (
+										<TrayReveal key={tray.toolCallId ?? "ask"}>
+											<RequestTray
+												state={tray.state}
+												onEscape={tray.delegate}
+												onDismiss={tray.dismiss}
+												bodyCallbacks={{
+													onPick: tray.onPick,
+													multiSelectedIds: tray.multiSelectedIds,
+													onToggleMulti: tray.onToggleMulti,
+													onBrowseFiles: tray.onBrowseFiles,
+													onRemoveAttachment: tray.onRemoveAttachment,
+												}}
+											/>
+										</TrayReveal>
+									) : null}
+								</AnimatePresence>
+							}
+						/>
+					</OutOfCreditsBanner>
 				</div>
 			</div>
 		</aside>

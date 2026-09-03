@@ -15,6 +15,8 @@ import {
 	CalendarDays,
 	Camera,
 	Check,
+	ChevronLeft,
+	ChevronRight,
 	Clapperboard,
 	FileText,
 	ImageIcon,
@@ -25,10 +27,12 @@ import {
 	X,
 } from "lucide-react";
 import type * as React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { SpinnerArc } from "./tray-signals";
-import type { ChipOption, MediaItem, TrayBody } from "./types";
+import type { ChipOption, MediaItem, TrayBody, WorldCardOption } from "./types";
+import { ensureWorldFontsLoaded } from "./world-fonts";
 
 /** Callbacks the live plumbing threads in (use-request-tray.ts). All
     optional: absent = display-only preview behavior. */
@@ -74,6 +78,8 @@ export function TrayBodySlot({
 			);
 		case "segmented":
 			return <SegmentedBody options={body.options} initial={body.selectedId} />;
+		case "world-pick":
+			return <WorldPickBody body={body} onPick={callbacks?.onPick} />;
 		case "visual-pick":
 			return <VisualPickBody body={body} />;
 		case "media-drop":
@@ -231,6 +237,247 @@ function SegmentedBody({
 				);
 			})}
 		</div>
+	);
+}
+
+/* ---------- world pick (taste cards) ----------
+   The design-world taste question. Each card is a SPECIMEN, not a screenshot:
+   the world's sampleWord typed in its real display face on its real ground,
+   three color dots, then the world's name and the Brain's one-line caption.
+   Data comes from the sampled menu's server-authored cards — an option whose
+   world didn't resolve renders a neutral card so the row never breaks. */
+
+const WORLD_CARD_SCROLL_STEP = 176;
+const WORLD_CARD_SCROLL_EPSILON = 2;
+
+function WorldPickBody({
+	body,
+	onPick,
+}: {
+	body: Extract<TrayBody, { kind: "world-pick" }>;
+	onPick?: (option: ChipOption) => void;
+}) {
+	const { dir, t } = useTranslation();
+	// Local state only serves the display-only preview, same as the chips.
+	const [localId, setLocalId] = useState(body.selectedId);
+	const selectedId = onPick ? body.selectedId : localId;
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [scrollState, setScrollState] = useState({
+		canScrollBack: false,
+		canScrollForward: false,
+		isRtl: false,
+	});
+
+	const fonts = body.options.flatMap((option) =>
+		option.card ? [option.card.preview.fontFamily] : [],
+	);
+	const fontsKey = fonts.join(",");
+	// One css2 request for the row's faces — never the whole library.
+	useEffect(() => {
+		ensureWorldFontsLoaded(fontsKey.split(",").filter(Boolean));
+	}, [fontsKey]);
+
+	useEffect(() => {
+		const container = scrollRef.current;
+		if (!container) return;
+
+		const updateScrollState = () => {
+			const maxScroll = Math.max(
+				0,
+				container.scrollWidth - container.clientWidth,
+			);
+			const scrollOffset = Math.abs(container.scrollLeft);
+			const isOverflowing = maxScroll > WORLD_CARD_SCROLL_EPSILON;
+			const nextState = {
+				canScrollBack:
+					isOverflowing && scrollOffset > WORLD_CARD_SCROLL_EPSILON,
+				canScrollForward:
+					isOverflowing && scrollOffset < maxScroll - WORLD_CARD_SCROLL_EPSILON,
+				isRtl: getComputedStyle(container).direction === "rtl",
+			};
+
+			setScrollState((current) =>
+				current.canScrollBack === nextState.canScrollBack &&
+				current.canScrollForward === nextState.canScrollForward &&
+				current.isRtl === nextState.isRtl
+					? current
+					: nextState,
+			);
+		};
+
+		updateScrollState();
+		const directionFrame =
+			getComputedStyle(container).direction === dir
+				? undefined
+				: requestAnimationFrame(updateScrollState);
+		container.addEventListener("scroll", updateScrollState, { passive: true });
+		const observer = new ResizeObserver(updateScrollState);
+		observer.observe(container);
+		for (let index = 0; index < body.options.length; index++) {
+			const card = container.children.item(index);
+			if (card) observer.observe(card);
+		}
+
+		return () => {
+			if (directionFrame !== undefined) cancelAnimationFrame(directionFrame);
+			container.removeEventListener("scroll", updateScrollState);
+			observer.disconnect();
+		};
+	}, [body.options.length, dir]);
+
+	const scrollByCard = (direction: "back" | "forward") => {
+		const container = scrollRef.current;
+		if (!container) return;
+		const forwardSign =
+			getComputedStyle(container).direction === "rtl" ? -1 : 1;
+
+		container.scrollBy({
+			left:
+				(direction === "forward" ? forwardSign : -forwardSign) *
+				WORLD_CARD_SCROLL_STEP,
+			behavior: "smooth",
+		});
+	};
+
+	const BackChevron = scrollState.isRtl ? ChevronRight : ChevronLeft;
+	const ForwardChevron = scrollState.isRtl ? ChevronLeft : ChevronRight;
+
+	return (
+		<div className="relative">
+			<div
+				ref={scrollRef}
+				className="-mx-[15px] flex gap-2 overflow-x-auto overscroll-x-contain px-[15px] pb-1 [scrollbar-width:none]"
+			>
+				{body.options.map((option) => (
+					<WorldCardButton
+						key={option.id}
+						option={option}
+						selected={option.id === selectedId}
+						onClick={() =>
+							onPick
+								? onPick({ id: option.id, label: option.label })
+								: setLocalId(option.id)
+						}
+					/>
+				))}
+			</div>
+
+			{scrollState.canScrollBack ? (
+				<>
+					<div
+						aria-hidden
+						className="pointer-events-none absolute inset-y-0 -start-[15px] w-6 bg-gradient-to-r from-secondary to-transparent rtl:bg-gradient-to-l"
+					/>
+					<button
+						type="button"
+						aria-label={t("workspace.chat.tray.scrollBack")}
+						onClick={() => scrollByCard("back")}
+						className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					>
+						<BackChevron aria-hidden className="size-3.5" />
+					</button>
+				</>
+			) : null}
+
+			{scrollState.canScrollForward ? (
+				<>
+					<div
+						aria-hidden
+						className="pointer-events-none absolute inset-y-0 -end-[15px] w-6 bg-gradient-to-l from-secondary to-transparent rtl:bg-gradient-to-r"
+					/>
+					<button
+						type="button"
+						aria-label={t("workspace.chat.tray.scrollForward")}
+						onClick={() => scrollByCard("forward")}
+						className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					>
+						<ForwardChevron aria-hidden className="size-3.5" />
+					</button>
+				</>
+			) : null}
+		</div>
+	);
+}
+
+function WorldCardButton({
+	option,
+	selected,
+	onClick,
+}: {
+	option: WorldCardOption;
+	selected: boolean;
+	onClick: () => void;
+}) {
+	const preview = option.card?.preview;
+	return (
+		<button
+			type="button"
+			aria-pressed={selected}
+			onClick={onClick}
+			className={cn(
+				"w-[168px] shrink-0 overflow-hidden rounded-[14px] border bg-background text-start transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5",
+				selected
+					? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
+					: "border-border hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)]",
+			)}
+		>
+			<span
+				aria-hidden
+				className="flex h-[104px] flex-col justify-between px-3.5 pt-3 pb-3"
+				style={{ background: preview ? preview.ground : "var(--accent)" }}
+			>
+				<span
+					dir="auto"
+					className="block overflow-hidden text-[24px] leading-[1.05]"
+					style={
+						preview
+							? {
+									color: preview.ink,
+									fontFamily: `"${preview.fontFamily}", sans-serif`,
+								}
+							: { color: "var(--muted-foreground)" }
+					}
+				>
+					{preview ? preview.sampleWord : "Aa"}
+				</span>
+				{preview ? (
+					<span className="flex gap-1.5">
+						{[preview.accent, preview.ink, preview.ground].map((dot, index) => (
+							<span
+								// biome-ignore lint/suspicious/noArrayIndexKey: fixed 3-dot swatch, order is the identity
+								key={index}
+								className="size-3 rounded-full border border-black/10"
+								style={{ background: dot }}
+							/>
+						))}
+					</span>
+				) : null}
+			</span>
+			<span className="block border-border border-t px-3.5 py-2">
+				<span className="flex items-center justify-between gap-1.5">
+					<span
+						dir="auto"
+						className="min-w-0 truncate font-medium text-[13px] text-foreground"
+					>
+						{option.card?.name ?? option.label}
+					</span>
+					{selected ? (
+						<Check
+							className="size-[11px] shrink-0 text-ember-text"
+							strokeWidth={3}
+						/>
+					) : null}
+				</span>
+				{option.card ? (
+					<span
+						dir="auto"
+						className="mt-0.5 line-clamp-2 block text-[11px] text-muted-foreground leading-[1.35]"
+					>
+						{option.label}
+					</span>
+				) : null}
+			</span>
+		</button>
 	);
 }
 

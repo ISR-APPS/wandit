@@ -1,21 +1,36 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type {
-	AffiliateCsvExportQuery,
-	AffiliateCurrencyAggregate,
-	CreateAffiliateInput,
-	CreateAffiliateLinkInput,
-	CreateAffiliateProgramInput,
-	ListAffiliateAttributionsQuery,
-	ListAffiliateCommissionsQuery,
-	ListAffiliateLinksQuery,
-	ListAffiliatePayoutsQuery,
-	ListAffiliateProgramsQuery,
-	ListAffiliatesQuery,
-	UpdateAffiliateInput,
-	UpdateAffiliateLinkInput,
-	UpdateAffiliateProgramInput,
+import {
+	type AffiliateCsvExportQuery,
+	type AffiliateCurrencyAggregate,
+	billingIntervals,
+	billingPlanIds,
+	CREDIT_TIERS,
+	type CreateAffiliateInput,
+	type CreateAffiliateLinkInput,
+	type CreateAffiliateProgramInput,
+	type ListAffiliateAttributionsQuery,
+	type ListAffiliateCommissionsQuery,
+	type ListAffiliateLinksQuery,
+	type ListAffiliatePayoutsQuery,
+	type ListAffiliateProgramsQuery,
+	type ListAffiliatesQuery,
+	priceLookupKey,
+	tryPriceUsdFor,
+	type UpdateAffiliateInput,
+	type UpdateAffiliateLinkInput,
+	type UpdateAffiliateProgramInput,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	ilike,
+	inArray,
+	or,
+	type SQL,
+	sql,
+} from "@wandit/db";
 import {
 	affiliateAttributions,
 	affiliateCommissions,
@@ -63,10 +78,27 @@ export type AffiliateAdminAggregate = {
 	uniqueVisitorCount: number;
 	attributedUserCount: number;
 	paidCustomerCount: number;
+	healthyTrials: number;
+	churnedCustomers: number;
+	referredMrrCents: number;
+	referredLtvCents: number | null;
 	paidInvoiceCount: number;
 	lastConversionAt: Date | null;
 	currencies: AffiliateCurrencyAggregate[];
 };
+
+export type AffiliateAdminCoreAggregate = Pick<
+	AffiliateAdminAggregate,
+	| "activeLinkCount"
+	| "attributedUserCount"
+	| "clickCount"
+	| "currencies"
+	| "lastConversionAt"
+	| "linkCount"
+	| "paidCustomerCount"
+	| "paidInvoiceCount"
+	| "uniqueVisitorCount"
+>;
 
 export type AffiliateAdminLinkAggregate = {
 	clickCount: number;
@@ -131,9 +163,61 @@ export type AffiliateAdminSummary = {
 	currencies: AffiliateCurrencyAggregate[];
 };
 
-type AffiliateAggregateColumns = Omit<AffiliateAdminAggregate, "currencies">;
+type AffiliateQualityAggregate = Pick<
+	AffiliateAdminAggregate,
+	"churnedCustomers" | "healthyTrials" | "referredLtvCents" | "referredMrrCents"
+>;
+type AffiliateAggregateColumns = Omit<
+	AffiliateAdminAggregate,
+	| "churnedCustomers"
+	| "currencies"
+	| "healthyTrials"
+	| "referredLtvCents"
+	| "referredMrrCents"
+>;
 type LinkAggregateColumns = Omit<AffiliateAdminLinkAggregate, "currencies">;
 type AffiliateAdminWriteClient = Pick<Database, "update">;
+
+type AffiliateQualityRow = {
+	affiliate_id: string;
+	baseline_live_paid_owners: number | string;
+	churned_customers: number | string;
+	healthy_trials: number | string;
+	live_paid_owners: number | string;
+	referred_mrr_cents: number | string;
+	trailing_churned_owners: number | string;
+};
+
+// 3 WHOLE credits, expressed in centi-credits because the CTE sums the
+// centi-credit ledger. Keep in sync with admin-analytics.metrics.ts.
+const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 3 * 100;
+const HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS = 2;
+const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
+
+const EMPTY_AFFILIATE_QUALITY: AffiliateQualityAggregate = {
+	churnedCustomers: 0,
+	healthyTrials: 0,
+	referredLtvCents: null,
+	referredMrrCents: 0,
+};
+
+// Mirrors the catalog-to-monthly-MRR derivation in admin-analytics.metrics.ts:
+// lookup-key catalog prices are cents, with annual prices divided by 12.
+const AFFILIATE_MRR_CATALOG = billingPlanIds.flatMap((plan) =>
+	CREDIT_TIERS.flatMap((tierCredits) =>
+		billingIntervals.flatMap((interval) => {
+			const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
+			if (priceUsd === null) return [];
+
+			return [
+				{
+					lookupKey: priceLookupKey(plan, tierCredits, interval),
+					monthlyMrrCents: (priceUsd * 100) / (interval === "year" ? 12 : 1),
+				},
+			];
+		}),
+	),
+);
 
 @Injectable()
 export class AffiliateAdminRepository {
@@ -281,6 +365,18 @@ export class AffiliateAdminRepository {
 		return row ?? null;
 	}
 
+	async findUserIdentity(
+		userId: string,
+	): Promise<{ id: string; name: string; email: string } | null> {
+		const [row] = await this.db
+			.select({ id: user.id, name: user.name, email: user.email })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1);
+
+		return row ?? null;
+	}
+
 	async createProgram(
 		input: CreateAffiliateProgramInput,
 	): Promise<AffiliateAdminProgramRow> {
@@ -364,8 +460,10 @@ export class AffiliateAdminRepository {
 				.where(where),
 		]);
 
-		const [currencies, summary] = await Promise.all([
-			this.currenciesByAffiliateIds(rows.map((row) => row.affiliate.id)),
+		const affiliateIds = rows.map((row) => row.affiliate.id);
+		const [currencies, quality, summary] = await Promise.all([
+			this.currenciesByAffiliateIds(affiliateIds),
+			this.qualityByAffiliateIds(affiliateIds),
 			this.buildSummary(allAffiliates),
 		]);
 
@@ -374,7 +472,7 @@ export class AffiliateAdminRepository {
 				items: rows.map((row) => ({
 					affiliate: row.affiliate,
 					aggregates: {
-						...this.pickAffiliateAggregate(row),
+						...this.pickAffiliateAggregate(row, quality.get(row.affiliate.id)),
 						currencies: currencies.get(row.affiliate.id) ?? [],
 					},
 				})),
@@ -399,14 +497,38 @@ export class AffiliateAdminRepository {
 			return null;
 		}
 
-		const currencies = await this.currenciesByAffiliateIds([id]);
+		const [currencies, quality] = await Promise.all([
+			this.currenciesByAffiliateIds([id]),
+			this.qualityByAffiliateIds([id]),
+		]);
 
 		return {
 			affiliate: row.affiliate,
 			aggregates: {
-				...this.pickAffiliateAggregate(row),
+				...this.pickAffiliateAggregate(row, quality.get(id)),
 				currencies: currencies.get(id) ?? [],
 			},
+		};
+	}
+
+	async getAffiliateCoreAggregates(
+		id: string,
+	): Promise<AffiliateAdminCoreAggregate | null> {
+		const [row] = await this.db
+			.select(this.affiliateAggregateColumns())
+			.from(affiliates)
+			.where(eq(affiliates.id, id))
+			.limit(1);
+
+		if (!row) {
+			return null;
+		}
+
+		const currencies = await this.currenciesByAffiliateIds([id]);
+
+		return {
+			...row,
+			currencies: currencies.get(id) ?? [],
 		};
 	}
 
@@ -646,12 +768,14 @@ export class AffiliateAdminRepository {
 			paidInvoiceCount: sql<number>`count(distinct ${affiliateCommissions.id}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
 			)::int`,
-			firstPaidAt: sql<Date | null>`min(${affiliateCommissions.createdAt}) filter (
+			firstPaidAt:
+				sql<Date | null>`min(${affiliateCommissions.createdAt}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
-			)`,
-			lastPaidAt: sql<Date | null>`max(${affiliateCommissions.createdAt}) filter (
+			)`.mapWith(affiliateCommissions.createdAt),
+			lastPaidAt:
+				sql<Date | null>`max(${affiliateCommissions.createdAt}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 		const [totalRow, rows] = await Promise.all([
 			this.db
@@ -917,14 +1041,16 @@ export class AffiliateAdminRepository {
 			.from(affiliates)
 			.where(where)
 			.orderBy(asc(affiliates.name), asc(affiliates.id));
-		const currencies = await this.currenciesByAffiliateIds(
-			rows.map((row) => row.affiliate.id),
-		);
+		const affiliateIds = rows.map((row) => row.affiliate.id);
+		const [currencies, quality] = await Promise.all([
+			this.currenciesByAffiliateIds(affiliateIds),
+			this.qualityByAffiliateIds(affiliateIds),
+		]);
 
 		return rows.map((row) => ({
 			affiliate: row.affiliate,
 			aggregates: {
-				...this.pickAffiliateAggregate(row),
+				...this.pickAffiliateAggregate(row, quality.get(row.affiliate.id)),
 				currencies: currencies.get(row.affiliate.id) ?? [],
 			},
 		}));
@@ -1131,7 +1257,7 @@ export class AffiliateAdminRepository {
 				select max("affiliate_commissions"."created_at") from "affiliate_commissions"
 				where "affiliate_commissions"."affiliate_id" = "affiliates"."id"
 					and "affiliate_commissions"."entry_type" = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 	}
 
@@ -1172,13 +1298,14 @@ export class AffiliateAdminRepository {
 					on "affiliate_attributions"."id" = "affiliate_commissions"."attribution_id"
 				where "affiliate_attributions"."link_id" = "affiliate_links"."id"
 					and "affiliate_commissions"."entry_type" = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 	}
 
 	private pickAffiliateAggregate(
 		row: AffiliateAggregateColumns,
-	): AffiliateAggregateColumns {
+		quality: AffiliateQualityAggregate = EMPTY_AFFILIATE_QUALITY,
+	): Omit<AffiliateAdminAggregate, "currencies"> {
 		return {
 			linkCount: row.linkCount,
 			activeLinkCount: row.activeLinkCount,
@@ -1186,6 +1313,10 @@ export class AffiliateAdminRepository {
 			uniqueVisitorCount: row.uniqueVisitorCount,
 			attributedUserCount: row.attributedUserCount,
 			paidCustomerCount: row.paidCustomerCount,
+			healthyTrials: quality.healthyTrials,
+			churnedCustomers: quality.churnedCustomers,
+			referredMrrCents: quality.referredMrrCents,
+			referredLtvCents: quality.referredLtvCents,
 			paidInvoiceCount: row.paidInvoiceCount,
 			lastConversionAt: row.lastConversionAt,
 		};
@@ -1200,6 +1331,366 @@ export class AffiliateAdminRepository {
 			paidInvoiceCount: row.paidInvoiceCount,
 			lastConversionAt: row.lastConversionAt,
 		};
+	}
+
+	private async qualityByAffiliateIds(
+		ids: string[],
+	): Promise<Map<string, AffiliateQualityAggregate>> {
+		const aggregates = new Map<string, AffiliateQualityAggregate>();
+		if (ids.length === 0) {
+			return aggregates;
+		}
+
+		const result = await this.db.execute<AffiliateQualityRow>(sql`
+			with bounds as (
+				select
+					now() as snapshot_end,
+					now() - interval '90 days' as churn_window_start
+			),
+			selected_affiliates(affiliate_id) as (
+				values ${sql.join(
+					ids.map((id) => sql`(${id}::uuid)`),
+					sql`, `,
+				)}
+			),
+			attributed_users as (
+				select aa.affiliate_id, aa.user_id, u.created_at
+				from affiliate_attributions aa
+				inner join selected_affiliates selected
+					on selected.affiliate_id = aa.affiliate_id
+				inner join "user" u on u.id = aa.user_id
+			),
+			mature_users as (
+				select au.affiliate_id, au.user_id, au.created_at
+				from attributed_users au
+				cross join bounds b
+				where au.created_at <= b.snapshot_end - interval '7 days'
+			),
+			first_subscriptions as (
+				select m.affiliate_id, m.user_id, min(s.created_at) as first_subscription_at
+				from mature_users m
+				inner join subscriptions s on s.user_id = m.user_id
+				cross join bounds b
+				where s.created_at < b.snapshot_end
+				group by m.affiliate_id, m.user_id
+			),
+			credit_consumption as (
+				select
+					m.affiliate_id,
+					m.user_id,
+					sum(-c.delta)::bigint as credits_consumed
+				from mature_users m
+				inner join credit_ledger c on c.user_id = m.user_id
+				cross join bounds b
+				where c.kind = 'consume'
+					and c.created_at >= m.created_at
+					and c.created_at < m.created_at + interval '7 days'
+					and c.created_at < b.snapshot_end
+				group by m.affiliate_id, m.user_id
+			),
+			completed_generations as (
+				select
+					generation.affiliate_id,
+					generation.user_id,
+					count(*)::bigint as completed_generations
+				from (
+					-- Metering preserves the actor for org work. Legacy personal
+					-- attempts may fall back to the project creator; unattributed org
+					-- attempts are conservatively excluded. This mirrors the admin
+					-- analytics healthy-trial cohort.
+					select m.affiliate_id, m.user_id
+					from page_generation_attempts a
+					inner join projects p on p.id = a.project_id
+					cross join bounds b
+					left join lateral (
+						select e.user_id
+						from ai_usage_events e
+						where e.operation = 'page_build'
+							and e.attempt_ref = a.id::text
+							and e.created_at >= a.created_at
+							and e.created_at < b.snapshot_end
+						order by e.created_at desc
+						limit 1
+					) usage_actor on true
+					inner join mature_users m on m.user_id = coalesce(
+						usage_actor.user_id,
+						case when p.organization_id is null then p.user_id end
+					)
+					where p.deleted_at is null
+						and a.status = 'succeeded'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.completed_at < b.snapshot_end
+					union all
+					select m.affiliate_id, m.user_id
+					from image_generation_attempts a
+					inner join projects p on p.id = a.project_id
+					cross join bounds b
+					left join lateral (
+						select e.user_id
+						from ai_usage_events e
+						where e.operation = 'image'
+							and e.attempt_ref = a.id::text
+							and e.created_at >= a.created_at
+							and e.created_at < b.snapshot_end
+						order by e.created_at desc
+						limit 1
+					) usage_actor on true
+					inner join mature_users m on m.user_id = coalesce(
+						usage_actor.user_id,
+						case when p.organization_id is null then p.user_id end
+					)
+					where p.deleted_at is null
+						and a.status = 'succeeded'
+						and a.created_at >= m.created_at
+						and a.created_at < m.created_at + interval '7 days'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.created_at < b.snapshot_end
+					union all
+					select m.affiliate_id, m.user_id
+					from media_generation_attempts a
+					inner join projects p on p.id = a.project_id
+					cross join bounds b
+					left join lateral (
+						select e.user_id
+						from ai_usage_events e
+						where e.operation = 'video'
+							and e.attempt_ref = a.id::text
+							and e.created_at >= a.created_at
+							and e.created_at < b.snapshot_end
+						order by e.created_at desc
+						limit 1
+					) usage_actor on true
+					inner join mature_users m on m.user_id = coalesce(
+						usage_actor.user_id,
+						case when p.organization_id is null then p.user_id end
+					)
+					where p.deleted_at is null
+						and a.status = 'succeeded'
+						and a.created_at >= m.created_at
+						and a.created_at < m.created_at + interval '7 days'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.created_at < b.snapshot_end
+					union all
+					select m.affiliate_id, m.user_id
+					from marketing_assets a
+					inner join projects p on p.id = a.project_id
+					cross join bounds b
+					left join lateral (
+						select e.user_id
+						from ai_usage_events e
+						where e.operation = 'marketing'
+							and e.attempt_ref = a.id::text
+							and e.created_at >= a.created_at
+							and e.created_at < b.snapshot_end
+						order by e.created_at desc
+						limit 1
+					) usage_actor on true
+					inner join mature_users m on m.user_id = coalesce(
+						usage_actor.user_id,
+						case when p.organization_id is null then p.user_id end
+					)
+					where p.deleted_at is null
+						and a.status = 'succeeded'
+						and a.created_at >= m.created_at
+						and a.created_at < m.created_at + interval '7 days'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.created_at < b.snapshot_end
+					union all
+					select m.affiliate_id, m.user_id
+					from connector_generation_attempts a
+					inner join mature_users m on m.user_id = a.user_id
+					cross join bounds b
+					where a.status = 'succeeded'
+						and a.created_at >= m.created_at
+						and a.created_at < m.created_at + interval '7 days'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.created_at < b.snapshot_end
+					union all
+					select m.affiliate_id, m.user_id
+					from lead_scrape_attempts a
+					inner join projects p on p.id = a.project_id
+					cross join bounds b
+					left join lateral (
+						select e.user_id
+						from ai_usage_events e
+						where e.operation = 'lead_scrape'
+							and e.attempt_ref = a.id::text
+							and e.created_at >= a.created_at
+							and e.created_at < b.snapshot_end
+						order by e.created_at desc
+						limit 1
+					) usage_actor on true
+					inner join mature_users m on m.user_id = coalesce(
+						usage_actor.user_id,
+						case when p.organization_id is null then p.user_id end
+					)
+					where p.deleted_at is null
+						and a.status = 'succeeded'
+						and a.created_at >= m.created_at
+						and a.created_at < m.created_at + interval '7 days'
+						and a.completed_at >= m.created_at
+						and a.completed_at < m.created_at + interval '7 days'
+						and a.created_at < b.snapshot_end
+				) generation
+				group by generation.affiliate_id, generation.user_id
+			),
+			healthy_trial_totals as (
+				select
+					m.affiliate_id,
+					count(*) filter (
+						where f.first_subscription_at is null
+							and coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
+							and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
+					)::int as healthy_trials
+				from mature_users m
+				left join first_subscriptions f
+					on f.affiliate_id = m.affiliate_id and f.user_id = m.user_id
+				left join credit_consumption c
+					on c.affiliate_id = m.affiliate_id and c.user_id = m.user_id
+				left join completed_generations g
+					on g.affiliate_id = m.affiliate_id and g.user_id = m.user_id
+				group by m.affiliate_id
+			),
+			referred_subscriptions as (
+				select
+					au.affiliate_id,
+					au.user_id as attribution_user_id,
+					'user'::text as owner_kind,
+					s.user_id as owner_id,
+					s.provider_subscription_id,
+					s.price_lookup_key,
+					s.status,
+					s.created_at
+				from attributed_users au
+				inner join subscriptions s
+					on s.organization_id is null and s.user_id = au.user_id
+				cross join bounds b
+				where s.created_at < b.snapshot_end
+				union all
+				select
+					au.affiliate_id,
+					au.user_id as attribution_user_id,
+					'organization'::text as owner_kind,
+					s.organization_id as owner_id,
+					s.provider_subscription_id,
+					s.price_lookup_key,
+					s.status,
+					s.created_at
+				from attributed_users au
+				inner join organization_billing_customers obc
+					on obc.attribution_user_id = au.user_id
+				inner join subscriptions s
+					on s.organization_id = obc.organization_id
+				cross join bounds b
+				where s.created_at < b.snapshot_end
+			),
+			ended_subscription_events as (
+				select
+					e.stripe_subscription_id,
+					bool_or(e.occurred_at >= b.churn_window_start) as ended_in_churn_window
+				from subscription_state_events e
+				inner join (
+					select distinct rs.provider_subscription_id
+					from referred_subscriptions rs
+				) referred on referred.provider_subscription_id = e.stripe_subscription_id
+				cross join bounds b
+				where e.kind = 'ended' and e.occurred_at < b.snapshot_end
+				group by e.stripe_subscription_id
+			),
+			referred_owner_states as (
+				select
+					rs.affiliate_id,
+					rs.attribution_user_id,
+					rs.owner_kind,
+					rs.owner_id,
+					bool_or(rs.status in (${liveSubscriptionStatusList()})) as live_at_snapshot,
+					bool_or(ended.stripe_subscription_id is not null) as has_ended,
+					bool_or(coalesce(ended.ended_in_churn_window, false)) as ended_in_churn_window
+				from referred_subscriptions rs
+				left join ended_subscription_events ended
+					on ended.stripe_subscription_id = rs.provider_subscription_id
+				group by
+					rs.affiliate_id,
+					rs.attribution_user_id,
+					rs.owner_kind,
+					rs.owner_id
+			),
+			churn_totals as (
+				select
+					states.affiliate_id,
+					count(distinct states.attribution_user_id) filter (
+						where states.has_ended and not states.live_at_snapshot
+					)::int as churned_customers,
+					count(*) filter (
+						where states.ended_in_churn_window and not states.live_at_snapshot
+					)::int as trailing_churned_owners
+				from referred_owner_states states
+				group by states.affiliate_id
+			),
+			live_subscription_totals as (
+				select
+					rs.affiliate_id,
+					count(distinct (rs.owner_kind, rs.owner_id))::int as live_paid_owners,
+					round(coalesce(sum(${catalogMonthlyMrrCase(sql.raw("rs.price_lookup_key"))}), 0))::bigint as referred_mrr_cents
+				from referred_subscriptions rs
+				where rs.status in (${liveSubscriptionStatusList()})
+				group by rs.affiliate_id
+			),
+			baseline_live_owner_totals as (
+				select
+					rs.affiliate_id,
+					count(distinct (rs.owner_kind, rs.owner_id))::int as baseline_live_paid_owners
+				from referred_subscriptions rs
+				left join ended_subscription_events ended
+					on ended.stripe_subscription_id = rs.provider_subscription_id
+				cross join bounds b
+				where rs.created_at < b.churn_window_start
+					and (
+						rs.status in (${liveSubscriptionStatusList()})
+						or coalesce(ended.ended_in_churn_window, false)
+					)
+				group by rs.affiliate_id
+			)
+			select
+				selected.affiliate_id,
+				coalesce(healthy.healthy_trials, 0)::int as healthy_trials,
+				coalesce(churn.churned_customers, 0)::int as churned_customers,
+				coalesce(live.referred_mrr_cents, 0)::bigint as referred_mrr_cents,
+				coalesce(live.live_paid_owners, 0)::int as live_paid_owners,
+				coalesce(baseline.baseline_live_paid_owners, 0)::int as baseline_live_paid_owners,
+				coalesce(churn.trailing_churned_owners, 0)::int as trailing_churned_owners
+			from selected_affiliates selected
+			left join healthy_trial_totals healthy
+				on healthy.affiliate_id = selected.affiliate_id
+			left join churn_totals churn
+				on churn.affiliate_id = selected.affiliate_id
+			left join live_subscription_totals live
+				on live.affiliate_id = selected.affiliate_id
+			left join baseline_live_owner_totals baseline
+				on baseline.affiliate_id = selected.affiliate_id
+		`);
+
+		for (const row of result.rows) {
+			const referredMrrCents = Number(row.referred_mrr_cents);
+			aggregates.set(row.affiliate_id, {
+				churnedCustomers: Number(row.churned_customers),
+				healthyTrials: Number(row.healthy_trials),
+				referredMrrCents,
+				referredLtvCents: calculateAffiliateReferredLtvCents({
+					baselineLivePaidOwners: Number(row.baseline_live_paid_owners),
+					livePaidOwners: Number(row.live_paid_owners),
+					referredMrrCents,
+					trailingChurnedOwners: Number(row.trailing_churned_owners),
+				}),
+			});
+		}
+
+		return aggregates;
 	}
 
 	private async currenciesByAffiliateIds(ids: string[]) {
@@ -1386,6 +1877,48 @@ export class AffiliateAdminRepository {
 			commissionRateBps: null,
 		};
 	}
+}
+
+export function calculateAffiliateReferredLtvCents(input: {
+	baselineLivePaidOwners: number;
+	livePaidOwners: number;
+	referredMrrCents: number;
+	trailingChurnedOwners: number;
+}): number | null {
+	if (
+		input.livePaidOwners <= 0 ||
+		input.baselineLivePaidOwners <= 0 ||
+		input.trailingChurnedOwners <= 0
+	) {
+		return null;
+	}
+
+	const arpuCents = input.referredMrrCents / input.livePaidOwners;
+	const monthlyChurn =
+		(input.trailingChurnedOwners / input.baselineLivePaidOwners) * (30.44 / 90);
+	const ltvCents = Math.round(arpuCents / monthlyChurn);
+
+	return Number.isFinite(ltvCents) ? Math.max(0, ltvCents) : null;
+}
+
+function liveSubscriptionStatusList(): SQL {
+	return sql.join(
+		LIVE_SUBSCRIPTION_STATUSES.map((status) => sql`${status}`),
+		sql`, `,
+	);
+}
+
+function catalogMonthlyMrrCase(priceLookupKeyColumn: SQL): SQL {
+	return sql`case ${priceLookupKeyColumn}
+		${sql.join(
+			AFFILIATE_MRR_CATALOG.map(
+				(price) =>
+					sql`when ${price.lookupKey} then ${price.monthlyMrrCents}::numeric`,
+			),
+			sql` `,
+		)}
+		else 0::numeric
+	end`;
 }
 
 function escapeLikePattern(value: string): string {

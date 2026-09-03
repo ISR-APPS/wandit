@@ -1,7 +1,5 @@
 import {
 	type ComposerMetadata,
-	type ComposerQuality,
-	CREDIT_COSTS,
 	projectPromptMaxLength,
 	type UploadAttachmentResponse,
 	videoSubmissionIdSchema,
@@ -26,6 +24,11 @@ import {
 	InputGroupTextarea,
 } from "@wandit/ui/components/input-group";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@wandit/ui/components/popover";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
@@ -36,37 +39,42 @@ import {
 	ArrowUp,
 	BadgeCheck,
 	BrainCircuit,
-	Brush,
 	Captions,
+	ChartLine,
 	Check,
 	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
 	Clapperboard,
 	FileText,
+	Film,
 	Gauge,
 	ImageIcon,
+	Layers,
 	LayoutTemplate,
 	Loader2,
 	type LucideIcon,
 	Megaphone,
 	Mic,
+	Palette,
 	Paperclip,
 	Plug,
 	Plus,
 	RefreshCw,
-	Rocket,
-	SearchCheck,
-	ShieldCheck,
 	SlidersHorizontal,
 	Sparkles,
+	Stethoscope,
 	Target,
+	Truck,
+	Users,
 	WandSparkles,
 	X,
 } from "lucide-react";
+import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
-import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
@@ -84,9 +92,10 @@ import {
 	ATTACHMENT_ACCEPT,
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
+	attachmentMaxBytesFor,
 	uploadAttachment,
 } from "../api/attachments.services";
-import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
+import { MAX_VISIBLE_SKILLS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
@@ -111,19 +120,22 @@ type RouteModeDef = {
 	icon: LucideIcon;
 };
 
+// Skill ids are the EXACT server slugs: the director loads the matching ads
+// skill when the id arrives in `composer.skills`. Keep them in sync with the
+// server skill registry and with apps/native/features/projects/lib/prompt.ts.
 type SkillFileId =
-	| "accessibility"
-	| "redesign"
-	| "seo-review"
-	| "cod-algeria"
-	| "brand-voice"
-	| "direct-response"
-	| "premium-visuals";
+	| "ads-fundamentals"
+	| "ads-creative"
+	| "ads-audiences"
+	| "ads-measurement"
+	| "ads-cod-maghreb"
+	| "ads-diagnostic";
 
-type SkillGroupId = "review" | "market";
+type SkillGroupId = "ads";
 
 // Non-copy skill config: id + fileName + icon. Label/description live in the
-// `projects.promptBox.skills` dictionary namespace.
+// `projects.promptBox.skills` dictionary namespace. `fileName` is the slug
+// shown as a mono hint next to the label (it equals the id).
 type SkillFileDef = {
 	id: SkillFileId;
 	fileName: string;
@@ -146,6 +158,7 @@ type GenerationOutputId =
 	| "image-creator"
 	| "product-shot"
 	| "ad-creative"
+	| "video-creator"
 	| "image-animation";
 
 // Non-copy output config: id + mode + icon + option groups. Label/shortLabel/
@@ -156,6 +169,8 @@ type GenerationOutputDef = {
 	mode: ConcreteMode;
 	icon: LucideIcon;
 	options: readonly OptionGroup[];
+	/** The mandatory SourceImageCard + source composer keys (image animation). */
+	requiresSourceImage?: boolean;
 };
 
 // Shape of the localized option copy read via useDictionary(); ids are matched
@@ -219,7 +234,7 @@ function effectiveMediaType(file: File): string {
 function toComposerAttachment(file: File): ComposerAttachment {
 	const mediaType = effectiveMediaType(file);
 	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(mediaType);
-	const tooLarge = file.size > ATTACHMENT_MAX_BYTES;
+	const tooLarge = file.size > attachmentMaxBytesFor(mediaType);
 	return {
 		id: crypto.randomUUID(),
 		filename: file.name,
@@ -231,6 +246,10 @@ function toComposerAttachment(file: File): ComposerAttachment {
 		error: unsupported ? "unsupported" : tooLarge ? "too-large" : undefined,
 		file,
 	};
+}
+
+function isFileDrag(dataTransfer: DataTransfer): boolean {
+	return dataTransfer.types.includes("Files");
 }
 
 function validateSourceImage(file: File): SourceImageValidationError | null {
@@ -278,42 +297,16 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "video", icon: Clapperboard },
 ];
 
-// Non-copy quality-tier config: id + icon. Label/hint live in the
-// `projects.promptBox.quality` dictionary namespace; cost in QUALITY_CREDITS.
-type QualityTierDef = {
-	id: ComposerQuality;
-	icon: LucideIcon;
-};
-
-const QUALITY_TIERS: readonly QualityTierDef[] = [
-	{ id: "standard", icon: Gauge },
-	{ id: "max", icon: Rocket },
-];
-
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	{
-		id: "review",
+		id: "ads",
 		skills: [
-			{ id: "accessibility", fileName: "accessibility.md", icon: ShieldCheck },
-			{ id: "seo-review", fileName: "seo-review.md", icon: SearchCheck },
-			{ id: "redesign", fileName: "redesign.md", icon: Brush },
-		],
-	},
-	{
-		id: "market",
-		skills: [
-			{ id: "cod-algeria", fileName: "cod-algeria.md", icon: Target },
-			{ id: "brand-voice", fileName: "brand-voice.md", icon: Captions },
-			{
-				id: "direct-response",
-				fileName: "direct-response.md",
-				icon: BadgeCheck,
-			},
-			{
-				id: "premium-visuals",
-				fileName: "premium-visuals.md",
-				icon: ImageIcon,
-			},
+			{ id: "ads-fundamentals", fileName: "ads-fundamentals", icon: Layers },
+			{ id: "ads-creative", fileName: "ads-creative", icon: Palette },
+			{ id: "ads-audiences", fileName: "ads-audiences", icon: Users },
+			{ id: "ads-measurement", fileName: "ads-measurement", icon: ChartLine },
+			{ id: "ads-cod-maghreb", fileName: "ads-cod-maghreb", icon: Truck },
+			{ id: "ads-diagnostic", fileName: "ads-diagnostic", icon: Stethoscope },
 		],
 	},
 ];
@@ -336,6 +329,10 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 						{ id: "service" },
 						{ id: "promo" },
 					],
+				},
+				{
+					id: "codMode",
+					choices: [{ id: "auto" }, { id: "simple" }, { id: "max" }],
 				},
 			],
 		},
@@ -496,8 +493,6 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			id: "image-creator",
 			mode: "image",
 			icon: ImageIcon,
-			// No per-output "quality" group: the composer-wide quality tier in
-			// the settings popover is the single quality control.
 			options: [
 				{
 					id: "size",
@@ -512,9 +507,10 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					layout: "grid",
 				},
 				{
-					// Server cap: MAX_IMAGES_PER_GENERATION = 4 (contracts).
+					// Server cap: MAX_IMAGES_PER_GENERATION = 6 (contracts); every image is
+					// generated separately, never as a grid inside one picture.
 					id: "count",
-					choices: [{ id: "1" }, { id: "2" }, { id: "4" }],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "6" }],
 				},
 			],
 		},
@@ -569,9 +565,39 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			],
 		},
 	],
-	// Mode "video" is reframed as image→video animation (spec §10) — the
-	// source still is mandatory and the motion description is optional.
+	// Mode "video": create a clip from scratch (video-creator, text-to-video,
+	// the default) or animate one uploaded still (image-animation, where the
+	// source image is mandatory).
 	video: [
+		{
+			id: "video-creator",
+			mode: "video",
+			icon: Film,
+			options: [
+				{
+					id: "ratio",
+					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
+				},
+				{
+					id: "duration",
+					choices: [{ id: "10" }, { id: "5" }],
+					layout: "compact",
+				},
+				{
+					// "auto" = the assistant decides whether to offer narration.
+					// A concrete pick short-circuits the voiceover questions.
+					id: "voice",
+					choices: [
+						{ id: "auto" },
+						{ id: "none" },
+						{ id: "en" },
+						{ id: "fr" },
+						{ id: "ar" },
+					],
+					layout: "grid",
+				},
+			],
+		},
 		{
 			id: "image-animation",
 			mode: "video",
@@ -586,12 +612,23 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
 				},
 			],
+			requiresSourceImage: true,
 		},
 	],
 };
 
 const ALL_SKILL_FILES = SKILL_FILE_GROUPS.flatMap((group) => group.skills);
 const ALL_OUTPUTS = Object.values(OUTPUTS_BY_MODE).flat();
+
+/** Registry-driven lookup for the prompt-stash autostart gate: outputs that
+ * demand a source asset can never auto-create a project after auth (the
+ * upload cannot survive signed-out auth) — including output ids added here
+ * later, with no other file to keep in sync. */
+export function outputRequiresSourceImage(outputId: string): boolean {
+	return ALL_OUTPUTS.some(
+		(output) => output.id === outputId && output.requiresSourceImage === true,
+	);
+}
 
 function getMode(id: RouteMode) {
 	return ROUTE_MODES.find((mode) => mode.id === id) ?? ROUTE_MODES[0];
@@ -614,6 +651,16 @@ function createDefaultOptions(output: GenerationOutputDef) {
 	return Object.fromEntries(
 		output.options.map((group) => [group.id, group.choices[0]?.id ?? ""]),
 	);
+}
+
+/** Keep cross-option dependencies in one place so new conditional groups do
+ * not leak product-specific branches into the settings-panel markup. */
+function isGroupVisible(
+	group: OptionGroup,
+	options: Readonly<Record<string, string>>,
+) {
+	if (group.id === "codMode") return options.goal === "cod";
+	return true;
 }
 
 function restoreOutputOptions(
@@ -982,7 +1029,7 @@ function AttachmentChips({
 								</span>
 							) : null}
 						</span>
-						{isError && attachment.file ? (
+						{isError && attachment.error === "failed" && attachment.file ? (
 							<button
 								type="button"
 								aria-label={pb.attachments.retry}
@@ -1488,145 +1535,222 @@ function BuilderReasoningPicker({
 	);
 }
 
-function OutputPicker({
-	mode,
-	output,
-	onSelectOutput,
-	isHero,
-}: {
-	mode: RouteMode;
-	output: GenerationOutputDef | null;
-	onSelectOutput: (output: GenerationOutputDef) => void;
-	isHero: boolean;
-}) {
-	const { t } = useTranslation();
-	const pb = useDictionary().projects.promptBox;
-	if (mode === "auto" || !output) return null;
-	const OutputIcon = output.icon;
-	const outputs = OUTPUTS_BY_MODE[mode];
-	const outputCopy = pb.outputs[output.id];
+// Same calm, no-bounce ease as the chat tray's TRAY_EASE — the settings
+// wizard is composer chrome, so its motion stays quiet.
+const STEP_EASE = [0.32, 0.72, 0, 1] as const;
+const STEP_TRANSITION = { duration: 0.34, ease: STEP_EASE };
 
-	if (outputs.length === 1) {
-		return (
-			<span
-				className={cn(
-					"inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 font-medium text-foreground text-sm",
-					isHero ? "h-9" : "h-[30px]",
-				)}
-			>
-				<OutputIcon className="size-3.5 text-primary" aria-hidden />
-				<span className="max-w-32 truncate">{outputCopy.shortLabel}</span>
-			</span>
-		);
-	}
+type SettingsStep = "type" | "options";
+const SETTINGS_STEPS: readonly SettingsStep[] = ["type", "options"];
 
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					aria-label={`${t("projects.promptBox.outputLabel")}: ${outputCopy.label}`}
-					className={cn(
-						"group/trigger rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
-						isHero ? "h-9" : "h-[30px]",
-					)}
-				>
-					<OutputIcon className="size-3.5 text-primary" />
-					<span className="max-w-32 truncate font-medium">
-						{outputCopy.shortLabel}
-					</span>
-					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="start"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
-			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{t("projects.promptBox.outputsHeading", {
-						mode: pb.routeModes[mode].label,
-					})}
-				</DropdownMenuLabel>
-				<DropdownMenuRadioGroup
-					value={output.id}
-					onValueChange={(next) => {
-						const nextOutput = getOutput(next as GenerationOutputId);
-						if (nextOutput) onSelectOutput(nextOutput);
-					}}
-				>
-					{outputs.map((item) => {
-						const itemCopy = pb.outputs[item.id];
-						return (
-							<DropdownMenuRadioItemBare
-								key={item.id}
-								value={item.id}
-								className="data-[state=checked]:bg-primary/10"
-							>
-								<IconTile icon={item.icon} active={item.id === output.id} />
-								<span className="min-w-0">
-									<span className="block font-medium text-sm leading-tight">
-										{itemCopy.label}
-									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{itemCopy.description}
-									</span>
-								</span>
-								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-							</DropdownMenuRadioItemBare>
-						);
-					})}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
+/**
+ * Height of a wizard panel, measured through a callback ref: Radix mounts the
+ * popover content one commit AFTER `open` flips, so a layout effect keyed on
+ * `open` sees null refs — a callback ref fires at the actual mount instead.
+ * A ResizeObserver keeps the value honest while the panel is on screen.
+ */
+function usePanelHeight(): [number, (el: HTMLDivElement | null) => void] {
+	const [height, setHeight] = useState(0);
+	const observerRef = useRef<ResizeObserver | null>(null);
+
+	const measureRef = useCallback((el: HTMLDivElement | null) => {
+		observerRef.current?.disconnect();
+		observerRef.current = null;
+		if (!el) return;
+		const measure = () => setHeight(el.offsetHeight);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		observerRef.current = observer;
+	}, []);
+
+	return [height, measureRef];
 }
 
+/**
+ * The composer's one generation-config surface: a settings popover that walks
+ * two steps — 1) the output TYPE for the active mode, 2) that output's
+ * options. Replaces the old standalone output chip so the footer stays to one
+ * pill. Panels slide horizontally (direction-aware for RTL) and the popover
+ * height glides between the two panels' heights. Modes with a single output
+ * skip the type step; auto mode has no settings surface.
+ */
 function OutputSettings({
+	outputs,
 	output,
+	onSelectOutput,
 	values,
 	onValueChange,
-	quality,
-	onQualityChange,
-	showQuality,
-	isVideoMode,
 	isHero,
 }: {
+	/** Every output of the active mode — the wizard's type step. */
+	outputs: readonly GenerationOutputDef[];
 	output: GenerationOutputDef | null;
+	/** Applied live on the type step; must NOT steal focus from the popover. */
+	onSelectOutput: (output: GenerationOutputDef) => void;
 	values: Record<string, string>;
 	onValueChange: (groupId: string, choiceId: string) => void;
-	quality: ComposerQuality;
-	onQualityChange: (quality: ComposerQuality) => void;
-	// Quality lives INSIDE this popover (not as its own chip) so the composer
-	// footer never wraps to a second row of pills.
-	showQuality: boolean;
-	isVideoMode: boolean;
 	isHero: boolean;
 }) {
-	const { t } = useTranslation();
+	const { t, dir } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	if (!output && !showQuality) return null;
-	const OutputIcon = output?.icon;
-	const outputCopy = output ? pb.outputs[output.id] : null;
-	const optionsCopy = (outputCopy?.options ?? {}) as unknown as Record<
+	const hasTypeStep = outputs.length > 1;
+	const [open, setOpen] = useState(false);
+	const [step, setStep] = useState<SettingsStep>("type");
+	// The popover height follows the ACTIVE panel's measured height so it
+	// glides between steps instead of holding the taller panel's size.
+	const [typeHeight, typePanelRef] = usePanelHeight();
+	const [optionsHeight, optionsPanelRef] = usePanelHeight();
+	const activeHeight = step === "type" ? typeHeight : optionsHeight;
+
+	if (!output) return null;
+
+	const OutputIcon = output.icon;
+	const outputCopy = pb.outputs[output.id];
+	const optionsCopy = outputCopy.options as unknown as Record<
 		string,
 		OptionCopy
 	>;
-	const modeLabel = output ? pb.routeModes[output.mode].label : null;
+	const modeCopy = pb.routeModes[output.mode];
+	const settingsLabel = t("projects.promptBox.settingsLabel");
+
+	const handleOpenChange = (next: boolean) => {
+		setOpen(next);
+		if (next) {
+			setStep(hasTypeStep ? "type" : "options");
+		}
+	};
+
+	const typePanel = hasTypeStep ? (
+		<>
+			<div className="border-border border-b px-4 py-3">
+				<div className="flex items-center gap-2">
+					<IconTile icon={getMode(output.mode).icon} active />
+					<div className="min-w-0">
+						<p className="font-medium text-sm leading-tight">
+							{t("projects.promptBox.outputsHeading", {
+								mode: modeCopy.label,
+							})}
+						</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{modeCopy.description}
+						</p>
+					</div>
+				</div>
+			</div>
+			<div className="p-1.5">
+				{outputs.map((item) => {
+					const itemCopy = pb.outputs[item.id];
+					const selected = item.id === output.id;
+					return (
+						<button
+							key={item.id}
+							type="button"
+							aria-pressed={selected}
+							onClick={() => onSelectOutput(item)}
+							className={cn(
+								"flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
+								selected ? "bg-primary/10" : "hover:bg-accent/70",
+							)}
+						>
+							<IconTile icon={item.icon} active={selected} />
+							<span className="min-w-0 flex-1">
+								<span className="block font-medium text-sm leading-tight">
+									{itemCopy.label}
+								</span>
+								<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+									{itemCopy.description}
+								</span>
+							</span>
+							<Check
+								className={cn(
+									"ms-auto size-4 shrink-0 text-primary transition-[opacity,transform]",
+									selected ? "scale-100 opacity-100" : "scale-90 opacity-0",
+								)}
+							/>
+						</button>
+					);
+				})}
+			</div>
+		</>
+	) : null;
+
+	const optionsPanel = (
+		<>
+			<div className="border-border border-b px-4 py-3">
+				<div className="flex items-center gap-2">
+					<IconTile icon={OutputIcon} active />
+					<div className="min-w-0">
+						<p className="font-medium text-sm leading-tight">
+							{outputCopy.label}
+						</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{t("projects.promptBox.settingsSubtitle", {
+								mode: modeCopy.label.toLowerCase(),
+							})}
+						</p>
+					</div>
+				</div>
+			</div>
+			<div className="space-y-4 p-4">
+				{output.options.map((group) => {
+					if (!isGroupVisible(group, values)) return null;
+					const groupCopy = optionsCopy[group.id];
+					return (
+						<div key={group.id}>
+							<p className="mb-2 text-muted-foreground text-xs">
+								{groupCopy.label}
+							</p>
+							<div
+								className={cn(
+									"grid gap-2",
+									group.layout === "grid"
+										? "grid-cols-3"
+										: group.layout === "compact"
+											? "grid-cols-4"
+											: "grid-cols-2",
+								)}
+							>
+								{group.choices.map((choice) => {
+									const selected = values[group.id] === choice.id;
+									return (
+										<button
+											key={choice.id}
+											type="button"
+											onClick={() => onValueChange(group.id, choice.id)}
+											className={cn(
+												"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+												selected
+													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+													: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+												group.layout === "grid" && "min-h-14",
+											)}
+										>
+											{groupCopy.choices[choice.id]}
+										</button>
+									);
+								})}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		</>
+	);
 
 	return (
-		<DropdownMenu>
+		<Popover open={open} onOpenChange={handleOpenChange}>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<DropdownMenuTrigger asChild>
+					<PopoverTrigger asChild>
+						{/* Quiet icon-only trigger — the chosen output stays inside the
+						    settings panel (and in the aria-label for screen readers)
+						    instead of crowding the composer with a labeled pill. */}
 						<Button
 							type="button"
 							variant="outline"
 							size="icon-sm"
-							aria-label={t("projects.promptBox.settingsLabel")}
+							aria-label={`${settingsLabel}: ${outputCopy.label}`}
 							className={cn(
 								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
 								isHero ? "size-9" : "size-[30px]",
@@ -1634,126 +1758,123 @@ function OutputSettings({
 						>
 							<SlidersHorizontal className="size-4" />
 						</Button>
-					</DropdownMenuTrigger>
+					</PopoverTrigger>
 				</TooltipTrigger>
-				<TooltipContent>{t("projects.promptBox.settingsLabel")}</TooltipContent>
+				<TooltipContent>{settingsLabel}</TooltipContent>
 			</Tooltip>
-			<DropdownMenuContent
+			<PopoverContent
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
+				className="w-[22rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
 			>
-				{OutputIcon && outputCopy && modeLabel ? (
-					<div className="border-border border-b px-4 py-3">
-						<div className="flex items-center gap-2">
-							<IconTile icon={OutputIcon} active />
-							<div className="min-w-0">
-								<p className="font-medium text-sm leading-tight">
-									{outputCopy.label}
-								</p>
-								<p className="mt-0.5 text-muted-foreground text-xs">
-									{t("projects.promptBox.settingsSubtitle", {
-										mode: modeLabel.toLowerCase(),
-									})}
-								</p>
-							</div>
-						</div>
-					</div>
-				) : null}
-				<div className="space-y-4 p-4">
-					{(output?.options ?? []).map((group) => {
-						const groupCopy = optionsCopy[group.id];
-						return (
-							<div key={group.id}>
-								<p className="mb-2 text-muted-foreground text-xs">
-									{groupCopy.label}
-								</p>
+				{hasTypeStep ? (
+					<>
+						<motion.div
+							initial={false}
+							animate={{ height: activeHeight > 0 ? activeHeight : "auto" }}
+							transition={STEP_TRANSITION}
+							className="overflow-hidden"
+						>
+							<motion.div
+								initial={false}
+								// -50% of the 200%-wide track = one popover width. Flex
+								// order flips under dir="rtl", so the offset flips too.
+								animate={{
+									x: step === "type" ? "0%" : dir === "rtl" ? "50%" : "-50%",
+								}}
+								transition={STEP_TRANSITION}
+								className="flex w-[200%] items-start"
+							>
 								<div
-									className={cn(
-										"grid gap-2",
-										group.layout === "grid"
-											? "grid-cols-3"
-											: group.layout === "compact"
-												? "grid-cols-4"
-												: "grid-cols-2",
-									)}
+									ref={typePanelRef}
+									inert={step !== "type"}
+									className="w-1/2"
 								>
-									{group.choices.map((choice) => {
-										const selected = values[group.id] === choice.id;
-										return (
-											<button
-												key={choice.id}
-												type="button"
-												onClick={() => onValueChange(group.id, choice.id)}
-												className={cn(
-													"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
-													selected
-														? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-														: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
-													group.layout === "grid" && "min-h-14",
-												)}
-											>
-												{groupCopy.choices[choice.id]}
-											</button>
-										);
-									})}
+									{typePanel}
 								</div>
+								<div
+									ref={optionsPanelRef}
+									inert={step !== "options"}
+									className="w-1/2"
+								>
+									{optionsPanel}
+								</div>
+							</motion.div>
+						</motion.div>
+						<div className="flex items-center gap-2 border-border border-t px-3 py-2.5">
+							<div aria-hidden className="flex items-center gap-1">
+								{SETTINGS_STEPS.map((id) => (
+									<span
+										key={id}
+										className={cn(
+											"h-1.5 rounded-full transition-all duration-300",
+											id === step ? "w-4 bg-primary" : "w-1.5 bg-border",
+										)}
+									/>
+								))}
 							</div>
-						);
-					})}
-					{showQuality && !isVideoMode ? (
-						<div>
-							<p className="mb-2 text-muted-foreground text-xs">
-								{t("projects.promptBox.qualityLabel")}
-							</p>
-							<div className="grid grid-cols-2 gap-2">
-								{QUALITY_TIERS.map((tier) => {
-									const tierCopy = pb.quality[tier.id];
-									const selected = quality === tier.id;
-									return (
-										<button
-											key={tier.id}
-											type="button"
-											onClick={() => onQualityChange(tier.id)}
-											className={cn(
-												"min-h-14 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
-												selected
-													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-													: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
-											)}
-										>
-											<span className="block font-medium">
-												{tierCopy.label}
-											</span>
-											<PriceTag
-												cost={QUALITY_CREDITS[tier.id]}
-												withIcon
-												showUnit={false}
-												className="mt-1 justify-center text-[11px]"
-											/>
-										</button>
-									);
+							<span aria-live="polite" className="sr-only">
+								{t("projects.promptBox.stepLabel", {
+									current: step === "type" ? 1 : 2,
+									total: SETTINGS_STEPS.length,
 								})}
+							</span>
+							<div className="ms-auto flex items-center gap-1.5">
+								{step === "options" ? (
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										onClick={() => setStep("type")}
+										className="rounded-full text-muted-foreground hover:text-foreground"
+									>
+										<ChevronLeft className="size-3.5 rtl:rotate-180" />
+										{t("projects.promptBox.stepBack")}
+									</Button>
+								) : null}
+								{step === "type" ? (
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => setStep("options")}
+										className="rounded-full"
+									>
+										{t("projects.promptBox.stepNext")}
+										<ChevronRight className="size-3.5 rtl:rotate-180" />
+									</Button>
+								) : (
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => setOpen(false)}
+										className="rounded-full"
+									>
+										<Check className="size-3.5" />
+										{t("projects.promptBox.stepDone")}
+									</Button>
+								)}
 							</div>
 						</div>
-					) : null}
-					{showQuality && isVideoMode ? (
-						<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
-							<span className="text-muted-foreground text-xs">
-								{t("projects.promptBox.qualityLabel")}
-							</span>
-							<PriceTag
-								cost={CREDIT_COSTS.videoGeneration}
-								withIcon
-								showUnit={false}
-								className="text-[11px] text-foreground"
-							/>
+					</>
+				) : (
+					<>
+						{optionsPanel}
+						<div className="flex items-center justify-end border-border border-t px-3 py-2.5">
+							<Button
+								type="button"
+								size="sm"
+								onClick={() => setOpen(false)}
+								className="rounded-full"
+							>
+								<Check className="size-3.5" />
+								{t("projects.promptBox.stepDone")}
+							</Button>
 						</div>
-					) : null}
-				</div>
-			</DropdownMenuContent>
-		</DropdownMenu>
+					</>
+				)}
+			</PopoverContent>
+		</Popover>
 	);
 }
 
@@ -1762,10 +1883,12 @@ export type PromptBoxSubmitOverride = {
 	label: string;
 	/** The caller owns answer validity; PromptBox still also respects isSubmitting. */
 	disabled: boolean;
-	/** Confirm the caller's current draft. A false return or rejection keeps the
-	 * textarea. */
-	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget overrides assignable
-	onSubmit: () => void | boolean | Promise<void | boolean>;
+	/** Confirm the caller's current draft with its successfully uploaded
+	 * attachments. A false return or rejection keeps the textarea and files. */
+	onSubmit: (
+		attachments: UploadAttachmentResponse[],
+		// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget overrides assignable
+	) => void | boolean | Promise<void | boolean>;
 };
 
 export type PromptBoxProps = {
@@ -1784,8 +1907,6 @@ export type PromptBoxProps = {
 	attachmentsEnabled?: boolean;
 	variant?: "hero" | "compact";
 	placeholder?: string;
-	/** Show the generation cost as a quiet mono tag next to the actions. */
-	showPriceTag?: boolean;
 	/** Tinted strip above the card (ai-chat-v2 style). */
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
@@ -1793,6 +1914,10 @@ export type PromptBoxProps = {
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
+	/** Hard-disable the composer (e.g. the workspace is out of credits).
+	 * Blocks typing, dictation and every submit path; the caller renders its
+	 * own notice above the box explaining why. */
+	disabled?: boolean;
 	initialValue?: string;
 	/** Restores the selected workflow after an auth redirect. Uploaded files are
 	 * intentionally not serialized; Video reopens on its source-image step. */
@@ -1821,9 +1946,9 @@ export function PromptBox({
 	attachmentsEnabled = false,
 	variant = "hero",
 	placeholder,
-	showPriceTag = false,
 	showBanner = false,
 	isSubmitting = false,
+	disabled = false,
 	initialValue = "",
 	initialComposer,
 	clearOnSubmit = false,
@@ -1853,9 +1978,6 @@ export function PromptBox({
 		useState<GenerationOutputId | null>(initialOutput?.id ?? null);
 	const [outputOptions, setOutputOptions] =
 		useState<Record<string, string>>(initialOptions);
-	const [quality, setQuality] = useState<ComposerQuality>(
-		initialComposer?.quality ?? "standard",
-	);
 	// Dev-only builder override (see BUILDER_MODELS); localStorage-backed so
 	// the choice survives the remounts between hero and chat composers.
 	const [builderModel, setBuilderModelState] = useState(() =>
@@ -1894,6 +2016,7 @@ export function PromptBox({
 		),
 	);
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 	const [sourceImage, setSourceImage] = useState<ComposerAttachment | null>(
 		null,
 	);
@@ -1908,6 +2031,7 @@ export function PromptBox({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const sourceImageInputRef = useRef<HTMLInputElement>(null);
 	const submitInFlightRef = useRef(false);
+	const fileDragDepthRef = useRef(0);
 	const videoSubmissionIdRef = useRef(initialVideoSubmissionId);
 
 	// Mirror for unmount cleanup — object URLs leak without an explicit revoke.
@@ -1938,30 +2062,46 @@ export function PromptBox({
 		[attachments],
 	);
 	const isVideoMode = routeMode === "video";
-	const readySourceImage = sourceImage?.status === "ready" ? sourceImage : null;
-	const hasUploadingAttachment = attachments.some(
-		(attachment) => attachment.status === "uploading",
-	);
-	const hasUploadingSource = isVideoMode && sourceImage?.status === "uploading";
-	const submissionPending = isSubmitting || isLocallySubmitting;
-	// Image animation is source-first: once uploads are available, generic
-	// context never substitutes for the one required still image. Signed-out
-	// surfaces can still carry the motion draft through auth.
-	const hasRequiredInput = isVideoMode
-		? attachmentsEnabled
-			? Boolean(readySourceImage)
-			: true
-		: value.trim().length > 0 || readyAttachments.length > 0;
-	const canSubmit = submitOverride
-		? !submitOverride.disabled && !submissionPending
-		: hasRequiredInput &&
-			!submissionPending &&
-			!hasUploadingAttachment &&
-			!hasUploadingSource;
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
 	);
+	// Only the image-animation output is source-first; video-creator is
+	// text-to-video and behaves like any prompt-driven output.
+	const requiresSourceImage =
+		isVideoMode && selectedOutput?.requiresSourceImage === true;
+	const readySourceImage = sourceImage?.status === "ready" ? sourceImage : null;
+	const hasUploadingAttachment = attachments.some(
+		(attachment) => attachment.status === "uploading",
+	);
+	const hasUploadingSource =
+		requiresSourceImage && sourceImage?.status === "uploading";
+	const submissionPending = isSubmitting || isLocallySubmitting;
+	const hasAttachmentCapacity =
+		attachments.length < MAX_ATTACHMENTS - (sourceImage ? 1 : 0);
+	const canAcceptDroppedFiles =
+		attachmentsEnabled &&
+		!disabled &&
+		!submissionPending &&
+		hasAttachmentCapacity;
+	// Image animation is source-first: once uploads are available, generic
+	// context never substitutes for the one required still image. Signed-out
+	// surfaces can still carry the motion draft through auth.
+	const hasRequiredInput = requiresSourceImage
+		? attachmentsEnabled
+			? Boolean(readySourceImage)
+			: true
+		: value.trim().length > 0 || readyAttachments.length > 0;
+	const canSubmit =
+		!disabled &&
+		(submitOverride
+			? !submitOverride.disabled &&
+				!submissionPending &&
+				!hasUploadingAttachment
+			: hasRequiredInput &&
+				!submissionPending &&
+				!hasUploadingAttachment &&
+				!hasUploadingSource);
 	const attachedSkills = useMemo(
 		() =>
 			selectedSkillIds
@@ -2045,6 +2185,67 @@ export function PromptBox({
 		[runUpload],
 	);
 
+	const handleFileDragEnter = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!isFileDrag(event.dataTransfer)) return;
+			event.preventDefault();
+			fileDragDepthRef.current += 1;
+		},
+		[],
+	);
+
+	const handleFileDragOver = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!isFileDrag(event.dataTransfer)) return;
+			const handledByChild = event.defaultPrevented;
+			event.preventDefault();
+
+			if (handledByChild) {
+				setIsDraggingFiles(false);
+				return;
+			}
+
+			event.dataTransfer.dropEffect = canAcceptDroppedFiles ? "copy" : "none";
+			setIsDraggingFiles(canAcceptDroppedFiles);
+		},
+		[canAcceptDroppedFiles],
+	);
+
+	const handleFileDragLeave = useCallback(() => {
+		fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+		if (fileDragDepthRef.current === 0) {
+			setIsDraggingFiles(false);
+		}
+	}, []);
+
+	const handleFileDrop = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (
+				!isFileDrag(event.dataTransfer) &&
+				event.dataTransfer.files.length === 0
+			) {
+				return;
+			}
+
+			const handledByChild = event.defaultPrevented;
+			event.preventDefault();
+			fileDragDepthRef.current = 0;
+			setIsDraggingFiles(false);
+
+			if (
+				handledByChild ||
+				!canAcceptDroppedFiles ||
+				submitInFlightRef.current ||
+				event.dataTransfer.files.length === 0
+			) {
+				return;
+			}
+
+			handleFilesPicked(event.dataTransfer.files);
+		},
+		[canAcceptDroppedFiles, handleFilesPicked],
+	);
+
 	const handleSourceImagePicked = useCallback(
 		(files: FileList | File[]) => {
 			const file = Array.from(files)[0];
@@ -2091,7 +2292,7 @@ export function PromptBox({
 			const found = attachmentsRef.current.find(
 				(attachment) => attachment.id === id,
 			);
-			if (!found?.file) return;
+			if (!found?.file || found.error !== "failed") return;
 			setAttachments((current) =>
 				current.map((attachment) =>
 					attachment.id === id
@@ -2157,6 +2358,12 @@ export function PromptBox({
 	// the prompt so the backend routes the generation the same way the UI shows.
 	const buildComposer = (): ComposerMetadata => {
 		const options: Record<string, unknown> = { ...outputOptions };
+		const codMode = options.codMode;
+		// `auto` delegates the choice to the Brain, while a hidden value from a
+		// previous COD selection must not leak into another landing-page goal.
+		if (options.goal !== "cod" || (codMode !== "simple" && codMode !== "max")) {
+			delete options.codMode;
+		}
 
 		// Dev-only builder override: rides as a composer option so each
 		// generate_page call snapshots the picked model — no server restart.
@@ -2171,9 +2378,11 @@ export function PromptBox({
 		}
 
 		if (isVideoMode) {
+			// Both video outputs carry the retry-proof idempotency token; only
+			// image animation sends the dedicated source keys.
 			options.videoSubmissionId = videoSubmissionIdRef.current;
 
-			if (readySourceImage?.uploaded) {
+			if (requiresSourceImage && readySourceImage?.uploaded) {
 				options.sourceImageUrl = readySourceImage.uploaded.url;
 				options.sourceMediaType = readySourceImage.uploaded.mediaType;
 			}
@@ -2181,7 +2390,6 @@ export function PromptBox({
 
 		return {
 			mode: routeMode,
-			quality,
 			output: selectedOutputId ?? undefined,
 			skills: selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
 			options: Object.keys(options).length > 0 ? options : undefined,
@@ -2199,20 +2407,31 @@ export function PromptBox({
 	};
 
 	const handleSubmit = async () => {
-		if (submitInFlightRef.current) return;
+		if (disabled || submitInFlightRef.current) return;
 
 		if (submitOverride) {
-			if (submitOverride.disabled || submissionPending) return;
+			if (
+				submitOverride.disabled ||
+				submissionPending ||
+				hasUploadingAttachment
+			) {
+				return;
+			}
+			const uploadedAttachments = readyAttachments.flatMap((attachment) =>
+				attachment.uploaded ? [attachment.uploaded] : [],
+			);
 			submitInFlightRef.current = true;
 			setIsLocallySubmitting(true);
 			try {
-				const result = await submitOverride.onSubmit();
+				const result = await submitOverride.onSubmit(uploadedAttachments);
 				if (clearOnSubmit && result !== false) {
 					if (value.length > 0) {
 						videoSubmissionIdRef.current = createVideoSubmissionId();
 					}
 					setValue("");
 					onValueChange?.("");
+					clearAttachments();
+					setSelectedSkillIds([]);
 				}
 			} catch {
 				// The caller owns error presentation. Keeping the draft makes the
@@ -2225,10 +2444,11 @@ export function PromptBox({
 		}
 
 		const prompt = value.trim();
-		const sourceIsRequired = isVideoMode && attachmentsEnabled;
-		const videoDraftWithoutUploads = isVideoMode && !attachmentsEnabled;
+		const sourceIsRequired = requiresSourceImage && attachmentsEnabled;
+		const videoDraftWithoutUploads = requiresSourceImage && !attachmentsEnabled;
 		const genericUploadCanSubmit =
-			!isVideoMode && (prompt.length > 0 || readyAttachments.length > 0);
+			!requiresSourceImage &&
+			(prompt.length > 0 || readyAttachments.length > 0);
 		if (
 			submissionPending ||
 			hasUploadingAttachment ||
@@ -2244,7 +2464,7 @@ export function PromptBox({
 			attachment.uploaded ? [attachment.uploaded] : [],
 		);
 		const submittedAttachments =
-			isVideoMode && readySourceImage?.uploaded
+			requiresSourceImage && readySourceImage?.uploaded
 				? [readySourceImage.uploaded, ...uploadedAttachments].slice(
 						0,
 						MAX_ATTACHMENTS,
@@ -2267,6 +2487,10 @@ export function PromptBox({
 					onValueChange?.("");
 					clearAttachments();
 					clearSourceImage();
+					// A skill applies to the message it was picked for. Dropping the
+					// chips keeps the playbooks out of every later system prompt; the
+					// director can still load one through read_skill.
+					setSelectedSkillIds([]);
 				}
 			}
 		} catch {
@@ -2293,11 +2517,12 @@ export function PromptBox({
 		}
 	};
 
-	const selectOutput = (output: GenerationOutputDef) => {
-		setRouteMode(output.mode);
+	// Fired from the settings wizard's type step, which stays open — so no
+	// textarea refocus here, and re-picking the same output keeps its options.
+	const chooseOutput = (output: GenerationOutputDef) => {
+		if (output.id === selectedOutputId) return;
 		setSelectedOutputId(output.id);
 		setOutputOptions(createDefaultOptions(output));
-		textareaRef.current?.focus();
 	};
 
 	const handleModeChange = (mode: RouteMode) => {
@@ -2305,11 +2530,6 @@ export function PromptBox({
 		const defaultOutput = getDefaultOutput(mode);
 		setSelectedOutputId(defaultOutput?.id ?? null);
 		setOutputOptions(defaultOutput ? createDefaultOptions(defaultOutput) : {});
-		textareaRef.current?.focus();
-	};
-
-	const handleQualityChange = (next: ComposerQuality) => {
-		setQuality(next);
 		textareaRef.current?.focus();
 	};
 
@@ -2341,7 +2561,14 @@ export function PromptBox({
 			(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact));
 
 	const box = (
-		<div className="group/prompt relative">
+		// biome-ignore lint/a11y/noStaticElementInteractions: file drag-and-drop enhances the existing keyboard-accessible attachment picker
+		<div
+			className="group/prompt relative"
+			onDragEnter={handleFileDragEnter}
+			onDragOver={handleFileDragOver}
+			onDragLeave={handleFileDragLeave}
+			onDrop={handleFileDrop}
+		>
 			{/* Soft ember focus ring (DESIGN.md --wd-ring) — the composer itself is
 			    the one richly-shadowed surface, so focus stays quiet. */}
 			<div
@@ -2350,14 +2577,14 @@ export function PromptBox({
 			/>
 			<InputGroup
 				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
-				data-disabled={submissionPending}
+				data-disabled={submissionPending || disabled}
 			>
 				{topSlot ? (
 					// Clip the slot to the card's top radius — its content (the tray)
 					// paints its own full-bleed background.
 					<div className="w-full overflow-hidden rounded-t-3xl">{topSlot}</div>
 				) : null}
-				{isVideoMode ? (
+				{requiresSourceImage ? (
 					<SourceImageCard
 						source={sourceImage}
 						validationError={sourceValidationError}
@@ -2425,13 +2652,15 @@ export function PromptBox({
 					placeholder={resolvedPlaceholder}
 					rows={1}
 					maxLength={projectPromptMaxLength}
-					disabled={submissionPending}
+					disabled={submissionPending || disabled}
 					className={cn(
 						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground disabled:opacity-60",
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
 							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
-						attachedSkills.length > 0 || attachments.length > 0 || isVideoMode
+						attachedSkills.length > 0 ||
+							attachments.length > 0 ||
+							requiresSourceImage
 							? "pt-2"
 							: "pt-4",
 					)}
@@ -2472,20 +2701,12 @@ export function PromptBox({
 								/>
 							</>
 						) : null}
-						<OutputPicker
-							mode={routeMode}
-							output={selectedOutput}
-							onSelectOutput={selectOutput}
-							isHero={isHero}
-						/>
 						<OutputSettings
+							outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
 							output={selectedOutput}
+							onSelectOutput={chooseOutput}
 							values={outputOptions}
 							onValueChange={updateOutputOption}
-							quality={quality}
-							onQualityChange={handleQualityChange}
-							showQuality={showPriceTag}
-							isVideoMode={isVideoMode}
 							isHero={isHero}
 						/>
 						<div className="ms-auto flex items-center gap-1">
@@ -2499,7 +2720,10 @@ export function PromptBox({
 										aria-pressed={isRecording}
 										onClick={toggleRecording}
 										disabled={
-											!micSupported || submissionPending || isTranscribing
+											!micSupported ||
+											submissionPending ||
+											isTranscribing ||
+											disabled
 										}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",
@@ -2562,6 +2786,17 @@ export function PromptBox({
 					</TooltipProvider>
 				</InputGroupAddon>
 			</InputGroup>
+			{isDraggingFiles && canAcceptDroppedFiles ? (
+				<div
+					aria-hidden
+					className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-3xl border-[1.5px] border-primary/45 border-dashed bg-primary/8 text-primary backdrop-blur-[2px]"
+				>
+					<span className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-background/90 px-3.5 py-2 font-medium text-sm shadow-sm">
+						<Paperclip className="size-4" />
+						{pb.attachments.dropHint}
+					</span>
+				</div>
+			) : null}
 		</div>
 	);
 

@@ -13,17 +13,19 @@ import {
 	Controller,
 	Get,
 	Inject,
+	NotFoundException,
 	Param,
 	Post,
 	Query,
 	Req,
 	Res,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type ChatByProjectResponse,
 	type ChatMessagesResponse,
+	type ChatUsageResponse,
+	isStaffRole,
 	type SendChatMessageBody,
 	type SendChatMessageResponse,
 	sendChatMessageBodySchema,
@@ -35,7 +37,7 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -89,10 +91,26 @@ export class ChatsController {
 		);
 	}
 
+	@Get(":chatId/usage")
+	getUsage(
+		@Param("chatId", new ZodValidationPipe(uuidSchema))
+		chatId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<ChatUsageResponse> {
+		if (!isStaffRole(user.role)) {
+			throw new NotFoundException();
+		}
+
+		return this.chatService.getUsage(
+			projectScopeFrom(workspace, user.id),
+			chatId,
+		);
+	}
+
 	// Save the user's prompt and enqueue generation. The answer streams later.
 	// Legacy BullMQ path: personal workspaces only (teams-workspaces.md §0).
 	@PersonalWorkspaceOnly()
-	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/messages")
 	sendMessage(
 		@Param("chatId", new ZodValidationPipe(uuidSchema))

@@ -117,7 +117,7 @@ SMALL CAPS WHERE AVAILABLE: on faces that support it, set the cartel name line a
 - THE VIGNETTE: one fixed pseudo-element, inset 0, z-index 89, pointer-events none, box-shadow inset 0 0 24vh 9vh color-mix(in srgb, var(--background) 55%, transparent). It is what turns a dark page into a dark ROOM, and it costs one line.
 - Global base: html and body overflow-x clip with background NOIR on both so overscroll never flashes white, antialiased, text-rendering optimizeLegibility. ::selection is accent with NOIR text. :focus-visible is a 1px accent outline at outline-offset 3px, radius min(var(--radius), 0px). A skip link sliding from top:-4rem to top:1rem on focus over .3s.
 - THE COORDINATED NUMBERS, all derived from the 3.4rem rail: room min-height calc(100svh - 3.4rem) with a 100vh line declared FIRST as fallback; sticky column offset top 5.2rem; scroll-margin-top 4.2rem on every anchored section; padding-bottom 5.6rem on the last section so the sticky bar never covers the footer's last line.
-- SMOOTH SCROLL IS WELCOME HERE, AND IT IS GATED: Lenis is optional but recommended at lerp .085 and wheelMultiplier .9. Wire it exactly — lenis.on("scroll", ScrollTrigger.update), drive lenis.raf from gsap.ticker.add, set gsap.ticker.lagSmoothing(0), expose the instance as window.__lenis, and DO NOT instantiate it at all when reduced is true, when the pointer is coarse, or when the Lenis CDN failed. Native scroll must remain a complete, correct experience; every ScrollTrigger on the page works identically without it.
+- SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE in this runtime — native scroll only. Do not load Lenis or any smooth-scroll script; native scroll is the complete, correct experience, and every ScrollTrigger on the page works directly on it.
 
 ## The room sequence (this world's page blueprint — follow it unless the brief names another arc)
 1. LA VITRINE — the hero: the object lit, named, priced, its cartel and the four-fact rail.
@@ -170,7 +170,7 @@ Use at least five of the seven. LE NOIR and LE DÉPLACEMENT are MANDATORY. LE CU
 - RESPONSIVE COLLAPSE below 900px: every two-column grid becomes 1fr; sticky becomes static; the walk's pin is REMOVED for a snap rail; the stage narrows to min(86vw,24rem); the marginalia disappears; the facts rail becomes 2x2; LE NOIR shrinks from 30vh to 16vh so the phone page is not an endurance test.
 - IMAGE DISCIPLINE: explicit width and height attributes everywhere; fetchpriority high on the hero's first frame; loading lazy below the fold; art-directed alt text on content images; alt empty plus aria-hidden on the sticky bar's silhouette duplicate.
 
-## Motion identity (GSAP 3 + ScrollTrigger from a CDN; Lenis optional)
+## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state — every autoAlpha 0, y offset, scale, and every frame opacity beyond the first — is set with gsap.set() INSIDE the animate branch. Never author opacity:0 in CSS for an animated element. If the CDN fails or motion is reduced, the page is a fully visible, fully functional vertical sequence of lit objects. Add a prefers-reduced-motion block that, beyond the blanket .01ms override, sets the pool's animation to none, freezes the dust canvas, and makes every walk frame position:static so all angles simply stack.
 
 TIMING BANDS — this world OVERRIDES the global entrance band because it is slow on purpose: .30-.50s interaction feedback; .60-.80s component state; .60s room inversion; 1.2-1.8s entrances and narrative reveals (not .9-1.4); 2.2s light bloom; 2.4s total hero arrival; 5.4s the pool breath. ONE shared CSS easing token, cubic-bezier(.16,.68,.18,1), across roughly twenty transitions. GSAP eases: power2.out for light, power3.out for type and furniture, power4.out for masked line rises, sine.inOut for the breath, expo.out for the single success moment, none for EVERY scrub.
@@ -246,7 +246,7 @@ once:true on EVERYTHING non-scrubbed. Exactly TWO scrubs — the walk and the tr
   - VALIDATION IS BLUR-GATED: a touched map so an error appears only after a field's first blur. Errors are complete sentences in the carnelian mix of var(--primary) and var(--foreground) at .74rem with min-height 1.15em reserved so nothing reflows, and the field's border-bottom takes that same mix. aria-live polite, aria-invalid and aria-describedby wired properly.
   - SUBMIT: the primary button full-width inside the form (the one legal full-width CTA), label "ACQUÉRIR", holding a deliberate 750ms pending state with the label replaced by a present-tense sentence ("Enregistrement…"), then the quiet success state.
 - THE QUIET SUCCESS STATE — the world's most distinctive conversion moment. No confetti, no green tick, no bounce. THE LIGHTS DIM ON THE FORM AND COME UP ON THE RECORD.
-  - The form's opacity goes to 0 over .50s while a panel absolutely positioned over it inside the same box fades in over .80s with a .30s delay; the form takes visibility 0s .50s so focus never lands on a hidden control. The plate's height is never animated — both states share one box. And at the instant validation passes — as the lights dim — the acquisition is entered in the registry: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as written, wilaya, commune, plus quantity and delivery choice), while one off-canvas decoy input marked data-wandit-hp stands off-stage in the form, never read by the page's own script.
+  - The form's opacity goes to 0 over .50s while a panel absolutely positioned over it inside the same box fades in over .80s with a .30s delay; the form takes visibility 0s .50s so focus never lands on a hidden control. The plate's height is never animated — both states share one box. And at the instant validation passes — as the lights dim — the acquisition is entered in the registry: the page dispatches the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as written, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected), while one off-canvas decoy input marked data-wandit-hp stands off-stage in the form, never read by the page's own script.
   - The panel is darkness with one small pool (the radial formula at 40 percent scale) centred behind a single element: THE ACQUISITION NUMBER in DISPLAY 400 at clamp(2.4rem,5vw,3.4rem), tabular-nums, LUMEN, with the four CLAW MARKS drawing in around it over .60s staggered .07 at arm 2.2rem — the largest instance of the world's silhouette. One GSAP move on the numeral: fromTo({scale:.94,autoAlpha:0},{scale:1,autoAlpha:1,duration:1.1,delay:.35,ease:"expo.out"}).
   - Above it "ACQUISITION ENREGISTRÉE" in ACCENT at .68rem/.30em uppercase. Below it, the buyer's own order rendered AS A CARTEL in the exact cartel format — the name line, then a spec line of accent-middot fields reading their name · wilaya · quantity · total. The customer's order becomes a museum label. That is the payoff of the whole world and it costs twenty lines of markup.
   - Below the cartel, the WhatsApp ghost button so the buyer can confirm in one tap. PERSIST IT: store the order in localStorage and, on return, paint the success state INSTANTLY with no animation so a returning buyer is never asked to order twice.
@@ -306,6 +306,7 @@ This world fails by being merely DARK. A near-black page with a product photo an
 
 Executed at 60 percent — dark background, gold accent, rounded cards, a product grid, a green WhatsApp button — this is exactly the generic dark landing page it exists to replace. Executed at 100 percent, a visitor scrolling on a phone in Algiers feels let into a closed room after hours to look at one thing properly, and then quietly told they can have it, and pay when it arrives. Push INTO the darkness and the discipline. Every number above is load-bearing.`,
 	energy: "quiet",
+	family: "mono-commerce",
 	id: "vitrine",
 	industries: [
 		"jewelry",
@@ -326,6 +327,13 @@ Executed at 60 percent — dark background, gold accent, rounded cards, a produc
 	kind: "product",
 	mood: ["dark", "precious", "hushed", "curated", "exacting"],
 	name: "Vitrine",
+	preview: {
+		ground: "#0B0A09",
+		ink: "#EDE7DC",
+		accent: "#C6A15B",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "La Vitrine",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Your product alone in a dark room, standing in its own pool of light with a museum label underneath — the visitor walks around it as they scroll, and the price is set like a stone in four gold brackets.",

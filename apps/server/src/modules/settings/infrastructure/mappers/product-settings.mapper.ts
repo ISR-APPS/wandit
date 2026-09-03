@@ -3,6 +3,12 @@ import type { ProductSettings } from "@wandit/contracts";
 import { PRODUCT_SETTINGS_ID } from "../../domain/product-settings.constants";
 import type { ProductSettingsRow } from "../persistence/product-settings.repository";
 
+/**
+ * Maps the row for INTERNAL consumers: signupGrantCredits stays in integer
+ * centi-credits exactly as stored (the signup-grant outbox writes it to the
+ * ledger unconverted). The admin settings controller converts to whole
+ * credits at the API boundary.
+ */
 export function mapProductSettingsRow(
 	row: ProductSettingsRow,
 ): ProductSettings {
@@ -11,9 +17,12 @@ export function mapProductSettingsRow(
 	}
 
 	return {
-		earlyAccessRequired: row.earlyAccessRequired,
+		dzdPerUsdRate: row.dzdPerUsdRate,
 		emailAuthEnabled: row.emailAuthEnabled,
 		id: PRODUCT_SETTINGS_ID,
+		lifecycleEmailsEnabled: row.lifecycleEmailsEnabled,
+		manualGraceDays: row.manualGraceDays,
+		manualPaymentsEnabled: row.manualPaymentsEnabled,
 		organizationsEnabled: row.organizationsEnabled,
 		paidSubscriptionsEnabled: row.paidSubscriptionsEnabled,
 		signupGrantCredits: row.signupGrantCredits,

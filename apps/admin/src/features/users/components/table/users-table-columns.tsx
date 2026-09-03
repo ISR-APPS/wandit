@@ -2,15 +2,16 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
-import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
+	PhoneCell,
 	PlanBadge,
 	RoleBadge,
 	StatusBadge,
@@ -45,6 +46,13 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		cell: ({ row }) => <PlanBadge plan={row.original.plan} />,
 	},
 	{
+		accessorKey: "phone",
+		header: ({ column }) => (
+			<DataTableColumnHeader column={column} title="Phone" />
+		),
+		cell: ({ row }) => <PhoneCell phone={row.original.phone} />,
+	},
+	{
 		accessorKey: "creditsBalance",
 		header: ({ column }) => (
 			<DataTableColumnHeader column={column} title="Credits" />
@@ -52,9 +60,23 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		cell: ({ row }) => (
 			<div>
 				<p className="font-medium font-mono tabular-nums">
-					{formatWholeNumber(row.original.creditsBalance)}
+					{formatCreditBalance(row.original.creditsBalance)}
 				</p>
 				<p className="text-muted-foreground text-xs">available</p>
+			</div>
+		),
+	},
+	{
+		accessorKey: "creditsConsumed",
+		header: ({ column }) => (
+			<DataTableColumnHeader column={column} title="Credits used" />
+		),
+		cell: ({ row }) => (
+			<div>
+				<p className="font-medium font-mono tabular-nums">
+					{formatCreditAmount(row.original.creditsConsumed)}
+				</p>
+				<p className="text-muted-foreground text-xs">lifetime</p>
 			</div>
 		),
 	},
@@ -75,12 +97,7 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		header: ({ column }) => (
 			<DataTableColumnHeader column={column} title="Status" />
 		),
-		cell: ({ row }) => (
-			<div className="flex flex-wrap items-center gap-1.5">
-				<StatusBadge user={row.original} />
-				<EarlyAccessBadge user={row.original} />
-			</div>
-		),
+		cell: ({ row }) => <StatusBadge user={row.original} />,
 	},
 	{
 		accessorKey: "createdAt",

@@ -14,6 +14,12 @@ import {
 	putPageHtml,
 } from "../infrastructure/storage/r2";
 import {
+	classifyAiError,
+	renderAiErrorSentence,
+} from "../modules/ai-errors/domain";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
+import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
+import {
 	createMarketingAssetBilling,
 	type MarketingAssetBilling,
 } from "../modules/marketing-assets/application/services/marketing-asset-billing";
@@ -32,12 +38,18 @@ const ASSET_COLUMNS = {
 	brief: marketingAssets.brief,
 	completedAt: marketingAssets.completedAt,
 	error: marketingAssets.error,
+	failureKind: marketingAssets.failureKind,
+	failureProvider: marketingAssets.failureProvider,
+	failureProviderMessage: marketingAssets.failureProviderMessage,
+	failureRequestId: marketingAssets.failureRequestId,
+	failureSource: marketingAssets.failureSource,
 	id: marketingAssets.id,
 	name: marketingAssets.name,
 	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: marketingAssets.projectId,
 	r2Key: marketingAssets.r2Key,
+	sentryEventId: marketingAssets.sentryEventId,
 	startedAt: marketingAssets.startedAt,
 	status: marketingAssets.status,
 	triggerRunId: marketingAssets.triggerRunId,
@@ -97,11 +109,25 @@ export function createMarketingAssetRuntime(
 				try {
 					await putPageHtml(key, generated.html);
 				} catch (error) {
+					const failure = classifyAiError(error, {
+						model: generated.model,
+						refunded: false,
+						route: "none",
+						surface: "marketing",
+					});
+
+					if (!failure) {
+						throw new Error(
+							"Marketing storage failure classification returned no result",
+						);
+					}
+
 					return {
+						failure,
 						model: generated.model,
 						...(generated.provider ? { provider: generated.provider } : {}),
 						providerMetadata: generated.providerMetadata,
-						message: error instanceof Error ? error.message : String(error),
+						message: renderAiErrorSentence(failure),
 						providerUnits: 1,
 						status: "failed" as const,
 						...(generated.usage === undefined
@@ -139,6 +165,10 @@ function createBilling(db: TriggerDatabase): MarketingAssetBilling {
 }
 
 function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
+	const lifecycleEvents = new LifecycleEventsService(
+		new LifecycleEventsRepository(db),
+	);
+
 	const loadAsset = async (
 		assetId: string,
 	): Promise<MarketingAssetJob | null> => {
@@ -160,6 +190,12 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			.update(marketingAssets)
 			.set({
 				error: null,
+				failureKind: null,
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureRequestId: null,
+				failureSource: null,
+				sentryEventId: null,
 				startedAt: input.startedAt,
 				status: "generating",
 				triggerRunId: input.runId,
@@ -180,35 +216,57 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		asset: MarketingAssetJob,
 		document: MarketingAssetDocument,
 		completedAt: Date,
+		actorUserId: string,
 	): Promise<boolean> => {
-		const [updated] = await db
-			.update(marketingAssets)
-			.set({
-				completedAt,
-				error: null,
-				r2Key: document.r2Key,
-				status: "succeeded",
-			})
-			.where(
-				and(
-					eq(marketingAssets.id, asset.id),
-					eq(marketingAssets.projectId, asset.projectId),
-					eq(marketingAssets.status, "generating"),
-					sql`exists (
-						select 1
-						from ${projects}
-						where ${projects.id} = ${marketingAssets.projectId}
-							and ${projects.userId} = ${asset.userId}
-							and ${projects.deletedAt} is null
-					)`,
-				),
-			)
-			.returning({ id: marketingAssets.id });
+		const updated = await db.transaction(async (transaction) => {
+			const [succeeded] = await transaction
+				.update(marketingAssets)
+				.set({
+					completedAt,
+					error: null,
+					failureKind: null,
+					failureProvider: null,
+					failureProviderMessage: null,
+					failureRequestId: null,
+					failureSource: null,
+					r2Key: document.r2Key,
+					sentryEventId: null,
+					status: "succeeded",
+				})
+				.where(
+					and(
+						eq(marketingAssets.id, asset.id),
+						eq(marketingAssets.projectId, asset.projectId),
+						eq(marketingAssets.status, "generating"),
+						sql`exists (
+							select 1
+							from ${projects}
+							where ${projects.id} = ${marketingAssets.projectId}
+								and ${projects.userId} = ${asset.userId}
+								and ${projects.deletedAt} is null
+						)`,
+					),
+				)
+				.returning({ id: marketingAssets.id });
+
+			if (succeeded && asset.assetType === "marketing-strategy") {
+				await lifecycleEvents.enqueue(
+					{
+						event: "marketing_strategy_generated",
+						idempotencyKey: `marketing_strategy_generated:${actorUserId}`,
+						userId: actorUserId,
+					},
+					transaction,
+				);
+			}
+
+			return succeeded;
+		});
 
 		if (updated) {
 			captureGenerationCompleted(
 				analytics,
-				asset.userId,
+				actorUserId,
 				"marketing_asset",
 				asset.projectId,
 				asset.id,
@@ -224,7 +282,13 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			failureKind: string;
+			failureProvider: string | null;
+			failureProviderMessage: string | null;
+			failureRequestId: string | null;
+			failureSource: string;
 			reason: string;
+			sentryEventId: string | null;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -232,6 +296,12 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			.set({
 				completedAt: input.completedAt,
 				error: input.error.slice(0, 2_000),
+				failureKind: input.failureKind,
+				failureProvider: input.failureProvider,
+				failureProviderMessage: input.failureProviderMessage,
+				failureRequestId: input.failureRequestId,
+				failureSource: input.failureSource,
+				sentryEventId: input.sentryEventId,
 				status: "failed",
 			})
 			.where(

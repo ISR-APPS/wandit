@@ -1,11 +1,6 @@
 {
 	"headerTitle": "Projects",
 	"promptHeading": "What will you launch today?",
-	"promptSoonTitle": "Coming soon",
-	"previewChatTitle": "Chat",
-	"previewAssistant": "This is where Wandit builds your site. Generation is in private early access — opening to everyone very soon.",
-	"previewComposerPlaceholder": "Describe a change…",
-	"promptSoonBody": "Wandit is opening to everyone very soon. Creating new sites is in private early access for now.",
 	"toolbarTitle": "Your projects",
 	"searchPlaceholder": "Search projects…",
 	"filterAll": "All",
@@ -68,8 +63,48 @@
 		"leads": "Leads",
 		"assets": "Assets",
 		"analytics": "Analytics",
-		"docs": "Docs",
+		"apps": "Apps",
 		"support": "Support"
+	},
+	"assetsPage": {
+		"metaTitle": "Assets — Wandit",
+		"subtitle": "Every image and video generated across your projects.",
+		"allProjects": "All projects",
+		"truncatedNote": "Showing the newest files — open a project's Assets tab for its full history.",
+		"emptyTitle": "No assets yet",
+		"emptyBody": "AI-generated images and videos from all your projects appear here, ready to download.",
+		"noResultsTitle": "No matching assets",
+		"noResultsBody": "Nothing matches these filters.",
+		"clearFilters": "Clear filters"
+	},
+	"appsPage": {
+		"metaTitle": "Apps — Wandit",
+		"badge": "Coming soon",
+		"heading": "Connect your apps",
+		"body": "Soon you will be able to connect external apps to Wandit — launch ads, sync your leads and automate your work without leaving your dashboard.",
+		"previewNote": "A first look at what's coming",
+		"tiles": {
+			"metaAds": {
+				"name": "Meta Ads",
+				"hint": "Launch and track campaigns"
+			},
+			"tiktokAds": {
+				"name": "TikTok Ads",
+				"hint": "Launch and track campaigns"
+			},
+			"sheets": {
+				"name": "Google Sheets",
+				"hint": "Sync your leads automatically"
+			},
+			"whatsapp": {
+				"name": "WhatsApp",
+				"hint": "Confirm orders faster"
+			},
+			"codPilot": {
+				"name": "COD Pilot",
+				"hint": "Sync your COD orders in Algeria"
+			}
+		}
 	},
 	"connectors": {
 		"title": "Connect apps",
@@ -99,7 +134,7 @@
 	"promptBox": {
 		"placeholderHero": "Describe what you want Wandit to create or change…",
 		"placeholderCompact": "Ask for a page edit, a marketing asset, an image or a video…",
-		"banner": "Beta — your first 10 pages are on us, no card needed",
+		"banner": "Beta — your first 5 pages are on us, no card needed",
 		"submitLabel": "Generate",
 		"micLabel": "Voice input",
 		"micStop": "Stop recording",
@@ -109,14 +144,15 @@
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
-		"attachHint": "Attach images, PDFs, docs or spreadsheets",
+		"attachHint": "Attach images, video, audio, PDFs, docs or spreadsheets",
 		"connectApps": "Connect apps",
 		"attachments": {
+			"dropHint": "Drop files to attach",
 			"uploading": "Uploading…",
 			"remove": "Remove",
 			"retry": "Retry",
 			"unsupported": "Unsupported format",
-			"tooLarge": "File too large (15 MB max)",
+			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max)",
 			"failed": "Upload failed",
 			"signInFirst": "Sign in to attach files"
 		},
@@ -141,7 +177,6 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
-		"qualityLabel": "Quality",
 		"skillLibraryLabel": "Built by Wandit",
 		"searchSkillsPlaceholder": "Search skills…",
 		"noSkillResults": "No skills found",
@@ -156,16 +191,10 @@
 		},
 		"outputsHeading": "{mode} outputs",
 		"settingsSubtitle": "Options for this {mode} output.",
-		"quality": {
-			"standard": {
-				"label": "Standard",
-				"hint": "Fast and efficient"
-			},
-			"max": {
-				"label": "Max",
-				"hint": "Best result, uses more credits"
-			}
-		},
+		"stepBack": "Back",
+		"stepNext": "Next",
+		"stepDone": "Done",
+		"stepLabel": "Step {current} of {total}",
 		"routeModes": {
 			"auto": {
 				"label": "Auto",
@@ -188,47 +217,40 @@
 				"placeholder": "Describe the product image, ratio, style and setting…"
 			},
 			"video": {
-				"label": "Animate an image",
-				"description": "Turn a photo into a short animated video.",
-				"placeholder": "Optional: describe the motion or camera movement…"
+				"label": "Video",
+				"description": "Create a video or animate a photo into motion.",
+				"placeholder": "Describe the video you want — product, style, key moment…"
 			}
 		},
 		"skillGroups": {
-			"review": {
-				"label": "Review skills"
-			},
-			"market": {
-				"label": "Market context"
+			"ads": {
+				"label": "Ads skills"
 			}
 		},
 		"skills": {
-			"accessibility": {
-				"label": "Accessibility",
-				"description": "Adds contrast, forms and keyboard review guidance."
+			"ads-fundamentals": {
+				"label": "Fundamentals",
+				"description": "Account structure, learning phase, bidding, scaling."
 			},
-			"seo-review": {
-				"label": "SEO Review",
-				"description": "Adds search structure, metadata and copy review guidance."
+			"ads-creative": {
+				"label": "Creative",
+				"description": "Hooks, formats, UGC, creative testing and fatigue."
 			},
-			"redesign": {
-				"label": "Redesign",
-				"description": "Adds visual refresh and layout critique guidance."
+			"ads-audiences": {
+				"label": "Audiences",
+				"description": "Targeting, broad vs. interests, lookalikes, exclusions."
 			},
-			"cod-algeria": {
-				"label": "COD Algeria",
-				"description": "Adds Algerian COD, wilaya and mobile-first context."
+			"ads-measurement": {
+				"label": "Measurement",
+				"description": "Pixel, events, UTMs, attribution, real CPA on COD."
 			},
-			"brand-voice": {
-				"label": "Brand Voice",
-				"description": "Keeps generated copy aligned to the brand tone."
+			"ads-cod-maghreb": {
+				"label": "COD Maghreb",
+				"description": "Benchmarks, confirmation rate, returns, local context."
 			},
-			"direct-response": {
-				"label": "Direct Response",
-				"description": "Adds offer, proof, objection and CTA pressure."
-			},
-			"premium-visuals": {
-				"label": "Premium Visuals",
-				"description": "Adds higher-end art direction for visual outputs."
+			"ads-diagnostic": {
+				"label": "Diagnostic",
+				"description": "Tracking first, then funnel read and the 72h rule."
 			}
 		},
 		"outputs": {
@@ -245,6 +267,14 @@
 							"leads": "Lead capture",
 							"service": "Service",
 							"promo": "Promo"
+						}
+					},
+					"codMode": {
+						"label": "Page type",
+						"choices": {
+							"auto": "Auto — the assistant asks",
+							"simple": "Simple — clean, focused on the order",
+							"max": "Max — rich, fully designed"
 						}
 					}
 				}
@@ -444,7 +474,8 @@
 						"choices": {
 							"1": "1 img",
 							"2": "2 img",
-							"4": "4 img"
+							"4": "4 img",
+							"6": "6 img"
 						}
 					}
 				}
@@ -508,9 +539,42 @@
 					}
 				}
 			},
+			"video-creator": {
+				"label": "Video creator",
+				"shortLabel": "Video creator",
+				"description": "Creates a short video from your description — a commercial, UGC clip, or teaser.",
+				"placeholder": "Describe the video: the product, the vibe, the moment to capture…",
+				"options": {
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					},
+					"duration": {
+						"label": "Duration",
+						"choices": {
+							"10": "10s",
+							"5": "5s"
+						}
+					},
+					"voice": {
+						"label": "Voiceover",
+						"choices": {
+							"auto": "Auto",
+							"none": "None",
+							"en": "English",
+							"fr": "French",
+							"ar": "Arabic"
+						}
+					}
+				}
+			},
 			"image-animation": {
-				"label": "Image animation",
-				"shortLabel": "Image animation",
+				"label": "Image to video",
+				"shortLabel": "Image to video",
 				"description": "Animates one still image; it does not create a video from scratch.",
 				"placeholder": "Optional: describe motion, camera movement or what should stay still…",
 				"options": {

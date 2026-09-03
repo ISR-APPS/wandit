@@ -1,13 +1,12 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-	meteringSubjectFrom,
-	type ProjectScope,
-} from "../../../projects/domain/project-scope";
 import type {
+	AiErrorData,
+	AiErrorKind,
 	MarketingAsset,
 	MarketingAssetHtmlResponse,
 	MarketingAssetsResponse,
 } from "@wandit/contracts";
+import { aiErrorKindSchema, aiErrorSourceSchema } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
 import { env } from "@wandit/env/server";
@@ -25,7 +24,18 @@ import {
 	getPageHtml,
 	marketingAssetKey,
 } from "../../../../infrastructure/storage/r2";
+import {
+	captureAiError,
+	classifyAiError,
+	type NormalizedAiError,
+	sanitizeProviderText,
+	toClientAiError,
+} from "../../../ai-errors/domain";
 import { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import {
 	type MarketingAssetRow,
 	MarketingAssetsRepository,
@@ -144,11 +154,13 @@ export class MarketingAssetsService {
 
 		for (const row of rows) {
 			if (row.status === "queued" && row.createdAt < queuedCutoff) {
+				const failure = internalMarketingFailure(STALE_QUEUED_ERROR);
 				const [failed] = await this.db
 					.update(marketingAssets)
 					.set({
 						completedAt: new Date(),
 						error: STALE_QUEUED_ERROR,
+						...failureColumns(failure),
 						status: "failed",
 					})
 					.where(
@@ -161,6 +173,12 @@ export class MarketingAssetsService {
 					.returning({ projectId: marketingAssets.projectId });
 
 				if (failed) {
+					await this.persistStaleFailureEventId(
+						row,
+						failure,
+						STALE_QUEUED_ERROR,
+						scope.userId,
+					);
 					captureGenerationFailed(
 						this.analyticsService,
 						userId,
@@ -207,7 +225,13 @@ export class MarketingAssetsService {
 					.set({
 						completedAt: new Date(),
 						error: null,
+						failureKind: null,
+						failureProvider: null,
+						failureProviderMessage: null,
+						failureRequestId: null,
+						failureSource: null,
 						r2Key: key,
+						sentryEventId: null,
 						status: "succeeded",
 					})
 					.where(
@@ -228,11 +252,13 @@ export class MarketingAssetsService {
 					);
 				}
 			} else {
+				const failure = internalMarketingFailure(STALE_GENERATION_ERROR);
 				const [failed] = await this.db
 					.update(marketingAssets)
 					.set({
 						completedAt: new Date(),
 						error: STALE_GENERATION_ERROR,
+						...failureColumns(failure),
 						status: "failed",
 					})
 					.where(
@@ -245,6 +271,12 @@ export class MarketingAssetsService {
 					.returning({ projectId: marketingAssets.projectId });
 
 				if (failed) {
+					await this.persistStaleFailureEventId(
+						row,
+						failure,
+						STALE_GENERATION_ERROR,
+						scope.userId,
+					);
 					captureGenerationFailed(
 						this.analyticsService,
 						userId,
@@ -261,6 +293,36 @@ export class MarketingAssetsService {
 
 		return changed;
 	}
+
+	private async persistStaleFailureEventId(
+		row: Pick<MarketingAssetRow, "id" | "projectId">,
+		failure: NormalizedAiError,
+		message: string,
+		userId: string,
+	): Promise<void> {
+		const sentryEventId = captureAiError(new Error(message), failure, {
+			generationId: row.id,
+			projectId: row.projectId,
+			refunded: true,
+			route: "none",
+			surface: "marketing",
+			userId,
+		});
+
+		if (!sentryEventId) {
+			return;
+		}
+
+		await this.db
+			.update(marketingAssets)
+			.set({ sentryEventId })
+			.where(
+				and(
+					eq(marketingAssets.id, row.id),
+					eq(marketingAssets.status, "failed"),
+				),
+			);
+	}
 }
 
 function mapAssetRow(row: MarketingAssetRow): MarketingAsset {
@@ -269,10 +331,119 @@ function mapAssetRow(row: MarketingAssetRow): MarketingAsset {
 		completedAt: row.completedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,
+		failure: mapFailure(row),
 		id: row.id,
 		name: row.name,
 		status: row.status,
 	};
+}
+
+function internalMarketingFailure(message: string): NormalizedAiError {
+	const error = new Error(message);
+	const failure = classifyAiError(error, {
+		refunded: true,
+		route: "none",
+		surface: "marketing",
+	});
+
+	if (!failure) {
+		throw new Error("Marketing stale failure classification returned null");
+	}
+
+	return failure;
+}
+
+function failureColumns(failure: NormalizedAiError): {
+	failureKind: string;
+	failureProvider: string | null;
+	failureProviderMessage: string | null;
+	failureRequestId: string | null;
+	failureSource: string;
+	sentryEventId: string | null;
+} {
+	return {
+		failureKind: failure.kind,
+		failureProvider: failure.provider,
+		failureProviderMessage: failure.providerMessage,
+		failureRequestId: failure.requestId,
+		failureSource: failure.source,
+		sentryEventId: failure.sentryEventId,
+	};
+}
+
+function mapFailure(row: MarketingAssetRow): AiErrorData | null {
+	const kind = aiErrorKindSchema.safeParse(row.failureKind);
+	if (!kind.success) return null;
+	const source = aiErrorSourceSchema.safeParse(row.failureSource);
+	const route =
+		source.success && source.data === "openrouter"
+			? "openrouter"
+			: source.success &&
+					(source.data === "gateway" || source.data.startsWith("provider:"))
+				? "vercel"
+				: "none";
+	const base = classifyAiError(new Error("Persisted marketing failure"), {
+		...(row.failureProvider
+			? { model: `${row.failureProvider}/persisted` }
+			: {}),
+		route,
+		surface: "marketing",
+	});
+
+	if (!base) return null;
+
+	base.kind = kind.data;
+	base.source = source.success ? source.data : "unknown";
+	base.provider = row.failureProvider;
+	base.providerLabel = persistedProviderLabel(row.failureProvider);
+	base.providerMessage = row.failureProviderMessage
+		? sanitizeProviderText(row.failureProviderMessage, {
+				kind: kind.data,
+				provider: row.failureProvider,
+			})
+		: null;
+	base.requestId = row.failureRequestId?.slice(0, 80) ?? null;
+	base.retryable = persistedRetryable(kind.data);
+	base.terminal = true;
+	base.refunded = base.source === "ours" ? null : row.failureRequestId === null;
+	base.moderationStage = null;
+
+	return toClientAiError(base);
+}
+
+function persistedProviderLabel(provider: string | null): string | null {
+	if (!provider) return null;
+	const known: Record<string, string> = {
+		anthropic: "Anthropic",
+		bedrock: "Amazon Bedrock",
+		bytedance: "Seedance",
+		google: "Google",
+		higgsfield: "Higgsfield",
+		klingai: "Kling",
+		openai: "OpenAI",
+		openrouter: "OpenRouter",
+		xai: "xAI",
+	};
+	return (
+		known[provider] ??
+		provider
+			.split(/[-_]+/u)
+			.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+			.join(" ")
+	).slice(0, 40);
+}
+
+function persistedRetryable(kind: AiErrorKind): boolean {
+	return (
+		kind === "internal" ||
+		kind === "rate_limited" ||
+		kind === "capacity" ||
+		kind === "provider_error" ||
+		kind === "timeout" ||
+		kind === "network" ||
+		kind === "connector_unreachable" ||
+		kind === "unknown"
+	);
 }
 
 function sanitizeFileName(name: string): string {

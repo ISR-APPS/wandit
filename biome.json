@@ -28,8 +28,13 @@
 			"!**/.source",
 			"!**/convex/_generated",
 			"!apps/admin/src/themes.css",
+			"!apps/native/assets/lottie/**",
+			"!apps/native/expo-env.d.ts",
+			"!apps/native/shared/ui/reference/**",
+			"!apps/native/uniwind-types.d.ts",
 			"!_production-ex",
-			"!_admin-dashboard"
+			"!_admin-dashboard",
+			"!packages/db/src/migrations/meta/**"
 		]
 	},
 	"formatter": {

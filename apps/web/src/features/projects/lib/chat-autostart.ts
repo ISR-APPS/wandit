@@ -7,8 +7,10 @@
 // - Without this flag the workspace would load that message and sit idle — the
 //   user had to retype their prompt to get an answer.
 // - useCreateProjectWithPrompt writes the flag right before navigating;
-//   useAiChat consumes it exactly once after history loads and streams the
-//   assistant's answer to the already-persisted message.
+//   the post-auth dashboard also writes it after it auto-creates from a
+//   stashed landing prompt. useAiChat consumes it exactly once after
+//   history loads and streams the assistant's answer to the already-persisted
+//   message.
 //
 // Gotchas:
 // - Keyed by projectId + chatId so a stale flag never auto-runs a different

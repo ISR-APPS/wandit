@@ -6,16 +6,12 @@
  * value, persisting the chat/main panel layout, remembering the Assets view,
  * formatting leads, and building/exporting simple files.
  *
- * PageVersion and Lead types appear here for the canvas layout and
- * CSV/download helpers; the real chat message flow lives in
- * use-project-chat.tsx and api/chat.*.
+ * PageVersion types appear here for the canvas layout and download helpers;
+ * the real chat message flow lives in use-project-chat.tsx and api/chat.*.
  */
 // Pure functions for the workspace feature.
 
-import { serializeLeadOrderDetails } from "@wandit/contracts";
-
-import { pageTitleDynamic } from "@/lib/i18n";
-import type { Lead, WorkspaceTab } from "../api/dto";
+import type { WorkspaceTab } from "../api/dto";
 import { WORKSPACE_PANELS_STORAGE_ID, WORKSPACE_TAB_VALUES } from "./constants";
 
 // Runtime guard for route search params. TypeScript types do not protect values
@@ -125,39 +121,8 @@ export function hashString(value: string): number {
 	return Math.abs(hash);
 }
 
-/**
- * CSV with UTF-8 BOM so Arabic names survive Excel; stable column order.
- * `headers` is the localized header row (leads.csvHeaders); the status cell is
- * localized from the current dictionary snapshot (leads.status.<enum_value>).
- */
+/** Title of the order-details popover in the leads table. */
 export const ORDER_DETAILS_LABEL = "Order details";
-
-export function buildLeadsCsv(
-	leads: Lead[],
-	headers: string[],
-	orderDetailsHeader = ORDER_DETAILS_LABEL,
-): string {
-	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
-	// doubled quotes are the CSV escape sequence for a literal quote.
-	const escapeCell = (cell: string) =>
-		/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
-	const csvHeaders = [...headers, orderDetailsHeader].map(escapeCell).join(",");
-	const rows = leads.map((lead) =>
-		[
-			lead.name,
-			lead.phone,
-			lead.wilaya ?? "",
-			lead.commune ?? "",
-			pageTitleDynamic(`leads.status.${lead.status}`),
-			lead.source,
-			lead.createdAt,
-			serializeLeadOrderDetails(lead.extras),
-		]
-			.map(escapeCell)
-			.join(","),
-	);
-	return `\uFEFF${[csvHeaders, ...rows].join("\n")}`;
-}
 
 // Trigger a browser download for generated text. Blob is the browser object for
 // in-memory file-like data, and URL.createObjectURL gives it a temporary URL the

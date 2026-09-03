@@ -16,7 +16,7 @@ import {
 	UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { Auth, AuthUser } from "@wandit/auth";
+import type { AdminAuth, Auth, AuthUser } from "@wandit/auth";
 import { sql } from "@wandit/db";
 import { Sentry } from "@wandit/observability/nestjs";
 
@@ -25,7 +25,13 @@ import {
 	type Database,
 } from "../../../../../infrastructure/database/database.constants";
 import { toWebHeaders } from "../../../../../infrastructure/http/fastify-headers";
-import { AUTH_INSTANCE } from "../../../auth.constants";
+import { UserActivityService } from "../../../application/services/user-activity.service";
+import {
+	ADMIN_AUTH_INSTANCE,
+	ADMIN_AUTH_SURFACE,
+	AUTH_INSTANCE,
+	AUTH_SURFACE_KEY,
+} from "../../../auth.constants";
 import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
 import type { MaybeAuthenticatedRequest } from "../types/authenticated-request";
 
@@ -39,12 +45,15 @@ export class AuthGuard implements CanActivate {
 	private readonly logger = new Logger(AuthGuard.name);
 
 	constructor(
-		// `@Inject(AUTH_INSTANCE)` means: "Nest, give me the Better Auth object
-		// registered under this token." Reflector reads decorator flags.
+		// Injection tokens keep the two Better Auth instances explicit. Reflector
+		// selects exactly one from route metadata before any cookie is parsed.
 		@Inject(AUTH_INSTANCE) private readonly auth: Auth,
+		@Inject(ADMIN_AUTH_INSTANCE) private readonly adminAuth: AdminAuth,
 		@Inject(Reflector)
 		private readonly reflector: Reflector,
 		@Inject(DATABASE) private readonly db: Database,
+		@Inject(UserActivityService)
+		private readonly userActivityService: UserActivityService,
 	) {}
 
 	// Nest runs this before the controller method.
@@ -63,8 +72,16 @@ export class AuthGuard implements CanActivate {
 		const request = context
 			.switchToHttp()
 			.getRequest<MaybeAuthenticatedRequest>();
+		// Both cookies coexist on the API host. Route metadata — never fallback
+		// ordering — decides which Better Auth instance may authenticate them.
+		const surface = this.reflector.getAllAndOverride<string>(AUTH_SURFACE_KEY, [
+			context.getHandler(),
+			context.getClass(),
+		]);
+		const auth = surface === ADMIN_AUTH_SURFACE ? this.adminAuth : this.auth;
+
 		// Better Auth expects Web Headers, so convert Fastify headers first.
-		const session = await this.auth.api.getSession({
+		const session = await auth.api.getSession({
 			headers: toWebHeaders(request.headers),
 		});
 
@@ -73,14 +90,15 @@ export class AuthGuard implements CanActivate {
 			throw new UnauthorizedException();
 		}
 
-		// Banning only deletes the target's sessions once, so a session created in
-		// that race window would otherwise authenticate forever. No cookie cache is
-		// configured, so the user row above is read fresh on every request.
+		// A newly applied ban can remain in the signed session cache for at most its
+		// five-minute lifetime. After that, Better Auth reads the Postgres session
+		// row again; the admin ban flow deletes those rows to enforce revocation.
 		if (isBanActive(session.user)) {
 			throw new UnauthorizedException();
 		}
 
 		this.touchLastSeen(session.user.id);
+		this.userActivityService.record(session.user.id, request);
 
 		// Attribute every Sentry capture on this request to the signed-in user.
 		// The SDK's request isolation scopes this per request — no leakage.

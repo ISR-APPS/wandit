@@ -1,28 +1,41 @@
-// Typed sidebar nav config for the dashboard shell. Only "Projects" is a
-// real route today; the rest are disabled placeholders ("Soon") or external
-// resource stubs. Titles are dictionary keys, resolved at render.
+// Typed sidebar nav config for the dashboard shell. AFFILIATE_NAV_GROUP stays
+// separate from the always-visible groups because AppSidebar only adds it after
+// the signed-in user is confirmed to have a linked affiliate profile.
 
 import {
-	BookOpen,
+	Blocks,
 	ChartSpline,
 	FolderOpen,
+	GraduationCap,
+	Handshake,
 	Images,
-	LifeBuoy,
 	type LucideIcon,
 	Users,
 } from "lucide-react";
 
 import type { TranslationKey } from "@/lib/i18n";
 
+export type NavAction = "open-support-chat";
+
 type NavItemBase = {
 	titleKey: TranslationKey;
 	icon: LucideIcon;
 };
 
+export type NavRoutePath =
+	| "/dashboard"
+	| "/leads"
+	| "/assets"
+	| "/apps"
+	| "/academy"
+	| "/affiliates";
+
 export type NavItem = NavItemBase &
 	(
-		| { type: "route"; to: "/dashboard" }
+		| { type: "route"; to: NavRoutePath }
 		| { type: "external"; href: string }
+		// In-app action rather than navigation (e.g. open the support chat).
+		| { type: "action"; action: NavAction }
 		| { type: "soon" }
 	);
 
@@ -41,18 +54,48 @@ export const NAV_GROUPS: NavGroup[] = [
 				to: "/dashboard",
 				icon: FolderOpen,
 			},
-			{ type: "soon", titleKey: "projects.nav.leads", icon: Users },
-			{ type: "soon", titleKey: "projects.nav.assets", icon: Images },
+			{
+				type: "route",
+				titleKey: "projects.nav.leads",
+				to: "/leads",
+				icon: Users,
+			},
+			{
+				type: "route",
+				titleKey: "projects.nav.assets",
+				to: "/assets",
+				icon: Images,
+			},
 			{ type: "soon", titleKey: "projects.nav.analytics", icon: ChartSpline },
+			{
+				type: "route",
+				titleKey: "projects.nav.apps",
+				to: "/apps",
+				icon: Blocks,
+			},
 		],
 	},
 	{
 		titleKey: "projects.sidebar.groupResources",
 		items: [
-			// Docs/support sites don't exist yet — "Soon" until they do, so the
-			// launch video doesn't show dead "#" links.
-			{ type: "soon", titleKey: "projects.nav.docs", icon: BookOpen },
-			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },
+			{
+				type: "route",
+				titleKey: "academy.navLabel",
+				to: "/academy",
+				icon: GraduationCap,
+			},
 		],
 	},
 ];
+
+export const AFFILIATE_NAV_GROUP: NavGroup = {
+	titleKey: "affiliates.sidebarGroup",
+	items: [
+		{
+			type: "route",
+			titleKey: "affiliates.navLabel",
+			to: "/affiliates",
+			icon: Handshake,
+		},
+	],
+};

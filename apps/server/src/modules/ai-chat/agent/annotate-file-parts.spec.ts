@@ -1,5 +1,9 @@
+import type { AskUserOutput } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
-import { annotateUserFileParts } from "./annotate-file-parts";
+import {
+	annotateAskUserAnswerFiles,
+	annotateUserFileParts,
+} from "./annotate-file-parts";
 import type { WanditUIMessage } from "./chat-agent";
 
 const FILE_URL = "https://assets.example.com/uploads/user-1/bottle.jpg";
@@ -19,6 +23,190 @@ function userMessageWithFile(): WanditUIMessage {
 		role: "user",
 	};
 }
+
+type AskAnswerFile = NonNullable<AskUserOutput["files"]>[number];
+
+function askUserPart(
+	files: AskAnswerFile[] | undefined,
+	toolCallId = "ask-1",
+): WanditUIMessage["parts"][number] {
+	return {
+		input: { options: [], question: "What should I use?" },
+		output: { files, text: "Use these files" },
+		state: "output-available",
+		toolCallId,
+		type: "tool-ask_user",
+	};
+}
+
+describe("annotateAskUserAnswerFiles", () => {
+	it("inserts a deterministic user file message immediately after the assistant answer", () => {
+		const assistant: WanditUIMessage = {
+			id: "assistant-1",
+			parts: [
+				{ text: "Please attach the product image.", type: "text" },
+				askUserPart([
+					{
+						filename: "product.png",
+						mediaType: "image/png",
+						url: "https://assets.example.com/product.png",
+					},
+				]),
+			],
+			role: "assistant",
+		};
+		const followingMessage: WanditUIMessage = {
+			id: "user-2",
+			parts: [{ text: "Continue", type: "text" }],
+			role: "user",
+		};
+
+		const result = annotateAskUserAnswerFiles([assistant, followingMessage]);
+
+		expect(result[0]).toBe(assistant);
+		expect(result[1]).toEqual({
+			id: "assistant-1:ask-answer-files",
+			parts: [
+				{
+					text: "[Files the user attached when answering the questions above — shown here so you can see them. Their URLs are in the ask_user results.]",
+					type: "text",
+				},
+				{
+					filename: "product.png",
+					mediaType: "image/png",
+					type: "file",
+					url: "https://assets.example.com/product.png",
+				},
+			],
+			role: "user",
+		});
+		expect(result[2]).toBe(followingMessage);
+	});
+
+	it("keeps model-safe files and deduplicates URLs across asks", () => {
+		const imageUrl = "https://assets.example.com/product.jpg";
+		const assistant: WanditUIMessage = {
+			id: "assistant-2",
+			parts: [
+				askUserPart([
+					{
+						filename: "product.jpg",
+						mediaType: "image/jpeg",
+						url: imageUrl,
+					},
+					{
+						filename: "brief.docx",
+						mediaType:
+							"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+						url: "https://assets.example.com/brief.docx",
+					},
+				]),
+				askUserPart(
+					[
+						{
+							filename: "duplicate.jpg",
+							mediaType: "image/jpeg",
+							url: imageUrl,
+						},
+						{
+							mediaType: "application/pdf",
+							url: "https://assets.example.com/brief.pdf",
+						},
+						{
+							filename: "notes.txt",
+							mediaType: "text/plain",
+							url: "https://assets.example.com/notes.txt",
+						},
+					],
+					"ask-2",
+				),
+			],
+			role: "assistant",
+		};
+
+		const result = annotateAskUserAnswerFiles([assistant]);
+		const inserted = result[1];
+
+		expect(inserted?.parts.slice(1)).toEqual([
+			{
+				filename: "product.jpg",
+				mediaType: "image/jpeg",
+				type: "file",
+				url: imageUrl,
+			},
+			{
+				mediaType: "application/pdf",
+				type: "file",
+				url: "https://assets.example.com/brief.pdf",
+			},
+			{
+				filename: "notes.txt",
+				mediaType: "text/plain",
+				type: "file",
+				url: "https://assets.example.com/notes.txt",
+			},
+		]);
+	});
+
+	it("passes through messages without qualifying files untouched", () => {
+		const noFiles: WanditUIMessage = {
+			id: "assistant-no-files",
+			parts: [askUserPart(undefined)],
+			role: "assistant",
+		};
+		const docxOnly: WanditUIMessage = {
+			id: "assistant-docx",
+			parts: [
+				askUserPart([
+					{
+						mediaType:
+							"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+						url: "https://assets.example.com/brief.docx",
+					},
+				]),
+			],
+			role: "assistant",
+		};
+		const user: WanditUIMessage = {
+			id: "user-1",
+			parts: [{ text: "Hello", type: "text" }],
+			role: "user",
+		};
+
+		const result = annotateAskUserAnswerFiles([noFiles, docxOnly, user]);
+
+		expect(result).toHaveLength(3);
+		expect(result[0]).toBe(noFiles);
+		expect(result[1]).toBe(docxOnly);
+		expect(result[2]).toBe(user);
+	});
+
+	it("does not mutate the input array or assistant message", () => {
+		const assistant: WanditUIMessage = {
+			id: "assistant-immutable",
+			parts: [
+				askUserPart([
+					{
+						filename: "product.png",
+						mediaType: "image/png",
+						url: "https://assets.example.com/product.png",
+					},
+				]),
+			],
+			role: "assistant",
+		};
+		const snapshot = structuredClone(assistant);
+		const input = [assistant];
+
+		const result = annotateAskUserAnswerFiles(input);
+
+		expect(input).toEqual([snapshot]);
+		expect(input).toHaveLength(1);
+		expect(input[0]).toBe(assistant);
+		expect(assistant).toEqual(snapshot);
+		expect(result).toHaveLength(2);
+	});
+});
 
 describe("annotateUserFileParts", () => {
 	it("follows a user file part with a text marker exposing its URL", () => {
@@ -54,6 +242,48 @@ describe("annotateUserFileParts", () => {
 		expect(marker?.type === "text" && marker.text).toBe(
 			"[Attached file (application/pdf): https://assets.example.com/uploads/user-1/menu.pdf]",
 		);
+	});
+
+	it.each([
+		{
+			filename: "reference.mp4",
+			kind: "video",
+			mediaType: "video/mp4",
+		},
+		{
+			filename: "soundtrack.mp3",
+			kind: "audio",
+			mediaType: "audio/mpeg",
+		},
+	])("drops $kind file parts and emits marker-only $kind annotations", ({
+		filename,
+		kind,
+		mediaType,
+	}) => {
+		const url = `https://assets.example.com/uploads/user-1/${filename}`;
+		const [message] = annotateUserFileParts([
+			{
+				id: "m1",
+				parts: [
+					{
+						filename,
+						mediaType,
+						type: "file",
+						url,
+					},
+					{ text: "Forward this attachment", type: "text" },
+				],
+				role: "user",
+			},
+		]);
+
+		expect(message?.parts).toEqual([
+			{
+				text: `[Attached ${kind} "${filename}" (${mediaType}): ${url}]`,
+				type: "text",
+			},
+			{ text: "Forward this attachment", type: "text" },
+		]);
 	});
 
 	it("drops a docx file part and points the marker at read_attachment", () => {

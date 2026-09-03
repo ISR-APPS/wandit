@@ -19,6 +19,8 @@ import {
 import type {
 	CreateProjectBody,
 	CreateProjectResponse,
+	ListProjectsPageResponse,
+	ListProjectsQuery,
 	ListProjectsResponse,
 	Project,
 	UpdateProjectBody,
@@ -31,6 +33,8 @@ import {
 	projectCreationMeteringKey,
 	projectCreationReservationAttemptRef,
 } from "../../../ai-chat/agent/chat-metering";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
+import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import { ModelPriceUnavailableError } from "../../../metering/domain/model-pricing";
@@ -58,6 +62,8 @@ export class ProjectsService {
 		private readonly modelPricingService: ModelPricingService,
 		@Inject(ProjectTitleService)
 		private readonly projectTitleService: ProjectTitleService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEvents: LifecycleEventsService,
 	) {}
 
 	// List the workspace's projects for the dashboard.
@@ -66,6 +72,21 @@ export class ProjectsService {
 		const rows = await this.projectsRepository.listForScope(scope);
 
 		return rows.map(mapProjectRow);
+	}
+
+	// Paginated listing behind the native drawer's infinite scroll + search.
+	async listPaged(
+		scope: ProjectScope,
+		query: ListProjectsQuery,
+	): Promise<ListProjectsPageResponse> {
+		const page = await this.projectsRepository.listPageForScope(scope, query);
+
+		return {
+			items: page.items.map(mapProjectRow),
+			page: page.page,
+			pageSize: page.pageSize,
+			total: page.total,
+		};
 	}
 
 	// Load one project if it is accessible in this workspace scope.
@@ -145,6 +166,22 @@ export class ProjectsService {
 			throw error;
 		}
 
+		try {
+			await this.lifecycleEvents.enqueue({
+				event: "first_prompt_sent",
+				idempotencyKey: lifecycleEventIdempotencyKey(
+					"first_prompt_sent",
+					scope.userId,
+				),
+				userId: scope.userId,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.logger.error(
+				`First prompt lifecycle enqueue failed for user ${scope.userId}: ${message}`,
+			);
+		}
+
 		// The transaction has committed. Title generation is best-effort and must
 		// never add latency or failure to the create response.
 		void this.generateAndPersistTitle({
@@ -182,14 +219,15 @@ export class ProjectsService {
 			"chat",
 			meteringSubjectFrom(input.scope),
 			{
-			attemptRef: projectCreationReservationAttemptRef(input.projectId),
-			chatId: input.chatId,
-			credits: estimate.credits,
-			estimatedCostUsdMicros: estimate.costUsdMicros,
-			idempotencyKey: projectCreationMeteringKey(input.projectId),
-			messageId: input.messageId,
-			model: env.AI_CHAT_MODEL,
-		});
+				attemptRef: projectCreationReservationAttemptRef(input.projectId),
+				chatId: input.chatId,
+				credits: estimate.credits,
+				estimatedCostUsdMicros: estimate.costUsdMicros,
+				idempotencyKey: projectCreationMeteringKey(input.projectId),
+				messageId: input.messageId,
+				model: env.AI_CHAT_MODEL,
+			},
+		);
 	}
 
 	private async estimateCreationCredits(

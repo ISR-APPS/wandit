@@ -1,9 +1,5 @@
 import type { AuthUser } from "@wandit/auth";
-import {
-	DOMAIN_REGISTRATION_USD_CENTS,
-	DOMAIN_TLD_CATALOG,
-	type PaymentOrderStatus,
-} from "@wandit/contracts";
+import { DOMAIN_TLD_CATALOG, type PaymentOrderStatus } from "@wandit/contracts";
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
@@ -37,6 +33,8 @@ const sessionId = "cs_test_domain";
 const paymentIntentId = "pi_test_domain";
 const customerId = "cus_test_domain";
 const now = new Date("2026-07-24T12:00:00.000Z");
+const quotedWholesaleUsd = 11.06;
+const domainOrderAmountCents = 1_306;
 
 const user = {
 	email: "buyer@example.com",
@@ -295,7 +293,7 @@ class FakeDomainsService {
 	readonly preparePurchase = vi.fn(
 		async (_scope: ProjectScope, domain: string, _projectId?: string) => ({
 			name: domain.trim().toLowerCase(),
-			quotedWholesaleUsd: 11.06,
+			quotedWholesaleUsd,
 			tld: "com" as const,
 			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 		}),
@@ -516,7 +514,7 @@ function paymentOrderRow(
 	overrides: Partial<PaymentOrderRow> = {},
 ): PaymentOrderRow {
 	return {
-		amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+		amountCents: domainOrderAmountCents,
 		createdAt: now,
 		currency: "usd",
 		fulfilledAt: null,
@@ -526,9 +524,9 @@ function paymentOrderRow(
 		metadata: {
 			domain: "example.com",
 			priceSnapshot: {
-				chargedAmountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				chargedAmountCents: domainOrderAmountCents,
 				chargedCurrency: "usd",
-				quotedWholesaleUsd: 11.06,
+				quotedWholesaleUsd,
 				tld: "com",
 				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 			},
@@ -554,7 +552,7 @@ function checkoutSession(
 	overrides: Partial<Stripe.Checkout.Session> = {},
 ): Stripe.Checkout.Session {
 	return {
-		amount_total: DOMAIN_REGISTRATION_USD_CENTS.com,
+		amount_total: domainOrderAmountCents,
 		currency: "usd",
 		customer: customerId,
 		id: sessionId,
@@ -583,8 +581,8 @@ function stripePaymentIntent(
 
 function stripeCharge(overrides: Partial<Stripe.Charge> = {}): Stripe.Charge {
 	return {
-		amount: DOMAIN_REGISTRATION_USD_CENTS.com,
-		amount_captured: DOMAIN_REGISTRATION_USD_CENTS.com,
+		amount: domainOrderAmountCents,
+		amount_captured: domainOrderAmountCents,
 		amount_refunded: 0,
 		disputed: false,
 		id: "ch_test_domain",
@@ -610,7 +608,7 @@ describe("OrdersService", () => {
 		);
 
 		expect(result.order).toMatchObject({
-			amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountCents: domainOrderAmountCents,
 			currency: "usd",
 			id: orderId,
 			status: "pending",
@@ -621,21 +619,24 @@ describe("OrdersService", () => {
 		expect(payments.ensureCustomer).not.toHaveBeenCalled();
 		expect(payments.createOrderCheckout).toHaveBeenCalledWith(
 			expect.objectContaining({
-				amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				amountCents: domainOrderAmountCents,
+				cancelUrl: "http://web.test/billing/cancel",
 				currency: "usd",
 				customerId,
 				kind: "domain_registration",
 				orderId,
 				productName: "Domain registration: example.com",
+				successUrl:
+					"http://web.test/billing/success?purpose=order&session_id={CHECKOUT_SESSION_ID}",
 				userId,
 			}),
 		);
 		expect(orders.rows.get(orderId)?.metadata).toMatchObject({
 			domain: "example.com",
 			priceSnapshot: {
-				chargedAmountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				chargedAmountCents: domainOrderAmountCents,
 				chargedCurrency: "usd",
-				quotedWholesaleUsd: 11.06,
+				quotedWholesaleUsd,
 				tld: "com",
 				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 			},
@@ -644,6 +645,48 @@ describe("OrdersService", () => {
 			whoisPrivacy: false,
 		});
 		expect(orders.rows.get(orderId)?.providerCheckoutSessionId).toBe(sessionId);
+	});
+
+	it.each([
+		{
+			cancelUrl: `http://web.test/p/${projectId}?checkout=cancel`,
+			returnPath: `/p/${projectId}`,
+			successUrl: `http://web.test/p/${projectId}?checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+		{
+			cancelUrl: `http://web.test/p/${projectId}?tab=settings&checkout=cancel`,
+			returnPath: `/p/${projectId}?tab=settings`,
+			successUrl: `http://web.test/p/${projectId}?tab=settings&checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+		{
+			cancelUrl: `http://web.test/p/${projectId}?next=?&checkout=cancel`,
+			returnPath: `/p/${projectId}?next=?`,
+			successUrl: `http://web.test/p/${projectId}?next=?&checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+	])("returns checkout to $returnPath", async ({
+		cancelUrl,
+		returnPath,
+		successUrl,
+	}) => {
+		const { payments, service } = setup();
+
+		await service.createDomainOrder(
+			user,
+			{
+				domain: "example.com",
+				projectId,
+				registrant,
+				returnPath,
+			},
+			scope,
+		);
+
+		expect(payments.createOrderCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				cancelUrl,
+				successUrl,
+			}),
+		);
 	});
 
 	it("defaults WHOIS privacy to off when the body omits it", async () => {
@@ -664,11 +707,14 @@ describe("OrdersService", () => {
 		});
 	});
 
-	it("refuses to start checkout when the wholesale quote erases the margin", async () => {
+	it("keeps the money-losing guard as a sanity invariant", async () => {
 		const { domainsService, orders, payments, service } = setup();
 		domainsService.preparePurchase.mockResolvedValueOnce({
 			name: "example.com",
-			quotedWholesaleUsd: DOMAIN_REGISTRATION_USD_CENTS.com / 100,
+			// Pathological input: at this magnitude, floating-point precision can no
+			// longer preserve the two-dollar margin. DomainsService rejects it first
+			// in production, while this keeps the OrdersService invariant covered.
+			quotedWholesaleUsd: 1e17,
 			tld: "com" as const,
 			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 		});
@@ -690,7 +736,7 @@ describe("OrdersService", () => {
 	});
 
 	it.each([
-		["amount", { amount_total: DOMAIN_REGISTRATION_USD_CENTS.com + 1 }],
+		["amount", { amount_total: domainOrderAmountCents + 1 }],
 		["currency", { currency: "eur" }],
 		["customer", { customer: "cus_someone_else" }],
 	] as const)("rejects a checkout %s mismatch without marking the order paid", async (_label, mismatch) => {
@@ -761,7 +807,7 @@ describe("OrdersService", () => {
 			return payments.paymentIntent;
 		});
 		payments.charge = stripeCharge({
-			amount_refunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amount_refunded: domainOrderAmountCents,
 			id: "ch_refunded_before_mapping",
 			refunded: true,
 		});
@@ -795,14 +841,14 @@ describe("OrdersService", () => {
 		expect(
 			orderRefunds.handleChargeRefundedByPaymentIntent,
 		).toHaveBeenCalledWith({
-			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
-			amountRefunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountCaptured: domainOrderAmountCents,
+			amountRefunded: domainOrderAmountCents,
 			chargeId: "ch_refunded_before_mapping",
 			paymentIntentId,
 		});
 		expect(orderRefunds.markRefundedByPaymentIntent).toHaveBeenCalledWith({
-			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
-			amountRefunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountCaptured: domainOrderAmountCents,
+			amountRefunded: domainOrderAmountCents,
 			chargeId: "ch_refunded_before_mapping",
 			paymentIntentId,
 		});
@@ -841,7 +887,7 @@ describe("OrdersService", () => {
 		expect(
 			orderRefunds.handleChargeRefundedByPaymentIntent,
 		).toHaveBeenCalledWith({
-			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountCaptured: domainOrderAmountCents,
 			amountRefunded: 1,
 			chargeId: "ch_partially_refunded_before_mapping",
 			paymentIntentId,

@@ -1,19 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Vitest skips shared env validation, so provide the schema-resolved default
+// that production receives from @wandit/env/server.
+vi.mock("@wandit/env/server", () => ({
+	env: { DOMAINS_FALLBACK_ORIGIN: "customers.wandit.app" },
+}));
+
 import {
 	assertDatabaseConfiguration,
 	assertDomainConfigurationConfiguration,
 	assertDomainPurchaseConfiguration,
 	assertDomainRegistrarSyncConfiguration,
 	assertOrderRefundConfiguration,
+	domainApexZoneOptions,
 } from "./domain-operations.config";
 
-const CONFIGURATION_KEYS = [
+const REQUIRED_CONFIGURATION_KEYS = [
 	"CLOUDFLARE_API_TOKEN",
 	"CLOUDFLARE_KV_NAMESPACE_ID",
 	"CLOUDFLARE_ZONE_ID_WANDIT_APP",
 	"DATABASE_URL",
-	"DOMAINS_FALLBACK_ORIGIN",
 	"NAMECOM_API_TOKEN",
 	"NAMECOM_ENVIRONMENT",
 	"NAMECOM_USERNAME",
@@ -25,7 +31,7 @@ const VALID_CONFIGURATION = {
 	CLOUDFLARE_KV_NAMESPACE_ID: "kv-namespace",
 	CLOUDFLARE_ZONE_ID_WANDIT_APP: "zone-id",
 	DATABASE_URL: "postgresql://task.test/database",
-	DOMAINS_FALLBACK_ORIGIN: "customers.wandit.app",
+	DOMAINS_FALLBACK_ORIGIN: "customers.task.test",
 	NAMECOM_API_TOKEN: "name-token",
 	NAMECOM_ENVIRONMENT: "sandbox",
 	NAMECOM_USERNAME: "wandit-test",
@@ -42,9 +48,10 @@ function setConfiguration(
 
 describe("domain operation task configuration", () => {
 	beforeEach(() => {
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
+		vi.stubEnv("DOMAINS_FALLBACK_ORIGIN", "");
 	});
 
 	afterEach(() => {
@@ -52,9 +59,14 @@ describe("domain operation task configuration", () => {
 	});
 
 	it("returns the validated purchase values only when every spend and recovery dependency is ready", () => {
-		setConfiguration(CONFIGURATION_KEYS);
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv(
+			"DOMAINS_FALLBACK_ORIGIN",
+			VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		);
 
 		expect(assertDomainPurchaseConfiguration()).toEqual({
+			apexZoneEnabled: true,
 			cloudflareApiToken: VALID_CONFIGURATION.CLOUDFLARE_API_TOKEN,
 			cloudflareKvNamespaceId: VALID_CONFIGURATION.CLOUDFLARE_KV_NAMESPACE_ID,
 			cloudflareZoneId: VALID_CONFIGURATION.CLOUDFLARE_ZONE_ID_WANDIT_APP,
@@ -67,7 +79,33 @@ describe("domain operation task configuration", () => {
 		});
 	});
 
-	it("keeps BYO configuration independent of Name.com and Stripe", () => {
+	it.each([
+		["unset", undefined],
+		["empty", ""],
+		["blank", "   "],
+	] as const)("uses the shared fallback origin when the runtime value is %s", (_state, value) => {
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv("DOMAINS_FALLBACK_ORIGIN", value);
+
+		expect(assertDomainPurchaseConfiguration().fallbackOrigin).toBe(
+			"customers.wandit.app",
+		);
+	});
+
+	it.each([
+		["false", false],
+		["FALSE", false],
+		["true", true],
+		["", true],
+	] as const)("reads the apex zone kill switch DOMAINS_APEX_ZONE_ENABLED=%s as %s without asserting the account id", (value, expected) => {
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv("DOMAINS_APEX_ZONE_ENABLED", value);
+		vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
+
+		expect(assertDomainPurchaseConfiguration().apexZoneEnabled).toBe(expected);
+	});
+
+	it("keeps BYO configuration independent of Name.com and Stripe while carrying the apex zone options", () => {
 		setConfiguration([
 			"CLOUDFLARE_API_TOKEN",
 			"CLOUDFLARE_KV_NAMESPACE_ID",
@@ -76,10 +114,36 @@ describe("domain operation task configuration", () => {
 		]);
 
 		expect(assertDomainConfigurationConfiguration()).toEqual({
+			apexZoneEnabled: true,
 			cloudflareApiToken: VALID_CONFIGURATION.CLOUDFLARE_API_TOKEN,
 			cloudflareKvNamespaceId: VALID_CONFIGURATION.CLOUDFLARE_KV_NAMESPACE_ID,
 			cloudflareZoneId: VALID_CONFIGURATION.CLOUDFLARE_ZONE_ID_WANDIT_APP,
 			databaseUrl: VALID_CONFIGURATION.DATABASE_URL,
+			fallbackOrigin: "customers.wandit.app",
+		});
+	});
+
+	it("reads the BYO apex zone options without asserting the account id, the registrar, or Stripe", () => {
+		setConfiguration([
+			"CLOUDFLARE_API_TOKEN",
+			"CLOUDFLARE_KV_NAMESPACE_ID",
+			"CLOUDFLARE_ZONE_ID_WANDIT_APP",
+			"DATABASE_URL",
+		]);
+		vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
+		vi.stubEnv("DOMAINS_APEX_ZONE_ENABLED", "false");
+		vi.stubEnv(
+			"DOMAINS_FALLBACK_ORIGIN",
+			VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		);
+
+		expect(assertDomainConfigurationConfiguration()).toMatchObject({
+			apexZoneEnabled: false,
+			fallbackOrigin: VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		});
+		expect(domainApexZoneOptions()).toEqual({
+			apexZoneEnabled: false,
+			fallbackOrigin: VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
 		});
 	});
 
@@ -90,7 +154,7 @@ describe("domain operation task configuration", () => {
 			stripeSecretKey: VALID_CONFIGURATION.STRIPE_SECRET_KEY,
 		});
 
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
 		setConfiguration([
@@ -106,7 +170,7 @@ describe("domain operation task configuration", () => {
 			namecomUsername: VALID_CONFIGURATION.NAMECOM_USERNAME,
 		});
 
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
 		setConfiguration(["DATABASE_URL"]);
@@ -154,10 +218,9 @@ describe("domain operation task configuration", () => {
 		"NAMECOM_ENVIRONMENT",
 		"NAMECOM_USERNAME",
 		"NAMECOM_API_TOKEN",
-		"DOMAINS_FALLBACK_ORIGIN",
 		"STRIPE_SECRET_KEY",
 	] as const)("fails a purchase before runtime construction when %s is blank", (key) => {
-		setConfiguration(CONFIGURATION_KEYS);
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
 		vi.stubEnv(key, "   ");
 
 		expect(() => assertDomainPurchaseConfiguration()).toThrow(key);

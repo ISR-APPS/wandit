@@ -4,14 +4,25 @@
 	"balanceUnavailableShort": "Credits —",
 	"balanceLoadError": "Your credit balance could not load. Try again.",
 	"recentActivity": "Recent activity",
-	"emptyLedger": "No activity yet.",
-	"ledgerLoadError": "Credit activity could not load.",
+	"emptyActivity": "No activity yet.",
+	"activityLoadError": "Credit activity could not load.",
 	"topUpChip": "Top up credits",
 	"manageBilling": "View billing",
 	"topUpDialog": "See plans and top-ups",
 	"insufficientTitle": "Not enough credits",
 	"insufficientBody": "This action costs more credits than you currently have.",
-	"costLabel": "Cost",
+	"outOfCredits": {
+		"title": "You're out of credits",
+		"body": "Upgrade your plan to keep building.",
+		"memberBody": "This workspace is out of credits. Ask a workspace owner to upgrade.",
+		"cta": "Upgrade plan",
+		"pausedBody": "Credit purchases are paused during the beta."
+	},
+	"elsewhere": {
+		"chipHint": "Your credits are in {name}",
+		"dialogHint": "You have {balance} credits in {name}",
+		"switch": "Switch"
+	},
 	"buckets": {
 		"plan": "Plan",
 		"promo": "Promotional",
@@ -24,6 +35,21 @@
 		"expire": "Credits expired",
 		"revoke": "Credits reversed"
 	},
+	"activityOperations": {
+		"chat": "AI message",
+		"page_build": "Page build",
+		"image": "Image",
+		"video": "Video",
+		"marketing": "Marketing asset",
+		"connector": "Connector tool",
+		"lead_scrape": "Lead scrape",
+		"transcription": "Voice transcription",
+		"topup_adjust": "Balance adjustment"
+	},
+	"activityStatus": {
+		"inProgress": "In progress",
+		"refunded": "Refunded"
+	},
 	"creditUnit": {
 		"zero": "{count} credits",
 		"one": "{count} credit",
@@ -31,17 +57,5 @@
 		"few": "{count} credits",
 		"many": "{count} credits",
 		"other": "{count} credits"
-	},
-	"priceTag": {
-		"zero": "{action} — {count} credits",
-		"one": "{action} — {count} credit",
-		"two": "{action} — {count} credits",
-		"few": "{action} — {count} credits",
-		"many": "{action} — {count} credits",
-		"other": "{action} — {count} credits"
-	},
-	"actions": {
-		"generation": "Generate",
-		"chatMessage": "Send"
 	}
 }

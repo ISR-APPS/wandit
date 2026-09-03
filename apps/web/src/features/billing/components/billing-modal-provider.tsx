@@ -1,5 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { BillingInterval, CreditTier } from "@wandit/contracts";
+import { useLocation } from "@tanstack/react-router";
+import type {
+	BillingInterval,
+	BillingPlanId,
+	CreditTier,
+	ProductEventSurface,
+} from "@wandit/contracts";
 import {
 	createContext,
 	type ReactNode,
@@ -22,15 +28,22 @@ import {
 	subscribeToBillingErrors,
 	type UpgradeModalIntent,
 } from "../lib/billing-error-dispatch";
+import type { PlanPickerPaymentMethod } from "../lib/billing-ui-policy";
+import { landingPlanSelection } from "../lib/landing-plan-selection";
 import { PlanPickerDialog } from "./plan-picker-dialog";
 
 type BillingModalContextValue = {
-	openPlanPicker: (selection?: PlanPickerSelection) => void;
+	openPlanPicker: (
+		surface: ProductEventSurface,
+		selection?: PlanPickerSelection,
+	) => void;
 };
 
 type PlanPickerSelection = {
 	interval: BillingInterval;
+	plan: BillingPlanId;
 	tierCredits: CreditTier;
+	paymentMethod?: PlanPickerPaymentMethod;
 };
 
 const BillingModalContext = createContext<BillingModalContextValue | null>(
@@ -39,12 +52,15 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	const { data: session } = useSession();
+	const sessionUserId = session?.user.id;
 	const { open: openAuth } = useAuthModal();
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const [open, setOpen] = useState(false);
 	const [intent, setIntent] = useState<UpgradeModalIntent | null>(null);
 	const [selection, setSelection] = useState<PlanPickerSelection | null>(null);
+	const [surface, setSurface] = useState<ProductEventSurface>("plan_picker");
 	const [notice, setNotice] = useState<{
 		kind: WorkspaceBillingNoticeKind;
 		limitCredits?: number;
@@ -73,23 +89,42 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 
 				setIntent(nextIntent);
 				setSelection(null);
+				setSurface("plan_picker");
 				setOpen(true);
 			}),
 		[actorCanManageBilling, isPersonal, queryClient],
 	);
 
+	useEffect(() => {
+		// In-place sign-in from the landing page performs a full navigation to
+		// /billing. Leave the one-shot value intact until that destination mounts.
+		if (!sessionUserId || pathname !== "/billing") return;
+
+		const pendingSelection = landingPlanSelection.consume();
+		if (!pendingSelection) return;
+
+		setIntent(null);
+		setSelection(pendingSelection);
+		setSurface("marketing_pricing");
+		setOpen(true);
+	}, [pathname, sessionUserId]);
+
 	const openPlanPicker = useCallback(
-		(nextSelection?: PlanPickerSelection) => {
-			if (!session) {
+		(nextSurface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
+			if (!sessionUserId) {
+				if (nextSurface === "marketing_pricing" && nextSelection) {
+					landingPlanSelection.stash(nextSelection);
+				}
 				openAuth({ next: "/billing" });
 				return;
 			}
 
 			setIntent(null);
 			setSelection(nextSelection ?? null);
+			setSurface(nextSurface);
 			setOpen(true);
 		},
-		[openAuth, session],
+		[openAuth, sessionUserId],
 	);
 
 	const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -107,9 +142,12 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 			{children}
 			<PlanPickerDialog
 				initialInterval={selection?.interval}
+				initialPlan={selection?.plan}
 				initialTierCredits={selection?.tierCredits}
+				initialPaymentMethod={selection?.paymentMethod}
 				open={open}
 				onOpenChange={handleOpenChange}
+				surface={surface}
 				requiredCredits={intent?.requiredCredits}
 				availableCredits={intent?.availableCredits}
 			/>

@@ -11,9 +11,11 @@ import { Toaster } from "@wandit/ui/components/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
 import { AuthModalProvider } from "@/features/auth";
-import { WorkspaceProvider } from "@/features/workspaces/lib/workspace-provider";
 import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
 import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
+import { UtmCapture } from "@/features/story-links/lib/use-utm-capture";
+import { isChatwootConfigured } from "@/features/support";
+import { WorkspaceProvider } from "@/features/workspaces/lib/workspace-provider";
 import { AppI18nProvider, pageTitle, useI18n } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
 
@@ -74,11 +76,20 @@ function RootProviders() {
 					<WorkspaceProvider>
 						<BillingModalProvider>
 							<AffiliateCapture />
+							<UtmCapture />
 							<Outlet />
 						</BillingModalProvider>
 					</WorkspaceProvider>
 				</AuthModalProvider>
-				<Toaster richColors dir={dir} />
+				{/* The live-chat launcher is fixed 64px + 20px from the bottom
+				    corner; lift toasts above it (Sonner does not mirror in RTL,
+				    so a bottom offset covers both directions). */}
+				<Toaster
+					richColors
+					dir={dir}
+					offset={isChatwootConfigured ? { bottom: 96 } : undefined}
+					mobileOffset={isChatwootConfigured ? { bottom: 96 } : undefined}
+				/>
 			</DirectionProvider>
 		</ThemeProvider>
 	);

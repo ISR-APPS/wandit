@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { isStaffRole } from "@wandit/contracts";
 import { AlertCircleIcon, ArrowLeftIcon, UserRoundXIcon } from "lucide-react";
 import { type PropsWithChildren, useState } from "react";
 
@@ -11,8 +12,11 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
+import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import { useUserQuery } from "@/features/users/api/users.queries";
+import { AdminViewsDialog } from "@/features/users/components/admin-views-dialog";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
 import { UserActivityPanel } from "@/features/users/components/detail/user-activity-panel";
@@ -21,7 +25,6 @@ import { UserDetailSkeleton } from "@/features/users/components/detail/user-deta
 import { UserMetrics } from "@/features/users/components/detail/user-metrics";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
 import { UserWorkspacesCard } from "@/features/users/components/detail/user-workspaces-card";
-import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 import { isApiClientError } from "@/lib/api-client";
 
@@ -29,12 +32,22 @@ type UserDetailPageProps = {
 	userId: string;
 };
 
-type OpenDialog = "credits" | "access" | "role" | "ban" | null;
+type OpenDialog =
+	| "credits"
+	| "offline-subscription"
+	| "role"
+	| "admin-views"
+	| "ban"
+	| null;
 
 export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
 	const userQuery = useUserQuery(userId);
 	const { data: session } = useSession();
+	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const canSetRole = useAdminPermission({ users: ["set-role"] });
+	const canBan = useAdminPermission({ users: ["ban"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (userQuery.isLoading) {
 		return (
@@ -96,6 +109,8 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 
 	const user = userQuery.data;
 	const canManageAccess = session?.user.id !== user.id;
+	const canToggleBanned =
+		canManageAccess && canBan && (user.banned || !isStaffRole(user.role));
 
 	return (
 		<UserDetailContainer>
@@ -103,47 +118,64 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				user={user}
 				canManageAccess={canManageAccess}
 				onGrantCredits={() => setOpenDialog("credits")}
-				onToggleEarlyAccess={() => setOpenDialog("access")}
+				onGrantOffline={() => setOpenDialog("offline-subscription")}
 				onChangeRole={() => setOpenDialog("role")}
+				onEditAdminViews={() => setOpenDialog("admin-views")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
 			<UserMetrics user={user} />
 
 			{user.subscription ? (
-				<UserSubscriptionCard subscription={user.subscription} />
+				<UserSubscriptionCard
+					subscription={user.subscription}
+					ownerLabel={user.name}
+				/>
 			) : null}
 
 			<UserWorkspacesCard workspaces={user.workspaces} />
 
 			<UserActivityPanel
 				userId={user.id}
-				projects={user.projects}
+				projectsCount={user.projectsCount}
 				creditLedger={user.creditLedger}
 			/>
 
-			<GrantCreditsDialog
-				user={user}
-				open={openDialog === "credits"}
-				onOpenChange={(open) => setOpenDialog(open ? "credits" : null)}
-			/>
-			{canManageAccess ? (
-				<>
-					<EarlyAccessDialog
-						user={user}
-						open={openDialog === "access"}
-						onOpenChange={(open) => setOpenDialog(open ? "access" : null)}
-					/>
-					<ChangeRoleDialog
-						user={user}
-						open={openDialog === "role"}
-						onOpenChange={(open) => setOpenDialog(open ? "role" : null)}
-					/>
-					<BanUserDialog
-						user={user}
-						open={openDialog === "ban"}
-						onOpenChange={(open) => setOpenDialog(open ? "ban" : null)}
-					/>
-				</>
+			{canGrantCredits ? (
+				<GrantCreditsDialog
+					user={user}
+					open={openDialog === "credits"}
+					onOpenChange={(open) => setOpenDialog(open ? "credits" : null)}
+				/>
+			) : null}
+			{canManageBilling ? (
+				<GrantManualSubscriptionDialog
+					open={openDialog === "offline-subscription"}
+					onOpenChange={(open) =>
+						setOpenDialog(open ? "offline-subscription" : null)
+					}
+					prefill={{ user }}
+				/>
+			) : null}
+			{canManageAccess && canSetRole ? (
+				<ChangeRoleDialog
+					user={user}
+					open={openDialog === "role"}
+					onOpenChange={(open) => setOpenDialog(open ? "role" : null)}
+				/>
+			) : null}
+			{canManageAccess && canSetRole && user.role === "support" ? (
+				<AdminViewsDialog
+					user={user}
+					open={openDialog === "admin-views"}
+					onOpenChange={(open) => setOpenDialog(open ? "admin-views" : null)}
+				/>
+			) : null}
+			{canToggleBanned ? (
+				<BanUserDialog
+					user={user}
+					open={openDialog === "ban"}
+					onOpenChange={(open) => setOpenDialog(open ? "ban" : null)}
+				/>
 			) : null}
 		</UserDetailContainer>
 	);

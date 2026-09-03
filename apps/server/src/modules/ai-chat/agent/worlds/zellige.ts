@@ -157,7 +157,7 @@ ARABIC AND RTL — first-class, not an afterthought:
 - OVERFLOW IS COMPOSITIONAL, and exactly four things break their container: the displaced tile, one arch overlap, the medallion at 130 percent width, the hero placard at -2.6rem. Every containing section gets overflow clip.
 - RESPONSIVE COLLAPSE below 980px: arcades stack, tile fields go to two columns still at 3px gap, arch radii drop one token (ARCH-L becomes ARCH-M), placards become one-column definition lists with hairline rows, sticky columns go static, and the pinned gallery falls back to a vertical stack.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — Lenis optional, and if used, exposed as window.__lenis)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST AND IS NON-NEGOTIABLE. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state — every autoAlpha 0, every y offset, every start clip-path — is set with gsap.set() INSIDE the animate branch. Never author opacity 0, visibility hidden or a start clip-path in CSS for an animated element. If the CDN fails or motion is reduced, the page is fully visible, fully readable, and every conversion element still works. Add a prefers-reduced-motion CSS block carrying the global blanket (animation-duration .01ms, animation-iteration-count 1, transition-duration .01ms, scroll-behavior auto) PLUS this world's DESIGNED stills, never a blank: the medallion stops rotating but stays at 7 percent, the reflection shimmer freezes mid-frame, every frieze renders at scaleX 1, every star reveal resolves straight to clip-path none so the arch radius is intact, the arcade walk renders as the stacked vertical layout, and every count-up paints its final value.
 
 gsap.defaults({ease:"power2.out", duration:1.25}).
@@ -216,6 +216,7 @@ Mosaic clipart, lantern / camel / hamsa emoji, stock arabesque vectors · gold g
 ## Intensity
 This world fails by being timid. The failure mode is a beige page with a faint pattern, some rounded cards and a serif headline — which is worse than a generic page, because it also looks apologetic about its own heritage. Executed at 100 percent it is unmistakable: a giant arch inset in plaster, an image that opens like a star from its own centre, a glazed frieze drawing itself under every chapter head, a placard telling you the material and the region, a band of tile scrolling at its own speed, one dark green-black room in the middle of the house, and exactly one tile deliberately out of line so you know a person put it there. Push INTO the geometry — count the tiles, keep the symmetry, break it once, and let every reveal take its full 1.4 seconds. Nothing in a courtyard is in a hurry.`,
 	energy: "medium",
+	family: "zellige",
 	id: "zellige",
 	industries: [
 		"hotel",
@@ -236,6 +237,13 @@ This world fails by being timid. The failure mode is a beige page with a faint p
 	kind: "website",
 	mood: ["crafted", "serene", "ornamented", "heritage", "sunlit"],
 	name: "Zellige",
+	preview: {
+		ground: "#EFE7D9",
+		ink: "#241A12",
+		accent: "#14706A",
+		fontFamily: "Cormorant",
+		sampleWord: "La cour",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A courtyard you walk into: bone plaster, a glazed tile band running under every chapter, photographs that open from an eight-point star out to the full frame, and one tile deliberately out of line so you know a person laid it.",

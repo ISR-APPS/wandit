@@ -26,7 +26,7 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 ## 3. Core journey (prompt-first funnel)
 
 1. Visitor lands on `/` → hero prompt box + examples + pricing.
-2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard` with the prompt prefilled and clicks Generate there.
+2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard`, where an eligible fresh draft creates the project and starts generation without another click (other drafts are prefilled for review — see `docs/features/auth-accounts.md`).
 3. After Generate: **project auto-created**, user lands in the workspace with generation **already streaming**.
 4. Iterates via chat; the Page tab previews the landing page (mobile/desktop toggle — audience is mobile-first).
 5. Publishes to `{slug}.wandit.app` in one click; runs ads to it.
@@ -75,7 +75,7 @@ Build **vertical slices** (DB → API → UI per feature), in this order:
 
 ## 6. Post-MVP roadmap (rough order)
 
-1. **Stripe billing** *(launch-blocking — ships before public launch)* — Free + Pro (credit-amount slider = multiple recurring Prices on one Product) + Business (seats, client workspaces, white-label). Monthly plan credits expire each billing cycle (expire + re-grant inside the `invoice.paid` webhook); one-time top-up packs (Stripe Checkout) never expire and burn only after plan credits. Adds the `subscription` table (Better Auth Stripe plugin or hand-rolled) — purely additive, no changes to existing tables.
+1. **Stripe billing** *(launch-blocking — ships before public launch)* — Free + Starter + Pro (plan-specific credit tiers) + Business (seats, client workspaces, white-label). Monthly plan credits expire each billing cycle (expire + re-grant inside the `invoice.paid` webhook); one-time top-up packs (Stripe Checkout) never expire and burn only after plan credits. Adds the `subscription` table (Better Auth Stripe plugin or hand-rolled) — purely additive, no changes to existing tables.
 2. **CIB card rail** — pay in DZD → grant credits. The ledger is payment-provider-agnostic by design; CIB is just another writer.
 3. **Image / video generation** — AI SDK `generateImage` / `experimental_generateVideo` inside BullMQ workers (extended timeouts ~15 min), results uploaded to R2 and registered as artifacts.
 4. **Visual editing** — elements stamped with `data-eid` at save time; editor script injected into preview HTML only; cross-origin iframe ↔ app via postMessage; edits applied server-side by element ID, saved as a new version. Two tiers: direct text/style edits (no AI) and element-scoped AI edits. No drag-and-drop, ever. **UI direction (settled 2026-07-02):** a right-side element-inspector rail (Framer/Webflow-style) slides in from the edge of the Page tab when an element is clicked, rather than Lovable's floating bottom toolbar or a plain edit/preview tab-switch — chrome stays anchored and never occludes the page, and it scales naturally to the two-tier edit model above. The Page toolbar's trailing action group is the reserved slot for the edit-mode toggle that opens it.

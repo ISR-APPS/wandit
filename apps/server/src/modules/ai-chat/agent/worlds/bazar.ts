@@ -135,7 +135,7 @@ Use at least five of these eight. This world escapes the card stack CHROMATICALL
 - Arabic display face: a heavy Arabic display in the Cairo / Tajawal / Almarai / Rubik-Arabic territory at 700-900. Sizes go up 6 percent and line-heights up .06 against the Latin values, because Arabic needs vertical room. The slab word works unchanged, which is exactly why it exists instead of an italic.
 - Phone inputs, prices and the wilaya select keep dir="ltr" on the field itself inside an RTL page.
 
-## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — Lenis optional and unnecessary here)
+## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — smooth-scroll libraries are unavailable and unnecessary here)
 THE SAFETY CONTRACT COMES FIRST. Compute reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set() INSIDE the animate branch — never opacity:0 in CSS. If the CDN fails, the page is fully visible, the price is printed and the form works. Add a prefers-reduced-motion CSS block that beyond the .01ms blanket sets the ticker and crier tracks to animation:none and width:auto, stops the burst rotation and the sway, and forces the drawn circle to stroke-dashoffset:0.
 
 gsap.defaults({ease:"power3.out", duration:.7}) — this OVERRIDES the global 1.1s default. A market moves fast and confidently.
@@ -194,7 +194,7 @@ MICRO-INTERACTION KIT (all CSS, all inside the bands):
 - TRUST STRIP: a full-bleed GOLD block with 3px INK rules on both edges, four items in a flex row (2x2 below 720px) at gap clamp(1.2rem,4vw,2.6rem), each a drawn icon square beside a DISPLAY 700 .82rem uppercase label and a .8rem sub-line in rgba(ink,.62). All four are FACTS from the brief.
 - STOCK AND COUNTDOWN HONESTY — the rule that separates this world from every discount template. A stock meter exists ONLY if the brief states a real remaining quantity: a 10px track in rgba(ink,.16) with a HOT fill whose width JS writes once, plus a plain-language label. It is a STATED FACT, never a bar that shrinks while you watch. A countdown exists ONLY if the brief gives a real end date or time for a real promotion; then it is a row of INK-bordered digit boxes on GOLD with tabular numerals, no red, no flashing, no pulsing, and one line saying exactly what changes at zero. No date in the brief means NO TIMER. And under no circumstance a red URGENT banner across the top — the global ban holds with full force, and this world is precisely where it is most tempting to break it.
 - VALIDATION IS BLUR-GATED: keep a touched map so an error appears only after a field's first blur, never while someone is still typing. Full warm sentences, aria-live polite, space reserved.
-- SUBMIT: an 800ms pending state where the label becomes a present-tense human sentence, then the slip CROSS-FADES IN PLACE into a success panel absolutely positioned over it in the same box — the slip leaves over .4s to y -10px with visibility 0s .4s so focus never lands on a hidden element; the success side arrives over .5s with a .2s delay. The panel opens on a giant success STAMP at rotate -3deg entering from scale .8 and autoAlpha 0 over .5s back.out(1.7), the order number beneath it in tabular numerals at 2.4rem, and copy echoing the buyer's own name, wilaya, variant and quantity alongside the amount they will hand to the driver. Store the order in localStorage; on return, paint the success state INSTANTLY with no animation so a buyer is never asked to order twice. And the instant validation passes — as the stamp slams — the stall calls the order back to the wandit runtime by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus variant and quantity), while one off-canvas decoy input marked data-wandit-hp hangs in the slip, never read by the page's own script.
+- SUBMIT: an 800ms pending state where the label becomes a present-tense human sentence, then the slip CROSS-FADES IN PLACE into a success panel absolutely positioned over it in the same box — the slip leaves over .4s to y -10px with visibility 0s .4s so focus never lands on a hidden element; the success side arrives over .5s with a .2s delay. The panel opens on a giant success STAMP at rotate -3deg entering from scale .8 and autoAlpha 0 over .5s back.out(1.7), the order number beneath it in tabular numerals at 2.4rem, and copy echoing the buyer's own name, wilaya, variant and quantity alongside the amount they will hand to the driver. Store the order in localStorage; on return, paint the success state INSTANTLY with no animation so a buyer is never asked to order twice. And the instant validation passes — as the stamp slams — the stall calls the order back to the wandit runtime by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus the canonical order keys product, quantity, price, delivery and total when collected, and variant under its own key), while one off-canvas decoy input marked data-wandit-hp hangs in the slip, never read by the page's own script.
 - CROSS-SECTION STATE LINKS: every bundle card's CTA writes its variant and quantity into the order slip, updates the total and the WhatsApp message, then smooth-scrolls to the slip — and the chosen card's stamp flips to the local word for "chosen" with a .28s stamp slam. Sections talk to each other.
 
 ## Editorial furniture (REQUIRED — this is the bazar's voice)
@@ -229,6 +229,7 @@ This world fails in two directions and both are easy. Pull back and it becomes a
 
 The 100 percent version sits precisely between them and is unmistakable — warm paper with a real tooth, a stripe of saturated blocks reading down the page like an awning, a headline with one word slabbed in ink-bordered color, a price at 7rem with a crooked pen circle drawing itself around it as you arrive, offer stamps landing at four fixed angles with their ink shadows spreading out beneath them, ONE bundle physically larger than its neighbours and standing straight while they lean, a ticker of real offers running the page's width, thumb-sized pills, a printed order slip with stamped step numbers, and a hot total row that recomputes with a small confident pop. It looks like the best stall in the market: the one run by someone who knows their prices are good and prints their signs properly. Push INTO the specificity. Every number above is load-bearing.`,
 	energy: "loud",
+	family: "bazar",
 	id: "bazar",
 	industries: [
 		"ecommerce",
@@ -249,6 +250,13 @@ The 100 percent version sits precisely between them and is unmistakable — warm
 	kind: "product",
 	mood: ["loud", "saturated", "hand-stamped", "generous", "market-warm"],
 	name: "Bazar",
+	preview: {
+		ground: "#F8EEDA",
+		ink: "#241A0E",
+		accent: "#D63A1E",
+		fontFamily: "Archivo Black",
+		sampleWord: "BAZAR",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Spice-hot color blocks on warm paper, offer stamps slammed on at an angle like a stall's hand-painted signs, and your price so big it gets a crooked ink circle drawn around it — a page that shouts the deal and still looks made by hand.",

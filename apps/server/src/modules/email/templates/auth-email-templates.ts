@@ -3,13 +3,35 @@
 // Copy is English-only for v1 — the sender has no reliable locale signal for
 // a recipient who has never signed in.
 
+import type { BillingPlanId } from "@wandit/contracts";
+
 export type EmailContent = {
 	subject: string;
 	html: string;
 	text: string;
 };
 
+export type ExternalDomainDelegationReminderEmailData = {
+	dashboardUrl: string;
+	domainName: string;
+	nameServers: readonly string[];
+};
+
+export type ManualRequestEmailData = {
+	adminUrl: string;
+	fullName: string;
+	interval: "month" | "year";
+	phone: string;
+	plan: BillingPlanId;
+	tierCredits: number;
+};
+
 const EMBER = "#d16022";
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
 
 function shell(bodyHtml: string): string {
 	return `<!doctype html>
@@ -70,12 +92,69 @@ export function invitationEmail(data: {
 	};
 }
 
+export function externalDomainDelegationReminderEmail(
+	data: ExternalDomainDelegationReminderEmailData,
+): EmailContent {
+	const domainName = sanitizeHeaderText(data.domainName);
+	const { dashboardUrl } = data;
+	const nameServers = data.nameServers
+		.map((nameServer) => sanitizeHeaderText(nameServer))
+		.filter((nameServer) => nameServer.length > 0);
+	const htmlNameServers = nameServers
+		.map(
+			(nameServer) =>
+				`<tr><td style="font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;font-size:14px;color:#1a1815;background-color:#f6f5f2;border-radius:8px;padding:10px 12px;">${escapeHtml(nameServer)}</td></tr>`,
+		)
+		.join('<tr><td style="height:8px;"></td></tr>');
+	const textNameServers = nameServers
+		.map((nameServer) => `- ${nameServer}`)
+		.join("\n");
+
+	return {
+		subject: `Finish connecting ${domainName} to Wandit`,
+		html: shell(`
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">The domain <strong>${escapeHtml(domainName)}</strong> is connected to Wandit, but its nameservers still point elsewhere.</td></tr>
+<tr><td style="font-size:15px;color:#3d3a35;line-height:1.6;padding-bottom:16px;">To finish setup, change the nameservers at your domain registrar to:</td></tr>
+<tr><td style="padding-bottom:24px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${htmlNameServers}</table></td></tr>
+<tr><td style="padding-bottom:24px;"><a href="${escapeHtml(dashboardUrl)}" style="display:inline-block;background-color:${EMBER};color:#fcfbf8;font-size:15px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:9999px;">Open domain settings</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;padding-bottom:16px;">Button not working? Paste this link into your browser:<br><a href="${escapeHtml(dashboardUrl)}" style="color:${EMBER};word-break:break-all;">${escapeHtml(dashboardUrl)}</a></td></tr>
+<tr><td style="font-size:13px;color:#8a857d;line-height:1.6;">If you no longer want this domain connected, you can remove it in settings.</td></tr>`),
+		text: `Finish connecting ${domainName} to Wandit\n\nThe domain ${domainName} is connected to Wandit, but its nameservers still point elsewhere.\n\nTo finish setup, change the nameservers at your domain registrar to:\n${textNameServers}\n\nOpen domain settings:\n${dashboardUrl}\n\nIf you no longer want this domain connected, you can remove it in settings.`,
+	};
+}
+
+export function manualRequestEmail(data: ManualRequestEmailData): EmailContent {
+	const fullName = sanitizeHeaderText(data.fullName);
+	const phone = sanitizeHeaderText(data.phone);
+	const plan = PLAN_NAMES[data.plan];
+	const interval = data.interval === "year" ? "yearly" : "monthly";
+	const planSummary = `${plan} / ${data.tierCredits} credits / ${interval}`;
+	const adminUrl = sanitizeHeaderText(data.adminUrl);
+
+	return {
+		subject: `New offline subscription request — ${fullName}`,
+		html: `<!doctype html>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1815;line-height:1.6;">
+<h1 style="font-size:20px;">New offline subscription request</h1>
+<p><strong>Name:</strong> ${escapeHtml(fullName)}<br>
+<strong>Phone:</strong> ${escapeHtml(phone)}<br>
+<strong>Plan:</strong> ${escapeHtml(planSummary)}</p>
+<p><a href="${escapeHtml(adminUrl)}">Open offline billing in admin</a></p>
+</body></html>`,
+		text: `New offline subscription request\n\nName: ${fullName}\nPhone: ${phone}\nPlan: ${planSummary}\n\nOpen offline billing in admin:\n${adminUrl}`,
+	};
+}
+
 // Collapse anything header-shaped (CR/LF and other control characters) and
 // bound the length, so user text cannot restructure a subject line.
 function sanitizeHeaderText(value: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: collapsing control characters is the point
-	return value
-		.replaceAll(/[\u0000-\u001F\u007F]+/g, " ")
+	return [...value]
+		.map((character) => {
+			const code = character.charCodeAt(0);
+
+			return code <= 31 || code === 127 ? " " : character;
+		})
+		.join("")
 		.trim()
 		.slice(0, 120);
 }

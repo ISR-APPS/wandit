@@ -9,14 +9,16 @@
 // current round locally, leaving the pending call for next-send repair.
 
 import {
+	type AskUserInput,
 	type AskUserOption,
 	type AskUserOutput,
 	ATTACHMENT_MEDIA_TYPES,
 	type UploadAttachmentResponse,
+	type WorldCard,
 } from "@wandit/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ATTACHMENT_MAX_BYTES, uploadAttachment } from "@/features/projects";
+import { attachmentMaxBytesFor, uploadAttachment } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import type { ChipOption, MediaItem, RequestTrayState } from "./types";
@@ -49,11 +51,22 @@ const IMAGE_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
 	mediaType.startsWith("image/"),
 );
 const DOCUMENT_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter(
-	(mediaType) => !mediaType.startsWith("image/"),
+	(mediaType) =>
+		!mediaType.startsWith("image/") &&
+		!mediaType.startsWith("video/") &&
+		!mediaType.startsWith("audio/"),
+);
+const VIDEO_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
+	mediaType.startsWith("video/"),
+);
+const AUDIO_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
+	mediaType.startsWith("audio/"),
 );
 
+type AttachmentCategory = NonNullable<AskUserInput["accept"]>[number];
+
 function acceptedMediaTypes(
-	accept: readonly ("image" | "document")[],
+	accept: readonly AttachmentCategory[],
 	mediaTypes?: readonly string[],
 ) {
 	if (mediaTypes && mediaTypes.length > 0) {
@@ -63,11 +76,13 @@ function acceptedMediaTypes(
 	return new Set([
 		...(accept.includes("image") ? IMAGE_MEDIA_TYPES : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+		...(accept.includes("video") ? VIDEO_MEDIA_TYPES : []),
+		...(accept.includes("audio") ? AUDIO_MEDIA_TYPES : []),
 	]);
 }
 
 function acceptAttrFor(
-	accept: readonly ("image" | "document")[],
+	accept: readonly AttachmentCategory[],
 	mediaTypes?: readonly string[],
 ) {
 	if (mediaTypes && mediaTypes.length > 0) {
@@ -77,6 +92,8 @@ function acceptAttrFor(
 	const parts = [
 		...(accept.includes("image") ? ["image/*"] : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+		...(accept.includes("video") ? ["video/*"] : []),
+		...(accept.includes("audio") ? ["audio/*"] : []),
 	];
 	return parts.join(",");
 }
@@ -115,6 +132,27 @@ export function filesAnswer(
 	files: NonNullable<AskUserOutput["files"]>,
 ): AskUserOutput {
 	return { files };
+}
+
+export function withAnswerFiles(
+	output: AskUserOutput,
+	attachments: readonly UploadAttachmentResponse[],
+): AskUserOutput {
+	if (attachments.length === 0) return output;
+
+	const files = [...(output.files ?? [])];
+	const seenUrls = new Set(files.map((file) => file.url));
+	for (const attachment of attachments) {
+		if (seenUrls.has(attachment.url)) continue;
+		seenUrls.add(attachment.url);
+		files.push({
+			url: attachment.url,
+			mediaType: attachment.mediaType,
+			filename: attachment.filename,
+		});
+	}
+
+	return { ...output, files };
 }
 
 /** "Decide for me" — the model picks confidently and says what it picked. */
@@ -182,6 +220,29 @@ export function collectAskStepper(messages: WanditUIMessage[]): AskStepper {
 	};
 }
 
+/** Card faces from every settled get_direction_candidates call, latest menu
+    winning on id collisions. The taste question's options reference these by
+    worldId — the specimen cards render from this server-authored data, never
+    from model-written text. */
+export function collectWorldCards(
+	messages: WanditUIMessage[],
+): Map<string, WorldCard> {
+	const cards = new Map<string, WorldCard>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (
+				part.type === "tool-get_direction_candidates" &&
+				part.state === "output-available"
+			) {
+				for (const card of part.output.cards ?? []) {
+					cards.set(card.id, card);
+				}
+			}
+		}
+	}
+	return cards;
+}
+
 /** One-line summary of an answer for the settled ask shown in the thread. */
 export function askAnswerValue(output: AskUserOutput): string {
 	return (
@@ -206,6 +267,7 @@ export function useRequestTray({
 }) {
 	const { t } = useTranslation();
 	const stepper = useMemo(() => collectAskStepper(messages), [messages]);
+	const worldCards = useMemo(() => collectWorldCards(messages), [messages]);
 	const [dismissedRoundKey, setDismissedRoundKey] = useState<string | null>(
 		null,
 	);
@@ -282,7 +344,13 @@ export function useRequestTray({
 		const options = (active.input?.options ?? []).flatMap<ChipOption>(
 			(option) =>
 				option?.id && option.label
-					? [{ id: option.id, label: option.label }]
+					? [
+							{
+								id: option.id,
+								label: option.label,
+								...(option.worldId ? { worldId: option.worldId } : {}),
+							},
+						]
 					: [],
 		);
 
@@ -291,6 +359,20 @@ export function useRequestTray({
 		const kind =
 			active.input?.kind ??
 			(options.length === 0 ? "free-text" : "single-choice");
+
+		// Taste cards: a single-choice ask whose options reference sampled
+		// design worlds renders as specimen cards. Requires at least one
+		// resolvable card — a transcript without menu cards (old chats, lost
+		// menus) falls back to the plain chips.
+		const worldOptions = options.some(
+			(option) => option.worldId && worldCards.has(option.worldId),
+		)
+			? options.map((option) => ({
+					id: option.id,
+					label: option.label,
+					card: option.worldId ? worldCards.get(option.worldId) : undefined,
+				}))
+			: null;
 
 		// While the input is still streaming the options are half-parsed — show
 		// the question growing with a spinner and no chips until input-available.
@@ -310,7 +392,9 @@ export function useRequestTray({
 				: kind === "multi-select"
 					? { kind: "multi-select", options, selectedIds }
 					: kind === "single-choice"
-						? { kind: "single-choice", options, selectedId }
+						? worldOptions
+							? { kind: "world-pick", options: worldOptions, selectedId }
+							: { kind: "single-choice", options, selectedId }
 						: { kind: "free-text" };
 
 		return {
@@ -343,7 +427,16 @@ export function useRequestTray({
 				composerText.trim().length > 0 &&
 				(options.length > 0 || (!streaming && kind === "attachments")),
 		};
-	}, [active, stepper, composerText, selectedId, selectedIds, attachItems, t]);
+	}, [
+		active,
+		stepper,
+		worldCards,
+		composerText,
+		selectedId,
+		selectedIds,
+		attachItems,
+		t,
+	]);
 
 	const answer = useCallback(
 		(output: AskUserOutput) => {
@@ -433,7 +526,8 @@ export function useRequestTray({
 			const uploads: Array<{ id: string; file: File }> = [];
 			for (const file of Array.from(files).slice(0, room)) {
 				const invalid =
-					!allowed.has(file.type) || file.size > ATTACHMENT_MAX_BYTES;
+					!allowed.has(file.type) ||
+					file.size > attachmentMaxBytesFor(file.type);
 				const item: AttachDraftItem = {
 					id: crypto.randomUUID(),
 					name: file.name,
@@ -466,7 +560,7 @@ export function useRequestTray({
 		);
 	}, []);
 
-	const onConfirmAttachments = useCallback(() => {
+	const buildAttachmentsAnswer = useCallback((): AskUserOutput | null => {
 		const files = attachItems.flatMap((item) =>
 			item.status === "ready" && item.uploaded
 				? [
@@ -478,30 +572,31 @@ export function useRequestTray({
 					]
 				: [],
 		);
-		if (files.length > 0) answer(filesAnswer(files));
-	}, [attachItems, answer]);
+		return files.length > 0 ? filesAnswer(files) : null;
+	}, [attachItems]);
 
-	const onConfirmMulti = useCallback(() => {
+	const buildMultiAnswer = useCallback((): AskUserOutput | null => {
 		const options = active?.input?.options ?? [];
 		const selections = options.flatMap<AskUserOption>((option) =>
 			option?.id && option.label && selectedIds.includes(option.id)
 				? [{ id: option.id, label: option.label }]
 				: [],
 		);
-		if (selections.length > 0) answer(multiAnswer(selections));
-	}, [active, selectedIds, answer]);
+		return selections.length > 0 ? multiAnswer(selections) : null;
+	}, [active, selectedIds]);
 
-	const onConfirmSingle = useCallback(() => {
+	const buildSingleAnswer = useCallback((): AskUserOutput | null => {
 		const option = (active?.input?.options ?? []).find(
 			(candidate) => candidate?.id === selectedId,
 		);
-		if (option?.id && option.label) {
-			answer(pickAnswer({ id: option.id, label: option.label }));
-		}
-	}, [active, selectedId, answer]);
+		return option?.id && option.label
+			? pickAnswer({ id: option.id, label: option.label })
+			: null;
+	}, [active, selectedId]);
 
 	const answerFreeText = useCallback(
-		(text: string) => answer(freeTextAnswer(text)),
+		(text: string, composerAttachments: UploadAttachmentResponse[] = []) =>
+			answer(withAnswerFiles(freeTextAnswer(text), composerAttachments)),
 		[answer],
 	);
 	const delegate = useCallback(() => answer(delegateAnswer()), [answer]);
@@ -518,7 +613,7 @@ export function useRequestTray({
 	const trimmedComposerText = composerText.trim();
 	const answerMode = trimmedComposerText
 		? "text"
-		: state?.body.kind === "single-choice"
+		: state?.body.kind === "single-choice" || state?.body.kind === "world-pick"
 			? "single"
 			: state?.body.kind === "multi-select"
 				? "multi"
@@ -540,26 +635,31 @@ export function useRequestTray({
 				: answerMode === "multi"
 					? selectedIds.length > 0
 					: readyFileCount > 0 && !hasUploadingFile);
-	const confirmDraft = useCallback(() => {
-		if (!canConfirm) return false;
-		if (trimmedComposerText) {
-			answerFreeText(trimmedComposerText);
-		} else if (answerMode === "single") {
-			onConfirmSingle();
-		} else if (answerMode === "multi") {
-			onConfirmMulti();
-		} else {
-			onConfirmAttachments();
-		}
-	}, [
-		canConfirm,
-		trimmedComposerText,
-		answerFreeText,
-		answerMode,
-		onConfirmSingle,
-		onConfirmMulti,
-		onConfirmAttachments,
-	]);
+	const confirmDraft = useCallback(
+		(composerAttachments: UploadAttachmentResponse[] = []) => {
+			if (!canConfirm) return false;
+
+			const output = trimmedComposerText
+				? freeTextAnswer(trimmedComposerText)
+				: answerMode === "single"
+					? buildSingleAnswer()
+					: answerMode === "multi"
+						? buildMultiAnswer()
+						: buildAttachmentsAnswer();
+			if (!output) return false;
+
+			answer(withAnswerFiles(output, composerAttachments));
+		},
+		[
+			canConfirm,
+			trimmedComposerText,
+			answerMode,
+			buildSingleAnswer,
+			buildMultiAnswer,
+			buildAttachmentsAnswer,
+			answer,
+		],
+	);
 
 	return {
 		/** True while an ask is docked — including its streaming preamble. */

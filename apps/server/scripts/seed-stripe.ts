@@ -2,18 +2,17 @@ import { createHash } from "node:crypto";
 
 import {
 	billingPlanIds,
-	CREDIT_TIERS,
 	priceLookupKey,
 	priceUsdFor,
+	purchasableTiersFor,
 	TOPUP_PACKS,
 	topupPackIds,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import Stripe from "stripe";
-
+import { STRIPE_API_VERSION } from "../src/modules/billing/infrastructure/stripe/stripe.constants";
 import { replaceStripePriceSafely } from "../src/modules/billing/infrastructure/stripe/stripe-price-replacement";
 
-const STRIPE_API_VERSION = "2026-02-25.clover";
 const CURRENCY = "usd";
 
 type SummaryAction = "created" | "existing" | "replaced";
@@ -56,7 +55,7 @@ async function main() {
 			throw new Error(`Missing product for plan ${planId}`);
 		}
 
-		for (const tierCredits of CREDIT_TIERS) {
+		for (const tierCredits of purchasableTiersFor(planId)) {
 			for (const interval of ["month", "year"] as const) {
 				const lookupKey = priceLookupKey(planId, tierCredits, interval);
 				const unitAmount = Math.round(
@@ -65,6 +64,9 @@ async function main() {
 
 				await ensurePrice({
 					lookupKey,
+					// Stripe price metadata stays in WHOLE display credits (tier
+					// identity, matching the lookup key) — never centi-credits. The
+					// grant path converts x100 once when writing the ledger.
 					metadata: {
 						credits: String(tierCredits),
 						interval,
@@ -82,11 +84,15 @@ async function main() {
 		}
 	}
 
+	// Legacy prices deliberately remain active for existing subscribers. This
+	// seed only creates/reconciles the v6 purchasable catalog and never archives
+	// prices whose lookup keys are no longer offered to new buyers.
 	for (const packId of topupPackIds) {
 		const pack = TOPUP_PACKS[packId];
 
 		await ensurePrice({
 			lookupKey: packId,
+			// WHOLE display credits, same convention as the tier prices above.
 			metadata: {
 				credits: String(pack.credits),
 				packId,

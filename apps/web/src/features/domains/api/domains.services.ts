@@ -5,6 +5,7 @@ import {
 	attachExternalDomainResponseSchema,
 	detachDomainResponseSchema,
 	domainsRoutes,
+	getDomainDnsStatusResponseSchema,
 	isSupportedTld,
 	listDomainsResponseSchema,
 	searchDomainsResponseSchema,
@@ -20,6 +21,7 @@ import type {
 	AttachExternalDomainResponse,
 	DetachDomainResponse,
 	Domain,
+	GetDomainDnsStatusResponse,
 	SearchDomainsResponse,
 	SetPrimaryDomainResponse,
 	TransferUnlockDomainResponse,
@@ -85,6 +87,16 @@ export async function verifyDomain(
 	);
 
 	return verifyDomainResponseSchema.parse(payload);
+}
+
+export async function getDomainDnsStatus(
+	domainId: string,
+): Promise<GetDomainDnsStatusResponse> {
+	const payload = await ApiService.get<GetDomainDnsStatusResponse>(
+		domainsRoutes.dnsStatus(domainId),
+	);
+
+	return getDomainDnsStatusResponseSchema.parse(payload);
 }
 
 export async function updateDomainAutoRenew(

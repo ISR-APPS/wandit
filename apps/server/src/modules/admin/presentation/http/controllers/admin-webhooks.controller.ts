@@ -5,17 +5,18 @@ import {
 	Inject,
 	Param,
 	Post,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type { AdminWebhookReplayResponse } from "@wandit/contracts";
 
 import { CurrentUser } from "../../../../auth";
 import { AdminWebhookReplayService } from "../../../application/services/admin-webhook-replay.service";
-import { AdminGuard } from "../guards/admin.guard";
+import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/webhooks")
-@UseGuards(AdminGuard)
+@AdminOnly()
+@AdminPermission({ billing: ["manage"] })
 export class AdminWebhooksController {
 	constructor(
 		@Inject(AdminWebhookReplayService)

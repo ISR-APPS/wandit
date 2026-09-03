@@ -1,12 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { isAdminRole } from "@wandit/contracts";
+import { adminViewValues, isStaffRole } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
 	BadgeCheckIcon,
 	BanIcon,
 	CopyIcon,
+	HandCoinsIcon,
+	PanelsTopLeftIcon,
 	ShieldCheckIcon,
-	ShieldOffIcon,
 	WalletCardsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -14,8 +15,14 @@ import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
-import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
+import {
+	CountryFlag,
+	countryDisplayName,
+} from "@/features/users/components/country-flag";
+import { PhoneCell } from "@/features/users/components/table/user-table-cells";
+import { getInitialAdminViews } from "@/features/users/lib/admin-view-options";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
 import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
@@ -25,8 +32,9 @@ type UserDetailHeaderProps = {
 	/** False when the signed-in admin is viewing their own account. */
 	canManageAccess: boolean;
 	onGrantCredits: () => void;
-	onToggleEarlyAccess: () => void;
+	onGrantOffline?: () => void;
 	onChangeRole: () => void;
+	onEditAdminViews: () => void;
 	onToggleBanned: () => void;
 };
 
@@ -34,15 +42,20 @@ export function UserDetailHeader({
 	user,
 	canManageAccess,
 	onGrantCredits,
-	onToggleEarlyAccess,
+	onGrantOffline,
 	onChangeRole,
+	onEditAdminViews,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
-	// The server rejects banning an admin (restoring one is still allowed), so
-	// banning an admin has to go through "Change role" first.
+	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const canSetRole = useAdminPermission({ users: ["set-role"] });
+	const canBan = useAdminPermission({ users: ["ban"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+	// The server rejects banning staff (restoring one is still allowed), so a
+	// staff account has to be demoted before it can be banned.
 	const canToggleBanned =
-		canManageAccess && (user.banned || !isAdminRole(user.role));
-	const canToggleEarlyAccess = canManageAccess && !isAdminRole(user.role);
+		canBan && canManageAccess && (user.banned || !isStaffRole(user.role));
+	const grantedAdminViews = getInitialAdminViews(user.role, user.adminViews);
 
 	async function copyUserId() {
 		try {
@@ -76,11 +89,29 @@ export function UserDetailHeader({
 							<p className="truncate text-muted-foreground text-sm">
 								{user.email}
 							</p>
+							<div className="text-muted-foreground text-sm">
+								<PhoneCell phone={user.phone} />
+							</div>
+							<div className="flex items-center gap-1.5 text-muted-foreground text-sm">
+								{user.countryCode ? (
+									<>
+										<CountryFlag countryCode={user.countryCode} />
+										<span>{countryDisplayName(user.countryCode)}</span>
+									</>
+								) : (
+									<span>Unknown</span>
+								)}
+							</div>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<Badge variant={user.role === "admin" ? "default" : "outline"}>
 								{getRoleLabel(user.role)}
 							</Badge>
+							{user.role === "support" ? (
+								<span className="text-muted-foreground text-xs">
+									{grantedAdminViews.length} of {adminViewValues.length} views
+								</span>
+							) : null}
 							<Badge variant="secondary">{titleCase(user.plan)}</Badge>
 							{user.emailVerified ? (
 								<Badge variant="outline">
@@ -96,7 +127,6 @@ export function UserDetailHeader({
 									Banned
 								</Badge>
 							) : null}
-							<EarlyAccessBadge user={user} />
 							<span className="text-muted-foreground text-xs">
 								Signed up {formatAdminDate(user.createdAt)}
 							</span>
@@ -122,30 +152,30 @@ export function UserDetailHeader({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
-					{canToggleEarlyAccess ? (
-						<Button
-							type="button"
-							variant={user.earlyAccess ? "destructive" : "outline"}
-							onClick={onToggleEarlyAccess}
-						>
-							{user.earlyAccess ? (
-								<ShieldOffIcon data-icon="inline-start" aria-hidden="true" />
-							) : (
-								<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
-							)}
-							{user.earlyAccess ? "Revoke access" : "Grant access"}
+					{canManageBilling && !user.subscription && onGrantOffline ? (
+						<Button type="button" variant="outline" onClick={onGrantOffline}>
+							<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
+							Grant offline subscription
 						</Button>
 					) : null}
-					{canManageAccess ? (
+					{canSetRole && canManageAccess ? (
 						<Button type="button" variant="outline" onClick={onChangeRole}>
 							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
 							Change role
 						</Button>
 					) : null}
-					<Button type="button" onClick={onGrantCredits}>
-						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
-						Grant credits
-					</Button>
+					{canSetRole && canManageAccess && user.role === "support" ? (
+						<Button type="button" variant="outline" onClick={onEditAdminViews}>
+							<PanelsTopLeftIcon data-icon="inline-start" aria-hidden="true" />
+							Admin views
+						</Button>
+					) : null}
+					{canGrantCredits ? (
+						<Button type="button" onClick={onGrantCredits}>
+							<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
+							Grant credits
+						</Button>
+					) : null}
 					{canToggleBanned ? (
 						<Button
 							type="button"

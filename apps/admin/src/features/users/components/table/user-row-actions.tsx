@@ -1,14 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { isAdminRole } from "@wandit/contracts";
+import { isStaffRole } from "@wandit/contracts";
 import {
 	BanIcon,
 	CopyIcon,
 	CreditCardIcon,
 	EllipsisIcon,
 	ExternalLinkIcon,
-	FlaskConicalIcon,
 	ShieldCheckIcon,
-	ShieldOffIcon,
 	UserCogIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -29,26 +27,26 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
-import { BetaEnrollDialog } from "@/features/users/components/beta-enroll-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
-import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 
-type ActiveDialog = "beta" | "credits" | "access" | "role" | "ban" | null;
+type ActiveDialog = "credits" | "role" | "ban" | null;
 
 function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
 	const { data: session } = useSession();
+	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const canSetRole = useAdminPermission({ users: ["set-role"] });
+	const canBan = useAdminPermission({ users: ["ban"] });
 	const isSelf = session?.user.id === user.id;
-	// The server rejects banning an admin (restoring one is still allowed), so
-	// banning an admin has to go through "Change role" first.
-	const canToggleBanned = !isSelf && (user.banned || !isAdminRole(user.role));
-	// Admins always have beta access through their role, so changing the stored
-	// early-access flag for them would not change their effective access.
-	const canToggleEarlyAccess = !isAdminRole(user.role);
+	// The server rejects banning staff (restoring one is still allowed), so a
+	// staff account has to be demoted before it can be banned.
+	const canToggleBanned =
+		canBan && !isSelf && (user.banned || !isStaffRole(user.role));
 
 	async function copyUserId() {
 		try {
@@ -97,28 +95,18 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 								View user details
 							</Link>
 						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => setActiveDialog("credits")}>
-							<CreditCardIcon />
-							Grant credits
-						</DropdownMenuItem>
-						{canToggleEarlyAccess && !user.earlyAccess ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("beta")}>
-								<FlaskConicalIcon />
-								Enroll in beta
+						{canGrantCredits ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("credits")}>
+								<CreditCardIcon />
+								Grant credits
 							</DropdownMenuItem>
 						) : null}
-						{canToggleEarlyAccess ? (
-							<DropdownMenuItem onSelect={() => setActiveDialog("access")}>
-								{user.earlyAccess ? <ShieldOffIcon /> : <ShieldCheckIcon />}
-								{user.earlyAccess ? "Revoke access" : "Grant access"}
-							</DropdownMenuItem>
-						) : null}
-						{!isSelf && (
+						{canSetRole && !isSelf ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("role")}>
 								<UserCogIcon />
 								Change role
 							</DropdownMenuItem>
-						)}
+						) : null}
 						<DropdownMenuItem onSelect={() => void copyUserId()}>
 							<CopyIcon />
 							Copy user ID
@@ -141,33 +129,27 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<GrantCreditsDialog
-				user={user}
-				open={activeDialog === "credits"}
-				onOpenChange={(open) => setActiveDialog(open ? "credits" : null)}
-			/>
-			<BetaEnrollDialog
-				user={user}
-				open={activeDialog === "beta"}
-				onOpenChange={(open) => setActiveDialog(open ? "beta" : null)}
-			/>
-			{canToggleEarlyAccess ? (
-				<EarlyAccessDialog
+			{canGrantCredits ? (
+				<GrantCreditsDialog
 					user={user}
-					open={activeDialog === "access"}
-					onOpenChange={(open) => setActiveDialog(open ? "access" : null)}
+					open={activeDialog === "credits"}
+					onOpenChange={(open) => setActiveDialog(open ? "credits" : null)}
 				/>
 			) : null}
-			<ChangeRoleDialog
-				user={user}
-				open={activeDialog === "role"}
-				onOpenChange={(open) => setActiveDialog(open ? "role" : null)}
-			/>
-			<BanUserDialog
-				user={user}
-				open={activeDialog === "ban"}
-				onOpenChange={(open) => setActiveDialog(open ? "ban" : null)}
-			/>
+			{canSetRole && !isSelf ? (
+				<ChangeRoleDialog
+					user={user}
+					open={activeDialog === "role"}
+					onOpenChange={(open) => setActiveDialog(open ? "role" : null)}
+				/>
+			) : null}
+			{canToggleBanned ? (
+				<BanUserDialog
+					user={user}
+					open={activeDialog === "ban"}
+					onOpenChange={(open) => setActiveDialog(open ? "ban" : null)}
+				/>
+			) : null}
 		</>
 	);
 }

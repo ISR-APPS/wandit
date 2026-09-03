@@ -12,9 +12,14 @@ import type {
 	LeadStatus,
 	LeadsQuery,
 	LeadsResponse,
+	WorkspaceLeadsQuery,
+	WorkspaceLeadsResponse,
 } from "@wandit/contracts";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
-import { toLeadDto } from "../../infrastructure/mappers/lead.mapper";
+import {
+	toLeadDto,
+	toWorkspaceLeadDto,
+} from "../../infrastructure/mappers/lead.mapper";
 import {
 	InvalidLeadCursorError,
 	LeadsRepository,
@@ -40,7 +45,7 @@ export class LeadsService {
 	async list(
 		scope: ProjectScope,
 		projectId: string,
-		queryOrLimit: LeadsQuery | number = { pageSize: 20 },
+		queryOrLimit: LeadsQuery | number = { archived: "exclude", pageSize: 20 },
 	): Promise<LeadsResponse> {
 		// Admin project detail intentionally asks for a small recent slice. Keep
 		// that internal numeric call compatible while the workspace API uses cursors.
@@ -62,7 +67,11 @@ export class LeadsService {
 			const [page, total, totals] = await Promise.all([
 				this.leadsRepository.listForProjectPage(scope, projectId, queryOrLimit),
 				this.leadsRepository.countForProject(scope, projectId, {
+					archived: queryOrLimit.archived,
+					createdFrom: queryOrLimit.createdFrom,
+					createdTo: queryOrLimit.createdTo,
 					q: queryOrLimit.q,
+					source: queryOrLimit.source,
 					status: queryOrLimit.status,
 				}),
 				this.leadsRepository.getTotalsForProject(scope, projectId),
@@ -73,6 +82,39 @@ export class LeadsService {
 				nextCursor: page.nextCursor,
 				total,
 				totals,
+			};
+		} catch (error) {
+			if (error instanceof InvalidLeadCursorError) {
+				throw new BadRequestException("Invalid lead cursor");
+			}
+
+			throw error;
+		}
+	}
+
+	/** Dashboard aggregate: one keyset page across every project in scope. */
+	async listForWorkspace(
+		scope: ProjectScope,
+		query: WorkspaceLeadsQuery,
+	): Promise<WorkspaceLeadsResponse> {
+		try {
+			const [page, total] = await Promise.all([
+				this.leadsRepository.listForWorkspacePage(scope, query),
+				this.leadsRepository.countForWorkspace(scope, {
+					archived: query.archived,
+					createdFrom: query.createdFrom,
+					createdTo: query.createdTo,
+					projectId: query.projectId,
+					q: query.q,
+					source: query.source,
+					status: query.status,
+				}),
+			]);
+
+			return {
+				leads: page.rows.map(toWorkspaceLeadDto),
+				nextCursor: page.nextCursor,
+				total,
 			};
 		} catch (error) {
 			if (error instanceof InvalidLeadCursorError) {
@@ -98,6 +140,26 @@ export class LeadsService {
 			projectId,
 			leadId,
 			status,
+		);
+
+		if (!row) {
+			throw new NotFoundException("Lead not found");
+		}
+
+		return { lead: toLeadDto(row) };
+	}
+
+	async archive(
+		scope: ProjectScope,
+		projectId: string,
+		leadId: string,
+		archived: boolean,
+	): Promise<LeadResponse> {
+		const row = await this.leadsRepository.updateAccessibleLeadArchived(
+			scope,
+			projectId,
+			leadId,
+			archived,
 		);
 
 		if (!row) {

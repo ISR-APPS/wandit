@@ -6,6 +6,10 @@
  */
 // Zod validates real JSON at runtime.
 import { z } from "zod";
+import {
+	paginatedResultSchema,
+	paginationQuerySchema,
+} from "../http/pagination";
 // Uploaded-attachment references ride the create body (V2 spec §11).
 import { fileRefSchema } from "./attachments";
 // Composer settings are shared with chat messages.
@@ -48,6 +52,9 @@ export const projectSchema = z.object({
 	// Ad pixels injected into the published page at publish time.
 	metaPixelId: z.string().nullable(),
 	tiktokPixelId: z.string().nullable(),
+	// Publishing setting: hide the "Made with Wandit" badge on the published
+	// page. Anyone may store it; publish honours it only for entitled owners.
+	hideWanditBadge: z.boolean(),
 });
 
 // TypeScript project type.
@@ -58,6 +65,24 @@ export const listProjectsResponseSchema = z.array(projectSchema);
 
 // TypeScript list response.
 export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
+
+export const listProjectsQuerySchema = paginationQuerySchema.extend({
+	search: z
+		.string()
+		.trim()
+		.max(200)
+		.transform((value) => value || undefined)
+		.optional(),
+});
+
+export type ListProjectsQuery = z.infer<typeof listProjectsQuerySchema>;
+
+export const listProjectsPageResponseSchema =
+	paginatedResultSchema(projectSchema);
+
+export type ListProjectsPageResponse = z.infer<
+	typeof listProjectsPageResponseSchema
+>;
 
 // Max length for the first prompt that creates a project.
 export const projectPromptMaxLength = 2000;
@@ -94,14 +119,29 @@ export const createProjectResponseSchema = z.object({
 // TypeScript create response.
 export type CreateProjectResponse = z.infer<typeof createProjectResponseSchema>;
 
+// Pixel ids end up inside inline <script> on PUBLISHED pages, so the
+// contract rejects anything that is not a plain platform identifier instead
+// of silently stripping characters at publish time. Trimmed first: a pasted
+// id routinely carries whitespace.
+export const pixelIdSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(64)
+	.regex(/^[A-Za-z0-9_-]+$/, {
+		message: "A pixel id may only contain letters, digits, _ and -",
+	});
+
 // Body for updating project settings.
 export const updateProjectBodySchema = z.object({
 	name: z.string().min(1).max(120).optional(),
 	// null removes the logo; undefined leaves it unchanged.
 	logoUrl: z.url().max(2048).nullable().optional(),
 	// null clears the pixel id; undefined leaves it unchanged.
-	metaPixelId: z.string().nullable().optional(),
-	tiktokPixelId: z.string().nullable().optional(),
+	metaPixelId: pixelIdSchema.nullable().optional(),
+	tiktokPixelId: pixelIdSchema.nullable().optional(),
+	// Badge visibility on the published page; undefined leaves it unchanged.
+	hideWanditBadge: z.boolean().optional(),
 });
 
 // TypeScript update body.
@@ -129,6 +169,8 @@ export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export const projectsRoutes = {
 	// GET dashboard projects.
 	list: "/api/v1/projects",
+	// GET paginated dashboard projects.
+	paged: "/api/v1/projects/paged",
 	// POST create project and start first generation.
 	create: "/api/v1/projects",
 	// GET one project.

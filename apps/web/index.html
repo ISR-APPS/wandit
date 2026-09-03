@@ -4,19 +4,63 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Wandit</title>
+		<!--
+			Chrome detects the page language once, when parsing ends, before the
+			app mounts. Set lang to the locale the app will render so a French or
+			Arabic browser does not offer to translate an "English" page (that
+			translation rewrites React's DOM). Mirrors detectLocale() in
+			src/lib/i18n/locale-store.ts: stored locale first, then
+			navigator.languages via matchLocale().
+		-->
 		<script>
 			(() => {
+				const locales = ["en", "fr", "ar"];
+				let locale = null;
 				try {
-					const locale = window.localStorage.getItem("wandit-locale");
-					if (!["en", "fr", "ar"].includes(locale)) {
-						return;
+					const stored = window.localStorage.getItem("wandit-locale");
+					if (locales.includes(stored)) {
+						locale = stored;
 					}
-					document.documentElement.lang = locale;
-					document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
 				} catch {}
+				if (!locale) {
+					const candidates = navigator.languages || [navigator.language];
+					for (const candidate of candidates) {
+						const base = String(candidate)
+							.toLowerCase()
+							.replace("_", "-")
+							.split("-")[0];
+						if (locales.includes(base)) {
+							locale = base;
+							break;
+						}
+					}
+				}
+				if (!locale) {
+					return;
+				}
+				document.documentElement.lang = locale;
+				document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
 			})();
 		</script>
 		<meta name="theme-color" content="#191613" />
+		<!--
+			Open Graph tags are static on purpose: Meta's scraper does not run
+			JavaScript, and the routes set no og:* tags at runtime, so nothing
+			duplicates these. The description names the registered legal entity.
+		-->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Wandit" />
+		<meta property="og:url" content="https://wandit.dev/" />
+		<meta property="og:title" content="Wandit — AI landing pages that sell" />
+		<meta
+			property="og:description"
+			content="Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes. Wandit is operated by SCALEMIND MARKETING CONSULTANCY L.L.C, Dubai, United Arab Emirates."
+		/>
+		<meta property="og:image" content="https://wandit.dev/og-image.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content="Wandit — AI landing pages that sell" />
+		<meta name="twitter:card" content="summary_large_image" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,10 +68,68 @@
 			href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Geist+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400..700&display=swap"
 			rel="stylesheet"
 		/>
+		<!--
+			Registered entity behind the product, as structured data. Business
+			verification crawlers (Meta, Google) read the raw HTML of this SPA
+			before any JavaScript runs, so the legal name must be in this file.
+			src/features/legal/lib/constants.spec.ts pins every field here to the
+			LEGAL_* constants in src/features/legal/lib/constants.ts.
+		-->
+		<script type="application/ld+json">
+			{
+				"@context": "https://schema.org",
+				"@type": "Organization",
+				"name": "Wandit",
+				"legalName": "SCALEMIND MARKETING CONSULTANCY L.L.C",
+				"url": "https://wandit.dev",
+				"email": "contact@scalemindapps.com",
+				"address": {
+					"@type": "PostalAddress",
+					"streetAddress": "Office 94-104, Khalid Abdulrahim Shaaban Building, Al Garhoud, Deira",
+					"addressLocality": "Dubai",
+					"addressCountry": "AE"
+				}
+			}
+		</script>
+		<style>
+			/* Visible only until React mounts into #app (and for no-JS clients). */
+			#legal-fallback {
+				position: fixed;
+				inset-inline: 0;
+				bottom: 0;
+				margin: 0;
+				padding: 12px 16px;
+				text-align: center;
+				font: 12px/1.5 "DM Sans", system-ui, sans-serif;
+				color: #8a847b;
+			}
+			#legal-fallback noscript p {
+				margin-top: 4px;
+				font-size: 14px;
+				color: #3d3832;
+			}
+			#app:not(:empty) ~ #legal-fallback {
+				display: none;
+			}
+		</style>
 	</head>
 
 	<body>
 		<div id="app"></div>
+		<!--
+			Static legal line for crawlers that do not run JavaScript. The CSS
+			above hides it as soon as the app renders; the app footer then shows
+			the same sentence (landing.footer.legalEntity).
+		-->
+		<footer id="legal-fallback" lang="en" dir="ltr">
+			<p>
+				Wandit is operated by SCALEMIND MARKETING CONSULTANCY L.L.C, Dubai,
+				United Arab Emirates.
+			</p>
+			<noscript>
+				<p>Wandit needs JavaScript. Enable it in your browser and reload.</p>
+			</noscript>
+		</footer>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>
 </html>

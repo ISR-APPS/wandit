@@ -38,9 +38,7 @@ export function UserWorkspacesCard({
 		<Card className={`shadow-none ${className ?? ""}`}>
 			<CardHeader>
 				<CardTitle>Workspaces</CardTitle>
-				<CardDescription>
-					Team workspaces this user belongs to.
-				</CardDescription>
+				<CardDescription>Team workspaces this user belongs to.</CardDescription>
 			</CardHeader>
 			<CardContent>
 				<Table>

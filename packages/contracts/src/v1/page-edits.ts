@@ -2,8 +2,8 @@
  * Page edit-ops contract (V2 generation improvements, spec §5–§8).
  *
  * The browser accumulates ops client-side and POSTs one batch per Save; the
- * server is the ONLY writer of HTML. replace-section carries raw HTML and is
- * therefore server-internal (chat agent tool) — the HTTP endpoint rejects it.
+ * server is the ONLY writer of HTML. Raw-HTML insert/replace ops are
+ * server/AI-only — the HTTP endpoint rejects them.
  */
 import { z } from "zod";
 import { curatedFontIdSchema, type PAGE_TOKEN_NAMES } from "./page-theme";
@@ -81,9 +81,10 @@ export const SECTION_PADDING_CSS: Record<SectionPaddingStep, string> = {
 
 /**
  * Allowlisted link href (set-link-href): https/http URLs without embedded
- * credentials, tel: numbers, and mailto: addresses. Everything else —
- * javascript:, data:, vbscript:, protocol-relative, relative paths — is
- * rejected. Whitespace/control characters are rejected OUTRIGHT (browsers
+ * credentials, tel: numbers, mailto: addresses, and same-page anchors
+ * ("#gallery"). Everything else — javascript:, data:, vbscript:,
+ * protocol-relative, relative paths — is rejected. Whitespace/control
+ * characters are rejected OUTRIGHT (browsers
  * strip them inside schemes, so "java\tscript:" would otherwise run); the
  * client normalizes phone numbers to digits before building tel: hrefs.
  */
@@ -92,6 +93,14 @@ export function isSafeLinkHref(value: string): boolean {
 		if (char.charCodeAt(0) <= 0x20) {
 			return false;
 		}
+	}
+
+	// Same-page anchors carry no scheme, so they cannot run script; one-page
+	// nav links ("#gallery") need them. Quotes, angle brackets, and backticks
+	// never belong in an id, so an anchor can never break out of an attribute
+	// even on a path that concatenates HTML instead of setting an attribute.
+	if (value.startsWith("#")) {
+		return value.length > 1 && !/["'<>`\\]/.test(value);
 	}
 
 	const lowered = value.toLowerCase();
@@ -127,7 +136,10 @@ export const linkHrefSchema = z
 	.string()
 	.min(1)
 	.max(2048)
-	.refine(isSafeLinkHref, "href must use https, http, tel: or mailto:");
+	.refine(
+		isSafeLinkHref,
+		"href must use https, http, tel:, mailto:, or a same-page #anchor",
+	);
 
 export const textOpSchema = z.object({
 	kind: z.literal("text"),
@@ -223,6 +235,13 @@ export const resetTokensOpSchema = z.object({
 	kind: z.literal("reset-tokens"),
 });
 
+/** Document-level <title> (browser tab). Same shape family as reset-tokens:
+ *  it targets the head, so it carries NO wid. */
+export const setPageTitleOpSchema = z.object({
+	kind: z.literal("set-page-title"),
+	value: z.string().trim().min(1).max(120),
+});
+
 /** Element removal (inline-editor V3) — the server restricts targets to
  *  stamped leaf elements; section elements are never removable. */
 export const removeElementOpSchema = z.object({
@@ -268,15 +287,25 @@ export const sectionStyleOpSchema = z.object({
 		),
 });
 
+/** SERVER/AI-ONLY: inserts one bounded HTML fragment relative to an element. */
+export const insertElementOpSchema = z.object({
+	kind: z.literal("insert-element"),
+	wid: widSchema,
+	position: z.enum(["before", "after", "append"]),
+	value: z.string().min(1).max(60_000),
+});
+
 /** Curated element ops that are safe at the chat-tool boundary. */
 export const aiElementOpSchema = z.discriminatedUnion("kind", [
 	textOpSchema,
 	imageSrcOpSchema,
 	elementStyleOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 	setLinkHrefOpSchema,
 	removeElementOpSchema,
 	sectionStyleOpSchema,
+	insertElementOpSchema,
 ]);
 
 export type AiElementOp = z.infer<typeof aiElementOpSchema>;
@@ -285,6 +314,14 @@ export type AiElementOp = z.infer<typeof aiElementOpSchema>;
 export const replaceSectionOpSchema = z.object({
 	kind: z.literal("replace-section"),
 	wid: widSchema,
+	value: z.string().min(20).max(60_000),
+});
+
+/** SERVER-INTERNAL: produced by the chat agent's insert_section tool only. */
+export const insertSectionOpSchema = z.object({
+	kind: z.literal("insert-section"),
+	wid: widSchema,
+	position: z.enum(["before", "after"]),
 	value: z.string().min(20).max(60_000),
 });
 
@@ -300,6 +337,7 @@ export const clientEditOpSchema = z.discriminatedUnion("kind", [
 	sectionStyleOpSchema,
 	resetTokensOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 ]);
 
 export const editOpSchema = z.discriminatedUnion("kind", [
@@ -314,9 +352,13 @@ export const editOpSchema = z.discriminatedUnion("kind", [
 	sectionStyleOpSchema,
 	resetTokensOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 	replaceSectionOpSchema,
+	insertElementOpSchema,
+	insertSectionOpSchema,
 ]);
 
+export type SetPageTitleOp = z.infer<typeof setPageTitleOpSchema>;
 export type ClientEditOp = z.infer<typeof clientEditOpSchema>;
 export type EditOp = z.infer<typeof editOpSchema>;
 

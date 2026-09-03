@@ -40,10 +40,9 @@ export type DomainTldCatalogItem = {
 /*
  * Fail-closed guards around the registrar's wholesale registration quote.
  *
- * Every ceiling is 80% of the retail price in DOMAIN_REGISTRATION_USD_CENTS,
- * guaranteeing at least a 20% gross margin: a purchase whose wholesale quote
- * exceeds the ceiling is blocked, never sold at a loss. A contract test pins
- * ceiling < retail for every TLD. The UI never displays these cap values.
+ * Every ceiling is a standalone per-TLD cap on acceptable wholesale quotes.
+ * A purchase whose wholesale quote exceeds the ceiling is blocked. The UI never
+ * displays these cap values.
  */
 export const DOMAIN_TLD_CATALOG = {
 	com: {
@@ -66,16 +65,14 @@ export const DOMAIN_TLD_CATALOG = {
 	},
 } as const satisfies Record<DomainTld, DomainTldCatalogItem>;
 
-// Explicit one-time registration prices. These intentionally remain a
-// separate catalog instead of implying a universal credits-to-USD rate.
-export const DOMAIN_REGISTRATION_USD_CENTS = {
-	com: 3_000,
-	net: 3_500,
-	shop: 4_500,
-	store: 4_500,
-	online: 4_000,
-	site: 3_750,
-} as const satisfies Record<DomainTld, number>;
+// Retail is the live registrar wholesale quote plus this margin.
+export const DOMAIN_RETAIL_MARGIN_USD_CENTS = 200;
+
+export function domainRetailUsdCentsFromWholesale(
+	wholesaleUsd: number,
+): number {
+	return Math.round(wholesaleUsd * 100) + DOMAIN_RETAIL_MARGIN_USD_CENTS;
+}
 
 // Name.com requires a real E.164 number: "+" plus 8–15 digits.
 const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
@@ -213,14 +210,6 @@ export function parseExternalDomainName(
 	};
 }
 
-export function registrationUsdCentsFor(name: string) {
-	const parsedDomainName = parseDomainName(name);
-
-	return parsedDomainName
-		? DOMAIN_REGISTRATION_USD_CENTS[parsedDomainName.tld]
-		: null;
-}
-
 const sanitizedDomainInputSchema = z
 	.string()
 	.transform(normalizeDomainNameInput);
@@ -291,7 +280,7 @@ export const domainPriceSnapshotSchema = z.object({
 export type DomainPriceSnapshot = z.infer<typeof domainPriceSnapshotSchema>;
 
 export const requiredDomainRecordSchema = z.object({
-	type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
+	type: z.enum(["A", "AAAA", "CNAME", "NS", "TXT"]),
 	name: z.string().min(1),
 	value: z.string().min(1),
 	purpose: z.string().min(1),
@@ -301,7 +290,42 @@ export type RequiredDomainRecord = z.infer<typeof requiredDomainRecordSchema>;
 
 export const domainDnsSchema = z
 	.object({
+		// Apex state for purchased AND external domains (server-side only;
+		// mapDomain never exposes it): the Cloudflare zone in our account that
+		// hosts (or is offered to host) the domain's DNS, the bare-name custom
+		// hostname, the durable "apex done" marker, and the last apex error.
+		apexConfigured: z.boolean().optional(),
+		apexCustomHostnameId: z.string().optional(),
+		apexCustomHostnameNudged: z.boolean().optional(),
+		apexCustomHostnameStatus: z.string().optional(),
+		apexError: z.string().optional(),
+		externalVerification: z
+			.object({
+				attempts: z.int().nonnegative(),
+				stalledAt: isoDateTimeSchema,
+			})
+			.optional(),
 		records: z.array(requiredDomainRecordSchema).optional(),
+		zoneActive: z.boolean().optional(),
+		// True only when the pipeline created the zone itself (an adopted
+		// zone is never deleted by cleanup).
+		zoneCreated: z.boolean().optional(),
+		// Purchased: written right BEFORE the registrar nameserver call.
+		// External: written as soon as the zone's nameservers were exposed to
+		// the user, who may delegate at any time. Either way the registry may
+		// delegate to the zone from then on, so cleanup never deletes it.
+		zoneDelegated: z.boolean().optional(),
+		zoneId: z.string().optional(),
+		zoneNameServers: z.array(z.string()).optional(),
+		// External only: when the zone nameservers first became actionable in
+		// the setup UI. Delegation reminders age from this point.
+		zoneNameserversExposedAt: isoDateTimeSchema.optional(),
+		// External only: the one-time import of the domain's current public
+		// DNS into the zone (Cloudflare record scan) already ran; it must never
+		// run again once the user may have switched nameservers to us.
+		zoneScanned: z.boolean().optional(),
+		zoneScanRecordsAdded: z.int().nonnegative().optional(),
+		zoneStatus: z.string().optional(),
 	})
 	.passthrough();
 
@@ -354,7 +378,7 @@ export const searchDomainsResultSchema = z.object({
 	name: domainNameSchema,
 	tld: domainTldSchema,
 	availability: domainAvailabilityStatusSchema,
-	// Retail price in USD, derived server-side from DOMAIN_REGISTRATION_USD_CENTS.
+	// Retail price in USD, derived server-side from live wholesale plus margin.
 	// `null` means there is no safe purchasable quote (premium, missing, or
 	// over-ceiling wholesale) — never substitute a mock or fallback price.
 	// The registrar's wholesale quote stays server-side and never crosses the wire.
@@ -398,6 +422,38 @@ export const verifyDomainResponseSchema = z.object({
 });
 
 export type VerifyDomainResponse = z.infer<typeof verifyDomainResponseSchema>;
+
+export const dnsRecordDiagnosticStatuses = [
+	"found",
+	"missing",
+	"mismatch",
+	"unknown",
+] as const;
+
+export const dnsRecordDiagnosticStatusSchema = z.enum(
+	dnsRecordDiagnosticStatuses,
+);
+
+export type DnsRecordDiagnosticStatus = z.infer<
+	typeof dnsRecordDiagnosticStatusSchema
+>;
+
+export const dnsRecordDiagnosticSchema = requiredDomainRecordSchema.extend({
+	observedValues: z.array(z.string()),
+	status: dnsRecordDiagnosticStatusSchema,
+});
+
+export type DnsRecordDiagnostic = z.infer<typeof dnsRecordDiagnosticSchema>;
+
+export const getDomainDnsStatusResponseSchema = z.object({
+	checkedAt: isoDateTimeSchema,
+	domain: domainSchema,
+	records: z.array(dnsRecordDiagnosticSchema),
+});
+
+export type GetDomainDnsStatusResponse = z.infer<
+	typeof getDomainDnsStatusResponseSchema
+>;
 
 export const updateDomainAutoRenewBodySchema = z.object({
 	autoRenew: z.boolean(),
@@ -444,6 +500,7 @@ export const domainsRoutes = {
 	external: (projectId: string) =>
 		`/api/v1/projects/${projectId}/domains/external`,
 	verify: (domainId: string) => `/api/v1/domains/${domainId}/verify`,
+	dnsStatus: (domainId: string) => `/api/v1/domains/${domainId}/dns-status`,
 	autoRenew: (domainId: string) => `/api/v1/domains/${domainId}/auto-renew`,
 	primary: (domainId: string) => `/api/v1/domains/${domainId}/primary`,
 	transferUnlock: (domainId: string) =>

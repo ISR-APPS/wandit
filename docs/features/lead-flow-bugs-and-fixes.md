@@ -40,7 +40,7 @@ When you publish, the server bakes a small script into the page HTML and stores 
 
 ### C6. Order details were invisible ✅ FIXED
 - **Bug:** Bundle, size, color, quantity, delivery choice — saved in the database, shown nowhere. You got name + phone and had to call the buyer to ask what they bought.
-- **Fix:** Every lead row now has an expandable "Order details" section, and CSV + Google Sheets get an Order details column. Internal fields stay hidden.
+- **Fix:** Every lead row now has an expandable "Order details" section, and CSV + Google Sheets give each form field its own column (leads without a field get an empty cell). Internal fields stay hidden.
 
 ### C7. Dashboard silently stopped at 1,000 leads ✅ FIXED
 - **Bug:** The list loaded only the newest 1,000; totals, search, and CSV came from that slice. Sheets stopped at 10,000. Counters disagreed with the workspace badge.

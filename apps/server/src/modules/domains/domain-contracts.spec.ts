@@ -1,10 +1,13 @@
 import {
 	attachExternalDomainBodySchema,
 	catalogFor,
-	DOMAIN_REGISTRATION_USD_CENTS,
+	DOMAIN_RETAIL_MARGIN_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
+	dnsRecordDiagnosticSchema,
+	domainDnsSchema,
 	domainNameSchema,
 	domainPriceSnapshotSchema,
+	domainRetailUsdCentsFromWholesale,
 	domainSchema,
 	domainTlds,
 	externalDomainNameSchema,
@@ -13,7 +16,7 @@ import {
 	parseDomainName,
 	parseExternalDomainName,
 	registrantSchema,
-	registrationUsdCentsFor,
+	requiredDomainRecordSchema,
 	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
@@ -145,33 +148,18 @@ describe("domain TLD catalog", () => {
 		});
 	});
 
-	it("never allows a wholesale ceiling at or above the retail price", () => {
-		// Money invariant: a quote that passes the ceiling must still leave
-		// margin against what the customer is charged — we never sell at a loss.
-		for (const tld of domainTlds) {
-			expect(DOMAIN_TLD_CATALOG[tld].wholesaleCeilingUsd * 100).toBeLessThan(
-				DOMAIN_REGISTRATION_USD_CENTS[tld],
-			);
-		}
+	it("adds the fixed USD-cents retail margin to the rounded wholesale quote", () => {
+		expect(DOMAIN_RETAIL_MARGIN_USD_CENTS).toBe(200);
+		expect(domainRetailUsdCentsFromWholesale(12.99)).toBe(1_499);
+		expect(domainRetailUsdCentsFromWholesale(12.994)).toBe(1_499);
+		expect(domainRetailUsdCentsFromWholesale(12.995)).toBe(1_500);
 	});
 
-	it("defines a positive integer USD-cents registration price for every supported TLD", () => {
-		for (const tld of domainTlds) {
-			const priceCents = DOMAIN_REGISTRATION_USD_CENTS[tld];
-
-			expect(Number.isInteger(priceCents)).toBe(true);
-			expect(priceCents).toBeGreaterThan(0);
-			expect(registrationUsdCentsFor(`example.${tld}`)).toBe(priceCents);
-		}
-	});
-
-	it("identifies unsupported TLDs and invalid names", () => {
+	it("identifies unsupported TLDs", () => {
 		expect(isSupportedTld("com")).toBe(true);
 		expect(isSupportedTld(".shop")).toBe(true);
 		expect(isSupportedTld("dz")).toBe(false);
 		expect(catalogFor("dz")).toBeNull();
-		expect(registrationUsdCentsFor("example.dz")).toBeNull();
-		expect(registrationUsdCentsFor("not-a-domain")).toBeNull();
 	});
 
 	it("accepts Name.com as the provider for newly purchased domains", () => {
@@ -245,6 +233,106 @@ describe("domain TLD catalog", () => {
 				wholesaleCeilingUsd: 15,
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("domain DNS contracts", () => {
+	it("exposes an additive stalled external-verification marker", () => {
+		const dns = domainDnsSchema.parse({
+			externalVerification: {
+				attempts: 101,
+				stalledAt: "2026-08-12T10:00:00.000Z",
+			},
+			records: [],
+		});
+
+		expect(dns.externalVerification).toEqual({
+			attempts: 101,
+			stalledAt: "2026-08-12T10:00:00.000Z",
+		});
+	});
+
+	it("accepts NS nameserver records and the apex zone state of purchased and external domains", () => {
+		expect(
+			requiredDomainRecordSchema.parse({
+				name: "@",
+				purpose: "nameserver",
+				type: "NS",
+				value: "art.ns.cloudflare.com",
+			}).type,
+		).toBe("NS");
+		expect(
+			requiredDomainRecordSchema.safeParse({
+				name: "@",
+				purpose: "traffic",
+				type: "ANAME",
+				value: "customers.wandit.app",
+			}).success,
+		).toBe(false);
+
+		const dns = domainDnsSchema.parse({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			apexCustomHostnameNudged: true,
+			apexCustomHostnameStatus: "active",
+			apexError: "Cloudflare zone request failed",
+			records: [],
+			zoneActive: true,
+			zoneCreated: true,
+			zoneDelegated: true,
+			zoneId: "zone_1",
+			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneScanRecordsAdded: 3,
+			zoneScanned: true,
+			zoneStatus: "active",
+		});
+
+		expect(dns).toMatchObject({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			apexCustomHostnameNudged: true,
+			apexCustomHostnameStatus: "active",
+			apexError: "Cloudflare zone request failed",
+			zoneActive: true,
+			zoneCreated: true,
+			zoneDelegated: true,
+			zoneId: "zone_1",
+			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneScanRecordsAdded: 3,
+			zoneScanned: true,
+			zoneStatus: "active",
+		});
+		expect(
+			domainDnsSchema.safeParse({ apexConfigured: "yes", records: [] }).success,
+		).toBe(false);
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneNameServers: "art" })
+				.success,
+		).toBe(false);
+		// The external DNS-import markers are optional and strictly typed.
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneScanRecordsAdded: -1 })
+				.success,
+		).toBe(false);
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneScanned: "done" }).success,
+		).toBe(false);
+	});
+
+	it("parses per-record DNS diagnostic results", () => {
+		expect(
+			dnsRecordDiagnosticSchema.parse({
+				name: "www",
+				observedValues: ["elsewhere.example.net"],
+				purpose: "traffic",
+				status: "mismatch",
+				type: "CNAME",
+				value: "customers.wandit.app",
+			}),
+		).toMatchObject({
+			observedValues: ["elsewhere.example.net"],
+			status: "mismatch",
+		});
 	});
 });
 

@@ -1,0 +1,94 @@
+{
+	"meta": {
+		"title": "Welcome"
+	},
+	"steps": {
+		"style": {
+			"title": "Pick your style",
+			"options": {
+				"light": "Light",
+				"dark": "Dark"
+			}
+		},
+		"name": {
+			"title": "What's your name?",
+			"label": "Full name",
+			"next": "Next"
+		},
+		"phone": {
+			"title": "What's your phone number?",
+			"label": "Phone number",
+			"country": "Country",
+			"searchPlaceholder": "Search for a country…",
+			"noResults": "No country found.",
+			"placeholder": "555 12 34 56",
+			"next": "Next"
+		},
+		"accountType": {
+			"title": "How do you work?",
+			"options": {
+				"solo": "Solo",
+				"organization": "With a team"
+			}
+		},
+		"soloProfile": {
+			"title": "What best describes you?",
+			"options": {
+				"ecommerce_seller": "E‑commerce seller",
+				"agency": "Agency",
+				"freelancer": "Freelancer",
+				"other": "Other"
+			}
+		},
+		"role": {
+			"title": "Which role fits you best?",
+			"options": {
+				"founder": "Founder",
+				"product": "Product",
+				"designer": "Designer",
+				"engineer": "Engineer",
+				"consultant": "Consultant",
+				"marketing_sales": "Marketing / Sales",
+				"operations": "Operations",
+				"other": "Other"
+			}
+		},
+		"companySize": {
+			"title": "How many people work at your company?",
+			"options": {
+				"2_10": "2 – 10",
+				"11_50": "11 – 50",
+				"51_200": "51 – 200",
+				"200_plus": "200+"
+			}
+		},
+		"aiExperience": {
+			"title": "Have you used AI tools before?",
+			"options": {
+				"never": "Never",
+				"sometimes": "Sometimes",
+				"daily": "Every day"
+			}
+		},
+		"aiTools": {
+			"title": "Which AI tools do you use?",
+			"label": "Tools",
+			"placeholder": "e.g. a chat assistant, a website builder…",
+			"next": "Next",
+			"skip": "Skip"
+		}
+	},
+	"common": {
+		"back": "Back",
+		"soundOn": "Turn sound on",
+		"soundOff": "Turn sound off"
+	},
+	"submitting": {
+		"saving": "Saving your answers…",
+		"warming": "Warming up your workspace…",
+		"igniting": "Striking the first spark…"
+	},
+	"error": {
+		"submit": "We couldn't save your answers. Please try again."
+	}
+}

@@ -16,12 +16,18 @@ import {
 	Film,
 	RefreshCw,
 } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import { useMediaGenerationAttemptQuery } from "../../../api/media-generations.queries";
 import { mediaGenerationDownloadUrl } from "../../../api/media-generations.services";
+import { useSharedAiChat } from "../../../lib/ai-chat-context";
+import {
+	durableAiErrorPresentation,
+	findToolAiError,
+	toolOutputAiError,
+} from "../../../lib/ai-error-copy";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { StatusMessageHeader } from "../status-message-header";
@@ -31,8 +37,17 @@ type AnimateImageToolPart = Extract<
 	{ type: "tool-animate_image" }
 >;
 
-export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
+export function AnimateImagePart({
+	part,
+	messageParts,
+}: {
+	part: AnimateImageToolPart;
+	messageParts?: WanditUIMessage["parts"];
+}) {
 	const { t } = useTranslation();
+	const { prefillComposer } = useSharedAiChat();
+	const prompt =
+		typeof part.input?.prompt === "string" ? part.input.prompt : undefined;
 
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		const text =
@@ -47,6 +62,18 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	}
 
 	if (part.state === "output-error") {
+		const failure = findToolAiError(messageParts, part.toolCallId);
+		if (failure) {
+			return (
+				<ImageAnimationFailure
+					error={null}
+					failure={failure}
+					onPrefill={prefillComposer}
+					prompt={prompt}
+				/>
+			);
+		}
+
 		return (
 			<AnnouncedStatus
 				text={`${t("workspace.chat.animateImage.failedToStart")}. ${t(
@@ -62,9 +89,25 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	}
 
 	if (part.state !== "output-available") return null;
+	const outputFailure = toolOutputAiError(part.output);
+	if (outputFailure) {
+		return (
+			<ImageAnimationFailure
+				error={null}
+				failure={outputFailure}
+				onPrefill={prefillComposer}
+				prompt={prompt}
+			/>
+		);
+	}
 
 	if (part.output.status === "queued" && part.output.attemptId) {
-		return <MediaGenerationCard attemptId={part.output.attemptId} />;
+		return (
+			<MediaGenerationCard
+				attemptId={part.output.attemptId}
+				onPrefill={prefillComposer}
+			/>
+		);
 	}
 
 	return (
@@ -81,7 +124,13 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 	);
 }
 
-function MediaGenerationCard({ attemptId }: { attemptId: string }) {
+function MediaGenerationCard({
+	attemptId,
+	onPrefill,
+}: {
+	attemptId: string;
+	onPrefill: (prompt: string) => void;
+}) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
 	const {
@@ -136,16 +185,12 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 
 	if (attempt?.status === "failed") {
 		return (
-			<AnnouncedStatus
-				text={`${t("workspace.chat.animateImage.failedTitle")}. ${t(
-					"workspace.chat.animateImage.failedBody",
-				)}`}
-			>
-				<FailureMessage
-					title={t("workspace.chat.animateImage.failedTitle")}
-					body={t("workspace.chat.animateImage.failedBody")}
-				/>
-			</AnnouncedStatus>
+			<ImageAnimationFailure
+				error={attempt.error}
+				failure={attempt.failure}
+				onPrefill={onPrefill}
+				prompt={attempt.prompt}
+			/>
 		);
 	}
 
@@ -177,13 +222,60 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	);
 }
 
+export function ImageAnimationFailure({
+	error,
+	failure,
+	onPrefill,
+	prompt,
+}: {
+	error: string | null;
+	failure?: MediaGenerationAttempt["failure"];
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+}) {
+	const { t } = useTranslation();
+	const copy = failure ? durableAiErrorPresentation(failure, t) : null;
+	const title = copy?.kicker ?? t("workspace.chat.animateImage.failedTitle");
+	const body =
+		copy?.body ?? error ?? t("workspace.chat.animateImage.failedBody");
+
+	return (
+		<AnnouncedStatus text={`${title}. ${body}`}>
+			<FailureMessage
+				title={title}
+				body={body}
+				attribution={copy?.attribution}
+				onPrefill={onPrefill}
+				prompt={prompt}
+				showPrefill={copy?.showRetry}
+			/>
+		</AnnouncedStatus>
+	);
+}
+
+/** A failed source only suppresses the exact URL whose request failed. */
+export function shouldShowAnimationSourceImage(
+	sourceImageUrl: string | null | undefined,
+	failedSourceImageUrl: string | null,
+): boolean {
+	return Boolean(sourceImageUrl) && sourceImageUrl !== failedSourceImageUrl;
+}
+
 function MediaGenerationProgress({
 	attempt,
 }: {
 	attempt: MediaGenerationAttempt | undefined;
 }) {
 	const { t } = useTranslation();
+	const [failedSourceImageUrl, setFailedSourceImageUrl] = useState<
+		string | null
+	>(null);
 	const isGenerating = attempt?.status === "generating";
+	const sourceImageUrl = attempt?.sourceImageUrl;
+	const showSourceImage = shouldShowAnimationSourceImage(
+		sourceImageUrl,
+		failedSourceImageUrl,
+	);
 	const title = isGenerating
 		? t("workspace.chat.animateImage.generatingTitle")
 		: t("workspace.chat.animateImage.queuedTitle");
@@ -199,10 +291,12 @@ function MediaGenerationProgress({
 					aspectClass(attempt?.aspect),
 				)}
 			>
-				{attempt?.sourceImageUrl ? (
+				{showSourceImage && sourceImageUrl ? (
 					<img
-						src={attempt.sourceImageUrl}
+						key={sourceImageUrl}
+						src={sourceImageUrl}
 						alt={t("workspace.chat.animateImage.sourceAlt")}
+						onError={() => setFailedSourceImageUrl(sourceImageUrl)}
 						className="absolute inset-0 size-full object-cover"
 					/>
 				) : (
@@ -236,7 +330,7 @@ function MediaGenerationResult({
 		<div className="overflow-hidden rounded-[14px] border border-border bg-background">
 			<video
 				src={videoUrl}
-				poster={attempt.sourceImageUrl}
+				poster={attempt.sourceImageUrl ?? undefined}
 				controls
 				muted
 				playsInline
@@ -298,7 +392,22 @@ function MediaGenerationResult({
 	);
 }
 
-function FailureMessage({ title, body }: { title: string; body: string }) {
+function FailureMessage({
+	title,
+	body,
+	attribution,
+	onPrefill,
+	prompt,
+	showPrefill = false,
+}: {
+	title: string;
+	body: string;
+	attribution?: string | null;
+	onPrefill?: (prompt: string) => void;
+	prompt?: string;
+	showPrefill?: boolean;
+}) {
+	const { t } = useTranslation();
 	return (
 		<div>
 			<StatusMessageHeader
@@ -311,6 +420,27 @@ function FailureMessage({ title, body }: { title: string; body: string }) {
 			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 				{body}
 			</p>
+			{attribution ? (
+				<p dir="auto" className="mt-1 text-[11.5px] text-muted-foreground">
+					{attribution}
+				</p>
+			) : null}
+			{showPrefill && prompt && onPrefill ? (
+				<div className="mt-2">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 rounded-lg px-2.5 text-xs"
+						onClick={() => onPrefill(prompt)}
+					>
+						{t("workspace.chat.aiError.tryAgainPrefill.video")}
+					</Button>
+					<p className="mt-1 text-[10.5px] text-muted-foreground">
+						{t("workspace.chat.aiError.tryAgainPrefill.hint")}
+					</p>
+				</div>
+			) : null}
 		</div>
 	);
 }

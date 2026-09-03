@@ -15,18 +15,19 @@ const CONNECTOR_ONLY_GENERATION_TOOLS = new Set([
 	"voice_change",
 ]);
 
-const IMAGE_GENERATION_TOOLS = new Set([
+export const IMAGE_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"generate_image",
 	"outpaint_image",
-	"reframe",
 	"remove_background",
 	"upscale_image",
 ]);
 
-const VIDEO_GENERATION_TOOLS = new Set([
+export const VIDEO_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"animation_actions",
 	"generate_video",
 	"motion_control",
+	"personal_clipper_create",
+	"reframe",
 	"upscale_video",
 ]);
 
@@ -39,12 +40,67 @@ const IMAGE_COUNT_KEYS = [
 ] as const;
 
 /**
+ * Connectors whose catalog contains paid provider work. An unregistered tool
+ * on one of these fails CLOSED: it runs as a connector-billed event (1 cc
+ * hold that settles at zero, tracked and idempotent) instead of escaping
+ * metering entirely. Non-monetized connectors keep the open default.
+ */
+export const MONETIZED_CONNECTORS: ReadonlySet<string> = new Set([
+	"higgsfield",
+]);
+
+/** Known no-cost tools on monetized connectors: reads, status, auth, search. */
+export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
+	"get_cost",
+	"job_display",
+	"job_status",
+	"list_voices",
+	"media_confirm",
+	"media_import_url",
+	"media_upload",
+	"media_upload_widget",
+	"models_explore",
+	"personal_clipper_jobs",
+	"personal_clipper_status",
+	"select_workspace",
+	"show_generations",
+	// Marketing Studio browsing and video analysis run inline on the user's
+	// own Higgsfield subscription: no Wandit-metered media is produced.
+	"show_marketing_studio",
+	"tiktok_accounts",
+	"tiktok_connect",
+	"tiktok_music_trending",
+	"tiktok_music_tune",
+	"tiktok_prepare_publish",
+	"tiktok_publish_status",
+	"tiktok_reconnect",
+	"video_analysis_create",
+	"video_analysis_jobs",
+	"video_analysis_status",
+	"whoami",
+]);
+
+const FREE_TOOL_PREFIXES = ["get_", "list_", "search_", "describe_", "read_"];
+
+export function isFreeConnectorTool(toolName: string): boolean {
+	const normalized = normalizeConnectorToolName(toolName);
+
+	return (
+		FREE_CONNECTOR_TOOLS.has(normalized) ||
+		FREE_TOOL_PREFIXES.some((prefix) => normalized.startsWith(prefix)) ||
+		/(^|_)(status|health|auth|login|logout)$/u.test(normalized)
+	);
+}
+
+/**
  * Product-owned classification for MCP operations that create or transform
- * media. Ordinary connector reads/writes are intentionally not billable.
+ * media. Ordinary connector reads/writes are intentionally not billable;
+ * on a monetized connector an unknown tool is connector-billed (fail closed).
  */
 export function connectorGenerationPlan(
 	toolName: string,
 	input: unknown,
+	connectorSlug?: string,
 ): ConnectorGenerationPlan | null {
 	const normalized = normalizeConnectorToolName(toolName);
 
@@ -63,7 +119,99 @@ export function connectorGenerationPlan(
 		return { childOperation: "video", childUnits: 1 };
 	}
 
+	if (isFreeConnectorTool(normalized)) {
+		return null;
+	}
+
+	// Recovery callers replay rows that were planned at queue time and pass
+	// no slug; the fail-closed default applies to live tool execution only.
+	if (connectorSlug !== undefined && MONETIZED_CONNECTORS.has(connectorSlug)) {
+		return {};
+	}
+
 	return null;
+}
+
+/** Evidence transport for a connector's provider receipts. */
+export function connectorEvidenceTransport(
+	connectorSlug: string,
+): "higgsfield" | "mcp" {
+	return connectorSlug === "higgsfield" ? "higgsfield" : "mcp";
+}
+
+// Same strictness as the task's unlim_choice check: an echoed preset/request
+// id in a question receipt must not read as an accepted job.
+const PROVIDER_JOB_ID_KEY_PATTERN =
+	/^(?:job_set|jobset|job|generation|row|task)_?ids?$/i;
+
+/**
+ * Provider job id from a submit receipt (Higgsfield job_set_id, Clipper
+ * row_id, job_id, …), walking nested objects and JSON-stringified content
+ * blocks. Null when the receipt exposes nothing job-like — the provider
+ * accepted no work.
+ */
+export function connectorProviderJobId(value: unknown): string | null {
+	const seen = new WeakSet<object>();
+
+	const visit = (candidate: unknown): string | null => {
+		if (typeof candidate === "string") {
+			const parsed = tryParseJson(candidate);
+			return parsed === null ? null : visit(parsed);
+		}
+
+		if (
+			candidate === null ||
+			typeof candidate !== "object" ||
+			seen.has(candidate)
+		) {
+			return null;
+		}
+		seen.add(candidate);
+
+		if (Array.isArray(candidate)) {
+			for (const item of candidate) {
+				const found = visit(item);
+				if (found) {
+					return found;
+				}
+			}
+			return null;
+		}
+
+		for (const [key, nested] of Object.entries(candidate)) {
+			if (
+				(typeof nested === "number" ||
+					(typeof nested === "string" && nested.length > 0)) &&
+				PROVIDER_JOB_ID_KEY_PATTERN.test(key)
+			) {
+				return String(nested);
+			}
+		}
+
+		for (const nested of Object.values(candidate)) {
+			const found = visit(nested);
+			if (found) {
+				return found;
+			}
+		}
+
+		return null;
+	};
+
+	return visit(value);
+}
+
+/** Receipt preview bounded for jsonb storage (strings truncated). */
+export function sanitizeProviderReceipt(value: unknown, maxChars = 4_000) {
+	try {
+		const serialized = JSON.stringify(value) ?? "null";
+
+		return serialized.length <= maxChars
+			? JSON.parse(serialized)
+			: { truncated: true, preview: serialized.slice(0, maxChars) };
+	} catch {
+		return { preview: String(value).slice(0, maxChars), truncated: true };
+	}
 }
 
 /** A replay-stable reference whenever AI SDK supplies its stable tool-call id. */
@@ -143,19 +291,43 @@ export function normalizeConnectorToolName(toolName: string): string {
 }
 
 function requestedImageCount(input: unknown): number {
-	if (input === null || typeof input !== "object" || Array.isArray(input)) {
+	const record = asRecord(input);
+	if (!record) {
 		return 1;
 	}
 
-	const record = input as Record<string, unknown>;
-	for (const key of IMAGE_COUNT_KEYS) {
-		const count = record[key];
-		if (typeof count === "number" && Number.isSafeInteger(count) && count > 0) {
-			return count;
+	// Higgsfield nests the real arguments one level down as `params` (object
+	// or JSON string) — a top-level-only read under-bills every multi-image
+	// request as 1 unit.
+	const params = asRecord(record.params) ?? parseJsonObject(record.params);
+	for (const candidate of [params, record]) {
+		if (!candidate) {
+			continue;
+		}
+
+		for (const key of IMAGE_COUNT_KEYS) {
+			const count = candidate[key];
+			if (
+				typeof count === "number" &&
+				Number.isSafeInteger(count) &&
+				count > 0
+			) {
+				return count;
+			}
 		}
 	}
 
 	return 1;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+	return typeof value === "string" ? asRecord(tryParseJson(value)) : null;
 }
 
 function tryParseJson(value: string): unknown | null {

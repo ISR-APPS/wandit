@@ -1,6 +1,10 @@
 export type {
+	CreditActivityItem,
+	CreditActivityOperation,
+	CreditActivityQuery,
+	CreditActivityResponse,
+	CreditActivityStatus,
 	CreditBalanceResponse,
-	CreditLedgerQuery,
-	CreditLedgerResponse,
-	CreditLedgerRow,
+	WorkspaceCreditBalance,
+	WorkspaceCreditBalancesResponse,
 } from "@wandit/contracts";

@@ -2,6 +2,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	FeedbackPriorityBadge,
 	FeedbackStatusBadge,
@@ -11,6 +12,7 @@ import {
 	formatFeedbackRelativeTime,
 	getFeedbackInitials,
 } from "@/features/feedback/lib/feedback";
+import { pageLabelFromUrl } from "@/features/feedback/lib/feedback-context";
 import type { FeedbackItem } from "@/features/feedback/types";
 import { cn } from "@/lib/utils";
 
@@ -97,9 +99,9 @@ function FeedbackList({
 											</>
 										) : null}
 										<span className="font-mono text-muted-foreground text-xs uppercase tracking-[0.08em]">
-											{item.id}
+											{item.id.slice(0, 8).toUpperCase()}
 										</span>
-										<FeedbackTypeBadge type={item.type} />
+										<FeedbackTypeBadge type={item.category} />
 									</div>
 									<h3 className="mt-2 line-clamp-1 font-semibold text-[0.9375rem] tracking-tight">
 										{item.title}
@@ -119,7 +121,10 @@ function FeedbackList({
 							<div className="mt-3 flex flex-wrap items-center justify-between gap-2">
 								<div className="flex min-w-0 items-center gap-2">
 									<Avatar size="sm" className="border">
-										<AvatarImage src={item.reporter.avatarUrl} alt="" />
+										<AvatarImage
+											src={item.reporter.image ?? undefined}
+											alt=""
+										/>
 										<AvatarFallback>
 											{getFeedbackInitials(item.reporter.name)}
 										</AvatarFallback>
@@ -128,7 +133,9 @@ function FeedbackList({
 										<span className="font-medium">{item.reporter.name}</span>
 										<span className="text-muted-foreground">
 											{" "}
-											· {item.context.project}
+											·{" "}
+											{item.project?.name ??
+												pageLabelFromUrl(item.context.pageUrl)}
 										</span>
 									</p>
 								</div>
@@ -145,4 +152,49 @@ function FeedbackList({
 	);
 }
 
-export { FeedbackList };
+const feedbackSkeletonRows = [
+	"feedback-row-1",
+	"feedback-row-2",
+	"feedback-row-3",
+	"feedback-row-4",
+	"feedback-row-5",
+	"feedback-row-6",
+];
+
+function FeedbackListSkeleton() {
+	return (
+		<div
+			role="status"
+			aria-label="Loading feedback conversations"
+			className="divide-y"
+		>
+			{feedbackSkeletonRows.map((row) => (
+				<div key={row} className="px-4 py-4 sm:px-5">
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0 flex-1 space-y-2">
+							<div className="flex items-center gap-2">
+								<Skeleton className="h-3 w-16" />
+								<Skeleton className="h-5 w-14 rounded-full" />
+							</div>
+							<Skeleton className="h-4 w-3/4" />
+							<Skeleton className="h-3 w-full" />
+						</div>
+						<Skeleton className="h-3 w-12" />
+					</div>
+					<div className="mt-3 flex items-center justify-between gap-3">
+						<div className="flex items-center gap-2">
+							<Skeleton className="size-6 rounded-full" />
+							<Skeleton className="h-3 w-28" />
+						</div>
+						<div className="flex gap-2">
+							<Skeleton className="h-5 w-14 rounded-full" />
+							<Skeleton className="h-5 w-16 rounded-full" />
+						</div>
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
+
+export { FeedbackList, FeedbackListSkeleton };
