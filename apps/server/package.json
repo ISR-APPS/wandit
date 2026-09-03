@@ -6,6 +6,7 @@
 		"build": "tsdown",
 		"billing:assert-zero-live-subs": "tsx scripts/assert-zero-live-subscriptions.ts",
 		"billing:backfill-history": "tsx scripts/backfill-billing-history.ts",
+		"billing:migrate-v6": "tsx scripts/migrate-subscriptions-v6.ts",
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
 		"dev:trigger": "npx trigger.dev@4.5.3 dev",

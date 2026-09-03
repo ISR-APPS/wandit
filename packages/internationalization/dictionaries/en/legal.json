@@ -341,7 +341,7 @@
 					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image, a video or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
 				],
 				"bullets": [
-					"A new account receives a starter balance of free credits. Free credits have no cash value, and we can change or end the starter offer at any time.",
+					"A new account receives an initial balance of free credits. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
 					"The price of an action is shown before you run it. Your balance is shown in the dashboard and updates after each action.",
 					"You buy credit packs and plans through Stripe. The price is shown before you pay, and you authorise the charge when you confirm the payment.",
 					"A plan renews automatically for the period you chose until you cancel it. You can cancel at any time from the billing portal we open for you in the app, and the cancellation takes effect at the end of the period you already paid for.",

@@ -6,7 +6,7 @@ Status: Resend side is built. Backend side is built on branch `feat/lifecycle-em
 
 - Platform: Resend Automations (event-driven). The backend sends one event per user action. Resend runs the sequence.
 - 15 events, 14 automations, 25 Arabic (RTL) templates. Sender: `Wandit <hello@wandit.dev>`. Sign-off: `فريق Wandit`.
-- Every template declares one variable, `NAME` (fallback `بك`, so the greeting reads `مرحبًا بك،` when the name is unknown). `w01-welcome` also declares `FREE_CREDITS` (number, fallback 50).
+- Every template declares one variable, `NAME` (fallback `بك`, so the greeting reads `مرحبًا بك،` when the name is unknown). `w01-welcome` also declares `FREE_CREDITS` (number). The dispatcher sends the real configured whole-credit grant in this field (7 under pricing v6), so the template does not rely on a stale fallback. Set the Resend fallback to 7 before enabling the automation.
 - Every template contains `{{{RESEND_UNSUBSCRIBE_URL}}}`. Resend handles the unsubscribe flow. After a global unsubscribe, later send steps in a run are skipped.
 - Source of the templates: the generator `scratchpad/emails/build.py` (session scratchpad). Edit a template in the Resend dashboard, or regenerate and call `update-template` + `publish-template`.
 
@@ -30,8 +30,8 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | W7 | Ads connected | `01a03122-b71d-735d-8d45-9dce0ecd1580` | `ads_connected` | if `done_analysis` → end. Wait `ads_analysis_completed` 1h → [timeout] W11 → wait 2d → [timeout] W12 |
 | W8 | Analysis → launch | `01a03122-c70f-700b-b41e-60cbaa8bb484` | `ads_analysis_completed` | if `done_campaign` → end. Wait `campaign_launched` 3d → [timeout] W13 |
 | W9 | Campaign launched | `01a03122-d3f7-723b-a50c-565a3c098e6a` | `campaign_launched` | W14 → delay 7d → W25 |
-| W10 | Credits 25 | `01a03122-df86-73cd-8e8a-dd99cf2acb07` | `credits_25_used` | wait `credits_40_used` 6h → [received] end / [timeout] W15 |
-| W11 | Credits 40 | `01a03122-ee41-73b3-9a7e-f836706c5456` | `credits_40_used` | W16 → wait `upgrade_clicked` 3d → [received] end / [timeout] W17 |
+| W10 | Credits 50% | `01a03122-df86-73cd-8e8a-dd99cf2acb07` | `credits_25_used` | wait `credits_40_used` 6h → [received] end / [timeout] W15 |
+| W11 | Credits 80% | `01a03122-ee41-73b3-9a7e-f836706c5456` | `credits_40_used` | W16 → wait `upgrade_clicked` 3d → [received] end / [timeout] W17 |
 | W12 | Pricing viewed | `01a03122-f962-76df-b1a5-7a2ffe0376d5` | `pricing_viewed` | wait `upgrade_clicked` 2d → [received] end / [timeout] W18 |
 | W13 | Checkout started | `01a03123-0cb9-727a-b900-5f9b308d4ca7` | `upgrade_clicked` | if `method == "offline"` → end. Wait `payment_completed` 1h → [timeout] W19 → wait 2d → [timeout] W20 |
 | W14 | Paid customer | `01a03123-261c-70cb-8cf4-0dc7d5e8aacd` | `payment_completed` | W21 → delay 3d → W22 → delay 7d → W23 → delay 14d → if `interval == "month"` → W24 |
@@ -56,7 +56,7 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | `w12-analysis-nudge` | `2280b1c4-0b3d-4b17-967d-bb76881f6b84` | دع Wandit يقرأ أرقامك |
 | `w13-launch-nudge` | `2440fda3-dce0-4052-b99a-9bf86fc6daf3` | من التحليل إلى الإطلاق |
 | `w14-campaign-launched` | `7079b3fc-d8d1-4bd0-a7e8-56ead374f538` | حملتك انطلقت — ماذا تراقب في أول 72 ساعة؟ |
-| `w15-credits-25` | `9a2e939c-d939-4509-9433-15316b018fa6` | استخدمت 25 رصيدًا — وهذا خبر جيد |
+| `w15-credits-25` | `9a2e939c-d939-4509-9433-15316b018fa6` | استخدمت نصف رصيدك المجاني — وهذا خبر جيد |
 | `w16-credits-40` | `b6ec5f98-11d6-49c8-b99c-dbc2323c7a34` | رصيدك المجاني على وشك الانتهاء |
 | `w17-credits-40-reminder` | `c1e3bea4-2cac-480b-a6e2-4c64c7217576` | لا تتوقف في منتصف الطريق |
 | `w18-plan-question` | `59eb6d0a-bcce-4aa3-9839-7947af5e5e08` | أي خطة تناسبك؟ سؤال واحد يحسمها |
@@ -89,13 +89,13 @@ Common to every event:
 | Field | Type | Rule |
 |---|---|---|
 | `first_name` | string | First word of `user.name`. Omit the field when the name is empty. The template then prints `مرحبًا بك،`. |
-| `plan` | `"free" \| "pro" \| "business"` | Computed at dispatch time. |
+| `plan` | `"free" \| "starter" \| "pro" \| "business"` | Computed at dispatch time. Personal paid users can be Starter or Pro; organization subscriptions are Business. |
 
 Per event (the automation reads these in `condition` steps):
 
 | Event | Extra fields | Notes |
 |---|---|---|
-| `signup_completed` | `skip_activation` (boolean) | `true` when the user is an invited workspace member, or already sent a first prompt at dispatch time. Then only the welcome is sent. |
+| `signup_completed` | `skip_activation` (boolean), `FREE_CREDITS` (number) | `skip_activation` is `true` when the user is an invited workspace member, or already sent a first prompt at dispatch time. Then only the welcome is sent. `FREE_CREDITS` is the real configured grant in whole credits. |
 | `website_generated` | `done_landing_page` (boolean) | `true` if the user already generated a landing page. |
 | `landing_page_generated` | `done_image` (boolean) | |
 | `image_generated` | `done_strategy` (boolean) | |
@@ -122,7 +122,7 @@ The `done_*` flags are one query on the lifecycle-events table: "did this user a
 | `ads_connected` | OAuth tokens saved for `meta-ads` or `tiktok-ads` | `mcp-oauth.service.ts` after `exchangeAndStoreTokens`. |
 | `ads_analysis_completed` | connector operation `feature === "ads_analysis" && status === "succeeded"` | `mcp-chat-tools.service.ts` `recordConnectorOperation`. |
 | `campaign_launched` | connector write that turns delivery on (`classifyAdsToolApproval(...) === "user-approval"`), `succeeded` | same place. |
-| `credits_25_used` / `credits_40_used` | cumulative consumption of a **personal** owner reaches 2500 / 4000 centi-credits at settle time | end of `CreditsService.consume` for `reason === "ai_usage_settle"`. Use the `userCreditsConsumed` SQL from `admin.repository.ts`. |
+| `credits_25_used` / `credits_40_used` | cumulative consumption of a **personal** owner reaches 50% / 80% of that user's snapshotted signup grant at settle time. This is 350 / 560 cc for a 700 cc grant and 2500 / 4000 cc for a legacy 5000 cc grant; fall back to the current product setting when the user has no outbox row. Event names stay unchanged because Resend automations depend on them. | metering settlement computes net personal consumption; `LifecycleEventsService` resolves the user's `signup_grant_outbox.credits` threshold in the same transaction. |
 | `pricing_viewed` | pricing page or plan picker opened | existing `product-events` module (web emitter). |
 | `upgrade_clicked` | **checkout started**: Stripe checkout session created (`method: "card"`) or offline request submitted (`method: "offline"`) | `plan-picker-dialog.tsx` checkout call and the offline request submit. Today the web emits `upgrade_clicked` when the picker opens. Change that: picker open = `pricing_viewed`. |
 | `payment_completed` | first successful payment of the user: Stripe `invoice.paid` (subscription), top-up `checkout.session.completed`, or manual request `approved` | `stripe-webhook-processor.service.ts` after the event is terminalized, and `manual-subscriptions.service.ts` approve path. |
@@ -139,7 +139,9 @@ The `done_*` flags are one query on the lifecycle-events table: "did this user a
 
 ## 5. Test log (2026-08-24)
 
-Target: `zakareasb@gmail.com`. W1 and W2 were enabled for the test, then disabled.
+Target: `zakareasb@gmail.com`. W1 and W2 were enabled for the test, then disabled. This log
+predates pricing v6; its 50-credit welcome output records the old template behavior and is not
+the current grant.
 
 | Test | Result |
 |---|---|
@@ -152,7 +154,11 @@ Target: `zakareasb@gmail.com`. W1 and W2 were enabled for the test, then disable
 
 1. **Mailbox.** `hello@wandit.dev` is routed by Cloudflare Email Routing to `contact@scalemindapps.com` (done 2026-08-24). Eight emails say "ردّ على هذا البريد". To reply *from* `hello@wandit.dev`, add it in Gmail "Send mail as" with SMTP `smtp.resend.com:465`, user `resend`, password = a Resend API key.
 2. **WhatsApp.** Removed from W03 and W19 on 2026-08-24. No template contains a phone number.
-3. **Free credits.** W01 prints `FREE_CREDITS` (fallback 50). Make sure that `signupGrantEnabled` is on in production and the grant is 50. Change the fallback in the template if not.
+3. **Free credits.** W01 prints `FREE_CREDITS`. Set its Resend fallback to 7. The dispatcher
+   must send the currently configured whole-credit grant as `FREE_CREDITS` on every welcome
+   event, so the template fallback is never used in normal delivery. Confirm
+   `signupGrantEnabled` before sending grant copy. Update the W15/W16 subject and body copy to
+   describe the 50% and 80% milestones without the old 25-credit literal.
 4. **Purchases.** W10–W13 send users to `/pricing`. Do not enable them while `paidSubscriptionsEnabled` and `manualPaymentsEnabled` are off.
 5. **Old automations.** The five older automations (A1–A6) and their 13 templates are still in the account, disabled. Remove them when you are sure.
 6. Enable in this order after the backend ships: W1, W2, W3 first (one week of runs), then the rest.
@@ -180,7 +186,9 @@ Target: `zakareasb@gmail.com`. W1 and W2 were enabled for the test, then disable
    - no email → `no_email`
    - free-only event and the user is not free → `not_free`
    - otherwise send `{ event, email, payload }` and set `dispatched_at`; on error keep the row pending, `attempts + 1`, `last_error`.
-4. Payload at dispatch time: `plan`, `first_name` (omitted when empty), `skip_activation` (signup), `done_*` (next-step flags), plus the captured fields (`connector`, `method`, `surface`, `interval`).
+4. Payload at dispatch time: `plan`, `first_name` (omitted when empty), `skip_activation` and
+   the real whole-credit `FREE_CREDITS` value (signup), `done_*` (next-step flags), plus the
+   captured fields (`connector`, `method`, `surface`, `interval`).
 
 ### 7.3 Hooks (15)
 
@@ -213,4 +221,8 @@ Web: `upgrade_clicked` now fires only after a Stripe checkout session is created
 
 - Type checks: db, contracts, server, admin, web, worker — pass.
 - Unit tests: server 4250/4251 (the one failure, `admin-analytics.repository.spec.ts` "reuses live-owner policy", fails on `dev` as well — pre-existing), web 763/763, worker 22/22, admin settings dto 7/7.
-- Live smoke test against the local database with a stub sender: once-per-user replay no-op, `disabled` drop, `done_landing_page: true` at dispatch time, `pricing_viewed` cooldown reject + 15-min hold, `signup_completed` 10-min hold with `skip_activation: false`, credit thresholds at 2499 (none) and 4000 (both, the 40 one held 15 min).
+- Historical pre-v6 live smoke test against the local database with a stub sender:
+  once-per-user replay no-op, `disabled` drop, `done_landing_page: true` at dispatch time,
+  `pricing_viewed` cooldown reject + 15-min hold, `signup_completed` 10-min hold with
+  `skip_activation: false`, and the then-current credit thresholds at 2499 (none) and 4000
+  (both, the 40 event held 15 min).

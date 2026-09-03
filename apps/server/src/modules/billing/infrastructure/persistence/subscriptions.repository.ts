@@ -89,7 +89,11 @@ export type UpdateSubscriptionPeriodInput = {
 	cancelAtPeriodEnd?: boolean;
 	currentPeriodEnd: Date;
 	currentPeriodStart: Date;
+	pendingAppliedBy?: string | null;
+	pendingTierCredits?: CreditTier | null;
+	priceLookupKey?: string;
 	status: string;
+	tierCredits?: CreditTier;
 };
 
 export type UpsertSubscriptionInput = {
@@ -319,7 +323,19 @@ export class SubscriptionsRepository {
 					: { cancelAtPeriodEnd: input.cancelAtPeriodEnd }),
 				currentPeriodEnd: input.currentPeriodEnd,
 				currentPeriodStart: input.currentPeriodStart,
+				...(input.pendingAppliedBy === undefined
+					? {}
+					: { pendingAppliedBy: input.pendingAppliedBy }),
+				...(input.pendingTierCredits === undefined
+					? {}
+					: { pendingTierCredits: input.pendingTierCredits }),
+				...(input.priceLookupKey === undefined
+					? {}
+					: { priceLookupKey: input.priceLookupKey }),
 				status: input.status,
+				...(input.tierCredits === undefined
+					? {}
+					: { tierCredits: input.tierCredits }),
 				updatedAt: new Date(),
 			})
 			.where(eq(subscriptions.id, id))
@@ -553,6 +569,25 @@ export class SubscriptionsRepository {
 			.update(subscriptions)
 			.set({
 				cancelAtPeriodEnd,
+				updatedAt: new Date(),
+			})
+			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
+			.returning();
+
+		return row ?? null;
+	}
+
+	async updateTierAndPrice(
+		providerSubscriptionId: string,
+		tierCredits: CreditTier,
+		priceLookupKey: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				priceLookupKey,
+				tierCredits,
 				updatedAt: new Date(),
 			})
 			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))

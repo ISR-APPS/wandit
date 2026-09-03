@@ -59,7 +59,8 @@ stay USD/Stripe), no mobile (native) UI.
 
 ## 2. Contracts (DONE — `packages/contracts`)
 
-`v1/billing.ts`: `SUBSCRIPTION_PROVIDERS`, `isManualSubscription()`, `manualPaymentMethods`,
+`v1/billing.ts`: plan values are `starter | pro | business`; `SUBSCRIPTION_PROVIDERS`,
+`isManualSubscription()`, `manualPaymentMethods`,
 `manualSubscriptionRequestStatuses`, `OPEN_MANUAL_REQUEST_STATUSES`, `manualBillingCountries`
 (DZ | TN | MA | OTHER), `createManualSubscriptionRequestBodySchema`,
 `manualSubscriptionRequestSchema`, `manualSubscriptionRequestViewResponseSchema`,
@@ -127,8 +128,9 @@ the checkout-return sync or any webhook). Scope that lookup to `provider = "stri
      `ManualPaymentsEnabledGuard` in the settings module (same shape as
      `SubscriptionsEnabledGuard`) and use it on the POST route.
   2. Org scope requires `organizationsEnabled` (reuse the admission rule).
-  3. Plan pairing: personal → `pro`, org → `business` (same `assertPlanMatchesScope` rule;
-     throw `WorkspaceNotSupportedError`).
+  3. Plan pairing: personal → `starter | pro`, org → `business` (same
+     `assertPlanMatchesScope` rule; throw `WorkspaceNotSupportedError`). The tier must also be
+     purchasable for that plan; legacy and cross-plan tiers are rejected.
   4. If the owner has a live subscription that is NOT manual (Stripe) → `ActiveSubscriptionExistsError`
      (409 `ALREADY_SUBSCRIBED`). A live MANUAL subscription is allowed (the request is then a
      change/renewal request; the admin sees `currentSubscription`).
@@ -163,7 +165,7 @@ runs inside `subscriptionCreditsRepository.withOwnerLock(owner, tx)`.
 - `grant(adminId, input)`:
   - Resolve owner: `input.organizationId ? orgOwner : userOwner(input.userId)`. Validate the
     user exists (and the org exists when given); plan pairing (org → business, personal →
-    pro) else 400.
+    starter or pro) and a purchasable tier for that plan, else 400.
   - Idempotency: `providerSubscriptionId = "manual_" + input.idempotencyKey`. If a
     subscription with that provider id already exists → return its detail (no double grant).
   - If the owner has ANY non-terminal subscription → 409 `ALREADY_SUBSCRIBED` ("renew or end
@@ -272,7 +274,8 @@ new repositories). Mirror the pattern/specs of `subscription-refill.task.ts` and
 
 ### 3.9 Tests (vitest, colocated `*.spec.ts`)
 
-- `ManualSubscriptionRequestsService`: disabled switch, plan pairing, blocked by Stripe sub,
+- `ManualSubscriptionRequestsService`: disabled switch, Starter/Pro personal pairing,
+  Business organization pairing, legacy/cross-plan tier rejection, blocked by Stripe sub,
   allowed with manual sub, duplicate open request → 409, happy path, cancel.
 - `ManualSubscriptionsService`: grant (credits ×100, yearly slots, request approved,
   idempotent replay, blocked when live sub exists), renew case A (slot at boundary, period
@@ -307,8 +310,9 @@ new repositories). Mirror the pattern/specs of `subscription-refill.task.ts` and
 - Card tab = the existing picker content, unchanged.
 - Cash / transfer tab (`ManualPaymentRequestPanel`, new file
   `components/manual-payment-request-panel.tsx`):
-  - Shows the same billing-cycle toggle + tier select (reuse `PlanCard` for Pro/Business price
-    display so the user sees the USD price; add a line "Local price agreed on the call").
+  - Shows the same billing-cycle toggle + plan-specific tier select (reuse `PlanCard` for
+    Starter/Pro/Business price display so the user sees the USD price; add a line "Local price
+    agreed on the call").
   - Form: full name (prefilled from session name), phone (required), company (optional),
     country select (DZ default when locale is `ar`/`fr`? — default `DZ`), city (optional),
     preferred payment method select (optional), notes (textarea, optional). Client-validate
@@ -369,11 +373,11 @@ assembly); keep existing specs green.
     date picker default = current end + interval, payment fields), **End now** (confirm),
     **Details** (payments list).
 - `GrantManualSubscriptionDialog` (shared): user picker (search users via existing
-  `adminRoutes.users` list query with `q`) unless prefilled, org optional, plan (auto from org
-  presence: org → Business, personal → Pro), tier select (CREDIT_TIERS), interval, period
-  start/end (defaults), payment: method select, amount + currency (default DZD; allow USD/EUR;
-  store minor units — amount input in major units ×100), reference, note; admin notes.
-  `idempotencyKey` minted per payload like `grant-org-credits-dialog.tsx`.
+  `adminRoutes.users` list query with `q`) unless prefilled, org optional, plan (org → Business
+  locked; personal → Starter/Pro selector), tier select from `purchasableTiersFor(plan)`,
+  interval, period start/end (defaults), payment: method select, amount + currency (default
+  DZD; allow USD/EUR; store minor units — amount input in major units ×100), reference, note;
+  admin notes. `idempotencyKey` minted per payload like `grant-org-credits-dialog.tsx`.
 - Navigation: add `{ title: "Offline billing", description: "Cash & transfer requests", to:
   "/offline-billing", icon: HandCoinsIcon (phosphor) }` after Organizations in
   `lib/navigation.ts` (+ `AdminRoutePath`).

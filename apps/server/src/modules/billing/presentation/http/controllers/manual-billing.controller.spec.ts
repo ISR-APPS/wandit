@@ -29,7 +29,7 @@ const body = {
 	phone: "+213 661 22 33 44",
 	plan: "pro",
 	preferredPaymentMethod: "ccp",
-	tierCredits: 500,
+	tierCredits: 350,
 } as const;
 
 function setup() {
@@ -132,11 +132,20 @@ describe("ManualBillingController", () => {
 			phone: "+213 661 22 33 44",
 			plan: "pro",
 			preferredPaymentMethod: "ccp",
-			tierCredits: 500,
+			tierCredits: 350,
 		});
 		expect(() =>
 			pipe.transform({ ...body, phone: "bad" }, { type: "body" }),
 		).toThrow(BadRequestException);
+		expect(() =>
+			pipe.transform({ ...body, tierCredits: 500 }, { type: "body" }),
+		).toThrow(BadRequestException);
+		expect(
+			pipe.transform(
+				{ ...body, plan: "starter", tierCredits: 50 },
+				{ type: "body" },
+			),
+		).toMatchObject({ plan: "starter", tierCredits: 50 });
 	});
 
 	it("delegates reads and writes with the active workspace", async () => {

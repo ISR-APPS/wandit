@@ -22,6 +22,8 @@ import {
 	type AdminRenewManualSubscriptionInput,
 	type AdminUpdateManualRequestBody,
 	addBillingInterval,
+	type BillingPlanId,
+	creditTierSchema,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type ManualSubscriptionRequest,
 	OPEN_MANUAL_REQUEST_STATUSES,
@@ -418,6 +420,13 @@ export class ManualSubscriptionsService {
 				}
 
 				this.assertManual(current);
+				const renewalTierCredits = creditTierSchema.parse(
+					current.pendingTierCredits ?? current.tierCredits,
+				);
+				const appliesPendingTier = current.pendingTierCredits !== null;
+				const renewalPriceLookupKey = appliesPendingTier
+					? priceLookupKey(current.plan, renewalTierCredits, current.interval)
+					: current.priceLookupKey;
 				const lockedReplay = await this.paymentsRepository.findByIdempotencyKey(
 					input.idempotencyKey,
 					tx,
@@ -443,7 +452,7 @@ export class ManualSubscriptionsService {
 					? await this.requestsRepository.findById(input.requestId, tx)
 					: discovered &&
 							discovered.plan === current.plan &&
-							discovered.tierCredits === current.tierCredits &&
+							discovered.tierCredits === renewalTierCredits &&
 							discovered.interval === current.interval
 						? discovered
 						: null;
@@ -520,6 +529,14 @@ export class ManualSubscriptionsService {
 						currentPeriodStart: renewAtBoundary
 							? current.currentPeriodStart
 							: newStart,
+						...(appliesPendingTier
+							? {
+									pendingAppliedBy: null,
+									pendingTierCredits: null,
+									priceLookupKey: renewalPriceLookupKey,
+									tierCredits: renewalTierCredits,
+								}
+							: {}),
 						status: "active",
 					},
 					tx,
@@ -546,7 +563,7 @@ export class ManualSubscriptionsService {
 					await this.subscriptionCreditsRepository.insertRefillSlots(
 						[
 							{
-								credits: current.tierCredits * 100,
+								credits: updated.tierCredits * 100,
 								dueAt: newStart,
 								fundingChargeId: null,
 								fundingInvoiceId: `manual:${payment.id}:cycle`,
@@ -582,7 +599,7 @@ export class ManualSubscriptionsService {
 
 				await this.creditsService.applyCappedRefill(
 					owner,
-					current.tierCredits * 100,
+					updated.tierCredits * 100,
 					{
 						capMultiplier: 1,
 						idempotencyKey: `manual:${subscriptionId}:renewal:${payment.id}`,
@@ -983,12 +1000,20 @@ export class ManualSubscriptionsService {
 		}
 	}
 
-	private assertPlanMatchesOwner(plan: string, owner: CreditOwner): void {
-		const expectedPlan = owner.type === "org" ? "business" : "pro";
+	private assertPlanMatchesOwner(
+		plan: BillingPlanId,
+		owner: CreditOwner,
+	): void {
+		const supported =
+			owner.type === "org"
+				? plan === "business"
+				: plan === "starter" || plan === "pro";
 
-		if (plan !== expectedPlan) {
+		if (!supported) {
 			throw new BadRequestException(
-				`${expectedPlan} is required for this billing owner`,
+				owner.type === "org"
+					? "Organization billing owners support the business plan only"
+					: "Personal billing owners support the starter and pro plans only",
 			);
 		}
 	}

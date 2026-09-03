@@ -35,19 +35,26 @@ export const productSettingsSchema = z.object({
 
 export type ProductSettings = z.infer<typeof productSettingsSchema>;
 
-export const publicSettingsSchema = productSettingsSchema.pick({
-	paidSubscriptionsEnabled: true,
-	topupsEnabled: true,
-	signupGrantEnabled: true,
-	// Public: the web shows/hides workspace creation and the Business plan.
-	organizationsEnabled: true,
-	// Public: the web shows/hides the email sign-in form in the auth modal.
-	emailAuthEnabled: true,
-	// Public: the web shows/hides the "cash / transfer" tab in the plan picker.
-	manualPaymentsEnabled: true,
-	// Public: the web computes the effective access-end date for manual plans.
-	manualGraceDays: true,
-});
+export const publicSettingsSchema = productSettingsSchema
+	.pick({
+		paidSubscriptionsEnabled: true,
+		topupsEnabled: true,
+		signupGrantEnabled: true,
+		signupGrantCredits: true,
+		// Public: the web shows/hides workspace creation and the Business plan.
+		organizationsEnabled: true,
+		// Public: the web shows/hides the email sign-in form in the auth modal.
+		emailAuthEnabled: true,
+		// Public: the web shows/hides the "cash / transfer" tab in the plan picker.
+		manualPaymentsEnabled: true,
+		// Public: the web computes the effective access-end date for manual plans.
+		manualGraceDays: true,
+	})
+	.extend({
+		// The public value mirrors storage after exact centi-credit conversion, so
+		// legacy or manually edited rows may expose a fractional or zero grant.
+		signupGrantCredits: z.number().nonnegative(),
+	});
 
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 

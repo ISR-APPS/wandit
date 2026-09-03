@@ -1,4 +1,4 @@
-import { BILLING_CATALOG } from "@wandit/contracts";
+import { tryPriceUsdFor } from "@wandit/contracts";
 
 import type {
 	AdminUserSubscription,
@@ -29,30 +29,21 @@ export function getRoleLabel(role: UserRole) {
 }
 
 // Catalog price for the subscription's purchased tier, at its billing interval.
-// Null when the tier is no longer in the catalog (legacy price).
+// Null only when persisted data contains an invalid plan/tier pairing.
 export function subscriptionPriceUsd(
 	subscription: Pick<
 		AdminUserSubscription,
 		"plan" | "tierCredits" | "interval"
 	>,
 ): number | null {
-	const monthly = (
-		BILLING_CATALOG.plans[subscription.plan].monthlyPricesUsd as Record<
-			number,
-			number
-		>
-	)[subscription.tierCredits];
-
-	if (monthly === undefined) {
-		return null;
-	}
-
-	return subscription.interval === "year"
-		? monthly * BILLING_CATALOG.yearlyPriceMultiplier
-		: monthly;
+	return tryPriceUsdFor(
+		subscription.plan,
+		subscription.tierCredits,
+		subscription.interval,
+	);
 }
 
-// "250 credits/mo · $25/mo" (or "· $250/yr" on yearly billing).
+// "175 credits/mo · $25/mo" (or "· $250/yr" on yearly billing).
 export function subscriptionTierLabel(
 	subscription: Pick<
 		AdminUserSubscription,

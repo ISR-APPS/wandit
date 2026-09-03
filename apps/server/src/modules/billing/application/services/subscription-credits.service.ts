@@ -2,11 +2,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
 	CHECKOUT_PURPOSE,
 	type ParsedPriceLookupKey,
+	PERSISTED_TOPUP_PACKS,
 	parsePriceLookupKey,
+	persistedTopupPackIdSchema,
 	priceLookupKey,
 	priceUsdFor,
-	TOPUP_PACKS,
-	topupPackIdSchema,
 } from "@wandit/contracts";
 import type Stripe from "stripe";
 
@@ -193,7 +193,7 @@ export class SubscriptionCreditsService {
 		}
 
 		const metadataPackId = this.requiredMetadata(session.metadata, "packId");
-		const parsedPackId = topupPackIdSchema.safeParse(metadataPackId);
+		const parsedPackId = persistedTopupPackIdSchema.safeParse(metadataPackId);
 
 		if (!parsedPackId.success) {
 			throw new Error(
@@ -209,7 +209,7 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		const pack = TOPUP_PACKS[packId];
+		const pack = PERSISTED_TOPUP_PACKS[packId];
 		// Stripe session metadata carries WHOLE display credits (pack identity);
 		// the metadata check therefore compares whole credits.
 		const credits = this.positiveIntegerMetadata(session.metadata, "credits");

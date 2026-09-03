@@ -104,6 +104,32 @@ describe("creditUnit copy with decimal counts", () => {
 		).toBe("2.5 رصيد");
 	});
 
+	it("renders seven free credits with the Hermes Arabic plural fallback", async () => {
+		const dictionary = await getDictionary("ar");
+		const pluralRules = Intl.PluralRules;
+
+		try {
+			Object.defineProperty(Intl, "PluralRules", {
+				configurable: true,
+				value: undefined,
+			});
+
+			expect(
+				translate(
+					dictionary,
+					"landing.pricing.free.creditsLine",
+					{ count: 7 },
+					"ar",
+				),
+			).toBe("7 أرصدة مجانية");
+		} finally {
+			Object.defineProperty(Intl, "PluralRules", {
+				configurable: true,
+				value: pluralRules,
+			});
+		}
+	});
+
 	it("still interpolates the raw count without countDisplay", async () => {
 		const dictionary = await getDictionary("en");
 

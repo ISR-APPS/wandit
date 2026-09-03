@@ -14,6 +14,7 @@ import type { ManualSubscriptionRequestRow } from "../../infrastructure/persiste
 import type {
 	AdminManualSubscriptionRow,
 	SubscriptionRow,
+	UpdateSubscriptionPeriodInput,
 } from "../../infrastructure/persistence/subscriptions.repository";
 import { ManualSubscriptionsService } from "./manual-subscriptions.service";
 
@@ -45,7 +46,7 @@ function productSettings(
 		manualPaymentsEnabled: true,
 		organizationsEnabled: false,
 		paidSubscriptionsEnabled: true,
-		signupGrantCredits: 5000,
+		signupGrantCredits: 700,
 		signupGrantEnabled: false,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
@@ -69,11 +70,11 @@ function subscription(
 		pendingAppliedBy: null,
 		pendingTierCredits: null,
 		plan: "pro",
-		priceLookupKey: "pro_250_year",
+		priceLookupKey: "pro_175_year",
 		provider: "manual",
 		providerSubscriptionId: `manual_${IDEMPOTENCY_KEY}`,
 		status: "active",
-		tierCredits: 250,
+		tierCredits: 175,
 		updatedAt: PERIOD_START,
 		userId: USER.id,
 		...overrides,
@@ -101,7 +102,7 @@ function request(
 		preferredPaymentMethod: "bank_transfer",
 		status: "pending",
 		subscriptionId: null,
-		tierCredits: 250,
+		tierCredits: 175,
 		updatedAt: PERIOD_START,
 		userId: USER.id,
 		...overrides,
@@ -125,7 +126,7 @@ function grantInput(
 		periodStart: PERIOD_START.toISOString(),
 		plan: "pro",
 		requestId: REQUEST_ID,
-		tierCredits: 250,
+		tierCredits: 175,
 		userId: USER.id,
 		...overrides,
 	};
@@ -241,13 +242,7 @@ function createContext(
 		updatePeriod: vi.fn(
 			async (
 				id: string,
-				input: Pick<
-					SubscriptionRow,
-					| "cancelAtPeriodEnd"
-					| "currentPeriodEnd"
-					| "currentPeriodStart"
-					| "status"
-				>,
+				input: UpdateSubscriptionPeriodInput,
 			): Promise<SubscriptionRow | null> => {
 				const current = subscriptions.get(id);
 
@@ -478,7 +473,7 @@ describe("ManualSubscriptionsService", () => {
 
 		expect(context.creditsService.grant).toHaveBeenCalledWith(
 			{ type: "user", userId: USER.id },
-			25_000,
+			17_500,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: `manual:${SUBSCRIPTION_ID}:initial`,
@@ -489,7 +484,7 @@ describe("ManualSubscriptionsService", () => {
 			context.subscriptionRefillService.createYearlySlots,
 		).toHaveBeenCalledWith(
 			expect.objectContaining({
-				credits: 25_000,
+				credits: 17_500,
 				funding: {
 					chargeId: null,
 					invoiceId: `manual:${PAYMENT_ID}`,
@@ -543,6 +538,46 @@ describe("ManualSubscriptionsService", () => {
 		expect(
 			context.subscriptionRefillService.createYearlySlots,
 		).not.toHaveBeenCalled();
+	});
+
+	it("accepts a Starter grant for a personal billing owner", async () => {
+		const context = createContext();
+		context.requests.clear();
+
+		await expect(
+			context.service.grant(
+				"admin_1",
+				grantInput({
+					plan: "starter",
+					requestId: undefined,
+					tierCredits: 50,
+				}),
+			),
+		).resolves.toMatchObject({ plan: "starter", tierCredits: 50 });
+		expect(context.subscriptionsRepository.insertManual).toHaveBeenCalledWith(
+			expect.objectContaining({
+				plan: "starter",
+				priceLookupKey: "starter_50_year",
+				tierCredits: 50,
+			}),
+			TRANSACTION,
+		);
+	});
+
+	it("rejects a Starter grant for an organization billing owner", async () => {
+		const context = createContext();
+
+		await expect(
+			context.service.grant(
+				"admin_1",
+				grantInput({
+					organizationId: "org_1",
+					plan: "starter",
+					tierCredits: 50,
+				}),
+			),
+		).rejects.toMatchObject({ status: 400 });
+		expect(context.subscriptionsRepository.insertManual).not.toHaveBeenCalled();
 	});
 
 	it("propagates manual payment lifecycle capture failures", async () => {
@@ -751,12 +786,12 @@ describe("ManualSubscriptionsService", () => {
 			subscription({
 				currentPeriodEnd: currentEnd,
 				interval: "month",
-				priceLookupKey: "pro_250_month",
+				priceLookupKey: "pro_175_month",
 			}),
 		]);
 		context.requests.set(
 			REQUEST_ID,
-			request({ interval: "month", plan: "pro", tierCredits: 250 }),
+			request({ interval: "month", plan: "pro", tierCredits: 175 }),
 		);
 
 		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
@@ -774,12 +809,12 @@ describe("ManualSubscriptionsService", () => {
 			subscription({
 				currentPeriodEnd: currentEnd,
 				interval: "month",
-				priceLookupKey: "pro_250_month",
+				priceLookupKey: "pro_175_month",
 			}),
 		]);
 		context.requests.set(
 			REQUEST_ID,
-			request({ interval: "month", plan: "pro", tierCredits: 500 }),
+			request({ interval: "month", plan: "pro", tierCredits: 350 }),
 		);
 
 		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
@@ -831,7 +866,7 @@ describe("ManualSubscriptionsService", () => {
 			subscription({
 				currentPeriodEnd: currentEnd,
 				interval: "month",
-				priceLookupKey: "pro_250_month",
+				priceLookupKey: "pro_175_month",
 			}),
 		]);
 
@@ -851,7 +886,7 @@ describe("ManualSubscriptionsService", () => {
 		).toHaveBeenCalledWith(
 			[
 				expect.objectContaining({
-					credits: 25_000,
+					credits: 17_500,
 					dueAt: currentEnd,
 					fundingInvoiceId: `manual:${PAYMENT_ID}:cycle`,
 					periodOrdinal: 2,
@@ -863,13 +898,68 @@ describe("ManualSubscriptionsService", () => {
 		expect(context.creditsService.grant).not.toHaveBeenCalled();
 	});
 
+	it("applies a pending v6 yearly tier atomically when a manual renewal is recorded", async () => {
+		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
+		const context = createContext([
+			subscription({
+				currentPeriodEnd: currentEnd,
+				pendingTierCredits: 175,
+				priceLookupKey: "pro_250_year",
+				tierCredits: 250,
+			}),
+		]);
+
+		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
+
+		expect(context.subscriptionsRepository.updatePeriod).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				pendingAppliedBy: null,
+				pendingTierCredits: null,
+				priceLookupKey: "pro_175_year",
+				tierCredits: 175,
+			}),
+			TRANSACTION,
+		);
+		expect(
+			context.subscriptionCreditsRepository.insertRefillSlots,
+		).toHaveBeenCalledWith(
+			[expect.objectContaining({ credits: 17_500, dueAt: currentEnd })],
+			TRANSACTION,
+		);
+		expect(
+			context.subscriptionRefillService.createYearlySlots,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credits: 17_500,
+				subscription: expect.objectContaining({
+					pendingTierCredits: null,
+					priceLookupKey: "pro_175_year",
+					tierCredits: 175,
+				}),
+			}),
+			TRANSACTION,
+		);
+		expect(context.requestsRepository.update).toHaveBeenCalledWith(
+			REQUEST_ID,
+			expect.objectContaining({ status: "approved" }),
+			TRANSACTION,
+		);
+		expect(context.subscriptions.get(SUBSCRIPTION_ID)).toMatchObject({
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+	});
+
 	it("approves and links the open request on a renewal", async () => {
 		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
 		const context = createContext([
 			subscription({
 				currentPeriodEnd: currentEnd,
 				interval: "month",
-				priceLookupKey: "pro_250_month",
+				priceLookupKey: "pro_175_month",
 			}),
 		]);
 
@@ -899,7 +989,7 @@ describe("ManualSubscriptionsService", () => {
 			subscription({
 				currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
 				interval: "month",
-				priceLookupKey: "pro_250_month",
+				priceLookupKey: "pro_175_month",
 				status: "canceled",
 			}),
 		]);
@@ -917,7 +1007,7 @@ describe("ManualSubscriptionsService", () => {
 		);
 		expect(context.creditsService.applyCappedRefill).toHaveBeenCalledWith(
 			{ type: "user", userId: USER.id },
-			25_000,
+			17_500,
 			expect.objectContaining({
 				capMultiplier: 1,
 				idempotencyKey: `manual:${SUBSCRIPTION_ID}:renewal:${PAYMENT_ID}`,
@@ -940,6 +1030,40 @@ describe("ManualSubscriptionsService", () => {
 			}),
 			TRANSACTION,
 		);
+	});
+
+	it("uses the pending v6 tier for an immediate manual renewal grant", async () => {
+		const context = createContext([
+			subscription({
+				currentPeriodEnd: new Date("2026-07-01T00:00:00.000Z"),
+				pendingTierCredits: 175,
+				priceLookupKey: "pro_250_year",
+				status: "canceled",
+				tierCredits: 250,
+			}),
+		]);
+
+		await context.service.renew("admin_1", SUBSCRIPTION_ID, renewalInput());
+
+		expect(context.creditsService.applyCappedRefill).toHaveBeenCalledWith(
+			{ type: "user", userId: USER.id },
+			17_500,
+			expect.objectContaining({
+				idempotencyKey: `manual:${SUBSCRIPTION_ID}:renewal:${PAYMENT_ID}`,
+			}),
+			TRANSACTION,
+		);
+		expect(
+			context.subscriptionRefillService.createYearlySlots,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({ credits: 17_500 }),
+			TRANSACTION,
+		);
+		expect(context.subscriptions.get(SUBSCRIPTION_ID)).toMatchObject({
+			pendingTierCredits: null,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
 	});
 
 	it("cancels stale annual slots before renewing a period-passed active row", async () => {

@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type {
-	PatchProductSettingsBody,
-	ProductSettings,
-	ProductSettingsUpdateResponse,
-	PublicSettings,
+import {
+	centiCreditsToCredits,
+	type PatchProductSettingsBody,
+	type ProductSettings,
+	type ProductSettingsUpdateResponse,
+	type PublicSettings,
 } from "@wandit/contracts";
 
 import { SettingsVersionConflictError } from "../../domain/errors/settings-version-conflict.error";
@@ -58,6 +59,7 @@ export class ProductSettingsService {
 			manualPaymentsEnabled: settings.manualPaymentsEnabled,
 			organizationsEnabled: settings.organizationsEnabled,
 			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
+			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,
 		};

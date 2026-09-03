@@ -1,5 +1,7 @@
 import type {
 	BillingInterval,
+	BillingPlanCatalogItem,
+	BillingPlanId,
 	BillingSubscriptionChangeOutcomeResponse,
 	BillingSubscriptionChangePreviewResponse,
 	BillingTierPrice,
@@ -62,7 +64,18 @@ import {
 	resolvePlanPickerPaymentMethod,
 } from "@/features/billing/lib/billing-ui-policy";
 import { completeCardCheckoutStart } from "@/features/billing/lib/checkout-product-events";
-import { isRenewalDowngrade } from "@/features/billing/lib/plan-pricing";
+import {
+	getBillingPlanCopy,
+	getBillingPlanName,
+} from "@/features/billing/lib/plan-copy";
+import {
+	formatUsd,
+	isRenewalDowngrade,
+} from "@/features/billing/lib/plan-pricing";
+import {
+	type PlanSelection,
+	resolveSelectedTier,
+} from "@/features/billing/lib/plan-selection";
 import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
 import {
 	formatCreditAmount,
@@ -77,13 +90,17 @@ import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-w
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
-import { ManualPaymentRequestPanel } from "./manual-payment-request-panel";
+import {
+	ManualPaymentRequestPanel,
+	type ManualPaymentSelection,
+} from "./manual-payment-request-panel";
 import { PlanCard } from "./plan-card";
 
 export type PlanPickerDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	initialInterval?: BillingInterval;
+	initialPlan?: BillingPlanId;
 	initialTierCredits?: CreditTier;
 	initialPaymentMethod?: PlanPickerPaymentMethod;
 	requiredCredits?: number;
@@ -95,13 +112,18 @@ type PickerStep = "select" | "preview" | "outcome";
 
 type ChangeTarget = {
 	interval: BillingInterval;
+	plan: BillingPlanId;
 	tierCredits: CreditTier;
 };
+
+const PERSONAL_PLAN_IDS = ["starter", "pro"] as const;
+const ORGANIZATION_PLAN_IDS = ["business"] as const;
 
 export function PlanPickerDialog({
 	open,
 	onOpenChange,
 	initialInterval,
+	initialPlan,
 	initialTierCredits,
 	initialPaymentMethod,
 	requiredCredits,
@@ -145,6 +167,7 @@ export function PlanPickerDialog({
 						<CreditsElsewhereNotice onSwitched={() => onOpenChange(false)} />
 						<PlanPickerContent
 							initialInterval={initialInterval}
+							initialPlan={initialPlan}
 							initialTierCredits={initialTierCredits}
 							initialPaymentMethod={initialPaymentMethod}
 							defaultFullName={session?.user.name ?? ""}
@@ -172,6 +195,7 @@ function PlanPickerContent({
 	onClose,
 	onCreateTeam,
 	initialInterval,
+	initialPlan,
 	initialTierCredits,
 	initialPaymentMethod,
 	defaultFullName,
@@ -182,6 +206,7 @@ function PlanPickerContent({
 	onClose: () => void;
 	onCreateTeam: () => void;
 	initialInterval?: BillingInterval;
+	initialPlan?: BillingPlanId;
 	initialTierCredits?: CreditTier;
 	initialPaymentMethod?: PlanPickerPaymentMethod;
 	defaultFullName: string;
@@ -189,13 +214,10 @@ function PlanPickerContent({
 	availableCredits?: number;
 	surface: ProductEventSurface;
 }) {
-	const { locale } = useTranslation();
+	const { locale, t } = useTranslation();
 	const dictionary = useDictionary();
 	const copy = dictionary.billing.planPicker;
-	// Personal workspaces buy Pro; org workspaces buy Business — the server
-	// rejects any other pairing (billing.service assertPlanMatchesScope).
 	const { isPersonal } = useWorkspace();
-	const planId = isPersonal ? ("pro" as const) : ("business" as const);
 	const plansQuery = useBillingPlansQuery();
 	const subscriptionQuery = useBillingSubscriptionQuery();
 	const settingsQuery = usePublicSettingsQuery();
@@ -208,8 +230,16 @@ function PlanPickerContent({
 	const [step, setStep] = useState<PickerStep>("select");
 	const [selectedInterval, setSelectedInterval] =
 		useState<BillingInterval | null>(initialInterval ?? null);
-	const [selectedTierCredits, setSelectedTierCredits] =
-		useState<CreditTier | null>(initialTierCredits ?? null);
+	const [selectedPlanTiers, setSelectedPlanTiers] = useState<PlanSelection>(
+		() =>
+			initialPlan && initialTierCredits
+				? { [initialPlan]: initialTierCredits }
+				: {},
+	);
+	const [lastSelectedPlanId, setLastSelectedPlanId] =
+		useState<BillingPlanId | null>(initialPlan ?? null);
+	const [lastOfflineSelection, setLastOfflineSelection] =
+		useState<ManualPaymentSelection | null>(null);
 	const [businessTierCredits, setBusinessTierCredits] =
 		useState<CreditTier | null>(null);
 	const [selectedPaymentMethod, setSelectedPaymentMethod] =
@@ -234,11 +264,7 @@ function PlanPickerContent({
 		);
 	}
 
-	if (
-		plansQuery.isError ||
-		subscriptionQuery.isError ||
-		settingsQuery.isError
-	) {
+	if (plansQuery.isError || subscriptionQuery.isError) {
 		return (
 			<PickerNotice
 				tone="error"
@@ -255,25 +281,32 @@ function PlanPickerContent({
 		);
 	}
 
-	const settings = settingsQuery.data;
 	const catalog = plansQuery.data;
 	const subscriptionView = subscriptionQuery.data;
 
-	if (!settings || !catalog || !subscriptionView) {
+	if (!catalog || !subscriptionView) {
 		return null;
 	}
+
+	// The server still enforces every billing switch at checkout. If the public
+	// settings request fails, keep card checkout usable while hiding optional
+	// organization, manual-payment, and top-up surfaces.
+	const settings = settingsQuery.isError ? undefined : settingsQuery.data;
+	const paidSubscriptionsEnabled = settings?.paidSubscriptionsEnabled ?? true;
+	const topupsEnabled = settings?.topupsEnabled ?? false;
+	const organizationsEnabled = settings?.organizationsEnabled ?? false;
+	const manualPaymentsEnabled = settings?.manualPaymentsEnabled ?? false;
 
 	const subscription = subscriptionView.subscription;
 	const noticeAvailableCredits =
 		availableCredits ?? subscriptionView.balance.settledBalance;
 	const topupsAvailable = areTopupsAvailable(
-		settings.topupsEnabled,
+		topupsEnabled,
 		catalog.topupPacks.length,
 	);
 	const manualSubscription = isManualSubscription(subscription);
-	const cardAvailable =
-		settings.paidSubscriptionsEnabled && !manualSubscription;
-	const offlineAvailable = settings.manualPaymentsEnabled;
+	const cardAvailable = paidSubscriptionsEnabled && !manualSubscription;
+	const offlineAvailable = manualPaymentsEnabled;
 	const paymentMethod = resolvePlanPickerPaymentMethod(
 		selectedPaymentMethod,
 		cardAvailable,
@@ -297,7 +330,7 @@ function PlanPickerContent({
 		);
 	}
 
-	if (!settings.paidSubscriptionsEnabled && !offlineAvailable) {
+	if (!paidSubscriptionsEnabled && !offlineAvailable) {
 		return (
 			<PickerNotice
 				tone="neutral"
@@ -479,9 +512,15 @@ function PlanPickerContent({
 		);
 	}
 
-	const plan = catalog.plans.find((item) => item.id === planId);
+	const scopedPlanIds: readonly BillingPlanId[] = isPersonal
+		? PERSONAL_PLAN_IDS
+		: ORGANIZATION_PLAN_IDS;
+	const scopedPlans = scopedPlanIds.flatMap((planId) => {
+		const catalogPlan = catalog.plans.find((item) => item.id === planId);
+		return catalogPlan && catalogPlan.tiers.length > 0 ? [catalogPlan] : [];
+	});
 
-	if (!plan || plan.tiers.length === 0) {
+	if (scopedPlans.length !== scopedPlanIds.length) {
 		return (
 			<PickerNotice
 				tone="error"
@@ -502,24 +541,19 @@ function PlanPickerContent({
 		selectedInterval,
 		subscription?.interval,
 	);
-	const tierCredits =
-		selectedTierCredits ?? suggestedTierCredits(plan.tiers, subscription);
-	const tier =
-		plan.tiers.find((item) => item.tierCredits === tierCredits) ??
-		plan.tiers[0];
-
-	if (!tier) {
-		return null;
-	}
-
-	const sameAsCurrent =
-		subscription?.interval === interval &&
-		subscription.tierCredits === tier.tierCredits;
 	const visibleAvailableCredits =
 		availableCredits ?? subscriptionView.balance.settledBalance;
 
-	const handlePrimaryAction = () => {
+	const handlePrimaryAction = (
+		plan: BillingPlanCatalogItem,
+		tier: BillingTierPrice,
+	) => {
 		setErrorMessage(null);
+		setLastSelectedPlanId(plan.id);
+		setSelectedPlanTiers((current) => ({
+			...current,
+			[plan.id]: tier.tierCredits,
+		}));
 		if (isManualSubscription(subscription)) {
 			return;
 		}
@@ -527,7 +561,7 @@ function PlanPickerContent({
 		if (!subscription) {
 			void checkout
 				.mutateAsync({
-					plan: planId,
+					plan: plan.id,
 					tierCredits: tier.tierCredits,
 					interval,
 				})
@@ -538,13 +572,13 @@ function PlanPickerContent({
 
 		const nextTarget = {
 			interval,
-			plan: planId,
+			plan: plan.id,
 			tierCredits: tier.tierCredits,
 		};
 		void previewChange
 			.mutateAsync(nextTarget)
 			.then((result) => {
-				setTarget({ interval, tierCredits: tier.tierCredits });
+				setTarget(nextTarget);
 				setPreview(result);
 				setStep("preview");
 			})
@@ -553,13 +587,12 @@ function PlanPickerContent({
 			});
 	};
 
-	// Personal scope buys Pro; the server rejects personal+Business checkouts
-	// (assertPlanMatchesScope), so the Business card's Upgrade routes through
-	// create-a-team first. Org scope IS the Business purchase, no second card.
+	// Business remains a create-team teaser in personal scope. Organization
+	// scope renders Business as its only purchasable plan.
 	const businessPlan = catalog.plans.find((item) => item.id === "business");
 	const showBusinessTeaser =
 		isPersonal &&
-		settings.organizationsEnabled &&
+		organizationsEnabled &&
 		businessPlan !== undefined &&
 		businessPlan.tiers.length > 0;
 	const businessTier = businessPlan
@@ -567,7 +600,6 @@ function PlanPickerContent({
 				(item) => item.tierCredits === businessTierCredits,
 			) ?? businessPlan.tiers[0])
 		: undefined;
-	const planFeatures = isPersonal ? copy.proFeatures : copy.businessFeatures;
 	const cardPanel = (
 		<div className="flex flex-col gap-4">
 			<div className="grid gap-2">
@@ -604,67 +636,95 @@ function PlanPickerContent({
 				) : null}
 			</div>
 
-			<div className={cn("grid gap-4", showBusinessTeaser && "sm:grid-cols-2")}>
+			<div className={cn("grid gap-4", isPersonal && "sm:grid-cols-2")}>
+				{scopedPlans.map((plan) => {
+					const planCopy = getBillingPlanCopy(plan.id, copy);
+					const tier = resolveSelectedTier(
+						plan,
+						selectedPlanTiers,
+						subscription,
+					);
+
+					if (!tier) return null;
+
+					const sameAsCurrent =
+						subscription?.plan === plan.id &&
+						subscription.interval === interval &&
+						subscription.tierCredits === tier.tierCredits;
+
+					return (
+						<PlanCard
+							key={plan.id}
+							name={planCopy.name}
+							badge={plan.id === "pro" ? copy.popularBadge : undefined}
+							tagline={planCopy.tagline}
+							tier={tier}
+							tiers={plan.tiers}
+							basePer100Usd={plan.basePer100Usd}
+							interval={interval}
+							perLabel={interval === "year" ? copy.perYear : copy.perMonth}
+							selectId={`billing-tier-${plan.id}`}
+							selectLabel={copy.creditTier}
+							onSelectTier={(tierCredits) => {
+								setLastSelectedPlanId(plan.id);
+								setSelectedPlanTiers((current) => ({
+									...current,
+									[plan.id]: tierCredits,
+								}));
+							}}
+							features={planCopy.features}
+							highlighted={plan.id === "pro" || !isPersonal}
+							action={
+								<Button
+									type="button"
+									className="mt-4 w-full"
+									disabled={
+										sameAsCurrent ||
+										checkout.isPending ||
+										previewChange.isPending
+									}
+									onClick={() => handlePrimaryAction(plan, tier)}
+								>
+									{sameAsCurrent
+										? copy.currentSelection
+										: checkout.isPending || previewChange.isPending
+											? copy.preparing
+											: subscription
+												? copy.previewChange
+												: copy.continueToCheckout}
+								</Button>
+							}
+						/>
+					);
+				})}
+			</div>
+
+			{showBusinessTeaser && businessPlan && businessTier ? (
 				<PlanCard
-					name={isPersonal ? copy.proName : copy.businessName}
-					badge={isPersonal ? copy.popularBadge : undefined}
-					tagline={isPersonal ? copy.proTagline : copy.businessTagline}
-					tier={tier}
-					tiers={plan.tiers}
-					basePer100Usd={plan.basePer100Usd}
+					name={getBillingPlanCopy(businessPlan.id, copy).name}
+					tagline={getBillingPlanCopy(businessPlan.id, copy).tagline}
+					tier={businessTier}
+					tiers={businessPlan.tiers}
+					basePer100Usd={businessPlan.basePer100Usd}
 					interval={interval}
 					perLabel={interval === "year" ? copy.perYear : copy.perMonth}
-					selectId="billing-tier"
+					selectId="billing-tier-business"
 					selectLabel={copy.creditTier}
-					onSelectTier={setSelectedTierCredits}
-					features={planFeatures}
-					highlighted
+					onSelectTier={setBusinessTierCredits}
+					features={getBillingPlanCopy(businessPlan.id, copy).features}
+					featureColumns={2}
 					action={
 						<Button
 							type="button"
+							variant="outline"
 							className="mt-4 w-full"
-							disabled={
-								sameAsCurrent || checkout.isPending || previewChange.isPending
-							}
-							onClick={handlePrimaryAction}
+							onClick={onCreateTeam}
 						>
-							{sameAsCurrent
-								? copy.currentSelection
-								: checkout.isPending || previewChange.isPending
-									? copy.preparing
-									: subscription
-										? copy.previewChange
-										: copy.continueToCheckout}
+							{copy.continueToCheckout}
 						</Button>
 					}
 				/>
-
-				{showBusinessTeaser && businessPlan && businessTier ? (
-					<PlanCard
-						name={copy.businessName}
-						tagline={copy.businessTagline}
-						tier={businessTier}
-						tiers={businessPlan.tiers}
-						basePer100Usd={businessPlan.basePer100Usd}
-						interval={interval}
-						perLabel={interval === "year" ? copy.perYear : copy.perMonth}
-						selectId="billing-tier-business"
-						selectLabel={copy.creditTier}
-						onSelectTier={setBusinessTierCredits}
-						features={copy.businessFeatures}
-						action={
-							<Button
-								type="button"
-								variant="outline"
-								className="mt-4 w-full"
-								onClick={onCreateTeam}
-							>
-								{copy.continueToCheckout}
-							</Button>
-						}
-					/>
-				) : null}
-			</div>
+			) : null}
 
 			{topupsAvailable ? (
 				<TopupPackChoices
@@ -688,14 +748,35 @@ function PlanPickerContent({
 			</DialogFooter>
 		</div>
 	);
+	const offlinePlanId =
+		lastOfflineSelection?.planId ??
+		lastSelectedPlanId ??
+		initialPlan ??
+		subscription?.plan;
 	const offlinePanel = (
 		<ManualPaymentRequestPanel
-			plan={plan}
+			plans={scopedPlans}
 			subscription={subscription}
 			defaultFullName={defaultFullName}
-			initialInterval={selectedInterval ?? initialInterval}
-			initialTierCredits={selectedTierCredits ?? initialTierCredits}
+			initialInterval={
+				lastOfflineSelection?.interval ?? selectedInterval ?? initialInterval
+			}
+			initialPlan={offlinePlanId}
+			initialTierCredits={
+				lastOfflineSelection?.tierCredits ??
+				(offlinePlanId ? selectedPlanTiers[offlinePlanId] : undefined) ??
+				initialTierCredits
+			}
 			onClose={onClose}
+			onSelectionChange={(nextSelection) => {
+				setLastOfflineSelection(nextSelection);
+				setLastSelectedPlanId(nextSelection.planId);
+				setSelectedInterval(nextSelection.interval);
+				setSelectedPlanTiers((current) => ({
+					...current,
+					[nextSelection.planId]: nextSelection.tierCredits,
+				}));
+			}}
 			surface={surface}
 		/>
 	);
@@ -713,7 +794,13 @@ function PlanPickerContent({
 								: copy.chooseTitle}
 					</DialogTitle>
 					{subscription ? (
-						<Badge variant="outline">{copy.currentPlan}</Badge>
+						<Badge variant="outline">
+							{copy.currentPlan}: {getBillingPlanName(subscription.plan, copy)}{" "}
+							·{" "}
+							{t("credits.creditUnit", {
+								count: subscription.tierCredits,
+							})}
+						</Badge>
 					) : null}
 				</div>
 				<DialogDescription>
@@ -758,7 +845,13 @@ function PlanPickerContent({
 						</TabsTrigger>
 					</TabsList>
 					<TabsContent value="card">{cardPanel}</TabsContent>
-					<TabsContent value="offline">{offlinePanel}</TabsContent>
+					<TabsContent
+						value="offline"
+						forceMount
+						className="data-[state=inactive]:hidden"
+					>
+						{offlinePanel}
+					</TabsContent>
 				</Tabs>
 			) : paymentMethod === "offline" ? (
 				<>
@@ -825,6 +918,7 @@ function ChangePreview({
 					<div>
 						<p className="text-muted-foreground text-xs">{copy.newPlan}</p>
 						<p className="mt-1 font-medium">
+							{getBillingPlanName(target.plan, copy)} ·{" "}
 							{t("credits.creditUnit", { count: target.tierCredits })} ·{" "}
 							{target.interval === "year" ? copy.yearly : copy.monthly}
 						</p>
@@ -1110,18 +1204,6 @@ function TopupPackChoices({
 	);
 }
 
-function suggestedTierCredits(
-	tiers: readonly BillingTierPrice[],
-	subscription: Subscription | null,
-): CreditTier {
-	if (!subscription) return tiers[0]?.tierCredits ?? 250;
-
-	return (
-		tiers.find((tier) => tier.tierCredits > subscription.tierCredits)
-			?.tierCredits ?? subscription.tierCredits
-	);
-}
-
 function changeErrorMessage(
 	error: unknown,
 	copy: ReturnType<typeof useDictionary>["billing"]["planPicker"],
@@ -1139,14 +1221,6 @@ function changeErrorMessage(
 	}
 
 	return getApiErrorMessage(error);
-}
-
-function formatUsd(value: number, locale: Locale) {
-	return new Intl.NumberFormat(locale, {
-		style: "currency",
-		currency: "USD",
-		maximumFractionDigits: 0,
-	}).format(value);
 }
 
 function formatMinorCurrency(value: number, currency: string, locale: Locale) {

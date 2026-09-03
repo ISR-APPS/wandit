@@ -4,6 +4,7 @@
 	"autosaved": "محفوظ",
 	"upgrade": "ترقية",
 	"upgradeCard": {
+		"titleStarter": "الترقية إلى Starter",
 		"titlePro": "الترقية إلى Pro",
 		"titleBusiness": "الترقية إلى الأعمال",
 		"body": "المزيد من الرصيد والمزايا"
