@@ -132,36 +132,12 @@ function ImageGenerationCard({
 	onPrefill: (prompt: string) => void;
 }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
-	const queryClient = useQueryClient();
 	const {
 		data: attempt,
 		error,
 		refetch,
 		isFetching,
-	} = useImageGenerationAttemptQuery(attemptId);
-
-	// Once the images exist, the Assets tab should show them without a manual
-	// refresh. Placement stays pending briefly after image success, so this
-	// effect runs again when the worker records its final outcome.
-	const succeeded = attempt?.status === "succeeded";
-	const terminalStatus =
-		attempt?.status === "succeeded" || attempt?.status === "failed"
-			? attempt.status
-			: null;
-	useEffect(() => {
-		if (!terminalStatus) return;
-		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
-	}, [queryClient, terminalStatus]);
-
-	useEffect(() => {
-		if (!succeeded) return;
-		invalidateCompletedImageGeneration(
-			queryClient,
-			projectId,
-			attempt.placement?.status,
-		);
-	}, [attempt?.placement?.status, projectId, queryClient, succeeded]);
+	} = usePolledImageGenerationAttempt(attemptId);
 
 	if (error) {
 		return (
@@ -198,6 +174,42 @@ function ImageGenerationCard({
 	}
 
 	return <ImageGenerationAttemptView attempt={attempt} onPrefill={onPrefill} />;
+}
+
+/**
+ * Shared durable-attempt lifecycle for both the standalone card and a batch
+ * card. Keeping polling plus terminal cache invalidation here prevents the two
+ * presentations from drifting as the worker protocol evolves.
+ */
+export function usePolledImageGenerationAttempt(attemptId: string) {
+	const { projectId } = useWorkspace();
+	const queryClient = useQueryClient();
+	const query = useImageGenerationAttemptQuery(attemptId);
+	const attempt = query.data;
+
+	// Once the images exist, the Assets tab should show them without a manual
+	// refresh. Placement stays pending briefly after image success, so this
+	// effect runs again when the worker records its final outcome.
+	const succeeded = attempt?.status === "succeeded";
+	const terminalStatus =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.status
+			: null;
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
+
+	useEffect(() => {
+		if (!succeeded) return;
+		invalidateCompletedImageGeneration(
+			queryClient,
+			projectId,
+			attempt.placement?.status,
+		);
+	}, [attempt?.placement?.status, projectId, queryClient, succeeded]);
+
+	return query;
 }
 
 export function ImageGenerationAttemptView({
@@ -291,7 +303,7 @@ export function ImageGenerationAttemptView({
 								rel="noreferrer"
 								className={cn(
 									"block overflow-hidden rounded-lg border border-border bg-secondary",
-									aspectClass(attempt?.aspect),
+									imageGenerationAspectClass(attempt?.aspect),
 								)}
 							>
 								<img
@@ -307,7 +319,7 @@ export function ImageGenerationAttemptView({
 								key={slot}
 								className={cn(
 									"w-full rounded-lg",
-									aspectClass(attempt?.aspect),
+									imageGenerationAspectClass(attempt?.aspect),
 								)}
 							/>
 						);
@@ -492,7 +504,9 @@ function AnnouncedStatus({
 	);
 }
 
-function aspectClass(aspect: ImageGenerationAttempt["aspect"] | undefined) {
+export function imageGenerationAspectClass(
+	aspect: ImageGenerationAttempt["aspect"] | undefined,
+) {
 	switch (aspect) {
 		case "1:1":
 			return "aspect-square";

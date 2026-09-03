@@ -3,6 +3,7 @@ import {
 	AlertCircleIcon,
 	ArrowLeftIcon,
 	CircleDollarSignIcon,
+	CoinsIcon,
 	MessageSquareTextIcon,
 	RefreshCwIcon,
 	TriangleAlertIcon,
@@ -36,9 +37,12 @@ import {
 } from "@/features/conversations/api/conversations.queries";
 import { AiCallStrip } from "@/features/conversations/components/ai-call-strip";
 import { Transcript } from "@/features/conversations/components/transcript";
+import { UsageBreakdownCard } from "@/features/conversations/components/usage-breakdown-card";
 import {
+	formatCentiCredits,
 	formatConversationCount,
 	formatConversationDateTime,
+	formatConversationTokenCount,
 	formatUsdMicros,
 } from "@/features/conversations/lib/conversation-formatters";
 import { isApiClientError } from "@/lib/api-client";
@@ -57,6 +61,7 @@ const METRIC_SKELETON_KEYS = [
 	"messages",
 	"failed-turns",
 	"total-tokens",
+	"credits",
 	"recorded-cost",
 ] as const;
 
@@ -140,6 +145,21 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 	}
 
 	const detail = detailQuery.data;
+	const totalInputTokens = detail.usageSummary.reduce(
+		(total, row) => total + (row.inputTokens ?? 0),
+		0,
+	);
+	const cacheReadDescription =
+		detail.cacheReadTokens === null
+			? undefined
+			: `Cache read ${formatConversationTokenCount(detail.cacheReadTokens)}${
+					totalInputTokens > 0
+						? ` · ${Math.min(
+								(detail.cacheReadTokens / totalInputTokens) * 100,
+								100,
+							).toFixed(1)}% of input`
+						: ""
+				}`;
 	const projectListLink =
 		detail.project && detail.owner?.id
 			? {
@@ -214,7 +234,7 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 			</header>
 
 			<section
-				className="grid overflow-hidden rounded-xl border bg-background sm:grid-cols-2 xl:grid-cols-4 [&>*:not(:last-child)]:border-b xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(n+3)]:border-b-0 sm:[&>*:nth-child(odd)]:border-e xl:[&>*]:border-b-0"
+				className="grid overflow-hidden rounded-xl border bg-background sm:grid-cols-2 xl:grid-cols-5 [&>*:last-child]:border-b-0 sm:[&>*:last-child]:col-span-2 sm:[&>*:last-child]:border-e-0 xl:[&>*:last-child]:col-span-1 xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(odd)]:border-e [&>*]:border-b xl:[&>*]:border-b-0"
 				aria-label="Conversation totals"
 			>
 				<MetricStat
@@ -231,8 +251,14 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 				/>
 				<MetricStat
 					label="Total tokens"
-					value={formatConversationCount(detail.totalTokens)}
+					value={formatConversationTokenCount(detail.totalTokens)}
 					icon={MessageSquareTextIcon}
+					description={cacheReadDescription}
+				/>
+				<MetricStat
+					label="Credits"
+					value={formatCentiCredits(detail.totalCreditsCenti)}
+					icon={CoinsIcon}
 				/>
 				<MetricStat
 					label="Recorded cost"
@@ -292,7 +318,21 @@ export function ChatDetailPage({ chatId }: { chatId: string }) {
 					</TabsContent>
 
 					<TabsContent value="usage" className="mt-0">
-						<CardContent className="py-6">
+						<CardContent className="space-y-6 py-6">
+							<UsageBreakdownCard
+								usageSummary={detail.usageSummary}
+								calls={
+									inlineCallsQuery.isPlaceholderData
+										? []
+										: (inlineCallsQuery.data?.items ?? [])
+								}
+								callsTotal={inlineCallsQuery.data?.total ?? 0}
+								isCallsPending={
+									inlineCallsQuery.isPending ||
+									inlineCallsQuery.isPlaceholderData
+								}
+								hasCallsError={inlineCallsQuery.isError}
+							/>
 							{callsQuery.isPending ? (
 								<SectionSkeleton rows={4} />
 							) : callsQuery.isError || !callsQuery.data ? (
@@ -331,12 +371,14 @@ function MetricStat({
 	label,
 	value,
 	icon: Icon,
+	description,
 	danger = false,
 	onClick,
 }: {
 	label: string;
 	value: string;
 	icon: typeof MessageSquareTextIcon;
+	description?: string;
 	danger?: boolean;
 	onClick?: () => void;
 }) {
@@ -355,6 +397,11 @@ function MetricStat({
 				>
 					{value}
 				</p>
+				{description ? (
+					<p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
+						{description}
+					</p>
+				) : null}
 			</div>
 			<Icon
 				aria-hidden="true"
@@ -424,7 +471,7 @@ function ChatDetailSkeleton() {
 	return (
 		<>
 			<Skeleton className="h-40 w-full rounded-xl" />
-			<div className="grid overflow-hidden rounded-xl border sm:grid-cols-2 xl:grid-cols-4 [&>*:not(:last-child)]:border-b xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(n+3)]:border-b-0 sm:[&>*:nth-child(odd)]:border-e xl:[&>*]:border-b-0">
+			<div className="grid overflow-hidden rounded-xl border sm:grid-cols-2 xl:grid-cols-5 [&>*:last-child]:border-b-0 sm:[&>*:last-child]:col-span-2 sm:[&>*:last-child]:border-e-0 xl:[&>*:last-child]:col-span-1 xl:[&>*:not(:last-child)]:border-e sm:[&>*:nth-child(odd)]:border-e [&>*]:border-b xl:[&>*]:border-b-0">
 				{METRIC_SKELETON_KEYS.map((key) => (
 					<div key={key} className="p-4">
 						<Skeleton className="h-12 w-full" />

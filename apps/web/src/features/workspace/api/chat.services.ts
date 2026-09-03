@@ -41,9 +41,11 @@
 // source of TypeScript types) plus chatsRoutes, a tiny map of URL-builder
 // functions (e.g. chatsRoutes.messages(id) -> "/api/v1/chats/<id>/messages").
 import {
+	type ChatUsageResponse,
 	chatByProjectResponseSchema,
 	chatMessagesResponseSchema,
 	chatsRoutes,
+	chatUsageResponseSchema,
 	type SendChatMessageBody,
 	sendChatMessageResponseSchema,
 } from "@wandit/contracts";
@@ -80,6 +82,12 @@ export async function getChatByProject(projectId: string) {
 export async function getChatMessages(chatId: string) {
 	const data = await apiClient.get<unknown>(chatsRoutes.messages(chatId));
 	return chatMessagesResponseSchema.parse(data);
+}
+
+/** Aggregate token, cost, and credit usage for one staff-visible conversation. */
+export async function getChatUsage(chatId: string): Promise<ChatUsageResponse> {
+	const data = await apiClient.get<unknown>(chatsRoutes.usage(chatId));
+	return chatUsageResponseSchema.parse(data);
 }
 
 /**

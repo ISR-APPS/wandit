@@ -13,6 +13,7 @@ import {
 	Controller,
 	Get,
 	Inject,
+	NotFoundException,
 	Param,
 	Post,
 	Query,
@@ -23,6 +24,8 @@ import type { AuthUser } from "@wandit/auth";
 import {
 	type ChatByProjectResponse,
 	type ChatMessagesResponse,
+	type ChatUsageResponse,
+	isStaffRole,
 	type SendChatMessageBody,
 	type SendChatMessageResponse,
 	sendChatMessageBodySchema,
@@ -83,6 +86,23 @@ export class ChatsController {
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ChatMessagesResponse> {
 		return this.chatService.listMessages(
+			projectScopeFrom(workspace, user.id),
+			chatId,
+		);
+	}
+
+	@Get(":chatId/usage")
+	getUsage(
+		@Param("chatId", new ZodValidationPipe(uuidSchema))
+		chatId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<ChatUsageResponse> {
+		if (!isStaffRole(user.role)) {
+			throw new NotFoundException();
+		}
+
+		return this.chatService.getUsage(
 			projectScopeFrom(workspace, user.id),
 			chatId,
 		);

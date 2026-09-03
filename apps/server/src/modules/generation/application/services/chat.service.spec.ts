@@ -27,6 +27,7 @@ function setup() {
 	const chatsRepository = {
 		deleteMessageById: vi.fn(),
 		findAccessibleChatById: vi.fn(),
+		getUsage: vi.fn(),
 		insertUserMessage: vi.fn(),
 		listMessages: vi.fn(),
 	};
@@ -57,6 +58,56 @@ function setup() {
 
 // Test the send-message orchestration.
 describe("ChatService", () => {
+	it("checks ownership before returning conversation usage", async () => {
+		const { chatsRepository, service } = setup();
+		const usage = {
+			inputTokens: 100,
+			outputTokens: 20,
+			cacheReadTokens: 10,
+			cacheWriteTokens: 5,
+			costUsdMicros: 130_000,
+			creditsCenti: 325,
+		};
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
+			id: "chat_1",
+			projectId: "project_1",
+			userId: "user_1",
+		});
+		chatsRepository.getUsage.mockResolvedValue(usage);
+
+		await expect(
+			service.getUsage(
+				{
+					kind: "org",
+					organizationId: "org_1",
+					userId: "user_1",
+					actorIsLimitExempt: false,
+				},
+				"chat_1",
+			),
+		).resolves.toEqual(usage);
+		expect(chatsRepository.findAccessibleChatById).toHaveBeenCalledWith(
+			{
+				actorIsLimitExempt: false,
+				kind: "org",
+				organizationId: "org_1",
+				userId: "user_1",
+			},
+			"chat_1",
+		);
+		expect(chatsRepository.getUsage).toHaveBeenCalledWith("chat_1");
+	});
+
+	it("returns 404 before reading usage when the chat is not owned", async () => {
+		const { chatsRepository, service } = setup();
+		chatsRepository.findAccessibleChatById.mockResolvedValue(null);
+
+		await expect(
+			service.getUsage({ kind: "personal", userId: "user_1" }, "chat_1"),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(chatsRepository.getUsage).not.toHaveBeenCalled();
+	});
+
 	// User cannot send to a chat they do not own.
 	it("returns 404 when the chat is not owned by the caller", async () => {
 		const { chatsRepository, service } = setup();

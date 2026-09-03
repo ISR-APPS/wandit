@@ -266,6 +266,12 @@ describe("gateway routing pin", () => {
 		});
 	});
 
+	it("prefers Friendli, Baseten, Fireworks for zai models, keeping deep fallback", () => {
+		expect(gatewayRoutingForModel("zai/glm-5.3-flash")).toEqual({
+			order: ["friendli", "baseten", "fireworks"],
+		});
+	});
+
 	it("leaves other creators on the gateway's default routing", () => {
 		expect(gatewayRoutingForModel("xai/grok-4.5")).toEqual({});
 		expect(gatewayRoutingForModel("anthropic/claude-opus-5")).toEqual({});

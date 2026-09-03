@@ -24,11 +24,17 @@ import {
 	ExtendVideoPart,
 	GenerateVideoPart,
 } from "./generate-video-part";
+import { type GenerateImageToolPart, ImageBatchPart } from "./image-batch-part";
 import {
 	isMcpRunFullySettled,
 	McpActivityCard,
 	mcpRunHasDeliverables,
 } from "./mcp-tool-part";
+import {
+	isPageEditToolPart,
+	PageEditActivityCard,
+	type PageEditToolPart,
+} from "./page-edit-part";
 import { ProductVideoPart } from "./product-video-part";
 import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
@@ -46,13 +52,6 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-inspect_video",
 	"tool-read_lead_performance",
 	"tool-get_direction_candidates",
-	"tool-get_page_outline",
-	"tool-apply_element_ops",
-	"tool-read_elements",
-	"tool-read_theme",
-	"tool-read_section",
-	"tool-insert_section",
-	"tool-replace_section",
 	"data-billing-error",
 	// Transient settle signal consumed in use-ai-chat's onData — never inline.
 	"data-credits-settled",
@@ -68,6 +67,16 @@ export function isTransparentMessagePart(part: MessagePart): boolean {
 export type MessagePartRenderEntry =
 	| { kind: "part"; part: MessagePart; index: number }
 	| { kind: "image-run"; parts: ImageFilePart[]; firstIndex: number }
+	| {
+			kind: "image-batch";
+			parts: GenerateImageToolPart[];
+			firstIndex: number;
+	  }
+	| {
+			kind: "page-edit-run";
+			parts: PageEditToolPart[];
+			firstIndex: number;
+	  }
 	| {
 			kind: "mcp-run";
 			parts: McpToolPart[];
@@ -98,7 +107,13 @@ const ASYNC_CARD_PART_TYPES = new Set([
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
 	if (entry.kind === "mcp-run") return entry.section === "deliverables";
-	if (entry.kind === "ask-run" || entry.kind === "image-run") return false;
+	if (entry.kind === "image-batch") return true;
+	if (
+		entry.kind === "ask-run" ||
+		entry.kind === "image-run" ||
+		entry.kind === "page-edit-run"
+	)
+		return false;
 	return ASYNC_CARD_PART_TYPES.has(entry.part.type);
 }
 
@@ -109,7 +124,9 @@ function entryRendersContent(entry: MessagePartRenderEntry): boolean {
 	if (
 		entry.kind === "mcp-run" ||
 		entry.kind === "ask-run" ||
-		entry.kind === "image-run"
+		entry.kind === "image-run" ||
+		entry.kind === "image-batch" ||
+		entry.kind === "page-edit-run"
 	)
 		return true;
 	const { part } = entry;
@@ -174,6 +191,7 @@ const warnedPartTypes = new Set<string>();
 
 export function MessageParts({
 	message,
+	tokenUsageVisible,
 	isStreaming,
 	isLastAssistantMessage,
 	chatStatus = "ready",
@@ -183,6 +201,7 @@ export function MessageParts({
 	onToolApprovalResponse,
 }: {
 	message: WanditUIMessage;
+	tokenUsageVisible: boolean;
 	isStreaming: boolean;
 	isLastAssistantMessage: boolean;
 	chatStatus?: ChatStatus;
@@ -286,6 +305,25 @@ export function MessageParts({
 			return (
 				<ImageFileGrid
 					key={`${message.id}:image-run:${entry.firstIndex}`}
+					parts={entry.parts}
+				/>
+			);
+		}
+
+		if (entry.kind === "image-batch") {
+			return (
+				<ImageBatchPart
+					key={`${message.id}:image-batch:${entry.firstIndex}`}
+					parts={entry.parts}
+					messageParts={message.parts}
+				/>
+			);
+		}
+
+		if (entry.kind === "page-edit-run") {
+			return (
+				<PageEditActivityCard
+					key={`${message.id}:page-edit-run:${entry.firstIndex}`}
 					parts={entry.parts}
 				/>
 			);
@@ -443,12 +481,14 @@ export function MessageParts({
 				</div>
 			) : null}
 			<div className="flex flex-col gap-2.5">{renderedEntries}</div>
-			{/* Debug meter, dev builds only — users never see raw token counts
-			   (same gate as the conversation context meter in ChatPane). */}
-			{import.meta.env.DEV &&
+			{/* Staff observability; regular users never see raw token counts. */}
+			{tokenUsageVisible &&
 			message.role === "assistant" &&
 			message.metadata?.usage ? (
-				<MessageTokenUsage usage={message.metadata.usage} />
+				<MessageTokenUsage
+					usage={message.metadata.usage}
+					stepCount={message.metadata.stepCount}
+				/>
 			) : null}
 		</div>
 	);
@@ -523,11 +563,30 @@ export function coalesceMessageParts(
 	parts: WanditUIMessage["parts"],
 ): MessagePartRenderEntry[] {
 	const entries: MessagePartRenderEntry[] = [];
+	const imageParts = parts.filter(
+		(part): part is GenerateImageToolPart =>
+			part.type === "tool-generate_image",
+	);
+	const shouldBatchImages = imageParts.length > 1;
+	let emittedImageBatch = false;
 	let index = 0;
 
 	while (index < parts.length) {
 		const part = parts[index];
 		if (!part) {
+			index += 1;
+			continue;
+		}
+
+		if (part.type === "tool-generate_image" && shouldBatchImages) {
+			if (!emittedImageBatch) {
+				entries.push({
+					kind: "image-batch",
+					parts: imageParts,
+					firstIndex: index,
+				});
+				emittedImageBatch = true;
+			}
 			index += 1;
 			continue;
 		}
@@ -550,6 +609,40 @@ export function coalesceMessageParts(
 			}
 
 			entries.push({ kind: "image-run", parts: runParts, firstIndex });
+			index = cursor;
+			continue;
+		}
+
+		if (isPageEditToolPart(part)) {
+			const firstIndex = index;
+			const runParts: PageEditToolPart[] = [part];
+			let cursor = index + 1;
+
+			while (cursor < parts.length) {
+				const candidate = parts[cursor];
+				if (candidate && isPageEditToolPart(candidate)) {
+					runParts.push(candidate);
+					cursor += 1;
+					continue;
+				}
+
+				if (!candidate || !isTransparentMessagePart(candidate)) break;
+
+				let nextPartIndex = cursor + 1;
+				while (
+					parts[nextPartIndex] &&
+					isTransparentMessagePart(parts[nextPartIndex])
+				) {
+					nextPartIndex += 1;
+				}
+				const nextPart = parts[nextPartIndex];
+				if (!nextPart || !isPageEditToolPart(nextPart)) break;
+
+				runParts.push(nextPart);
+				cursor = nextPartIndex + 1;
+			}
+
+			entries.push({ kind: "page-edit-run", parts: runParts, firstIndex });
 			index = cursor;
 			continue;
 		}
