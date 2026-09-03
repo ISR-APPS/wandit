@@ -25,7 +25,7 @@ function checkoutAttempt(
 		createdAt: new Date(0),
 		id: "11111111-1111-4111-8111-111111111111",
 		organizationId: null,
-		packId: "topup_250",
+		packId: "topup_175",
 		priceLookupKey: null,
 		providerSessionId: "cs_topup",
 		purpose: "topup",
@@ -46,8 +46,8 @@ function checkoutSession(
 		id: "cs_topup",
 		metadata: {
 			attemptId: "11111111-1111-4111-8111-111111111111",
-			credits: "250",
-			packId: "topup_250",
+			credits: "175",
+			packId: "topup_175",
 			purpose: "topup",
 			userId: "user_1",
 		},
@@ -225,15 +225,15 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		await service.grantTopup(checkoutSession());
 
-		// 250-credit pack -> 25000 centi-credits at the grant boundary.
+		// The active 175-credit pack becomes 17,500 centi-credits at the grant boundary.
 		expect(credits.topup).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			25_000,
+			17_500,
 			{
 				idempotencyKey: "topup:cs_topup",
 				meta: {
 					chargeId: "ch_topup",
-					packId: "topup_250",
+					packId: "topup_175",
 					paymentIntentId: "pi_topup",
 					reason: "topup_purchase",
 					sessionId: "cs_topup",
@@ -304,7 +304,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 				chargeId: "ch_topup",
 				currency: "usd",
 				organizationId: null,
-				packId: "topup_250",
+				packId: "topup_175",
 				paymentIntentId: "pi_topup",
 				sessionId: "cs_topup",
 				userId: "user_1",
@@ -329,6 +329,35 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		expect(credits.topup).toHaveBeenCalledOnce();
 		expect(attempts.markCompletedBySession).not.toHaveBeenCalled();
+	});
+
+	it("fulfills a persisted pre-v6 top-up pack for webhook history", async () => {
+		const { creditTransaction, credits, receipts, service } = setup({
+			attempt: checkoutAttempt({ packId: "topup_250" }),
+		});
+
+		await service.grantTopup(
+			checkoutSession({
+				metadata: {
+					...checkoutSession().metadata,
+					credits: "250",
+					packId: "topup_250",
+				},
+			}),
+		);
+
+		expect(credits.topup).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			25_000,
+			expect.objectContaining({
+				meta: expect.objectContaining({ packId: "topup_250" }),
+			}),
+			creditTransaction,
+		);
+		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
+			expect.objectContaining({ packId: "topup_250" }),
+			creditTransaction,
+		);
 	});
 
 	it("recovers the create-to-attach crash window from signed session metadata", async () => {
@@ -384,7 +413,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 			session: checkoutSession(),
 		},
 		{
-			attempt: checkoutAttempt({ priceLookupKey: "pro_250_month" }),
+			attempt: checkoutAttempt({ priceLookupKey: "pro_175_month" }),
 			expected: "unexpectedly has a subscription price",
 			name: "attempt shape",
 			session: checkoutSession(),
@@ -432,32 +461,32 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "pack topup_1000 does not match checkout attempt",
+			expected: "pack topup_700 does not match checkout attempt",
 			name: "attempt pack",
 			session: checkoutSession({
 				metadata: {
 					...checkoutSession().metadata,
-					packId: "topup_1000",
+					packId: "topup_700",
 				},
 			}),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "credits 1000 do not match top-up pack topup_250",
+			expected: "credits 700 do not match top-up pack topup_175",
 			name: "credits",
 			session: checkoutSession({
-				metadata: { ...checkoutSession().metadata, credits: "1000" },
+				metadata: { ...checkoutSession().metadata, credits: "700" },
 			}),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "amount_total does not match top-up pack topup_250",
+			expected: "amount_total does not match top-up pack topup_175",
 			name: "amount",
 			session: checkoutSession({ amount_total: 2_499 }),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "currency does not match top-up pack topup_250",
+			expected: "currency does not match top-up pack topup_175",
 			name: "currency",
 			session: checkoutSession({ currency: "eur" }),
 		},

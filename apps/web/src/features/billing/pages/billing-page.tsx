@@ -68,6 +68,7 @@ import {
 	getManualGraceNoticeDates,
 } from "@/features/billing/lib/billing-ui-policy";
 import { parseBillingCancelRequest } from "@/features/billing/lib/cancel-subscription";
+import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
 import {
 	useCreditActivityQuery,
 	useCreditBalanceQuery,
@@ -271,6 +272,7 @@ export default function BillingPage() {
 										openPlanPicker("billing_page", {
 											interval: subscription.interval,
 											paymentMethod: "offline",
+											plan: subscription.plan,
 											tierCredits: subscription.tierCredits,
 										});
 									}}
@@ -505,9 +507,7 @@ function SubscriptionCard({
 				{subscription ? (
 					<>
 						<p className="font-display font-semibold text-2xl tracking-tight">
-							{subscription.plan === "business"
-								? copy.planPicker.businessName
-								: copy.page.proPlan}
+							{getBillingPlanName(subscription.plan, copy.planPicker)}
 						</p>
 						<p className="mt-1 text-muted-foreground text-sm">
 							{t("billing.page.creditsPerCycle", {
@@ -656,9 +656,7 @@ function ManualRequestNotice({
 			</CardHeader>
 			<CardContent className="px-5 py-4 sm:px-6">
 				<p className="text-muted-foreground text-sm">
-					{request.plan === "business"
-						? copy.planPicker.businessName
-						: copy.planPicker.proName}
+					{getBillingPlanName(request.plan, copy.planPicker)}
 					{" · "}
 					{t("credits.creditUnit", { count: request.tierCredits })}
 					{" · "}

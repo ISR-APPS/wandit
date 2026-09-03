@@ -1,4 +1,4 @@
-import type { BillingInterval } from "@wandit/contracts";
+import type { BillingInterval, BillingPlanId } from "@wandit/contracts";
 import { CalendarPlusIcon, Loader2Icon } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -32,8 +32,15 @@ import { isApiClientError } from "@/lib/api-client";
 
 import { ManualPaymentFields } from "./manual-payment-fields";
 
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
+
 export type RenewableManualSubscription = {
 	id: string;
+	plan: BillingPlanId;
 	interval: BillingInterval;
 	/** Current tier, when known — used to warn about change requests. */
 	tierCredits?: number;
@@ -44,6 +51,7 @@ export type RenewableManualSubscription = {
 
 /** What an open request asked for, when renewing from a request row. */
 export type RequestedManualPlan = {
+	plan: BillingPlanId;
 	interval: BillingInterval;
 	tierCredits: number;
 };
@@ -79,7 +87,8 @@ function OpenRenewManualSubscriptionDialog({
 	// warn loudly so the request is not silently approved at the old plan.
 	const requestMismatch =
 		requested !== undefined &&
-		(requested.interval !== subscription.interval ||
+		(requested.plan !== subscription.plan ||
+			requested.interval !== subscription.interval ||
 			(subscription.tierCredits !== undefined &&
 				requested.tierCredits !== subscription.tierCredits));
 	const now = useRef(new Date()).current;
@@ -195,10 +204,11 @@ function OpenRenewManualSubscriptionDialog({
 								This request asks for a different plan.
 							</p>
 							<p className="mt-1 text-muted-foreground">
-								Requested: {requested.tierCredits.toLocaleString("en-US")}{" "}
-								credits / {requested.interval === "year" ? "yearly" : "monthly"}
+								Requested: {PLAN_NAMES[requested.plan]} ·{" "}
+								{requested.tierCredits.toLocaleString("en-US")} credits /{" "}
+								{requested.interval === "year" ? "yearly" : "monthly"}
 								{subscription.tierCredits !== undefined
-									? ` — current: ${subscription.tierCredits.toLocaleString("en-US")} credits / ${subscription.interval === "year" ? "yearly" : "monthly"}`
+									? ` — current: ${PLAN_NAMES[subscription.plan]} · ${subscription.tierCredits.toLocaleString("en-US")} credits / ${subscription.interval === "year" ? "yearly" : "monthly"}`
 									: ""}
 								. Renew keeps the current plan. To change it, end the current
 								subscription first, then use “Approve &amp; grant”.
@@ -207,6 +217,20 @@ function OpenRenewManualSubscriptionDialog({
 					) : null}
 
 					<FieldGroup className="gap-6">
+						<Field>
+							<FieldLabel>Current subscription</FieldLabel>
+							<div className="rounded-md border px-3 py-2 text-sm">
+								<span className="font-medium">
+									{PLAN_NAMES[subscription.plan]}
+								</span>
+								{subscription.tierCredits !== undefined
+									? ` · ${subscription.tierCredits.toLocaleString("en-US")} credits`
+									: ""}
+								{" · "}
+								{subscription.interval === "year" ? "Yearly" : "Monthly"}
+							</div>
+						</Field>
+
 						<Field data-invalid={submitted && !periodEndIsValid}>
 							<FieldLabel htmlFor="manual-renew-period-end">
 								New period end

@@ -103,7 +103,7 @@ export function UserSubscriptionCard({
 							label="Price"
 							value={
 								priceUsd === null
-									? "Legacy price (not in catalog)"
+									? "Price unavailable"
 									: `$${priceUsd.toLocaleString("en-US")} / ${subscription.interval}`
 							}
 						/>
@@ -128,7 +128,9 @@ export function UserSubscriptionCard({
 					<RenewManualSubscriptionDialog
 						subscription={{
 							id: subscription.id,
+							plan: subscription.plan,
 							interval: subscription.interval,
+							tierCredits: subscription.tierCredits,
 							currentPeriodEnd: subscription.currentPeriodEnd,
 							entitled: subscription.status === "active",
 							ownerLabel,

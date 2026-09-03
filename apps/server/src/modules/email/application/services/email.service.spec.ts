@@ -191,7 +191,7 @@ describe("EmailService", () => {
 				interval: "year",
 				phone: "+213 661 22 33 44",
 				plan: "pro",
-				tierCredits: 500,
+				tierCredits: 175,
 			},
 		);
 
@@ -209,8 +209,33 @@ describe("EmailService", () => {
 		expect(payload.subject).toContain("Amina");
 		expect(payload.html).not.toContain("<img src=x");
 		expect(payload.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
-		expect(payload.text).toContain("Pro / 500 credits / yearly");
+		expect(payload.text).toContain("Pro / 175 credits / yearly");
 		expect(payload.text).toContain("https://admin.example.com/offline-billing");
+	});
+
+	it.each([
+		["starter", "Starter", 50],
+		["pro", "Pro", 175],
+		["business", "Business", 175],
+	] as const)("labels the %s plan in offline-request emails", async (plan, label, tierCredits) => {
+		mockEnv.RESEND_API_KEY = "re_test_key";
+		const service = new EmailService();
+
+		await service.sendManualRequestEmail(["admin@example.com"], {
+			adminUrl: "https://admin.example.com/offline-billing",
+			fullName: "Amina",
+			interval: "month",
+			phone: "+213 661 22 33 44",
+			plan,
+			tierCredits,
+		});
+
+		const payload = transactionalSendMock.mock.calls[0]?.[0] as unknown as {
+			text: string;
+		};
+		expect(payload.text).toContain(
+			`${label} / ${tierCredits} credits / monthly`,
+		);
 	});
 
 	it("sends lifecycle events through Resend Automations", async () => {

@@ -58,6 +58,13 @@ const ACTIVITY: AdminFeedbackActivityRow = {
 };
 
 describe("admin feedback mapper", () => {
+	it("preserves Starter for a signed-in reporter", () => {
+		expect(
+			mapAdminFeedbackSummary({ ...ROW, reporterPlan: "starter" }).reporter
+				.plan,
+		).toBe("starter");
+	});
+
 	it("maps joined context and derives the reporter plan and title", () => {
 		const summary = mapAdminFeedbackSummary(ROW);
 

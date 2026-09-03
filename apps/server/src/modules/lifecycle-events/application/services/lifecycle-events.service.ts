@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
-	CREDIT_EVENT_THRESHOLDS,
+	creditEventThresholdsForGrant,
 	type EnqueueLifecycleEvent,
 	EVENT_HOLD_MS,
 	lifecycleEventIdempotencyKey,
@@ -31,7 +31,11 @@ export class LifecycleEventsService {
 		netConsumedCentiCredits: number,
 		transaction?: LifecycleEventsTransaction,
 	): Promise<void> {
-		if (netConsumedCentiCredits >= CREDIT_EVENT_THRESHOLDS.credits_25_used) {
+		const grantCentiCredits =
+			await this.repository.resolveSignupGrantCentiCredits(userId, transaction);
+		const thresholds = creditEventThresholdsForGrant(grantCentiCredits);
+
+		if (netConsumedCentiCredits >= thresholds.credits_25_used) {
 			await this.enqueue(
 				{
 					event: "credits_25_used",
@@ -45,7 +49,7 @@ export class LifecycleEventsService {
 			);
 		}
 
-		if (netConsumedCentiCredits >= CREDIT_EVENT_THRESHOLDS.credits_40_used) {
+		if (netConsumedCentiCredits >= thresholds.credits_40_used) {
 			await this.enqueue(
 				{
 					dispatchAfter: new Date(Date.now() + EVENT_HOLD_MS.credits_40_used),

@@ -343,7 +343,7 @@
 					"Wandit fonctionne avec des crédits. Chaque action qui nous coûte de l'argent, comme générer une page, une image, une vidéo ou un support marketing, ou synchroniser et découvrir des prospects, consomme des crédits sur le solde de votre espace de travail."
 				],
 				"bullets": [
-					"Un nouveau compte reçoit un solde de départ de crédits gratuits. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
+					"Un nouveau compte reçoit un solde initial de crédits gratuits. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
 					"Le prix d'une action est affiché avant que vous ne la lanciez. Votre solde est affiché dans le tableau de bord et se met à jour après chaque action.",
 					"Vous achetez les packs de crédits et les formules via Stripe. Le prix est affiché avant le paiement, et vous autorisez le débit lorsque vous confirmez le paiement.",
 					"Une formule se renouvelle automatiquement pour la période choisie jusqu'à ce que vous l'annuliez. Vous pouvez annuler à tout moment depuis le portail de facturation que nous ouvrons pour vous dans l'application, et l'annulation prend effet à la fin de la période déjà payée.",

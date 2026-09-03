@@ -541,6 +541,7 @@ function ManualRequestActions({
 					prefill={{
 						user: request.user,
 						organization: request.organization ?? undefined,
+						plan: request.plan,
 						tierCredits: request.tierCredits,
 						interval: request.interval,
 						requestId: request.id,
@@ -552,6 +553,7 @@ function ManualRequestActions({
 				<RenewManualSubscriptionDialog
 					subscription={{
 						id: currentManualSubscription.id,
+						plan: currentManualSubscription.plan,
 						interval: currentManualSubscription.interval,
 						tierCredits: currentManualSubscription.tierCredits,
 						currentPeriodEnd: currentManualSubscription.currentPeriodEnd,
@@ -561,6 +563,7 @@ function ManualRequestActions({
 						ownerLabel: request.organization?.name ?? request.fullName,
 					}}
 					requested={{
+						plan: request.plan,
 						interval: request.interval,
 						tierCredits: request.tierCredits,
 					}}

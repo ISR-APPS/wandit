@@ -10,10 +10,10 @@ export const DEFAULT_PRODUCT_SETTINGS = {
 	manualPaymentsEnabled: false,
 	organizationsEnabled: false,
 	paidSubscriptionsEnabled: false,
-	// 5000 centi-credits = 50 credits ($2.00 of AI value at $0.04/credit).
+	// 700 centi-credits = the 7-credit signup grant.
 	// The column stores centi-credits; keep in sync with the DB default and
 	// SIGNUP_GRANT_CREDITS (whole credits) in @wandit/contracts.
-	signupGrantCredits: 5000,
+	signupGrantCredits: 700,
 	signupGrantEnabled: false,
 	topupsEnabled: false,
 	version: 1,

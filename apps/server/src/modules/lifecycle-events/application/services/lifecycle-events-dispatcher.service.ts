@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { centiCreditsToCredits } from "@wandit/contracts";
 
 import { EmailService } from "../../../email/application/services/email.service";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
@@ -28,6 +29,7 @@ const DONE_EVENT_RULES = DONE_EVENT_MAPPING as Readonly<
 >;
 
 const COMPUTED_PAYLOAD_KEYS = [
+	"FREE_CREDITS",
 	"first_name",
 	"plan",
 	"skip_activation",
@@ -118,7 +120,11 @@ export class LifecycleEventsDispatcher {
 			await this.email.sendLifecycleEvent({
 				email,
 				event: row.event,
-				payload: buildPayload(row, context),
+				payload: buildPayload(
+					row,
+					context,
+					centiCreditsToCredits(settings.signupGrantCredits),
+				),
 			});
 			await this.repository.markDispatched(row.id);
 
@@ -147,6 +153,7 @@ function isMonetizationFree(context: LifecycleDispatchContext): boolean {
 function buildPayload(
 	row: LifecycleEventRow,
 	context: LifecycleDispatchContext,
+	signupGrantCredits: number,
 ): Record<string, unknown> {
 	const payload: Record<string, unknown> = { ...row.payload };
 
@@ -163,6 +170,7 @@ function buildPayload(
 	}
 
 	if (row.event === "signup_completed") {
+		payload.FREE_CREDITS = signupGrantCredits;
 		payload.skip_activation =
 			context.hasFirstPromptEvent || context.acceptedInvitation;
 	}

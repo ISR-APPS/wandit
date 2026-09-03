@@ -21,6 +21,12 @@ const SUMMARY_ROW = {
 } satisfies AdminUserSummaryRow;
 
 describe("mapAdminUserSummary", () => {
+	it("preserves Starter as a paid plan", () => {
+		expect(mapAdminUserSummary({ ...SUMMARY_ROW, plan: "starter" }).plan).toBe(
+			"starter",
+		);
+	});
+
 	it("maps a non-empty phone number", () => {
 		expect(mapAdminUserSummary(SUMMARY_ROW).phone).toBe("+213555123456");
 	});

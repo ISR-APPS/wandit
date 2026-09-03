@@ -4,13 +4,14 @@ import type { ListUsersParams } from "./users.dto";
 import { userKeys } from "./users.queries";
 
 describe("user query keys", () => {
-	it("includes the country and free-credits filters in the users-list key", () => {
+	it("includes Starter, country, and free-credits filters in the users-list key", () => {
 		const params: ListUsersParams = {
 			page: 1,
 			pageSize: 25,
 			sort: "newest",
 			country: ["DZ", "unknown"],
 			freeCredits: ["consumed"],
+			plan: ["starter"],
 		};
 
 		expect(userKeys.list(params)).toEqual([
@@ -22,6 +23,7 @@ describe("user query keys", () => {
 				sort: "newest",
 				country: ["DZ", "unknown"],
 				freeCredits: ["consumed"],
+				plan: ["starter"],
 			},
 		]);
 	});

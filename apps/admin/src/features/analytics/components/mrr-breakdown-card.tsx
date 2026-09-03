@@ -32,7 +32,13 @@ type MrrBreakdownCardProps = {
 	items: AdminAnalyticsMrrByPlan[];
 };
 
-type MrrSegmentKey = "proMonth" | "proYear" | "businessMonth" | "businessYear";
+type MrrSegmentKey =
+	| "starterMonth"
+	| "starterYear"
+	| "proMonth"
+	| "proYear"
+	| "businessMonth"
+	| "businessYear";
 
 type MrrChartSegment = {
 	key: MrrSegmentKey;
@@ -51,6 +57,22 @@ const mrrSegmentDefinitions: Array<
 		"key" | "plan" | "interval" | "label" | "fill" | "legendColor"
 	>
 > = [
+	{
+		key: "starterMonth",
+		plan: "starter",
+		interval: "month",
+		label: "Starter · monthly",
+		fill: "var(--color-starterMonth)",
+		legendColor: "var(--chart-5)",
+	},
+	{
+		key: "starterYear",
+		plan: "starter",
+		interval: "year",
+		label: "Starter · annual",
+		fill: "var(--color-starterYear)",
+		legendColor: "color-mix(in oklch, var(--chart-5) 68%, var(--background))",
+	},
 	{
 		key: "proMonth",
 		plan: "pro",
@@ -86,6 +108,11 @@ const mrrSegmentDefinitions: Array<
 ];
 
 const mrrChartConfig = {
+	starterMonth: { label: "Starter · monthly", color: "var(--chart-5)" },
+	starterYear: {
+		label: "Starter · annual",
+		color: "color-mix(in oklch, var(--chart-5) 68%, var(--background))",
+	},
 	proMonth: { label: "Pro · monthly", color: "var(--chart-1)" },
 	proYear: { label: "Pro · annual", color: "var(--chart-2)" },
 	businessMonth: { label: "Business · monthly", color: "var(--chart-3)" },
@@ -120,6 +147,8 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 		(total, segment) => total + segment.subscribers,
 		0,
 	);
+	const starterArpuCents =
+		arpuByPlan.find((item) => item.plan === "starter")?.arpuCents ?? 0;
 	const proArpuCents =
 		arpuByPlan.find((item) => item.plan === "pro")?.arpuCents ?? 0;
 	const businessArpuCents =
@@ -207,8 +236,8 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 							</div>
 						</div>
 						<figcaption className="sr-only">
-							The donut chart splits list-price MRR across Pro and Business
-							monthly and annual subscriptions.
+							The donut chart splits list-price MRR across Starter, Pro, and
+							Business monthly and annual subscriptions.
 						</figcaption>
 					</figure>
 				) : (
@@ -254,8 +283,8 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 			</CardContent>
 
 			<div className="overflow-hidden border-t bg-muted/20">
-				<div className="-mr-px -mb-px grid grid-cols-2">
-					<div className="border-r border-b px-5 py-3.5">
+				<div className="-mr-px -mb-px grid grid-cols-6">
+					<div className="col-span-3 border-r border-b px-5 py-3.5">
 						<p className="flex items-center gap-1 text-muted-foreground text-xs">
 							Active subscribers
 							<MetricInfoTooltip
@@ -267,7 +296,7 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 							{formatOverviewWholeNumber(totalSubscribers)}
 						</p>
 					</div>
-					<div className="border-r border-b px-5 py-3.5">
+					<div className="col-span-3 border-r border-b px-5 py-3.5">
 						<p className="flex items-center gap-1 text-muted-foreground text-xs">
 							List-price MRR
 							<MetricInfoTooltip
@@ -279,7 +308,19 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 							{formatOverviewRoundedUsdMinor(totalMrrMinor)}
 						</p>
 					</div>
-					<div className="border-r border-b px-5 py-3.5">
+					<div className="col-span-2 border-r border-b px-5 py-3.5">
+						<p className="flex items-center gap-1 text-muted-foreground text-xs">
+							Starter ARPU
+							<MetricInfoTooltip
+								label="Starter ARPU"
+								content="Starter list-price MRR divided by distinct billing owners on the Starter plan."
+							/>
+						</p>
+						<p className="mt-1 font-medium tabular-nums">
+							{formatOverviewRoundedUsdMinor(starterArpuCents)}
+						</p>
+					</div>
+					<div className="col-span-2 border-r border-b px-5 py-3.5">
 						<p className="flex items-center gap-1 text-muted-foreground text-xs">
 							Pro ARPU
 							<MetricInfoTooltip
@@ -291,7 +332,7 @@ function MrrBreakdownCard({ arpuByPlan, items }: MrrBreakdownCardProps) {
 							{formatOverviewRoundedUsdMinor(proArpuCents)}
 						</p>
 					</div>
-					<div className="border-r border-b px-5 py-3.5">
+					<div className="col-span-2 border-r border-b px-5 py-3.5">
 						<p className="flex items-center gap-1 text-muted-foreground text-xs">
 							Business ARPU
 							<MetricInfoTooltip

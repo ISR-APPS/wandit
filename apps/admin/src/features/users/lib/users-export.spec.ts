@@ -59,6 +59,12 @@ describe("buildUsersExportRow", () => {
 		expect(row[5]).toBe("Support");
 	});
 
+	it("exports the Starter plan id", () => {
+		const row = buildUsersExportRow(makeUser({ plan: "starter" }));
+
+		expect(row[7]).toBe("starter");
+	});
+
 	it("maps banned, unverified, and never-seen users to readable cells", () => {
 		const row = buildUsersExportRow(
 			makeUser({
@@ -113,6 +119,7 @@ describe("fetchAllFilteredUsers", () => {
 				sort: "newest",
 				country: ["US", "unknown"],
 				freeCredits: ["consumed"],
+				plan: ["starter"],
 				creditsUsedMin: 100,
 			},
 			fetchPage,
@@ -124,6 +131,7 @@ describe("fetchAllFilteredUsers", () => {
 			sort: "newest",
 			country: ["US", "unknown"],
 			freeCredits: ["consumed"],
+			plan: ["starter"],
 			creditsUsedMin: 100,
 			page: 1,
 			pageSize: USERS_EXPORT_PAGE_SIZE,
@@ -132,6 +140,7 @@ describe("fetchAllFilteredUsers", () => {
 			sort: "newest",
 			country: ["US", "unknown"],
 			freeCredits: ["consumed"],
+			plan: ["starter"],
 			creditsUsedMin: 100,
 			page: 2,
 			pageSize: USERS_EXPORT_PAGE_SIZE,
