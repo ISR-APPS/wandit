@@ -11,6 +11,21 @@
  */
 import type { PageBuildFailureCode } from "@wandit/contracts";
 
+export class BuilderStallError extends Error {
+	constructor(
+		readonly idleMs: number,
+		readonly modelId: string,
+		cause?: unknown,
+	) {
+		super(
+			`Site builder model ${modelId} stalled after ${Math.round(idleMs)}ms ` +
+				"without stream progress",
+			cause === undefined ? undefined : { cause },
+		);
+		this.name = "BuilderStallError";
+	}
+}
+
 /**
  * A build-phase error the task tags itself (storage upload, credit reserve)
  * where the phase — not the error's own shape — decides the classification.
@@ -160,6 +175,10 @@ export function classifyBuildFailure(error: unknown): PageBuildFailureCode {
 		) {
 			return "member_limit";
 		}
+	}
+
+	if (nodes.some((node) => node instanceof BuilderStallError)) {
+		return "provider_timeout";
 	}
 
 	// Provider signals: status codes and provider-call error shapes anywhere

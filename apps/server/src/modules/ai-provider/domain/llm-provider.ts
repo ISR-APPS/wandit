@@ -272,10 +272,13 @@ function withOpenRouterGenerationId(model: LanguageModelV4): LanguageModel {
 					),
 				};
 			},
-			wrapStream: async ({ doStream }) => {
+			wrapStream: async ({ doStream, params }) => {
 				const { stream, ...rest } = await doStream();
 
-				return { ...rest, stream: streamWithGenerationId(stream) };
+				return {
+					...rest,
+					stream: streamWithGenerationId(stream, params.abortSignal),
+				};
 			},
 		},
 		model,
@@ -292,12 +295,23 @@ function withOpenRouterGenerationId(model: LanguageModelV4): LanguageModel {
  */
 function streamWithGenerationId(
 	stream: ReadableStream<LanguageModelV4StreamPart>,
+	abortSignal?: AbortSignal,
 ): ReadableStream<LanguageModelV4StreamPart> {
 	const reader = stream.getReader();
 	let generationId: string | undefined;
+	const tagAbortReason = () => {
+		tagOpenRouterGenerationId(abortSignal?.reason, generationId);
+	};
+	const removeAbortListener = () => {
+		abortSignal?.removeEventListener("abort", tagAbortReason);
+	};
+	abortSignal?.addEventListener("abort", tagAbortReason, { once: true });
 
 	return new ReadableStream<LanguageModelV4StreamPart>({
 		cancel(reason) {
+			tagAbortReason();
+			tagOpenRouterGenerationId(reason, generationId);
+			removeAbortListener();
 			return reader.cancel(reason);
 		},
 		async pull(controller) {
@@ -308,10 +322,13 @@ function streamWithGenerationId(
 			} catch (error) {
 				// Transport-level failure (socket death, abort): the tagged error
 				// propagates to the AI SDK's error path with the id attached.
+				tagAbortReason();
+				removeAbortListener();
 				throw tagOpenRouterGenerationId(error, generationId);
 			}
 
 			if (read.done) {
+				removeAbortListener();
 				controller.close();
 				return;
 			}
@@ -320,6 +337,9 @@ function streamWithGenerationId(
 
 			if (part.type === "response-metadata" && part.id) {
 				generationId = part.id;
+				if (abortSignal?.aborted) {
+					tagAbortReason();
+				}
 			}
 
 			// Provider-emitted error parts flow to onError callbacks; tag the

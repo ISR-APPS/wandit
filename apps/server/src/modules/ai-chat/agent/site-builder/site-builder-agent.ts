@@ -45,6 +45,7 @@ import {
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import { BuilderStallError } from "../../../pages/domain/build-failure";
 import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
@@ -55,7 +56,7 @@ import {
 	isStampableLeaf,
 	stampHtml,
 } from "../../../pages/domain/stamp";
-import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
+import type { BuilderReasoningOption } from "../tools/builder-model-options";
 import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
 import { composeBuildStartMessages } from "./build-start-messages";
@@ -105,10 +106,18 @@ export type SiteBuildParams = {
 	onGenerationError?: (error: unknown) => Promise<void> | void;
 	/** Durable per-step metering sink; awaited before the next agent step. */
 	onStepEnd?: (step: SiteBuildMeteringStep) => Promise<void> | void;
+	/**
+	 * COD build path: "simple" keeps the cheap 2-pass review profile its
+	 * prompt promises; "max" (and legacy undefined) runs the deep 4-pass
+	 * review. Validation always keys on pageKind alone.
+	 */
+	codMode?: "simple" | "max";
 	/** Selects the validation contract for the generated landing page. */
 	pageKind?: "cod" | "website";
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
+	/** Composer's per-message reasoning pick, snapshotted on the attempt spec. */
+	reasoningEffort?: BuilderReasoningOption;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
 	system: string;
 	title: string;
@@ -147,17 +156,30 @@ const MAX_STEPS = 64;
 // leave room for a complete write_file call in a single step.
 const MAX_OUTPUT_TOKENS = 64_000;
 
-// Two rendered review passes minimum — one correctness/structure hunt, one
-// design-quality hunt. Counted only on successful captures. Once both passes
-// are recorded, targeted edits are reviewed through edit_file's returned
-// context and may finish without another screenshot; passes 3-4 are optional
-// for risky or structural changes the builder needs to see rendered. Exported
-// for tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
-// experiments — 2 is the speed/quality compromise.)
-export const REQUIRED_SCREENSHOT_PASSES = 2;
+// 13.1-minute production stalls and ~3-minute OpenRouter 504 idle timeouts
+// make three minutes the safe no-progress boundary.
+export const STALL_TIMEOUT_MS = 180_000;
 
-/** Hard visual-review budget. Successful captures alone consume a pass. */
-export const MAX_SCREENSHOT_PASSES = 4;
+// Minimum rendered review passes, counted only on successful captures. Once
+// the minimum is recorded, targeted edits are reviewed through edit_file's
+// returned context and may finish without another screenshot; the passes
+// between minimum and cap are optional for risky or structural changes the
+// builder needs to see rendered. Exported for tests. Landing pages run the
+// tuned 2-pass compromise (3 originally; tuned through 1 and 5 during the
+// 2026-07-26 experiments); COD funnels run 4 — cheap-model output needed
+// more than two hunts to reach selling quality (2026-08-05).
+export const REQUIRED_SCREENSHOT_PASSES_BY_KIND = {
+	cod: 4,
+	website: 2,
+} as const;
+
+/** Hard visual-review budgets. Successful captures alone consume a pass. */
+export const MAX_SCREENSHOT_PASSES_BY_KIND = {
+	cod: 6,
+	website: 4,
+} as const;
+
+export type BuilderPageKind = keyof typeof REQUIRED_SCREENSHOT_PASSES_BY_KIND;
 
 const MAX_FAILED_EDIT_ATTEMPTS = 5;
 const EDIT_CONTEXT_LINES = 8;
@@ -170,9 +192,14 @@ export function fallbackBuildSummary(stepCount: number): string {
 	return stepCount >= MAX_STEPS ? STEP_BUDGET_SUMMARY : EARLY_STOP_SUMMARY;
 }
 
-export function resolveBuilderReasoningEffort(model: string) {
-	const configuredReasoningEffort =
-		BUILDER_REASONING_EFFORT_BY_MODEL[model] ?? env.AI_PAGE_DESIGN_REASONING;
+/**
+ * The composer's per-message reasoning pick outranks the env fallback;
+ * "auto" (either way) sends no reasoning parameter — the provider picks.
+ * Per-model effort forcing was removed on purpose (2026-08-05): effort is
+ * an explicit user/env choice, never a hidden model-keyed default.
+ */
+export function resolveBuilderReasoningEffort(override?: BuilderReasoningOption) {
+	const configuredReasoningEffort = override ?? env.AI_PAGE_DESIGN_REASONING;
 
 	if (configuredReasoningEffort === "auto") {
 		return undefined;
@@ -361,6 +388,7 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	codMode?: "simple" | "max";
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	pageKind?: "cod" | "website";
@@ -480,6 +508,12 @@ function createEditContext(
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const { pageKind = "website", screenshots, state, vfs } = params;
+	// Simple COD keeps the cheap 2-pass profile its prompt promises; only max
+	// COD runs the deep 4-pass review. Validation still keys on pageKind.
+	const passKind: BuilderPageKind =
+		pageKind === "cod" && params.codMode === "simple" ? "website" : pageKind;
+	const requiredScreenshotPasses = REQUIRED_SCREENSHOT_PASSES_BY_KIND[passKind];
+	const maxScreenshotPasses = MAX_SCREENSHOT_PASSES_BY_KIND[passKind];
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
@@ -841,10 +875,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"Declare the site complete. Call this ONCE, only after the " +
 				"required screenshot_page review (minimum " +
-				`${REQUIRED_SCREENSHOT_PASSES} per build). After those passes, ` +
+				`${requiredScreenshotPasses} per build). After those passes, ` +
 				"edit_file's updated surrounding context reviews each targeted " +
 				"fix, so finish directly unless a risky or structural change needs " +
-				"an optional third or fourth rendered review.",
+				"an optional extra rendered review.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -865,18 +899,18 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (
 					state.screenshotRequired &&
-					state.screenshotPasses < REQUIRED_SCREENSHOT_PASSES
+					state.screenshotPasses < requiredScreenshotPasses
 				) {
 					log(
 						`finish refused — only ${state.screenshotPasses} of ` +
-							`${REQUIRED_SCREENSHOT_PASSES} screenshot review passes done`,
+							`${requiredScreenshotPasses} screenshot review passes done`,
 					);
 
 					return {
 						accepted: false as const,
 						reason:
 							`Only ${state.screenshotPasses} of ` +
-							`${REQUIRED_SCREENSHOT_PASSES} required screenshot review ` +
+							`${requiredScreenshotPasses} required screenshot review ` +
 							"passes are recorded. Review the renders against the " +
 							"brief, improve the page, then call " +
 							"screenshot_page again.",
@@ -1152,22 +1186,23 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 		screenshot_page: tool({
 			description:
 				"Render the current index.html in a real browser for one required " +
-				`review pass (minimum ${REQUIRED_SCREENSHOT_PASSES} per ` +
-				`build, maximum ${MAX_SCREENSHOT_PASSES}). Returns desktop ` +
+				`review pass (minimum ${requiredScreenshotPasses} per ` +
+				`build, maximum ${maxScreenshotPasses}). Returns desktop ` +
 				"(1440×900) and mobile (390×844) " +
 				"screenshots from top to bottom, console/page errors, failed " +
 				"asset requests, and horizontal-overflow measurements. After the " +
-				"two required passes, use a third or fourth only for risky or " +
+				`${requiredScreenshotPasses} required passes, use the optional ` +
+				"remaining passes only for risky or " +
 				"structural changes that need another rendered review.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
 				if (
 					state.screenshotPasses + screenshotPassesInFlight >=
-					MAX_SCREENSHOT_PASSES
+					maxScreenshotPasses
 				) {
 					return {
 						message:
-							`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES} per ` +
+							`screenshot budget exhausted (${maxScreenshotPasses} per ` +
 							"build) — finish now with the current page",
 						refused: true as const,
 					};
@@ -1245,7 +1280,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				log(
 					`screenshot-reviewed revision ${revision} — ` +
-						`${capture.shots.length} shots, ` +
+						`${capture.shots.length} shots ` +
+						`(${desktopShots} desktop, ${mobileShots} mobile), ` +
 						`${capture.consoleErrors.length} console errors, ` +
 						`${capture.failedRequests.length} failed requests`,
 				);
@@ -1464,16 +1500,99 @@ export async function runSiteBuild(
 	const vfs = new VirtualFileSystem();
 	const screenshotRequired = !modelNeedsToolImageStripping(params.model);
 	const state = createBuildLoopState(screenshotRequired);
+	const stallAbortController = new AbortController();
+	const streamAbortSignal = AbortSignal.any(
+		params.abortSignal
+			? [params.abortSignal, stallAbortController.signal]
+			: [stallAbortController.signal],
+	);
 	const screenshots = createScreenshotSession(
 		params.attemptId,
 		params.abortSignal,
 	);
 	const startedAt = Date.now();
+	let inFlightTools = 0;
+	let lastProgressAt = performance.now();
+	let stallError: BuilderStallError | undefined;
+	let watchdogActive = false;
+	let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
 
-	// Read at BUILD time (not snapshotted like the model): per-model overrides
-	// win over the env knob, and "auto" defers to the provider. Gateway
-	// attribution is merged with (and preserves) model-specific routing.
-	const reasoningEffort = resolveBuilderReasoningEffort(params.model);
+	const stopStallWatchdog = (): void => {
+		watchdogActive = false;
+		if (watchdogTimer !== undefined) {
+			clearTimeout(watchdogTimer);
+			watchdogTimer = undefined;
+		}
+	};
+	const armStallWatchdog = (): void => {
+		if (watchdogTimer !== undefined) {
+			clearTimeout(watchdogTimer);
+			watchdogTimer = undefined;
+		}
+
+		if (!watchdogActive || streamAbortSignal.aborted || inFlightTools > 0) {
+			return;
+		}
+
+		const elapsedMs = performance.now() - lastProgressAt;
+		watchdogTimer = setTimeout(
+			() => {
+				watchdogTimer = undefined;
+
+				if (!watchdogActive || streamAbortSignal.aborted || inFlightTools > 0) {
+					return;
+				}
+
+				const idleMs = performance.now() - lastProgressAt;
+				if (idleMs < STALL_TIMEOUT_MS) {
+					armStallWatchdog();
+					return;
+				}
+
+				stallError = new BuilderStallError(idleMs, params.model);
+				stallAbortController.abort(stallError);
+			},
+			Math.max(0, STALL_TIMEOUT_MS - elapsedMs),
+		);
+	};
+	const resetStallWatchdog = (): void => {
+		lastProgressAt = performance.now();
+		armStallWatchdog();
+	};
+	const streamControls = {
+		abortSignal: streamAbortSignal,
+		onToolExecutionEnd: () => {
+			inFlightTools = Math.max(0, inFlightTools - 1);
+			resetStallWatchdog();
+		},
+		onToolExecutionStart: () => {
+			inFlightTools += 1;
+			if (watchdogTimer !== undefined) {
+				clearTimeout(watchdogTimer);
+				watchdogTimer = undefined;
+			}
+		},
+	};
+	const bufferGenerationError = async (error: unknown): Promise<void> => {
+		try {
+			await params.onGenerationError?.(error);
+		} catch (captureError) {
+			// Generation capture has its own durable retry path. Never replace the
+			// provider failure that the attempt row and Trigger run must retain.
+			log(
+				`failed to buffer gateway error evidence: ${
+					captureError instanceof Error
+						? captureError.message
+						: String(captureError)
+				}`,
+			);
+		}
+	};
+
+	// The composer pick (snapshotted on the attempt) wins over the env knob;
+	// "auto" defers to the provider. Gateway attribution is merged with (and
+	// preserves) model-specific routing.
+	const reasoningEffort = resolveBuilderReasoningEffort(params.reasoningEffort);
 	const buildMeteringContext = {
 		operation: "page_build" as const,
 		organizationId: params.subject.organizationId ?? null,
@@ -1485,7 +1604,18 @@ export async function runSiteBuild(
 		? ["novita"]
 		: params.model.startsWith("alibaba/")
 			? ["fireworks"]
-			: undefined;
+			: // GLM 5.3 Flash provider speed varies 20x for the same request
+				// (2026-08-30 page-write measurements: Baseten 258 tps via the
+				// account's BYOK key, Fireworks 67 tps, balanced routing 32 tps,
+				// DeepInfra 7 tps). Baseten-first assumes that prioritized BYOK
+				// key stays configured on the active gateway (Vercel and
+				// OpenRouter both carry it) — without it the shared
+				// Baseten pool rate-limits and routing falls through. Modal is
+				// skipped by OpenRouter for tools+images requests, so it earns
+				// no slot. A preference, not a pin — fallbacks stay allowed.
+				params.model.startsWith("zai/")
+				? ["baseten", "fireworks"]
+				: undefined;
 	const providerOptions = withLlmAttribution(
 		{
 			...(reasoningEffort
@@ -1509,6 +1639,10 @@ export async function runSiteBuild(
 										? ("high" as const)
 										: reasoningEffort,
 						},
+						// GLM 5.2+ accepts every effort in our vocabulary unchanged
+						// (verified against the gateway 2026-08-31). On OpenRouter this
+						// key is inert — unified reasoning travels as a model setting.
+						zai: { reasoningEffort },
 					}
 				: {}),
 			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
@@ -1591,6 +1725,7 @@ export async function runSiteBuild(
 				...(params.meteringService
 					? { meteringService: params.meteringService }
 					: {}),
+				...(params.codMode ? { codMode: params.codMode } : {}),
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
 				pageKind: params.pageKind ?? "website",
 				projectId: params.projectId,
@@ -1610,22 +1745,43 @@ export async function runSiteBuild(
 		const userPhotoUrls = screenshotRequired
 			? extractBriefUserPhotoUrls(params.brief)
 			: [];
-		const stream =
-			userPhotoUrls.length > 0
-				? await agent.stream({
-						abortSignal: params.abortSignal,
-						messages: composeBuildStartMessages({
-							brief: params.brief,
-							title: params.title,
-							userPhotoUrls,
-						}),
-					})
-				: await agent.stream({
-						abortSignal: params.abortSignal,
-						prompt:
-							`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
-							`BRIEF:\n${params.brief}`,
-					});
+		watchdogActive = true;
+		resetStallWatchdog();
+		let stream: Awaited<ReturnType<typeof agent.stream>>;
+		try {
+			stream =
+				userPhotoUrls.length > 0
+					? await agent.stream({
+							...streamControls,
+							messages: composeBuildStartMessages({
+								brief: params.brief,
+								title: params.title,
+								userPhotoUrls,
+							}),
+						})
+					: await agent.stream({
+							...streamControls,
+							prompt:
+								`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
+								`BRIEF:\n${params.brief}`,
+						});
+		} catch (error) {
+			if (stallError !== undefined) {
+				const terminalStallError =
+					error === stallError
+						? stallError
+						: new BuilderStallError(
+								stallError.idleMs,
+								stallError.modelId,
+								error,
+							);
+				await bufferGenerationError(terminalStallError);
+
+				throw terminalStallError;
+			}
+
+			throw error;
+		}
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires
@@ -1633,14 +1789,35 @@ export async function runSiteBuild(
 		// but still attempt the best-effort publish path below: once a valid page
 		// exists, a late provider failure must not discard it.
 		let streamError: unknown;
+		let stepIndex = 0;
 		try {
 			for await (const part of stream.fullStream) {
+				resetStallWatchdog();
 				if (part.type === "error" && streamError === undefined) {
 					streamError = part.error;
+				}
+				// Which upstream actually served each step (OpenRouter routes per
+				// request, so it can differ step to step) — 2026-08-30 forensics
+				// needed the generation API for this; now it's in the trace.
+				if (part.type === "finish-step") {
+					stepIndex += 1;
+					const openrouter = part.providerMetadata?.openrouter;
+					const servedBy = openrouter?.provider;
+
+					if (typeof servedBy === "string" && servedBy.length > 0) {
+						log(
+							`step ${stepIndex} served by ${servedBy}` +
+								(typeof openrouter?.generationId === "string"
+									? ` (${openrouter.generationId})`
+									: ""),
+						);
+					}
 				}
 			}
 		} catch (error) {
 			streamError ??= error;
+		} finally {
+			stopStallWatchdog();
 		}
 
 		const steps = await Promise.resolve(stream.steps).catch((error) => {
@@ -1649,20 +1826,19 @@ export async function runSiteBuild(
 			return [];
 		});
 
+		if (stallError !== undefined) {
+			streamError =
+				streamError === undefined || streamError === stallError
+					? stallError
+					: new BuilderStallError(
+							stallError.idleMs,
+							stallError.modelId,
+							streamError,
+						);
+		}
+
 		if (streamError !== undefined) {
-			try {
-				await params.onGenerationError?.(streamError);
-			} catch (captureError) {
-				// Generation capture has its own durable retry path. Never replace the
-				// provider failure that the attempt row and Trigger run must retain.
-				log(
-					`failed to buffer gateway error evidence: ${
-						captureError instanceof Error
-							? captureError.message
-							: String(captureError)
-					}`,
-				);
-			}
+			await bufferGenerationError(streamError);
 
 			log(
 				"stream ended with an error; evaluating the last page revision — " +
@@ -1762,6 +1938,7 @@ export async function runSiteBuild(
 			usage,
 		};
 	} finally {
+		stopStallWatchdog();
 		// The Trigger worker process may be reused for the next build.
 		await screenshots.dispose();
 	}
@@ -2114,6 +2291,18 @@ function assertValidSite(
 
 	if (pageKind === "cod") {
 		const $ = cheerio.load(html);
+
+		// The product must be SEEN, and image slots must be editor-replaceable:
+		// only a real <img> leaf gets a data-wid stamp and the panel's upload
+		// control. div/svg "placeholder frames" are dead ends for the merchant.
+		if ($("img").length === 0) {
+			throw new Error(
+				"COD index.html must contain at least one <img> element — place " +
+					"the brief's product photos or generated shots, and render any " +
+					"empty product slot as the placeholder <img> convention " +
+					"(data-wandit-placeholder), never as a div/svg frame",
+			);
+		}
 
 		if ($("nav").length !== 0) {
 			throw new Error(

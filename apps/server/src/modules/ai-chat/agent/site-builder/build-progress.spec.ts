@@ -6,7 +6,10 @@ import {
 	createBuildProgressTracker,
 	parseSections,
 } from "./build-progress";
-import { REQUIRED_SCREENSHOT_PASSES } from "./site-builder-agent";
+import { REQUIRED_SCREENSHOT_PASSES_BY_KIND } from "./site-builder-agent";
+
+// The tracker under test is created without a pageKind → website target.
+const REQUIRED_SCREENSHOT_PASSES = REQUIRED_SCREENSHOT_PASSES_BY_KIND.website;
 
 const SECTIONED_HTML = `<!doctype html><html><body>
 	<section aria-label="Hero"><h2>Ceramic tagines, hand-thrown</h2></section>
