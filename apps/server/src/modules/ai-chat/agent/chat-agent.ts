@@ -533,6 +533,7 @@ export function createChatAgent(
 			}),
 			generate_page: createGeneratePageTool({
 				builderModel: deps.builderModel,
+				builderReasoning: deps.builderReasoning,
 				chatId: deps.chatId,
 				conversationAssets: deps.conversationAssets,
 				conversationUserLinks: deps.conversationUserLinks,

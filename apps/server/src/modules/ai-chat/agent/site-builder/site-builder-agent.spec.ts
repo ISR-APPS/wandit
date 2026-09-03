@@ -8,7 +8,6 @@ import {
 	BuilderStallError,
 	classifyBuildFailure,
 } from "../../../pages/domain/build-failure";
-import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
 import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
@@ -26,12 +25,18 @@ import {
 	createBuilderTools,
 	createBuildLoopState,
 	fallbackBuildSummary,
-	MAX_SCREENSHOT_PASSES,
-	REQUIRED_SCREENSHOT_PASSES,
+	MAX_SCREENSHOT_PASSES_BY_KIND,
+	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
+	resolveBuilderReasoningEffort,
 	runSiteBuild,
 	STALL_TIMEOUT_MS,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
+
+// These specs exercise the default tool kind ("website") unless a test
+// passes pageKind explicitly; COD-specific budgets are tested by name.
+const REQUIRED_SCREENSHOT_PASSES = REQUIRED_SCREENSHOT_PASSES_BY_KIND.website;
+const MAX_SCREENSHOT_PASSES = MAX_SCREENSHOT_PASSES_BY_KIND.website;
 
 // The guards must be verifiable without a network: the image/video handlers
 // (which talk to the gateway and R2) are mocked. Everything else runs for
@@ -85,11 +90,15 @@ button { border-radius: var(--radius); }
 const BROKEN_COD_FORM =
 	'<form data-wandit-event="wandit:lead"><label>Phone<input type="tel" name="phone"></label><input type="text" name="company" data-wandit-hp><button type="submit">Order now</button></form>';
 
+const COD_PRODUCT_IMG =
+	'<img src="https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png" alt="Product">';
+
 const BROKEN_COD_HTML = HTML.replace(
 	"<header><nav>",
 	'<header><section class="hero">',
 )
 	.replace("</nav></header>", "</section></header>")
+	.replace("<h1>page</h1>", `<h1>page</h1>${COD_PRODUCT_IMG}`)
 	.replace("</main>", `${BROKEN_COD_FORM}</main>`);
 
 const COD_FORM = `<form id="order-form">
@@ -118,6 +127,7 @@ const COD_LEAD_SCRIPT = `<script>
 
 const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
+	.replace("<h1>page</h1>", `<h1>page</h1>${COD_PRODUCT_IMG}`)
 	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
 
 // Same page, minus the acknowledgement listener: the lead still dispatches,
@@ -1300,12 +1310,16 @@ describe("finish guard", () => {
 });
 
 describe("COD builder prompt", () => {
-	it("pins post-pass-2 finishing, world price exceptions, and genre wids", async () => {
+	it("pins post-pass-4 finishing, world price exceptions, and genre wids", async () => {
 		const prompt = await buildCodSiteBuilderSystemPrompt();
 
 		expect(prompt).toContain(
-			"After the second screenshot pass, apply the batch of fixes and call finish directly",
+			"After the fourth screenshot pass, apply the batch of fixes and call finish directly",
 		);
+		expect(prompt).toContain(
+			"Four screenshot passes are the minimum and six are the hard maximum",
+		);
+		expect(prompt).toContain('data-wandit-placeholder="1"');
 		expect(
 			prompt.match(
 				/unless the base world explicitly puts first price in the sticky bar/g,
@@ -1713,6 +1727,64 @@ describe("COD finish gate", () => {
 
 		await expect(
 			tools.finish.execute?.({ summary: "COD order page." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("rejects a COD page without a single <img> element", async () => {
+		// The product must be SEEN and slots must be editor-replaceable —
+		// div/svg placeholder frames never get the panel's upload control.
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: COD_HTML.replace(COD_PRODUCT_IMG, ""), path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Imageless COD page." }, options()),
+		).rejects.toThrow(/must contain at least one <img>/);
+	});
+
+	it("requires the COD pass minimum (4) and honors the COD cap (6)", async () => {
+		const { options, tools } = setup({ pageKind: "cod" });
+		await tools.write_file.execute?.(
+			{ content: COD_HTML, path: "index.html" },
+			options(),
+		);
+
+		for (let pass = 1; pass <= 2; pass += 1) {
+			await tools.screenshot_page.execute?.({}, options(`cod_shot_${pass}`));
+		}
+
+		// Two passes satisfy a WEBSITE build but not a COD build.
+		await expect(
+			tools.finish.execute?.({ summary: "Too early." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining(
+				`2 of ${REQUIRED_SCREENSHOT_PASSES_BY_KIND.cod} required`,
+			),
+		});
+
+		for (let pass = 3; pass <= MAX_SCREENSHOT_PASSES_BY_KIND.cod; pass += 1) {
+			await expect(
+				tools.screenshot_page.execute?.({}, options(`cod_shot_${pass}`)),
+			).resolves.toMatchObject({ refused: false, unavailable: false });
+		}
+
+		await expect(
+			tools.screenshot_page.execute?.({}, options("cod_shot_refused")),
+		).resolves.toEqual({
+			message:
+				`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES_BY_KIND.cod} ` +
+				"per build) — finish now with the current page",
+			refused: true,
+		});
+
+		await expect(
+			tools.finish.execute?.({ summary: "COD page at the cap." }, options()),
 		).resolves.toEqual({ accepted: true });
 	});
 
@@ -2588,8 +2660,13 @@ describe("runSiteBuild", () => {
 		);
 	});
 
-	it("has no per-model reasoning override — the env knob is authoritative", () => {
-		expect(BUILDER_REASONING_EFFORT_BY_MODEL).toEqual({});
+	it("honors the composer pick and defers to the provider on auto", () => {
+		// No per-model forcing anymore: effort is the explicit pick or the env
+		// fallback, and "auto" (the default) sends no reasoning parameter.
+		expect(resolveBuilderReasoningEffort("xhigh")).toBe("xhigh");
+		expect(resolveBuilderReasoningEffort("low")).toBe("low");
+		expect(resolveBuilderReasoningEffort("auto")).toBeUndefined();
+		expect(resolveBuilderReasoningEffort()).toBeUndefined();
 	});
 
 	it("aborts a no-progress stream and classifies it as provider_timeout", async () => {

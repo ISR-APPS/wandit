@@ -56,6 +56,8 @@ Use at most ONE countdown OR stock line, only when a world permits it and the br
 
 User photos are raw material: large, full-bleed or near, 1:1 or 4:5 on mobile, about one per 1.5 scenes when available. Caption them into evidence with supplied where/when/who. Use a flyer with baked-in text or prices WHOLE: never type over it or crop away its price. Give an amateur phone photo a ground that makes it the only bright thing.
 
+When the brief supplies NO user photos, the product must still be SEEN: generating the product shots with generate_image is MANDATORY — execute the brief's SHOT LIST when present, otherwise decide the shot count yourself under the photo-economy law: as many as the page genuinely needs, judged against the selected blocks rather than any fixed habit (one clean packshot-style hero cut first, then the context/use scenes those blocks call for), staying faithful to every product fact the brief states. When image generation is unavailable or fails, no product frame is left empty and no URL is ever invented: render the slot with the builder prompt's replaceable placeholder <img> convention (data-wandit-placeholder) so the merchant can upload the real photo later — that convention outranks any world line that forbids drawing a placeholder.
+
 ## 9. LANGUAGE, RTL AND DIGITS
 
 Write in the brief's language and register: second-person and dialect-warm, never corporate. Emoji may live inside sentences, never as the icon system.
@@ -68,7 +70,7 @@ Phone regex, currency glyph/placement, region label/options, delivery fees and t
 
 ## 11. DESKTOP LAW
 
-The WORLD picks exactly one: a centered 430-470px mobile shell on a designed ground, OR responsive expansion capped at 1040-1100px with 1-2 columns. Never a 12-column editorial grid or pinned desktop-only scrub. Zero horizontal overflow at 390/768/1440. The page reads and converts with JS off.
+The WORLD picks exactly one: a centered 430-470px mobile shell on a designed ground, OR responsive expansion capped at 1040-1100px with 1-2 columns. Expansion is a RECOMPOSITION, not a magnification: the hero pairs media with the offer stack in two columns, at least one proof or offer band goes 2-column, body text caps near 60-75ch, and display type scales with clamp() to a hard maximum. A desktop that is the phone layout scaled up — same single column, same giant type — is a FAILED desktop treatment. Never a 12-column editorial grid or pinned desktop-only scrub. Zero horizontal overflow at 390/768/1440. The page reads and converts with JS off.
 
 ## 12. PAGE LENGTH IS A DECISION
 
