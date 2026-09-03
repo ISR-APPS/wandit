@@ -3,6 +3,8 @@
 // Copy is English-only for v1 — the sender has no reliable locale signal for
 // a recipient who has never signed in.
 
+import type { BillingPlanId } from "@wandit/contracts";
+
 export type EmailContent = {
 	subject: string;
 	html: string;
@@ -20,11 +22,16 @@ export type ManualRequestEmailData = {
 	fullName: string;
 	interval: "month" | "year";
 	phone: string;
-	plan: "pro" | "business";
+	plan: BillingPlanId;
 	tierCredits: number;
 };
 
 const EMBER = "#d16022";
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
 
 function shell(bodyHtml: string): string {
 	return `<!doctype html>
@@ -119,7 +126,7 @@ export function externalDomainDelegationReminderEmail(
 export function manualRequestEmail(data: ManualRequestEmailData): EmailContent {
 	const fullName = sanitizeHeaderText(data.fullName);
 	const phone = sanitizeHeaderText(data.phone);
-	const plan = data.plan === "business" ? "Business" : "Pro";
+	const plan = PLAN_NAMES[data.plan];
 	const interval = data.interval === "year" ? "yearly" : "monthly";
 	const planSummary = `${plan} / ${data.tierCredits} credits / ${interval}`;
 	const adminUrl = sanitizeHeaderText(data.adminUrl);

@@ -506,7 +506,7 @@ describe("AdminRepository user-list queries", () => {
 			page: 1,
 			pageSize: 25,
 			sort: "newest",
-			plan: ["free", "pro", "business"],
+			plan: ["free", "starter", "pro", "business"],
 			role: ["user", "support", "admin"],
 			status: ["active", "banned"],
 			verified: ["verified", "unverified"],

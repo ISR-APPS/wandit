@@ -1,4 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
+import {
+	type BillingPlanId,
+	creditsToCentiCredits,
+	SIGNUP_GRANT_CREDITS,
+} from "@wandit/contracts";
 import { and, asc, eq, gte, isNull, lte, sql } from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import { lifecycleEvents } from "@wandit/db/schema/lifecycle-events";
@@ -18,6 +23,8 @@ import {
 } from "../../domain/lifecycle-event";
 
 const LIFECYCLE_SELF_HEAL_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
+const DEFAULT_SIGNUP_GRANT_CENTI_CREDITS =
+	creditsToCentiCredits(SIGNUP_GRANT_CREDITS);
 
 export const LIFECYCLE_SELF_HEAL_SINCE = new Date("2026-08-24T00:00:00Z");
 
@@ -34,7 +41,7 @@ type LifecycleEventsDbClient = Pick<
 
 export type LifecycleEntitledSubscription = {
 	currentPeriodEnd: Date;
-	plan: "pro" | "business";
+	plan: BillingPlanId;
 	provider: string;
 	status: string;
 };
@@ -57,7 +64,7 @@ type LifecycleDispatchContextDbRow = {
 	captured_events: LifecycleEventName[] | null;
 	email: string;
 	entitled_current_period_end: Date | string | null;
-	entitled_plan: "pro" | "business" | null;
+	entitled_plan: BillingPlanId | null;
 	entitled_provider: string | null;
 	entitled_status: string | null;
 	has_first_prompt_event: boolean;
@@ -88,6 +95,34 @@ export class LifecycleEventsRepository {
 		return this.db.transaction((tx) =>
 			this.enqueueWithCooldown(input, now, cooldownMs, tx),
 		);
+	}
+
+	async resolveSignupGrantCentiCredits(
+		userId: string,
+		client: LifecycleEventsDbClient = this.db,
+	): Promise<number> {
+		const result = await client.execute<{ credits: number | string }>(sql`
+			select coalesce(
+				(
+					select signup_grant.credits
+					from signup_grant_outbox signup_grant
+					where signup_grant.user_id = ${userId}
+				),
+				(
+					select settings.signup_grant_credits
+					from product_settings settings
+					where settings.id = 1
+				),
+				${DEFAULT_SIGNUP_GRANT_CENTI_CREDITS}
+			)::integer as credits
+		`);
+		const credits = Number(
+			result.rows[0]?.credits ?? DEFAULT_SIGNUP_GRANT_CENTI_CREDITS,
+		);
+
+		return Number.isInteger(credits) && credits > 0
+			? credits
+			: DEFAULT_SIGNUP_GRANT_CENTI_CREDITS;
 	}
 
 	listDue(limit = 100, now = new Date()): Promise<LifecycleEventRow[]> {

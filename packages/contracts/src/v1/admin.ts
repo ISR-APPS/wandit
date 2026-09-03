@@ -7,6 +7,7 @@ import {
 	billingIntervalSchema,
 	billingPlanIdSchema,
 	creditTierSchema,
+	isPurchasableTier,
 	manualPaymentMethodSchema,
 	manualSubscriptionRequestSchema,
 	manualSubscriptionRequestStatusSchema,
@@ -141,7 +142,7 @@ export const adminViewSchema = z.enum(adminViewValues);
 export type AdminView = z.infer<typeof adminViewSchema>;
 
 // "free" is derived (no entitled subscription row), not stored.
-export const adminUserPlans = ["free", "pro", "business"] as const;
+export const adminUserPlans = ["free", "starter", "pro", "business"] as const;
 
 export const adminUserPlanSchema = z.enum(adminUserPlans);
 
@@ -1206,25 +1207,30 @@ export type AdminManualPaymentInput = z.infer<
 	typeof adminManualPaymentInputSchema
 >;
 
-export const adminGrantManualSubscriptionInputSchema = z.object({
-	// Contact / provenance user. For an org grant this is the billing owner the
-	// admin spoke to; the credit POOL is the organization.
-	userId: z.string().min(1),
-	organizationId: z.string().min(1).nullable().optional(),
-	plan: billingPlanIdSchema,
-	tierCredits: creditTierSchema,
-	interval: billingIntervalSchema,
-	// Defaults: periodStart = now, periodEnd = periodStart + interval.
-	periodStart: isoDateTimeSchema.optional(),
-	periodEnd: isoDateTimeSchema.optional(),
-	payment: adminManualPaymentInputSchema,
-	// When set, the request is marked approved and linked to the subscription.
-	requestId: uuidSchema.optional(),
-	adminNotes: z.string().trim().max(2000).optional(),
-	// Client-minted per-submission id: it keys the payment row AND the
-	// subscription's provider id, so a retried submit cannot grant twice.
-	idempotencyKey: uuidSchema,
-});
+export const adminGrantManualSubscriptionInputSchema = z
+	.object({
+		// Contact / provenance user. For an org grant this is the billing owner the
+		// admin spoke to; the credit POOL is the organization.
+		userId: z.string().min(1),
+		organizationId: z.string().min(1).nullable().optional(),
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+		// Defaults: periodStart = now, periodEnd = periodStart + interval.
+		periodStart: isoDateTimeSchema.optional(),
+		periodEnd: isoDateTimeSchema.optional(),
+		payment: adminManualPaymentInputSchema,
+		// When set, the request is marked approved and linked to the subscription.
+		requestId: uuidSchema.optional(),
+		adminNotes: z.string().trim().max(2000).optional(),
+		// Client-minted per-submission id: it keys the payment row AND the
+		// subscription's provider id, so a retried submit cannot grant twice.
+		idempotencyKey: uuidSchema,
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
 
 export type AdminGrantManualSubscriptionInput = z.infer<
 	typeof adminGrantManualSubscriptionInputSchema

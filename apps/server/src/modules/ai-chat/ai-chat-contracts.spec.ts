@@ -381,7 +381,7 @@ describe("generate_image placement contract", () => {
 		{ kind: "section-background", wid: "hero-image" },
 		{ kind: "image-src", wid: "INVALID" },
 		{ imageIndex: 0, kind: "image-src", wid: "hero-image" },
-		{ imageIndex: 5, kind: "image-src", wid: "hero-image" },
+		{ imageIndex: 7, kind: "image-src", wid: "hero-image" },
 		{ imageIndex: 1.5, kind: "image-src", wid: "hero-image" },
 	])("rejects invalid placement %#", (placement) => {
 		expect(

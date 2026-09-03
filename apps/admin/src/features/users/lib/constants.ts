@@ -61,6 +61,7 @@ export const USER_SORT_OPTIONS: readonly UserSortOption[] =
 
 export const USER_PLAN_FILTER_OPTIONS = [
 	{ label: "Free", value: "free" },
+	{ label: "Starter", value: "starter" },
 	{ label: "Pro", value: "pro" },
 	{ label: "Business", value: "business" },
 ] as const satisfies readonly UserFacetedFilterOption<UserPlanFilter[number]>[];

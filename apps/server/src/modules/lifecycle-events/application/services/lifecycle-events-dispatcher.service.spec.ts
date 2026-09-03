@@ -93,7 +93,7 @@ describe("LifecycleEventsDispatcher", () => {
 			dispatchContext({
 				entitledSubscription: {
 					currentPeriodEnd: new Date("2026-09-24T12:00:00.000Z"),
-					plan: "pro",
+					plan: "starter",
 					provider: "stripe",
 					status: "active",
 				},
@@ -207,6 +207,20 @@ describe("LifecycleEventsDispatcher", () => {
 
 		const call = harness.email.sendLifecycleEvent.mock.calls[0]?.[0];
 		expect(call?.payload.skip_activation).toBe(expected);
+		expect(call?.payload.FREE_CREDITS).toBe(7);
+	});
+
+	it("sends the current signup grant count in whole credits and ignores captured overrides", async () => {
+		const row = eventRow({
+			event: "signup_completed",
+			payload: { FREE_CREDITS: 50 },
+		});
+		const harness = createHarness({ signupGrantCredits: 900 });
+
+		await harness.dispatcher.dispatch(row);
+
+		const call = harness.email.sendLifecycleEvent.mock.calls[0]?.[0];
+		expect(call?.payload.FREE_CREDITS).toBe(9);
 	});
 
 	it("omits first_name when the canonical user name is empty", async () => {
@@ -298,7 +312,10 @@ function dispatchContext(
 	};
 }
 
-function productSettings(lifecycleEmailsEnabled: boolean): ProductSettings {
+function productSettings(
+	lifecycleEmailsEnabled: boolean,
+	signupGrantCredits = 700,
+): ProductSettings {
 	return {
 		dzdPerUsdRate: 27_000,
 		emailAuthEnabled: false,
@@ -308,7 +325,7 @@ function productSettings(lifecycleEmailsEnabled: boolean): ProductSettings {
 		manualPaymentsEnabled: false,
 		organizationsEnabled: false,
 		paidSubscriptionsEnabled: false,
-		signupGrantCredits: 50,
+		signupGrantCredits,
 		signupGrantEnabled: false,
 		topupsEnabled: false,
 		updatedAt: NOW.toISOString(),
@@ -321,6 +338,7 @@ function createHarness(
 	input: {
 		context?: LifecycleDispatchContext | null;
 		lifecycleEmailsEnabled?: boolean;
+		signupGrantCredits?: number;
 	} = {},
 ) {
 	const trackedRows = new Map<string, LifecycleEventRow>();
@@ -374,7 +392,10 @@ function createHarness(
 	const settings = {
 		get: vi.fn(
 			async (): Promise<ProductSettings> =>
-				productSettings(input.lifecycleEmailsEnabled ?? true),
+				productSettings(
+					input.lifecycleEmailsEnabled ?? true,
+					input.signupGrantCredits,
+				),
 		),
 	} satisfies Pick<ProductSettingsService, "get">;
 	const email = {

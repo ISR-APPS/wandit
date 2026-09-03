@@ -1,13 +1,14 @@
 # Pricing v4 — fractional credits (centi-credit ledger)
 
-> **Superseded:** the anchor is $0.04 per credit since pricing v5
-> (`pricing-v5-usd-anchor.md`). The $0.028 figures below are a historical
-> record and stay unchanged.
+> **PARTIALLY SUPERSEDED.** The centi-credit ledger remains authoritative. Pricing v5
+> (`pricing-v5-usd-anchor.md`) replaced the AI-provider-cost anchor, and
+> `pricing-v6-starter-plan.md` replaced the plan catalog, top-ups, and signup grant. All old
+> monetary and catalog figures below are retained only as historical context.
 
 Decision date: 2026-08-16. Source: co-founder decision in chat ("go please"), after
 the credit-drain audit. Supersedes the debit formula of
-`pricing-v3-implementation.md`; every other v3 number (plan catalog, $0.10 retail,
-$0.028 AI value per credit) stays.
+`pricing-v3-implementation.md`; at the time, the other v3 numbers (plan catalog, $0.10 retail,
+$0.028 AI value per credit) were retained.
 
 ## 1. Why
 

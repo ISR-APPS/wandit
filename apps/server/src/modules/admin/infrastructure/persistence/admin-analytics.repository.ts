@@ -2645,8 +2645,8 @@ export class AdminAnalyticsRepository {
 	// sum to less than revenueBySource.subscriptionsCents. Cost is the metered
 	// provider spend of the plan's owners, where an owner is
 	// organization_id ?? user_id and the plan is the owner's CURRENT live
-	// subscription (subscriptions keep no plan history): both plans counts as
-	// business, no live subscription counts as free.
+	// subscription (subscriptions keep no plan history): overlapping live plans
+	// use Business > Pro > Starter precedence; no live subscription counts as free.
 	private async getMarginAfterAi(
 		client: AdminAnalyticsDbClient,
 		input: AdminDashboardRangeBounds,
@@ -2670,7 +2670,12 @@ export class AdminAnalyticsRepository {
 			owner_plans as (
 				select
 					coalesce(s.organization_id, s.user_id) as owner_id,
-					max(case when s.plan = 'business' then 2 else 1 end) as plan_rank
+					max(case
+						when s.plan = 'business' then 3
+						when s.plan = 'pro' then 2
+						when s.plan = 'starter' then 1
+						else 0
+					end) as plan_rank
 				from subscriptions s
 				cross join bounds b
 				where s.created_at < b.snapshot_end
@@ -2694,8 +2699,9 @@ export class AdminAnalyticsRepository {
 			plan_cost as (
 				select
 					case
-						when o.plan_rank = 2 then 'business'
-						when o.plan_rank = 1 then 'pro'
+						when o.plan_rank = 3 then 'business'
+						when o.plan_rank = 2 then 'pro'
+						when o.plan_rank = 1 then 'starter'
 						else 'free'
 					end as plan,
 					round(sum(c.cost_micros)::numeric / 10000)::bigint as ai_cost_cents
@@ -4933,21 +4939,27 @@ function qualifiedColumn(alias: string, column: string): SQL {
 }
 
 function churnPlanExpression(lookupKey: SQL): SQL<string> {
-	const proLookupKeys: string[] = [];
-	const businessLookupKeys: string[] = [];
+	const lookupKeysByPlan: Record<BillingPlanId, string[]> = {
+		starter: [],
+		pro: [],
+		business: [],
+	};
 
 	for (const [key, price] of MRR_PRICE_MAP) {
-		if (price.plan === "pro") proLookupKeys.push(key);
-		if (price.plan === "business") businessLookupKeys.push(key);
+		lookupKeysByPlan[price.plan].push(key);
 	}
 
 	return sql<string>`case
 		when ${lookupKey} in (${sql.join(
-			proLookupKeys.map((key) => sql`${key}`),
+			lookupKeysByPlan.starter.map((key) => sql`${key}`),
+			sql`, `,
+		)}) then 'starter'
+		when ${lookupKey} in (${sql.join(
+			lookupKeysByPlan.pro.map((key) => sql`${key}`),
 			sql`, `,
 		)}) then 'pro'
 		when ${lookupKey} in (${sql.join(
-			businessLookupKeys.map((key) => sql`${key}`),
+			lookupKeysByPlan.business.map((key) => sql`${key}`),
 			sql`, `,
 		)}) then 'business'
 		else 'unknown'

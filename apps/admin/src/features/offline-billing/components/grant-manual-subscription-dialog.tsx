@@ -1,9 +1,10 @@
 import {
 	type BillingInterval,
 	type BillingPlanId,
-	CREDIT_TIERS,
 	type CreditTier,
-	priceUsdFor,
+	isPurchasableTier,
+	purchasableTiersFor,
+	tryPriceUsdFor,
 } from "@wandit/contracts";
 import { HandCoinsIcon, Loader2Icon } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
@@ -53,9 +54,23 @@ import { isApiClientError } from "@/lib/api-client";
 import { ManualBillingUserPicker } from "./manual-billing-user-picker";
 import { ManualPaymentFields } from "./manual-payment-fields";
 
+type PersonalBillingPlanId = Extract<BillingPlanId, "starter" | "pro">;
+
+const PERSONAL_BILLING_PLANS = [
+	"starter",
+	"pro",
+] as const satisfies readonly PersonalBillingPlanId[];
+
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
+
 export type GrantManualSubscriptionPrefill = {
 	user?: ManualBillingUserReference;
 	organization?: { id: string; name: string };
+	plan?: BillingPlanId;
 	tierCredits?: number;
 	interval?: BillingInterval;
 	requestId?: string;
@@ -82,21 +97,27 @@ function OpenGrantManualSubscriptionDialog({
 	onOpenChange,
 	prefill = {},
 }: GrantManualSubscriptionDialogProps) {
-	const plan: BillingPlanId = prefill.organization ? "business" : "pro";
-	const prefilledTierIsCatalogued = CREDIT_TIERS.includes(
-		prefill.tierCredits as (typeof CREDIT_TIERS)[number],
-	);
-	const initialTier =
+	const initialPlan: BillingPlanId = prefill.organization
+		? "business"
+		: prefill.plan === "starter" || prefill.plan === "pro"
+			? prefill.plan
+			: "pro";
+	const prefilledTierIsPurchasable =
+		prefill.tierCredits !== undefined &&
+		isPurchasableTier(initialPlan, prefill.tierCredits);
+	const initialPlanTiers = purchasableTiersFor(initialPlan);
+	const initialTier: CreditTier | null =
 		prefill.tierCredits === undefined
-			? CREDIT_TIERS[0]
-			: prefilledTierIsCatalogued
-				? (prefill.tierCredits as CreditTier)
+			? (initialPlanTiers[0] ?? null)
+			: isPurchasableTier(initialPlan, prefill.tierCredits)
+				? prefill.tierCredits
 				: null;
 	const initialInterval = prefill.interval ?? "month";
 	const initialPeriod = computeDefaultPeriod(new Date(), initialInterval);
 	const [user, setUser] = useState<ManualBillingUserReference | null>(
 		prefill.user ?? null,
 	);
+	const [plan, setPlan] = useState<BillingPlanId>(initialPlan);
 	const [tierCredits, setTierCredits] = useState<CreditTier | null>(
 		initialTier,
 	);
@@ -126,8 +147,9 @@ function OpenGrantManualSubscriptionDialog({
 		new Date(periodEndIso).getTime() > new Date(periodStartIso).getTime();
 	const paymentDto = mapManualPaymentFormDto(payment);
 	const adminNotesAreValid = adminNotes.trim().length <= 2000;
+	const purchasableTiers = purchasableTiersFor(plan);
 	const priceUsd = tierCredits
-		? priceUsdFor(plan, tierCredits, interval)
+		? tryPriceUsdFor(plan, tierCredits, interval)
 		: null;
 	const ownerLabel =
 		prefill.organization?.name ??
@@ -155,6 +177,15 @@ function OpenGrantManualSubscriptionDialog({
 		);
 	}
 
+	function updatePlan(nextPlan: PersonalBillingPlanId) {
+		setPlan(nextPlan);
+		setTierCredits((currentTier) =>
+			currentTier !== null && isPurchasableTier(nextPlan, currentTier)
+				? currentTier
+				: purchasableTiersFor(nextPlan)[0],
+		);
+	}
+
 	function updatePeriodStart(nextPeriodStart: string) {
 		setPeriodStart(nextPeriodStart);
 		const startIso = dateTimeLocalToIso(nextPeriodStart);
@@ -174,6 +205,7 @@ function OpenGrantManualSubscriptionDialog({
 		if (
 			!user ||
 			!tierCredits ||
+			!isPurchasableTier(plan, tierCredits) ||
 			!periodStartIso ||
 			!periodEndIso ||
 			!periodIsValid ||
@@ -281,17 +313,44 @@ function OpenGrantManualSubscriptionDialog({
 							</Field>
 
 							<Field>
-								<FieldLabel>Subscription owner</FieldLabel>
-								<div className="flex min-h-9 items-center gap-2 rounded-md border px-3 py-2 text-sm">
-									<span className="min-w-0 flex-1 truncate">
-										{prefill.organization?.name ?? "Personal account"}
-									</span>
-									<Badge variant="outline">
-										{plan === "business" ? "Business" : "Pro"}
-									</Badge>
-								</div>
+								<FieldLabel
+									htmlFor={
+										prefill.organization ? undefined : "manual-grant-plan"
+									}
+								>
+									Subscription plan
+								</FieldLabel>
+								{prefill.organization ? (
+									<div className="flex min-h-9 items-center gap-2 rounded-md border px-3 py-2 text-sm">
+										<span className="min-w-0 flex-1 truncate">
+											{prefill.organization.name}
+										</span>
+										<Badge variant="outline">Business</Badge>
+									</div>
+								) : (
+									<Select
+										value={plan}
+										onValueChange={(value) =>
+											updatePlan(value as PersonalBillingPlanId)
+										}
+										disabled={mutation.isPending}
+									>
+										<SelectTrigger id="manual-grant-plan" className="w-full">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{PERSONAL_BILLING_PLANS.map((planId) => (
+												<SelectItem key={planId} value={planId}>
+													{PLAN_NAMES[planId]}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								)}
 								<FieldDescription>
-									The plan follows the subscription owner automatically.
+									{prefill.organization
+										? "Organization subscriptions use the Business plan."
+										: "Personal subscriptions can use Starter or Pro."}
 								</FieldDescription>
 							</Field>
 						</div>
@@ -310,19 +369,19 @@ function OpenGrantManualSubscriptionDialog({
 										<SelectValue placeholder="Choose a current tier" />
 									</SelectTrigger>
 									<SelectContent>
-										{CREDIT_TIERS.map((tier) => (
+										{purchasableTiers.map((tier) => (
 											<SelectItem key={tier} value={String(tier)}>
 												{tier.toLocaleString("en-US")} credits / month
 											</SelectItem>
 										))}
 									</SelectContent>
 								</Select>
-								{!prefilledTierIsCatalogued &&
+								{!prefilledTierIsPurchasable &&
 								prefill.tierCredits !== undefined ? (
 									<FieldDescription className="text-destructive">
 										The requested {prefill.tierCredits.toLocaleString("en-US")}
-										-credit tier is no longer sold. Select its agreed
-										replacement.
+										-credit tier is not available for {PLAN_NAMES[initialPlan]}.
+										Select an available tier.
 									</FieldDescription>
 								) : null}
 								<FieldError>

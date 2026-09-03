@@ -10,7 +10,7 @@ import { LifecycleEventsService } from "./lifecycle-events.service";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
 
-function setup() {
+function setup(signupGrantCentiCredits = 700) {
 	const accepted = new Map<string, EnqueueLifecycleEvent>();
 	const enqueue = vi.fn(
 		async (
@@ -27,6 +27,7 @@ function setup() {
 	);
 	const service = new LifecycleEventsService({
 		enqueue,
+		resolveSignupGrantCentiCredits: vi.fn(async () => signupGrantCentiCredits),
 	} as unknown as LifecycleEventsRepository);
 
 	return { accepted, enqueue, service };
@@ -51,13 +52,13 @@ describe("LifecycleEventsService", () => {
 		expect(enqueue).toHaveBeenCalledWith(input, transaction);
 	});
 
-	it("enqueues the 25-credit event only when consumption reaches 2500", async () => {
+	it("enqueues the first credit event at 50 percent of a 700 cc grant", async () => {
 		const { accepted, enqueue, service } = setup();
 
-		await service.enqueueCreditThresholds("user-1", 2499);
+		await service.enqueueCreditThresholds("user-1", 349);
 		expect(enqueue).not.toHaveBeenCalled();
 
-		await service.enqueueCreditThresholds("user-1", 2500);
+		await service.enqueueCreditThresholds("user-1", 350);
 		expect([...accepted.values()]).toEqual([
 			{
 				event: "credits_25_used",
@@ -67,13 +68,13 @@ describe("LifecycleEventsService", () => {
 		]);
 	});
 
-	it("adds the 40-credit event with a 15-minute hold and replays do nothing", async () => {
+	it("adds the second credit event at 80 percent of a 700 cc grant with a hold", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(NOW);
 		const { accepted, service } = setup();
 
-		await service.enqueueCreditThresholds("user-1", 2500);
-		await service.enqueueCreditThresholds("user-1", 4000);
+		await service.enqueueCreditThresholds("user-1", 350);
+		await service.enqueueCreditThresholds("user-1", 560);
 
 		expect([...accepted.values()]).toEqual([
 			{
@@ -89,7 +90,31 @@ describe("LifecycleEventsService", () => {
 			},
 		]);
 
-		await service.enqueueCreditThresholds("user-1", 4000);
+		await service.enqueueCreditThresholds("user-1", 560);
 		expect(accepted).toHaveLength(2);
+	});
+
+	it("keeps legacy 5000 cc recipients on their own 2500 and 4000 cc thresholds", async () => {
+		const { accepted, enqueue, service } = setup(5000);
+
+		await service.enqueueCreditThresholds("legacy-user", 2499);
+		expect(enqueue).not.toHaveBeenCalled();
+
+		await service.enqueueCreditThresholds("legacy-user", 2500);
+		expect([...accepted.values()]).toEqual([
+			{
+				event: "credits_25_used",
+				idempotencyKey: "credits_25_used:legacy-user",
+				userId: "legacy-user",
+			},
+		]);
+
+		await service.enqueueCreditThresholds("legacy-user", 3999);
+		expect(accepted).toHaveLength(1);
+		await service.enqueueCreditThresholds("legacy-user", 4000);
+		expect(accepted.get("credits_40_used:legacy-user")).toMatchObject({
+			event: "credits_40_used",
+			userId: "legacy-user",
+		});
 	});
 });

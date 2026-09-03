@@ -77,6 +77,7 @@ function setup() {
 		autoPagingToArray: invoicePaymentsAutoPagingToArray,
 	}));
 	const subscription = {
+		cancel_at_period_end: false,
 		id: "sub_1",
 		metadata: {},
 		items: {
@@ -85,7 +86,7 @@ function setup() {
 					current_period_end: 1_780_000_000,
 					current_period_start: 1_777_321_600,
 					id: "si_1",
-					price: { id: "price_old" },
+					price: { id: "price_old", lookup_key: "pro_250_month" },
 					quantity: 1,
 				},
 			],
@@ -93,6 +94,7 @@ function setup() {
 		latest_invoice: null,
 		pending_update: null,
 		schedule: null,
+		status: "active",
 	} as unknown as Stripe.Subscription;
 	const subscriptionsRetrieve = vi.fn(async () => subscription);
 	const subscriptionsUpdate = vi.fn(
@@ -139,7 +141,13 @@ function setup() {
 		status: "active",
 	} as unknown as Stripe.SubscriptionSchedule;
 	const subscriptionSchedulesCreate = vi.fn(async () => subscriptionSchedule);
-	const subscriptionSchedulesRelease = vi.fn(async () => subscriptionSchedule);
+	const subscriptionSchedulesRelease = vi.fn(
+		async (
+			_id: string,
+			_params: Stripe.SubscriptionScheduleReleaseParams,
+			_options?: Stripe.RequestOptions,
+		) => subscriptionSchedule,
+	);
 	const subscriptionSchedulesRetrieve = vi.fn(async () => subscriptionSchedule);
 	const subscriptionSchedulesUpdate = vi.fn(
 		async (
@@ -396,9 +404,9 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.createTopupCheckout({
 				attemptId: "22222222-2222-4222-8222-222222222222",
-				credits: 1000,
+				credits: 700,
 				customerId: "cus_1",
-				packId: "topup_1000",
+				packId: "topup_700",
 				userId: "user_1",
 			}),
 		).resolves.toEqual({
@@ -409,15 +417,15 @@ describe("StripeProvider", () => {
 		expect(pricesList).toHaveBeenCalledWith({
 			active: true,
 			limit: 1,
-			lookup_keys: ["topup_1000"],
+			lookup_keys: ["topup_700"],
 		});
 		expect(sessionsCreate.mock.calls[0]?.[0]).toEqual(
 			expect.objectContaining({
 				cancel_url: "http://web.test/billing/cancel",
 				metadata: {
 					attemptId: "22222222-2222-4222-8222-222222222222",
-					credits: "1000",
-					packId: "topup_1000",
+					credits: "700",
+					packId: "topup_700",
 					purpose: "topup",
 					userId: "user_1",
 				},
@@ -425,8 +433,8 @@ describe("StripeProvider", () => {
 				payment_intent_data: {
 					metadata: {
 						attemptId: "22222222-2222-4222-8222-222222222222",
-						credits: "1000",
-						packId: "topup_1000",
+						credits: "700",
+						packId: "topup_700",
 						purpose: "topup",
 						userId: "user_1",
 					},
@@ -540,6 +548,119 @@ describe("StripeProvider", () => {
 		expect(subscriptionsUpdate).not.toHaveBeenCalled();
 	});
 
+	it("switches a migration price through the shared client without proration", async () => {
+		const { pricesList, provider, subscriptionsUpdate } = setup();
+
+		await provider.switchSubscriptionPriceWithoutProration({
+			currentPriceLookupKey: "pro_250_month",
+			idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+			newPriceLookupKey: "pro_175_month",
+			providerSubscriptionId: "sub_1",
+		});
+
+		expect(pricesList).toHaveBeenCalledWith({
+			active: true,
+			limit: 1,
+			lookup_keys: ["pro_175_month"],
+		});
+		expect(subscriptionsUpdate).toHaveBeenCalledWith(
+			"sub_1",
+			{
+				items: [{ id: "si_1", price: "price_1" }],
+				proration_behavior: "none",
+			},
+			{
+				idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+			},
+		);
+	});
+
+	it("treats an already-switched migration price as an idempotent replay", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		const [item] = subscription.items.data;
+
+		if (!item) {
+			throw new Error("Missing test subscription item");
+		}
+
+		item.price = {
+			id: "price_1",
+			lookup_key: "pro_175_month",
+		} as Stripe.Price;
+
+		await provider.switchSubscriptionPriceWithoutProration({
+			currentPriceLookupKey: "pro_250_month",
+			idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+			newPriceLookupKey: "pro_175_month",
+			providerSubscriptionId: "sub_1",
+		});
+
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses to overwrite an unexpected remote migration price", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		const [item] = subscription.items.data;
+
+		if (!item) {
+			throw new Error("Missing test subscription item");
+		}
+
+		item.price = {
+			id: "price_unexpected",
+			lookup_key: "pro_500_month",
+		} as Stripe.Price;
+
+		await expect(
+			provider.switchSubscriptionPriceWithoutProration({
+				currentPriceLookupKey: "pro_250_month",
+				idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has price pro_500_month, expected pro_250_month");
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses a migration when the Stripe subscription has multiple items", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		const [item] = subscription.items.data;
+
+		if (!item) {
+			throw new Error("Missing test subscription item");
+		}
+
+		subscription.items.data.push({
+			...item,
+			id: "si_2",
+		} as Stripe.SubscriptionItem);
+
+		await expect(
+			provider.switchSubscriptionPriceWithoutProration({
+				currentPriceLookupKey: "pro_250_month",
+				idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("must have exactly one subscription item");
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses a migration price switch while Stripe has a pending update", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		subscription.pending_update = {} as Stripe.Subscription.PendingUpdate;
+
+		await expect(
+			provider.switchSubscriptionPriceWithoutProration({
+				currentPriceLookupKey: "pro_250_month",
+				idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has a pending update");
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
 	it("creates an idempotent period-end downgrade schedule without changing the live item", async () => {
 		const {
 			provider,
@@ -550,6 +671,9 @@ describe("StripeProvider", () => {
 
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
+				allowSameIntentRecovery: true,
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
 				idempotencyKey: "sub-change:user_1:intent_1",
 				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
@@ -598,6 +722,200 @@ describe("StripeProvider", () => {
 		);
 	});
 
+	it("refuses to schedule over an unexpected remote price", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedulesCreate,
+			subscriptionSchedulesUpdate,
+			subscriptionsUpdate,
+		} = setup();
+		const [item] = subscription.items.data;
+
+		if (!item) {
+			throw new Error("Missing test subscription item");
+		}
+
+		item.price = {
+			id: "price_unexpected",
+			lookup_key: "pro_500_month",
+		} as Stripe.Price;
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has price pro_500_month, expected pro_250_month");
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesCreate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses to replace an owned schedule with an unexpected target", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedulesCreate,
+			subscriptionSchedulesUpdate,
+			subscriptionsUpdate,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: "pro_500_month",
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow(
+			"Stripe subscription schedule sub_sched_1 targets pro_250_month, expected pro_500_month",
+		);
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesCreate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses an attached schedule when local state expects none", async () => {
+		const { provider, subscription, subscriptionSchedulesUpdate } = setup();
+		subscription.schedule = "sub_sched_1";
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has an attached downgrade schedule");
+		expect(subscriptionSchedulesUpdate).not.toHaveBeenCalled();
+	});
+
+	it("recovers the same scheduling attempt when its local marker was not persisted", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedulesCreate,
+			subscriptionSchedulesUpdate,
+			subscriptionsUpdate,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				allowSameIntentRecovery: true,
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_250_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).resolves.toBe("sub_sched_1");
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesCreate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesUpdate).toHaveBeenCalledOnce();
+	});
+
+	it("refuses to recreate a schedule when local state expects one to exist", async () => {
+		const {
+			provider,
+			subscriptionSchedulesCreate,
+			subscriptionSchedulesUpdate,
+			subscriptionsUpdate,
+		} = setup();
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: "pro_500_month",
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow(
+			"has no attached downgrade schedule, expected pro_500_month",
+		);
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesCreate).not.toHaveBeenCalled();
+		expect(subscriptionSchedulesUpdate).not.toHaveBeenCalled();
+	});
+
+	it("refuses to schedule for a cancelling or non-entitled subscription", async () => {
+		const cancelling = setup();
+		cancelling.subscription.cancel_at_period_end = true;
+
+		await expect(
+			cancelling.provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("is set to cancel at period end");
+		expect(cancelling.subscriptionSchedulesCreate).not.toHaveBeenCalled();
+
+		const pastDue = setup();
+		pastDue.subscription.status = "past_due";
+
+		await expect(
+			pastDue.provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has non-entitled status past_due");
+		expect(pastDue.subscriptionSchedulesCreate).not.toHaveBeenCalled();
+
+		const pendingUpdate = setup();
+		pendingUpdate.subscription.pending_update =
+			{} as Stripe.Subscription.PendingUpdate;
+
+		await expect(
+			pendingUpdate.provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("has a pending update");
+		expect(pendingUpdate.subscriptionSchedulesCreate).not.toHaveBeenCalled();
+	});
+
+	it("refuses to schedule when the Stripe subscription has multiple items", async () => {
+		const { provider, subscription, subscriptionSchedulesCreate } = setup();
+		const [item] = subscription.items.data;
+
+		if (!item) {
+			throw new Error("Missing test subscription item");
+		}
+
+		subscription.items.data.push({
+			...item,
+			id: "si_2",
+		} as Stripe.SubscriptionItem);
+
+		await expect(
+			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: null,
+				idempotencyKey: "sub-change:user_1:intent_1",
+				newPriceLookupKey: "pro_175_month",
+				providerSubscriptionId: "sub_1",
+			}),
+		).rejects.toThrow("must have exactly one subscription item");
+		expect(subscriptionSchedulesCreate).not.toHaveBeenCalled();
+	});
+
 	it("reconfigures the same owned schedule on replay without creating a duplicate", async () => {
 		const {
 			provider,
@@ -610,6 +928,8 @@ describe("StripeProvider", () => {
 
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: "pro_250_month",
 				idempotencyKey: "sub-change:user_1:intent_1",
 				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
@@ -636,6 +956,8 @@ describe("StripeProvider", () => {
 
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: "pro_250_month",
 				idempotencyKey: "sub-change:user_1:intent_1",
 				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
@@ -656,6 +978,8 @@ describe("StripeProvider", () => {
 
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
+				currentPriceLookupKey: "pro_250_month",
+				expectedScheduleTarget: "pro_250_month",
 				idempotencyKey: "sub-change:user_1:intent_1",
 				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
@@ -684,7 +1008,8 @@ describe("StripeProvider", () => {
 			"sub_sched_1",
 			{},
 			{
-				idempotencyKey: "sub-change:user_1:intent_2:release-schedule",
+				idempotencyKey:
+					"sub-change:user_1:intent_2:release-schedule:sub_sched_1",
 			},
 		);
 		expect(subscriptionsUpdate).toHaveBeenCalledTimes(2);
@@ -695,6 +1020,43 @@ describe("StripeProvider", () => {
 		expect(
 			subscriptionSchedulesRelease.mock.invocationCallOrder[0],
 		).toBeLessThan(subscriptionsUpdate.mock.invocationCallOrder[1] ?? 0);
+	});
+
+	it("scopes repeated release idempotency to the attached schedule id", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedule,
+			subscriptionSchedulesRelease,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+
+		await provider.cancelScheduledSubscriptionDowngrade(
+			"sub_1",
+			"sub-change:user_1:intent_2:release-schedule",
+		);
+		subscription.schedule = "sub_sched_2";
+		subscriptionSchedule.id = "sub_sched_2";
+		await provider.cancelScheduledSubscriptionDowngrade(
+			"sub_1",
+			"sub-change:user_1:intent_2:release-schedule",
+		);
+
+		expect(
+			subscriptionSchedulesRelease.mock.calls.map(([scheduleId, , options]) => [
+				scheduleId,
+				options?.idempotencyKey,
+			]),
+		).toEqual([
+			[
+				"sub_sched_1",
+				"sub-change:user_1:intent_2:release-schedule:sub_sched_1",
+			],
+			[
+				"sub_sched_2",
+				"sub-change:user_1:intent_2:release-schedule:sub_sched_2",
+			],
+		]);
 	});
 
 	it("keeps an upgrade retryable when schedule release succeeded before a definite update error", async () => {

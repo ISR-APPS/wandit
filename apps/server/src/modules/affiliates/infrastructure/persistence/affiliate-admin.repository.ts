@@ -15,7 +15,7 @@ import {
 	type ListAffiliateProgramsQuery,
 	type ListAffiliatesQuery,
 	priceLookupKey,
-	priceUsdFor,
+	tryPriceUsdFor,
 	type UpdateAffiliateInput,
 	type UpdateAffiliateLinkInput,
 	type UpdateAffiliateProgramInput,
@@ -188,9 +188,9 @@ type AffiliateQualityRow = {
 	trailing_churned_owners: number | string;
 };
 
-// 20 WHOLE credits, expressed in centi-credits because the CTE sums the
+// 3 WHOLE credits, expressed in centi-credits because the CTE sums the
 // centi-credit ledger. Keep in sync with admin-analytics.metrics.ts.
-const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 20 * 100;
+const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 3 * 100;
 const HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS = 2;
 const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 
@@ -205,12 +205,17 @@ const EMPTY_AFFILIATE_QUALITY: AffiliateQualityAggregate = {
 // lookup-key catalog prices are cents, with annual prices divided by 12.
 const AFFILIATE_MRR_CATALOG = billingPlanIds.flatMap((plan) =>
 	CREDIT_TIERS.flatMap((tierCredits) =>
-		billingIntervals.map((interval) => ({
-			lookupKey: priceLookupKey(plan, tierCredits, interval),
-			monthlyMrrCents:
-				(priceUsdFor(plan, tierCredits, interval) * 100) /
-				(interval === "year" ? 12 : 1),
-		})),
+		billingIntervals.flatMap((interval) => {
+			const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
+			if (priceUsd === null) return [];
+
+			return [
+				{
+					lookupKey: priceLookupKey(plan, tierCredits, interval),
+					monthlyMrrCents: (priceUsd * 100) / (interval === "year" ? 12 : 1),
+				},
+			];
+		}),
 	),
 );
 

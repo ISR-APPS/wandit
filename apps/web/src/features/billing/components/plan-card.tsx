@@ -3,7 +3,6 @@ import type {
 	BillingTierPrice,
 	CreditTier,
 } from "@wandit/contracts";
-import { creditTierSchema } from "@wandit/contracts";
 import { Badge } from "@wandit/ui/components/badge";
 import {
 	Select,
@@ -77,7 +76,12 @@ export function PlanCard({
 				) : null}
 			</div>
 			<p className="mt-1 text-muted-foreground text-xs">{tagline}</p>
-			<div className="mt-4 flex flex-wrap items-center gap-2">
+			<p className="mt-4 font-mono font-semibold text-base tabular-nums">
+				{t("billing.planPicker.creditsEveryMonth", {
+					count: tier.tierCredits,
+				})}
+			</p>
+			<div className="mt-2 flex flex-wrap items-center gap-2">
 				<p className="font-mono font-semibold text-3xl tabular-nums">
 					{formatUsd(tierPriceUsd(tier, interval), locale)}
 					<span className="ms-1.5 font-normal font-sans text-muted-foreground text-xs">
@@ -90,56 +94,63 @@ export function PlanCard({
 					</Badge>
 				) : null}
 			</div>
-			<div className="mt-4 grid gap-2">
-				<label htmlFor={selectId} className="font-medium text-sm">
-					{selectLabel}
-				</label>
-				<Select
-					value={String(tier.tierCredits)}
-					onValueChange={(value) => {
-						const parsed = creditTierSchema.safeParse(Number(value));
-						if (parsed.success) onSelectTier(parsed.data);
-					}}
-				>
-					<SelectTrigger id={selectId} className="h-11 w-full">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectGroup>
-							{tiers.map((option) => {
-								const optionSavings = tierSavingsPercent(option, basePer100Usd);
-								return (
-									<SelectItem
-										key={option.tierCredits}
-										value={String(option.tierCredits)}
-									>
-										<span className="flex min-w-0 items-center gap-2">
-											<span>
-												{t("credits.creditUnit", {
-													count: option.tierCredits,
-												})}
-											</span>
-											<span className="text-muted-foreground">
-												{formatUsd(tierPriceUsd(option, interval), locale)}
-											</span>
-											{optionSavings > 0 ? (
-												<Badge
-													variant="success"
-													className="px-1.5 py-0 text-[10px]"
-												>
-													{t("billing.planPicker.savePercent", {
-														percent: optionSavings,
+			{tiers.length > 1 ? (
+				<div className="mt-4 grid gap-2">
+					<label htmlFor={selectId} className="font-medium text-sm">
+						{selectLabel}
+					</label>
+					<Select
+						value={String(tier.tierCredits)}
+						onValueChange={(value) => {
+							const selectedTier = tiers.find(
+								(option) => option.tierCredits === Number(value),
+							);
+							if (selectedTier) onSelectTier(selectedTier.tierCredits);
+						}}
+					>
+						<SelectTrigger id={selectId} className="h-11 w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectGroup>
+								{tiers.map((option) => {
+									const optionSavings = tierSavingsPercent(
+										option,
+										basePer100Usd,
+									);
+									return (
+										<SelectItem
+											key={option.tierCredits}
+											value={String(option.tierCredits)}
+										>
+											<span className="flex min-w-0 items-center gap-2">
+												<span>
+													{t("credits.creditUnit", {
+														count: option.tierCredits,
 													})}
-												</Badge>
-											) : null}
-										</span>
-									</SelectItem>
-								);
-							})}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
-			</div>
+												</span>
+												<span className="text-muted-foreground">
+													{formatUsd(tierPriceUsd(option, interval), locale)}
+												</span>
+												{optionSavings > 0 ? (
+													<Badge
+														variant="success"
+														className="px-1.5 py-0 text-[10px]"
+													>
+														{t("billing.planPicker.savePercent", {
+															percent: optionSavings,
+														})}
+													</Badge>
+												) : null}
+											</span>
+										</SelectItem>
+									);
+								})}
+							</SelectGroup>
+						</SelectContent>
+					</Select>
+				</div>
+			) : null}
 			{action}
 			<FeatureList items={features} columns={featureColumns} />
 		</section>

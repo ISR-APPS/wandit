@@ -6,10 +6,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import type {
-	BillingInterval,
-	CreateBillingCheckoutBody,
-} from "@wandit/contracts";
+import type { BillingInterval } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -76,14 +73,19 @@ export function CreateWorkspaceDialog({
 	);
 	const [tierCredits, setTierCredits] = useState<number | null>(null);
 	const selectedTier =
-		business?.tiers.find((tier) => tier.tierCredits === (tierCredits ?? 250)) ??
-		business?.tiers[0];
+		business?.tiers.find((tier) => tier.tierCredits === tierCredits) ??
+		business?.tiers[0] ??
+		null;
 
 	const submit = async () => {
 		const trimmed = name.trim();
 
 		if (!createdOrgId && !trimmed) {
 			setError(t("workspaces.create.errors.nameRequired"));
+			return;
+		}
+		if (!selectedTier) {
+			setError(t("workspaces.create.errors.checkoutFailed"));
 			return;
 		}
 
@@ -124,8 +126,7 @@ export function CreateWorkspaceDialog({
 			try {
 				const { url } = await checkout.mutateAsync({
 					plan: "business",
-					tierCredits: (selectedTier?.tierCredits ??
-						200) as CreateBillingCheckoutBody["tierCredits"],
+					tierCredits: selectedTier.tierCredits,
 					interval,
 				});
 				await completeCardCheckoutStart(url, "create_workspace");
@@ -166,12 +167,12 @@ export function CreateWorkspaceDialog({
 							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
-					{business && business.tiers.length > 0 ? (
+					{business && selectedTier ? (
 						<div className="grid grid-cols-2 gap-3">
 							<div className="flex flex-col gap-2">
 								<Label>{t("billing.planPicker.creditTier")}</Label>
 								<Select
-									value={String(selectedTier?.tierCredits ?? 250)}
+									value={String(selectedTier.tierCredits)}
 									onValueChange={(value) => setTierCredits(Number(value))}
 								>
 									<SelectTrigger>
@@ -219,7 +220,7 @@ export function CreateWorkspaceDialog({
 					) : null}
 					<Button
 						type="button"
-						disabled={creating || checkout.isPending}
+						disabled={!selectedTier || creating || checkout.isPending}
 						onClick={() => void submit()}
 					>
 						{creating || checkout.isPending

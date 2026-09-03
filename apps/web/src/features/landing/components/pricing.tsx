@@ -33,9 +33,11 @@ import { useAuthModal, useSession } from "@/features/auth";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import {
+	formatUsd,
 	tierPriceUsd,
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
+import { formatCreditAmount } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 
@@ -79,13 +81,17 @@ export function Pricing() {
 	const { open: openAuth } = useAuthModal();
 	const { openPlanPicker } = useBillingModal();
 	const navigate = useNavigate();
-	const { locale } = useTranslation();
+	const { locale, t } = useTranslation();
 	const pricing = useDictionary().landing.pricing;
 	const plansQuery = useBillingPlansQuery();
 	const settingsQuery = usePublicSettingsQuery();
 	const [interval, setBillingInterval] = useState<BillingInterval>("month");
 	const [selectedCredits, setSelectedCredits] = useState<CreditTier>();
 	const [createTeamOpen, setCreateTeamOpen] = useState(false);
+	const starterPlan = plansQuery.data?.plans.find(
+		(plan) => plan.id === "starter",
+	);
+	const starterTier = starterPlan?.tiers[0];
 	const proPlan = plansQuery.data?.plans.find((plan) => plan.id === "pro");
 	const selectedTier =
 		proPlan?.tiers.find((tier) => tier.tierCredits === selectedCredits) ??
@@ -97,8 +103,23 @@ export function Pricing() {
 		settingsQuery.data?.manualPaymentsEnabled === true;
 	const showBetaPosture =
 		settingsQuery.isSuccess && !subscriptionPlansAvailable;
-	const catalogUnavailable =
+	const starterCatalogUnavailable =
+		plansQuery.isError ||
+		(plansQuery.isSuccess && (!starterPlan || !starterTier));
+	const proCatalogUnavailable =
 		plansQuery.isError || (plansQuery.isSuccess && (!proPlan || !selectedTier));
+	const freeCreditsLine =
+		settingsQuery.isSuccess &&
+		settingsQuery.data.signupGrantEnabled &&
+		settingsQuery.data.signupGrantCredits > 0
+			? t("landing.pricing.free.creditsLine", {
+					count: settingsQuery.data.signupGrantCredits,
+					countDisplay: formatCreditAmount(
+						settingsQuery.data.signupGrantCredits,
+						locale,
+					),
+				})
+			: pricing.free.creditsFallback;
 	// The Business card is a showcase: it renders whenever the catalog carries
 	// the plan, so the page can market teams before they open. Only the
 	// create-team CTA ships dark behind both kill switches — a team goes
@@ -128,14 +149,43 @@ export function Pricing() {
 
 	return (
 		<section id="pricing" className="scroll-mt-20 px-4 py-16 md:py-24">
-			<div className="mx-auto max-w-5xl">
+			<div className="mx-auto max-w-7xl">
 				<SectionHeader kicker={pricing.kicker} title={pricing.title} />
+				<Reveal className="mx-auto mb-8 max-w-sm md:mb-10">
+					<span className="mb-2 block text-center font-medium text-sm">
+						{pricing.pro.intervalLabel}
+					</span>
+					<ToggleGroup
+						type="single"
+						value={interval}
+						variant="outline"
+						spacing={0}
+						className="w-full"
+						aria-label={pricing.pro.intervalLabel}
+						onValueChange={(value) => {
+							if (value === "month" || value === "year") {
+								setBillingInterval(value);
+							}
+						}}
+					>
+						<ToggleGroupItem value="month" className="flex-1">
+							{pricing.pro.monthly}
+						</ToggleGroupItem>
+						<ToggleGroupItem value="year" className="flex-1 gap-2">
+							{pricing.pro.yearly}
+							<Badge
+								variant="secondary"
+								className="px-1.5 font-mono text-[9px]"
+							>
+								{pricing.pro.twoMonthsFree}
+							</Badge>
+						</ToggleGroupItem>
+					</ToggleGroup>
+				</Reveal>
 				<div
 					className={cn(
-						"grid gap-4 md:gap-5",
-						showBusiness
-							? "md:grid-cols-2 lg:grid-cols-[0.75fr_1.05fr_0.9fr]"
-							: "md:grid-cols-[0.82fr_1.18fr]",
+						"grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5",
+						showBusiness ? "lg:grid-cols-4" : "lg:grid-cols-3",
 					)}
 				>
 					<Reveal>
@@ -150,7 +200,7 @@ export function Pricing() {
 								{pricing.free.price}
 							</div>
 							<p className="mt-1 font-mono text-muted-foreground text-xs">
-								{pricing.free.creditsLine}
+								{freeCreditsLine}
 							</p>
 							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
 								{pricing.free.features.map((feature) => (
@@ -171,6 +221,63 @@ export function Pricing() {
 					</Reveal>
 
 					<Reveal delay={0.07}>
+						<PlanCard>
+							<h3 className="font-display font-semibold text-lg">
+								{pricing.starter.name}
+							</h3>
+							<p className="mt-1 text-muted-foreground text-sm">
+								{pricing.starter.tagline}
+							</p>
+							<div className="mt-5 min-h-11">
+								{starterTier ? (
+									<PriceSummary
+										interval={interval}
+										locale={locale}
+										periodLabel={
+											interval === "month"
+												? pricing.starter.perMonth
+												: pricing.starter.perYear
+										}
+										tier={starterTier}
+									/>
+								) : starterCatalogUnavailable ? (
+									<p className="text-destructive text-sm" role="alert">
+										{pricing.pro.catalogUnavailable}
+									</p>
+								) : (
+									<>
+										<Skeleton className="h-9 w-36" />
+										<span className="sr-only">{pricing.pro.loading}</span>
+									</>
+								)}
+							</div>
+							<p className="mt-4 font-semibold text-base">
+								{pricing.starter.creditsLine}
+							</p>
+							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
+								{pricing.starter.features.map((feature) => (
+									<FeatureRow key={feature} label={feature} />
+								))}
+							</ul>
+							{subscriptionPlansAvailable && starterTier ? (
+								<Button
+									variant="outline"
+									className="mt-8 active:translate-y-px"
+									onClick={() =>
+										openPlanPicker("marketing_pricing", {
+											plan: "starter",
+											interval,
+											tierCredits: starterTier.tierCredits,
+										})
+									}
+								>
+									{pricing.starter.cta}
+								</Button>
+							) : null}
+						</PlanCard>
+					</Reveal>
+
+					<Reveal delay={0.12}>
 						<PlanCard featured>
 							<Badge className="absolute inset-x-0 -top-2.5 mx-auto w-fit border-none bg-gradient-ember font-medium font-mono text-[10px] text-[oklch(0.2_0.03_55)] uppercase tracking-[0.14em]">
 								{showBetaPosture ? pricing.beta.badge : pricing.pro.badge}
@@ -194,7 +301,7 @@ export function Pricing() {
 										}
 										tier={selectedTier}
 									/>
-								) : catalogUnavailable ? (
+								) : proCatalogUnavailable ? (
 									<p className="text-destructive text-sm" role="alert">
 										{pricing.pro.catalogUnavailable}
 									</p>
@@ -207,38 +314,6 @@ export function Pricing() {
 							</div>
 
 							<div className="mt-5 flex flex-col gap-4">
-								<div className="flex flex-col gap-2">
-									<span className="block font-medium text-sm">
-										{pricing.pro.intervalLabel}
-									</span>
-									<ToggleGroup
-										type="single"
-										value={interval}
-										variant="outline"
-										spacing={0}
-										className="w-full"
-										aria-label={pricing.pro.intervalLabel}
-										onValueChange={(value) => {
-											if (value === "month" || value === "year") {
-												setBillingInterval(value);
-											}
-										}}
-									>
-										<ToggleGroupItem value="month" className="flex-1">
-											{pricing.pro.monthly}
-										</ToggleGroupItem>
-										<ToggleGroupItem value="year" className="flex-1 gap-2">
-											{pricing.pro.yearly}
-											<Badge
-												variant="secondary"
-												className="px-1.5 font-mono text-[9px]"
-											>
-												{pricing.pro.twoMonthsFree}
-											</Badge>
-										</ToggleGroupItem>
-									</ToggleGroup>
-								</div>
-
 								<div className="flex flex-col gap-2">
 									<label
 										htmlFor="landing-pricing-tier"
@@ -271,6 +346,7 @@ export function Pricing() {
 															value={String(tier.tierCredits)}
 														>
 															<TierOption
+																basePer100Usd={proPlan.basePer100Usd}
 																interval={interval}
 																locale={locale}
 																savingsLabel={pricing.pro.savings}
@@ -282,7 +358,7 @@ export function Pricing() {
 												</SelectGroup>
 											</SelectContent>
 										</Select>
-									) : catalogUnavailable ? null : (
+									) : proCatalogUnavailable ? null : (
 										<Skeleton className="h-11 w-full" />
 									)}
 								</div>
@@ -300,6 +376,7 @@ export function Pricing() {
 									className="mt-8 active:translate-y-px"
 									onClick={() =>
 										openPlanPicker("marketing_pricing", {
+											plan: "pro",
 											interval,
 											tierCredits: selectedTier.tierCredits,
 										})
@@ -312,7 +389,7 @@ export function Pricing() {
 					</Reveal>
 
 					{showBusiness && businessFromUsd !== null ? (
-						<Reveal delay={0.12}>
+						<Reveal delay={0.17}>
 							<PlanCard>
 								<h3 className="font-display font-semibold text-lg">
 									{pricing.business.name}
@@ -395,18 +472,20 @@ function PriceSummary({
 
 function TierOption({
 	tier,
+	basePer100Usd,
 	interval,
 	locale,
 	savingsLabel,
 	unitLabel,
 }: {
 	tier: BillingTierPrice;
+	basePer100Usd: number;
 	interval: BillingInterval;
 	locale: Locale;
 	savingsLabel: string;
 	unitLabel: string;
 }) {
-	const savings = tierSavingsPercent(tier);
+	const savings = tierSavingsPercent(tier, basePer100Usd);
 
 	return (
 		<span className="flex w-full min-w-0 items-center justify-between gap-3">
@@ -425,12 +504,4 @@ function TierOption({
 			</span>
 		</span>
 	);
-}
-
-function formatUsd(value: number, locale: Locale) {
-	return new Intl.NumberFormat(locale, {
-		currency: "USD",
-		maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
-		style: "currency",
-	}).format(value);
 }

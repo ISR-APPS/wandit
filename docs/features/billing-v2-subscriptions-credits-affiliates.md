@@ -1,17 +1,26 @@
 # Billing v2 — Subscriptions, Credits, Metering, Beta, Affiliates
 
-Design document for `feat/billing-subscriptions`. **Revision 2** — incorporates two adversarial
+> **SUPERSEDED by `pricing-v6-starter-plan.md`.** This file is retained as the historical
+> billing-v2 implementation record. Its product model, money table, catalog, zero-subscriber
+> assumption, and rollout instructions are not current. Use `billing.md` and
+> `pricing-v6-starter-plan.md` for the current Starter/Pro/Business catalog and 7-credit grant;
+> `pricing-v5-usd-anchor.md` remains authoritative for the unchanged $0.04 AI-provider-cost
+> unit.
+
+Historical design document for `feat/billing-subscriptions`. **Revision 2** — incorporates two adversarial
 design reviews (codex gpt-5.6-sol ultra: 33 findings; claude: 20 findings). Synthesized from six
 codebase probes + three external research reports (AI Gateway cost APIs, Stripe mechanics on API
 `2026-02-25.clover` / stripe-node v20, affiliate architectures). 2026-08-01.
 
-**Standing assumption (verified pre-launch state): there are ZERO live paid subscriptions.**
+**Historical standing assumption (verified before the first billing-v2 launch): there were
+ZERO live paid subscriptions.**
 Several review blockers (stranding existing subscribers on repriced lookup keys, backfilling
-12×-upfront annual grants) are therefore documented assumptions, enforced by a pre-deploy
+12×-upfront annual grants) were therefore documented assumptions, enforced by a pre-deploy
 assertion: `SELECT count(*) FROM subscriptions WHERE status NOT IN ('canceled','incomplete_expired')`
-must be 0 at first prod deploy of this branch; otherwise the grandfathering appendix (§12) applies.
+had to be 0 at the first production deploy of that branch; otherwise the grandfathering
+appendix (§12) applied.
 
-## 0. Product model
+## 0. Product model (historical billing v2)
 
 - **One paid plan ("Pro")**, Lovable-style: $30/mo = 200 monthly credits; credit-tier variants;
   monthly + yearly (yearly = exactly 2 months free = 10× monthly).
@@ -23,9 +32,9 @@ must be 0 at first prod deploy of this branch; otherwise the grandfathering appe
 - **Affiliates**: links can expire; attributions locked before expiry earn for the user's paying
   lifetime (or the program's capped duration).
 
-## 1. Credit unit economics (decided)
+## 1. Credit unit economics (historical pre-v6 state)
 
-| Constant | Value |
+| Constant | Historical value |
 |---|---|
 | Retail credit value | $0.10/credit (base tier anchor: 250 credits = $25) |
 | Metering conversion `usdPerCredit` | $0.04/credit (pricing v5: 1 credit = $0.04 of AI-provider cost) |
@@ -40,7 +49,7 @@ lead scrape 5, transcription: per-minute table with 1-credit minimum. Chat + pag
 token-metered. Project-title generation is bundled into the project-creation charge (min 1
 credit for the creation flow covers it; it can only run once per creation).
 
-### Catalog (single Pro plan)
+### Catalog (historical single-Pro design)
 
 Monthly: 200/$30, 400/$60, 800/$120, 1600/$240, 2400/$353 (2%), 4000/$576 (4%), 6000/$846 (6%),
 8000/$1,104 (8%), 10000/$1,350 (10%). **Yearly = 10 × monthly.** Top-ups: 200/$30, 1,000/$150,
