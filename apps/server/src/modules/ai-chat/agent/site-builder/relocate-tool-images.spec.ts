@@ -55,8 +55,11 @@ describe("modelNeedsToolImageRelocation", () => {
 });
 
 describe("modelNeedsToolImageStripping", () => {
-	it("targets deepseek (text-only) models only", () => {
+	it("targets the text-only model families only", () => {
 		expect(modelNeedsToolImageStripping("deepseek/deepseek-v4-pro")).toBe(true);
+		// zai GLM tokenizes base64 image parts as text through the gateway —
+		// six build images ≈ 984K input tokens (2026-09-04 prod incident).
+		expect(modelNeedsToolImageStripping("zai/glm-5.3-flash")).toBe(true);
 		expect(modelNeedsToolImageStripping("moonshotai/kimi-k3")).toBe(false);
 		expect(modelNeedsToolImageStripping("xai/grok-4.5")).toBe(false);
 	});
