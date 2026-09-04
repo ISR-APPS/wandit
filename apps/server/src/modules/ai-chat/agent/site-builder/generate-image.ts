@@ -32,6 +32,11 @@ import type {
 // has, and the brief's SHOT LIST is capped at 6 shots anyway.
 export const MAX_IMAGES = 6;
 
+// Hard per-shot deadline. One step's tool calls run as a Promise.all, so a
+// single stalled provider call would otherwise hold the whole build hostage;
+// a timed-out shot degrades to CSS/SVG art like any other failed shot.
+export const IMAGE_PROVIDER_TIMEOUT_MS = 180_000;
+
 // gpt-image-class models accept exact sizes, not free aspect ratios — each
 // brief aspect maps onto the nearest supported canvas.
 const SIZE_BY_ASPECT = {
@@ -76,6 +81,12 @@ export async function generateBuildImage(params: {
 	abortSignal?: AbortSignal;
 	aspect: BuildImageAspect;
 	attemptId: string;
+	/**
+	 * Image models snapshotted at queue time. The env reads below stay ONLY
+	 * as the fallback for legacy attempts whose spec predates the snapshot.
+	 */
+	imageEditModel?: string;
+	imageModel?: string;
 	/** 1-based position in the build, used for the R2 object name. */
 	index: number;
 	metering: GatewayMeteringContext<"image">;
@@ -92,7 +103,10 @@ export async function generateBuildImage(params: {
 	 */
 	sourceImageUrls?: string[];
 }): Promise<GeneratedBuildImage> {
-	if (!env.AI_IMAGE_MODEL || !env.R2_PUBLIC_BASE_URL || !isR2Configured()) {
+	const imageModel = params.imageModel ?? env.AI_IMAGE_MODEL;
+	const imageEditModel = params.imageEditModel ?? env.AI_IMAGE_EDIT_MODEL;
+
+	if (!imageModel || !env.R2_PUBLIC_BASE_URL || !isR2Configured()) {
 		return {
 			message: "image generation not configured — build CSS/SVG art instead",
 			status: "unavailable",
@@ -102,6 +116,12 @@ export async function generateBuildImage(params: {
 	let metadata: GatewayGenerationMetadata | null = null;
 	// One SHOT LIST line is one frame: never let a shot come back as a collage.
 	const prompt = withSingleFrameInstruction(params.prompt);
+	// Same deadline pattern as generate-video: the timeout abort classifies as
+	// a normal failed result, never an exception out of this function.
+	const timeoutSignal = AbortSignal.timeout(IMAGE_PROVIDER_TIMEOUT_MS);
+	const providerAbortSignal = params.abortSignal
+		? AbortSignal.any([params.abortSignal, timeoutSignal])
+		: timeoutSignal;
 
 	try {
 		let mediaType: string;
@@ -112,12 +132,13 @@ export async function generateBuildImage(params: {
 		if (
 			params.sourceImageUrls &&
 			params.sourceImageUrls.length > 0 &&
-			env.AI_IMAGE_EDIT_MODEL
+			imageEditModel
 		) {
 			const edited = await editImageFromSources({
-				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				abortSignal: providerAbortSignal,
 				aspect: params.aspect,
 				metering: params.metering,
+				model: imageEditModel,
 				prompt,
 				sourceImageUrls: params.sourceImageUrls,
 			});
@@ -131,10 +152,10 @@ export async function generateBuildImage(params: {
 			metadata = edited;
 		} else {
 			const generated = await generateImageFromPrompt({
-				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				abortSignal: providerAbortSignal,
 				aspect: params.aspect,
 				metering: params.metering,
-				model: env.AI_IMAGE_MODEL,
+				model: imageModel,
 				prompt,
 				size: SIZE_BY_ASPECT[params.aspect],
 			});

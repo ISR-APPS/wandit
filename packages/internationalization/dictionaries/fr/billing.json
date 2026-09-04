@@ -136,6 +136,7 @@
 		"currentPlan": "Abonnement actuel",
 		"requiredCredits": "Requis",
 		"availableCredits": "Disponible",
+		"heldCredits": "Réservés par des générations en cours",
 		"billingCycle": "Cycle de facturation",
 		"monthly": "Mensuel",
 		"yearly": "Annuel",

@@ -27,12 +27,27 @@ type CreditMeta = Record<string, unknown> & {
 	reason?: unknown;
 };
 
+/**
+ * How deep concurrent reserve holds may drive the RAW ledger balance before
+ * new "requirePositiveBalance" admissions refuse. Settled-view admission
+ * ignores in-flight holds (so one running build never locks its owner out),
+ * which needs a raw-side cap or a near-zero wallet could fan out unbounded
+ * parallel reserves. 20 credits covers a page build plus its media children
+ * plus concurrent chat with headroom. This bounds only the stacked RESERVES:
+ * each admitted run can still settle above its reserve through allowOverdraft
+ * up to its per-event sanity ceiling, so the true exposure tail is bounded by
+ * the ceilings in the operation registry, not by this floor.
+ */
+const RESERVE_STACKING_FLOOR_CENTI_CREDITS = -2000;
+
 type CreditWriteOptions = {
 	/**
-	 * Ruling 5 admission: any POSITIVE balance admits the full amount (the
-	 * remainder overdrafts into topup); a zero-or-negative balance refuses.
-	 * Metering reserves use this so a run can start on 1 cc but nothing new
-	 * starts while the balance is negative.
+	 * Ruling 5 admission: any POSITIVE settled balance admits the full amount
+	 * (the remainder overdrafts into topup); a zero-or-negative settled
+	 * balance refuses, as does a raw balance below the stacking floor.
+	 * Metering reserves use this so a run can start on 1 cc, a running hold
+	 * never locks its owner out, and nothing new starts once the wallet is
+	 * truly spent.
 	 */
 	admission?: "requirePositiveBalance";
 	/** Metering-only escape hatch for post-provider settlement debt. */
@@ -175,13 +190,33 @@ export class CreditsService {
 				return existingRows;
 			}
 
-			const balance = await this.creditsRepository.getBalance(owner, tx);
+			const balance = await this.creditsRepository.getSettledBalanceSnapshot(
+				owner,
+				tx,
+			);
 
 			if (options.admission === "requirePositiveBalance") {
-				if (balance.balance <= 0) {
-					throw new InsufficientCreditsError(amount, balance.balance);
+				// Ruling 5 admission on the SETTLED view: a positive settled balance
+				// admits the spend even while reserve holds dip the raw ledger
+				// negative — a running build must never lock its owner out of chat,
+				// and the refusal threshold matches the number the header pill
+				// shows. The raw balance still bounds how deep concurrent holds may
+				// stack, so a near-zero wallet cannot fan out unbounded parallel
+				// reserves.
+				if (
+					balance.settledBalance <= 0 ||
+					balance.balance <= RESERVE_STACKING_FLOOR_CENTI_CREDITS
+				) {
+					throw new InsufficientCreditsError(
+						amount,
+						balance.balance,
+						balance.settledBalance,
+					);
 				}
 			} else if (!options.allowOverdraft && balance.balance < amount) {
+				// Strict-cover refusal on the raw balance: report the raw number
+				// too, or the error could claim more available than required while
+				// refusing (settled adds running holds back).
 				throw new InsufficientCreditsError(amount, balance.balance);
 			}
 

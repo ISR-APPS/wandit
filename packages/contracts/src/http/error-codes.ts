@@ -45,9 +45,14 @@ export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 
 // Decimal credits: the smallest charge is 0.01 and balances can be fractional
 // (or negative after accepted overage), so both fields carry decimals.
+// availableCredits is the SETTLED balance — the same number the header pill
+// shows — so the paywall never prints a hold-dipped negative the user has
+// never seen. heldCredits is the slice temporarily reserved by running
+// generations (optional: older servers omit it).
 export const paymentRequiredDetailsSchema = z.object({
 	requiredCredits: z.number().positive(),
 	availableCredits: z.number(),
+	heldCredits: z.number().nonnegative().optional(),
 });
 
 export type PaymentRequiredDetails = z.infer<
