@@ -26,15 +26,15 @@ const pickerState = vi.hoisted(() => ({
 const pickerCatalog = vi.hoisted(() => ({
 	plans: [
 		{
-			basePer100Usd: 16,
+			basePer100Usd: 18,
 			features: { seats: false, teamWorkspace: false },
 			id: "starter",
 			tiers: [
 				{
 					annualLookupKey: "starter_50_year",
-					annualUsd: 80,
+					annualUsd: 90,
 					monthlyLookupKey: "starter_50_month",
-					monthlyUsd: 8,
+					monthlyUsd: 9,
 					tierCredits: 50,
 				},
 			],

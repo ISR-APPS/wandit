@@ -146,10 +146,10 @@ export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
 	plans: {
 		starter: {
-			basePer100Usd: 16,
+			basePer100Usd: 18,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
-				50: 8,
+				50: 9,
 			},
 		},
 		pro: {

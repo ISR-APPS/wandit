@@ -73,7 +73,7 @@ describe("plan picker pricing", () => {
 	it("keeps Starter at zero savings against Starter's own base rate", () => {
 		expect(
 			tierSavingsPercent(
-				{ monthlyUsd: 8, tierCredits: 50 },
+				{ monthlyUsd: 9, tierCredits: 50 },
 				BILLING_CATALOG.plans.starter.basePer100Usd,
 			),
 		).toBe(0);

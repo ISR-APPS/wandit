@@ -423,7 +423,7 @@ gains the workspace dimension via `@CurrentWorkspace()`:
 
   | Plan | Credits / month | Monthly | Yearly |
   |---|---:|---:|---:|
-  | Starter | 50 | $8 | $80 |
+  | Starter | 50 | $9 | $90 |
   | Pro | 175 | $25 | $250 |
   | Pro | 350 | $50 | $500 |
   | Pro | 700 | $100 | $1,000 |
