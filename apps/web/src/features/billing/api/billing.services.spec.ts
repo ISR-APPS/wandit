@@ -14,7 +14,11 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 import { ApiService } from "@/lib/api-client";
-import { cancelBillingSubscription, getBillingPlans } from "./billing.services";
+import {
+	cancelBillingSubscription,
+	getBillingPlans,
+	getBillingSubscription,
+} from "./billing.services";
 
 const RESPONSE: BillingSubscriptionViewResponse = {
 	balance: {
@@ -88,6 +92,38 @@ describe("getBillingPlans", () => {
 
 		await expect(getBillingPlans()).resolves.toEqual(PLANS_RESPONSE);
 		expect(ApiService.get).toHaveBeenCalledWith(billingRoutes.plans);
+	});
+});
+
+describe("getBillingSubscription", () => {
+	it("preserves scheduled Starter and yearly billing separately from current Pro", async () => {
+		const response: BillingSubscriptionViewResponse = {
+			...RESPONSE,
+			subscription: {
+				cancelAtPeriodEnd: false,
+				createdAt: "2026-09-01T00:00:00.000Z",
+				currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+				currentPeriodStart: "2026-09-01T00:00:00.000Z",
+				entitled: true,
+				id: "2d8aa13f-512f-41cd-be6d-bd76310cae02",
+				interval: "month",
+				organizationId: null,
+				pendingInterval: "year",
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				plan: "pro",
+				priceLookupKey: "pro_250_month",
+				provider: "stripe",
+				providerSubscriptionId: "sub_pro",
+				status: "active",
+				tierCredits: 250,
+				updatedAt: "2026-09-01T00:00:00.000Z",
+				userId: "user-1",
+			},
+		};
+		vi.mocked(ApiService.get).mockResolvedValueOnce(response);
+
+		await expect(getBillingSubscription()).resolves.toEqual(response);
 	});
 });
 

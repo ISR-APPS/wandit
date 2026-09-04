@@ -254,7 +254,12 @@ class MemorySubscriptionCreditsRepository {
 		return (
 			[...this.applications]
 				.reverse()
-				.find((row) => row.subscriptionId === subscriptionId) ?? null
+				.find(
+					(row) =>
+						row.subscriptionId === subscriptionId &&
+						(row.billingReason !== "subscription_create" ||
+							row.creditsDelta > 0),
+				) ?? null
 		);
 	}
 
@@ -450,6 +455,8 @@ function subscription(
 		interval: "month",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingInterval: null,
+		pendingPlan: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_250_month",
@@ -616,7 +623,7 @@ function setup(initial = subscription()) {
 		reconciliationOutbox as never,
 	);
 	const subscriptionsRepository = {
-		clearAppliedPendingTier: vi.fn(async () => initial),
+		clearMatchingPendingTier: vi.fn(async () => initial),
 		findByProviderSubscriptionId: vi.fn(async (providerId: string) =>
 			providerId === initial.providerSubscriptionId ? initial : null,
 		),
@@ -903,6 +910,90 @@ describe("Subscription credit policy", () => {
 		// Carried min(36_000, 25_000 cap) + 25_000 cycle allotment.
 		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(50_000);
 		expect(downgrade.lifecycleEvents.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("caps Pro rollover at the Starter allotment on renewal and never grants twice on replay", async () => {
+		const context = setup(
+			subscription({
+				pendingAppliedBy: "sub_sched_starter",
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+			}),
+		);
+		context.creditRepository.seedPlan(50_000);
+		const renewal = invoice({
+			id: "in_starter_renewal",
+			newKey: "starter_60_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+
+		await context.service.grantForPaidInvoice(renewal);
+		await context.service.grantForPaidInvoice(renewal);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+		expect(
+			context.creditRepository.rows.filter(
+				(row) => row.idempotencyKey === "inv:in_starter_renewal:grant",
+			),
+		).toHaveLength(1);
+		expect(
+			context.subscriptionsRepository.clearMatchingPendingTier,
+		).toHaveBeenCalledOnce();
+		expect(
+			context.subscriptionsRepository.clearMatchingPendingTier,
+		).toHaveBeenCalledWith("sub_remote", 60, expect.anything(), {
+			interval: "month",
+			plan: "starter",
+		});
+	});
+
+	it("keeps a future Starter downgrade when an earlier Pro cycle invoice arrives late", async () => {
+		const context = setup(
+			subscription({
+				pendingAppliedBy: "sub_sched_starter",
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+			}),
+		);
+		const renewal = invoice({
+			id: "in_prior_pro_renewal",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+
+		await context.service.grantForPaidInvoice(renewal);
+
+		expect(
+			context.subscriptionsRepository.clearMatchingPendingTier,
+		).not.toHaveBeenCalled();
+	});
+
+	it("keeps a future yearly downgrade when the paid Starter invoice is still monthly", async () => {
+		const context = setup(
+			subscription({
+				pendingAppliedBy: "sub_sched_starter_yearly",
+				pendingInterval: "year",
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				plan: "starter",
+				priceLookupKey: "starter_60_month",
+				tierCredits: 60,
+			}),
+		);
+		const renewal = invoice({
+			id: "in_starter_monthly_renewal",
+			newKey: "starter_60_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+
+		await context.service.grantForPaidInvoice(renewal);
+
+		expect(
+			context.subscriptionsRepository.clearMatchingPendingTier,
+		).not.toHaveBeenCalled();
 	});
 
 	it("grants the full allotment with a capped refill for an anchor-reset same-interval upgrade", async () => {
@@ -1473,6 +1564,88 @@ describe("Subscription credit policy", () => {
 		).resolves.toBe("canceled");
 	});
 
+	it("holds old annual Pro refills for atomic Starter renewal fulfillment after the mirror advances", async () => {
+		const oldSubscription = subscription({
+			interval: "year",
+			priceLookupKey: "pro_250_year",
+		});
+		const context = setup(oldSubscription);
+		await context.refill.createYearlySlots(
+			{
+				credits: 25_000,
+				funding: {
+					chargeId: null,
+					invoiceId: "in_pro_year",
+					paymentIntentId: null,
+				},
+				remainingAfter: PERIOD_START,
+				subscription: oldSubscription,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+		const renewed = subscription({
+			currentPeriodEnd: new Date("2028-01-31T12:00:00.000Z"),
+			currentPeriodStart: PERIOD_END,
+			interval: "year",
+			plan: "starter",
+			priceLookupKey: "starter_60_year",
+			tierCredits: 60,
+		});
+		context.repository.canonical = renewed;
+		context.repository.subscriptions.set(renewed.id, renewed);
+
+		await expect(
+			context.refill.grantDueSlot("slot_1", PERIOD_END),
+		).resolves.toBe("skipped");
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+		expect(context.repository.slots[0]?.status).toBe("pending");
+
+		const renewal = invoice({
+			id: "in_starter_year_renewal",
+			newKey: "starter_60_year",
+			periodEnd: renewed.currentPeriodEnd,
+			periodStart: PERIOD_END,
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+		await context.service.grantForPaidInvoice(renewal);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+		expect(
+			context.repository.slots
+				.filter((slot) => slot.status === "pending")
+				.map((slot) => slot.credits),
+		).toEqual(Array.from({ length: 11 }, () => 6_000));
+		await expect(
+			context.refill.grantDueSlot("slot_1", PERIOD_END),
+		).resolves.toBe("skipped");
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+	});
+
+	it("does not mint unswept annual allotments after the mirrored paid period has expired", async () => {
+		const context = setup(
+			subscription({ interval: "year", priceLookupKey: "pro_250_year" }),
+		);
+		await context.refill.createYearlySlots(
+			{
+				credits: 25_000,
+				funding: {
+					chargeId: null,
+					invoiceId: "in_expired_year",
+					paymentIntentId: null,
+				},
+				remainingAfter: PERIOD_START,
+				subscription: context.repository.canonical as SubscriptionCreditRow,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+
+		await expect(
+			context.refill.grantDueSlot("slot_1", PERIOD_END),
+		).resolves.toBe("skipped");
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+	});
+
 	it("keeps paid cancel-at-period-end slots, but cancels refund-funded pending slots", async () => {
 		const context = setup(
 			subscription({
@@ -1550,6 +1723,107 @@ describe("Subscription credit policy", () => {
 			metadata: { userId: USER_ID },
 		} as unknown as Stripe.Subscription);
 		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+	});
+
+	it.each([
+		"month",
+		"year",
+	] as const)("does not revive the original Pro %s allotment after a paid Starter renewal", async (interval) => {
+		const renewedStart =
+			interval === "month" ? new Date("2026-02-28T12:00:00.000Z") : PERIOD_END;
+		const renewedEnd =
+			interval === "month"
+				? new Date("2026-03-31T12:00:00.000Z")
+				: new Date("2028-01-31T12:00:00.000Z");
+		const context = setup(
+			subscription({
+				currentPeriodEnd: renewedEnd,
+				currentPeriodStart: renewedStart,
+				interval,
+				plan: "starter",
+				priceLookupKey: `starter_60_${interval}`,
+				tierCredits: 60,
+			}),
+		);
+		context.creditRepository.seedPlan(6_000);
+		const renewal = invoice({
+			fundingChargeId: "ch_starter_renewal",
+			id: "in_starter_paid_renewal",
+			newKey: `starter_60_${interval}`,
+			periodEnd: renewedEnd,
+			periodStart: renewedStart,
+			reason: "subscription_cycle",
+		});
+		const delayedOriginal = invoice({
+			fundingChargeId: "ch_original_pro",
+			id: "in_delayed_pro_create",
+			newKey: `pro_250_${interval}`,
+			periodEnd: renewedStart,
+			reason: "subscription_create",
+		});
+		addInvoice(context, renewal);
+		addInvoice(context, delayedOriginal);
+		await context.service.grantForPaidInvoice(renewal);
+		await context.service.grantForPaidInvoice(delayedOriginal);
+		await context.service.grantForPaidInvoice(delayedOriginal);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(12_000);
+		expect(
+			context.repository.applications.filter(
+				(row) => row.stripeInvoiceId === delayedOriginal.id,
+			),
+		).toEqual([
+			expect.objectContaining({
+				billingReason: "subscription_create",
+				creditsDelta: 0,
+				newPriceLookupKey: `pro_250_${interval}`,
+			}),
+		]);
+		expect(
+			context.repository.slots.filter(
+				(slot) => slot.fundingInvoiceId === delayedOriginal.id,
+			),
+		).toHaveLength(0);
+		expect(context.lifecycleEvents.enqueue).not.toHaveBeenCalled();
+
+		// The skipped audit row must not replace Starter as the paid
+		// predecessor when the customer subsequently upgrades again.
+		const upgrade = invoice({
+			id: "in_after_stale_create_upgrade",
+			newKey: `pro_250_${interval}`,
+			oldKey: `starter_60_${interval}`,
+			periodEnd: renewedEnd,
+			periodStart: renewedStart,
+			reason: "subscription_update",
+		});
+		addInvoice(context, upgrade);
+		await expect(context.service.grantForPaidInvoice(upgrade)).resolves.toBe(
+			true,
+		);
+	});
+
+	it("keeps a delayed initial paid grant when only the mirror has advanced without a fulfilled renewal", async () => {
+		const context = setup(
+			subscription({
+				currentPeriodEnd: new Date("2027-02-28T12:00:00.000Z"),
+				currentPeriodStart: PERIOD_END,
+				plan: "starter",
+				priceLookupKey: "starter_60_month",
+				tierCredits: 60,
+			}),
+		);
+		const delayedOriginal = invoice({
+			fundingChargeId: "ch_original_paid",
+			id: "in_original_without_renewal",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		addInvoice(context, delayedOriginal);
+
+		await context.service.grantForPaidInvoice(delayedOriginal);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
+		expect(context.repository.applications[0]?.creditsDelta).toBe(25_000);
 	});
 
 	it("keeps unresolved entitled invoice mirrors retryable and cycle staleness scoped away from updates", async () => {

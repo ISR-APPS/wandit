@@ -123,4 +123,40 @@ describe("plan picker pricing", () => {
 			),
 		).toBe(true);
 	});
+
+	it.each([
+		"month",
+		"year",
+	] as const)("treats Pro to Starter on a %s cycle as a renewal downgrade", (interval) => {
+		expect(
+			isRenewalDowngrade(
+				{ interval, plan: "pro", tierCredits: 250 },
+				{ interval, plan: "starter", tierCredits: 60 },
+			),
+		).toBe(true);
+	});
+
+	it("does not let a switch to yearly billing hide a cheaper Starter plan", () => {
+		expect(
+			isRenewalDowngrade(
+				{ interval: "month", plan: "pro", tierCredits: 250 },
+				{ interval: "year", plan: "starter", tierCredits: 60 },
+			),
+		).toBe(true);
+	});
+
+	it("keeps Starter to Pro and same-tier yearly upgrades immediate", () => {
+		expect(
+			isRenewalDowngrade(
+				{ interval: "month", plan: "starter", tierCredits: 60 },
+				{ interval: "year", plan: "pro", tierCredits: 250 },
+			),
+		).toBe(false);
+		expect(
+			isRenewalDowngrade(
+				{ interval: "month", plan: "pro", tierCredits: 250 },
+				{ interval: "year", plan: "pro", tierCredits: 250 },
+			),
+		).toBe(false);
+	});
 });

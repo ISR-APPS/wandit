@@ -328,7 +328,11 @@ export class SubscriptionsRepository {
 					: { pendingAppliedBy: input.pendingAppliedBy }),
 				...(input.pendingTierCredits === undefined
 					? {}
-					: { pendingTierCredits: input.pendingTierCredits }),
+					: {
+							pendingTierCredits: input.pendingTierCredits,
+							pendingPlan: null,
+							pendingInterval: null,
+						}),
 				...(input.priceLookupKey === undefined
 					? {}
 					: { priceLookupKey: input.priceLookupKey }),
@@ -444,12 +448,17 @@ export class SubscriptionsRepository {
 		providerSubscriptionId: string,
 		pendingTierCredits: CreditTier | null,
 		client: SubscriptionsClient = this.db,
+		target?: { plan: BillingPlanId; interval: BillingInterval },
 	): Promise<SubscriptionRow | null> {
 		const [row] = await client
 			.update(subscriptions)
 			.set({
 				pendingAppliedBy: null,
 				pendingTierCredits,
+				pendingPlan:
+					pendingTierCredits === null ? null : (target?.plan ?? null),
+				pendingInterval:
+					pendingTierCredits === null ? null : (target?.interval ?? null),
 				updatedAt: new Date(),
 			})
 			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
@@ -487,6 +496,8 @@ export class SubscriptionsRepository {
 			.set({
 				pendingAppliedBy: null,
 				pendingTierCredits: null,
+				pendingPlan: null,
+				pendingInterval: null,
 				updatedAt: new Date(),
 			})
 			.where(
@@ -504,18 +515,33 @@ export class SubscriptionsRepository {
 		providerSubscriptionId: string,
 		tierCredits: number,
 		client: SubscriptionsClient = this.db,
+		target?: { plan: BillingPlanId; interval: BillingInterval },
 	): Promise<SubscriptionRow | null> {
 		const [row] = await client
 			.update(subscriptions)
 			.set({
 				pendingAppliedBy: null,
 				pendingTierCredits: null,
+				pendingPlan: null,
+				pendingInterval: null,
 				updatedAt: new Date(),
 			})
 			.where(
 				and(
 					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
 					eq(subscriptions.pendingTierCredits, tierCredits),
+					...(target
+						? [
+								or(
+									isNull(subscriptions.pendingPlan),
+									eq(subscriptions.pendingPlan, target.plan),
+								),
+								or(
+									isNull(subscriptions.pendingInterval),
+									eq(subscriptions.pendingInterval, target.interval),
+								),
+							]
+						: []),
 				),
 			)
 			.returning();

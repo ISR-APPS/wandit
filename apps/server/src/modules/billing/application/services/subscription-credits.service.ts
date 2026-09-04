@@ -579,7 +579,14 @@ export class SubscriptionCreditsService {
 					subscriptionId: canonical.id,
 				};
 
-				if (billingReason === "subscription_cycle") {
+				if (
+					billingReason === "subscription_cycle" ||
+					billingReason === "subscription_create"
+				) {
+					// A successfully fulfilled renewal is the credit boundary. A late
+					// original invoice must not restore Pro credits after Starter has
+					// already refilled and capped the balance. A newer mirror alone
+					// is insufficient: its renewal payment may still be unfulfilled.
 					const newerCycle =
 						await this.subscriptionCreditsRepository.findCycleAtOrAfter(
 							canonical.id,
@@ -593,7 +600,7 @@ export class SubscriptionCreditsService {
 							tx,
 						);
 						this.logger.warn(
-							`Skipping stale subscription cycle invoice ${invoice.id}; ${newerCycle.stripeInvoiceId} already covers period ending ${newerCycle.periodEnd.toISOString()}`,
+							`Skipping stale ${billingReason} invoice ${invoice.id}; ${newerCycle.stripeInvoiceId} already covers period ending ${newerCycle.periodEnd.toISOString()}`,
 						);
 
 						return false;
@@ -678,11 +685,21 @@ export class SubscriptionCreditsService {
 
 				if (
 					billingReason === "subscription_cycle" &&
-					canonical.pendingAppliedBy !== null
+					canonical.pendingAppliedBy !== null &&
+					canonical.pendingTierCredits === effectiveCurrentPlan.tierCredits &&
+					(canonical.pendingPlan ?? canonical.plan) ===
+						effectiveCurrentPlan.plan &&
+					(canonical.pendingInterval ?? canonical.interval) ===
+						effectiveCurrentPlan.interval
 				) {
-					await this.subscriptionsRepository.clearAppliedPendingTier(
+					await this.subscriptionsRepository.clearMatchingPendingTier(
 						providerSubscriptionId,
+						effectiveCurrentPlan.tierCredits,
 						tx,
+						{
+							interval: effectiveCurrentPlan.interval,
+							plan: effectiveCurrentPlan.plan,
+						},
 					);
 				}
 

@@ -66,6 +66,7 @@ import { ManualRequestCancelDialog } from "@/features/billing/components/manual-
 import {
 	areTopupsAvailable,
 	getManualGraceNoticeDates,
+	getPendingSubscriptionChange,
 } from "@/features/billing/lib/billing-ui-policy";
 import { parseBillingCancelRequest } from "@/features/billing/lib/cancel-subscription";
 import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
@@ -468,6 +469,7 @@ function SubscriptionCard({
 	const { t } = useTranslation();
 	const copy = useDictionary().billing;
 	const manualSubscription = isManualSubscription(subscription);
+	const pendingChange = getPendingSubscriptionChange(subscription);
 	const subscriptionPlansAvailable =
 		paidSubscriptionsEnabled || manualPaymentsEnabled;
 
@@ -535,12 +537,15 @@ function SubscriptionCard({
 									dateStyle: "medium",
 								})}
 							/>
-							{subscription.pendingTierCredits ? (
+							{pendingChange ? (
 								<PlanDetail
 									label={copy.page.pendingTierLabel}
-									value={t("credits.creditUnit", {
-										count: subscription.pendingTierCredits,
-									})}
+									value={`${getBillingPlanName(pendingChange.plan, copy.planPicker)} · ${t(
+										"credits.creditUnit",
+										{
+											count: pendingChange.tierCredits,
+										},
+									)} · ${pendingChange.interval === "year" ? copy.planPicker.yearly : copy.planPicker.monthly}`}
 								/>
 							) : null}
 						</dl>

@@ -3,11 +3,50 @@ import { describe, expect, it } from "vitest";
 import {
 	areTopupsAvailable,
 	getManualGraceNoticeDates,
+	getPendingSubscriptionChange,
 	resolvePlanPickerInterval,
 	resolvePlanPickerPaymentMethod,
 } from "./billing-ui-policy";
 
 describe("billing UI policy", () => {
+	describe("scheduled subscription change", () => {
+		const subscription = {
+			interval: "month" as const,
+			pendingTierCredits: 60 as const,
+			plan: "pro" as const,
+		};
+
+		it("keeps the target plan and interval separate from current paid benefits", () => {
+			expect(
+				getPendingSubscriptionChange({
+					...subscription,
+					pendingInterval: "year",
+					pendingPlan: "starter",
+				}),
+			).toEqual({ interval: "year", plan: "starter", tierCredits: 60 });
+		});
+
+		it("preserves same-plan pending changes from older API responses", () => {
+			expect(
+				getPendingSubscriptionChange({
+					...subscription,
+					pendingTierCredits: 250,
+				}),
+			).toEqual({ interval: "month", plan: "pro", tierCredits: 250 });
+		});
+
+		it("does not show a scheduled plan without a pending tier", () => {
+			expect(
+				getPendingSubscriptionChange({
+					...subscription,
+					pendingPlan: "starter",
+					pendingTierCredits: null,
+				}),
+			).toBeNull();
+			expect(getPendingSubscriptionChange(null)).toBeNull();
+		});
+	});
+
 	describe("top-up admission", () => {
 		it("offers catalog packs whenever the independent top-up switch is enabled", () => {
 			expect(areTopupsAvailable(true, 3)).toBe(true);

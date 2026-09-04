@@ -177,7 +177,15 @@ export class SubscriptionCreditsRepository {
 		const [row] = await client
 			.select()
 			.from(billingInvoiceApplications)
-			.where(eq(billingInvoiceApplications.subscriptionId, subscriptionId))
+			.where(
+				and(
+					eq(billingInvoiceApplications.subscriptionId, subscriptionId),
+					// Initial invoices always grant a positive allotment unless they
+					// were skipped after a newer renewal. Keep those audit-only rows
+					// out of the paid predecessor chain for subsequent upgrades.
+					sql`(${billingInvoiceApplications.billingReason} <> 'subscription_create' OR ${billingInvoiceApplications.creditsDelta} > 0)`,
+				),
+			)
 			.orderBy(
 				desc(billingInvoiceApplications.appliedAt),
 				desc(billingInvoiceApplications.stripeInvoiceId),
