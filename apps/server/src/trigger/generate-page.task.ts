@@ -73,11 +73,27 @@ const attemptSpecSchema = z.object({
 	// Resolved COD build path, persisted so the queued snapshot round-trips.
 	codMode: z.enum(["simple", "max"]).optional(),
 	designerSystemPrompt: z.string().min(1),
+	// Image models snapshotted at queue time (same reasoning as the builder
+	// model). Absent on legacy rows — the build falls back to the worker env.
+	imageEditModel: z.string().min(1).optional(),
+	imageModel: z.string().min(1).optional(),
 	// Legacy rows already use "website"; older rows may omit the field.
 	pageKind: z.enum(["cod", "website"]).optional(),
 	productSku: productSkuSchema.optional(),
 	title: z.string().min(1),
 });
+
+// A dashboard cancel aborts the run's signal, but a run stuck in an await the
+// signal cannot reach never gets to its own aborted-catch — the onCancel hook
+// (same worker process, dedicated grace window) is the backstop. The run
+// registers its memoized cancel finalizer here by run id and removes it in
+// its finally, so a leftover entry means the cleanup is still owed.
+const pageBuildCancelFinalizers = new Map<string, () => Promise<unknown>>();
+
+// How long onCancel waits for the run's own aborted-catch to finish the
+// cleanup before doing it directly — half the SDK's ~30s kill window, so the
+// direct path keeps time for its metering and DB writes.
+const CANCEL_RUN_SETTLE_GRACE_MS = 15_000;
 
 export const generatePageTask = task({
 	id: "generate-page",
@@ -88,6 +104,9 @@ export const generatePageTask = task({
 	// One Builder tool loop with two screenshot review passes; typically a
 	// few minutes. The generous ceiling is a safety net, not an estimate.
 	maxDuration: 1800,
+	// onCancel is declared below `run` on purpose: the hook's payload type is
+	// inferred from run's annotation, and TS resolves these context-sensitive
+	// literals in source order.
 	retry: { maxAttempts: 1 },
 	run: async (
 		payload: {
@@ -193,6 +212,90 @@ export const generatePageTask = task({
 			// the percent the build died at, even after a page reload.
 			let latestProgressPercent: number | null = null;
 
+			// Shared by the cancel and failure paths: every observed provider
+			// generation must be persisted before settlement, and a metering
+			// failure is reported (not thrown) so the caller keeps control of
+			// the terminal error. Idempotent — settle/refund tolerate replays.
+			const settleBuilderMeteringForTermination =
+				async (): Promise<unknown> => {
+					const generationsReadyForSettlement =
+						await flushPageBuildGenerationsForSettlement(
+							generationCaptureBuffer,
+							(captureError) => {
+								// A known provider call must never be refunded just because its
+								// generation reference could not be persisted during this run. Keep
+								// the original provider error and leave the hold for recovery.
+								logger.error(
+									`Gateway generation capture failed: ${captureError instanceof Error ? captureError.message : String(captureError)}`,
+								);
+							},
+						);
+
+					if (
+						generationsReadyForSettlement &&
+						meteringService &&
+						usageEvent &&
+						!meteringClosed
+					) {
+						try {
+							await closeBuilderMetering(
+								meteringService,
+								usageEvent,
+								attempt.model,
+								meteredSteps,
+								failedProviderGenerationObserved,
+							);
+							meteringClosed = true;
+						} catch (meteringError) {
+							logger.error(
+								`Metering settlement failed: ${meteringError instanceof Error ? meteringError.message : String(meteringError)}`,
+							);
+
+							return meteringError;
+						}
+					}
+
+					return undefined;
+				};
+
+			// A user Stop (or dashboard cancel) is a decision, not a failure:
+			// record "canceled" with the frozen percent and skip the failure
+			// analytics. The stop endpoint usually flips the row first — this
+			// CAS is the belt-and-suspenders for cancels it did not initiate.
+			// Memoized: the aborted-catch and the onCancel hook may both call
+			// it, and the settlement must not race itself in this process.
+			let cancelFinalization: Promise<unknown> | null = null;
+			const finalizeCanceledBuild = (): Promise<unknown> => {
+				cancelFinalization ??= (async () => {
+					logger.info(
+						`⏹️ Build stopped by cancellation at ${latestProgressPercent ?? 0}%`,
+					);
+
+					const meteringError = await settleBuilderMeteringForTermination();
+
+					await db
+						.update(pageGenerationAttempts)
+						.set({
+							completedAt: new Date(),
+							lastProgressPercent: latestProgressPercent,
+							status: "canceled",
+						})
+						.where(
+							and(
+								eq(pageGenerationAttempts.id, attempt.id),
+								eq(pageGenerationAttempts.status, "generating"),
+								eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+							),
+						);
+
+					return meteringError;
+				})();
+
+				return cancelFinalization;
+			};
+
+			pageBuildCancelFinalizers.set(ctx.run.id, finalizeCanceledBuild);
+
 			try {
 				if (meteringService) {
 					usageEvent = await meteringService.reserve("page_build", subject, {
@@ -217,7 +320,10 @@ export const generatePageTask = task({
 
 				logger.info(
 					`🚀 Build starting — page "${spec.title}", attempt ${attempt.id}, ` +
-						`Builder ${attempt.model}`,
+						`Builder ${attempt.model}` +
+						(spec.imageModel
+							? `, image model ${spec.imageModel}`
+							: ", image model from worker env (legacy attempt)"),
 				);
 
 				logger.info(
@@ -259,6 +365,10 @@ export const generatePageTask = task({
 					abortSignal: signal,
 					attemptId: assetNamespace,
 					brief,
+					...(spec.imageEditModel
+						? { imageEditModel: spec.imageEditModel }
+						: {}),
+					...(spec.imageModel ? { imageModel: spec.imageModel } : {}),
 					model: attempt.model,
 					onEvent: (event) => {
 						if (event.type === "screenshot-pass") {
@@ -407,6 +517,10 @@ export const generatePageTask = task({
 							files: build.files.map((file) => file.path),
 							generationModels: {
 								builder: attempt.model,
+								...(spec.imageModel ? { image: spec.imageModel } : {}),
+								...(spec.imageEditModel
+									? { imageEdit: spec.imageEditModel }
+									: {}),
 							},
 							// Contract §9: absent source means LEGACY builder rows.
 							source: "builder",
@@ -518,67 +632,20 @@ export const generatePageTask = task({
 				};
 			} catch (error) {
 				let terminalError = error;
-				const generationsReadyForSettlement =
-					await flushPageBuildGenerationsForSettlement(
-						generationCaptureBuffer,
-						(captureError) => {
-							// A known provider call must never be refunded just because its
-							// generation reference could not be persisted during this run. Keep
-							// the original provider error and leave the hold for recovery.
-							logger.error(
-								`Gateway generation capture failed: ${captureError instanceof Error ? captureError.message : String(captureError)}`,
-							);
-						},
-					);
 
-				if (
-					generationsReadyForSettlement &&
-					meteringService &&
-					usageEvent &&
-					!meteringClosed
-				) {
-					try {
-						await closeBuilderMetering(
-							meteringService,
-							usageEvent,
-							attempt.model,
-							meteredSteps,
-							failedProviderGenerationObserved,
-						);
-						meteringClosed = true;
-					} catch (meteringError) {
-						terminalError = meteringError;
-						logger.error(
-							`Metering settlement failed: ${meteringError instanceof Error ? meteringError.message : String(meteringError)}`,
-						);
-					}
+				// The cancel path shares its finalizer with the onCancel hook —
+				// see finalizeCanceledBuild above for what runs and why it is
+				// safe for both to call it.
+				if (signal.aborted) {
+					const meteringError = await finalizeCanceledBuild();
+
+					throw meteringError ?? terminalError;
 				}
 
-				// A user Stop (or dashboard cancel) is a decision, not a failure:
-				// record "canceled" with the frozen percent and skip the failure
-				// analytics. The stop endpoint usually flips the row first — this
-				// CAS is the belt-and-suspenders for cancels it did not initiate.
-				if (signal.aborted) {
-					logger.info(
-						`⏹️ Build stopped by cancellation at ${latestProgressPercent ?? 0}%`,
-					);
+				const meteringError = await settleBuilderMeteringForTermination();
 
-					await db
-						.update(pageGenerationAttempts)
-						.set({
-							completedAt: new Date(),
-							lastProgressPercent: latestProgressPercent,
-							status: "canceled",
-						})
-						.where(
-							and(
-								eq(pageGenerationAttempts.id, attempt.id),
-								eq(pageGenerationAttempts.status, "generating"),
-								eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
-							),
-						);
-
-					throw terminalError;
+				if (meteringError !== undefined) {
+					terminalError = meteringError;
 				}
 
 				const route = llmProviderForTask("page_build");
@@ -631,7 +698,35 @@ export const generatePageTask = task({
 				throw terminalError;
 			}
 		} finally {
+			// Delete BEFORE ending the pool: a leftover entry would let a late
+			// onCancel run DB writes against a closed pool.
+			pageBuildCancelFinalizers.delete(ctx.run.id);
 			await db.$client.end();
+		}
+	},
+	onCancel: async ({ ctx, runPromise }) => {
+		// The aborted signal usually lets the run's own catch do the full cancel
+		// cleanup (flush captures, settle/refund metering, CAS → canceled).
+		// Wait for that first; the timer guards the run that is stuck in an
+		// await the abort signal cannot reach.
+		await Promise.race([
+			runPromise.then(
+				() => undefined,
+				() => undefined,
+			),
+			new Promise((resolve) =>
+				setTimeout(resolve, CANCEL_RUN_SETTLE_GRACE_MS).unref(),
+			),
+		]);
+
+		// Present only while the run is still unwinding — its finally removes
+		// the entry (after its own cleanup, when any ran). Both paths may call
+		// the finalizer; it is memoized, and the metering guards plus the
+		// status CAS tolerate cross-process replays.
+		const finalize = pageBuildCancelFinalizers.get(ctx.run.id);
+
+		if (finalize) {
+			await finalize();
 		}
 	},
 });

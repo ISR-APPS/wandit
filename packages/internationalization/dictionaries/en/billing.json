@@ -128,6 +128,7 @@
 		"currentPlan": "Current subscriber",
 		"requiredCredits": "Required",
 		"availableCredits": "Available",
+		"heldCredits": "On hold by running generations",
 		"billingCycle": "Billing cycle",
 		"monthly": "Monthly",
 		"yearly": "Yearly",

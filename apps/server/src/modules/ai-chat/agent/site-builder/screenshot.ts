@@ -55,6 +55,11 @@ const VIEWPORTS = [
 const SETTLE_MS = 2500;
 const SCROLL_SETTLE_MS = 900;
 
+// Playwright puts NO timeout on evaluate, and document.fonts.ready never
+// settles while a font fetch is stalled — cap the wait inside the page so a
+// dead font CDN costs seconds, not the whole build.
+const FONTS_READY_TIMEOUT_MS = 8000;
+
 // 7 per viewport keeps the multimodal tool result at ≤14 images; JPEG at
 // this quality is enough for layout review without bloating the context.
 const MAX_SHOTS_PER_VIEWPORT = 7;
@@ -138,7 +143,10 @@ export function createScreenshotSession(
 				await abortable(
 					page.evaluate(
 						"document.fonts && document.fonts.ready " +
-							"? document.fonts.ready.then(() => undefined) : undefined",
+							"? Promise.race([" +
+							"document.fonts.ready.then(() => undefined), " +
+							`new Promise((resolve) => setTimeout(resolve, ${FONTS_READY_TIMEOUT_MS}))` +
+							"]) : undefined",
 					),
 					abortSignal,
 				);

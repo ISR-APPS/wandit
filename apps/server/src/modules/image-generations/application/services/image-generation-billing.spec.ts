@@ -7,7 +7,7 @@ const MEASURED_SNAPSHOT = {
 	estimatedUnitUsdMicros: 134_400,
 	mode: "measured",
 	operation: "image",
-	reserveFloorCredits: 350,
+	reserveFloorCredits: 100,
 	source: "operation_registry_reservation",
 	unit: "image",
 	units: 4,
@@ -40,7 +40,7 @@ describe("createImageGenerationBilling", () => {
 			id: "event_1",
 			operation: "image",
 			pricingSnapshot: MEASURED_SNAPSHOT,
-			reservedCredits: 1400,
+			reservedCredits: 1344,
 		} as unknown as Awaited<ReturnType<MeteringService["reserve"]>>;
 		const meteringService = meteringServiceDouble(event, {
 			costUsdMicros: 537_600,
@@ -62,13 +62,13 @@ describe("createImageGenerationBilling", () => {
 		expect(meteringService.estimateMeasuredCost).toHaveBeenCalledWith(
 			expect.objectContaining({ count: 4, kind: "image" }),
 		);
-		// 4 × $0.1344 = $0.5376 → 1,344 cc, below the 4 × 350 cc floor.
+		// 4 × $0.1344 = $0.5376 → 1,344 cc, above the 4 × 100 cc floor.
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 1400,
+				credits: 1344,
 				estimatedCostUsdMicros: 537_600,
 				idempotencyKey: "image:attempt_1",
 				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 4 },
@@ -97,7 +97,7 @@ describe("createImageGenerationBilling", () => {
 			id: "event_floor",
 			operation: "image",
 			pricingSnapshot: { ...MEASURED_SNAPSHOT, estimatedUnitUsdMicros: null },
-			reservedCredits: 1400,
+			reservedCredits: 400,
 		} as unknown as Awaited<ReturnType<MeteringService["reserve"]>>;
 		const meteringService = meteringServiceDouble(event, null);
 		const billing = createImageGenerationBilling({
@@ -115,7 +115,7 @@ describe("createImageGenerationBilling", () => {
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
 			{ actorUserId: "user_1" },
-			expect.objectContaining({ credits: 1400, estimatedCostUsdMicros: null }),
+			expect.objectContaining({ credits: 400, estimatedCostUsdMicros: null }),
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith(
 			"event_floor",

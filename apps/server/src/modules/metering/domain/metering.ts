@@ -194,6 +194,8 @@ export type MeteringRecoveryOutcome = {
 	reconciled: number;
 	refunded: number;
 	scanned: number;
+	/** Ref-bearing rows left reserved because gateway reconciliation is off. */
+	skipped: number;
 };
 
 export type MeteringReconciliationSweepOutcome = {

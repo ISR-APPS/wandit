@@ -4,6 +4,8 @@ import {
 	assertBillingDatabaseConfiguration,
 	assertBillingFinancialConfiguration,
 	assertMeteringConfiguration,
+	assertMeteringRecoveryConfiguration,
+	meteringGatewayConfigurationError,
 } from "./billing-maintenance.config";
 
 const CONFIGURATION_KEYS = [
@@ -71,6 +73,29 @@ describe("billing maintenance task configuration", () => {
 		expect(() => assertBillingFinancialConfiguration()).toThrow(
 			"STRIPE_SECRET_KEY is required",
 		);
+	});
+
+	it("lets stranded recovery run on the database alone when gateway keys are missing", () => {
+		setConfiguration(["DATABASE_URL"]);
+
+		// Ref-less refunds only need the database; a bad gateway-key deploy must
+		// not stop the sweep (and leak every reserved hold again).
+		expect(() => assertMeteringRecoveryConfiguration()).not.toThrow();
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"AI_GATEWAY_API_KEY is required",
+		);
+	});
+
+	it("reports the missing gateway half without throwing", () => {
+		setConfiguration(["DATABASE_URL"]);
+
+		expect(meteringGatewayConfigurationError()?.message).toBe(
+			"AI_GATEWAY_API_KEY is required for this Trigger task",
+		);
+
+		vi.stubEnv("AI_GATEWAY_API_KEY", "gateway-task-key");
+
+		expect(meteringGatewayConfigurationError()).toBeNull();
 	});
 
 	it("additionally requires the OpenRouter key when it serves LLM traffic", () => {

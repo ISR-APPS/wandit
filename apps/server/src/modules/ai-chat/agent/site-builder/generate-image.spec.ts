@@ -101,6 +101,8 @@ describe("generateBuildImage", () => {
 		const result = await generateBuildImage(PARAMS);
 
 		expect(generateImage).toHaveBeenCalledWith({
+			// Always present: the per-image deadline signal rides every call.
+			abortSignal: expect.any(AbortSignal),
 			model: "openai/gpt-image-2",
 			prompt: `${PARAMS.prompt}\n${SINGLE_FRAME_INSTRUCTION}`,
 			providerOptions: {
@@ -149,6 +151,49 @@ describe("generateBuildImage", () => {
 			vi.mocked(putSiteFile).mock.invocationCallOrder[0] ??
 				Number.MAX_SAFE_INTEGER,
 		);
+	});
+
+	it("prefers the queue-time imageModel snapshot over the worker env", async () => {
+		mockGeneratedImage();
+
+		const result = await generateBuildImage({
+			...PARAMS,
+			imageModel: "meta/muse-image-1.0",
+		});
+
+		expect(generateImage).toHaveBeenCalledWith(
+			expect.objectContaining({ model: "meta/muse-image-1.0" }),
+		);
+		expect(result).toMatchObject({
+			model: "meta/muse-image-1.0",
+			status: "generated",
+		});
+	});
+
+	it("generates from the snapshot even when the worker env lost its model", async () => {
+		mockEnv.AI_IMAGE_MODEL = undefined;
+		mockGeneratedImage();
+
+		const result = await generateBuildImage({
+			...PARAMS,
+			imageModel: "meta/muse-image-1.0",
+		});
+
+		expect(result).toMatchObject({ status: "generated" });
+	});
+
+	it("races the task abort signal with the per-image deadline", async () => {
+		mockGeneratedImage();
+		const controller = new AbortController();
+
+		await generateBuildImage({ ...PARAMS, abortSignal: controller.signal });
+
+		const passed = vi.mocked(generateImage).mock.calls[0]?.[0]?.abortSignal;
+		expect(passed).toBeInstanceOf(AbortSignal);
+		expect(passed?.aborted).toBe(false);
+		// The combined signal must follow the task's own abort, not replace it.
+		controller.abort();
+		expect(passed?.aborted).toBe(true);
 	});
 
 	it("joins the public URL cleanly when the base has a trailing slash", async () => {

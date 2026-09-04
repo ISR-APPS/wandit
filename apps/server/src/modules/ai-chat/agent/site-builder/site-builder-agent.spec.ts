@@ -153,6 +153,8 @@ function fakeCapture(): ScreenshotCapture {
 
 function setup(config?: {
 	abortSignal?: AbortSignal;
+	imageEditModel?: string;
+	imageModel?: string;
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	pageKind?: "cod" | "website";
@@ -2001,7 +2003,7 @@ const IMAGE_CHILD_EVENT = {
 		unit: "image",
 		usdMicrosPerCredit: 40_000,
 	},
-	reservedCredits: 350,
+	reservedCredits: 336,
 };
 const VIDEO_CHILD_EVENT = {
 	id: "video_event_1",
@@ -2021,7 +2023,7 @@ describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
-			// gemini-3-pro-image default: $0.1344 → 336 cc, below the 350 cc floor.
+			// gemini-3-pro-image default: $0.1344 → 336 cc, above the 100 cc floor.
 			estimateMeasuredCost: vi.fn(async () => ({
 				costUsdMicros: 134_400,
 				credits: 336,
@@ -2058,7 +2060,7 @@ describe("generate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:image:1",
-				credits: 350,
+				credits: 336,
 				estimatedCostUsdMicros: 134_400,
 				idempotencyKey: "page-build-image:page_event_1:1",
 				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
@@ -2264,6 +2266,33 @@ describe("generate_image tool", () => {
 		// <img> instead of guessing a box.
 		const [marker] = modelOutput.value;
 		expect(marker?.type === "text" && marker.text).toContain("1536x1024px");
+	});
+
+	it("threads the queue-time image model snapshots into the handler", async () => {
+		const { options, tools } = setup({
+			imageEditModel: "google/gemini-3-pro-image",
+			imageModel: "meta/muse-image-1.0",
+		});
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
+			imageBase64: "aW1nLWJ5dGVz",
+			mediaType: "image/png",
+			model: "meta/muse-image-1.0",
+			providerMetadata: {},
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+			width: 1536,
+		});
+
+		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_1"));
+
+		// The handler must see the attempt's snapshot, never the worker env.
+		expect(generateBuildImage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				imageEditModel: "google/gemini-3-pro-image",
+				imageModel: "meta/muse-image-1.0",
+			}),
+		);
 	});
 
 	it("passes handler failures through without counting the image", async () => {

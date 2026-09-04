@@ -127,6 +127,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 				surface={surface}
 				requiredCredits={intent?.requiredCredits}
 				availableCredits={intent?.availableCredits}
+				heldCredits={intent?.heldCredits}
 			/>
 			<WorkspaceBillingNoticeDialog
 				kind={notice?.kind ?? "memberLimit"}

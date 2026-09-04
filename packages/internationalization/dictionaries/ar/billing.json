@@ -128,6 +128,7 @@
 		"currentPlan": "الاشتراك الحالي",
 		"requiredCredits": "المطلوب",
 		"availableCredits": "المتاح",
+		"heldCredits": "محجوزة لعمليات توليد قيد التشغيل",
 		"billingCycle": "دورة الفوترة",
 		"monthly": "شهري",
 		"yearly": "سنوي",

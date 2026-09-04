@@ -75,6 +75,45 @@ describe("billing error dispatch", () => {
 		).toEqual({ code: "GENERATION_PAYMENT_REQUIRED", ...overageDetails });
 	});
 
+	it("forwards heldCredits so the paywall can explain reserve holds", () => {
+		const heldDetails = {
+			requiredCredits: 3,
+			availableCredits: 6.7,
+			heldCredits: 10,
+		};
+
+		expect(
+			toUpgradeModalIntent({
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: heldDetails,
+			}),
+		).toEqual({ code: "INSUFFICIENT_CREDITS", ...heldDetails });
+	});
+
+	it("omits heldCredits when the 402 details lack it (older servers)", () => {
+		const intent = toUpgradeModalIntent({
+			code: "INSUFFICIENT_CREDITS",
+			statusCode: 402,
+			details,
+		});
+
+		expect(intent).not.toBeNull();
+		expect(intent).not.toHaveProperty("heldCredits");
+	});
+
+	it("drops a malformed heldCredits but keeps the intent", () => {
+		for (const heldCredits of ["10", -1, Number.NaN]) {
+			expect(
+				toUpgradeModalIntent({
+					code: "INSUFFICIENT_CREDITS",
+					statusCode: 402,
+					details: { ...details, heldCredits },
+				}),
+			).toEqual({ code: "INSUFFICIENT_CREDITS", ...details });
+		}
+	});
+
 	it("maps decimal member-limit details to the member-limit intent", () => {
 		const limitDetails = {
 			limitCredits: 100,

@@ -88,6 +88,7 @@ export type PlanPickerDialogProps = {
 	initialPaymentMethod?: PlanPickerPaymentMethod;
 	requiredCredits?: number;
 	availableCredits?: number;
+	heldCredits?: number;
 	surface: ProductEventSurface;
 };
 
@@ -106,6 +107,7 @@ export function PlanPickerDialog({
 	initialPaymentMethod,
 	requiredCredits,
 	availableCredits,
+	heldCredits,
 	surface,
 }: PlanPickerDialogProps) {
 	const { t } = useTranslation();
@@ -156,6 +158,7 @@ export function PlanPickerDialog({
 							}}
 							requiredCredits={requiredCredits}
 							availableCredits={availableCredits}
+							heldCredits={heldCredits}
 						/>
 					</DialogContent>
 				) : null}
@@ -177,6 +180,7 @@ function PlanPickerContent({
 	defaultFullName,
 	requiredCredits,
 	availableCredits,
+	heldCredits,
 	surface,
 }: {
 	onClose: () => void;
@@ -187,6 +191,7 @@ function PlanPickerContent({
 	defaultFullName: string;
 	requiredCredits?: number;
 	availableCredits?: number;
+	heldCredits?: number;
 	surface: ProductEventSurface;
 }) {
 	const { locale } = useTranslation();
@@ -230,6 +235,7 @@ function PlanPickerContent({
 			<PlanPickerSkeleton
 				requiredCredits={requiredCredits}
 				availableCredits={availableCredits}
+				heldCredits={heldCredits}
 			/>
 		);
 	}
@@ -246,6 +252,7 @@ function PlanPickerContent({
 				body={copy.loadErrorBody}
 				requiredCredits={requiredCredits}
 				availableCredits={availableCredits}
+				heldCredits={heldCredits}
 				action={
 					<Button type="button" variant="outline" onClick={onClose}>
 						{copy.close}
@@ -288,6 +295,7 @@ function PlanPickerContent({
 				body={dictionary.errors.codes.MANUAL_PAYMENTS_DISABLED}
 				requiredCredits={requiredCredits}
 				availableCredits={noticeAvailableCredits}
+				heldCredits={heldCredits}
 				action={
 					<Button type="button" onClick={onClose}>
 						{copy.close}
@@ -306,6 +314,7 @@ function PlanPickerContent({
 				body={copy.betaBody}
 				requiredCredits={requiredCredits}
 				availableCredits={noticeAvailableCredits}
+				heldCredits={heldCredits}
 				extra={
 					topupsAvailable ? (
 						<TopupPackChoices
@@ -346,6 +355,7 @@ function PlanPickerContent({
 				body={copy.resumeFirstBody}
 				requiredCredits={requiredCredits}
 				availableCredits={noticeAvailableCredits}
+				heldCredits={heldCredits}
 				error={errorMessage}
 				extra={
 					topupsAvailable ? (
@@ -392,6 +402,7 @@ function PlanPickerContent({
 				body={copy.paymentAttentionBody}
 				requiredCredits={requiredCredits}
 				availableCredits={noticeAvailableCredits}
+				heldCredits={heldCredits}
 				error={errorMessage}
 				extra={
 					topupsAvailable ? (
@@ -489,6 +500,7 @@ function PlanPickerContent({
 				body={copy.catalogEmptyBody}
 				requiredCredits={requiredCredits}
 				availableCredits={noticeAvailableCredits}
+				heldCredits={heldCredits}
 				action={
 					<Button type="button" variant="outline" onClick={onClose}>
 						{copy.close}
@@ -733,8 +745,18 @@ function PlanPickerContent({
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatCreditBalance(visibleAvailableCredits, locale)}
+						value={formatCreditBalance(
+							clampDisplayedCredits(visibleAvailableCredits),
+							locale,
+						)}
 					/>
+					{heldCredits !== undefined && heldCredits > 0 ? (
+						<RequirementMetric
+							className="col-span-2"
+							label={copy.heldCredits}
+							value={formatCreditAmount(heldCredits, locale)}
+						/>
+					) : null}
 				</div>
 			) : null}
 
@@ -948,6 +970,7 @@ function PickerNotice({
 	error,
 	requiredCredits,
 	availableCredits,
+	heldCredits,
 	extra,
 	action,
 }: {
@@ -958,6 +981,7 @@ function PickerNotice({
 	error?: string | null;
 	requiredCredits?: number;
 	availableCredits?: number;
+	heldCredits?: number;
 	extra?: React.ReactNode;
 	action: React.ReactNode;
 }) {
@@ -999,8 +1023,18 @@ function PickerNotice({
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatCreditBalance(availableCredits, locale)}
+						value={formatCreditBalance(
+							clampDisplayedCredits(availableCredits),
+							locale,
+						)}
 					/>
+					{heldCredits !== undefined && heldCredits > 0 ? (
+						<RequirementMetric
+							className="col-span-2"
+							label={copy.heldCredits}
+							value={formatCreditAmount(heldCredits, locale)}
+						/>
+					) : null}
 				</div>
 			) : null}
 			{extra}
@@ -1013,9 +1047,11 @@ function PickerNotice({
 function PlanPickerSkeleton({
 	requiredCredits,
 	availableCredits,
+	heldCredits,
 }: {
 	requiredCredits?: number;
 	availableCredits?: number;
+	heldCredits?: number;
 }) {
 	const { locale } = useTranslation();
 	const copy = useDictionary().billing.planPicker;
@@ -1036,8 +1072,18 @@ function PlanPickerSkeleton({
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatCreditBalance(availableCredits, locale)}
+						value={formatCreditBalance(
+							clampDisplayedCredits(availableCredits),
+							locale,
+						)}
 					/>
+					{heldCredits !== undefined && heldCredits > 0 ? (
+						<RequirementMetric
+							className="col-span-2"
+							label={copy.heldCredits}
+							value={formatCreditAmount(heldCredits, locale)}
+						/>
+					) : null}
 				</div>
 			) : null}
 			<div className="grid gap-4" aria-hidden>
@@ -1060,9 +1106,17 @@ function InlineError({ message }: { message: string }) {
 	);
 }
 
-function RequirementMetric({ label, value }: { label: string; value: string }) {
+function RequirementMetric({
+	label,
+	value,
+	className,
+}: {
+	label: string;
+	value: string;
+	className?: string;
+}) {
 	return (
-		<div>
+		<div className={className}>
 			<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
 				{label}
 			</p>
@@ -1139,6 +1193,13 @@ function changeErrorMessage(
 	}
 
 	return getApiErrorMessage(error);
+}
+
+// availableCredits is the settled balance under the current 402 contract, but
+// an old server or a cached error can still deliver the raw hold-dipped value.
+// The paywall never prints a negative the user's header has never shown.
+function clampDisplayedCredits(value: number): number {
+	return Math.max(0, value);
 }
 
 function formatUsd(value: number, locale: Locale) {
