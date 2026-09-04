@@ -402,7 +402,7 @@ describe("admin analytics services", () => {
 					consumedInRange: 64.37,
 					avgConsumedPerFreeUser: 8.04,
 					avgConsumedPerPaidUser: 16.5,
-					consumptionBuckets: [{ bucket: "3-4", users: 3 }],
+					consumptionBuckets: [{ bucket: "5-9", users: 3 }],
 					usersAtZeroBalance: 2,
 					avgCreditsBeforeUpgrade: 22.75,
 					providerCostPerCreditMicros: 410,
@@ -421,7 +421,7 @@ describe("admin analytics services", () => {
 				},
 				conversionByCredits: [
 					{
-						bucket: "3-4",
+						bucket: "5-9",
 						owners: 7,
 						paidOwners: 2,
 						paidPct: 28.6,
@@ -558,7 +558,7 @@ describe("admin analytics services", () => {
 			},
 			credits: { grantedInRange: 100.5, consumedInRange: 64.37 },
 			freeCredits: { medianDaysToConsume: 6.2, measuredUsers: 5 },
-			conversionByCredits: [{ bucket: "3-4", paidPct: 28.6 }],
+			conversionByCredits: [{ bucket: "5-9", paidPct: 28.6 }],
 			features: [{ key: "websites", convertedAfterUsePct: 12.5 }],
 		});
 		await expect(

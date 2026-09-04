@@ -80,7 +80,7 @@ function RevenueMetrics({ tiles }: RevenueMetricsProps) {
 					key: "healthy-trials",
 					label: "Healthy trials",
 					tooltip:
-						"Free users who really used the product: 3+ credits and 2+ generations in their first 7 days. The supporting percentages show healthy trials as a share of all trials, then healthy versus other trial-to-paid rates.",
+						"Free users who really used the product: 7+ credits and 2+ generations in their first 7 days. The supporting percentages show healthy trials as a share of all trials, then healthy versus other trial-to-paid rates.",
 					value: formatOverviewWholeNumber(healthyTrials.count),
 					description: (
 						<>

@@ -7,7 +7,7 @@ Supersedes the $0.028 anchor of `pricing-v3-implementation.md` /
 ## 1. The unit
 
 > **Grant-only supersession:** pricing v6 supersedes only the signup-grant sentence in this
-> section. The current grant is 7 credits = 700 centi-credits = $0.28 of provider cost;
+> section. The current grant is 18 credits = 1800 centi-credits = $0.72 of provider cost;
 > existing free users keep grants already issued. The $0.04 unit and the rest of this document
 > remain authoritative.
 

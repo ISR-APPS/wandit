@@ -308,8 +308,8 @@ const FEATURES_SNAPSHOT = {
 	},
 	conversionByCredits: [
 		{ consumed: 0, owners: 2, paidOwners: 0 },
-		// 1_200 centi-credits = 12 credits, which lands in the "7+" bucket.
-		{ consumed: 1_200, owners: 3, paidOwners: 2 },
+		// 1_800 centi-credits = 18 credits, which lands in the "18+" bucket.
+		{ consumed: 1_800, owners: 3, paidOwners: 2 },
 	],
 } satisfies AdminAnalyticsFeaturesSnapshot;
 
@@ -672,9 +672,9 @@ describe("AdminAnalyticsService", () => {
 			measuredUsers: 3,
 		});
 		expect(
-			response.conversionByCredits.find(({ bucket }) => bucket === "7+"),
+			response.conversionByCredits.find(({ bucket }) => bucket === "18+"),
 		).toEqual({
-			bucket: "7+",
+			bucket: "18+",
 			owners: 3,
 			paidOwners: 2,
 			paidPct: 66.7,
