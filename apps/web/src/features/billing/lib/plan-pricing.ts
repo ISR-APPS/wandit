@@ -40,12 +40,7 @@ export function isRenewalDowngrade(
 	target: Pick<Subscription, "interval" | "plan" | "tierCredits">,
 ): boolean {
 	return (
-		subscription.interval === target.interval &&
-		priceUsdFor(target.plan, target.tierCredits, target.interval) <
-			priceUsdFor(
-				subscription.plan,
-				subscription.tierCredits,
-				subscription.interval,
-			)
+		priceUsdFor(target.plan, target.tierCredits, "month") <
+		priceUsdFor(subscription.plan, subscription.tierCredits, "month")
 	);
 }

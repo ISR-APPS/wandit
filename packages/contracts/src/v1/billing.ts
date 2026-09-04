@@ -313,6 +313,9 @@ export const subscriptionSchema = z.object({
 	providerSubscriptionId: z.string(),
 	plan: billingPlanIdSchema,
 	tierCredits: creditTierSchema,
+	// Optional for older API responses; same-plan pending tiers use the live plan.
+	pendingPlan: billingPlanIdSchema.nullable().optional(),
+	pendingInterval: billingIntervalSchema.nullable().optional(),
 	pendingTierCredits: creditTierSchema.nullable(),
 	interval: billingIntervalSchema,
 	status: z.string(),

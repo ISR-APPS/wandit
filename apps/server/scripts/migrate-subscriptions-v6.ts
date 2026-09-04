@@ -33,6 +33,8 @@ export type V6MigrationSubscription = Pick<
 	| "interval"
 	| "organizationId"
 	| "pendingAppliedBy"
+	| "pendingInterval"
+	| "pendingPlan"
 	| "pendingTierCredits"
 	| "plan"
 	| "priceLookupKey"
@@ -160,6 +162,20 @@ async function migrateSubscriptionV6Unlocked(
 	let intendedTier = mappedCurrentTier;
 
 	try {
+		if (
+			subscription.pendingTierCredits !== null &&
+			((subscription.pendingPlan ?? subscription.plan) !== subscription.plan ||
+				(subscription.pendingInterval ?? subscription.interval) !==
+					subscription.interval)
+		) {
+			return summaryRow(
+				subscription,
+				subscription.pendingTierCredits,
+				"skipped",
+				"existing pending plan or interval change requires operator review",
+			);
+		}
+
 		if (subscription.interval === "month") {
 			if (subscription.pendingTierCredits !== null) {
 				return summaryRow(
@@ -331,9 +347,9 @@ function expectedScheduleTargetFor(
 	}
 
 	return priceLookupKey(
-		subscription.plan,
+		subscription.pendingPlan ?? subscription.plan,
 		subscription.pendingTierCredits,
-		"year",
+		subscription.pendingInterval ?? subscription.interval,
 	);
 }
 
@@ -346,6 +362,9 @@ async function snapshotIsCurrent(
 	return (
 		current !== null &&
 		current.priceLookupKey === subscription.priceLookupKey &&
+		current.pendingAppliedBy === subscription.pendingAppliedBy &&
+		current.pendingPlan === subscription.pendingPlan &&
+		current.pendingInterval === subscription.pendingInterval &&
 		current.pendingTierCredits === subscription.pendingTierCredits &&
 		current.cancelAtPeriodEnd === subscription.cancelAtPeriodEnd &&
 		current.status === subscription.status
