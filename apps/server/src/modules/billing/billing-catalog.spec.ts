@@ -29,18 +29,6 @@ import {
 import { describe, expect, it } from "vitest";
 
 const PRO_ECONOMICS = [
-	{ monthlyUsd: 25, tierCredits: 175, yearlyUsd: 250 },
-	{ monthlyUsd: 50, tierCredits: 350, yearlyUsd: 500 },
-	{ monthlyUsd: 100, tierCredits: 700, yearlyUsd: 1000 },
-	{ monthlyUsd: 200, tierCredits: 1400, yearlyUsd: 2000 },
-	{ monthlyUsd: 294, tierCredits: 2100, yearlyUsd: 2940 },
-	{ monthlyUsd: 480, tierCredits: 3500, yearlyUsd: 4800 },
-	{ monthlyUsd: 705, tierCredits: 5250, yearlyUsd: 7050 },
-	{ monthlyUsd: 920, tierCredits: 7000, yearlyUsd: 9200 },
-	{ monthlyUsd: 1125, tierCredits: 8750, yearlyUsd: 11250 },
-] as const;
-
-const LEGACY_PRO_ECONOMICS = [
 	{ monthlyUsd: 25, tierCredits: 250, yearlyUsd: 250 },
 	{ monthlyUsd: 50, tierCredits: 500, yearlyUsd: 500 },
 	{ monthlyUsd: 100, tierCredits: 1000, yearlyUsd: 1000 },
@@ -52,18 +40,33 @@ const LEGACY_PRO_ECONOMICS = [
 	{ monthlyUsd: 1125, tierCredits: 12500, yearlyUsd: 11250 },
 ] as const;
 
+// Pricing v6 ladder: parse-only since pricing v7.
+const LEGACY_PRO_ECONOMICS = [
+	{ monthlyUsd: 25, tierCredits: 175, yearlyUsd: 250 },
+	{ monthlyUsd: 50, tierCredits: 350, yearlyUsd: 500 },
+	{ monthlyUsd: 100, tierCredits: 700, yearlyUsd: 1000 },
+	{ monthlyUsd: 200, tierCredits: 1400, yearlyUsd: 2000 },
+	{ monthlyUsd: 294, tierCredits: 2100, yearlyUsd: 2940 },
+	{ monthlyUsd: 480, tierCredits: 3500, yearlyUsd: 4800 },
+	{ monthlyUsd: 705, tierCredits: 5250, yearlyUsd: 7050 },
+	{ monthlyUsd: 920, tierCredits: 7000, yearlyUsd: 9200 },
+	{ monthlyUsd: 1125, tierCredits: 8750, yearlyUsd: 11250 },
+] as const;
+
 describe("billing catalog", () => {
 	it("publishes Starter and the exact active Pro and Business economics", () => {
 		expect(billingPlanIds).toEqual(["starter", "pro", "business"]);
-		expect(purchasableTiersFor("starter")).toEqual([50]);
+		expect(purchasableTiersFor("starter")).toEqual([60]);
 		expect(purchasableTiersFor("pro")).toEqual(
 			PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 		);
 		expect(purchasableTiersFor("business")).toEqual(
 			PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 		);
+		expect(priceUsdFor("starter", 60, "month")).toBe(9);
+		expect(priceUsdFor("starter", 60, "year")).toBe(90);
 		expect(priceUsdFor("starter", 50, "month")).toBe(9);
-		expect(priceUsdFor("starter", 50, "year")).toBe(90);
+		expect(isPurchasableTier("starter", 50)).toBe(false);
 
 		for (const row of PRO_ECONOMICS) {
 			expect(priceUsdFor("pro", row.tierCredits, "month")).toBe(row.monthlyUsd);
@@ -86,9 +89,10 @@ describe("billing catalog", () => {
 	});
 
 	it("keeps the old Pro and 2x Business prices available for history", () => {
-		expect(LEGACY_CREDIT_TIERS).toEqual(
-			LEGACY_PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
-		);
+		expect(LEGACY_CREDIT_TIERS).toEqual([
+			50,
+			...LEGACY_PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
+		]);
 
 		for (const row of LEGACY_PRO_ECONOMICS) {
 			expect(priceUsdFor("pro", row.tierCredits, "month")).toBe(row.monthlyUsd);
@@ -105,7 +109,7 @@ describe("billing catalog", () => {
 
 		const expectedCreditTiers = [
 			...new Set([
-				50,
+				60,
 				...PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 				...LEGACY_CREDIT_TIERS,
 			]),
@@ -117,16 +121,16 @@ describe("billing catalog", () => {
 	});
 
 	it("publishes new top-ups while parsing persisted legacy pack ids", () => {
-		expect(topupPackIds).toEqual(["topup_175", "topup_700", "topup_1750"]);
+		expect(topupPackIds).toEqual(["topup_250", "topup_1000", "topup_2500"]);
 		expect(TOPUP_PACKS).toEqual({
-			topup_175: { credits: 175, usd: 25 },
-			topup_700: { credits: 700, usd: 100 },
-			topup_1750: { credits: 1750, usd: 250 },
+			topup_250: { credits: 250, usd: 25 },
+			topup_1000: { credits: 1000, usd: 100 },
+			topup_2500: { credits: 2500, usd: 250 },
 		});
-		expect(topupPackIdSchema.safeParse("topup_250").success).toBe(false);
-		expect(persistedTopupPackIdSchema.parse("topup_250")).toBe("topup_250");
-		expect(PERSISTED_TOPUP_PACKS.topup_250).toEqual({
-			credits: 250,
+		expect(topupPackIdSchema.safeParse("topup_175").success).toBe(false);
+		expect(persistedTopupPackIdSchema.parse("topup_175")).toBe("topup_175");
+		expect(PERSISTED_TOPUP_PACKS.topup_175).toEqual({
+			credits: 175,
 			usd: 25,
 		});
 	});
@@ -150,6 +154,7 @@ describe("billing catalog", () => {
 	it("round-trips every legacy key but rejects cross-plan tier keys", () => {
 		for (const plan of ["pro", "business"] as const) {
 			for (const tierCredits of LEGACY_CREDIT_TIERS) {
+				if (tierCredits === 50) continue;
 				for (const interval of billingIntervals) {
 					const lookupKey = priceLookupKey(plan, tierCredits, interval);
 
@@ -162,10 +167,10 @@ describe("billing catalog", () => {
 			}
 		}
 
-		expect(parsePriceLookupKey("starter_50_month")).toEqual({
+		expect(parsePriceLookupKey("starter_60_month")).toEqual({
 			interval: "month",
 			plan: "starter",
-			tierCredits: 50,
+			tierCredits: 60,
 		});
 		expect(parsePriceLookupKey("starter_250_month")).toBeNull();
 	});
@@ -188,14 +193,14 @@ describe("billing catalog", () => {
 			createBillingCheckoutBodySchema.safeParse({
 				interval: "month",
 				plan: "starter",
-				tierCredits: 50,
+				tierCredits: 60,
 			}).success,
 		).toBe(true);
 		expect(
 			createBillingCheckoutBodySchema.safeParse({
 				interval: "month",
 				plan: "pro",
-				tierCredits: 250,
+				tierCredits: 175,
 			}).success,
 		).toBe(false);
 		expect(
@@ -238,7 +243,7 @@ describe("billing catalog", () => {
 	});
 
 	it("exports the exact signup grant and bucket policies", () => {
-		expect(SIGNUP_GRANT_CREDITS).toBe(18);
+		expect(SIGNUP_GRANT_CREDITS).toBe(20);
 		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);
 		expect(PURCHASED_CREDIT_BUCKETS).toEqual(["plan", "topup"]);
 	});

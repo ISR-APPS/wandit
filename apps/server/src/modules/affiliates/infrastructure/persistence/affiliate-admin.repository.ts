@@ -190,7 +190,7 @@ type AffiliateQualityRow = {
 
 // 3 WHOLE credits, expressed in centi-credits because the CTE sums the
 // centi-credit ledger. Keep in sync with admin-analytics.metrics.ts.
-const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 7 * 100;
+const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 8 * 100;
 const HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS = 2;
 const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 

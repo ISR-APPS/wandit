@@ -6,7 +6,9 @@ export type PricingMode = "fixed" | "measured" | "per_minute" | "token";
 // All credit amounts in this registry are integer centi-credits (cc):
 // 1 credit = 100 cc. The API/UI divide by 100 at their own boundary.
 //
-// Measured reserve floors are derived from the seed catalog at $0.04/credit:
+// Measured reserve floors were derived from the seed catalog at $0.04/credit
+// (pricing v5). Pricing v7 moved the anchor to $0.032/credit; the floors stay
+// as credit amounts, so their USD coverage is 20% lower than listed here:
 // - image 350 cc: google/gemini-3-pro-image default $0.1344 -> 336 cc.
 // - video 550 cc: klingai/kling-v2.x std $0.042/s x 5 s = $0.21 -> 525 cc.
 // - transcription 25 cc: openai/whisper-1 $0.0001/s x 60 s -> 15 cc.
@@ -172,7 +174,7 @@ export function operationPricing(
 }
 
 // Per-event settlement sanity ceiling (guards pricing-unit bugs, not honest
-// runs): 200 credits ≈ $8 provider cost at the $0.04/credit anchor.
+// runs): 200 credits ≈ $6.40 provider cost at the $0.032/credit anchor.
 export const EVENT_CEILING_FLOOR_CC = 20_000;
 export const EVENT_CEILING_MULTIPLIER = 25;
 

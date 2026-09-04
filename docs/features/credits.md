@@ -3,7 +3,7 @@
 > **SUPERSEDED (billing v2):** this document describes the pre-v2 slice and no
 > longer matches the shipped system. Current truth:
 > `docs/features/billing.md` and `docs/features/pricing-v6-starter-plan.md`.
-> Key differences: the signup grant is 18 credits / 1800 centi-credits (promo bucket, disabled
+> Key differences: the signup grant is 20 credits / 2000 centi-credits (promo bucket, disabled
 > by default via product settings, delivered through the signup-grant outbox + Trigger.dev
 > sweep — not an unconditional 100); consumption uses the
 > reserve→settle→reconcile metering flow, not consume-at-job-start.

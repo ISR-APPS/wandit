@@ -279,14 +279,14 @@ describe("admin analytics metric policy", () => {
 			"trialing",
 			"past_due",
 		]);
-		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(7);
+		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(8);
 		expect(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS).toBe(2);
 	});
 
 	it.each([
-		[7, 2, true],
-		[6, 2, false],
-		[7, 1, false],
+		[8, 2, true],
+		[7, 2, false],
+		[8, 1, false],
 		[100, 0, false],
 	] as const)("classifies %i credits and %i completed generations", (credits, generations, expected) => {
 		expect(isHealthyTrialActivity(credits, generations)).toBe(expected);
@@ -720,14 +720,14 @@ describe("admin analytics engagement", () => {
 
 describe("admin analytics MRR", () => {
 	it("builds a legacy-safe catalog map and aggregates annual fractional cents before rounding", () => {
-		// 38 purchasable prices plus 36 parse-only legacy Pro/Business prices.
-		expect(MRR_PRICE_MAP.size).toBe(74);
-		expect(MRR_PRICE_MAP.get("starter_50_month")).toMatchObject({
+		// 38 purchasable prices plus 38 parse-only legacy prices (starter 50, v6 Pro/Business).
+		expect(MRR_PRICE_MAP.size).toBe(76);
+		expect(MRR_PRICE_MAP.get("starter_60_month")).toMatchObject({
 			interval: "month",
 			mrrMinorExact: 900,
 			plan: "starter",
 		});
-		expect(MRR_PRICE_MAP.get("starter_50_year")?.mrrMinorExact).toBeCloseTo(
+		expect(MRR_PRICE_MAP.get("starter_60_year")?.mrrMinorExact).toBeCloseTo(
 			9_000 / 12,
 		);
 		expect(MRR_PRICE_MAP.has("starter_250_month")).toBe(false);
@@ -1388,9 +1388,9 @@ describe("admin analytics buckets", () => {
 		[4, "1-4"],
 		[5, "5-9"],
 		[9, "5-9"],
-		[10, "10-17"],
-		[17, "10-17"],
-		[18, "18+"],
+		[10, "10-19"],
+		[19, "10-19"],
+		[20, "20+"],
 	] as const)("puts %i consumed credits in %s", (credits, bucket) => {
 		expect(consumptionBucket(credits)).toBe(bucket);
 	});
@@ -1490,8 +1490,8 @@ describe("admin analytics buckets", () => {
 				// (100 cc = 1 credit lands in "1-4").
 				conversionByCredits: [
 					{ consumed: 100, owners: 1, paidOwners: 1 },
-					{ consumed: 1_900, owners: 2, paidOwners: 1 },
-					{ consumed: 2_000, owners: 2, paidOwners: 3 },
+					{ consumed: 2_000, owners: 2, paidOwners: 1 },
+					{ consumed: 2_500, owners: 2, paidOwners: 3 },
 				],
 			}),
 			NOW,
@@ -1516,8 +1516,8 @@ describe("admin analytics buckets", () => {
 			{ bucket: "0", owners: 0, paidOwners: 0, paidPct: null },
 			{ bucket: "1-4", owners: 1, paidOwners: 1, paidPct: 100 },
 			{ bucket: "5-9", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "10-17", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "18+", owners: 4, paidOwners: 4, paidPct: 100 },
+			{ bucket: "10-19", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "20+", owners: 4, paidOwners: 4, paidPct: 100 },
 		]);
 	});
 });

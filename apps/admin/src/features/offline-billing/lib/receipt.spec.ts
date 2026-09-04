@@ -115,7 +115,7 @@ describe("French receipt labels", () => {
 	});
 
 	it("keeps the plan feature copy synchronized for every receipt plan", () => {
-		expect(RECEIPT_PLAN_FEATURES.starter).toContain("50 crédits chaque mois");
+		expect(RECEIPT_PLAN_FEATURES.starter).toContain("60 crédits chaque mois");
 		expect(RECEIPT_PLAN_FEATURES.pro).toContain(
 			"De nouveaux crédits chaque mois",
 		);

@@ -32,25 +32,25 @@ corresponding monthly price.
 
 | Plan | Credits / month | Monthly | Yearly | Volume discount |
 |---|---:|---:|---:|---:|
-| Starter | 50 | $9 | $90 | 0% |
-| Pro | 175 | $25 | $250 | 0% |
-| Pro | 350 | $50 | $500 | 0% |
-| Pro | 700 | $100 | $1,000 | 0% |
-| Pro | 1,400 | $200 | $2,000 | 0% |
-| Pro | 2,100 | $294 | $2,940 | 2% |
-| Pro | 3,500 | $480 | $4,800 | 4% |
-| Pro | 5,250 | $705 | $7,050 | 6% |
-| Pro | 7,000 | $920 | $9,200 | 8% |
-| Pro | 8,750 | $1,125 | $11,250 | 10% |
-| Business | 175 | $50 | $500 | 0% |
-| Business | 350 | $100 | $1,000 | 0% |
-| Business | 700 | $200 | $2,000 | 0% |
-| Business | 1,400 | $400 | $4,000 | 0% |
-| Business | 2,100 | $588 | $5,880 | 2% |
-| Business | 3,500 | $960 | $9,600 | 4% |
-| Business | 5,250 | $1,410 | $14,100 | 6% |
-| Business | 7,000 | $1,840 | $18,400 | 8% |
-| Business | 8,750 | $2,250 | $22,500 | 10% |
+| Starter | 60 | $9 | $90 | 0% |
+| Pro | 250 | $25 | $250 | 0% |
+| Pro | 500 | $50 | $500 | 0% |
+| Pro | 1,000 | $100 | $1,000 | 0% |
+| Pro | 2,000 | $200 | $2,000 | 0% |
+| Pro | 3,000 | $294 | $2,940 | 2% |
+| Pro | 5,000 | $480 | $4,800 | 4% |
+| Pro | 7,500 | $705 | $7,050 | 6% |
+| Pro | 10,000 | $920 | $9,200 | 8% |
+| Pro | 12,500 | $1,125 | $11,250 | 10% |
+| Business | 250 | $50 | $500 | 0% |
+| Business | 500 | $100 | $1,000 | 0% |
+| Business | 1,000 | $200 | $2,000 | 0% |
+| Business | 2,000 | $400 | $4,000 | 0% |
+| Business | 3,000 | $588 | $5,880 | 2% |
+| Business | 5,000 | $960 | $9,600 | 4% |
+| Business | 7,500 | $1,410 | $14,100 | 6% |
+| Business | 10,000 | $1,840 | $18,400 | 8% |
+| Business | 12,500 | $2,250 | $22,500 | 10% |
 
 Business is exactly 2× Pro at each tier; the pooled workspace allowance is what is priced.
 
@@ -71,9 +71,9 @@ The old ids `topup_250`, `topup_1000`, and `topup_2500` remain parseable only fo
 receipts, ledger metadata, and other history. Top-ups never expire and burn after plan and
 promo credits.
 
-The configurable signup grant is **18 promo credits = 1800 centi-credits = $0.72 of
+The configurable signup grant is **20 promo credits = 2000 centi-credits = $0.64 of
 AI-provider cost** and is disabled by default. Existing free users keep grants already issued;
-there is no claw-back. Token-metered actions continue to use the pricing-v5 anchor of $0.04 of
+there is no claw-back. Token-metered actions use the pricing-v7 anchor of $0.032 of
 AI-provider cost per whole credit. Fixed per-operation costs remain superseded by measured
 provider cost; see `pricing-v5-usd-anchor.md`.
 
@@ -212,18 +212,19 @@ Use this order exactly.
 1. Update the Resend welcome template to use the dynamic grant count, and update the W15/W16
    credit-threshold subject copy so it no longer quotes the old 25-credit milestone. Do this
    before changing any database or application code.
-2. Run `pnpm db:migrate`. The repository migrator applies 0065, 0066 and 0067 together: 0065
+2. Run `pnpm db:migrate`. The repository migrator applies 0065 to 0068 together: 0065
    adds the `starter` enum label with `IF NOT EXISTS`, 0066 changes the signup grant to
-   700 centi-credits, and 0067 lifts it to 1800 centi-credits (18 credits). This is safe on PostgreSQL 12+: an enum value may be added inside a
+   700 centi-credits, 0067 lifts it to 1800 centi-credits, and 0068 to 2000 centi-credits (20 credits, pricing v7). This is safe on PostgreSQL 12+: an enum value may be added inside a
    transaction when it is not used until after commit, and 0066 never references `starter`.
 3. After 0066, restart every server instance or wait more than 30 seconds for each process's
-   product-settings cache to expire before relying on the 18-credit grant.
+   product-settings cache to expire before relying on the 20-credit grant.
 4. Deploy contracts, server, web, admin, and the Trigger.dev image together as one release.
 5. Run `pnpm --filter server stripe:seed` in Stripe test mode. Verify exactly 38 new
    subscription prices: 2 Starter, 18 Pro, and 18 Business. Also verify the 3 re-priced
    top-ups. Repeat with the live key only after test verification. **Do not archive old Stripe
    prices**: existing legacy subscriptions need them for up to 12 months.
-6. Run `pnpm --filter server billing:migrate-v6` first and inspect every Stripe and manual row,
+6. Run `pnpm --filter server billing:migrate-v6` first and inspect every Stripe and manual row
+   (pricing v7: it maps every legacy tier to the purchasable tier with the same price, e.g. 175 → 250),
    including its status and reason. Then rerun it with `--apply`. Monthly active/trialing legacy
    subscriptions switch price/local tier without proration; already-granted current-period
    credits remain. Yearly subscriptions retain the paid legacy allotment until renewal and use

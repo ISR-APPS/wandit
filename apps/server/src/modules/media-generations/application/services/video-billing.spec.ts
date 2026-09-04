@@ -31,7 +31,7 @@ function setup(input?: { withEstimate?: boolean }) {
 		}),
 		settle: vi.fn().mockResolvedValue(event),
 		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(event),
-		usdMicrosPerCredit: 40_000,
+		usdMicrosPerCredit: 32_000,
 	};
 	const billing = createVideoBilling({
 		isBillingDisabled: () => false,
@@ -90,12 +90,12 @@ describe("createVideoBilling", () => {
 			mode: "std",
 			modelId: "klingai/kling-v3.0-i2v",
 		});
-		// 3 × $0.42 = $1.26 → 3150 cc, above the 1650 cc floor.
+		// 3 × $0.42 = $1.26 → 3938 cc at $0.032, above the 1650 cc floor.
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
-				credits: 3150,
+				credits: 3938,
 				estimatedCostUsdMicros: 1_260_000,
 				measuredTerms: { estimatedUnitUsdMicros: 420_000, units: 3 },
 			}),
@@ -159,7 +159,7 @@ describe("createVideoBilling", () => {
 				source: "measured_local",
 				unit: "video",
 				units: 2,
-				usdMicrosPerCredit: 40_000,
+				usdMicrosPerCredit: 32_000,
 			},
 		});
 	});

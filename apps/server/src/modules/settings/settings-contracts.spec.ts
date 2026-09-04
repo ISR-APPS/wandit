@@ -40,7 +40,7 @@ describe("workstream 5 contract round-trips", () => {
 			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
-			signupGrantCredits: 18,
+			signupGrantCredits: 20,
 			signupGrantEnabled: true,
 			topupsEnabled: true,
 			updatedAt: "2026-08-22T10:00:00.000Z",

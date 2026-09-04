@@ -34,13 +34,13 @@ describe("landingPlanSelection", () => {
 		landingPlanSelection.stash({
 			interval: "year",
 			plan: "pro",
-			tierCredits: 700,
+			tierCredits: 1000,
 		});
 
 		expect(landingPlanSelection.consume()).toEqual({
 			interval: "year",
 			plan: "pro",
-			tierCredits: 700,
+			tierCredits: 1000,
 		});
 		expect(landingPlanSelection.consume()).toBeNull();
 	});
@@ -63,7 +63,7 @@ describe("landingPlanSelection", () => {
 			JSON.stringify({
 				interval: "month",
 				plan: "starter",
-				tierCredits: 175,
+				tierCredits: 250,
 			}),
 		);
 
@@ -92,7 +92,7 @@ describe("landingPlanSelection", () => {
 			landingPlanSelection.stash({
 				interval: "month",
 				plan: "starter",
-				tierCredits: 50,
+				tierCredits: 60,
 			}),
 		).not.toThrow();
 		expect(landingPlanSelection.consume()).toBeNull();

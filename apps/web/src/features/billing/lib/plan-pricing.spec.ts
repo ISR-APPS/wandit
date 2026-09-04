@@ -43,7 +43,7 @@ describe("plan picker pricing", () => {
 		const tiers = catalogTiers();
 
 		expect(tiers.map((tier) => tier.tierCredits)).toEqual([
-			175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750,
+			250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
 		]);
 		expect(
 			tiers.map((tier) =>
@@ -73,7 +73,7 @@ describe("plan picker pricing", () => {
 	it("keeps Starter at zero savings against Starter's own base rate", () => {
 		expect(
 			tierSavingsPercent(
-				{ monthlyUsd: 9, tierCredits: 50 },
+				{ monthlyUsd: 9, tierCredits: 60 },
 				BILLING_CATALOG.plans.starter.basePer100Usd,
 			),
 		).toBe(0);
@@ -92,9 +92,9 @@ describe("plan picker pricing", () => {
 	});
 
 	it.each([
-		{ currentTier: 7500, targetTier: 7000 },
-		{ currentTier: 10000, targetTier: 8750 },
-		{ currentTier: 7500, targetTier: 5250 },
+		{ currentTier: 5250, targetTier: 7500 },
+		{ currentTier: 7000, targetTier: 10000 },
+		{ currentTier: 5250, targetTier: 10000 },
 	])("does not label legacy $currentTier to active $targetTier as a renewal downgrade when its price is not lower", ({
 		currentTier,
 		targetTier,
@@ -104,12 +104,12 @@ describe("plan picker pricing", () => {
 				{
 					interval: "month",
 					plan: "pro",
-					tierCredits: currentTier as 7500 | 10000,
+					tierCredits: currentTier as 5250 | 7000,
 				},
 				{
 					interval: "month",
 					plan: "pro",
-					tierCredits: targetTier as 5250 | 7000 | 8750,
+					tierCredits: targetTier as 7500 | 10000,
 				},
 			),
 		).toBe(false);
@@ -118,8 +118,8 @@ describe("plan picker pricing", () => {
 	it("still identifies a same-interval target with a lower catalog price", () => {
 		expect(
 			isRenewalDowngrade(
-				{ interval: "month", plan: "pro", tierCredits: 10000 },
-				{ interval: "month", plan: "pro", tierCredits: 5250 },
+				{ interval: "month", plan: "pro", tierCredits: 8750 },
+				{ interval: "month", plan: "pro", tierCredits: 7500 },
 			),
 		).toBe(true);
 	});

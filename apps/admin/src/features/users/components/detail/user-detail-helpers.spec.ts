@@ -9,12 +9,12 @@ describe("subscription pricing helpers", () => {
 	it("prices and labels a yearly Starter subscription", () => {
 		const subscription = {
 			plan: "starter",
-			tierCredits: 50,
+			tierCredits: 60,
 			interval: "year",
 		} as const;
 
 		expect(subscriptionPriceUsd(subscription)).toBe(90);
-		expect(subscriptionTierLabel(subscription)).toBe("50 credits/mo · $90/yr");
+		expect(subscriptionTierLabel(subscription)).toBe("60 credits/mo · $90/yr");
 	});
 
 	it("keeps legacy Pro tier pricing visible", () => {
