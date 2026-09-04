@@ -88,7 +88,7 @@ function OpenLandingSelectionButton() {
 				openPlanPicker("marketing_pricing", {
 					interval: "year",
 					plan: "pro",
-					tierCredits: 700,
+					tierCredits: 1000,
 				}),
 			type: "button",
 		},
@@ -144,7 +144,7 @@ describe("BillingModalProvider landing auth handoff", () => {
 			const picker = screen.getByTestId("plan-picker");
 			expect(picker.dataset.open).toBe("true");
 			expect(picker.dataset.plan).toBe("pro");
-			expect(picker.dataset.tier).toBe("700");
+			expect(picker.dataset.tier).toBe("1000");
 			expect(picker.dataset.interval).toBe("year");
 			expect(picker.dataset.surface).toBe("marketing_pricing");
 		});

@@ -331,14 +331,14 @@ describe("model pricing math", () => {
 
 	it("applies max(1, ceil(cost * 100 / usdPerWholeCredit)) in centi-credits", () => {
 		expect(usdMicrosToCentiCredits(0)).toBe(1);
-		expect(usdMicrosToCentiCredits(400)).toBe(1);
-		expect(usdMicrosToCentiCredits(401)).toBe(2);
-		expect(usdMicrosToCentiCredits(40_000)).toBe(100);
+		expect(usdMicrosToCentiCredits(320)).toBe(1);
+		expect(usdMicrosToCentiCredits(321)).toBe(2);
+		expect(usdMicrosToCentiCredits(32_000)).toBe(100);
 		expect(usdMicrosToCentiCredits(125_000, 50_000)).toBe(250);
 	});
 
-	it("stamps the default $0.04 anchor into pricing snapshots", () => {
-		expect(pricingSnapshot(modelPrice()).usdMicrosPerCredit).toBe(40_000);
+	it("stamps the default $0.032 anchor into pricing snapshots", () => {
+		expect(pricingSnapshot(modelPrice()).usdMicrosPerCredit).toBe(32_000);
 	});
 
 	it("prices provider image cost per successful image", () => {
@@ -347,14 +347,14 @@ describe("model pricing math", () => {
 });
 
 describe("ModelPricingService", () => {
-	it("defaults the credit anchor to $0.04 (40,000 micros) when env is unset", () => {
+	it("defaults the credit anchor to $0.032 (32,000 micros) when env is unset", () => {
 		const repository = new FakeModelPricesRepository();
 		const service = new ModelPricingService(
 			repository as unknown as ModelPricesRepository,
 			{ seedResponse: seed() },
 		);
 
-		expect(service.usdMicrosPerCredit).toBe(40_000);
+		expect(service.usdMicrosPerCredit).toBe(32_000);
 	});
 
 	it("reads through the database and retains an entry until its one-hour TTL", async () => {
@@ -449,10 +449,10 @@ describe("ModelPricingService", () => {
 				durationSeconds: 5,
 				mode: "std",
 			}),
-		).toMatchObject({ costUsdMicros: 210_000, credits: 525 });
+		).toMatchObject({ costUsdMicros: 210_000, credits: 657 });
 		expect(
 			await service.quoteImageEstimate("google/gemini-3-pro-image", 1, "4K"),
-		).toMatchObject({ costUsdMicros: 240_000, credits: 600 });
+		).toMatchObject({ costUsdMicros: 240_000, credits: 750 });
 		// A token-priced transcription model has no per-second rate.
 		expect(
 			await service.quoteTranscriptionEstimate(

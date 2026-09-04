@@ -9,7 +9,7 @@ import {
 	isPurchasableTier,
 	LEGACY_CREDIT_TIERS,
 	priceLookupKey,
-	v6TierForLegacy,
+	purchasableTierForLegacy,
 } from "@wandit/contracts";
 import { and, asc, createDb, eq, inArray } from "@wandit/db";
 import { subscriptions } from "@wandit/db/schema/billing";
@@ -117,7 +117,8 @@ export async function migrateSubscriptionV6(
 			result ??
 			summaryRow(
 				subscription,
-				v6TierForLegacy(subscription.tierCredits) ?? subscription.tierCredits,
+				purchasableTierForLegacy(subscription.plan, subscription.tierCredits) ??
+					subscription.tierCredits,
 				"skipped",
 				"row changed since candidates were read",
 			)
@@ -125,7 +126,8 @@ export async function migrateSubscriptionV6(
 	} catch (error) {
 		return summaryRow(
 			subscription,
-			v6TierForLegacy(subscription.tierCredits) ?? subscription.tierCredits,
+			purchasableTierForLegacy(subscription.plan, subscription.tierCredits) ??
+				subscription.tierCredits,
 			"failed",
 			errorMessage(error),
 		);
@@ -137,7 +139,10 @@ async function migrateSubscriptionV6Unlocked(
 	apply: boolean,
 	dependencies: V6MigrationDependencies,
 ): Promise<V6MigrationSummaryRow> {
-	const mappedCurrentTier = v6TierForLegacy(subscription.tierCredits);
+	const mappedCurrentTier = purchasableTierForLegacy(
+		subscription.plan,
+		subscription.tierCredits,
+	);
 
 	if (
 		mappedCurrentTier === null ||
@@ -369,7 +374,10 @@ function resolveYearlyTarget(
 		};
 	}
 
-	const mappedPendingTier = v6TierForLegacy(subscription.pendingTierCredits);
+	const mappedPendingTier = purchasableTierForLegacy(
+		subscription.plan,
+		subscription.pendingTierCredits,
+	);
 
 	if (mappedPendingTier !== null) {
 		return {
@@ -517,8 +525,10 @@ async function main(): Promise<void> {
 				summary.push(
 					summaryRow(
 						subscription,
-						v6TierForLegacy(subscription.tierCredits) ??
+						purchasableTierForLegacy(
+							subscription.plan,
 							subscription.tierCredits,
+						) ?? subscription.tierCredits,
 						"failed",
 						errorMessage(error),
 					),
