@@ -279,14 +279,14 @@ describe("admin analytics metric policy", () => {
 			"trialing",
 			"past_due",
 		]);
-		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(3);
+		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(7);
 		expect(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS).toBe(2);
 	});
 
 	it.each([
-		[3, 2, true],
-		[2, 2, false],
-		[3, 1, false],
+		[7, 2, true],
+		[6, 2, false],
+		[7, 1, false],
 		[100, 0, false],
 	] as const)("classifies %i credits and %i completed generations", (credits, generations, expected) => {
 		expect(isHealthyTrialActivity(credits, generations)).toBe(expected);
@@ -1384,13 +1384,13 @@ describe("admin analytics buckets", () => {
 
 	it.each([
 		[0, "0"],
-		[1, "1-2"],
-		[2, "1-2"],
-		[3, "3-4"],
-		[4, "3-4"],
-		[5, "5-6"],
-		[6, "5-6"],
-		[7, "7+"],
+		[1, "1-4"],
+		[4, "1-4"],
+		[5, "5-9"],
+		[9, "5-9"],
+		[10, "10-17"],
+		[17, "10-17"],
+		[18, "18+"],
 	] as const)("puts %i consumed credits in %s", (credits, bucket) => {
 		expect(consumptionBucket(credits)).toBe(bucket);
 	});
@@ -1487,11 +1487,11 @@ describe("admin analytics buckets", () => {
 					measuredUsers: 2,
 				},
 				// Snapshot sums are centi-credits; buckets stay whole credits
-				// (100 cc = 1 credit lands in "1-2").
+				// (100 cc = 1 credit lands in "1-4").
 				conversionByCredits: [
 					{ consumed: 100, owners: 1, paidOwners: 1 },
-					{ consumed: 900, owners: 2, paidOwners: 1 },
-					{ consumed: 1_000, owners: 2, paidOwners: 3 },
+					{ consumed: 1_900, owners: 2, paidOwners: 1 },
+					{ consumed: 2_000, owners: 2, paidOwners: 3 },
 				],
 			}),
 			NOW,
@@ -1514,10 +1514,10 @@ describe("admin analytics buckets", () => {
 		).toBeNull();
 		expect(response.conversionByCredits).toEqual([
 			{ bucket: "0", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "1-2", owners: 1, paidOwners: 1, paidPct: 100 },
-			{ bucket: "3-4", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "5-6", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "7+", owners: 4, paidOwners: 4, paidPct: 100 },
+			{ bucket: "1-4", owners: 1, paidOwners: 1, paidPct: 100 },
+			{ bucket: "5-9", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "10-17", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "18+", owners: 4, paidOwners: 4, paidPct: 100 },
 		]);
 	});
 });
