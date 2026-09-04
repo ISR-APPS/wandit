@@ -199,7 +199,7 @@ describe("OfflineRequestReceipt", () => {
 		);
 
 		expect(html).toContain("Wandit Starter");
-		expect(html).toContain("2 171 DZD / mois");
+		expect(html).toContain("2 443 DZD / mois");
 		expect(html).toContain("50 crédits chaque mois");
 	});
 });

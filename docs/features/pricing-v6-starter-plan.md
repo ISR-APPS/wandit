@@ -11,7 +11,7 @@ of `pricing-v5-usd-anchor.md` §1 (the $0.04 unit itself is unchanged and
 |---|---|---|
 | D1 | Credit unit | Unchanged. 1 credit = $0.04 of AI-provider cost (`AI_USD_PER_CREDIT`). No metering change. |
 | D2 | Free signup grant | 7 credits = 700 centi-credits = $0.28 of provider cost. Was 50 credits / 5000 cc / $2.00. |
-| D3 | New plan `starter` | $8 / month, $80 / year. One tier: 50 credits / month ($2.00 of AI). Personal workspaces only. |
+| D3 | New plan `starter` | $9 / month, $90 / year (amended 2026-09-03; was $8 / $80). One tier: 50 credits / month ($2.00 of AI). Personal workspaces only. |
 | D4 | Pro | Same 9 monthly prices as today. Credits × 0.7. Base tier 175 credits / $25 ($7.00 of AI). |
 | D5 | Business | Same rule as today: same tiers as Pro, exactly 2× the Pro price. Org workspaces only. |
 | D6 | Top-ups | Stay disabled. Re-priced to the Pro rate so they never undercut a plan if re-enabled. |
@@ -30,7 +30,7 @@ lookup keys `starter_50_month` / `starter_50_year` parse.
 
 | Plan | Tier credits | Monthly USD | Yearly USD (×10) |
 |---|---|---|---|
-| starter | 50 | 8 | 80 |
+| starter | 50 | 9 | 90 |
 | pro | 175 | 25 | 250 |
 | pro | 350 | 50 | 500 |
 | pro | 700 | 100 | 1000 |
@@ -215,7 +215,7 @@ Add `apps/server/scripts/migrate-subscriptions-v6.ts` (dry-run by default,
     balance shows what each run used."
   - landing `pricing.title` (was "One plan. Pick your pace."): "Start small.
     Grow when you need more."
-  - landing `pricing.meta.description`: "Start free, go Starter for $8, or
+  - landing `pricing.meta.description`: "Start free, go Starter for $9, or
     Pro when you need more credits. Monthly or yearly."
   - landing `pricing.free.creditsLine` when the grant is on: "{count} free
     credits" (plural-aware); keep "Signup credits when available" as the
