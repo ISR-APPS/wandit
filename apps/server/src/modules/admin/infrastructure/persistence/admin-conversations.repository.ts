@@ -41,6 +41,8 @@ type ChatSummaryDbRow = {
 	owner_name: string | null;
 	project_id: string;
 	project_name: string | null;
+	total_credits_centi: number | string | null;
+	total_tokens: number | string | null;
 };
 
 type ChatDetailDbRow = {
@@ -55,8 +57,23 @@ type ChatDetailDbRow = {
 	owner_name: string | null;
 	project_id: string | null;
 	project_name: string | null;
+	cache_read_tokens: number | string | null;
+	cache_write_tokens: number | string | null;
 	total_cost_usd_micros: number | string | null;
+	total_credits_centi: number | string | null;
 	total_tokens: number | string | null;
+};
+
+type ChatUsageSummaryDbRow = {
+	cache_read_tokens: number | string | null;
+	cache_write_tokens: number | string | null;
+	calls: number | string;
+	cost_usd_micros: number | string | null;
+	credits_centi: number | string | null;
+	input_tokens: number | string | null;
+	model: string | null;
+	operation: string;
+	output_tokens: number | string | null;
 };
 
 type ChatMessageDbRow = {
@@ -75,8 +92,11 @@ type ChatMessageDbRow = {
 };
 
 type AiCallDbRow = {
+	cache_read_tokens: number | string | null;
+	cache_write_tokens: number | string | null;
 	cost_usd_micros: number | string | null;
 	created_at: Date | string;
+	final_credits: number | string | null;
 	gateway_generation_id: string | null;
 	id: string;
 	input_tokens: number | string | null;
@@ -85,6 +105,8 @@ type AiCallDbRow = {
 	operation: string;
 	output_tokens: number | string | null;
 	provider: string | null;
+	raw_usage: unknown;
+	reserved_credits: number | string | null;
 	step_usage: unknown;
 	total_tokens: number | string | null;
 };
@@ -145,50 +167,88 @@ export class AdminConversationsRepository {
 	}
 
 	async getChatDetail(chatId: string): Promise<AdminChatDetail | null> {
-		const result = await this.db.execute<ChatDetailDbRow>(sql`
-			select
-				c.id as chat_id,
-				c.created_at as chat_created_at,
-				c.updated_at as chat_updated_at,
-				p.id as project_id,
-				p.name as project_name,
-				u.id as owner_id,
-				u.name as owner_name,
-				u.email as owner_email,
-				u.image as owner_image,
-				coalesce(message_stats.message_count, 0)::int as message_count,
-				coalesce(message_stats.failed_turn_count, 0)::int as failed_turn_count,
-				usage_stats.total_tokens,
-				usage_stats.total_cost_usd_micros
-			from chats c
-			left join projects p on p.id = c.project_id
-			left join "user" u on u.id = p.user_id
-			left join lateral (
+		const [detailResult, usageSummaryResult] = await Promise.all([
+			this.db.execute<ChatDetailDbRow>(sql`
 				select
-					count(*)::int as message_count,
-					count(*) filter (where m.failure_kind is not null)::int as failed_turn_count
-				from messages m
-				where m.chat_id = c.id
-			) message_stats on true
-			left join lateral (
+					c.id as chat_id,
+					c.created_at as chat_created_at,
+					c.updated_at as chat_updated_at,
+					p.id as project_id,
+					p.name as project_name,
+					u.id as owner_id,
+					u.name as owner_name,
+					u.email as owner_email,
+					u.image as owner_image,
+					coalesce(message_stats.message_count, 0)::int as message_count,
+					coalesce(message_stats.failed_turn_count, 0)::int as failed_turn_count,
+					usage_stats.total_tokens,
+					usage_stats.cache_read_tokens,
+					usage_stats.cache_write_tokens,
+					usage_stats.total_cost_usd_micros,
+					usage_stats.total_credits_centi
+				from chats c
+				left join projects p on p.id = c.project_id
+				left join "user" u on u.id = p.user_id
+				left join lateral (
+					select
+						count(*)::int as message_count,
+						count(*) filter (where m.failure_kind is not null)::int as failed_turn_count
+					from messages m
+					where m.chat_id = c.id
+				) message_stats on true
+				left join lateral (
+					select
+						sum(
+							case
+								when e.input_tokens is null and e.output_tokens is null then null
+								else coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+							end
+						)::bigint as total_tokens,
+						sum(e.cache_read_tokens)::bigint as cache_read_tokens,
+						sum(e.cache_write_tokens)::bigint as cache_write_tokens,
+						sum(
+							coalesce(e.reconciled_cost_usd_micros, e.estimated_cost_usd_micros)
+						)::bigint as total_cost_usd_micros,
+						sum(coalesce(e.final_credits, e.reserved_credits))::bigint as total_credits_centi
+					from ai_usage_events e
+					where
+						e.chat_id = c.id
+						or e.parent_event_id in (
+							select parent_event.id
+							from ai_usage_events parent_event
+							where parent_event.chat_id = c.id
+						)
+				) usage_stats on true
+				where c.id = ${chatId}::uuid
+				limit 1
+			`),
+			this.db.execute<ChatUsageSummaryDbRow>(sql`
 				select
-					sum(
-						case
-							when e.input_tokens is null and e.output_tokens is null then null
-							else coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-						end
-					)::bigint as total_tokens,
+					e.operation::text as operation,
+					e.model,
+					count(*)::int as calls,
+					sum(e.input_tokens)::bigint as input_tokens,
+					sum(e.output_tokens)::bigint as output_tokens,
+					sum(e.cache_read_tokens)::bigint as cache_read_tokens,
+					sum(e.cache_write_tokens)::bigint as cache_write_tokens,
 					sum(
 						coalesce(e.reconciled_cost_usd_micros, e.estimated_cost_usd_micros)
-					)::bigint as total_cost_usd_micros
+					)::bigint as cost_usd_micros,
+					sum(coalesce(e.final_credits, e.reserved_credits))::bigint as credits_centi
 				from ai_usage_events e
-				where e.chat_id = c.id
-			) usage_stats on true
-			where c.id = ${chatId}::uuid
-			limit 1
-		`);
+				where
+					e.chat_id = ${chatId}::uuid
+					or e.parent_event_id in (
+						select parent_event.id
+						from ai_usage_events parent_event
+						where parent_event.chat_id = ${chatId}::uuid
+					)
+				group by e.operation, e.model
+				order by credits_centi desc nulls last
+			`),
+		]);
 
-		const row = result.rows[0];
+		const row = detailResult.rows[0];
 		if (!row) return null;
 
 		return {
@@ -206,10 +266,21 @@ export class AdminConversationsRepository {
 			failedTurnCount: toNumber(row.failed_turn_count),
 			totalTokens:
 				row.total_tokens === null ? null : toNumber(row.total_tokens),
+			cacheReadTokens:
+				row.cache_read_tokens === null ? null : toNumber(row.cache_read_tokens),
+			cacheWriteTokens:
+				row.cache_write_tokens === null
+					? null
+					: toNumber(row.cache_write_tokens),
 			totalCostUsdMicros:
 				row.total_cost_usd_micros === null
 					? null
 					: toNumber(row.total_cost_usd_micros),
+			totalCreditsCenti:
+				row.total_credits_centi === null
+					? null
+					: toNumber(row.total_credits_centi),
+			usageSummary: usageSummaryResult.rows.map(mapChatUsageSummary),
 		};
 	}
 
@@ -259,41 +330,37 @@ export class AdminConversationsRepository {
 		query: PaginationQuery,
 	): Promise<AdminChatCallsResponse> {
 		const offset = paginationOffset(query);
+		const calls = chatCallRows(chatId);
 		const [countResult, listResult] = await Promise.all([
 			this.db.execute<CountDbRow>(sql`
 				select count(*)::int as total
-				from ai_usage_events e
-				left join ai_usage_generation_refs r on r.usage_event_id = e.id
-				where e.chat_id = ${chatId}::uuid
+				from (${calls}) call_rows
 			`),
 			this.db.execute<AiCallDbRow>(sql`
 				select
-					coalesce(r.id, e.id) as id,
-					e.operation::text as operation,
-					e.model,
-					e.provider,
-					case when r.id is null then e.input_tokens else null end as input_tokens,
-					case when r.id is null then e.output_tokens else null end as output_tokens,
-					case
-						when r.id is not null then null
-						when e.input_tokens is null and e.output_tokens is null then null
-						else coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-					end as total_tokens,
-					case
-						when r.id is null then coalesce(
-							e.reconciled_cost_usd_micros,
-							e.estimated_cost_usd_micros
-						)
-						else r.reconciled_cost_usd_micros
-					end as cost_usd_micros,
-					e.message_id,
-					r.gateway_generation_id,
-					r.step_usage,
-					e.created_at
-				from ai_usage_events e
-				left join ai_usage_generation_refs r on r.usage_event_id = e.id
-				where e.chat_id = ${chatId}::uuid
-				order by e.created_at desc, e.id desc, r.id desc
+					call_rows.id,
+					call_rows.operation,
+					call_rows.model,
+					call_rows.provider,
+					call_rows.input_tokens,
+					call_rows.output_tokens,
+					call_rows.cache_read_tokens,
+					call_rows.cache_write_tokens,
+					call_rows.total_tokens,
+					call_rows.cost_usd_micros,
+					call_rows.message_id,
+					call_rows.gateway_generation_id,
+					call_rows.raw_usage,
+					call_rows.reserved_credits,
+					call_rows.final_credits,
+					call_rows.step_usage,
+					call_rows.created_at
+				from (${calls}) call_rows
+				order by
+					call_rows.created_at desc,
+					call_rows.usage_event_id desc,
+					call_rows.row_kind asc,
+					call_rows.id desc
 				limit ${query.pageSize}
 				offset ${offset}
 			`),
@@ -406,7 +473,9 @@ export class AdminConversationsRepository {
 					u.image as owner_image,
 					coalesce(message_stats.message_count, 0)::int as message_count,
 					coalesce(message_stats.failed_turn_count, 0)::int as failed_turn_count,
-					message_stats.last_message_at
+					message_stats.last_message_at,
+					usage_stats.total_tokens,
+					usage_stats.total_credits_centi
 				from chats c
 				inner join projects p on p.id = c.project_id
 				left join "user" u on u.id = p.user_id
@@ -418,6 +487,24 @@ export class AdminConversationsRepository {
 					from messages m
 					where m.chat_id = c.id
 				) message_stats on true
+				left join lateral (
+					select
+						sum(
+							case
+								when e.input_tokens is null and e.output_tokens is null then null
+								else coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+							end
+						)::bigint as total_tokens,
+						sum(coalesce(e.final_credits, e.reserved_credits))::bigint as total_credits_centi
+					from ai_usage_events e
+					where
+						e.chat_id = c.id
+						or e.parent_event_id in (
+							select parent_event.id
+							from ai_usage_events parent_event
+							where parent_event.chat_id = c.id
+						)
+				) usage_stats on true
 				where ${filter}
 				order by c.updated_at desc, c.id desc
 				limit ${query.pageSize}
@@ -441,10 +528,36 @@ function mapChatSummary(row: ChatSummaryDbRow): AdminChatSummary {
 		projectName: row.project_name,
 		messageCount: toNumber(row.message_count),
 		failedTurnCount: toNumber(row.failed_turn_count),
+		totalTokens: row.total_tokens === null ? null : toNumber(row.total_tokens),
+		totalCreditsCenti:
+			row.total_credits_centi === null
+				? null
+				: toNumber(row.total_credits_centi),
 		lastMessageAt:
 			row.last_message_at === null ? null : toIso(row.last_message_at),
 		createdAt: toIso(row.created_at),
 		owner: mapOwner(row),
+	};
+}
+
+function mapChatUsageSummary(
+	row: ChatUsageSummaryDbRow,
+): AdminChatDetail["usageSummary"][number] {
+	return {
+		operation: row.operation,
+		model: row.model,
+		calls: toNumber(row.calls),
+		inputTokens: row.input_tokens === null ? null : toNumber(row.input_tokens),
+		outputTokens:
+			row.output_tokens === null ? null : toNumber(row.output_tokens),
+		cacheReadTokens:
+			row.cache_read_tokens === null ? null : toNumber(row.cache_read_tokens),
+		cacheWriteTokens:
+			row.cache_write_tokens === null ? null : toNumber(row.cache_write_tokens),
+		costUsdMicros:
+			row.cost_usd_micros === null ? null : toNumber(row.cost_usd_micros),
+		creditsCenti:
+			row.credits_centi === null ? null : toNumber(row.credits_centi),
 	};
 }
 
@@ -545,6 +658,19 @@ function mapAiCall(row: AiCallDbRow): AdminAiCall {
 			: row.output_tokens === null
 				? null
 				: toNumber(row.output_tokens),
+		cacheReadTokens: isGenerationRef
+			? generationUsage.cacheReadTokens
+			: row.cache_read_tokens === null
+				? null
+				: toNumber(row.cache_read_tokens),
+		cacheWriteTokens: isGenerationRef
+			? generationUsage.cacheWriteTokens
+			: row.cache_write_tokens === null
+				? null
+				: toNumber(row.cache_write_tokens),
+		reasoningTokens: isGenerationRef
+			? generationUsage.reasoningTokens
+			: reasoningTokensFromRawUsage(row.raw_usage),
 		totalTokens: isGenerationRef
 			? generationUsage.totalTokens
 			: row.total_tokens === null
@@ -554,6 +680,13 @@ function mapAiCall(row: AiCallDbRow): AdminAiCall {
 			row.cost_usd_micros === null
 				? null
 				: toNumber(row.cost_usd_micros) / 1_000_000,
+		creditsCenti: isGenerationRef
+			? null
+			: row.final_credits === null
+				? row.reserved_credits === null
+					? null
+					: toNumber(row.reserved_credits)
+				: toNumber(row.final_credits),
 		messageId: row.message_id,
 		gatewayGenerationId: row.gateway_generation_id,
 		createdAt: toIso(row.created_at),
@@ -561,24 +694,72 @@ function mapAiCall(row: AiCallDbRow): AdminAiCall {
 }
 
 type RefTokenUsage = {
+	cacheReadTokens: number | null;
+	cacheWriteTokens: number | null;
 	inputTokens: number | null;
 	outputTokens: number | null;
+	reasoningTokens: number | null;
 	totalTokens: number | null;
 };
 
 function tokenUsageFromStepUsage(value: unknown): RefTokenUsage {
-	const root = isRecord(value) ? value : null;
-	const usage = isRecord(root?.providerUsage) ? root.providerUsage : root;
+	const usage = tokenUsageRecord(value);
+	const inputTokenDetails = nestedRecord(usage, "inputTokenDetails");
+	const outputTokenDetails = nestedRecord(usage, "outputTokenDetails");
 	const inputTokens = tokenCount(usage?.inputTokens);
 	const outputTokens = tokenCount(usage?.outputTokens);
 	const explicitTotal = tokenCount(usage?.totalTokens);
+	const cacheReadTokens = tokenCount(inputTokenDetails?.cacheReadTokens);
+	const cacheWriteTokens = tokenCount(inputTokenDetails?.cacheWriteTokens);
+	const reasoningTokens = tokenCount(outputTokenDetails?.reasoningTokens);
 	const totalTokens =
 		explicitTotal ??
 		(inputTokens === null && outputTokens === null
 			? null
 			: (inputTokens ?? 0) + (outputTokens ?? 0));
 
-	return { inputTokens, outputTokens, totalTokens };
+	return {
+		cacheReadTokens,
+		cacheWriteTokens,
+		inputTokens,
+		outputTokens,
+		reasoningTokens,
+		totalTokens,
+	};
+}
+
+function reasoningTokensFromRawUsage(value: unknown): number | null {
+	if (!Array.isArray(value)) {
+		return tokenUsageFromStepUsage(value).reasoningTokens;
+	}
+
+	let total: number | null = null;
+	for (const step of value) {
+		const reasoningTokens = tokenUsageFromStepUsage(step).reasoningTokens;
+		if (reasoningTokens === null) continue;
+
+		const nextTotal: number = (total ?? 0) + reasoningTokens;
+		if (!Number.isSafeInteger(nextTotal)) return null;
+		total = nextTotal;
+	}
+
+	return total;
+}
+
+function tokenUsageRecord(value: unknown): Record<string, unknown> | null {
+	if (Array.isArray(value) || !isRecord(value)) return null;
+
+	return Array.isArray(value.providerUsage) || !isRecord(value.providerUsage)
+		? value
+		: value.providerUsage;
+}
+
+function nestedRecord(
+	value: Record<string, unknown> | null,
+	key: string,
+): Record<string, unknown> | null {
+	const nested = value?.[key];
+	return Array.isArray(nested) || !isRecord(nested) ? null : nested;
 }
 
 function tokenCount(value: unknown): number | null {
@@ -602,6 +783,77 @@ function mapAiFailure(row: AiFailureDbRow): AdminAiFailure {
 		sentryEventId: row.sentry_event_id,
 		createdAt: toIso(row.created_at),
 	};
+}
+
+function chatCallRows(chatId: string): SQL {
+	return sql`
+		select
+			e.id,
+			e.operation::text as operation,
+			e.model,
+			e.provider,
+			e.input_tokens,
+			e.output_tokens,
+			e.cache_read_tokens,
+			e.cache_write_tokens,
+			case
+				when e.input_tokens is null and e.output_tokens is null then null
+				else coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+			end as total_tokens,
+			coalesce(
+				e.reconciled_cost_usd_micros,
+				e.estimated_cost_usd_micros
+			) as cost_usd_micros,
+			e.message_id,
+			null::text as gateway_generation_id,
+			e.raw_usage,
+			e.reserved_credits,
+			e.final_credits,
+			null::jsonb as step_usage,
+			e.created_at,
+			e.id as usage_event_id,
+			0::int as row_kind
+		from ai_usage_events e
+		where
+			e.chat_id = ${chatId}::uuid
+			or e.parent_event_id in (
+				select parent_event.id
+				from ai_usage_events parent_event
+				where parent_event.chat_id = ${chatId}::uuid
+			)
+
+		union all
+
+		select
+			r.id,
+			e.operation::text,
+			e.model,
+			e.provider,
+			null::integer,
+			null::integer,
+			null::integer,
+			null::integer,
+			null::integer,
+			r.reconciled_cost_usd_micros,
+			e.message_id,
+			r.gateway_generation_id,
+			null::jsonb,
+			null::integer,
+			null::integer,
+			r.step_usage,
+			e.created_at,
+			e.id,
+			1::int
+		from ai_usage_generation_refs r
+		inner join ai_usage_events e on e.id = r.usage_event_id
+		where
+			e.chat_id = ${chatId}::uuid
+			or e.parent_event_id in (
+				select parent_event.id
+				from ai_usage_events parent_event
+				where parent_event.chat_id = ${chatId}::uuid
+			)
+	`;
 }
 
 function aiFailuresUnion(): SQL {

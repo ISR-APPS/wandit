@@ -1,10 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+	BadRequestException,
+	ConflictException,
+	Inject,
+	Injectable,
+	Logger,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	BILLING_CATALOG,
 	type BillingCancelRequest,
 	type BillingCheckoutResponse,
+	type BillingInterval,
+	type BillingPlanId,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
 	type BillingSubscriptionChangeOutcomeResponse,
@@ -13,20 +21,25 @@ import {
 	billingPlanIdSchema,
 	billingPlanIds,
 	type ChangeBillingSubscriptionBody,
-	CREDIT_TIERS,
 	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
+	type CreditTier,
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	ENTITLED_SUBSCRIPTION_STATUSES,
+	isKnownTier,
 	isManualSubscription,
+	isPurchasableTier,
+	PERSISTED_TOPUP_PACKS,
 	type PreviewBillingSubscriptionChangeBody,
 	parsePriceLookupKey,
+	persistedTopupPackIdSchema,
 	priceLookupKey,
 	priceUsdFor,
+	purchasableTiersFor,
 	TOPUP_PACKS,
-	topupPackIdSchema,
 	topupPackIds,
+	v6TierForLegacy,
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -131,18 +144,31 @@ export class BillingService {
 		};
 	}
 
-	/** Org workspaces buy Business; personal buys Pro. Never the other pairing. */
+	/** Org workspaces buy Business; personal workspaces buy Starter or Pro. */
 	private assertPlanMatchesScope(
-		plan: "pro" | "business",
+		plan: BillingPlanId,
 		organizationId: string | null,
 	): void {
-		const required = organizationId ? "business" : "pro";
+		const matches = organizationId
+			? plan === "business"
+			: plan === "starter" || plan === "pro";
 
-		if (plan !== required) {
+		if (!matches) {
 			throw new WorkspaceNotSupportedError(
 				organizationId
 					? "Team workspaces use the Business plan"
-					: "The Business plan requires a team workspace",
+					: "Personal workspaces use the Starter or Pro plan",
+			);
+		}
+	}
+
+	private assertPurchasableSelection(
+		plan: BillingPlanId,
+		tierCredits: number,
+	): void {
+		if (!isPurchasableTier(plan, tierCredits)) {
+			throw new BadRequestException(
+				"The selected credit tier is not available for this plan",
 			);
 		}
 	}
@@ -153,7 +179,7 @@ export class BillingService {
 				basePer100Usd: BILLING_CATALOG.plans[plan].basePer100Usd,
 				features: BILLING_CATALOG.plans[plan].features,
 				id: plan,
-				tiers: CREDIT_TIERS.map((tierCredits) => ({
+				tiers: purchasableTiersFor(plan).map((tierCredits) => ({
 					annualLookupKey: priceLookupKey(plan, tierCredits, "year"),
 					annualUsd: priceUsdFor(plan, tierCredits, "year"),
 					monthlyLookupKey: priceLookupKey(plan, tierCredits, "month"),
@@ -216,6 +242,7 @@ export class BillingService {
 			admission: true,
 		});
 		this.assertPlanMatchesScope(body.plan, scope.organizationId);
+		this.assertPurchasableSelection(body.plan, body.tierCredits);
 		const visibleSubscription =
 			await this.subscriptionsRepository.findActiveByOwner(scope.owner);
 
@@ -494,7 +521,15 @@ export class BillingService {
 
 		const cancelsPendingDowngrade =
 			targetLookupKey === subscription.priceLookupKey &&
-			subscription.pendingTierCredits !== null;
+			subscription.pendingTierCredits !== null &&
+			isPurchasableTier(subscription.plan, subscription.tierCredits);
+
+		if (
+			!cancelsPendingDowngrade &&
+			!isPurchasableTier(plan, body.tierCredits)
+		) {
+			throw new BillingChangeIntentInvalidError();
+		}
 
 		if (
 			targetLookupKey === subscription.priceLookupKey &&
@@ -502,11 +537,21 @@ export class BillingService {
 		) {
 			throw new BillingChangeIntentInvalidError();
 		}
+		const currentPrice = parsePriceLookupKey(subscription.priceLookupKey);
+
+		if (!currentPrice) {
+			throw new BillingChangeIntentInvalidError();
+		}
 
 		const prorationDate = new Date(Math.floor(Date.now() / 1000) * 1000);
 		const isDowngrade =
 			subscription.interval === body.interval &&
-			body.tierCredits < subscription.tierCredits;
+			priceUsdFor(plan, body.tierCredits, body.interval) <
+				priceUsdFor(
+					currentPrice.plan,
+					currentPrice.tierCredits,
+					currentPrice.interval,
+				);
 		const anchorReset = this.anchorResetsForChange({
 			cancelsPendingDowngrade,
 			isDowngrade,
@@ -639,12 +684,22 @@ export class BillingService {
 					return { error: "invalid" as const };
 				}
 
+				this.assertPlanMatchesScope(target.plan, scope.organizationId);
 				this.assertSupportedIntervalChange(original.interval, target.interval);
 				const isDowngrade =
 					target.interval === original.interval &&
-					target.tierCredits < original.tierCredits;
+					priceUsdFor(target.plan, target.tierCredits, target.interval) <
+						priceUsdFor(original.plan, original.tierCredits, original.interval);
 				const cancelsDowngrade =
-					intent.targetPriceLookupKey === intent.currentPriceLookupKey;
+					intent.targetPriceLookupKey === intent.currentPriceLookupKey &&
+					isPurchasableTier(original.plan, original.tierCredits);
+
+				if (
+					!cancelsDowngrade &&
+					!isPurchasableTier(target.plan, target.tierCredits)
+				) {
+					return { error: "invalid" as const };
+				}
 
 				if (intent.status === "consumed") {
 					return this.persistedChangeResult(intent)
@@ -743,6 +798,38 @@ export class BillingService {
 				!operation.cancelsDowngrade &&
 				!operation.isDowngrade &&
 				operation.subscription.pendingTierCredits !== null;
+			const releasedMigrationTarget =
+				releasesPendingDowngrade &&
+				!isPurchasableTier(
+					operation.subscription.plan,
+					operation.subscription.tierCredits,
+				) &&
+				operation.subscription.pendingTierCredits !== null &&
+				isKnownTier(operation.subscription.pendingTierCredits)
+					? operation.subscription.pendingTierCredits
+					: null;
+			let releasedPendingDowngrade = false;
+			let restoredMigrationSchedule = false;
+			const restoreReleasedMigrationSchedule = async () => {
+				if (
+					releasedMigrationTarget === null ||
+					!releasedPendingDowngrade ||
+					restoredMigrationSchedule
+				) {
+					return;
+				}
+
+				await this.restoreMigrationSchedule({
+					currentPriceLookupKey: operation.subscription.priceLookupKey,
+					idempotencyKey: `${idempotencyKey}:restore-schedule`,
+					interval: operation.subscription.interval,
+					owner: scope.owner,
+					plan: operation.subscription.plan,
+					providerSubscriptionId: operation.subscription.providerSubscriptionId,
+					tierCredits: releasedMigrationTarget,
+				});
+				restoredMigrationSchedule = true;
+			};
 
 			if (releasesPendingDowngrade) {
 				try {
@@ -750,6 +837,7 @@ export class BillingService {
 						operation.subscription.providerSubscriptionId,
 						`${idempotencyKey}:release-schedule`,
 					);
+					releasedPendingDowngrade = true;
 				} catch (error) {
 					if (error instanceof AmbiguousPaymentProviderWriteError) {
 						throw error;
@@ -760,14 +848,20 @@ export class BillingService {
 				}
 
 				if (!providerResult) {
-					// Persist the completed release as its own saga step. If the
-					// following price update times out or is rejected, a retry cannot
-					// resurrect a local downgrade whose remote schedule is already gone.
-					providerResult = await this.clearPendingDowngradeForProcessingChange(
-						scope.owner,
-						operation.intent.id,
-						operation.subscription.providerSubscriptionId,
-					);
+					try {
+						// Persist the completed release as its own saga step so a retry does
+						// not mistake stale local pending state for a live Stripe schedule.
+						providerResult =
+							await this.clearPendingDowngradeForProcessingChange(
+								scope.owner,
+								operation.intent.id,
+								operation.subscription.providerSubscriptionId,
+								releasedMigrationTarget,
+							);
+					} catch (error) {
+						await restoreReleasedMigrationSchedule();
+						throw error;
+					}
 				}
 			}
 
@@ -780,8 +874,30 @@ export class BillingService {
 						);
 						providerResult = { outcome: "applied" };
 					} else if (operation.isDowngrade) {
+						const pendingTierCredits =
+							operation.subscription.pendingTierCredits;
+
+						if (
+							pendingTierCredits !== null &&
+							!isKnownTier(pendingTierCredits)
+						) {
+							throw new Error(
+								`Subscription ${operation.subscription.providerSubscriptionId} has unknown pending tier ${pendingTierCredits}`,
+							);
+						}
+
 						scheduleId =
 							await this.paymentProvider.scheduleSubscriptionDowngrade({
+								allowSameIntentRecovery: true,
+								currentPriceLookupKey: operation.subscription.priceLookupKey,
+								expectedScheduleTarget:
+									pendingTierCredits === null
+										? null
+										: priceLookupKey(
+												operation.subscription.plan,
+												pendingTierCredits,
+												operation.subscription.interval,
+											),
 								idempotencyKey,
 								newPriceLookupKey: operation.intent.targetPriceLookupKey,
 								providerSubscriptionId:
@@ -802,6 +918,7 @@ export class BillingService {
 					}
 				} catch (error) {
 					if (error instanceof AmbiguousPaymentProviderWriteError) {
+						await restoreReleasedMigrationSchedule();
 						throw error;
 					}
 
@@ -811,9 +928,14 @@ export class BillingService {
 			}
 
 			if (!providerResult) {
+				await restoreReleasedMigrationSchedule();
 				throw new Error(
 					`Subscription change ${operation.intent.id} produced no provider outcome`,
 				);
+			}
+
+			if (providerResult.outcome === "failed") {
+				await restoreReleasedMigrationSchedule();
 			}
 
 			completedIntent = await this.changeIntentsRepository.withOwnerLock(
@@ -1046,6 +1168,55 @@ export class BillingService {
 				subscription.providerSubscriptionId,
 				false,
 			);
+
+			const v6Tier = !isPurchasableTier(
+				subscription.plan,
+				subscription.tierCredits,
+			)
+				? v6TierForLegacy(subscription.tierCredits)
+				: null;
+
+			if (v6Tier !== null && subscription.plan !== "starter") {
+				const targetLookupKey = priceLookupKey(
+					subscription.plan,
+					v6Tier,
+					subscription.interval,
+				);
+				const migrationIdempotencyKey = `billing-migrate-v6:${subscription.interval}:${subscription.providerSubscriptionId}:${targetLookupKey}`;
+
+				if (
+					subscription.interval === "year" &&
+					subscription.pendingTierCredits === null
+				) {
+					await this.restoreMigrationSchedule({
+						currentPriceLookupKey: subscription.priceLookupKey,
+						idempotencyKey: migrationIdempotencyKey,
+						interval: subscription.interval,
+						owner: scope.owner,
+						plan: subscription.plan,
+						providerSubscriptionId: subscription.providerSubscriptionId,
+						tierCredits: v6Tier,
+					});
+				} else if (subscription.interval === "month") {
+					await this.paymentProvider.switchSubscriptionPriceWithoutProration({
+						currentPriceLookupKey: subscription.priceLookupKey,
+						idempotencyKey: migrationIdempotencyKey,
+						newPriceLookupKey: targetLookupKey,
+						providerSubscriptionId: subscription.providerSubscriptionId,
+					});
+					const updated = await this.subscriptionsRepository.updateTierAndPrice(
+						subscription.providerSubscriptionId,
+						v6Tier,
+						targetLookupKey,
+					);
+
+					if (!updated) {
+						throw new Error(
+							`Subscription ${subscription.providerSubscriptionId} disappeared while resuming onto its v6 tier`,
+						);
+					}
+				}
+			}
 		}
 		await this.subscriptionsRepository.updateCancelAtPeriodEnd(
 			subscription.providerSubscriptionId,
@@ -1215,6 +1386,7 @@ export class BillingService {
 					`Subscription checkout attempt ${attempt.id} violates its persisted purpose invariants`,
 				);
 			}
+			this.assertPlanMatchesScope(parsed.plan, attempt.organizationId);
 
 			recovered = await this.paymentProvider.createSubscriptionCheckout({
 				attemptId: attempt.id,
@@ -1227,7 +1399,7 @@ export class BillingService {
 				userId: attempt.userId,
 			});
 		} else {
-			const packId = topupPackIdSchema.safeParse(attempt.packId);
+			const packId = persistedTopupPackIdSchema.safeParse(attempt.packId);
 
 			if (!packId.success || attempt.priceLookupKey !== null) {
 				throw new Error(
@@ -1235,7 +1407,7 @@ export class BillingService {
 				);
 			}
 
-			const pack = TOPUP_PACKS[packId.data];
+			const pack = PERSISTED_TOPUP_PACKS[packId.data];
 			recovered = await this.paymentProvider.createTopupCheckout({
 				attemptId: attempt.id,
 				credits: pack.credits,
@@ -1342,8 +1514,9 @@ export class BillingService {
 	}
 
 	/**
-	 * Ruling 7: every non-downgrade, non-cancel change (same-interval tier
-	 * upgrade, plan upgrade, month->year) resets the Stripe billing anchor —
+	 * Ruling 7: every non-downgrade, non-cancel change (same-interval price
+	 * increase or equal-price catalog move, plan upgrade, month->year) resets
+	 * the Stripe billing anchor —
 	 * the customer pays the full new price now, Stripe credits the unused
 	 * remainder of the old price, and fulfillment grants the full allotment.
 	 * Downgrades are scheduled at period end and a pending-downgrade cancel
@@ -1405,6 +1578,7 @@ export class BillingService {
 		owner: CreditOwner,
 		intentId: string,
 		providerSubscriptionId: string,
+		retainedMigrationTarget: CreditTier | null,
 	): Promise<SubscriptionChangeProviderResult | null> {
 		// Same owner lock as the change execution: this saga step must never
 		// interleave with another owner's concurrent change on the same pool.
@@ -1417,9 +1591,13 @@ export class BillingService {
 				);
 			}
 
+			// Mandatory legacy migration targets stay durable while the replacement
+			// provider write is in flight. setPendingTierCredits clears their stale
+			// schedule id; success clears the target, while failure re-marks it with
+			// the replacement schedule id. Voluntary downgrades are cleared outright.
 			const cleared = await this.subscriptionsRepository.setPendingTierCredits(
 				providerSubscriptionId,
-				null,
+				retainedMigrationTarget,
 				tx,
 			);
 
@@ -1443,6 +1621,75 @@ export class BillingService {
 
 			return result;
 		});
+	}
+
+	private async restoreMigrationSchedule(input: {
+		currentPriceLookupKey: string;
+		idempotencyKey: string;
+		interval: BillingInterval;
+		owner: CreditOwner;
+		plan: BillingPlanId;
+		providerSubscriptionId: string;
+		tierCredits: CreditTier;
+	}): Promise<void> {
+		const newPriceLookupKey = priceLookupKey(
+			input.plan,
+			input.tierCredits,
+			input.interval,
+		);
+		const scheduleId = await this.paymentProvider.scheduleSubscriptionDowngrade(
+			{
+				allowSameIntentRecovery: true,
+				currentPriceLookupKey: input.currentPriceLookupKey,
+				expectedScheduleTarget: null,
+				idempotencyKey: input.idempotencyKey,
+				newPriceLookupKey,
+				providerSubscriptionId: input.providerSubscriptionId,
+			},
+		);
+
+		await this.changeIntentsRepository.withOwnerLock(
+			input.owner,
+			async (tx) => {
+				const subscription =
+					await this.subscriptionsRepository.findActiveByOwner(input.owner, tx);
+
+				if (
+					!subscription ||
+					subscription.providerSubscriptionId !==
+						input.providerSubscriptionId ||
+					subscription.priceLookupKey !== input.currentPriceLookupKey ||
+					(subscription.pendingTierCredits !== null &&
+						subscription.pendingTierCredits !== input.tierCredits)
+				) {
+					throw new Error(
+						`Subscription ${input.providerSubscriptionId} changed while restoring its v6 renewal schedule`,
+					);
+				}
+
+				const pending =
+					await this.subscriptionsRepository.setPendingTierCredits(
+						input.providerSubscriptionId,
+						input.tierCredits,
+						tx,
+					);
+				// pendingAppliedBy remains the replacement Stripe schedule id, preserving
+				// the marker that lets renewal clear an applied migration target.
+				const marked = pending
+					? await this.subscriptionsRepository.markPendingTierApplied(
+							input.providerSubscriptionId,
+							scheduleId,
+							tx,
+						)
+					: null;
+
+				if (!pending || !marked) {
+					throw new Error(
+						`Subscription ${input.providerSubscriptionId} could not persist its restored v6 renewal schedule`,
+					);
+				}
+			},
+		);
 	}
 
 	private logDefiniteChangeFailure(intentId: string, error: unknown): void {

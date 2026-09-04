@@ -63,6 +63,32 @@ describe("listUsers", () => {
 		});
 	});
 
+	it("round-trips the Starter plan filter through query params the contract accepts", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			items: [],
+			page: 1,
+			pageSize: 25,
+			total: 0,
+		});
+
+		await listUsers({
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			plan: ["starter"],
+		});
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminRoutes.users,
+			expect.objectContaining({ plan: "starter" }),
+		);
+
+		const [, sentParams] = apiGetMock.mock.calls[0] as [string, object];
+		const parsed = adminListUsersQuerySchema.parse(sentParams);
+
+		expect(parsed.plan).toEqual(["starter"]);
+	});
+
 	it("omits both credits-used bounds when the filter is unset", async () => {
 		apiGetMock.mockResolvedValueOnce({
 			items: [],

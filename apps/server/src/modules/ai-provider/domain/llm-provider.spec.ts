@@ -266,6 +266,12 @@ describe("gateway routing pin", () => {
 		});
 	});
 
+	it("prefers Friendli, Baseten, Fireworks for zai models, keeping deep fallback", () => {
+		expect(gatewayRoutingForModel("zai/glm-5.3-flash")).toEqual({
+			order: ["friendli", "baseten", "fireworks"],
+		});
+	});
+
 	it("leaves other creators on the gateway's default routing", () => {
 		expect(gatewayRoutingForModel("xai/grok-4.5")).toEqual({});
 		expect(gatewayRoutingForModel("anthropic/claude-opus-5")).toEqual({});
@@ -456,6 +462,44 @@ describe("createLlmModel on openrouter", () => {
 			message: "socket died",
 			openrouterGenerationId: "gen-dead",
 		});
+	});
+
+	it("tags an abort reason after the streamed generation id is known", async () => {
+		const inner = fakeOpenRouterModel([]);
+		inner.doStream = vi.fn(async () => ({
+			stream: new ReadableStream<FakeStreamPart>({
+				start(controller) {
+					controller.enqueue({
+						id: "gen-aborted",
+						type: "response-metadata",
+					});
+				},
+			}),
+		}));
+		openrouterMocks.chat.mockReturnValue(inner);
+
+		const abortController = new AbortController();
+		const abortReason = new Error("builder stalled");
+		const model = createLlmModel("openai/gpt-5.6-terra", {
+			context: CONTEXT,
+			task: "chat",
+		});
+		const { stream } = await (
+			model as unknown as {
+				doStream: (
+					options: unknown,
+				) => Promise<{ stream: ReadableStream<FakeStreamPart> }>;
+			}
+		).doStream({ abortSignal: abortController.signal, prompt: [] });
+		const reader = stream.getReader();
+		await reader.read();
+
+		abortController.abort(abortReason);
+
+		expect(abortReason).toMatchObject({
+			openrouterGenerationId: "gen-aborted",
+		});
+		await reader.cancel();
 	});
 });
 

@@ -456,6 +456,20 @@
       "when": 1788242581007,
       "tag": "0064_admin-view-grants",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788350374037,
+      "tag": "0065_starter-plan-enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788350392950,
+      "tag": "0066_signup-grant-7",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { BILLING_CATALOG, priceUsdFor } from "@wandit/contracts";
+import { type BillingPlanId, tryPriceUsdFor } from "@wandit/contracts";
 import { CheckIcon } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { PropsWithChildren, ReactNode } from "react";
@@ -26,6 +26,12 @@ import {
 import { WEB_APP_ORIGIN } from "@/lib/web-origin";
 
 const WEB_APP_DOMAIN = new URL(WEB_APP_ORIGIN).host;
+
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
 
 type OfflineReceiptProps = {
 	subscription: AdminManualSubscriptionDetail;
@@ -98,7 +104,7 @@ export function OfflineRequestReceipt({
 		dzdPerUsdRate,
 	);
 
-	// The page excludes retired tiers before mounting the printable document.
+	// The page excludes plan/tier pairs without a catalog price before mounting.
 	// Keep the document safe if it is ever rendered from another entry point.
 	if (priceDzd === null) {
 		return null;
@@ -271,7 +277,7 @@ function OrderDetails({
 	recordIdLabel: string;
 	recordId: string;
 }) {
-	const planName = plan === "pro" ? "Pro" : "Business";
+	const planName = PLAN_NAMES[plan];
 	const priceSuffix = interval === "month" ? "/ mois" : "/ an";
 
 	return (
@@ -344,16 +350,11 @@ function getDzdPlanPrice(
 	interval: AdminManualSubscriptionDetail["interval"],
 	dzdPerUsdRate: number,
 ): number | null {
-	const catalogTier = BILLING_CATALOG.creditTiers.find(
-		(tier) => tier === tierCredits,
-	);
+	const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
 
-	return catalogTier === undefined
+	return priceUsd === null
 		? null
-		: computeDzdPlanPrice(
-				priceUsdFor(plan, catalogTier, interval),
-				dzdPerUsdRate,
-			);
+		: computeDzdPlanPrice(priceUsd, dzdPerUsdRate);
 }
 
 function formatCustomerLocation(

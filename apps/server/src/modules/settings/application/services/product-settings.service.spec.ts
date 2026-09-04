@@ -2,6 +2,7 @@ import { ConflictException } from "@nestjs/common";
 import {
 	type PatchProductSettingsBody,
 	patchProductSettingsBodySchema,
+	publicSettingsSchema,
 } from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -136,8 +137,8 @@ describe("ProductSettingsService", () => {
 			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: false,
-			// Stored (and internally served) as centi-credits: 5000 = 50 credits.
-			signupGrantCredits: 5000,
+			// Stored (and internally served) as centi-credits: 700 = 7 credits.
+			signupGrantCredits: 700,
 			signupGrantEnabled: false,
 			topupsEnabled: false,
 			updatedAt: INITIAL_DATE.toISOString(),
@@ -253,26 +254,40 @@ describe("ProductSettingsService", () => {
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it("exposes only the public switches", async () => {
+	it.each([
+		{ exposedCredits: 0.5, storedCentiCredits: 50 },
+		{ exposedCredits: 7, storedCentiCredits: 700 },
+	])("exposes $storedCentiCredits stored centi-credits publicly as $exposedCredits credits", async ({
+		exposedCredits,
+		storedCentiCredits,
+	}) => {
 		const { repository, service } = setup();
 		repository.row = defaultRow({
 			lifecycleEmailsEnabled: true,
 			manualGraceDays: 7,
 			manualPaymentsEnabled: true,
 			paidSubscriptionsEnabled: true,
+			signupGrantCredits: storedCentiCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
 		});
 
-		await expect(service.getPublic()).resolves.toEqual({
+		const publicSettings = await service.getPublic();
+		const expectedPublicSettings = {
 			emailAuthEnabled: false,
 			manualGraceDays: 7,
 			manualPaymentsEnabled: true,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
+			signupGrantCredits: exposedCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
-		});
+		};
+
+		expect(publicSettings).toEqual(expectedPublicSettings);
+		expect(publicSettingsSchema.parse(publicSettings)).toEqual(
+			expectedPublicSettings,
+		);
 		expect(await service.get()).toMatchObject({
 			dzdPerUsdRate: 27_000,
 			lifecycleEmailsEnabled: true,

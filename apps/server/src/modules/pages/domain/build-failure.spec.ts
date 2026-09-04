@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyBuildFailure, TaggedBuildError } from "./build-failure";
+import {
+	BuilderStallError,
+	classifyBuildFailure,
+	TaggedBuildError,
+} from "./build-failure";
 
 /** Minimal stand-in for an AI SDK provider error (AI_-prefixed name). */
 function providerError(overrides: Record<string, unknown> = {}): Error {
@@ -38,6 +42,12 @@ describe("classifyBuildFailure", () => {
 		error.message = "Headers Timeout Error (UND_ERR_HEADERS_TIMEOUT)";
 
 		expect(classifyBuildFailure(error)).toBe("provider_timeout");
+	});
+
+	it("maps a builder no-progress stall to provider_timeout", () => {
+		expect(
+			classifyBuildFailure(new BuilderStallError(180_000, "openai/test-model")),
+		).toBe("provider_timeout");
 	});
 
 	it("maps any other provider-call failure to provider_error", () => {

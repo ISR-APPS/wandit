@@ -23,6 +23,7 @@ import { messageHasFailure } from "@/features/conversations/lib/conversation-fai
 import { formatConversationDateTime } from "@/features/conversations/lib/conversation-formatters";
 import { groupConversationTurns } from "@/features/conversations/lib/conversation-turns";
 import {
+	getMessageMetadataUsage,
 	groupCallsByMessageId,
 	mergeUsageSummaries,
 } from "@/features/conversations/lib/conversation-usage";
@@ -242,7 +243,7 @@ export function Transcript({
 							<div className="space-y-5">
 								{turn.messages.map((message) => {
 									const directUsage = usageByMessageId.get(message.id);
-									const usage =
+									const callUsage =
 										message.role === "assistant"
 											? mergeUsageSummaries(
 													directUsage,
@@ -251,6 +252,10 @@ export function Transcript({
 														? turnUsage
 														: undefined,
 												)
+											: undefined;
+									const usage =
+										message.role === "assistant"
+											? (callUsage ?? getMessageMetadataUsage(message.metadata))
 											: undefined;
 
 									return (

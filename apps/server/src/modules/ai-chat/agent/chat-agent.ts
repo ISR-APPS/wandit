@@ -462,6 +462,10 @@ export function createChatAgent(
 				// The brief IS the product: the brain must reason hard when it
 				// composes one. Only OpenAI models read this key.
 				openai: { reasoningEffort: "high" },
+				// GLM at "high" burns minutes of hidden thinking per step
+				// (2026-08-30 builder measurements); medium keeps chat snappy
+				// without going shallow. Only Z.ai models read this key.
+				zai: { reasoningEffort: "medium" },
 			},
 			meteringContext,
 			"chat",
@@ -529,6 +533,7 @@ export function createChatAgent(
 			}),
 			generate_page: createGeneratePageTool({
 				builderModel: deps.builderModel,
+				builderReasoning: deps.builderReasoning,
 				chatId: deps.chatId,
 				conversationAssets: deps.conversationAssets,
 				conversationUserLinks: deps.conversationUserLinks,

@@ -327,3 +327,73 @@ describe("ChatsRepository.deleteTerminalFailedAssistantMessage", () => {
 		).resolves.toBe(false);
 	});
 });
+
+describe("ChatsRepository.getUsage", () => {
+	it("aggregates direct and parent-linked usage events", async () => {
+		const chatId = "00000000-0000-0000-0000-000000000001";
+		const execute = vi.fn(async (_query: unknown) => ({
+			rows: [
+				{
+					cache_read_tokens: "300",
+					cache_write_tokens: null,
+					cost_usd_micros: "130000",
+					credits_centi: "325",
+					input_tokens: "1000",
+					output_tokens: 200,
+				},
+			],
+		}));
+		const repository = new ChatsRepository({
+			execute,
+		} as unknown as Database);
+
+		await expect(repository.getUsage(chatId)).resolves.toEqual({
+			inputTokens: 1000,
+			outputTokens: 200,
+			cacheReadTokens: 300,
+			cacheWriteTokens: null,
+			costUsdMicros: 130000,
+			creditsCenti: 325,
+		});
+
+		const query = compile(execute.mock.calls[0]?.[0]);
+		expect(query.params).toEqual([chatId, chatId]);
+		expect(query.sql).toContain("sum(e.input_tokens)::bigint as input_tokens");
+		expect(query.sql).toContain(
+			"coalesce(e.reconciled_cost_usd_micros, e.estimated_cost_usd_micros)",
+		);
+		expect(query.sql).toContain(
+			"sum(coalesce(e.final_credits, e.reserved_credits))::bigint as credits_centi",
+		);
+		expect(query.sql).toContain("e.chat_id = $1::uuid");
+		expect(query.sql).toContain("e.parent_event_id in");
+		expect(query.sql).toContain("parent_event.chat_id = $2::uuid");
+	});
+
+	it("returns nullable fields when the conversation has no usage events", async () => {
+		const execute = vi.fn(async (_query: unknown) => ({
+			rows: [
+				{
+					cache_read_tokens: null,
+					cache_write_tokens: null,
+					cost_usd_micros: null,
+					credits_centi: null,
+					input_tokens: null,
+					output_tokens: null,
+				},
+			],
+		}));
+		const repository = new ChatsRepository({
+			execute,
+		} as unknown as Database);
+
+		await expect(repository.getUsage("chat-1")).resolves.toEqual({
+			inputTokens: null,
+			outputTokens: null,
+			cacheReadTokens: null,
+			cacheWriteTokens: null,
+			costUsdMicros: null,
+			creditsCenti: null,
+		});
+	});
+});

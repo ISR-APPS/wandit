@@ -56,6 +56,10 @@ const marginAfterAiPlanMetadata: Record<
 	AdminAnalyticsMarginAfterAiPlan,
 	MarginAfterAiPlanMetadata
 > = {
+	starter: {
+		label: "Starter",
+		description: "Collected Starter invoices",
+	},
 	pro: {
 		label: "Pro",
 		description: "Collected Pro invoices",

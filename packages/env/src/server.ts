@@ -113,8 +113,8 @@ export const env = createEnv({
 		// USD of provider cost per WHOLE credit. Settlement debits integer
 		// centi-credits (1 credit = 100 cc); the conversion function owns the
 		// x100, so this value stays per whole credit. $0.04/credit is the
-		// pricing v5 anchor: 1 credit = $0.04 of provider cost, so the 50-credit
-		// signup grant carries $2.00 of provider value.
+		// unchanged pricing v5 anchor: 1 credit = $0.04 of provider cost, so the
+		// 7-credit signup grant carries $0.28 of provider value.
 		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
@@ -125,20 +125,22 @@ export const env = createEnv({
 		// AI_PAGE_DESIGN_MODEL remains as a fallback so existing deployments and
 		// .env files keep working during the migration.
 		AI_PAGE_BUILDER_MODEL: z.string().min(1).optional(),
+		// COD funnels default to a different builder than landing pages; unset
+		// falls back to the code default in generate-page.tool.ts.
+		AI_PAGE_COD_BUILDER_MODEL: z.string().min(1).optional(),
 		AI_PAGE_DESIGN_MODEL: z
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
-		// Builder reasoning knob, read at build time inside runSiteBuild() and
-		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
+		// Builder reasoning fallback, read at build time inside runSiteBuild()
+		// and forwarded as providerOptions (openai.reasoningEffort; mapped onto
 		// Gemini's two thinking levels and Grok's three efforts). "auto" sends
-		// no reasoning parameter at all — the provider picks. Defaults to
-		// "high": an unset var once silently meant provider-default effort (a
-		// misnamed .env entry hid the knob for weeks) — design quality must
-		// never again depend on a typo, so turning it off is an explicit value.
+		// no reasoning parameter at all — the provider picks. The composer's
+		// per-message reasoning picker outranks this env knob; "auto" is the
+		// default so effort is never silently forced on a build.
 		AI_PAGE_DESIGN_REASONING: z
 			.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
-			.default("high"),
+			.default("auto"),
 		// Optional: the "creative director" that rewrites a video brief into one
 		// domain-language provider prompt at queue time. Falls back to
 		// AI_PROMPT_REFINER_MODEL; failures degrade to a deterministic prompt,

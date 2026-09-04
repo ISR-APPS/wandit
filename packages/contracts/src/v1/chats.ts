@@ -124,6 +124,18 @@ export const chatMessagesResponseSchema = z.object({
 // TypeScript chat history response.
 export type ChatMessagesResponse = z.infer<typeof chatMessagesResponseSchema>;
 
+// Staff-only aggregate of all metered work attached to one conversation.
+export const chatUsageResponseSchema = z.object({
+	inputTokens: z.number().int().nonnegative().nullable(),
+	outputTokens: z.number().int().nonnegative().nullable(),
+	cacheReadTokens: z.number().int().nonnegative().nullable(),
+	cacheWriteTokens: z.number().int().nonnegative().nullable(),
+	costUsdMicros: z.number().int().nonnegative().nullable(),
+	creditsCenti: z.number().int().nonnegative().nullable(),
+});
+
+export type ChatUsageResponse = z.infer<typeof chatUsageResponseSchema>;
+
 // Events that can arrive over the chat stream.
 // `type` tells the frontend which event shape it is.
 export const chatStreamEventSchema = z.discriminatedUnion("type", [
@@ -165,6 +177,8 @@ export const chatsRoutes = {
 	byProject: (projectId: string) => `/api/v1/chats/by-project/${projectId}`,
 	// GET loads history, POST sends a message.
 	messages: (chatId: string) => `/api/v1/chats/${chatId}/messages`,
+	// Staff-only conversation cost and token aggregate.
+	usage: (chatId: string) => `/api/v1/chats/${chatId}/usage`,
 	// SSE stream endpoint.
 	stream: (chatId: string) => `/api/v1/chats/${chatId}/stream`,
 } as const;

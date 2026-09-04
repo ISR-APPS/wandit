@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type BillingPlanId,
 	type CreateManualSubscriptionRequestBody,
 	type ManualSubscriptionRequest,
 	type ManualSubscriptionRequestViewResponse,
@@ -169,16 +170,18 @@ export class ManualSubscriptionRequestsService {
 	}
 
 	private assertPlanMatchesScope(
-		plan: CreateManualSubscriptionRequestBody["plan"],
+		plan: BillingPlanId,
 		organizationId: string | null,
 	): void {
-		const required = organizationId ? "business" : "pro";
+		const supported = organizationId
+			? plan === "business"
+			: plan === "starter" || plan === "pro";
 
-		if (plan !== required) {
+		if (!supported) {
 			throw new WorkspaceNotSupportedError(
 				organizationId
-					? "Team workspaces use the Business plan"
-					: "The Business plan requires a team workspace",
+					? "Organization workspaces support the Business plan only"
+					: "Personal workspaces support the Starter and Pro plans only",
 			);
 		}
 	}

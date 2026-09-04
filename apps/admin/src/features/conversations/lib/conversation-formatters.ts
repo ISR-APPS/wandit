@@ -1,3 +1,5 @@
+import { roundCreditAmount } from "@/lib/credit-format";
+
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
 	timeStyle: "short",
@@ -9,6 +11,16 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 
 const wholeNumberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
+});
+
+const compactTokenFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 1,
+	notation: "compact",
+});
+
+const creditsFormatter = new Intl.NumberFormat("en-US", {
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
 });
 
 const usdFormatter = new Intl.NumberFormat("en-US", {
@@ -68,6 +80,18 @@ export function formatConversationRelativeTime(
 
 export function formatConversationCount(value: number | null): string {
 	return value === null ? "—" : wholeNumberFormatter.format(value);
+}
+
+export function formatConversationTokenCount(value: number | null): string {
+	return value === null
+		? "—"
+		: compactTokenFormatter.format(value).toLocaleLowerCase("en-US");
+}
+
+export function formatCentiCredits(value: number | null): string {
+	return value === null
+		? "—"
+		: creditsFormatter.format(roundCreditAmount(value / 100));
 }
 
 export function formatConversationCost(value: number | null): string {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	CREDIT_EVENT_THRESHOLD_PERCENTAGES,
+	creditEventThresholdsForGrant,
 	DONE_EVENT_MAPPING,
 	EVENT_COOLDOWN_MS,
 	EVENT_HOLD_MS,
@@ -51,6 +53,18 @@ describe("lifecycle event rules", () => {
 			"pricing_viewed",
 			"upgrade_clicked",
 		]);
+		expect(CREDIT_EVENT_THRESHOLD_PERCENTAGES).toEqual({
+			credits_25_used: 0.5,
+			credits_40_used: 0.8,
+		});
+		expect(creditEventThresholdsForGrant(700)).toEqual({
+			credits_25_used: 350,
+			credits_40_used: 560,
+		});
+		expect(creditEventThresholdsForGrant(5000)).toEqual({
+			credits_25_used: 2500,
+			credits_40_used: 4000,
+		});
 		expect(DONE_EVENT_MAPPING.website_generated).toEqual({
 			doneEvent: "landing_page_generated",
 			payloadKey: "done_landing_page",

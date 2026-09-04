@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { BILLING_CATALOG } from "@wandit/contracts";
+import { tryPriceUsdFor } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
 	CircleAlertIcon,
@@ -39,26 +39,23 @@ export function OfflineRequestReceiptPage({
 	const [generatedAt] = useState(() => new Date());
 	const request = requestQuery.data;
 	const dzdPerUsdRate = receiptConfigQuery.data?.dzdPerUsdRate;
-	const tierCredits = request
-		? BILLING_CATALOG.creditTiers.find(
-				(catalogTier) => catalogTier === request.tierCredits,
-			)
-		: undefined;
+	const hasCatalogPrice = request
+		? tryPriceUsdFor(request.plan, request.tierCredits, request.interval) !==
+			null
+		: false;
 	const isPending = requestQuery.isPending || receiptConfigQuery.isPending;
 	const isError = requestQuery.isError || receiptConfigQuery.isError;
 	const isRequestMissing =
 		isApiClientError(requestQuery.error) &&
 		requestQuery.error.status === 404 &&
 		!receiptConfigQuery.isError;
-	const isTierRetired =
-		requestQuery.isSuccess &&
-		request !== undefined &&
-		tierCredits === undefined;
+	const isPlanPriceUnavailable =
+		requestQuery.isSuccess && request !== undefined && !hasCatalogPrice;
 	const isReceiptReady =
 		requestQuery.isSuccess &&
 		receiptConfigQuery.isSuccess &&
 		request !== undefined &&
-		tierCredits !== undefined &&
+		hasCatalogPrice &&
 		dzdPerUsdRate !== undefined;
 	const retryReceipt = () => {
 		void Promise.all([requestQuery.refetch(), receiptConfigQuery.refetch()]);
@@ -78,8 +75,8 @@ export function OfflineRequestReceiptPage({
 				/>
 			) : isPending ? (
 				<ReceiptLoadingState />
-			) : isTierRetired ? (
-				<RetiredTierState />
+			) : isPlanPriceUnavailable ? (
+				<UnavailablePlanPriceState />
 			) : isReceiptReady ? (
 				<OfflineRequestReceipt
 					request={request}
@@ -180,18 +177,18 @@ function ReceiptErrorState({
 	);
 }
 
-function RetiredTierState() {
+function UnavailablePlanPriceState() {
 	return (
 		<Empty className="offline-receipt-screen-only min-h-[560px] border bg-background">
 			<EmptyHeader>
 				<EmptyMedia variant="icon">
 					<CircleAlertIcon aria-hidden="true" />
 				</EmptyMedia>
-				<EmptyTitle>Requested tier is no longer sold</EmptyTitle>
+				<EmptyTitle>Requested plan price is unavailable</EmptyTitle>
 				<EmptyDescription>
-					The requested credit tier is no longer sold, so a priced receipt
-					cannot be printed. Grant the subscription with a current tier, then
-					print its receipt instead.
+					This plan and credit-tier combination has no catalog price, so a
+					priced receipt cannot be printed. Correct the request before granting
+					the subscription.
 				</EmptyDescription>
 			</EmptyHeader>
 			<EmptyContent>

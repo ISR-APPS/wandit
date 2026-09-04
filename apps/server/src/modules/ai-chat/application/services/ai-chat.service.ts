@@ -173,7 +173,10 @@ import {
 	resolveVideoRequestKeySeed,
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
-import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
+import {
+	resolveBuilderModelOption,
+	resolveBuilderReasoningOption,
+} from "../../agent/tools/builder-model-options";
 import type { AvailableVideo } from "../../agent/tools/inspect-video.tool";
 import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
@@ -863,6 +866,11 @@ export class AiChatService {
 					builderModel: resolveBuilderModelOption(
 						metadata?.composer?.options?.builderModel,
 					),
+					// Composer's reasoning picker: per-message effort override,
+					// validated the same way; undefined = env fallback ("auto").
+					builderReasoning: resolveBuilderReasoningOption(
+						metadata?.composer?.options?.builderReasoning,
+					),
 					chatId,
 					hasHiggsfieldConnector:
 						mcpResult.configuredSlugs.includes("higgsfield"),
@@ -897,7 +905,7 @@ export class AiChatService {
 			);
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
-			const stepUsages: MeteredTokenUsage[] = [];
+			const stepUsages: LanguageModelUsage[] = [];
 			let writerClosed = false;
 			let streamWriter: UIMessageStreamWriter<WanditUIMessage> | null = null;
 			let wroteBillingError = false;
@@ -1231,6 +1239,7 @@ export class AiChatService {
 									const provider = providerFromAiMetadata(lastProviderMetadata);
 									const gatewayGenerationId =
 										gatewayGenerationIdFromAiMetadata(lastProviderMetadata);
+									const lastStepUsage = stepUsages.at(-1);
 									const finishError = classifyFinish(
 										aiErrorContext({
 											finishReason: part.finishReason,
@@ -1261,11 +1270,15 @@ export class AiChatService {
 									return {
 										finishReason: part.finishReason,
 										...(gatewayGenerationId ? { gatewayGenerationId } : {}),
+										...(lastStepUsage
+											? { lastStepUsage: toAiChatMessageUsage(lastStepUsage) }
+											: {}),
 										model: env.AI_CHAT_MODEL,
 										...(provider ? { provider } : {}),
 										...(part.rawFinishReason !== undefined
 											? { rawFinishReason: part.rawFinishReason }
 											: {}),
+										stepCount: stepUsages.length,
 										usage: toAiChatMessageUsage(part.totalUsage),
 									};
 								}

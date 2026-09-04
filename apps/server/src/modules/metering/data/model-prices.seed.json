@@ -3184,6 +3184,16 @@
 			"type": "language"
 		},
 		{
+			"id": "meta/muse-spark-1.2-contributor",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.0000001",
+				"input_cache_read": "0.000000002",
+				"output": "0.0000002"
+			},
+			"type": "language"
+		},
+		{
 			"id": "minimax/minimax-h3",
 			"owned_by": "minimax",
 			"pricing": {

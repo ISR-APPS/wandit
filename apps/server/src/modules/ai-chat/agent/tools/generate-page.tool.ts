@@ -40,6 +40,7 @@ import {
 	SIMPLE_COD_STYLE_DOC,
 	sampleSimpleCodRecipe,
 } from "../site-builder/simple-cod-recipe";
+import type { BuilderReasoningOption } from "./builder-model-options";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 
@@ -52,6 +53,9 @@ export type GeneratePageToolDeps = {
 	// resolved against the allow-list in builder-model-options.ts).
 	// Undefined = use the env default.
 	builderModel?: string;
+	// Per-request reasoning pick from the composer (already validated against
+	// BUILDER_REASONING_OPTIONS). Undefined = env fallback (default "auto").
+	builderReasoning?: BuilderReasoningOption;
 	chatId: string;
 	// Finished [Generated …] assets from this conversation's transcript. The
 	// execute path appends the ones the Brain's brief forgot, so a build can
@@ -275,10 +279,14 @@ export function createGeneratePageTool(
 								: `${WORLD_DEPARTURE_POINT_HEADING}\n\n${resolvedWorlds[0].doc}`
 						}`
 					: basePrompt;
+			// COD funnels default to their own builder (cheap landing models
+			// underperformed on conversion pages); an explicit composer pick
+			// still wins for both kinds.
 			const builderModel =
 				deps.builderModel ??
-				env.AI_PAGE_BUILDER_MODEL ??
-				env.AI_PAGE_DESIGN_MODEL;
+				(isCod
+					? (env.AI_PAGE_COD_BUILDER_MODEL ?? "openai/gpt-5.6-luna")
+					: (env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL));
 			const finalBrief = appendUserLinks(
 				appendReadyMediaAssets(brief, deps.conversationAssets ?? []),
 				deps.conversationUserLinks ?? [],
@@ -294,6 +302,11 @@ export function createGeneratePageTool(
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
 					...(productSku ? { productSku } : {}),
+					// "auto" is the resolver's default — only a real pick is
+					// worth snapshotting.
+					...(deps.builderReasoning && deps.builderReasoning !== "auto"
+						? { reasoningEffort: deps.builderReasoning }
+						: {}),
 					title,
 				},
 			});

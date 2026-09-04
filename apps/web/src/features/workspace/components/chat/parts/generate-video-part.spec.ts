@@ -245,6 +245,7 @@ function renderVideoMessage(part: EditVideoToolPart | ExtendVideoToolPart) {
 			createElement(MessageParts, {
 				isLastAssistantMessage: true,
 				isStreaming: false,
+				tokenUsageVisible: true,
 				message: {
 					id: "video-message-1",
 					parts: [part],

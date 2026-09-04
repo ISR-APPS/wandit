@@ -4,6 +4,7 @@
 	"autosaved": "محفوظ",
 	"upgrade": "ترقية",
 	"upgradeCard": {
+		"titleStarter": "الترقية إلى Starter",
 		"titlePro": "الترقية إلى Pro",
 		"titleBusiness": "الترقية إلى الأعمال",
 		"body": "المزيد من الرصيد والمزايا"
@@ -210,8 +211,16 @@
 		"generating": "جارٍ التوليد",
 		"usage": {
 			"message": "الإدخال {input} · الإخراج {output} · الإجمالي {total} رمزًا",
+			"messageWithSteps": "Σ {count} خطوات · {message}",
+			"cached": "({tokens} من ذاكرة التخزين المؤقت)",
+			"reasoning": "({tokens} للاستدلال)",
+			"messageBreakdown": "رموز دون ذاكرة مؤقتة {noCache} · رموز قراءة الذاكرة المؤقتة {cacheRead} · رموز كتابة الذاكرة المؤقتة {cacheWrite} · رموز النص {text} · رموز الاستدلال {reasoning}",
 			"context": "السياق",
 			"conversationTotal": "إجمالي ما استُخدم في هذه المحادثة: {total} رمزًا",
+			"conversationCumulative": "الإدخال التراكمي {input} · الإخراج التراكمي {output}",
+			"latestCacheReadShare": "نسبة القراءة من الذاكرة المؤقتة في آخر دور {share}",
+			"conversationCost": "التكلفة {cost}",
+			"conversationCredits": "{credits} رصيدًا",
 			"brain": "العقل",
 			"builder": "المنشئ"
 		},
@@ -833,6 +842,53 @@
 			"placementFailed": "تعذّر تطبيقها على الصفحة — الصورة موجودة في تبويب الوسائط",
 			"readyCount": "{ready} من {total} جاهزة",
 			"partialFailure": "لم يتم إنشاء صورة واحدة: {sentence}"
+		},
+		"imageBatch": {
+			"generating": "جارٍ توليد {count} صور",
+			"ready": "{count} صور جاهزة",
+			"readyCount": "{ready} من {total} جاهزة"
+		},
+		"pageEdit": {
+			"editing": "جارٍ تعديل الصفحة",
+			"updated": "تم تحديث الصفحة — الإصدار {n}",
+			"inspected": "تم فحص الصفحة",
+			"showDetails": "عرض التفاصيل",
+			"hideDetails": "إخفاء التفاصيل",
+			"receiptUpdated": "تم تحديث الصفحة — الإصدار {n} · {count} تعديلات",
+			"receiptUpdatedSingle": "تم تحديث الصفحة — الإصدار {n} · تعديل واحد",
+			"labels": {
+				"getPageOutline": "جارٍ قراءة بنية الصفحة",
+				"readSection": "جارٍ قراءة القسم {wid}",
+				"readElements": "جارٍ قراءة {count} عناصر",
+				"readElement": "جارٍ قراءة عنصر واحد",
+				"readTheme": "جارٍ قراءة السمة",
+				"replaceSection": "جارٍ إعادة كتابة القسم {wid}",
+				"insertSection": "جارٍ إضافة قسم {position} {wid}",
+				"applyElementOps": "جارٍ تطبيق {count} تعديلات",
+				"applyElementOp": "جارٍ تطبيق تعديل واحد"
+			},
+			"positions": {
+				"before": "قبل",
+				"after": "بعد"
+			},
+			"states": {
+				"applied": "تم التطبيق",
+				"rejected": "مرفوض",
+				"noPage": "لا توجد صفحة متاحة",
+				"failed": "فشل"
+			},
+			"moreTargets": "+{count}",
+			"opKinds": {
+				"text": "النص",
+				"imageSrc": "الصورة",
+				"elementStyle": "نمط العنصر",
+				"setTokens": "متغيرات التصميم",
+				"setPageTitle": "عنوان الصفحة",
+				"setLinkHref": "الرابط",
+				"removeElement": "الحذف",
+				"sectionStyle": "نمط القسم",
+				"insertElement": "عنصر جديد"
+			}
 		},
 		"media": {
 			"close": "إغلاق",

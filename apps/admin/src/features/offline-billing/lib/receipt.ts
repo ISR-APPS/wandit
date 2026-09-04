@@ -2,6 +2,7 @@ import type {
 	AdminManualPayment,
 	AdminManualSubscriptionDetail,
 	BillingInterval,
+	BillingPlanId,
 	ManualPaymentMethod,
 } from "@wandit/contracts";
 
@@ -56,6 +57,12 @@ const FRENCH_COUNTRY_LABELS_BY_ENGLISH: Record<string, string> = {
 // through an async loader, while these receipt features are static and needed
 // synchronously during rendering.
 export const RECEIPT_PLAN_FEATURES = {
+	starter: [
+		"50 crédits chaque mois",
+		"Génération d’images et de vidéos IA",
+		"Domaines personnalisés",
+		"Publication toujours gratuite",
+	],
 	pro: [
 		"De nouveaux crédits chaque mois",
 		"Outils marketing & campagnes IA",
@@ -72,7 +79,7 @@ export const RECEIPT_PLAN_FEATURES = {
 		"Rôles, invitations et limites par membre",
 		"Sièges illimités — payez les crédits, pas les personnes",
 	],
-} as const satisfies Record<"pro" | "business", readonly string[]>;
+} as const satisfies Record<BillingPlanId, readonly string[]>;
 
 export type ReceiptCurrencyTotal = {
 	currency: string;

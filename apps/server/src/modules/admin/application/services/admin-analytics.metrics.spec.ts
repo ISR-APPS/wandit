@@ -279,14 +279,14 @@ describe("admin analytics metric policy", () => {
 			"trialing",
 			"past_due",
 		]);
-		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(20);
+		expect(HEALTHY_TRIAL_MIN_CREDITS).toBe(3);
 		expect(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS).toBe(2);
 	});
 
 	it.each([
-		[20, 2, true],
-		[19, 2, false],
-		[20, 1, false],
+		[3, 2, true],
+		[2, 2, false],
+		[3, 1, false],
 		[100, 0, false],
 	] as const)("classifies %i credits and %i completed generations", (credits, generations, expected) => {
 		expect(isHealthyTrialActivity(credits, generations)).toBe(expected);
@@ -719,8 +719,18 @@ describe("admin analytics engagement", () => {
 });
 
 describe("admin analytics MRR", () => {
-	it("builds an exact catalog map and aggregates annual fractional cents before rounding", () => {
-		expect(MRR_PRICE_MAP.size).toBe(36);
+	it("builds a legacy-safe catalog map and aggregates annual fractional cents before rounding", () => {
+		// 38 purchasable prices plus 36 parse-only legacy Pro/Business prices.
+		expect(MRR_PRICE_MAP.size).toBe(74);
+		expect(MRR_PRICE_MAP.get("starter_50_month")).toMatchObject({
+			interval: "month",
+			mrrMinorExact: 900,
+			plan: "starter",
+		});
+		expect(MRR_PRICE_MAP.get("starter_50_year")?.mrrMinorExact).toBeCloseTo(
+			9_000 / 12,
+		);
+		expect(MRR_PRICE_MAP.has("starter_250_month")).toBe(false);
 		expect(MRR_PRICE_MAP.get("pro_250_month")).toMatchObject({
 			interval: "month",
 			mrrMinorExact: 2_500,
@@ -728,6 +738,9 @@ describe("admin analytics MRR", () => {
 		});
 		expect(MRR_PRICE_MAP.get("pro_250_year")?.mrrMinorExact).toBeCloseTo(
 			25_000 / 12,
+		);
+		expect(MRR_PRICE_MAP.get("business_12500_year")?.mrrMinorExact).toBeCloseTo(
+			2_250_000 / 12,
 		);
 
 		const response = assembleRevenueResponse(
@@ -747,6 +760,8 @@ describe("admin analytics MRR", () => {
 			mrrMinor: 4_167,
 		});
 		expect(response.mrrByPlan).toEqual([
+			{ interval: "month", mrrMinor: 0, plan: "starter", subscribers: 0 },
+			{ interval: "year", mrrMinor: 0, plan: "starter", subscribers: 0 },
 			{ interval: "month", mrrMinor: 0, plan: "pro", subscribers: 0 },
 			{
 				interval: "year",
@@ -812,6 +827,7 @@ describe("admin analytics revenue extensions", () => {
 					{ plan: "free", revenueCents: 0, aiCostCents: 4_200 },
 					{ plan: "business", revenueCents: 30_000, aiCostCents: 9_000 },
 					{ plan: "pro", revenueCents: 10_000, aiCostCents: 3_333 },
+					{ plan: "starter", revenueCents: 800, aiCostCents: 200 },
 				],
 			}),
 			NOW,
@@ -821,6 +837,13 @@ describe("admin analytics revenue extensions", () => {
 			response,
 		);
 		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "starter",
+				revenueCents: 800,
+				aiCostCents: 200,
+				marginCents: 600,
+				marginPct: 75,
+			},
 			{
 				plan: "pro",
 				revenueCents: 10_000,
@@ -845,10 +868,17 @@ describe("admin analytics revenue extensions", () => {
 		]);
 	});
 
-	it("keeps three zero margin rows when the range measured no cash and no AI cost", () => {
+	it("keeps four zero margin rows when the range measured no cash and no AI cost", () => {
 		const response = assembleRevenueResponse(revenueSnapshot(), NOW);
 
 		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "starter",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
 			{
 				plan: "pro",
 				revenueCents: 0,
@@ -885,6 +915,13 @@ describe("admin analytics revenue extensions", () => {
 		);
 
 		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "starter",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
 			{
 				plan: "pro",
 				revenueCents: 0,
@@ -997,6 +1034,7 @@ describe("admin analytics revenue extensions", () => {
 			failedPaymentsCents: 1_200,
 		});
 		expect(response.arpuByPlan).toEqual([
+			{ plan: "starter", arpuCents: 0 },
 			{ plan: "pro", arpuCents: 2_500 },
 			{ plan: "business", arpuCents: 5_000 },
 		]);
@@ -1059,6 +1097,7 @@ describe("admin analytics revenue extensions", () => {
 		});
 		expect(response.netRevenue.netCents).toBe(-500);
 		expect(response.arpuByPlan).toEqual([
+			{ plan: "starter", arpuCents: 0 },
 			{ plan: "pro", arpuCents: 0 },
 			{ plan: "business", arpuCents: 0 },
 		]);
@@ -1345,15 +1384,13 @@ describe("admin analytics buckets", () => {
 
 	it.each([
 		[0, "0"],
-		[1, "1-9"],
-		[9, "1-9"],
-		[10, "10-24"],
-		[24, "10-24"],
-		[25, "25-39"],
-		[39, "25-39"],
-		[40, "40-49"],
-		[49, "40-49"],
-		[50, "50+"],
+		[1, "1-2"],
+		[2, "1-2"],
+		[3, "3-4"],
+		[4, "3-4"],
+		[5, "5-6"],
+		[6, "5-6"],
+		[7, "7+"],
 	] as const)("puts %i consumed credits in %s", (credits, bucket) => {
 		expect(consumptionBucket(credits)).toBe(bucket);
 	});
@@ -1372,7 +1409,7 @@ describe("admin analytics buckets", () => {
 			featuresSnapshot({
 				credits: {
 					...featuresSnapshot().credits,
-					// Snapshot sums are centi-credits (5_000 = 50 credits).
+					// Snapshot sums are centi-credits; the second row lands in 7+.
 					freeConsumptionTotals: [
 						{ consumed: 0, users: 2 },
 						{ consumed: 5_000, users: 3 },
@@ -1398,7 +1435,7 @@ describe("admin analytics buckets", () => {
 			featuresSnapshot({
 				credits: {
 					...featuresSnapshot().credits,
-					// 50 credits consumed; $0.12 billable of $0.20 total spend.
+					// Billable spend is $0.12 of $0.20 total provider spend.
 					consumedInRange: 5_000,
 					providerCostMicros: 200_000,
 					billableProviderCostMicros: 120_000,
@@ -1450,7 +1487,7 @@ describe("admin analytics buckets", () => {
 					measuredUsers: 2,
 				},
 				// Snapshot sums are centi-credits; buckets stay whole credits
-				// (100 cc = 1 credit lands in "1-9").
+				// (100 cc = 1 credit lands in "1-2").
 				conversionByCredits: [
 					{ consumed: 100, owners: 1, paidOwners: 1 },
 					{ consumed: 900, owners: 2, paidOwners: 1 },
@@ -1477,11 +1514,10 @@ describe("admin analytics buckets", () => {
 		).toBeNull();
 		expect(response.conversionByCredits).toEqual([
 			{ bucket: "0", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "1-9", owners: 3, paidOwners: 2, paidPct: 66.7 },
-			{ bucket: "10-24", owners: 2, paidOwners: 3, paidPct: 100 },
-			{ bucket: "25-39", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "40-49", owners: 0, paidOwners: 0, paidPct: null },
-			{ bucket: "50+", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "1-2", owners: 1, paidOwners: 1, paidPct: 100 },
+			{ bucket: "3-4", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "5-6", owners: 0, paidOwners: 0, paidPct: null },
+			{ bucket: "7+", owners: 4, paidOwners: 4, paidPct: 100 },
 		]);
 	});
 });

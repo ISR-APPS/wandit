@@ -44,6 +44,7 @@ import {
 	type GenerationCaptureBuffer,
 } from "../modules/ai-chat/agent/site-builder/generation-capture-buffer";
 import {
+	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
 	runSiteBuild,
 	type SiteBuildMeteringStep,
 } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
@@ -76,6 +77,10 @@ const attemptSpecSchema = z.object({
 	// Legacy rows already use "website"; older rows may omit the field.
 	pageKind: z.enum(["cod", "website"]).optional(),
 	productSku: productSkuSchema.optional(),
+	// Composer's per-message reasoning pick; absent = env fallback ("auto").
+	reasoningEffort: z
+		.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
+		.optional(),
 	title: z.string().min(1),
 });
 
@@ -85,9 +90,11 @@ export const generatePageTask = task({
 	// map do not fit the 0.5 GB small-1x default: real builds died mid-run
 	// with TASK_PROCESS_OOM_KILLED. 2 GB / 1 vCPU holds both with headroom.
 	machine: "medium-1x",
-	// One Builder tool loop with two screenshot review passes; typically a
-	// few minutes. The generous ceiling is a safety net, not an estimate.
-	maxDuration: 1800,
+	// One Builder tool loop with the per-kind screenshot review passes
+	// (website 2, COD 4); typically a few minutes. The generous ceiling is a
+	// safety net, not an estimate — sized for a COD build on a slow
+	// high-reasoning model.
+	maxDuration: 2700,
 	retry: { maxAttempts: 1 },
 	run: async (
 		payload: {
@@ -220,9 +227,17 @@ export const generatePageTask = task({
 						`Builder ${attempt.model}`,
 				);
 
+				// Simple COD keeps the cheap 2-pass profile its prompt promises;
+				// only max COD (and legacy cod rows) runs the deep 4-pass review.
+				const passKind =
+					spec.pageKind === "cod" && spec.codMode !== "simple"
+						? ("cod" as const)
+						: ("website" as const);
+
 				logger.info(
-					"🧠 The Builder is writing the page now — two screenshot " +
-						"review passes when vision and Playwright are available",
+					"🧠 The Builder is writing the page now — " +
+						`${REQUIRED_SCREENSHOT_PASSES_BY_KIND[passKind]} ` +
+						"screenshot review passes when vision and Playwright are available",
 				);
 
 				// Every run gets a fresh asset namespace. A deliberate retry
@@ -233,6 +248,7 @@ export const generatePageTask = task({
 				// one metadata object that Realtime pushes to the subscribed card.
 				const progress = createBuildProgressTracker({
 					attemptId: assetNamespace,
+					pageKind: passKind,
 					projectId: attempt.projectId,
 					publish: (snapshot) => {
 						if (typeof snapshot.percent === "number") {
@@ -269,6 +285,10 @@ export const generatePageTask = task({
 						progress.emit(event);
 					},
 					pageKind: spec.pageKind ?? "website",
+					...(spec.codMode ? { codMode: spec.codMode } : {}),
+					...(spec.reasoningEffort
+						? { reasoningEffort: spec.reasoningEffort }
+						: {}),
 					...(meteringService && usageEventId && activeGenerationCaptureBuffer
 						? {
 								meteringService,

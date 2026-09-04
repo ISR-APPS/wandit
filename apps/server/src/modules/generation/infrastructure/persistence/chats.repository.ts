@@ -8,7 +8,7 @@
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
-import type { ComposerMetadata } from "@wandit/contracts";
+import type { ChatUsageResponse, ComposerMetadata } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
@@ -48,6 +48,15 @@ export type MessageFailureColumns = {
 	failureRequestId: string | null;
 	failureSource: string | null;
 	sentryEventId: string | null;
+};
+
+type ChatUsageDbRow = {
+	cache_read_tokens: number | string | null;
+	cache_write_tokens: number | string | null;
+	cost_usd_micros: number | string | null;
+	credits_centi: number | string | null;
+	input_tokens: number | string | null;
+	output_tokens: number | string | null;
 };
 
 @Injectable()
@@ -117,6 +126,38 @@ export class ChatsRepository {
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
 			.orderBy(asc(messages.seq));
+	}
+
+	async getUsage(chatId: string): Promise<ChatUsageResponse> {
+		const result = await this.db.execute<ChatUsageDbRow>(sql`
+			select
+				sum(e.input_tokens)::bigint as input_tokens,
+				sum(e.output_tokens)::bigint as output_tokens,
+				sum(e.cache_read_tokens)::bigint as cache_read_tokens,
+				sum(e.cache_write_tokens)::bigint as cache_write_tokens,
+				sum(
+					coalesce(e.reconciled_cost_usd_micros, e.estimated_cost_usd_micros)
+				)::bigint as cost_usd_micros,
+				sum(coalesce(e.final_credits, e.reserved_credits))::bigint as credits_centi
+			from ai_usage_events e
+			where
+				e.chat_id = ${chatId}::uuid
+				or e.parent_event_id in (
+					select parent_event.id
+					from ai_usage_events parent_event
+					where parent_event.chat_id = ${chatId}::uuid
+				)
+		`);
+		const row = result.rows[0];
+
+		return {
+			inputTokens: toNullableNumber(row?.input_tokens),
+			outputTokens: toNullableNumber(row?.output_tokens),
+			cacheReadTokens: toNullableNumber(row?.cache_read_tokens),
+			cacheWriteTokens: toNullableNumber(row?.cache_write_tokens),
+			costUsdMicros: toNullableNumber(row?.cost_usd_micros),
+			creditsCenti: toNullableNumber(row?.credits_centi),
+		};
 	}
 
 	// Ids of already-persisted messages: server-hydrated history, as opposed
@@ -287,3 +328,9 @@ const EMPTY_FAILURE_COLUMNS: MessageFailureColumns = {
 	failureSource: null,
 	sentryEventId: null,
 };
+
+function toNullableNumber(
+	value: number | string | null | undefined,
+): number | null {
+	return value === null || value === undefined ? null : Number(value);
+}

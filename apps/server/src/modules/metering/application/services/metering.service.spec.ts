@@ -694,7 +694,7 @@ function measuredSettlement(
 	};
 }
 
-function setup(balance = 10_000) {
+function setup(balance = 10_000, signupGrantCentiCredits = 700) {
 	const repository = new InMemoryMeteringRepository();
 	const credits = new InMemoryCreditsService();
 	const pricing = new FakeModelPricingService();
@@ -723,6 +723,7 @@ function setup(balance = 10_000) {
 	);
 	const lifecycle = new LifecycleEventsService({
 		enqueue: lifecycleEnqueue,
+		resolveSignupGrantCentiCredits: vi.fn(async () => signupGrantCentiCredits),
 	} as unknown as LifecycleEventsRepository);
 	credits.setBalance(USER_ID, balance);
 	const service = new MeteringService(
@@ -1343,9 +1344,9 @@ describe("MeteringService", () => {
 		expect(credits.balances.get(USER_ID)).toBe(-300);
 	});
 
-	it("enqueues the 25-credit milestone at a personal 2499 to 2500 settlement crossing and not on replay", async () => {
+	it("enqueues the first credit milestone at a personal 349 to 350 centi-credit crossing and not on replay", async () => {
 		const { credits, lifecycleEnqueue, lifecycleRows, service } = setup();
-		credits.setNetConsumed(USER_ID, 2489);
+		credits.setNetConsumed(USER_ID, 339);
 		await service.reserve("chat", USER_SUBJECT, {
 			credits: 10,
 			eventId: CHAT_EVENT_ID,
@@ -1375,13 +1376,13 @@ describe("MeteringService", () => {
 		expect(lifecycleEnqueue).toHaveBeenCalledTimes(1);
 	});
 
-	it("enqueues the 40-credit milestone with a 15-minute hold", async () => {
+	it("enqueues the second credit milestone at 560 centi-credits with a 15-minute hold", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
 
 		try {
 			const { credits, lifecycleRows, service } = setup();
-			credits.setNetConsumed(USER_ID, 3990);
+			credits.setNetConsumed(USER_ID, 550);
 			await service.reserve("chat", USER_SUBJECT, {
 				credits: 10,
 				eventId: CHAT_EVENT_ID,
@@ -1405,9 +1406,36 @@ describe("MeteringService", () => {
 		}
 	});
 
-	it("enqueues the 25-credit milestone when a partial settlement refund leaves net use above the threshold", async () => {
-		const { credits, lifecycleEnqueue, lifecycleRows, service } = setup();
+	it("uses a legacy recipient's 5000 cc signup grant for metering milestones", async () => {
+		const { credits, lifecycleEnqueue, lifecycleRows, service } = setup(
+			10_000,
+			5000,
+		);
 		credits.setNetConsumed(USER_ID, 2490);
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 10,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:legacy-grant-threshold",
+		});
+
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 10,
+			pricing: "direct",
+			pricingSnapshot: { mode: "fixed" },
+		});
+
+		expect(lifecycleRows.get(`credits_25_used:${USER_ID}`)).toEqual({
+			event: "credits_25_used",
+			idempotencyKey: `credits_25_used:${USER_ID}`,
+			userId: USER_ID,
+		});
+		expect(lifecycleRows.has(`credits_40_used:${USER_ID}`)).toBe(false);
+		expect(lifecycleEnqueue).toHaveBeenCalledOnce();
+	});
+
+	it("enqueues the first credit milestone when a partial settlement refund leaves net use above the threshold", async () => {
+		const { credits, lifecycleEnqueue, lifecycleRows, service } = setup();
+		credits.setNetConsumed(USER_ID, 340);
 		await service.reserve("chat", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
@@ -1420,7 +1448,7 @@ describe("MeteringService", () => {
 			pricingSnapshot: { mode: "fixed" },
 		});
 
-		expect(credits.netConsumed.get(USER_ID)).toBe(2550);
+		expect(credits.netConsumed.get(USER_ID)).toBe(400);
 		expect(lifecycleRows.get(`credits_25_used:${USER_ID}`)).toEqual({
 			event: "credits_25_used",
 			idempotencyKey: `credits_25_used:${USER_ID}`,
@@ -1434,7 +1462,7 @@ describe("MeteringService", () => {
 
 	it("evaluates but does not enqueue a threshold when final settlement refunds below it", async () => {
 		const { credits, lifecycleEnqueue, service } = setup();
-		credits.setNetConsumed(USER_ID, 2499);
+		credits.setNetConsumed(USER_ID, 349);
 		await service.reserve("chat", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
@@ -1447,7 +1475,7 @@ describe("MeteringService", () => {
 			pricingSnapshot: { mode: "fixed" },
 		});
 
-		expect(credits.netConsumed.get(USER_ID)).toBe(2499);
+		expect(credits.netConsumed.get(USER_ID)).toBe(349);
 		expect(credits.netConsumedCalls).toEqual([
 			{ transaction: expect.anything(), userId: USER_ID },
 		]);
@@ -1461,14 +1489,14 @@ describe("MeteringService", () => {
 			"chat",
 			{ actorUserId: USER_ID, organizationId: "org_1" },
 			{
-				credits: 2500,
+				credits: 350,
 				eventId: CHAT_EVENT_ID,
 				idempotencyKey: "chat:org-threshold",
 			},
 		);
 
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 2500,
+			finalCredits: 350,
 			pricing: "direct",
 			pricingSnapshot: { mode: "fixed" },
 		});
@@ -3889,7 +3917,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 	it("prices a late completion from the gateway cost under the reservation anchor", async () => {
 		const { credits, gateway, lifecycleRows, pricing, repository, service } =
 			setup();
-		credits.setNetConsumed(USER_ID, 2499);
+		credits.setNetConsumed(USER_ID, 349);
 		pricing.usdMicrosPerCredit = 28_000;
 		await service.reserve("image", USER_SUBJECT, {
 			credits: 1_000,

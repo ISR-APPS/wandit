@@ -1,3 +1,4 @@
+import type { BillingPlanId } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { Zap } from "lucide-react";
@@ -5,6 +6,7 @@ import { Zap } from "lucide-react";
 import { useBillingSubscriptionQuery } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
+import { UPGRADE_CARD_TITLE_KEYS } from "@/features/billing/lib/upgrade-copy";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
@@ -52,7 +54,7 @@ export function UpgradeButton() {
 	);
 }
 
-/** Sidebar-footer card ("Upgrade to Pro — unlock more…"), Lovable-style. */
+/** Sidebar-footer upgrade card, Lovable-style. */
 export function UpgradeCard({ className }: { className?: string }) {
 	const { t } = useTranslation();
 	const { isPersonal } = useWorkspace();
@@ -62,6 +64,8 @@ export function UpgradeCard({ className }: { className?: string }) {
 	if (!visible) {
 		return null;
 	}
+
+	const targetPlan: BillingPlanId = isPersonal ? "starter" : "business";
 
 	return (
 		<button
@@ -74,9 +78,7 @@ export function UpgradeCard({ className }: { className?: string }) {
 		>
 			<span className="min-w-0 flex-1">
 				<span className="block truncate font-medium text-sm">
-					{isPersonal
-						? t("workspace.upgradeCard.titlePro")
-						: t("workspace.upgradeCard.titleBusiness")}
+					{t(UPGRADE_CARD_TITLE_KEYS[targetPlan])}
 				</span>
 				<span className="mt-0.5 block text-muted-foreground text-xs">
 					{t("workspace.upgradeCard.body")}

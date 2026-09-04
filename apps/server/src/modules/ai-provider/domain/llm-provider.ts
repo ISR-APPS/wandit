@@ -214,13 +214,32 @@ export function withLlmAttribution<T extends Record<string, unknown>>(
  * the gateway waits out its whole routing budget before it errors — that is
  * how a chat turn took 13 minutes to fail on 2026-08-24. Pin OpenAI-made
  * models to OpenAI itself: a fast, honest error beats a slow fallback.
+ *
+ * `zai/*` (GLM) gets an order PREFERENCE, not a pin. Friendli first: through
+ * gateway billing it rides Vercel's enterprise limits (no BYOK tier wall)
+ * and measured the most consistent speed (199-226 tok/s, ~0.7s TTFT,
+ * 2026-09-02/03). Baseten second: fast (158-240 tok/s) but BYOK-capped near
+ * 500k TPM, far under the ~2.8M TPM evening peak, so it 429s as a primary.
+ * Fireworks third (BYOK, ~100 tok/s) as the deep spare. `order` still lets
+ * the gateway fall over to the remaining GLM providers when all three error,
+ * unlike `only` — GLM capacity is tight everywhere (2026-09), so the deep
+ * fallback stays open on purpose.
+ *
  * Other creators keep the gateway's default routing, and OpenRouter ignores
  * the `gateway` key entirely, so the pin is safe to send on every path.
  */
 export function gatewayRoutingForModel(
 	modelId: string,
 ): Record<string, JSONValue> {
-	return modelId.startsWith("openai/") ? { only: ["openai"] } : {};
+	if (modelId.startsWith("openai/")) {
+		return { only: ["openai"] };
+	}
+
+	if (modelId.startsWith("zai/")) {
+		return { order: ["friendli", "baseten", "fireworks"] };
+	}
+
+	return {};
 }
 
 /**
@@ -253,10 +272,13 @@ function withOpenRouterGenerationId(model: LanguageModelV4): LanguageModel {
 					),
 				};
 			},
-			wrapStream: async ({ doStream }) => {
+			wrapStream: async ({ doStream, params }) => {
 				const { stream, ...rest } = await doStream();
 
-				return { ...rest, stream: streamWithGenerationId(stream) };
+				return {
+					...rest,
+					stream: streamWithGenerationId(stream, params.abortSignal),
+				};
 			},
 		},
 		model,
@@ -273,12 +295,23 @@ function withOpenRouterGenerationId(model: LanguageModelV4): LanguageModel {
  */
 function streamWithGenerationId(
 	stream: ReadableStream<LanguageModelV4StreamPart>,
+	abortSignal?: AbortSignal,
 ): ReadableStream<LanguageModelV4StreamPart> {
 	const reader = stream.getReader();
 	let generationId: string | undefined;
+	const tagAbortReason = () => {
+		tagOpenRouterGenerationId(abortSignal?.reason, generationId);
+	};
+	const removeAbortListener = () => {
+		abortSignal?.removeEventListener("abort", tagAbortReason);
+	};
+	abortSignal?.addEventListener("abort", tagAbortReason, { once: true });
 
 	return new ReadableStream<LanguageModelV4StreamPart>({
 		cancel(reason) {
+			tagAbortReason();
+			tagOpenRouterGenerationId(reason, generationId);
+			removeAbortListener();
 			return reader.cancel(reason);
 		},
 		async pull(controller) {
@@ -289,10 +322,13 @@ function streamWithGenerationId(
 			} catch (error) {
 				// Transport-level failure (socket death, abort): the tagged error
 				// propagates to the AI SDK's error path with the id attached.
+				tagAbortReason();
+				removeAbortListener();
 				throw tagOpenRouterGenerationId(error, generationId);
 			}
 
 			if (read.done) {
+				removeAbortListener();
 				controller.close();
 				return;
 			}
@@ -301,6 +337,9 @@ function streamWithGenerationId(
 
 			if (part.type === "response-metadata" && part.id) {
 				generationId = part.id;
+				if (abortSignal?.aborted) {
+					tagAbortReason();
+				}
 			}
 
 			// Provider-emitted error parts flow to onError callbacks; tag the

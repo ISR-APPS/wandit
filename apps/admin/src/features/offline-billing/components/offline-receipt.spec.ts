@@ -156,4 +156,50 @@ describe("OfflineRequestReceipt", () => {
 		expect(html).not.toContain(String(dzdPerUsdRate));
 		expect(html).not.toContain(dzdPerUsdRate.toLocaleString("fr-FR"));
 	});
+
+	it("renders the Starter name, price, and included credits", () => {
+		const request: AdminManualRequest = {
+			id: "12345678-e29b-41d4-a716-446655440000",
+			status: "pending",
+			organizationId: null,
+			plan: "starter",
+			tierCredits: 50,
+			interval: "month",
+			fullName: "Amel Mansouri",
+			phone: "+213 555 987 654",
+			company: null,
+			country: "DZ",
+			city: "Alger",
+			preferredPaymentMethod: "ccp",
+			notes: null,
+			subscriptionId: null,
+			handledAt: null,
+			createdAt: "2028-01-01T10:00:00.000Z",
+			updatedAt: "2028-01-02T10:00:00.000Z",
+			user: {
+				id: "user-3",
+				name: "Amel",
+				email: "amel@example.com",
+				image: null,
+			},
+			organization: null,
+			adminNotes: null,
+			handledBy: null,
+			currentSubscription: null,
+		};
+
+		const html = normalizeIntlWhitespace(
+			renderToStaticMarkup(
+				createElement(OfflineRequestReceipt, {
+					request,
+					generatedAt: new Date("2028-01-03T10:00:00.000Z"),
+					dzdPerUsdRate: 271.43,
+				}),
+			),
+		);
+
+		expect(html).toContain("Wandit Starter");
+		expect(html).toContain("2 443 DZD / mois");
+		expect(html).toContain("50 crédits chaque mois");
+	});
 });

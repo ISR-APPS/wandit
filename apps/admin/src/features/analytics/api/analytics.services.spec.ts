@@ -402,7 +402,7 @@ describe("admin analytics services", () => {
 					consumedInRange: 64.37,
 					avgConsumedPerFreeUser: 8.04,
 					avgConsumedPerPaidUser: 16.5,
-					consumptionBuckets: [{ bucket: "10-24", users: 3 }],
+					consumptionBuckets: [{ bucket: "3-4", users: 3 }],
 					usersAtZeroBalance: 2,
 					avgCreditsBeforeUpgrade: 22.75,
 					providerCostPerCreditMicros: 410,
@@ -421,7 +421,7 @@ describe("admin analytics services", () => {
 				},
 				conversionByCredits: [
 					{
-						bucket: "10-24",
+						bucket: "3-4",
 						owners: 7,
 						paidOwners: 2,
 						paidPct: 28.6,
@@ -516,8 +516,15 @@ describe("admin analytics services", () => {
 					costPerActivePaidUserCents: 1_833,
 					costCoverageComplete: true,
 				},
-				// Fixed order: pro, business, free. Free never collects revenue.
+				// Fixed order: starter, pro, business, free. Free never collects revenue.
 				marginAfterAi: [
+					{
+						plan: "starter",
+						revenueCents: 800,
+						aiCostCents: 200,
+						marginCents: 600,
+						marginPct: 75,
+					},
 					{
 						plan: "pro",
 						revenueCents: 9_900,
@@ -551,7 +558,7 @@ describe("admin analytics services", () => {
 			},
 			credits: { grantedInRange: 100.5, consumedInRange: 64.37 },
 			freeCredits: { medianDaysToConsume: 6.2, measuredUsers: 5 },
-			conversionByCredits: [{ bucket: "10-24", paidPct: 28.6 }],
+			conversionByCredits: [{ bucket: "3-4", paidPct: 28.6 }],
 			features: [{ key: "websites", convertedAfterUsePct: 12.5 }],
 		});
 		await expect(
@@ -582,6 +589,7 @@ describe("admin analytics services", () => {
 				costCoverageComplete: true,
 			},
 			marginAfterAi: [
+				{ plan: "starter", marginCents: 600, marginPct: 75 },
 				{ plan: "pro", marginCents: 6_750, marginPct: 68.2 },
 				{ plan: "business", marginCents: -1_499, marginPct: -57.6 },
 				{ plan: "free", revenueCents: 0, marginCents: -1_875, marginPct: null },

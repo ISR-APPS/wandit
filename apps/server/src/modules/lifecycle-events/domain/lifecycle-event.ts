@@ -54,10 +54,25 @@ export const FREE_ONLY_EVENTS = new Set<LifecycleEventName>([
 	"upgrade_clicked",
 ]);
 
-export const CREDIT_EVENT_THRESHOLDS = {
-	credits_25_used: 2500,
-	credits_40_used: 4000,
+// Event names remain historical; thresholds follow 50 % / 80 % of the
+// centi-credit grant actually snapshotted for each user.
+export const CREDIT_EVENT_THRESHOLD_PERCENTAGES = {
+	credits_25_used: 0.5,
+	credits_40_used: 0.8,
 } as const satisfies Partial<Record<LifecycleEventName, number>>;
+
+export function creditEventThresholdsForGrant(
+	grantCentiCredits: number,
+): Record<"credits_25_used" | "credits_40_used", number> {
+	return {
+		credits_25_used: Math.ceil(
+			grantCentiCredits * CREDIT_EVENT_THRESHOLD_PERCENTAGES.credits_25_used,
+		),
+		credits_40_used: Math.ceil(
+			grantCentiCredits * CREDIT_EVENT_THRESHOLD_PERCENTAGES.credits_40_used,
+		),
+	};
+}
 
 export const DONE_EVENT_MAPPING = {
 	ads_analysis_completed: {

@@ -1283,8 +1283,8 @@ describe("CreditsService", () => {
 
 		expect(row).toMatchObject({
 			bucket: "promo",
-			// 50 display credits = 5000 centi-credits in the ledger.
-			delta: 5000,
+			// 7 display credits = 700 centi-credits in the ledger.
+			delta: 700,
 			idempotencyKey: "signup:user_1",
 			kind: "grant",
 			meta: { reason: "signup_grant" },
