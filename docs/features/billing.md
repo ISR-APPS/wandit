@@ -71,7 +71,7 @@ The old ids `topup_250`, `topup_1000`, and `topup_2500` remain parseable only fo
 receipts, ledger metadata, and other history. Top-ups never expire and burn after plan and
 promo credits.
 
-The configurable signup grant is **7 promo credits = 700 centi-credits = $0.28 of
+The configurable signup grant is **18 promo credits = 1800 centi-credits = $0.72 of
 AI-provider cost** and is disabled by default. Existing free users keep grants already issued;
 there is no claw-back. Token-metered actions continue to use the pricing-v5 anchor of $0.04 of
 AI-provider cost per whole credit. Fixed per-operation costs remain superseded by measured
@@ -212,12 +212,12 @@ Use this order exactly.
 1. Update the Resend welcome template to use the dynamic grant count, and update the W15/W16
    credit-threshold subject copy so it no longer quotes the old 25-credit milestone. Do this
    before changing any database or application code.
-2. Run `pnpm db:migrate`. The repository migrator applies both 0065 and 0066 together: 0065
-   adds the `starter` enum label with `IF NOT EXISTS`, and 0066 changes the signup grant to
-   700 centi-credits. This is safe on PostgreSQL 12+: an enum value may be added inside a
+2. Run `pnpm db:migrate`. The repository migrator applies 0065, 0066 and 0067 together: 0065
+   adds the `starter` enum label with `IF NOT EXISTS`, 0066 changes the signup grant to
+   700 centi-credits, and 0067 lifts it to 1800 centi-credits (18 credits). This is safe on PostgreSQL 12+: an enum value may be added inside a
    transaction when it is not used until after commit, and 0066 never references `starter`.
 3. After 0066, restart every server instance or wait more than 30 seconds for each process's
-   product-settings cache to expire before relying on the 7-credit grant.
+   product-settings cache to expire before relying on the 18-credit grant.
 4. Deploy contracts, server, web, admin, and the Trigger.dev image together as one release.
 5. Run `pnpm --filter server stripe:seed` in Stripe test mode. Verify exactly 38 new
    subscription prices: 2 Starter, 18 Pro, and 18 Business. Also verify the 3 re-priced

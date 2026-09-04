@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 			manualPaymentsEnabled: false,
 			organizationsEnabled: true,
 			paidSubscriptionsEnabled: true,
-			signupGrantCredits: 7,
+			signupGrantCredits: 18,
 			signupGrantEnabled: true,
 		},
 		isSuccess: true,
@@ -181,7 +181,7 @@ describe("landing pricing", () => {
 		state.settings.data.manualPaymentsEnabled = false;
 		state.settings.data.organizationsEnabled = true;
 		state.settings.data.paidSubscriptionsEnabled = true;
-		state.settings.data.signupGrantCredits = 7;
+		state.settings.data.signupGrantCredits = 18;
 		state.settings.data.signupGrantEnabled = true;
 	});
 
@@ -193,7 +193,7 @@ describe("landing pricing", () => {
 		for (const plan of ["Free", "Starter", "Pro", "Business"]) {
 			expect(screen.getByRole("heading", { name: plan })).toBeTruthy();
 		}
-		expect(screen.getByText("7 free credits")).toBeTruthy();
+		expect(screen.getByText("18 free credits")).toBeTruthy();
 		expect(screen.getByText("50 credits every month")).toBeTruthy();
 		expect(
 			screen.getByText("AI product images and marketing copy"),
@@ -225,7 +225,7 @@ describe("landing pricing", () => {
 		render(createElement(Pricing));
 
 		expect(screen.getByText("Signup credits when available")).toBeTruthy();
-		expect(screen.queryByText("7 free credits")).toBeNull();
+		expect(screen.queryByText("18 free credits")).toBeNull();
 	});
 
 	it("keeps the Business showcase visible when team creation is disabled", () => {
