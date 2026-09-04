@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import {
 	BILLING_CATALOG,
 	type BillingPlanCatalogItem,
 	priceLookupKey,
 	purchasableTiersFor,
+	type Subscription,
 } from "@wandit/contracts";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +29,13 @@ const pickerState = vi.hoisted(() => ({
 	settingsDataOnError: false,
 	settingsError: false,
 	subscriptionError: false,
+	subscription: null as Subscription | null,
+}));
+
+const pickerMutations = vi.hoisted(() => ({
+	apply: vi.fn(),
+	checkout: vi.fn(),
+	preview: vi.fn(),
 }));
 
 const pickerCatalog = vi.hoisted(() => ({
@@ -83,9 +98,24 @@ const pickerDictionary = vi.hoisted(() => ({
 			businessTagline: "For teams",
 			chooseDescription: "Choose a plan",
 			chooseTitle: "Choose your plan",
+			changeTitle: "Change your plan",
+			changeDescription: "Preview your change",
+			changeAppliedTitle: "Plan change confirmed",
+			changesAtRenewal: "Changes at renewal",
+			confirmChange: "Confirm change",
 			close: "Close",
 			continueToCheckout: "Continue",
 			creditTier: "Credits",
+			currentPlan: "Current subscriber",
+			currentSelection: "Current plan",
+			downgradeExplanation: "The lower plan begins at renewal.",
+			downgradeAppliedBody: "Your lower plan is scheduled for renewal.",
+			keepCurrentPlanExplanation:
+				"Remove the scheduled change without a charge.",
+			keepCurrentPlanAppliedBody: "Your current plan will renew normally.",
+			previewChange: "Preview change",
+			previewTitle: "Review plan change",
+			previewDescription: "Review the charge before confirming.",
 			loadErrorBody: "Try again later.",
 			loadErrorTitle: "Plans could not load",
 			monthly: "Monthly",
@@ -129,7 +159,10 @@ vi.mock("@/features/billing/api/billing.queries", () => ({
 	useBillingSubscriptionQuery: () => ({
 		data: pickerState.subscriptionError
 			? undefined
-			: { balance: { settledBalance: 0 }, subscription: null },
+			: {
+					balance: { settledBalance: 0 },
+					subscription: pickerState.subscription,
+				},
 		isError: pickerState.subscriptionError,
 		isPending: false,
 	}),
@@ -139,11 +172,20 @@ vi.mock("@/features/billing/api/billing.mutations", () => {
 	const mutation = () => ({ isPending: false, mutateAsync: vi.fn() });
 
 	return {
-		useChangeBillingSubscription: mutation,
-		useCreateBillingCheckout: mutation,
+		useChangeBillingSubscription: () => ({
+			isPending: false,
+			mutateAsync: pickerMutations.apply,
+		}),
+		useCreateBillingCheckout: () => ({
+			isPending: false,
+			mutateAsync: pickerMutations.checkout,
+		}),
 		useCreateBillingPortal: mutation,
 		useCreateBillingTopupCheckout: mutation,
-		usePreviewBillingSubscriptionChange: mutation,
+		usePreviewBillingSubscriptionChange: () => ({
+			isPending: false,
+			mutateAsync: pickerMutations.preview,
+		}),
 		useResumeBillingSubscription: mutation,
 	};
 });
@@ -185,7 +227,8 @@ vi.mock("@/lib/i18n", () => ({
 	useDictionary: () => pickerDictionary,
 	useTranslation: () => ({
 		locale: "en",
-		t: (key: string) => key,
+		t: (key: string, values?: { count?: number }) =>
+			key === "credits.creditUnit" ? `${values?.count} credits` : key,
 	}),
 }));
 
@@ -310,6 +353,7 @@ describe("plan picker tier selection", () => {
 
 describe("plan picker query resilience", () => {
 	beforeEach(() => {
+		vi.clearAllMocks();
 		pickerState.manualPaymentsEnabled = false;
 		pickerState.organizationsEnabled = true;
 		pickerState.paidSubscriptionsEnabled = true;
@@ -317,19 +361,143 @@ describe("plan picker query resilience", () => {
 		pickerState.settingsDataOnError = false;
 		pickerState.settingsError = false;
 		pickerState.subscriptionError = false;
+		pickerState.subscription = null;
+		pickerMutations.preview.mockResolvedValue({
+			amountDueMinor: 0,
+			creditsDelta: 0,
+			currency: "usd",
+			expiresAt: "2026-09-04T13:00:00.000Z",
+			intentId: "f9d95c15-c50a-4157-896d-e79b868c0699",
+		});
 	});
 
 	afterEach(cleanup);
 
-	function renderPicker() {
+	function renderPicker(initialInterval?: "month" | "year") {
 		return render(
 			createElement(PlanPickerDialog, {
+				initialInterval,
 				onOpenChange: vi.fn(),
 				open: true,
 				surface: "marketing_pricing",
 			}),
 		);
 	}
+
+	function subscribeToPro(pending = false) {
+		pickerState.subscription = {
+			cancelAtPeriodEnd: false,
+			createdAt: "2026-09-01T00:00:00.000Z",
+			currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+			currentPeriodStart: "2026-09-01T00:00:00.000Z",
+			entitled: true,
+			id: "2d8aa13f-512f-41cd-be6d-bd76310cae02",
+			interval: "month",
+			organizationId: null,
+			pendingInterval: pending ? "year" : null,
+			pendingPlan: pending ? "starter" : null,
+			pendingTierCredits: pending ? 60 : null,
+			plan: "pro",
+			priceLookupKey: "pro_250_month",
+			provider: "stripe",
+			providerSubscriptionId: "sub_pro",
+			status: "active",
+			tierCredits: 250,
+			updatedAt: "2026-09-01T00:00:00.000Z",
+			userId: "user-1",
+		};
+	}
+
+	it.each([
+		"month",
+		"year",
+	] as const)("changes existing Pro to Starter %s at renewal without checkout", async (interval) => {
+		subscribeToPro();
+		pickerMutations.apply.mockImplementation(async () => {
+			pickerState.subscription = {
+				...(pickerState.subscription as Subscription),
+				pendingInterval: interval,
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+			};
+			return {
+				outcome: "applied",
+				subscription: pickerState.subscription,
+				balance: { settledBalance: 250 },
+			};
+		});
+		renderPicker(interval);
+		const starter = screen
+			.getByRole("heading", { name: "Starter" })
+			.closest("article");
+		expect(starter).not.toBeNull();
+		fireEvent.click(
+			within(starter as HTMLElement).getByRole("button", {
+				name: "Preview change",
+			}),
+		);
+
+		await screen.findByRole("heading", { name: "Review plan change" });
+		expect(pickerMutations.preview).toHaveBeenCalledWith({
+			interval,
+			plan: "starter",
+			tierCredits: 60,
+		});
+		expect(pickerMutations.checkout).not.toHaveBeenCalled();
+		expect(screen.getByText("The lower plan begins at renewal.")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Confirm change" }));
+		expect(
+			await screen.findByText("Your lower plan is scheduled for renewal."),
+		).toBeTruthy();
+		expect(pickerState.subscription?.plan).toBe("pro");
+	});
+
+	it("shows scheduled Starter separately from current Pro and lets the user keep Pro", async () => {
+		subscribeToPro(true);
+		pickerMutations.apply.mockImplementation(async () => {
+			pickerState.subscription = {
+				...(pickerState.subscription as Subscription),
+				pendingPlan: null,
+				pendingTierCredits: null,
+				pendingInterval: null,
+			};
+			return {
+				outcome: "applied",
+				subscription: pickerState.subscription,
+				balance: { settledBalance: 250 },
+			};
+		});
+		renderPicker();
+		expect(
+			screen.getByText("Current subscriber: Pro · 250 credits"),
+		).toBeTruthy();
+		expect(
+			screen.getByText("Changes at renewal: Starter · 60 credits · Yearly"),
+		).toBeTruthy();
+		const pro = screen.getByRole("heading", { name: "Pro" }).closest("article");
+		expect(pro).not.toBeNull();
+		fireEvent.click(
+			within(pro as HTMLElement).getByRole("button", {
+				name: "Preview change",
+			}),
+		);
+
+		await screen.findByText("Remove the scheduled change without a charge.");
+		expect(pickerMutations.preview).toHaveBeenCalledWith({
+			interval: "month",
+			plan: "pro",
+			tierCredits: 250,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Confirm change" }));
+		await waitFor(() =>
+			expect(pickerMutations.apply).toHaveBeenCalledWith({
+				intentId: "f9d95c15-c50a-4157-896d-e79b868c0699",
+			}),
+		);
+		expect(
+			await screen.findByText("Your current plan will renew normally."),
+		).toBeTruthy();
+	});
 
 	it.each([
 		{ cached: false, label: "without cached data" },

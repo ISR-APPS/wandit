@@ -258,6 +258,20 @@ export class SubscriptionRefillService {
 					return "canceled" as const;
 				}
 
+				// Subscription sync can advance the mirror to the renewed Starter
+				// period before its paid invoice replaces the old Pro slots. Those
+				// old allotments must not be spendable in the new period. Renewal
+				// fulfillment handles any catch-up and the new rollover cap together.
+				if (
+					current.slot.dueAt.getTime() <
+						canonical.currentPeriodStart.getTime() ||
+					current.slot.dueAt.getTime() >=
+						canonical.currentPeriodEnd.getTime() ||
+					now.getTime() >= canonical.currentPeriodEnd.getTime()
+				) {
+					return "skipped" as const;
+				}
+
 				const claimed = await this.repository.claimDueSlot(slotId, now, tx);
 
 				if (!claimed) {

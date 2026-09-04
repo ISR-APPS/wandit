@@ -363,6 +363,8 @@ class FakeSubscriptionsRepository {
 			id: `subrow_${input.providerSubscriptionId}`,
 			organizationId: input.organizationId ?? null,
 			pendingAppliedBy: null,
+			pendingPlan: null,
+			pendingInterval: null,
 			pendingTierCredits: null,
 			updatedAt: new Date(TEST_NOW),
 		} satisfies SubscriptionRow;
@@ -388,6 +390,8 @@ class FakeSubscriptionsRepository {
 		const cleared = {
 			...row,
 			pendingAppliedBy: null,
+			pendingPlan: null,
+			pendingInterval: null,
 			pendingTierCredits: null,
 		};
 		this.rows.set(providerSubscriptionId, cleared);
@@ -448,6 +452,8 @@ class FakeSubscriptionsRepository {
 		const updated = {
 			...row,
 			pendingAppliedBy: null,
+			pendingPlan: null,
+			pendingInterval: null,
 			pendingTierCredits: null,
 		};
 		this.rows.set(providerSubscriptionId, updated);
@@ -497,6 +503,8 @@ class FakeSubscriptionsRepository {
 			interval,
 			organizationId: null,
 			pendingAppliedBy: null,
+			pendingPlan: null,
+			pendingInterval: null,
 			pendingTierCredits: null,
 			plan,
 			priceLookupKey: input.priceLookupKey,

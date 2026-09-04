@@ -8,6 +8,28 @@ const MILLISECONDS_PER_DAY = 86_400_000;
 
 export type PlanPickerPaymentMethod = "card" | "offline";
 
+export function getPendingSubscriptionChange(
+	subscription:
+		| Pick<
+				Subscription,
+				| "interval"
+				| "pendingInterval"
+				| "pendingPlan"
+				| "pendingTierCredits"
+				| "plan"
+		  >
+		| null
+		| undefined,
+): Pick<Subscription, "interval" | "plan" | "tierCredits"> | null {
+	if (!subscription?.pendingTierCredits) return null;
+
+	return {
+		interval: subscription.pendingInterval ?? subscription.interval,
+		plan: subscription.pendingPlan ?? subscription.plan,
+		tierCredits: subscription.pendingTierCredits,
+	};
+}
+
 export function areTopupsAvailable(
 	topupsEnabled: boolean | undefined,
 	availablePackCount: number | undefined,

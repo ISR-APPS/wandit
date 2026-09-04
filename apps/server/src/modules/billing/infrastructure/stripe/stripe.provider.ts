@@ -654,9 +654,36 @@ export class StripeProvider implements PaymentProvider {
 		providerSubscriptionId: string,
 		flag: boolean,
 	): Promise<void> {
-		await this.stripe().subscriptions.update(providerSubscriptionId, {
-			cancel_at_period_end: flag,
-		});
+		let priorRemoteMutation = false;
+
+		try {
+			const subscription = await this.stripe().subscriptions.retrieve(
+				providerSubscriptionId,
+			);
+
+			if (!flag && !subscription.cancel_at_period_end) {
+				return;
+			}
+
+			if (flag) {
+				// An attached schedule owns cancellation behavior. Remove our future
+				// downgrade before canceling at the end of the current paid period.
+				priorRemoteMutation = await this.releaseManagedDowngradeSchedule(
+					subscription,
+					`sub-cancel:${providerSubscriptionId}:release-schedule`,
+				);
+			}
+
+			await this.stripe().subscriptions.update(providerSubscriptionId, {
+				cancel_at_period_end: flag,
+			});
+		} catch (error) {
+			this.rethrowPaymentWrite(
+				error,
+				"Stripe subscription cancellation update ended with an ambiguous write result",
+				priorRemoteMutation,
+			);
+		}
 	}
 
 	constructWebhookEvent(rawBody: Buffer | string, signature: string) {
@@ -773,14 +800,21 @@ export class StripeProvider implements PaymentProvider {
 	async listSubscriptionsForCustomer(
 		providerCustomerId: string,
 	): Promise<Stripe.Subscription[]> {
-		const subscriptions = await this.stripe().subscriptions.list({
+		const subscriptions: Stripe.Subscription[] = [];
+		const pages = this.stripe().subscriptions.list({
 			customer: providerCustomerId,
 			expand: ["data.default_payment_method"],
 			limit: 100,
 			status: "all",
 		});
 
-		return subscriptions.data;
+		// Checkout admission and reconciliation must see older active subscriptions,
+		// even when newer canceled attempts fill the first page of Stripe history.
+		for await (const subscription of pages) {
+			subscriptions.push(subscription);
+		}
+
+		return subscriptions;
 	}
 
 	async lookupKeyForPriceId(priceId: string): Promise<string | null> {

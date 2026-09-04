@@ -545,13 +545,8 @@ export class BillingService {
 
 		const prorationDate = new Date(Math.floor(Date.now() / 1000) * 1000);
 		const isDowngrade =
-			subscription.interval === body.interval &&
-			priceUsdFor(plan, body.tierCredits, body.interval) <
-				priceUsdFor(
-					currentPrice.plan,
-					currentPrice.tierCredits,
-					currentPrice.interval,
-				);
+			priceUsdFor(plan, body.tierCredits, "month") <
+			priceUsdFor(currentPrice.plan, currentPrice.tierCredits, "month");
 		const anchorReset = this.anchorResetsForChange({
 			cancelsPendingDowngrade,
 			isDowngrade,
@@ -687,9 +682,8 @@ export class BillingService {
 				this.assertPlanMatchesScope(target.plan, scope.organizationId);
 				this.assertSupportedIntervalChange(original.interval, target.interval);
 				const isDowngrade =
-					target.interval === original.interval &&
-					priceUsdFor(target.plan, target.tierCredits, target.interval) <
-						priceUsdFor(original.plan, original.tierCredits, original.interval);
+					priceUsdFor(target.plan, target.tierCredits, "month") <
+					priceUsdFor(original.plan, original.tierCredits, "month");
 				const cancelsDowngrade =
 					intent.targetPriceLookupKey === intent.currentPriceLookupKey &&
 					isPurchasableTier(original.plan, original.tierCredits);
@@ -805,6 +799,15 @@ export class BillingService {
 					operation.subscription.tierCredits,
 				) &&
 				operation.subscription.pendingTierCredits !== null &&
+				(operation.subscription.pendingPlan ?? operation.subscription.plan) ===
+					operation.subscription.plan &&
+				(operation.subscription.pendingInterval ??
+					operation.subscription.interval) ===
+					operation.subscription.interval &&
+				purchasableTierForLegacy(
+					operation.subscription.plan,
+					operation.subscription.tierCredits,
+				) === operation.subscription.pendingTierCredits &&
 				isKnownTier(operation.subscription.pendingTierCredits)
 					? operation.subscription.pendingTierCredits
 					: null;
@@ -894,9 +897,11 @@ export class BillingService {
 									pendingTierCredits === null
 										? null
 										: priceLookupKey(
-												operation.subscription.plan,
+												operation.subscription.pendingPlan ??
+													operation.subscription.plan,
 												pendingTierCredits,
-												operation.subscription.interval,
+												operation.subscription.pendingInterval ??
+													operation.subscription.interval,
 											),
 								idempotencyKey,
 								newPriceLookupKey: operation.intent.targetPriceLookupKey,
@@ -965,6 +970,10 @@ export class BillingService {
 								operation.subscription.providerSubscriptionId,
 								operation.target.tierCredits,
 								tx,
+								{
+									plan: operation.target.plan,
+									interval: operation.target.interval,
+								},
 							);
 						const marked = scheduleId
 							? await this.subscriptionsRepository.markPendingTierApplied(
@@ -1122,6 +1131,19 @@ export class BillingService {
 			} catch (error) {
 				await this.markCancellationProviderFailure(cancellationReason.id);
 				throw error;
+			}
+
+			if (subscription.pendingTierCredits !== null) {
+				const cleared =
+					await this.subscriptionsRepository.setPendingTierCredits(
+						subscription.providerSubscriptionId,
+						null,
+					);
+				if (!cleared) {
+					throw new Error(
+						`Subscription ${subscription.providerSubscriptionId} disappeared while canceling its pending change`,
+					);
+				}
 			}
 		}
 
@@ -1515,11 +1537,13 @@ export class BillingService {
 
 	/**
 	 * Ruling 7: every non-downgrade, non-cancel change (same-interval price
-	 * increase or equal-price catalog move, plan upgrade, month->year) resets
+	 * increase or equal-price catalog move, plan upgrade, non-downgrade month->year) resets
 	 * the Stripe billing anchor —
 	 * the customer pays the full new price now, Stripe credits the unused
 	 * remainder of the old price, and fulfillment grants the full allotment.
-	 * Downgrades are scheduled at period end and a pending-downgrade cancel
+	 * Compare monthly catalog prices across intervals so a cheaper annual
+	 * tier cannot refund already-spent Pro time. Downgrades are scheduled at
+	 * period end and a pending-downgrade cancel
 	 * changes nothing about the cycle.
 	 */
 	private anchorResetsForChange(change: {

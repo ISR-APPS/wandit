@@ -68,6 +68,8 @@ function subscription(
 		interval: "year",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingPlan: null,
+		pendingInterval: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_175_year",
@@ -947,6 +949,8 @@ describe("ManualSubscriptionsService", () => {
 		);
 		expect(context.subscriptions.get(SUBSCRIPTION_ID)).toMatchObject({
 			pendingAppliedBy: null,
+			pendingPlan: null,
+			pendingInterval: null,
 			pendingTierCredits: null,
 			priceLookupKey: "pro_175_year",
 			tierCredits: 175,

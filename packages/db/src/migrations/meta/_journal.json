@@ -491,6 +491,13 @@
       "when": 1788537607667,
       "tag": "0069_remove-video-generation",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1788561185399,
+      "tag": "0070_subscription-pending-target",
+      "breakpoints": true
     }
   ]
 }

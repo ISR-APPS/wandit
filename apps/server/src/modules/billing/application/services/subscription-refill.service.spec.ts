@@ -23,6 +23,8 @@ function subscription(): SubscriptionCreditRow {
 		interval: "year",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingInterval: null,
+		pendingPlan: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_250_year",

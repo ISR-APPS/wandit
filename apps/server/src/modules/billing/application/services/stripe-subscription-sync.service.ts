@@ -288,6 +288,7 @@ export class StripeSubscriptionSyncService {
 			subscription.id,
 			parsed.tierCredits,
 			tx,
+			{ interval: parsed.interval, plan: parsed.plan },
 		);
 
 		return cleared ?? mirrored;

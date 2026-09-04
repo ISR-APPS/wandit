@@ -91,6 +91,8 @@ function subscriptionRow(
 		interval: "month",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingPlan: null,
+		pendingInterval: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_250_month",
@@ -197,6 +199,10 @@ class FakeSubscriptionsRepository {
 			_providerSubscriptionId: string,
 			pendingTierCredits: SubscriptionRow["pendingTierCredits"],
 			_client?: unknown,
+			target?: {
+				plan: SubscriptionRow["plan"];
+				interval: SubscriptionRow["interval"];
+			},
 		) => {
 			if (!this.row) {
 				return null;
@@ -206,6 +212,10 @@ class FakeSubscriptionsRepository {
 				...this.row,
 				pendingAppliedBy: null,
 				pendingTierCredits,
+				pendingPlan:
+					pendingTierCredits === null ? null : (target?.plan ?? null),
+				pendingInterval:
+					pendingTierCredits === null ? null : (target?.interval ?? null),
 			};
 
 			return this.row;
@@ -2010,6 +2020,7 @@ describe("BillingService subscription change intents", () => {
 			"sub_1",
 			250,
 			changeIntents.transaction,
+			{ plan: "pro", interval: "month" },
 		);
 		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
 			allowSameIntentRecovery: true,
@@ -2028,6 +2039,181 @@ describe("BillingService subscription change intents", () => {
 		expect(result).toMatchObject({
 			outcome: "applied",
 			subscription: { pendingTierCredits: 250, tierCredits: 500 },
+		});
+	});
+
+	it.each([
+		["month", "month"],
+		["month", "year"],
+		["year", "year"],
+	] as const)("keeps Pro %s paid benefits until the scheduled Starter %s renewal", async (currentInterval, targetInterval) => {
+		const current = subscriptionRow({
+			interval: currentInterval,
+			priceLookupKey: `pro_250_${currentInterval}`,
+		});
+		const { service, paymentProvider, subscriptions, changeIntents, credits } =
+			setup(current);
+		// A fully spent Pro allotment must not make the cheaper annual plan an
+		// immediate prorated refund or a fresh allotment to spend again.
+		credits.balance.plan = 0;
+		const preview = await service.previewChange(user, {
+			plan: "starter",
+			tierCredits: 60,
+			interval: targetInterval,
+		});
+		expect(preview).toMatchObject({ amountDueMinor: 0, creditsDelta: 0 });
+		expect(changeIntents.intent?.anchorReset).toBe(false);
+		const result = await service.change(user, { intentId: preview.intentId });
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith(
+			expect.objectContaining({
+				currentPriceLookupKey: `pro_250_${currentInterval}`,
+				newPriceLookupKey: `starter_60_${targetInterval}`,
+			}),
+		);
+		expect(result.subscription).toMatchObject({
+			plan: "pro",
+			tierCredits: 250,
+			interval: currentInterval,
+			pendingPlan: "starter",
+			pendingTierCredits: 60,
+			pendingInterval: targetInterval,
+		});
+		expect(subscriptions.row?.currentPeriodEnd).toEqual(
+			current.currentPeriodEnd,
+		);
+		await service.change(user, { intentId: preview.intentId });
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).toHaveBeenCalledOnce();
+	});
+
+	it("replaces a pending Starter yearly downgrade using its complete Stripe target", async () => {
+		const { service, paymentProvider, subscriptions } = setup(
+			subscriptionRow({
+				priceLookupKey: "pro_500_month",
+				tierCredits: 500,
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				pendingInterval: "year",
+				pendingAppliedBy: "sub_sched_1",
+			}),
+		);
+		const preview = await service.previewChange(user, {
+			plan: "pro",
+			tierCredits: 250,
+			interval: "month",
+		});
+		await service.change(user, { intentId: preview.intentId });
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedScheduleTarget: "starter_60_year",
+				newPriceLookupKey: "pro_250_month",
+			}),
+		);
+		expect(subscriptions.row).toMatchObject({
+			pendingPlan: "pro",
+			pendingTierCredits: 250,
+			pendingInterval: "month",
+			tierCredits: 500,
+		});
+	});
+
+	it("cancels a Starter downgrade without granting credits or starting a new Pro cycle", async () => {
+		const { service, paymentProvider, subscriptions } = setup(
+			subscriptionRow({
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				pendingInterval: "year",
+				pendingAppliedBy: "sub_sched_1",
+			}),
+		);
+		const preview = await service.previewChange(user, {
+			plan: "pro",
+			tierCredits: 250,
+			interval: "month",
+		});
+		expect(preview).toMatchObject({ amountDueMinor: 0, creditsDelta: 0 });
+		await service.change(user, { intentId: preview.intentId });
+		expect(
+			paymentProvider.cancelScheduledSubscriptionDowngrade,
+		).toHaveBeenCalledOnce();
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
+		expect(subscriptions.row).toMatchObject({
+			plan: "pro",
+			tierCredits: 250,
+			pendingPlan: null,
+			pendingTierCredits: null,
+			pendingInterval: null,
+		});
+	});
+
+	it("blocks a second Starter checkout while Pro is active or scheduled to end", async () => {
+		for (const cancelAtPeriodEnd of [false, true]) {
+			const { service, paymentProvider } = setup(
+				subscriptionRow({ cancelAtPeriodEnd }),
+			);
+			await expect(
+				service.checkout(user, {
+					plan: "starter",
+					tierCredits: 60,
+					interval: "month",
+				}),
+			).rejects.toThrow();
+			expect(paymentProvider.createSubscriptionCheckout).not.toHaveBeenCalled();
+		}
+	});
+
+	it("does not restore a voluntary Starter downgrade as a legacy Pro migration after a failed upgrade", async () => {
+		const { service, paymentProvider, subscriptions } = setup(
+			subscriptionRow({
+				priceLookupKey: "pro_175_month",
+				tierCredits: 175,
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				pendingInterval: "year",
+				pendingAppliedBy: "sub_sched_1",
+			}),
+		);
+		paymentProvider.changeSubscription.mockResolvedValueOnce({
+			outcome: "failed",
+		});
+		const preview = await service.previewChange(user, {
+			plan: "pro",
+			tierCredits: 500,
+			interval: "month",
+		});
+		await expect(
+			service.change(user, { intentId: preview.intentId }),
+		).resolves.toMatchObject({ outcome: "failed" });
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+		expect(subscriptions.row).toMatchObject({
+			pendingPlan: null,
+			pendingTierCredits: null,
+			pendingInterval: null,
+		});
+	});
+
+	it("clears the released Starter target when canceling Pro at period end", async () => {
+		const { service, subscriptions } = setup(
+			subscriptionRow({
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+				pendingInterval: "year",
+				pendingAppliedBy: "sub_sched_1",
+			}),
+		);
+		await service.cancel(user, { reason: "too_expensive" });
+		expect(subscriptions.row).toMatchObject({
+			plan: "pro",
+			tierCredits: 250,
+			cancelAtPeriodEnd: true,
+			pendingPlan: null,
+			pendingTierCredits: null,
+			pendingInterval: null,
+			pendingAppliedBy: null,
 		});
 	});
 
