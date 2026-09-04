@@ -80,15 +80,15 @@ const dictionary = vi.hoisted(() => ({
 
 const plans = vi.hoisted(() => [
 	{
-		basePer100Usd: 16,
+		basePer100Usd: 18,
 		features: { seats: false, teamWorkspace: false },
 		id: "starter",
 		tiers: [
 			{
 				annualLookupKey: "starter_50_year",
-				annualUsd: 80,
+				annualUsd: 90,
 				monthlyLookupKey: "starter_50_month",
-				monthlyUsd: 8,
+				monthlyUsd: 9,
 				tierCredits: 50,
 			},
 		],
@@ -197,7 +197,7 @@ describe("landing pricing", () => {
 		expect(screen.getByText("50 credits every month")).toBeTruthy();
 		expect(screen.getByText("AI image generation")).toBeTruthy();
 		expect(screen.getByText("Custom domains")).toBeTruthy();
-		expect(screen.getByText("$8")).toBeTruthy();
+		expect(screen.getByText("$9")).toBeTruthy();
 	});
 
 	it("formats a fractional signup grant without rounding it", () => {
@@ -252,9 +252,9 @@ describe("landing pricing", () => {
 	it("shows the annual Starter price when yearly billing is selected", () => {
 		render(createElement(Pricing));
 
-		expect(screen.getByText("$8")).toBeTruthy();
+		expect(screen.getByText("$9")).toBeTruthy();
 		fireEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
 
-		expect(screen.getByText("$80")).toBeTruthy();
+		expect(screen.getByText("$90")).toBeTruthy();
 	});
 });

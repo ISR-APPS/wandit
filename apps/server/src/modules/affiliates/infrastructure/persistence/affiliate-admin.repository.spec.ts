@@ -125,9 +125,9 @@ describe("AffiliateAdminRepository referred quality SQL", () => {
 		expect(query.sql).toContain("round(coalesce(sum(case rs.price_lookup_key");
 		expect(query.sql).toContain("else 0::numeric end), 0))::bigint");
 		expect(query.params).toContain("starter_50_month");
-		expect(query.params).toContain(800);
+		expect(query.params).toContain(900);
 		expect(query.params).toContain("starter_50_year");
-		expect(query.params).toContain(8_000 / 12);
+		expect(query.params).toContain(9_000 / 12);
 		expect(query.params).not.toContain("starter_250_month");
 		expect(query.params).toContain("pro_175_month");
 		expect(query.params).toContain("pro_250_month");

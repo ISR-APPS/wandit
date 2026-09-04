@@ -32,7 +32,7 @@ corresponding monthly price.
 
 | Plan | Credits / month | Monthly | Yearly | Volume discount |
 |---|---:|---:|---:|---:|
-| Starter | 50 | $8 | $80 | 0% |
+| Starter | 50 | $9 | $90 | 0% |
 | Pro | 175 | $25 | $250 | 0% |
 | Pro | 350 | $50 | $500 | 0% |
 | Pro | 700 | $100 | $1,000 | 0% |
