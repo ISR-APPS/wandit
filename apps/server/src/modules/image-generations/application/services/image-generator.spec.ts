@@ -561,6 +561,35 @@ describe("editImageFromSources", () => {
 		});
 	});
 
+	it("prefers the model override over the env default", async () => {
+		mockEditedImage();
+
+		const result = await editImageFromSources({
+			...EDIT_PARAMS,
+			model: "google/gemini-3-pro-image",
+		});
+
+		expect(generateText).toHaveBeenCalledWith(
+			expect.objectContaining({ model: "google/gemini-3-pro-image" }),
+		);
+		expect(result).toMatchObject({
+			model: "google/gemini-3-pro-image",
+			status: "generated",
+		});
+	});
+
+	it("edits with the model override even when the env default is unset", async () => {
+		mockEnv.AI_IMAGE_EDIT_MODEL = undefined;
+		mockEditedImage();
+
+		const result = await editImageFromSources({
+			...EDIT_PARAMS,
+			model: "google/gemini-3-pro-image",
+		});
+
+		expect(result).toMatchObject({ status: "generated" });
+	});
+
 	it("fails when the model returns no image file", async () => {
 		vi.mocked(generateText).mockResolvedValue({
 			files: [],

@@ -115,11 +115,11 @@ function measuredReservation(
 
 describe("createMeasuredOperationBilling", () => {
 	it("reserves the larger of the floor and the local cost estimate", () => {
-		// 2 × $0.1344 = $0.2688 → 840 cc at $0.032; beats the 2 × 350 cc floor.
+		// 2 × $0.1344 = $0.2688 → 840 cc at $0.032; beats the 2 × 100 cc floor.
 		expect(measuredReserveCredits("image", 2, 268_800)).toBe(840);
-		// 4K: $0.24 → 750 cc beats the 350 cc floor.
+		// 4K: $0.24 → 750 cc beats the 100 cc floor.
 		expect(measuredReserveCredits("image", 1, 240_000)).toBe(750);
-		expect(measuredReserveCredits("image", 3, null)).toBe(1050);
+		expect(measuredReserveCredits("image", 3, null)).toBe(300);
 		expect(measuredReserveCredits("video", 1, 1_050_000)).toBe(3282);
 		expect(measuredReserveCredits("connector", 1, 0)).toBe(1);
 		expect(measuredReserveCredits("image", 1, 0, 40_000, 1)).toBe(1);

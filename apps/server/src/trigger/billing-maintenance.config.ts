@@ -18,7 +18,35 @@ export function assertBillingFinancialConfiguration(): void {
 /** Reconciliation contacts AI Gateway after selecting durable generation refs. */
 export function assertMeteringConfiguration(): void {
 	assertDatabaseConfiguration();
+	assertMeteringGatewayConfiguration();
+}
 
+/**
+ * Stranded recovery refunds ref-less holds with the database alone. It must
+ * keep running through a bad gateway-key deploy — otherwise every reserved
+ * hold would leak again until an operator noticed — so it asserts only this.
+ */
+export function assertMeteringRecoveryConfiguration(): void {
+	assertDatabaseConfiguration();
+}
+
+/**
+ * Non-throwing probe for the gateway half of the metering gate. Stranded
+ * recovery uses it to decide whether ref-bearing rows can reconcile this run
+ * or must be skipped (and reported) until the key returns.
+ */
+export function meteringGatewayConfigurationError(): Error | null {
+	try {
+		assertMeteringGatewayConfiguration();
+
+		return null;
+	} catch (error) {
+		return error instanceof Error ? error : new Error(String(error));
+	}
+}
+
+/** Gateway-key half of the metering gate; resolving any generation ref needs it. */
+function assertMeteringGatewayConfiguration(): void {
 	const { overrides } = parseLlmProviderOverrides(
 		process.env.AI_PROVIDER_OVERRIDES,
 	);

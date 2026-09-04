@@ -41,10 +41,12 @@ describe("ApiExceptionFilter payment-required details", () => {
 		expect(send).toHaveBeenCalledWith({
 			error: expect.objectContaining({
 				code: expect.any(String),
-				details: {
+				// InsufficientCreditsError adds heldCredits; the generation 402 does
+				// not — the schema keeps it optional.
+				details: expect.objectContaining({
 					availableCredits: 4,
 					requiredCredits: 25,
-				},
+				}),
 				statusCode: 402,
 			}),
 		});

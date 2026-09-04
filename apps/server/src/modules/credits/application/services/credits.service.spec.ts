@@ -1351,6 +1351,87 @@ describe("CreditsService.consume admission requirePositiveBalance", () => {
 		expect(repository.rows).toHaveLength(1);
 	});
 
+	it("admits on the settled balance while a reserve hold dips the raw balance negative", async () => {
+		const { repository, service } = setup();
+		// 7 credits granted, then a 10-credit page-build hold: raw -300, settled 700.
+		repository.seed({
+			bucket: "plan",
+			delta: 700,
+			kind: "grant",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "plan",
+			delta: -700,
+			kind: "consume",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "topup",
+			delta: -300,
+			kind: "consume",
+			userId: "user_1",
+		});
+		repository.seedUsageEvent({ reservedCredits: 1000, userId: "user_1" });
+
+		await expect(
+			service.consume(userOwner("user_1"), 10, {
+				admission: "requirePositiveBalance",
+				idempotencyKey: "reserve:event_settled",
+				meta: { action: "chat" },
+			}),
+		).resolves.toMatchObject([{ delta: -10 }]);
+	});
+
+	it("rejects below the raw stacking floor even with a positive settled balance", async () => {
+		const { repository, service } = setup();
+		// Settled stays positive (holds add back), but raw is past -2000 cc.
+		repository.seed({
+			bucket: "plan",
+			delta: 100,
+			kind: "grant",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "topup",
+			delta: -2500,
+			kind: "consume",
+			userId: "user_1",
+		});
+		repository.seedUsageEvent({ reservedCredits: 2500, userId: "user_1" });
+
+		await expect(
+			service.consume(userOwner("user_1"), 10, {
+				admission: "requirePositiveBalance",
+			}),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
+	});
+
+	it("reports the settled balance and the held slice on the 402", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "topup",
+			delta: -1159,
+			kind: "consume",
+			userId: "user_1",
+		});
+		repository.seedUsageEvent({ reservedCredits: 1000, userId: "user_1" });
+
+		const error = await service
+			.consume(userOwner("user_1"), 10, {
+				admission: "requirePositiveBalance",
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(InsufficientCreditsError);
+		const insufficient = error as InsufficientCreditsError;
+		// raw -11.59, hold 10 -> settled -1.59: the user-facing number matches
+		// the header pill, never the hold-dipped raw value.
+		expect(insufficient.availableCredits).toBeCloseTo(-1.59);
+		expect(insufficient.rawAvailableCredits).toBeCloseTo(-11.59);
+		expect(insufficient.heldCredits).toBeCloseTo(10);
+	});
+
 	it("records the admission mode in the fingerprint and validates replays", async () => {
 		const { repository, service } = setup();
 		repository.seed({

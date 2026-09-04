@@ -724,6 +724,10 @@ export class AiChatService {
 			chatId,
 		);
 		let resolvedMcpResult: McpChatToolsResult | undefined;
+		// Set the moment the UI stream's execute callback runs. A setup failure
+		// before that point can never settle the hold, so the catch below refunds
+		// it; past it, the stream's own onEnd owns the hold's outcome.
+		let agentStreamStarted = false;
 		const pendingGatewayErrorCaptures = new Map<string, Promise<void>>();
 		const queueGatewayErrorCapture = (error: unknown): void => {
 			if (!prepared.eventId) {
@@ -1027,6 +1031,7 @@ export class AiChatService {
 			};
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
+					agentStreamStarted = true;
 					streamWriter = writer;
 					for (const notice of mcpResult.notices) {
 						const data = connectorUnreachableNoticeData(
@@ -1304,6 +1309,18 @@ export class AiChatService {
 									finalUsage ?? aggregateMeteredTokenUsage(stepUsages);
 
 								if (!usage) {
+									// No model step billed anything (e.g. Stop before the first
+									// step): void the hold now instead of leaving it reserved
+									// for the stranded sweep. refund() declines on its own when
+									// a durable generation ref exists. A lost lease voids this
+									// stream's ownership — a duplicate request may have adopted
+									// the hold — so only the lease-aware sweep may touch it then.
+									if (!leaseLossAbort.signal.aborted) {
+										await this.refundUnusedHold(
+											prepared.eventId,
+											"ai_chat_no_usage",
+										);
+									}
 									return;
 								}
 
@@ -1498,6 +1515,22 @@ export class AiChatService {
 			} else if (!normalized) {
 				this.handleStreamWarning(error, { chatId, projectId, userId });
 			}
+
+			if (
+				prepared.eventId &&
+				!agentStreamStarted &&
+				!leaseLossAbort.signal.aborted
+			) {
+				// Setup died before the agent stream existed, so nothing can ever
+				// settle this hold: void it now instead of leaving it reserved for
+				// the stranded sweep. The gateway error capture above may have
+				// attached a durable ref — refund() declines on its own then. A
+				// lost lease voids this stream's ownership (a duplicate request
+				// may have adopted the hold), so only the lease-aware sweep may
+				// touch it then.
+				await this.refundUnusedHold(prepared.eventId, "ai_chat_setup_failure");
+			}
+
 			const mcpResult =
 				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
 			try {
@@ -1619,6 +1652,31 @@ export class AiChatService {
 		}
 
 		return releaseAndDetach;
+	}
+
+	/**
+	 * Void a turn's hold when the turn provably billed nothing (no usage, no
+	 * settle possible), instead of leaving it reserved until the stranded
+	 * sweep. refund() itself declines when durable generation refs exist, and
+	 * the settled/reconciled conflict means another attempt owns the hold —
+	 * a refund failure must never break the chat response path, so every
+	 * outcome but success just logs.
+	 */
+	private async refundUnusedHold(
+		eventId: string | null,
+		reason: string,
+	): Promise<void> {
+		if (!eventId) {
+			return;
+		}
+
+		try {
+			await this.meteringService.refund(eventId, reason);
+		} catch (error) {
+			this.logger.warn(
+				`AI chat hold refund (${reason}) failed for ${eventId}: ${String(error)}`,
+			);
+		}
 	}
 
 	private async captureGeneration(
