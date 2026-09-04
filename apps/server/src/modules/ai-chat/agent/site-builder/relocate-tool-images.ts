@@ -37,13 +37,18 @@ export function modelNeedsToolImageRelocation(model: string): boolean {
 }
 
 /**
- * Text-only models (DeepSeek) reject image parts no matter where they sit,
- * so relocation cannot help — the image entries are dropped outright and the
- * tool result keeps only its text lines (which carry the hosted URL, all the
- * model needs to place the asset in HTML).
+ * Text-only models (DeepSeek, zai GLM) reject image parts no matter where
+ * they sit, so relocation cannot help — the image entries are dropped
+ * outright and the tool result keeps only its text lines (which carry the
+ * hosted URL, all the model needs to place the asset in HTML).
+ *
+ * zai added 2026-09-04: GLM Flash builds through the gateway received the
+ * generated images' base64 as plain text — six muse images ≈ 984K input
+ * tokens — overflowing the provider context ("ZOU Travel Group" failed 3x)
+ * and stretching surviving builds to 15+ minutes of prefill.
  */
 export function modelNeedsToolImageStripping(model: string): boolean {
-	return model.startsWith("deepseek/");
+	return model.startsWith("deepseek/") || model.startsWith("zai/");
 }
 
 /**
