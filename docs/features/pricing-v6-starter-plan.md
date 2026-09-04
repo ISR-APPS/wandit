@@ -221,8 +221,9 @@ Add `apps/server/scripts/migrate-subscriptions-v6.ts` (dry-run by default,
     credits" (plural-aware); keep "Signup credits when available" as the
     fallback when the grant is off.
   - Starter copy: name "Starter"; tagline "For your first store and first
-    campaigns"; features ["50 credits every month", "AI image & video
-    generation", "Custom domains", "Publishing always free"]. Business
+    campaigns"; features (amended 2026-09-04, no video for Starter): ["AI store pages
+    built in minutes", "AI product images and marketing copy", "Custom domain
+    included", "Leads CRM for your orders", "Publishing always free, cancel anytime"]. Business
     "Everything in Pro" and Pro "Nine credit tiers as your workload grows"
     stay true and stay.
   - `legal.json` "a starter balance of free credits" → "an initial balance of

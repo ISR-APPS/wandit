@@ -64,7 +64,7 @@ const dictionary = vi.hoisted(() => ({
 				creditsLine: "50 credits every month",
 				cta: "Choose Starter",
 				features: [
-					"AI image & video generation",
+					"AI product images and marketing copy",
 					"Custom domains",
 					"Publishing always free",
 				],
@@ -195,7 +195,7 @@ describe("landing pricing", () => {
 		}
 		expect(screen.getByText("7 free credits")).toBeTruthy();
 		expect(screen.getByText("50 credits every month")).toBeTruthy();
-		expect(screen.getByText("AI image & video generation")).toBeTruthy();
+		expect(screen.getByText("AI product images and marketing copy")).toBeTruthy();
 		expect(screen.getByText("Custom domains")).toBeTruthy();
 		expect(screen.getByText("$9")).toBeTruthy();
 	});
