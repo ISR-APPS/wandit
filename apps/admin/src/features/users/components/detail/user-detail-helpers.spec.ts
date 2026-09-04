@@ -13,8 +13,8 @@ describe("subscription pricing helpers", () => {
 			interval: "year",
 		} as const;
 
-		expect(subscriptionPriceUsd(subscription)).toBe(80);
-		expect(subscriptionTierLabel(subscription)).toBe("50 credits/mo · $80/yr");
+		expect(subscriptionPriceUsd(subscription)).toBe(90);
+		expect(subscriptionTierLabel(subscription)).toBe("50 credits/mo · $90/yr");
 	});
 
 	it("keeps legacy Pro tier pricing visible", () => {

@@ -724,11 +724,11 @@ describe("admin analytics MRR", () => {
 		expect(MRR_PRICE_MAP.size).toBe(74);
 		expect(MRR_PRICE_MAP.get("starter_50_month")).toMatchObject({
 			interval: "month",
-			mrrMinorExact: 800,
+			mrrMinorExact: 900,
 			plan: "starter",
 		});
 		expect(MRR_PRICE_MAP.get("starter_50_year")?.mrrMinorExact).toBeCloseTo(
-			8_000 / 12,
+			9_000 / 12,
 		);
 		expect(MRR_PRICE_MAP.has("starter_250_month")).toBe(false);
 		expect(MRR_PRICE_MAP.get("pro_250_month")).toMatchObject({

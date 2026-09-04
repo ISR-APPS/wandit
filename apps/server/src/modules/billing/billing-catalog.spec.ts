@@ -62,8 +62,8 @@ describe("billing catalog", () => {
 		expect(purchasableTiersFor("business")).toEqual(
 			PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 		);
-		expect(priceUsdFor("starter", 50, "month")).toBe(8);
-		expect(priceUsdFor("starter", 50, "year")).toBe(80);
+		expect(priceUsdFor("starter", 50, "month")).toBe(9);
+		expect(priceUsdFor("starter", 50, "year")).toBe(90);
 
 		for (const row of PRO_ECONOMICS) {
 			expect(priceUsdFor("pro", row.tierCredits, "month")).toBe(row.monthlyUsd);
