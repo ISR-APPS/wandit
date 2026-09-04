@@ -1,5 +1,6 @@
+import type { AdminView } from "@wandit/contracts";
 import { Loader2Icon, ShieldCheckIcon } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,12 @@ import type {
 	UserRole,
 } from "@/features/users/api/users.dto";
 import { useChangeUserRoleMutation } from "@/features/users/api/users.mutations";
+import { useUserQuery } from "@/features/users/api/users.queries";
+import { AdminViewChecklist } from "@/features/users/components/admin-view-checklist";
+import {
+	getInitialAdminViews,
+	hasAtLeastOneAdminView,
+} from "@/features/users/lib/admin-view-options";
 import { isApiClientError } from "@/lib/api-client";
 
 const ROLE_OPTIONS: readonly {
@@ -46,8 +53,7 @@ const ROLE_OPTIONS: readonly {
 	{
 		value: "support",
 		label: "Support",
-		description:
-			"Admin dashboard with limited permissions (see docs/features/admin-permissions.md).",
+		description: "Admin dashboard access limited to the selected views.",
 	},
 	{
 		value: "admin",
@@ -68,17 +74,60 @@ export function ChangeRoleDialog({
 	onOpenChange,
 }: ChangeRoleDialogProps) {
 	const [role, setRole] = useState<UserRole>(user.role);
+	const [views, setViews] = useState<AdminView[]>(() =>
+		getInitialAdminViews(user.role, null),
+	);
+	const initializedForOpen = useRef(false);
+	const appliedStoredViews = useRef(false);
 	const mutation = useChangeUserRoleMutation();
+	// List rows only contain summaries. Fetch the detail while this dialog is
+	// open so an existing support account starts with its stored grant set.
+	const detailQuery = useUserQuery(open ? user.id : undefined);
 	const selectedRole = ROLE_OPTIONS.find((option) => option.value === role);
+	const isLoadingStoredViews =
+		user.role === "support" && detailQuery.isFetching;
+	const cannotLoadStoredViews = user.role === "support" && detailQuery.isError;
+	const hasValidViews = role !== "support" || hasAtLeastOneAdminView(views);
+
+	useEffect(() => {
+		if (!open) {
+			initializedForOpen.current = false;
+			appliedStoredViews.current = false;
+			return;
+		}
+
+		if (!initializedForOpen.current) {
+			initializedForOpen.current = true;
+			setRole(user.role);
+			setViews(getInitialAdminViews(user.role, null));
+		}
+	}, [open, user.role]);
+
+	useEffect(() => {
+		if (
+			!open ||
+			user.role !== "support" ||
+			detailQuery.isFetching ||
+			detailQuery.isError ||
+			!detailQuery.data ||
+			appliedStoredViews.current
+		) {
+			return;
+		}
+
+		appliedStoredViews.current = true;
+		setViews(getInitialAdminViews(user.role, detailQuery.data.adminViews));
+	}, [
+		detailQuery.data,
+		detailQuery.isError,
+		detailQuery.isFetching,
+		open,
+		user.role,
+	]);
 
 	function handleOpenChange(nextOpen: boolean) {
 		if (!nextOpen && mutation.isPending) {
 			return;
-		}
-		// The dialog stays mounted per row, so an abandoned selection has to be
-		// dropped on close — this Root has no trigger, so it never reopens itself.
-		if (!nextOpen) {
-			setRole(user.role);
 		}
 		onOpenChange(nextOpen);
 	}
@@ -86,15 +135,23 @@ export function ChangeRoleDialog({
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 
-		if (role === user.role) {
-			onOpenChange(false);
+		if (!hasValidViews || (role === "support" && cannotLoadStoredViews)) {
+			return;
+		}
+
+		if (role === user.role && role !== "support") {
+			handleOpenChange(false);
 			return;
 		}
 
 		try {
-			await mutation.mutateAsync({ userId: user.id, role });
+			await mutation.mutateAsync({
+				userId: user.id,
+				role,
+				...(role === "support" ? { views } : {}),
+			});
 			toast.success(`${user.name} is now ${selectedRole?.label ?? role}.`);
-			onOpenChange(false);
+			handleOpenChange(false);
 		} catch (error) {
 			toast.error(
 				isApiClientError(error)
@@ -106,7 +163,7 @@ export function ChangeRoleDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent>
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
 				<form onSubmit={handleSubmit} className="flex flex-col gap-6">
 					<DialogHeader>
 						<div className="flex items-center gap-3">
@@ -151,6 +208,32 @@ export function ChangeRoleDialog({
 						</Field>
 					</FieldGroup>
 
+					{role === "support" ? (
+						<div className="flex flex-col gap-2">
+							<AdminViewChecklist
+								value={views}
+								onChange={setViews}
+								disabled={mutation.isPending || isLoadingStoredViews}
+								idPrefix={`change-role-${user.id}`}
+							/>
+							{isLoadingStoredViews ? (
+								<p className="text-muted-foreground text-sm">
+									Loading current admin views…
+								</p>
+							) : null}
+							{cannotLoadStoredViews ? (
+								<p className="text-destructive text-sm">
+									Current admin views could not be loaded. Close and try again.
+								</p>
+							) : null}
+							{!hasAtLeastOneAdminView(views) ? (
+								<p className="text-destructive text-sm">
+									Select at least one admin view.
+								</p>
+							) : null}
+						</div>
+					) : null}
+
 					{isRoleDemotion(user.role, role) ? (
 						<p className="rounded-md border bg-muted/40 p-3 text-muted-foreground text-sm">
 							Confirm that another admin will retain access before changing this
@@ -169,7 +252,13 @@ export function ChangeRoleDialog({
 						</Button>
 						<Button
 							type="submit"
-							disabled={mutation.isPending || role === user.role}
+							disabled={
+								mutation.isPending ||
+								!hasValidViews ||
+								(role === "support" &&
+									(isLoadingStoredViews || cannotLoadStoredViews)) ||
+								(role === user.role && role !== "support")
+							}
 						>
 							{mutation.isPending ? (
 								<Loader2Icon

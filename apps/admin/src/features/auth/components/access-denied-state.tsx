@@ -25,7 +25,7 @@ export function AccessDeniedState() {
 			</EmptyHeader>
 			<EmptyContent>
 				<Button asChild>
-					<Link to="/dashboard">Back to overview</Link>
+					<Link to="/">Back to overview</Link>
 				</Button>
 			</EmptyContent>
 		</Empty>

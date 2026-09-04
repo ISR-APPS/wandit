@@ -1,9 +1,10 @@
-import { BILLING_CATALOG, priceUsdFor } from "@wandit/contracts";
+import { type BillingPlanId, tryPriceUsdFor } from "@wandit/contracts";
 import { CheckIcon } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { PropsWithChildren, ReactNode } from "react";
 import type {
 	AdminManualPayment,
+	AdminManualRequest,
 	AdminManualSubscriptionDetail,
 } from "@/features/offline-billing/api/offline-billing.dto";
 import {
@@ -26,8 +27,20 @@ import { WEB_APP_ORIGIN } from "@/lib/web-origin";
 
 const WEB_APP_DOMAIN = new URL(WEB_APP_ORIGIN).host;
 
+const PLAN_NAMES = {
+	starter: "Starter",
+	pro: "Pro",
+	business: "Business",
+} as const satisfies Record<BillingPlanId, string>;
+
 type OfflineReceiptProps = {
 	subscription: AdminManualSubscriptionDetail;
+	generatedAt: Date;
+	dzdPerUsdRate: number;
+};
+
+type OfflineRequestReceiptProps = {
+	request: AdminManualRequest;
 	generatedAt: Date;
 	dzdPerUsdRate: number;
 };
@@ -37,6 +50,105 @@ export function OfflineReceipt({
 	generatedAt,
 	dzdPerUsdRate,
 }: OfflineReceiptProps) {
+	const { organization, request, user } = subscription;
+	const priceDzd = getDzdPlanPrice(
+		subscription.plan,
+		subscription.tierCredits,
+		subscription.interval,
+		dzdPerUsdRate,
+	);
+
+	return (
+		<ReceiptDocument receiptId={subscription.id} generatedAt={generatedAt}>
+			<div className="mt-10 grid gap-8 sm:grid-cols-2 sm:gap-10">
+				<CustomerDetails
+					name={getReceiptCustomerName(subscription)}
+					email={user.email}
+					phone={request?.phone}
+					company={request?.company}
+					organizationName={organization?.name}
+					location={formatCustomerLocation(request?.city, request?.country)}
+				/>
+				<OrderDetails
+					plan={subscription.plan}
+					tierCredits={subscription.tierCredits}
+					interval={subscription.interval}
+					priceDzd={priceDzd}
+					period={{
+						start: subscription.currentPeriodStart,
+						end: subscription.currentPeriodEnd,
+					}}
+					recordIdLabel="ID abonnement"
+					recordId={subscription.id}
+				/>
+			</div>
+
+			<PaymentsSection
+				payments={subscription.payments}
+				dzdPerUsdRate={dzdPerUsdRate}
+			/>
+			<PlanContents plan={subscription.plan} />
+		</ReceiptDocument>
+	);
+}
+
+export function OfflineRequestReceipt({
+	request,
+	generatedAt,
+	dzdPerUsdRate,
+}: OfflineRequestReceiptProps) {
+	const priceDzd = getDzdPlanPrice(
+		request.plan,
+		request.tierCredits,
+		request.interval,
+		dzdPerUsdRate,
+	);
+
+	// The page excludes plan/tier pairs without a catalog price before mounting.
+	// Keep the document safe if it is ever rendered from another entry point.
+	if (priceDzd === null) {
+		return null;
+	}
+
+	return (
+		<ReceiptDocument receiptId={request.id} generatedAt={generatedAt}>
+			<div className="mt-10 grid gap-8 sm:grid-cols-2 sm:gap-10">
+				<CustomerDetails
+					name={getReceiptCustomerName({
+						request: { fullName: request.fullName },
+						user: request.user,
+					})}
+					email={request.user.email}
+					phone={request.phone}
+					company={request.company}
+					organizationName={request.organization?.name}
+					location={formatCustomerLocation(request.city, request.country)}
+				/>
+				<OrderDetails
+					plan={request.plan}
+					tierCredits={request.tierCredits}
+					interval={request.interval}
+					priceDzd={priceDzd}
+					recordIdLabel="ID demande"
+					recordId={request.id}
+				/>
+			</div>
+
+			<SettlementSection
+				priceDzd={priceDzd}
+				interval={request.interval}
+				paymentMethod={request.preferredPaymentMethod}
+			/>
+			<PlanContents plan={request.plan} />
+		</ReceiptDocument>
+	);
+}
+
+function ReceiptDocument({
+	receiptId,
+	generatedAt,
+	children,
+}: PropsWithChildren<{ receiptId: string; generatedAt: Date }>) {
 	return (
 		<article
 			id="offline-receipt-print-root"
@@ -49,30 +161,20 @@ export function OfflineReceipt({
 				letterSpacing: "normal",
 			}}
 		>
-			<ReceiptHeader subscription={subscription} generatedAt={generatedAt} />
-
-			<div className="mt-10 grid gap-8 sm:grid-cols-2 sm:gap-10">
-				<CustomerDetails subscription={subscription} />
-				<OrderDetails
-					subscription={subscription}
-					dzdPerUsdRate={dzdPerUsdRate}
-				/>
-			</div>
-
-			<PaymentsSection
-				payments={subscription.payments}
-				dzdPerUsdRate={dzdPerUsdRate}
-			/>
-			<PlanContents plan={subscription.plan} />
+			<ReceiptHeader receiptId={receiptId} generatedAt={generatedAt} />
+			{children}
 			<ReceiptFooter generatedAt={generatedAt} />
 		</article>
 	);
 }
 
 function ReceiptHeader({
-	subscription,
+	receiptId,
 	generatedAt,
-}: Pick<OfflineReceiptProps, "subscription" | "generatedAt">) {
+}: {
+	receiptId: string;
+	generatedAt: Date;
+}) {
 	return (
 		<header className="offline-receipt-section flex flex-col gap-6 border-[#191613] border-t-[3px] pt-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
 			<WanditReceiptLogo />
@@ -89,7 +191,7 @@ function ReceiptHeader({
 				<dl className="mt-4 grid grid-cols-[auto_auto] justify-start gap-x-3 gap-y-1 text-[11px] leading-5 sm:justify-end">
 					<dt className="text-[#766d63]">N° du reçu</dt>
 					<dd className="font-medium font-mono text-[#191613]">
-						{createReceiptNumber(subscription.id)}
+						{createReceiptNumber(receiptId)}
 					</dd>
 					<dt className="text-[#766d63]">Date d’émission</dt>
 					<dd className="font-medium text-[#191613]">
@@ -120,33 +222,34 @@ function WanditReceiptLogo() {
 }
 
 function CustomerDetails({
-	subscription,
+	name,
+	email,
+	phone,
+	company,
+	organizationName,
+	location,
 }: {
-	subscription: AdminManualSubscriptionDetail;
+	name: string;
+	email: string;
+	phone?: string | null;
+	company?: string | null;
+	organizationName?: string | null;
+	location?: string | null;
 }) {
-	const { request, user, organization } = subscription;
-	const location = request
-		? [request.city, getFrenchCountryLabel(request.country)]
-				.filter(Boolean)
-				.join(", ")
-		: null;
-
 	return (
 		<ReceiptSection title="Client">
 			<dl className="space-y-2.5">
-				<DefinitionRow label="Nom">
-					{getReceiptCustomerName(subscription)}
-				</DefinitionRow>
-				<DefinitionRow label="E-mail">{user.email}</DefinitionRow>
-				{request?.phone ? (
-					<DefinitionRow label="Téléphone">{request.phone}</DefinitionRow>
+				<DefinitionRow label="Nom">{name}</DefinitionRow>
+				<DefinitionRow label="E-mail">{email}</DefinitionRow>
+				{phone ? (
+					<DefinitionRow label="Téléphone">{phone}</DefinitionRow>
 				) : null}
-				{request?.company ? (
-					<DefinitionRow label="Entreprise">{request.company}</DefinitionRow>
+				{company ? (
+					<DefinitionRow label="Entreprise">{company}</DefinitionRow>
 				) : null}
-				{organization ? (
+				{organizationName ? (
 					<DefinitionRow label="Espace de travail">
-						{organization.name}
+						{organizationName}
 					</DefinitionRow>
 				) : null}
 				{location ? (
@@ -158,50 +261,111 @@ function CustomerDetails({
 }
 
 function OrderDetails({
-	subscription,
-	dzdPerUsdRate,
+	plan,
+	tierCredits,
+	interval,
+	priceDzd,
+	period,
+	recordIdLabel,
+	recordId,
 }: {
-	subscription: AdminManualSubscriptionDetail;
-	dzdPerUsdRate: number;
+	plan: AdminManualSubscriptionDetail["plan"];
+	tierCredits: number;
+	interval: AdminManualSubscriptionDetail["interval"];
+	priceDzd: number | null;
+	period?: { start: string; end: string };
+	recordIdLabel: string;
+	recordId: string;
 }) {
-	const planName = subscription.plan === "pro" ? "Pro" : "Business";
-	const tierCredits = BILLING_CATALOG.creditTiers.find(
-		(tier) => tier === subscription.tierCredits,
-	);
-	const priceDzd =
-		tierCredits === undefined
-			? null
-			: computeDzdPlanPrice(
-					priceUsdFor(subscription.plan, tierCredits, subscription.interval),
-					dzdPerUsdRate,
-				);
+	const planName = PLAN_NAMES[plan];
+	const priceSuffix = interval === "month" ? "/ mois" : "/ an";
 
 	return (
 		<ReceiptSection title="Commande / Abonnement">
 			<dl className="space-y-2.5">
 				<DefinitionRow label="Offre">Wandit {planName}</DefinitionRow>
 				<DefinitionRow label="Crédits">
-					{subscription.tierCredits.toLocaleString("fr-FR")} crédits / mois
+					{tierCredits.toLocaleString("fr-FR")} crédits / mois
 				</DefinitionRow>
 				<DefinitionRow label="Facturation">
-					{getFrenchBillingIntervalLabel(subscription.interval)}
+					{getFrenchBillingIntervalLabel(interval)}
 				</DefinitionRow>
 				{priceDzd === null ? null : (
 					<DefinitionRow label="Prix">
-						{formatWholeDzdAmount(priceDzd)}{" "}
-						{subscription.interval === "month" ? "/ mois" : "/ an"}
+						{`${formatWholeDzdAmount(priceDzd)} ${priceSuffix}`}
 					</DefinitionRow>
 				)}
-				<DefinitionRow label="Période">
-					{formatReceiptDate(subscription.currentPeriodStart)} –{" "}
-					{formatReceiptDate(subscription.currentPeriodEnd)}
-				</DefinitionRow>
+				{period ? (
+					<DefinitionRow label="Période">
+						{formatReceiptDate(period.start)} – {formatReceiptDate(period.end)}
+					</DefinitionRow>
+				) : null}
 			</dl>
 			<p className="mt-5 break-all border-[#ded7ce] border-t pt-3 font-mono text-[#766d63] text-[9px] leading-4">
-				ID abonnement : {subscription.id}
+				{recordIdLabel} : {recordId}
 			</p>
 		</ReceiptSection>
 	);
+}
+
+function SettlementSection({
+	priceDzd,
+	interval,
+	paymentMethod,
+}: {
+	priceDzd: number;
+	interval: AdminManualRequest["interval"];
+	paymentMethod: AdminManualRequest["preferredPaymentMethod"];
+}) {
+	const priceSuffix = interval === "month" ? "/ mois" : "/ an";
+
+	return (
+		<section className="offline-receipt-section mt-10 border-[#191613] border-t pt-6">
+			<h2 className="font-semibold text-[17px] tracking-[-0.02em]">
+				Règlement
+			</h2>
+			<dl className="mt-5 space-y-2.5">
+				<DefinitionRow label="Montant à régler">
+					<span className="font-semibold tabular-nums">
+						{`${formatWholeDzdAmount(priceDzd)} ${priceSuffix}`}
+					</span>
+				</DefinitionRow>
+				{paymentMethod ? (
+					<DefinitionRow label="Méthode de paiement">
+						{getFrenchPaymentMethodLabel(paymentMethod)}
+					</DefinitionRow>
+				) : null}
+			</dl>
+			<p className="mt-5 border-[#ded7ce] border-t pt-4 text-[#766d63] text-[10px] leading-5">
+				L’accès à votre abonnement sera activé dès la confirmation de votre
+				paiement.
+			</p>
+		</section>
+	);
+}
+
+function getDzdPlanPrice(
+	plan: AdminManualSubscriptionDetail["plan"],
+	tierCredits: number,
+	interval: AdminManualSubscriptionDetail["interval"],
+	dzdPerUsdRate: number,
+): number | null {
+	const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
+
+	return priceUsd === null
+		? null
+		: computeDzdPlanPrice(priceUsd, dzdPerUsdRate);
+}
+
+function formatCustomerLocation(
+	city?: string | null,
+	country?: string | null,
+): string | null {
+	if (!country) {
+		return null;
+	}
+
+	return [city, getFrenchCountryLabel(country)].filter(Boolean).join(", ");
 }
 
 function ReceiptSection({

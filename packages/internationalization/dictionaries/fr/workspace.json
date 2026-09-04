@@ -4,6 +4,7 @@
 	"autosaved": "Enregistré",
 	"upgrade": "Mettre à niveau",
 	"upgradeCard": {
+		"titleStarter": "Passer à Starter",
 		"titlePro": "Passer à Pro",
 		"titleBusiness": "Passer à Business",
 		"body": "Plus de crédits et d'options"

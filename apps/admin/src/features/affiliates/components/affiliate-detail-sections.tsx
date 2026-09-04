@@ -140,7 +140,7 @@ export function AffiliateMetrics({ detail }: { detail: AffiliateDetail }) {
 			label: "Healthy trials",
 			value: formatAffiliateNumber(detail.aggregates.healthyTrials),
 			tooltip:
-				"Attributed free users at least seven days old who consumed at least 20 credits and completed at least two successful generations in their first seven days.",
+				"Attributed free users at least seven days old who consumed at least 8 credits and completed at least two successful generations in their first seven days.",
 		},
 		{
 			label: "Churned",

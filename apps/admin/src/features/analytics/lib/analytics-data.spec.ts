@@ -97,6 +97,12 @@ describe("funnel presentation", () => {
 		expect(funnelStepMetadata.pricingViewed.unavailableLabel).toBeUndefined();
 	});
 
+	it("describes the v6 healthy-trial credit threshold", () => {
+		expect(funnelStepMetadata.healthyTrial.tooltip).toContain(
+			"at least 8 credits",
+		);
+	});
+
 	it("returns every step in canonical contract order", () => {
 		const steps = [
 			{ key: "paid" as const, count: 2, pctOfPrevious: 50 },
@@ -229,11 +235,10 @@ describe("analytics bucket labels", () => {
 			adminAnalyticsConsumptionBuckets.map(getConsumptionBucketLabel),
 		).toEqual([
 			"0 credits",
-			"1–9 credits",
-			"10–24 credits",
-			"25–39 credits",
-			"40–49 credits",
-			"50+ credits",
+			"1–4 credits",
+			"5–9 credits",
+			"10–19 credits",
+			"20+ credits",
 		]);
 	});
 });
@@ -347,17 +352,16 @@ describe("mapConsumptionChartData", () => {
 	it("returns every bucket in contract order and fills missing values", () => {
 		expect(
 			mapConsumptionChartData([
-				{ bucket: "50+", users: 3 },
-				{ bucket: "1-9", users: 8 },
-				{ bucket: "1-9", users: 2 },
+				{ bucket: "20+", users: 3 },
+				{ bucket: "1-4", users: 8 },
+				{ bucket: "1-4", users: 2 },
 			]),
 		).toEqual([
 			{ bucket: "0", label: "0 credits", users: 0 },
-			{ bucket: "1-9", label: "1–9 credits", users: 10 },
-			{ bucket: "10-24", label: "10–24 credits", users: 0 },
-			{ bucket: "25-39", label: "25–39 credits", users: 0 },
-			{ bucket: "40-49", label: "40–49 credits", users: 0 },
-			{ bucket: "50+", label: "50+ credits", users: 3 },
+			{ bucket: "1-4", label: "1–4 credits", users: 10 },
+			{ bucket: "5-9", label: "5–9 credits", users: 0 },
+			{ bucket: "10-19", label: "10–19 credits", users: 0 },
+			{ bucket: "20+", label: "20+ credits", users: 3 },
 		]);
 	});
 });
@@ -366,9 +370,9 @@ describe("mapConversionByCreditsChartData", () => {
 	it("returns canonical buckets with owners, paid owners, and conversion", () => {
 		expect(
 			mapConversionByCreditsChartData([
-				{ bucket: "50+", owners: 3, paidOwners: 2, paidPct: 66.7 },
-				{ bucket: "1-9", owners: 2, paidOwners: 1, paidPct: 50 },
-				{ bucket: "1-9", owners: 1, paidOwners: 1, paidPct: 100 },
+				{ bucket: "20+", owners: 3, paidOwners: 2, paidPct: 66.7 },
+				{ bucket: "1-4", owners: 2, paidOwners: 1, paidPct: 50 },
+				{ bucket: "1-4", owners: 1, paidOwners: 1, paidPct: 100 },
 			]),
 		).toEqual([
 			{
@@ -379,36 +383,29 @@ describe("mapConversionByCreditsChartData", () => {
 				paidPct: null,
 			},
 			{
-				bucket: "1-9",
-				label: "1–9 credits",
+				bucket: "1-4",
+				label: "1–4 credits",
 				owners: 3,
 				paidOwners: 2,
 				paidPct: 66.666_666_666_666_66,
 			},
 			{
-				bucket: "10-24",
-				label: "10–24 credits",
+				bucket: "5-9",
+				label: "5–9 credits",
 				owners: 0,
 				paidOwners: 0,
 				paidPct: null,
 			},
 			{
-				bucket: "25-39",
-				label: "25–39 credits",
+				bucket: "10-19",
+				label: "10–19 credits",
 				owners: 0,
 				paidOwners: 0,
 				paidPct: null,
 			},
 			{
-				bucket: "40-49",
-				label: "40–49 credits",
-				owners: 0,
-				paidOwners: 0,
-				paidPct: null,
-			},
-			{
-				bucket: "50+",
-				label: "50+ credits",
+				bucket: "20+",
+				label: "20+ credits",
 				owners: 3,
 				paidOwners: 2,
 				paidPct: 66.7,
@@ -419,8 +416,8 @@ describe("mapConversionByCreditsChartData", () => {
 	it("preserves a nullable paid percentage from the API", () => {
 		expect(
 			mapConversionByCreditsChartData([
-				{ bucket: "10-24", owners: 4, paidOwners: 2, paidPct: null },
-			]).find((point) => point.bucket === "10-24"),
+				{ bucket: "5-9", owners: 4, paidOwners: 2, paidPct: null },
+			]).find((point) => point.bucket === "5-9"),
 		).toMatchObject({ owners: 4, paidOwners: 2, paidPct: null });
 	});
 

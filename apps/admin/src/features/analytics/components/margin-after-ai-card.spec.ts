@@ -13,6 +13,14 @@ function renderAnalytics(element: ReactElement) {
 	return renderToStaticMarkup(createElement(TooltipProvider, null, element));
 }
 
+const starterRow: AdminAnalyticsMarginAfterAiRow = {
+	plan: "starter",
+	revenueCents: 800,
+	aiCostCents: 200,
+	marginCents: 600,
+	marginPct: 75,
+};
+
 const proRow: AdminAnalyticsMarginAfterAiRow = {
 	plan: "pro",
 	revenueCents: 9_900,
@@ -37,14 +45,26 @@ const freeRow: AdminAnalyticsMarginAfterAiRow = {
 	marginPct: null,
 };
 
-const marginAfterAi = [proRow, businessRow, freeRow];
+const marginAfterAi = [starterRow, proRow, businessRow, freeRow];
 
 describe("margin after AI card", () => {
-	it("keeps the pro, business, free order and fills missing plans with zeros", () => {
+	it("keeps the starter, pro, business, free order and fills missing plans with zeros", () => {
 		const rows = orderMarginAfterAiRows([freeRow, proRow]);
 
-		expect(rows.map((row) => row.plan)).toEqual(["pro", "business", "free"]);
-		expect(rows[1]).toEqual({
+		expect(rows.map((row) => row.plan)).toEqual([
+			"starter",
+			"pro",
+			"business",
+			"free",
+		]);
+		expect(rows[0]).toEqual({
+			plan: "starter",
+			revenueCents: 0,
+			aiCostCents: 0,
+			marginCents: 0,
+			marginPct: null,
+		});
+		expect(rows[2]).toEqual({
 			plan: "business",
 			revenueCents: 0,
 			aiCostCents: 0,
@@ -60,6 +80,7 @@ describe("margin after AI card", () => {
 
 		expect(html).toContain("Margin after AI");
 		expect(html).toContain("Shared infrastructure bills are not allocated");
+		expect(html).toContain(">Starter<");
 		expect(html).toContain(">Pro<");
 		expect(html).toContain(">Business<");
 		expect(html).toContain(">Free<");
@@ -67,7 +88,7 @@ describe("margin after AI card", () => {
 		expect(html).toContain("$31.5");
 		expect(html).toContain("68.2%");
 		expect(html).toContain("All plans");
-		expect(html).toContain("$125.01");
+		expect(html).toContain("$133.01");
 	});
 
 	it("marks negative margins and shows an em dash for a null margin percentage", () => {

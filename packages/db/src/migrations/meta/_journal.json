@@ -442,6 +442,48 @@
       "when": 1788190660373,
       "tag": "0062_manual-billing-dzd-rate",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1788241002852,
+      "tag": "0063_real_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788242581007,
+      "tag": "0064_admin-view-grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788350374037,
+      "tag": "0065_starter-plan-enum",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788350392950,
+      "tag": "0066_signup-grant-7",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788532456652,
+      "tag": "0067_signup-grant-18",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1788535213934,
+      "tag": "0068_signup-grant-20",
+      "breakpoints": true
     }
   ]
 }

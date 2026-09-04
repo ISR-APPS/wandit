@@ -5,6 +5,7 @@ import { Resend } from "resend";
 import type { LifecycleEventName } from "../../../lifecycle-events/domain/lifecycle-event";
 import {
 	type EmailContent,
+	externalDomainDelegationReminderEmail,
 	invitationEmail,
 	type ManualRequestEmailData,
 	magicLinkEmail,
@@ -69,6 +70,24 @@ export class EmailService {
 		);
 	}
 
+	async sendExternalDomainDelegationReminder(input: {
+		dashboardUrl: string;
+		domainId: string;
+		domainName: string;
+		idempotencyKey: string;
+		nameServers: readonly string[];
+		to: string;
+	}): Promise<void> {
+		await this.deliver(
+			input.to,
+			externalDomainDelegationReminderEmail(input),
+			`external domain delegation reminder: ${input.domainName}`,
+			{
+				idempotencyKey: input.idempotencyKey,
+			},
+		);
+	}
+
 	async sendManualRequestEmail(
 		to: readonly string[],
 		data: ManualRequestEmailData,
@@ -100,6 +119,7 @@ export class EmailService {
 		to: string | string[],
 		content: EmailContent,
 		devSummary: string,
+		options?: { idempotencyKey?: string },
 	): Promise<void> {
 		if (!this.resend) {
 			if (!this.canLogToConsole) {
@@ -115,13 +135,16 @@ export class EmailService {
 			return;
 		}
 
-		const { error } = await this.resend.emails.send({
+		const payload = {
 			from: env.EMAIL_FROM,
 			to,
 			subject: content.subject,
 			html: content.html,
 			text: content.text,
-		});
+		};
+		const { error } = options
+			? await this.resend.emails.send(payload, options)
+			: await this.resend.emails.send(payload);
 
 		if (error) {
 			this.logger.error(

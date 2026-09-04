@@ -7,6 +7,7 @@ import type {
 	AdminListUsersQuery,
 	AdminListUsersResponse,
 	AdminProjectVersionHtmlResponse,
+	AdminSetAdminViewsInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -29,6 +30,7 @@ export type {
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
 	AdminProjectVersionHtmlResponse,
+	AdminSetAdminViewsInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -120,6 +122,10 @@ export type GrantUserCreditsInput = AdminGrantCreditsInput & {
 };
 
 export type ChangeUserRoleInput = AdminSetRoleInput & {
+	userId: string;
+};
+
+export type SetUserAdminViewsInput = AdminSetAdminViewsInput & {
 	userId: string;
 };
 

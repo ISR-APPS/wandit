@@ -57,6 +57,28 @@ describe("mapProductSettingsDto", () => {
 	});
 });
 
+describe("signupGrantCredits PATCH validation", () => {
+	it("accepts the 7-credit signup grant", () => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				signupGrantCredits: 20,
+				version: 7,
+			}).success,
+		).toBe(true);
+	});
+
+	it.each([
+		0, -1, 7.5,
+	])("rejects the invalid value %d", (signupGrantCredits) => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				signupGrantCredits,
+				version: 7,
+			}).success,
+		).toBe(false);
+	});
+});
+
 describe("manualGraceDays PATCH validation", () => {
 	it.each([0, 30])("accepts the boundary value %i", (manualGraceDays) => {
 		expect(

@@ -1,6 +1,7 @@
 import { logger as triggerLogger } from "@trigger.dev/sdk";
 import type { DomainSource, DomainStatus } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
+import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
 import { ApexZoneStep } from "../modules/domains/application/fulfillment/apex-zone.step";
@@ -24,6 +25,7 @@ import { DomainTerminalFailureStep } from "../modules/domains/application/fulfil
 import { PurchasedDomainDnsStep } from "../modules/domains/application/fulfillment/purchased-domain-dns.step";
 import { DomainRegistrarSyncService } from "../modules/domains/application/maintenance/domain-registrar-sync.service";
 import { DomainRenewalNoticesService } from "../modules/domains/application/maintenance/domain-renewal-notices.service";
+import { ExternalDomainDelegationRemindersService } from "../modules/domains/application/maintenance/external-domain-delegation-reminders.service";
 import { CustomHostnameService } from "../modules/domains/infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "../modules/domains/infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
@@ -36,6 +38,7 @@ import {
 	recoverDomainConfigurationTask,
 	recoverDomainPurchaseTask,
 } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
+import { EmailService } from "../modules/email/application/services/email.service";
 import {
 	PaymentOrdersRepository,
 	type PaymentOrderTransaction,
@@ -209,6 +212,22 @@ export function createDomainRenewalRuntime(db: Database) {
 	};
 }
 
+export function createExternalDomainDelegationRemindersRuntime(db: Database) {
+	const domains = new DomainsRepository(db);
+
+	return {
+		delegationReminders: new ExternalDomainDelegationRemindersService(
+			domains,
+			new EmailService(),
+			new CustomerZoneService(),
+			{
+				dashboardOrigin: env.CORS_ORIGIN,
+				logger: triggerDomainLogger,
+			},
+		),
+	};
+}
+
 export function createDomainRegistrarSyncRuntime(
 	db: Database,
 	logger: DomainFulfillmentLogger = triggerDomainLogger,
@@ -322,6 +341,8 @@ function createDomainCore(
 				infrastructure.domains.initializeCursor(domainId, input),
 			markExternalVerificationStalled: (domainId, input) =>
 				infrastructure.domains.markExternalVerificationStalled(domainId, input),
+			mergeDnsIfStatus: (domainId, statuses, patch) =>
+				infrastructure.domains.mergeDnsIfStatus(domainId, statuses, patch),
 			readCursor: (domainId) => infrastructure.domains.readCursor(domainId),
 		},
 		now: options.now ?? (() => new Date()),

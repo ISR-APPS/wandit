@@ -202,8 +202,10 @@ export type AdminAnalyticsArpuByPlan = z.infer<
 // in the blended unitEconomics gross margin). "free" is not a billing plan:
 // it is every owner without a live subscription — zero revenue, real AI cost.
 // Owners are attributed to their CURRENT plan (subscriptions store no
-// history); an owner holding both plans counts as business.
+// history). Owners with overlapping live plans are assigned business, then
+// pro, then starter.
 export const adminAnalyticsMarginAfterAiPlans = [
+	"starter",
 	"pro",
 	"business",
 	"free",
@@ -371,7 +373,7 @@ export const adminAnalyticsRevenueResponseSchema = z.object({
 	retention: adminAnalyticsRetentionSchema,
 	churnBreakdown: adminAnalyticsChurnBreakdownSchema,
 	unitEconomics: adminAnalyticsUnitEconomicsSchema,
-	// Fixed order: pro, business, free.
+	// Fixed order: starter, pro, business, free.
 	marginAfterAi: z.array(adminAnalyticsMarginAfterAiRowSchema),
 });
 
@@ -682,13 +684,16 @@ export const adminAnalyticsFeatureSchema = z.object({
 
 export type AdminAnalyticsFeature = z.infer<typeof adminAnalyticsFeatureSchema>;
 
+/**
+ * Free-user consumption after flooring usage to whole credits. The final
+ * bucket starts at the 20-credit signup grant.
+ */
 export const adminAnalyticsConsumptionBuckets = [
 	"0",
-	"1-9",
-	"10-24",
-	"25-39",
-	"40-49",
-	"50+",
+	"1-4",
+	"5-9",
+	"10-19",
+	"20+",
 ] as const;
 
 export const adminAnalyticsConsumptionBucketSchema = z.enum(

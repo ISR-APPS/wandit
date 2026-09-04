@@ -29,9 +29,10 @@ import type {
 	ScheduleSubscriptionDowngradeParams,
 	SubscriptionChangePreviewProviderResult,
 	SubscriptionChangeProviderResult,
+	SwitchSubscriptionPriceWithoutProrationParams,
 } from "../../domain/ports/payment-provider.port";
+import { STRIPE_API_VERSION } from "./stripe.constants";
 
-const STRIPE_API_VERSION = "2026-02-25.clover";
 const RESTRICTED_PORTAL_CONFIGURATION_NAME =
 	"Wandit restricted billing portal v2";
 
@@ -368,6 +369,51 @@ export class StripeProvider implements PaymentProvider {
 		}
 	}
 
+	async switchSubscriptionPriceWithoutProration(
+		params: SwitchSubscriptionPriceWithoutProrationParams,
+	): Promise<void> {
+		const stripe = this.stripe();
+		const [subscription, priceId] = await Promise.all([
+			stripe.subscriptions.retrieve(params.providerSubscriptionId),
+			this.resolvePriceId(params.newPriceLookupKey),
+		]);
+		const [item, unexpectedItem] = subscription.items.data;
+
+		if (!item || unexpectedItem) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} must have exactly one subscription item`,
+			);
+		}
+
+		if (subscription.pending_update) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} has a pending update`,
+			);
+		}
+
+		if (
+			item.price.id !== priceId &&
+			item.price.lookup_key !== params.currentPriceLookupKey
+		) {
+			throw new InternalServerErrorException(
+				`Stripe subscription ${subscription.id} has price ${item.price.lookup_key ?? "<missing>"}, expected ${params.currentPriceLookupKey}`,
+			);
+		}
+
+		if (item.price.id === priceId) {
+			return;
+		}
+
+		await stripe.subscriptions.update(
+			params.providerSubscriptionId,
+			{
+				items: [{ id: item.id, price: priceId }],
+				proration_behavior: "none",
+			},
+			{ idempotencyKey: params.idempotencyKey },
+		);
+	}
+
 	async cancelScheduledSubscriptionDowngrade(
 		providerSubscriptionId: string,
 		idempotencyKey: string,
@@ -405,11 +451,38 @@ export class StripeProvider implements PaymentProvider {
 				stripe.subscriptions.retrieve(params.providerSubscriptionId),
 				this.resolvePriceId(params.newPriceLookupKey),
 			]);
-			const item = subscription.items.data[0];
+			const [item, unexpectedItem] = subscription.items.data;
 
-			if (!item) {
+			if (!item || unexpectedItem) {
 				throw new InternalServerErrorException(
-					"Stripe subscription has no subscription items",
+					`Stripe subscription ${subscription.id} must have exactly one subscription item`,
+				);
+			}
+
+			if (item.price.lookup_key !== params.currentPriceLookupKey) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has price ${item.price.lookup_key ?? "<missing>"}, expected ${params.currentPriceLookupKey}`,
+				);
+			}
+
+			if (subscription.cancel_at_period_end) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} is set to cancel at period end`,
+				);
+			}
+
+			if (
+				subscription.status !== "active" &&
+				subscription.status !== "trialing"
+			) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has non-entitled status ${subscription.status}`,
+				);
+			}
+
+			if (subscription.pending_update) {
+				throw new InternalServerErrorException(
+					`Stripe subscription ${subscription.id} has a pending update`,
 				);
 			}
 
@@ -421,11 +494,47 @@ export class StripeProvider implements PaymentProvider {
 					subscription,
 					params.idempotencyKey,
 				);
+
+				const replaysCurrentSchedulingAttempt =
+					(schedule.metadata?.wanditScheduleIntent === params.idempotencyKey &&
+						schedule.metadata.wanditScheduleTarget ===
+							params.newPriceLookupKey) ||
+					(subscription.metadata.wanditScheduleOwner ===
+						"period_end_downgrade" &&
+						subscription.metadata.wanditScheduleIntent ===
+							params.idempotencyKey &&
+						subscription.metadata.wanditScheduleTarget ===
+							params.newPriceLookupKey);
+
+				if (
+					params.expectedScheduleTarget === null &&
+					(!params.allowSameIntentRecovery || !replaysCurrentSchedulingAttempt)
+				) {
+					throw new InternalServerErrorException(
+						`Stripe subscription ${subscription.id} has an attached downgrade schedule, but no schedule was expected`,
+					);
+				}
+
+				if (
+					params.expectedScheduleTarget !== null &&
+					schedule.metadata?.wanditScheduleTarget !==
+						params.expectedScheduleTarget
+				) {
+					throw new InternalServerErrorException(
+						`Stripe subscription schedule ${schedule.id} targets ${schedule.metadata?.wanditScheduleTarget ?? "<missing>"}, expected ${params.expectedScheduleTarget}`,
+					);
+				}
 				// An attached application-owned schedule is durable partial state
 				// from this intent or an earlier pending downgrade. Do not terminalize
 				// the intent if a later configure step fails.
 				priorRemoteMutation = true;
 			} else {
+				if (params.expectedScheduleTarget !== null) {
+					throw new InternalServerErrorException(
+						`Stripe subscription ${subscription.id} has no attached downgrade schedule, expected ${params.expectedScheduleTarget}`,
+					);
+				}
+
 				await stripe.subscriptions.update(
 					params.providerSubscriptionId,
 					{
@@ -726,6 +835,9 @@ export class StripeProvider implements PaymentProvider {
 
 		try {
 			const schedule = await this.attachedSchedule(subscription);
+			const scheduleScopedIdempotencyKey = schedule
+				? `${idempotencyKey}:${schedule.id}`
+				: idempotencyKey;
 			const hasStaleOwnershipMarker =
 				subscription.metadata.wanditScheduleOwner === "period_end_downgrade";
 
@@ -748,7 +860,7 @@ export class StripeProvider implements PaymentProvider {
 				await this.stripe().subscriptionSchedules.release(
 					schedule.id,
 					{},
-					{ idempotencyKey },
+					{ idempotencyKey: scheduleScopedIdempotencyKey },
 				);
 				priorRemoteMutation = true;
 			}
@@ -762,7 +874,7 @@ export class StripeProvider implements PaymentProvider {
 						wanditScheduleTarget: "",
 					},
 				},
-				{ idempotencyKey: `${idempotencyKey}:clear-owner` },
+				{ idempotencyKey: `${scheduleScopedIdempotencyKey}:clear-owner` },
 			);
 
 			return true;

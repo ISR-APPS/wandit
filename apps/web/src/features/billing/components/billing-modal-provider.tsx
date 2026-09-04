@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "@tanstack/react-router";
 import type {
 	BillingInterval,
+	BillingPlanId,
 	CreditTier,
 	ProductEventSurface,
 } from "@wandit/contracts";
@@ -27,6 +29,7 @@ import {
 	type UpgradeModalIntent,
 } from "../lib/billing-error-dispatch";
 import type { PlanPickerPaymentMethod } from "../lib/billing-ui-policy";
+import { landingPlanSelection } from "../lib/landing-plan-selection";
 import { PlanPickerDialog } from "./plan-picker-dialog";
 
 type BillingModalContextValue = {
@@ -38,6 +41,7 @@ type BillingModalContextValue = {
 
 type PlanPickerSelection = {
 	interval: BillingInterval;
+	plan: BillingPlanId;
 	tierCredits: CreditTier;
 	paymentMethod?: PlanPickerPaymentMethod;
 };
@@ -48,6 +52,7 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	const { data: session } = useSession();
 	const sessionUserId = session?.user.id;
 	const { open: openAuth } = useAuthModal();
@@ -90,9 +95,26 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 		[actorCanManageBilling, isPersonal, queryClient],
 	);
 
+	useEffect(() => {
+		// In-place sign-in from the landing page performs a full navigation to
+		// /billing. Leave the one-shot value intact until that destination mounts.
+		if (!sessionUserId || pathname !== "/billing") return;
+
+		const pendingSelection = landingPlanSelection.consume();
+		if (!pendingSelection) return;
+
+		setIntent(null);
+		setSelection(pendingSelection);
+		setSurface("marketing_pricing");
+		setOpen(true);
+	}, [pathname, sessionUserId]);
+
 	const openPlanPicker = useCallback(
 		(nextSurface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
 			if (!sessionUserId) {
+				if (nextSurface === "marketing_pricing" && nextSelection) {
+					landingPlanSelection.stash(nextSelection);
+				}
 				openAuth({ next: "/billing" });
 				return;
 			}
@@ -120,6 +142,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 			{children}
 			<PlanPickerDialog
 				initialInterval={selection?.interval}
+				initialPlan={selection?.plan}
 				initialTierCredits={selection?.tierCredits}
 				initialPaymentMethod={selection?.paymentMethod}
 				open={open}

@@ -18,18 +18,15 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { useSession } from "@/features/auth/lib/session";
+import { useEffectiveAdminPermissions } from "@/features/auth/lib/permissions";
 import { getVisibleAdminNavigation } from "@/lib/navigation";
 
 export default function Search() {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const navigate = useNavigate();
-	const { data } = useSession();
-	const navigation = useMemo(
-		() => getVisibleAdminNavigation(data?.user.role),
-		[data?.user.role],
-	);
+	const { map } = useEffectiveAdminPermissions();
+	const navigation = useMemo(() => getVisibleAdminNavigation(map), [map]);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {

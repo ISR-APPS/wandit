@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { RefreshCwIcon } from "lucide-react";
+import { PrinterIcon, RefreshCwIcon } from "lucide-react";
 import type { PropsWithChildren } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -88,7 +88,38 @@ function ManualRequestDetailSheetContent({
 									Submitted {formatAdminDateTime(request.createdAt)}
 								</p>
 							</div>
-							<ManualRequestStatusBadge status={request.status} />
+							<div className="flex flex-wrap items-center gap-2">
+								<Button asChild variant="outline" size="sm">
+									{request.subscriptionId ? (
+										<Link
+											to="/offline-billing/$subscriptionId/receipt"
+											params={{ subscriptionId: request.subscriptionId }}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											<PrinterIcon
+												data-icon="inline-start"
+												aria-hidden="true"
+											/>
+											Print receipt
+										</Link>
+									) : (
+										<Link
+											to="/offline-billing/requests/$requestId/receipt"
+											params={{ requestId: request.id }}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											<PrinterIcon
+												data-icon="inline-start"
+												aria-hidden="true"
+											/>
+											Print receipt
+										</Link>
+									)}
+								</Button>
+								<ManualRequestStatusBadge status={request.status} />
+							</div>
 						</div>
 
 						<DetailSection title="Contact">

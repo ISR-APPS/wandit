@@ -135,7 +135,7 @@ describe("new analytics card states", () => {
 			createElement(ConversionByCreditsCard, {
 				points: [
 					{
-						bucket: "10-24",
+						bucket: "5-9",
 						owners: 8,
 						paidOwners: 4,
 						paidPct: 50,
@@ -147,7 +147,7 @@ describe("new analytics card states", () => {
 		expect(empty).toContain('data-state="empty"');
 		expect(empty).toContain("No credit-conversion cohort yet");
 		expect(data).toContain('data-state="data"');
-		expect(data).toContain("10–24 credits");
+		expect(data).toContain("5–9 credits");
 		expect(data).toContain("50%");
 	});
 

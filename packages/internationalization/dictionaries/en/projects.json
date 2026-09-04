@@ -63,7 +63,7 @@
 		"leads": "Leads",
 		"assets": "Assets",
 		"analytics": "Analytics",
-		"apps": "Apps",
+		"buildApp": "Build Your App",
 		"support": "Support"
 	},
 	"assetsPage": {
@@ -76,35 +76,6 @@
 		"noResultsTitle": "No matching assets",
 		"noResultsBody": "Nothing matches these filters.",
 		"clearFilters": "Clear filters"
-	},
-	"appsPage": {
-		"metaTitle": "Apps — Wandit",
-		"badge": "Coming soon",
-		"heading": "Connect your apps",
-		"body": "Soon you will be able to connect external apps to Wandit — launch ads, sync your leads and automate your work without leaving your dashboard.",
-		"previewNote": "A first look at what's coming",
-		"tiles": {
-			"metaAds": {
-				"name": "Meta Ads",
-				"hint": "Launch and track campaigns"
-			},
-			"tiktokAds": {
-				"name": "TikTok Ads",
-				"hint": "Launch and track campaigns"
-			},
-			"sheets": {
-				"name": "Google Sheets",
-				"hint": "Sync your leads automatically"
-			},
-			"whatsapp": {
-				"name": "WhatsApp",
-				"hint": "Confirm orders faster"
-			},
-			"codPilot": {
-				"name": "COD Pilot",
-				"hint": "Sync your COD orders in Algeria"
-			}
-		}
 	},
 	"connectors": {
 		"title": "Connect apps",

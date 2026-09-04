@@ -463,6 +463,44 @@ describe("createLlmModel on openrouter", () => {
 			openrouterGenerationId: "gen-dead",
 		});
 	});
+
+	it("tags an abort reason after the streamed generation id is known", async () => {
+		const inner = fakeOpenRouterModel([]);
+		inner.doStream = vi.fn(async () => ({
+			stream: new ReadableStream<FakeStreamPart>({
+				start(controller) {
+					controller.enqueue({
+						id: "gen-aborted",
+						type: "response-metadata",
+					});
+				},
+			}),
+		}));
+		openrouterMocks.chat.mockReturnValue(inner);
+
+		const abortController = new AbortController();
+		const abortReason = new Error("builder stalled");
+		const model = createLlmModel("openai/gpt-5.6-terra", {
+			context: CONTEXT,
+			task: "chat",
+		});
+		const { stream } = await (
+			model as unknown as {
+				doStream: (
+					options: unknown,
+				) => Promise<{ stream: ReadableStream<FakeStreamPart> }>;
+			}
+		).doStream({ abortSignal: abortController.signal, prompt: [] });
+		const reader = stream.getReader();
+		await reader.read();
+
+		abortController.abort(abortReason);
+
+		expect(abortReason).toMatchObject({
+			openrouterGenerationId: "gen-aborted",
+		});
+		await reader.cancel();
+	});
 });
 
 describe("capturedGenerationRef", () => {

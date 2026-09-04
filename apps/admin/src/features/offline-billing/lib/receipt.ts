@@ -2,6 +2,7 @@ import type {
 	AdminManualPayment,
 	AdminManualSubscriptionDetail,
 	BillingInterval,
+	BillingPlanId,
 	ManualPaymentMethod,
 } from "@wandit/contracts";
 
@@ -56,6 +57,14 @@ const FRENCH_COUNTRY_LABELS_BY_ENGLISH: Record<string, string> = {
 // through an async loader, while these receipt features are static and needed
 // synchronously during rendering.
 export const RECEIPT_PLAN_FEATURES = {
+	starter: [
+		"60 crédits chaque mois",
+		"Pages de boutique créées par l’IA en quelques minutes",
+		"Images produit et textes marketing par l’IA",
+		"Domaine personnalisé inclus",
+		"CRM de leads pour les commandes",
+		"Publication toujours gratuite",
+	],
 	pro: [
 		"De nouveaux crédits chaque mois",
 		"Outils marketing & campagnes IA",
@@ -72,7 +81,7 @@ export const RECEIPT_PLAN_FEATURES = {
 		"Rôles, invitations et limites par membre",
 		"Sièges illimités — payez les crédits, pas les personnes",
 	],
-} as const satisfies Record<"pro" | "business", readonly string[]>;
+} as const satisfies Record<BillingPlanId, readonly string[]>;
 
 export type ReceiptCurrencyTotal = {
 	currency: string;
@@ -92,9 +101,9 @@ type ReceiptCustomerDetail = {
 	user: Pick<AdminManualSubscriptionDetail["user"], "email" | "name">;
 };
 
-/** Build the customer-facing number from a validated subscription UUID. */
-export function createReceiptNumber(subscriptionId: string): string {
-	const compactId = subscriptionId.trim().replaceAll("-", "");
+/** Build the customer-facing number from a validated receipt source UUID. */
+export function createReceiptNumber(sourceId: string): string {
+	const compactId = sourceId.trim().replaceAll("-", "");
 
 	if (!/^[\da-f]{32}$/i.test(compactId)) {
 		return "REC-UNKNOWN";

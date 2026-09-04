@@ -1,6 +1,6 @@
 {
 	"meta": {
-		"title": "Wandit — AI landing pages that sell",
+		"title": "Wandit — AI Business Builder",
 		"description": "Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes."
 	},
 	"nav": {
@@ -140,7 +140,7 @@
 			},
 			"credits": {
 				"title": "Transparent credits",
-				"body": "You pay the measured AI cost of each action, at $0.04 per credit. No markup, no surprise bills."
+				"body": "Every AI action uses credits. Your balance shows what each run used. No surprise bills."
 			},
 			"mobile": {
 				"title": "Mobile-first pages",
@@ -161,16 +161,24 @@
 	"pricing": {
 		"meta": {
 			"title": "Pricing — Wandit",
-			"description": "Start free and go Pro when you need more credits. Simple monthly or yearly pricing."
+			"description": "Start free, go Starter for $9, or Pro when you need more credits. Monthly or yearly."
 		},
 		"kicker": "Pricing",
-		"title": "One plan. Pick your pace.",
+		"title": "Start small. Grow when you need more.",
 		"note": "Publishing is always free. AI actions, including lead collection, use credits.",
 		"free": {
 			"name": "Free",
 			"tagline": "For beta access and first projects",
 			"price": "Free",
-			"creditsLine": "Signup credits when available",
+			"creditsLine": {
+				"zero": "{count} free credits",
+				"one": "{count} free credit",
+				"two": "{count} free credits",
+				"few": "{count} free credits",
+				"many": "{count} free credits",
+				"other": "{count} free credits"
+			},
+			"creditsFallback": "Signup credits when available",
 			"features": [
 				"Publishing always free",
 				"Lead collection uses credits",
@@ -178,6 +186,21 @@
 				"Upgrade when you need more AI work"
 			],
 			"cta": "Start free"
+		},
+		"starter": {
+			"name": "Starter",
+			"tagline": "For your first store and first campaigns",
+			"creditsLine": "50 credits every month",
+			"perMonth": "/ month",
+			"perYear": "/ year",
+			"features": [
+				"AI store pages built in minutes",
+				"AI product images and marketing copy",
+				"Custom domain included",
+				"Leads CRM for your orders",
+				"Publishing always free, cancel anytime"
+			],
+			"cta": "Choose Starter"
 		},
 		"pro": {
 			"name": "Pro",
@@ -226,7 +249,7 @@
 		"items": [
 			{
 				"q": "What are credits?",
-				"a": "Credits are Wandit's single currency: 1 credit = $0.04 of AI provider cost. There are no flat prices. Every page build, image, video, marketing asset or chat edit is measured, and you pay exactly what the AI provider charged for it — a short chat edit costs a fraction of a credit, a long page build costs more. Your balance shows what each run used."
+				"a": "Credits are Wandit's single currency. Every page build, image, video or chat edit uses credits. A short chat edit uses a fraction of a credit. A long page build uses more. Your balance shows what each run used."
 			},
 			{
 				"q": "Is publishing free?",

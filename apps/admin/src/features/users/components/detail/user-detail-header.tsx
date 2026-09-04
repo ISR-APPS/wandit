@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { isStaffRole } from "@wandit/contracts";
+import { adminViewValues, isStaffRole } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
 	BadgeCheckIcon,
 	BanIcon,
 	CopyIcon,
 	HandCoinsIcon,
+	PanelsTopLeftIcon,
 	ShieldCheckIcon,
 	WalletCardsIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import {
 	countryDisplayName,
 } from "@/features/users/components/country-flag";
 import { PhoneCell } from "@/features/users/components/table/user-table-cells";
+import { getInitialAdminViews } from "@/features/users/lib/admin-view-options";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
 import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
@@ -32,6 +34,7 @@ type UserDetailHeaderProps = {
 	onGrantCredits: () => void;
 	onGrantOffline?: () => void;
 	onChangeRole: () => void;
+	onEditAdminViews: () => void;
 	onToggleBanned: () => void;
 };
 
@@ -41,6 +44,7 @@ export function UserDetailHeader({
 	onGrantCredits,
 	onGrantOffline,
 	onChangeRole,
+	onEditAdminViews,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
 	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
@@ -51,6 +55,7 @@ export function UserDetailHeader({
 	// staff account has to be demoted before it can be banned.
 	const canToggleBanned =
 		canBan && canManageAccess && (user.banned || !isStaffRole(user.role));
+	const grantedAdminViews = getInitialAdminViews(user.role, user.adminViews);
 
 	async function copyUserId() {
 		try {
@@ -102,6 +107,11 @@ export function UserDetailHeader({
 							<Badge variant={user.role === "admin" ? "default" : "outline"}>
 								{getRoleLabel(user.role)}
 							</Badge>
+							{user.role === "support" ? (
+								<span className="text-muted-foreground text-xs">
+									{grantedAdminViews.length} of {adminViewValues.length} views
+								</span>
+							) : null}
 							<Badge variant="secondary">{titleCase(user.plan)}</Badge>
 							{user.emailVerified ? (
 								<Badge variant="outline">
@@ -152,6 +162,12 @@ export function UserDetailHeader({
 						<Button type="button" variant="outline" onClick={onChangeRole}>
 							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
 							Change role
+						</Button>
+					) : null}
+					{canSetRole && canManageAccess && user.role === "support" ? (
+						<Button type="button" variant="outline" onClick={onEditAdminViews}>
+							<PanelsTopLeftIcon data-icon="inline-start" aria-hidden="true" />
+							Admin views
 						</Button>
 					) : null}
 					{canGrantCredits ? (

@@ -54,9 +54,11 @@ export function mapAdminUserDetail(
 	creditLedger: AdminCreditLedgerRow[],
 	memberships: AdminUserMembershipRow[],
 	aiSpend: AdminAiSpendRow,
+	adminViews: AdminUserDetail["adminViews"],
 ): AdminUserDetail {
 	return {
 		...mapAdminUserSummary(row),
+		adminViews,
 		updatedAt: toIso(row.updatedAt),
 		banReason: row.banReason,
 		subscription: subscription ? mapAdminUserSubscription(subscription) : null,

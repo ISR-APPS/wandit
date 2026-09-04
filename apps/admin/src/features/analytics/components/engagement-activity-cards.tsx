@@ -184,7 +184,7 @@ function HealthyTrialsByDayCard({ points }: EngagementDailyCardProps) {
 							Healthy trials by day
 							<MetricInfoTooltip
 								label="Healthy trials by day"
-								content="Free users who used at least 20 credits and completed at least two generations in their first seven days. Each user is assigned to signup day plus seven."
+								content="Free users who used at least 8 credits and completed at least two generations in their first seven days. Each user is assigned to signup day plus seven."
 							/>
 						</h2>
 					</CardTitle>

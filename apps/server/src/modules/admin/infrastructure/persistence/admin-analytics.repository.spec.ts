@@ -1200,7 +1200,12 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(churn.sql).toContain(
 			"coalesce(nullif(upper(btrim(ua.country)), ''), 'unknown') as country",
 		);
+		expect(churn.sql).toContain("then 'starter'");
 		expect(churn.sql).toContain("else 'unknown' end as plan");
+		expect(churn.params).toContain("starter_60_month");
+		expect(churn.params).toContain("pro_250_month");
+		expect(churn.params).toContain("business_12500_year");
+		expect(churn.params).not.toContain("starter_250_month");
 		expect(churn.sql).toContain("churned_projects as");
 		expect(churn.sql).toContain(
 			"c.owner_id = coalesce(p.organization_id, p.user_id)",
@@ -1388,7 +1393,7 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		);
 	});
 
-	it("splits collected cash and metered AI cost per plan, ranking both-plan owners as business", async () => {
+	it("splits collected cash and metered AI cost per plan using the paid-plan precedence", async () => {
 		const { queries } = await collectQueries("revenue");
 		const margin = queryContaining(queries, "plan_revenue as");
 
@@ -1418,10 +1423,10 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		).toEqual([...AI_SPEND_STATUSES]);
 		expect(margin.sql).toContain("s.created_at < b.snapshot_end");
 		expect(margin.sql).toContain(
-			"max(case when s.plan = 'business' then 2 else 1 end) as plan_rank",
+			"max(case when s.plan = 'business' then 3 when s.plan = 'pro' then 2 when s.plan = 'starter' then 1 else 0 end) as plan_rank",
 		);
 		expect(margin.sql).toContain(
-			"when o.plan_rank = 2 then 'business' when o.plan_rank = 1 then 'pro' else 'free' end",
+			"when o.plan_rank = 3 then 'business' when o.plan_rank = 2 then 'pro' when o.plan_rank = 1 then 'starter' else 'free' end",
 		);
 		expect(margin.sql).toContain(
 			"round(sum(c.cost_micros)::numeric / 10000)::bigint as ai_cost_cents",

@@ -26,7 +26,6 @@ export type NavRoutePath =
 	| "/dashboard"
 	| "/leads"
 	| "/assets"
-	| "/apps"
 	| "/academy"
 	| "/affiliates";
 
@@ -67,12 +66,9 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: Images,
 			},
 			{ type: "soon", titleKey: "projects.nav.analytics", icon: ChartSpline },
-			{
-				type: "route",
-				titleKey: "projects.nav.apps",
-				to: "/apps",
-				icon: Blocks,
-			},
+			// "Build Your App" has no page yet: it is a disabled placeholder
+			// with the "Soon" badge, like Analytics.
+			{ type: "soon", titleKey: "projects.nav.buildApp", icon: Blocks },
 		],
 	},
 	{

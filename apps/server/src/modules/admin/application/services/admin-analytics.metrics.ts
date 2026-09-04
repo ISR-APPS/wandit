@@ -28,7 +28,7 @@ import {
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	priceLookupKey,
-	priceUsdFor,
+	tryPriceUsdFor,
 } from "@wandit/contracts";
 
 import type {
@@ -47,10 +47,9 @@ export const LIVE_SUBSCRIPTION_STATUSES = [
 	"past_due",
 ] as const;
 
-// Customer-facing threshold in WHOLE credits (copy strings say "20+
-// credits"). Ledger sums are integer centi-credits, so SQL comparisons must
-// interpolate the centi variant below.
-export const HEALTHY_TRIAL_MIN_CREDITS = 20;
+// Healthy-trial threshold in WHOLE credits. Ledger sums are integer
+// centi-credits, so SQL comparisons interpolate the centi variant below.
+export const HEALTHY_TRIAL_MIN_CREDITS = 8;
 export const HEALTHY_TRIAL_MIN_CENTI_CREDITS = creditsToCentiCredits(
 	HEALTHY_TRIAL_MIN_CREDITS,
 );
@@ -80,11 +79,13 @@ export function buildMrrPriceMap(): ReadonlyMap<string, MrrPrice> {
 	for (const plan of billingPlanIds) {
 		for (const tierCredits of CREDIT_TIERS) {
 			for (const interval of billingIntervals) {
+				const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
+				if (priceUsd === null) continue;
+
 				const intervalMonths = interval === "year" ? 12 : 1;
 				prices.set(priceLookupKey(plan, tierCredits, interval), {
 					interval,
-					mrrMinorExact:
-						(priceUsdFor(plan, tierCredits, interval) * 100) / intervalMonths,
+					mrrMinorExact: (priceUsd * 100) / intervalMonths,
 					plan,
 				});
 			}
@@ -144,11 +145,10 @@ export function consumptionBucket(
 	const normalizedCredits = normalizeBucketValue(creditsConsumed);
 
 	if (normalizedCredits === 0) return "0";
-	if (normalizedCredits <= 9) return "1-9";
-	if (normalizedCredits <= 24) return "10-24";
-	if (normalizedCredits <= 39) return "25-39";
-	if (normalizedCredits <= 49) return "40-49";
-	return "50+";
+	if (normalizedCredits <= 4) return "1-4";
+	if (normalizedCredits <= 9) return "5-9";
+	if (normalizedCredits <= 19) return "10-19";
+	return "20+";
 }
 
 export function assembleAcquisitionResponse(
@@ -881,7 +881,7 @@ function assembleArpuByPlan(
 // Measured margin only: the plan's collected subscription cash minus the
 // metered AI-provider cost of that plan's owners. Shared infrastructure and
 // ad spend stay out — they belong to the blended unitEconomics margin. The
-// contract fixes the row order (pro, business, free), so every plan the
+// contract fixes the row order (starter, pro, business, free), so every plan the
 // repository never saw still emits a zero row, and "free" — which can never
 // collect cash — reports its AI cost as a negative margin with no percent.
 function assembleMarginAfterAi(

@@ -137,6 +137,15 @@ describe("ManualBillingController", () => {
 		expect(() =>
 			pipe.transform({ ...body, phone: "bad" }, { type: "body" }),
 		).toThrow(BadRequestException);
+		expect(() =>
+			pipe.transform({ ...body, tierCredits: 350 }, { type: "body" }),
+		).toThrow(BadRequestException);
+		expect(
+			pipe.transform(
+				{ ...body, plan: "starter", tierCredits: 60 },
+				{ type: "body" },
+			),
+		).toMatchObject({ plan: "starter", tierCredits: 60 });
 	});
 
 	it("delegates reads and writes with the active workspace", async () => {

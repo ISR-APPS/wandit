@@ -7,6 +7,7 @@ import type { EnqueueLifecycleEvent } from "../../domain/lifecycle-event";
 import {
 	type LifecycleEventRow,
 	LifecycleEventsRepository,
+	type LifecycleEventsTransaction,
 } from "./lifecycle-events.repository";
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
@@ -59,6 +60,45 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+describe("LifecycleEventsRepository.resolveSignupGrantCentiCredits", () => {
+	it("prefers the user's snapshotted grant and falls back to current settings in SQL", async () => {
+		const execute = vi.fn(async (_query: unknown) => ({
+			rows: [{ credits: "5000" }],
+		}));
+		const repository = new LifecycleEventsRepository({
+			execute,
+		} as unknown as Database);
+
+		await expect(
+			repository.resolveSignupGrantCentiCredits("legacy-user"),
+		).resolves.toBe(5000);
+
+		const query = render(execute.mock.calls[0]?.[0]);
+		expect(query.statement).toContain("from signup_grant_outbox signup_grant");
+		expect(query.statement).toContain("from product_settings settings");
+		expect(query.params).toEqual(["legacy-user", 2000]);
+	});
+
+	it("uses the caller's settlement transaction for the grant lookup", async () => {
+		const rootExecute = vi.fn();
+		const transactionExecute = vi.fn(async (_query: unknown) => ({
+			rows: [{ credits: 700 }],
+		}));
+		const repository = new LifecycleEventsRepository({
+			execute: rootExecute,
+		} as unknown as Database);
+		const transaction = {
+			execute: transactionExecute,
+		} as unknown as LifecycleEventsTransaction;
+
+		await expect(
+			repository.resolveSignupGrantCentiCredits("new-user", transaction),
+		).resolves.toBe(700);
+		expect(transactionExecute).toHaveBeenCalledOnce();
+		expect(rootExecute).not.toHaveBeenCalled();
+	});
+});
+
 describe("LifecycleEventsRepository.enqueue", () => {
 	it("uses the canonical once-per-user key and ignores a replay", async () => {
 		vi.useFakeTimers();
@@ -90,7 +130,7 @@ describe("LifecycleEventsRepository.enqueue", () => {
 		);
 	});
 
-	it("applies the 15-minute credit-40 hold by default", async () => {
+	it("applies the 15-minute second credit-event hold by default", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(NOW);
 		const client = insertClient([[row("credits_40_used")]]);
@@ -244,7 +284,7 @@ describe("LifecycleEventsRepository due and dispatch context queries", () => {
 					captured_events: ["website_generated"],
 					email: "user@example.com",
 					entitled_current_period_end: "2026-09-24T12:00:00.000Z",
-					entitled_plan: "pro",
+					entitled_plan: "starter",
 					entitled_provider: "manual",
 					entitled_status: "active",
 					has_first_prompt_event: true,
@@ -265,7 +305,7 @@ describe("LifecycleEventsRepository due and dispatch context queries", () => {
 			capturedEvents: ["website_generated"],
 			entitledSubscription: {
 				currentPeriodEnd: new Date("2026-09-24T12:00:00.000Z"),
-				plan: "pro",
+				plan: "starter",
 				provider: "manual",
 				status: "active",
 			},

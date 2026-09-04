@@ -85,6 +85,7 @@ const mutableEnv = env as {
 
 function setup(
 	options: {
+		builderReasoning?: "auto" | "minimal" | "low" | "medium" | "high" | "xhigh";
 		parentEventId?: string;
 		conversationAssets?: ConversationGeneratedAsset[];
 		conversationUserLinks?: string[];
@@ -98,6 +99,9 @@ function setup(
 		nextVersionNumber: vi.fn(),
 	};
 	const generatePageTool = createGeneratePageTool({
+		...(options.builderReasoning
+			? { builderReasoning: options.builderReasoning }
+			: {}),
 		chatId: "chat_1",
 		...(options.conversationAssets
 			? { conversationAssets: options.conversationAssets }
@@ -528,6 +532,40 @@ describe("generate_page tool", () => {
 		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
 		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
 		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
+	});
+
+	it("defaults COD builds to the COD builder model, not the landing one", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, pageKind: "cod", productSku: COD_SKU });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ model: "openai/gpt-5.6-luna" }),
+		);
+	});
+
+	it("snapshots a real composer reasoning pick and skips 'auto'", async () => {
+		const { execute, pagesRepository } = setup({ builderReasoning: "xhigh" });
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, pageKind: "cod", productSku: COD_SKU });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({ reasoningEffort: "xhigh" }),
+			}),
+		);
+
+		const { execute: executeAuto, pagesRepository: autoRepository } = setup({
+			builderReasoning: "auto",
+		});
+		prepareSuccessfulQueue(autoRepository);
+
+		await executeAuto({ ...INPUT, pageKind: "cod", productSku: COD_SKU });
+
+		const [attempt] = autoRepository.insertAttempt.mock.calls.at(-1) ?? [];
+		expect(attempt.spec).not.toHaveProperty("reasoningEffort");
 	});
 
 	it("warns and drops unknown ids while preserving resolved fusion order", async () => {

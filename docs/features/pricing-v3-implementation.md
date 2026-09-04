@@ -1,9 +1,14 @@
 # Pricing v3 implementation — 250-credit base unit at $25
 
+> **SUPERSEDED.** This file is a historical pricing-v3 record. Pricing v5 replaced its
+> AI-provider-cost unit, and `pricing-v6-starter-plan.md` replaced its plan catalog, top-ups,
+> and signup grant. None of the dollar-per-credit, tier, grant, or rollout values below is
+> current.
+
 Decision date: 2026-08-09. Source: co-founder pricing decision ("$25, we give
 them $7 of AI usage"). Supersedes `pricing-v2-implementation.md` (which never
-reached production subscribers). This file is the authoritative record of the
-numbers, what changed, and the rollout steps.
+reached production subscribers). This file is the authoritative historical record of the
+v3 numbers, what changed at that time, and the v3 rollout steps.
 
 ## 1. The money model
 

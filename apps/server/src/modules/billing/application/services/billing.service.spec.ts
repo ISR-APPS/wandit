@@ -1,10 +1,11 @@
-import { ConflictException, Logger } from "@nestjs/common";
+import { BadRequestException, ConflictException, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
+import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
@@ -58,6 +59,13 @@ const user = {
 	email: "user@example.com",
 	id: "user_1",
 } as AuthUser;
+
+const orgWorkspace = {
+	kind: "org",
+	organizationId: "org_1",
+	role: "owner",
+	roles: ["owner"],
+} satisfies WorkspaceContext;
 
 function billingCustomer(): BillingCustomerRow {
 	return {
@@ -203,7 +211,32 @@ class FakeSubscriptionsRepository {
 			return this.row;
 		},
 	);
-	readonly updateCancelAtPeriodEnd = vi.fn();
+	readonly updateCancelAtPeriodEnd = vi.fn(
+		async (_providerSubscriptionId: string, cancelAtPeriodEnd: boolean) => {
+			if (!this.row) {
+				return null;
+			}
+
+			this.row = { ...this.row, cancelAtPeriodEnd };
+
+			return this.row;
+		},
+	);
+	readonly updateTierAndPrice = vi.fn(
+		async (
+			_providerSubscriptionId: string,
+			tierCredits: SubscriptionRow["tierCredits"],
+			priceLookupKey: string,
+		) => {
+			if (!this.row) {
+				return null;
+			}
+
+			this.row = { ...this.row, priceLookupKey, tierCredits };
+
+			return this.row;
+		},
+	);
 
 	constructor(row: SubscriptionRow | null) {
 		this.row = row;
@@ -268,8 +301,15 @@ class FakePaymentProvider {
 		currency: "USD",
 	}));
 	readonly retrieveCheckoutSession = vi.fn(async () => ({ status: "open" }));
-	readonly scheduleSubscriptionDowngrade = vi.fn(async () => "sub_sched_1");
+	readonly scheduleSubscriptionDowngrade = vi.fn(
+		async (
+			_params: Parameters<PaymentProvider["scheduleSubscriptionDowngrade"]>[0],
+		) => "sub_sched_1",
+	);
 	readonly setCancelAtPeriodEnd = vi.fn();
+	readonly switchSubscriptionPriceWithoutProration = vi.fn(
+		async () => undefined,
+	);
 
 	constructor(calls: string[]) {
 		this.calls = calls;
@@ -279,6 +319,9 @@ class FakePaymentProvider {
 class FakeBillingCustomerService {
 	customer = billingCustomer();
 	readonly ensureCustomer = vi.fn(async () => this.customer);
+	readonly ensureOrgCustomer = vi.fn(async () => ({
+		providerCustomerId: "cus_org_1",
+	}));
 }
 
 class FakeSubscriptionSyncService {
@@ -622,6 +665,33 @@ afterEach(() => {
 });
 
 describe("BillingService entitlement and sync", () => {
+	it("publishes only the purchasable tiers for each plan", () => {
+		const { service } = setup();
+		const catalog = service.plans();
+
+		expect(
+			catalog.plans.map((plan) => ({
+				id: plan.id,
+				tiers: plan.tiers.map((tier) => tier.tierCredits),
+			})),
+		).toEqual([
+			{ id: "starter", tiers: [60] },
+			{
+				id: "pro",
+				tiers: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
+			},
+			{
+				id: "business",
+				tiers: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
+			},
+		]);
+		expect(catalog.topupPacks.map((pack) => pack.id)).toEqual([
+			"topup_250",
+			"topup_1000",
+			"topup_2500",
+		]);
+	});
+
 	it.each([
 		"active",
 		"trialing",
@@ -867,6 +937,127 @@ describe("BillingService cancellation-reason lifecycle", () => {
 		expect(cancellationReasons.row?.status).toBe("resumed");
 	});
 
+	it("schedules the v6 renewal target when a yearly legacy subscription resumes", async () => {
+		const { changeIntents, paymentProvider, service, subscriptions } = setup(
+			subscriptionRow({
+				cancelAtPeriodEnd: true,
+				interval: "year",
+				priceLookupKey: "pro_175_year",
+				tierCredits: 175,
+			}),
+		);
+		paymentProvider.scheduleSubscriptionDowngrade.mockResolvedValueOnce(
+			"sub_sched_v6_resume",
+		);
+
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"sub_1",
+			false,
+		);
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
+			allowSameIntentRecovery: true,
+			currentPriceLookupKey: "pro_175_year",
+			expectedScheduleTarget: null,
+			idempotencyKey: "billing-migrate-v6:year:sub_1:pro_250_year",
+			newPriceLookupKey: "pro_250_year",
+			providerSubscriptionId: "sub_1",
+		});
+		expect(subscriptions.setPendingTierCredits).toHaveBeenCalledWith(
+			"sub_1",
+			250,
+			changeIntents.transaction,
+		);
+		expect(subscriptions.markPendingTierApplied).toHaveBeenCalledWith(
+			"sub_1",
+			"sub_sched_v6_resume",
+			changeIntents.transaction,
+		);
+		expect(subscriptions.row).toMatchObject({
+			cancelAtPeriodEnd: false,
+			pendingAppliedBy: "sub_sched_v6_resume",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+	});
+
+	it("replays yearly legacy resume scheduling after local persistence fails", async () => {
+		const { paymentProvider, service, subscriptions } = setup(
+			subscriptionRow({
+				cancelAtPeriodEnd: true,
+				interval: "year",
+				priceLookupKey: "pro_175_year",
+				tierCredits: 175,
+			}),
+		);
+		subscriptions.setPendingTierCredits.mockRejectedValueOnce(
+			new Error("pending tier persistence unavailable"),
+		);
+
+		await expect(service.resume(user)).rejects.toThrow(
+			"pending tier persistence unavailable",
+		);
+		expect(subscriptions.row).toMatchObject({
+			cancelAtPeriodEnd: true,
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
+		});
+
+		await expect(service.resume(user)).resolves.toMatchObject({
+			subscription: {
+				cancelAtPeriodEnd: false,
+				pendingTierCredits: 250,
+			},
+		});
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledTimes(
+			2,
+		);
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade.mock.calls.map(
+				([params]) => params.idempotencyKey,
+			),
+		).toEqual([
+			"billing-migrate-v6:year:sub_1:pro_250_year",
+			"billing-migrate-v6:year:sub_1:pro_250_year",
+		]);
+	});
+
+	it("switches a monthly legacy subscription to its v6 tier when it resumes", async () => {
+		const { paymentProvider, service, subscriptions } = setup(
+			subscriptionRow({
+				cancelAtPeriodEnd: true,
+				priceLookupKey: "pro_175_month",
+				tierCredits: 175,
+			}),
+		);
+
+		await service.resume(user);
+
+		expect(
+			paymentProvider.switchSubscriptionPriceWithoutProration,
+		).toHaveBeenCalledWith({
+			currentPriceLookupKey: "pro_175_month",
+			idempotencyKey: "billing-migrate-v6:month:sub_1:pro_250_month",
+			newPriceLookupKey: "pro_250_month",
+			providerSubscriptionId: "sub_1",
+		});
+		expect(subscriptions.updateTierAndPrice).toHaveBeenCalledWith(
+			"sub_1",
+			250,
+			"pro_250_month",
+		);
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+		expect(subscriptions.row).toMatchObject({
+			cancelAtPeriodEnd: false,
+			priceLookupKey: "pro_250_month",
+			tierCredits: 250,
+		});
+	});
+
 	it("resumes a manual subscription even while Stripe subscriptions are paused", async () => {
 		const { paymentProvider, service, subscriptions } = setup(
 			subscriptionRow({
@@ -969,6 +1160,90 @@ describe("BillingService manual subscription provider boundaries", () => {
 });
 
 describe("BillingService checkout attempts", () => {
+	it("allows Starter on personal workspaces and rejects Business there", async () => {
+		const starter = setup(null);
+
+		await expect(
+			starter.service.checkout(user, {
+				interval: "month",
+				plan: "starter",
+				tierCredits: 60,
+			}),
+		).resolves.toEqual({
+			url: "https://checkout.stripe.test/cs_subscription",
+		});
+
+		const business = setup(null);
+		await expect(
+			business.service.checkout(user, {
+				interval: "month",
+				plan: "business",
+				tierCredits: 250,
+			}),
+		).rejects.toBeInstanceOf(WorkspaceNotSupportedError);
+		expect(
+			business.paymentProvider.createSubscriptionCheckout,
+		).not.toHaveBeenCalled();
+	});
+
+	it("allows Business on org workspaces and rejects Starter there", async () => {
+		const business = setup(null);
+		(
+			business.service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({ organizationsEnabled: true }),
+		};
+
+		await expect(
+			business.service.checkout(
+				user,
+				{ interval: "month", plan: "business", tierCredits: 250 },
+				orgWorkspace,
+			),
+		).resolves.toEqual({
+			url: "https://checkout.stripe.test/cs_subscription",
+		});
+		expect(
+			business.billingCustomerService.ensureOrgCustomer,
+		).toHaveBeenCalled();
+
+		const starter = setup(null);
+		(
+			starter.service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({ organizationsEnabled: true }),
+		};
+		await expect(
+			starter.service.checkout(
+				user,
+				{ interval: "month", plan: "starter", tierCredits: 50 },
+				orgWorkspace,
+			),
+		).rejects.toBeInstanceOf(WorkspaceNotSupportedError);
+		expect(
+			starter.billingCustomerService.ensureOrgCustomer,
+		).not.toHaveBeenCalled();
+	});
+
+	it("rejects legacy and cross-plan tiers before creating checkout state", async () => {
+		for (const request of [
+			{ interval: "month", plan: "pro", tierCredits: 175 },
+			{ interval: "month", plan: "starter", tierCredits: 250 },
+		] as const) {
+			const { checkoutAttempts, paymentProvider, service } = setup(null);
+
+			await expect(service.checkout(user, request)).rejects.toBeInstanceOf(
+				BadRequestException,
+			);
+			expect(checkoutAttempts.create).not.toHaveBeenCalled();
+			expect(paymentProvider.createSubscriptionCheckout).not.toHaveBeenCalled();
+		}
+	});
+
 	it("persists a purpose-valid subscription attempt before the provider call and attaches the same nonce", async () => {
 		const { calls, checkoutAttempts, paymentProvider, service } = setup(null);
 
@@ -1194,6 +1469,71 @@ describe("BillingService checkout attempts", () => {
 		expect(paymentProvider.createSubscriptionCheckout).toHaveBeenCalledTimes(2);
 	});
 
+	it("recovers and expires a stale pre-v6 legacy-tier attempt without locking checkout", async () => {
+		const { checkoutAttempts, paymentProvider, service } = setup(null);
+		const legacyAttempt = checkoutAttempt({
+			createdAt: new Date(NOW.getTime() - 31 * 60 * 1000),
+			priceLookupKey: "pro_175_month",
+			providerSessionId: null,
+			status: "created",
+		});
+		checkoutAttempts.rows.push(legacyAttempt);
+		paymentProvider.createSubscriptionCheckout.mockResolvedValueOnce({
+			id: "cs_legacy_orphaned",
+			url: "https://checkout.stripe.test/cs_legacy_orphaned",
+		});
+
+		await expect(
+			service.checkout(user, {
+				interval: "month",
+				plan: "pro",
+				tierCredits: 250,
+			}),
+		).resolves.toEqual({
+			url: "https://checkout.stripe.test/cs_subscription",
+		});
+
+		expect(paymentProvider.createSubscriptionCheckout).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				attemptId: legacyAttempt.id,
+				plan: "pro",
+				tierCredits: 175,
+			}),
+		);
+		expect(paymentProvider.expireCheckoutSession).toHaveBeenCalledWith(
+			"cs_legacy_orphaned",
+		);
+		expect(checkoutAttempts.rows[0]?.status).toBe("expired");
+		expect(paymentProvider.createSubscriptionCheckout).toHaveBeenCalledTimes(2);
+	});
+
+	it("can recover a persisted legacy top-up attempt without republishing its pack", async () => {
+		const { checkoutAttempts, paymentProvider, service } = setup(null);
+		const legacyAttempt = checkoutAttempt({
+			createdAt: new Date(NOW.getTime() - 31 * 60 * 1000),
+			packId: "topup_175",
+			priceLookupKey: null,
+			purpose: "topup",
+		});
+		checkoutAttempts.rows.push(legacyAttempt);
+
+		await service.topup(user, { packId: "topup_250" });
+
+		expect(paymentProvider.createTopupCheckout).toHaveBeenNthCalledWith(1, {
+			attemptId: legacyAttempt.id,
+			credits: 175,
+			customerId: "cus_1",
+			organizationId: null,
+			packId: "topup_175",
+			userId: user.id,
+		});
+		expect(paymentProvider.createTopupCheckout).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ packId: "topup_250" }),
+		);
+	});
+
 	it("keeps a stale attempt fulfillable when completion wins the expiration race", async () => {
 		const { checkoutAttempts, paymentProvider, service } = setup(null);
 		checkoutAttempts.rows.push(
@@ -1218,6 +1558,126 @@ describe("BillingService checkout attempts", () => {
 });
 
 describe("BillingService subscription change intents", () => {
+	it("rejects a legacy tier as a new change target", async () => {
+		const { changeIntents, paymentProvider, service } = setup();
+
+		await expect(
+			service.previewChange(user, {
+				interval: "month",
+				tierCredits: 175,
+			}),
+		).rejects.toBeInstanceOf(BillingChangeIntentInvalidError);
+		expect(changeIntents.create).not.toHaveBeenCalled();
+		expect(paymentProvider.previewSubscriptionChange).not.toHaveBeenCalled();
+	});
+
+	it("rejects a persisted change intent targeting a legacy tier", async () => {
+		const { changeIntents, paymentProvider, service } = setup();
+		changeIntents.intent = changeIntent({
+			targetPriceLookupKey: "pro_175_month",
+		});
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).rejects.toBeInstanceOf(BillingChangeIntentInvalidError);
+		expect(changeIntents.beginProviderAttempt).not.toHaveBeenCalled();
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
+	});
+
+	it("treats a same-price legacy-to-active move as an immediate change", async () => {
+		const legacy = subscriptionRow({
+			priceLookupKey: "pro_175_month",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(legacy);
+
+		const preview = await service.previewChange(user, {
+			interval: "month",
+			tierCredits: 250,
+		});
+
+		expect(paymentProvider.previewSubscriptionChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				billingCycleAnchorNow: true,
+				newPriceLookupKey: "pro_250_month",
+			}),
+		);
+		expect(preview.creditsDelta).toBe(250);
+
+		await service.change(user, { intentId: preview.intentId });
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledWith(
+			expect.objectContaining({ newPriceLookupKey: "pro_250_month" }),
+		);
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+		expect(subscriptions.row?.pendingTierCredits).toBeNull();
+		expect(changeIntents.intent?.targetPriceLookupKey).toBe("pro_250_month");
+	});
+
+	it.each([
+		{ currentTier: 5250, targetTier: 10000 },
+		{ currentTier: 7000, targetTier: 12500 },
+	])("classifies legacy $currentTier to active $targetTier by its higher catalog price", async ({
+		currentTier,
+		targetTier,
+	}) => {
+		const legacy = subscriptionRow({
+			priceLookupKey: `pro_${currentTier}_month`,
+			tierCredits: currentTier as 5250 | 7000,
+		});
+		const { paymentProvider, service } = setup(legacy);
+
+		const preview = await service.previewChange(user, {
+			interval: "month",
+			tierCredits: targetTier as 10000 | 12500,
+		});
+
+		expect(paymentProvider.previewSubscriptionChange).toHaveBeenCalledWith(
+			expect.objectContaining({ billingCycleAnchorNow: true }),
+		);
+		await service.change(user, { intentId: preview.intentId });
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledOnce();
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+	});
+
+	it("rejects attempts to cancel a scheduled v6 move from a legacy current tier", async () => {
+		const legacy = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const preview = setup(legacy);
+
+		await expect(
+			preview.service.previewChange(user, {
+				interval: "year",
+				tierCredits: 175,
+			}),
+		).rejects.toBeInstanceOf(BillingChangeIntentInvalidError);
+		expect(
+			preview.paymentProvider.previewSubscriptionChange,
+		).not.toHaveBeenCalled();
+
+		const execute = setup(legacy);
+		execute.changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_175_year",
+		});
+		await expect(
+			execute.service.change(user, { intentId: INTENT_ID }),
+		).rejects.toBeInstanceOf(BillingChangeIntentInvalidError);
+		expect(
+			execute.paymentProvider.cancelScheduledSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+		expect(execute.changeIntents.beginProviderAttempt).not.toHaveBeenCalled();
+	});
+
 	it("creates a fixed-proration preview intent and returns its persisted facts", async () => {
 		const { changeIntents, credits, paymentProvider, service } = setup();
 		// 100 credits of plan balance stay below the 500-credit target cap, so
@@ -1260,7 +1720,8 @@ describe("BillingService subscription change intents", () => {
 
 	it("quotes the capped-refill delta when the plan balance exceeds the new allotment", async () => {
 		const { credits, service } = setup();
-		// 620 credits on hand: 120 above the 500 cap expire, 500 are granted.
+		// 620 credits on hand on the 250 tier, moving to 500: the capped-refill
+		// rule quotes 380.
 		credits.balance = { balance: 62_000, plan: 62_000, promo: 0, topup: 0 };
 
 		const result = await service.previewChange(user, {
@@ -1551,6 +2012,9 @@ describe("BillingService subscription change intents", () => {
 			changeIntents.transaction,
 		);
 		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
+			allowSameIntentRecovery: true,
+			currentPriceLookupKey: "pro_500_month",
+			expectedScheduleTarget: null,
 			idempotencyKey: `sub-change:${user.id}:${INTENT_ID}`,
 			newPriceLookupKey: "pro_250_month",
 			providerSubscriptionId: "sub_1",
@@ -1570,7 +2034,7 @@ describe("BillingService subscription change intents", () => {
 	it("clears a scheduled downgrade before applying an upgrade", async () => {
 		const current = subscriptionRow({
 			pendingAppliedBy: "sub_sched_1",
-			pendingTierCredits: 200,
+			pendingTierCredits: 250,
 			priceLookupKey: "pro_500_month",
 			tierCredits: 500,
 		});
@@ -1604,13 +2068,268 @@ describe("BillingService subscription change intents", () => {
 		expect(subscriptions.row?.pendingTierCredits).toBeNull();
 	});
 
+	it("does not restore a released v6 schedule after a successful legacy-tier upgrade", async () => {
+		const current = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(current);
+		changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_500_year",
+		});
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).resolves.toMatchObject({
+			outcome: "applied",
+			subscription: { pendingTierCredits: null, tierCredits: 175 },
+		});
+		expect(
+			paymentProvider.cancelScheduledSubscriptionDowngrade,
+		).toHaveBeenCalledOnce();
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledOnce();
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).not.toHaveBeenCalled();
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
+		});
+	});
+
+	it("restores a released v6 schedule after a legacy-tier upgrade fails", async () => {
+		const errorLog = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const current = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(current);
+		changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_500_year",
+		});
+		paymentProvider.changeSubscription.mockRejectedValueOnce(
+			new Error("Stripe rejected the legacy-tier upgrade"),
+		);
+		paymentProvider.scheduleSubscriptionDowngrade.mockResolvedValueOnce(
+			"sub_sched_v6_restored",
+		);
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).resolves.toMatchObject({
+			outcome: "failed",
+			subscription: { pendingTierCredits: 250, tierCredits: 175 },
+		});
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
+			allowSameIntentRecovery: true,
+			currentPriceLookupKey: "pro_175_year",
+			expectedScheduleTarget: null,
+			idempotencyKey: `sub-change:${user.id}:${INTENT_ID}:restore-schedule`,
+			newPriceLookupKey: "pro_250_year",
+			providerSubscriptionId: "sub_1",
+		});
+		expect(subscriptions.setPendingTierCredits).toHaveBeenNthCalledWith(
+			1,
+			"sub_1",
+			250,
+			changeIntents.transaction,
+		);
+		expect(subscriptions.setPendingTierCredits).toHaveBeenNthCalledWith(
+			2,
+			"sub_1",
+			250,
+			changeIntents.transaction,
+		);
+		expect(subscriptions.markPendingTierApplied).toHaveBeenCalledWith(
+			"sub_1",
+			"sub_sched_v6_restored",
+			changeIntents.transaction,
+		);
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: "sub_sched_v6_restored",
+			pendingTierCredits: 250,
+		});
+		expect(changeIntents.intent).toMatchObject({
+			providerOutcome: "failed",
+			status: "consumed",
+		});
+		expect(errorLog).toHaveBeenCalledOnce();
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).resolves.toMatchObject({ outcome: "failed" });
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade,
+		).toHaveBeenCalledOnce();
+	});
+
+	it("restores a released v6 schedule when the local release step throws", async () => {
+		const current = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(current);
+		const persistenceError = new Error("local pending release failed");
+		changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_500_year",
+		});
+		subscriptions.setPendingTierCredits.mockRejectedValueOnce(persistenceError);
+		paymentProvider.scheduleSubscriptionDowngrade.mockResolvedValueOnce(
+			"sub_sched_v6_restored",
+		);
+
+		await expect(service.change(user, { intentId: INTENT_ID })).rejects.toBe(
+			persistenceError,
+		);
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
+			allowSameIntentRecovery: true,
+			currentPriceLookupKey: "pro_175_year",
+			expectedScheduleTarget: null,
+			idempotencyKey: `sub-change:${user.id}:${INTENT_ID}:restore-schedule`,
+			newPriceLookupKey: "pro_250_year",
+			providerSubscriptionId: "sub_1",
+		});
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: "sub_sched_v6_restored",
+			pendingTierCredits: 250,
+		});
+		expect(changeIntents.intent?.status).toBe("processing");
+	});
+
+	it("retains the v6 target across a failed compensation and retry", async () => {
+		vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+		const current = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(current);
+		changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_500_year",
+		});
+		paymentProvider.changeSubscription
+			.mockRejectedValueOnce(new Error("first upgrade rejection"))
+			.mockRejectedValueOnce(new Error("replayed upgrade rejection"));
+		paymentProvider.scheduleSubscriptionDowngrade
+			.mockRejectedValueOnce(new Error("schedule temporarily unavailable"))
+			.mockResolvedValueOnce("sub_sched_v6_restored");
+
+		await expect(service.change(user, { intentId: INTENT_ID })).rejects.toThrow(
+			"schedule temporarily unavailable",
+		);
+		expect(changeIntents.intent?.status).toBe("processing");
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: null,
+			pendingTierCredits: 250,
+		});
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).resolves.toMatchObject({
+			outcome: "failed",
+			subscription: {
+				pendingTierCredits: 250,
+			},
+		});
+		expect(subscriptions.row?.pendingAppliedBy).toBe("sub_sched_v6_restored");
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledTimes(2);
+		expect(paymentProvider.scheduleSubscriptionDowngrade).toHaveBeenCalledTimes(
+			2,
+		);
+		expect(
+			paymentProvider.scheduleSubscriptionDowngrade.mock.calls.map(
+				([params]) => params.idempotencyKey,
+			),
+		).toEqual([
+			`sub-change:${user.id}:${INTENT_ID}:restore-schedule`,
+			`sub-change:${user.id}:${INTENT_ID}:restore-schedule`,
+		]);
+	});
+
+	it("retries after remote restoration succeeds but local marking fails", async () => {
+		vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+		const current = subscriptionRow({
+			interval: "year",
+			pendingAppliedBy: "sub_sched_v6",
+			pendingTierCredits: 250,
+			priceLookupKey: "pro_175_year",
+			tierCredits: 175,
+		});
+		const { changeIntents, paymentProvider, service, subscriptions } =
+			setup(current);
+		changeIntents.intent = changeIntent({
+			currentPriceLookupKey: "pro_175_year",
+			targetPriceLookupKey: "pro_500_year",
+		});
+		paymentProvider.changeSubscription
+			.mockRejectedValueOnce(new Error("first upgrade rejection"))
+			.mockRejectedValueOnce(new Error("replayed upgrade rejection"));
+		paymentProvider.scheduleSubscriptionDowngrade
+			.mockResolvedValueOnce("sub_sched_restore_first")
+			.mockResolvedValueOnce("sub_sched_restore_retry");
+		subscriptions.markPendingTierApplied.mockRejectedValueOnce(
+			new Error("schedule marker persistence unavailable"),
+		);
+
+		await expect(service.change(user, { intentId: INTENT_ID })).rejects.toThrow(
+			"schedule marker persistence unavailable",
+		);
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: null,
+			pendingTierCredits: 250,
+		});
+		expect(changeIntents.intent?.status).toBe("processing");
+
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).resolves.toMatchObject({
+			outcome: "failed",
+			subscription: { pendingTierCredits: 250 },
+		});
+		expect(subscriptions.row).toMatchObject({
+			pendingAppliedBy: "sub_sched_restore_retry",
+			pendingTierCredits: 250,
+		});
+		expect(
+			paymentProvider.cancelScheduledSubscriptionDowngrade,
+		).toHaveBeenCalledTimes(2);
+		expect(
+			paymentProvider.cancelScheduledSubscriptionDowngrade.mock.calls,
+		).toEqual([
+			["sub_1", `sub-change:${user.id}:${INTENT_ID}:release-schedule`],
+			["sub_1", `sub-change:${user.id}:${INTENT_ID}:release-schedule`],
+		]);
+	});
+
 	it("keeps the released downgrade cleared when the subsequent upgrade is definitely rejected", async () => {
 		const errorLog = vi
 			.spyOn(Logger.prototype, "error")
 			.mockImplementation(() => undefined);
 		const current = subscriptionRow({
 			pendingAppliedBy: "sub_sched_1",
-			pendingTierCredits: 200,
+			pendingTierCredits: 250,
 			priceLookupKey: "pro_500_month",
 			tierCredits: 500,
 		});
@@ -1656,7 +2375,7 @@ describe("BillingService subscription change intents", () => {
 	it("cancels a pending downgrade when the user selects the still-live current tier", async () => {
 		const current = subscriptionRow({
 			pendingAppliedBy: "sub_sched_1",
-			pendingTierCredits: 200,
+			pendingTierCredits: 250,
 			priceLookupKey: "pro_500_month",
 			tierCredits: 500,
 		});

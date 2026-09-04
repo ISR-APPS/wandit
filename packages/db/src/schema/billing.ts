@@ -15,7 +15,11 @@ import {
 import { user } from "./auth";
 import { organization } from "./organizations";
 
-export const billingPlan = pgEnum("billing_plan", ["pro", "business"]);
+export const billingPlan = pgEnum("billing_plan", [
+	"pro",
+	"business",
+	"starter",
+]);
 
 export const billingInterval = pgEnum("billing_interval", ["month", "year"]);
 
@@ -106,8 +110,8 @@ export const productSettings = pgTable(
 		signupGrantEnabled: boolean("signup_grant_enabled")
 			.notNull()
 			.default(false),
-		// UNIT: centi-credits (5000 cc = 50 credits).
-		signupGrantCredits: integer("signup_grant_credits").notNull().default(5000),
+		// UNIT: centi-credits (2000 cc = 20 credits).
+		signupGrantCredits: integer("signup_grant_credits").notNull().default(2000),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),

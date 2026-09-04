@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
-import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
+import { openrouterGenerationIdFromError } from "../../../metering/domain/gateway-metering";
+import {
+	BuilderStallError,
+	classifyBuildFailure,
+} from "../../../pages/domain/build-failure";
 import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
@@ -21,11 +25,18 @@ import {
 	createBuilderTools,
 	createBuildLoopState,
 	fallbackBuildSummary,
-	MAX_SCREENSHOT_PASSES,
-	REQUIRED_SCREENSHOT_PASSES,
+	MAX_SCREENSHOT_PASSES_BY_KIND,
+	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
+	resolveBuilderReasoningEffort,
 	runSiteBuild,
+	STALL_TIMEOUT_MS,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
+
+// These specs exercise the default tool kind ("website") unless a test
+// passes pageKind explicitly; COD-specific budgets are tested by name.
+const REQUIRED_SCREENSHOT_PASSES = REQUIRED_SCREENSHOT_PASSES_BY_KIND.website;
+const MAX_SCREENSHOT_PASSES = MAX_SCREENSHOT_PASSES_BY_KIND.website;
 
 // The guards must be verifiable without a network: the image/video handlers
 // (which talk to the gateway and R2) are mocked. Everything else runs for
@@ -79,11 +90,15 @@ button { border-radius: var(--radius); }
 const BROKEN_COD_FORM =
 	'<form data-wandit-event="wandit:lead"><label>Phone<input type="tel" name="phone"></label><input type="text" name="company" data-wandit-hp><button type="submit">Order now</button></form>';
 
+const COD_PRODUCT_IMG =
+	'<img src="https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png" alt="Product">';
+
 const BROKEN_COD_HTML = HTML.replace(
 	"<header><nav>",
 	'<header><section class="hero">',
 )
 	.replace("</nav></header>", "</section></header>")
+	.replace("<h1>page</h1>", `<h1>page</h1>${COD_PRODUCT_IMG}`)
 	.replace("</main>", `${BROKEN_COD_FORM}</main>`);
 
 const COD_FORM = `<form id="order-form">
@@ -112,6 +127,7 @@ const COD_LEAD_SCRIPT = `<script>
 
 const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
+	.replace("<h1>page</h1>", `<h1>page</h1>${COD_PRODUCT_IMG}`)
 	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
 
 // Same page, minus the acknowledgement listener: the lead still dispatches,
@@ -1296,12 +1312,16 @@ describe("finish guard", () => {
 });
 
 describe("COD builder prompt", () => {
-	it("pins post-pass-2 finishing, world price exceptions, and genre wids", async () => {
+	it("pins post-pass-4 finishing, world price exceptions, and genre wids", async () => {
 		const prompt = await buildCodSiteBuilderSystemPrompt();
 
 		expect(prompt).toContain(
-			"After the second screenshot pass, apply the batch of fixes and call finish directly",
+			"After the fourth screenshot pass, apply the batch of fixes and call finish directly",
 		);
+		expect(prompt).toContain(
+			"Four screenshot passes are the minimum and six are the hard maximum",
+		);
+		expect(prompt).toContain('data-wandit-placeholder="1"');
 		expect(
 			prompt.match(
 				/unless the base world explicitly puts first price in the sticky bar/g,
@@ -1709,6 +1729,64 @@ describe("COD finish gate", () => {
 
 		await expect(
 			tools.finish.execute?.({ summary: "COD order page." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("rejects a COD page without a single <img> element", async () => {
+		// The product must be SEEN and slots must be editor-replaceable —
+		// div/svg placeholder frames never get the panel's upload control.
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: COD_HTML.replace(COD_PRODUCT_IMG, ""), path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Imageless COD page." }, options()),
+		).rejects.toThrow(/must contain at least one <img>/);
+	});
+
+	it("requires the COD pass minimum (4) and honors the COD cap (6)", async () => {
+		const { options, tools } = setup({ pageKind: "cod" });
+		await tools.write_file.execute?.(
+			{ content: COD_HTML, path: "index.html" },
+			options(),
+		);
+
+		for (let pass = 1; pass <= 2; pass += 1) {
+			await tools.screenshot_page.execute?.({}, options(`cod_shot_${pass}`));
+		}
+
+		// Two passes satisfy a WEBSITE build but not a COD build.
+		await expect(
+			tools.finish.execute?.({ summary: "Too early." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining(
+				`2 of ${REQUIRED_SCREENSHOT_PASSES_BY_KIND.cod} required`,
+			),
+		});
+
+		for (let pass = 3; pass <= MAX_SCREENSHOT_PASSES_BY_KIND.cod; pass += 1) {
+			await expect(
+				tools.screenshot_page.execute?.({}, options(`cod_shot_${pass}`)),
+			).resolves.toMatchObject({ refused: false, unavailable: false });
+		}
+
+		await expect(
+			tools.screenshot_page.execute?.({}, options("cod_shot_refused")),
+		).resolves.toEqual({
+			message:
+				`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES_BY_KIND.cod} ` +
+				"per build) — finish now with the current page",
+			refused: true,
+		});
+
+		await expect(
+			tools.finish.execute?.({ summary: "COD page at the cap." }, options()),
 		).resolves.toEqual({ accepted: true });
 	});
 
@@ -2611,8 +2689,308 @@ describe("runSiteBuild", () => {
 		);
 	});
 
-	it("has no per-model reasoning override — the env knob is authoritative", () => {
-		expect(BUILDER_REASONING_EFFORT_BY_MODEL).toEqual({});
+	it("honors the composer pick and defers to the provider on auto", () => {
+		// No per-model forcing anymore: effort is the explicit pick or the env
+		// fallback, and "auto" (the default) sends no reasoning parameter.
+		expect(resolveBuilderReasoningEffort("xhigh")).toBe("xhigh");
+		expect(resolveBuilderReasoningEffort("low")).toBe("low");
+		expect(resolveBuilderReasoningEffort("auto")).toBeUndefined();
+		expect(resolveBuilderReasoningEffort()).toBeUndefined();
+	});
+
+	it("aborts a no-progress stream and classifies it as provider_timeout", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const onGenerationError = vi.fn();
+		const providerAbortError = Object.assign(
+			new Error("provider stream aborted"),
+			{
+				openrouterGenerationId: "gen_stalled_openrouter",
+			},
+		);
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async (options) => {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+
+				return {
+					fullStream: (async function* () {
+						await new Promise<never>((_, reject) => {
+							if (signal.aborted) {
+								reject(providerAbortError);
+								return;
+							}
+
+							signal.addEventListener(
+								"abort",
+								() => reject(providerAbortError),
+								{ once: true },
+							);
+						});
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+		const callerAbortController = new AbortController();
+
+		try {
+			const buildErrorPromise = runSiteBuild({
+				abortSignal: callerAbortController.signal,
+				attemptId: "attempt_stalled",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/stalled",
+				onGenerationError,
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Stalled page",
+			}).then(
+				() => null,
+				(error: unknown) => error,
+			);
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS);
+			const buildError = await buildErrorPromise;
+			const generationError = onGenerationError.mock.calls[0]?.[0];
+
+			expect(streamSignal).toBeDefined();
+			expect(streamSignal).not.toBe(callerAbortController.signal);
+			expect(streamSignal?.aborted).toBe(true);
+			expect(streamSignal?.reason).toBeInstanceOf(BuilderStallError);
+			expect(callerAbortController.signal.aborted).toBe(false);
+			expect(generationError).toBeInstanceOf(BuilderStallError);
+			expect(
+				(generationError as BuilderStallError).idleMs,
+			).toBeGreaterThanOrEqual(STALL_TIMEOUT_MS);
+			expect((generationError as BuilderStallError).modelId).toBe(
+				"deepseek/stalled",
+			);
+			expect(openrouterGenerationIdFromError(generationError)).toBe(
+				"gen_stalled_openrouter",
+			);
+			expect(classifyBuildFailure(buildError)).toBe("provider_timeout");
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("publishes a valid revision best-effort when a later step stalls", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const onGenerationError = vi.fn();
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "stall_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {
+						yield { text: "first step complete", type: "text-delta" };
+						await new Promise<void>((resolve) => {
+							if (signal.aborted) {
+								resolve();
+								return;
+							}
+
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_partial_stall",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/stalled",
+				onGenerationError,
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Partial stalled page",
+			});
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS);
+			const build = await buildPromise;
+
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(true);
+			expect(onGenerationError).toHaveBeenCalledWith(
+				expect.any(BuilderStallError),
+			);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not abort while a slow builder tool is executing", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		let streamSignal: AbortSignal | undefined;
+		vi.mocked(generateBuildImage).mockImplementation(async () => {
+			await new Promise<void>((resolve) => {
+				setTimeout(resolve, STALL_TIMEOUT_MS + 10_000);
+			});
+
+			return {
+				height: 1024,
+				imageBase64: "aW1nLWJ5dGVz",
+				mediaType: "image/png",
+				model: "test/image-model",
+				providerMetadata: {},
+				status: "generated",
+				url: "https://assets.example.com/img-slow.png",
+				width: 1536,
+			};
+		});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await options.onToolExecutionStart?.({} as never);
+				try {
+					await tools.generate_image.execute?.(IMAGE_INPUT, {
+						messages: [],
+						toolCallId: "slow_image",
+					} as never);
+				} finally {
+					await options.onToolExecutionEnd?.({} as never);
+				}
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "slow_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_slow_tool",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Slow tool page",
+			});
+
+			await vi.advanceTimersByTimeAsync(STALL_TIMEOUT_MS + 1);
+			expect(streamSignal?.aborted).toBe(false);
+			await vi.advanceTimersByTimeAsync(9_999);
+			const build = await buildPromise;
+
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(false);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a normally progressing stream unaffected", async () => {
+		vi.useFakeTimers();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const progressIntervalMs = STALL_TIMEOUT_MS - 60_000;
+		let streamSignal: AbortSignal | undefined;
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent, options) {
+				const signal = options.abortSignal;
+
+				if (!signal) {
+					throw new Error("expected the combined stream abort signal");
+				}
+
+				streamSignal = signal;
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "progress_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {
+						for (let index = 0; index < 3; index += 1) {
+							await new Promise<void>((resolve) => {
+								setTimeout(resolve, progressIntervalMs);
+							});
+							yield { text: `progress-${index}`, type: "text-delta" };
+						}
+					})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const buildPromise = runSiteBuild({
+				attemptId: "attempt_progressing",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Progressing page",
+			});
+
+			for (let part = 0; part < 3; part += 1) {
+				await vi.advanceTimersByTimeAsync(progressIntervalMs);
+				expect(streamSignal?.aborted).toBe(false);
+			}
+
+			const build = await buildPromise;
+			expect(build.files.some((file) => file.path === "index.html")).toBe(true);
+			expect(streamSignal?.aborted).toBe(false);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+			vi.useRealTimers();
+		}
 	});
 
 	it("starts a vision-capable build with the brief's user photos attached", async () => {
@@ -2641,7 +3019,7 @@ describe("runSiteBuild", () => {
 
 			expect(extractBriefUserPhotoUrls).toHaveBeenCalledWith(brief);
 			expect(streamSpy).toHaveBeenCalledWith({
-				abortSignal: undefined,
+				abortSignal: expect.any(AbortSignal),
 				messages: [
 					{
 						content: [
@@ -2667,6 +3045,8 @@ describe("runSiteBuild", () => {
 						role: "user",
 					},
 				],
+				onToolExecutionEnd: expect.any(Function),
+				onToolExecutionStart: expect.any(Function),
 			});
 		} finally {
 			streamSpy.mockRestore();
@@ -2695,7 +3075,9 @@ describe("runSiteBuild", () => {
 
 			expect(extractBriefUserPhotoUrls).not.toHaveBeenCalled();
 			expect(streamSpy).toHaveBeenCalledWith({
-				abortSignal: undefined,
+				abortSignal: expect.any(AbortSignal),
+				onToolExecutionEnd: expect.any(Function),
+				onToolExecutionStart: expect.any(Function),
 				prompt:
 					"Build the landing page now.\n\nTITLE: Text-only page\n\n" +
 					`BRIEF:\n${brief}`,

@@ -11,7 +11,7 @@ export const CHECKOUT_PURPOSE = {
 export type CheckoutPurpose =
 	(typeof CHECKOUT_PURPOSE)[keyof typeof CHECKOUT_PURPOSE];
 
-export const billingPlanIds = ["pro", "business"] as const;
+export const billingPlanIds = ["starter", "pro", "business"] as const;
 
 export const billingPlanIdSchema = z.enum(billingPlanIds);
 
@@ -30,27 +30,55 @@ export const ENTITLED_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 export type EntitledSubscriptionStatus =
 	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
-// The purchasable unit is 250 credits ($25 Pro / $50 Business) — 1 credit
-// retails at exactly $0.10. Tiers double from there Lovable-style, with the
-// same volume-discount curve as before (2% / 4% / 6% / 8% / 10% off linear on
-// the top five tiers).
+// Pricing v7 (1 credit = $0.032 of AI) restores the 250-credit Pro/Business
+// ladder and a 60-credit Starter; the v6 tiers (50, 175 ... 8750) stay as
+// legacy Stripe tier identities. Pricing v6 separated tiers offered to new
+// buyers from legacy identities. CREDIT_TIERS is the parse/validation universe; purchase flows
+// must use PLAN_TIERS or isPurchasableTier so legacy subscriptions keep
+// working without retired tiers returning to the plan picker.
+export const LEGACY_CREDIT_TIERS = [
+	50, 175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750,
+] as const;
+
 export const CREDIT_TIERS = [
-	250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
+	50, 60, 175, 250, 350, 500, 700, 1000, 1400, 2000, 2100, 3000, 3500, 5000,
+	5250, 7000, 7500, 8750, 10000, 12500,
 ] as const;
 
 export type CreditTier = (typeof CREDIT_TIERS)[number];
 
-export const creditTierSchema = z.union([
-	z.literal(250),
-	z.literal(500),
-	z.literal(1000),
-	z.literal(2000),
-	z.literal(3000),
-	z.literal(5000),
-	z.literal(7500),
-	z.literal(10000),
-	z.literal(12500),
-]);
+export type LegacyCreditTier = (typeof LEGACY_CREDIT_TIERS)[number];
+
+export const creditTierSchema = z.literal(CREDIT_TIERS);
+
+export const PLAN_TIERS = {
+	starter: [60],
+	pro: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
+	business: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
+} as const satisfies Record<BillingPlanId, readonly CreditTier[]>;
+
+export function purchasableTiersFor(
+	plan: BillingPlanId,
+): readonly CreditTier[] {
+	return PLAN_TIERS[plan];
+}
+
+export function isPurchasableTier(
+	plan: BillingPlanId,
+	tierCredits: number,
+): tierCredits is CreditTier {
+	return (PLAN_TIERS[plan] as readonly number[]).includes(tierCredits);
+}
+
+export function isLegacyTier(
+	tierCredits: number,
+): tierCredits is LegacyCreditTier {
+	return (LEGACY_CREDIT_TIERS as readonly number[]).includes(tierCredits);
+}
+
+export function isKnownTier(tierCredits: number): tierCredits is CreditTier {
+	return (CREDIT_TIERS as readonly number[]).includes(tierCredits);
+}
 
 export const topupPackIds = ["topup_250", "topup_1000", "topup_2500"] as const;
 
@@ -58,27 +86,80 @@ export const topupPackIdSchema = z.enum(topupPackIds);
 
 export type TopupPackId = z.infer<typeof topupPackIdSchema>;
 
-// Top-ups sell at the base retail rate ($0.10/credit), no volume discount.
+// Old ids are stored in checkout attempts, receipts, Stripe metadata, and
+// credit-ledger metadata. Historical readers accept both sets; new checkout
+// requests and the public catalog use topupPackIdSchema/topupPackIds only.
+export const LEGACY_TOPUP_PACK_IDS = [
+	"topup_175",
+	"topup_700",
+	"topup_1750",
+] as const;
+
+export type LegacyTopupPackId = (typeof LEGACY_TOPUP_PACK_IDS)[number];
+
+export const persistedTopupPackIds = [
+	...topupPackIds,
+	...LEGACY_TOPUP_PACK_IDS,
+] as const;
+
+export const persistedTopupPackIdSchema = z.enum(persistedTopupPackIds);
+
+export type PersistedTopupPackId = z.infer<typeof persistedTopupPackIdSchema>;
+
+// Top-ups stay disabled in v7. These prices match the Pro base rate so they
+// cannot undercut a subscription if the existing switch is re-enabled.
 export const TOPUP_PACKS = {
 	topup_250: { credits: 250, usd: 25 },
 	topup_1000: { credits: 1000, usd: 100 },
 	topup_2500: { credits: 2500, usd: 250 },
 } as const;
 
+// v6 packs: persisted in receipts/metadata; never purchasable again.
+export const LEGACY_TOPUP_PACKS = {
+	topup_175: { credits: 175, usd: 25 },
+	topup_700: { credits: 700, usd: 100 },
+	topup_1750: { credits: 1750, usd: 250 },
+} as const;
+
+export const PERSISTED_TOPUP_PACKS = {
+	...TOPUP_PACKS,
+	...LEGACY_TOPUP_PACKS,
+} as const satisfies Record<
+	PersistedTopupPackId,
+	{ readonly credits: number; readonly usd: number }
+>;
+
 export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
 	plans: {
-		pro: {
-			basePer100Usd: 10,
+		starter: {
+			basePer100Usd: 15,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
+				50: 9,
+				60: 9,
+			},
+		},
+		pro: {
+			basePer100Usd: (25 / 250) * 100,
+			features: { seats: false, teamWorkspace: false },
+			monthlyPricesUsd: {
+				175: 25,
 				250: 25,
+				350: 50,
 				500: 50,
+				700: 100,
 				1000: 100,
+				1400: 200,
 				2000: 200,
+				2100: 294,
 				3000: 294,
+				3500: 480,
 				5000: 480,
+				5250: 705,
+				7000: 920,
 				7500: 705,
+				8750: 1125,
 				10000: 920,
 				12500: 1125,
 			},
@@ -86,16 +167,25 @@ export const BILLING_CATALOG = {
 		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
 		// what's priced. Purchasable only with org workspace scope (pairing rule).
 		business: {
-			basePer100Usd: 20,
+			basePer100Usd: (50 / 250) * 100,
 			features: { seats: true, teamWorkspace: true },
 			monthlyPricesUsd: {
+				175: 50,
 				250: 50,
+				350: 100,
 				500: 100,
+				700: 200,
 				1000: 200,
+				1400: 400,
 				2000: 400,
+				2100: 588,
 				3000: 588,
+				3500: 960,
 				5000: 960,
+				5250: 1410,
+				7000: 1840,
 				7500: 1410,
+				8750: 2250,
 				10000: 1840,
 				12500: 2250,
 			},
@@ -105,19 +195,61 @@ export const BILLING_CATALOG = {
 	yearlyPriceMultiplier: 10,
 } as const;
 
+/**
+ * The purchasable tier of `plan` that costs the same per month as a legacy
+ * tier (175 -> 250, 350 -> 500, starter 50 -> 60). Null when the tier is not
+ * legacy or no purchasable tier carries that price.
+ */
+export function purchasableTierForLegacy(
+	plan: BillingPlanId,
+	tierCredits: number,
+): CreditTier | null {
+	if (!isLegacyTier(tierCredits)) return null;
+	const prices = BILLING_CATALOG.plans[plan].monthlyPricesUsd as Partial<
+		Record<CreditTier, number>
+	>;
+	const legacyPrice = prices[tierCredits];
+	if (legacyPrice === undefined) return null;
+	return (
+		(PLAN_TIERS[plan] as readonly CreditTier[]).find(
+			(tier) => prices[tier] === legacyPrice,
+		) ?? null
+	);
+}
+
 export function priceUsdFor(
 	plan: BillingPlanId,
 	tierCredits: CreditTier,
 	interval: BillingInterval,
-) {
-	const monthlyPriceUsd =
-		BILLING_CATALOG.plans[plan].monthlyPricesUsd[tierCredits];
+): number {
+	const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
 
-	if (interval === "month") {
-		return monthlyPriceUsd;
+	if (priceUsd === null) {
+		throw new Error(
+			`No billing price for plan "${plan}" at ${tierCredits} credits`,
+		);
 	}
 
-	return monthlyPriceUsd * BILLING_CATALOG.yearlyPriceMultiplier;
+	return priceUsd;
+}
+
+export function tryPriceUsdFor(
+	plan: BillingPlanId,
+	tierCredits: number,
+	interval: BillingInterval,
+): number | null {
+	const prices = BILLING_CATALOG.plans[plan].monthlyPricesUsd as Readonly<
+		Partial<Record<CreditTier, number>>
+	>;
+	const monthlyPriceUsd = prices[tierCredits as CreditTier];
+
+	if (monthlyPriceUsd === undefined) {
+		return null;
+	}
+
+	return interval === "month"
+		? monthlyPriceUsd
+		: monthlyPriceUsd * BILLING_CATALOG.yearlyPriceMultiplier;
 }
 
 export function priceLookupKey(
@@ -149,7 +281,11 @@ export function parsePriceLookupKey(
 
 	const tierCredits = Number(tierCreditsValue);
 
-	if (!Number.isInteger(tierCredits) || !isCreditTier(tierCredits)) {
+	if (
+		!Number.isInteger(tierCredits) ||
+		!isKnownTier(tierCredits) ||
+		tryPriceUsdFor(plan, tierCredits, "month") === null
+	) {
 		return null;
 	}
 
@@ -166,10 +302,6 @@ function isBillingPlanId(value: string): value is BillingPlanId {
 
 function isBillingInterval(value: string): value is BillingInterval {
 	return (billingIntervals as readonly string[]).includes(value);
-}
-
-function isCreditTier(value: number): value is CreditTier {
-	return (CREDIT_TIERS as readonly number[]).includes(value);
 }
 
 export const subscriptionSchema = z.object({
@@ -243,11 +375,16 @@ export type BillingSubscriptionViewResponse = z.infer<
 	typeof billingSubscriptionViewResponseSchema
 >;
 
-export const createBillingCheckoutBodySchema = z.object({
-	plan: billingPlanIdSchema,
-	tierCredits: creditTierSchema,
-	interval: billingIntervalSchema,
-});
+export const createBillingCheckoutBodySchema = z
+	.object({
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
 
 export type CreateBillingCheckoutBody = z.infer<
 	typeof createBillingCheckoutBodySchema
@@ -433,18 +570,23 @@ const phoneSchema = z
 		"Enter a valid phone number",
 	);
 
-export const createManualSubscriptionRequestBodySchema = z.object({
-	plan: billingPlanIdSchema,
-	tierCredits: creditTierSchema,
-	interval: billingIntervalSchema,
-	fullName: z.string().trim().min(2).max(120),
-	phone: phoneSchema,
-	company: z.string().trim().min(1).max(120).optional(),
-	country: manualBillingCountrySchema,
-	city: z.string().trim().min(1).max(120).optional(),
-	preferredPaymentMethod: manualPaymentMethodSchema.optional(),
-	notes: z.string().trim().min(1).max(1000).optional(),
-});
+export const createManualSubscriptionRequestBodySchema = z
+	.object({
+		plan: billingPlanIdSchema,
+		tierCredits: creditTierSchema,
+		interval: billingIntervalSchema,
+		fullName: z.string().trim().min(2).max(120),
+		phone: phoneSchema,
+		company: z.string().trim().min(1).max(120).optional(),
+		country: manualBillingCountrySchema,
+		city: z.string().trim().min(1).max(120).optional(),
+		preferredPaymentMethod: manualPaymentMethodSchema.optional(),
+		notes: z.string().trim().min(1).max(1000).optional(),
+	})
+	.refine(({ plan, tierCredits }) => isPurchasableTier(plan, tierCredits), {
+		message: "Tier is not purchasable for the selected plan",
+		path: ["tierCredits"],
+	});
 
 export type CreateManualSubscriptionRequestBody = z.infer<
 	typeof createManualSubscriptionRequestBodySchema

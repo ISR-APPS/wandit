@@ -63,6 +63,8 @@ const planClasses: Record<AdminUserPlan, string> = {
 	business: "border-chart-2/25 bg-chart-2/8 text-chart-2",
 	free: "text-muted-foreground",
 	pro: "border-primary/25 bg-primary/8 text-primary",
+	starter:
+		"border-violet-500/25 bg-violet-500/8 text-violet-700 dark:text-violet-300",
 };
 
 function PlanBadge({ plan }: { plan: AdminUserPlan }) {

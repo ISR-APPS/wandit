@@ -112,10 +112,10 @@ export const env = createEnv({
 			.default("openai/gpt-4o-mini-transcribe"),
 		// USD of provider cost per WHOLE credit. Settlement debits integer
 		// centi-credits (1 credit = 100 cc); the conversion function owns the
-		// x100, so this value stays per whole credit. $0.04/credit is the
-		// pricing v5 anchor: 1 credit = $0.04 of provider cost, so the 50-credit
-		// signup grant carries $2.00 of provider value.
-		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
+		// x100, so this value stays per whole credit. $0.032/credit is the
+		// pricing v7 anchor: 1 credit = $0.032 of provider cost, so the
+		// 20-credit signup grant carries $0.64 of provider value.
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.032),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
@@ -125,20 +125,22 @@ export const env = createEnv({
 		// AI_PAGE_DESIGN_MODEL remains as a fallback so existing deployments and
 		// .env files keep working during the migration.
 		AI_PAGE_BUILDER_MODEL: z.string().min(1).optional(),
+		// COD funnels default to a different builder than landing pages; unset
+		// falls back to the code default in generate-page.tool.ts.
+		AI_PAGE_COD_BUILDER_MODEL: z.string().min(1).optional(),
 		AI_PAGE_DESIGN_MODEL: z
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
-		// Builder reasoning knob, read at build time inside runSiteBuild() and
-		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
+		// Builder reasoning fallback, read at build time inside runSiteBuild()
+		// and forwarded as providerOptions (openai.reasoningEffort; mapped onto
 		// Gemini's two thinking levels and Grok's three efforts). "auto" sends
-		// no reasoning parameter at all — the provider picks. Defaults to
-		// "high": an unset var once silently meant provider-default effort (a
-		// misnamed .env entry hid the knob for weeks) — design quality must
-		// never again depend on a typo, so turning it off is an explicit value.
+		// no reasoning parameter at all — the provider picks. The composer's
+		// per-message reasoning picker outranks this env knob; "auto" is the
+		// default so effort is never silently forced on a build.
 		AI_PAGE_DESIGN_REASONING: z
 			.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
-			.default("high"),
+			.default("auto"),
 		// Optional: the "creative director" that rewrites a video brief into one
 		// domain-language provider prompt at queue time. Falls back to
 		// AI_PROMPT_REFINER_MODEL; failures degrade to a deterministic prompt,
@@ -245,16 +247,15 @@ export const env = createEnv({
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
-		// Account that hosts the per-domain Cloudflare zones created for the
-		// apex of purchased domains (Trigger purchase task) and of external
-		// "bring your own" domains (API attach + Trigger configure task); POST
-		// /zones needs it. Unset means the apex zone step records an error and
-		// the domain stays www-only.
+		// Account that hosts the per-domain Cloudflare zones created by the
+		// Trigger purchase/configure tasks for purchased and external domains;
+		// POST /zones needs it. Unset means the apex zone step records an error
+		// and the domain stays www-only.
 		CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
 		// Kill switch for the apex zone step (purchased and external domains).
 		// "false" means no NEW zone and restores the previous behavior: Name.com
-		// URL forwarding for a purchased apex, www-only records for an external
-		// attach. An external row that already exposed its zone's nameservers
+		// URL forwarding for a purchased apex and no nameserver option for a new
+		// external row. An external row that already exposed its zone's nameservers
 		// (dns.zoneId) is still finished by the configure task, since its owner
 		// may have delegated already and nothing else can fill that zone.
 		DOMAINS_APEX_ZONE_ENABLED: z

@@ -85,6 +85,14 @@ type ApexZoneStepOptions = {
 	sources: readonly DomainSource[];
 };
 
+export type ApexZoneExecutionOptions = {
+	/**
+	 * Allows a missing zone to be found, adopted, or created. Existing zones
+	 * are always maintained, even when this is false.
+	 */
+	allowZoneCreation: boolean;
+};
+
 /**
  * Serves the bare apex of a domain through Cloudflare for SaaS by hosting the
  * domain's DNS in a Cloudflare zone of OUR account: find-or-create the zone,
@@ -111,7 +119,8 @@ type ApexZoneStepOptions = {
  *
  * A zone that no longer exists (deleted out of band, purged by Cloudflare) is
  * withdrawn as soon as a pass notices it: its nameservers leave `dns.records`
- * and the zone keys are cleared, so the next configure pass creates a new one.
+ * and the zone keys are cleared. A replacement is only provisioned when that
+ * pass is authorized to create a zone.
  *
  * Best-effort contract: `execute` never throws. Any failure is logged, kept in
  * `dns.apexError`, and the latest row is returned, so the www path
@@ -121,7 +130,8 @@ type ApexZoneStepOptions = {
  * is active, nudges the apex hostname's validation exactly once. The purchase
  * pipeline runs the step once while the row is `registering` and again on
  * every verification probe while the row is `configuring`; the configuration
- * pipeline (`domain-configure`) runs it before every probe of an external row.
+ * pipeline (`domain-configure`) probes external ownership first, then runs it
+ * with an explicit missing-zone creation authorization.
  * A purchased row that reaches `active` without the marker is only retried by
  * `domains:backfill-apex`.
  */
@@ -135,7 +145,10 @@ export class ApexZoneStep {
 		private readonly options: ApexZoneStepOptions,
 	) {}
 
-	async execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow> {
+	async execute(
+		row: DomainFulfillmentRow,
+		execution: ApexZoneExecutionOptions,
+	): Promise<DomainFulfillmentRow> {
 		if (!this.options.sources.includes(row.source)) {
 			return row;
 		}
@@ -148,12 +161,13 @@ export class ApexZoneStep {
 
 		return dns.apexConfigured
 			? this.verify(row, dns)
-			: this.configure(row, dns);
+			: this.configure(row, dns, execution.allowZoneCreation);
 	}
 
 	private async configure(
 		row: DomainFulfillmentRow,
 		initialDns: DomainFulfillmentDns,
+		allowZoneCreation: boolean,
 	): Promise<DomainFulfillmentRow> {
 		let current = row;
 		let dns = initialDns;
@@ -162,18 +176,26 @@ export class ApexZoneStep {
 		try {
 			let zone: CustomerZone | null = null;
 
-			if (dns.zoneId && dns.zoneNameServers && dns.zoneNameServers.length > 0) {
+			if (dns.zoneId) {
 				const status = await this.zones.getZoneStatus(dns.zoneId);
 
 				if (status === null) {
 					current = await this.withdrawLostZone(current, dns, dns.zoneId);
 					dns = this.dnsState(current);
 				} else {
-					zone = { id: dns.zoneId, nameServers: dns.zoneNameServers, status };
+					zone = {
+						id: dns.zoneId,
+						nameServers: dns.zoneNameServers ?? [],
+						status,
+					};
 				}
 			}
 
 			if (!zone) {
+				if (!this.options.enabled || !allowZoneCreation) {
+					return current;
+				}
+
 				// Look up by name first so a retry (or the backfill) adopts the zone
 				// an earlier pass or an operator created instead of a duplicate error.
 				const adopted = await this.zones.findZoneByName(current.name);
@@ -192,6 +214,7 @@ export class ApexZoneStep {
 									nameserverRequiredDomainRecords(zone.nameServers),
 								),
 								zoneDelegated: true,
+								zoneNameserversExposedAt: new Date().toISOString(),
 							}
 						: {}),
 				});

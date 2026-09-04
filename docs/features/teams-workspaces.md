@@ -12,11 +12,12 @@
 - A **workspace** is either the user's **Personal** space (implicit, exists today) or an
   **organization** (Better Auth organization). Slack/Notion-style switcher; everything —
   projects list, credit balance, billing — is contextual to the active workspace.
-- **Business plan**: second catalog plan, same tier ladder as Pro at **2× the price per credit**
-  (100 cr/$50 … 5,000 cr/$2,250 monthly; yearly = monthly × 10 = 2 months free). Unlimited
-  seats; the pool is what's priced, not chairs.
+- **Business plan**: organization-only catalog plan, with the same purchasable tier ladder as
+  Pro at exactly **2× the Pro price** (175 credits/$50 through 8,750 credits/$2,250 monthly;
+  yearly = monthly × 10). Unlimited seats; the pool is what's priced, not chairs.
 - **Entity rule**: at most one live subscription per entity (user or org). A person may hold a
-  personal Pro *and* administer any number of org Business subscriptions.
+  personal Starter or Pro subscription *and* administer any number of org Business
+  subscriptions.
 - **Pooling**: work done in an org workspace debits the org pool; the acting member is recorded
   on every usage event. Optional per-member credit limits (calendar-month UTC).
 - **Roles v1**: fixed `owner` / `admin` / `member` (Better Auth defaults + our permission
@@ -392,8 +393,8 @@ gains the workspace dimension via `@CurrentWorkspace()`:
 - Personal workspace → behavior byte-identical to today (same tables, same queries).
 - Org workspace → `@RequireWorkspacePermission("billing", "manage")` on checkout, topup,
   change/preview, cancel, resume, portal, sync; subscription view readable by any member.
-- `checkout` with org scope requires `plan: "business"`; personal scope requires
-  `plan: "pro"` (v1 pairing rule; typed 400 otherwise).
+- `checkout` with org scope requires `plan: "business"`; personal scope accepts
+  `plan: "starter"` or `plan: "pro"` (typed 400 for any other pairing).
 - Org portal sessions are created from the **org** customer id only; personal portal from the
   personal customer only — the §5.1 table split makes crossover structurally impossible.
 - Top-ups: org top-ups allowed for billing managers; ledger row `organizationId` set;
@@ -416,17 +417,44 @@ gains the workspace dimension via `@CurrentWorkspace()`:
 
 ### 5.5 Business catalog + seed
 
-- `billingPlanIds = ["pro", "business"]`; `BILLING_CATALOG.plans.business =
-  { basePer100Usd: 50, monthlyPricesUsd: {100:50, 200:100, 400:200, 800:400, 1200:588,
-  2000:960, 3000:1410, 4000:1840, 5000:2250} }` (exactly 2× Pro per tier; yearly ×10 rule
-  shared). `billing-catalog.spec.ts` locks both tables.
-- Plan `features` become catalog data: `pro → {seats:false, teamWorkspace:false}`,
-  `business → {seats:true, teamWorkspace:true}`; `BillingService.plans()` reads them.
-- `seed-stripe.ts` needs zero structural change (it iterates `billingPlanIds`); run against
-  Stripe TEST first. Lookup keys: `business_{tier}_{month|year}`.
+- `billingPlanIds = ["starter", "pro", "business"]`. Starter has one personal-only tier;
+  Pro and Business have the following purchasable tiers. Business is exactly 2× Pro and every
+  yearly price is 10× its monthly price.
+
+  | Plan | Credits / month | Monthly | Yearly |
+  |---|---:|---:|---:|
+  | Starter | 50 | $9 | $90 |
+  | Pro | 175 | $25 | $250 |
+  | Pro | 350 | $50 | $500 |
+  | Pro | 700 | $100 | $1,000 |
+  | Pro | 1,400 | $200 | $2,000 |
+  | Pro | 2,100 | $294 | $2,940 |
+  | Pro | 3,500 | $480 | $4,800 |
+  | Pro | 5,250 | $705 | $7,050 |
+  | Pro | 7,000 | $920 | $9,200 |
+  | Pro | 8,750 | $1,125 | $11,250 |
+  | Business | 175 | $50 | $500 |
+  | Business | 350 | $100 | $1,000 |
+  | Business | 700 | $200 | $2,000 |
+  | Business | 1,400 | $400 | $4,000 |
+  | Business | 2,100 | $588 | $5,880 |
+  | Business | 3,500 | $960 | $9,600 |
+  | Business | 5,250 | $1,410 | $14,100 |
+  | Business | 7,000 | $1,840 | $18,400 |
+  | Business | 8,750 | $2,250 | $22,500 |
+
+  Legacy Pro/Business tiers remain parse-only for existing subscriptions and never appear in
+  checkout or the seed.
+- Plan `features` are catalog data: Starter and Pro use
+  `{seats:false, teamWorkspace:false}`; Business uses
+  `{seats:true, teamWorkspace:true}`. `BillingService.plans()` reads them.
+- `seed-stripe.ts` iterates `purchasableTiersFor(plan)` for each plan; run against Stripe TEST
+  first. Lookup keys include `starter_50_{month|year}` and
+  `business_{tier}_{month|year}`. Do not archive old prices while legacy subscriptions remain.
 - `admin-user.mapper.ts:96` `normalizePlan` recognizes `business`; admin `planClasses` record
   gains the key (compile-enforced).
-- The DB enum already contains `business` — no enum migration needed.
+- The DB enum already contained `business`; pricing v6 adds `starter` in its own enum-only
+  migration.
 
 ### 5.6 Personal → Business upgrade flow (the org birth moment)
 

@@ -6,11 +6,17 @@ Supersedes the $0.028 anchor of `pricing-v3-implementation.md` /
 
 ## 1. The unit
 
+> **Grant-only supersession:** pricing v6 supersedes only the signup-grant sentence in this
+> section. The current grant is 20 credits = 2000 centi-credits = $0.64 of provider cost at the pricing-v7 anchor of $0.032 (see `pricing-v7-032-anchor.md`; the $0.04 unit below is history);
+> existing free users keep grants already issued. The $0.04 unit and the rest of this document
+> remain authoritative.
+
 - **1 credit = $0.04 of AI-provider cost.** The server bills from the gateway
   `total_cost`; every operation bills its measured cost (flat per-operation
   prices are removed in a separate workstream).
-- The signup grant stays 50 credits, now $2.00 of provider value
-  (was $1.40 at $0.028).
+- At the pricing-v5 rollout, the signup grant stayed at the then-current 50 credits, worth
+  $2.00 of provider value (previously $1.40 at $0.028). Pricing v6 later replaced this grant
+  value as noted above.
 - The ledger keeps integer centi-credits (1 credit = 100 cc, pricing v4). The
   anchor only converts future provider USD into centi-credits; historic rows
   keep their meaning, so there is no schema change and no migration.

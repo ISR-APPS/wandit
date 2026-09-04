@@ -1,53 +1,102 @@
 # Billing & Subscriptions (Stripe now, LASATIM/CIB later)
 
-**Status:** billing v2 implementation · **Branch:** `feat/billing-subscriptions`
-Extends `docs/features/credits.md` (slice 7) with the real-money layer (slice 8). This doc is the implementation spec.
+**Status:** shipped billing system, catalog updated for pricing v6 · **Original branch:**
+`feat/billing-subscriptions`. Extends `docs/features/credits.md` (slice 7) with the real-money
+layer (slice 8). This doc is the current billing operations reference.
 
 ## Purpose
 
-Everything needed for a user to subscribe to **Pro** (choosing a monthly credit tier, Lovable-style), buy one-time **top-up packs**, manage/cancel via the Stripe portal, and have credits granted, expired, and revoked correctly and idempotently by webhooks. Payment-provider-agnostic: Stripe is adapter #1; LASATIM (CIB, DZD) can later write the same ledger through adapter #2.
+Everything needed for a personal workspace to subscribe to **Starter** or **Pro**, or an
+organization workspace to subscribe to **Business**, buy one-time **top-up packs** when they
+are enabled, manage/cancel via the Stripe portal, and have credits granted, expired, and
+revoked correctly and idempotently by webhooks. Payment-provider-agnostic: Stripe is adapter
+#1; LASATIM (CIB, DZD) can later write the same ledger through adapter #2.
 
 ## Settled decisions
 
 - **Hand-rolled billing, not the Better Auth Stripe plugin** — we own the schema, the ledger semantics, and the provider port; the plugin would fight all three.
 - **Plan catalog is code**: one config file in `@wandit/contracts` is the single source of truth for plans, tiers, prices, credit costs. The Stripe seed script, API responses, and the future pricing UI all derive from it. Zack tunes numbers in ONE place.
-- **Stripe Prices resolved by `lookup_key`** (`pro_2400_month`, `pro_200_year`, `topup_1000` — format = `priceLookupKey()` in `@wandit/contracts`) — never hardcoded price IDs. The seed script creates Products and safely creates or replaces Prices.
+- **Stripe Prices resolved by `lookup_key`** (`starter_50_month`, `pro_175_year`,
+  `topup_175` — format = `priceLookupKey()` in `@wandit/contracts`) — never hardcoded price
+  IDs. The seed script creates Products and safely creates or replaces Prices.
 - **Annual = ten monthly payments**, with month 1 granted on the paid invoice and eleven paid refill slots delivered by a scheduled Trigger.dev task over the annual period.
 - **Upgrades are immediate** (proration `always_invoice`, with credit policy derived from the paid invoice). Tier downgrades apply at renewal without proration; yearly→monthly is not offered in v2.
 - **Webhooks are the source of truth** for subscription state; API responses update the mirror opportunistically but never skip the inbox.
 - **Currency:** USD prices in v1 (Stripe Checkout Adaptive Pricing can localize display later; EUR/DZD are catalog/config concerns, not schema concerns).
 
-## Plan catalog (decided)
+## Plan catalog (pricing v6)
 
-There is one paid plan, **Pro**, with nine monthly credit tiers. Yearly prices are exactly 10× the corresponding monthly price (two months free).
+The plan ids are `starter`, `pro`, and `business`. Starter and Pro are personal-workspace
+plans. Business is the organization-workspace plan. Yearly prices are exactly 10× the
+corresponding monthly price.
 
-| Credits / month | Monthly | Yearly | Volume discount |
-|---:|---:|---:|---:|
-| 200 | $30 | $300 | 0% |
-| 400 | $60 | $600 | 0% |
-| 800 | $120 | $1,200 | 0% |
-| 1,600 | $240 | $2,400 | 0% |
-| 2,400 | $353 | $3,530 | 2% |
-| 4,000 | $576 | $5,760 | 4% |
-| 6,000 | $846 | $8,460 | 6% |
-| 8,000 | $1,104 | $11,040 | 8% |
-| 10,000 | $1,350 | $13,500 | 10% |
+| Plan | Credits / month | Monthly | Yearly | Volume discount |
+|---|---:|---:|---:|---:|
+| Starter | 60 | $9 | $90 | 0% |
+| Pro | 250 | $25 | $250 | 0% |
+| Pro | 500 | $50 | $500 | 0% |
+| Pro | 1,000 | $100 | $1,000 | 0% |
+| Pro | 2,000 | $200 | $2,000 | 0% |
+| Pro | 3,000 | $294 | $2,940 | 2% |
+| Pro | 5,000 | $480 | $4,800 | 4% |
+| Pro | 7,500 | $705 | $7,050 | 6% |
+| Pro | 10,000 | $920 | $9,200 | 8% |
+| Pro | 12,500 | $1,125 | $11,250 | 10% |
+| Business | 250 | $50 | $500 | 0% |
+| Business | 500 | $100 | $1,000 | 0% |
+| Business | 1,000 | $200 | $2,000 | 0% |
+| Business | 2,000 | $400 | $4,000 | 0% |
+| Business | 3,000 | $588 | $5,880 | 2% |
+| Business | 5,000 | $960 | $9,600 | 4% |
+| Business | 7,500 | $1,410 | $14,100 | 6% |
+| Business | 10,000 | $1,840 | $18,400 | 8% |
+| Business | 12,500 | $2,250 | $22,500 | 10% |
 
-Business is exactly 2× Pro per tier (the pooled workspace allowance is what's priced).
+Business is exactly 2× Pro at each tier; the pooled workspace allowance is what is priced.
 
-Top-up packs (never expire, burn after plan and promo credits): `topup_200` $30 · `topup_1000` $150 · `topup_2000` $300.
+The legacy Pro and Business tiers `250`, `500`, `1000`, `2000`, `3000`, `5000`, `7500`,
+`10000`, and `12500` remain parseable and priced for existing subscriptions for up to 12
+months. They are never purchasable and must not appear in the public catalog, checkout, plan
+picker, or Stripe seed.
 
-The configurable signup grant is 50 promo credits and is disabled by default. Token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.04` (pricing v5: 1 credit = $0.04 of AI-provider cost, so the 50-credit grant carries $2.00 of provider value). Fixed per-operation costs are superseded by pricing v5 — every operation bills its measured provider cost (see `pricing-v5-usd-anchor.md`).
+Top-ups stay disabled. Their v6 catalog values, for a future re-enable, are:
+
+| Pack id | Credits | Price |
+|---|---:|---:|
+| `topup_175` | 175 | $25 |
+| `topup_700` | 700 | $100 |
+| `topup_1750` | 1,750 | $250 |
+
+The old ids `topup_250`, `topup_1000`, and `topup_2500` remain parseable only for persisted
+receipts, ledger metadata, and other history. Top-ups never expire and burn after plan and
+promo credits.
+
+The configurable signup grant is **20 promo credits = 2000 centi-credits = $0.64 of
+AI-provider cost** and is disabled by default. Existing free users keep grants already issued;
+there is no claw-back. Token-metered actions use the pricing-v7 anchor of $0.032 of
+AI-provider cost per whole credit. Fixed per-operation costs remain superseded by measured
+provider cost; see `pricing-v5-usd-anchor.md`.
 
 ### Credit ↔ token costing: starting point + how to tune
 
-Every metered operation records usage and the pricing snapshot used for its debit. After launch: compare Gateway invoice vs credits burned, target model COGS ≤ ~30% of retail credit value (1 credit retail = $0.10 at base tier), and tune the operation registry or `usdPerCredit` without changing the ledger schema.
+Every metered operation records usage and the pricing snapshot used for its debit. Compare the
+Gateway invoice with credits burned and tune the operation registry or `usdPerCredit` without
+changing the ledger schema. Pricing v6 has no global retail-per-credit anchor; prices are
+defined by valid plan/tier pairs.
 
 ## Data model (packages/db)
 
-- `credit_ledger` *(exists)* — `bucket` uses `credit_bucket('plan','promo','topup')`; nullable `organization_id` remains a legacy/reserved field and is not an offered organization plan in v2; index `(user_id, bucket)`.
+- `credit_ledger` *(exists)* — `bucket` uses `credit_bucket('plan','promo','topup')`;
+  `organization_id` identifies an organization-owned pool when present; index
+  `(user_id, bucket)`.
 - `billing_customers` *(new)* — `id` uuid PK, `user_id` text unique FK→user (restrict), `provider` text (`'stripe'`), `provider_customer_id` text, unique(provider, provider_customer_id), timestamps.
-- `subscriptions` *(new)* — `id` uuid PK, `user_id` text FK→user (restrict), nullable legacy `organization_id`, `provider`, `provider_subscription_id` unique, `tier_credits` int, `interval` (`'month'|'year'`), `status` text (Stripe status vocabulary), `price_lookup_key` text, `current_period_start/end` timestamptz, `cancel_at_period_end` bool, timestamps + `updatedAt $onUpdate`. Contracts and catalog accept only `pro`; the database `billing_plan` enum retains the legacy `business` value for migration compatibility only. Partial unique index: one non-terminal (`status not in ('canceled','incomplete_expired')`) subscription per user.
+- `subscriptions` *(new)* — `id` uuid PK, `user_id` text FK→user (restrict), nullable
+  `organization_id`, `provider`, `provider_subscription_id` unique, `plan` (`starter | pro |
+  business`), `tier_credits` int, `interval` (`'month'|'year'`), `status` text (Stripe status
+  vocabulary), `price_lookup_key` text, `current_period_start/end` timestamptz,
+  `cancel_at_period_end` bool, timestamps + `updatedAt $onUpdate`. Personal owners may use
+  Starter or Pro; organization owners may use Business. Partial unique indexes allow one
+  non-terminal (`status not in ('canceled','incomplete_expired')`) subscription per owner.
 - `billing_webhook_events` — durable inbox with claim leases, attempt counts, failed-event retry, and terminal processed/skipped states.
 - `billing_checkout_attempts` — a UUID nonce is persisted before either subscription or top-up Checkout Session creation; guarded states are `created → session_attached → completed|expired`.
 - `billing_change_intents` — binds a preview, target price, fixed `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome.
@@ -146,11 +195,51 @@ charge.dispute.created
 charge.dispute.closed
 ```
 
-The Stripe seed validates product, amount, currency, recurring interval, and metadata before reusing a lookup-key price. Replacing a mismatched price is a prelaunch-only operation: the script refuses any price attached to a non-terminal Stripe subscription, deactivates the old price before transferring its lookup key, and uses an idempotent replacement create. If a replacement is interrupted after deactivation, leave paid admissions disabled and rerun the seed; do not manually reactivate and sell the stale price. Before the first production deployment, run `pnpm --filter server billing:assert-zero-live-subs`; any nonzero result activates the grandfathering appendix and must stop deployment.
+The Stripe seed validates product, amount, currency, recurring interval, and metadata before
+reusing a lookup-key price. Replacing a mismatched price is a prelaunch-only operation: the
+script refuses any price attached to a non-terminal Stripe subscription, deactivates the old
+price before transferring its lookup key, and uses an idempotent replacement create. If a
+replacement is interrupted after deactivation, leave paid admissions disabled and rerun the
+seed; do not manually reactivate and sell the stale price. For pricing v6, the seed iterates
+only the purchasable tiers for each plan. It must not seed legacy tiers.
 
 Set `STRIPE_PORTAL_CONFIGURATION_ID` to the reviewed restricted Billing Portal configuration in production. Without the override, the provider lists active configurations, reuses the named restricted fallback when present (or creates it once), re-enforces payment methods + invoices + period-end cancellation only, then caches its ID for the process. That fallback is code-owned; Dashboard edits are overwritten the next time a process resolves it.
 
-### Production migration and rollback contract
+### Pricing v6 seed, migration, and deploy order
+
+Use this order exactly.
+
+1. Update the Resend welcome template to use the dynamic grant count, and update the W15/W16
+   credit-threshold subject copy so it no longer quotes the old 25-credit milestone. Do this
+   before changing any database or application code.
+2. Run `pnpm db:migrate`. The repository migrator applies 0065 to 0068 together: 0065
+   adds the `starter` enum label with `IF NOT EXISTS`, 0066 changes the signup grant to
+   700 centi-credits, 0067 lifts it to 1800 centi-credits, and 0068 to 2000 centi-credits (20 credits, pricing v7). This is safe on PostgreSQL 12+: an enum value may be added inside a
+   transaction when it is not used until after commit, and 0066 never references `starter`.
+3. After 0066, restart every server instance or wait more than 30 seconds for each process's
+   product-settings cache to expire before relying on the 20-credit grant.
+4. Deploy contracts, server, web, admin, and the Trigger.dev image together as one release.
+5. Run `pnpm --filter server stripe:seed` in Stripe test mode. Verify exactly 38 new
+   subscription prices: 2 Starter, 18 Pro, and 18 Business. Also verify the 3 re-priced
+   top-ups. Repeat with the live key only after test verification. **Do not archive old Stripe
+   prices**: existing legacy subscriptions need them for up to 12 months.
+6. Run `pnpm --filter server billing:migrate-v6` first and inspect every Stripe and manual row
+   (pricing v7: it maps every legacy tier to the purchasable tier with the same price, e.g. 175 → 250),
+   including its status and reason. Then rerun it with `--apply`. Monthly active/trialing legacy
+   subscriptions switch price/local tier without proration; already-granted current-period
+   credits remain. Yearly subscriptions retain the paid legacy allotment until renewal and use
+   the pending-renewal mechanism. Pause paid admissions, plan changes, and resume operations for
+   the duration of the apply run. Resolve every `failed` row; the apply command exits non-zero
+   when any row fails. Treat the migration as an operational backstop after launch: whenever a
+   legacy subscription is resumed, including through the Billing Portal, rerun the idempotent
+   apply command and then rerun the dry run. Continue doing this after later resumes until the dry
+   run reports no subscriptions requiring migration.
+7. Send `pricing-v6-subscriber-notice.md`; the founder sends it.
+
+### Historical billing-v2 production migration and rollback contract
+
+> The following Redis-to-Trigger procedure is retained as the billing-v2 rollout record. It is
+> not the pricing-v6 deployment sequence; use the ordered runbook above for v6.
 
 > The Redis-to-Trigger cutover is deploy-time operational work. It is documented here but was
 > not executed in this feature worktree. Do not deploy the final consumer-removal image directly
@@ -184,7 +273,7 @@ Env (packages/env server): `STRIPE_SECRET_KEY` (`sk_`), `STRIPE_WEBHOOK_SECRET` 
 ## Does not own
 
 - Chat/generation consume wiring (slice 4 calls `CreditsService.consume` — interface ready here).
-- Credits UI, pricing UI, org/seat mechanics (Better Auth organizations plugin later), LASATIM adapter (port ready), non-card async payment methods.
+- Credits UI, pricing UI, LASATIM adapter (port ready), and non-card async payment methods.
 
 ## Files
 

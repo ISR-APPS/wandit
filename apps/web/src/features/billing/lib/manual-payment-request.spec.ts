@@ -61,6 +61,27 @@ describe("manual subscription request body", () => {
 			tierCredits: 250,
 		});
 	});
+
+	it("assembles a Starter request with its single purchasable tier", () => {
+		expect(
+			assembleManualSubscriptionRequestBody(
+				{ interval: "month", plan: "starter", tierCredits: 60 },
+				{
+					city: "",
+					company: "",
+					country: "DZ",
+					fullName: "Ada Lovelace",
+					notes: "",
+					phone: "+213 555 12 34 56",
+					preferredPaymentMethod: "",
+				},
+			),
+		).toMatchObject({
+			interval: "month",
+			plan: "starter",
+			tierCredits: 60,
+		});
+	});
 });
 
 describe("stepForInvalidFields", () => {

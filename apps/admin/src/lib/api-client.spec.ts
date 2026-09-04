@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiDelete } from "./api-client";
+import { apiDelete, apiPut } from "./api-client";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -20,6 +20,31 @@ describe("admin api client", () => {
 				body: "{}",
 				credentials: "include",
 				method: "DELETE",
+			}),
+		);
+	});
+
+	it("sends JSON bodies with PUT requests", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ data: { updated: true } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			apiPut("/api/v1/admin/users/user-1/admin-views", {
+				views: ["users"],
+			}),
+		).resolves.toEqual({ updated: true });
+		expect(fetchMock).toHaveBeenCalledWith(
+			expect.stringMatching(/\/api\/v1\/admin\/users\/user-1\/admin-views$/),
+			expect.objectContaining({
+				body: JSON.stringify({ views: ["users"] }),
+				credentials: "include",
+				method: "PUT",
 			}),
 		);
 	});

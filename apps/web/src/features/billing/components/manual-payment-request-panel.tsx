@@ -1,6 +1,7 @@
 import type {
 	BillingInterval,
 	BillingPlanCatalogItem,
+	BillingPlanId,
 	CreditTier,
 	ManualSubscriptionRequest,
 	ProductEventSurface,
@@ -67,6 +68,10 @@ import {
 	type ManualRequestStep,
 	stepForInvalidFields,
 } from "@/features/billing/lib/manual-payment-request";
+import {
+	getBillingPlanCopy,
+	getBillingPlanName,
+} from "@/features/billing/lib/plan-copy";
 import { formatUsd, tierPriceUsd } from "@/features/billing/lib/plan-pricing";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
@@ -82,23 +87,33 @@ type ManualRequestField =
 
 type FieldErrors = Partial<Record<ManualRequestField, string>>;
 
+export type ManualPaymentSelection = {
+	interval: BillingInterval;
+	planId: BillingPlanId;
+	tierCredits: CreditTier;
+};
+
 export type ManualPaymentRequestPanelProps = {
-	plan: BillingPlanCatalogItem;
+	plans: readonly BillingPlanCatalogItem[];
 	subscription: Subscription | null;
 	defaultFullName: string;
 	initialInterval?: BillingInterval;
+	initialPlan?: BillingPlanId;
 	initialTierCredits?: CreditTier;
 	onClose: () => void;
+	onSelectionChange: (selection: ManualPaymentSelection) => void;
 	surface: ProductEventSurface;
 };
 
 export function ManualPaymentRequestPanel({
-	plan,
+	plans,
 	subscription,
 	defaultFullName,
 	initialInterval,
+	initialPlan,
 	initialTierCredits,
 	onClose,
+	onSelectionChange,
 	surface,
 }: ManualPaymentRequestPanelProps) {
 	const { locale, t } = useTranslation();
@@ -110,8 +125,14 @@ export function ManualPaymentRequestPanel({
 	const [interval, setInterval] = useState<BillingInterval>(
 		initialInterval ?? subscription?.interval ?? "month",
 	);
-	const [tierCredits, setTierCredits] = useState<CreditTier>(() =>
-		resolveInitialTier(plan, subscription, initialTierCredits),
+	const [planId, setPlanId] = useState<BillingPlanId | undefined>(() =>
+		resolveInitialPlanId(plans, subscription, initialPlan),
+	);
+	const plan = plans.find((item) => item.id === planId) ?? plans[0];
+	const [tierCredits, setTierCredits] = useState<CreditTier | undefined>(() =>
+		plan
+			? resolveInitialTier(plan, subscription, initialTierCredits)
+			: undefined,
 	);
 	const [contact, setContact] = useState<ManualPaymentContactValues>(() => ({
 		city: "",
@@ -138,6 +159,11 @@ export function ManualPaymentRequestPanel({
 		}
 		setStep(next);
 	};
+
+	if (!plan) {
+		return null;
+	}
+
 	const tier =
 		plan.tiers.find((item) => item.tierCredits === tierCredits) ??
 		plan.tiers[0];
@@ -226,11 +252,7 @@ export function ManualPaymentRequestPanel({
 	}
 
 	const managedOffline = isManualSubscription(subscription);
-	const planName = plan.id === "business" ? copy.businessName : copy.proName;
-	const planTagline =
-		plan.id === "business" ? copy.businessTagline : copy.proTagline;
-	const planFeatures =
-		plan.id === "business" ? copy.businessFeatures : copy.proFeatures;
+	const planCopy = getBillingPlanCopy(plan.id, copy);
 
 	return (
 		<form
@@ -318,6 +340,59 @@ export function ManualPaymentRequestPanel({
 						headingRef={stepHeadingRef}
 					/>
 
+					{plans.length > 1 ? (
+						<Field>
+							<FieldLabel>
+								{offline.pending.planLabel}
+								<FieldRequirement>{offline.form.required}</FieldRequirement>
+							</FieldLabel>
+							<ToggleGroup
+								type="single"
+								value={plan.id}
+								variant="outline"
+								spacing={0}
+								className="w-full"
+								aria-label={offline.pending.planLabel}
+								aria-required="true"
+								onValueChange={(value) => {
+									const nextPlan = plans.find((item) => item.id === value);
+
+									if (!nextPlan) return;
+
+									const nextTierCredits = resolveInitialTier(
+										nextPlan,
+										subscription,
+										undefined,
+									);
+									if (nextTierCredits === undefined) return;
+
+									setPlanId(nextPlan.id);
+									setTierCredits(nextTierCredits);
+									onSelectionChange({
+										interval,
+										planId: nextPlan.id,
+										tierCredits: nextTierCredits,
+									});
+									clearFieldError(setFieldErrors, "plan");
+									clearFieldError(setFieldErrors, "tierCredits");
+								}}
+							>
+								{plans.map((item) => (
+									<ToggleGroupItem
+										key={item.id}
+										value={item.id}
+										className="flex-1"
+									>
+										{getBillingPlanName(item.id, copy)}
+									</ToggleGroupItem>
+								))}
+							</ToggleGroup>
+							<FieldError id="offline-plan-error">
+								{fieldErrors.plan}
+							</FieldError>
+						</Field>
+					) : null}
+
 					<Field>
 						<FieldLabel>
 							{copy.billingCycle}
@@ -337,6 +412,11 @@ export function ManualPaymentRequestPanel({
 							onValueChange={(value) => {
 								if (value === "month" || value === "year") {
 									setInterval(value);
+									onSelectionChange({
+										interval: value,
+										planId: plan.id,
+										tierCredits: tier.tierCredits,
+									});
 									clearFieldError(setFieldErrors, "interval");
 								}
 							}}
@@ -360,8 +440,8 @@ export function ManualPaymentRequestPanel({
 					</Field>
 
 					<PlanCard
-						name={planName}
-						tagline={planTagline}
+						name={planCopy.name}
+						tagline={planCopy.tagline}
 						tier={tier}
 						tiers={plan.tiers}
 						basePer100Usd={plan.basePer100Usd}
@@ -371,9 +451,14 @@ export function ManualPaymentRequestPanel({
 						selectLabel={copy.creditTier}
 						onSelectTier={(nextTier) => {
 							setTierCredits(nextTier);
+							onSelectionChange({
+								interval,
+								planId: plan.id,
+								tierCredits: nextTier,
+							});
 							clearFieldError(setFieldErrors, "tierCredits");
 						}}
-						features={planFeatures}
+						features={planCopy.features}
 						featureColumns={2}
 						highlighted
 						action={
@@ -397,7 +482,7 @@ export function ManualPaymentRequestPanel({
 
 					<div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-muted/30 px-4 py-3">
 						<div className="min-w-0">
-							<p className="font-medium text-sm">{planName}</p>
+							<p className="font-medium text-sm">{planCopy.name}</p>
 							<p className="mt-0.5 text-muted-foreground text-xs">
 								{t("credits.creditUnit", { count: tier.tierCredits })}
 								{" · "}
@@ -749,9 +834,7 @@ function PendingManualRequest({
 				<dl className="mt-5 grid gap-3 rounded-xl border bg-background/70 p-4 sm:grid-cols-2">
 					<RequestDetail
 						label={offline.pending.planLabel}
-						value={
-							request.plan === "business" ? copy.businessName : copy.proName
-						}
+						value={getBillingPlanName(request.plan, copy)}
 					/>
 					<RequestDetail
 						label={offline.pending.tierLabel}
@@ -938,17 +1021,25 @@ function resolveInitialTier(
 	plan: BillingPlanCatalogItem,
 	subscription: Subscription | null,
 	initialTierCredits: CreditTier | undefined,
-): CreditTier {
+): CreditTier | undefined {
 	const requestedTier =
 		initialTierCredits ??
 		(subscription?.plan === plan.id ? subscription.tierCredits : undefined);
 
 	return (
 		plan.tiers.find((tier) => tier.tierCredits === requestedTier)
-			?.tierCredits ??
-		plan.tiers[0]?.tierCredits ??
-		250
+			?.tierCredits ?? plan.tiers[0]?.tierCredits
 	);
+}
+
+function resolveInitialPlanId(
+	plans: readonly BillingPlanCatalogItem[],
+	subscription: Subscription | null,
+	initialPlan: BillingPlanId | undefined,
+): BillingPlanId | undefined {
+	const requestedPlan = initialPlan ?? subscription?.plan;
+
+	return plans.find((plan) => plan.id === requestedPlan)?.id ?? plans[0]?.id;
 }
 
 function localizeIssues(

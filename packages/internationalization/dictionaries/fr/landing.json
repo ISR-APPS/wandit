@@ -1,6 +1,6 @@
 {
 	"meta": {
-		"title": "Wandit — des landing pages IA qui vendent",
+		"title": "Wandit — Créateur de business IA",
 		"description": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes."
 	},
 	"nav": {
@@ -145,7 +145,7 @@
 			},
 			"credits": {
 				"title": "Crédits transparents",
-				"body": "Tu paies le coût IA mesuré de chaque action, à 0,04 $ le crédit. Aucune marge, aucune facture surprise."
+				"body": "Chaque action de l’IA utilise des crédits. Ton solde indique ce que chaque exécution a consommé. Aucune facture surprise."
 			},
 			"mobile": {
 				"title": "Pages mobile-first",
@@ -166,23 +166,46 @@
 	"pricing": {
 		"meta": {
 			"title": "Tarifs — Wandit",
-			"description": "Commence gratuitement et passe à Pro quand il te faut plus de crédits. Tarification simple, mensuelle ou annuelle."
+			"description": "Commence gratuitement, passe à Starter pour 9 $, ou à Pro quand il te faut plus de crédits. Facturation mensuelle ou annuelle."
 		},
 		"kicker": "Tarifs",
-		"title": "Un seul plan. Choisis ton rythme.",
+		"title": "Commence petit. Évolue quand tu as besoin de plus.",
 		"note": "La publication reste gratuite. Les actions IA, dont la collecte de leads, utilisent des crédits.",
 		"free": {
 			"name": "Gratuit",
 			"tagline": "Pour la bêta et tes premiers projets",
 			"price": "Gratuit",
-			"creditsLine": "Crédits d’inscription lorsqu’ils sont disponibles",
+			"creditsLine": {
+				"zero": "{count} crédit gratuit",
+				"one": "{count} crédit gratuit",
+				"two": "{count} crédits gratuits",
+				"few": "{count} crédits gratuits",
+				"many": "{count} crédits gratuits",
+				"other": "{count} crédits gratuits"
+			},
+			"creditsFallback": "Crédits d’inscription lorsqu’ils sont disponibles",
 			"features": [
 				"Publication toujours gratuite",
 				"La collecte de leads utilise des crédits",
 				"Pages en AR, FR & EN",
-				"Passe à Pro quand tu as besoin de plus d’IA"
+				"Passe à une offre payante quand tu as besoin de plus d’IA"
 			],
 			"cta": "Commencer gratuitement"
+		},
+		"starter": {
+			"name": "Starter",
+			"tagline": "Pour ta première boutique et tes premières campagnes",
+			"creditsLine": "50 crédits chaque mois",
+			"perMonth": "/ mois",
+			"perYear": "/ an",
+			"features": [
+				"Pages de boutique créées par l'IA en quelques minutes",
+				"Images produit et textes marketing par l'IA",
+				"Domaine personnalisé inclus",
+				"CRM de leads pour les commandes",
+				"Publication toujours gratuite, résiliable à tout moment"
+			],
+			"cta": "Choisir Starter"
 		},
 		"pro": {
 			"name": "Pro",
@@ -231,7 +254,7 @@
 		"items": [
 			{
 				"q": "C'est quoi les crédits ?",
-				"a": "Les crédits sont la monnaie unique de Wandit : 1 crédit = 0,04 $ de coût IA. Il n'y a pas de prix fixes. Chaque page, image, vidéo, visuel marketing ou modif en chat est mesuré, et tu paies exactement ce que le fournisseur IA a facturé — une petite modif coûte une fraction de crédit, une longue génération de page coûte plus. Ton solde indique ce que chaque exécution a consommé."
+				"a": "Les crédits sont la monnaie unique de Wandit. Chaque création de page, d’image ou de vidéo, ainsi que chaque modification par chat, utilise des crédits. Une courte modification par chat utilise une fraction de crédit. Une longue création de page en utilise davantage. Ton solde indique ce que chaque exécution a consommé."
 			},
 			{
 				"q": "La publication est-elle gratuite ?",

@@ -6,6 +6,7 @@ import {
 	backfillSignupGrantsBodySchema,
 	backfillSignupGrantsResponseSchema,
 	patchProductSettingsBodySchema,
+	productSettingsSchema,
 	productSettingsUpdateResponseSchema,
 	publicSettingsSchema,
 } from "@wandit/contracts";
@@ -39,7 +40,7 @@ describe("workstream 5 contract round-trips", () => {
 			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
-			signupGrantCredits: 50,
+			signupGrantCredits: 20,
 			signupGrantEnabled: true,
 			topupsEnabled: true,
 			updatedAt: "2026-08-22T10:00:00.000Z",
@@ -68,6 +69,50 @@ describe("workstream 5 contract round-trips", () => {
 		expect(publicSettingsSchema.shape).not.toHaveProperty(
 			"lifecycleEmailsEnabled",
 		);
+	});
+
+	it.each([
+		0.5, 7,
+	])("accepts a public signup grant count of %s credits", (signupGrantCredits) => {
+		expect(
+			publicSettingsSchema.parse({
+				emailAuthEnabled: false,
+				manualGraceDays: 0,
+				manualPaymentsEnabled: false,
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: false,
+				signupGrantCredits,
+				signupGrantEnabled: true,
+				topupsEnabled: false,
+			}),
+		).toMatchObject({ signupGrantCredits });
+	});
+
+	it("keeps fractional signup grants invalid in admin settings contracts", () => {
+		const adminSettings = {
+			dzdPerUsdRate: 270,
+			emailAuthEnabled: false,
+			id: 1,
+			lifecycleEmailsEnabled: false,
+			manualGraceDays: 0,
+			manualPaymentsEnabled: false,
+			organizationsEnabled: false,
+			paidSubscriptionsEnabled: false,
+			signupGrantCredits: 0.5,
+			signupGrantEnabled: true,
+			topupsEnabled: false,
+			updatedAt: "2026-08-22T10:00:00.000Z",
+			updatedByUserId: null,
+			version: 1,
+		};
+
+		expect(productSettingsSchema.safeParse(adminSettings).success).toBe(false);
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				signupGrantCredits: 0.5,
+				version: 1,
+			}).success,
+		).toBe(false);
 	});
 
 	it("keeps the DZD rate writable by admins but out of public settings", () => {

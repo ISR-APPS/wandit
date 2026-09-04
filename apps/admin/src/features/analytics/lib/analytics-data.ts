@@ -106,11 +106,10 @@ const daysToConvertBucketLabels = {
 
 const consumptionBucketLabels = {
 	"0": "0 credits",
-	"1-9": "1–9 credits",
-	"10-24": "10–24 credits",
-	"25-39": "25–39 credits",
-	"40-49": "40–49 credits",
-	"50+": "50+ credits",
+	"1-4": "1–4 credits",
+	"5-9": "5–9 credits",
+	"10-19": "10–19 credits",
+	"20+": "20+ credits",
 } satisfies Record<AdminAnalyticsConsumptionBucket, string>;
 
 const acquisitionSourceLabels = new Map<string, string>([
@@ -153,7 +152,7 @@ export const funnelStepMetadata: Record<
 	healthyTrial: {
 		label: "Healthy trial",
 		tooltip:
-			"Free users who used at least 20 credits and completed at least two generations in their first seven days.",
+			"Free users who used at least 8 credits and completed at least two generations in their first seven days.",
 	},
 	pricingViewed: {
 		label: "Pricing viewed",

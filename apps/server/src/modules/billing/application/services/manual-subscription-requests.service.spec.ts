@@ -50,7 +50,7 @@ const body: CreateManualSubscriptionRequestBody = {
 	phone: "+213 661 22 33 44",
 	plan: "pro",
 	preferredPaymentMethod: "ccp",
-	tierCredits: 500,
+	tierCredits: 350,
 };
 
 function requestRow(
@@ -93,11 +93,11 @@ function subscriptionRow(provider: "manual" | "stripe"): SubscriptionRow {
 		pendingAppliedBy: null,
 		pendingTierCredits: null,
 		plan: "pro",
-		priceLookupKey: "pro_500_month",
+		priceLookupKey: "pro_350_month",
 		provider,
 		providerSubscriptionId: `${provider}_subscription_1`,
 		status: "active",
-		tierCredits: 500,
+		tierCredits: 350,
 		updatedAt: NOW,
 		userId: user.id,
 	};
@@ -115,7 +115,7 @@ function productSettings(
 		manualPaymentsEnabled: true,
 		organizationsEnabled: true,
 		paidSubscriptionsEnabled: true,
-		signupGrantCredits: 50,
+		signupGrantCredits: 700,
 		signupGrantEnabled: true,
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
@@ -231,6 +231,40 @@ describe("ManualSubscriptionRequestsService", () => {
 			response: { code: "WORKSPACE_NOT_SUPPORTED" },
 			status: 400,
 		});
+
+		await expect(
+			service.create(
+				user,
+				{ ...body, plan: "starter", tierCredits: 50 },
+				{
+					kind: "org",
+					organizationId: "org_1",
+					role: "owner",
+					roles: ["owner"],
+				},
+			),
+		).rejects.toMatchObject({
+			response: { code: "WORKSPACE_NOT_SUPPORTED" },
+			status: 400,
+		});
+	});
+
+	it("accepts Starter for a personal workspace", async () => {
+		const { requests, service } = setup();
+
+		await expect(
+			service.create(
+				user,
+				{ ...body, plan: "starter", tierCredits: 50 },
+				personalWorkspace,
+			),
+		).resolves.toMatchObject({
+			request: { plan: "starter", tierCredits: 50 },
+		});
+		expect(requests.insert).toHaveBeenCalledWith(
+			expect.objectContaining({ plan: "starter", tierCredits: 50 }),
+			expect.anything(),
+		);
 	});
 
 	it("blocks a request when the owner has a Stripe subscription", async () => {
@@ -305,7 +339,7 @@ describe("ManualSubscriptionRequestsService", () => {
 				preferredPaymentMethod: "ccp",
 				status: "pending",
 				subscriptionId: null,
-				tierCredits: 500,
+				tierCredits: 350,
 				updatedAt: NOW.toISOString(),
 			},
 		});
@@ -323,7 +357,7 @@ describe("ManualSubscriptionRequestsService", () => {
 				plan: "pro",
 				preferredPaymentMethod: "ccp",
 				status: "pending",
-				tierCredits: 500,
+				tierCredits: 350,
 				userId: "user_1",
 			},
 			transaction,
@@ -335,7 +369,7 @@ describe("ManualSubscriptionRequestsService", () => {
 				country: "DZ",
 				interval: "month",
 				plan: "pro",
-				tierCredits: 500,
+				tierCredits: 350,
 			},
 		);
 		expect(email.sendManualRequestEmail).toHaveBeenCalledWith(
@@ -346,7 +380,7 @@ describe("ManualSubscriptionRequestsService", () => {
 				interval: "month",
 				phone: "+213 661 22 33 44",
 				plan: "pro",
-				tierCredits: 500,
+				tierCredits: 350,
 			},
 		);
 	});

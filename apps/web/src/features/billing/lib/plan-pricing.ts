@@ -1,18 +1,16 @@
 import type {
 	BillingInterval,
 	BillingTierPrice,
-	CreditTier,
 	Subscription,
 } from "@wandit/contracts";
+import { priceUsdFor } from "@wandit/contracts";
 import type { Locale } from "@wandit/internationalization";
 
-// Pro base rate: $30 per 200 credits. Business passes its own basePer100Usd
-// (2× Pro) so its volume discounts surface instead of comparing against Pro.
-const DEFAULT_BASE_PER_100_USD = 10;
-
+// Savings are relative to the selected plan's own base rate. Requiring the
+// caller to provide it prevents Starter or Business from inheriting Pro math.
 export function tierSavingsPercent(
 	tier: Pick<BillingTierPrice, "monthlyUsd" | "tierCredits">,
-	basePer100Usd: number = DEFAULT_BASE_PER_100_USD,
+	basePer100Usd: number,
 ): number {
 	const retailMonthlyUsd = (tier.tierCredits / 100) * basePer100Usd;
 
@@ -27,19 +25,27 @@ export function tierPriceUsd(
 }
 
 export function formatUsd(value: number, locale: Locale): string {
+	const fractionDigits = Number.isInteger(value) ? 0 : 2;
+
 	return new Intl.NumberFormat(locale, {
 		style: "currency",
 		currency: "USD",
-		maximumFractionDigits: 0,
+		minimumFractionDigits: fractionDigits,
+		maximumFractionDigits: fractionDigits,
 	}).format(value);
 }
 
 export function isRenewalDowngrade(
-	subscription: Pick<Subscription, "interval" | "tierCredits">,
-	target: { interval: BillingInterval; tierCredits: CreditTier },
+	subscription: Pick<Subscription, "interval" | "plan" | "tierCredits">,
+	target: Pick<Subscription, "interval" | "plan" | "tierCredits">,
 ): boolean {
 	return (
 		subscription.interval === target.interval &&
-		target.tierCredits < subscription.tierCredits
+		priceUsdFor(target.plan, target.tierCredits, target.interval) <
+			priceUsdFor(
+				subscription.plan,
+				subscription.tierCredits,
+				subscription.interval,
+			)
 	);
 }

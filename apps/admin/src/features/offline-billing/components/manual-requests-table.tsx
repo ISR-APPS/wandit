@@ -8,6 +8,7 @@ import {
 	HandCoinsIcon,
 	MessageSquareTextIcon,
 	PhoneCallIcon,
+	PrinterIcon,
 	RefreshCwIcon,
 	SearchIcon,
 	XCircleIcon,
@@ -461,6 +462,29 @@ function ManualRequestActions({
 							<EyeIcon />
 							View details
 						</DropdownMenuItem>
+						<DropdownMenuItem asChild>
+							{request.subscriptionId ? (
+								<Link
+									to="/offline-billing/$subscriptionId/receipt"
+									params={{ subscriptionId: request.subscriptionId }}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<PrinterIcon />
+									Print receipt
+								</Link>
+							) : (
+								<Link
+									to="/offline-billing/requests/$requestId/receipt"
+									params={{ requestId: request.id }}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<PrinterIcon />
+									Print receipt
+								</Link>
+							)}
+						</DropdownMenuItem>
 						{canManage && request.status === "pending" ? (
 							<DropdownMenuItem
 								disabled={updateMutation.isPending}
@@ -517,6 +541,7 @@ function ManualRequestActions({
 					prefill={{
 						user: request.user,
 						organization: request.organization ?? undefined,
+						plan: request.plan,
 						tierCredits: request.tierCredits,
 						interval: request.interval,
 						requestId: request.id,
@@ -528,6 +553,7 @@ function ManualRequestActions({
 				<RenewManualSubscriptionDialog
 					subscription={{
 						id: currentManualSubscription.id,
+						plan: currentManualSubscription.plan,
 						interval: currentManualSubscription.interval,
 						tierCredits: currentManualSubscription.tierCredits,
 						currentPeriodEnd: currentManualSubscription.currentPeriodEnd,
@@ -537,6 +563,7 @@ function ManualRequestActions({
 						ownerLabel: request.organization?.name ?? request.fullName,
 					}}
 					requested={{
+						plan: request.plan,
 						interval: request.interval,
 						tierCredits: request.tierCredits,
 					}}
