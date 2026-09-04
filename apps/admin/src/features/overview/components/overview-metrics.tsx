@@ -149,7 +149,7 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "healthy-trials",
 			label: "Healthy trials",
 			tooltip:
-				"Free users who really used the product: 3+ credits and 2+ generations in their first 7 days.",
+				"Free users who really used the product: 7+ credits and 2+ generations in their first 7 days.",
 			value: formatOverviewWholeNumber(snapshot.healthyTrials.count),
 			description: "Qualified in first 7 days",
 			icon: HeartPulseIcon,

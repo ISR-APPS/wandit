@@ -49,7 +49,7 @@ export const LIVE_SUBSCRIPTION_STATUSES = [
 
 // Healthy-trial threshold in WHOLE credits. Ledger sums are integer
 // centi-credits, so SQL comparisons interpolate the centi variant below.
-export const HEALTHY_TRIAL_MIN_CREDITS = 3;
+export const HEALTHY_TRIAL_MIN_CREDITS = 7;
 export const HEALTHY_TRIAL_MIN_CENTI_CREDITS = creditsToCentiCredits(
 	HEALTHY_TRIAL_MIN_CREDITS,
 );
@@ -145,10 +145,10 @@ export function consumptionBucket(
 	const normalizedCredits = normalizeBucketValue(creditsConsumed);
 
 	if (normalizedCredits === 0) return "0";
-	if (normalizedCredits <= 2) return "1-2";
-	if (normalizedCredits <= 4) return "3-4";
-	if (normalizedCredits <= 6) return "5-6";
-	return "7+";
+	if (normalizedCredits <= 4) return "1-4";
+	if (normalizedCredits <= 9) return "5-9";
+	if (normalizedCredits <= 17) return "10-17";
+	return "18+";
 }
 
 export function assembleAcquisitionResponse(

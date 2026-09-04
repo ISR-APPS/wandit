@@ -110,8 +110,8 @@ export const productSettings = pgTable(
 		signupGrantEnabled: boolean("signup_grant_enabled")
 			.notNull()
 			.default(false),
-		// UNIT: centi-credits (700 cc = 7 credits).
-		signupGrantCredits: integer("signup_grant_credits").notNull().default(700),
+		// UNIT: centi-credits (1800 cc = 18 credits).
+		signupGrantCredits: integer("signup_grant_credits").notNull().default(1800),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),

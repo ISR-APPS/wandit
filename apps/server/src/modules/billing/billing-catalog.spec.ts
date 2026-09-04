@@ -238,7 +238,7 @@ describe("billing catalog", () => {
 	});
 
 	it("exports the exact signup grant and bucket policies", () => {
-		expect(SIGNUP_GRANT_CREDITS).toBe(7);
+		expect(SIGNUP_GRANT_CREDITS).toBe(18);
 		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);
 		expect(PURCHASED_CREDIT_BUCKETS).toEqual(["plan", "topup"]);
 	});
