@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	classifyHiggsfieldState,
-	classifyKlingCode,
 	classifyOpenRouterStatus,
 	classifyProviderRejection,
-	classifySeedanceType,
 	HIGGSFIELD_NSFW_MESSAGE,
 	hasCapacitySignal,
 	hasProviderAccountSignal,
@@ -27,25 +25,6 @@ describe("provider signatures", () => {
 		}
 
 		expect(isOpenAiImageModerationCode("invalid_request")).toBe(false);
-	});
-
-	it("maps the documented Kling and Seedance signals", () => {
-		expect(classifyKlingCode(1301)).toBe("content_moderated");
-		expect(classifyKlingCode("1302")).toBe("rate_limited");
-		expect(classifyKlingCode("Kling rejected with code 1102")).toBe(
-			"auth_config",
-		);
-		expect(classifyKlingCode(1501)).toBe("capacity");
-		expect(classifyKlingCode(1502)).toBe("timeout");
-		expect(classifySeedanceType("SensitiveContentDetected")).toBe(
-			"content_moderated",
-		);
-		expect(
-			classifySeedanceType("Provider said QuotaExceeded for this call"),
-		).toBe("auth_config");
-		expect(classifySeedanceType("STALE_REQUEST_EXPIRED")).toBe(
-			"provider_error",
-		);
 	});
 
 	it("keeps OpenRouter moderation metadata away from flagged_input", () => {
@@ -85,15 +64,10 @@ describe("provider signatures", () => {
 				"Project quota limit reached",
 			]),
 		).toBe(true);
-		expect(hasProviderAccountSignal("klingai", [1102])).toBe(true);
-		expect(hasProviderAccountSignal("bytedance", ["QuotaExceeded"])).toBe(true);
 	});
 
 	it("detects moderation, capacity, and raw refusal markers", () => {
-		expect(hasProviderModerationSignal("klingai", ["code 1301"])).toBe(true);
-		expect(
-			hasProviderModerationSignal("bytedance", ["SensitiveContentDetected"]),
-		).toBe(true);
+		expect(hasProviderModerationSignal("higgsfield", ["nsfw"])).toBe(true);
 		expect(hasCapacitySignal(["server busy"])).toBe(true);
 		expect(hasCapacitySignal(["RESOURCE_EXHAUSTED quota"])).toBe(false);
 		expect(isRawModerationFinishReason("IMAGE_SAFETY")).toBe(true);

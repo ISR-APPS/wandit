@@ -76,15 +76,14 @@ describe("AffiliateAdminRepository referred quality SQL", () => {
 		for (const table of [
 			"page_generation_attempts",
 			"image_generation_attempts",
-			"media_generation_attempts",
 			"marketing_assets",
 			"connector_generation_attempts",
 			"lead_scrape_attempts",
 		]) {
 			expect(query.sql).toContain(`from ${table} a`);
 		}
-		expect(query.sql.match(/a\.status = 'succeeded'/g)).toHaveLength(6);
-		expect(query.sql.match(/left join lateral/g)).toHaveLength(5);
+		expect(query.sql.match(/a\.status = 'succeeded'/g)).toHaveLength(5);
+		expect(query.sql.match(/left join lateral/g)).toHaveLength(4);
 		expect(query.sql).toContain(
 			"case when p.organization_id is null then p.user_id end",
 		);

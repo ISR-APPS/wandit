@@ -9,8 +9,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	GenerateImagePlacement,
+	GenerationStatus,
 	ImageGenerationAspect,
-	MediaGenerationStatus,
 } from "@wandit/contracts";
 import { and, desc, eq, inArray, isNull, sql } from "@wandit/db";
 import { versions } from "@wandit/db/schema/artifacts";
@@ -51,7 +51,7 @@ export type ImageGenerationAttemptRow = {
 	prompt: string;
 	sourceImageUrls: string[];
 	spec: Record<string, unknown> | null;
-	status: MediaGenerationStatus;
+	status: GenerationStatus;
 	sentryEventId: string | null;
 	title: string;
 };

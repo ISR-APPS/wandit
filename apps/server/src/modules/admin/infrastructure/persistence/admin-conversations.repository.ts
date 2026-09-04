@@ -898,25 +898,6 @@ function aiFailuresUnion(): SQL {
 		union all
 
 		select
-			'media',
-			a.id::text,
-			a.chat_id,
-			a.project_id,
-			p.user_id,
-			a.failure_kind,
-			a.failure_source,
-			a.failure_provider,
-			a.failure_provider_message,
-			a.failure_request_id,
-			a.sentry_event_id,
-			a.created_at
-		from media_generation_attempts a
-		inner join projects p on p.id = a.project_id
-		where a.failure_kind is not null
-
-		union all
-
-		select
 			'marketing',
 			a.id::text,
 			a.chat_id,
@@ -1031,39 +1012,6 @@ function generationAttemptQuery(
 				limit 1
 			`;
 
-		case "media":
-			return sql`
-				select
-					a.id::text as id,
-					a.status::text as status,
-					a.error,
-					a.failure_kind,
-					a.failure_source,
-					a.failure_provider,
-					a.failure_provider_message,
-					a.failure_request_id,
-					a.sentry_event_id,
-					a.created_at,
-					coalesce(a.completed_at, a.started_at) as updated_at,
-					a.project_id,
-					p.user_id,
-					jsonb_build_object(
-						'triggerRunId', a.trigger_run_id,
-						'kind', a.kind::text,
-						'model', a.model,
-						'quality', a.quality,
-						'talking', a.talking,
-						'title', a.title,
-						'durationSeconds', a.duration_seconds,
-						'startedAt', a.started_at,
-						'completedAt', a.completed_at
-					) as raw
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				where a.id = ${attemptId}::uuid
-				limit 1
-			`;
-
 		case "marketing":
 			return sql`
 				select
@@ -1166,7 +1114,6 @@ function mapFailureSurface(surface: string): AdminAiFailure["surface"] {
 	switch (surface) {
 		case "chat":
 		case "image":
-		case "media":
 		case "marketing":
 		case "connector":
 		case "page":

@@ -4,16 +4,8 @@ import {
 	applyElementOpsInputSchema,
 	applyElementOpsOutputSchema,
 	askUserOutputSchema,
-	editVideoInputSchema,
-	editVideoOutputSchema,
-	extendVideoInputSchema,
-	extendVideoOutputSchema,
 	insertSectionInputSchema,
 	insertSectionOutputSchema,
-	inspectVideoInputSchema,
-	inspectVideoOutputSchema,
-	productVideoInputSchema,
-	productVideoOutputSchema,
 	readAttachmentInputSchema,
 	readAttachmentOutputSchema,
 	readElementsInputSchema,
@@ -162,7 +154,6 @@ function buildService({
 	};
 	const pageEditsService = {};
 	const leadScrapesRepository = {};
-	const mediaGenerationsRepository = {};
 	const marketingAssetsRepository = {};
 	const imageGenerationsRepository = {};
 	const leadsRepository = {
@@ -226,13 +217,6 @@ function buildService({
 		}),
 		...pricingOverrides,
 	};
-	const videoDirector = {
-		craftVideoPrompt: vi.fn().mockResolvedValue({
-			directed: false,
-			negativePrompt: "",
-			prompt: "One continuous shot.",
-		}),
-	};
 	const connectorGenerationsRepository = {
 		listSucceededByIdsForScope: vi.fn().mockResolvedValue([]),
 	};
@@ -242,15 +226,13 @@ function buildService({
 		pagesRepository as unknown as AiChatServiceDependencies[2],
 		pageEditsService as unknown as AiChatServiceDependencies[3],
 		leadScrapesRepository as unknown as AiChatServiceDependencies[4],
-		mediaGenerationsRepository as unknown as AiChatServiceDependencies[5],
-		videoDirector as unknown as AiChatServiceDependencies[6],
-		marketingAssetsRepository as unknown as AiChatServiceDependencies[7],
-		imageGenerationsRepository as unknown as AiChatServiceDependencies[8],
-		mcpChatToolsService as unknown as AiChatServiceDependencies[9],
-		meteringService as unknown as AiChatServiceDependencies[10],
-		modelPricingService as unknown as AiChatServiceDependencies[11],
-		leadsRepository as unknown as AiChatServiceDependencies[12],
-		creditsService as unknown as AiChatServiceDependencies[13],
+		marketingAssetsRepository as unknown as AiChatServiceDependencies[5],
+		imageGenerationsRepository as unknown as AiChatServiceDependencies[6],
+		mcpChatToolsService as unknown as AiChatServiceDependencies[7],
+		meteringService as unknown as AiChatServiceDependencies[8],
+		modelPricingService as unknown as AiChatServiceDependencies[9],
+		leadsRepository as unknown as AiChatServiceDependencies[10],
+		creditsService as unknown as AiChatServiceDependencies[11],
 	);
 
 	return {
@@ -2275,7 +2257,7 @@ describe("AiChatService MCP lifecycle", () => {
 					error: new InsufficientCreditsError(2500, 300),
 					input: {},
 					toolCallId: "tool_1",
-					toolName: "animate_image",
+					toolName: "generate_image",
 					type: "tool-error",
 				});
 				controller.close();
@@ -2381,23 +2363,6 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(context).toContain("--- ads-creative ---");
 		expect(context).toContain("# ADS SKILL");
 		expect(context).not.toContain("seo-review");
-	});
-
-	it("gates inspect_video for a configured Higgsfield connector without resolved tools", async () => {
-		const { leadsRepository, service } = buildService({
-			mcpResult: createMcpResult({
-				configuredSlugs: ["higgsfield"],
-				connectedSlugs: [],
-			}),
-		});
-
-		await service.stream(streamOptions());
-
-		expect(leadsRepository.getAdsTrackingFacts).not.toHaveBeenCalled();
-		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
-			expect.objectContaining({ hasHiggsfieldConnector: true }),
-		);
-		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
 	});
 
 	it("keeps the turn running when the tracking facts lookup fails", async () => {
@@ -2551,7 +2516,7 @@ describe("AiChatService MCP lifecycle", () => {
 		);
 	});
 
-	it("collects attached videos separately from read_attachment documents", async () => {
+	it("excludes media attachments from read_attachment documents", async () => {
 		const { service } = buildService();
 		const messages: WanditUIMessage[] = [
 			{
@@ -2624,22 +2589,6 @@ describe("AiChatService MCP lifecycle", () => {
 						filename: "notes.csv",
 						mediaType: "text/csv",
 						url: "https://assets.example.com/notes.csv",
-					},
-				],
-			}),
-		);
-		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
-			expect.objectContaining({
-				availableVideos: [
-					{
-						filename: "reference.mp4",
-						mediaType: "video/mp4",
-						url: "https://assets.example.com/reference.mp4",
-					},
-					{
-						filename: "second-reference.webm",
-						mediaType: "video/webm",
-						url: "https://assets.example.com/second-reference.webm",
 					},
 				],
 			}),
@@ -3125,80 +3074,6 @@ describe("completeDanglingToolCalls ask_user", () => {
 	});
 });
 
-describe("completeDanglingToolCalls video revision tools", () => {
-	it("repairs an incomplete product_video call with schema-valid input and output", () => {
-		const repaired = repairBuiltInPart({
-			input: { productName: "unfinished" },
-			state: "input-streaming",
-			toolCallId: "call-product-video",
-			type: "tool-product_video",
-		});
-
-		expect(repaired).toMatchObject({
-			input: {
-				image: {
-					url: "https://invalid.local/interrupted-product-image.jpg",
-				},
-				preset: "orbit",
-				productName: "Unknown product",
-				title: "Interrupted product video",
-			},
-			output: { status: "unavailable" },
-			state: "output-available",
-		});
-		expect(productVideoInputSchema.safeParse(repaired.input).success).toBe(
-			true,
-		);
-		expect(productVideoOutputSchema.safeParse(repaired.output).success).toBe(
-			true,
-		);
-	});
-
-	it("repairs an incomplete edit_video call with schema-valid input and output", () => {
-		const repaired = repairBuiltInPart({
-			input: { instruction: "unfinished" },
-			state: "input-streaming",
-			toolCallId: "call-edit-video",
-			type: "tool-edit_video",
-		});
-
-		expect(repaired).toMatchObject({
-			input: {
-				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
-				title: "Interrupted video edit",
-			},
-			output: { status: "unavailable" },
-			state: "output-available",
-		});
-		expect(editVideoInputSchema.safeParse(repaired.input).success).toBe(true);
-		expect(editVideoOutputSchema.safeParse(repaired.output).success).toBe(true);
-	});
-
-	it("repairs an incomplete extend_video call with schema-valid input and output", () => {
-		const repaired = repairBuiltInPart({
-			input: { continuationBrief: "unfinished" },
-			state: "input-streaming",
-			toolCallId: "call-extend-video",
-			type: "tool-extend_video",
-		});
-
-		expect(repaired).toMatchObject({
-			input: {
-				legCount: 1,
-				legDurationSeconds: 5,
-				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
-				title: "Interrupted video extension",
-			},
-			output: { status: "unavailable" },
-			state: "output-available",
-		});
-		expect(extendVideoInputSchema.safeParse(repaired.input).success).toBe(true);
-		expect(extendVideoOutputSchema.safeParse(repaired.output).success).toBe(
-			true,
-		);
-	});
-});
-
 describe("completeDanglingToolCalls page tools", () => {
 	it("repairs apply_element_ops with schema-valid rejected output", () => {
 		const repaired = repairBuiltInPart({
@@ -3315,32 +3190,6 @@ describe("completeDanglingToolCalls page tools", () => {
 			true,
 		);
 		expect(readAttachmentOutputSchema.safeParse(repaired.output).success).toBe(
-			true,
-		);
-	});
-
-	it("repairs inspect_video with a schema-valid unavailable result", () => {
-		const repaired = repairBuiltInPart({
-			input: { focus: "structure", url: "unfinished" },
-			state: "input-streaming",
-			toolCallId: "call-inspect-video",
-			type: "tool-inspect_video",
-		});
-
-		expect(repaired).toMatchObject({
-			input: {
-				focus: "structure",
-				url: "https://wandit.invalid/interrupted-video",
-			},
-			output: {
-				status: "unavailable",
-			},
-			state: "output-available",
-		});
-		expect(inspectVideoInputSchema.safeParse(repaired.input).success).toBe(
-			true,
-		);
-		expect(inspectVideoOutputSchema.safeParse(repaired.output).success).toBe(
 			true,
 		);
 	});

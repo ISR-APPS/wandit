@@ -533,7 +533,7 @@ export class AdminOverviewRepository {
 		input: AdminDashboardRangeBounds,
 	) {
 		// MOCK DATA: Page-build images live only in R2; metering cannot distinguish
-		// successful asset writes from billed upload failures, so these totals omit them.
+		// successful asset writes from billed upload failures, so this total omits them.
 		const result = await client.execute<AssetTotalsRow>(sql`
 			with bounds as (${overviewBounds(input)}),
 			image_outputs as (
@@ -563,25 +563,12 @@ export class AdminOverviewRepository {
 					), 0)::bigint as previous_images
 				from image_outputs i
 				cross join bounds b
-			),
-			media_totals as (
-				-- Each successful media attempt persists one generated video asset.
-				select
-					count(*) filter (
-						where coalesce(m.completed_at, m.created_at) >= b.current_start
-					)::bigint as current_media
-				from media_generation_attempts m
-				cross join bounds b
-				where m.status = 'succeeded'
-					and coalesce(m.completed_at, m.created_at) >= b.previous_start
-					and coalesce(m.completed_at, m.created_at) < b.current_end
 			)
 			select
 				i.current_images as images_generated,
-				(i.current_images + m.current_media)::bigint as assets_generated,
+				i.current_images as assets_generated,
 				${percentChangeSql(sql`i.current_images`, sql`i.previous_images`)} as images_change_percent
 			from image_totals i
-			cross join media_totals m
 		`);
 
 		const totals = result.rows[0];
@@ -624,13 +611,6 @@ export class AdminOverviewRepository {
 				where i.status in ('succeeded', 'failed')
 					and i.completed_at >= b.previous_start
 					and i.completed_at < b.current_end
-				union all
-				select m.status::text, m.created_at, m.completed_at
-				from media_generation_attempts m
-				cross join bounds b
-				where m.status in ('succeeded', 'failed')
-					and m.completed_at >= b.previous_start
-					and m.completed_at < b.current_end
 				union all
 				select a.status::text, a.created_at, a.completed_at
 				from marketing_assets a

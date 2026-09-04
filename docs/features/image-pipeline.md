@@ -11,7 +11,6 @@ receives.
 | User upload | `POST /api/v1/attachments` → `UploadsService.uploadAttachment` | `uploads/{userId}/{uuid}/{filename}` |
 | Builder image | `generate_image` tool → `generateBuildImage` | `sites/{projectId}/assets/{attemptId}/img-{n}.{ext}` |
 | Standalone image | `generateStandaloneImage` | `images/{projectId}/{attemptId}/img-{n}.{ext}` |
-| Builder video | `animate_image` tool → `generateBuildVideo` | `sites/{projectId}/assets/{attemptId}/vid-{n}.{ext}` |
 
 `apps/server/src/infrastructure/storage/r2.ts` owns every key layout. Do not
 build a key at a call site.

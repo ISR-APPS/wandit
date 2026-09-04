@@ -663,83 +663,6 @@
 			"questionCount": "{count} أسئلة",
 			"answeredCount": "تمت الإجابة على {answered}/{total}"
 		},
-		"animateImage": {
-			"preparing": "جارٍ تحضير تحريك صورتك…",
-			"queueing": "جارٍ إضافة التحريك إلى قائمة الانتظار…",
-			"failedToStart": "تعذّر بدء التحريك",
-			"failedTitle": "فشل تحريك الصورة",
-			"failedBody": "توقّف التحريك قبل أن يصبح الفيديو جاهزًا.",
-			"unavailableTitle": "تحريك الفيديو غير متاح",
-			"unavailableBody": "تحريك الفيديو غير متاح الآن. لم تتغيّر صورتك الأصلية.",
-			"statusLoadError": "تعذّر تحميل حالة التحريك.",
-			"retry": "إعادة المحاولة",
-			"queuedTitle": "التحريك في قائمة الانتظار",
-			"queuedBody": "صورتك هي التالية في قائمة الانتظار.",
-			"generatingTitle": "جارٍ تحريك صورتك",
-			"generatingBody": "جارٍ إنشاء فيديو مدته خمس ثوانٍ. يمكنك متابعة العمل.",
-			"sourceAlt": "الصورة المصدر الجاري تحريكها",
-			"videoLabel": "الفيديو المُنشأ من الصورة",
-			"resultTitle": "فيديو متحرك",
-			"duration": "{seconds} ث",
-			"ready": "جاهز",
-			"open": "فتح",
-			"download": "تنزيل"
-		},
-		"videoAttempt": {
-			"statusLoadError": "تعذّر تحميل حالة الفيديو — أعد فتح هذه المحادثة للمحاولة مجددًا.",
-			"inQueue": "في قائمة الانتظار",
-			"extractingFrame": "جارٍ تحضير المقطع {current} من {total}…",
-			"extractingFrameFallback": "جارٍ تحضير المقطع التالي…",
-			"renderingPiece": "جارٍ إنشاء المقطع {current} من {total}…",
-			"renderingPieceFallback": "جارٍ إنشاء المقطع التالي…",
-			"joining": "جارٍ دمج المقاطع…",
-			"narration": "جارٍ إضافة التعليق الصوتي…",
-			"narrationFailed": "الفيديو جاهز، لكن تعذّرت إضافة التعليق الصوتي. المقطع صامت.",
-			"publish": "نشر",
-			"published": "تم النشر",
-			"download": "تنزيل",
-			"viewAssets": "عرض في الوسائط",
-			"play": "تشغيل {title}",
-			"product": {
-				"preparing": "جارٍ تحضير فيديو المنتج…",
-				"queueing": "جارٍ إضافة فيديو المنتج إلى قائمة الانتظار…",
-				"failedToStart": "تعذّر بدء فيديو المنتج",
-				"failedTitle": "فشل فيديو المنتج",
-				"failedBody": "توقّف الإنشاء قبل أن يصبح فيديو المنتج جاهزًا.",
-				"prepared": "مشهد المنتج جاهز",
-				"active": "جارٍ إنشاء فيديو المنتج ومدته {seconds} ثوانٍ…",
-				"done": "تم إنشاء فيديو المنتج ومدته {seconds} ثوانٍ",
-				"publishing": "جارٍ نشر فيديو المنتج…",
-				"complete": "اكتمل فيديو المنتج",
-				"ready": "فيديو المنتج جاهز."
-			},
-			"edit": {
-				"preparing": "جارٍ تحضير تعديل الفيديو…",
-				"queueing": "جارٍ إضافة التعديل إلى قائمة الانتظار…",
-				"failedToStart": "تعذّر بدء تعديل الفيديو",
-				"failedTitle": "فشل تعديل الفيديو",
-				"failedBody": "توقّف التعديل قبل أن يصبح الفيديو جاهزًا.",
-				"prepared": "تعليمات التعديل جاهزة",
-				"active": "جارٍ تعديل الفيديو ومدته {seconds} ثانية…",
-				"done": "تم تعديل الفيديو ومدته {seconds} ثانية",
-				"publishing": "جارٍ نشر الفيديو المعدّل…",
-				"complete": "اكتمل التعديل",
-				"ready": "الفيديو المعدّل جاهز."
-			},
-			"extend": {
-				"preparing": "جارٍ تحضير تمديد الفيديو…",
-				"queueing": "جارٍ إضافة التمديد إلى قائمة الانتظار…",
-				"failedToStart": "تعذّر بدء تمديد الفيديو",
-				"failedTitle": "فشل تمديد الفيديو",
-				"failedBody": "توقّف التمديد قبل أن يصبح الفيديو الأطول جاهزًا.",
-				"prepared": "تم التخطيط للمتابعة",
-				"active": "جارٍ تمديد الفيديو إلى {seconds} ثانية…",
-				"done": "تم تمديد الفيديو إلى {seconds} ثانية",
-				"publishing": "جارٍ نشر الفيديو الممتد…",
-				"complete": "اكتمل التمديد",
-				"ready": "الفيديو الممتد جاهز."
-			}
-		},
 		"tray": {
 			"preparing": "جارٍ تحضير السؤال…",
 			"needsDetail": "نحتاج توضيحًا",
@@ -796,7 +719,6 @@
 			},
 			"tryAgainPrefill": {
 				"image": "جرّب الصورة مرة أخرى",
-				"video": "جرّب الفيديو مرة أخرى",
 				"marketing": "جرّب الأصل التسويقي مرة أخرى",
 				"connector": "جرّب الموصّل مرة أخرى",
 				"hint": "سيبدأ هذا عملية توليد جديدة."
@@ -951,14 +873,6 @@
 				"many": "{count} صورة",
 				"other": "{count} صورة"
 			},
-			"videosCount": {
-				"zero": "بدون فيديو",
-				"one": "فيديو واحد",
-				"two": "فيديوهان",
-				"few": "{count} فيديوهات",
-				"many": "{count} فيديو",
-				"other": "{count} فيديو"
-			},
 			"sectionsCount": {
 				"zero": "بدون أقسام",
 				"one": "قسم واحد",
@@ -1053,30 +967,6 @@
 			"download": "تنزيل ملف ‎.xlsx",
 			"downloading": "جارٍ التنزيل…",
 			"downloadError": "فشل التنزيل — حاول مرة أخرى."
-		},
-		"generateVideo": {
-			"title": "فيديو",
-			"preparing": "جارٍ تأليف الموجز الإبداعي…",
-			"queueing": "جارٍ كتابة نسخة المخرج…",
-			"failedToStart": "تعذّر بدء إنشاء الفيديو",
-			"queuedTitle": "في قائمة الانتظار",
-			"generatingTitle": "جارٍ الإخراج…",
-			"statusLoadError": "تعذّر تحميل حالة الفيديو — أعد فتح هذه المحادثة للمحاولة مجددًا.",
-			"failedTitle": "فشل إنشاء الفيديو",
-			"failedBody": "توقف الإخراج قبل الانتهاء.",
-			"retry": "إعادة المحاولة",
-			"directorsCut": "كُتبت نسخة المخرج",
-			"renderingClip": "جارٍ إخراج مقطع مدته {seconds} ثانية…",
-			"renderedClip": "اكتمل إخراج مقطع مدته {seconds} ثانية",
-			"inQueue": "في قائمة الانتظار",
-			"publish": "النشر",
-			"publishing": "جارٍ النشر…",
-			"published": "تم النشر",
-			"allStepsDone": "اكتملت كل الخطوات",
-			"readyTitle": "الفيديو جاهز",
-			"download": "تنزيل",
-			"viewInAssets": "عرض في الأصول",
-			"play": "تشغيل {title}"
 		},
 		"pageBuildFailure": {
 			"insufficient_credits": {
@@ -1326,8 +1216,6 @@
 		"filterImages": "صور",
 		"filterVideos": "فيديوهات",
 		"sourceGeneration": "مولّد",
-		"sourceAnimation": "تحريك",
-		"sourceVideo": "فيديو",
 		"sourceBuild": "الموقع",
 		"download": "تنزيل",
 		"refresh": "تحديث",
@@ -1335,7 +1223,7 @@
 		"loadError": "تعذّر تحميل الوسائط.",
 		"retry": "إعادة المحاولة",
 		"emptyTitle": "لا وسائط بعد",
-		"emptyBody": "تظهر هنا الصور والفيديوهات المولّدة بالذكاء الاصطناعي — لموقعك وإعلاناتك وتحريكاتك — جاهزة للتنزيل.",
+		"emptyBody": "تظهر هنا الصور والفيديوهات المولّدة بالذكاء الاصطناعي — لموقعك وإعلاناتك — جاهزة للتنزيل.",
 		"downloadError": "فشل التنزيل. حاول مجددًا."
 	},
 	"marketing": {

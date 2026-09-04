@@ -6,7 +6,6 @@ import { cn } from "@wandit/ui/lib/utils";
 import {
 	ArrowUp,
 	Check,
-	Clapperboard,
 	Compass,
 	Globe,
 	Image as ImageIcon,
@@ -27,7 +26,7 @@ import { SectionHeader } from "./section-header";
 /** How long each step of the showcase plays before auto-advancing. */
 const STEP_MS = 5600;
 
-const ARTIFACT_ICONS = [Globe, ImageIcon, Clapperboard, Compass];
+const ARTIFACT_ICONS = [Globe, ImageIcon, Compass];
 
 const URLS = ["wandit.app", "aures-honey.wandit.app"];
 

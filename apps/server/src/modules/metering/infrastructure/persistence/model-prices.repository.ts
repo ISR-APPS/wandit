@@ -45,7 +45,6 @@ export class ModelPricesRepository {
 					refreshedAt: sql`excluded.refreshed_at`,
 					transcriptionUsdMicrosPerSecond: sql`excluded.transcription_usd_micros_per_second`,
 					variantPricing: sql`excluded.variant_pricing`,
-					videoUsdMicrosPerSecond: sql`excluded.video_usd_micros_per_second`,
 				},
 				target: modelPrices.modelId,
 			})

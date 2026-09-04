@@ -1,11 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type {
-	ImageToVideoAspect,
-	VideoDurationSeconds,
-} from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-import { VIDEO_NEGATIVE_PROMPT } from "../../../ai-chat/agent/site-builder/generate-video";
 import {
 	createLlmModel,
 	hasLlmProviderKey,
@@ -23,6 +18,11 @@ const DIRECTOR_MAX_OUTPUT_TOKENS = 1_200;
 // Kling caps prompts at 2 500 chars; anything near it is a runaway output.
 const DIRECTOR_MAX_PROMPT_CHARS = 2_400;
 const NATIVE_NARRATION_PROMPT_MAX_CHARS = 2_500;
+const VIDEO_NEGATIVE_PROMPT =
+	"blur, distortion, warping, watermark, text overlay, subtitles, captions, " +
+	"low quality, compression artifacts, flickering, inconsistent lighting, " +
+	"morphing faces, extra limbs, unnatural physics, jittery motion, " +
+	"deformed hands, glitching logos";
 
 /**
  * The creative-director brain: one cheap generateText call that rewrites the
@@ -66,26 +66,8 @@ Start media: when the request says the call carries reference media (image-to-vi
 
 If the brief mentions a voiceover, keep the imagery breathing: unhurried pacing and clean hero moments the narration can sit on.`;
 
-export type CraftVideoPromptInput = {
-	aspect: ImageToVideoAspect;
-	brief: string;
-	durationSeconds: VideoDurationSeconds;
-	/** Resolved gateway model id the prompt targets (dialect selection). */
-	model: string;
-	/** True when the max-tier request deliberately uses more than one shot. */
-	multiShot: boolean;
-	/** Set when the generation runs in an org workspace: the org is the payer. */
-	organizationId: string | null;
-	parentEventId: string | undefined;
-	/** True when a visible person must speak to camera with voice control. */
-	talking: boolean;
-	userId: string;
-	voiceoverLanguage?: string;
-	voiceoverScript?: string;
-};
-
 /**
- * Same director, connector-shaped input: a Higgsfield call carries free-form
+ * A Higgsfield call carries free-form
  * aspect/duration values (or none at all), so the typed gateway unions do not
  * apply. The provider call keeps its own aspect/duration parameters — the
  * director only needs them as context for the prompt.
@@ -145,13 +127,7 @@ export class VideoDirectorService {
 		private readonly meteringService: MeteringService,
 	) {}
 
-	async craftVideoPrompt(
-		input: CraftVideoPromptInput,
-	): Promise<CraftedVideoPrompt> {
-		return preserveTalkingScript(await this.craft(input), input);
-	}
-
-	/** Connector door into the SAME director brain (one creative director). */
+	/** Connector door into the video director brain. */
 	async craftConnectorVideoPrompt(
 		input: CraftConnectorVideoPromptInput,
 	): Promise<CraftedVideoPrompt> {
@@ -171,8 +147,8 @@ export class VideoDirectorService {
 	}
 
 	private async craft(input: DirectorRequest): Promise<CraftedVideoPrompt> {
-		// Routed with the prompt_refine task: same job (a cheap prompt-rewriting
-		// brain) and the same default model as the Higgsfield refiner.
+		// Routed with the prompt_refine task while preserving the dedicated
+		// director model selection used by Higgsfield prompt refinement.
 		if (!hasLlmProviderKey("prompt_refine")) {
 			this.logger.warn("Video director skipped: no key for its LLM provider");
 			return fallbackPrompt(input);
@@ -327,8 +303,8 @@ function preserveTalkingScript(
 	};
 }
 
-// Loose union of the gateway and connector inputs — the director brain only
-// reads context strings, so unknown aspect/duration lines are simply omitted.
+// The director brain only reads context strings, so unknown aspect/duration
+// lines are simply omitted.
 type DirectorRequest = {
 	aspect?: string;
 	brief: string;

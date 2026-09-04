@@ -210,7 +210,6 @@ function expectSucceededGenerationSources(query: CompiledQuery) {
 	for (const table of [
 		"page_generation_attempts",
 		"image_generation_attempts",
-		"media_generation_attempts",
 		"marketing_assets",
 		"lead_scrape_attempts",
 	]) {
@@ -224,10 +223,10 @@ function expectSucceededGenerationSources(query: CompiledQuery) {
 	expect(activationSql).toMatch(
 		/from connector_generation_attempts a inner join [a-z_]+ c on c\.user_id = a\.user_id/,
 	);
-	expect(activationSql.match(/a\.status = 'succeeded'/g)).toHaveLength(6);
+	expect(activationSql.match(/a\.status = 'succeeded'/g)).toHaveLength(5);
 	expect(
 		activationSql.match(/inner join projects p on p\.id = a\.project_id/g),
-	).toHaveLength(5);
+	).toHaveLength(4);
 }
 
 describe("AdminAnalyticsRepository snapshot queries", () => {
@@ -813,7 +812,7 @@ describe("AdminAnalyticsRepository funnel SQL", () => {
 		);
 		expect(funnel.sql).toContain("where a.first_action_at >= c.created_at");
 		expect(funnel.sql.match(/a\.completed_at as generation_at/g)).toHaveLength(
-			6,
+			5,
 		);
 		expect(funnel.sql).toContain("a.generation_at is not null");
 		expect(funnel.sql).toContain("a.generation_at < b.snapshot_end");
@@ -1233,13 +1232,12 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(usageStart).toBeGreaterThanOrEqual(0);
 		expect(usageEnd).toBeGreaterThan(usageStart);
 		expect(featureUsage).not.toContain("b.range_start");
-		expect(featureUsage.match(/created_at < b\.range_end/g)).toHaveLength(9);
+		expect(featureUsage.match(/created_at < b\.range_end/g)).toHaveLength(8);
 		expect(featureUsage).toContain("a.completed_at < b.range_end");
 		for (const feature of [
 			"websites",
 			"landingPages",
 			"images",
-			"videos",
 			"marketing",
 			"connectors",
 			"leadScraping",
@@ -1369,22 +1367,22 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(cohort.sql).toContain(
 			"greatest(0, sum(-c.delta))::bigint as credits_consumed",
 		);
-		expect(cohort.sql.match(/a\.status = 'succeeded'/g)).toHaveLength(6);
+		expect(cohort.sql.match(/a\.status = 'succeeded'/g)).toHaveLength(5);
 		expect(cohort.sql.match(/a\.completed_at >= u\.created_at/g)).toHaveLength(
-			6,
+			5,
 		);
 		expect(
 			cohort.sql.match(/a\.completed_at < u\.created_at \+ interval '7 days'/g),
-		).toHaveLength(6);
-		expect(cohort.sql.match(/p\.deleted_at is null/g)).toHaveLength(5);
-		expect(cohort.sql.match(/left join lateral \(/g)).toHaveLength(5);
-		expect(cohort.sql.match(/e\.attempt_ref = a\.id::text/g)).toHaveLength(5);
-		expect(cohort.sql.match(/usage_actor\.user_id/g)).toHaveLength(10);
+		).toHaveLength(5);
+		expect(cohort.sql.match(/p\.deleted_at is null/g)).toHaveLength(4);
+		expect(cohort.sql.match(/left join lateral \(/g)).toHaveLength(4);
+		expect(cohort.sql.match(/e\.attempt_ref = a\.id::text/g)).toHaveLength(4);
+		expect(cohort.sql.match(/usage_actor\.user_id/g)).toHaveLength(8);
 		expect(
 			cohort.sql.match(
 				/case when p\.organization_id is null then p\.user_id end/g,
 			),
-		).toHaveLength(10);
+		).toHaveLength(8);
 		expect(cohort.sql).not.toContain(
 			"coalesce(usage_actor.user_id, p.user_id)",
 		);
@@ -1519,10 +1517,10 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(adoption.sql).toContain(
 			"select 'domains', coalesce(p.organization_id, d.user_id)",
 		);
-		expect(adoption.sql.match(/p\.deleted_at is null/g)).toHaveLength(8);
+		expect(adoption.sql.match(/p\.deleted_at is null/g)).toHaveLength(7);
 		expectRange(adoption, "a.completed_at");
 		expect(adoption.sql.match(/a\.created_at >= b\.range_start/g)).toHaveLength(
-			5,
+			4,
 		);
 		expectRange(adoption, "e.created_at");
 		expectRange(adoption, "d.created_at");
@@ -1707,9 +1705,6 @@ describe("AdminAnalyticsRepository health SQL", () => {
 			/select 'images'.*a\.completed_at - a\.started_at.*from image_generation_attempts/,
 		);
 		expect(generation.sql).toMatch(
-			/select 'videos'.*a\.completed_at - a\.started_at.*from media_generation_attempts/,
-		);
-		expect(generation.sql).toMatch(
 			/select 'marketing'.*a\.completed_at - a\.started_at.*from marketing_assets/,
 		);
 		expect(generation.sql).toMatch(
@@ -1718,14 +1713,14 @@ describe("AdminAnalyticsRepository health SQL", () => {
 		expect(generation.sql).toMatch(
 			/select 'leadScraping'.*a\.completed_at >= coalesce\(a\.started_at, a\.created_at\).*a\.completed_at - coalesce\(a\.started_at, a\.created_at\).*from lead_scrape_attempts/,
 		);
-		expect(generation.sql.match(/p\.deleted_at is null/g)).toHaveLength(5);
+		expect(generation.sql.match(/p\.deleted_at is null/g)).toHaveLength(4);
 		expectRange(generation, "a.completed_at");
 		expect(
 			generation.sql.match(/a\.created_at >= b\.range_start/g),
-		).toHaveLength(5);
+		).toHaveLength(4);
 		expect(
 			generation.sql.match(/a\.completed_at < b\.range_end/g),
-		).toHaveLength(6);
+		).toHaveLength(5);
 	});
 
 	it("limits page failure codes to failed, non-empty, completed attempts", async () => {

@@ -31,7 +31,6 @@ import {
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
 import {
 	type MeasuredOperationReservation,
 	measuredDirectSettlement,
@@ -66,14 +65,6 @@ import {
 	generateBuildImage,
 	MAX_IMAGES,
 } from "./generate-image";
-import {
-	type BuildVideoAspect,
-	generateBuildVideo,
-	IMAGE_VIDEO_DURATION_SECONDS,
-	MAX_VIDEOS,
-	VIDEO_ASPECTS,
-	videoCostEstimateInput,
-} from "./generate-video";
 import {
 	modelNeedsToolImageRelocation,
 	modelNeedsToolImageStripping,
@@ -125,7 +116,7 @@ export type SiteBuildParams = {
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
 	system: string;
 	title: string;
-	/** Parent page-build event for direct image/video child operations. */
+	/** Parent page-build event for direct image child operations. */
 	usageEventId?: string;
 	/** Payer + acting member for metering and gateway attribution. */
 	subject: MeteringSubject;
@@ -231,9 +222,6 @@ export type BuildLoopState = {
 	screenshotRequired: boolean;
 	screenshotRevision: number;
 	summary: string | null;
-	/** Same monotonic-sequence discipline as images, for vid-{n} keys. */
-	videoSequence: number;
-	videosGenerated: number;
 	writeRevision: number;
 };
 
@@ -252,8 +240,6 @@ export function createBuildLoopState(
 		screenshotRequired,
 		screenshotRevision: 0,
 		summary: null,
-		videoSequence: 0,
-		videosGenerated: 0,
 		writeRevision: 0,
 	};
 }
@@ -415,10 +401,6 @@ type EmptyInput = z.infer<typeof emptyInputSchema>;
 
 type FinishOutput = { accepted: true } | { accepted: false; reason: string };
 
-type AnimateImageOutput =
-	| { message: string; status: "failed" | "unavailable" }
-	| { posterUrl: string; status: "generated"; url: string };
-
 type GenerateImageOutput =
 	| { message: string; status: "failed" | "unavailable" }
 	| {
@@ -461,10 +443,6 @@ type WriteFileOutput = {
 // Explicit (declaration-emit friendly) tool map; same alias-over-Record
 // pattern as AiChatToolSet in chat-agent.ts.
 export type BuilderTools = {
-	animate_image: Tool<
-		{ aspect: BuildVideoAspect; imageUrl: string; motionPrompt: string },
-		AnimateImageOutput
-	>;
 	edit_file: Tool<
 		{ path: string; replace: string; search: string },
 		EditFileOutput
@@ -510,7 +488,7 @@ function createEditContext(
 
 /**
  * The builder's tool set. Exported for tests: the guards (single-file
- * write_file, refused finish, image/video budgets) are code, not prompt
+ * write_file, refused finish, and image budgets) are code, not prompt
  * prose, and must stay verifiable without a model.
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
@@ -539,169 +517,6 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	};
 
 	return {
-		animate_image: tool({
-			description:
-				"OPTIONAL: animate ONE existing image (a generate_image URL or a " +
-				"user asset from the brief) into a short (~5s) looping ambient " +
-				"background video. User uploads may be JPEG, PNG, or WebP; the " +
-				"platform automatically repairs source format, size, and aspect where " +
-				"possible, but refuses images beyond 1:4–4:1 or over 25 MB, and very " +
-				"small photos can animate softly. Use it ONLY when subtle motion " +
-				"genuinely elevates a section — a hero atmosphere, a fabric drift — never by " +
-				`default, never more than ${MAX_VIDEOS} per build. Embed the ` +
-				'result as <video autoplay muted loop playsinline poster="<posterUrl>"> ' +
-				"with the still image as poster. On unavailable/failed, keep the " +
-				"still image — a page is never blocked on video.",
-			inputSchema: z.object({
-				aspect: z.enum(VIDEO_ASPECTS),
-				imageUrl: z.url(),
-				motionPrompt: z.string().min(10),
-			}),
-			execute: async ({ aspect, imageUrl, motionPrompt }) => {
-				if (state.videoSequence >= MAX_VIDEOS) {
-					return {
-						message:
-							`Video budget exhausted (${MAX_VIDEOS} per build) — keep ` +
-							"the still image.",
-						status: "failed" as const,
-					};
-				}
-
-				// Reserve the attempt and key sequence synchronously before the
-				// first await. A failed provider call still consumes the attempt,
-				// preventing repeated expensive retries.
-				state.videosGenerated += 1;
-				state.videoSequence += 1;
-				const index = state.videoSequence;
-				const plan = resolveVideoGenerationPlan({
-					durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
-					kind: "i2v",
-					multiShot: false,
-					narration: false,
-					quality: "standard",
-					talking: false,
-				});
-				const childReservation =
-					params.meteringService && params.usageEventId
-						? await reserveMeasuredChild(params.meteringService, "video", {
-								attemptRef: `${params.attemptId}:video:${index}`,
-								estimate: videoCostEstimateInput({
-									audio: false,
-									durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
-									modelId: plan.modelId,
-								}),
-								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
-								model: plan.modelId,
-								parentEventId: params.usageEventId,
-								subject: params.subject,
-							})
-						: null;
-				const childEvent = childReservation?.event ?? null;
-				let generationCapturedBeforeDelivery = false;
-
-				const result = await generateBuildVideo({
-					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-					aspect,
-					attemptId: params.attemptId,
-					imageUrl,
-					index,
-					modelId: plan.modelId,
-					metering: {
-						operation: "video",
-						organizationId: params.subject.organizationId ?? null,
-						userId: params.subject.actorUserId,
-					},
-					motionPrompt,
-					...(childEvent && params.meteringService
-						? {
-								onProviderGeneration: async (
-									generation: GatewayGenerationMetadata,
-								) => {
-									await captureRequiredGeneration(
-										params.meteringService as MeteringService,
-										childEvent.id,
-										{
-											providerMetadata: generation.providerMetadata,
-											stepUsage: fixedGenerationStepUsage(generation.usage, 1),
-										},
-									);
-									generationCapturedBeforeDelivery = true;
-								},
-							}
-						: {}),
-					projectId: params.projectId,
-					voiceControl: false,
-				});
-
-				if (result.status !== "generated") {
-					state.videosGenerated -= 1;
-					if (childReservation && childEvent && params.meteringService) {
-						if (hasGatewayGenerationMetadata(result)) {
-							const providerUnits =
-								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
-							if (!generationCapturedBeforeDelivery) {
-								await captureRequiredGeneration(
-									params.meteringService,
-									childEvent.id,
-									{
-										providerMetadata: result.providerMetadata,
-										stepUsage: fixedGenerationStepUsage(
-											result.usage,
-											providerUnits,
-											providerUnits === 0 ? "refunded_failure" : undefined,
-										),
-									},
-								);
-							}
-							await params.meteringService.settle(childEvent.id, {
-								...measuredDirectSettlement(childReservation.reservation, {
-									completedUnits: providerUnits,
-								}),
-								model: result.model,
-								rawUsage: result.usage ?? null,
-							});
-						} else {
-							await params.meteringService.refund(
-								childEvent.id,
-								"page_build_video_failed",
-							);
-						}
-					}
-					log(`animate_image ${result.status}: ${result.message}`);
-
-					return { message: result.message, status: result.status };
-				}
-
-				if (childReservation && childEvent && params.meteringService) {
-					if (!generationCapturedBeforeDelivery) {
-						await captureRequiredGeneration(
-							params.meteringService,
-							childEvent.id,
-							{
-								providerMetadata: result.providerMetadata,
-								stepUsage: fixedGenerationStepUsage(result.usage, 1),
-							},
-						);
-					}
-					await params.meteringService.settle(childEvent.id, {
-						...measuredDirectSettlement(childReservation.reservation),
-						model: result.model,
-						rawUsage: result.usage ?? null,
-					});
-				}
-
-				log(`animated image ${index}/${MAX_VIDEOS} → ${result.url}`);
-				emitEvent({ type: "video-generated" });
-
-				// The model cannot watch video — the URL text is all it needs, so
-				// no toModelOutput override exists for this tool.
-				return {
-					posterUrl: imageUrl,
-					status: "generated" as const,
-					url: result.url,
-				};
-			},
-		}),
 		edit_file: tool({
 			description:
 				"Surgically replace ONE exact snippet inside index.html — the " +
@@ -1459,13 +1274,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 }
 
 /**
- * Inline Builder media child: one measured hold sized by the local catalog
+ * Inline Builder image child: one measured hold sized by the local catalog
  * estimate (floor when none), settled provisionally from the same estimate
  * and repriced by gateway reconciliation.
  */
 async function reserveMeasuredChild(
 	meteringService: MeteringService,
-	operation: "image" | "video",
+	operation: "image",
 	input: {
 		attemptRef: string;
 		estimate: MeasuredCostEstimateInput | null;

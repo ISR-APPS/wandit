@@ -19,7 +19,6 @@
 			"website": "Site web",
 			"productPhotos": "Photos produit",
 			"adCreatives": "Créas pub",
-			"videoAd": "Pub vidéo",
 			"flyer": "Flyer"
 		},
 		"tryHint": "Essaie : page COD pour une montre vintage →",
@@ -151,7 +150,6 @@
 				},
 				"tryAgainPrefill": {
 					"image": "Réessayer l’image",
-					"video": "Réessayer la vidéo",
 					"marketing": "Réessayer l’asset marketing",
 					"connector": "Réessayer avec le connecteur",
 					"hint": "Cela lance une nouvelle génération."
@@ -340,8 +338,6 @@
 			"chipVideos": "Vidéos",
 			"refreshLabel": "Actualiser",
 			"srcGeneration": "Génération",
-			"srcVideo": "Vidéo",
-			"srcAnimation": "Animation",
 			"srcPageBuild": "Build de page",
 			"downloadLabel": "Télécharger",
 			"loadError": "Impossible de charger les assets.",

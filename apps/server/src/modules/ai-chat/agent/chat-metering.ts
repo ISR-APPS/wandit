@@ -1,9 +1,6 @@
 import { bundledReservationPendingAttemptRef } from "../../metering/domain/metering";
 import type { MeteredTokenUsage } from "../../metering/domain/model-pricing";
-import {
-	INSPECT_VIDEO_BRAIN_GUIDANCE,
-	WANDIT_SYSTEM_PROMPT,
-} from "./system-prompt";
+import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 
 // Ceiling for hidden reasoning plus long generate_page briefs; 4_096 truncated tool-call JSON, while short turns stop naturally.
 export const AI_CHAT_MAX_OUTPUT_TOKENS = 16_000;
@@ -45,7 +42,6 @@ export function estimateAiChatTokenUsage(
 	const messageCharacters = JSON.stringify(modelBoundMessages).length;
 	const staticCharacters =
 		WANDIT_SYSTEM_PROMPT.length +
-		INSPECT_VIDEO_BRAIN_GUIDANCE.length +
 		(contextBlock?.length ?? 0) +
 		AI_CHAT_TOOL_SCHEMA_ALLOWANCE_CHARS;
 

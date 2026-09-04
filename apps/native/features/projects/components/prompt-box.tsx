@@ -1,8 +1,4 @@
 import {
-	type ComposerQuality,
-	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
-} from "@wandit/contracts";
-import {
 	useDictionary,
 	useTranslation,
 } from "@wandit/internationalization/react";
@@ -36,7 +32,6 @@ import {
 	buildComposer,
 	CHAT_PROMPT_MAX_LENGTH,
 	createDefaultOptions,
-	createVideoSubmissionId,
 	type GenerationOutputDef,
 	type GenerationOutputId,
 	getDefaultOutput,
@@ -71,10 +66,6 @@ export type PromptBoxSubmitOverride = {
 		| void
 		| Promise<boolean | undefined | void>;
 };
-
-const VIDEO_SOURCE_MEDIA_TYPES = new Set<string>(
-	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
-);
 
 export type PromptBoxProps = {
 	/** Receives the trimmed text and the exact composer snapshot. */
@@ -133,13 +124,8 @@ export function PromptBox({
 
 	const inputRef = useRef<TextInput>(null);
 	const submitInFlightRef = useRef(false);
-	const videoSubmissionIdRef = useRef<string | null>(null);
-	if (videoSubmissionIdRef.current === null) {
-		videoSubmissionIdRef.current = createVideoSubmissionId();
-	}
 	const [value, setValue] = useState(initialValue);
 	const [routeMode, setRouteMode] = useState<RouteMode>("auto");
-	const [quality, setQuality] = useState<ComposerQuality>("standard");
 	const [selectedOutputId, setSelectedOutputId] =
 		useState<GenerationOutputId | null>(null);
 	const [outputOptions, setOutputOptions] = useState<Record<string, string>>(
@@ -164,7 +150,6 @@ export function PromptBox({
 	const maxVisibleSkills = 2;
 
 	const appendTranscript = useCallback((text: string) => {
-		videoSubmissionIdRef.current = createVideoSubmissionId();
 		setValue((current) => (current ? `${current.trimEnd()} ${text}` : text));
 	}, []);
 	const voiceDictation = useVoiceDictation(appendTranscript, {
@@ -234,25 +219,11 @@ export function PromptBox({
 		submitInFlightRef.current = true;
 		voiceDictation.clearError();
 		const options: Record<string, unknown> = { ...outputOptions };
-		if (routeMode === "video") {
-			options.videoSubmissionId =
-				videoSubmissionIdRef.current ?? createVideoSubmissionId();
-			// Video always animates a user image (contract: animate_image) — ride
-			// the first eligible ready attachment as the source, web parity.
-			const sourceImage = files.find((file) =>
-				VIDEO_SOURCE_MEDIA_TYPES.has(file.mediaType),
-			);
-			if (sourceImage) {
-				options.sourceImageUrl = sourceImage.url;
-				options.sourceMediaType = sourceImage.mediaType;
-			}
-		}
 		try {
 			const result = await onSubmit({
 				text: prompt,
 				composer: buildComposer({
 					mode: routeMode,
-					quality,
 					output: selectedOutputId,
 					skills: selectedSkillIds,
 					options,
@@ -272,9 +243,6 @@ export function PromptBox({
 
 	const handleValueChange = (nextValue: string) => {
 		voiceDictation.clearError();
-		if (nextValue !== value) {
-			videoSubmissionIdRef.current = createVideoSubmissionId();
-		}
 		setValue(nextValue);
 	};
 
@@ -297,9 +265,7 @@ export function PromptBox({
 
 	const handleModeChange = (mode: RouteMode) => {
 		voiceDictation.clearError();
-		videoSubmissionIdRef.current = createVideoSubmissionId();
 		setRouteMode(mode);
-		setQuality("standard");
 		const defaultOutput = getDefaultOutput(mode);
 		setSelectedOutputId(defaultOutput?.id ?? null);
 		setOutputOptions(defaultOutput ? createDefaultOptions(defaultOutput) : {});
@@ -307,28 +273,17 @@ export function PromptBox({
 
 	const selectOutput = (output: GenerationOutputDef) => {
 		voiceDictation.clearError();
-		videoSubmissionIdRef.current = createVideoSubmissionId();
 		setSelectedOutputId(output.id);
-		setQuality("standard");
 		setOutputOptions(createDefaultOptions(output));
 	};
 
 	const updateOutputOption = (groupId: string, choiceId: string) => {
 		voiceDictation.clearError();
-		videoSubmissionIdRef.current = createVideoSubmissionId();
-		if (
-			groupId === "quality" &&
-			(choiceId === "standard" || choiceId === "max")
-		) {
-			setQuality(choiceId);
-			return;
-		}
 		setOutputOptions((current) => ({ ...current, [groupId]: choiceId }));
 	};
 
 	const toggleSkill = (skill: SkillFileDef) => {
 		voiceDictation.clearError();
-		videoSubmissionIdRef.current = createVideoSubmissionId();
 		setSelectedSkillIds((current) =>
 			current.includes(skill.id)
 				? current.filter((id) => id !== skill.id)
@@ -737,7 +692,7 @@ export function PromptBox({
 					onOpenChange={setConfigOpen}
 					mode={routeMode}
 					output={selectedOutput}
-					values={{ ...outputOptions, quality }}
+					values={outputOptions}
 					onSelectOutput={selectOutput}
 					onValueChange={updateOutputOption}
 				/>

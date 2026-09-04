@@ -64,7 +64,6 @@ function progressFixture(
 		reviewTarget: 2,
 		sections: [],
 		shots: [],
-		videos: 0,
 		...overrides,
 	};
 }

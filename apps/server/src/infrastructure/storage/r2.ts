@@ -105,47 +105,6 @@ export function siteAssetKey(
 	return `sites/${projectId}/assets/${attemptId}/img-${index}.${extension}`;
 }
 
-// Videos the builder animates mid-build, beside the images:
-// sites/{project_id}/assets/{attempt_id}/vid-{n}.{ext}
-export function siteVideoKey(
-	projectId: string,
-	attemptId: string,
-	index: number,
-	extension: string,
-): string {
-	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
-}
-
-// IMPORTANT: only the FINAL deliverable may use siteVideoKey(..., 1, ...).
-// Recovery treats vid-1.* as proof the whole attempt finished, and published
-// asset URLs are immutable-cached, so intermediates must never occupy that key
-// or be overwritten there later.
-export function siteVideoFrameKey(
-	projectId: string,
-	attemptId: string,
-	index: number,
-	extension: string,
-): string {
-	return `sites/${projectId}/assets/${attemptId}/frames/frame-${index}.${extension}`;
-}
-
-export function siteVideoSegmentKey(
-	projectId: string,
-	attemptId: string,
-	index: number,
-	extension: string,
-): string {
-	return `sites/${projectId}/assets/${attemptId}/segments/segment-${index}.${extension}`;
-}
-
-export function siteVideoSoundtrackKey(
-	projectId: string,
-	attemptId: string,
-	extension: string,
-): string {
-	return `sites/${projectId}/assets/${attemptId}/audio/soundtrack.${extension}`;
-}
-
 // Review screenshots the build publishes for the chat progress card. Under
 // sites/{id}/shots/ — NOT sites/{id}/assets/ — so the Assets tab's
 // build-asset prefix listing never picks them up as user assets:
@@ -242,7 +201,7 @@ export function variantKey(baseKey: string, width: number): string {
 export const VARIANT_FILENAME_PATTERN = /\.w\d+\.webp$/;
 
 // Cache header for uuid-addressed media objects (uploads, build assets,
-// generated images, videos). A given key is written ONCE and never rewritten,
+// generated media). A given key is written ONCE and never rewritten,
 // which is what makes "immutable" honest.
 //
 // CONSEQUENCE for any future backfill: re-optimizing an existing object must
@@ -262,7 +221,7 @@ export function publicAssetUrl(key: string): string {
 
 /**
  * Is this URL one of OUR public R2 objects? Every place that accepts an
- * asset URL from outside (file parts, image-src ops, animate_image inputs,
+ * asset URL from outside (file parts, image-src ops,
  * project attachments) must use this — a raw startsWith(base) check is
  * prefix-confusable: with base https://assets.example.com,
  * https://assets.example.com.attacker.test/x.png would pass. This parses

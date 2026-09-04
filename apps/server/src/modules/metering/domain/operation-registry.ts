@@ -9,7 +9,8 @@ export type PricingMode = "fixed" | "measured" | "per_minute" | "token";
 // Measured reserve floors were derived from the seed catalog at $0.04/credit
 // (pricing v5). Pricing v7 moved the anchor to $0.032/credit; the floors stay
 // as credit amounts, so their USD coverage is 20% lower than listed here:
-// - video 550 cc: klingai/kling-v2.x std $0.042/s x 5 s = $0.21 -> 525 cc.
+// - video 550 cc: retained for historical reservations; connector children
+//   override this with the connector reserve floor and settle at provider cost 0.
 // - transcription 25 cc: openai/whisper-1 $0.0001/s x 60 s -> 15 cc.
 // - connector 1 cc: the MCP render runs on the user's own Higgsfield
 //   subscription, so only our LLM tokens around it cost anything.
@@ -98,7 +99,6 @@ export const OPERATION_REGISTRY = {
 		allowedChildOperations: [
 			"page_build",
 			"image",
-			"video",
 			"marketing",
 			"connector",
 			"lead_scrape",
@@ -142,7 +142,7 @@ export const OPERATION_REGISTRY = {
 		rootAllowed: true,
 	},
 	page_build: {
-		allowedChildOperations: ["image", "video"],
+		allowedChildOperations: ["image"],
 		allowedParentOperations: ["chat"],
 		mode: "token",
 		reserveFloorCredits: PAGE_BUILD_RESERVE_FLOOR_CREDITS,
@@ -168,7 +168,7 @@ export const OPERATION_REGISTRY = {
 	},
 	video: {
 		allowedChildOperations: NO_CHILDREN,
-		allowedParentOperations: ["chat", "page_build", "connector"],
+		allowedParentOperations: ["connector"],
 		mode: "measured",
 		reserveFloorCredits: VIDEO_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
@@ -191,8 +191,7 @@ export const EVENT_CEILING_MULTIPLIER = 25;
 // floor. Token operations reserve a single-call input quote, not a run
 // estimate: a 64-step page build with helper calls billed into the parent can
 // legitimately exceed $10 of provider cost (page_build: 250_000 cc = $100;
-// chat: 50_000 cc = $20). Long video renders and connector media generations
-// keep their own floors.
+// chat: 50_000 cc = $20). Connector media generations keep their own floors.
 const EVENT_CEILING_FLOOR_OVERRIDES_CC: Partial<
 	Record<AiUsageOperation, number>
 > = {
@@ -310,52 +309,11 @@ export const AI_INVOCATION_COVERAGE = [
 			"apps/server/src/modules/ai-chat/agent/site-builder/generate-image.ts",
 	},
 	{
-		billing: { kind: "metered", operation: "video" },
-		id: "site-builder-video-child",
-		marker: "export async function generateBuildVideo",
-		source:
-			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
-	},
-	{
 		billing: { kind: "metered", operation: "image" },
 		id: "standalone-image",
 		marker: "export async function generateStandaloneImage",
 		source:
 			"apps/server/src/modules/image-generations/application/services/image-generator.ts",
-	},
-	{
-		billing: { kind: "metered", operation: "video" },
-		id: "standalone-animation",
-		marker: "runImageAnimation",
-		source:
-			"apps/server/src/modules/media-generations/application/services/image-animation-runner.ts",
-	},
-	{
-		billing: { kind: "metered", operation: "video" },
-		id: "standalone-text-to-video",
-		marker: "export async function generateTextToVideo",
-		source:
-			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
-	},
-	{
-		billing: { kind: "metered", operation: "video" },
-		id: "standalone-video-edit",
-		marker: "export async function editVideo",
-		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
-	},
-	{
-		billing: { kind: "metered", operation: "video" },
-		id: "standalone-product-video",
-		marker: "export async function productVideo",
-		source:
-			"apps/server/src/modules/ai-chat/agent/site-builder/product-video.ts",
-	},
-	{
-		billing: { kind: "metered", operation: "video" },
-		id: "standalone-video-extension",
-		marker: "export function resolveVideoGenerationPlan",
-		source:
-			"apps/server/src/modules/media-generations/domain/video-quality-models.ts",
 	},
 	{
 		billing: { kind: "metered", operation: "marketing" },
@@ -391,13 +349,6 @@ export const AI_INVOCATION_COVERAGE = [
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
 	},
 	{
-		billing: { billedInto: "video", kind: "helper" },
-		id: "video-voiceover-helper",
-		marker: "experimental_generateSpeech({",
-		source:
-			"apps/server/src/modules/generation/application/services/speech.service.ts",
-	},
-	{
 		billing: { kind: "metered", operation: "chat" },
 		id: "legacy-worker-chat",
 		marker: "const result = streamText({",
@@ -416,12 +367,6 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
-	},
-	{
-		billing: { billedInto: "chat", kind: "helper" },
-		id: "video-inspect-helper",
-		marker: "const result = await generateText({",
-		source: "apps/server/src/modules/ai-chat/agent/tools/inspect-video.tool.ts",
 	},
 	{
 		billing: { billedInto: "chat", kind: "helper" },

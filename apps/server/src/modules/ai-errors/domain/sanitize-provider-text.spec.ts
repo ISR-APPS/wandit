@@ -15,22 +15,22 @@ describe("sanitizeProviderText", () => {
 		expect(
 			sanitizeProviderText(
 				JSON.stringify({
-					error: { message: "Neutral provider refusal" },
+					error: { message: "sexual" },
 					message: "lower priority",
 					prompt: "must never be forwarded",
 				}),
-				{ kind: "content_moderated", provider: "seedance" },
+				{ kind: "content_moderated", provider: "openai" },
 			),
-		).toBe("Neutral provider refusal");
+		).toBe("sexual content");
 
 		expect(
 			sanitizeProviderText(
 				JSON.stringify({
-					content: [{ text: "Safe connector text", type: "text" }],
+					content: [{ text: "violence", type: "text" }],
 				}),
-				{ kind: "content_moderated", provider: "seedance" },
+				{ kind: "content_moderated", provider: "openai" },
 			),
-		).toBe("Safe connector text");
+		).toBe("violence");
 	});
 
 	it("returns null for JSON without an allowlisted text key", () => {
@@ -66,18 +66,6 @@ describe("sanitizeProviderText", () => {
 				connectorSlug: "higgsfield",
 			}),
 		).toBeNull();
-	});
-
-	it("strips request ids, generation ids, URLs, hosts, emails, and credentials", () => {
-		const sanitized = sanitizeProviderText(
-			"SensitiveContentDetected 1301 Request ID: req-secret https://provider.test/image.png localhost:4318 owner@example.com Bearer secret-token sk-live_123456789 [gen_AbC123]",
-			{ kind: "content_moderated", provider: "klingai" },
-		);
-
-		expect(sanitized).toContain("SensitiveContentDetected 1301");
-		expect(sanitized).not.toMatch(
-			/req-secret|gen_AbC123|provider\.test|localhost|example\.com|secret-token|sk-live/iu,
-		);
 	});
 
 	it("drops stack lines and node_modules paths from redacted diagnostic text", () => {
@@ -128,12 +116,6 @@ describe("sanitizeProviderText", () => {
 				provider: "higgsfield",
 			}),
 		).toBe(HIGGSFIELD_NSFW_MESSAGE);
-		expect(
-			sanitizeProviderText("risk control rejected the output", {
-				kind: "content_moderated",
-				provider: "klingai",
-			}),
-		).toBeNull();
 	});
 
 	it("forwards only allowlisted Higgsfield connector sentences", () => {
@@ -164,9 +146,10 @@ describe("sanitizeProviderText", () => {
 	});
 
 	it("caps forwarded text at the requested size including the ellipsis", () => {
-		const sanitized = sanitizeProviderText("provider refusal ".repeat(30), {
-			kind: "content_moderated",
-			provider: "seedance",
+		const sanitized = sanitizeProviderText(HIGGSFIELD_CREDITS_MESSAGE, {
+			connectorSlug: "higgsfield",
+			kind: "connector_account",
+			provider: "higgsfield",
 			maxLength: 20,
 		});
 
@@ -178,7 +161,7 @@ describe("sanitizeProviderText", () => {
 		expect(
 			sanitizeProviderText("Provider detail", {
 				kind: "provider_error",
-				provider: "seedance",
+				provider: "openai",
 			}),
 		).toBeNull();
 	});

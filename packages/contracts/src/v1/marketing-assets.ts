@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { aiErrorDataSchema } from "./ai-errors";
-import { mediaGenerationStatusSchema } from "./media-generations";
+import { generationStatusSchema } from "./generation-status";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Values match the composer output ids in prompt-box verbatim — no mapping
@@ -26,7 +26,7 @@ export const marketingAssetTypeSchema = z.enum(MARKETING_ASSET_TYPES);
 export type MarketingAssetType = z.infer<typeof marketingAssetTypeSchema>;
 
 // Same lifecycle vocabulary as every durable generation attempt.
-export const marketingAssetStatusSchema = mediaGenerationStatusSchema;
+export const marketingAssetStatusSchema = generationStatusSchema;
 
 export type MarketingAssetStatus = z.infer<typeof marketingAssetStatusSchema>;
 
