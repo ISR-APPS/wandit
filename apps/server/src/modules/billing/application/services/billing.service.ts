@@ -36,10 +36,10 @@ import {
 	persistedTopupPackIdSchema,
 	priceLookupKey,
 	priceUsdFor,
+	purchasableTierForLegacy,
 	purchasableTiersFor,
 	TOPUP_PACKS,
 	topupPackIds,
-	v6TierForLegacy,
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -1173,7 +1173,7 @@ export class BillingService {
 				subscription.plan,
 				subscription.tierCredits,
 			)
-				? v6TierForLegacy(subscription.tierCredits)
+				? purchasableTierForLegacy(subscription.plan, subscription.tierCredits)
 				: null;
 
 			if (v6Tier !== null && subscription.plan !== "starter") {

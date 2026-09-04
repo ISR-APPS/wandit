@@ -52,7 +52,7 @@ function setup() {
 				costUsdMicros: Math.ceil(100 * input.durationSeconds),
 				credits: Math.max(
 					1,
-					Math.ceil((Math.ceil(100 * input.durationSeconds) * 100) / 40_000),
+					Math.ceil((Math.ceil(100 * input.durationSeconds) * 100) / 32_000),
 				),
 				unitUsdMicros: 100,
 			}),
@@ -63,7 +63,7 @@ function setup() {
 		refund: vi.fn(async () => undefined),
 		reserveWithReplay,
 		settle: vi.fn(async () => undefined),
-		usdMicrosPerCredit: 40_000,
+		usdMicrosPerCredit: 32_000,
 	};
 	const service = new TranscriptionService(
 		metering as unknown as MeteringService,
@@ -196,7 +196,7 @@ describe("TranscriptionService", () => {
 			"usage-event-1",
 			expect.objectContaining({
 				costUsdMicros: 6_100,
-				finalCredits: 16,
+				finalCredits: 20,
 				pricing: "direct",
 				pricingSnapshot: expect.objectContaining({
 					mode: "measured",
@@ -222,7 +222,7 @@ describe("TranscriptionService", () => {
 		// Reviewer scenario: the hold was reserved while AI_USD_PER_CREDIT was
 		// 0.028 (snapshot 28_000); the config flipped to 0.04 before completion.
 		const { metering, service } = setup();
-		metering.usdMicrosPerCredit = 40_000;
+		metering.usdMicrosPerCredit = 32_000;
 		metering.reserveWithReplay.mockResolvedValueOnce({
 			event: usageEvent(null, {
 				pricingSnapshot: {
@@ -249,7 +249,7 @@ describe("TranscriptionService", () => {
 			userId: "user-1",
 		});
 
-		// 6_100 micros × 100 / 28_000 = 21.8 → 22 cc (16 cc at the live 40_000).
+		// 6_100 micros × 100 / 28_000 = 21.8 → 22 cc (16 cc at the live 32_000).
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
@@ -381,7 +381,7 @@ describe("TranscriptionService", () => {
 			"usage-event-1",
 			expect.objectContaining({
 				costUsdMicros: 12_100,
-				finalCredits: 31,
+				finalCredits: 38,
 				pricingSnapshot: expect.objectContaining({
 					billableDurationSeconds: 121,
 					durationSource: "provider",
@@ -427,7 +427,7 @@ describe("TranscriptionService", () => {
 			// Capped at 300 s × 100 micros = $0.03 → 75 cc.
 			expect.objectContaining({
 				costUsdMicros: 30_000,
-				finalCredits: 75,
+				finalCredits: 94,
 				rawUsage: {
 					billableDurationSeconds: 300,
 					durationSeconds: 1,
@@ -493,7 +493,7 @@ describe("TranscriptionService", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 31,
+				finalCredits: 38,
 				rawUsage: expect.objectContaining({
 					providerDurationSeconds: 121,
 					transcriptionResponse: {

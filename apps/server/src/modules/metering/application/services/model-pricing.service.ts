@@ -101,7 +101,7 @@ export class ModelPricingService {
 		// (tests) bypasses zod defaults and leaves the value undefined.
 		this.usdMicrosPerCredit =
 			options.usdMicrosPerCredit ??
-			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.04));
+			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.032));
 		this.seedByModelId = buildSeedMap(options.seedResponse ?? modelPriceSeed);
 	}
 

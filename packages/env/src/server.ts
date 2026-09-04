@@ -112,10 +112,10 @@ export const env = createEnv({
 			.default("openai/gpt-4o-mini-transcribe"),
 		// USD of provider cost per WHOLE credit. Settlement debits integer
 		// centi-credits (1 credit = 100 cc); the conversion function owns the
-		// x100, so this value stays per whole credit. $0.04/credit is the
-		// unchanged pricing v5 anchor: 1 credit = $0.04 of provider cost, so the
-		// 7-credit signup grant carries $0.28 of provider value.
-		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
+		// x100, so this value stays per whole credit. $0.032/credit is the
+		// pricing v7 anchor: 1 credit = $0.032 of provider cost, so the
+		// 20-credit signup grant carries $0.64 of provider value.
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.032),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when

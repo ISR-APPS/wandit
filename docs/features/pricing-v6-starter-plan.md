@@ -1,5 +1,9 @@
 # Pricing v6 — Starter plan, 175-credit Pro base, 7-credit grant
 
+> **Superseded on 2026-09-04 by `pricing-v7-032-anchor.md`**: the credit anchor is
+> $0.032, the 250-credit Pro/Business ladder is back at the same prices, Starter is
+> 60 credits and the grant is 20 credits. This file stays as the v6 record.
+
 Decision date: 2026-09-02. Founder decisions after the pricing A/B tests.
 Supersedes the plan catalog of `billing.md` §"Catalog" and the 50-credit grant
 of `pricing-v5-usd-anchor.md` §1 (the $0.04 unit itself is unchanged and

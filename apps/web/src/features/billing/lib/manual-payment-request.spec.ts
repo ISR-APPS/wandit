@@ -9,7 +9,7 @@ describe("manual subscription request body", () => {
 	it("assembles and trims a complete request", () => {
 		expect(
 			assembleManualSubscriptionRequestBody(
-				{ interval: "year", plan: "pro", tierCredits: 700 },
+				{ interval: "year", plan: "pro", tierCredits: 1000 },
 				{
 					city: "  Alger  ",
 					company: "  Acme  ",
@@ -30,14 +30,14 @@ describe("manual subscription request body", () => {
 			phone: "+213 555 12 34 56",
 			plan: "pro",
 			preferredPaymentMethod: "ccp",
-			tierCredits: 700,
+			tierCredits: 1000,
 		});
 	});
 
 	it("omits blank optional fields", () => {
 		expect(
 			assembleManualSubscriptionRequestBody(
-				{ interval: "month", plan: "business", tierCredits: 175 },
+				{ interval: "month", plan: "business", tierCredits: 250 },
 				{
 					city: " ",
 					company: "",
@@ -58,14 +58,14 @@ describe("manual subscription request body", () => {
 			phone: "+216 20 000 000",
 			plan: "business",
 			preferredPaymentMethod: undefined,
-			tierCredits: 175,
+			tierCredits: 250,
 		});
 	});
 
 	it("assembles a Starter request with its single purchasable tier", () => {
 		expect(
 			assembleManualSubscriptionRequestBody(
-				{ interval: "month", plan: "starter", tierCredits: 50 },
+				{ interval: "month", plan: "starter", tierCredits: 60 },
 				{
 					city: "",
 					company: "",
@@ -79,7 +79,7 @@ describe("manual subscription request body", () => {
 		).toMatchObject({
 			interval: "month",
 			plan: "starter",
-			tierCredits: 50,
+			tierCredits: 60,
 		});
 	});
 });
