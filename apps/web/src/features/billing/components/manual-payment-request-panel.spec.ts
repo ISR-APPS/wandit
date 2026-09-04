@@ -70,7 +70,7 @@ vi.mock("./plan-card", async () => {
 		PlanCard: (props: {
 			interval: "month" | "year";
 			name: string;
-			onSelectTier: (tierCredits: 700) => void;
+			onSelectTier: (tierCredits: 1000) => void;
 			tier: { tierCredits: number };
 			tiers: readonly { tierCredits: number }[];
 		}) =>
@@ -80,14 +80,14 @@ vi.mock("./plan-card", async () => {
 					"data-selection": `${props.name}:${props.tier.tierCredits}:${props.interval}`,
 					"data-testid": "manual-plan-card",
 				},
-				props.tiers.some((tier) => tier.tierCredits === 700)
+				props.tiers.some((tier) => tier.tierCredits === 1000)
 					? createElement(
 							"button",
 							{
-								onClick: () => props.onSelectTier(700),
+								onClick: () => props.onSelectTier(1000),
 								type: "button",
 							},
-							"Choose 700 credits",
+							"Choose 1000 credits",
 						)
 					: null,
 			),
@@ -96,37 +96,37 @@ vi.mock("./plan-card", async () => {
 
 const plans: BillingPlanCatalogItem[] = [
 	{
-		basePer100Usd: 18,
+		basePer100Usd: 15,
 		features: { seats: false, teamWorkspace: false },
 		id: "starter",
 		tiers: [
 			{
-				annualLookupKey: "starter_50_year",
+				annualLookupKey: "starter_60_year",
 				annualUsd: 90,
-				monthlyLookupKey: "starter_50_month",
+				monthlyLookupKey: "starter_60_month",
 				monthlyUsd: 9,
-				tierCredits: 50,
+				tierCredits: 60,
 			},
 		],
 	},
 	{
-		basePer100Usd: (25 / 175) * 100,
+		basePer100Usd: 10,
 		features: { seats: false, teamWorkspace: false },
 		id: "pro",
 		tiers: [
 			{
-				annualLookupKey: "pro_175_year",
+				annualLookupKey: "pro_250_year",
 				annualUsd: 250,
-				monthlyLookupKey: "pro_175_month",
+				monthlyLookupKey: "pro_250_month",
 				monthlyUsd: 25,
-				tierCredits: 175,
+				tierCredits: 250,
 			},
 			{
-				annualLookupKey: "pro_700_year",
+				annualLookupKey: "pro_1000_year",
 				annualUsd: 1000,
-				monthlyLookupKey: "pro_700_month",
+				monthlyLookupKey: "pro_1000_month",
 				monthlyUsd: 100,
-				tierCredits: 700,
+				tierCredits: 1000,
 			},
 		],
 	},
@@ -152,24 +152,26 @@ describe("ManualPaymentRequestPanel selection changes", () => {
 		expect(onSelectionChange).toHaveBeenLastCalledWith({
 			interval: "month",
 			planId: "pro",
-			tierCredits: 175,
+			tierCredits: 250,
 		});
 
 		fireEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
 		expect(onSelectionChange).toHaveBeenLastCalledWith({
 			interval: "year",
 			planId: "pro",
-			tierCredits: 175,
+			tierCredits: 250,
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Choose 700 credits" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose 1000 credits" }),
+		);
 		expect(onSelectionChange).toHaveBeenLastCalledWith({
 			interval: "year",
 			planId: "pro",
-			tierCredits: 700,
+			tierCredits: 1000,
 		});
 		expect(screen.getByTestId("manual-plan-card").dataset.selection).toBe(
-			"Pro:700:year",
+			"Pro:1000:year",
 		);
 	});
 });

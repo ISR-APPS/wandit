@@ -46,7 +46,7 @@ const funnelStepDescriptions = {
 	signup: "Accounts created in range",
 	firstAction: "Prompt or project created",
 	activated: "First successful generation",
-	healthyTrial: "7+ credits and 2+ generations",
+	healthyTrial: "8+ credits and 2+ generations",
 	pricingViewed: "A pricing surface was viewed",
 	upgradeClicked: "An upgrade entry point was clicked",
 	checkoutStarted: "Subscription checkout only",

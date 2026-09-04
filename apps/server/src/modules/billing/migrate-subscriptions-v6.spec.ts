@@ -1,4 +1,4 @@
-import { v6TierForLegacy } from "@wandit/contracts";
+import { purchasableTierForLegacy } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,11 +23,11 @@ function subscription(
 		pendingAppliedBy: null,
 		pendingTierCredits: null,
 		plan: "pro",
-		priceLookupKey: "pro_250_month",
+		priceLookupKey: "pro_175_month",
 		provider: "stripe",
 		providerSubscriptionId: "sub_1",
 		status: "active",
-		tierCredits: 250,
+		tierCredits: 175,
 		userId: "user_1",
 		...overrides,
 	};
@@ -60,30 +60,31 @@ function dependencies(
 	};
 }
 
-describe("pricing v6 subscription migration mapping", () => {
-	it("maps every legacy tier to seventy percent of its credits", () => {
-		expect(
-			[250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500].map((oldTier) => [
-				oldTier,
-				v6TierForLegacy(oldTier),
-			]),
-		).toEqual([
-			[250, 175],
-			[500, 350],
-			[1000, 700],
-			[2000, 1400],
-			[3000, 2100],
-			[5000, 3500],
-			[7500, 5250],
-			[10000, 7000],
-			[12500, 8750],
-		]);
+describe("pricing v7 subscription migration mapping", () => {
+	it("maps every legacy tier to the purchasable tier with the same price", () => {
+		const pairs = [
+			[175, 250],
+			[350, 500],
+			[700, 1000],
+			[1400, 2000],
+			[2100, 3000],
+			[3500, 5000],
+			[5250, 7500],
+			[7000, 10000],
+			[8750, 12500],
+		] as const;
+		for (const [legacyTier, activeTier] of pairs) {
+			expect(purchasableTierForLegacy("pro", legacyTier)).toBe(activeTier);
+			expect(purchasableTierForLegacy("business", legacyTier)).toBe(activeTier);
+		}
+		expect(purchasableTierForLegacy("starter", 50)).toBe(60);
 	});
 
-	it("does not remap active or unknown tiers", () => {
-		expect(v6TierForLegacy(50)).toBeNull();
-		expect(v6TierForLegacy(175)).toBeNull();
-		expect(v6TierForLegacy(999)).toBeNull();
+	it("does not remap active, cross-plan or unknown tiers", () => {
+		expect(purchasableTierForLegacy("pro", 250)).toBeNull();
+		expect(purchasableTierForLegacy("starter", 60)).toBeNull();
+		expect(purchasableTierForLegacy("pro", 50)).toBeNull();
+		expect(purchasableTierForLegacy("pro", 999)).toBeNull();
 	});
 
 	it("switches a cancel-at-period-end monthly Stripe row and only updates its local tier fields", async () => {
@@ -92,50 +93,50 @@ describe("pricing v6 subscription migration mapping", () => {
 		const result = await migrateSubscriptionV6(candidate, true, deps);
 
 		expect(result).toMatchObject({
-			newTier: 175,
+			newTier: 250,
 			provider: "stripe",
 			status: "applied",
 		});
 		expect(deps.switchSubscriptionPriceWithoutProration).toHaveBeenCalledWith({
-			currentPriceLookupKey: "pro_250_month",
-			idempotencyKey: "billing-migrate-v6:month:sub_1:pro_175_month",
-			newPriceLookupKey: "pro_175_month",
+			currentPriceLookupKey: "pro_175_month",
+			idempotencyKey: "billing-migrate-v6:month:sub_1:pro_250_month",
+			newPriceLookupKey: "pro_250_month",
 			providerSubscriptionId: "sub_1",
 		});
 		expect(deps.updateLocalTier).toHaveBeenCalledWith(
 			"subscription_1",
-			175,
-			"pro_175_month",
+			250,
+			"pro_250_month",
 		);
 	});
 
 	it("migrates a monthly manual row locally without making a Stripe call", async () => {
 		const candidate = subscription({
-			priceLookupKey: "pro_500_month",
+			priceLookupKey: "pro_350_month",
 			provider: "manual",
 			providerSubscriptionId: "manual_1",
-			tierCredits: 500,
+			tierCredits: 350,
 		});
 		const deps = dependencies(candidate);
 		const result = await migrateSubscriptionV6(candidate, true, deps);
 
 		expect(result).toMatchObject({
-			newTier: 350,
+			newTier: 500,
 			provider: "manual",
 			status: "applied",
 		});
 		expect(deps.switchSubscriptionPriceWithoutProration).not.toHaveBeenCalled();
 		expect(deps.updateLocalTier).toHaveBeenCalledWith(
 			"subscription_1",
-			350,
-			"pro_350_month",
+			500,
+			"pro_500_month",
 		);
 	});
 
 	it("schedules a yearly manual tier locally and makes its replay a no-op", async () => {
 		const manual = subscription({
 			interval: "year",
-			priceLookupKey: "pro_250_year",
+			priceLookupKey: "pro_175_year",
 			provider: "manual",
 			providerSubscriptionId: "manual_1",
 		});
@@ -143,18 +144,18 @@ describe("pricing v6 subscription migration mapping", () => {
 
 		const first = await migrateSubscriptionV6(manual, true, deps);
 		const replay = await migrateSubscriptionV6(
-			{ ...manual, pendingTierCredits: 175 },
+			{ ...manual, pendingTierCredits: 250 },
 			true,
 			deps,
 		);
 
 		expect(first).toMatchObject({
-			newTier: 175,
+			newTier: 250,
 			provider: "manual",
 			status: "applied",
 		});
 		expect(deps.setPendingTierCredits).toHaveBeenCalledOnce();
-		expect(deps.setPendingTierCredits).toHaveBeenCalledWith("manual_1", 175);
+		expect(deps.setPendingTierCredits).toHaveBeenCalledWith("manual_1", 250);
 		expect(deps.scheduleSubscriptionDowngrade).not.toHaveBeenCalled();
 		expect(replay).toMatchObject({
 			reason: "v6 renewal tier is already scheduled",
@@ -168,7 +169,7 @@ describe("pricing v6 subscription migration mapping", () => {
 			subscription({
 				cancelAtPeriodEnd: true,
 				interval: "year",
-				priceLookupKey: "pro_250_year",
+				priceLookupKey: "pro_175_year",
 			}),
 			true,
 			deps,
@@ -186,14 +187,14 @@ describe("pricing v6 subscription migration mapping", () => {
 	it("schedules a fresh yearly Stripe migration from a verified snapshot", async () => {
 		const candidate = subscription({
 			interval: "year",
-			priceLookupKey: "pro_250_year",
+			priceLookupKey: "pro_175_year",
 		});
 		const deps = dependencies(candidate);
 
 		const result = await migrateSubscriptionV6(candidate, true, deps);
 
 		expect(result).toMatchObject({
-			newTier: 175,
+			newTier: 250,
 			status: "applied",
 		});
 		expect(deps.withOwnerLock).toHaveBeenCalledWith(
@@ -203,10 +204,10 @@ describe("pricing v6 subscription migration mapping", () => {
 		expect(deps.reloadSubscription).toHaveBeenCalledWith("subscription_1");
 		expect(deps.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
 			allowSameIntentRecovery: true,
-			currentPriceLookupKey: "pro_250_year",
+			currentPriceLookupKey: "pro_175_year",
 			expectedScheduleTarget: null,
-			idempotencyKey: "billing-migrate-v6:year:sub_1:pro_175_year",
-			newPriceLookupKey: "pro_175_year",
+			idempotencyKey: "billing-migrate-v6:year:sub_1:pro_250_year",
+			newPriceLookupKey: "pro_250_year",
 			providerSubscriptionId: "sub_1",
 		});
 	});
@@ -214,7 +215,7 @@ describe("pricing v6 subscription migration mapping", () => {
 	it("skips writes when a billing change already owns the subscription", async () => {
 		const candidate = subscription({
 			interval: "year",
-			priceLookupKey: "pro_250_year",
+			priceLookupKey: "pro_175_year",
 		});
 		const deps = dependencies(candidate);
 		deps.withOwnerLock.mockResolvedValueOnce(null);
@@ -234,28 +235,28 @@ describe("pricing v6 subscription migration mapping", () => {
 		const candidate = subscription({
 			interval: "year",
 			pendingAppliedBy: "sub_sched_legacy",
-			pendingTierCredits: 1000,
+			pendingTierCredits: 700,
 			plan: "business",
-			priceLookupKey: "business_2000_year",
-			tierCredits: 2000,
+			priceLookupKey: "business_1400_year",
+			tierCredits: 1400,
 		});
 		const deps = dependencies(candidate);
 		const result = await migrateSubscriptionV6(candidate, true, deps);
 
 		expect(result).toMatchObject({
-			newTier: 700,
+			newTier: 1000,
 			reason: "existing legacy renewal change retargeted to its v6 tier",
 			status: "applied",
 		});
 		expect(deps.scheduleSubscriptionDowngrade).toHaveBeenCalledWith({
 			allowSameIntentRecovery: true,
-			currentPriceLookupKey: "business_2000_year",
-			expectedScheduleTarget: "business_1000_year",
-			idempotencyKey: "billing-migrate-v6:year:sub_1:business_700_year",
-			newPriceLookupKey: "business_700_year",
+			currentPriceLookupKey: "business_1400_year",
+			expectedScheduleTarget: "business_700_year",
+			idempotencyKey: "billing-migrate-v6:year:sub_1:business_1000_year",
+			newPriceLookupKey: "business_1000_year",
 			providerSubscriptionId: "sub_1",
 		});
-		expect(deps.setPendingTierCredits).toHaveBeenCalledWith("sub_1", 700);
+		expect(deps.setPendingTierCredits).toHaveBeenCalledWith("sub_1", 1000);
 		expect(deps.markPendingTierApplied).toHaveBeenCalledWith(
 			"sub_1",
 			"sub_sched_1",
@@ -263,14 +264,14 @@ describe("pricing v6 subscription migration mapping", () => {
 	});
 
 	it.each([
-		["price lookup key", { priceLookupKey: "pro_500_year" }],
-		["pending tier", { pendingTierCredits: 350 }],
+		["price lookup key", { priceLookupKey: "pro_350_year" }],
+		["pending tier", { pendingTierCredits: 500 }],
 		["cancellation flag", { cancelAtPeriodEnd: true }],
 		["status", { status: "past_due" }],
 	] as const)("skips a yearly write when the reloaded row changed its %s", async (_field, changedFields) => {
 		const candidate = subscription({
 			interval: "year",
-			priceLookupKey: "pro_250_year",
+			priceLookupKey: "pro_175_year",
 		});
 		const deps = dependencies({ ...candidate, ...changedFields });
 

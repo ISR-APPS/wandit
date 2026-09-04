@@ -69,8 +69,8 @@ describe("AffiliateAdminRepository referred quality SQL", () => {
 			"c.created_at < m.created_at + interval '7 days'",
 		);
 		expect(query.sql).toContain("f.first_subscription_at is null");
-		// 700 centi-credits = the 7-whole-credit healthy-trial threshold.
-		expect(query.params).toContain(700);
+		// 800 centi-credits = the 8-whole-credit healthy-trial threshold.
+		expect(query.params).toContain(800);
 		expect(query.params).toContain(2);
 
 		for (const table of [
@@ -125,9 +125,9 @@ describe("AffiliateAdminRepository referred quality SQL", () => {
 		);
 		expect(query.sql).toContain("round(coalesce(sum(case rs.price_lookup_key");
 		expect(query.sql).toContain("else 0::numeric end), 0))::bigint");
-		expect(query.params).toContain("starter_50_month");
+		expect(query.params).toContain("starter_60_month");
 		expect(query.params).toContain(900);
-		expect(query.params).toContain("starter_50_year");
+		expect(query.params).toContain("starter_60_year");
 		expect(query.params).toContain(9_000 / 12);
 		expect(query.params).not.toContain("starter_250_month");
 		expect(query.params).toContain("pro_175_month");

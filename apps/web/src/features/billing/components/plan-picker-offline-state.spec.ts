@@ -9,51 +9,51 @@ import { PlanPickerDialog } from "./plan-picker-dialog";
 const catalog = vi.hoisted(() => ({
 	plans: [
 		{
-			basePer100Usd: 18,
+			basePer100Usd: 15,
 			features: { seats: false, teamWorkspace: false },
 			id: "starter",
 			tiers: [
 				{
-					annualLookupKey: "starter_50_year",
+					annualLookupKey: "starter_60_year",
 					annualUsd: 90,
-					monthlyLookupKey: "starter_50_month",
+					monthlyLookupKey: "starter_60_month",
 					monthlyUsd: 9,
-					tierCredits: 50,
+					tierCredits: 60,
 				},
 			],
 		},
 		{
-			basePer100Usd: (25 / 175) * 100,
+			basePer100Usd: 10,
 			features: { seats: false, teamWorkspace: false },
 			id: "pro",
 			tiers: [
 				{
-					annualLookupKey: "pro_175_year",
+					annualLookupKey: "pro_250_year",
 					annualUsd: 250,
-					monthlyLookupKey: "pro_175_month",
+					monthlyLookupKey: "pro_250_month",
 					monthlyUsd: 25,
-					tierCredits: 175,
+					tierCredits: 250,
 				},
 				{
-					annualLookupKey: "pro_700_year",
+					annualLookupKey: "pro_1000_year",
 					annualUsd: 1000,
-					monthlyLookupKey: "pro_700_month",
+					monthlyLookupKey: "pro_1000_month",
 					monthlyUsd: 100,
-					tierCredits: 700,
+					tierCredits: 1000,
 				},
 			],
 		},
 		{
-			basePer100Usd: (50 / 175) * 100,
+			basePer100Usd: 20,
 			features: { seats: true, teamWorkspace: true },
 			id: "business",
 			tiers: [
 				{
-					annualLookupKey: "business_175_year",
+					annualLookupKey: "business_250_year",
 					annualUsd: 500,
-					monthlyLookupKey: "business_175_month",
+					monthlyLookupKey: "business_250_month",
 					monthlyUsd: 50,
-					tierCredits: 175,
+					tierCredits: 250,
 				},
 			],
 		},
@@ -202,7 +202,7 @@ vi.mock("./manual-payment-request-panel", async () => {
 			onSelectionChange: (selection: {
 				interval: "month" | "year";
 				planId: "starter" | "pro" | "business";
-				tierCredits: 50 | 175 | 700;
+				tierCredits: 60 | 250 | 1000;
 			}) => void;
 			plans: typeof catalog.plans;
 		}) => {
@@ -229,7 +229,7 @@ vi.mock("./manual-payment-request-panel", async () => {
 							const next = {
 								interval: "year" as const,
 								planId: "pro" as const,
-								tierCredits: 700 as const,
+								tierCredits: 1000 as const,
 							};
 							setSelection(next);
 							props.onSelectionChange(next);
@@ -263,7 +263,7 @@ describe("plan picker offline state", () => {
 
 		fireEvent.click(screen.getByRole("tab", { name: "Cash / transfer" }));
 		fireEvent.click(screen.getByRole("button", { name: "Choose Pro yearly" }));
-		expect(offlinePanel.dataset.selection).toBe("pro:700:year");
+		expect(offlinePanel.dataset.selection).toBe("pro:1000:year");
 
 		fireEvent.click(screen.getByRole("tab", { name: "Card" }));
 		expect(screen.getByTestId("offline-selection")).toBe(offlinePanel);
@@ -271,7 +271,7 @@ describe("plan picker offline state", () => {
 
 		fireEvent.click(screen.getByRole("tab", { name: "Cash / transfer" }));
 		expect(screen.getByTestId("offline-selection").dataset.selection).toBe(
-			"pro:700:year",
+			"pro:1000:year",
 		);
 	});
 });

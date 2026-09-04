@@ -33,44 +33,44 @@ const RESPONSE: BillingSubscriptionViewResponse = {
 const PLANS_RESPONSE = {
 	plans: [
 		{
-			basePer100Usd: 18,
+			basePer100Usd: 15,
 			features: { seats: false, teamWorkspace: false },
 			id: "starter",
 			tiers: [
 				{
-					annualLookupKey: "starter_50_year",
+					annualLookupKey: "starter_60_year",
 					annualUsd: 90,
-					monthlyLookupKey: "starter_50_month",
+					monthlyLookupKey: "starter_60_month",
 					monthlyUsd: 9,
-					tierCredits: 50,
+					tierCredits: 60,
 				},
 			],
 		},
 		{
-			basePer100Usd: (25 / 175) * 100,
+			basePer100Usd: 10,
 			features: { seats: false, teamWorkspace: false },
 			id: "pro",
 			tiers: [
 				{
-					annualLookupKey: "pro_175_year",
+					annualLookupKey: "pro_250_year",
 					annualUsd: 250,
-					monthlyLookupKey: "pro_175_month",
+					monthlyLookupKey: "pro_250_month",
 					monthlyUsd: 25,
-					tierCredits: 175,
+					tierCredits: 250,
 				},
 			],
 		},
 		{
-			basePer100Usd: (50 / 175) * 100,
+			basePer100Usd: 20,
 			features: { seats: true, teamWorkspace: true },
 			id: "business",
 			tiers: [
 				{
-					annualLookupKey: "business_175_year",
+					annualLookupKey: "business_250_year",
 					annualUsd: 500,
-					monthlyLookupKey: "business_175_month",
+					monthlyLookupKey: "business_250_month",
 					monthlyUsd: 50,
-					tierCredits: 175,
+					tierCredits: 250,
 				},
 			],
 		},

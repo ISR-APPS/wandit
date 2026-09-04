@@ -1202,7 +1202,7 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		);
 		expect(churn.sql).toContain("then 'starter'");
 		expect(churn.sql).toContain("else 'unknown' end as plan");
-		expect(churn.params).toContain("starter_50_month");
+		expect(churn.params).toContain("starter_60_month");
 		expect(churn.params).toContain("pro_250_month");
 		expect(churn.params).toContain("business_12500_year");
 		expect(churn.params).not.toContain("starter_250_month");

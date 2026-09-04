@@ -6,7 +6,7 @@ import { mapProductSettingsDto } from "./settings.dto";
 const SETTINGS_PAYLOAD = {
 	id: 1,
 	signupGrantEnabled: false,
-	signupGrantCredits: 18,
+	signupGrantCredits: 20,
 	paidSubscriptionsEnabled: false,
 	manualPaymentsEnabled: false,
 	manualGraceDays: 3,
@@ -25,7 +25,7 @@ describe("mapProductSettingsDto", () => {
 		expect(mapProductSettingsDto(SETTINGS_PAYLOAD)).toEqual({
 			id: 1,
 			signupGrantEnabled: false,
-			signupGrantCredits: 18,
+			signupGrantCredits: 20,
 			paidSubscriptionsEnabled: false,
 			manualPaymentsEnabled: false,
 			manualGraceDays: 3,
@@ -61,7 +61,7 @@ describe("signupGrantCredits PATCH validation", () => {
 	it("accepts the 7-credit signup grant", () => {
 		expect(
 			patchProductSettingsBodySchema.safeParse({
-				signupGrantCredits: 18,
+				signupGrantCredits: 20,
 				version: 7,
 			}).success,
 		).toBe(true);

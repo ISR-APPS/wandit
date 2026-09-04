@@ -185,10 +185,10 @@ export type CreditActivityResponse = z.infer<
 	typeof creditActivityResponseSchema
 >;
 
-// Free-user grant: 18 credits = 1800 centi-credits = $0.72 of AI-provider value
+// Free-user grant: 20 credits = 2000 centi-credits = $0.64 of AI-provider value
 // at $0.04/credit. The DB and product settings store centi-credits; the server
 // converts at the API boundary.
-export const SIGNUP_GRANT_CREDITS = 18;
+export const SIGNUP_GRANT_CREDITS = 20;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",

@@ -108,8 +108,8 @@ const consumptionBucketLabels = {
 	"0": "0 credits",
 	"1-4": "1–4 credits",
 	"5-9": "5–9 credits",
-	"10-17": "10–17 credits",
-	"18+": "18+ credits",
+	"10-19": "10–19 credits",
+	"20+": "20+ credits",
 } satisfies Record<AdminAnalyticsConsumptionBucket, string>;
 
 const acquisitionSourceLabels = new Map<string, string>([
@@ -152,7 +152,7 @@ export const funnelStepMetadata: Record<
 	healthyTrial: {
 		label: "Healthy trial",
 		tooltip:
-			"Free users who used at least 7 credits and completed at least two generations in their first seven days.",
+			"Free users who used at least 8 credits and completed at least two generations in their first seven days.",
 	},
 	pricingViewed: {
 		label: "Pricing viewed",
