@@ -158,7 +158,7 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "images",
 			label: "Images generated",
 			tooltip:
-				"Images successfully generated and saved in the selected range. Images made inside website builds are not included. The supporting total includes successful standalone image and video assets.",
+				"Images successfully generated and saved in the selected range. Images made inside website builds are not included.",
 			value: formatOverviewCompactNumber(totals.imagesGenerated),
 			// MOCK DATA: Page-build R2 images lack a reliable database success marker,
 			// so this total currently covers persisted generation attempts only.

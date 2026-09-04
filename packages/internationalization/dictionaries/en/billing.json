@@ -109,14 +109,14 @@
 		"businessTagline": "For teams sharing one credit pool",
 		"businessFromPrice": "From {price}",
 		"starterFeatures": [
-			"AI image & video generation",
+			"AI image generation",
 			"Custom domains",
 			"Publishing always free"
 		],
 		"proFeatures": [
 			"Fresh plan credits every month",
 			"AI marketing & campaign tools",
-			"AI image & video generation",
+			"AI image generation",
 			"Asset library",
 			"Custom domains",
 			"Connect apps & integrations",

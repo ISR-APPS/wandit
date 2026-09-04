@@ -24,17 +24,6 @@ const imageVariantPriceSchema = z
 	})
 	.passthrough();
 
-// Duration rates are parsed leniently: one malformed variant must not reject
-// the whole gateway catalog refresh, it only drops that variant.
-const videoVariantPriceSchema = z
-	.object({
-		audio: z.boolean().optional(),
-		cost_per_second: z.string(),
-		mode: z.string().optional(),
-		resolution: z.string().optional(),
-	})
-	.passthrough();
-
 export const gatewayModelSchema = z
 	.object({
 		id: z.string().min(1),
@@ -50,7 +39,6 @@ export const gatewayModelSchema = z
 				input_cache_write: pricingStringSchema.optional(),
 				output: pricingStringSchema.optional(),
 				transcription_duration_cost_per_second: z.string().optional(),
-				video_duration_pricing: z.array(videoVariantPriceSchema).optional(),
 			})
 			.passthrough(),
 		type: z.string().min(1),
@@ -76,17 +64,9 @@ export type ImageVariantPrice = {
 	usdMicros: number;
 };
 
-export type VideoVariantPrice = {
-	audio?: boolean;
-	mode?: string;
-	resolution?: string;
-	usdMicrosPerSecond: number;
-};
-
-/** Size/mode/resolution-specific media rates kept next to the default rate. */
+/** Size/mode-specific image rates kept next to the default rate. */
 export type MediaVariantPricing = {
 	image?: ImageVariantPrice[];
-	video?: VideoVariantPrice[];
 };
 
 export type ModelPrice = {
@@ -103,14 +83,6 @@ export type ModelPrice = {
 	source: ModelPriceSource;
 	transcriptionUsdMicrosPerSecond: number | null;
 	variantPricing: MediaVariantPricing | null;
-	videoUsdMicrosPerSecond: number | null;
-};
-
-export type VideoEstimateInput = {
-	audio?: boolean;
-	durationSeconds: number;
-	mode?: string;
-	resolution?: string;
 };
 
 export type PersistedModelPrice = Omit<ModelPrice, "source">;
@@ -147,7 +119,6 @@ export type PricingSnapshot = {
 	transcriptionUsdMicrosPerSecond: number | null;
 	/** Micros per WHOLE credit (40,000), never per centi-credit. */
 	usdMicrosPerCredit: number;
-	videoUsdMicrosPerSecond: number | null;
 };
 
 /** Local (pre-gateway) provider cost estimate for one measured operation. */
@@ -156,7 +127,7 @@ export type MeasuredCostEstimate = {
 	/** Integer centi-credits (1 credit = 100 cc). */
 	credits: number;
 	pricingSnapshot: PricingSnapshot;
-	/** Cost of one unit (image, second) the estimate was built from. */
+	/** Cost of one unit (for example, one image) the estimate was built from. */
 	unitUsdMicros: number;
 };
 
@@ -342,66 +313,6 @@ export function imageEstimateUsdMicros(
 		: bigintToSafeNumber(BigInt(unit) * BigInt(count));
 }
 
-/**
- * Per-second video rate for the requested variant. Mode, resolution, and
- * audio each narrow the match only when the catalog variant declares them;
- * with no usable match the cheapest (default) rate applies.
- */
-export function videoUnitUsdMicrosPerSecond(
-	price: ModelPrice,
-	input: Omit<VideoEstimateInput, "durationSeconds"> = {},
-): number | null {
-	const variants = price.variantPricing?.video;
-
-	if (variants && variants.length > 0) {
-		const candidates = variants.filter(
-			(variant) =>
-				(input.mode === undefined ||
-					variant.mode === undefined ||
-					variant.mode.toLowerCase() === input.mode.toLowerCase()) &&
-				(input.resolution === undefined ||
-					variant.resolution === undefined ||
-					variant.resolution.toLowerCase() ===
-						input.resolution.toLowerCase()) &&
-				(input.audio === undefined ||
-					variant.audio === undefined ||
-					variant.audio === input.audio),
-		);
-		// Prefer the variant that confirms the most requested dimensions, then
-		// the cheapest (an unspecified dimension never buys a pricier tier).
-		const ranked = [...candidates].sort((left, right) => {
-			const specificity = (variant: VideoVariantPrice) =>
-				Number(input.mode !== undefined && variant.mode !== undefined) +
-				Number(
-					input.resolution !== undefined && variant.resolution !== undefined,
-				) +
-				Number(input.audio !== undefined && variant.audio !== undefined);
-			const bySpecificity = specificity(right) - specificity(left);
-
-			return bySpecificity !== 0
-				? bySpecificity
-				: left.usdMicrosPerSecond - right.usdMicrosPerSecond;
-		});
-		const best = ranked[0];
-
-		if (best) {
-			return best.usdMicrosPerSecond;
-		}
-	}
-
-	return price.videoUsdMicrosPerSecond;
-}
-
-export function videoEstimateUsdMicros(
-	price: ModelPrice,
-	input: VideoEstimateInput,
-): number | null {
-	assertPositiveFinite(input.durationSeconds, "durationSeconds");
-	const rate = videoUnitUsdMicrosPerSecond(price, input);
-
-	return rate === null ? null : Math.ceil(rate * input.durationSeconds);
-}
-
 export function transcriptionEstimateUsdMicros(
 	price: ModelPrice,
 	durationSeconds: number,
@@ -434,7 +345,6 @@ export function pricingSnapshot(
 		source: price.source,
 		transcriptionUsdMicrosPerSecond: price.transcriptionUsdMicrosPerSecond,
 		usdMicrosPerCredit,
-		videoUsdMicrosPerSecond: price.videoUsdMicrosPerSecond,
 	};
 }
 
@@ -465,7 +375,6 @@ export function gatewayModelToPersistedPrice(
 		refreshedAt,
 		transcriptionUsdMicrosPerSecond: transcriptionRate(model),
 		variantPricing: variantPricing(model),
-		videoUsdMicrosPerSecond: videoRate(model),
 	};
 }
 
@@ -488,42 +397,11 @@ function variantPricing(model: GatewayModel): MediaVariantPricing | null {
 					];
 		},
 	);
-	const video = (model.pricing.video_duration_pricing ?? []).flatMap(
-		(variant): VideoVariantPrice[] => {
-			const usdMicrosPerSecond = lenientUsdMicros(variant.cost_per_second);
-
-			return usdMicrosPerSecond === null
-				? []
-				: [
-						{
-							...(variant.audio === undefined ? {} : { audio: variant.audio }),
-							...(variant.mode === undefined ? {} : { mode: variant.mode }),
-							...(variant.resolution === undefined
-								? {}
-								: { resolution: variant.resolution }),
-							usdMicrosPerSecond,
-						},
-					];
-		},
-	);
-
-	if (image.length === 0 && video.length === 0) {
+	if (image.length === 0) {
 		return null;
 	}
 
-	return {
-		...(image.length === 0 ? {} : { image }),
-		...(video.length === 0 ? {} : { video }),
-	};
-}
-
-/** Cheapest declared per-second rate: the "std"/no-audio default tier. */
-function videoRate(model: GatewayModel): number | null {
-	const rates = (model.pricing.video_duration_pricing ?? [])
-		.map((variant) => lenientUsdMicros(variant.cost_per_second))
-		.filter((rate): rate is number => rate !== null);
-
-	return rates.length === 0 ? null : Math.min(...rates);
+	return { image };
 }
 
 function transcriptionRate(model: GatewayModel): number | null {
@@ -632,12 +510,6 @@ function assertNonNegativeSafeInteger(value: number, label: string): void {
 function assertPositiveSafeInteger(value: number, label: string): void {
 	if (!Number.isSafeInteger(value) || value <= 0) {
 		throw new Error(`${label} must be a positive safe integer`);
-	}
-}
-
-function assertPositiveFinite(value: number, label: string): void {
-	if (!Number.isFinite(value) || value <= 0) {
-		throw new Error(`${label} must be a positive number`);
 	}
 }
 

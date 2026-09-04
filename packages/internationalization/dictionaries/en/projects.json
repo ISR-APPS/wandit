@@ -133,7 +133,7 @@
 	},
 	"promptBox": {
 		"placeholderHero": "Describe what you want Wandit to create or change…",
-		"placeholderCompact": "Ask for a page edit, a marketing asset, an image or a video…",
+		"placeholderCompact": "Ask for a page edit, a marketing asset or an image…",
 		"banner": "Beta — your first 5 pages are on us, no card needed",
 		"submitLabel": "Generate",
 		"micLabel": "Voice input",
@@ -155,24 +155,6 @@
 			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max)",
 			"failed": "Upload failed",
 			"signInFirst": "Sign in to attach files"
-		},
-		"sourceImage": {
-			"title": "Add a source image",
-			"label": "Source image",
-			"required": "Required",
-			"dropHint": "Drop it here or choose a file",
-			"formats": "JPEG, PNG or WebP · 15 MB max",
-			"choose": "Choose image",
-			"replace": "Replace",
-			"remove": "Remove source image",
-			"retry": "Retry source image upload",
-			"uploading": "Uploading…",
-			"ready": "Ready to animate",
-			"unsupported": "Choose a JPEG, PNG or WebP image",
-			"tooLarge": "Image is larger than 15 MB",
-			"failed": "Source image upload failed",
-			"limit": "Remove a context attachment first (6 files max)",
-			"signInFirst": "Sign in to add the source image"
 		},
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
@@ -215,11 +197,6 @@
 				"label": "Image",
 				"description": "Generate product visuals and ad images.",
 				"placeholder": "Describe the product image, ratio, style and setting…"
-			},
-			"video": {
-				"label": "Video",
-				"description": "Create a video or animate a photo into motion.",
-				"placeholder": "Describe the video you want — product, style, key moment…"
 			}
 		},
 		"skillGroups": {
@@ -535,63 +512,6 @@
 							"1": "1",
 							"3": "3",
 							"5": "5"
-						}
-					}
-				}
-			},
-			"video-creator": {
-				"label": "Video creator",
-				"shortLabel": "Video creator",
-				"description": "Creates a short video from your description — a commercial, UGC clip, or teaser.",
-				"placeholder": "Describe the video: the product, the vibe, the moment to capture…",
-				"options": {
-					"ratio": {
-						"label": "Ratio",
-						"choices": {
-							"9-16": "9:16",
-							"1-1": "1:1",
-							"16-9": "16:9"
-						}
-					},
-					"duration": {
-						"label": "Duration",
-						"choices": {
-							"10": "10s",
-							"5": "5s"
-						}
-					},
-					"voice": {
-						"label": "Voiceover",
-						"choices": {
-							"auto": "Auto",
-							"none": "None",
-							"en": "English",
-							"fr": "French",
-							"ar": "Arabic"
-						}
-					}
-				}
-			},
-			"image-animation": {
-				"label": "Image to video",
-				"shortLabel": "Image to video",
-				"description": "Animates one still image; it does not create a video from scratch.",
-				"placeholder": "Optional: describe motion, camera movement or what should stay still…",
-				"options": {
-					"motion": {
-						"label": "Motion",
-						"choices": {
-							"subtle": "Subtle",
-							"balanced": "Balanced",
-							"dynamic": "Dynamic"
-						}
-					},
-					"ratio": {
-						"label": "Ratio",
-						"choices": {
-							"9-16": "9:16",
-							"1-1": "1:1",
-							"16-9": "16:9"
 						}
 					}
 				}

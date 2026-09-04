@@ -8,7 +8,7 @@
 // a product surface, so it stays out of the i18n dictionaries.
 
 import { Button } from "@wandit/ui/components/button";
-import { Check, Code, Copy, Lock, Play } from "lucide-react";
+import { Check, Code, Copy, Lock } from "lucide-react";
 
 import { WanditMessageHeader } from "./real-message";
 import { StatusMessageHeader } from "./status-message-header";
@@ -370,37 +370,6 @@ export function MockChatThread({
 					<div className="flex gap-[7px] bg-background p-2.5">
 						<Button size="sm" className="h-8 flex-1 text-[13px]">
 							Use on page
-						</Button>
-						<Button size="sm" variant="outline" className="h-8 text-[13px]">
-							Redo
-						</Button>
-					</div>
-				</div>
-			</div>
-
-			{/* 10 — video generation result */}
-			<div>
-				<StateLabel>10 · Video result</StateLabel>
-				<WanditMessageHeader />
-				<p className="mb-2.5 text-[14.5px] text-foreground leading-[1.5]">
-					And a 6-second teaser for the ads:
-				</p>
-				<div className="overflow-hidden rounded-[14px] border border-border">
-					<div className="relative grid h-[150px] place-items-center bg-[linear-gradient(135deg,oklch(0.3_0.09_40),oklch(0.15_0.05_280))]">
-						<div aria-hidden className="absolute inset-0 bg-grain" />
-						<span className="grid size-[46px] place-items-center rounded-full border border-white/30 bg-white/16 backdrop-blur-sm">
-							<Play className="size-[17px] fill-white text-white" />
-						</span>
-						<span className="absolute end-[9px] bottom-[9px] rounded-[6px] bg-black/45 px-[7px] py-0.5 font-mono text-[10px] text-white">
-							0:06
-						</span>
-						<div className="absolute inset-x-[11px] bottom-2.5 h-[3px] rounded-full bg-white/20">
-							<div className="h-full w-[35%] rounded-full bg-ember-1" />
-						</div>
-					</div>
-					<div className="flex gap-[7px] bg-background p-2.5">
-						<Button size="sm" className="h-8 flex-1 text-[13px]">
-							Download MP4
 						</Button>
 						<Button size="sm" variant="outline" className="h-8 text-[13px]">
 							Redo

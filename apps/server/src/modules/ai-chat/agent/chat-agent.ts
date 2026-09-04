@@ -30,29 +30,8 @@ import {
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
-import {
-	INSPECT_VIDEO_BRAIN_GUIDANCE,
-	WANDIT_SYSTEM_PROMPT,
-} from "./system-prompt";
-import {
-	type AnimateImageTool,
-	type AnimateImageToolDeps,
-	animateImageToolSchemaOnly,
-	createAnimateImageTool,
-} from "./tools/animate-image.tool";
+import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 import { askUserTool } from "./tools/ask-user.tool";
-import {
-	createEditVideoTool,
-	type EditVideoTool,
-	type EditVideoToolDeps,
-	editVideoToolSchemaOnly,
-} from "./tools/edit-video.tool";
-import {
-	createExtendVideoTool,
-	type ExtendVideoTool,
-	type ExtendVideoToolDeps,
-	extendVideoToolSchemaOnly,
-} from "./tools/extend-video.tool";
 import {
 	createGenerateImageTool,
 	type GenerateImageTool,
@@ -71,12 +50,6 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-import {
-	createGenerateVideoTool,
-	type GenerateVideoTool,
-	type GenerateVideoToolDeps,
-	generateVideoToolSchemaOnly,
-} from "./tools/generate-video.tool";
 // Worlds serve BOTH build kinds since the landing-batch merge: COD samples a
 // fusion menu (base + donors, law), websites sample a departure-point menu
 // (one world as inspiration; the brain writes its own divergences). The
@@ -86,22 +59,10 @@ import {
 	getDirectionCandidatesToolSchemaOnly,
 } from "./tools/get-direction-candidates.tool";
 import {
-	createInspectVideoTool,
-	type InspectVideoTool,
-	type InspectVideoToolDeps,
-	inspectVideoToolSchemaOnly,
-} from "./tools/inspect-video.tool";
-import {
 	createPageEditTools,
 	type PageEditTools,
 	pageEditToolsSchemaOnly,
 } from "./tools/page-edit.tools";
-import {
-	createProductVideoTool,
-	type ProductVideoTool,
-	type ProductVideoToolDeps,
-	productVideoToolSchemaOnly,
-} from "./tools/product-video.tool";
 import {
 	createReadAttachmentTool,
 	type ReadAttachmentTool,
@@ -126,17 +87,11 @@ import {
 } from "./tools/scrape-leads.tool";
 
 type AiChatToolSet = {
-	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
-	edit_video: EditVideoTool;
-	extend_video: ExtendVideoTool;
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
-	generate_video: GenerateVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
-	inspect_video?: InspectVideoTool;
-	product_video: ProductVideoTool;
 	read_attachment: ReadAttachmentTool;
 	read_lead_performance: ReadLeadPerformanceTool;
 	read_skill: typeof readSkillTool;
@@ -389,16 +344,9 @@ export type WanditUIMessage = UIMessage<
 // scrape_leads queue deps, plus the edit tools' mutation service.
 export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
-		hasHiggsfieldConnector?: boolean;
 		pageEditsService: PageEditsService;
-	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
-	Omit<EditVideoToolDeps, "chatId" | "projectId"> &
-	Omit<ExtendVideoToolDeps, "chatId" | "projectId"> &
-	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
+	} & Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
-	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
-	Omit<InspectVideoToolDeps, "organizationId"> &
-	Omit<ProductVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps &
 	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
 
@@ -416,7 +364,6 @@ export function createChatAgent(
 	mcpTools: McpToolSet = {},
 	approvalMap: McpToolApprovalMap = {},
 ): ToolLoopAgent<never, AiChatToolSet & McpToolSet> {
-	const inspectVideoAvailable = deps.hasHiggsfieldConnector !== true;
 	const meteringContext = {
 		operation: "chat" as const,
 		organizationId: deps.subject.organizationId ?? null,
@@ -433,18 +380,14 @@ export function createChatAgent(
 		task: "chat",
 	});
 
-	const systemPrompt = inspectVideoAvailable
-		? `${WANDIT_SYSTEM_PROMPT}\n\n${INSPECT_VIDEO_BRAIN_GUIDANCE}`
-		: WANDIT_SYSTEM_PROMPT;
-
 	return new ToolLoopAgent({
 		experimental_repairToolCall: createChatToolCallRepair({
 			captureGeneration: chatToolCallRepairCapture(deps),
 			model,
 		}),
 		instructions: contextBlock
-			? `${systemPrompt}\n\n${contextBlock}`
-			: systemPrompt,
+			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
+			: WANDIT_SYSTEM_PROMPT,
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 		model,
 		providerOptions: withLlmAttribution(
@@ -475,40 +418,7 @@ export function createChatAgent(
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
 		toolApproval: approvalMap,
 		tools: {
-			animate_image: createAnimateImageTool({
-				availableImages: deps.availableImages,
-				chatId: deps.chatId,
-				mediaGenerationsRepository: deps.mediaGenerationsRepository,
-				meteringService: deps.meteringService,
-				parentEventId: deps.parentEventId,
-				projectId: deps.projectId,
-				requireSelectedSource: deps.requireSelectedSource,
-				requestKeySeed: deps.requestKeySeed,
-				selectedSourceImage: deps.selectedSourceImage,
-				subject: deps.subject,
-				userId: deps.userId,
-			}),
 			ask_user: askUserTool,
-			edit_video: createEditVideoTool({
-				chatId: deps.chatId,
-				mediaGenerationsRepository: deps.mediaGenerationsRepository,
-				meteringService: deps.meteringService,
-				parentEventId: deps.parentEventId,
-				projectId: deps.projectId,
-				requestKeySeed: deps.requestKeySeed,
-				subject: deps.subject,
-				userId: deps.userId,
-			}),
-			extend_video: createExtendVideoTool({
-				chatId: deps.chatId,
-				mediaGenerationsRepository: deps.mediaGenerationsRepository,
-				meteringService: deps.meteringService,
-				parentEventId: deps.parentEventId,
-				projectId: deps.projectId,
-				requestKeySeed: deps.requestKeySeed,
-				subject: deps.subject,
-				userId: deps.userId,
-			}),
 			generate_image: createGenerateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
@@ -543,41 +453,7 @@ export function createChatAgent(
 				subject: deps.subject,
 				userId: deps.userId,
 			}),
-			generate_video: createGenerateVideoTool({
-				chatId: deps.chatId,
-				mediaGenerationsRepository: deps.mediaGenerationsRepository,
-				meteringService: deps.meteringService,
-				parentEventId: deps.parentEventId,
-				projectId: deps.projectId,
-				requestKeySeed: deps.requestKeySeed,
-				subject: deps.subject,
-				userId: deps.userId,
-				videoDirector: deps.videoDirector,
-			}),
 			get_direction_candidates: getDirectionCandidatesTool,
-			...(inspectVideoAvailable
-				? {
-						inspect_video: createInspectVideoTool({
-							availableVideos: deps.availableVideos,
-							meteringService: deps.meteringService,
-							organizationId: deps.subject.organizationId ?? null,
-							parentEventId: deps.parentEventId,
-							userId: deps.userId,
-						}),
-					}
-				: {}),
-			product_video: createProductVideoTool({
-				availableImages: deps.availableImages,
-				chatId: deps.chatId,
-				imageGenerationsRepository: deps.imageGenerationsRepository,
-				mediaGenerationsRepository: deps.mediaGenerationsRepository,
-				meteringService: deps.meteringService,
-				parentEventId: deps.parentEventId,
-				projectId: deps.projectId,
-				requestKeySeed: deps.requestKeySeed,
-				subject: deps.subject,
-				userId: deps.userId,
-			}),
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
 			}),
@@ -614,17 +490,11 @@ export function createChatAgent(
  * (re-read a skill, queue a build, write a version) by accident.
  */
 export const aiChatToolsForValidation = {
-	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
-	edit_video: editVideoToolSchemaOnly,
-	extend_video: extendVideoToolSchemaOnly,
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
-	generate_video: generateVideoToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
-	inspect_video: inspectVideoToolSchemaOnly,
-	product_video: productVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,
 	read_lead_performance: readLeadPerformanceToolSchemaOnly,

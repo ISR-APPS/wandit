@@ -44,39 +44,6 @@ export const IMAGE_MODERATION_FINISH_REASONS = new Set([
 	"PROHIBITED_CONTENT",
 ]);
 
-export const KLING_ERROR_CODE_KINDS = {
-	1000: "auth_config",
-	1001: "auth_config",
-	1002: "auth_config",
-	1003: "auth_config",
-	1004: "auth_config",
-	1100: "auth_config",
-	1101: "auth_config",
-	1102: "auth_config",
-	1103: "auth_config",
-	1200: "invalid_request",
-	1201: "invalid_request",
-	1202: "model_not_found",
-	1203: "model_not_found",
-	1301: "content_moderated",
-	1302: "rate_limited",
-	1303: "rate_limited",
-	1304: "rate_limited",
-	1500: "provider_error",
-	1501: "capacity",
-	1502: "timeout",
-} as const satisfies Readonly<Record<number, ProviderSignatureKind>>;
-
-export const SEEDANCE_ERROR_TYPE_KINDS = {
-	AccountOverdueError: "auth_config",
-	InternalServiceError: "provider_error",
-	ModelNotOpen: "auth_config",
-	QuotaExceeded: "auth_config",
-	RateLimitExceeded: "rate_limited",
-	SensitiveContentDetected: "content_moderated",
-	ServerOverloaded: "capacity",
-} as const satisfies Readonly<Record<string, ProviderSignatureKind>>;
-
 export const OPENROUTER_STATUS_KINDS = {
 	400: "invalid_request",
 	401: "auth_config",
@@ -180,40 +147,6 @@ export function isOpenAiImageModerationCode(value: unknown): boolean {
 	);
 }
 
-export function classifyKlingCode(
-	value: unknown,
-): ProviderSignatureKind | null {
-	const candidates =
-		typeof value === "string" ? (value.match(/\b\d{4}\b/gu) ?? []) : [value];
-	for (const candidate of candidates) {
-		const code = numericCode(candidate);
-		if (code === null) continue;
-		const kind =
-			KLING_ERROR_CODE_KINDS[code as keyof typeof KLING_ERROR_CODE_KINDS];
-		if (kind) return kind;
-	}
-
-	return null;
-}
-
-export function classifySeedanceType(
-	value: unknown,
-): ProviderSignatureKind | null {
-	if (typeof value !== "string") return null;
-
-	const trimmed = value.trim();
-	if (/\bSTALE_REQUEST_[A-Z0-9_]+\b/u.test(trimmed)) return "provider_error";
-	for (const [type, kind] of Object.entries(SEEDANCE_ERROR_TYPE_KINDS)) {
-		if (trimmed.includes(type)) return kind;
-	}
-
-	return (
-		SEEDANCE_ERROR_TYPE_KINDS[
-			trimmed as keyof typeof SEEDANCE_ERROR_TYPE_KINDS
-		] ?? null
-	);
-}
-
 export function classifyOpenRouterStatus(
 	statusCode: unknown,
 	options: { hasModerationReasons?: boolean } = {},
@@ -270,27 +203,12 @@ export function hasProviderModerationSignal(
 		);
 	}
 
-	if (slug === "google" || slug === "veo") {
+	if (slug === "google") {
 		return values.some(
 			(value) =>
 				typeof value === "string" &&
 				(MODERATION_TEXT_PATTERN.test(value) ||
 					isRawModerationFinishReason(value)),
-		);
-	}
-
-	if (
-		slug === "kling" ||
-		slug === "klingai" ||
-		slug === "seedance" ||
-		slug === "bytedance"
-	) {
-		return values.some(
-			(value) =>
-				classifyKlingCode(value) === "content_moderated" ||
-				classifySeedanceType(value) === "content_moderated" ||
-				(typeof value === "string" &&
-					(MODERATION_TEXT_PATTERN.test(value) || /\b1301\b/u.test(value))),
 		);
 	}
 
@@ -305,16 +223,6 @@ export function hasProviderAccountSignal(
 	if (options.hasRetryAfter === true) return false;
 
 	const slug = normalizeProvider(provider);
-	if (slug === "kling" || slug === "klingai") {
-		return values.some((value) => classifyKlingCode(value) === "auth_config");
-	}
-
-	if (slug === "seedance" || slug === "bytedance") {
-		return values.some(
-			(value) => classifySeedanceType(value) === "auth_config",
-		);
-	}
-
 	const text = values
 		.filter((value): value is string => typeof value === "string")
 		.join(" ");

@@ -33,7 +33,6 @@
 			"Websites",
 			"Landing pages",
 			"Ad images",
-			"AI videos",
 			"Marketing strategy",
 			"Ads analysis",
 			"Campaign launch"
@@ -46,7 +45,6 @@
 		"roles": [
 			"a developer to build the site",
 			"a designer to produce the visuals",
-			"an editor to make the videos",
 			"a marketer to build the strategy",
 			"a media buyer to run the campaigns"
 		],
@@ -72,7 +70,7 @@
 		],
 		"demo": {
 			"prompt": "I sell mountain honey from the Aurès. Build my website, my ad visuals and my launch strategy.",
-			"artifacts": ["Website", "Ad visuals", "AI video", "Marketing strategy"],
+			"artifacts": ["Website", "Ad visuals", "Marketing strategy"],
 			"publishedToast": "Site published",
 			"campaignsLabel": "Campaigns",
 			"liveLabel": "Live",
@@ -194,7 +192,7 @@
 			"perMonth": "/ month",
 			"perYear": "/ year",
 			"features": [
-				"AI image & video generation",
+				"AI image generation",
 				"Custom domains",
 				"Publishing always free"
 			],
@@ -247,7 +245,7 @@
 		"items": [
 			{
 				"q": "What are credits?",
-				"a": "Credits are Wandit's single currency. Every page build, image, video or chat edit uses credits. A short chat edit uses a fraction of a credit. A long page build uses more. Your balance shows what each run used."
+				"a": "Credits are Wandit's single currency. Every page build, image or chat edit uses credits. A short chat edit uses a fraction of a credit. A long page build uses more. Your balance shows what each run used."
 			},
 			{
 				"q": "Is publishing free?",

@@ -625,10 +625,10 @@ describe("CreditsService", () => {
 
 		const results = await Promise.allSettled([
 			service.consume(userOwner("user_1"), 25, {
-				idempotencyKey: "media-generation:attempt_1",
+				idempotencyKey: "generation:attempt_1",
 			}),
 			service.consume(userOwner("user_1"), 25, {
-				idempotencyKey: "media-generation:attempt_2",
+				idempotencyKey: "generation:attempt_2",
 			}),
 		]);
 		const fulfilled = results.filter((result) => result.status === "fulfilled");
@@ -817,18 +817,18 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 		await service.consume(userOwner("user_1"), 8, {
-			idempotencyKey: "media-generation:attempt_1",
+			idempotencyKey: "generation:attempt_1",
 		});
 
 		const firstRefund = await service.refundConsume(
 			userOwner("user_1"),
-			"media-generation:attempt_1",
+			"generation:attempt_1",
 			{ attemptId: "attempt_1" },
 		);
 		const rowCount = repository.rows.length;
 		const replayedRefund = await service.refundConsume(
 			userOwner("user_1"),
-			"media-generation:attempt_1",
+			"generation:attempt_1",
 			{ attemptId: "attempt_1" },
 		);
 
@@ -836,7 +836,7 @@ describe("CreditsService", () => {
 			{
 				bucket: "plan",
 				delta: 2,
-				idempotencyKey: "refund:media-generation:attempt_1:plan",
+				idempotencyKey: "refund:generation:attempt_1:plan",
 				kind: "grant",
 				meta: {
 					attemptId: "attempt_1",
@@ -847,7 +847,7 @@ describe("CreditsService", () => {
 			{
 				bucket: "promo",
 				delta: 3,
-				idempotencyKey: "refund:media-generation:attempt_1:promo",
+				idempotencyKey: "refund:generation:attempt_1:promo",
 				kind: "grant",
 				meta: {
 					attemptId: "attempt_1",
@@ -858,7 +858,7 @@ describe("CreditsService", () => {
 			{
 				bucket: "topup",
 				delta: 3,
-				idempotencyKey: "refund:media-generation:attempt_1:topup",
+				idempotencyKey: "refund:generation:attempt_1:topup",
 				kind: "grant",
 				meta: {
 					attemptId: "attempt_1",

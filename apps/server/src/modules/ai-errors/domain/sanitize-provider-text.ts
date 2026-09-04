@@ -212,15 +212,10 @@ function applyForwardingPolicy(
 
 	if (options.kind === "content_moderated") {
 		if (provider === "higgsfield") return HIGGSFIELD_NSFW_MESSAGE;
-		if (provider === "google" || provider === "veo") return null;
+		if (provider === "google") return null;
 
 		if (provider === "openai" || provider === "openrouter") {
 			return sanitizeModerationCategories(splitCategoryText(text));
-		}
-
-		if (provider === "bytedance" || provider === "seedance") return text;
-		if (provider === "kling" || provider === "klingai") {
-			return /\b1301\b/u.test(text) ? text : null;
 		}
 
 		return sanitizeModerationCategories(splitCategoryText(text));

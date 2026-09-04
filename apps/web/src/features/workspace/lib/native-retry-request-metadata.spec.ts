@@ -5,8 +5,8 @@ import { findRetryRequestMetadata } from "../../../../../native/features/workspa
 describe("native retry request metadata", () => {
 	it("restores composer and target ids after an app restart", () => {
 		const composer = {
-			mode: "video" as const,
-			output: "video-creator",
+			mode: "page" as const,
+			output: "landing-page",
 			options: { builderModel: "anthropic/claude-sonnet-4.5" },
 		};
 		const messages = [

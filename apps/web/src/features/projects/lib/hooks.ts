@@ -20,7 +20,6 @@ import { creditsKeys, useCreditBalanceQuery } from "@/features/credits";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateProject } from "../api/projects.mutations";
-import { outputRequiresSourceImage } from "../components/prompt-box";
 import { canDraftAutostart } from "./autostart-eligibility";
 import { chatAutostart } from "./chat-autostart";
 import {
@@ -158,14 +157,10 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			if (!session) {
 				// Uploaded files cannot survive auth, but keeping composer metadata
 				// restores the selected workflow. Drafts that lost required inputs
-				// (attachments, source stills) or whose price was never shown may
+				// (attachments) or whose price was never shown may
 				// only prefill — the dashboard autostart checks the recorded flag.
 				promptStash.stash(prompt, composer, {
-					autostart: canDraftAutostart(
-						composer,
-						attachments?.length ?? 0,
-						outputRequiresSourceImage,
-					),
+					autostart: canDraftAutostart(attachments?.length ?? 0),
 				});
 				open();
 				return true;

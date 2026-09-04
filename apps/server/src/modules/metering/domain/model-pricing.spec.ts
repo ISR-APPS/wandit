@@ -19,7 +19,6 @@ import {
 	tokenUsageCostUsdMicros,
 	transcriptionEstimateUsdMicros,
 	usdMicrosToCentiCredits,
-	videoEstimateUsdMicros,
 } from "./model-pricing";
 
 const GENERATED_AT = new Date("2026-08-01T12:00:00.000Z");
@@ -50,7 +49,6 @@ function modelPrice(overrides: Partial<ModelPrice> = {}): ModelPrice {
 		source: "database",
 		transcriptionUsdMicrosPerSecond: null,
 		variantPricing: null,
-		videoUsdMicrosPerSecond: null,
 		...overrides,
 	};
 }
@@ -69,7 +67,6 @@ function row(overrides: Partial<ModelPriceRow> = {}): ModelPriceRow {
 		refreshedAt: GENERATED_AT,
 		transcriptionUsdMicrosPerSecond: null,
 		variantPricing: null,
-		videoUsdMicrosPerSecond: null,
 		...overrides,
 	};
 }
@@ -159,63 +156,6 @@ describe("model pricing math", () => {
 		});
 	});
 
-	it("parses video per-second variants and keeps the cheapest as the default", () => {
-		const kling = gatewayPrice({
-			id: "klingai/kling",
-			owned_by: "klingai",
-			pricing: {
-				video_duration_pricing: [
-					{ cost_per_second: "0.042", mode: "std" },
-					{ audio: false, cost_per_second: "0.07", mode: "pro" },
-					{ audio: true, cost_per_second: "0.14", mode: "pro" },
-				],
-			},
-			type: "video",
-		});
-		const veo = gatewayPrice({
-			id: "google/veo",
-			owned_by: "google",
-			pricing: {
-				video_duration_pricing: [
-					{ audio: false, cost_per_second: "0.1", resolution: "720p" },
-					{ audio: true, cost_per_second: "0.15", resolution: "720p" },
-					{ audio: false, cost_per_second: "0.3", resolution: "4k" },
-				],
-			},
-			type: "video",
-		});
-
-		expect(kling.videoUsdMicrosPerSecond).toBe(42_000);
-		expect(kling.variantPricing?.video).toHaveLength(3);
-		expect(veo.videoUsdMicrosPerSecond).toBe(100_000);
-
-		const klingPrice = { ...kling, source: "database" as const };
-		const veoPrice = { ...veo, source: "database" as const };
-		expect(videoEstimateUsdMicros(klingPrice, { durationSeconds: 5 })).toBe(
-			210_000,
-		);
-		expect(
-			videoEstimateUsdMicros(klingPrice, { durationSeconds: 5, mode: "std" }),
-		).toBe(210_000);
-		expect(
-			videoEstimateUsdMicros(klingPrice, {
-				audio: true,
-				durationSeconds: 10,
-				mode: "pro",
-			}),
-		).toBe(1_400_000);
-		expect(
-			videoEstimateUsdMicros(veoPrice, {
-				audio: false,
-				durationSeconds: 6,
-				resolution: "4k",
-			}),
-		).toBe(1_800_000);
-		expect(videoEstimateUsdMicros(modelPrice(), { durationSeconds: 5 })).toBe(
-			null,
-		);
-	});
-
 	it("parses the transcription per-second rate", () => {
 		const whisper = gatewayPrice({
 			id: "openai/whisper",
@@ -255,27 +195,6 @@ describe("model pricing math", () => {
 		expect(
 			imageEstimateUsdMicros(modelPrice({ imageUsdMicros: null }), 1),
 		).toBe(null);
-	});
-
-	it("drops unparseable duration variants without rejecting the model", () => {
-		const price = gatewayPrice({
-			id: "odd/video",
-			owned_by: "odd",
-			pricing: {
-				transcription_duration_cost_per_second: "free",
-				video_duration_pricing: [
-					{ cost_per_second: "n/a", mode: "std" },
-					{ cost_per_second: "0.05", mode: "pro" },
-				],
-			},
-			type: "video",
-		});
-
-		expect(price.transcriptionUsdMicrosPerSecond).toBe(null);
-		expect(price.videoUsdMicrosPerSecond).toBe(50_000);
-		expect(price.variantPricing?.video).toEqual([
-			{ mode: "pro", usdMicrosPerSecond: 50_000 },
-		]);
 	});
 
 	it("rejects malformed known pricing fields instead of persisting zero", () => {
@@ -429,27 +348,15 @@ describe("ModelPricingService", () => {
 		expect(await service.get("missing/model")).toBeNull();
 	});
 
-	it("fills the media rates from the checked-in seed", async () => {
+	it("fills image and transcription rates from the checked-in seed", async () => {
 		const repository = new FakeModelPricesRepository();
 		const service = new ModelPricingService(
 			repository as unknown as ModelPricesRepository,
 		);
 
-		expect(await service.get("klingai/kling-v2.5-turbo-i2v")).toMatchObject({
-			videoUsdMicrosPerSecond: 42_000,
-		});
-		expect(await service.get("google/veo-3.0-generate-001")).toMatchObject({
-			videoUsdMicrosPerSecond: 200_000,
-		});
 		expect(await service.get("openai/whisper-1")).toMatchObject({
 			transcriptionUsdMicrosPerSecond: 100,
 		});
-		expect(
-			await service.quoteVideoEstimate("klingai/kling-v2.5-turbo-i2v", {
-				durationSeconds: 5,
-				mode: "std",
-			}),
-		).toMatchObject({ costUsdMicros: 210_000, credits: 525 });
 		expect(
 			await service.quoteImageEstimate("google/gemini-3-pro-image", 1, "4K"),
 		).toMatchObject({ costUsdMicros: 240_000, credits: 600 });

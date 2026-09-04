@@ -577,7 +577,6 @@ class FakeModelPricingService {
 			source: "database",
 			transcriptionUsdMicrosPerSecond: null,
 			usdMicrosPerCredit: 50_000,
-			videoUsdMicrosPerSecond: null,
 		},
 		usage: {
 			cacheReadTokens: 0,

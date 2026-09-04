@@ -26,7 +26,6 @@ import { WorkerQueuesModule } from "./infrastructure/queues/worker-queues.module
 import { ChatEventsPublisher } from "./infrastructure/redis/chat-events.publisher";
 import { AiGenerationProcessor } from "./processors/ai-generation.processor";
 import { LeadProcessingProcessor } from "./processors/lead-processing.processor";
-import { MediaGenerationProcessor } from "./processors/media-generation.processor";
 import { PublishProcessor } from "./processors/publish.processor";
 import { WorkerModule } from "./worker.module";
 
@@ -46,7 +45,6 @@ describe("WorkerModule", () => {
 			LeadProcessingProcessor,
 			LifecycleEventsRepository,
 			LifecycleEventsService,
-			MediaGenerationProcessor,
 			MeteringRepository,
 			MeteringService,
 			ModelPricesRepository,

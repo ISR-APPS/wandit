@@ -2,7 +2,7 @@
 //
 // Billing maintenance, domain fulfillment, and order refunds run in
 // Trigger.dev. This worker now owns only AI chat generation plus the
-// media-generation, lead-processing, and publishing queue contracts.
+// lead-processing and publishing queue contracts.
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
@@ -25,7 +25,6 @@ import { WorkerQueuesModule } from "./infrastructure/queues/worker-queues.module
 import { ChatEventsPublisher } from "./infrastructure/redis/chat-events.publisher";
 import { AiGenerationProcessor } from "./processors/ai-generation.processor";
 import { LeadProcessingProcessor } from "./processors/lead-processing.processor";
-import { MediaGenerationProcessor } from "./processors/media-generation.processor";
 import { PublishProcessor } from "./processors/publish.processor";
 
 @Module({
@@ -47,7 +46,6 @@ import { PublishProcessor } from "./processors/publish.processor";
 		LeadProcessingProcessor,
 		LifecycleEventsRepository,
 		LifecycleEventsService,
-		MediaGenerationProcessor,
 		MeteringRepository,
 		MeteringService,
 		ModelPricesRepository,

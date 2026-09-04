@@ -13,17 +13,11 @@ import { WanditMessageHeader } from "../real-message";
 import { StatusMessageHeader } from "../status-message-header";
 import { TargetChip } from "../target-chip";
 import { MessageTokenUsage } from "../token-usage";
-import { AnimateImagePart } from "./animate-image-part";
 import { AskUserGroupCard } from "./ask-user-part";
 import { FilePart, ImageFileGrid } from "./file-part";
 import { GenerateImagePart } from "./generate-image-part";
 import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
-import {
-	EditVideoPart,
-	ExtendVideoPart,
-	GenerateVideoPart,
-} from "./generate-video-part";
 import { type GenerateImageToolPart, ImageBatchPart } from "./image-batch-part";
 import {
 	isMcpRunFullySettled,
@@ -35,7 +29,6 @@ import {
 	PageEditActivityCard,
 	type PageEditToolPart,
 } from "./page-edit-part";
-import { ProductVideoPart } from "./product-video-part";
 import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
 
@@ -49,7 +42,6 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"reasoning",
 	"tool-read_skill",
 	"tool-read_attachment",
-	"tool-inspect_video",
 	"tool-read_lead_performance",
 	"tool-get_direction_candidates",
 	"data-billing-error",
@@ -98,11 +90,6 @@ const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-generate_marketing_asset",
 	"tool-generate_image",
 	"tool-scrape_leads",
-	"tool-animate_image",
-	"tool-generate_video",
-	"tool-product_video",
-	"tool-edit_video",
-	"tool-extend_video",
 ]);
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
@@ -398,49 +385,8 @@ export function MessageParts({
 						messageParts={message.parts}
 					/>
 				);
-			case "tool-animate_image":
-				return (
-					<AnimateImagePart
-						key={part.toolCallId}
-						part={part}
-						messageParts={message.parts}
-					/>
-				);
-			case "tool-generate_video":
-				return (
-					<GenerateVideoPart
-						key={part.toolCallId}
-						part={part}
-						messageParts={message.parts}
-					/>
-				);
-			case "tool-product_video":
-				return (
-					<ProductVideoPart
-						key={part.toolCallId}
-						part={part}
-						messageParts={message.parts}
-					/>
-				);
-			case "tool-edit_video":
-				return (
-					<EditVideoPart
-						key={part.toolCallId}
-						part={part}
-						messageParts={message.parts}
-					/>
-				);
-			case "tool-extend_video":
-				return (
-					<ExtendVideoPart
-						key={part.toolCallId}
-						part={part}
-						messageParts={message.parts}
-					/>
-				);
 			case "tool-read_skill":
 			case "tool-read_attachment":
-			case "tool-inspect_video":
 			case "tool-read_lead_performance":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread

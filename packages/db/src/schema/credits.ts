@@ -468,7 +468,6 @@ export const modelPrices = pgTable(
 		cacheReadUsdMicrosPerMTok: integer("cache_read_usd_micros_per_mtok"),
 		cacheWriteUsdMicrosPerMTok: integer("cache_write_usd_micros_per_mtok"),
 		imageUsdMicros: integer("image_usd_micros"),
-		videoUsdMicrosPerSecond: integer("video_usd_micros_per_second"),
 		transcriptionUsdMicrosPerSecond: integer(
 			"transcription_usd_micros_per_second",
 		),

@@ -14,7 +14,6 @@ export const TRANSPARENT_PART_TYPES = new Set([
 	"reasoning",
 	"tool-read_skill",
 	"tool-read_attachment",
-	"tool-inspect_video",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
 	"tool-apply_element_ops",
@@ -34,8 +33,6 @@ export const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-generate_marketing_asset",
 	"tool-generate_image",
 	"tool-scrape_leads",
-	"tool-animate_image",
-	"tool-generate_video",
 ]);
 
 export const VISIBLE_PART_TYPES = new Set([

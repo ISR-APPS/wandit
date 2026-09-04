@@ -1,11 +1,11 @@
 # Lifecycle emails (Resend Automations)
 
-Status: Resend side is built. Backend side is built on branch `feat/lifecycle-emails` (see section 7). All 14 automations in Resend are **disabled**, and the backend kill switch `lifecycleEmailsEnabled` is **off** by default. Nothing is sent until both are turned on.
+Status: Resend side is built. Backend side is built on branch `feat/lifecycle-emails` (see section 7). All 13 active automations in Resend are **disabled**, and the backend kill switch `lifecycleEmailsEnabled` is **off** by default. Nothing is sent until both are turned on.
 
 ## 1. Overview
 
 - Platform: Resend Automations (event-driven). The backend sends one event per user action. Resend runs the sequence.
-- 15 events, 14 automations, 25 Arabic (RTL) templates. Sender: `Wandit <hello@wandit.dev>`. Sign-off: `فريق Wandit`.
+- 14 active events, 13 automations, 24 Arabic (RTL) templates. Sender: `Wandit <hello@wandit.dev>`. Sign-off: `فريق Wandit`.
 - Every template declares one variable, `NAME` (fallback `بك`, so the greeting reads `مرحبًا بك،` when the name is unknown). `w01-welcome` also declares `FREE_CREDITS` (number). The dispatcher sends the real configured whole-credit grant in this field (7 under pricing v6), so the template does not rely on a stale fallback. Set the Resend fallback to 7 before enabling the automation.
 - Every template contains `{{{RESEND_UNSUBSCRIBE_URL}}}`. Resend handles the unsubscribe flow. After a global unsubscribe, later send steps in a run are skipped.
 - Source of the templates: the generator `scratchpad/emails/build.py` (session scratchpad). Edit a template in the Resend dashboard, or regenerate and call `update-template` + `publish-template`.
@@ -25,7 +25,6 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | W2 | First website | `01a03122-672c-7781-af56-75a63612f2c5` | `website_generated` | if `done_landing_page` → end. Wait `landing_page_generated` 1h → [received] end / [timeout] W04 → wait 2d → [timeout] W05 |
 | W3 | First landing page | `01a03122-7d56-72aa-be3e-7f65a0c591ec` | `landing_page_generated` | if `done_image` → end. Wait `image_generated` 1h → [timeout] W06 → wait 2d → [timeout] W07 |
 | W4 | Image → strategy | `01a03122-8b2a-7148-b1be-be042db635ab` | `image_generated` | if `done_strategy` → end. Wait `marketing_strategy_generated` 3d → [timeout] W08 |
-| W5 | Video tips | `01a03122-960b-74a2-a7f8-899c30c31ded` | `video_generated` | delay 4h → W09 |
 | W6 | Strategy → connect ads | `01a03122-a3eb-717b-8f0e-f60ae32c72c0` | `marketing_strategy_generated` | if `done_ads_connected` → end. Wait `ads_connected` 3d → [timeout] W10 |
 | W7 | Ads connected | `01a03122-b71d-735d-8d45-9dce0ecd1580` | `ads_connected` | if `done_analysis` → end. Wait `ads_analysis_completed` 1h → [timeout] W11 → wait 2d → [timeout] W12 |
 | W8 | Analysis → launch | `01a03122-c70f-700b-b41e-60cbaa8bb484` | `ads_analysis_completed` | if `done_campaign` → end. Wait `campaign_launched` 3d → [timeout] W13 |
@@ -50,7 +49,6 @@ Semantics that the design depends on (confirmed by test on 2026-08-24):
 | `w06-landing-ready` | `5c9e836f-14ab-4471-97fd-d375f601d3c8` | صفحة الهبوط جاهزة — خطوتان قبل الإطلاق |
 | `w07-creatives-nudge` | `56022c5e-c281-491d-a7f5-9d608e2662ca` | إعلانك بدون كاميرا ولا مصوّر |
 | `w08-strategy-nudge` | `301f9090-f003-41c1-9818-08485c9c7b36` | قبل أن تدفع دينارًا للإعلانات |
-| `w09-video-tips` | `7d8037de-87de-40fc-b942-5637e7456b65` | فيديوك جاهز — ثلاث طرق لاستخدامه |
 | `w10-connect-ads-nudge` | `d0c59977-0e2a-4d48-b204-20180d6c1334` | لا أحد يرى ما بنيت |
 | `w11-ads-connected` | `f51be3a7-2806-450a-9839-8431b7b64483` | تم ربط حسابك الإعلاني — ماذا تطلب الآن؟ |
 | `w12-analysis-nudge` | `2280b1c4-0b3d-4b17-967d-bb76881f6b84` | دع Wandit يقرأ أرقامك |
@@ -117,7 +115,6 @@ The `done_*` flags are one query on the lifecycle-events table: "did this user a
 | `website_generated` | `generate-page` task success, `pageKind === "website"` | `apps/server/src/trigger/generate-page.task.ts` next to `captureGenerationCompleted`. |
 | `landing_page_generated` | same task, `pageKind === "cod"` | same place. |
 | `image_generated` | image attempt `succeeded` | `apps/server/src/trigger/image-generation.runtime.ts`. |
-| `video_generated` | any video kind `succeeded` | `image-animation.runtime.ts`, `product-video.runtime.ts`, `video-edit-extension.runtime.ts` (or extend `captureGenerationCompleted`). |
 | `marketing_strategy_generated` | marketing asset `succeeded` with `assetType === "marketing-strategy"` | `apps/server/src/trigger/marketing-asset.runtime.ts`. |
 | `ads_connected` | OAuth tokens saved for `meta-ads` or `tiktok-ads` | `mcp-oauth.service.ts` after `exchangeAndStoreTokens`. |
 | `ads_analysis_completed` | connector operation `feature === "ads_analysis" && status === "succeeded"` | `mcp-chat-tools.service.ts` `recordConnectorOperation`. |
@@ -130,7 +127,7 @@ The `done_*` flags are one query on the lifecycle-events table: "did this user a
 ### 4.4 Delivery rules
 
 1. **Outbox, not fire-and-forget.** Insert a row (`user_id`, `event`, `payload`, `idempotency_key`, `dispatch_after`, `dispatched_at`) and let a Trigger.dev sweep every 5 minutes send undelivered rows. Same pattern as `signup_grant_outbox` + `sweep-signup-grants.task.ts`. Retry until Resend returns 202.
-2. **Once per user** for: `signup_completed`, `first_prompt_sent`, `website_generated`, `landing_page_generated`, `image_generated`, `video_generated`, `marketing_strategy_generated`, `ads_connected`, `ads_analysis_completed`, `campaign_launched`, `credits_25_used`, `credits_40_used`, `payment_completed`. Idempotency key `<event>:<userId>` with a unique index.
+2. **Once per user** for: `signup_completed`, `first_prompt_sent`, `website_generated`, `landing_page_generated`, `image_generated`, `marketing_strategy_generated`, `ads_connected`, `ads_analysis_completed`, `campaign_launched`, `credits_25_used`, `credits_40_used`, `payment_completed`. Idempotency key `<event>:<userId>` with a unique index.
 3. **Free users only** for `credits_25_used`, `credits_40_used`, `pricing_viewed`, `upgrade_clicked`. "Free" = no entitled subscription (Stripe or manual), no top-up ever, no open manual payment request.
 4. **Cooldowns:** `pricing_viewed` 7 days per user, `upgrade_clicked` 3 days per user.
 5. **Holds:** `signup_completed` 10 minutes (name and first prompt become known). `pricing_viewed`, `upgrade_clicked`, `credits_40_used` 15 minutes; drop the row at dispatch if the user paid meanwhile.
@@ -190,7 +187,7 @@ the current grant.
    the real whole-credit `FREE_CREDITS` value (signup), `done_*` (next-step flags), plus the
    captured fields (`connector`, `method`, `surface`, `interval`).
 
-### 7.3 Hooks (15)
+### 7.3 Hooks (14)
 
 | Event | Hook |
 |---|---|
@@ -198,7 +195,6 @@ the current grant.
 | `first_prompt_sent` | `ProjectsService.create()` after the first-message transaction commits |
 | `website_generated` / `landing_page_generated` | `generate-page.task.ts` success transaction via `generate-page-lifecycle.ts` (`pageKind` website / cod), actor = `subject.actorUserId` |
 | `image_generated` | `image-generation.runtime.ts` `markSucceeded` + API recovery in `image-generations.service.ts`; actor = queue payload user (snapshotted at claim) |
-| `video_generated` | `image-animation.runtime.ts`, `product-video.runtime.ts`, `video-edit-extension.runtime.ts` + recovery in `media-generations.repository.ts` |
 | `marketing_strategy_generated` | `marketing-asset.runtime.ts` when `assetType === "marketing-strategy"` |
 | `ads_connected` | `McpOauthService.exchangeAndStoreTokens()` after `saveTokens()` for `meta-ads` / `tiktok-ads`, payload `connector` |
 | `ads_analysis_completed` | `mcp-chat-tools.service.ts` succeeded call with feature `ads_analysis` |

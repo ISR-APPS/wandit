@@ -34,6 +34,8 @@ export * from "./deployments";
 export * from "./domains";
 // In-app feedback and activity tables.
 export * from "./feedback";
+// Shared durable generation lifecycle enum.
+export * from "./generation-status";
 // Standalone image generation attempt tables (chat's generate_image tool).
 export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.
@@ -46,9 +48,6 @@ export * from "./lifecycle-events";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";
-// Video generation attempt and continuation-leg tables.
-export * from "./media-generation-attempts";
-export * from "./media-generation-legs";
 // Monthly cost input tables.
 export * from "./monthly-costs";
 // User onboarding questionnaire answers.

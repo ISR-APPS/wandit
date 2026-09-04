@@ -51,7 +51,7 @@
 				],
 				"bullets": [
 					"Account data: your name, your email address, your profile picture, the sign-in identifiers of the method you use, the language and theme you choose, and the workspaces you belong to.",
-					"Content you create: the prompts you write, the files and images you upload, the pages, images, videos and marketing assets you generate, your project settings, and the domains you publish on.",
+					"Content you create: the prompts you write, the files and images you upload, the pages, images and marketing assets you generate, your project settings, and the domains you publish on.",
 					"Billing data: the credit packs and plans you buy, your invoices, your credit balance and your transaction history. Card numbers go straight to Stripe. We never see them and we never store them.",
 					"Usage and device data: the screens you open in the dashboard, the actions you take, the credits you spend, your browser and device type, your operating system, an approximate location derived from your IP address, and crash or error reports. PostHog can also record a replay of your dashboard session so that we can see where the product fails. Typed input is masked in these recordings.",
 					"Log data: IP address, request time, requested address and response status, kept for security and troubleshooting.",
@@ -149,7 +149,7 @@
 					"Railway: hosting for our API.",
 					"Cloudflare: file storage, DNS and domain services, and the Turnstile check that keeps bots out of sign-in.",
 					"Trigger.dev: background jobs such as generation, publishing and syncs.",
-					"AI model providers, reached through an AI gateway: your prompts, the assets you upload and the content we generate are sent to them so that they can produce the page, image, video or text you asked for.",
+					"AI model providers, reached through an AI gateway: your prompts, the assets you upload and the content we generate are sent to them so that they can produce the page, image or text you asked for.",
 					"Connectors you enable, such as video and image tools, which receive the prompts and assets you send them.",
 					"Serper: the search API behind business lead discovery, which receives the search terms you enter.",
 					"A managed PostgreSQL provider: the database that holds your account, your projects and your leads.",
@@ -338,7 +338,7 @@
 				"id": "credits",
 				"title": "5. Credits and billing",
 				"paragraphs": [
-					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image, a video or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
+					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
 				],
 				"bullets": [
 					"A new account receives an initial balance of free credits. Free credits have no cash value, and we can change or end the free-credit offer at any time.",
@@ -409,7 +409,7 @@
 				"id": "ai-content",
 				"title": "9. AI-generated content",
 				"paragraphs": [
-					"Wandit uses AI models to produce pages, text, images and videos from your instructions."
+					"Wandit uses AI models to produce pages, text and images from your instructions."
 				],
 				"bullets": [
 					"AI output can be wrong, out of date, biased or unsuitable. Check it before you publish it.",

@@ -10,7 +10,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { chats } from "./chats";
-import { mediaGenerationStatus } from "./media-generation-attempts";
+import { generationStatus } from "./generation-status";
 import { projects } from "./projects";
 
 // Values match the composer output ids verbatim (prompt-box.tsx /
@@ -42,7 +42,7 @@ export const marketingAssets = pgTable(
 		// Together with chatId this deduplicates a repeated tool call and a new
 		// tool call after a lost stream.
 		requestKey: text("request_key").notNull(),
-		status: mediaGenerationStatus("status").notNull().default("queued"),
+		status: generationStatus("status").notNull().default("queued"),
 		assetType: marketingAssetType("asset_type").notNull(),
 		// Display name shown on the Marketing tab card.
 		name: text("name").notNull(),

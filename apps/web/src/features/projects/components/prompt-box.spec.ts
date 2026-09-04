@@ -127,7 +127,7 @@ afterEach(() => {
 });
 
 describe("PromptBox generation settings", () => {
-	it("renders non-video output options without quality tiers or a credit badge", async () => {
+	it("renders image output options without quality tiers or a credit badge", async () => {
 		renderPromptBox({
 			initialComposer: { mode: "image", output: "image-creator" },
 			showPriceTag: true,
@@ -143,25 +143,6 @@ describe("PromptBox generation settings", () => {
 		expect(settings.queryByRole("button", { name: /Standard/i })).toBeNull();
 		expect(settings.queryByRole("button", { name: /^Max$/i })).toBeNull();
 		expect(settings.queryByText(/^10$/)).toBeNull();
-	});
-
-	it("renders video ratio, duration, and voice options without the video credit number", async () => {
-		renderPromptBox({
-			initialComposer: { mode: "video", output: "video-creator" },
-			showPriceTag: true,
-		});
-
-		const settings = within(
-			await openSettings("Generation settings: Video creator"),
-		);
-		fireEvent.click(settings.getByRole("button", { name: "Next" }));
-
-		expect(settings.getByText("Ratio")).toBeTruthy();
-		expect(settings.getByText("Duration")).toBeTruthy();
-		expect(settings.getByText("Voiceover")).toBeTruthy();
-		expect(settings.getByRole("button", { name: "10s" })).toBeTruthy();
-		expect(settings.getByRole("button", { name: "English" })).toBeTruthy();
-		expect(settings.queryByText(/^20$/)).toBeNull();
 	});
 
 	it("submits composer metadata without a quality key", async () => {

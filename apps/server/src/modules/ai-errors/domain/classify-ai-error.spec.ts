@@ -18,7 +18,6 @@ import {
 	NoObjectGeneratedError,
 	NoSuchModelError,
 	NoSuchProviderError,
-	NoVideoGeneratedError,
 	RetryError,
 } from "ai";
 import { describe, expect, it } from "vitest";
@@ -277,34 +276,8 @@ describe("classifyAiError worked examples", () => {
 		});
 	});
 
-	it("classifies a Kling risk-control gateway cause", () => {
-		const cause = apiError({
-			data: {
-				error: {
-					code: 1301,
-					message: "1301 SensitiveContentDetected",
-					type: "SensitiveContentDetected",
-				},
-			},
-			statusCode: 400,
-		});
-		const error = new GatewayInvalidRequestError({ cause });
-
-		expect(
-			classifyAiError(
-				error,
-				context({ model: "klingai/kling-v2", surface: "video" }),
-			),
-		).toMatchObject({
-			kind: "content_moderated",
-			moderationStage: "output",
-			provider: "klingai",
-			source: "provider:klingai",
-		});
-	});
-
-	it("applies provider signatures only to the matching provider", () => {
-		const klingLookingOpenAiCause = apiError({
+	it("does not apply unrelated provider-looking text as a signature", () => {
+		const numericLookingOpenAiCause = apiError({
 			data: {
 				error: {
 					code: 1001,
@@ -313,7 +286,7 @@ describe("classifyAiError worked examples", () => {
 			},
 			statusCode: 400,
 		});
-		const seedanceLookingOpenAiCause = apiError({
+		const capacityLookingOpenAiCause = apiError({
 			data: {
 				error: {
 					message: "ServerOverloaded",
@@ -323,7 +296,10 @@ describe("classifyAiError worked examples", () => {
 			statusCode: 400,
 		});
 
-		for (const cause of [klingLookingOpenAiCause, seedanceLookingOpenAiCause]) {
+		for (const cause of [
+			numericLookingOpenAiCause,
+			capacityLookingOpenAiCause,
+		]) {
 			expect(
 				classifyAiError(
 					new GatewayInvalidRequestError({ cause }),
@@ -335,63 +311,6 @@ describe("classifyAiError worked examples", () => {
 				retryable: false,
 			});
 		}
-
-		expect(
-			classifyAiError(
-				new GatewayInvalidRequestError({ cause: seedanceLookingOpenAiCause }),
-				context({ model: "bytedance/seedance-1", surface: "video" }),
-			),
-		).toMatchObject({ kind: "capacity", provider: "bytedance" });
-	});
-
-	it("classifies a video budget abort before its wrapped gateway error", () => {
-		const signal = AbortSignal.abort(
-			new DOMException("The operation timed out", "TimeoutError"),
-		);
-		const error = new GatewayResponseError({
-			cause: signal.reason,
-			statusCode: 500,
-		});
-
-		expect(
-			classifyAiError(
-				error,
-				context({ abortSignal: signal, surface: "video" }),
-			),
-		).toMatchObject({
-			kind: "timeout",
-			source: "ours",
-			userMessage: { key: "errors.ai.timeout_budget" },
-		});
-	});
-
-	it("classifies Veo RAI filtering without forwarding provider text", () => {
-		const error = new NoVideoGeneratedError({
-			responses: [
-				{
-					modelId: "veo-3",
-					providerMetadata: {
-						google: {
-							raiMediaFilteredCount: 1,
-							raiMediaFilteredReasons: ["face Support codes: 15236754"],
-						},
-					},
-					timestamp: new Date(),
-				},
-			],
-		});
-
-		expect(
-			classifyAiError(
-				error,
-				context({ model: "google/veo-3", surface: "video" }),
-			),
-		).toMatchObject({
-			kind: "content_moderated",
-			moderationStage: "output",
-			provider: "google",
-			providerMessage: null,
-		});
 	});
 
 	it("classifies a Higgsfield submit validation result", () => {

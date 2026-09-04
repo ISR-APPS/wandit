@@ -59,14 +59,14 @@ const FRENCH_COUNTRY_LABELS_BY_ENGLISH: Record<string, string> = {
 export const RECEIPT_PLAN_FEATURES = {
 	starter: [
 		"50 crédits chaque mois",
-		"Génération d’images et de vidéos IA",
+		"Génération d’images IA",
 		"Domaines personnalisés",
 		"Publication toujours gratuite",
 	],
 	pro: [
 		"De nouveaux crédits chaque mois",
 		"Outils marketing & campagnes IA",
-		"Génération d’images et de vidéos IA",
+		"Génération d’images IA",
 		"Bibliothèque d’assets",
 		"Domaines personnalisés",
 		"Connexion d’apps & intégrations",

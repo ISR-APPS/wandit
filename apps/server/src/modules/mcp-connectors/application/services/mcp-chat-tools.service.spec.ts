@@ -544,7 +544,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.tools).toEqual({});
 			expect(result.approvalMap).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and ask them to reconnect or try again later — never announce or pretend to start that work.",
 			]);
 			expect(result.notices.join(" ")).not.toContain("secret-provider-token");
 		});
@@ -570,7 +570,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.connectedSlugs).toEqual([]);
 			expect(result.tools).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Higgsfield connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+				"The user's Higgsfield connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and ask them to reconnect or try again later — never announce or pretend to start that work.",
 			]);
 			expect(sentryMocks.captureException).not.toHaveBeenCalled();
 			expect(sentryMocks.warn).toHaveBeenCalledWith(
@@ -598,7 +598,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
 			]);
 			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
 		});
@@ -5415,7 +5415,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(result.tools).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and ask them to reconnect or try again later — never announce or pretend to start that work.",
 			]);
 			expect(client.close).toHaveBeenCalledTimes(1);
 			expect(client.listTools).not.toHaveBeenCalled();

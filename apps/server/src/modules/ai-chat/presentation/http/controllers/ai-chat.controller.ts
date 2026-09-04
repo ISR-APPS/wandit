@@ -174,7 +174,11 @@ export class AiChatController {
 	): Promise<WanditUIMessage[]> {
 		// Historical failed streams could persist empty assistant messages. They carry
 		// no transcript information, so discard them here as a defensive safeguard.
-		const nonEmptyMessages = messages.filter(
+		const sanitizedMessages = stripRetiredVideoToolParts(
+			messages,
+			persistedMessageIds,
+		);
+		const nonEmptyMessages = sanitizedMessages.filter(
 			(message) => !hasEmptyParts(message),
 		);
 
@@ -201,6 +205,84 @@ export class AiChatController {
 
 		return validated;
 	}
+}
+
+const RETIRED_VIDEO_TOOL_PART_TYPES = new Set([
+	"tool-animate_image",
+	"tool-edit_video",
+	"tool-extend_video",
+	"tool-generate_video",
+	"tool-inspect_video",
+	"tool-product_video",
+]);
+
+/**
+ * Old persisted conversations may still contain first-party video tool parts
+ * and composer metadata (mode "video", videoSubmissionId options). Those
+ * tools and modes no longer have schemas, so remove only those historical
+ * artifacts before the AI SDK validates the rest of the transcript. New
+ * client-supplied messages remain strict and cannot smuggle unknown tool
+ * shapes or metadata.
+ */
+export function stripRetiredVideoToolParts(
+	messages: readonly unknown[],
+	persistedMessageIds: ReadonlySet<string>,
+): unknown[] {
+	return messages.map((message) => {
+		if (typeof message !== "object" || message === null) {
+			return message;
+		}
+
+		const record = message as {
+			id?: unknown;
+			metadata?: unknown;
+			parts?: unknown;
+		};
+
+		if (
+			typeof record.id !== "string" ||
+			!persistedMessageIds.has(record.id) ||
+			!Array.isArray(record.parts)
+		) {
+			return message;
+		}
+
+		const parts = record.parts.filter((part) => {
+			if (typeof part !== "object" || part === null) {
+				return true;
+			}
+
+			return !RETIRED_VIDEO_TOOL_PART_TYPES.has(
+				String((part as { type?: unknown }).type),
+			);
+		});
+
+		let next =
+			parts.length === record.parts.length ? message : { ...record, parts };
+
+		// Stale clients replay persisted metadata verbatim, and validateUIMessages
+		// re-runs the metadata schema on every historical row — a retired
+		// composer would 400 the whole chat. Drop the composer (or, if the row
+		// is rotten beyond it, the whole metadata) instead of failing the turn.
+		const metadata = (next as { metadata?: unknown }).metadata;
+		if (
+			metadata !== null &&
+			metadata !== undefined &&
+			!aiChatValidationMetadataSchema.safeParse(metadata).success
+		) {
+			const { composer: _retiredComposer, ...remainder } =
+				typeof metadata === "object"
+					? (metadata as Record<string, unknown>)
+					: {};
+			const salvaged = aiChatValidationMetadataSchema.safeParse(remainder)
+				.success
+				? remainder
+				: undefined;
+			next = { ...(next as Record<string, unknown>), metadata: salvaged };
+		}
+
+		return next;
+	});
 }
 
 /**

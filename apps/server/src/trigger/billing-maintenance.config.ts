@@ -31,17 +31,15 @@ export function assertMeteringConfiguration(): void {
 	const usesVercelText = LLM_TASKS.some(
 		(task) => (overrides[task] ?? defaultProvider) !== "openrouter",
 	);
-	// Media generations (image edit/generation, video) always reconcile
+	// Media generations (image edit/generation) always reconcile
 	// against the Vercel gateway — gate on the same env switches that enable
 	// those features.
-	const mediaGenerationEnabled = [
+	const gatewayMediaEnabled = [
 		process.env.AI_IMAGE_MODEL,
 		process.env.AI_IMAGE_EDIT_MODEL,
-		process.env.AI_VIDEO_MODEL,
-		process.env.AI_VIDEO_TEXT_MODEL,
 	].some((value) => typeof value === "string" && value.trim().length > 0);
 
-	if (usesVercelText || mediaGenerationEnabled) {
+	if (usesVercelText || gatewayMediaEnabled) {
 		requiredValue("AI_GATEWAY_API_KEY");
 	}
 

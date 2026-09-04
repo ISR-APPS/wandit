@@ -24,10 +24,6 @@ import {
 	tokenUsageCostUsdMicros,
 	transcriptionEstimateUsdMicros,
 	usdMicrosToCentiCredits,
-	type VideoEstimateInput,
-	type VideoVariantPrice,
-	videoEstimateUsdMicros,
-	videoUnitUsdMicrosPerSecond,
 } from "../../domain/model-pricing";
 import {
 	type ModelPriceRow,
@@ -64,7 +60,6 @@ export type ModelPricingOptions = {
 
 export type MeasuredCostEstimateInput =
 	| { count: number; kind: "image"; modelId: string; size?: string }
-	| ({ kind: "video"; modelId: string } & VideoEstimateInput)
 	| { durationSeconds: number; kind: "transcription"; modelId: string };
 
 export type ModelPriceRefreshResult = {
@@ -196,26 +191,6 @@ export class ModelPricingService {
 		);
 	}
 
-	async quoteVideoEstimate(
-		modelId: string,
-		input: VideoEstimateInput,
-		usdMicrosPerCredit = this.usdMicrosPerCredit,
-	): Promise<MeasuredCostEstimate | null> {
-		const price = await this.get(modelId);
-		const costUsdMicros = price ? videoEstimateUsdMicros(price, input) : null;
-
-		if (!price || costUsdMicros === null) {
-			return null;
-		}
-
-		return this.measuredEstimate(
-			price,
-			costUsdMicros,
-			videoUnitUsdMicrosPerSecond(price, input) ?? 0,
-			usdMicrosPerCredit,
-		);
-	}
-
 	async quoteTranscriptionEstimate(
 		modelId: string,
 		durationSeconds: number,
@@ -238,7 +213,7 @@ export class ModelPricingService {
 		);
 	}
 
-	/** Dispatches on the operation kind; see the three quote*Estimate methods. */
+	/** Dispatches on the operation kind; see the quote*Estimate methods. */
 	async quoteMeasuredEstimate(
 		input: MeasuredCostEstimateInput,
 		usdMicrosPerCredit = this.usdMicrosPerCredit,
@@ -249,12 +224,6 @@ export class ModelPricingService {
 					input.modelId,
 					input.count,
 					input.size,
-					usdMicrosPerCredit,
-				);
-			case "video":
-				return this.quoteVideoEstimate(
-					input.modelId,
-					input,
 					usdMicrosPerCredit,
 				);
 			case "transcription":
@@ -360,7 +329,6 @@ function databaseRowToModelPrice(row: ModelPriceRow): ModelPrice {
 		source: "database",
 		transcriptionUsdMicrosPerSecond: row.transcriptionUsdMicrosPerSecond,
 		variantPricing: asVariantPricing(row.variantPricing),
-		videoUsdMicrosPerSecond: row.videoUsdMicrosPerSecond,
 	};
 }
 
@@ -378,25 +346,11 @@ function asVariantPricing(value: unknown): MediaVariantPricing | null {
 					Number.isSafeInteger((variant as ImageVariantPrice).usdMicros),
 			)
 		: [];
-	const video = Array.isArray(record.video)
-		? record.video.filter(
-				(variant): variant is VideoVariantPrice =>
-					typeof variant === "object" &&
-					variant !== null &&
-					Number.isSafeInteger(
-						(variant as VideoVariantPrice).usdMicrosPerSecond,
-					),
-			)
-		: [];
-
-	if (image.length === 0 && video.length === 0) {
+	if (image.length === 0) {
 		return null;
 	}
 
-	return {
-		...(image.length === 0 ? {} : { image }),
-		...(video.length === 0 ? {} : { video }),
-	};
+	return { image };
 }
 
 function asRawRecord(raw: unknown): Record<string, unknown> {

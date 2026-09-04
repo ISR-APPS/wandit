@@ -356,7 +356,6 @@ describe("StoryLinkAdminRepository per-link stats SQL", () => {
 		for (const source of [
 			"page_generation_attempts",
 			"image_generation_attempts",
-			"media_generation_attempts",
 			"marketing_assets",
 			"lead_scrape_attempts",
 			"connector_generation_attempts",

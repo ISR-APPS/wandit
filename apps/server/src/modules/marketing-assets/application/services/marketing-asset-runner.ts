@@ -249,8 +249,8 @@ export function parseMarketingAssetPayload(
 }
 
 /**
- * Pure marketing-asset state machine, mirrored from the image-animation
- * runner: the database CAS is the model-call authority. Once an asset is
+ * Pure marketing-asset state machine: the database CAS is the model-call
+ * authority. Once an asset is
  * generating, every duplicate delivery and Trigger retry is recovery-only —
  * check deterministic storage, observe a terminal row, or eventually fail
  * and refund. There is deliberately no path from generating back to the

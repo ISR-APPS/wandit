@@ -238,7 +238,6 @@ export const adminAnalyticsFeatureKeys = [
 	"websites",
 	"landingPages",
 	"images",
-	"videos",
 	"marketing",
 	"connectors",
 	"leadScraping",
@@ -798,7 +797,6 @@ export type AdminAnalyticsFeaturesResponse = z.infer<
 export const adminAnalyticsGenerationKeys = [
 	"pages",
 	"images",
-	"videos",
 	"marketing",
 	"connectors",
 	"leadScraping",

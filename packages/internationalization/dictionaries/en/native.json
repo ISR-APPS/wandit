@@ -19,7 +19,6 @@
 			"website": "Website",
 			"productPhotos": "Product photos",
 			"adCreatives": "Ad creatives",
-			"videoAd": "Video ad",
 			"flyer": "Flyer"
 		},
 		"tryHint": "Try: COD page for a vintage watch →",
@@ -151,7 +150,6 @@
 				},
 				"tryAgainPrefill": {
 					"image": "Try the image again",
-					"video": "Try the video again",
 					"marketing": "Try the marketing asset again",
 					"connector": "Try the connector again",
 					"hint": "This starts a new generation."
@@ -333,8 +331,6 @@
 			"chipVideos": "Videos",
 			"refreshLabel": "Refresh",
 			"srcGeneration": "Generation",
-			"srcVideo": "Video",
-			"srcAnimation": "Animation",
 			"srcPageBuild": "Page build",
 			"downloadLabel": "Download",
 			"loadError": "The assets could not be loaded.",

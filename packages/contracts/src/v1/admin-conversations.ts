@@ -104,7 +104,6 @@ export type AdminAiCall = z.infer<typeof adminAiCallSchema>;
 export const adminAiFailureSurfaces = [
 	"chat",
 	"image",
-	"media",
 	"marketing",
 	"connector",
 	"page",
@@ -145,7 +144,6 @@ export type AdminListChatFailuresQuery = z.infer<
 
 export const adminGenerationSurfaces = [
 	"image",
-	"media",
 	"marketing",
 	"connector",
 	"page",

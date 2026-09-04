@@ -6,13 +6,7 @@ export type AnalyticsCapture = {
 	): void;
 };
 
-export type GenerationKind =
-	| "animation"
-	| "connector"
-	| "image"
-	| "marketing_asset"
-	| "page"
-	| "video";
+export type GenerationKind = "connector" | "image" | "marketing_asset" | "page";
 
 export function captureGenerationCompleted(
 	analytics: AnalyticsCapture,

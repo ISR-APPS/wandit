@@ -73,14 +73,14 @@ export const env = createEnv({
 		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Default provider for LLM traffic (chat, page builds, titles, marketing,
-		// prompt refinement, video inspection). Media generation and
-		// transcription models always stay on the Vercel gateway. "openrouter" needs
+		// and prompt refinement). Image generation and transcription models always
+		// stay on the Vercel gateway. "openrouter" needs
 		// OPENROUTER_API_KEY; model ids keep the Vercel `creator/model` form and
 		// are translated at the provider boundary.
 		AI_PROVIDER: z.enum(["openrouter", "vercel"]).default("vercel"),
 		// Per-task exceptions to AI_PROVIDER, e.g.
 		// "page_build=openrouter,project_title=openrouter". Tasks: chat,
-		// marketing, page_build, project_title, prompt_refine, video_inspect. A task
+		// marketing, page_build, project_title, prompt_refine. A task
 		// named here runs on the given provider; every other task follows AI_PROVIDER.
 		AI_PROVIDER_OVERRIDES: z
 			.string()
@@ -146,10 +146,6 @@ export const env = createEnv({
 		// AI_PROMPT_REFINER_MODEL; failures degrade to a deterministic prompt,
 		// never blocking a paid generation.
 		AI_VIDEO_DIRECTOR_MODEL: z.string().min(1).optional(),
-		AI_VIDEO_INSPECT_MODEL: z
-			.string()
-			.min(1)
-			.default("google/gemini-3.7-flash"),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
 		// Lead scraping (scrape_leads chat tool). Serper.dev key for the Google
 		// Maps business search. Optional: the tool checks at call time and

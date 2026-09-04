@@ -1027,14 +1027,6 @@ export class AdminAnalyticsRepository {
 					and a.created_at < b.snapshot_end
 				union all
 				select c.user_id
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				inner join cohort c on c.user_id = p.user_id
-				cross join bounds b
-				where a.status = 'succeeded'
-					and a.created_at < b.snapshot_end
-				union all
-				select c.user_id
 				from marketing_assets a
 				inner join projects p on p.id = a.project_id
 				inner join cohort c on c.user_id = p.user_id
@@ -1370,14 +1362,6 @@ export class AdminAnalyticsRepository {
 					and a.created_at < b.snapshot_end
 				union all
 				select c.user_id, a.completed_at as generation_at
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				inner join signup_cohort c on c.user_id = p.user_id
-				cross join bounds b
-				where a.status = 'succeeded'
-					and a.created_at < b.snapshot_end
-				union all
-				select c.user_id, a.completed_at as generation_at
 				from marketing_assets a
 				inner join projects p on p.id = a.project_id
 				inner join signup_cohort c on c.user_id = p.user_id
@@ -1455,7 +1439,6 @@ export class AdminAnalyticsRepository {
 				where e.operation in (
 					'page_build',
 					'image',
-					'video',
 					'marketing',
 					'lead_scrape'
 				)
@@ -1485,24 +1468,6 @@ export class AdminAnalyticsRepository {
 				inner join projects p on p.id = a.project_id
 				left join attempt_usage_actors usage_actor
 					on usage_actor.operation = 'image'
-					and usage_actor.attempt_ref = a.id::text
-					and usage_actor.created_at >= a.created_at
-				inner join mature_signup_cohort c on c.user_id = coalesce(
-					usage_actor.user_id,
-					case when p.organization_id is null then p.user_id end
-				)
-				where p.deleted_at is null
-					and a.status = 'succeeded'
-					and a.created_at >= c.created_at
-					and a.created_at < c.created_at + interval '7 days'
-					and a.completed_at >= c.created_at
-					and a.completed_at < c.created_at + interval '7 days'
-				union all
-				select c.user_id
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				left join attempt_usage_actors usage_actor
-					on usage_actor.operation = 'video'
 					and usage_actor.attempt_ref = a.id::text
 					and usage_actor.created_at >= a.created_at
 				inner join mature_signup_cohort c on c.user_id = coalesce(
@@ -2027,7 +1992,6 @@ export class AdminAnalyticsRepository {
 				where e.operation in (
 					'page_build',
 					'image',
-					'video',
 					'marketing',
 					'lead_scrape'
 				)
@@ -2057,24 +2021,6 @@ export class AdminAnalyticsRepository {
 				inner join projects p on p.id = a.project_id
 				left join attempt_usage_actors usage_actor
 					on usage_actor.operation = 'image'
-					and usage_actor.attempt_ref = a.id::text
-					and usage_actor.created_at >= a.created_at
-				inner join evaluation_users u on u.user_id = coalesce(
-					usage_actor.user_id,
-					case when p.organization_id is null then p.user_id end
-				)
-				where p.deleted_at is null
-					and a.status = 'succeeded'
-					and a.created_at >= u.created_at
-					and a.created_at < u.created_at + interval '7 days'
-					and a.completed_at >= u.created_at
-					and a.completed_at < u.created_at + interval '7 days'
-				union all
-				select u.user_id
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				left join attempt_usage_actors usage_actor
-					on usage_actor.operation = 'video'
 					and usage_actor.attempt_ref = a.id::text
 					and usage_actor.created_at >= a.created_at
 				inner join evaluation_users u on u.user_id = coalesce(
@@ -2332,35 +2278,6 @@ export class AdminAnalyticsRepository {
 						select e.user_id
 						from ai_usage_events e
 						where e.operation = 'image'
-							and e.attempt_ref = a.id::text
-							and e.created_at >= a.created_at
-							and e.created_at < b.snapshot_end
-						order by e.created_at desc
-						limit 1
-					) usage_actor on true
-					inner join mature_users u on u.id = coalesce(
-						usage_actor.user_id,
-						case when p.organization_id is null then p.user_id end
-					)
-					where p.deleted_at is null
-						and a.status = 'succeeded'
-						and a.created_at >= u.created_at
-						and a.created_at < u.created_at + interval '7 days'
-						and a.completed_at >= u.created_at
-						and a.completed_at < u.created_at + interval '7 days'
-						and a.created_at < b.snapshot_end
-					union all
-					select coalesce(
-						usage_actor.user_id,
-						case when p.organization_id is null then p.user_id end
-					)
-					from media_generation_attempts a
-					inner join projects p on p.id = a.project_id
-					cross join bounds b
-					left join lateral (
-						select e.user_id
-						from ai_usage_events e
-						where e.operation = 'video'
 							and e.attempt_ref = a.id::text
 							and e.created_at >= a.created_at
 							and e.created_at < b.snapshot_end
@@ -3621,13 +3538,6 @@ export class AdminAnalyticsRepository {
 				where a.created_at < c.churned_at
 					and a.created_at < b.range_end
 				union all
-				select 'videos', c.owner_id, a.created_at
-				from media_generation_attempts a
-				inner join churned_projects c on c.project_id = a.project_id
-				cross join bounds b
-				where a.created_at < c.churned_at
-					and a.created_at < b.range_end
-				union all
 				select 'marketing', c.owner_id, a.created_at
 				from marketing_assets a
 				inner join churned_projects c on c.project_id = a.project_id
@@ -3989,14 +3899,6 @@ export class AdminAnalyticsRepository {
 				union all
 				select 'images', coalesce(p.organization_id, p.user_id), a.created_at
 				from image_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				cross join bounds b
-				where p.deleted_at is null
-					and a.created_at >= b.range_start
-					and a.created_at < b.range_end
-				union all
-				select 'videos', coalesce(p.organization_id, p.user_id), a.created_at
-				from media_generation_attempts a
 				inner join projects p on p.id = a.project_id
 				cross join bounds b
 				where p.deleted_at is null
@@ -4568,22 +4470,6 @@ export class AdminAnalyticsRepository {
 					and a.completed_at < b.range_end
 				union all
 				select
-					'videos',
-					a.status::text,
-					case
-						when a.started_at is not null and a.completed_at >= a.started_at
-							then extract(epoch from (a.completed_at - a.started_at)) * 1000
-					end
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				cross join bounds b
-				where p.deleted_at is null
-					and a.status in ('succeeded', 'failed')
-					and a.created_at >= b.range_start
-					and a.created_at < b.range_end
-					and a.completed_at < b.range_end
-				union all
-				select
 					'marketing',
 					a.status::text,
 					case
@@ -4798,7 +4684,7 @@ function analyticsBounds(input: AdminDashboardRangeBounds) {
 // and failed generations as positive 'grant' rows keyed 'settle-refund:%',
 // 'reconcile-refund:%' or 'refund:%'. Consumption AMOUNTS must net those
 // reversals out (their -delta is negative), and grant totals must not count them
-// as new credits — otherwise a failed 25-credit video still reads as 25 credits
+// as new credits — otherwise a failed generation still reads as consumed credits
 // "used". Metrics about consume EVENT timing/counts deliberately stay on raw
 // 'consume' rows.
 function refundGrantPredicate(alias: string): SQL {

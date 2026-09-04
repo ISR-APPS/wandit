@@ -19,7 +19,6 @@ import { ChatService } from "./application/services/chat.service";
 import { ChatStreamRelayService } from "./application/services/chat-stream-relay.service";
 import { GenerationActivityService } from "./application/services/generation-activity.service";
 import { GenerationQueueService } from "./application/services/generation-queue.service";
-import { SpeechService } from "./application/services/speech.service";
 import { TranscriptionService } from "./application/services/transcription.service";
 import { ChatsRepository } from "./infrastructure/persistence/chats.repository";
 import { ChatEventsRepository } from "./infrastructure/redis/chat-events.repository";
@@ -30,12 +29,7 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 	// Controllers receive HTTP requests.
 	controllers: [ChatsController, TranscriptionsController],
 	// Exports are the services other modules are allowed to inject.
-	exports: [
-		ChatsRepository,
-		GenerationActivityService,
-		GenerationQueueService,
-		SpeechService,
-	],
+	exports: [ChatsRepository, GenerationActivityService, GenerationQueueService],
 	// Imports make providers from other modules available here.
 	imports: [DatabaseModule, QueuesModule, MeteringModule],
 	// Providers are classes Nest can create for this module.
@@ -46,7 +40,6 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 		ChatStreamRelayService,
 		GenerationActivityService,
 		GenerationQueueService,
-		SpeechService,
 		TranscriptionService,
 	],
 })

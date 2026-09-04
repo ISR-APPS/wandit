@@ -8,11 +8,6 @@ const VISIBLE_ASSISTANT_REPLY_PART_TYPES = new Set([
 	"tool-generate_marketing_asset",
 	"tool-generate_image",
 	"tool-scrape_leads",
-	"tool-animate_image",
-	"tool-generate_video",
-	"tool-product_video",
-	"tool-edit_video",
-	"tool-extend_video",
 	"dynamic-tool",
 ]);
 

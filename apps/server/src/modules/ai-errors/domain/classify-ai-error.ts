@@ -18,7 +18,6 @@ import {
 	NoSuchModelError,
 	NoSuchProviderError,
 	NoSuchToolError,
-	NoVideoGeneratedError,
 	RetryError,
 	ToolCallRepairError,
 	TypeValidationError,
@@ -28,10 +27,8 @@ import { TaggedBuildError } from "../../pages/domain/build-failure";
 import type { AiErrorContext, NormalizedAiError } from "./normalized-ai-error";
 import {
 	classifyHiggsfieldState,
-	classifyKlingCode,
 	classifyOpenRouterStatus,
 	classifyProviderRejection,
-	classifySeedanceType,
 	hasCapacitySignal,
 	hasProviderAccountSignal,
 	hasProviderModerationSignal,
@@ -198,22 +195,6 @@ export function classifyAiError(
 					: "provider_error",
 			moderationStage:
 				error.finishReason === "content-filter" ? "output" : null,
-			source: providerSourceForContext(context),
-		});
-	}
-
-	if (NoVideoGeneratedError.isInstance(error)) {
-		if (hasVeoRaiFilter(error.responses)) {
-			return normalize(error, context, {
-				kind: "content_moderated",
-				moderationStage: "output",
-				provider: "google",
-				source: "provider:google",
-			});
-		}
-
-		return normalize(error, context, {
-			kind: "provider_error",
 			source: providerSourceForContext(context),
 		});
 	}
@@ -766,40 +747,10 @@ function classifyStructuredProviderSignal(
 			kind: "content_moderated",
 			moderationStage: moderationStage(
 				read(payload.moderationDetails, "moderation_stage"),
-				context,
 			),
 			provider: resolvedProvider ?? "openai",
 			providerMessage: sanitizeModerationCategories(categories),
 			source: resolvedProvider ? source : "provider:openai",
-			statusCode: apiError.statusCode ?? null,
-		});
-	}
-
-	const signatureProvider = providerSlug(resolvedProvider ?? "");
-	const signatureKind =
-		signatureProvider === "klingai"
-			? (classifyKlingCode(code) ??
-				classifyKlingCode(param) ??
-				classifyKlingCode(message))
-			: signatureProvider === "bytedance"
-				? (classifySeedanceType(type) ??
-					classifySeedanceType(code) ??
-					classifySeedanceType(message))
-				: null;
-	if (signatureKind) {
-		return normalize(rawError, context, {
-			kind: signatureKind,
-			moderationStage: signatureKind === "content_moderated" ? "output" : null,
-			provider: resolvedProvider,
-			providerMessage:
-				signatureKind === "content_moderated" && message
-					? sanitizeProviderText(message, {
-							kind: "content_moderated",
-							provider: resolvedProvider,
-						})
-					: null,
-			retryable: structuredRetryable(rawError, signatureKind),
-			source,
 			statusCode: apiError.statusCode ?? null,
 		});
 	}
@@ -822,7 +773,7 @@ function classifyStructuredProviderSignal(
 	) {
 		return normalize(rawError, context, {
 			kind: "content_moderated",
-			moderationStage: context.surface === "video" ? "output" : "input",
+			moderationStage: "input",
 			provider: resolvedProvider,
 			providerMessage:
 				message === null
@@ -866,7 +817,7 @@ function classifyGatewayBodySignal(
 	if (hasProviderModerationSignal(provider, values)) {
 		return normalize(error, context, {
 			kind: "content_moderated",
-			moderationStage: context.surface === "video" ? "output" : "input",
+			moderationStage: "input",
 			provider,
 			source: provider ? providerSource(provider) : "gateway",
 		});
@@ -1085,13 +1036,10 @@ function moderationCategories(details: ErrorRecord | null): unknown[] {
 		.map(([category]) => category);
 }
 
-function moderationStage(
-	value: unknown,
-	context: AiErrorContext,
-): "input" | "output" {
+function moderationStage(value: unknown): "input" | "output" {
 	if (value === "output") return "output";
 	if (value === "input") return "input";
-	return context.surface === "video" ? "output" : "input";
+	return "input";
 }
 
 function mcpEvidence(result: unknown): {
@@ -1328,18 +1276,6 @@ function isSdkValidationError(error: unknown): boolean {
 	);
 }
 
-function hasVeoRaiFilter(responses: unknown[]): boolean {
-	return responses.some((response) => {
-		if (!isRecord(response)) return false;
-		const providerMetadata = read(response, "providerMetadata");
-		if (!isRecord(providerMetadata)) return false;
-		const google = read(providerMetadata, "google");
-		if (!isRecord(google)) return false;
-		const count = read(google, "raiMediaFilteredCount");
-		return typeof count === "number" && count > 0;
-	});
-}
-
 function gatewaySignalValues(error: GatewayError): unknown[] {
 	if (!APICallError.isInstance(error.cause)) return [error.message, error.type];
 	const payload = providerPayload(
@@ -1450,17 +1386,13 @@ function providerSlug(value: string): string | null {
 		? "anthropic"
 		: lower.includes("openai")
 			? "openai"
-			: lower.includes("google") || lower.includes("gemini") || lower === "veo"
+			: lower.includes("google") || lower.includes("gemini")
 				? "google"
-				: lower.includes("kling")
-					? "klingai"
-					: lower.includes("seedance") || lower.includes("bytedance")
-						? "bytedance"
-						: lower.includes("xai") || lower.includes("x.ai")
-							? "xai"
-							: lower.includes("higgsfield")
-								? "higgsfield"
-								: null;
+				: lower.includes("xai") || lower.includes("x.ai")
+					? "xai"
+					: lower.includes("higgsfield")
+						? "higgsfield"
+						: null;
 	if (known) return known;
 
 	const normalized = lower
@@ -1491,10 +1423,8 @@ function providerLabel(provider: string | null): string | null {
 	const labels: Record<string, string> = {
 		anthropic: "Anthropic",
 		bedrock: "Amazon Bedrock",
-		bytedance: "Seedance",
 		google: "Google",
 		higgsfield: "Higgsfield",
-		klingai: "Kling",
 		openai: "OpenAI",
 		openrouter: "OpenRouter",
 		xai: "xAI",
@@ -1519,13 +1449,6 @@ function retryableByKind(kind: AiErrorKind): boolean {
 		kind === "connector_unreachable" ||
 		kind === "unknown"
 	);
-}
-
-function structuredRetryable(rawError: unknown, kind: AiErrorKind): boolean {
-	if (!retryableByKind(kind)) return false;
-	return GatewayError.isInstance(rawError)
-		? rawError.isRetryable
-		: retryableByKind(kind);
 }
 
 function isNetworkCause(cause: unknown, text: string): boolean {
