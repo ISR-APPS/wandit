@@ -11,12 +11,9 @@ import {
 	leadScrapesRoutes,
 	type MarketingAsset,
 	type MarketingAssetHtmlResponse,
-	type MediaGenerationAttempt,
 	marketingAssetHtmlResponseSchema,
 	marketingAssetsResponseSchema,
 	marketingAssetsRoutes,
-	mediaGenerationAttemptSchema,
-	mediaGenerationsRoutes,
 	type PageAttemptDetail,
 	type PageOverview,
 	pageAttemptDetailSchema,
@@ -98,13 +95,6 @@ export function imageGenerationDownloadUrl(attemptId: string, index: number) {
 	)}`;
 }
 
-/** Credentialed download endpoint for a finished video/animation. */
-export function mediaGenerationDownloadUrl(attemptId: string) {
-	return `${getServerUrl().replace(/\/$/, "")}${mediaGenerationsRoutes.download(
-		attemptId,
-	)}`;
-}
-
 export async function getImageGenerationAttempt(
 	attemptId: string,
 ): Promise<ImageGenerationAttempt> {
@@ -112,15 +102,6 @@ export async function getImageGenerationAttempt(
 		imageGenerationsRoutes.attempt(attemptId),
 	);
 	return imageGenerationAttemptSchema.parse(data);
-}
-
-export async function getMediaGenerationAttempt(
-	attemptId: string,
-): Promise<MediaGenerationAttempt> {
-	const data = await apiClient.get<unknown>(
-		mediaGenerationsRoutes.attempt(attemptId),
-	);
-	return mediaGenerationAttemptSchema.parse(data);
 }
 
 export async function listMarketingAssets(

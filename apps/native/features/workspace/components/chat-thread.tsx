@@ -52,8 +52,6 @@ const ASYNC_KIND_BY_TYPE: Record<string, AsyncGenerationKind | undefined> = {
 	"tool-generate_marketing_asset": "marketing",
 	"tool-generate_image": "image",
 	"tool-scrape_leads": "leads",
-	"tool-animate_image": "animate",
-	"tool-generate_video": "video",
 };
 
 const THINKING_DOT_DELAYS = [-300, -150, 0] as const;

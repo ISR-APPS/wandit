@@ -27,7 +27,6 @@ describe("parseLlmProviderOverrides", () => {
 				page_build: "openrouter",
 				project_title: "openrouter",
 				prompt_refine: "openrouter",
-				video_inspect: "openrouter",
 			},
 		});
 	});
@@ -46,7 +45,7 @@ describe("parseLlmProviderOverrides", () => {
 	});
 
 	it("rejects media tasks with the pinned-to-Vercel message", () => {
-		for (const task of ["image", "video", "transcription", "audio"]) {
+		for (const task of ["image", "transcription", "audio"]) {
 			const { errors, overrides } = parseLlmProviderOverrides(
 				`${task}=openrouter`,
 			);

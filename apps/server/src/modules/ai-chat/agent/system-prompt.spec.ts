@@ -46,98 +46,6 @@ describe("video laws in the chat system prompt", () => {
 		}
 	});
 
-	it("makes bodiless narration a native max-tier capability", () => {
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Standard is the default-capability renderer: one continuous shot, at most 10 seconds, no person speaking on camera, and no narration.",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"the user wants voiceover narration with nobody speaking on screen",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			'bodiless narration ALWAYS means quality: "max" and talking: false',
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"the max renderer lays that exact script over the clip as native narration",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).not.toContain("upcoming narration feature");
-	});
-
-	it("routes one-photo product commercials through the fixed five-second path", () => {
-		expect(WANDIT_SYSTEM_PROMPT).toContain("## Generating a product video");
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"except a product ad built from ONE existing product photo routes to product_video",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Exactly one product image is required: a JPEG, PNG, or WebP",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Every product video is exactly 5 seconds",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"generated images ARE valid product_video sources",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"orbit (a studio turntable), hero (a dramatic push-in), and lifestyle (a real-world setting)",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"tiny text, fine print and logos can drift in the render",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain("call product_video exactly ONCE");
-	});
-
-	it("pins product-video attachment and intake boundaries", () => {
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			'kind "attachments", accept ["image"], mediaTypes ["image/jpeg", "image/png", "image/webp"], and maxFiles 1',
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Do not ask for an upload when an eligible generated-image marker already exists",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain('ask_user kind "single-choice"');
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Do not run creative-director intake, write a CREATIVE BRIEF, ask a tier question, or do prompt engineering",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain("Never state credit numbers");
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Never claim it was queued when it was not",
-		);
-	});
-
-	it("requires honest same-length edit warnings and one edit call", () => {
-		expect(WANDIT_SYSTEM_PROMPT).toContain("## Editing a video");
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"the edited clip keeps the same length and framing",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"the whole clip is re-rendered so tiny details can shift",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain("editing may not preserve lip-sync");
-		expect(WANDIT_SYSTEM_PROMPT).toContain("call edit_video exactly ONCE");
-	});
-
-	it("caps extension chains and records the join and narration warnings", () => {
-		expect(WANDIT_SYSTEM_PROMPT).toContain("## Making a video longer");
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Each added piece is either 5 or 10 seconds",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"at most three additions TOTAL over its whole extension chain",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"fast motion can stutter at the joins",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"lip-sync breaks across chained frames",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"roughly 2.4 words per second of total duration",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"extending it without a new full-length voiceover would remove that narration",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain("pass acceptSilent: true");
-		expect(WANDIT_SYSTEM_PROMPT).toContain("Call extend_video exactly ONCE");
-	});
-
 	it("routes connected Higgsfield studios from the user's wish", () => {
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
 			`A wish to sell or promote a product uses generate_video with model ${HIGGSFIELD_MARKETING_MODEL}`,
@@ -201,13 +109,10 @@ describe("video laws in the chat system prompt", () => {
 			"warn plainly that Marketing Studio cannot make a clip that short",
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"confirm a 12–15-second Marketing Studio ad, or explicitly switch the WHOLE video to Wandit's own generator",
+			"confirm a 12–15-second Marketing Studio ad, or choose another supported Higgsfield studio",
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"On Wandit's own road, offer 5, 10, or 15 seconds",
-		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"On the connected Higgsfield road, offer only durations supported by the chosen studio or model",
+			"offer only durations supported by the chosen Higgsfield studio or model",
 		);
 	});
 
@@ -287,16 +192,17 @@ describe("video laws in the chat system prompt", () => {
 		);
 	});
 
-	it("requires an explicit opt-in before switching away from Higgsfield", () => {
+	it("asks users to restore Higgsfield instead of offering a native fallback", () => {
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"OFFER through ask_user to make the WHOLE video with Wandit's own generator instead",
+			"ask the user to reconnect the connector or try again later",
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"Proceed only after the user's explicit yes",
+			"Never claim that another Wandit video generator is available",
 		);
-		expect(WANDIT_SYSTEM_PROMPT).toContain("Never switch roads silently");
-		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			"never mix roads inside one deliverable unless the user asks",
-		);
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain("product_video");
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain("animate_image");
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain("edit_video");
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain("extend_video");
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain("inspect_video");
 	});
 });

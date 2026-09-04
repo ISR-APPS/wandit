@@ -15,6 +15,7 @@ import {
 import {
 	type EnqueueLifecycleEvent,
 	isOncePerUserEvent,
+	LIFECYCLE_EVENT_NAMES,
 	type LifecycleEventDropReason,
 	type LifecycleEventName,
 	lifecycleEventCooldownMs,
@@ -216,7 +217,13 @@ export class LifecycleEventsRepository {
 			.where(eq(lifecycleEvents.userId, userId))
 			.orderBy(asc(lifecycleEvents.createdAt));
 
-		return rows.map((row) => row.event);
+		// Historical rows may carry enum values retired from the active event set
+		// (e.g. video_generated); those must not resurface as dispatchable events.
+		return rows
+			.map((row) => row.event)
+			.filter((event): event is LifecycleEventName =>
+				(LIFECYCLE_EVENT_NAMES as readonly string[]).includes(event),
+			);
 	}
 
 	async loadDispatchContext(

@@ -3,8 +3,6 @@ export type GenerationPromptKind =
 	| "marketing"
 	| "image"
 	| "leads"
-	| "animate"
-	| "video"
 	| "connector";
 
 const ORIGINAL_PROMPT_KEYS = [
@@ -28,9 +26,6 @@ export function originalGenerationPrompt(
 	switch (kind) {
 		case "image":
 			return readOriginalPromptField(input, ["prompt"]);
-		case "animate":
-		case "video":
-			return readOriginalPromptField(input, ORIGINAL_PROMPT_KEYS);
 		case "marketing":
 			return readOriginalPromptField(input, ["brief"]);
 		case "connector":

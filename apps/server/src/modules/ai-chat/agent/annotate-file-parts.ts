@@ -69,7 +69,7 @@ export function annotateAskUserAnswerFiles(
 /**
  * A user file part reaches the model as opaque visual content — the model can
  * SEE the image but cannot read (or quote) its URL, so it has no way to pass
- * the attachment to generate_image.sourceImageUrls or animate_image. That made
+ * the attachment to generate_image.sourceImageUrls or a connector. That made
  * the agent ask for a photo the user had already attached. Follow every user
  * file part with a text marker exposing the exact URL as readable text.
  * A file part the provider cannot ingest is REPLACED by its marker (the raw

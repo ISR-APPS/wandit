@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { aiErrorDataSchema } from "./ai-errors";
-import { mediaGenerationStatusSchema } from "./media-generations";
+import { generationStatusSchema } from "./generation-status";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 export const IMAGE_GENERATION_ASPECTS = [
@@ -58,7 +58,7 @@ export type ImageGenerationPlacementStatus = z.infer<
 
 export const imageGenerationAttemptSchema = z.object({
 	id: uuidSchema,
-	status: mediaGenerationStatusSchema,
+	status: generationStatusSchema,
 	title: z.string().min(1),
 	prompt: z.string(),
 	aspect: imageGenerationAspectSchema,

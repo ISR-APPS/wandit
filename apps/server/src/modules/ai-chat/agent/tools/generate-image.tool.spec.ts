@@ -17,7 +17,7 @@ import type { ImageGenerationsRepository } from "../../../image-generations/infr
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import type { AvailableImage } from "./animate-image.tool";
+import type { AvailableImage } from "./generate-image.tool";
 import { createGenerateImageTool } from "./generate-image.tool";
 
 const mockEnv = vi.hoisted(() => ({

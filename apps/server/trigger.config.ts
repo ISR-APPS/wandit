@@ -1,7 +1,6 @@
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
 import { esbuildPlugin } from "@trigger.dev/build/extensions";
-import { ffmpeg } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 
 /**
@@ -56,8 +55,7 @@ export default defineConfig({
 	// tokens on the same brief.
 	retries: {
 		// Task-level policies remain authoritative. Page + lead tasks explicitly
-		// stay single-attempt, while image animation exercises its crash-recovery
-		// retries in local Trigger.dev runs as well as production.
+		// stay single-attempt in local Trigger.dev runs as well as production.
 		enabledInDev: true,
 		default: { maxAttempts: 1 },
 	},
@@ -65,9 +63,6 @@ export default defineConfig({
 	// browser binaries relative to its own package) — never bundle it.
 	build: {
 		extensions: [
-			// Installs ffmpeg + ffprobe in the deployed worker image and exposes
-			// their paths through FFMPEG_PATH / FFPROBE_PATH. Local dev uses PATH.
-			ffmpeg(),
 			playwrightChromium(),
 			// Uploads source maps to Sentry on `trigger.dev deploy` so task
 			// stack traces map to TS sources. No-op without SENTRY_AUTH_TOKEN

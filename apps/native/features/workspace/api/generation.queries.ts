@@ -6,7 +6,6 @@ import {
 	imageGenerationKeys,
 	leadScrapeKeys,
 	marketingAssetKeys,
-	mediaGenerationKeys,
 	pageKeys,
 } from "@/features/workspace/api/generation.keys";
 import {
@@ -15,7 +14,6 @@ import {
 	getImageGenerationAttempt,
 	getLeadScrapeAttempt,
 	getMarketingAssetHtml,
-	getMediaGenerationAttempt,
 	getPageAttempt,
 	getPageOverview,
 	listMarketingAssets,
@@ -26,7 +24,6 @@ import {
 export const DURABLE_POLL_INTERVAL_MS = {
 	page: 1_600,
 	image: 1_500,
-	animate: 1_500,
 	marketing: 2_500,
 	leads: 1_200,
 	connector: 1_500,
@@ -157,28 +154,6 @@ export function useImageGenerationAttemptQuery(attemptId: string) {
 				status === "generating" ||
 				(status === "succeeded" && attempt?.placement?.status === "pending")
 				? DURABLE_POLL_INTERVAL_MS.image
-				: false;
-		},
-	});
-}
-
-export function useMediaGenerationAttemptQuery(
-	attemptId: string,
-	intervalMs: number = DURABLE_POLL_INTERVAL_MS.animate,
-) {
-	return useQuery({
-		queryKey: mediaGenerationKeys.attempt(attemptId || "none"),
-		queryFn: () => getMediaGenerationAttempt(attemptId),
-		enabled: attemptId.length > 0,
-		refetchOnMount: "always",
-		refetchInterval: (query) => {
-			if (query.state.error) return false;
-
-			const status = query.state.data?.status;
-			return status === undefined ||
-				status === "queued" ||
-				status === "generating"
-				? intervalMs
 				: false;
 		},
 	});

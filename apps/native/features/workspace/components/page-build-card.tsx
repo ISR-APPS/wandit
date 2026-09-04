@@ -31,12 +31,12 @@ import Animated, {
 import { WanditIcon } from "@/components/wandit-icon";
 import { creditsKeys, openBillingInBrowser } from "@/features/credits";
 import { pageKeys } from "@/features/workspace/api/generation.keys";
-import { projectAssetKeys } from "@/features/workspace/api/project-assets.queries";
 import {
 	useDismissPageAttempt,
 	usePageAttemptQuery,
 	useRetryPageAttempt,
 } from "@/features/workspace/api/generation.queries";
+import { projectAssetKeys } from "@/features/workspace/api/project-assets.queries";
 import { PublishPanel } from "@/features/workspace/components/publish-panel";
 import { useLiveRun } from "@/features/workspace/lib/use-live-run";
 
@@ -568,7 +568,6 @@ export function PageBuildProgressView({
 	const phase = progress?.phase ?? "starting";
 	const rank = PHASE_RANK[phase];
 	const images = progress?.images ?? [];
-	const videos = progress?.videos ?? 0;
 	const sections = progress?.sections ?? [];
 	const shots = progress?.shots ?? [];
 	const findings = progress?.findings ?? [];
@@ -596,7 +595,7 @@ export function PageBuildProgressView({
 	const artState: RowState =
 		!ended && phase === "art"
 			? "active"
-			: images.length > 0 || videos > 0
+			: images.length > 0
 				? "done"
 				: rank <= 1 && !ended
 					? "pending"
@@ -700,18 +699,9 @@ export function PageBuildProgressView({
 									live={animationLive}
 									badge={
 										images.length > 0
-											? [
-													t("workspace.chat.pageBuild.imagesCount", {
-														count: images.length,
-													}),
-													videos > 0
-														? t("workspace.chat.pageBuild.videosCount", {
-																count: videos,
-															})
-														: undefined,
-												]
-													.filter(Boolean)
-													.join(" · ")
+											? t("workspace.chat.pageBuild.imagesCount", {
+													count: images.length,
+												})
 											: undefined
 									}
 								>

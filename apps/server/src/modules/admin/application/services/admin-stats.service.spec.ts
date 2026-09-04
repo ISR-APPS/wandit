@@ -496,10 +496,10 @@ describe("AdminOverviewRepository overview SQL", () => {
 
 		expect(
 			generationQuery.match(/completed_at >= b\.previous_start/g),
-		).toHaveLength(5);
+		).toHaveLength(4);
 		expect(
 			generationQuery.match(/completed_at < b\.current_end/g),
-		).toHaveLength(5);
+		).toHaveLength(4);
 		expect(generationQuery).toContain(
 			"from terminal_attempts t cross join bounds b group by 1",
 		);

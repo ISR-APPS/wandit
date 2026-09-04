@@ -19,7 +19,6 @@
 			"website": "موقع ويب",
 			"productPhotos": "صور المنتج",
 			"adCreatives": "تصاميم إعلانية",
-			"videoAd": "إعلان فيديو",
 			"flyer": "منشور إعلاني"
 		},
 		"tryHint": "جرّب: صفحة دفع عند الاستلام لساعة كلاسيكية ←",
@@ -151,7 +150,6 @@
 				},
 				"tryAgainPrefill": {
 					"image": "جرّب الصورة مرة أخرى",
-					"video": "جرّب الفيديو مرة أخرى",
 					"marketing": "جرّب الأصل التسويقي مرة أخرى",
 					"connector": "جرّب الموصّل مرة أخرى",
 					"hint": "سيبدأ هذا عملية توليد جديدة."
@@ -373,8 +371,6 @@
 			"chipVideos": "فيديوهات",
 			"refreshLabel": "تحديث",
 			"srcGeneration": "إنشاء",
-			"srcVideo": "فيديو",
-			"srcAnimation": "تحريك",
 			"srcPageBuild": "بناء صفحة",
 			"downloadLabel": "تنزيل",
 			"loadError": "تعذّر تحميل الوسائط.",

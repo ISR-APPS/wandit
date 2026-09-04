@@ -1,12 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	type AiErrorData,
-	animateImageOutputSchema,
 	connectorGenerationQueuedOutputSchema,
 	generateImageOutputSchema,
 	generateMarketingAssetOutputSchema,
 	generatePageOutputSchema,
-	generateVideoOutputSchema,
 	scrapeLeadsOutputSchema,
 	type TriggerRealtimeHandle,
 } from "@wandit/contracts";
@@ -14,7 +12,7 @@ import { useTranslation } from "@wandit/internationalization/react";
 import { router } from "expo-router";
 import { Card, useThemeColor } from "heroui-native";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Image, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { WanditIcon, type WanditIconName } from "@/components/wandit-icon";
 import { creditsKeys } from "@/features/credits";
 import {
@@ -28,28 +26,16 @@ import {
 	useConnectorGenerationAttemptQuery,
 	useImageGenerationAttemptQuery,
 	useMarketingAssetsQuery,
-	useMediaGenerationAttemptQuery,
 	usePageOverviewQuery,
 } from "@/features/workspace/api/generation.queries";
-import {
-	imageGenerationDownloadUrl,
-	mediaGenerationDownloadUrl,
-} from "@/features/workspace/api/generation.requests";
+import { imageGenerationDownloadUrl } from "@/features/workspace/api/generation.requests";
 import { projectAssetKeys } from "@/features/workspace/api/project-assets.queries";
-import {
-	ChatMediaGallery,
-	ChatMediaViewer,
-} from "@/features/workspace/components/chat-media";
+import { ChatMediaGallery } from "@/features/workspace/components/chat-media";
 import { ElapsedTimer } from "@/features/workspace/components/elapsed-timer";
 import { LeadScrapeCard } from "@/features/workspace/components/lead-scrape-card";
 import { PageBuildCard } from "@/features/workspace/components/page-build-card";
 import { SpinnerArc } from "@/features/workspace/components/spinner-arc";
 import { SweepBar } from "@/features/workspace/components/sweep-bar";
-import { VideoGenerationCard } from "@/features/workspace/components/video-generation-card";
-import {
-	downloadAndShareMedia,
-	isMediaDownloadError,
-} from "@/features/workspace/lib/download-media";
 import { useLiveRun } from "@/features/workspace/lib/use-live-run";
 import { AppSkeletonGroup } from "@/shared/ui/skeleton-group";
 import { chatErrorPresentation, readAiErrorData } from "../lib/ai-error-copy";
@@ -60,8 +46,6 @@ export type AsyncGenerationKind =
 	| "marketing"
 	| "image"
 	| "leads"
-	| "animate"
-	| "video"
 	| "connector";
 
 /** Narrow structural type accepted from live AI SDK parts and persisted rows. */
@@ -107,7 +91,7 @@ type NormalizedOutput = {
 };
 
 type CardTone = "working" | "success" | "danger" | "muted";
-type PrefillGenerationKind = "image" | "video" | "marketing" | "connector";
+type PrefillGenerationKind = "image" | "marketing" | "connector";
 
 export function AsyncGenerationCard({
 	kind,
@@ -194,12 +178,6 @@ export function AsyncGenerationCard({
 	}
 
 	if (output.status === "unavailable") {
-		if (kind === "animate") {
-			// Deliberate divergence from the sibling cards: the animate tool's
-			// unavailable state shows FIXED localized copy, not the raw relay
-			// (web animate-image-part.tsx parity).
-			return <AnimateUnavailableCard config={config} />;
-		}
 		return (
 			<GenerationCardFrame
 				config={config}
@@ -264,31 +242,6 @@ export function AsyncGenerationCard({
 					fallbackLocation={readStringField(part.input, "location")}
 					fallbackQuery={readStringField(part.input, "query")}
 					realtime={output.realtime}
-				/>
-			) : (
-				<MissingAttemptCard config={config} message={output.message} />
-			);
-		case "animate":
-			return output.attemptId ? (
-				<AnimationGenerationResult
-					attemptId={output.attemptId}
-					config={config}
-					message={output.message}
-					onPrefill={onPrefillComposer}
-					originalPrompt={originalPrompt}
-				/>
-			) : (
-				<MissingAttemptCard config={config} message={output.message} />
-			);
-		case "video":
-			return output.attemptId ? (
-				<VideoGenerationCard
-					attemptId={output.attemptId}
-					realtime={output.realtime}
-					fallbackTitle={readStringField(part.input, "title")}
-					projectId={projectId}
-					onPrefillComposer={onPrefillComposer}
-					originalPrompt={originalPrompt}
 				/>
 			) : (
 				<MissingAttemptCard config={config} message={output.message} />
@@ -755,264 +708,6 @@ function ImageGenerationResult({
 	);
 }
 
-/** Fixed localized copy for the animate tool's unavailable state (AN-03). */
-function AnimateUnavailableCard({ config }: { config: ToolConfig }) {
-	const { t } = useTranslation();
-
-	return (
-		<GenerationCardFrame
-			config={config}
-			detail={t("workspace.chat.animateImage.unavailableBody")}
-			headline={t("workspace.chat.animateImage.unavailableTitle")}
-			tone="muted"
-		/>
-	);
-}
-
-function AnimationGenerationResult({
-	attemptId,
-	message,
-	config,
-	onPrefill,
-	originalPrompt,
-}: {
-	attemptId: string;
-	message: string;
-	config: ToolConfig;
-	onPrefill?: (prompt: string) => void;
-	originalPrompt: string | undefined;
-}) {
-	const { t } = useTranslation();
-	const background = useThemeColor("background");
-	const foreground = useThemeColor("foreground");
-	const query = useMediaGenerationAttemptQuery(attemptId);
-	const [downloading, setDownloading] = useState(false);
-	const [downloadFailed, setDownloadFailed] = useState(false);
-	const [viewerOpen, setViewerOpen] = useState(false);
-
-	if (query.isError) {
-		return <QueryFailureCard config={config} onRetry={query.refetch} />;
-	}
-
-	const attempt = query.data;
-	if (
-		!attempt ||
-		attempt.status === "queued" ||
-		attempt.status === "generating"
-	) {
-		const queued = attempt?.status === "queued";
-		return (
-			<AnimateProgressPoster
-				sourceImageUrl={attempt?.sourceImageUrl ?? null}
-				title={queued ? config.queued : config.building}
-				body={
-					!attempt
-						? message
-						: t(
-								queued
-									? "workspace.chat.animateImage.queuedBody"
-									: "workspace.chat.animateImage.generatingBody",
-							)
-				}
-			/>
-		);
-	}
-
-	if (attempt.status === "failed") {
-		const failure = readAiErrorData(attempt);
-		if (failure) {
-			return (
-				<AiFailureGenerationCard
-					config={config}
-					failure={failure}
-					kind="animate"
-					onPrefill={onPrefill}
-					prompt={originalPrompt}
-				/>
-			);
-		}
-		return (
-			<GenerationCardFrame
-				config={config}
-				detail={attempt.error ?? undefined}
-				headline={config.failed}
-				tone="danger"
-			/>
-		);
-	}
-
-	const media = attempt.videoUrl
-		? [
-				{
-					key: attempt.id,
-					kind: "video" as const,
-					url: attempt.videoUrl,
-					label: t("workspace.chat.animateImage.resultTitle"),
-					downloadUrl: mediaGenerationDownloadUrl(attempt.id),
-				},
-			]
-		: [];
-
-	const handleDownload = async () => {
-		if (downloading || !attempt.videoUrl) return;
-		setDownloadFailed(false);
-		setDownloading(true);
-		try {
-			await downloadAndShareMedia({
-				url: mediaGenerationDownloadUrl(attempt.id),
-				filename:
-					attempt.videoMediaType === "video/webm"
-						? "wandit-animation.webm"
-						: "wandit-animation.mp4",
-				mimeType: attempt.videoMediaType ?? "video/mp4",
-			});
-		} catch (error) {
-			if (isMediaDownloadError(error)) setDownloadFailed(true);
-		} finally {
-			setDownloading(false);
-		}
-	};
-
-	return (
-		<GenerationCardFrame
-			config={config}
-			detail={
-				media.length > 0
-					? `${t("workspace.chat.animateImage.duration", {
-							seconds: attempt.durationSeconds,
-						})} · ${attempt.aspect}`
-					: config.noMedia
-			}
-			detailWritingDirection={media.length > 0 ? "ltr" : "auto"}
-			readyBadge={media.length > 0 ? config.ready : undefined}
-			tone="success"
-		>
-			{media.length > 0 ? (
-				<View className="mt-2 gap-2">
-					<ChatMediaGallery items={media} />
-					{downloadFailed ? (
-						<Text
-							className="text-[12px] text-danger leading-[17px]"
-							style={{ writingDirection: "auto" }}
-						>
-							{t("workspace.chat.generation.downloadFailed")}
-						</Text>
-					) : null}
-					<View className="flex-row gap-2">
-						<Pressable
-							accessibilityRole="button"
-							onPress={() => setViewerOpen(true)}
-							className="h-11 min-w-0 flex-1 flex-row items-center justify-center gap-1.5 rounded-full border border-border active:bg-surface-secondary"
-						>
-							<WanditIcon name="maximize" size={14} color={foreground} />
-							<Text
-								numberOfLines={1}
-								className="font-sans-semibold text-[12.5px] text-foreground"
-							>
-								{t("workspace.chat.animateImage.open")}
-							</Text>
-						</Pressable>
-						<Pressable
-							accessibilityRole="button"
-							disabled={downloading}
-							onPress={() => void handleDownload()}
-							className="h-11 min-w-0 flex-1 flex-row items-center justify-center gap-1.5 rounded-full bg-foreground active:opacity-85"
-						>
-							{downloading ? (
-								<SpinnerArc size={14} />
-							) : (
-								<WanditIcon name="download" size={14} color={background} />
-							)}
-							<Text
-								numberOfLines={1}
-								className="font-sans-semibold text-[12.5px] text-background"
-							>
-								{downloading
-									? t("workspace.chat.leadScrape.downloading")
-									: t("workspace.chat.animateImage.download")}
-							</Text>
-						</Pressable>
-					</View>
-				</View>
-			) : null}
-			{viewerOpen && media.length > 0 ? (
-				<ChatMediaViewer
-					items={media}
-					index={0}
-					onNavigate={() => undefined}
-					onClose={() => setViewerOpen(false)}
-				/>
-			) : null}
-		</GenerationCardFrame>
-	);
-}
-
-/**
- * Blurred-poster progress for animate: the source image fills the frame
- * under a blur + scrim, with a centred spinner pill and a caption block
- * (web AN-05 parity). A plain surface stands in while the source is unknown.
- */
-function AnimateProgressPoster({
-	sourceImageUrl,
-	title,
-	body,
-}: {
-	sourceImageUrl: string | null;
-	title: string;
-	body: string;
-}) {
-	const { t } = useTranslation();
-
-	return (
-		<View
-			className="overflow-hidden rounded-[16px] border border-border bg-surface-tertiary"
-			style={{ aspectRatio: 16 / 10 }}
-			accessibilityLiveRegion="polite"
-		>
-			{sourceImageUrl ? (
-				<Image
-					source={{ uri: sourceImageUrl }}
-					resizeMode="cover"
-					blurRadius={8}
-					accessibilityLabel={t("workspace.chat.animateImage.sourceAlt")}
-					style={{ position: "absolute", width: "100%", height: "100%" }}
-				/>
-			) : null}
-			<View
-				className="absolute inset-0"
-				style={{ backgroundColor: "rgba(23,18,16,0.28)" }}
-			/>
-			<View className="absolute inset-0 items-center justify-center">
-				<View
-					className="h-11 w-11 items-center justify-center rounded-full"
-					style={{ backgroundColor: "rgba(255,255,255,0.88)" }}
-				>
-					<SpinnerArc size={18} />
-				</View>
-			</View>
-			<View
-				className="absolute inset-x-0 bottom-0 px-3.5 pt-6 pb-3"
-				style={{ backgroundColor: "rgba(23,18,16,0.55)" }}
-			>
-				<Text
-					numberOfLines={1}
-					className="font-sans-semibold text-[13px] text-white"
-				>
-					{title}
-				</Text>
-				<Text
-					numberOfLines={2}
-					className="text-[11.5px] leading-[16px]"
-					style={{ color: "rgba(255,255,255,0.75)" }}
-				>
-					{body}
-				</Text>
-			</View>
-		</View>
-	);
-}
-
-// Trigger run statuses that still mean "waiting for the provider to start".
 const QUEUED_RUN_STATUSES = new Set([
 	"QUEUED",
 	"DEQUEUED",
@@ -1370,11 +1065,9 @@ function GenerationPrefillButton({
 	const label = t(
 		kind === "image"
 			? "native.workspace.chat.aiError.tryAgainPrefill.image"
-			: kind === "video"
-				? "native.workspace.chat.aiError.tryAgainPrefill.video"
-				: kind === "marketing"
-					? "native.workspace.chat.aiError.tryAgainPrefill.marketing"
-					: "native.workspace.chat.aiError.tryAgainPrefill.connector",
+			: kind === "marketing"
+				? "native.workspace.chat.aiError.tryAgainPrefill.marketing"
+				: "native.workspace.chat.aiError.tryAgainPrefill.connector",
 	);
 
 	return (
@@ -1547,14 +1240,6 @@ function normalizeOutput(
 			const parsed = scrapeLeadsOutputSchema.safeParse(value);
 			return parsed.success ? parsed.data : null;
 		}
-		case "animate": {
-			const parsed = animateImageOutputSchema.safeParse(value);
-			return parsed.success ? parsed.data : null;
-		}
-		case "video": {
-			const parsed = generateVideoOutputSchema.safeParse(value);
-			return parsed.success ? parsed.data : null;
-		}
 		case "connector": {
 			const parsed = connectorGenerationQueuedOutputSchema.safeParse(value);
 			return parsed.success
@@ -1586,9 +1271,6 @@ function prefillKindFor(
 	switch (kind) {
 		case "image":
 			return "image";
-		case "animate":
-		case "video":
-			return "video";
 		case "marketing":
 			return "marketing";
 		case "connector":
@@ -1637,38 +1319,6 @@ function useToolConfig(kind: AsyncGenerationKind): ToolConfig {
 				noMedia,
 				missing: t("workspace.chat.generateImage.statusLoadError"),
 			};
-		case "animate":
-			return {
-				title: t("workspace.chat.animateImage.resultTitle"),
-				icon: "play",
-				preparing: t("workspace.chat.animateImage.preparing"),
-				queueing: t("workspace.chat.animateImage.queueing"),
-				failedToStart: t("workspace.chat.animateImage.failedToStart"),
-				queued: t("workspace.chat.animateImage.queuedTitle"),
-				building: t("workspace.chat.animateImage.generatingTitle"),
-				ready: t("workspace.chat.animateImage.ready"),
-				failed: t("workspace.chat.animateImage.failedTitle"),
-				loadError: t("workspace.chat.animateImage.statusLoadError"),
-				retry: t("workspace.chat.animateImage.retry"),
-				noMedia,
-				missing: t("workspace.chat.animateImage.statusLoadError"),
-			};
-		case "video":
-			return {
-				title: t("workspace.chat.generateVideo.title"),
-				icon: "film",
-				preparing: t("workspace.chat.generateVideo.preparing"),
-				queueing: t("workspace.chat.generateVideo.queueing"),
-				failedToStart: t("workspace.chat.generateVideo.failedToStart"),
-				queued: t("workspace.chat.generateVideo.queuedTitle"),
-				building: t("workspace.chat.generateVideo.generatingTitle"),
-				ready: t("workspace.chat.generateVideo.readyTitle"),
-				failed: t("workspace.chat.generateVideo.failedTitle"),
-				loadError: t("workspace.chat.generateVideo.statusLoadError"),
-				retry: t("workspace.chat.generateVideo.retry"),
-				noMedia,
-				missing: t("workspace.chat.generateVideo.statusLoadError"),
-			};
 		case "connector":
 			return {
 				title: t("workspace.chat.mcpTool.generation.working"),
@@ -1694,7 +1344,7 @@ function useToolConfig(kind: AsyncGenerationKind): ToolConfig {
 				failedToStart: t("workspace.marketing.failed"),
 				queued: t("workspace.marketing.queued"),
 				building: t("workspace.marketing.generating"),
-				ready: t("workspace.chat.animateImage.ready"),
+				ready: t("workspace.chat.mcpTool.generation.ready"),
 				failed: t("workspace.marketing.failed"),
 				loadError: t("workspace.assets.loadError"),
 				retry,
@@ -1710,7 +1360,7 @@ function useToolConfig(kind: AsyncGenerationKind): ToolConfig {
 				failedToStart: t("workspace.marketing.failed"),
 				queued: t("workspace.marketing.queued"),
 				building: t("workspace.marketing.generating"),
-				ready: t("workspace.chat.animateImage.ready"),
+				ready: t("workspace.chat.mcpTool.generation.ready"),
 				failed: t("workspace.marketing.failed"),
 				loadError: t("workspace.assets.loadError"),
 				retry,

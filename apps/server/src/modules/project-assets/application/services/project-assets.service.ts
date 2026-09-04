@@ -1,12 +1,11 @@
 /**
  * Assets tab backend: one ownership-checked list of every media file the AI
  * produced for a project, whatever pipeline made it — standalone image
- * generations, image animations, and the images/videos generated inside page
- * builds (which have no DB rows; the bucket is their source of truth).
+ * generations and the images/videos generated inside page builds (which
+ * have no DB rows; the bucket is their source of truth).
  */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
-	MediaGenerationKind,
 	ProjectAsset,
 	WorkspaceAsset,
 	WorkspaceAssetsResponse,
@@ -22,16 +21,8 @@ import {
 	VARIANT_FILENAME_PATTERN,
 } from "../../../../infrastructure/storage/r2";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
-import {
-	type MediaGenerationAssetIdentity,
-	MediaGenerationsRepository,
-} from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
-
-// A video prompt doubles as the animation's display name, cut on a word
-// boundary so cards never show mid-word truncation.
-const LABEL_MAX_CHARS = 40;
 
 // Dashboard aggregate bounds. The page shows the newest slice of the whole
 // workspace; a project's complete history stays on its own Assets tab.
@@ -52,8 +43,6 @@ export class ProjectAssetsService {
 		private readonly projectAssetsRepository: ProjectAssetsRepository,
 		@Inject(ImageGenerationsRepository)
 		private readonly imageGenerationsRepository: ImageGenerationsRepository,
-		@Inject(MediaGenerationsRepository)
-		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
 	) {}
 
 	async listAssets(
@@ -62,18 +51,10 @@ export class ProjectAssetsService {
 	): Promise<ProjectAsset[]> {
 		await this.assertAccessibleProject(scope, projectId);
 
-		const [imageAttempts, videoAttempts, mediaAttemptIdentities] =
-			await Promise.all([
-				this.imageGenerationsRepository.listForProject(scope, projectId),
-				this.mediaGenerationsRepository.listSucceededForProject(
-					scope,
-					projectId,
-				),
-				this.mediaGenerationsRepository.listAssetIdentitiesForProject(
-					scope,
-					projectId,
-				),
-			]);
+		const imageAttempts = await this.imageGenerationsRepository.listForProject(
+			scope,
+			projectId,
+		);
 
 		const assets: ProjectAsset[] = [];
 
@@ -107,43 +88,8 @@ export class ProjectAssetsService {
 			});
 		}
 
-		// Media workflows and page builds share the assets prefix. The attempt
-		// index keeps workflow-owned directories isolated while still letting
-		// page builds expose every media file they intentionally produced.
-		const mediaAttemptAssets = indexMediaAttemptAssets(mediaAttemptIdentities);
-
-		for (const row of videoAttempts) {
-			if (!row.videoUrl) {
-				continue;
-			}
-
-			const key = publicAssetKeyFromUrl(row.videoUrl);
-
-			if (!key) {
-				continue;
-			}
-
-			assets.push({
-				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
-				id: row.id,
-				key,
-				kind: "video",
-				mediaType: row.videoMediaType ?? "video/mp4",
-				// Text-to-video rows carry a user-facing title; animations fall
-				// back to a slice of the motion prompt.
-				name: row.title ?? animationLabel(row.prompt),
-				sizeBytes: null,
-				source: assetSourceForVideoKind(row.kind),
-				url: row.videoUrl,
-			});
-		}
-
 		for (const object of await this.listBuildObjects(projectId)) {
-			if (
-				isVideoAttemptIntermediate(object.key) ||
-				isNonDeliverableMediaAttemptObject(object.key, mediaAttemptAssets) ||
-				mediaAttemptAssets.finalKeys.has(object.key)
-			) {
+			if (isVideoAttemptIntermediate(object.key)) {
 				continue;
 			}
 
@@ -183,22 +129,12 @@ export class ProjectAssetsService {
 	async listWorkspaceAssets(
 		scope: ProjectScope,
 	): Promise<WorkspaceAssetsResponse> {
-		const [
-			accessibleProjects,
-			imageAttempts,
-			videoAttempts,
-			mediaAttemptIdentities,
-		] = await Promise.all([
+		const [accessibleProjects, imageAttempts] = await Promise.all([
 			this.projectAssetsRepository.listAccessibleProjects(scope),
 			this.imageGenerationsRepository.listSucceededForScope(
 				scope,
 				WORKSPACE_DB_ROWS_MAX,
 			),
-			this.mediaGenerationsRepository.listSucceededForScope(
-				scope,
-				WORKSPACE_DB_ROWS_MAX,
-			),
-			this.mediaGenerationsRepository.listAssetIdentitiesForScope(scope),
 		]);
 
 		const assets: WorkspaceAsset[] = [];
@@ -235,37 +171,6 @@ export class ProjectAssetsService {
 			});
 		}
 
-		// The uncapped identity index also covers failed attempts and successful
-		// rows beyond the display cap, so neither can re-surface as page-build
-		// tiles through the R2 fan-out.
-		const mediaAttemptAssets = indexMediaAttemptAssets(mediaAttemptIdentities);
-
-		for (const row of videoAttempts) {
-			if (!row.videoUrl) {
-				continue;
-			}
-
-			const key = publicAssetKeyFromUrl(row.videoUrl);
-
-			if (!key) {
-				continue;
-			}
-
-			assets.push({
-				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
-				id: row.id,
-				key,
-				kind: "video",
-				mediaType: row.videoMediaType ?? "video/mp4",
-				name: row.title ?? animationLabel(row.prompt),
-				projectId: row.projectId,
-				projectName: row.projectName,
-				sizeBytes: null,
-				source: assetSourceForVideoKind(row.kind),
-				url: row.videoUrl,
-			});
-		}
-
 		const buildProjects = accessibleProjects.slice(
 			0,
 			WORKSPACE_BUILD_PROJECTS_MAX,
@@ -282,11 +187,7 @@ export class ProjectAssetsService {
 
 		for (const { objects, project } of buildLists) {
 			for (const object of objects) {
-				if (
-					isVideoAttemptIntermediate(object.key) ||
-					isNonDeliverableMediaAttemptObject(object.key, mediaAttemptAssets) ||
-					mediaAttemptAssets.finalKeys.has(object.key)
-				) {
+				if (isVideoAttemptIntermediate(object.key)) {
 					continue;
 				}
 
@@ -325,7 +226,6 @@ export class ProjectAssetsService {
 		const truncated =
 			assets.length > WORKSPACE_ASSETS_MAX ||
 			imageAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
-			videoAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
 			accessibleProjects.length > WORKSPACE_BUILD_PROJECTS_MAX ||
 			buildListingCut;
 
@@ -425,78 +325,24 @@ export class ProjectAssetsService {
 	}
 }
 
-function assetSourceForVideoKind(
-	kind: MediaGenerationKind,
-): "image-animation" | "video-generation" {
-	switch (kind) {
-		case "image-animation":
-			return "image-animation";
-		case "text-to-video":
-		case "video-edit":
-		case "video-extension":
-		case "video-product":
-			return "video-generation";
-	}
-}
-
-type MediaAttemptAssetsIndex = {
-	finalKeyByDirectory: Map<string, string | null>;
-	finalKeys: Set<string>;
-};
-
-function indexMediaAttemptAssets(
-	attempts: readonly MediaGenerationAssetIdentity[],
-): MediaAttemptAssetsIndex {
-	const finalKeyByDirectory = new Map<string, string | null>();
-	const finalKeys = new Set<string>();
-
-	for (const attempt of attempts) {
-		const finalKey = attempt.videoUrl
-			? publicAssetKeyFromUrl(attempt.videoUrl)
-			: null;
-
-		finalKeyByDirectory.set(
-			`sites/${attempt.projectId}/assets/${attempt.id}/`,
-			finalKey,
-		);
-
-		if (finalKey) {
-			finalKeys.add(finalKey);
-		}
-	}
-
-	return { finalKeyByDirectory, finalKeys };
-}
-
-function isVideoAttemptIntermediate(key: string): boolean {
-	return (
-		assetAttemptDirectory(key) !== null &&
-		/\/(?:frames|segments|audio)\//.test(key)
-	);
-}
-
-function isNonDeliverableMediaAttemptObject(
-	key: string,
-	index: MediaAttemptAssetsIndex,
-): boolean {
-	const directory = assetAttemptDirectory(key);
-
-	return (
-		directory !== null &&
-		index.finalKeyByDirectory.has(directory) &&
-		index.finalKeyByDirectory.get(directory) !== key
-	);
-}
-
-function assetAttemptDirectory(key: string): string | null {
-	return /^(sites\/[^/]+\/assets\/[^/]+\/)/.exec(key)?.[1] ?? null;
-}
-
 /**
  * Drop the srcset renditions written beside each build image. They are
  * machine-facing copies of an asset the user already sees — as cards they
  * would triple the tab and eat the listing cap.
  */
+/**
+ * The retired first-party video pipeline left frames/, segments/, and audio/
+ * working files beside its deliverables under sites/{id}/assets/{attempt}/.
+ * The DB rows that identified those attempts are gone; the key layout still
+ * marks the working files, and they must never surface as user assets.
+ */
+function isVideoAttemptIntermediate(key: string): boolean {
+	return (
+		/^sites\/[^/]+\/assets\/[^/]+\//.test(key) &&
+		/\/(?:frames|segments|audio)\//.test(key)
+	);
+}
+
 function withoutVariants<T extends { key: string }>(objects: T[]): T[] {
 	return objects.filter((object) => !VARIANT_FILENAME_PATTERN.test(object.key));
 }
@@ -522,23 +368,6 @@ async function mapWithConcurrency<T, R>(
 	await Promise.all(workers);
 
 	return results;
-}
-
-function animationLabel(prompt: string): string {
-	const trimmed = prompt.trim();
-
-	if (!trimmed) {
-		return "Animation";
-	}
-
-	if (trimmed.length <= LABEL_MAX_CHARS) {
-		return trimmed;
-	}
-
-	const cut = trimmed.slice(0, LABEL_MAX_CHARS);
-	const lastSpace = cut.lastIndexOf(" ");
-
-	return `${(lastSpace > LABEL_MAX_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 function byNewestFirst(a: ProjectAsset, b: ProjectAsset): number {

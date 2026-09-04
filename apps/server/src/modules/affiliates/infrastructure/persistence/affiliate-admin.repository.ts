@@ -1449,32 +1449,6 @@ export class AffiliateAdminRepository {
 						and a.created_at < b.snapshot_end
 					union all
 					select m.affiliate_id, m.user_id
-					from media_generation_attempts a
-					inner join projects p on p.id = a.project_id
-					cross join bounds b
-					left join lateral (
-						select e.user_id
-						from ai_usage_events e
-						where e.operation = 'video'
-							and e.attempt_ref = a.id::text
-							and e.created_at >= a.created_at
-							and e.created_at < b.snapshot_end
-						order by e.created_at desc
-						limit 1
-					) usage_actor on true
-					inner join mature_users m on m.user_id = coalesce(
-						usage_actor.user_id,
-						case when p.organization_id is null then p.user_id end
-					)
-					where p.deleted_at is null
-						and a.status = 'succeeded'
-						and a.created_at >= m.created_at
-						and a.created_at < m.created_at + interval '7 days'
-						and a.completed_at >= m.created_at
-						and a.completed_at < m.created_at + interval '7 days'
-						and a.created_at < b.snapshot_end
-					union all
-					select m.affiliate_id, m.user_id
 					from marketing_assets a
 					inner join projects p on p.id = a.project_id
 					cross join bounds b

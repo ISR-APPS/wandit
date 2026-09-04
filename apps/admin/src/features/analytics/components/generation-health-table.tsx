@@ -32,7 +32,6 @@ type GenerationHealthTableProps = {
 const generationLabels = {
 	pages: "Pages",
 	images: "Images",
-	videos: "Videos",
 	marketing: "Marketing",
 	connectors: "Connectors",
 	leadScraping: "Lead scraping",

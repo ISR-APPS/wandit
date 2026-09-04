@@ -26,7 +26,6 @@ import {
 export type BuildProgressEvent =
 	| { type: "image-start"; role: string }
 	| { type: "image-generated"; role: string; url: string }
-	| { type: "video-generated" }
 	| { type: "write-start" }
 	| {
 			type: "page-written";
@@ -83,7 +82,7 @@ export function createBuildProgressTracker(params: {
 	const uploadShot: ShotUploader =
 		params.uploadShot ??
 		(async ({ base64, index, pass }) => {
-			// Same guard as generate-image/video: without a public base URL,
+			// Same guard as generate-image: without a public base URL,
 			// publicAssetUrl would return a RELATIVE path — skip the strip
 			// entirely rather than publish URLs no browser can load.
 			if (!env.R2_PUBLIC_BASE_URL) return null;
@@ -116,7 +115,6 @@ export function createBuildProgressTracker(params: {
 		reviewTarget: REQUIRED_SCREENSHOT_PASSES_BY_KIND[params.pageKind ?? "website"],
 		sections: [],
 		shots: [],
-		videos: 0,
 	};
 
 	// Raw estimate BEFORE the monotonic clamp — regressions (an image failing
@@ -203,13 +201,6 @@ export function createBuildProgressTracker(params: {
 					progress.headline = "Generating the product art…";
 					progress.phase = "art";
 					estimate = Math.max(estimate, 3 + progress.images.length * 4);
-					publishNow();
-					break;
-				case "video-generated":
-					progress.videos += 1;
-					progress.headline = "Animating an image…";
-					progress.phase = "art";
-					estimate += 2;
 					publishNow();
 					break;
 				case "write-start":

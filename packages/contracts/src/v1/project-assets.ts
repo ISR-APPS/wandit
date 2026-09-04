@@ -2,8 +2,8 @@
  * Project assets contracts — the workspace Assets tab.
  *
  * One ownership-checked list of every media file the AI produced for a
- * project, whatever pipeline made it: standalone image generations, image
- * animations, and the images/videos generated inside page builds. Each entry
+ * project, whatever pipeline made it: standalone image generations and the
+ * images/videos found inside page builds. Each entry
  * is downloadable through the download route (public R2 URLs cannot force a
  * download cross-origin).
  */
@@ -19,8 +19,6 @@ export type ProjectAssetKind = z.infer<typeof projectAssetKindSchema>;
 // Which pipeline produced the file — the Assets tab shows this as a badge.
 export const projectAssetSourceSchema = z.enum([
 	"image-generation",
-	"image-animation",
-	"video-generation",
 	"page-build",
 ]);
 

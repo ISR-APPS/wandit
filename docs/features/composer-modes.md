@@ -5,7 +5,7 @@
 The prompt box is a **routing form stapled to a chat message**. Three layers:
 
 1. **Mode** = which factory the message goes to (`page` / `marketing` /
-   `image` / `video`). A mode is an input contract + an output type. `auto`
+   `image`). A mode is an input contract + an output type. `auto`
    means the Brain routes from the words — it owns every tool, so auto is
    fully capable.
 2. **Output** = which product from that factory (`ad-copy` vs
@@ -70,36 +70,21 @@ decorative chips that no server code read are gone.
 
 ## Assets tab
 
-One ownership-checked list (`GET /v1/projects/:id/assets`) merging three
-sources: succeeded image attempts (one entry per image), succeeded
-animations, and an R2 prefix listing of `sites/{projectId}/assets/` (build
-images/videos have no DB rows — the bucket is their source of truth), with
-animation keys deduped. Downloads go through
+One ownership-checked list (`GET /v1/projects/:id/assets`) merging two
+sources: succeeded image attempts (one entry per image) and an R2 prefix
+listing of `sites/{projectId}/assets/` (build images/videos have no DB rows
+— the bucket is their source of truth). Downloads go through
 `/v1/projects/:id/assets/download?key=` which re-validates the key prefix —
 public R2 URLs cannot force a download cross-origin.
 
-## Video mode: two outputs
+## Video mode: retired
 
-The `video` mode now carries two outputs, exactly as planned when the mode
-was renamed:
-
-- **`video-creator` (default)** — true text-to-video via the `generate_video`
-  chat tool. No source image; the Brain runs a creative-director intake
-  (video type, format, duration, voiceover) with ask_user, composes a
-  CREATIVE BRIEF, and the server's VideoDirectorService rewrites it into one
-  domain-language provider prompt at queue time (snapshotted on the attempt).
-  Composer options: `ratio`, `duration` (5/10s), `voice`
-  (auto/none/en/fr/ar — "auto" lets the intake decide, a concrete pick
-  short-circuits the voiceover questions). Voiceover audio itself is stubbed
-  until the audio provider lands; the request + Brain-written script persist
-  in `media_generation_attempts.voiceover`.
-- **`image-animation`** — the original animate-a-photo contract (source image
-  required, text optional), unchanged.
-
-Both kinds share `media_generation_attempts` (discriminated by `kind`), the
-25-credit `video` operation, the runner state machine, R2 recovery, and the
-reconciler. The `generate-video` Trigger task adds staged `progress`
-metadata over Realtime for the chat card.
+The first-party `video` composer mode (text-to-video `video-creator` and
+`image-animation`) was removed together with the Vercel-Gateway video
+pipeline. Video generation now runs exclusively through the Higgsfield MCP
+connector. Historical chats keep their video messages: the server strips
+retired video tool parts and composer metadata from persisted rows before
+validation, and clients skip unknown part types.
 
 ## Deliberately not here (yet)
 

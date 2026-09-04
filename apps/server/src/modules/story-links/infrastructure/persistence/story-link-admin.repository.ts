@@ -563,14 +563,6 @@ export class StoryLinkAdminRepository {
 					and a.created_at < b.snapshot_end
 				union all
 				select c.user_id
-				from media_generation_attempts a
-				inner join projects p on p.id = a.project_id
-				inner join all_time_cohort c on c.user_id = p.user_id
-				cross join bounds b
-				where a.status = 'succeeded'
-					and a.created_at < b.snapshot_end
-				union all
-				select c.user_id
 				from marketing_assets a
 				inner join projects p on p.id = a.project_id
 				inner join all_time_cohort c on c.user_id = p.user_id

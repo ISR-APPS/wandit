@@ -1,9 +1,7 @@
-import {
-	animateImageInputSchema,
-	generateVideoInputSchema,
-} from "@wandit/contracts";
+import { aiChatMessageMetadataSchema } from "@wandit/contracts";
 import { validateUIMessages } from "ai";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const mockEnv = vi.hoisted(() => ({
 	R2_PUBLIC_BASE_URL: "https://assets.example.com/public",
@@ -15,7 +13,11 @@ import {
 	aiChatToolsForValidation,
 	type WanditUIMessage,
 } from "../../../agent/chat-agent";
-import { assertOwnedFileParts, streamRequestId } from "./ai-chat.controller";
+import {
+	assertOwnedFileParts,
+	streamRequestId,
+	stripRetiredVideoToolParts,
+} from "./ai-chat.controller";
 
 const OWN_UPLOAD =
 	"https://assets.example.com/public/uploads/user_1/upload-1/photo.png";
@@ -50,67 +52,96 @@ function askUserFilesMessage(id: string, url: string): WanditUIMessage {
 }
 
 describe("persisted video tool validation", () => {
-	it("keeps legacy parts valid when tier fields are absent", async () => {
-		const messages = await validateUIMessages<WanditUIMessage>({
-			messages: [
+	it("skips retired tool parts without breaking the remaining history", async () => {
+		const history = stripRetiredVideoToolParts(
+			[
 				{
 					id: "assistant_legacy_video",
 					parts: [
 						{
-							input: {
-								aspect: "16:9",
-								brief:
-									"A cinematic product reveal on a quiet studio stage at dawn.",
-								title: "Legacy video",
-							},
+							input: { brief: "A legacy video brief" },
 							output: { message: "Queued.", status: "queued" },
 							state: "output-available",
 							toolCallId: "call_legacy_video",
 							type: "tool-generate_video",
 						},
-						{
-							input: {
-								aspect: "9:16",
-								motion: "balanced",
-								prompt: "A gentle camera push.",
-								sourceImageUrl: OWN_UPLOAD,
-								sourceMediaType: "image/png",
-							},
-							output: { message: "Queued.", status: "queued" },
-							state: "output-available",
-							toolCallId: "call_legacy_animation",
-							type: "tool-animate_image",
-						},
+						{ text: "The old render was queued.", type: "text" },
 					],
 					role: "assistant",
 				},
 			],
+			new Set(["assistant_legacy_video"]),
+		);
+		const messages = await validateUIMessages<WanditUIMessage>({
+			messages: history,
 			tools: aiChatToolsForValidation,
 		});
 
 		expect(messages).toHaveLength(1);
-		const generatePart = messages[0]?.parts[0];
-		const animatePart = messages[0]?.parts[1];
-		expect(generatePart).toMatchObject({ type: "tool-generate_video" });
-		expect(animatePart).toMatchObject({ type: "tool-animate_image" });
-		expect(
-			generateVideoInputSchema.parse(
-				generatePart && "input" in generatePart ? generatePart.input : null,
-			),
-		).toMatchObject({
-			durationSeconds: 10,
-			multiShot: false,
-			quality: "standard",
-			talking: false,
+		expect(messages[0]?.parts).toEqual([
+			{ text: "The old render was queued.", type: "text" },
+		]);
+	});
+
+	it("drops retired video composer metadata from persisted rows", async () => {
+		const metadataSchema = z.preprocess(
+			(value) => value ?? {},
+			aiChatMessageMetadataSchema,
+		);
+		const history = stripRetiredVideoToolParts(
+			[
+				{
+					id: "user_legacy_video",
+					metadata: {
+						composer: {
+							mode: "video",
+							options: { videoSubmissionId: "vsub_1" },
+							output: "video-creator",
+						},
+					},
+					parts: [{ text: "Make me a launch video", type: "text" }],
+					role: "user",
+				},
+			],
+			new Set(["user_legacy_video"]),
+		);
+
+		const messages = await validateUIMessages<WanditUIMessage>({
+			messages: history,
+			metadataSchema,
+			tools: aiChatToolsForValidation,
 		});
+
+		expect(messages).toHaveLength(1);
 		expect(
-			animateImageInputSchema.parse(
-				animatePart && "input" in animatePart ? animatePart.input : null,
-			),
-		).toMatchObject({
-			quality: "standard",
-			talking: false,
-		});
+			(messages[0]?.metadata as { composer?: unknown } | undefined)?.composer,
+		).toBeUndefined();
+	});
+
+	it("keeps NEW messages strict: retired composer metadata still rejects", async () => {
+		const metadataSchema = z.preprocess(
+			(value) => value ?? {},
+			aiChatMessageMetadataSchema,
+		);
+		const history = stripRetiredVideoToolParts(
+			[
+				{
+					id: "user_new_message",
+					metadata: { composer: { mode: "video" } },
+					parts: [{ text: "Video please", type: "text" }],
+					role: "user",
+				},
+			],
+			new Set(), // not persisted — must stay untouched and fail validation
+		);
+
+		await expect(
+			validateUIMessages<WanditUIMessage>({
+				messages: history,
+				metadataSchema,
+				tools: aiChatToolsForValidation,
+			}),
+		).rejects.toThrow();
 	});
 });
 

@@ -8,7 +8,6 @@ export type AiErrorSurface =
 	| "chat"
 	| "tool"
 	| "image"
-	| "video"
 	| "marketing"
 	| "page_build"
 	| "connector"

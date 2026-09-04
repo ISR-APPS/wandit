@@ -663,83 +663,6 @@
 			"questionCount": "{count} questions",
 			"answeredCount": "{answered}/{total} répondues"
 		},
-		"animateImage": {
-			"preparing": "Préparation de l’animation de ton image…",
-			"queueing": "Mise en file de l’animation…",
-			"failedToStart": "Impossible de lancer l’animation",
-			"failedTitle": "L’animation de l’image a échoué",
-			"failedBody": "L’animation s’est arrêtée avant que la vidéo soit prête.",
-			"unavailableTitle": "Animation vidéo indisponible",
-			"unavailableBody": "L’animation vidéo n’est pas disponible pour le moment. Ton image d’origine reste inchangée.",
-			"statusLoadError": "Impossible de charger l’état de l’animation.",
-			"retry": "Réessayer",
-			"queuedTitle": "Animation en attente",
-			"queuedBody": "Ton image est la prochaine dans la file.",
-			"generatingTitle": "Animation de ton image",
-			"generatingBody": "Création d’une vidéo de cinq secondes. Tu peux continuer à travailler.",
-			"sourceAlt": "Image source en cours d’animation",
-			"videoLabel": "Animation vidéo générée",
-			"resultTitle": "Vidéo animée",
-			"duration": "{seconds} s",
-			"ready": "Prête",
-			"open": "Ouvrir",
-			"download": "Télécharger"
-		},
-		"videoAttempt": {
-			"statusLoadError": "Impossible de charger l’état de la vidéo — rouvre cette conversation pour réessayer.",
-			"inQueue": "En file d’attente",
-			"extractingFrame": "Préparation de la séquence {current} sur {total}…",
-			"extractingFrameFallback": "Préparation de la séquence suivante…",
-			"renderingPiece": "Génération de la séquence {current} sur {total}…",
-			"renderingPieceFallback": "Génération de la séquence suivante…",
-			"joining": "Assemblage des séquences…",
-			"narration": "Ajout de la narration…",
-			"narrationFailed": "La vidéo est prête, mais la narration n’a pas pu être ajoutée. Le clip est silencieux.",
-			"publish": "Publier",
-			"published": "Publiée",
-			"download": "Télécharger",
-			"viewAssets": "Voir dans les Médias",
-			"play": "Lire {title}",
-			"product": {
-				"preparing": "Préparation de la vidéo produit…",
-				"queueing": "Mise en file de la vidéo produit…",
-				"failedToStart": "Impossible de lancer la vidéo produit",
-				"failedTitle": "La vidéo produit a échoué",
-				"failedBody": "La génération s’est arrêtée avant que la vidéo produit soit prête.",
-				"prepared": "Scène produit prête",
-				"active": "Création de la vidéo produit de {seconds} secondes…",
-				"done": "Vidéo produit de {seconds} secondes créée",
-				"publishing": "Publication de la vidéo produit…",
-				"complete": "Vidéo produit terminée",
-				"ready": "Vidéo produit prête."
-			},
-			"edit": {
-				"preparing": "Préparation de la modification vidéo…",
-				"queueing": "Mise en file de la modification…",
-				"failedToStart": "Impossible de lancer la modification vidéo",
-				"failedTitle": "La modification vidéo a échoué",
-				"failedBody": "La modification s’est arrêtée avant que la vidéo soit prête.",
-				"prepared": "Instructions de modification prêtes",
-				"active": "Modification de la vidéo de {seconds} secondes…",
-				"done": "Vidéo de {seconds} secondes modifiée",
-				"publishing": "Publication de la vidéo modifiée…",
-				"complete": "Modification terminée",
-				"ready": "Vidéo modifiée prête."
-			},
-			"extend": {
-				"preparing": "Préparation du prolongement…",
-				"queueing": "Mise en file du prolongement…",
-				"failedToStart": "Impossible de lancer le prolongement vidéo",
-				"failedTitle": "Le prolongement vidéo a échoué",
-				"failedBody": "Le prolongement s’est arrêté avant que la version longue soit prête.",
-				"prepared": "Suite planifiée",
-				"active": "Prolongement de la vidéo jusqu’à {seconds} secondes…",
-				"done": "Vidéo prolongée jusqu’à {seconds} secondes",
-				"publishing": "Publication de la vidéo prolongée…",
-				"complete": "Prolongement terminé",
-				"ready": "Vidéo prolongée prête."
-			}
-		},
 		"tray": {
 			"preparing": "Préparation de la question…",
 			"needsDetail": "Détail à préciser",
@@ -796,7 +719,6 @@
 			},
 			"tryAgainPrefill": {
 				"image": "Réessayer l’image",
-				"video": "Réessayer la vidéo",
 				"marketing": "Réessayer l’asset marketing",
 				"connector": "Réessayer avec le connecteur",
 				"hint": "Cela lance une nouvelle génération."
@@ -943,10 +865,6 @@
 				"one": "{count} image",
 				"other": "{count} images"
 			},
-			"videosCount": {
-				"one": "{count} vidéo",
-				"other": "{count} vidéos"
-			},
 			"sectionsCount": {
 				"one": "{count} section",
 				"other": "{count} sections"
@@ -1021,30 +939,6 @@
 			"download": "Télécharger le .xlsx",
 			"downloading": "Téléchargement…",
 			"downloadError": "Le téléchargement a échoué — réessaie."
-		},
-		"generateVideo": {
-			"title": "Vidéo",
-			"preparing": "Composition du brief créatif…",
-			"queueing": "Écriture de la version du réalisateur…",
-			"failedToStart": "La génération vidéo n'a pas pu démarrer",
-			"queuedTitle": "En file d'attente",
-			"generatingTitle": "Rendu en cours…",
-			"statusLoadError": "Impossible de charger l'état de la vidéo — rouvre cette discussion pour réessayer.",
-			"failedTitle": "La génération vidéo a échoué",
-			"failedBody": "Le rendu s'est arrêté avant la fin.",
-			"retry": "Réessayer",
-			"directorsCut": "Version du réalisateur écrite",
-			"renderingClip": "Rendu du clip de {seconds} secondes…",
-			"renderedClip": "Clip de {seconds} secondes rendu",
-			"inQueue": "En file d'attente",
-			"publish": "Publication",
-			"publishing": "Publication…",
-			"published": "Publié",
-			"allStepsDone": "Toutes les étapes sont terminées",
-			"readyTitle": "Vidéo prête",
-			"download": "Télécharger",
-			"viewInAssets": "Voir dans les Assets",
-			"play": "Lire {title}"
 		},
 		"pageBuildFailure": {
 			"insufficient_credits": {
@@ -1294,8 +1188,6 @@
 		"filterImages": "Images",
 		"filterVideos": "Vidéos",
 		"sourceGeneration": "Génération",
-		"sourceAnimation": "Animation",
-		"sourceVideo": "Vidéo",
 		"sourceBuild": "Site",
 		"download": "Télécharger",
 		"refresh": "Actualiser",
@@ -1303,7 +1195,7 @@
 		"loadError": "Impossible de charger les médias.",
 		"retry": "Réessayer",
 		"emptyTitle": "Aucun média",
-		"emptyBody": "Les images et vidéos générées par l’IA — pour ton site, tes pubs ou tes animations — apparaissent ici, prêtes à télécharger.",
+		"emptyBody": "Les images et vidéos générées par l’IA — pour ton site ou tes pubs — apparaissent ici, prêtes à télécharger.",
 		"downloadError": "Échec du téléchargement. Réessaie."
 	},
 	"marketing": {

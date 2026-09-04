@@ -4,7 +4,6 @@ import {
 } from "@wandit/internationalization/react";
 import {
 	ArrowRight,
-	Clapperboard,
 	Code2,
 	Megaphone,
 	Palette,
@@ -16,10 +15,10 @@ import { motion } from "motion/react";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
 
-const ROLE_ICONS = [Code2, Palette, Clapperboard, Megaphone, Target];
+const ROLE_ICONS = [Code2, Palette, Megaphone, Target];
 
 /** Slight scatter so the old-way stack reads as clutter, not a tidy list. */
-const ROLE_TILTS = [-1.6, 1.2, -0.8, 1.6, -1.2];
+const ROLE_TILTS = [-1.6, 1.2, 1.6, -1.2];
 
 export function Problem() {
 	const { t } = useTranslation();
