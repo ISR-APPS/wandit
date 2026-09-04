@@ -63,7 +63,7 @@
 		"leads": "Leads",
 		"assets": "Médias",
 		"analytics": "Statistiques",
-		"apps": "Apps",
+		"buildApp": "Crée ton app",
 		"support": "Support"
 	},
 	"assetsPage": {
@@ -76,35 +76,6 @@
 		"noResultsTitle": "Aucun média correspondant",
 		"noResultsBody": "Rien ne correspond à ces filtres.",
 		"clearFilters": "Effacer les filtres"
-	},
-	"appsPage": {
-		"metaTitle": "Apps — Wandit",
-		"badge": "Bientôt disponible",
-		"heading": "Connecte tes apps",
-		"body": "Bientôt, tu pourras connecter des apps externes à Wandit — lancer des pubs, synchroniser tes leads et automatiser ton travail sans quitter ton tableau de bord.",
-		"previewNote": "Un aperçu de ce qui arrive",
-		"tiles": {
-			"metaAds": {
-				"name": "Meta Ads",
-				"hint": "Lance et suis tes campagnes"
-			},
-			"tiktokAds": {
-				"name": "TikTok Ads",
-				"hint": "Lance et suis tes campagnes"
-			},
-			"sheets": {
-				"name": "Google Sheets",
-				"hint": "Synchronise tes leads automatiquement"
-			},
-			"whatsapp": {
-				"name": "WhatsApp",
-				"hint": "Confirme les commandes plus vite"
-			},
-			"codPilot": {
-				"name": "COD Pilot",
-				"hint": "Synchronise tes commandes COD en Algérie"
-			}
-		}
 	},
 	"connectors": {
 		"title": "Connecter des applications",
