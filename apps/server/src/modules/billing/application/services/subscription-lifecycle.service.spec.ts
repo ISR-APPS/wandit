@@ -136,6 +136,8 @@ class InMemorySubscriptionsRepository {
 			interval: "month",
 			organizationId: input.organizationId ?? null,
 			pendingAppliedBy: null,
+			pendingInterval: null,
+			pendingPlan: null,
 			pendingTierCredits: null,
 			plan: "pro",
 			priceLookupKey: input.lookupKey,

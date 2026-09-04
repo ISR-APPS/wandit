@@ -21,6 +21,8 @@ function subscription(
 		interval: "month",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingInterval: null,
+		pendingPlan: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_175_month",
@@ -265,6 +267,9 @@ describe("pricing v7 subscription migration mapping", () => {
 
 	it.each([
 		["price lookup key", { priceLookupKey: "pro_350_year" }],
+		["pending plan", { pendingPlan: "starter" }],
+		["pending interval", { pendingInterval: "month" }],
+		["pending schedule", { pendingAppliedBy: "sub_sched_replaced" }],
 		["pending tier", { pendingTierCredits: 500 }],
 		["cancellation flag", { cancelAtPeriodEnd: true }],
 		["status", { status: "past_due" }],
@@ -285,6 +290,32 @@ describe("pricing v7 subscription migration mapping", () => {
 		expect(deps.scheduleSubscriptionDowngrade).not.toHaveBeenCalled();
 		expect(deps.setPendingTierCredits).not.toHaveBeenCalled();
 		expect(deps.markPendingTierApplied).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ pendingPlan: "starter", pendingInterval: "year", pendingTierCredits: 60 },
+		{ pendingPlan: "pro", pendingInterval: "month", pendingTierCredits: 175 },
+	] as const)("does not replace a customer-selected pending plan or interval during migration: %j", async (pending) => {
+		const candidate = subscription({
+			interval: "year",
+			priceLookupKey: "pro_700_year",
+			tierCredits: 700,
+			pendingAppliedBy: "sub_sched_customer",
+			...pending,
+		});
+		const deps = dependencies(candidate);
+
+		const result = await migrateSubscriptionV6(candidate, true, deps);
+
+		expect(result).toMatchObject({
+			newTier: pending.pendingTierCredits,
+			reason:
+				"existing pending plan or interval change requires operator review",
+			status: "skipped",
+		});
+		expect(deps.scheduleSubscriptionDowngrade).not.toHaveBeenCalled();
+		expect(deps.setPendingTierCredits).not.toHaveBeenCalled();
+		expect(deps.updateLocalTier).not.toHaveBeenCalled();
 	});
 
 	it("records a failed row, keeps later rows runnable, and requests a non-zero exit", async () => {

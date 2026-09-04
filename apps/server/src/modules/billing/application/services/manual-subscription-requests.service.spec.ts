@@ -91,6 +91,8 @@ function subscriptionRow(provider: "manual" | "stripe"): SubscriptionRow {
 		interval: "month",
 		organizationId: null,
 		pendingAppliedBy: null,
+		pendingPlan: null,
+		pendingInterval: null,
 		pendingTierCredits: null,
 		plan: "pro",
 		priceLookupKey: "pro_350_month",

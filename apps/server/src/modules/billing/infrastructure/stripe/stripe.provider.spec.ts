@@ -97,6 +97,15 @@ function setup() {
 		status: "active",
 	} as unknown as Stripe.Subscription;
 	const subscriptionsRetrieve = vi.fn(async () => subscription);
+	const subscriptionPages: Stripe.Subscription[][] = [];
+	const subscriptionsList = vi.fn((_params: Stripe.SubscriptionListParams) => ({
+		data: subscriptionPages[0] ?? [],
+		async *[Symbol.asyncIterator]() {
+			for (const page of subscriptionPages) {
+				yield* page;
+			}
+		},
+	}));
 	const subscriptionsUpdate = vi.fn(
 		async (
 			_id: string,
@@ -191,6 +200,7 @@ function setup() {
 			create: refundsCreate,
 		},
 		subscriptions: {
+			list: subscriptionsList,
 			retrieve: subscriptionsRetrieve,
 			update: subscriptionsUpdate,
 		},
@@ -222,7 +232,9 @@ function setup() {
 		sessionsExpire,
 		sessionsRetrieve,
 		subscriptionsRetrieve,
+		subscriptionsList,
 		subscriptionsUpdate,
+		subscriptionPages,
 		subscription,
 		subscriptionSchedule,
 		subscriptionSchedulesCreate,
@@ -233,6 +245,28 @@ function setup() {
 }
 
 describe("StripeProvider", () => {
+	it("finds older active subscriptions beyond a full page of canceled checkout history", async () => {
+		const { provider, subscription, subscriptionPages, subscriptionsList } =
+			setup();
+		const canceled = Array.from({ length: 100 }, (_, index) => ({
+			...subscription,
+			id: `sub_canceled_${index}`,
+			status: "canceled" as const,
+		}));
+		subscriptionPages.push(canceled, [subscription]);
+
+		const result = await provider.listSubscriptionsForCustomer("cus_1");
+
+		expect(result).toHaveLength(101);
+		expect(result.find((item) => item.status === "active")).toBe(subscription);
+		expect(subscriptionsList).toHaveBeenCalledWith({
+			customer: "cus_1",
+			expand: ["data.default_payment_method"],
+			limit: 100,
+			status: "all",
+		});
+	});
+
 	it("creates customers with the exact per-user idempotency key", async () => {
 		const { customersCreate, provider } = setup();
 
@@ -755,6 +789,61 @@ describe("StripeProvider", () => {
 		expect(subscriptionSchedulesUpdate).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"month",
+		"year",
+	] as const)("keeps paid Pro benefits until renewal when scheduling Starter billed every %s", async (interval) => {
+		const {
+			pricesList,
+			provider,
+			subscriptionSchedulesCreate,
+			subscriptionSchedulesUpdate,
+			subscriptionsUpdate,
+		} = setup();
+		pricesList.mockResolvedValueOnce({
+			data: [{ id: "price_starter", lookup_key: `starter_60_${interval}` }],
+		} as Stripe.ApiList<Stripe.Price>);
+
+		await provider.scheduleSubscriptionDowngrade({
+			currentPriceLookupKey: "pro_250_month",
+			expectedScheduleTarget: null,
+			idempotencyKey: `sub-change:user_1:starter_${interval}`,
+			newPriceLookupKey: `starter_60_${interval}`,
+			providerSubscriptionId: "sub_1",
+		});
+
+		// One existing subscription changes price at its paid-through date;
+		// there is no immediate Starter invoice or refund of spent Pro credits.
+		expect(subscriptionSchedulesCreate).toHaveBeenCalledWith(
+			{ from_subscription: "sub_1" },
+			expect.anything(),
+		);
+		expect(subscriptionSchedulesUpdate).toHaveBeenCalledWith(
+			"sub_sched_1",
+			expect.objectContaining({
+				end_behavior: "release",
+				phases: [
+					{
+						end_date: 1_780_000_000,
+						items: [{ price: "price_old", quantity: 1 }],
+						proration_behavior: "none",
+						start_date: 1_777_321_600,
+					},
+					{
+						duration: { interval, interval_count: 1 },
+						items: [{ price: "price_starter", quantity: 1 }],
+						proration_behavior: "none",
+						start_date: 1_780_000_000,
+					},
+				],
+				proration_behavior: "none",
+			}),
+			expect.anything(),
+		);
+		expect(subscriptionsUpdate).toHaveBeenCalledOnce();
+		expect(subscriptionsUpdate.mock.calls[0]?.[1]).not.toHaveProperty("items");
+	});
+
 	it("refuses to replace an owned schedule with an unexpected target", async () => {
 		const {
 			provider,
@@ -1057,6 +1146,99 @@ describe("StripeProvider", () => {
 				"sub-change:user_1:intent_2:release-schedule:sub_sched_2",
 			],
 		]);
+	});
+
+	it("releases a pending Starter downgrade before canceling at the paid period end", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedule,
+			subscriptionSchedulesRelease,
+			subscriptionsUpdate,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+		subscriptionSchedule.metadata = {
+			...subscriptionSchedule.metadata,
+			wanditScheduleTarget: "starter_60_year",
+		};
+
+		await provider.setCancelAtPeriodEnd("sub_1", true);
+
+		expect(subscriptionSchedulesRelease).toHaveBeenCalledWith(
+			"sub_sched_1",
+			{},
+			{
+				idempotencyKey: "sub-cancel:sub_1:release-schedule:sub_sched_1",
+			},
+		);
+		expect(subscriptionsUpdate).toHaveBeenLastCalledWith("sub_1", {
+			cancel_at_period_end: true,
+		});
+		expect(
+			subscriptionSchedulesRelease.mock.invocationCallOrder[0],
+		).toBeLessThan(subscriptionsUpdate.mock.invocationCallOrder.at(-1) ?? 0);
+	});
+
+	it("preserves the downgrade schedule when resuming an already renewing subscription", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedulesRelease,
+			subscriptionsUpdate,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+
+		await provider.setCancelAtPeriodEnd("sub_1", false);
+
+		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
+	it("resumes a subscription that is scheduled to cancel", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		subscription.cancel_at_period_end = true;
+
+		await provider.setCancelAtPeriodEnd("sub_1", false);
+
+		expect(subscriptionsUpdate).toHaveBeenCalledWith("sub_1", {
+			cancel_at_period_end: false,
+		});
+	});
+
+	it("does not release an unmanaged schedule to cancel a subscription", async () => {
+		const {
+			provider,
+			subscription,
+			subscriptionSchedule,
+			subscriptionSchedulesRelease,
+			subscriptionsUpdate,
+		} = setup();
+		subscription.schedule = "sub_sched_1";
+		subscriptionSchedule.metadata = {};
+
+		await expect(provider.setCancelAtPeriodEnd("sub_1", true)).rejects.toThrow(
+			"controlled by an unmanaged schedule",
+		);
+
+		expect(subscriptionSchedulesRelease).not.toHaveBeenCalled();
+		expect(subscriptionsUpdate).not.toHaveBeenCalled();
+	});
+
+	it("keeps cancellation retryable if releasing the downgrade succeeds before cancellation fails", async () => {
+		const { provider, subscription, subscriptionsUpdate } = setup();
+		subscription.schedule = "sub_sched_1";
+		subscriptionsUpdate
+			.mockResolvedValueOnce(subscription)
+			.mockRejectedValueOnce(
+				new Stripe.errors.StripeInvalidRequestError({
+					message: "cancellation update rejected",
+					type: "invalid_request_error",
+				}),
+			);
+
+		await expect(
+			provider.setCancelAtPeriodEnd("sub_1", true),
+		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
 	});
 
 	it("keeps an upgrade retryable when schedule release succeeded before a definite update error", async () => {

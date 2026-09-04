@@ -40,6 +40,10 @@ class FakeSubscriptionsRepository {
 	readonly clearMatchingPendingTierCalls: Array<{
 		client: SubscriptionsTransaction;
 		providerSubscriptionId: string;
+		target: {
+			interval: SubscriptionRow["interval"];
+			plan: SubscriptionRow["plan"];
+		};
 		tierCredits: number;
 	}> = [];
 	readonly lockCustomerIds: string[] = [];
@@ -84,6 +88,8 @@ class FakeSubscriptionsRepository {
 			id: existing?.id ?? `row_${input.providerSubscriptionId}`,
 			organizationId: input.organizationId ?? null,
 			pendingAppliedBy: existing?.pendingAppliedBy ?? null,
+			pendingInterval: existing?.pendingInterval ?? null,
+			pendingPlan: existing?.pendingPlan ?? null,
 			pendingTierCredits: existing?.pendingTierCredits ?? null,
 			updatedAt: new Date(0),
 		} satisfies SubscriptionRow;
@@ -138,21 +144,34 @@ class FakeSubscriptionsRepository {
 		providerSubscriptionId: string,
 		tierCredits: number,
 		client: SubscriptionsTransaction,
+		target: {
+			interval: SubscriptionRow["interval"];
+			plan: SubscriptionRow["plan"];
+		},
 	): Promise<SubscriptionRow | null> {
 		this.clearMatchingPendingTierCalls.push({
 			client,
 			providerSubscriptionId,
+			target,
 			tierCredits,
 		});
 		const existing = this.rowsByProviderId.get(providerSubscriptionId);
 
-		if (!existing || existing.pendingTierCredits !== tierCredits) {
+		if (
+			!existing ||
+			existing.pendingTierCredits !== tierCredits ||
+			(existing.pendingPlan !== null && existing.pendingPlan !== target.plan) ||
+			(existing.pendingInterval !== null &&
+				existing.pendingInterval !== target.interval)
+		) {
 			return null;
 		}
 
 		const cleared = {
 			...existing,
 			pendingAppliedBy: null,
+			pendingInterval: null,
+			pendingPlan: null,
 			pendingTierCredits: null,
 			updatedAt: new Date(0),
 		};
@@ -231,6 +250,8 @@ class FakeSubscriptionsRepository {
 			interval: "month",
 			organizationId: null,
 			pendingAppliedBy: null,
+			pendingInterval: null,
+			pendingPlan: null,
 			pendingTierCredits: null,
 			plan: "pro",
 			priceLookupKey: "pro_250_month",
@@ -532,9 +553,59 @@ describe("StripeSubscriptionSyncService", () => {
 			{
 				client: subscriptions.transaction,
 				providerSubscriptionId: "sub_scheduled",
+				target: { interval: "month", plan: "pro" },
 				tierCredits: 250,
 			},
 		]);
+	});
+
+	it("preserves a Pro-to-Starter schedule until Stripe reaches the complete target", async () => {
+		const { paymentProvider, service, subscriptions } = setup();
+		subscriptions.seed({
+			pendingAppliedBy: "sub_sched_starter",
+			pendingInterval: "year",
+			pendingPlan: "starter",
+			pendingTierCredits: 60,
+			providerSubscriptionId: "sub_scheduled",
+			status: "active",
+			userId: "user_1",
+		});
+
+		for (const lookupKey of ["pro_250_month", "starter_60_month"]) {
+			paymentProvider.subscriptions = [
+				stripeSubscription({
+					id: "sub_scheduled",
+					lookupKey,
+					status: "active",
+				}),
+			];
+			await service.syncFromStripe("cus_1");
+			expect(subscriptions.row("sub_scheduled")).toMatchObject({
+				pendingAppliedBy: "sub_sched_starter",
+				pendingInterval: "year",
+				pendingPlan: "starter",
+				pendingTierCredits: 60,
+			});
+		}
+
+		paymentProvider.subscriptions = [
+			stripeSubscription({
+				id: "sub_scheduled",
+				lookupKey: "starter_60_year",
+				status: "active",
+			}),
+		];
+		await service.syncFromStripe("cus_1");
+
+		expect(subscriptions.row("sub_scheduled")).toMatchObject({
+			interval: "year",
+			pendingAppliedBy: null,
+			pendingInterval: null,
+			pendingPlan: null,
+			pendingTierCredits: null,
+			plan: "starter",
+			tierCredits: 60,
+		});
 	});
 
 	it("cancels an older local mirror before inserting the newest duplicate", async () => {

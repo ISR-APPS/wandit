@@ -8,7 +8,6 @@ import type {
 	BillingTopupPack,
 	CreditTier,
 	ProductEventSurface,
-	Subscription,
 } from "@wandit/contracts";
 import { isManualSubscription } from "@wandit/contracts";
 import type { Locale } from "@wandit/internationalization";
@@ -59,6 +58,7 @@ import {
 } from "@/features/billing/api/billing.queries";
 import {
 	areTopupsAvailable,
+	getPendingSubscriptionChange,
 	type PlanPickerPaymentMethod,
 	resolvePlanPickerInterval,
 	resolvePlanPickerPaymentMethod,
@@ -110,6 +110,7 @@ export type PlanPickerDialogProps = {
 };
 
 type PickerStep = "select" | "preview" | "outcome";
+type ChangeKind = "upgrade" | "downgrade" | "keep";
 
 type ChangeTarget = {
 	interval: BillingInterval;
@@ -252,6 +253,7 @@ function PlanPickerContent({
 	const [preview, setPreview] =
 		useState<BillingSubscriptionChangePreviewResponse | null>(null);
 	const [target, setTarget] = useState<ChangeTarget | null>(null);
+	const [changeKind, setChangeKind] = useState<ChangeKind>("upgrade");
 	const [outcome, setOutcome] =
 		useState<BillingSubscriptionChangeOutcomeResponse | null>(null);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -305,6 +307,7 @@ function PlanPickerContent({
 	const manualPaymentsEnabled = settings?.manualPaymentsEnabled ?? false;
 
 	const subscription = subscriptionView.subscription;
+	const pendingChange = getPendingSubscriptionChange(subscription);
 	const noticeAvailableCredits =
 		availableCredits ?? subscriptionView.balance.settledBalance;
 	const topupsAvailable = areTopupsAvailable(
@@ -477,13 +480,11 @@ function PlanPickerContent({
 		subscription &&
 		!manualSubscription
 	) {
-		const downgrade = isRenewalDowngrade(subscription, target);
-
 		return (
 			<ChangePreview
 				preview={preview}
 				target={target}
-				downgrade={downgrade}
+				changeKind={changeKind}
 				isPending={applyChange.isPending}
 				errorMessage={errorMessage}
 				onBack={() => {
@@ -510,8 +511,7 @@ function PlanPickerContent({
 		return (
 			<ChangeOutcome
 				outcome={outcome}
-				target={target}
-				previousSubscription={subscription}
+				changeKind={changeKind}
 				onClose={onClose}
 				onTryAgain={() => {
 					setOutcome(null);
@@ -591,6 +591,16 @@ function PlanPickerContent({
 			.mutateAsync(nextTarget)
 			.then((result) => {
 				setTarget(nextTarget);
+				setChangeKind(
+					pendingChange &&
+						nextTarget.plan === subscription.plan &&
+						nextTarget.tierCredits === subscription.tierCredits &&
+						nextTarget.interval === subscription.interval
+						? "keep"
+						: isRenewalDowngrade(subscription, nextTarget)
+							? "downgrade"
+							: "upgrade",
+				);
 				setPreview(result);
 				setStep("preview");
 			})
@@ -662,7 +672,8 @@ function PlanPickerContent({
 					const sameAsCurrent =
 						subscription?.plan === plan.id &&
 						subscription.interval === interval &&
-						subscription.tierCredits === tier.tierCredits;
+						subscription.tierCredits === tier.tierCredits &&
+						pendingChange === null;
 
 					return (
 						<PlanCard
@@ -814,6 +825,16 @@ function PlanPickerContent({
 							})}
 						</Badge>
 					) : null}
+					{pendingChange ? (
+						<Badge variant="warning">
+							{copy.changesAtRenewal}:{" "}
+							{getBillingPlanName(pendingChange.plan, copy)}
+							{" · "}
+							{t("credits.creditUnit", { count: pendingChange.tierCredits })}
+							{" · "}
+							{pendingChange.interval === "year" ? copy.yearly : copy.monthly}
+						</Badge>
+					) : null}
 				</div>
 				<DialogDescription>
 					{paymentMethod === "offline"
@@ -905,7 +926,7 @@ function PlanPickerContent({
 function ChangePreview({
 	preview,
 	target,
-	downgrade,
+	changeKind,
 	isPending,
 	errorMessage,
 	onBack,
@@ -913,7 +934,7 @@ function ChangePreview({
 }: {
 	preview: BillingSubscriptionChangePreviewResponse;
 	target: ChangeTarget;
-	downgrade: boolean;
+	changeKind: ChangeKind;
 	isPending: boolean;
 	errorMessage: string | null;
 	onBack: () => void;
@@ -948,7 +969,11 @@ function ChangePreview({
 					<CreditCard className="size-5 text-ember-text" aria-hidden />
 				</div>
 				<div className="mt-5 border-t pt-4">
-					{downgrade ? (
+					{changeKind === "keep" ? (
+						<p className="text-muted-foreground text-sm">
+							{copy.keepCurrentPlanExplanation}
+						</p>
+					) : changeKind === "downgrade" ? (
 						<>
 							<Badge variant="warning">{copy.changesAtRenewal}</Badge>
 							<p className="mt-2 text-muted-foreground text-sm">
@@ -986,14 +1011,12 @@ function ChangePreview({
 
 function ChangeOutcome({
 	outcome,
-	target,
-	previousSubscription,
+	changeKind,
 	onClose,
 	onTryAgain,
 }: {
 	outcome: BillingSubscriptionChangeOutcomeResponse;
-	target: ChangeTarget;
-	previousSubscription: Subscription | null;
+	changeKind: ChangeKind;
 	onClose: () => void;
 	onTryAgain: () => void;
 }) {
@@ -1038,15 +1061,17 @@ function ChangeOutcome({
 		);
 	}
 
-	const downgrade = previousSubscription
-		? isRenewalDowngrade(previousSubscription, target)
-		: false;
-
 	return (
 		<PickerNotice
 			tone="success"
 			title={copy.changeAppliedTitle}
-			body={downgrade ? copy.downgradeAppliedBody : copy.changeAppliedBody}
+			body={
+				changeKind === "keep"
+					? copy.keepCurrentPlanAppliedBody
+					: changeKind === "downgrade"
+						? copy.downgradeAppliedBody
+						: copy.changeAppliedBody
+			}
 			action={
 				<Button type="button" onClick={onClose}>
 					{copy.done}
@@ -1283,7 +1308,6 @@ function changeErrorMessage(
 function clampDisplayedCredits(value: number): number {
 	return Math.max(0, value);
 }
-
 
 function formatMinorCurrency(value: number, currency: string, locale: Locale) {
 	try {

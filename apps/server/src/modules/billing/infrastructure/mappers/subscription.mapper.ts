@@ -19,6 +19,8 @@ export function mapSubscriptionRow(row: SubscriptionRow): Subscription {
 		id: row.id,
 		interval: row.interval,
 		organizationId: row.organizationId,
+		pendingPlan: row.pendingPlan ?? null,
+		pendingInterval: row.pendingInterval ?? null,
 		pendingTierCredits:
 			row.pendingTierCredits === null
 				? null

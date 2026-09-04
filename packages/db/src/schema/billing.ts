@@ -211,6 +211,8 @@ export const subscriptions = pgTable(
 		// Grant/refill writers multiply ×100 when inserting ledger rows.
 		tierCredits: integer("tier_credits").notNull(),
 		pendingTierCredits: integer("pending_tier_credits"),
+		pendingPlan: billingPlan("pending_plan"),
+		pendingInterval: billingInterval("pending_interval"),
 		pendingAppliedBy: text("pending_applied_by"),
 		interval: billingInterval("interval").notNull(),
 		status: text("status").notNull(),
