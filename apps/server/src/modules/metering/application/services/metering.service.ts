@@ -1457,6 +1457,7 @@ export class MeteringService {
 		createdBefore: Date,
 		limit = 100,
 		now = new Date(),
+		options: { reconcileRefs?: boolean } = {},
 	): Promise<MeteringRecoveryOutcome> {
 		if (!Number.isInteger(limit) || limit <= 0) {
 			throw new Error("Metering recovery limit must be a positive integer");
@@ -1472,26 +1473,54 @@ export class MeteringService {
 			reconciled: 0,
 			refunded: 0,
 			scanned: events.length,
+			skipped: 0,
 		};
 
 		for (const event of events) {
 			const refs = await this.repository.listGenerationRefs(event.id);
 
 			if (refs.length === 0) {
-				const recovered = await this.refundReserved(
-					event.id,
-					"ai_usage_stranded_recovery",
-					true,
-				);
+				try {
+					const recovered = await this.refundReserved(
+						event.id,
+						"ai_usage_stranded_recovery",
+						true,
+					);
 
-				if (recovered.status === "refunded") {
-					outcome.refunded += 1;
-				} else if (recovered.status === "reserved") {
-					// A generation ref landed between the sweep read and the locked
-					// refund check. Leave the hold intact and retry reconciliation.
-					outcome.pending += 1;
+					if (recovered.status === "refunded") {
+						outcome.refunded += 1;
+					} else if (recovered.status === "reserved") {
+						// A generation ref landed between the sweep read and the locked
+						// refund check. Leave the hold intact and retry reconciliation.
+						outcome.pending += 1;
+					}
+				} catch (error) {
+					if (error instanceof MeteringStateConflictError) {
+						// The event settled between the sweep read and the locked refund
+						// check: nothing is stranded any more, the settled path owns it.
+						outcome.pending += 1;
+					} else {
+						// Never terminalize a ref-less hold over a failed refund write:
+						// that would turn the whole reserve into a charge. The row stays
+						// reserved and sweep-selectable; only this event fails, not the
+						// remaining batch.
+						this.logger.error(
+							`Stranded metering refund failed for ${event.id}`,
+							error instanceof Error ? error.stack : String(error),
+						);
+						outcome.failed += 1;
+					}
 				}
 
+				continue;
+			}
+
+			if (options.reconcileRefs === false) {
+				// The caller runs without gateway reconciliation config (see the
+				// stranded recovery task): refunds are database-only, but pricing a
+				// ref-bearing row needs a gateway key. Leave it reserved for the
+				// next configured sweep instead of terminalizing deployment drift.
+				outcome.skipped += 1;
 				continue;
 			}
 
@@ -2435,6 +2464,14 @@ export class MeteringService {
 		});
 	}
 
+	/**
+	 * Backoff bookkeeping for a failed reconciliation. Each call advances the
+	 * attempt count and schedules the next sweep retry; the cap dead-letters
+	 * the row (NULL next attempt) for admin review. A dead-lettered row that
+	 * never settled is charged its best local evidence, never the whole
+	 * reserve: the remainder of the hold is refunded through the same ledger
+	 * path reconciliation uses.
+	 */
 	async terminalizeReconciliationFailure(
 		eventId: string,
 	): Promise<AiUsageEvent> {
@@ -2480,12 +2517,37 @@ export class MeteringService {
 
 			// A never-settled row keeps final_credits null so the balance add-back
 			// treats it as in flight. Once dead-lettered nobody retries it, so the
-			// reserve (already debited in the ledger) becomes the final charge —
-			// otherwise the hold would stay hidden and the row "in progress" forever.
-			const finalCredits =
-				deadLettered && event.finalCredits === null
-					? event.reservedCredits
-					: event.finalCredits;
+			// row must stop hiding the hold — but the reserve is a worst-case
+			// estimate, not a bill. Charge only what local evidence proves (unit or
+			// duration step usage on the generation refs, settled provider-call
+			// receipts) and refund the rest of the hold; with no priceable evidence
+			// the whole hold is refunded — the run produced nothing we can price.
+			// The row keeps status reconcile_failed with the dead-letter marker
+			// (NULL next attempt) for admin review either way.
+			let finalCredits = event.finalCredits;
+
+			if (deadLettered && event.finalCredits === null) {
+				const refs = await this.repository.listGenerationRefs(
+					eventId,
+					transaction,
+				);
+				const evidence = await this.repository.listProviderCallEvidence(
+					eventId,
+					transaction,
+				);
+				const charge = Math.min(
+					this.deadLetterEvidenceCredits(event, refs, evidence),
+					event.reservedCredits,
+				);
+				const adjustment = await this.applyCreditAdjustment(
+					event,
+					event.reservedCredits,
+					charge,
+					"reconcile",
+					transaction,
+				);
+				finalCredits = adjustment.finalCredits;
+			}
 
 			const updated = await this.repository.updateEvent(
 				eventId,
@@ -2508,6 +2570,76 @@ export class MeteringService {
 
 			return updated;
 		});
+	}
+
+	/**
+	 * Best locally provable charge for a never-settled dead-letter, in integer
+	 * centi-credits. Reuses the reconcile path's evidence readers: fixed and
+	 * measured operations price their step-usage unit counts, per-minute
+	 * operations their duration evidence, and settled customer-billable
+	 * provider-call receipts price next to either. Token holds carry no
+	 * locally priceable step usage (only the gateway knows their cost), so
+	 * their refs contribute nothing. Returns 0 when nothing local can price
+	 * the run.
+	 */
+	private deadLetterEvidenceCredits(
+		event: AiUsageEvent,
+		refs: readonly AiUsageGenerationRef[],
+		evidence: readonly AiProviderCallEvidence[],
+	): number {
+		try {
+			const evidenceUsdMicros = sumProviderCallEvidenceUsdMicros(evidence, {
+				customerBillableOnly: true,
+			});
+			// usdMicrosToCentiCredits floors at 1 cc; a zero receipt sum means "no
+			// priced receipts", not a minimum charge.
+			const evidenceCredits =
+				evidenceUsdMicros > 0
+					? usdMicrosToCentiCredits(
+							evidenceUsdMicros,
+							this.reconciliationUsdMicrosPerCredit(event),
+						)
+					: 0;
+			const pricing = this.recoveryOperationPricing(event);
+			let refCredits = 0;
+
+			if (pricing.mode === "fixed" || pricing.mode === "measured") {
+				const units = this.fixedUnitEvidence(refs);
+
+				if (units !== null) {
+					refCredits = this.evidenceSettlement(
+						event,
+						pricing,
+						units,
+					).finalCredits;
+				}
+			} else if (pricing.mode === "per_minute") {
+				const durations = this.perMinuteDurationEvidence(
+					refs,
+					pricing.maxDurationSeconds,
+				);
+
+				if (durations) {
+					refCredits = Math.max(
+						pricing.minimumCredits,
+						Math.ceil(durations.billedDurationSeconds / 60) *
+							pricing.creditsPerMinute,
+					);
+				}
+			}
+
+			return evidenceCredits + refCredits;
+		} catch (error) {
+			// A malformed snapshot must not block the terminal write: the
+			// dead-letter path is the last resort, so an unpriceable event simply
+			// refunds in full and stays flagged for admin review.
+			this.logger.error(
+				`AI usage event ${event.id} dead-letter evidence pricing failed; refunding the hold`,
+				error instanceof Error ? error.stack : String(error),
+			);
+
+			return 0;
+		}
 	}
 
 	private aggregateGatewayUsage(

@@ -829,8 +829,10 @@ export class CreditsRepository {
 
 	// An event whose reserve debit is still the only ledger movement. A
 	// reconcile_failed row with no final_credits came straight from reserved
-	// (terminalizeReconciliationFailure writes no refund), so its hold is still
-	// open until a later reconcile adjusts from reserved_credits.
+	// and is still awaiting retries, so its hold is still open. Dead-letter
+	// (terminalizeReconciliationFailure) sets final_credits atomically with
+	// its evidence charge + refund, which drops the row out of this predicate
+	// in the same transaction.
 	private inflightUsageEventPredicate() {
 		return sql`(${aiUsageEvents.status} = 'reserved' or (${aiUsageEvents.status} = 'reconcile_failed' and ${aiUsageEvents.finalCredits} is null))`;
 	}

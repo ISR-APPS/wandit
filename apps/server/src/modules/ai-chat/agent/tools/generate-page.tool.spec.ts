@@ -26,6 +26,8 @@ import {
 // (R2 check), the Trigger queue, and the builder prompt.
 vi.mock("@wandit/env/server", () => ({
 	env: {
+		AI_IMAGE_EDIT_MODEL: undefined,
+		AI_IMAGE_MODEL: undefined,
 		AI_PAGE_BUILDER_MODEL: "test-provider/test-builder-model",
 		AI_PAGE_DESIGN_MODEL: "test-provider/legacy-builder-model",
 		TRIGGER_SECRET_KEY: "tr_dev_test",
@@ -75,6 +77,8 @@ const INPUT = {
 const COD_SKU = "KBL-JWL-001";
 
 const mutableEnv = env as {
+	AI_IMAGE_EDIT_MODEL?: string;
+	AI_IMAGE_MODEL?: string;
 	AI_PAGE_BUILDER_MODEL?: string;
 	AI_PAGE_DESIGN_MODEL: string;
 };
@@ -155,6 +159,8 @@ function prepareSuccessfulQueue(
 }
 
 beforeEach(() => {
+	mutableEnv.AI_IMAGE_EDIT_MODEL = undefined;
+	mutableEnv.AI_IMAGE_MODEL = undefined;
 	mutableEnv.AI_PAGE_BUILDER_MODEL = "test-provider/test-builder-model";
 	vi.mocked(isR2Configured).mockReset();
 	vi.mocked(tasks.trigger).mockReset();
@@ -318,6 +324,26 @@ describe("generate_page tool", () => {
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("snapshots the image models into the spec at queue time", async () => {
+		mutableEnv.AI_IMAGE_EDIT_MODEL = "google/gemini-3-pro-image";
+		mutableEnv.AI_IMAGE_MODEL = "meta/muse-image-1.0";
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute(INPUT);
+
+		// The Trigger worker keeps its own env; only this snapshot guarantees
+		// the build uses the image models the queue-time config named.
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({
+					imageEditModel: "google/gemini-3-pro-image",
+					imageModel: "meta/muse-image-1.0",
+				}),
+			}),
+		);
 	});
 
 	it("still queues (without a realtime handle) when token minting fails", async () => {

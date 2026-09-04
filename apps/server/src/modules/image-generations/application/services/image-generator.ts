@@ -102,10 +102,14 @@ export async function editImageFromSources(params: {
 	abortSignal?: AbortSignal;
 	aspect: string;
 	metering: GatewayMeteringContext<"image">;
+	/** Queue-time snapshot override; the env default serves legacy callers. */
+	model?: string;
 	prompt: string;
 	sourceImageUrls: readonly string[];
 }): Promise<EditImageResult> {
-	if (!env.AI_IMAGE_EDIT_MODEL) {
+	const model = params.model ?? env.AI_IMAGE_EDIT_MODEL;
+
+	if (!model) {
 		const error = new Error("AI image editing is not configured");
 		const failure = classifyImageError(error, {
 			route: "none",
@@ -143,7 +147,7 @@ export async function editImageFromSources(params: {
 					role: "user" as const,
 				},
 			],
-			model: env.AI_IMAGE_EDIT_MODEL,
+			model,
 			// Best-effort aspect steering for Gemini image models; unknown
 			// provider options are forwarded and ignored by other providers.
 			providerOptions: withGatewayAttribution(
@@ -153,7 +157,7 @@ export async function editImageFromSources(params: {
 			telemetry: { functionId: "image.edit" },
 		});
 		providerEvidence = {
-			model: env.AI_IMAGE_EDIT_MODEL,
+			model,
 			providerMetadata: result.providerMetadata,
 			usage: result.usage,
 		};
@@ -166,7 +170,7 @@ export async function editImageFromSources(params: {
 			const failure = classifyImageFinish({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				finishReason: result.finishReason,
-				model: env.AI_IMAGE_EDIT_MODEL,
+				model,
 				outputFiles: result.files,
 				providerMetadata: result.providerMetadata,
 				...(result.rawFinishReason
@@ -186,7 +190,7 @@ export async function editImageFromSources(params: {
 
 		return {
 			mediaType: file.mediaType,
-			model: env.AI_IMAGE_EDIT_MODEL,
+			model,
 			providerMetadata: result.providerMetadata,
 			status: "generated",
 			uint8Array: file.uint8Array,
@@ -198,13 +202,13 @@ export async function editImageFromSources(params: {
 			providerEvidence ??
 			(errorCapture
 				? {
-						model: env.AI_IMAGE_EDIT_MODEL,
+						model,
 						providerMetadata: errorCapture.providerMetadata,
 					}
 				: null);
 		const failure = classifyImageError(error, {
 			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-			model: env.AI_IMAGE_EDIT_MODEL,
+			model,
 			providerMetadata: evidence?.providerMetadata,
 			route: "vercel",
 			surface: "image",

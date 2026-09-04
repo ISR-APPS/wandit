@@ -40,7 +40,11 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
-import { formatCreditBalance } from "@/lib/credit-format";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+	roundCreditAmount,
+} from "@/lib/credit-format";
 
 type OrganizationDetailPageProps = {
 	organizationId: string;
@@ -248,22 +252,74 @@ function DetailHeader({
 }
 
 function BalanceMetrics({ detail }: { detail: OrganizationDetail }) {
-	const metrics = [
-		{ label: "Pool balance", value: detail.balance.balance },
-		{ label: "Plan credits", value: detail.balance.plan },
-		{ label: "Promo credits", value: detail.balance.promo },
-		{ label: "Top-up credits", value: detail.balance.topup },
+	const { balance } = detail;
+	// settledBalance = raw balance plus in-flight reserve holds added back —
+	// the exact number the user's header pill shows, and what the server now
+	// admits generations against. The raw balance keeps holds subtracted, so
+	// the delta is what running generations temporarily reserve. Support
+	// compares against what the user reports, so the settled figure leads.
+	const heldCredits = roundCreditAmount(
+		balance.settledBalance - balance.balance,
+	);
+	const buckets = [
+		{
+			label: "Plan credits",
+			value: balance.plan,
+			held: roundCreditAmount(balance.settledPlan - balance.plan),
+		},
+		{
+			label: "Promo credits",
+			value: balance.promo,
+			held: roundCreditAmount(balance.settledPromo - balance.promo),
+		},
+		{
+			label: "Top-up credits",
+			value: balance.topup,
+			held: roundCreditAmount(balance.settledTopup - balance.topup),
+		},
 	];
 
 	return (
 		<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-			{metrics.map((metric) => (
+			<Card className="shadow-none">
+				<CardContent className="py-4">
+					<p className="text-muted-foreground text-xs">
+						Pool balance — what the user sees
+					</p>
+					<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
+						{formatCreditBalance(balance.settledBalance)}
+					</p>
+					<p className="mt-1 text-muted-foreground text-xs">
+						Available (holds subtracted):{" "}
+						<span className="font-mono tabular-nums">
+							{formatCreditBalance(balance.balance)}
+						</span>
+					</p>
+					{heldCredits > 0 ? (
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							On hold (running generations):{" "}
+							<span className="font-mono tabular-nums">
+								{formatCreditAmount(heldCredits)}
+							</span>
+						</p>
+					) : null}
+				</CardContent>
+			</Card>
+			{buckets.map((metric) => (
 				<Card key={metric.label} className="shadow-none">
 					<CardContent className="py-4">
 						<p className="text-muted-foreground text-xs">{metric.label}</p>
 						<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
 							{formatCreditBalance(metric.value)}
 						</p>
+						{metric.held > 0 ? (
+							<p className="mt-1 text-muted-foreground text-xs">
+								On hold:{" "}
+								<span className="font-mono tabular-nums">
+									{formatCreditAmount(metric.held)}
+								</span>
+							</p>
+						) : null}
 					</CardContent>
 				</Card>
 			))}
