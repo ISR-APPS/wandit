@@ -208,7 +208,7 @@ function InlineVideo({
 /**
  * Full-screen media overlay: Download + Close on top, prev/next when the
  * gallery has more than one item, mono `i / n` counter. Exported for cards
- * that open a single item from their own chrome (the video card's stage).
+ * that open a single item from their own chrome.
  */
 export function ChatMediaViewer({
 	items,

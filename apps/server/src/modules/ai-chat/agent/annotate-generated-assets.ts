@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import type { ConnectorGenerationsRepository } from "../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { ImageGenerationsRepository } from "../../image-generations/infrastructure/persistence/image-generations.repository";
-import type { MediaGenerationsRepository } from "../../media-generations/infrastructure/persistence/media-generations.repository";
 import type { ProjectScope } from "../../projects/domain/project-scope";
 import type { WanditUIMessage } from "./chat-agent";
 
@@ -20,7 +19,6 @@ import type { WanditUIMessage } from "./chat-agent";
 export type AnnotateGeneratedAssetsDeps = {
 	connectorGenerationsRepository: ConnectorGenerationsRepository;
 	imageGenerationsRepository: ImageGenerationsRepository;
-	mediaGenerationsRepository: MediaGenerationsRepository;
 	projectId: string;
 	/** Chat scope — connector attempts follow the payer snapshot, so a
 	    teammate's transcript resolves markers in a shared org chat. */
@@ -36,7 +34,7 @@ const MAX_LOOKUP_ATTEMPTS = 60;
 
 const connectorMediaListSchema = z.array(connectorGenerationMediaSchema);
 
-type GenerationFamily = "connector" | "image" | "video";
+type GenerationFamily = "connector" | "image";
 
 type GenerationRef = {
 	attemptId: string;
@@ -77,19 +75,12 @@ export async function annotateGeneratedAssets(
 		refs.filter((ref) => ref.family === family).map((ref) => ref.attemptId);
 
 	const imageIds = idsOf("image");
-	const videoIds = idsOf("video");
 	const connectorIds = idsOf("connector");
-	const [imageRows, videoRows, connectorRows] = await Promise.all([
+	const [imageRows, connectorRows] = await Promise.all([
 		imageIds.length > 0
 			? deps.imageGenerationsRepository.listSucceededByIdsForProject(
 					deps.projectId,
 					imageIds,
-				)
-			: [],
-		videoIds.length > 0
-			? deps.mediaGenerationsRepository.listSucceededByIdsForProject(
-					deps.projectId,
-					videoIds,
 				)
 			: [],
 		connectorIds.length > 0
@@ -109,15 +100,6 @@ export async function annotateGeneratedAssets(
 
 		if (lines.length > 0) {
 			markersByAttempt.set(row.id, lines.join("\n"));
-		}
-	}
-
-	for (const row of videoRows) {
-		if (row.videoUrl) {
-			markersByAttempt.set(
-				row.id,
-				`[Generated video (${row.videoMediaType ?? "video/mp4"}): ${row.videoUrl}]`,
-			);
 		}
 	}
 
@@ -243,19 +225,6 @@ function generationRef(
 			part.state === "output-available" ? queuedAttemptId(part.output) : null;
 
 		return attemptId ? { attemptId, family: "image" } : null;
-	}
-
-	if (
-		part.type === "tool-generate_video" ||
-		part.type === "tool-product_video" ||
-		part.type === "tool-animate_image" ||
-		part.type === "tool-edit_video" ||
-		part.type === "tool-extend_video"
-	) {
-		const attemptId =
-			part.state === "output-available" ? queuedAttemptId(part.output) : null;
-
-		return attemptId ? { attemptId, family: "video" } : null;
 	}
 
 	if (part.type === "dynamic-tool" && part.state === "output-available") {

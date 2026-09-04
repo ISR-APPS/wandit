@@ -6,7 +6,7 @@
 // events); OpenRouter's few divergent creator prefixes are translated only at
 // this boundary.
 //
-// Media models (image/video/transcription) intentionally stay on the Vercel
+// Media models (image/transcription) intentionally stay on the Vercel
 // gateway regardless of AI_PROVIDER: OpenRouter's AI SDK provider has no
 // transcription surface and the media call sites rely on gateway-specific
 // behavior, so those paths keep importing @ai-sdk/gateway directly.
@@ -78,7 +78,7 @@ export function llmProviderForTask(task: LlmTask): LlmProviderKind {
 }
 
 /**
- * Key gate for TEXT-model features, per task. Media paths keep checking
+ * Key gate for TEXT-model features, per task. Image and transcription paths check
  * AI_GATEWAY_API_KEY directly because they never leave the Vercel gateway.
  */
 export function hasLlmProviderKey(task: LlmTask): boolean {

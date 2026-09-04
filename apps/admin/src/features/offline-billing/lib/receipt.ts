@@ -68,7 +68,7 @@ export const RECEIPT_PLAN_FEATURES = {
 	pro: [
 		"De nouveaux crédits chaque mois",
 		"Outils marketing & campagnes IA",
-		"Génération d’images et de vidéos IA",
+		"Génération d’images IA",
 		"Bibliothèque d’assets",
 		"Domaines personnalisés",
 		"Connexion d’apps & intégrations",

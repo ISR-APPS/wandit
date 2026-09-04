@@ -17,12 +17,6 @@ export const imageGenerationKeys = {
 		[...imageGenerationKeys.all, "attempt", attemptId] as const,
 };
 
-export const mediaGenerationKeys = {
-	all: ["media-generations"] as const,
-	attempt: (attemptId: string) =>
-		[...mediaGenerationKeys.all, "attempt", attemptId] as const,
-};
-
 export const marketingAssetKeys = {
 	all: ["marketing-assets"] as const,
 	html: (assetId: string) =>

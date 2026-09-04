@@ -6,6 +6,7 @@ import { ProductSettingsService } from "../../../settings/application/services/p
 import {
 	DONE_EVENT_MAPPING,
 	FREE_ONLY_EVENTS,
+	isActiveLifecycleEvent,
 	type LifecycleEventName,
 } from "../../domain/lifecycle-event";
 import {
@@ -97,6 +98,13 @@ export class LifecycleEventsDispatcher {
 		}
 
 		try {
+			const event = row.event;
+
+			if (!isActiveLifecycleEvent(event)) {
+				await this.repository.markDropped(row.id, "retired");
+				return "dropped";
+			}
+
 			const settings = await this.settings.get();
 
 			if (!settings.lifecycleEmailsEnabled) {
@@ -112,16 +120,16 @@ export class LifecycleEventsDispatcher {
 				return "dropped";
 			}
 
-			if (FREE_ONLY_EVENT_SET.has(row.event) && !isMonetizationFree(context)) {
+			if (FREE_ONLY_EVENT_SET.has(event) && !isMonetizationFree(context)) {
 				await this.repository.markDropped(row.id, "not_free");
 				return "dropped";
 			}
 
 			await this.email.sendLifecycleEvent({
 				email,
-				event: row.event,
+				event,
 				payload: buildPayload(
-					row,
+					{ ...row, event },
 					context,
 					centiCreditsToCredits(settings.signupGrantCredits),
 				),
@@ -151,7 +159,7 @@ function isMonetizationFree(context: LifecycleDispatchContext): boolean {
 }
 
 function buildPayload(
-	row: LifecycleEventRow,
+	row: LifecycleEventRow & { event: LifecycleEventName },
 	context: LifecycleDispatchContext,
 	signupGrantCredits: number,
 ): Record<string, unknown> {

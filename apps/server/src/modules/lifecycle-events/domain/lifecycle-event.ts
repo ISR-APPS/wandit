@@ -1,8 +1,21 @@
 import { lifecycleEventName } from "@wandit/db/schema/lifecycle-events";
 
-export const LIFECYCLE_EVENT_NAMES = lifecycleEventName.enumValues;
+export type LifecycleEventName = Exclude<
+	(typeof lifecycleEventName.enumValues)[number],
+	"video_generated"
+>;
 
-export type LifecycleEventName = (typeof LIFECYCLE_EVENT_NAMES)[number];
+export const LIFECYCLE_EVENT_NAMES = lifecycleEventName.enumValues.filter(
+	(event): event is LifecycleEventName => event !== "video_generated",
+);
+
+// The DB enum keeps retired values (e.g. video_generated) for historical rows;
+// this guard separates them from events the dispatcher may still act on.
+export function isActiveLifecycleEvent(
+	event: (typeof lifecycleEventName.enumValues)[number],
+): event is LifecycleEventName {
+	return event !== "video_generated";
+}
 
 export type LifecycleCapturePayload = {
 	connector?: "meta-ads" | "tiktok-ads";
@@ -25,7 +38,6 @@ export const ONCE_PER_USER_EVENTS = new Set<LifecycleEventName>([
 	"website_generated",
 	"landing_page_generated",
 	"image_generated",
-	"video_generated",
 	"marketing_strategy_generated",
 	"ads_connected",
 	"ads_analysis_completed",
@@ -111,6 +123,7 @@ export const LIFECYCLE_EVENT_DROP_REASONS = [
 	"not_free",
 	"paid_meanwhile",
 	"no_email",
+	"retired",
 ] as const;
 
 export type LifecycleEventDropReason =

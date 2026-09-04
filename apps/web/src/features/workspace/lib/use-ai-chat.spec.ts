@@ -35,8 +35,8 @@ function chatRow(
 
 describe("AI chat target metadata", () => {
 	const composer = {
-		mode: "video" as const,
-		output: "video-creator",
+		mode: "page" as const,
+		output: "landing-page",
 		options: { builderModel: "anthropic/claude-sonnet-4.5" },
 	};
 
@@ -258,14 +258,14 @@ describe("AI error turn lookup", () => {
 
 	it("restores composer and target ids before retrying a reloaded turn", () => {
 		const composer = {
-			mode: "video" as const,
-			output: "video-creator",
+			mode: "page" as const,
+			output: "landing-page",
 			options: { builderModel: "anthropic/claude-sonnet-4.5" },
 		};
 		const user = {
 			id: "user-1",
 			role: "user",
-			parts: [{ type: "text", text: "Make this move", state: "done" }],
+			parts: [{ type: "text", text: "Build this page", state: "done" }],
 			metadata: {
 				composer,
 				selectedWids: ["hero", "cta"],

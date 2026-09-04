@@ -51,7 +51,7 @@
 				],
 				"bullets": [
 					"Données de compte : votre nom, votre adresse e-mail, votre photo de profil, les identifiants de connexion de la méthode que vous utilisez, la langue et le thème que vous choisissez, et les espaces de travail auxquels vous appartenez.",
-					"Contenu que vous créez : les instructions que vous écrivez, les fichiers et images que vous téléversez, les pages, images, vidéos et supports marketing que vous générez, les réglages de vos projets, et les domaines sur lesquels vous publiez.",
+					"Contenu que vous créez : les instructions que vous écrivez, les fichiers et images que vous téléversez, les pages, images et supports marketing que vous générez, les réglages de vos projets, et les domaines sur lesquels vous publiez.",
 					"Données de facturation : les packs de crédits et les formules que vous achetez, vos factures, votre solde de crédits et votre historique de transactions. Les numéros de carte vont directement à Stripe. Nous ne les voyons jamais et nous ne les conservons jamais.",
 					"Données d'usage et d'appareil : les écrans que vous ouvrez dans le tableau de bord, les actions que vous effectuez, les crédits que vous dépensez, votre navigateur et votre type d'appareil, votre système d'exploitation, une localisation approximative déduite de votre adresse IP, et les rapports de plantage ou d'erreur. PostHog peut aussi enregistrer une relecture de votre session dans le tableau de bord, afin que nous voyions où le produit échoue. Le texte que vous saisissez est masqué dans ces enregistrements.",
 					"Données de journal : adresse IP, heure de la requête, adresse demandée et statut de la réponse, conservées pour la sécurité et le dépannage.",
@@ -151,7 +151,7 @@
 					"Railway : l'hébergement de notre API.",
 					"Cloudflare : le stockage de fichiers, les services DNS et de domaines, et le contrôle Turnstile qui tient les robots à l'écart de la connexion.",
 					"Trigger.dev : les tâches en arrière-plan telles que la génération, la publication et les synchronisations.",
-					"Les fournisseurs de modèles d'IA, joints via une passerelle d'IA : vos instructions, les fichiers que vous téléversez et le contenu que nous générons leur sont envoyés afin qu'ils produisent la page, l'image, la vidéo ou le texte que vous avez demandé.",
+					"Les fournisseurs de modèles d'IA, joints via une passerelle d'IA : vos instructions, les fichiers que vous téléversez et le contenu que nous générons leur sont envoyés afin qu'ils produisent la page, l'image ou le texte que vous avez demandé.",
 					"Les connecteurs que vous activez, tels que les outils vidéo et image, qui reçoivent les instructions et les fichiers que vous leur envoyez.",
 					"Serper : l'API de recherche qui alimente la découverte de prospects professionnels, et qui reçoit les termes de recherche que vous saisissez.",
 					"Un fournisseur PostgreSQL infogéré : la base de données qui contient votre compte, vos projets et vos prospects.",
@@ -340,7 +340,7 @@
 				"id": "credits",
 				"title": "5. Crédits et facturation",
 				"paragraphs": [
-					"Wandit fonctionne avec des crédits. Chaque action qui nous coûte de l'argent, comme générer une page, une image, une vidéo ou un support marketing, ou synchroniser et découvrir des prospects, consomme des crédits sur le solde de votre espace de travail."
+					"Wandit fonctionne avec des crédits. Chaque action qui nous coûte de l'argent, comme générer une page, une image ou un support marketing, ou synchroniser et découvrir des prospects, consomme des crédits sur le solde de votre espace de travail."
 				],
 				"bullets": [
 					"Un nouveau compte reçoit un solde initial de crédits gratuits. Les crédits gratuits n'ont aucune valeur monétaire, et nous pouvons modifier ou arrêter l'offre de départ à tout moment.",
@@ -411,7 +411,7 @@
 				"id": "ai-content",
 				"title": "9. Contenu généré par IA",
 				"paragraphs": [
-					"Wandit utilise des modèles d'IA pour produire des pages, des textes, des images et des vidéos à partir de vos instructions."
+					"Wandit utilise des modèles d'IA pour produire des pages, des textes et des images à partir de vos instructions."
 				],
 				"bullets": [
 					"Le résultat produit par l'IA peut être faux, obsolète, biaisé ou inadapté. Vérifiez-le avant de le publier.",

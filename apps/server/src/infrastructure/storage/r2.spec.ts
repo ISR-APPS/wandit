@@ -52,9 +52,6 @@ import {
 	putPageHtml,
 	putSiteFile,
 	r2ObjectExists,
-	siteVideoFrameKey,
-	siteVideoSegmentKey,
-	siteVideoSoundtrackKey,
 	VARIANT_FILENAME_PATTERN,
 	variantKey,
 } from "./r2";
@@ -105,20 +102,6 @@ describe("feedbackScreenshotKey", () => {
 		);
 		expect(feedbackScreenshotKey("feedback-id", "jpg")).toBe(
 			"feedback/feedback-id/screenshot.jpg",
-		);
-	});
-});
-
-describe("video processing keys", () => {
-	it("keeps every intermediate outside the final vid-1 recovery key", () => {
-		expect(siteVideoFrameKey("project_1", "attempt_1", 2, "jpg")).toBe(
-			"sites/project_1/assets/attempt_1/frames/frame-2.jpg",
-		);
-		expect(siteVideoSegmentKey("project_1", "attempt_1", 3, "mp4")).toBe(
-			"sites/project_1/assets/attempt_1/segments/segment-3.mp4",
-		);
-		expect(siteVideoSoundtrackKey("project_1", "attempt_1", "m4a")).toBe(
-			"sites/project_1/assets/attempt_1/audio/soundtrack.m4a",
 		);
 	});
 });

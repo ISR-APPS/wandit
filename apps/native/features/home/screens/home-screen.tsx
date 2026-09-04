@@ -24,7 +24,6 @@ type SuggestionChipKey =
 	| "native.home.chips.website"
 	| "native.home.chips.productPhotos"
 	| "native.home.chips.adCreatives"
-	| "native.home.chips.videoAd"
 	| "native.home.chips.flyer";
 
 const SUGGESTION_CHIPS: SuggestionChipKey[] = [
@@ -32,7 +31,6 @@ const SUGGESTION_CHIPS: SuggestionChipKey[] = [
 	"native.home.chips.website",
 	"native.home.chips.productPhotos",
 	"native.home.chips.adCreatives",
-	"native.home.chips.videoAd",
 	"native.home.chips.flyer",
 ];
 

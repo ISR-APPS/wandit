@@ -237,7 +237,7 @@ describe("AdminConversationsRepository", () => {
 		});
 	});
 
-	it("builds the six-source failures union with partial-index predicates and filters", async () => {
+	it("builds the five-source failures union with partial-index predicates and filters", async () => {
 		const { execute, repository } = setup(
 			[{ total: "1" }],
 			[
@@ -272,14 +272,13 @@ describe("AdminConversationsRepository", () => {
 		for (const table of [
 			"messages",
 			"image_generation_attempts",
-			"media_generation_attempts",
 			"marketing_assets",
 			"connector_generation_attempts",
 			"page_generation_attempts",
 		]) {
 			expect(listQuery.sql).toContain(table);
 		}
-		expect(listQuery.sql.match(/failure_kind is not null/gu)).toHaveLength(6);
+		expect(listQuery.sql.match(/failure_kind is not null/gu)).toHaveLength(5);
 		expect(listQuery.sql).toContain("order by f.created_at desc");
 		expect(listQuery.params).toEqual(
 			expect.arrayContaining(["timeout", "ours", "chat", "connector", 10]),

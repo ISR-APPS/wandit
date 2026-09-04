@@ -53,6 +53,8 @@ export * from "./v1/dial-codes";
 export * from "./v1/domains";
 // In-app user feedback contracts.
 export * from "./v1/feedback";
+// Shared durable generation lifecycle contract.
+export * from "./v1/generation-status";
 // Standalone image generation contracts.
 export * from "./v1/image-generations";
 // Lead-scrape (outbound prospecting) contracts.
@@ -64,8 +66,6 @@ export * from "./v1/leads";
 export * from "./v1/marketing-assets";
 // MCP connector contracts.
 export * from "./v1/mcp-connectors";
-// Image-to-video generation contracts.
-export * from "./v1/media-generations";
 // Post-signup onboarding contracts.
 export * from "./v1/onboarding";
 // Payment order contracts.

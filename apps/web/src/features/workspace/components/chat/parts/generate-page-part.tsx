@@ -400,7 +400,6 @@ export function PageBuildProgressView({
 	const phase = progress?.phase ?? "starting";
 	const rank = PHASE_RANK[phase];
 	const images = progress?.images ?? [];
-	const videos = progress?.videos ?? 0;
 	const sections = progress?.sections ?? [];
 	const shots = progress?.shots ?? [];
 	const findings = progress?.findings ?? [];
@@ -417,7 +416,7 @@ export function PageBuildProgressView({
 	const artState: RowState =
 		!ended && phase === "art"
 			? "active"
-			: images.length > 0 || videos > 0
+			: images.length > 0
 				? "done"
 				: rank <= 1 && !ended
 					? "pending"
@@ -537,9 +536,6 @@ export function PageBuildProgressView({
 								images.length > 0 ? (
 									<CountBadge>
 										{images.length} {images.length === 1 ? "image" : "images"}
-										{videos > 0
-											? ` · ${videos} ${videos === 1 ? "video" : "videos"}`
-											: ""}
 									</CountBadge>
 								) : undefined
 							}

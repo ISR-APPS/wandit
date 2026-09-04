@@ -33,7 +33,6 @@
 			"Sites web",
 			"Landing pages",
 			"Images publicitaires",
-			"Vidéos IA",
 			"Stratégie marketing",
 			"Analyse Ads",
 			"Lancement de campagnes"
@@ -46,7 +45,6 @@
 		"roles": [
 			"un développeur pour créer le site",
 			"un designer pour produire les visuels",
-			"un monteur pour réaliser les vidéos",
 			"un marketeur pour construire la stratégie",
 			"un media buyer pour gérer les campagnes"
 		],
@@ -72,12 +70,7 @@
 		],
 		"demo": {
 			"prompt": "Je vends du miel de montagne des Aurès. Crée mon site, mes visuels publicitaires et ma stratégie de lancement.",
-			"artifacts": [
-				"Site web",
-				"Visuels publicitaires",
-				"Vidéo IA",
-				"Stratégie marketing"
-			],
+			"artifacts": ["Site web", "Visuels publicitaires", "Stratégie marketing"],
 			"publishedToast": "Site publié",
 			"campaignsLabel": "Campagnes",
 			"liveLabel": "En direct",
@@ -254,7 +247,7 @@
 		"items": [
 			{
 				"q": "C'est quoi les crédits ?",
-				"a": "Les crédits sont la monnaie unique de Wandit. Chaque création de page, d’image ou de vidéo, ainsi que chaque modification par chat, utilise des crédits. Une courte modification par chat utilise une fraction de crédit. Une longue création de page en utilise davantage. Ton solde indique ce que chaque exécution a consommé."
+				"a": "Les crédits sont la monnaie unique de Wandit. Chaque création de page ou d’image, ainsi que chaque modification par chat, utilise des crédits. Une courte modification par chat utilise une fraction de crédit. Une longue création de page en utilise davantage. Ton solde indique ce que chaque exécution a consommé."
 			},
 			{
 				"q": "La publication est-elle gratuite ?",

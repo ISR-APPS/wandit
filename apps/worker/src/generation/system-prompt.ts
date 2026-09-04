@@ -43,8 +43,6 @@ function modeLine(mode: ComposerMetadata["mode"]): string {
 			return "Mode: marketing. Focus on positioning, audience, hooks, objections, and campaign copy.";
 		case "image":
 			return "Mode: image. Focus on visual direction and asset prompts; do not create binary assets.";
-		case "video":
-			return "Mode: video. Focus on storyboard, script, pacing, and shot direction; do not create binary assets.";
 		case "auto":
 			return "Mode: auto. Infer the user's intended generation direction from the prompt.";
 	}

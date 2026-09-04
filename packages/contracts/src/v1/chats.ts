@@ -29,23 +29,13 @@ export const messageRoleSchema = z.enum(messageRoles);
 export type MessageRole = z.infer<typeof messageRoleSchema>;
 
 // Prompt box modes.
-export const composerModes = [
-	"auto",
-	"page",
-	"marketing",
-	"image",
-	"video",
-] as const;
+export const composerModes = ["auto", "page", "marketing", "image"] as const;
 
 // Runtime validator for composer mode.
 export const composerModeSchema = z.enum(composerModes);
 
 // TypeScript type for composer mode.
 export type ComposerMode = z.infer<typeof composerModeSchema>;
-
-// Stable idempotency token carried only by Video composer submissions.
-// It lives inside `options` so old clients and non-video modes stay compatible.
-export const videoSubmissionIdSchema = uuidSchema;
 
 // Extra settings attached to a prompt.
 export const composerMetadataSchema = z.object({

@@ -1,52 +1,8 @@
-import type { AiChatRequestMetadata } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
-import {
-	buildChatRequestContext,
-	resolveVideoRequestKeySeed,
-} from "./request-context";
-
-const VIDEO_SUBMISSION_ID = "de890510-e194-4a18-8d4a-a30f80dbe32a";
-
-function metadata(
-	mode: "page" | "video",
-	videoSubmissionId: unknown,
-): AiChatRequestMetadata {
-	return {
-		composer: {
-			mode,
-			options: { videoSubmissionId },
-		},
-	};
-}
-
-describe("resolveVideoRequestKeySeed", () => {
-	it("prefers a validated Video submission UUID over a new message id", () => {
-		expect(
-			resolveVideoRequestKeySeed(
-				metadata("video", VIDEO_SUBMISSION_ID),
-				"message_after_transport_retry",
-			),
-		).toBe(VIDEO_SUBMISSION_ID);
-	});
-
-	it("falls back when the Video submission token is malformed", () => {
-		expect(
-			resolveVideoRequestKeySeed(metadata("video", "not-a-uuid"), "message_2"),
-		).toBe("message_2");
-	});
-
-	it("ignores a submission token outside Video mode", () => {
-		expect(
-			resolveVideoRequestKeySeed(
-				metadata("page", VIDEO_SUBMISSION_ID),
-				"message_3",
-			),
-		).toBe("message_3");
-	});
-});
+import { buildChatRequestContext } from "./request-context";
 
 function composerContext(
-	mode: "auto" | "page" | "marketing" | "image" | "video",
+	mode: "auto" | "page" | "marketing" | "image",
 	output: string | undefined,
 	options: Record<string, unknown> | undefined,
 ): string {
@@ -87,15 +43,6 @@ describe("buildChatRequestContext composer settings", () => {
 		expect(block).toContain("Scene: studio.");
 		// A UI option the server has no label for must still reach the model.
 		expect(block).toContain("froopy: max.");
-	});
-
-	it("never leaks transport-internal option keys", () => {
-		const block = composerContext("image", "image-creator", {
-			videoSubmissionId: VIDEO_SUBMISSION_ID,
-		});
-
-		expect(block).not.toContain("videoSubmissionId");
-		expect(block).not.toContain(VIDEO_SUBMISSION_ID);
 	});
 
 	it("keeps the page goal block intact", () => {

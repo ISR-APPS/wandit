@@ -2,7 +2,6 @@ import {
 	type ComposerMetadata,
 	projectPromptMaxLength,
 	type UploadAttachmentResponse,
-	videoSubmissionIdSchema,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -45,9 +44,7 @@ import {
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
-	Clapperboard,
 	FileText,
-	Film,
 	Gauge,
 	ImageIcon,
 	Layers,
@@ -90,7 +87,6 @@ import {
 } from "@/lib/model-labels";
 import {
 	ATTACHMENT_ACCEPT,
-	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
 	uploadAttachment,
@@ -98,7 +94,7 @@ import {
 import { MAX_VISIBLE_SKILLS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
-type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
+type RouteMode = "auto" | "page" | "marketing" | "image";
 type ConcreteMode = Exclude<RouteMode, "auto">;
 
 // Non-copy option config: ids + layout. Group labels and choice labels live in
@@ -157,9 +153,7 @@ type GenerationOutputId =
 	| "html-asset"
 	| "image-creator"
 	| "product-shot"
-	| "ad-creative"
-	| "video-creator"
-	| "image-animation";
+	| "ad-creative";
 
 // Non-copy output config: id + mode + icon + option groups. Label/shortLabel/
 // description/placeholder + option copy live in the
@@ -169,8 +163,6 @@ type GenerationOutputDef = {
 	mode: ConcreteMode;
 	icon: LucideIcon;
 	options: readonly OptionGroup[];
-	/** The mandatory SourceImageCard + source composer keys (image animation). */
-	requiresSourceImage?: boolean;
 };
 
 // Shape of the localized option copy read via useDictionary(); ids are matched
@@ -195,15 +187,8 @@ export type ComposerAttachment = {
 /** Contract §7.2 allowlist mirrored client-side for instant feedback. */
 const ALLOWED_ATTACHMENT_TYPES = new Set(ATTACHMENT_ACCEPT.split(","));
 
-/** Image animation accepts one still source, never documents or animated image
- * formats. Keep this narrower than the generic context-attachment allowlist. */
-const SOURCE_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
-const ALLOWED_SOURCE_IMAGE_TYPES = new Set(SOURCE_IMAGE_ACCEPT.split(","));
-
 /** createProject caps `attachments` at 6 (contract Appendix C). */
 const MAX_ATTACHMENTS = 6;
-
-type SourceImageValidationError = "unsupported" | "too-large" | "limit";
 
 /** Browsers report CSV and Office documents inconsistently (empty type,
  *  octet-stream, or the legacy Excel type) — fall back to the extension. */
@@ -252,49 +237,11 @@ function isFileDrag(dataTransfer: DataTransfer): boolean {
 	return dataTransfer.types.includes("Files");
 }
 
-function validateSourceImage(file: File): SourceImageValidationError | null {
-	if (!ALLOWED_SOURCE_IMAGE_TYPES.has(file.type)) return "unsupported";
-	if (file.size > ATTACHMENT_MAX_BYTES) return "too-large";
-	return null;
-}
-
-function toSourceImage(file: File): ComposerAttachment {
-	return {
-		id: crypto.randomUUID(),
-		filename: file.name,
-		mediaType: file.type,
-		previewUrl: URL.createObjectURL(file),
-		status: "uploading",
-		file,
-	};
-}
-
-function createVideoSubmissionId(): string {
-	return crypto.randomUUID();
-}
-
-function restoreVideoSubmissionId(
-	composer: ComposerMetadata | undefined,
-): string {
-	if (composer?.mode === "video") {
-		const parsed = videoSubmissionIdSchema.safeParse(
-			composer.options?.videoSubmissionId,
-		);
-
-		if (parsed.success) {
-			return parsed.data;
-		}
-	}
-
-	return createVideoSubmissionId();
-}
-
 const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "auto", icon: Sparkles },
 	{ id: "page", icon: FileText },
 	{ id: "marketing", icon: Megaphone },
 	{ id: "image", icon: ImageIcon },
-	{ id: "video", icon: Clapperboard },
 ];
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
@@ -565,70 +512,10 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			],
 		},
 	],
-	// Mode "video": create a clip from scratch (video-creator, text-to-video,
-	// the default) or animate one uploaded still (image-animation, where the
-	// source image is mandatory).
-	video: [
-		{
-			id: "video-creator",
-			mode: "video",
-			icon: Film,
-			options: [
-				{
-					id: "ratio",
-					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
-				},
-				{
-					id: "duration",
-					choices: [{ id: "10" }, { id: "5" }],
-					layout: "compact",
-				},
-				{
-					// "auto" = the assistant decides whether to offer narration.
-					// A concrete pick short-circuits the voiceover questions.
-					id: "voice",
-					choices: [
-						{ id: "auto" },
-						{ id: "none" },
-						{ id: "en" },
-						{ id: "fr" },
-						{ id: "ar" },
-					],
-					layout: "grid",
-				},
-			],
-		},
-		{
-			id: "image-animation",
-			mode: "video",
-			icon: Clapperboard,
-			options: [
-				{
-					id: "motion",
-					choices: [{ id: "subtle" }, { id: "balanced" }, { id: "dynamic" }],
-				},
-				{
-					id: "ratio",
-					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
-				},
-			],
-			requiresSourceImage: true,
-		},
-	],
 };
 
 const ALL_SKILL_FILES = SKILL_FILE_GROUPS.flatMap((group) => group.skills);
 const ALL_OUTPUTS = Object.values(OUTPUTS_BY_MODE).flat();
-
-/** Registry-driven lookup for the prompt-stash autostart gate: outputs that
- * demand a source asset can never auto-create a project after auth (the
- * upload cannot survive signed-out auth) — including output ids added here
- * later, with no other file to keep in sync. */
-export function outputRequiresSourceImage(outputId: string): boolean {
-	return ALL_OUTPUTS.some(
-		(output) => output.id === outputId && output.requiresSourceImage === true,
-	);
-}
 
 function getMode(id: RouteMode) {
 	return ROUTE_MODES.find((mode) => mode.id === id) ?? ROUTE_MODES[0];
@@ -1056,251 +943,6 @@ function AttachmentChips({
 					</span>
 				);
 			})}
-		</div>
-	);
-}
-
-function SourceImageCard({
-	source,
-	validationError,
-	attachmentsEnabled,
-	disabled,
-	isHero,
-	onChoose,
-	onDrop,
-	onRemove,
-	onRetry,
-}: {
-	source: ComposerAttachment | null;
-	validationError: SourceImageValidationError | null;
-	attachmentsEnabled: boolean;
-	disabled: boolean;
-	isHero: boolean;
-	onChoose: () => void;
-	onDrop: (files: FileList) => void;
-	onRemove: () => void;
-	onRetry: () => void;
-}) {
-	const pb = useDictionary().projects.promptBox;
-	const sourceCopy = pb.sourceImage;
-	const errorReason =
-		validationError ?? (source?.status === "error" ? source.error : null);
-	const errorLabel =
-		errorReason === "unsupported"
-			? sourceCopy.unsupported
-			: errorReason === "too-large"
-				? sourceCopy.tooLarge
-				: errorReason === "limit"
-					? sourceCopy.limit
-					: errorReason
-						? sourceCopy.failed
-						: null;
-	const pickingDisabled = disabled;
-	const sourceStatus = source
-		? source.status === "uploading"
-			? sourceCopy.uploading
-			: source.status === "error"
-				? (errorLabel ?? sourceCopy.failed)
-				: sourceCopy.ready
-		: "";
-	const handleSourceDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-		// A file dropped on an unhandled target navigates the browser to that
-		// file. Always claim the drag, including signed-out and disabled states.
-		event.preventDefault();
-	};
-	const handleSourceDrop = (event: React.DragEvent<HTMLDivElement>) => {
-		event.preventDefault();
-		if (
-			!pickingDisabled &&
-			attachmentsEnabled &&
-			event.dataTransfer.files.length > 0
-		) {
-			onDrop(event.dataTransfer.files);
-		}
-	};
-
-	if (!source) {
-		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop is a pointer enhancement; the nested button remains the keyboard path
-			<div
-				className="px-4 pt-3 sm:px-5"
-				onDrop={handleSourceDrop}
-				onDragOver={handleSourceDragOver}
-			>
-				<span
-					role="status"
-					aria-live="polite"
-					aria-atomic="true"
-					className="sr-only"
-				>
-					{sourceStatus}
-				</span>
-				<button
-					type="button"
-					disabled={pickingDisabled}
-					onClick={onChoose}
-					className={cn(
-						"group/source flex w-full items-center gap-3 rounded-2xl border border-primary/35 border-dashed bg-primary/5 text-start transition-[transform,color,background-color,border-color] duration-200",
-						isHero ? "px-4 py-3.5" : "px-3 py-2.5",
-						pickingDisabled
-							? "pointer-events-none cursor-not-allowed opacity-65"
-							: "cursor-pointer hover:border-primary/60 hover:bg-primary/8 active:translate-y-px",
-					)}
-				>
-					<span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-background text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
-						<ImageIcon className="size-4" aria-hidden />
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-							<span className="font-medium text-foreground text-sm">
-								{sourceCopy.title}
-							</span>
-							<span className="font-mono text-[10px] text-primary uppercase tracking-[0.1em]">
-								{sourceCopy.required}
-							</span>
-						</span>
-						<span className="mt-0.5 block text-muted-foreground text-xs">
-							{attachmentsEnabled
-								? sourceCopy.dropHint
-								: sourceCopy.signInFirst}
-						</span>
-						<span className="mt-0.5 block font-mono text-[10px] text-muted-foreground/80">
-							{sourceCopy.formats}
-						</span>
-					</span>
-					<span className="hidden shrink-0 rounded-full border border-primary/25 bg-background px-3 py-1.5 font-medium text-foreground text-xs transition-colors group-hover/source:border-primary/40 sm:inline-flex">
-						{sourceCopy.choose}
-					</span>
-				</button>
-				{errorLabel ? (
-					<p
-						role="alert"
-						className="mt-1.5 px-1 text-destructive text-xs leading-snug"
-					>
-						{errorLabel}
-					</p>
-				) : null}
-			</div>
-		);
-	}
-
-	const isUploading = source.status === "uploading";
-	const isError = source.status === "error";
-
-	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop is a pointer enhancement; replace/remove buttons remain the keyboard path
-		<div
-			className="px-4 pt-3 sm:px-5"
-			onDrop={handleSourceDrop}
-			onDragOver={handleSourceDragOver}
-		>
-			<span
-				role="status"
-				aria-live="polite"
-				aria-atomic="true"
-				className="sr-only"
-			>
-				{sourceStatus}
-			</span>
-			<div
-				className={cn(
-					"flex items-center gap-3 rounded-2xl border px-3 py-2.5",
-					isError
-						? "border-destructive/35 bg-destructive/5"
-						: "border-primary/25 bg-primary/5",
-				)}
-			>
-				<span className="relative size-12 shrink-0 overflow-hidden rounded-xl border border-border bg-muted">
-					{source.previewUrl ? (
-						<img
-							src={source.previewUrl}
-							alt=""
-							className="size-full object-cover"
-						/>
-					) : (
-						<span className="grid size-full place-items-center text-muted-foreground">
-							<ImageIcon className="size-4" aria-hidden />
-						</span>
-					)}
-					{isUploading ? (
-						<span className="absolute inset-0 grid place-items-center bg-foreground/45">
-							<Loader2 className="size-4 animate-spin text-background" />
-						</span>
-					) : null}
-				</span>
-				<span className="min-w-0 flex-1">
-					<span className="flex items-baseline gap-2">
-						<span className="font-medium text-foreground text-sm">
-							{sourceCopy.label}
-						</span>
-						<span
-							className={cn(
-								"inline-flex items-center gap-1 text-[10px]",
-								isError ? "text-destructive" : "text-muted-foreground",
-							)}
-						>
-							{isUploading ? (
-								<Loader2 className="size-2.5 animate-spin" aria-hidden />
-							) : isError ? (
-								<X className="size-2.5" aria-hidden />
-							) : (
-								<Check className="size-2.5 text-primary" aria-hidden />
-							)}
-							{isUploading
-								? sourceCopy.uploading
-								: isError
-									? errorLabel
-									: sourceCopy.ready}
-						</span>
-					</span>
-					<span
-						dir="auto"
-						className="mt-0.5 block max-w-full truncate text-muted-foreground text-xs"
-					>
-						{source.filename}
-					</span>
-				</span>
-				<span className="flex shrink-0 items-center gap-1">
-					{isError && source.file ? (
-						<button
-							type="button"
-							disabled={disabled}
-							onClick={onRetry}
-							className="rounded-full p-2 text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-							aria-label={sourceCopy.retry}
-							title={sourceCopy.retry}
-						>
-							<RefreshCw className="size-3.5" aria-hidden />
-						</button>
-					) : null}
-					<button
-						type="button"
-						disabled={pickingDisabled}
-						onClick={onChoose}
-						className="rounded-full px-2.5 py-1.5 font-medium text-muted-foreground text-xs transition-colors hover:bg-primary/10 hover:text-foreground disabled:opacity-50"
-					>
-						{sourceCopy.replace}
-					</button>
-					<button
-						type="button"
-						disabled={disabled}
-						onClick={onRemove}
-						className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-						aria-label={sourceCopy.remove}
-						title={sourceCopy.remove}
-					>
-						<X className="size-3.5" aria-hidden />
-					</button>
-				</span>
-			</div>
-			{validationError && errorLabel ? (
-				<p
-					role="alert"
-					className="mt-1.5 px-1 text-destructive text-xs leading-snug"
-				>
-					{errorLabel}
-				</p>
-			) : null}
 		</div>
 	);
 }
@@ -1920,7 +1562,7 @@ export type PromptBoxProps = {
 	disabled?: boolean;
 	initialValue?: string;
 	/** Restores the selected workflow after an auth redirect. Uploaded files are
-	 * intentionally not serialized; Video reopens on its source-image step. */
+	 * intentionally not serialized. */
 	initialComposer?: ComposerMetadata;
 	/** Clear the textarea after submitting (chat-style usage). */
 	clearOnSubmit?: boolean;
@@ -2017,39 +1659,22 @@ export function PromptBox({
 	);
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
 	const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-	const [sourceImage, setSourceImage] = useState<ComposerAttachment | null>(
-		null,
-	);
-	const [sourceValidationError, setSourceValidationError] =
-		useState<SourceImageValidationError | null>(null);
 	const [isLocallySubmitting, setIsLocallySubmitting] = useState(false);
 	const [connectorsOpen, setConnectorsOpen] = useState(false);
-	const [initialVideoSubmissionId] = useState(() =>
-		restoreVideoSubmissionId(initialComposer),
-	);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const sourceImageInputRef = useRef<HTMLInputElement>(null);
 	const submitInFlightRef = useRef(false);
 	const fileDragDepthRef = useRef(0);
-	const videoSubmissionIdRef = useRef(initialVideoSubmissionId);
 
 	// Mirror for unmount cleanup — object URLs leak without an explicit revoke.
 	const attachmentsRef = useRef(attachments);
-	const sourceImageRef = useRef(sourceImage);
 	useEffect(() => {
 		attachmentsRef.current = attachments;
 	}, [attachments]);
-	useEffect(() => {
-		sourceImageRef.current = sourceImage;
-	}, [sourceImage]);
 	useEffect(
 		() => () => {
 			for (const attachment of attachmentsRef.current) {
 				if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-			}
-			if (sourceImageRef.current?.previewUrl) {
-				URL.revokeObjectURL(sourceImageRef.current.previewUrl);
 			}
 		},
 		[],
@@ -2061,47 +1686,29 @@ export function PromptBox({
 		() => attachments.filter((attachment) => attachment.status === "ready"),
 		[attachments],
 	);
-	const isVideoMode = routeMode === "video";
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
 	);
-	// Only the image-animation output is source-first; video-creator is
-	// text-to-video and behaves like any prompt-driven output.
-	const requiresSourceImage =
-		isVideoMode && selectedOutput?.requiresSourceImage === true;
-	const readySourceImage = sourceImage?.status === "ready" ? sourceImage : null;
 	const hasUploadingAttachment = attachments.some(
 		(attachment) => attachment.status === "uploading",
 	);
-	const hasUploadingSource =
-		requiresSourceImage && sourceImage?.status === "uploading";
 	const submissionPending = isSubmitting || isLocallySubmitting;
-	const hasAttachmentCapacity =
-		attachments.length < MAX_ATTACHMENTS - (sourceImage ? 1 : 0);
+	const hasAttachmentCapacity = attachments.length < MAX_ATTACHMENTS;
 	const canAcceptDroppedFiles =
 		attachmentsEnabled &&
 		!disabled &&
 		!submissionPending &&
 		hasAttachmentCapacity;
-	// Image animation is source-first: once uploads are available, generic
-	// context never substitutes for the one required still image. Signed-out
-	// surfaces can still carry the motion draft through auth.
-	const hasRequiredInput = requiresSourceImage
-		? attachmentsEnabled
-			? Boolean(readySourceImage)
-			: true
-		: value.trim().length > 0 || readyAttachments.length > 0;
+	const hasRequiredInput =
+		value.trim().length > 0 || readyAttachments.length > 0;
 	const canSubmit =
 		!disabled &&
 		(submitOverride
 			? !submitOverride.disabled &&
 				!submissionPending &&
 				!hasUploadingAttachment
-			: hasRequiredInput &&
-				!submissionPending &&
-				!hasUploadingAttachment &&
-				!hasUploadingSource);
+			: hasRequiredInput && !submissionPending && !hasUploadingAttachment);
 	const attachedSkills = useMemo(
 		() =>
 			selectedSkillIds
@@ -2145,36 +1752,15 @@ export function PromptBox({
 		}
 	}, []);
 
-	const runSourceUpload = useCallback(async (id: string, file: File) => {
-		try {
-			const uploaded = await uploadAttachment(file);
-			setSourceImage((current) =>
-				current?.id === id
-					? { ...current, status: "ready", uploaded, error: undefined }
-					: current,
-			);
-		} catch (error) {
-			const reason =
-				error instanceof AttachmentUploadError ? error.reason : "failed";
-			setSourceImage((current) =>
-				current?.id === id
-					? { ...current, status: "error", error: reason }
-					: current,
-			);
-		}
-	}, []);
-
 	const handleFilesPicked = useCallback(
 		(files: FileList | File[]) => {
-			const sourceSlots = sourceImageRef.current ? 1 : 0;
-			const maxGenericAttachments = MAX_ATTACHMENTS - sourceSlots;
-			const room = maxGenericAttachments - attachmentsRef.current.length;
+			const room = MAX_ATTACHMENTS - attachmentsRef.current.length;
 			if (room <= 0) return;
 			const picked = Array.from(files).slice(0, room);
 			if (picked.length === 0) return;
 			const next = picked.map(toComposerAttachment);
 			setAttachments((current) =>
-				[...current, ...next].slice(0, maxGenericAttachments),
+				[...current, ...next].slice(0, MAX_ATTACHMENTS),
 			);
 			for (const attachment of next) {
 				if (attachment.status === "uploading" && attachment.file) {
@@ -2246,34 +1832,6 @@ export function PromptBox({
 		[canAcceptDroppedFiles, handleFilesPicked],
 	);
 
-	const handleSourceImagePicked = useCallback(
-		(files: FileList | File[]) => {
-			const file = Array.from(files)[0];
-			if (!file) return;
-			const validationError = validateSourceImage(file);
-			if (validationError) {
-				setSourceValidationError(validationError);
-				return;
-			}
-			if (
-				!sourceImageRef.current &&
-				attachmentsRef.current.length >= MAX_ATTACHMENTS
-			) {
-				setSourceValidationError("limit");
-				return;
-			}
-
-			const previous = sourceImageRef.current;
-			const next = toSourceImage(file);
-			if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl);
-			sourceImageRef.current = next;
-			setSourceImage(next);
-			setSourceValidationError(null);
-			void runSourceUpload(next.id, file);
-		},
-		[runSourceUpload],
-	);
-
 	const removeAttachment = useCallback((id: string) => {
 		const found = attachmentsRef.current.find(
 			(attachment) => attachment.id === id,
@@ -2281,9 +1839,6 @@ export function PromptBox({
 		if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
 		setAttachments((current) =>
 			current.filter((attachment) => attachment.id !== id),
-		);
-		setSourceValidationError((current) =>
-			current === "limit" ? null : current,
 		);
 	}, []);
 
@@ -2305,26 +1860,6 @@ export function PromptBox({
 		[runUpload],
 	);
 
-	const retrySourceImage = useCallback(() => {
-		const current = sourceImageRef.current;
-		if (!current?.file) return;
-		setSourceImage((source) =>
-			source?.id === current.id
-				? { ...source, status: "uploading", error: undefined }
-				: source,
-		);
-		setSourceValidationError(null);
-		void runSourceUpload(current.id, current.file);
-	}, [runSourceUpload]);
-
-	const clearSourceImage = useCallback(() => {
-		const current = sourceImageRef.current;
-		if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-		sourceImageRef.current = null;
-		setSourceImage(null);
-		setSourceValidationError(null);
-	}, []);
-
 	const clearAttachments = useCallback(() => {
 		for (const attachment of attachmentsRef.current) {
 			if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
@@ -2340,11 +1875,7 @@ export function PromptBox({
 	} = useVoiceDictation(
 		(text) => {
 			setValue((prev) => {
-				const next = prev ? `${prev.trimEnd()} ${text}` : text;
-				if (next !== prev) {
-					videoSubmissionIdRef.current = createVideoSubmissionId();
-				}
-				return next;
+				return prev ? `${prev.trimEnd()} ${text}` : text;
 			});
 			textareaRef.current?.focus();
 		},
@@ -2377,17 +1908,6 @@ export function PromptBox({
 			options.builderReasoning = builderReasoning;
 		}
 
-		if (isVideoMode) {
-			// Both video outputs carry the retry-proof idempotency token; only
-			// image animation sends the dedicated source keys.
-			options.videoSubmissionId = videoSubmissionIdRef.current;
-
-			if (requiresSourceImage && readySourceImage?.uploaded) {
-				options.sourceImageUrl = readySourceImage.uploaded.url;
-				options.sourceMediaType = readySourceImage.uploaded.mediaType;
-			}
-		}
-
 		return {
 			mode: routeMode,
 			output: selectedOutputId ?? undefined,
@@ -2398,9 +1918,6 @@ export function PromptBox({
 
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		const next = e.target.value;
-		if (next !== value) {
-			videoSubmissionIdRef.current = createVideoSubmissionId();
-		}
 		setValue(next);
 		onValueChange?.(next);
 		resize();
@@ -2425,9 +1942,6 @@ export function PromptBox({
 			try {
 				const result = await submitOverride.onSubmit(uploadedAttachments);
 				if (clearOnSubmit && result !== false) {
-					if (value.length > 0) {
-						videoSubmissionIdRef.current = createVideoSubmissionId();
-					}
 					setValue("");
 					onValueChange?.("");
 					clearAttachments();
@@ -2444,49 +1958,29 @@ export function PromptBox({
 		}
 
 		const prompt = value.trim();
-		const sourceIsRequired = requiresSourceImage && attachmentsEnabled;
-		const videoDraftWithoutUploads = requiresSourceImage && !attachmentsEnabled;
-		const genericUploadCanSubmit =
-			!requiresSourceImage &&
-			(prompt.length > 0 || readyAttachments.length > 0);
 		if (
 			submissionPending ||
 			hasUploadingAttachment ||
-			hasUploadingSource ||
-			(sourceIsRequired && !readySourceImage?.uploaded) ||
-			(!sourceIsRequired &&
-				!videoDraftWithoutUploads &&
-				!genericUploadCanSubmit)
+			(prompt.length === 0 && readyAttachments.length === 0)
 		) {
 			return;
 		}
 		const uploadedAttachments = readyAttachments.flatMap((attachment) =>
 			attachment.uploaded ? [attachment.uploaded] : [],
 		);
-		const submittedAttachments =
-			requiresSourceImage && readySourceImage?.uploaded
-				? [readySourceImage.uploaded, ...uploadedAttachments].slice(
-						0,
-						MAX_ATTACHMENTS,
-					)
-				: uploadedAttachments;
 		submitInFlightRef.current = true;
 		setIsLocallySubmitting(true);
 		try {
 			const result = await onSubmit(
 				prompt,
 				buildComposer(),
-				submittedAttachments,
+				uploadedAttachments,
 			);
 			if (result !== false) {
-				if (isVideoMode) {
-					videoSubmissionIdRef.current = createVideoSubmissionId();
-				}
 				if (clearOnSubmit) {
 					setValue("");
 					onValueChange?.("");
 					clearAttachments();
-					clearSourceImage();
 					// A skill applies to the message it was picked for. Dropping the
 					// chips keeps the playbooks out of every later system prompt; the
 					// director can still load one through read_skill.
@@ -2495,7 +1989,7 @@ export function PromptBox({
 			}
 		} catch {
 			// Chat and project callers surface their own localized error. Do not
-			// discard a prompt or source image that the server did not accept.
+			// discard a prompt or attachment that the server did not accept.
 		} finally {
 			submitInFlightRef.current = false;
 			setIsLocallySubmitting(false);
@@ -2554,11 +2048,10 @@ export function PromptBox({
 	const selectedOutputPlaceholder = selectedOutput
 		? pb.outputs[selectedOutput.id].placeholder
 		: undefined;
-	const resolvedPlaceholder = isVideoMode
-		? (selectedOutputPlaceholder ?? pb.routeModes.video.placeholder)
-		: (placeholder ??
-			selectedOutputPlaceholder ??
-			(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact));
+	const resolvedPlaceholder =
+		placeholder ??
+		selectedOutputPlaceholder ??
+		(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact);
 
 	const box = (
 		// biome-ignore lint/a11y/noStaticElementInteractions: file drag-and-drop enhances the existing keyboard-accessible attachment picker
@@ -2584,25 +2077,6 @@ export function PromptBox({
 					// paints its own full-bleed background.
 					<div className="w-full overflow-hidden rounded-t-3xl">{topSlot}</div>
 				) : null}
-				{requiresSourceImage ? (
-					<SourceImageCard
-						source={sourceImage}
-						validationError={sourceValidationError}
-						attachmentsEnabled={attachmentsEnabled}
-						disabled={submissionPending}
-						isHero={isHero}
-						onChoose={() => {
-							if (attachmentsEnabled) {
-								sourceImageInputRef.current?.click();
-							} else {
-								void handleSubmit();
-							}
-						}}
-						onDrop={handleSourceImagePicked}
-						onRemove={clearSourceImage}
-						onRetry={retrySourceImage}
-					/>
-				) : null}
 				<AttachedSkillChips
 					skills={attachedSkills}
 					selectedSkillIds={selectedSkillIds}
@@ -2615,33 +2089,18 @@ export function PromptBox({
 					onRetry={retryAttachment}
 				/>
 				{attachmentsEnabled ? (
-					<>
-						<input
-							ref={fileInputRef}
-							type="file"
-							multiple
-							accept={ATTACHMENT_ACCEPT}
-							className="hidden"
-							onChange={(event) => {
-								if (event.target.files) handleFilesPicked(event.target.files);
-								// Reset so picking the same file again re-fires onChange.
-								event.target.value = "";
-							}}
-						/>
-						<input
-							ref={sourceImageInputRef}
-							type="file"
-							accept={SOURCE_IMAGE_ACCEPT}
-							className="hidden"
-							onChange={(event) => {
-								if (event.target.files) {
-									handleSourceImagePicked(event.target.files);
-								}
-								// Reset so replacing with the same image re-fires onChange.
-								event.target.value = "";
-							}}
-						/>
-					</>
+					<input
+						ref={fileInputRef}
+						type="file"
+						multiple
+						accept={ATTACHMENT_ACCEPT}
+						className="hidden"
+						onChange={(event) => {
+							if (event.target.files) handleFilesPicked(event.target.files);
+							// Reset so picking the same file again re-fires onChange.
+							event.target.value = "";
+						}}
+					/>
 				) : null}
 				<InputGroupTextarea
 					ref={textareaRef}
@@ -2658,9 +2117,7 @@ export function PromptBox({
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
 							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
-						attachedSkills.length > 0 ||
-							attachments.length > 0 ||
-							requiresSourceImage
+						attachedSkills.length > 0 || attachments.length > 0
 							? "pt-2"
 							: "pt-4",
 					)}

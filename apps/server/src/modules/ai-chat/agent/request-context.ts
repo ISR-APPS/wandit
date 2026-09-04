@@ -5,12 +5,8 @@
  * they manually edited since the last AI change. Metadata BIASES the model;
  * the user's words always win.
  */
-import {
-	type AiChatRequestMetadata,
-	videoSubmissionIdSchema,
-} from "@wandit/contracts";
+import type { AiChatRequestMetadata } from "@wandit/contracts";
 import type { OutlineSection } from "../../pages/domain/stamp";
-import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
 	activePageOutline?: {
@@ -22,8 +18,6 @@ export type ChatRequestContext = {
 	// ISO alpha-2 country derived from the request IP at the edge (e.g. "DZ"),
 	// or null when no trusted geo header was present.
 	requestCountryCode?: string | null;
-	// Exact, ownership-checked source selected in the dedicated video picker.
-	selectedSourceImage?: AvailableImage;
 	// Set when the chat runs inside a shared team workspace. Informational for
 	// the model — enforcement lives in the tools/guards, never in the prompt.
 	workspace?: {
@@ -65,7 +59,6 @@ const MODE_LINES: Record<string, string> = {
 	marketing:
 		"- Mode: Marketing — the user wants a marketing deliverable generated as a named HTML document with generate_marketing_asset (it appears as a card in their Marketing tab). Gather any missing facts first. Do not queue a page build unless they clearly ask for a page.",
 	page: "- Mode: Site web — the user wants a website built.",
-	video: "- Mode: Vidéo — the user wants a video made.",
 };
 
 const OUTPUT_LINES: Record<string, string> = {
@@ -122,16 +115,7 @@ const MANUAL_EDIT_LABELS: Record<string, string> = {
 };
 
 // Transport/internal keys, or keys already rendered by a dedicated block.
-const HANDLED_OPTION_KEYS = new Set([
-	"builderModel",
-	"codMode",
-	"goal",
-	"motion",
-	"ratio",
-	"sourceImageUrl",
-	"sourceMediaType",
-	"videoSubmissionId",
-]);
+const HANDLED_OPTION_KEYS = new Set(["builderModel", "codMode", "goal"]);
 
 /**
  * Render the remaining generation settings generically ("Platform: tiktok.")
@@ -178,26 +162,6 @@ function aspectFromSizeToken(value: string): string | null {
 	const [, width, height] = match;
 
 	return width && height ? `${width}:${height}` : null;
-}
-
-/**
- * Resolves the idempotency seed for image animation. Composer options are
- * intentionally extensible, so only a validated browser UUID in Video mode
- * may replace the final user-message id fallback.
- */
-export function resolveVideoRequestKeySeed(
-	metadata: AiChatRequestMetadata | undefined,
-	fallback: string | undefined,
-): string | undefined {
-	if (metadata?.composer?.mode !== "video") {
-		return fallback;
-	}
-
-	const parsed = videoSubmissionIdSchema.safeParse(
-		metadata.composer.options?.videoSubmissionId,
-	);
-
-	return parsed.success ? parsed.data : fallback;
 }
 
 /**
@@ -253,75 +217,6 @@ export function buildChatRequestContext(
 			}
 
 			lines.push(...formatOptionLines(composer.options));
-		}
-
-		if (composer.mode === "video") {
-			// A missing output means a legacy client where image animation was
-			// the only video output — keep its behavior byte-for-byte.
-			const isCreator = composer.output === "video-creator";
-
-			if (isCreator) {
-				lines.push(
-					'  Output: "Video creator" — create a video from scratch with ' +
-						"generate_video (text-to-video). Run the creative-director " +
-						"intake for anything not settled below; never re-ask a " +
-						"setting this block supplies. Use animate_image only if the " +
-						"user explicitly asks to animate an uploaded image instead.",
-				);
-			} else {
-				lines.push(
-					'  Output: "Image animation" — animate the single uploaded ' +
-						"source image with animate_image. This is image-to-video: one " +
-						"five-second clip from the supplied still. Use the talking/max " +
-						"path only when a person must visibly speak to camera.",
-				);
-			}
-
-			if (context.selectedSourceImage) {
-				lines.push(
-					"  Dedicated source image for this request — pass these exact " +
-						`values to animate_image: URL ${JSON.stringify(
-							context.selectedSourceImage.url,
-						)}, media type ${context.selectedSourceImage.mediaType}.`,
-				);
-			}
-
-			const motion = composer.options?.motion;
-
-			if (isVideoMotion(motion)) {
-				lines.push(`  Motion strength: ${motion}.`);
-			}
-
-			const ratio = composer.options?.ratio;
-			const aspect = videoAspectFromRatio(ratio);
-
-			if (aspect) {
-				lines.push(`  Required video aspect ratio: ${aspect}.`);
-			}
-
-			if (isCreator) {
-				const duration = videoDurationFromOption(composer.options?.duration);
-
-				if (duration) {
-					lines.push(`  Required duration: ${duration} seconds.`);
-				}
-
-				const voice = composer.options?.voice;
-
-				if (voice === "none") {
-					lines.push(
-						"  Voiceover: none — the user chose no narration; do not ask.",
-					);
-				} else if (isVoiceLanguage(voice)) {
-					lines.push(
-						`  Voiceover: yes, in ${VOICE_LANGUAGE_NAMES[voice]} — write ` +
-							"the short script yourself and pass it in voiceover; do " +
-							"not ask about the voiceover again.",
-					);
-				}
-				// "auto" (or absent): the intake decides whether narration serves
-				// the video — no line on purpose.
-			}
 		}
 
 		paragraphs.push(lines.join("\n"));
@@ -431,46 +326,4 @@ function isPageGoal(goal: string): goal is PageGoal {
 
 function isCodMode(codMode: string): codMode is CodMode {
 	return (COD_MODES as readonly string[]).includes(codMode);
-}
-
-function isVideoMotion(
-	value: unknown,
-): value is "subtle" | "balanced" | "dynamic" {
-	return value === "subtle" || value === "balanced" || value === "dynamic";
-}
-
-const VOICE_LANGUAGE_NAMES = {
-	ar: "Arabic",
-	en: "English",
-	fr: "French",
-} as const;
-
-function isVoiceLanguage(
-	value: unknown,
-): value is keyof typeof VOICE_LANGUAGE_NAMES {
-	return value === "ar" || value === "en" || value === "fr";
-}
-
-function videoDurationFromOption(value: unknown): "5" | "10" | null {
-	if (value === "5" || value === "10") {
-		return value;
-	}
-
-	return null;
-}
-
-function videoAspectFromRatio(value: unknown): "9:16" | "1:1" | "16:9" | null {
-	if (value === "9-16") {
-		return "9:16";
-	}
-
-	if (value === "1-1") {
-		return "1:1";
-	}
-
-	if (value === "16-9") {
-		return "16:9";
-	}
-
-	return null;
 }

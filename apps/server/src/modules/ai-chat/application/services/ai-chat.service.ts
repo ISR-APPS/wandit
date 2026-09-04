@@ -13,49 +13,30 @@ import {
 	type AiChatMessageUsage,
 	type AiChatRequestMetadata,
 	type AiErrorData,
-	type AnimateImageInput,
-	type AnimateImageOutput,
 	type ApplyElementOpsInput,
 	type ApplyElementOpsOutput,
 	type AskUserInput,
 	type AskUserOutput,
 	ATTACHMENT_MEDIA_TYPES,
 	aiChatBillingErrorDataSchema,
-	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
-	type EditVideoInput,
-	type EditVideoOutput,
-	type ExtendVideoInput,
-	type ExtendVideoOutput,
-	editVideoInputSchema,
-	extendVideoInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
 	type GenerateMarketingAssetInput,
 	type GenerateMarketingAssetOutput,
 	type GeneratePageInput,
 	type GeneratePageOutput,
-	type GenerateVideoInput,
-	type GenerateVideoOutput,
 	type GetDirectionCandidatesInput,
 	type GetDirectionCandidatesOutput,
 	type GetPageOutlineOutput,
 	generateImageInputSchema,
 	generateMarketingAssetInputSchema,
 	generatePageInputSchema,
-	generateVideoInputSchema,
 	getDirectionCandidatesInputSchema,
-	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 	type InsertSectionInput,
 	type InsertSectionOutput,
-	type InspectVideoInput,
-	type InspectVideoOutput,
 	insertSectionInputSchema,
-	inspectVideoInputSchema,
-	type ProductVideoInput,
-	type ProductVideoOutput,
-	productVideoInputSchema,
 	type ReadAttachmentInput,
 	type ReadAttachmentOutput,
 	type ReadElementsInput,
@@ -91,10 +72,7 @@ import {
 } from "ai";
 import type { FastifyReply } from "fastify";
 
-import {
-	getPageHtml,
-	isUserUploadUrl,
-} from "../../../../infrastructure/storage/r2";
+import { getPageHtml } from "../../../../infrastructure/storage/r2";
 import {
 	type AiErrorContext,
 	captureAiError,
@@ -123,8 +101,6 @@ import {
 	type McpChatToolsResult,
 	McpChatToolsService,
 } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
-import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
-import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
@@ -168,16 +144,12 @@ import {
 	projectCreationReservationAttemptRef,
 	projectCreationStreamClaimAttemptRef,
 } from "../../agent/chat-metering";
-import {
-	buildChatRequestContext,
-	resolveVideoRequestKeySeed,
-} from "../../agent/request-context";
-import type { AvailableImage } from "../../agent/tools/animate-image.tool";
+import { buildChatRequestContext } from "../../agent/request-context";
 import {
 	resolveBuilderModelOption,
 	resolveBuilderReasoningOption,
 } from "../../agent/tools/builder-model-options";
-import type { AvailableVideo } from "../../agent/tools/inspect-video.tool";
+import type { AvailableImage } from "../../agent/tools/generate-image.tool";
 import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
@@ -231,10 +203,6 @@ export class AiChatService {
 		private readonly pageEditsService: PageEditsService,
 		@Inject(LeadScrapesRepository)
 		private readonly leadScrapesRepository: LeadScrapesRepository,
-		@Inject(MediaGenerationsRepository)
-		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
-		@Inject(VideoDirectorService)
-		private readonly videoDirector: VideoDirectorService,
 		@Inject(MarketingAssetsRepository)
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
 		@Inject(ImageGenerationsRepository)
@@ -778,26 +746,13 @@ export class AiChatService {
 			resolvedMcpResult = mcpResult;
 			const availableImages = collectAvailableImages(messages);
 			const availableDocuments = collectAvailableDocuments(messages);
-			const availableVideos = collectAvailableVideos(messages);
 			const conversationUserLinks = collectUserHttpUrls(messages);
-			const selectedSourceImage = resolveSelectedSourceImage(
-				metadata,
-				availableImages,
-				userId,
-			);
-			// A transport retry appends a new user message id, but the retained Video
-			// draft carries the same browser UUID. Prefer that validated token so the
-			// original DB attempt and Trigger.dev idempotency key are reused.
-			const requestKeySeed = resolveVideoRequestKeySeed(
-				metadata,
-				findFinalUserMessage(messages)?.id,
-			);
+			const requestKeySeed = findFinalUserMessage(messages)?.id;
 			const context = buildChatRequestContext({
 				activePageOutline,
 				manualEdits,
 				metadata,
 				requestCountryCode,
-				selectedSourceImage,
 				workspace:
 					scope.kind === "org"
 						? { actorCanManage: scope.actorIsLimitExempt }
@@ -831,7 +786,7 @@ export class AiChatService {
 			//    guidance does not cost tokens on every request,
 			// 3. follow user file parts with a text marker exposing their URL —
 			//    without it the model sees the image but cannot reference it in
-			//    generate_image/animate_image and asks for an already-sent photo,
+			//    generate_image and asks for an already-sent photo,
 			// 4. follow settled generation tool parts with a [Generated …] marker
 			//    exposing the finished asset's URL — without it the model never
 			//    learns any generated URL and asks the user to re-attach media
@@ -850,7 +805,6 @@ export class AiChatService {
 				{
 					connectorGenerationsRepository: this.connectorGenerationsRepository,
 					imageGenerationsRepository: this.imageGenerationsRepository,
-					mediaGenerationsRepository: this.mediaGenerationsRepository,
 					projectId,
 					scope,
 				},
@@ -861,7 +815,6 @@ export class AiChatService {
 				{
 					availableDocuments,
 					availableImages,
-					availableVideos,
 					conversationAssets:
 						generatedAssetsFromAnnotatedMessages(agentMessages),
 					conversationUserLinks,
@@ -876,32 +829,19 @@ export class AiChatService {
 						metadata?.composer?.options?.builderReasoning,
 					),
 					chatId,
-					hasHiggsfieldConnector:
-						mcpResult.configuredSlugs.includes("higgsfield"),
 					imageGenerationsRepository: this.imageGenerationsRepository,
 					leadScrapesRepository: this.leadScrapesRepository,
 					leadsRepository: this.leadsRepository,
 					marketingAssetsRepository: this.marketingAssetsRepository,
-					mediaGenerationsRepository: this.mediaGenerationsRepository,
 					meteringService: this.meteringService,
 					pageEditsService: this.pageEditsService,
 					pagesRepository: this.pagesRepository,
 					parentEventId: prepared.eventId ?? undefined,
 					projectId,
-					// Only the image-animation output hard-requires a validated source
-					// still. Video mode's other output (video-creator) is
-					// text-to-video; a missing output means a legacy client where
-					// image-animation was the only video output.
-					requireSelectedSource:
-						metadata?.composer?.mode === "video" &&
-						(metadata.composer.output ?? "image-animation") ===
-							"image-animation",
 					requestKeySeed,
 					requestCountryCode: requestCountryCode ?? null,
-					selectedSourceImage,
 					subject,
 					userId,
-					videoDirector: this.videoDirector,
 				},
 				contextWithMcpNotices || null,
 				mcpResult.tools,
@@ -2071,86 +2011,6 @@ const INCOMPLETE_GENERATE_IMAGE_INPUT: GenerateImageInput = {
 	title: "Interrupted image request",
 };
 
-const INTERRUPTED_ANIMATE_IMAGE_OUTPUT: AnimateImageOutput = {
-	message:
-		"The image animation request was interrupted before it could be queued. " +
-		"If the user still wants it, call animate_image again with their attachment.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
-	aspect: "16:9",
-	motion: "balanced",
-	prompt:
-		"The motion direction was lost when the request stream was interrupted.",
-	quality: "standard",
-	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
-	sourceMediaType: "image/jpeg",
-	talking: false,
-};
-
-const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
-	message:
-		"The video request was interrupted before it could be queued. If the " +
-		"user still wants it, call generate_video again with the brief.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
-	aspect: "16:9",
-	brief: "The creative brief was lost when the request stream was interrupted.",
-	durationSeconds: 10,
-	multiShot: false,
-	quality: "standard",
-	talking: false,
-	title: "Interrupted video request",
-};
-
-const INTERRUPTED_PRODUCT_VIDEO_OUTPUT: ProductVideoOutput = {
-	message:
-		"The product video request was interrupted before it could be queued. " +
-		"If the user still wants it, call product_video again with the product image.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_PRODUCT_VIDEO_INPUT: ProductVideoInput = {
-	image: { url: "https://invalid.local/interrupted-product-image.jpg" },
-	preset: "orbit",
-	productName: "Unknown product",
-	title: "Interrupted product video",
-};
-
-const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
-	message:
-		"The video edit request was interrupted before it could be queued. If " +
-		"the user still wants it, call edit_video again with the source clip.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_EDIT_VIDEO_INPUT: EditVideoInput = {
-	instruction:
-		"The requested video change was lost when the request stream was interrupted.",
-	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
-	title: "Interrupted video edit",
-};
-
-const INTERRUPTED_EXTEND_VIDEO_OUTPUT: ExtendVideoOutput = {
-	message:
-		"The video extension request was interrupted before it could be queued. " +
-		"If the user still wants it, call extend_video again with the source clip.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_EXTEND_VIDEO_INPUT: ExtendVideoInput = {
-	acceptSilent: false,
-	continuationBrief:
-		"The continuation brief was lost when the request stream was interrupted.",
-	legCount: 1,
-	legDurationSeconds: 5,
-	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
-	title: "Interrupted video extension",
-};
-
 const INTERRUPTED_READ_SKILL_MARKDOWN =
 	"[skill load was interrupted — call read_skill again if needed]";
 
@@ -2258,18 +2118,6 @@ const INTERRUPTED_READ_ATTACHMENT_OUTPUT: ReadAttachmentOutput = {
 
 const INCOMPLETE_READ_ATTACHMENT_INPUT: ReadAttachmentInput = {
 	url: "https://wandit.invalid/interrupted-attachment",
-};
-
-const INTERRUPTED_INSPECT_VIDEO_OUTPUT: InspectVideoOutput = {
-	message:
-		"The video inspection was interrupted before it finished — call " +
-		"inspect_video again if the reference is still needed.",
-	status: "unavailable",
-};
-
-const INCOMPLETE_INSPECT_VIDEO_INPUT: InspectVideoInput = {
-	focus: "structure",
-	url: "https://wandit.invalid/interrupted-video",
 };
 
 /**
@@ -2436,116 +2284,6 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_SCRAPE_LEADS_INPUT,
 					output: INTERRUPTED_SCRAPE_LEADS_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
-			if (part.type === "tool-animate_image") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = animateImageInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_ANIMATE_IMAGE_INPUT,
-					output: INTERRUPTED_ANIMATE_IMAGE_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
-			if (part.type === "tool-generate_video") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = generateVideoInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_GENERATE_VIDEO_INPUT,
-					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
-			if (part.type === "tool-product_video") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = productVideoInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_PRODUCT_VIDEO_INPUT,
-					output: INTERRUPTED_PRODUCT_VIDEO_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
-			if (part.type === "tool-edit_video") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = editVideoInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_EDIT_VIDEO_INPUT,
-					output: INTERRUPTED_EDIT_VIDEO_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
-			if (part.type === "tool-extend_video") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = extendVideoInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_EXTEND_VIDEO_INPUT,
-					output: INTERRUPTED_EXTEND_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -2776,28 +2514,6 @@ export function completeDanglingToolCalls(
 				};
 			}
 
-			if (part.type === "tool-inspect_video") {
-				if (
-					part.state !== "input-available" &&
-					part.state !== "input-streaming"
-				) {
-					return part;
-				}
-
-				changed = true;
-
-				const parsedInput = inspectVideoInputSchema.safeParse(part.input);
-
-				return {
-					...part,
-					input: parsedInput.success
-						? parsedInput.data
-						: INCOMPLETE_INSPECT_VIDEO_INPUT,
-					output: INTERRUPTED_INSPECT_VIDEO_OUTPUT,
-					state: "output-available" as const,
-				};
-			}
-
 			if (part.type === "tool-read_attachment") {
 				if (
 					part.state !== "input-available" &&
@@ -2918,9 +2634,11 @@ function findFinalUserMessage(
 	return undefined;
 }
 
-const IMAGE_TO_VIDEO_MEDIA_TYPE_SET = new Set<string>(
-	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
-);
+const AVAILABLE_IMAGE_MEDIA_TYPES = new Set([
+	"image/jpeg",
+	"image/png",
+	"image/webp",
+]);
 
 const ACTIVE_PAGE_OUTLINE_LOAD_TIMEOUT_MS = 1_500;
 
@@ -3031,13 +2749,12 @@ function collectAvailableImages(
 	const images = new Map<string, AvailableImage>();
 
 	const add = (url: string, mediaType: string) => {
-		if (!IMAGE_TO_VIDEO_MEDIA_TYPE_SET.has(mediaType)) {
+		if (!AVAILABLE_IMAGE_MEDIA_TYPES.has(mediaType)) {
 			return;
 		}
 
 		images.set(url, {
-			mediaType:
-				mediaType as (typeof IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES)[number],
+			mediaType,
 			url,
 		});
 	};
@@ -3107,79 +2824,4 @@ function collectAvailableDocuments(
 	}
 
 	return [...documents.values()];
-}
-
-/**
- * Video twin of collectAvailableDocuments: inspect_video's URL allowlist,
- * derived from the same validated transcript parts before video files are
- * replaced by text markers in the model-bound copy.
- */
-function collectAvailableVideos(
-	messages: readonly WanditUIMessage[],
-): AvailableVideo[] {
-	const videos = new Map<string, AvailableVideo>();
-
-	const add = (url: string, mediaType: string, filename?: string) => {
-		if (!mediaType.startsWith("video/")) {
-			return;
-		}
-
-		videos.set(url, {
-			...(filename ? { filename } : {}),
-			mediaType,
-			url,
-		});
-	};
-
-	for (const message of messages) {
-		for (const part of message.parts) {
-			if (message.role === "user" && part.type === "file") {
-				add(part.url, part.mediaType, part.filename);
-				continue;
-			}
-
-			if (part.type === "tool-ask_user" && part.state === "output-available") {
-				for (const file of part.output.files ?? []) {
-					add(file.url, file.mediaType, file.filename);
-				}
-			}
-		}
-	}
-
-	return [...videos.values()];
-}
-
-/**
- * The dashboard's dedicated source picker records its exact uploaded URL in
- * server-validated composer metadata. Resolve that marker only against an
- * eligible transcript file owned by this user, then close the tool over it so
- * another context attachment cannot be substituted by the model.
- */
-function resolveSelectedSourceImage(
-	metadata: AiChatRequestMetadata | undefined,
-	availableImages: readonly AvailableImage[],
-	userId: string,
-): AvailableImage | undefined {
-	if (metadata?.composer?.mode !== "video") {
-		return undefined;
-	}
-
-	const sourceImageUrl = metadata.composer.options?.sourceImageUrl;
-	const sourceMediaType = metadata.composer.options?.sourceMediaType;
-
-	if (
-		typeof sourceImageUrl !== "string" ||
-		typeof sourceMediaType !== "string"
-	) {
-		return undefined;
-	}
-
-	const selected = availableImages.find(
-		(image) =>
-			image.url === sourceImageUrl && image.mediaType === sourceMediaType,
-	);
-
-	return selected && isUserUploadUrl(selected.url, userId)
-		? selected
-		: undefined;
 }

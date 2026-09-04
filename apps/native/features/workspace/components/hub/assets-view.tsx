@@ -33,13 +33,9 @@ const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
 const SOURCE_LABEL_KEYS: Record<
 	ProjectAsset["source"],
 	| "native.workspace.assetsView.srcGeneration"
-	| "native.workspace.assetsView.srcAnimation"
-	| "native.workspace.assetsView.srcVideo"
 	| "native.workspace.assetsView.srcPageBuild"
 > = {
 	"image-generation": "native.workspace.assetsView.srcGeneration",
-	"image-animation": "native.workspace.assetsView.srcAnimation",
-	"video-generation": "native.workspace.assetsView.srcVideo",
 	"page-build": "native.workspace.assetsView.srcPageBuild",
 };
 
@@ -51,7 +47,7 @@ type AssetsViewProps = {
 /**
  * Assets section of the project hub (design frame "03 · Assets"), fed by the
  * project-assets endpoint: every media file the AI produced for this project
- * — standalone image generations, animations, and page-build media — newest
+ * — standalone image generations and page-build media — newest
  * first (server order, web parity). A tile tap opens the shared full-screen
  * viewer; the download button forces the credentialed download and hands the
  * file to the OS share sheet.

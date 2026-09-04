@@ -484,6 +484,13 @@
       "when": 1788535213934,
       "tag": "0068_signup-grant-20",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1788537607667,
+      "tag": "0069_remove-video-generation",
+      "breakpoints": true
     }
   ]
 }

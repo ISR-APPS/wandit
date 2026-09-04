@@ -34,7 +34,7 @@ export type AiErrorSource = z.infer<typeof aiErrorSourceSchema>;
 export const aiErrorDataSchema = z.object({
 	kind: aiErrorKindSchema,
 	source: aiErrorSourceSchema,
-	/** Display name: "Kling", "Higgsfield", "OpenAI", "Vercel AI Gateway". Null → client fallback "The AI provider". */
+	/** Display name: "Higgsfield", "OpenAI", "Vercel AI Gateway". Null → client fallback "The AI provider". */
 	providerLabel: z.string().max(40).nullable(),
 	retryable: z.boolean(),
 	/** true = the turn or generation ended. false = a notice on a turn that continues (connector_unreachable). */

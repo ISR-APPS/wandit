@@ -6,7 +6,7 @@ type ElapsedTimerFormat = "clock" | "compact";
 /**
  * Live elapsed readout seeded from an ISO timestamp (web parity with the
  * page-build/connector clocks and the MCP row timer). Two formats:
- * - "clock": `m:ss` — page builds, connector cards, video renders.
+ * - "clock": `m:ss` — page builds and connector cards.
  * - "compact": `0.8s` under 10 s, `42s` under a minute, then `1:07` —
  *   the MCP row format, ticking at 250 ms.
  * Callers must key the component by `since` so a retry resets the clock.

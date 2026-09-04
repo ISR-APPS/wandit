@@ -53,16 +53,6 @@ vi.mock("../../ai-provider/domain/llm-provider", () => ({
 	}),
 }));
 
-vi.mock("./tools/edit-video.tool", () => ({
-	createEditVideoTool: vi.fn(() => ({ execute: vi.fn() })),
-	editVideoToolSchemaOnly: {},
-}));
-
-vi.mock("./tools/extend-video.tool", () => ({
-	createExtendVideoTool: vi.fn(() => ({ execute: vi.fn() })),
-	extendVideoToolSchemaOnly: {},
-}));
-
 vi.mock("./gateway-fetch", () => ({
 	chatGatewayFetch: vi.fn(),
 }));
@@ -105,7 +95,6 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			imageGenerationsRepository: {},
 			leadScrapesRepository: {},
 			marketingAssetsRepository: {},
-			mediaGenerationsRepository: {},
 			meteringService: {},
 			pageEditsService: {},
 			pagesRepository: {},
@@ -130,15 +119,13 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		expect(AI_CHAT_MAX_STEPS).toBe(12);
 	});
 
-	it("gates video inspection while keeping every history twin", () => {
+	it("omits retired first-party video tools from runtime and validation", () => {
 		createChatAgent({
 			availableImages: [],
-			availableVideos: [],
 			chatId: "chat-1",
 			imageGenerationsRepository: {},
 			leadScrapesRepository: {},
 			marketingAssetsRepository: {},
-			mediaGenerationsRepository: {},
 			meteringService: {},
 			pageEditsService: {},
 			pagesRepository: {},
@@ -149,46 +136,19 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		} as never);
 
 		const tools = aiMocks.settings?.tools as Record<string, Tool> | undefined;
-		expect(tools?.product_video?.execute).toBeTypeOf("function");
-		expect(tools?.edit_video?.execute).toBeTypeOf("function");
-		expect(tools?.extend_video?.execute).toBeTypeOf("function");
-		expect(tools?.inspect_video?.execute).toBeTypeOf("function");
-		expect(aiMocks.settings?.instructions).toContain(
-			"call inspect_video FIRST",
-		);
-		expect(aiChatToolsForValidation.product_video.execute).toBeUndefined();
-		expect(aiChatToolsForValidation.edit_video.execute).toBeUndefined();
-		expect(aiChatToolsForValidation.extend_video.execute).toBeUndefined();
-		expect(aiChatToolsForValidation.inspect_video.execute).toBeUndefined();
 
-		createChatAgent({
-			availableImages: [],
-			availableVideos: [],
-			chatId: "chat-1",
-			hasHiggsfieldConnector: true,
-			imageGenerationsRepository: {},
-			leadScrapesRepository: {},
-			marketingAssetsRepository: {},
-			mediaGenerationsRepository: {},
-			meteringService: {},
-			pageEditsService: {},
-			pagesRepository: {},
-			projectId: "project-1",
-			requestCountryCode: null,
-			subject: { actorUserId: "user-1" },
-			userId: "user-1",
-		} as never);
-
-		const connectedTools = aiMocks.settings?.tools as
-			| Record<string, Tool>
-			| undefined;
-		expect(connectedTools).not.toHaveProperty("inspect_video");
-		expect(aiMocks.settings?.instructions).not.toContain(
-			"call inspect_video FIRST",
-		);
-		expect(aiChatToolsForValidation.inspect_video).toBeDefined();
+		for (const name of [
+			"animate_image",
+			"edit_video",
+			"extend_video",
+			"generate_video",
+			"inspect_video",
+			"product_video",
+		]) {
+			expect(tools).not.toHaveProperty(name);
+			expect(aiChatToolsForValidation).not.toHaveProperty(name);
+		}
 	});
-
 	it("repairs invalid tool input and safely declines unrecoverable calls", async () => {
 		const repairedObject = { brief: "A complete page brief" };
 		aiMocks.generateObject.mockResolvedValueOnce({ object: repairedObject });
@@ -199,7 +159,6 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			imageGenerationsRepository: {},
 			leadScrapesRepository: {},
 			marketingAssetsRepository: {},
-			mediaGenerationsRepository: {},
 			meteringService: {},
 			pageEditsService: {},
 			pagesRepository: {},
@@ -304,7 +263,6 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			imageGenerationsRepository: {},
 			leadScrapesRepository: {},
 			marketingAssetsRepository: {},
-			mediaGenerationsRepository: {},
 			meteringService: {},
 			pageEditsService: {},
 			pagesRepository: {},
@@ -520,7 +478,6 @@ describe("chat agent cost bounds and gateway attribution", () => {
 					imageGenerationsRepository: {},
 					leadScrapesRepository: {},
 					marketingAssetsRepository: {},
-					mediaGenerationsRepository: {},
 					meteringService: { captureGeneration },
 					pageEditsService: {},
 					pagesRepository: {},

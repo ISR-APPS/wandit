@@ -22,23 +22,15 @@ const REQUIRED_WORKFLOW_IDS = [
 	"ai-stream-chat",
 	"site-builder-steps",
 	"site-builder-image-child",
-	"site-builder-video-child",
 	"standalone-image",
-	"standalone-animation",
-	"standalone-text-to-video",
-	"standalone-video-edit",
-	"standalone-product-video",
-	"standalone-video-extension",
 	"marketing",
 	"connector-inline",
 	"connector-background",
 	"lead-scrape",
 	"transcription",
-	"video-voiceover-helper",
 	"legacy-worker-chat",
 	"project-title-helper",
 	"higgsfield-prompt-refine-helper",
-	"video-inspect-helper",
 	"video-director-helper",
 	"chat-tool-call-repair-helper",
 ] as const;
@@ -51,12 +43,7 @@ const PROVIDER_CALL_PATTERNS = [
 	{ name: "embedMany", pattern: /\bembedMany\s*\(/gu },
 	{ name: "generateImage", pattern: /\bgenerateImage\s*\(/gu },
 	{ name: "generateObject", pattern: /\bgenerateObject\s*\(/gu },
-	{
-		name: "generateSpeech",
-		pattern: /\bexperimental_generateSpeech\s*\(/gu,
-	},
 	{ name: "generateText", pattern: /\bgenerateText\s*\(/gu },
-	{ name: "generateVideo", pattern: /\bgenerateVideo\s*\(/gu },
 	{ name: "streamText", pattern: /\bstreamText\s*\(/gu },
 ] as const;
 
@@ -90,34 +77,10 @@ const EXPECTED_PROVIDER_CALLS = [
 			"apps/server/src/modules/ai-chat/agent/site-builder/site-builder-agent.ts",
 	},
 	{
-		// One call per pipeline: generateBuildVideo (image) + generateTextToVideo.
-		count: 2,
-		name: "generateVideo",
-		source:
-			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
-	},
-	{
-		count: 1,
-		name: "generateVideo",
-		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
-	},
-	{
-		count: 1,
-		name: "generateVideo",
-		source:
-			"apps/server/src/modules/ai-chat/agent/site-builder/product-video.ts",
-	},
-	{
 		count: 1,
 		name: "doGenerate",
 		source:
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
-	},
-	{
-		count: 1,
-		name: "generateSpeech",
-		source:
-			"apps/server/src/modules/generation/application/services/speech.service.ts",
 	},
 	{
 		count: 1,
@@ -142,11 +105,6 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateText",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
-	},
-	{
-		count: 1,
-		name: "generateText",
-		source: "apps/server/src/modules/ai-chat/agent/tools/inspect-video.tool.ts",
 	},
 	{
 		count: 1,
@@ -240,11 +198,12 @@ describe("operation registry", () => {
 		).toThrow("exceeds 300 seconds");
 	});
 
-	it("allows builder and connector media children symmetrically", () => {
+	it("allows image builds and connector media children", () => {
 		expect(canNestOperation("page_build", "image")).toBe(true);
-		expect(canNestOperation("page_build", "video")).toBe(true);
+		expect(canNestOperation("page_build", "video")).toBe(false);
 		expect(canNestOperation("connector", "image")).toBe(true);
 		expect(canNestOperation("connector", "video")).toBe(true);
+		expect(canNestOperation("chat", "video")).toBe(false);
 		expect(canNestOperation("image", "page_build")).toBe(false);
 	});
 

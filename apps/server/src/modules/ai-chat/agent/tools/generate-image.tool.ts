@@ -44,11 +44,15 @@ import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { stampHtml } from "../../../pages/domain/stamp";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import type { AvailableImage } from "./animate-image.tool";
 
 const logger = new Logger("generate-image");
 const TRIGGER_HANDOFF_ATTEMPTS = 3;
 const TRIGGER_IDEMPOTENCY_TTL = "14d";
+
+export type AvailableImage = {
+	mediaType: string;
+	url: string;
+};
 
 export type GenerateImageToolDeps = {
 	availableImages: readonly AvailableImage[];

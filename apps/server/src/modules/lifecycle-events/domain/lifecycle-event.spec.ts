@@ -20,7 +20,6 @@ describe("lifecycle event rules", () => {
 			"website_generated",
 			"landing_page_generated",
 			"image_generated",
-			"video_generated",
 			"marketing_strategy_generated",
 			"ads_connected",
 			"ads_analysis_completed",
@@ -31,7 +30,7 @@ describe("lifecycle event rules", () => {
 			"upgrade_clicked",
 			"payment_completed",
 		]);
-		expect([...ONCE_PER_USER_EVENTS]).toHaveLength(13);
+		expect([...ONCE_PER_USER_EVENTS]).toHaveLength(12);
 		expect(ONCE_PER_USER_EVENTS.has("pricing_viewed")).toBe(false);
 		expect(ONCE_PER_USER_EVENTS.has("upgrade_clicked")).toBe(false);
 	});
@@ -74,6 +73,7 @@ describe("lifecycle event rules", () => {
 			"not_free",
 			"paid_meanwhile",
 			"no_email",
+			"retired",
 		]);
 	});
 });

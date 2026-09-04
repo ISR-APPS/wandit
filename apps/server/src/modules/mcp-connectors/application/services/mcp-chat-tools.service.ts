@@ -565,9 +565,9 @@ const SKIP_REASON_GUIDANCE: Record<McpSkipReason, string> = {
 	policy_invalid:
 		"Tell the user that its connector configuration must be fixed by an administrator if they ask for it.",
 	reconnect_required:
-		"If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
 	unreachable:
-		"If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and ask them to reconnect or try again later — never announce or pretend to start that work.",
 };
 
 export type McpChatToolsResult = {

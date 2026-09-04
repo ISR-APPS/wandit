@@ -13,7 +13,6 @@ import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "./cod-builder-prompt";
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
-import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
 import {
 	type ScreenshotCapture,
 	type ScreenshotSession,
@@ -38,19 +37,12 @@ import { VirtualFileSystem } from "./virtual-files";
 const REQUIRED_SCREENSHOT_PASSES = REQUIRED_SCREENSHOT_PASSES_BY_KIND.website;
 const MAX_SCREENSHOT_PASSES = MAX_SCREENSHOT_PASSES_BY_KIND.website;
 
-// The guards must be verifiable without a network: the image/video handlers
-// (which talk to the gateway and R2) are mocked. Everything else runs for
-// real.
+// The guards must be verifiable without a network: the image handler (which
+// talks to the gateway and R2) is mocked. Everything else runs for real.
 vi.mock("./generate-image", async (importOriginal) => {
 	const original = await importOriginal<typeof import("./generate-image")>();
 
 	return { ...original, generateBuildImage: vi.fn() };
-});
-
-vi.mock("./generate-video", async (importOriginal) => {
-	const original = await importOriginal<typeof import("./generate-video")>();
-
-	return { ...original, generateBuildVideo: vi.fn() };
 });
 
 vi.mock("./brief-user-photos", () => ({
@@ -144,13 +136,6 @@ const IMAGE_INPUT = {
 	aspect: "16:9" as const,
 	prompt: "editorial photography of a ceramic tagine, warm side light",
 	role: "hero background",
-};
-
-const VIDEO_INPUT = {
-	aspect: "16:9" as const,
-	imageUrl:
-		"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
-	motionPrompt: "steam drifts slowly, warm light breathes",
 };
 
 function fakeCapture(): ScreenshotCapture {
@@ -253,7 +238,6 @@ function mockSiteBuildStream() {
 beforeEach(() => {
 	vi.mocked(extractBriefUserPhotoUrls).mockReset().mockReturnValue([]);
 	vi.mocked(generateBuildImage).mockReset();
-	vi.mocked(generateBuildVideo).mockReset();
 });
 
 describe("write_file guard", () => {
@@ -2083,20 +2067,6 @@ const IMAGE_CHILD_EVENT = {
 	},
 	reservedCredits: 336,
 };
-const VIDEO_CHILD_EVENT = {
-	id: "video_event_1",
-	operation: "video",
-	pricingSnapshot: {
-		estimatedUnitUsdMicros: 210_000,
-		mode: "measured",
-		operation: "video",
-		source: "operation_registry_reservation",
-		unit: "video",
-		usdMicrosPerCredit: 40_000,
-	},
-	reservedCredits: 550,
-};
-
 describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {
@@ -2472,210 +2442,6 @@ describe("generate_image tool", () => {
 		expect(generateBuildImage).toHaveBeenLastCalledWith(
 			expect.objectContaining({ sourceImageUrls: sourceImageUrls.slice(0, 6) }),
 		);
-	});
-});
-
-describe("animate_image tool", () => {
-	it("creates and settles a video child event under the page-build event", async () => {
-		const metering = {
-			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
-			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
-			estimateMeasuredCost: vi.fn(async () => ({
-				costUsdMicros: 210_000,
-				credits: 525,
-				unitUsdMicros: 42_000,
-			})),
-			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
-			settle: vi.fn(async () => undefined),
-			usdMicrosPerCredit: 40_000,
-		};
-		const { options, tools } = setup({
-			meteringService: metering as unknown as MeteringService,
-			usageEventId: "page_event_1",
-		});
-		const providerMetadata = {
-			gateway: { generationId: "generation_video_1" },
-		};
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			mediaType: "video/mp4",
-			model: "test/video-model",
-			providerMetadata,
-			status: "generated",
-			url: "https://assets.example.com/vid-1.mp4",
-		});
-
-		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1"));
-
-		expect(metering.reserve).toHaveBeenCalledWith(
-			"video",
-			{ actorUserId: "user_1" },
-			expect.objectContaining({
-				attemptRef: "attempt_1:video:1",
-				credits: 550,
-				estimatedCostUsdMicros: 210_000,
-				measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
-				idempotencyKey: "page-build-video:page_event_1:1",
-				model: "klingai/kling-v2.6-i2v",
-				parentEventId: "page_event_1",
-			}),
-		);
-		expect(metering.captureGeneration).toHaveBeenCalledWith("video_event_1", {
-			providerMetadata,
-			stepUsage: {
-				metering: { fixedUnits: 1 },
-				providerUsage: null,
-			},
-		});
-		expect(metering.settle).toHaveBeenCalledWith(
-			"video_event_1",
-			expect.objectContaining({
-				costUsdMicros: 210_000,
-				finalCredits: 525,
-				pricing: "direct",
-			}),
-		);
-	});
-
-	it("charges a provider-completed video when direct R2 storage fails", async () => {
-		const metering = {
-			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
-			refund: vi.fn(async () => undefined),
-			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
-			estimateMeasuredCost: vi.fn(async () => ({
-				costUsdMicros: 210_000,
-				credits: 525,
-				unitUsdMicros: 42_000,
-			})),
-			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
-			settle: vi.fn(async () => undefined),
-			usdMicrosPerCredit: 40_000,
-		};
-		const { options, state, tools } = setup({
-			meteringService: metering as unknown as MeteringService,
-			usageEventId: "page_event_1",
-		});
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			message: "R2 unavailable",
-			model: "test/video-model",
-			providerMetadata: {
-				gateway: { generationId: "generation_video_storage_failure" },
-			},
-			providerUnits: 1,
-			status: "failed",
-		});
-
-		await expect(
-			tools.animate_image.execute?.(VIDEO_INPUT, options("vid_storage")),
-		).resolves.toEqual({ message: "R2 unavailable", status: "failed" });
-		expect(state.videosGenerated).toBe(0);
-		expect(metering.captureGeneration).toHaveBeenCalledWith(
-			"video_event_1",
-			expect.objectContaining({
-				stepUsage: expect.objectContaining({
-					metering: { fixedUnits: 1 },
-				}),
-			}),
-		);
-		expect(metering.settle).toHaveBeenCalledWith(
-			"video_event_1",
-			expect.objectContaining({
-				finalCredits: 525,
-				pricingSnapshot: expect.objectContaining({ units: 1 }),
-			}),
-		);
-		expect(metering.refund).not.toHaveBeenCalled();
-	});
-
-	it("refuses once the video budget is exhausted", async () => {
-		const { options, state, tools } = setup();
-		state.videoSequence = MAX_VIDEOS;
-
-		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
-
-		expect(output).toMatchObject({
-			message: expect.stringContaining("budget"),
-			status: "failed",
-		});
-		expect(generateBuildVideo).not.toHaveBeenCalled();
-	});
-
-	it("returns the video URL with the source image as poster", async () => {
-		const { options, state, tools } = setup();
-		const url =
-			"https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4";
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			mediaType: "video/mp4",
-			model: "test/video-model",
-			providerMetadata: {},
-			status: "generated",
-			url,
-		});
-
-		const output = materialize(
-			await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1")),
-		);
-
-		expect(generateBuildVideo).toHaveBeenCalledWith({
-			aspect: "16:9",
-			attemptId: "attempt_1",
-			imageUrl: VIDEO_INPUT.imageUrl,
-			index: 1,
-			metering: { operation: "video", organizationId: null, userId: "user_1" },
-			modelId: "klingai/kling-v2.6-i2v",
-			motionPrompt: VIDEO_INPUT.motionPrompt,
-			projectId: "project_1",
-			voiceControl: false,
-		});
-		expect(output).toEqual({
-			posterUrl: VIDEO_INPUT.imageUrl,
-			status: "generated",
-			url,
-		});
-		expect(state.videosGenerated).toBe(1);
-	});
-
-	it("relays unavailable without counting the video — graceful fallback", async () => {
-		const { options, state, tools } = setup();
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			message: "video animation not configured — use the still image instead",
-			status: "unavailable",
-		});
-
-		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
-
-		expect(output).toEqual({
-			message: "video animation not configured — use the still image instead",
-			status: "unavailable",
-		});
-		expect(state.videosGenerated).toBe(0);
-	});
-
-	it("counts a failed attempt and never reuses the key index", async () => {
-		const { options, state, tools } = setup();
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			message: "gateway exploded",
-			status: "failed",
-		});
-
-		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
-
-		expect(output).toEqual({ message: "gateway exploded", status: "failed" });
-		expect(state.videosGenerated).toBe(0);
-
-		// The key sequence is never reused: a retry after a failure must not
-		// collide with a video a concurrent call may have uploaded meanwhile.
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			mediaType: "video/mp4",
-			model: "test/video-model",
-			providerMetadata: {},
-			status: "generated",
-			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
-		});
-		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_2"));
-		expect(generateBuildVideo).toHaveBeenLastCalledWith(
-			expect.objectContaining({ index: 2 }),
-		);
-		expect(state.videosGenerated).toBe(1);
 	});
 });
 
@@ -3275,24 +3041,6 @@ describe("progress events", () => {
 		await tools.write_file.onInputStart?.(options("w1"));
 
 		expect(events).toEqual([{ type: "write-start" }]);
-	});
-
-	it("emits video-generated for a successful animate_image call", async () => {
-		const events: BuildProgressEvent[] = [];
-		const { options, tools } = setup({
-			onEvent: (event) => events.push(event),
-		});
-		vi.mocked(generateBuildVideo).mockResolvedValue({
-			mediaType: "video/mp4",
-			model: "test/video-model",
-			providerMetadata: {},
-			status: "generated",
-			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
-		});
-
-		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1"));
-
-		expect(events).toEqual([{ type: "video-generated" }]);
 	});
 
 	it("does not emit image-generated when the provider fails", async () => {

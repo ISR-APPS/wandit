@@ -52,11 +52,6 @@ export const featureAdoptionMetadata: Record<
 		description: "Image generation",
 		mark: "IM",
 	},
-	videos: {
-		label: "Videos",
-		description: "Video generation",
-		mark: "VI",
-	},
 	marketing: {
 		label: "Marketing",
 		description: "Marketing assets",

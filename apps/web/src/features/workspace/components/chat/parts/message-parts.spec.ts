@@ -590,23 +590,6 @@ describe("orderMessagePartEntries", () => {
 		]);
 	});
 
-	it("moves the product-video card after the closing text", () => {
-		const entries = orderMessagePartEntries(
-			coalesceMessageParts(
-				asMessageParts([
-					toolPart("tool-product_video", "product-video-1"),
-					{
-						text: "Your product clip is rendering.",
-						state: "done",
-						type: "text",
-					},
-				]),
-			),
-		);
-
-		expect(entries.map(entryLabel)).toEqual(["text", "tool-product_video"]);
-	});
-
 	it("keeps connector receipts chronological when the run has no deliverables", () => {
 		const entries = orderMessagePartEntries(
 			coalesceMessageParts(
@@ -658,7 +641,7 @@ describe("orderMessagePartEntries", () => {
 					{ type: "text", text: "Mid-run note.", state: "done" },
 					dynamicPart("mcp-1"),
 					{ type: "text", text: "Closing text.", state: "done" },
-					toolPart("tool-animate_image", "vid-1"),
+					toolPart("tool-generate_marketing_asset", "marketing-1"),
 				]),
 			),
 		);
@@ -668,7 +651,7 @@ describe("orderMessagePartEntries", () => {
 			"mcp-run:receipt",
 			"text",
 			"tool-generate_image",
-			"tool-animate_image",
+			"tool-generate_marketing_asset",
 		]);
 	});
 
@@ -773,56 +756,55 @@ describe("MessageParts turn block", () => {
 		output: { ok: true },
 	};
 
-	it.each([
-		{
-			expectedCopy: "workspace.chat.videoAttempt.product.queueing",
-			input: {
-				image: {
-					mediaType: "image/png",
-					url: "https://assets.example.com/product.png",
-				},
-				preset: "orbit",
-				productName: "PulseBuds",
-				title: "PulseBuds product video",
-			},
-			type: "tool-product_video",
-		},
-		{
-			expectedCopy: "workspace.chat.videoAttempt.edit.queueing",
-			input: {
-				instruction: "Keep the framing and change the bottle to blue.",
-				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
-				title: "Blue bottle edit",
-			},
-			type: "tool-edit_video",
-		},
-		{
-			expectedCopy: "workspace.chat.videoAttempt.extend.queueing",
-			input: {
-				continuationBrief: "Continue the orbit into a close-up.",
-				legCount: 1,
-				legDurationSeconds: 5,
-				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
-				title: "Extended orbit",
-			},
-			type: "tool-extend_video",
-		},
-	])("renders and counts $type as visible reply content", (testCase) => {
-		const [part] = asMessageParts([
-			{
-				input: testCase.input,
-				state: "input-available",
-				toolCallId: `${testCase.type}-1`,
-				type: testCase.type,
-			},
-		]);
-		if (!part) throw new Error("Expected a video attempt tool part");
+	it("hydrates and skips retired video tool parts from persisted threads", () => {
+		const legacyParts = [
+			"tool-generate_video",
+			"tool-product_video",
+			"tool-animate_image",
+			"tool-edit_video",
+			"tool-extend_video",
+			"tool-inspect_video",
+		].map((type, index) => ({
+			type,
+			toolCallId: `legacy-video-${index}`,
+			state: "output-available",
+			input: {},
+			output: { title: "Retired video result" },
+		}));
+		const persisted: ChatMessage = {
+			id: "persisted-legacy-video-turn",
+			chatId: "11111111-1111-4111-8111-111111111111",
+			role: "assistant",
+			parts: [
+				...legacyParts,
+				{ type: "text", text: "This historical reply is still available." },
+			] as ChatMessage["parts"],
+			metadata: null,
+			seq: 5,
+			createdAt: "2026-08-01T10:00:00.000Z",
+		};
 
-		expect(isVisibleAssistantReplyPart(part)).toBe(true);
+		const [hydrated] = hydrateAiChatMessages([persisted]);
+		if (!hydrated)
+			throw new Error("Expected persisted assistant row to hydrate");
 
-		const html = renderMessage("assistant", [part]);
-		expect(html).toContain(testCase.expectedCopy);
-		expect(html.match(/>Wandit</g)).toHaveLength(1);
+		for (const part of legacyParts) {
+			expect(
+				isVisibleAssistantReplyPart(part as WanditUIMessage["parts"][number]),
+			).toBe(false);
+		}
+		const html = renderToStaticMarkup(
+			createElement(MessageParts, {
+				message: hydrated,
+				tokenUsageVisible: false,
+				isStreaming: false,
+				isLastAssistantMessage: false,
+				onToolApprovalResponse: () => {},
+			}),
+		);
+
+		expect(html).toContain("This historical reply is still available.");
+		expect(html).not.toContain("Retired video result");
 	});
 
 	it("keeps the existing treatment for a single image", () => {

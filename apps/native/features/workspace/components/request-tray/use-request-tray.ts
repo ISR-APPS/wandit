@@ -61,6 +61,14 @@ const IMAGE_MEDIA_TYPES = [
 	"image/avif",
 ];
 const DOCUMENT_MEDIA_TYPES = ["application/pdf", "text/plain"];
+const VIDEO_MEDIA_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
+const AUDIO_MEDIA_TYPES = [
+	"audio/mpeg",
+	"audio/wav",
+	"audio/mp4",
+	"audio/x-m4a",
+	"audio/ogg",
+];
 
 // Fallback for pickers that omit mimeType — keyed by lowercase extension.
 const EXTENSION_MEDIA_TYPES: Record<string, string> = {
@@ -75,13 +83,15 @@ const EXTENSION_MEDIA_TYPES: Record<string, string> = {
 };
 
 function acceptedMediaTypes(
-	accept: readonly ("image" | "document")[],
+	accept: readonly ("image" | "document" | "video" | "audio")[],
 	mediaTypes?: readonly string[],
 ) {
 	if (mediaTypes && mediaTypes.length > 0) return new Set(mediaTypes);
 	return new Set([
 		...(accept.includes("image") ? IMAGE_MEDIA_TYPES : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+		...(accept.includes("video") ? VIDEO_MEDIA_TYPES : []),
+		...(accept.includes("audio") ? AUDIO_MEDIA_TYPES : []),
 	]);
 }
 

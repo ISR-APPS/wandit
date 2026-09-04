@@ -12,7 +12,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { chats } from "./chats";
-import { mediaGenerationStatus } from "./media-generation-attempts";
+import { generationStatus } from "./generation-status";
 import { projects } from "./projects";
 
 export const imageGenerationAspect = pgEnum("image_generation_aspect", [
@@ -48,7 +48,7 @@ export const imageGenerationAttempts = pgTable(
 			onDelete: "set null",
 		}),
 		requestKey: text("request_key").notNull(),
-		status: mediaGenerationStatus("status").notNull().default("queued"),
+		status: generationStatus("status").notNull().default("queued"),
 		// Display name shown in the chat card and the Assets tab.
 		title: text("title").notNull(),
 		prompt: text("prompt").notNull(),
