@@ -1501,6 +1501,62 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
+	it("refunds the hold immediately when a turn ends with no usage", async () => {
+		const { meteringService, service } = buildService();
+		const options = streamOptions();
+
+		await service.stream(options);
+		await capturedExecute()({ writer: { merge: vi.fn(), write: vi.fn() } });
+		// Stop before the first model step: no step usage, no finish usage. The
+		// hold must not stay reserved until the stranded sweep prices nothing.
+		await capturedAgentStreamOptions().onEnd?.({} as never);
+
+		expect(meteringService.settle).not.toHaveBeenCalled();
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage-event-1",
+			"ai_chat_no_usage",
+		);
+		options.prepared.release();
+	});
+
+	it("keeps the response path alive when the empty-turn refund fails", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.refund.mockRejectedValue(
+			new MeteringStateConflictError("usage-event-1", "settled", "refund"),
+		);
+		const options = streamOptions();
+
+		await service.stream(options);
+		await capturedExecute()({ writer: { merge: vi.fn(), write: vi.fn() } });
+
+		await expect(
+			capturedAgentStreamOptions().onEnd?.({} as never),
+		).resolves.toBeUndefined();
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage-event-1",
+			"ai_chat_no_usage",
+		);
+		expect(meteringService.settle).not.toHaveBeenCalled();
+		options.prepared.release();
+	});
+
+	it("voids the hold when setup fails before the agent stream starts", async () => {
+		const setupError = new Error("context query failed");
+		const { meteringService, pagesRepository, service } = buildService();
+		pagesRepository.collectManualEditTrail.mockRejectedValue(setupError);
+
+		await expect(service.stream(streamOptions())).rejects.toBe(setupError);
+
+		// Nothing can ever settle this hold: it refunds now instead of leaking
+		// until the stranded sweep. refund() declines on its own if a gateway
+		// error capture attached a durable ref first.
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage-event-1",
+			"ai_chat_setup_failure",
+		);
+		expect(meteringService.settle).not.toHaveBeenCalled();
+	});
+
 	it("emits only connector-unreachable MCP notices as transient AI errors", async () => {
 		const unreachableNotice =
 			"The user's Higgsfield connection could not be used (connector unreachable). Try again shortly.";
@@ -2162,7 +2218,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(writer.write).toHaveBeenCalledWith({
 			data: {
 				code: "INSUFFICIENT_CREDITS",
-				details: { availableCredits: 1, requiredCredits: 4 },
+				details: { availableCredits: 1, heldCredits: 0, requiredCredits: 4 },
 				statusCode: 402,
 			},
 			type: "data-billing-error",
@@ -2218,7 +2274,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(writer.write).toHaveBeenCalledWith({
 			data: {
 				code: "INSUFFICIENT_CREDITS",
-				details: { availableCredits: 3, requiredCredits: 25 },
+				details: { availableCredits: 3, heldCredits: 0, requiredCredits: 25 },
 				statusCode: 402,
 			},
 			type: "data-billing-error",

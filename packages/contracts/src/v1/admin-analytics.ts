@@ -685,14 +685,14 @@ export type AdminAnalyticsFeature = z.infer<typeof adminAnalyticsFeatureSchema>;
 
 /**
  * Free-user consumption after flooring usage to whole credits. The final
- * bucket starts at the 7-credit signup grant.
+ * bucket starts at the 20-credit signup grant.
  */
 export const adminAnalyticsConsumptionBuckets = [
 	"0",
-	"1-2",
-	"3-4",
-	"5-6",
-	"7+",
+	"1-4",
+	"5-9",
+	"10-19",
+	"20+",
 ] as const;
 
 export const adminAnalyticsConsumptionBucketSchema = z.enum(

@@ -300,6 +300,14 @@ export function createGeneratePageTool(
 					brief: finalBrief,
 					...(resolvedCodMode ? { codMode: resolvedCodMode } : {}),
 					designerSystemPrompt,
+					// Image models are snapshotted like the builder model: the
+					// Trigger worker keeps its own env, and a stale deploy there
+					// must never silently build with different image models than
+					// the API server queued with.
+					...(env.AI_IMAGE_EDIT_MODEL
+						? { imageEditModel: env.AI_IMAGE_EDIT_MODEL }
+						: {}),
+					...(env.AI_IMAGE_MODEL ? { imageModel: env.AI_IMAGE_MODEL } : {}),
 					pageKind: isCod ? "cod" : "website",
 					...(productSku ? { productSku } : {}),
 					// "auto" is the resolver's default — only a real pick is

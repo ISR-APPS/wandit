@@ -63,7 +63,7 @@
 		"leads": "العملاء المحتملون",
 		"assets": "الوسائط",
 		"analytics": "التحليلات",
-		"apps": "التطبيقات",
+		"buildApp": "أنشئ تطبيقك",
 		"support": "الدعم"
 	},
 	"assetsPage": {
@@ -76,35 +76,6 @@
 		"noResultsTitle": "لا وسائط مطابقة",
 		"noResultsBody": "لا شيء يطابق هذه المرشّحات.",
 		"clearFilters": "مسح المرشّحات"
-	},
-	"appsPage": {
-		"metaTitle": "التطبيقات — Wandit",
-		"badge": "قريبًا",
-		"heading": "اربط تطبيقاتك",
-		"body": "قريبًا ستتمكن من ربط تطبيقات خارجية بـ Wandit — إطلاق الإعلانات، مزامنة عملائك المحتملين وأتمتة عملك دون مغادرة لوحة التحكم.",
-		"previewNote": "لمحة عمّا هو قادم",
-		"tiles": {
-			"metaAds": {
-				"name": "Meta Ads",
-				"hint": "أطلق حملاتك وتابعها"
-			},
-			"tiktokAds": {
-				"name": "TikTok Ads",
-				"hint": "أطلق حملاتك وتابعها"
-			},
-			"sheets": {
-				"name": "Google Sheets",
-				"hint": "زامن عملاءك المحتملين تلقائيًا"
-			},
-			"whatsapp": {
-				"name": "WhatsApp",
-				"hint": "أكّد الطلبات بشكل أسرع"
-			},
-			"codPilot": {
-				"name": "COD Pilot",
-				"hint": "زامن طلبات الدفع عند الاستلام في الجزائر"
-			}
-		}
 	},
 	"connectors": {
 		"title": "ربط التطبيقات",

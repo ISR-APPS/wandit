@@ -76,7 +76,7 @@ describe("LifecycleEventsRepository.resolveSignupGrantCentiCredits", () => {
 		const query = render(execute.mock.calls[0]?.[0]);
 		expect(query.statement).toContain("from signup_grant_outbox signup_grant");
 		expect(query.statement).toContain("from product_settings settings");
-		expect(query.params).toEqual(["legacy-user", 700]);
+		expect(query.params).toEqual(["legacy-user", 2000]);
 	});
 
 	it("uses the caller's settlement transaction for the grant lookup", async () => {

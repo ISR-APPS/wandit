@@ -87,6 +87,10 @@ export type SiteBuildParams = {
 	attemptId: string;
 	/** The one complete creative brief composed by the chat Brain. */
 	brief: string;
+	/** Image-edit model snapshotted on the attempt; absent = legacy attempt (worker env). */
+	imageEditModel?: string;
+	/** Image model snapshotted on the attempt; absent = legacy attempt (worker env). */
+	imageModel?: string;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
 	model: string;
 	/** Present only while billing enforcement is enabled. */
@@ -375,6 +379,9 @@ type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
 	codMode?: "simple" | "max";
+	/** Queue-time image-model snapshots; absent on legacy attempts (worker env wins). */
+	imageEditModel?: string;
+	imageModel?: string;
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	pageKind?: "cod" | "website";
@@ -801,10 +808,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imageSequence += 1;
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
+				// Queue-time snapshots win; the env reads only serve legacy
+				// attempts whose spec predates the snapshot fields.
+				const imageEditModel = params.imageEditModel ?? env.AI_IMAGE_EDIT_MODEL;
 				const imageModel =
-					sourceImageUrls.length > 0 && env.AI_IMAGE_EDIT_MODEL
-						? env.AI_IMAGE_EDIT_MODEL
-						: (env.AI_IMAGE_MODEL ?? null);
+					sourceImageUrls.length > 0 && imageEditModel
+						? imageEditModel
+						: (params.imageModel ?? env.AI_IMAGE_MODEL ?? null);
 				const childReservation =
 					params.meteringService && params.usageEventId
 						? await reserveMeasuredChild(params.meteringService, "image", {
@@ -825,6 +835,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 					aspect,
 					attemptId: params.attemptId,
+					...(params.imageEditModel
+						? { imageEditModel: params.imageEditModel }
+						: {}),
+					...(params.imageModel ? { imageModel: params.imageModel } : {}),
 					index,
 					metering: {
 						operation: "image",
@@ -887,7 +901,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 							);
 						}
 					}
-					log(`generate_image ${result.status}: ${result.message}`);
+					// Named loudly: a silently missing 6th image reads as a model
+					// choice in the dashboard unless the failed role is spelled out.
+					log(
+						`generate_image ${result.status} (${role}, model ` +
+							`${imageModel ?? "unconfigured"}): ${result.message} — ` +
+							`${state.imagesGenerated} generated / ` +
+							`${state.imageSequence - state.imagesGenerated} failed / ` +
+							`${state.imageSequence} requested; prompt: ` +
+							`"${prompt.slice(0, 80)}${prompt.length > 80 ? "…" : ""}"`,
+					);
 
 					return { message: result.message, status: result.status };
 				}
@@ -914,7 +937,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					base64: result.imageBase64,
 					mediaType: result.mediaType,
 				});
-				log(`generated image ${index}/${MAX_IMAGES} (${role}) → ${result.url}`);
+				log(
+					`generated image ${index}/${MAX_IMAGES} (${role}, model ` +
+						`${result.model}) → ${result.url} — ` +
+						`${state.imagesGenerated} generated / ` +
+						`${state.imageSequence - state.imagesGenerated} failed / ` +
+						`${state.imageSequence} requested`,
+				);
 				emitEvent({ role, type: "image-generated", url: result.url });
 
 				return {
@@ -1040,6 +1069,12 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					pass: state.screenshotPasses + 1,
 					type: "screenshot-start",
 				});
+				// Liveness marker: rendering + scrolling both viewports takes tens
+				// of seconds with no other dashboard output.
+				log(
+					`screenshot pass ${state.screenshotPasses + 1}: rendering ` +
+						`revision ${revision} — capturing desktop and mobile shots…`,
+				);
 				let capture: ScreenshotCapture;
 				screenshotPassesInFlight += 1;
 
@@ -1099,6 +1134,12 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						`(${desktopShots} desktop, ${mobileShots} mobile), ` +
 						`${capture.consoleErrors.length} console errors, ` +
 						`${capture.failedRequests.length} failed requests`,
+				);
+				// The vision review happens in the NEXT model step, which streams
+				// nothing visible — say so, or the build looks hung here.
+				log(
+					`screenshot pass ${state.screenshotPasses}: the model is ` +
+						"reviewing the shots now…",
 				);
 
 				// The progress card keeps full diagnostics; only the tool result is
@@ -1223,6 +1264,9 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			// live signal that the page is being written (the write itself can
 			// stream for minutes before execute ever runs).
 			onInputStart: () => {
+				log(
+					"model is streaming index.html — a full write can take a few minutes…",
+				);
 				emitEvent({ type: "write-start" });
 			},
 		}),
@@ -1537,6 +1581,10 @@ export async function runSiteBuild(
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
+				...(params.imageEditModel
+					? { imageEditModel: params.imageEditModel }
+					: {}),
+				...(params.imageModel ? { imageModel: params.imageModel } : {}),
 				...(params.meteringService
 					? { meteringService: params.meteringService }
 					: {}),

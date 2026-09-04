@@ -299,8 +299,8 @@ describe("generate_image placement", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				// No catalog rate in this double: 2 × the 350 cc image floor.
-				credits: 700,
+				// No catalog rate in this double: 2 × the 100 cc image floor.
+				credits: 200,
 				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
 				measuredTerms: { estimatedUnitUsdMicros: null, units: 2 },
@@ -395,7 +395,7 @@ describe("generate_image billing", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 1050,
+				credits: 300,
 				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
 				measuredTerms: { estimatedUnitUsdMicros: null, units: 3 },

@@ -1,6 +1,6 @@
 {
-  "id": "54779b8a-fb26-4b34-be40-843523ed3ec9",
-  "prevId": "c2a1f6e2-8051-4164-b2d9-d7e49242508e",
+  "id": "d02b6878-5727-4b73-bf47-da90beccc2b0",
+  "prevId": "54779b8a-fb26-4b34-be40-843523ed3ec9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4706,7 +4706,7 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 1800
+          "default": 2000
         },
         "paid_subscriptions_enabled": {
           "name": "paid_subscriptions_enabled",

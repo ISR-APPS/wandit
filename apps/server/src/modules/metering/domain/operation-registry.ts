@@ -6,16 +6,27 @@ export type PricingMode = "fixed" | "measured" | "per_minute" | "token";
 // All credit amounts in this registry are integer centi-credits (cc):
 // 1 credit = 100 cc. The API/UI divide by 100 at their own boundary.
 //
-// Measured reserve floors are derived from the seed catalog at $0.04/credit:
-// - image 350 cc: google/gemini-3-pro-image default $0.1344 -> 336 cc.
+// Measured reserve floors were derived from the seed catalog at $0.04/credit
+// (pricing v5). Pricing v7 moved the anchor to $0.032/credit; the floors stay
+// as credit amounts, so their USD coverage is 20% lower than listed here:
 // - video 550 cc: retained for historical reservations; connector children
 //   override this with the connector reserve floor and settle at provider cost 0.
 // - transcription 25 cc: openai/whisper-1 $0.0001/s x 60 s -> 15 cc.
 // - connector 1 cc: the MCP render runs on the user's own Higgsfield
 //   subscription, so only our LLM tokens around it cost anything.
 // The size/duration/mode-aware estimate raises the reserve above the floor.
-export const IMAGE_RESERVE_FLOOR_CREDITS = 350;
+// Image floor sized for meta/muse-image-1.0 ($0.01/img -> ~31 cc at $0.032)
+// with 3x headroom for pricier fallback models; settlement's allowOverdraft
+// collects any remainder, so the floor no longer needs to cover the worst
+// model.
+export const IMAGE_RESERVE_FLOOR_CREDITS = 100;
 export const VIDEO_RESERVE_FLOOR_CREDITS = 550;
+// A typical build settles near 2-3 credits. The old 10-credit hold was more
+// than half of a fresh 18-credit signup wallet and dipped small balances deep
+// negative for the whole build; 3 credits keeps real collateral while
+// settlement overdraft (metering applyCreditAdjustment) collects any genuine
+// excess.
+export const PAGE_BUILD_RESERVE_FLOOR_CREDITS = 300;
 export const MARKETING_RESERVE_FLOOR_CREDITS = 150;
 export const CONNECTOR_RESERVE_FLOOR_CREDITS = 1;
 export const TRANSCRIPTION_RESERVE_FLOOR_CREDITS = 25;
@@ -134,7 +145,7 @@ export const OPERATION_REGISTRY = {
 		allowedChildOperations: ["image"],
 		allowedParentOperations: ["chat"],
 		mode: "token",
-		reserveFloorCredits: 1000,
+		reserveFloorCredits: PAGE_BUILD_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 	},
 	topup_adjust: {
@@ -172,7 +183,7 @@ export function operationPricing(
 }
 
 // Per-event settlement sanity ceiling (guards pricing-unit bugs, not honest
-// runs): 200 credits ≈ $8 provider cost at the $0.04/credit anchor.
+// runs): 200 credits ≈ $6.40 provider cost at the $0.032/credit anchor.
 export const EVENT_CEILING_FLOOR_CC = 20_000;
 export const EVENT_CEILING_MULTIPLIER = 25;
 

@@ -142,6 +142,10 @@ export type PageAttemptSpec = {
 	// Resolved COD build path, persisted so the queued snapshot round-trips.
 	codMode?: "simple" | "max";
 	designerSystemPrompt: string;
+	// Image models snapshotted at queue time, same reasoning as the builder
+	// model column: the Trigger worker's env may lag the API server's.
+	imageEditModel?: string;
+	imageModel?: string;
 	pageKind?: "cod" | "website";
 	productSku?: string;
 	title: string;

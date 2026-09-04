@@ -1,6 +1,6 @@
 {
 	"meta": {
-		"title": "Wandit — des landing pages IA qui vendent",
+		"title": "Wandit — Créateur de business IA",
 		"description": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes."
 	},
 	"nav": {
@@ -192,9 +192,11 @@
 			"perMonth": "/ mois",
 			"perYear": "/ an",
 			"features": [
-				"Génération d'images IA",
-				"Domaines personnalisés",
-				"Publication toujours gratuite"
+				"Pages de boutique créées par l'IA en quelques minutes",
+				"Images produit et textes marketing par l'IA",
+				"Domaine personnalisé inclus",
+				"CRM de leads pour les commandes",
+				"Publication toujours gratuite, résiliable à tout moment"
 			],
 			"cta": "Choisir Starter"
 		},

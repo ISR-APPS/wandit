@@ -158,7 +158,7 @@ describe("operation registry", () => {
 			mode: "token",
 			reserveFloorCredits: 150,
 		});
-		expect(IMAGE_RESERVE_FLOOR_CREDITS).toBe(350);
+		expect(IMAGE_RESERVE_FLOOR_CREDITS).toBe(100);
 		expect(VIDEO_RESERVE_FLOOR_CREDITS).toBe(550);
 		expect(TRANSCRIPTION_RESERVE_FLOOR_CREDITS).toBe(25);
 	});
@@ -182,7 +182,7 @@ describe("operation registry", () => {
 
 	it("keeps the centi-credit reserve floors of the token operations", () => {
 		expect(OPERATION_REGISTRY.chat.reserveFloorCredits).toBe(10);
-		expect(OPERATION_REGISTRY.page_build.reserveFloorCredits).toBe(1000);
+		expect(OPERATION_REGISTRY.page_build.reserveFloorCredits).toBe(300);
 		expect(OPERATION_REGISTRY.topup_adjust.reserveFloorCredits).toBe(0);
 	});
 

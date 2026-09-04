@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
 export const DEFAULT_MODEL_PRICE_CACHE_TTL_MS = 60 * 60 * 1000;
-export const DEFAULT_USD_MICROS_PER_CREDIT = 40_000;
+export const DEFAULT_USD_MICROS_PER_CREDIT = 32_000;
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const NON_NEGATIVE_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d+)?$/u;
@@ -117,7 +117,7 @@ export type PricingSnapshot = {
 	refreshedAt: string;
 	source: ModelPriceSource;
 	transcriptionUsdMicrosPerSecond: number | null;
-	/** Micros per WHOLE credit (40,000), never per centi-credit. */
+	/** Micros per WHOLE credit (32,000), never per centi-credit. */
 	usdMicrosPerCredit: number;
 };
 
@@ -174,7 +174,7 @@ export function perTokenDollarsStringToUsdMicrosPerMTok(value: string): number {
 
 /**
  * Convert provider cost to integer CENTI-credits (1 credit = 100 cc).
- * `usdMicrosPerCredit` stays micros per WHOLE credit (40,000); this function
+ * `usdMicrosPerCredit` stays micros per WHOLE credit (32,000); this function
  * owns the ×100. Minimum charge is 1 cc (0.01 credit).
  */
 export function usdMicrosToCentiCredits(

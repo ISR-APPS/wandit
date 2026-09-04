@@ -1,5 +1,9 @@
 # Pricing v6 — Starter plan, 175-credit Pro base, 7-credit grant
 
+> **Superseded on 2026-09-04 by `pricing-v7-032-anchor.md`**: the credit anchor is
+> $0.032, the 250-credit Pro/Business ladder is back at the same prices, Starter is
+> 60 credits and the grant is 20 credits. This file stays as the v6 record.
+
 Decision date: 2026-09-02. Founder decisions after the pricing A/B tests.
 Supersedes the plan catalog of `billing.md` §"Catalog" and the 50-credit grant
 of `pricing-v5-usd-anchor.md` §1 (the $0.04 unit itself is unchanged and
@@ -10,7 +14,7 @@ of `pricing-v5-usd-anchor.md` §1 (the $0.04 unit itself is unchanged and
 | # | Decision | Value |
 |---|---|---|
 | D1 | Credit unit | Unchanged. 1 credit = $0.04 of AI-provider cost (`AI_USD_PER_CREDIT`). No metering change. |
-| D2 | Free signup grant | 7 credits = 700 centi-credits = $0.28 of provider cost. Was 50 credits / 5000 cc / $2.00. |
+| D2 | Free signup grant | 18 credits = 1800 centi-credits = $0.72 of provider cost (amended 2026-09-04; was 7 credits / 700 cc / $0.28 from 2026-09-02 to 2026-09-04). Was 50 credits / 5000 cc / $2.00. |
 | D3 | New plan `starter` | $9 / month, $90 / year (amended 2026-09-03; was $8 / $80). One tier: 50 credits / month ($2.00 of AI). Personal workspaces only. |
 | D4 | Pro | Same 9 monthly prices as today. Credits × 0.7. Base tier 175 credits / $25 ($7.00 of AI). |
 | D5 | Business | Same rule as today: same tiers as Pro, exactly 2× the Pro price. Org workspaces only. |
@@ -103,13 +107,13 @@ and exclude them from the purchasable list.
   automations key on the names): `credits_25_used` fires at 50 % and
   `credits_40_used` at 80 % of the grant snapshotted in
   `signup_grant_outbox.credits` for that user, falling back to the current
-  product setting when no row exists. This is 350 / 560 cc for a 700 cc grant
+  product setting when no row exists. This is 900 / 1440 cc for an 1800 cc grant, 350 / 560 cc for a 700 cc grant
   and 2500 / 4000 cc for a legacy 5000 cc grant.
 - Historical migration `0026_signup-grant-50.sql` remains byte-for-byte
   immutable. It predates the centi-credit storage conversion; migration 0038
   later multiplied the stored grant values by 100.
 - Admin analytics: `HEALTHY_TRIAL_MIN_CREDITS` 20 → 3. Consumption buckets
-  re-cut for a 7-credit grant: `["0", "1-2", "3-4", "5-6", "7+"]` (floor of
+  re-cut for an 18-credit grant: `["0", "1-4", "5-9", "10-17", "18+"]` (floor of
   credits used). Update the contract enum, the SQL/metrics bucketer, and the
   admin label map together.
 - The Resend welcome template still says 50 — out of code scope; the dispatcher
@@ -221,8 +225,9 @@ Add `apps/server/scripts/migrate-subscriptions-v6.ts` (dry-run by default,
     credits" (plural-aware); keep "Signup credits when available" as the
     fallback when the grant is off.
   - Starter copy: name "Starter"; tagline "For your first store and first
-    campaigns"; features ["50 credits every month", "AI image & video
-    generation", "Custom domains", "Publishing always free"]. Business
+    campaigns"; features (amended 2026-09-04, no video for Starter): ["AI store pages
+    built in minutes", "AI product images and marketing copy", "Custom domain
+    included", "Leads CRM for your orders", "Publishing always free, cancel anytime"]. Business
     "Everything in Pro" and Pro "Nine credit tiers as your workload grows"
     stay true and stay.
   - `legal.json` "a starter balance of free credits" → "an initial balance of
@@ -260,7 +265,7 @@ Add `apps/server/scripts/migrate-subscriptions-v6.ts` (dry-run by default,
    PostgreSQL 12+ because 0066 never references `starter`, so the enum value is
    not used inside the transaction that adds it.
 3. Restart every server instance or wait more than 30 seconds for the
-   product-settings cache before relying on the 7-credit grant.
+   product-settings cache before relying on the 18-credit grant.
 4. Deploy contracts + server + web + admin + Trigger.dev (one release).
 5. `pnpm --filter server stripe:seed` in test mode; verify the 38 new subscription prices
    (`starter` 2, `pro` 18, `business` 18) and 3 re-priced top-ups; then live.

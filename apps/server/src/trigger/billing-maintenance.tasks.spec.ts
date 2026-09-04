@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
 		assertDatabase: vi.fn(),
 		assertFinancial: vi.fn(),
 		assertMetering: vi.fn(),
+		assertMeteringRecovery: vi.fn(),
 		attribution,
 		close,
 		commission,
@@ -55,6 +56,7 @@ const mocks = vi.hoisted(() => {
 		})),
 		db,
 		financialReconciliation,
+		gatewayConfigurationError: vi.fn((): Error | null => null),
 		info: vi.fn(),
 		modelPrices,
 		queue: vi.fn((definition: unknown) => definition),
@@ -67,13 +69,14 @@ const mocks = vi.hoisted(() => {
 		schemaTask: vi.fn((definition: unknown) => definition),
 		signup,
 		triggerAnalytics: { capture: vi.fn() },
+		warn: vi.fn(),
 		webhookEvent,
 		webhookSweep,
 	};
 });
 
 vi.mock("@trigger.dev/sdk", () => ({
-	logger: { info: mocks.info },
+	logger: { info: mocks.info, warn: mocks.warn },
 	queue: mocks.queue,
 	schedules: { task: mocks.scheduledTask },
 	schemaTask: mocks.schemaTask,
@@ -83,6 +86,8 @@ vi.mock("./billing-maintenance.config", () => ({
 	assertBillingDatabaseConfiguration: mocks.assertDatabase,
 	assertBillingFinancialConfiguration: mocks.assertFinancial,
 	assertMeteringConfiguration: mocks.assertMetering,
+	assertMeteringRecoveryConfiguration: mocks.assertMeteringRecovery,
+	meteringGatewayConfigurationError: mocks.gatewayConfigurationError,
 }));
 vi.mock("./billing-maintenance.runtime", () => ({
 	createAffiliateMaintenanceRuntime: mocks.createAffiliate,
@@ -187,7 +192,9 @@ describe("billing Trigger maintenance tasks", () => {
 			reconciled: 1,
 			refunded: 2,
 			scanned: 3,
+			skipped: 0,
 		});
+		mocks.gatewayConfigurationError.mockReturnValue(null);
 		mocks.commission.mockResolvedValue(3);
 		mocks.approval.mockResolvedValue({ approved: 2 });
 		mocks.webhookSweep.mockResolvedValue({
@@ -335,10 +342,45 @@ describe("billing Trigger maintenance tasks", () => {
 			new Date("2026-08-02T11:20:00.000Z"),
 			100,
 			timestamp,
+			{ reconcileRefs: true },
 		);
 		expect(mocks.connectorRecovery.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.reservations.mock.invocationCallOrder[0] ?? 0,
 		);
+		expect(mocks.close).toHaveBeenCalledOnce();
+	});
+
+	it("still refunds stranded holds when the gateway keys are missing, reporting the skip", async () => {
+		// A bad env deploy without gateway keys: the DB-only assert passes, the
+		// gateway probe reports instead of throwing, and the sweep still runs
+		// refund-only rather than leaking every reserved hold again.
+		mocks.gatewayConfigurationError.mockReturnValue(
+			new Error("AI_GATEWAY_API_KEY or OPENROUTER_API_KEY is required"),
+		);
+		mocks.reservations.mockResolvedValue({
+			failed: 0,
+			pending: 0,
+			reconciled: 0,
+			refunded: 2,
+			scanned: 3,
+			skipped: 1,
+		});
+
+		await expect(recovery.run({ timestamp }, context)).resolves.toMatchObject({
+			reservations: { refunded: 2, skipped: 1 },
+			skippedReconcileReason:
+				"AI_GATEWAY_API_KEY or OPENROUTER_API_KEY is required",
+		});
+
+		expect(mocks.assertMeteringRecovery).toHaveBeenCalledOnce();
+		expect(mocks.assertMetering).not.toHaveBeenCalled();
+		expect(mocks.reservations).toHaveBeenCalledWith(
+			new Date("2026-08-02T11:20:00.000Z"),
+			100,
+			timestamp,
+			{ reconcileRefs: false },
+		);
+		expect(mocks.warn).toHaveBeenCalledOnce();
 		expect(mocks.close).toHaveBeenCalledOnce();
 	});
 

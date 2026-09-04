@@ -1,6 +1,6 @@
 {
 	"meta": {
-		"title": "Wandit — AI landing pages that sell",
+		"title": "Wandit — AI Business Builder",
 		"description": "Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes."
 	},
 	"nav": {
@@ -192,9 +192,11 @@
 			"perMonth": "/ month",
 			"perYear": "/ year",
 			"features": [
-				"AI image generation",
-				"Custom domains",
-				"Publishing always free"
+				"AI store pages built in minutes",
+				"AI product images and marketing copy",
+				"Custom domain included",
+				"Leads CRM for your orders",
+				"Publishing always free, cancel anytime"
 			],
 			"cta": "Choose Starter"
 		},

@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 			manualPaymentsEnabled: false,
 			organizationsEnabled: true,
 			paidSubscriptionsEnabled: true,
-			signupGrantCredits: 7,
+			signupGrantCredits: 20,
 			signupGrantEnabled: true,
 		},
 		isSuccess: true,
@@ -61,10 +61,10 @@ const dictionary = vi.hoisted(() => ({
 				yearly: "Yearly",
 			},
 			starter: {
-				creditsLine: "50 credits every month",
+				creditsLine: "60 credits every month",
 				cta: "Choose Starter",
 				features: [
-					"AI image generation",
+					"AI product images and marketing copy",
 					"Custom domains",
 					"Publishing always free",
 				],
@@ -80,44 +80,44 @@ const dictionary = vi.hoisted(() => ({
 
 const plans = vi.hoisted(() => [
 	{
-		basePer100Usd: 18,
+		basePer100Usd: 15,
 		features: { seats: false, teamWorkspace: false },
 		id: "starter",
 		tiers: [
 			{
-				annualLookupKey: "starter_50_year",
+				annualLookupKey: "starter_60_year",
 				annualUsd: 90,
-				monthlyLookupKey: "starter_50_month",
+				monthlyLookupKey: "starter_60_month",
 				monthlyUsd: 9,
-				tierCredits: 50,
+				tierCredits: 60,
 			},
 		],
 	},
 	{
-		basePer100Usd: (25 / 175) * 100,
+		basePer100Usd: 10,
 		features: { seats: false, teamWorkspace: false },
 		id: "pro",
 		tiers: [
 			{
-				annualLookupKey: "pro_175_year",
+				annualLookupKey: "pro_250_year",
 				annualUsd: 250,
-				monthlyLookupKey: "pro_175_month",
+				monthlyLookupKey: "pro_250_month",
 				monthlyUsd: 25,
-				tierCredits: 175,
+				tierCredits: 250,
 			},
 		],
 	},
 	{
-		basePer100Usd: (50 / 175) * 100,
+		basePer100Usd: 20,
 		features: { seats: true, teamWorkspace: true },
 		id: "business",
 		tiers: [
 			{
-				annualLookupKey: "business_175_year",
+				annualLookupKey: "business_250_year",
 				annualUsd: 500,
-				monthlyLookupKey: "business_175_month",
+				monthlyLookupKey: "business_250_month",
 				monthlyUsd: 50,
-				tierCredits: 175,
+				tierCredits: 250,
 			},
 		],
 	},
@@ -181,7 +181,7 @@ describe("landing pricing", () => {
 		state.settings.data.manualPaymentsEnabled = false;
 		state.settings.data.organizationsEnabled = true;
 		state.settings.data.paidSubscriptionsEnabled = true;
-		state.settings.data.signupGrantCredits = 7;
+		state.settings.data.signupGrantCredits = 20;
 		state.settings.data.signupGrantEnabled = true;
 	});
 
@@ -193,9 +193,11 @@ describe("landing pricing", () => {
 		for (const plan of ["Free", "Starter", "Pro", "Business"]) {
 			expect(screen.getByRole("heading", { name: plan })).toBeTruthy();
 		}
-		expect(screen.getByText("7 free credits")).toBeTruthy();
-		expect(screen.getByText("50 credits every month")).toBeTruthy();
-		expect(screen.getByText("AI image generation")).toBeTruthy();
+		expect(screen.getByText("20 free credits")).toBeTruthy();
+		expect(screen.getByText("60 credits every month")).toBeTruthy();
+		expect(
+			screen.getByText("AI product images and marketing copy"),
+		).toBeTruthy();
 		expect(screen.getByText("Custom domains")).toBeTruthy();
 		expect(screen.getByText("$9")).toBeTruthy();
 	});
@@ -223,7 +225,7 @@ describe("landing pricing", () => {
 		render(createElement(Pricing));
 
 		expect(screen.getByText("Signup credits when available")).toBeTruthy();
-		expect(screen.queryByText("7 free credits")).toBeNull();
+		expect(screen.queryByText("20 free credits")).toBeNull();
 	});
 
 	it("keeps the Business showcase visible when team creation is disabled", () => {
@@ -245,7 +247,7 @@ describe("landing pricing", () => {
 		expect(state.openPlanPicker).toHaveBeenCalledWith("marketing_pricing", {
 			interval: "month",
 			plan: "starter",
-			tierCredits: 50,
+			tierCredits: 60,
 		});
 	});
 

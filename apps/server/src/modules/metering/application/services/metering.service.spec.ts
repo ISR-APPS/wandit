@@ -1291,10 +1291,10 @@ describe("MeteringService", () => {
 
 		await expect(
 			service.reserve("image", USER_SUBJECT, {
-				credits: 349,
+				credits: 99,
 				idempotencyKey: "image:too-cheap",
 			}),
-		).rejects.toThrow("at least 350 centi-credits");
+		).rejects.toThrow("at least 100 centi-credits");
 
 		const parent = await service.reserve("chat", USER_SUBJECT, {
 			credits: 100,
@@ -2923,7 +2923,7 @@ describe("MeteringService", () => {
 		await expect(
 			service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 0),
 		).resolves.toMatchObject({
-			finalCredits: 700,
+			finalCredits: 200,
 			pricingSnapshot: { costUsdMicros: null, units: 2 },
 			status: "settled",
 		});
@@ -3475,6 +3475,7 @@ describe("MeteringService", () => {
 			reconciled: 1,
 			refunded: 1,
 			scanned: 2,
+			skipped: 0,
 		});
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("refunded");
 		expect(repository.events.get(withRefId)?.status).toBe("reconciled");
@@ -3484,6 +3485,113 @@ describe("MeteringService", () => {
 				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 			}),
 		);
+	});
+
+	it("isolates refund-branch conflicts per event instead of aborting the batch", async () => {
+		const { credits, repository, service } = setup();
+		const staleAt = new Date("2026-01-01T00:00:00.000Z");
+		const settledBehindId = CHAT_EVENT_ID;
+		const failingId = CHILD_EVENT_ID;
+		const refundableId = "44444444-4444-4444-8444-444444444444";
+
+		for (const [eventId, idempotencyKey] of [
+			[settledBehindId, "chat:conflict"],
+			[failingId, "chat:refund-write-failure"],
+			[refundableId, "chat:still-stranded"],
+		] as const) {
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 100,
+				eventId,
+				idempotencyKey,
+			});
+		}
+
+		const staleSnapshots = [settledBehindId, failingId, refundableId].map(
+			(eventId) => {
+				const event = repository.events.get(eventId);
+
+				if (!event) {
+					throw new Error(`missing stranded event ${eventId}`);
+				}
+
+				return { ...event, createdAt: new Date("2025-12-31T00:00:00.000Z") };
+			},
+		);
+		// The first event settles between the sweep's unlocked list read and the
+		// locked refund check; the second's refund write fails outright. Neither
+		// may abort the batch: the third still refunds.
+		repository.listStaleReserved = async () => staleSnapshots;
+		await service.settle(settledBehindId, {
+			finalCredits: 40,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+		repository.failUpdateEventId = failingId;
+
+		const outcome = await service.recoverStaleReservations(staleAt);
+
+		expect(outcome).toEqual({
+			failed: 1,
+			pending: 1,
+			reconciled: 0,
+			refunded: 1,
+			scanned: 3,
+			skipped: 0,
+		});
+		expect(repository.events.get(settledBehindId)?.status).toBe("settled");
+		// The failed refund write left its row reserved and sweep-selectable.
+		expect(repository.events.get(failingId)?.status).toBe("reserved");
+		expect(repository.events.get(refundableId)?.status).toBe("refunded");
+		expect(credits.refundCalls).toContainEqual(
+			expect.objectContaining({
+				amount: 100,
+				idempotencyKey: `settle-refund:${refundableId}`,
+			}),
+		);
+	});
+
+	it("refunds ref-less holds and skips ref-bearing rows when ref reconciliation is off", async () => {
+		const { gateway, repository, service } = setup();
+		const staleAt = new Date("2026-01-01T00:00:00.000Z");
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:gateway-config-refund",
+		});
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHILD_EVENT_ID,
+			idempotencyKey: "chat:gateway-config-skip",
+		});
+		await service.captureGeneration(CHILD_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_config_skip" } },
+		});
+		for (const event of repository.events.values()) {
+			repository.events.set(event.id, {
+				...event,
+				createdAt: new Date("2025-12-31T00:00:00.000Z"),
+			});
+		}
+
+		const outcome = await service.recoverStaleReservations(
+			staleAt,
+			100,
+			new Date(),
+			{ reconcileRefs: false },
+		);
+
+		expect(outcome).toEqual({
+			failed: 0,
+			pending: 0,
+			reconciled: 0,
+			refunded: 1,
+			scanned: 2,
+			skipped: 1,
+		});
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("refunded");
+		// The ref-bearing hold waits, untouched, for a gateway-configured sweep.
+		expect(repository.events.get(CHILD_EVENT_ID)?.status).toBe("reserved");
+		expect(gateway.calls).toHaveLength(0);
 	});
 
 	it("terminalizes a full pending recovery page on a durable age budget so later rows are reachable", async () => {
@@ -3527,6 +3635,7 @@ describe("MeteringService", () => {
 			reconciled: 0,
 			refunded: 0,
 			scanned: 100,
+			skipped: 0,
 		});
 
 		await expect(
@@ -3537,6 +3646,7 @@ describe("MeteringService", () => {
 			reconciled: 0,
 			refunded: 0,
 			scanned: 100,
+			skipped: 0,
 		});
 		await expect(
 			service.recoverStaleReservations(staleAt, 100, afterBudget),
@@ -3546,6 +3656,7 @@ describe("MeteringService", () => {
 			reconciled: 0,
 			refunded: 0,
 			scanned: 1,
+			skipped: 0,
 		});
 	});
 
@@ -3647,6 +3758,7 @@ describe("MeteringService", () => {
 			reconciled: 0,
 			refunded: 0,
 			scanned: 1,
+			skipped: 0,
 		});
 		await expect(service.recoverUnreconciledSettled(staleAt)).resolves.toEqual({
 			failed: 1,
@@ -4273,7 +4385,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 		vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
 
 		try {
-			const { service } = setup();
+			const { credits, service } = setup();
 			await service.reserve("chat", USER_SUBJECT, {
 				credits: 100,
 				eventId: CHAT_EVENT_ID,
@@ -4306,18 +4418,119 @@ describe("MeteringService guards and reconciliation durability", () => {
 			const deadLettered =
 				await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
 
-			// Dead-lettered: nobody retries, so the reserve already debited in
-			// the ledger becomes the final charge instead of a hold that the
-			// balance add-back would hide forever.
+			// Dead-lettered: nobody retries, so the hold must resolve — but with
+			// no local evidence (no refs, no receipts) the run produced nothing we
+			// can price, so the whole reserve refunds instead of becoming a
+			// silent full charge. The row stays reconcile_failed for admin review.
 			expect(deadLettered).toMatchObject({
-				finalCredits: 100,
+				finalCredits: 0,
 				nextReconcileAttemptAt: null,
 				reconcileAttempts: RECONCILE_DEAD_LETTER_CAP,
 				status: "reconcile_failed",
 			});
+			expect(credits.refundCalls).toEqual([
+				expect.objectContaining({
+					amount: 100,
+					consumeIdempotencyKey: `reserve:${CHAT_EVENT_ID}`,
+					idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:reserve`,
+				}),
+			]);
+			expect(credits.balances.get(USER_ID)).toBe(10_000);
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("charges a dead-lettered never-settled hold its local unit evidence, not the reserve", async () => {
+		const { credits, repository, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 350,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:dead-letter-evidence",
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_dead_units" } },
+			stepUsage: { metering: { fixedUnits: 1 }, providerUsage: null },
+		});
+		const reserved = repository.events.get(CHAT_EVENT_ID);
+
+		if (!reserved) {
+			throw new Error("missing dead-letter evidence event");
+		}
+
+		// One attempt away from the cap, priced under a durable fixed snapshot:
+		// the delivered unit is locally provable at 100 cc.
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyFixedReservationSnapshot("image", 100),
+			reconcileAttempts: RECONCILE_DEAD_LETTER_CAP - 1,
+		});
+
+		const deadLettered =
+			await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
+
+		expect(deadLettered).toMatchObject({
+			finalCredits: 100,
+			nextReconcileAttemptAt: null,
+			reconcileAttempts: RECONCILE_DEAD_LETTER_CAP,
+			status: "reconcile_failed",
+		});
+		expect(credits.refundCalls).toEqual([
+			expect.objectContaining({
+				amount: 250,
+				consumeIdempotencyKey: `reserve:${CHAT_EVENT_ID}`,
+				idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:reserve`,
+			}),
+		]);
+		expect(credits.balances.get(USER_ID)).toBe(9_900);
+	});
+
+	it("prices a dead-lettered never-settled hold from settled provider receipts", async () => {
+		const { credits, repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:dead-letter-receipts",
+		});
+		await service.captureProviderCallEvidence(CHAT_EVENT_ID, {
+			chargedUsdMicros: 25_000,
+			costSource: "serper_contract_env",
+			costStatus: "contract_rate",
+			customerBillable: true,
+			idempotencyKey: "serper:dead-letter",
+			rateUsdMicrosPerUnit: 25_000,
+			transport: "serper",
+			unitKind: "search_page",
+			units: 1,
+		});
+		const reserved = repository.events.get(CHAT_EVENT_ID);
+
+		if (!reserved) {
+			throw new Error("missing dead-letter receipt event");
+		}
+
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			reconcileAttempts: RECONCILE_DEAD_LETTER_CAP - 1,
+		});
+
+		const deadLettered =
+			await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
+
+		// 25,000 usd-micros at 50,000 per credit = 50 cc; the other 50 cc of the
+		// hold refund.
+		expect(deadLettered).toMatchObject({
+			finalCredits: 50,
+			nextReconcileAttemptAt: null,
+			status: "reconcile_failed",
+		});
+		expect(credits.refundCalls).toEqual([
+			expect.objectContaining({
+				amount: 50,
+				idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:reserve`,
+			}),
+		]);
+		expect(credits.balances.get(USER_ID)).toBe(9_950);
 	});
 
 	it("retries only due reconcile_failed rows and skips dead-lettered ones", async () => {

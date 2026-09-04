@@ -271,7 +271,7 @@ export function AffiliatesTab() {
 									<TableHead>
 										<AffiliateTableHeading
 											label="Healthy trials"
-											tooltip="Attributed free users at least seven days old who consumed at least 3 credits and completed at least two successful generations in their first seven days."
+											tooltip="Attributed free users at least seven days old who consumed at least 8 credits and completed at least two successful generations in their first seven days."
 										/>
 									</TableHead>
 									<TableHead>

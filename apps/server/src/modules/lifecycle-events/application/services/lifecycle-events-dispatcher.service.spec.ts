@@ -207,7 +207,7 @@ describe("LifecycleEventsDispatcher", () => {
 
 		const call = harness.email.sendLifecycleEvent.mock.calls[0]?.[0];
 		expect(call?.payload.skip_activation).toBe(expected);
-		expect(call?.payload.FREE_CREDITS).toBe(7);
+		expect(call?.payload.FREE_CREDITS).toBe(20);
 	});
 
 	it("sends the current signup grant count in whole credits and ignores captured overrides", async () => {
@@ -314,7 +314,7 @@ function dispatchContext(
 
 function productSettings(
 	lifecycleEmailsEnabled: boolean,
-	signupGrantCredits = 700,
+	signupGrantCredits = 2000,
 ): ProductSettings {
 	return {
 		dzdPerUsdRate: 27_000,

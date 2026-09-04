@@ -70,6 +70,12 @@ export function toUpgradeModalIntent(
 		code: candidate.code as UpgradeModalIntent["code"],
 		requiredCredits: candidate.details.requiredCredits,
 		availableCredits: candidate.details.availableCredits,
+		// heldCredits is optional (older servers omit it): forward only a
+		// usable value so the paywall's "on hold" row never renders garbage.
+		...(isFiniteNumber(candidate.details.heldCredits) &&
+		candidate.details.heldCredits >= 0
+			? { heldCredits: candidate.details.heldCredits }
+			: {}),
 	};
 }
 

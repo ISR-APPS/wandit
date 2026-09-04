@@ -30,41 +30,31 @@ export const ENTITLED_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 export type EntitledSubscriptionStatus =
 	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
-// Pricing v6 separates tiers offered to new buyers from legacy Stripe tier
-// identities. CREDIT_TIERS is the parse/validation universe; purchase flows
+// Pricing v7 (1 credit = $0.032 of AI) restores the 250-credit Pro/Business
+// ladder and a 60-credit Starter; the v6 tiers (50, 175 ... 8750) stay as
+// legacy Stripe tier identities. Pricing v6 separated tiers offered to new
+// buyers from legacy identities. CREDIT_TIERS is the parse/validation universe; purchase flows
 // must use PLAN_TIERS or isPurchasableTier so legacy subscriptions keep
 // working without retired tiers returning to the plan picker.
 export const LEGACY_CREDIT_TIERS = [
-	250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
+	50, 175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750,
 ] as const;
 
 export const CREDIT_TIERS = [
-	50, 175, 250, 350, 500, 700, 1000, 1400, 2000, 2100, 3000, 3500, 5000, 5250,
-	7000, 7500, 8750, 10000, 12500,
+	50, 60, 175, 250, 350, 500, 700, 1000, 1400, 2000, 2100, 3000, 3500, 5000,
+	5250, 7000, 7500, 8750, 10000, 12500,
 ] as const;
 
 export type CreditTier = (typeof CREDIT_TIERS)[number];
 
 export type LegacyCreditTier = (typeof LEGACY_CREDIT_TIERS)[number];
 
-const V6_TIER_BY_LEGACY = {
-	250: 175,
-	500: 350,
-	1000: 700,
-	2000: 1400,
-	3000: 2100,
-	5000: 3500,
-	7500: 5250,
-	10000: 7000,
-	12500: 8750,
-} as const satisfies Record<LegacyCreditTier, CreditTier>;
-
 export const creditTierSchema = z.literal(CREDIT_TIERS);
 
 export const PLAN_TIERS = {
-	starter: [50],
-	pro: [175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750],
-	business: [175, 350, 700, 1400, 2100, 3500, 5250, 7000, 8750],
+	starter: [60],
+	pro: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
+	business: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
 } as const satisfies Record<BillingPlanId, readonly CreditTier[]>;
 
 export function purchasableTiersFor(
@@ -86,15 +76,11 @@ export function isLegacyTier(
 	return (LEGACY_CREDIT_TIERS as readonly number[]).includes(tierCredits);
 }
 
-export function v6TierForLegacy(tierCredits: number): CreditTier | null {
-	return isLegacyTier(tierCredits) ? V6_TIER_BY_LEGACY[tierCredits] : null;
-}
-
 export function isKnownTier(tierCredits: number): tierCredits is CreditTier {
 	return (CREDIT_TIERS as readonly number[]).includes(tierCredits);
 }
 
-export const topupPackIds = ["topup_175", "topup_700", "topup_1750"] as const;
+export const topupPackIds = ["topup_250", "topup_1000", "topup_2500"] as const;
 
 export const topupPackIdSchema = z.enum(topupPackIds);
 
@@ -104,9 +90,9 @@ export type TopupPackId = z.infer<typeof topupPackIdSchema>;
 // credit-ledger metadata. Historical readers accept both sets; new checkout
 // requests and the public catalog use topupPackIdSchema/topupPackIds only.
 export const LEGACY_TOPUP_PACK_IDS = [
-	"topup_250",
-	"topup_1000",
-	"topup_2500",
+	"topup_175",
+	"topup_700",
+	"topup_1750",
 ] as const;
 
 export type LegacyTopupPackId = (typeof LEGACY_TOPUP_PACK_IDS)[number];
@@ -120,18 +106,19 @@ export const persistedTopupPackIdSchema = z.enum(persistedTopupPackIds);
 
 export type PersistedTopupPackId = z.infer<typeof persistedTopupPackIdSchema>;
 
-// Top-ups stay disabled in v6. These prices match the Pro base rate so they
+// Top-ups stay disabled in v7. These prices match the Pro base rate so they
 // cannot undercut a subscription if the existing switch is re-enabled.
 export const TOPUP_PACKS = {
-	topup_175: { credits: 175, usd: 25 },
-	topup_700: { credits: 700, usd: 100 },
-	topup_1750: { credits: 1750, usd: 250 },
-} as const;
-
-export const LEGACY_TOPUP_PACKS = {
 	topup_250: { credits: 250, usd: 25 },
 	topup_1000: { credits: 1000, usd: 100 },
 	topup_2500: { credits: 2500, usd: 250 },
+} as const;
+
+// v6 packs: persisted in receipts/metadata; never purchasable again.
+export const LEGACY_TOPUP_PACKS = {
+	topup_175: { credits: 175, usd: 25 },
+	topup_700: { credits: 700, usd: 100 },
+	topup_1750: { credits: 1750, usd: 250 },
 } as const;
 
 export const PERSISTED_TOPUP_PACKS = {
@@ -146,14 +133,15 @@ export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
 	plans: {
 		starter: {
-			basePer100Usd: 18,
+			basePer100Usd: 15,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
 				50: 9,
+				60: 9,
 			},
 		},
 		pro: {
-			basePer100Usd: (25 / 175) * 100,
+			basePer100Usd: (25 / 250) * 100,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
 				175: 25,
@@ -179,7 +167,7 @@ export const BILLING_CATALOG = {
 		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
 		// what's priced. Purchasable only with org workspace scope (pairing rule).
 		business: {
-			basePer100Usd: (50 / 175) * 100,
+			basePer100Usd: (50 / 250) * 100,
 			features: { seats: true, teamWorkspace: true },
 			monthlyPricesUsd: {
 				175: 50,
@@ -206,6 +194,28 @@ export const BILLING_CATALOG = {
 	topupPacks: TOPUP_PACKS,
 	yearlyPriceMultiplier: 10,
 } as const;
+
+/**
+ * The purchasable tier of `plan` that costs the same per month as a legacy
+ * tier (175 -> 250, 350 -> 500, starter 50 -> 60). Null when the tier is not
+ * legacy or no purchasable tier carries that price.
+ */
+export function purchasableTierForLegacy(
+	plan: BillingPlanId,
+	tierCredits: number,
+): CreditTier | null {
+	if (!isLegacyTier(tierCredits)) return null;
+	const prices = BILLING_CATALOG.plans[plan].monthlyPricesUsd as Partial<
+		Record<CreditTier, number>
+	>;
+	const legacyPrice = prices[tierCredits];
+	if (legacyPrice === undefined) return null;
+	return (
+		(PLAN_TIERS[plan] as readonly CreditTier[]).find(
+			(tier) => prices[tier] === legacyPrice,
+		) ?? null
+	);
+}
 
 export function priceUsdFor(
 	plan: BillingPlanId,

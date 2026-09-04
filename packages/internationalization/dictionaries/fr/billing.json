@@ -109,9 +109,11 @@
 		"businessTagline": "Pour les équipes qui partagent un pool de crédits",
 		"businessFromPrice": "À partir de {price}",
 		"starterFeatures": [
-			"Génération d'images IA",
-			"Domaines personnalisés",
-			"Publication toujours gratuite"
+			"Pages de boutique créées par l'IA en quelques minutes",
+			"Images produit et textes marketing par l'IA",
+			"Domaine personnalisé inclus",
+			"CRM de leads pour les commandes",
+			"Publication toujours gratuite, résiliable à tout moment"
 		],
 		"proFeatures": [
 			"De nouveaux crédits chaque mois",
@@ -134,6 +136,7 @@
 		"currentPlan": "Abonnement actuel",
 		"requiredCredits": "Requis",
 		"availableCredits": "Disponible",
+		"heldCredits": "Réservés par des générations en cours",
 		"billingCycle": "Cycle de facturation",
 		"monthly": "Mensuel",
 		"yearly": "Annuel",

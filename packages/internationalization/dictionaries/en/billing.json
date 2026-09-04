@@ -109,9 +109,11 @@
 		"businessTagline": "For teams sharing one credit pool",
 		"businessFromPrice": "From {price}",
 		"starterFeatures": [
-			"AI image generation",
-			"Custom domains",
-			"Publishing always free"
+			"AI store pages built in minutes",
+			"AI product images and marketing copy",
+			"Custom domain included",
+			"Leads CRM for your orders",
+			"Publishing always free, cancel anytime"
 		],
 		"proFeatures": [
 			"Fresh plan credits every month",
@@ -134,6 +136,7 @@
 		"currentPlan": "Current subscriber",
 		"requiredCredits": "Required",
 		"availableCredits": "Available",
+		"heldCredits": "On hold by running generations",
 		"billingCycle": "Billing cycle",
 		"monthly": "Monthly",
 		"yearly": "Yearly",
