@@ -26,6 +26,7 @@ import {
 	type GatewayMeteringContext,
 	llmGenerationCaptureFromError,
 } from "../../../metering/domain/gateway-metering";
+import { MARKETING_ASSET_PROVIDER_TIMEOUT_MS } from "./marketing-generation-budget";
 
 export type MarketingHtmlInput = {
 	assetType:
@@ -122,7 +123,10 @@ export async function generateMarketingAssetHtml(
 		generation: GatewayGenerationMetadata,
 	) => Promise<void>,
 ): Promise<MarketingHtmlResult> {
-	const model = env.AI_MARKETING_MODEL ?? env.AI_CHAT_MODEL;
+	const model =
+		env.AI_MARKETING_MODEL ??
+		env.AI_PAGE_BUILDER_MODEL ??
+		env.AI_PAGE_DESIGN_MODEL;
 
 	if (!hasLlmProviderKey("marketing") || !model) {
 		return {
@@ -138,17 +142,11 @@ export async function generateMarketingAssetHtml(
 			...(abortSignal ? { abortSignal } : {}),
 			model: createLlmModel(model, {
 				context: metering,
-				reasoningEffort: "high",
+				reasoningEffort: "medium",
 				task: "marketing",
 			}),
-			providerOptions: withLlmAttribution(
-				{
-					google: { thinkingConfig: { thinkingLevel: "high" } },
-					openai: { reasoningEffort: "high" },
-				},
-				metering,
-				"marketing",
-			),
+			providerOptions: withLlmAttribution({}, metering, "marketing"),
+			reasoning: "medium",
 			prompt:
 				`DELIVERABLE KIND: ${ASSET_TYPE_LABELS[input.assetType]} (${input.assetType})\n` +
 				`ASSET NAME (document title): ${input.name}\n` +
@@ -156,6 +154,7 @@ export async function generateMarketingAssetHtml(
 				`MARKETING BRIEF:\n${input.brief}`,
 			system: MARKETING_DOCUMENT_PROMPT,
 			telemetry: { functionId: "marketing.html" },
+			timeout: MARKETING_ASSET_PROVIDER_TIMEOUT_MS,
 		});
 		providerEvidence = {
 			model,
