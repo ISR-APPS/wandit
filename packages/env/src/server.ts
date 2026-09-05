@@ -100,7 +100,7 @@ export const env = createEnv({
 		// model). Unset means source-image requests degrade to text-only.
 		AI_IMAGE_EDIT_MODEL: z.string().min(1).optional(),
 		// Optional override for marketing HTML documents; falls back to
-		// AI_CHAT_MODEL when unset.
+		// AI_PAGE_BUILDER_MODEL, then legacy AI_PAGE_DESIGN_MODEL when unset.
 		AI_MARKETING_MODEL: z.string().min(1).optional(),
 		// Rewrites the brain's Higgsfield image/video intent into a polished
 		// generation prompt before the MCP call. Falls back to the raw prompt

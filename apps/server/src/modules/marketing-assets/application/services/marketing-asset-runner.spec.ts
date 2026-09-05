@@ -301,6 +301,40 @@ describe("runMarketingAssetGeneration", () => {
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
 
+	it("settles a provider deadline as a timeout without waiting for stale cleanup", async () => {
+		const failure = classifyAiError(
+			new DOMException("Marketing request deadline exceeded", "TimeoutError"),
+			{
+				model: "google/gemini-3.8-flash",
+				route: "vercel",
+				surface: "marketing",
+			},
+		);
+		if (!failure) throw new Error("Expected a normalized timeout");
+		const dependencies = makeDependencies(makeAsset(), {
+			generated: { failure, message: "Request timed out", status: "failed" },
+		});
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_provider_deadline",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.generate).toHaveBeenCalledOnce();
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "generating" }),
+			expect.objectContaining({
+				completedAt: NOW,
+				expectedStatus: "generating",
+				failureKind: "timeout",
+				reason: "generation_failed",
+			}),
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+	});
+
 	it("charges a captured provider-completed document when R2 storage fails", async () => {
 		const asset = makeAsset();
 		const dependencies = makeDependencies(asset);

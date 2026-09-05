@@ -22,14 +22,16 @@ import type {
 	MarketingAssetBilling,
 	MarketingAssetReservation,
 } from "./marketing-asset-billing";
+import { MARKETING_ASSET_STALE_GENERATING_MS } from "./marketing-generation-budget";
+
+export {
+	MARKETING_ASSET_PROVIDER_TIMEOUT_MS,
+	MARKETING_ASSET_RECOVERY_GRACE_MS,
+	MARKETING_ASSET_STALE_GENERATING_MS,
+} from "./marketing-generation-budget";
 
 export const USER_SAFE_MARKETING_ASSET_ERROR =
 	"We couldn't generate this marketing asset. Please try again in a moment.";
-
-export const MARKETING_ASSET_PROVIDER_TIMEOUT_MS = 5 * 60_000;
-export const MARKETING_ASSET_RECOVERY_GRACE_MS = 2 * 60_000;
-export const MARKETING_ASSET_STALE_GENERATING_MS =
-	MARKETING_ASSET_PROVIDER_TIMEOUT_MS + MARKETING_ASSET_RECOVERY_GRACE_MS;
 
 const UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
