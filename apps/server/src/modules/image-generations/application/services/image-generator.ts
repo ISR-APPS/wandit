@@ -1,10 +1,10 @@
 /**
  * Standalone image generation behind the chat's generate_image tool.
  *
- * Two provider paths share one result shape: pure text-to-image through the
- * gateway image model, and EDIT mode through a multimodal language model
- * (generateText + file parts + result.files — AI SDK 7's contract for
- * image-output language models) when user source photos must stay faithful.
+ * Generation and source-photo edits share one result shape. Native image
+ * models use generateImage; image-output language models use generateText
+ * with file parts and result.files. Muse and GPT Image 2 edits use the native
+ * image API.
  * Plain functions, no NestJS: the Trigger.dev worker and the site builder
  * both import from here.
  */
@@ -123,17 +123,50 @@ export async function editImageFromSources(params: {
 	}
 
 	let providerEvidence: GatewayGenerationMetadata | null = null;
+	const prompt =
+		`${SOURCE_FIDELITY_INSTRUCTION}${params.prompt}\n` +
+		`Target aspect ratio: ${params.aspect}.`;
 
 	try {
+		// Muse and GPT Image 2 use native image models for generation and editing.
+		// Their reference photos belong in prompt.images; generateText's files
+		// contract is only appropriate for image-output language models.
+		const isGptImage2 = model === "openai/gpt-image-2";
+		if (isGptImage2 || model.startsWith("meta/muse-image-")) {
+			const result = await generateImage({
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				...(isGptImage2
+					? {
+							size:
+								STANDALONE_SIZE_BY_ASPECT[
+									params.aspect as ImageGenerationAspect
+								] ?? "1024x1024",
+						}
+					: { aspectRatio: params.aspect as `${number}:${number}` }),
+				model,
+				prompt: { images: [...params.sourceImageUrls], text: prompt },
+				providerOptions: withGatewayAttribution({}, params.metering),
+			});
+			providerEvidence = {
+				model,
+				providerMetadata: result.providerMetadata,
+				usage: result.usage,
+			};
+			return {
+				...providerEvidence,
+				mediaType: result.image.mediaType,
+				status: "generated",
+				uint8Array: result.image.uint8Array,
+			};
+		}
+
 		const result = await generateText({
 			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 			messages: [
 				{
 					content: [
 						{
-							text:
-								`${SOURCE_FIDELITY_INSTRUCTION}${params.prompt}\n` +
-								`Target aspect ratio: ${params.aspect}.`,
+							text: prompt,
 							type: "text" as const,
 						},
 						...params.sourceImageUrls.map((url) => ({

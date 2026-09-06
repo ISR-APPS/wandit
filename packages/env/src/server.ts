@@ -94,13 +94,13 @@ export const env = createEnv({
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
-		// Optional: multimodal model used when a generation EDITS user-provided
-		// source images (product photo, logo). Must accept image inputs and
-		// return image outputs through generateText (e.g. a Gemini image
-		// model). Unset means source-image requests degrade to text-only.
+		// Optional: model used when a generation EDITS user-provided source
+		// images (product photo, logo). Gemini image models use generateText;
+		// GPT Image 2 and Muse Image use the native image API.
+		// Unset means source-image requests degrade to text-only.
 		AI_IMAGE_EDIT_MODEL: z.string().min(1).optional(),
 		// Optional override for marketing HTML documents; falls back to
-		// AI_CHAT_MODEL when unset.
+		// AI_PAGE_BUILDER_MODEL, then legacy AI_PAGE_DESIGN_MODEL when unset.
 		AI_MARKETING_MODEL: z.string().min(1).optional(),
 		// Rewrites the brain's Higgsfield image/video intent into a polished
 		// generation prompt before the MCP call. Falls back to the raw prompt
