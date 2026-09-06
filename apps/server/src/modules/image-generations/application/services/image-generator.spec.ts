@@ -313,6 +313,45 @@ describe("generateStandaloneImage", () => {
 		expect(result).toMatchObject({ status: "generated" });
 	});
 
+	it.each([
+		"meta/muse-image-1.0",
+		"openai/gpt-image-2",
+	])("delivers a %s edit through the native image API and R2", async (model) => {
+		mockEnv.AI_IMAGE_EDIT_MODEL = model;
+		mockGeneratedImage("image/webp");
+		const onProviderGeneration = vi.fn(async () => undefined);
+		const sourceImageUrls = ["https://assets.example.com/uploads/photo.jpg"];
+
+		const result = await generateStandaloneImage({
+			...PARAMS,
+			onProviderGeneration,
+			sourceImageUrls,
+		});
+
+		expect(generateText).not.toHaveBeenCalled();
+		expect(generateImage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model,
+				prompt: {
+					images: sourceImageUrls,
+					text: expect.stringContaining(SINGLE_FRAME_INSTRUCTION),
+				},
+			}),
+		);
+		expect(onProviderGeneration).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model,
+				providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			}),
+		);
+		expect(putSiteFile).toHaveBeenCalled();
+		expect(result).toMatchObject({
+			model,
+			status: "generated",
+			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
+		});
+	});
+
 	it("classifies an OpenAI gateway moderation cause without exposing its text", async () => {
 		const cause = new APICallError({
 			data: {
@@ -548,6 +587,127 @@ describe("editImageFromSources", () => {
 			},
 		});
 		expect(call?.telemetry).toEqual({ functionId: "image.edit" });
+	});
+
+	it("uses the image API for a Muse override with sources, attribution, and cancellation", async () => {
+		mockGeneratedImage();
+		const abortSignal = new AbortController().signal;
+
+		const result = await editImageFromSources({
+			...EDIT_PARAMS,
+			abortSignal,
+			model: "meta/muse-image-1.0",
+		});
+
+		expect(generateText).not.toHaveBeenCalled();
+		expect(generateImage).toHaveBeenCalledWith({
+			abortSignal,
+			aspectRatio: "4:5",
+			model: "meta/muse-image-1.0",
+			prompt: {
+				images: EDIT_PARAMS.sourceImageUrls,
+				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
+			},
+			providerOptions: {
+				gateway: { tags: ["op:image", "ws:personal"], user: "user_1" },
+			},
+		});
+		expect(result).toMatchObject({
+			mediaType: "image/png",
+			model: "meta/muse-image-1.0",
+			providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			status: "generated",
+			uint8Array: new Uint8Array([1, 2, 3]),
+			usage: { inputTokens: 10, outputTokens: 0 },
+		});
+	});
+
+	it("preserves the request id when the Muse image API fails", async () => {
+		mockEnv.AI_IMAGE_EDIT_MODEL = "meta/muse-image-1.0";
+		vi.mocked(generateImage).mockRejectedValue(
+			new GatewayInternalServerError({
+				generationId: "gen_muse_failed",
+				statusCode: 503,
+			}),
+		);
+
+		const result = await editImageFromSources(EDIT_PARAMS);
+
+		expect(result).toMatchObject({
+			failure: {
+				kind: "capacity",
+				provider: "meta",
+				requestId: "gen_muse_failed",
+			},
+			providerMetadata: { gateway: { generationId: "gen_muse_failed" } },
+			providerUnits: 0,
+			status: "failed",
+		});
+	});
+
+	it("edits with GPT Image 2 using references and a supported canvas without changing provider quality", async () => {
+		mockGeneratedImage();
+		const abortSignal = new AbortController().signal;
+
+		const result = await editImageFromSources({
+			...EDIT_PARAMS,
+			abortSignal,
+			model: "openai/gpt-image-2",
+		});
+
+		expect(generateText).not.toHaveBeenCalled();
+		expect(generateImage).toHaveBeenCalledWith({
+			abortSignal,
+			model: "openai/gpt-image-2",
+			prompt: {
+				images: EDIT_PARAMS.sourceImageUrls,
+				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
+			},
+			providerOptions: {
+				gateway: { tags: ["op:image", "ws:personal"], user: "user_1" },
+			},
+			size: "1024x1536",
+		});
+		expect(result).toMatchObject({
+			model: "openai/gpt-image-2",
+			providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			status: "generated",
+			usage: { inputTokens: 10, outputTokens: 0 },
+		});
+	});
+
+	it("retains GPT Image 2 cancellation and captured provider evidence", async () => {
+		const controller = new AbortController();
+		controller.abort(new DOMException("Cancelled by caller", "AbortError"));
+		vi.mocked(generateImage).mockRejectedValue(
+			new GatewayResponseError({
+				cause: controller.signal.reason,
+				generationId: "gen_gpt_image_cancelled",
+			}),
+		);
+
+		const result = await editImageFromSources({
+			...EDIT_PARAMS,
+			abortSignal: controller.signal,
+			model: "openai/gpt-image-2",
+		});
+
+		expect(generateText).not.toHaveBeenCalled();
+		expect(generateImage).toHaveBeenCalledWith(
+			expect.objectContaining({ abortSignal: controller.signal }),
+		);
+		expect(result).toMatchObject({
+			failure: {
+				kind: "cancelled",
+				requestId: "gen_gpt_image_cancelled",
+				source: "ours",
+			},
+			providerMetadata: {
+				gateway: { generationId: "gen_gpt_image_cancelled" },
+			},
+			providerUnits: 0,
+			status: "failed",
+		});
 	});
 
 	it("returns the first image file from the response", async () => {
