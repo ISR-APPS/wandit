@@ -44,6 +44,13 @@ export const LEGAL_CONTACT_EMAIL = "contact@scalemindapps.com";
 export const LEGAL_SITE_URL = "https://wandit.dev";
 
 /**
+ * Abuse mailbox printed in the site footer. The Public Suffix List guidelines
+ * ask for a visible abuse contact on the registrant's website, and hosting
+ * providers look for one before they act on a report about a user site.
+ */
+export const ABUSE_CONTACT_EMAIL = "hello@wandit.dev";
+
+/**
  * The single Google scope the Sheets sync asks for, which fills {driveScope}.
  * Re-exported from the contract the client and the server already share, so a
  * scope change cannot leave the published policy behind.
