@@ -5,7 +5,10 @@ import {
 } from "@wandit/internationalization/react";
 
 import { Logo } from "@/components/logo";
-import { LEGAL_COMPANY_REGISTERED_NAME } from "@/features/legal/lib/constants";
+import {
+	ABUSE_CONTACT_EMAIL,
+	LEGAL_COMPANY_REGISTERED_NAME,
+} from "@/features/legal/lib/constants";
 
 import { FOOTER_COLUMNS } from "../lib/constants";
 import { useSectionNav } from "../lib/use-section-nav";
@@ -78,6 +81,18 @@ export function LandingFooter() {
 						<Link to="/terms" className={legalLinkClass}>
 							{footer.linkLabels.terms}
 						</Link>
+						{/* The Public Suffix List and hosting abuse desks look for a
+						    visible abuse contact on the site, so it sits in the same
+						    bottom bar as the policies, on every page. */}
+						<span>
+							{footer.reportAbuse}:{" "}
+							<a
+								href={`mailto:${ABUSE_CONTACT_EMAIL}`}
+								className={legalLinkClass}
+							>
+								{ABUSE_CONTACT_EMAIL}
+							</a>
+						</span>
 					</div>
 					<span>{footer.madeIn}</span>
 				</div>
