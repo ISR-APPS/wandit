@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-report="../wandit-v2-report.html">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f5ef">
+  <meta name="description" content="An illustrated guide to the Wandit V2 report. Learn one concept at a time, with short explanations and steps you control.">
+  <title>Wandit V2 — A visual guide</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%2325362d'/%3E%3Cpath d='M8 13l5 16 7-12 7 12 5-16' fill='none' stroke='%23c7d6b4' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the lesson</a>
+  <header class="topbar">
+    <a class="brand" href="#v1-v2"><span class="brand-mark" aria-hidden="true">w.</span><span>Wandit <span class="brand-separator">/</span> <span class="brand-light">V2 explained</span></span></a>
+    <div class="top-actions"><button id="chapters-toggle" class="quiet mobile-only" aria-expanded="false" aria-controls="sidebar">Chapters</button><button id="glossary-open" class="quiet">Word guide</button><button id="about-open" class="quiet">About this guide</button></div>
+  </header>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Chapter navigation">
+      <div class="sidebar-intro"><p class="eyebrow">A visual field guide</p><p class="sidebar-title">Understand<br>your next app.</p><p class="sidebar-description">One idea. Four steps.<br>Your own pace.</p></div>
+      <div class="progress-label"><span id="progress-count">0 of 16 chapters read</span><span id="progress-percent">0%</span></div>
+      <progress id="progress" max="16" value="0" aria-label="Chapters read"></progress>
+      <nav id="chapter-nav"></nav>
+      <p class="save-note">This browser saves your place.</p><button id="about-mobile" class="text-control mobile-only">About this guide</button>
+    </aside>
+    <main id="main" class="main" tabindex="-1">
+      <div class="chapter-meta"><span id="chapter-group" class="eyebrow"></span><span id="chapter-number"></span></div>
+      <h1 id="chapter-title"></h1>
+      <p id="chapter-subtitle" class="chapter-subtitle"></p>
+      <div class="lesson-label"><span class="proposal-label"><span aria-hidden="true"></span>From the V2 report proposal</span><a id="source-link" target="_blank" rel="noopener">Source section</a></div>
+      <section class="lesson" aria-label="Illustrated lesson">
+        <div class="visual-side"><div id="illustration" class="illustration"></div><p id="scene-caption" class="scene-caption"></p></div>
+        <div class="reading-side">
+          <div class="step-meta"><span id="step-number" class="eyebrow"></span><button id="listen" class="listen" aria-label="Listen to this step"></button></div>
+          <div id="step-dots" class="step-dots" aria-label="Lesson steps"></div>
+          <div id="step-text" aria-live="polite" aria-atomic="true"><h2 id="step-title"></h2><p id="step-body"></p></div>
+          <p id="voice-status" class="voice-status" role="status"></p>
+          <div class="step-controls"><button id="back-step" class="control icon-control" aria-label="Previous step"></button><button id="next-step" class="control primary">Next step</button></div>
+          <div class="play-controls"><button id="replay" class="text-control">Replay this chapter</button><button id="autoplay" class="text-control" aria-pressed="false">Play steps</button></div>
+        </div>
+      </section>
+      <div class="takeaway"><span class="takeaway-label">Keep this idea</span><p id="takeaway"></p></div>
+      <section class="chapter-terms" aria-labelledby="terms-heading"><h2 id="terms-heading" class="section-heading">Words in this chapter</h2><div id="term-buttons" class="term-buttons"></div></section>
+      <section class="question" aria-labelledby="quiz-heading"><div class="question-intro"><span class="eyebrow">A short pause</span><h2 id="quiz-heading"></h2><p>Choose an answer. Then read the reason.</p></div><div class="question-answer"><div id="quiz-options" class="quiz-options"></div><p id="quiz-feedback" class="quiz-feedback" aria-live="polite"></p></div></section>
+      <section class="deeper" aria-labelledby="deeper-heading"><div class="deeper-header"><h2 id="deeper-heading" class="section-heading">More about this chapter</h2><span>Open one topic at a time.</span></div><div id="detail-list"></div></section>
+      <div id="complete-banner" class="complete-banner" hidden><h2>You reached the end of the guide.</h2><p>The word guide and all chapters remain available. The source report contains the original evidence and open decisions.</p><button id="review-first" class="control primary">Return to chapter 1</button></div>
+      <footer class="chapter-footer"><button id="previous-chapter" class="text-control">Previous chapter</button><span id="footer-count"></span><button id="next-chapter" class="control">Next chapter</button></footer>
+    </main>
+  </div>
+  <dialog id="glossary-dialog" class="glossary-dialog" aria-labelledby="glossary-title">
+    <div class="dialog-header"><div><p class="eyebrow">Plain technical language</p><h2 id="glossary-title">Word guide</h2></div><button class="dialog-close quiet" data-close="glossary-dialog" aria-label="Close the word guide">Close</button></div>
+    <label class="search-label" for="term-search">Find a word</label><input id="term-search" type="search" placeholder="For example: sandbox, Redis, RLS" autocomplete="off">
+    <p id="term-count" class="term-count" role="status"></p><div id="glossary-list" class="glossary-list"></div>
+  </dialog>
+  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+    <div class="dialog-header"><div><p class="eyebrow">The source and the language</p><h2 id="about-title">About this guide</h2></div><button class="dialog-close quiet" data-close="about-dialog" aria-label="Close the guide information">Close</button></div>
+    <p>This guide explains the complete Wandit V2 report through 16 chapters. Each chapter has four illustrated steps.</p>
+    <p>The report describes a proposed system. The guide does not establish that these features exist in the product.</p>
+    <div class="source-status"><h3>Proposal</h3><p>The report recommends this design. A recommendation is not a completed feature.</p><h3>Estimate</h3><p>The report calculates a number. A real measurement can give a different result.</p><h3>Open test</h3><p>The report needs evidence for a claim. The guide keeps these questions visible.</p></div>
+    <h3>Simple technical English</h3><p>The text uses ASD-STE100 writing rules: short sentences, simple verb forms, and one name for each concept.</p><p>Full compliance needs a review with the official ASD-STE100 dictionary. This guide does not claim certified compliance.</p>
+    <h3>The illustrations</h3><p>The workshop, archive, and key are examples. They represent software and computers. Their shapes do not represent physical equipment.</p><p>Each scene shows a selected part of the system. The source report contains the technical details.</p>
+    <h3>Coverage of the report</h3><div id="source-map" class="source-map"></div>
+    <p><a id="full-report-link" target="_blank" rel="noopener">Read the original report</a></p>
+    <p class="document-date">Source report: September 2026. Guide: September 6, 2026.</p>
+  </dialog>
+  <noscript><p class="noscript">This guide needs JavaScript for chapter controls. The original report remains available in wandit-v2-report.html.</p></noscript>
+  <script src="content-a.js"></script>
+  <script src="content-b.js"></script>
+  <script src="illustrations.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
