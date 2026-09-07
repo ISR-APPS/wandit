@@ -1,0 +1,2581 @@
+<!doctype html>
+<html lang="en" data-report="wandit-v2-report.html">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f5ef">
+  <meta name="description" content="An illustrated guide to the Wandit V2 report. Learn one concept at a time, with short explanations and steps you control.">
+  <title>Wandit V2 — A visual guide</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%2325362d'/%3E%3Cpath d='M8 13l5 16 7-12 7 12 5-16' fill='none' stroke='%23c7d6b4' stroke-width='3'/%3E%3C/svg%3E">
+  <style>
+:root{color-scheme:light;--paper:#f7f5ef;--white:#fffcf6;--ink:#25362d;--muted:#697166;--line:#dcded2;--green:#dbe4cc;--dark:#324b3a;--gold:#e1c68f;--art:#efeee4;--focus:#526c38;font-family:'Avenir Next',Avenir,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink);background:var(--paper);font-synthesis:none}
+*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button,a{-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:default;opacity:.4}a{color:inherit;text-underline-offset:4px}button{color:var(--ink)}button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{outline:3px solid var(--focus);outline-offset:4px}button:active:not(:disabled){transform:translateY(1px)}h1,h2,h3,p{margin-top:0}button{touch-action:manipulation}button:disabled:active{transform:none}.skip-link{position:fixed;top:-60px;left:15px;z-index:6;background:var(--ink);color:var(--white);padding:12px}.skip-link:focus{top:10px}
+.topbar{height:82px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 40px;gap:20px;background:var(--paper)}.brand{display:flex;align-items:center;gap:12px;font-size:17px;text-decoration:none;font-weight:650;white-space:nowrap}.brand-mark{background:var(--ink);color:var(--green);width:35px;height:35px;border-radius:10px;display:grid;place-items:center;font-family:Georgia,serif;font-size:27px;padding-bottom:4px}.brand-light{font-weight:450}.brand-separator{color:#9ba292;margin:0 10px;font-weight:400}.top-actions{display:flex;gap:12px;align-items:center}.quiet{border:0;background:transparent;padding:9px 10px;font-size:13px;font-weight:550}.quiet:hover{background:#e8ebdf;border-radius:6px}.app-shell{display:grid;grid-template-columns:248px minmax(0,1fr);max-width:1600px;margin:auto}.sidebar{padding:35px 25px 24px 32px;border-right:1px solid var(--line)}.eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:650;color:var(--muted);margin-bottom:13px}.sidebar-title{font-family:Georgia,'Times New Roman',serif;font-size:29px;line-height:1.13;letter-spacing:-.7px;margin-bottom:15px}.sidebar-description{font-size:13px;line-height:1.6;color:var(--muted);margin-bottom:30px}.progress-label{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);gap:6px}progress{appearance:none;border:0;width:100%;height:3px;margin-top:12px;background:#e1e4d8;border-radius:8px;display:block}progress::-webkit-progress-bar{background:#e1e4d8;border-radius:8px}progress::-webkit-progress-value{background:#617a50;border-radius:8px}progress::-moz-progress-bar{background:#617a50}#chapter-nav{margin-top:28px}.nav-group{margin:22px 0 9px;font-size:9px;font-weight:650;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}.nav-chapter{display:grid;grid-template-columns:22px 1fr 14px;align-items:center;text-align:left;width:100%;border:0;background:transparent;border-radius:7px;gap:8px;padding:9px 8px;margin:2px 0;font-size:12px;line-height:1.45}.nav-chapter:hover{background:#e9ecdf}.nav-chapter[aria-current=page]{background:var(--green);font-weight:600}.nav-number{font-size:10px;color:#717a68;font-variant-numeric:tabular-nums}.nav-check{width:14px;height:14px;display:block}.save-note{font-size:10px;line-height:1.5;color:var(--muted);margin-top:30px}.main{padding:37px 44px 0;max-width:1260px;min-width:0;outline:none}.chapter-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}.chapter-meta .eyebrow{margin:0}.chapter-meta>span:last-child{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}h1{font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:clamp(32px,3vw,46px);letter-spacing:-1.25px;line-height:1.13;margin-bottom:12px}.chapter-subtitle{font-size:15px;line-height:1.6;color:var(--muted);max-width:75ch;margin-bottom:24px}.lesson-label{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:10px;margin-bottom:10px;color:var(--muted)}.proposal-label{display:flex;align-items:center;gap:7px}.proposal-label span{width:5px;height:5px;background:#658253;border-radius:50%}.lesson-label a{text-decoration:none}.lesson-label a:hover{text-decoration:underline}.lesson{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.9fr);border:1px solid #d9ddcc;background:var(--white);border-radius:16px;overflow:hidden;min-height:380px}.visual-side{display:flex;flex-direction:column;justify-content:center;min-width:0;background:var(--art);padding:20px 9px 24px}.illustration{width:100%;display:flex;align-items:center;justify-content:center;min-width:0;min-height:250px}.illustration svg{display:block;width:100%;height:auto;overflow:visible}.art-enter{animation:art-in .35s ease-out both}.scene-caption{font-size:12px;line-height:1.6;text-align:center;color:#576450;max-width:90%;margin:5px auto 0;min-height:38px}.reading-side{padding:28px 26px 24px;border-left:1px solid #d9ddcc;display:flex;flex-direction:column;min-width:0}.step-meta{display:flex;align-items:center;justify-content:space-between;gap:8px}.step-meta .eyebrow{margin:0;font-size:10px}.listen{border:0;background:transparent;display:flex;align-items:center;gap:5px;font-size:11px;min-height:32px;padding:6px 0 6px 8px}.listen svg{width:15px;height:15px}.step-dots{display:flex;gap:6px;margin:13px 0 26px}.step-dot{flex:1;border:0;background:#e8eadf;padding:0;height:4px;position:relative;border-radius:3px}.step-dot:before{content:'';position:absolute;inset:-8px 0}.step-dot.active{background:#536d41}.step-dot.past{background:#adbfa0}#step-text h2{font-size:24px;font-weight:500;letter-spacing:-.65px;line-height:1.22;margin-bottom:15px}#step-body{font-size:15px;line-height:1.75;margin-bottom:14px;color:#4c5b4d}#step-text{flex:1}.voice-status{font-size:11px;line-height:1.5;margin:0 0 8px}.voice-status:empty{display:none}.step-controls{display:flex;gap:9px;margin-top:14px}.control{border:1px solid #c8cfbe;border-radius:8px;background:transparent;min-height:44px;padding:11px 19px;font-size:13px;font-weight:550;display:inline-flex;align-items:center;justify-content:center;gap:12px}.control:hover:not(:disabled){background:#e7ebde}.control.primary{background:var(--ink);color:var(--white);border-color:var(--ink)}.control.primary:hover{background:#405743}.step-controls .primary{flex:1}.icon-control{width:45px;padding:0;flex:none}.control svg{width:16px;height:16px}.play-controls{display:flex;justify-content:space-between;gap:8px;margin-top:15px}.text-control{border:0;background:transparent;padding:6px 0;font-size:11px;text-underline-offset:4px}.text-control:hover{text-decoration:underline}.text-control[aria-pressed=true]{font-weight:650;text-decoration:underline}.takeaway{display:flex;align-items:flex-start;gap:22px;border-bottom:1px solid var(--line);padding:23px 0 25px;margin-bottom:25px}.takeaway-label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#6b795d;flex:none;padding-top:4px;font-weight:600}.takeaway p{font-size:15px;line-height:1.6;margin-bottom:0;max-width:76ch}.section-heading{font-size:16px;letter-spacing:-.2px;font-weight:550;margin-bottom:16px}.term-buttons{display:flex;flex-wrap:wrap;gap:8px}.term-button{font-size:12px;border:1px solid #d5dbcb;border-radius:5px;background:transparent;padding:7px 10px}.term-button:hover{background:var(--green)}.term-button span{color:#718264;font-size:12px;margin-left:6px}.chapter-terms{padding-bottom:29px}.question{border-top:1px solid var(--line);padding:28px 0;display:grid;grid-template-columns:1fr 1.15fr;gap:35px}.question-intro .eyebrow{margin-bottom:11px}.question-intro h2{font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:24px;letter-spacing:-.5px;line-height:1.25;max-width:26ch;margin-bottom:13px}.question-intro>p{font-size:12px;line-height:1.6;color:var(--muted)}.quiz-options{display:grid;gap:8px}.quiz-option{border:1px solid #d5dbcc;border-radius:8px;background:var(--white);padding:12px 14px;display:flex;align-items:center;text-align:left;gap:11px;font-size:12px;line-height:1.55;min-height:47px}.quiz-option:hover{background:#ecf0e3}.quiz-option[aria-pressed=true]{border-color:#617c4e;background:#e6edda}.option-letter{flex:none;display:grid;place-items:center;width:21px;height:21px;border:1px solid #c9d2bb;border-radius:50%;font-size:10px}.quiz-feedback{font-size:12px;line-height:1.65;margin:12px 0 0;color:#4c6240;border-left:3px solid #7d9564;padding-left:12px}.quiz-feedback:empty{display:none}.deeper{border-top:1px solid var(--line);padding:25px 0}.deeper-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}.deeper-header h2{margin:0}.deeper-header>span{font-size:10px;color:var(--muted)}details{border-bottom:1px solid var(--line)}summary{list-style:none;cursor:pointer;font-size:13px;line-height:1.5;padding:15px 28px 15px 0;position:relative}summary::-webkit-details-marker{display:none}summary:after{content:'+';position:absolute;right:3px;top:14px;font-size:18px;color:#6c7c5d;font-weight:400}details[open]>summary:after{content:'−'}details>p{font-size:14px;line-height:1.8;max-width:85ch;margin:0 30px 20px 0;color:#4f5d4d;white-space:pre-line}.chapter-footer{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:20px 0 30px;border-top:1px solid var(--line)}.chapter-footer>span{font-size:10px;color:var(--muted)}.complete-banner{padding:24px;background:var(--green);border-radius:10px;margin-bottom:20px}.complete-banner h2{font-size:24px;font-family:Georgia,serif;font-weight:400}.complete-banner p{font-size:14px;line-height:1.6}.mobile-only{display:none}
+dialog{border:1px solid #cbd3bc;border-radius:16px;background:var(--paper);color:var(--ink);width:min(680px,calc(100% - 28px));max-height:85dvh;padding:30px;box-shadow:0 24px 80px #25362d2b}dialog::backdrop{background:#26302766;backdrop-filter:blur(3px)}.dialog-header{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:20px}.dialog-header .eyebrow{margin-bottom:10px}.dialog-header h2{font-family:Georgia,'Times New Roman',serif;font-size:34px;font-weight:400;letter-spacing:-.8px;margin:0}.search-label{display:block;font-size:12px;margin-bottom:9px}#term-search{border:1px solid #c4ceb7;border-radius:7px;background:var(--white);padding:12px 13px;width:100%;font-size:15px;color:var(--ink)}.term-count{font-size:11px;color:var(--muted);margin:14px 0}.glossary-entry{padding:20px 0;border-top:1px solid var(--line)}.glossary-entry h3{font-size:17px;margin:0 0 9px;font-weight:600}.glossary-entry p{font-size:14px;line-height:1.75;margin-bottom:9px}.term-example{color:#64745a}.term-chapter-link{background:none;border:0;font-size:11px;color:#526a41;padding:4px 0;text-align:left;text-decoration:underline;text-underline-offset:3px}.about-dialog>p{font-size:14px;line-height:1.8}.about-dialog h3{font-size:16px;margin:25px 0 10px}.source-status{padding:1px 20px 12px;background:#eaedde;border-radius:8px}.source-status p{font-size:13px;line-height:1.7}.source-map{display:grid;gap:0}.source-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12px;line-height:1.6}.source-row span{color:var(--muted)}.document-date{font-size:11px!important;color:var(--muted)}.noscript{padding:40px;font-size:20px}body:has(dialog[open]){overflow:hidden}
+@keyframes art-in{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(min-width:1500px){.main{padding-left:55px;padding-right:55px}.lesson{min-height:410px}.reading-side{padding:33px}#step-body{font-size:16px}.scene-caption{font-size:13px}}
+@media(max-width:1180px){.app-shell{grid-template-columns:210px minmax(0,1fr)}.sidebar{padding:30px 18px}.main{padding:30px 27px 0}.lesson{grid-template-columns:minmax(0,1fr) minmax(240px,.88fr)}.reading-side{padding:24px 21px}#step-text h2{font-size:22px}.illustration{min-height:230px}.visual-side{padding-left:0;padding-right:0}.scene-caption{font-size:11px}.topbar{padding:0 26px}.nav-chapter{font-size:11px;gap:5px;grid-template-columns:20px 1fr 12px}.step-dots{margin-bottom:22px}}
+@media(max-width:940px){.lesson{grid-template-columns:1fr}.visual-side{padding:12px 20px 17px}.illustration{max-width:680px;min-height:0;margin:auto}.scene-caption{font-size:12px;min-height:0;margin-top:0}.reading-side{border-left:0;border-top:1px solid #d9ddcc;padding:22px 26px;display:grid;grid-template-columns:1fr 1fr;gap:0 22px}.step-meta,.step-dots,#step-text,.voice-status{grid-column:1/-1}.step-dots{margin:13px 0 20px}#step-text h2{font-size:26px}#step-body{font-size:16px;margin-bottom:10px}.step-controls{margin-top:7px;grid-column:1/-1}.play-controls{grid-column:1/-1;margin-top:10px}.question{grid-template-columns:1fr;gap:9px}.question-intro h2{max-width:none}.takeaway{flex-direction:column;gap:8px}.takeaway p{font-size:14px}.deeper-header{align-items:flex-start;flex-direction:column}.deeper-header>span{font-size:11px}}
+@media(max-width:700px){.topbar{height:69px;padding:0 16px;gap:8px}.brand{font-size:14px;gap:8px}.brand-mark{width:30px;height:30px;font-size:23px}.brand-separator{margin:0 4px}.top-actions{gap:0}.top-actions .quiet{font-size:11px;padding:10px 7px}#about-open{display:none}.mobile-only{display:inline-flex}.app-shell{grid-template-columns:1fr}.sidebar{display:none;border-right:0;border-bottom:1px solid var(--line);padding:24px}.sidebar.open{display:block}.sidebar-intro{display:none}#chapter-nav{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;margin-top:15px}.nav-group{grid-column:1/-1;margin-top:15px}.nav-chapter{font-size:12px;padding:10px}.save-note{margin-bottom:0}.main{padding:25px 18px 0}h1{font-size:35px;letter-spacing:-.9px}.chapter-subtitle{font-size:14px;margin-bottom:18px}.chapter-meta{margin-bottom:15px}.lesson-label{font-size:9px}.lesson{border-radius:11px}.visual-side{padding:12px 0 15px}.scene-caption{padding:0 12px;max-width:100%;font-size:12px;line-height:1.6}.reading-side{padding:21px;display:flex}#step-text h2{font-size:25px}.step-meta .eyebrow{font-size:10px}.listen{font-size:12px;min-height:36px}.step-dot:before{inset:-12px 0}.step-dots{margin-bottom:24px}.play-controls .text-control{min-height:36px;font-size:11px}.term-button{min-height:42px;font-size:12px}.takeaway{padding:19px 0}.takeaway p{font-size:15px}.question{padding:24px 0}.question-intro h2{font-size:24px}.quiz-option{font-size:13px;min-height:52px}.quiz-feedback{font-size:13px}.section-heading{font-size:16px}summary{font-size:14px;padding-top:17px;padding-bottom:17px}details>p{font-size:14px;margin-right:0}.chapter-footer{gap:8px}.chapter-footer .control{padding:10px 12px;font-size:12px}.chapter-footer .text-control{font-size:11px;min-height:44px}.chapter-footer>span{display:none}dialog{padding:23px;max-height:88dvh;border-radius:12px}.dialog-header h2{font-size:30px}.source-row{grid-template-columns:1fr;gap:2px}#term-search{font-size:16px}.glossary-entry p{font-size:15px}.quiet{min-height:40px}}
+@media(max-width:380px){.brand-light{display:none}.brand-separator{display:none}.topbar{padding:0 12px}.main{padding-left:12px;padding-right:12px}h1{font-size:31px}.reading-side{padding:19px}.nav-chapter{font-size:11px;padding-left:2px}.lesson-label{font-size:9px}.scene-caption{font-size:11px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media print{.topbar,.sidebar,.top-actions,.step-controls,.play-controls,.listen,.chapter-footer,.quiz-options,.term-buttons{display:none}.app-shell{display:block}.main{padding:0}.lesson{break-inside:avoid}.reading-side{display:block}.lesson-label,.deeper-header>span{display:none}details>p{display:block}dialog{display:none}}
+/* Inline definitions keep new words next to the lesson. */
+.inline-term{display:inline;border:0;border-bottom:1px dotted #778a64;background:none;color:inherit;font:inherit;padding:0;line-height:inherit;text-align:inherit;border-radius:0}.inline-term:hover{background:#dbe4cc}.inline-term:active{transform:none!important}
+@media(min-width:941px){#step-body{font-size:17px;line-height:1.7}}
+
+</style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the lesson</a>
+  <header class="topbar">
+    <a class="brand" href="#v1-v2"><span class="brand-mark" aria-hidden="true">w.</span><span>Wandit <span class="brand-separator">/</span> <span class="brand-light">V2 explained</span></span></a>
+    <div class="top-actions"><button id="chapters-toggle" class="quiet mobile-only" aria-expanded="false" aria-controls="sidebar">Chapters</button><button id="glossary-open" class="quiet">Word guide</button><button id="about-open" class="quiet">About this guide</button></div>
+  </header>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Chapter navigation">
+      <div class="sidebar-intro"><p class="eyebrow">A visual field guide</p><p class="sidebar-title">Understand<br>your next app.</p><p class="sidebar-description">One idea. Four steps.<br>Your own pace.</p></div>
+      <div class="progress-label"><span id="progress-count">0 of 16 chapters read</span><span id="progress-percent">0%</span></div>
+      <progress id="progress" max="16" value="0" aria-label="Chapters read"></progress>
+      <nav id="chapter-nav"></nav>
+      <p class="save-note">This browser saves your place.</p><button id="about-mobile" class="text-control mobile-only">About this guide</button>
+    </aside>
+    <main id="main" class="main" tabindex="-1">
+      <div class="chapter-meta"><span id="chapter-group" class="eyebrow"></span><span id="chapter-number"></span></div>
+      <h1 id="chapter-title"></h1>
+      <p id="chapter-subtitle" class="chapter-subtitle"></p>
+      <div class="lesson-label"><span class="proposal-label"><span aria-hidden="true"></span>From the V2 report proposal</span><a id="source-link" target="_blank" rel="noopener">Source section</a></div>
+      <section class="lesson" aria-label="Illustrated lesson">
+        <div class="visual-side"><div id="illustration" class="illustration"></div><p id="scene-caption" class="scene-caption"></p></div>
+        <div class="reading-side">
+          <div class="step-meta"><span id="step-number" class="eyebrow"></span><button id="listen" class="listen" aria-label="Listen to this step"></button></div>
+          <div id="step-dots" class="step-dots" aria-label="Lesson steps"></div>
+          <div id="step-text" aria-live="polite" aria-atomic="true"><h2 id="step-title"></h2><p id="step-body"></p></div>
+          <p id="voice-status" class="voice-status" role="status"></p>
+          <div class="step-controls"><button id="back-step" class="control icon-control" aria-label="Previous step"></button><button id="next-step" class="control primary">Next step</button></div>
+          <div class="play-controls"><button id="replay" class="text-control">Replay this chapter</button><button id="autoplay" class="text-control" aria-pressed="false">Play steps</button></div>
+        </div>
+      </section>
+      <div class="takeaway"><span class="takeaway-label">Keep this idea</span><p id="takeaway"></p></div>
+      <section class="chapter-terms" aria-labelledby="terms-heading"><h2 id="terms-heading" class="section-heading">Words in this chapter</h2><div id="term-buttons" class="term-buttons"></div></section>
+      <section class="question" aria-labelledby="quiz-heading"><div class="question-intro"><span class="eyebrow">A short pause</span><h2 id="quiz-heading"></h2><p>Choose an answer. Then read the reason.</p></div><div class="question-answer"><div id="quiz-options" class="quiz-options"></div><p id="quiz-feedback" class="quiz-feedback" aria-live="polite"></p></div></section>
+      <section class="deeper" aria-labelledby="deeper-heading"><div class="deeper-header"><h2 id="deeper-heading" class="section-heading">More about this chapter</h2><span>Open one topic at a time.</span></div><div id="detail-list"></div></section>
+      <div id="complete-banner" class="complete-banner" hidden><h2>You reached the end of the guide.</h2><p>The word guide and all chapters remain available. The source report contains the original evidence and open decisions.</p><button id="review-first" class="control primary">Return to chapter 1</button></div>
+      <footer class="chapter-footer"><button id="previous-chapter" class="text-control">Previous chapter</button><span id="footer-count"></span><button id="next-chapter" class="control">Next chapter</button></footer>
+    </main>
+  </div>
+  <dialog id="glossary-dialog" class="glossary-dialog" aria-labelledby="glossary-title">
+    <div class="dialog-header"><div><p class="eyebrow">Plain technical language</p><h2 id="glossary-title">Word guide</h2></div><button class="dialog-close quiet" data-close="glossary-dialog" aria-label="Close the word guide">Close</button></div>
+    <label class="search-label" for="term-search">Find a word</label><input id="term-search" type="search" placeholder="For example: sandbox, Redis, RLS" autocomplete="off">
+    <p id="term-count" class="term-count" role="status"></p><div id="glossary-list" class="glossary-list"></div>
+  </dialog>
+  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+    <div class="dialog-header"><div><p class="eyebrow">The source and the language</p><h2 id="about-title">About this guide</h2></div><button class="dialog-close quiet" data-close="about-dialog" aria-label="Close the guide information">Close</button></div>
+    <p>This guide explains the complete Wandit V2 report through 16 chapters. Each chapter has four illustrated steps.</p>
+    <p>The report describes a proposed system. The guide does not establish that these features exist in the product.</p>
+    <div class="source-status"><h3>Proposal</h3><p>The report recommends this design. A recommendation is not a completed feature.</p><h3>Estimate</h3><p>The report calculates a number. A real measurement can give a different result.</p><h3>Open test</h3><p>The report needs evidence for a claim. The guide keeps these questions visible.</p></div>
+    <h3>Simple technical English</h3><p>The text uses ASD-STE100 writing rules: short sentences, simple verb forms, and one name for each concept.</p><p>Full compliance needs a review with the official ASD-STE100 dictionary. This guide does not claim certified compliance.</p>
+    <h3>The illustrations</h3><p>The workshop, archive, and key are examples. They represent software and computers. Their shapes do not represent physical equipment.</p><p>Each scene shows a selected part of the system. The source report contains the technical details.</p>
+    <h3>Coverage of the report</h3><div id="source-map" class="source-map"></div>
+    <p><a id="full-report-link" target="_blank" rel="noopener">Read the original report</a></p>
+    <p class="document-date">Source report: September 2026. Guide: September 6, 2026.</p>
+  </dialog>
+  <noscript><p class="noscript">This guide needs JavaScript for chapter controls. The original report remains available in wandit-v2-report.html.</p></noscript>
+  <script>
+window.GUIDE_PART_A = [
+  {
+    "id": "v1-v2",
+    "title": "From one page to an app",
+    "subtitle": "The report changes the build process from one HTML page to a project with many files.",
+    "group": "The change",
+    "scene": "evolution",
+    "sourceSections": "1–2",
+    "sourceAnchor": "1-the-v1-flow-step-by-step",
+    "steps": [
+      {
+        "title": "A message starts V1",
+        "body": "The user asks for a booking page. In the V1 inspection, the server reserves credits and locks the chat. Then the Brain writes a design brief.",
+        "caption": "The Brain describes the page before the V1 Builder writes it."
+      },
+      {
+        "title": "The V1 Builder makes one page",
+        "body": "The Brain calls generate_page once. A Trigger.dev task runs the V1 Builder with file tools and image tools. The V1 Builder keeps its files in memory.",
+        "caption": "The V1 task produces one HTML file."
+      },
+      {
+        "title": "The browser shows the HTML",
+        "body": "The task processes the HTML and uploads index.html to R2. The web app asks for updates every 1.5 seconds. Its iframe shows the HTML through srcDoc.",
+        "caption": "The iframe receives HTML text without a development server."
+      },
+      {
+        "title": "V2 needs a full project",
+        "body": "The proposed V2 app has components, routes, and many source files. A harness edits these files inside a sandbox. A development server shows the result.",
+        "caption": "V2 adds a place to run the project during development."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Brain",
+        "definition": "The V1 agent that writes the design brief.",
+        "example": "The brief describes the booking page and its sections."
+      },
+      {
+        "term": "V1 Builder",
+        "definition": "The V1 agent that creates the HTML page with custom tools."
+      },
+      {
+        "term": "HTML",
+        "definition": "The document format that defines the structure of a web page."
+      },
+      {
+        "term": "iframe",
+        "definition": "A browser area that shows another document inside a page."
+      },
+      {
+        "term": "srcDoc",
+        "definition": "An iframe attribute that supplies HTML text directly."
+      },
+      {
+        "term": "Development server",
+        "definition": "A process that serves the app during development.",
+        "example": "The preview changes after the harness edits a component."
+      },
+      {
+        "term": "R2",
+        "definition": "The object storage that the report uses for files and build output."
+      },
+      {
+        "term": "Build",
+        "definition": "A process that converts source files into files that a browser can load."
+      },
+      {
+        "term": "React",
+        "definition": "A JavaScript library for user interfaces."
+      },
+      {
+        "term": "React component",
+        "definition": "A reusable part of a user interface made with React.",
+        "example": "The booking form can be a component with its own fields and buttons."
+      },
+      {
+        "term": "KV",
+        "definition": "Cloudflare key-value storage, which the report uses to connect a domain to a project."
+      },
+      {
+        "term": "Cloudflare Worker",
+        "definition": "A program that runs on Cloudflare servers instead of in the user browser.",
+        "example": "The edge Worker serves published files."
+      }
+    ],
+    "details": [
+      {
+        "title": "The first V1 request",
+        "body": "The web app or native app sends POST /v1/chats/:chatId/ai-stream. The server reserves credits and takes a chat lock."
+      },
+      {
+        "title": "The V1 task record",
+        "body": "The generate_page tool creates a page_generation_attempts row. Then it starts the generate-page task. The inspection counts about 2,440 lines in site-builder-agent.ts."
+      },
+      {
+        "title": "The custom V1 tools",
+        "body": "The tools include write_file, edit_file, read_file, and list_files. Other tools generate images, animate images, take screenshots, and finish the page."
+      },
+      {
+        "title": "The V1 limits",
+        "body": "The inspection gives the V1 Builder a limit of 64 steps. A watchdog stops the V1 Builder after 180 seconds without output."
+      },
+      {
+        "title": "The final HTML",
+        "body": "The task puts GSAP inside the HTML. It processes fonts and images and adds a data-wid marker to each element. It creates a versions row."
+      },
+      {
+        "title": "The old edit path",
+        "body": "Seven chat tools edit the HTML through data-wid targets. They use 15 cheerio operation types. A large rebuild does not receive the previous HTML."
+      },
+      {
+        "title": "The old public page",
+        "body": "The publish process adds pixels, the leads script, and a badge. A KV pointer selects the project. The edge Worker serves one HTML file and ignores the URL path."
+      },
+      {
+        "title": "The missing app features",
+        "body": "The report identifies no generated backend, file tree, code view, terminal, or logs in V1. Its HTML edit tools cannot edit React components. Longer V2 tasks also need credit charges during each turn."
+      }
+    ],
+    "quiz": {
+      "question": "Why does the proposed V2 need a development server?",
+      "options": [
+        "To store the credit balance",
+        "To run a project with many files and show its preview",
+        "To replace the user message"
+      ],
+      "answer": 1,
+      "explanation": "The development server runs the app during development. The preview shows its output."
+    },
+    "takeaway": "V1 produces one page. The proposed V2 edits and runs a project with many files."
+  },
+  {
+    "id": "keep-fix",
+    "title": "Keep the useful foundation",
+    "subtitle": "The report keeps existing product systems and identifies gaps that can affect V2.",
+    "group": "The change",
+    "scene": "foundation",
+    "sourceSections": "3–4",
+    "sourceAnchor": "3-what-v1-keeps-for-v2",
+    "steps": [
+      {
+        "title": "The product already has a base",
+        "body": "The inspection finds login, workspaces, credits, and billing in V1. The proposed V2 keeps these systems. The new build process uses this existing base.",
+        "caption": "V2 does not require a new account system."
+      },
+      {
+        "title": "The interface also continues",
+        "body": "The proposal keeps the project shell, chat pane, and split panels. It also keeps versions, leads, assets, and settings. New app tools extend this interface.",
+        "caption": "The user keeps a familiar place to create projects."
+      },
+      {
+        "title": "Some connections need correction",
+        "body": "The inspection places Redis in San Francisco and the API in Europe. It also finds gaps in automated checks and staging login. The report puts these corrections before V2.",
+        "caption": "The foundation needs corrections before it carries more traffic."
+      },
+      {
+        "title": "A report is not an implementation",
+        "body": "The report describes research and recommendations. Some repository items are references or unused code. Their presence does not mean that the product already includes their features.",
+        "caption": "Each proposed feature still needs implementation and evidence."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Workspace",
+        "definition": "A group of projects and members with access rules."
+      },
+      {
+        "term": "Credit ledger",
+        "definition": "The record of credit reservations, charges, and corrections."
+      },
+      {
+        "term": "Staging",
+        "definition": "An environment for product tests before production use."
+      },
+      {
+        "term": "Production",
+        "definition": "The environment that serves the real users of Wandit."
+      },
+      {
+        "term": "Continuous integration",
+        "definition": "Automatic checks that run after code changes.",
+        "example": "A type check can detect an incorrect function argument."
+      },
+      {
+        "term": "Feature flag",
+        "definition": "A control that enables a feature for selected users or environments."
+      },
+      {
+        "term": "MCP connector",
+        "definition": "A connection that gives the agent tools from another service."
+      },
+      {
+        "term": "Inspection",
+        "definition": "The report section that describes what the authors found in the repository."
+      }
+    ],
+    "details": [
+      {
+        "title": "Accounts and access",
+        "body": "The proposal keeps Better Auth, organizations, the workspace header, and the role matrix. It also keeps the admin login and native login integration."
+      },
+      {
+        "title": "Money and AI events",
+        "body": "The proposal keeps the credit ledger, Stripe billing, and reserve, settle, and reconcile steps. It keeps the model gateway, usage records, error types, and Sentry reports."
+      },
+      {
+        "title": "Jobs, domains, and leads",
+        "body": "The proposal keeps Trigger.dev tasks and live job events. It also keeps custom domains, deployment records, and the public leads endpoint. Leads continue to support notifications and Google Sheets sync."
+      },
+      {
+        "title": "Interface and data",
+        "body": "The proposal keeps three languages, right-to-left layouts, and the native client. It keeps projects as the root data record. New database changes extend the existing structure."
+      },
+      {
+        "title": "The four early corrections",
+        "body": "The report moves Redis near the API. It adds automated type checks, tests, and edge Worker deployment. It also needs a staging domain arrangement that supports login."
+      },
+      {
+        "title": "Unused systems",
+        "body": "The inspection finds no active worker service for the old BullMQ path. The report chooses the existing Trigger.dev system. It also finds an unused V2 experiment project."
+      },
+      {
+        "title": "References are not features",
+        "body": "The inspected simulator branch has no simulator implementation. The Lovable prompt file has no code importer. The partial _cc-harness copy lacks a package manifest and has an unresolved license."
+      },
+      {
+        "title": "Connectors and rollout",
+        "body": "The inspected MCP connectors provide agent tools for services such as Meta Ads. They do not provide a backend for generated apps. Existing feature flags and kill switches can control the V2 rollout."
+      }
+    ],
+    "quiz": {
+      "question": "Which statement matches the report?",
+      "options": [
+        "V2 must replace all login and billing code",
+        "A simulator reference means that the product has a simulator",
+        "V2 can keep login and billing while it replaces the build process"
+      ],
+      "answer": 2,
+      "explanation": "The report keeps useful product systems. It replaces the parts that cannot build and run a full app."
+    },
+    "takeaway": "V2 changes the build process while it keeps useful product systems and corrects known gaps."
+  },
+  {
+    "id": "coding-harness",
+    "title": "The model, harness, and machine",
+    "subtitle": "These three parts have different roles in the proposed build process.",
+    "group": "The build",
+    "scene": "harness",
+    "sourceSections": "5, 6.1, 8.2",
+    "sourceAnchor": "6-1-the-coding-agent-or-harness",
+    "steps": [
+      {
+        "title": "The model proposes an action",
+        "body": "The user asks for a booking form. The model receives context and produces text or a tool request. The model does not provide the project machine.",
+        "caption": "The model supplies a proposed response or action."
+      },
+      {
+        "title": "The harness runs the tools",
+        "body": "The harness controls the model loop, tools, permissions, and session history. It can read a file and run a command. Then it sends the result to the model.",
+        "caption": "The harness connects model responses to controlled actions."
+      },
+      {
+        "title": "The sandbox contains the project",
+        "body": "The harness runs inside the sandbox. The sandbox contains the files, command processes, and development server. A file tool changes a real file in this machine.",
+        "caption": "The sandbox supplies the machine where the tools act."
+      },
+      {
+        "title": "V2 uses one harness path",
+        "body": "The report proposes HarnessAgent with a Claude Code adapter. Questions and code changes use the same harness path. V2 removes the separate Brain agent.",
+        "caption": "The template supplies the design rules that the Brain previously used."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Model",
+        "definition": "The AI system that produces responses from the supplied context."
+      },
+      {
+        "term": "Agent",
+        "definition": "A system that uses a model and tools to act on a task."
+      },
+      {
+        "term": "Coding harness",
+        "definition": "Software that supplies the model loop, tools, permissions, and session history."
+      },
+      {
+        "term": "Tool",
+        "definition": "An operation that the harness or server exposes to the agent.",
+        "example": "A file tool reads a component before the agent changes it."
+      },
+      {
+        "term": "Adapter",
+        "definition": "Software that connects one interface to another interface."
+      },
+      {
+        "term": "SDK",
+        "definition": "A software development kit that provides interfaces for another product."
+      },
+      {
+        "term": "Session",
+        "definition": "The context and history that the harness keeps across related work."
+      },
+      {
+        "term": "Hook",
+        "definition": "A defined point where custom code can respond to a harness event."
+      },
+      {
+        "term": "Claude Agent SDK",
+        "definition": "An Anthropic software package that runs the Claude Code engine from another program."
+      },
+      {
+        "term": "HarnessAgent",
+        "definition": "The AI SDK interface that the report proposes to start and control a coding harness inside a sandbox."
+      }
+    ],
+    "details": [
+      {
+        "title": "The proposed entry point",
+        "body": "The report chooses AI SDK HarnessAgent with the Claude Code adapter. It describes @ai-sdk/harness as experimental. The reported package versions need a separate implementation check."
+      },
+      {
+        "title": "What the adapter connects",
+        "body": "The report says that the adapter starts the Claude Agent SDK and CLI inside the sandbox. A WebSocket connection returns harness events to the host."
+      },
+      {
+        "title": "The direct alternative",
+        "body": "The report keeps the Claude Agent SDK as an alternative. This path runs the agent in containers under Wandit control. The same prompts, skills, and tools can continue."
+      },
+      {
+        "title": "Why a managed session is different",
+        "body": "The report also examines Anthropic Managed Agents. It finds no documented preview port for that option. It therefore does not choose that option for an interactive builder."
+      },
+      {
+        "title": "The Brain rules move",
+        "body": "The proposed template contains CLAUDE.md, design skills, and brief rules. Server tools provide ask_user and generate_image. The handoff from the Brain to the V1 Builder ends."
+      },
+      {
+        "title": "History and messages",
+        "body": "The report keeps harness history in the session. The server stores resume state instead of resending the complete transcript. Harness events use the existing message stream format."
+      },
+      {
+        "title": "Tools and usage",
+        "body": "The proposal permits built-in tools under defined permission rules. Wandit tools that spend money or publish need user approval. The report prices model usage from token counts."
+      },
+      {
+        "title": "Open implementation questions",
+        "body": "The report needs evidence for hook events, usage events, cancellation, and provider access. It also needs a written license answer before external use. Its diagram and prose differ on session scope per chat or project."
+      }
+    ],
+    "quiz": {
+      "question": "Which part supplies the file tools, permissions, and model loop?",
+      "options": [
+        "The coding harness",
+        "The preview iframe",
+        "The Redis lock"
+      ],
+      "answer": 0,
+      "explanation": "The harness supplies these controls. The sandbox supplies the machine, and the model supplies responses."
+    },
+    "takeaway": "The model proposes actions. The harness controls tools. The sandbox supplies the machine."
+  },
+  {
+    "id": "sandbox",
+    "title": "A private workshop for each project",
+    "subtitle": "The sandbox is a cloud machine with project files and processes.",
+    "group": "The build",
+    "scene": "workshop",
+    "sourceSections": "5, 6.2, 8.2–8.3, 13",
+    "sourceAnchor": "6-2-the-sandbox",
+    "steps": [
+      {
+        "title": "The task opens the workshop",
+        "body": "The report proposes one sandbox per project. A new project receives a prepared machine image. An existing project resumes its previous files.",
+        "caption": "Each project has a separate place for its code."
+      },
+      {
+        "title": "Files and processes are different",
+        "body": "The disk contains the project files. Memory contains the state of active processes. The harness and development server use both while the machine runs.",
+        "caption": "A saved file and a running server are different things."
+      },
+      {
+        "title": "The machine can stop",
+        "body": "The proposed Vercel path saves a disk snapshot before the sandbox stops. This snapshot preserves files. It does not preserve the running development server.",
+        "caption": "The workshop can close while its files remain available."
+      },
+      {
+        "title": "The next turn resumes the project",
+        "body": "The next task restores the disk and starts the required processes. The development server and browser service start again. Durable Git bundles provide another recovery path.",
+        "caption": "The files return before the preview becomes ready."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Sandbox",
+        "definition": "An isolated environment where the project code and tools run."
+      },
+      {
+        "term": "Disk",
+        "definition": "Storage for files that can remain after processes stop."
+      },
+      {
+        "term": "Memory",
+        "definition": "The machine resource that holds the state of active processes."
+      },
+      {
+        "term": "Process",
+        "definition": "A program that the machine runs.",
+        "example": "Vite is a development server process for the proposed web app."
+      },
+      {
+        "term": "Snapshot",
+        "definition": "A saved state of the sandbox. Its contents depend on the provider."
+      },
+      {
+        "term": "Machine image",
+        "definition": "A prepared starting disk with the required software."
+      },
+      {
+        "term": "MicroVM",
+        "definition": "A small virtual machine with its own operating-system kernel."
+      },
+      {
+        "term": "Port",
+        "definition": "A numbered network endpoint that a process uses to receive traffic."
+      },
+      {
+        "term": "Vite",
+        "definition": "The development server and build tool that the report chooses for web apps."
+      },
+      {
+        "term": "Firecracker microVM",
+        "definition": "A small virtual machine that uses Firecracker software. The report selects this type of isolation for the coding agent."
+      },
+      {
+        "term": "Kernel",
+        "definition": "The central software of an operating system. It controls access to machine resources."
+      },
+      {
+        "term": "Container",
+        "definition": "An isolated process environment that usually shares the host kernel. A virtual machine has its own kernel."
+      },
+      {
+        "term": "WebContainers",
+        "definition": "A system that runs a development environment inside the browser. The report does not select it for its Claude Code path."
+      }
+    ],
+    "details": [
+      {
+        "title": "The proposed first provider",
+        "body": "The report chooses Vercel Sandbox in the Paris region, cdg1. Its stated reason is an available harness adapter. This guide does not independently establish current provider support."
+      },
+      {
+        "title": "The prepared image",
+        "body": "The proposed image includes Node 22, pnpm, Git, Chromium, and the Expo CLI. The report estimates two virtual CPUs and 4 GB of memory."
+      },
+      {
+        "title": "The processes and ports",
+        "body": "The harness, development server, and browser service need network connections. The report describes Vite for web and Metro for mobile. The final port arrangement needs the proposed early tests."
+      },
+      {
+        "title": "Isolation has controls",
+        "body": "The proposal uses a non-root user and denies network output by default. Real platform credentials stay outside the sandbox. Isolation still depends on correct permissions and network controls."
+      },
+      {
+        "title": "The alternative providers",
+        "body": "The report lists Cloudflare Sandboxes as the second choice and E2B as the third choice. It proposes a SandboxProvider interface. A different provider needs a compatible harness adapter."
+      },
+      {
+        "title": "Snapshot behavior differs",
+        "body": "The report describes disk-only snapshots for its Vercel choice and disk plus memory for E2B. These provider claims need current evidence. A Git version remains separate from a machine snapshot."
+      },
+      {
+        "title": "The idle limit conflicts",
+        "body": "Section 8.2 proposes a stop after 20 idle minutes. Section 8.3 says 10 minutes. The final idle limit remains an open decision."
+      },
+      {
+        "title": "Recovery and measurements",
+        "body": "The report rebuilds the sandbox from R2 bundles after snapshot expiry. Early tests must measure start time, resume time, preview traffic, and cancellation. Provider prices and quotas also need current evidence."
+      }
+    ],
+    "quiz": {
+      "question": "What must happen after a disk-only snapshot restores the project?",
+      "options": [
+        "Redis must rewrite all source files",
+        "The development server must start again",
+        "The public app must lose its database"
+      ],
+      "answer": 1,
+      "explanation": "The disk snapshot restores files. It does not restore the memory of the previous server process."
+    },
+    "takeaway": "The sandbox can stop between turns. Files can survive while processes need to start again."
+  },
+  {
+    "id": "jobs-redis",
+    "title": "The build continues after a tab closes",
+    "subtitle": "The background task runs the turn. Redis carries progress and helps control concurrent changes.",
+    "group": "The build",
+    "scene": "relay",
+    "sourceSections": "6.8, 8.2, 9",
+    "sourceAnchor": "6-8-streaming-and-background-jobs",
+    "steps": [
+      {
+        "title": "The API admits the turn",
+        "body": "The user sends a message. The API makes sure that access, plan limits, and credit balance permit the turn. It creates a turn record and returns its identifier.",
+        "caption": "The request starts a job instead of holding the full build inside the request."
+      },
+      {
+        "title": "The background task owns the job",
+        "body": "The report assigns the turn to a Trigger.dev task. This task starts or resumes the sandbox and harness. A project queue permits one active turn.",
+        "caption": "The task can continue independently of the browser tab."
+      },
+      {
+        "title": "Redis relays progress",
+        "body": "The task sends each progress event to a Redis Stream and a Trigger stream. Redis supplies the browser stream. The report uses the Trigger stream as a durable copy.",
+        "caption": "Redis carries events without becoming the coding agent."
+      },
+      {
+        "title": "The browser reconnects",
+        "body": "A closed tab loses its connection. On return, the browser requests events after its last event identifier. The report also provides an explicit cancel action.",
+        "caption": "A lost connection and a canceled turn are different states."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Turn",
+        "definition": "One user request and the agent work that responds to that request."
+      },
+      {
+        "term": "Background task",
+        "definition": "A job that can continue outside the lifetime of one browser request."
+      },
+      {
+        "term": "Redis Stream",
+        "definition": "An ordered series of events that consumers can read by event identifier."
+      },
+      {
+        "term": "Lock",
+        "definition": "A temporary ownership record that helps prevent concurrent changes to the same project."
+      },
+      {
+        "term": "Queue",
+        "definition": "A system that holds jobs until capacity becomes available."
+      },
+      {
+        "term": "Idempotency key",
+        "definition": "An identifier that helps prevent a repeated request from starting the same job twice."
+      },
+      {
+        "term": "Fencing identifier",
+        "definition": "A turn identifier that helps reject writes from an old owner."
+      },
+      {
+        "term": "SSE",
+        "definition": "Server-sent events, a connection through which the server sends updates to the browser."
+      },
+      {
+        "term": "Redis",
+        "definition": "A data store that the proposal uses for progress events, temporary locks, and rate limits."
+      },
+      {
+        "term": "Trigger.dev",
+        "definition": "The background job service that the report uses to run the task for each turn."
+      },
+      {
+        "term": "API",
+        "definition": "An interface through which one program requests an action or data from another program."
+      }
+    ],
+    "details": [
+      {
+        "title": "The admission record",
+        "body": "The proposal uses POST /api/v2/projects/:id/turns with the workspace header. The API reserves credits, takes the lock, and writes builder_turns. The task uses turnId as its idempotency key."
+      },
+      {
+        "title": "One task per project",
+        "body": "The builder-turn queue has one slot per project. A later message waits for the active turn. This rule prevents two turns from editing the project at once."
+      },
+      {
+        "title": "Several ownership controls",
+        "body": "The report combines a Redis lock, an active-turn database index, the queue, and a fencing identifier. A heartbeat renews the lock. The lock alone does not run or preserve the job."
+      },
+      {
+        "title": "A resumable browser stream",
+        "body": "The browser reads SSE through a custom ChatTransport. Last-Event-ID identifies its most recent event. reconnectToStream resumes event delivery after a page refresh."
+      },
+      {
+        "title": "Two event copies",
+        "body": "The Redis Stream supports the browser relay. The Trigger stream supplies the durable copy in the proposal. Neither stream replaces Git storage for project files."
+      },
+      {
+        "title": "Credit control during a turn",
+        "body": "The task records checkpoint debits during a long turn. It makes sure that the balance and project limit permit further work. The final settlement uses token counts."
+      },
+      {
+        "title": "Cancel and stale writes",
+        "body": "The report proposes runs.cancel and a commit of unfinished work. A fencing identifier helps reject writes from an old turn. Cancellation behavior still needs an early test."
+      },
+      {
+        "title": "Host connection limits",
+        "body": "The report identifies a WebSocket risk during long Trigger.dev waits. It proposes detaching the session before the wait. It marks an abrupt host abort without detach as unresolved."
+      }
+    ],
+    "quiz": {
+      "question": "The user closes the tab during a build. What does the proposal intend?",
+      "options": [
+        "Redis writes the app code",
+        "The task deletes the project",
+        "The background task continues, and the browser can reconnect"
+      ],
+      "answer": 2,
+      "explanation": "The Trigger.dev task runs the turn. The browser connection only receives progress."
+    },
+    "takeaway": "Trigger.dev runs the job. Redis relays progress and helps coordinate ownership. The browser can reconnect."
+  },
+  {
+    "id": "preview",
+    "title": "A protected window into the app",
+    "subtitle": "The preview shows the development server through an access-controlled connection.",
+    "group": "The build",
+    "scene": "preview",
+    "sourceSections": "5, 6.8–6.9, 8.2, 9",
+    "sourceAnchor": "8-2-the-choice-per-block",
+    "steps": [
+      {
+        "title": "The app runs in the sandbox",
+        "body": "The development server reads the source files and serves the app. The browser needs a route to that server. The preview iframe provides the visible area.",
+        "caption": "The iframe shows the app from the development server."
+      },
+      {
+        "title": "A proxy controls entry",
+        "body": "The report puts a preview proxy between the iframe and the sandbox. The proxy makes sure that the request has valid access. Then it forwards permitted traffic.",
+        "caption": "The proxy controls access to the preview connection."
+      },
+      {
+        "title": "A file change updates the view",
+        "body": "The harness changes the booking form. The development server sends an update through a WebSocket connection. Hot reload updates the preview during development.",
+        "caption": "The user can see a change before a public release."
+      },
+      {
+        "title": "Errors return useful evidence",
+        "body": "The proposed browser service reads console errors and captures screenshots. The task can use this evidence for a limited correction loop. This automatic correction remains optional.",
+        "caption": "A visible preview can reveal errors that source files do not show."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Preview",
+        "definition": "A view of the app during development, before a public release."
+      },
+      {
+        "term": "Preview proxy",
+        "definition": "A service that controls access and forwards traffic to the development server."
+      },
+      {
+        "term": "Signed token",
+        "definition": "A value with a signature that the server can use to establish permitted access."
+      },
+      {
+        "term": "Origin",
+        "definition": "The combination of a URL scheme, host, and port that a browser treats as a security boundary."
+      },
+      {
+        "term": "WebSocket",
+        "definition": "A connection that permits messages in both directions between a browser and server."
+      },
+      {
+        "term": "Hot reload",
+        "definition": "A development feature that updates the preview after source changes."
+      },
+      {
+        "term": "Playwright",
+        "definition": "A browser automation tool that the report uses for screenshots and error evidence."
+      },
+      {
+        "term": "Public Suffix List",
+        "definition": "A list that browsers use to identify boundaries between independent sites."
+      }
+    ],
+    "details": [
+      {
+        "title": "The proposed domain boundary",
+        "body": "The report chooses a separate preview domain and a separate origin per project and run. This boundary reduces shared access between generated content and the Wandit interface."
+      },
+      {
+        "title": "The proposed proxy",
+        "body": "A small Cloudflare Worker provides the preview proxy. The report gives its signed token a lifetime of 15 minutes. The proxy sets a cookie and forwards HTTP and WebSocket traffic."
+      },
+      {
+        "title": "Why the iframe needs this path",
+        "body": "An iframe navigation cannot add arbitrary custom request headers. The proposal therefore uses a token and cookie flow. It avoids a preview that depends on custom iframe headers."
+      },
+      {
+        "title": "A private preview needs more than a label",
+        "body": "The report describes the selected provider URL as public. The complete access design must prevent unauthorized access through alternative routes. The proxy and provider behavior need an implementation check."
+      },
+      {
+        "title": "Browser permission rules",
+        "body": "The report requires login support inside the preview. It combines a separate domain, frame-ancestors headers, and restricted iframe permissions. It excludes allow-top-navigation and proposes a Public Suffix List entry."
+      },
+      {
+        "title": "The update connection",
+        "body": "Hot reload needs the proxy to forward WebSocket traffic. The early tests measure preview access and data transfer. A visible HTML page alone does not establish that hot reload works."
+      },
+      {
+        "title": "Optional error correction",
+        "body": "The proposal reads development-server logs and browser console errors. An iframe postMessage connection can report user errors. A limited correction loop prevents an endless series of repair attempts."
+      },
+      {
+        "title": "Preview and publish differ",
+        "body": "The preview serves the app from the development server. A public release serves separate build output. A sandbox stop therefore has a different purpose from an unpublish action."
+      }
+    ],
+    "quiz": {
+      "question": "What does the preview proxy do?",
+      "options": [
+        "It controls access and forwards traffic to the development server",
+        "It stores all customer bookings",
+        "It replaces the source files with screenshots"
+      ],
+      "answer": 0,
+      "explanation": "The proxy controls the connection to the preview. The development server still runs inside the sandbox."
+    },
+    "takeaway": "The preview is a protected view of a development server. It is separate from the public release."
+  },
+  {
+    "id": "backend",
+    "title": "Where the app keeps real data",
+    "subtitle": "The generated app needs its own backend for accounts, records, files, and server functions.",
+    "group": "The app",
+    "scene": "backend",
+    "sourceSections": "5, 6.4, 8.2, 11–13",
+    "sourceAnchor": "6-4-the-backend-for-user-apps",
+    "steps": [
+      {
+        "title": "A form needs a place for records",
+        "body": "The booking page shows fields and buttons. Real bookings need a database that stores records after a browser closes. App login also needs an account service.",
+        "caption": "The visible page and its stored records have different roles."
+      },
+      {
+        "title": "The first data need creates a backend",
+        "body": "The report proposes one Supabase project per generated app. The ensure_backend tool creates it at the first backend requirement. A simple landing page can keep the existing leads path.",
+        "caption": "The proposal creates a backend only after the app needs one."
+      },
+      {
+        "title": "The app uses separate services",
+        "body": "The proposed backend provides a database, login, file storage, and server functions. Jobs and email extend the app. Sensitive credentials stay in controlled server locations.",
+        "caption": "The sandbox edits the app while the backend supplies its data services."
+      },
+      {
+        "title": "Wandit shows the backend controls",
+        "body": "The proposed Cloud tab shows data, users, files, functions, and logs. A server proxy controls these operations. The report also proposes idle pauses and an ownership transfer path.",
+        "caption": "The user manages app services through Wandit."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Backend",
+        "definition": "The services that store app data and run operations outside the browser."
+      },
+      {
+        "term": "Database",
+        "definition": "A system that stores structured records.",
+        "example": "Each booking can have a customer, a date, and a status."
+      },
+      {
+        "term": "Authentication",
+        "definition": "The process that establishes which user makes a request."
+      },
+      {
+        "term": "File storage",
+        "definition": "A service that stores files such as customer images or documents."
+      },
+      {
+        "term": "Server function",
+        "definition": "Code that runs in the backend instead of the browser."
+      },
+      {
+        "term": "Secret",
+        "definition": "A credential or sensitive value that unauthorized users must not receive."
+      },
+      {
+        "term": "Row Level Security",
+        "definition": "Database rules that control which rows a user can read or change."
+      },
+      {
+        "term": "Claim path",
+        "definition": "A proposed way for the user to take ownership of the backend outside Wandit."
+      },
+      {
+        "term": "Supabase",
+        "definition": "The backend provider that the report chooses for app databases, login, file storage, and server functions."
+      },
+      {
+        "term": "SQL",
+        "definition": "A language that programs use to read and change relational database records and structures."
+      },
+      {
+        "term": "Supabase Management API",
+        "definition": "An interface that lets Wandit create and control Supabase projects for its users."
+      },
+      {
+        "term": "Supabase for Platforms",
+        "definition": "The partner program that the report proposes for a product that creates Supabase projects for its users."
+      }
+    ],
+    "details": [
+      {
+        "title": "Two databases have different roles",
+        "body": "The Wandit database stores product records such as projects, turns, and credit usage. The generated app database stores app records such as bookings. The proposal keeps these roles separate."
+      },
+      {
+        "title": "The proposed provider",
+        "body": "The report chooses Supabase through its Management API. Wandit owns the organizations that contain app projects. A BackendProvider interface permits another provider, such as Neon, later."
+      },
+      {
+        "title": "The app services",
+        "body": "The proposal uses Supabase Auth for app accounts and Supabase services for data, files, and functions. It uses pg_cron for jobs. Row Level Security controls access to records."
+      },
+      {
+        "title": "Credentials and tools",
+        "body": "The proposal keeps platform credentials and service keys on the server. The harness receives limited tool access or a proxy token. Tools include apply_migration, run_sql, deploy_function, and set_secret."
+      },
+      {
+        "title": "Email and payments",
+        "body": "The report proposes Resend with a separate domain per tenant. The first payment path uses a user-supplied Stripe restricted key. Regional payment availability remains an open question in the report."
+      },
+      {
+        "title": "The Cloud tab",
+        "body": "The proposed panels include database rows, SQL, users, storage, secrets, logs, functions, and jobs. Secret controls accept new values without showing existing values. A server proxy controls the provider operations."
+      },
+      {
+        "title": "Idle services and costs",
+        "body": "The report proposes a backend pause after seven idle days and a visible resume state. It treats backend capacity as a plan entitlement. Provider limits, partner prices, and creation times need evidence."
+      },
+      {
+        "title": "The ownership date conflicts",
+        "body": "Section 8.2 proposes a claim path from the first release. The phase plan places claim export in P6. The report therefore leaves the delivery date unresolved."
+      }
+    ],
+    "quiz": {
+      "question": "Where does the proposed booking app keep its customer booking records?",
+      "options": [
+        "Only in the preview iframe",
+        "In its app backend database",
+        "In the Redis lock"
+      ],
+      "answer": 1,
+      "explanation": "The app backend stores booking records. Wandit records and build coordination have separate storage roles."
+    },
+    "takeaway": "The sandbox creates the code. The app backend stores records and provides services after development."
+  },
+  {
+    "id": "mobile",
+    "title": "The mobile app has several preview paths",
+    "subtitle": "The report starts with Expo web and a phone, then adds richer device previews in later phases.",
+    "group": "The app",
+    "scene": "mobile",
+    "sourceSections": "5, 6.5, 8.2, 11–13",
+    "sourceAnchor": "6-5-mobile-apps-with-expo",
+    "steps": [
+      {
+        "title": "The user chooses a mobile project",
+        "body": "The proposal chooses web or mobile at project creation. A mobile project uses an Expo template. The same sandbox concept supplies files and tools for this project.",
+        "caption": "The project target determines the template."
+      },
+      {
+        "title": "The browser shows an early preview",
+        "body": "The report first shows Expo web inside a phone frame. Metro serves the mobile JavaScript bundle. A QR code provides the proposed route to Expo Go on a phone.",
+        "caption": "A phone-shaped browser preview is still a web preview."
+      },
+      {
+        "title": "Native features need a compatible app",
+        "body": "Expo Go supports a defined set of native modules. The report later proposes a Wandit preview app with expo-dev-client. This app receives JavaScript from the sandbox.",
+        "caption": "The installed preview app determines which native modules can run."
+      },
+      {
+        "title": "Hosted devices come later",
+        "body": "The report proposes Appetize for a device view inside the browser. Own Android emulators and Mac simulators belong to later phases. EAS provides the proposed build and store-submission path.",
+        "caption": "A streamed device requires more infrastructure than a web preview."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Expo",
+        "definition": "The framework and tools that the report chooses for generated mobile apps."
+      },
+      {
+        "term": "Metro",
+        "definition": "The development server and bundler for the proposed React Native project."
+      },
+      {
+        "term": "Expo Go",
+        "definition": "A phone app that loads compatible Expo projects with its included native modules."
+      },
+      {
+        "term": "Development client",
+        "definition": "A custom preview app with a selected set of native modules."
+      },
+      {
+        "term": "Native module",
+        "definition": "Code that connects the app to device capabilities outside browser JavaScript."
+      },
+      {
+        "term": "EAS",
+        "definition": "Expo Application Services, the proposed service for app builds and store submission."
+      },
+      {
+        "term": "Appetize",
+        "definition": "The hosted device service that the report proposes for an embedded device preview."
+      },
+      {
+        "term": "KVM",
+        "definition": "Linux virtualization support that the report requires for usable Android emulator speed."
+      },
+      {
+        "term": "Expo dev client",
+        "definition": "A custom preview app that includes the native modules of a particular project."
+      },
+      {
+        "term": "serve-sim",
+        "definition": "A macOS tool that sends an iOS Simulator view and touch controls to a browser."
+      }
+    ],
+    "details": [
+      {
+        "title": "The first mobile phase",
+        "body": "The report proposes an Expo web preview and an Expo Go QR code. The template must match the supported Expo SDK. The module list stays within that preview support."
+      },
+      {
+        "title": "A web preview has limits",
+        "body": "The report identifies gaps for camera, biometrics, purchases, and other native modules. A phone frame changes the appearance of the preview. It does not add native device capabilities."
+      },
+      {
+        "title": "Expo Go needs a real-device test",
+        "body": "The report makes dated claims about Expo Go ownership rules, store versions, and OAuth limits. It lists a real-phone test before implementation. Those claims are not current evidence in this guide."
+      },
+      {
+        "title": "The next preview app",
+        "body": "The report proposes a Wandit app with expo-dev-client on TestFlight and Google Play internal testing. Its native modules must match generated app requirements. Appetize can provide another preview path on demand."
+      },
+      {
+        "title": "The Metro connection",
+        "body": "The report places Metro in the sandbox on port 8081. A preview proxy exposes the permitted connection. The plan includes EXPO_PACKAGER_PROXY_URL and a test of Appetize access to Metro."
+      },
+      {
+        "title": "Hosted devices have limits",
+        "body": "The report assigns session limits and minute entitlements to Appetize. Own Android emulators need a separate host fleet with KVM. Exact prices and provider limits require current evidence."
+      },
+      {
+        "title": "Mac simulators are later work",
+        "body": "The report places Mac simulators and serve-sim after Android emulators. The inspected desktop tool is a reference, not a product component. A login proxy and legal review remain necessary in that proposal."
+      },
+      {
+        "title": "Builds and store accounts",
+        "body": "The report keeps EAS for builds and store submission. Users need Apple and Google developer accounts. The listed account fees and tester requirements need current evidence before a store release."
+      }
+    ],
+    "quiz": {
+      "question": "Does a phone frame around Expo web create a native device preview?",
+      "options": [
+        "Yes, the frame adds camera and biometric support",
+        "Yes, the frame starts an iOS simulator",
+        "No, the app still runs as a web preview"
+      ],
+      "answer": 2,
+      "explanation": "The frame changes the visible shape. Native features need a compatible device, development client, or hosted device environment."
+    },
+    "takeaway": "Expo web, a phone preview app, and a hosted device are different preview paths with different capabilities."
+  }
+];
+
+</script>
+  <script>
+window.GUIDE_PART_B = [
+  {
+    "id": "versions",
+    "title": "Return to earlier code",
+    "subtitle": "The proposed version system keeps a record after each chat change.",
+    "group": "Protect and publish",
+    "scene": "versions",
+    "sourceSections": "6.7, 8.2, 13",
+    "sourceAnchor": "6-7-version-history",
+    "steps": [
+      {
+        "title": "The coding agent changes files",
+        "body": "The coding agent adds a booking form to your app. Git records the project files and their changes.",
+        "caption": "Your app now contains a new booking form."
+      },
+      {
+        "title": "The server saves a version",
+        "body": "At the end of the turn, the server creates a commit. A commit identifies this exact set of code changes.",
+        "caption": "One chat change becomes one version in the list."
+      },
+      {
+        "title": "A separate store protects history",
+        "body": "The original proposal sends a Git bundle to R2. The bundle keeps code history outside the sandbox.",
+        "caption": "The code history remains available after the sandbox stops."
+      },
+      {
+        "title": "Restore copies earlier code forward",
+        "body": "You select an earlier version of the booking form. The server copies that code into a new commit. Existing bookings in the database stay unchanged.",
+        "caption": "Code restore does not restore database data."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Git",
+        "definition": "A tool that records changes to project files.",
+        "example": "Git records the code before and after the coding agent adds a form."
+      },
+      {
+        "term": "Commit",
+        "definition": "A recorded set of file changes with an identifier.",
+        "example": "The server labels a commit msg/<messageId>."
+      },
+      {
+        "term": "Commit SHA",
+        "definition": "The long identifier that names a particular Git commit."
+      },
+      {
+        "term": "Branch",
+        "definition": "A separate line of code changes within the same project.",
+        "example": "A later phase gives each chat its own branch."
+      },
+      {
+        "term": "Git bundle",
+        "definition": "A file that contains Git history for transfer or recovery."
+      },
+      {
+        "term": "Fork",
+        "definition": "A separate copy of a project that can receive independent changes."
+      },
+      {
+        "term": "Merge",
+        "definition": "The process that combines code changes from separate branches."
+      },
+      {
+        "term": "Patch",
+        "definition": "A file that describes the text changes between code versions."
+      },
+      {
+        "term": "Numstat",
+        "definition": "A Git summary that counts added and deleted lines for each changed file."
+      },
+      {
+        "term": "Sandbox snapshot",
+        "definition": "A provider-specific record of sandbox state.",
+        "example": "The proposed Vercel path saves disk state. It restarts processes after resume. Git provides the code version history."
+      }
+    ],
+    "details": [
+      {
+        "title": "Why the report requires Git",
+        "body": "Claude Code file checkpoints cover its Write and Edit tools. The report says that they miss changes from shell commands. A Git repository records those changes too."
+      },
+      {
+        "title": "The original R2 design",
+        "body": "After each commit, the sandbox sends a bundle, a patch, and a numstat file to R2 under git/{projectId}/. Every 50 commits, it sends a full bundle. This design is a proposal."
+      },
+      {
+        "title": "The version records",
+        "body": "app_commits, app_bundles, and app_branches supply the version list. A compare-and-swap rule accepts an update only if the recorded starting version still matches."
+      },
+      {
+        "title": "Restore keeps the later history",
+        "body": "A copy-forward restore creates a new commit with earlier code. It keeps the later commits available. The report uses the same approach as V1 page restoration."
+      },
+      {
+        "title": "Code and data have separate histories",
+        "body": "A code restore changes files. It does not reverse payments, delete new users, or restore earlier database rows. A database restore needs a separate process."
+      },
+      {
+        "title": "Git rules and later export",
+        "body": "The server controls commits. The agent cannot run git push, git reset, or git checkout. Media and secrets stay outside Git. Later phases add branches per chat and GitHub export through a GitHub App."
+      },
+      {
+        "title": "Why the report rejects a snapshot per message",
+        "body": "The report estimates about $32 monthly per project for large snapshots after messages. It estimates much smaller costs for source-only Git history. These figures are planning estimates, not measured Wandit costs."
+      },
+      {
+        "title": "A later amendment changes the storage choice",
+        "body": "Section 6.7 adds code.storage, a managed Git service. It proposes a P0 experiment and adoption from day one if that experiment passes. R2 bundles remain the fallback. The later synthesis still lists R2 bundles as the first choice."
+      },
+      {
+        "title": "What code.storage can replace",
+        "body": "The report says that code.storage supplies repositories through an API and supports normal Git operations. It can replace bundle transfer and a later Gitea remote. Its prices and scale claims need the proposed experiment."
+      }
+    ],
+    "quiz": {
+      "question": "You restore code from yesterday. What happens to bookings received today?",
+      "options": [
+        "The bookings disappear.",
+        "The bookings stay in the database.",
+        "Git sends the bookings to GitHub."
+      ],
+      "answer": 1,
+      "explanation": "The proposed restore changes code only. Database data has a separate lifecycle."
+    },
+    "takeaway": "A version is a record of code. A restore creates a new code version without changing database data."
+  },
+  {
+    "id": "publish",
+    "title": "Put the finished app on the web",
+    "subtitle": "The proposed host serves a finished build from Cloudflare and R2.",
+    "group": "Protect and publish",
+    "scene": "publish",
+    "sourceSections": "6.6, 8.1–8.3, 11",
+    "sourceAnchor": "6-6-hosting-and-publish",
+    "steps": [
+      {
+        "title": "Make the finished files",
+        "body": "The publish task runs vite build inside the sandbox. This command creates the finished website files in the dist folder.",
+        "caption": "The development preview and the finished build have different jobs."
+      },
+      {
+        "title": "Store files and their list",
+        "body": "The task sends the files to R2. A manifest records which files belong to this deployment. A file hash identifies its content.",
+        "caption": "One deployment has one exact set of files."
+      },
+      {
+        "title": "Select the live deployment",
+        "body": "The publish task changes current.json after the required checks pass. This small object identifies the deployment that visitors receive.",
+        "caption": "The live selector changes after the new build is ready."
+      },
+      {
+        "title": "Visitors receive the app",
+        "body": "The wandit-edge Worker reads the live selection and serves the files. Your published site remains separate from the development server inside the sandbox.",
+        "caption": "The sandbox preview supports your work, while the published site serves visitors."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Build",
+        "definition": "The process that turns source code into files that a browser can use.",
+        "example": "Vite creates HTML, JavaScript, CSS, and other files in dist."
+      },
+      {
+        "term": "Hash",
+        "definition": "An identifier calculated from file content.",
+        "example": "The proposed store uses a SHA-256 hash to identify a file."
+      },
+      {
+        "term": "Deployment",
+        "definition": "A prepared version of an app that a host can serve to visitors."
+      },
+      {
+        "term": "KV",
+        "definition": "Cloudflare storage that associates each key with a value.",
+        "example": "The existing KV record connects a domain to its project route."
+      },
+      {
+        "term": "MIME content type",
+        "definition": "A response label that tells a browser how to interpret a file.",
+        "example": "text/html identifies an HTML document."
+      },
+      {
+        "term": "Manifest",
+        "definition": "A list of the files that belong to one deployment."
+      },
+      {
+        "term": "Pointer",
+        "definition": "A small record that identifies another record or location.",
+        "example": "current.json selects the live deployment."
+      },
+      {
+        "term": "SPA fallback",
+        "definition": "A rule that serves index.html for an app route without a matching file.",
+        "example": "React Router then shows the booking page at /bookings."
+      },
+      {
+        "term": "CDN",
+        "definition": "A network that serves cached website files from locations near visitors."
+      },
+      {
+        "term": "Cloudflare for SaaS",
+        "definition": "The domain service that the proposal keeps for customer domains."
+      },
+      {
+        "term": "Workers for Platforms",
+        "definition": "A later proposed service for customer apps that need their own server code."
+      }
+    ],
+    "details": [
+      {
+        "title": "Preview and publication are separate",
+        "body": "The development preview connects to a sandbox port and updates during code changes. The published website serves a completed deployment. A public development URL does not replace the publication process."
+      },
+      {
+        "title": "The first generated web stack",
+        "body": "The proposal uses Vite, React, TypeScript, Tailwind, shadcn/ui, React Router, and supabase-js. This stack produces static website files. Proposed server functions run in Supabase Edge Functions."
+      },
+      {
+        "title": "A selector makes rollback small",
+        "body": "An immutable deployment stays unchanged after upload. Rollback selects an earlier deployment. Unpublish and suspension change publication state without a complete file upload. Suspension also records a reason."
+      },
+      {
+        "title": "Why the KV record stays stable",
+        "body": "KV stores the domain routing record. The report keeps the deployment identifier out of that record because domain changes use the same contract. current.json selects the deployment separately."
+      },
+      {
+        "title": "The storage paths need one final specification",
+        "body": "Section 6.6 proposes shared files at apps/blobs/{sha256}. Section 8 also shows published/{projectId}/d/{deploymentId}/*. These descriptions need one implementation specification. Both require a file list and a separate live selector."
+      },
+      {
+        "title": "File types and cache rules",
+        "body": "A MIME content type tells the browser how to interpret a file. JavaScript, images, and HTML need the correct types. Content hashes support long cache lifetimes because changed content gets a new identifier."
+      },
+      {
+        "title": "Domains and server code solve different problems",
+        "body": "Cloudflare for SaaS handles customer domains. Workers for Platforms runs server code for customer apps in a later phase. The report proposes one Worker per deployment for that later service."
+      },
+      {
+        "title": "Domain shape matters",
+        "body": "The report uses one hostname level for a deployment, such as d-123--myapp.wandit.app. It says that the proposed certificate does not cover two levels. The development preview uses a separate domain for isolation."
+      },
+      {
+        "title": "Publication retains existing connections",
+        "body": "The deployment records and domain contract remain compatible with V1. The leads SDK sends forms to the existing public leads endpoint. The publish process also adds the configured pixels and badge to dist/index.html."
+      },
+      {
+        "title": "Host comparisons are report claims",
+        "body": "The report favors Cloudflare because of its stated transfer costs and existing Wandit infrastructure. It rejects alternatives based on prices and platform limits. Those commercial details require fresh evidence before purchase or launch."
+      }
+    ],
+    "quiz": {
+      "question": "What changes when the proposed system publishes a prepared deployment?",
+      "options": [
+        "current.json selects the prepared deployment.",
+        "The live site becomes the development server.",
+        "The system deletes every earlier deployment."
+      ],
+      "answer": 0,
+      "explanation": "The proposal uploads the build first. Then a small selector chooses the live deployment."
+    },
+    "takeaway": "The sandbox prepares the app. The published host serves a fixed deployment to visitors."
+  },
+  {
+    "id": "security",
+    "title": "Give each part limited access",
+    "subtitle": "The proposal adds boundaries because an AI agent can run commands and encounter hostile text.",
+    "group": "Protect and publish",
+    "scene": "security",
+    "sourceSections": "6.9, 8.2–8.3, 11",
+    "sourceAnchor": "6-9-security",
+    "steps": [
+      {
+        "title": "Put the coding agent in its own machine",
+        "body": "The proposal places generated code inside an isolated microVM. The coding agent runs as a non-root user with limited permissions.",
+        "caption": "A project gets a separate place to run its code."
+      },
+      {
+        "title": "Keep master keys outside",
+        "body": "A broker keeps the real model key outside the sandbox. The coding agent receives a short-lived token. The broker limits what that token can request.",
+        "caption": "The coding agent gets limited access without the master key."
+      },
+      {
+        "title": "Protect the browser and data",
+        "body": "A separate preview domain prevents generated code from sharing the Wandit editor origin. Database policies limit which rows each user can read or change.",
+        "caption": "A preview page and a database request face separate access rules."
+      },
+      {
+        "title": "Apply checks before publication",
+        "body": "The publish task examines secrets, database access, and suspected phishing. A failure blocks publication. A suspension switch can stop a published app after an abuse report.",
+        "caption": "Publication requires security checks, with a separate way to suspend an app."
+      }
+    ],
+    "terms": [
+      {
+        "term": "MicroVM",
+        "definition": "A small virtual machine with its own operating system kernel."
+      },
+      {
+        "term": "Non-root user",
+        "definition": "A system user without the highest operating system permissions."
+      },
+      {
+        "term": "Prompt injection",
+        "definition": "Hostile instructions inside content that the AI reads.",
+        "example": "A project file tells the agent to reveal a secret instead of completing your request."
+      },
+      {
+        "term": "Secret",
+        "definition": "A private credential that grants access to a service.",
+        "example": "A model API key or a payment service key is a secret."
+      },
+      {
+        "term": "Broker",
+        "definition": "A trusted service that provides limited access to another service."
+      },
+      {
+        "term": "Scoped token",
+        "definition": "A temporary credential with limits on its permitted actions or resources."
+      },
+      {
+        "term": "RLS",
+        "definition": "Row-level security: database policies that control access to individual rows.",
+        "example": "One customer can read that customer's bookings without access to other customers' bookings."
+      },
+      {
+        "term": "Phishing",
+        "definition": "An attempt to deceive users into giving private information through a false website or message."
+      },
+      {
+        "term": "Anonymous RLS probe",
+        "definition": "An access experiment that requests database records without a user login."
+      },
+      {
+        "term": "Inference",
+        "definition": "The process through which a model uses input to produce an answer."
+      },
+      {
+        "term": "Public Suffix List",
+        "definition": "A list that browsers use to identify boundaries between independent sites.",
+        "example": "The proposal requests an entry for the host domain of generated apps."
+      },
+      {
+        "term": "Credential brokering",
+        "definition": "A server or network proxy adds the real credential to a permitted request. The sandbox does not receive that credential."
+      }
+    ],
+    "details": [
+      {
+        "title": "The three new risks",
+        "body": "V2 introduces shell commands from an agent. It also manages secrets for customer backends. Later apps can publish server code. Each capability needs its own limits."
+      },
+      {
+        "title": "Network access starts closed",
+        "body": "The proposal blocks outgoing network connections by default. It also denies private network ranges. Approved destinations receive limited access through the proposed network rules."
+      },
+      {
+        "title": "The model proxy needs accurate forwarding",
+        "body": "The proxy examines the short token and adds the real model key. It enforces a cost limit for the run and user. It must preserve anthropic-beta, anthropic-version, and cache_control for the proposed integration."
+      },
+      {
+        "title": "Public keys and private keys differ",
+        "body": "The frontend can contain the public Supabase key under the proposed access policies. A Supabase secret key bypasses RLS. That secret key stays outside generated frontend code and the sandbox."
+      },
+      {
+        "title": "Server tools hold sensitive actions",
+        "body": "The proposal injects secrets through a network proxy or server tools. It asks users for restricted Stripe keys. A restricted key permits fewer operations than a full account key."
+      },
+      {
+        "title": "The preview needs its own origin",
+        "body": "An origin combines a scheme, host, and port. The proposal gives each project and run a separate preview origin. A signed token controls entry. The preview proxy also sets a cookie for later requests."
+      },
+      {
+        "title": "The iframe has additional rules",
+        "body": "The preview needs allow-same-origin for login sessions. The proposal uses frame-ancestors headers to control embedding. It excludes allow-top-navigation so generated code cannot replace the main page through that permission."
+      },
+      {
+        "title": "The publication checks",
+        "body": "Supabase security advisors must report no ERROR result. An anonymous RLS probe examines access without a login. The task also scans for secrets and suspected phishing. These checks reduce specific risks but do not prove that an app has no faults."
+      },
+      {
+        "title": "Protected files and an audit record",
+        "body": "A PreToolUse hook rejects changes to .claude, .mcp.json, .git/hooks, and shell configuration files. The proposal adds audit_events and Redis rate limits. Audit events record sensitive actions for later investigation."
+      },
+      {
+        "title": "Three separate cost limits",
+        "body": "The model proxy limits money per run. The sandbox limits CPU use and session time. Each backend has a usage limit and a pause mechanism. A separate Anthropic workspace also receives a spend limit."
+      },
+      {
+        "title": "Privacy requires a provider decision",
+        "body": "The report discusses inference regions, data retention, and backend regions. These are provider and policy claims that need fresh evidence. The owner must choose the privacy position before external users receive access."
+      }
+    ],
+    "quiz": {
+      "question": "Where does the proposed system keep the real model API key?",
+      "options": [
+        "Inside the generated frontend.",
+        "In every sandbox file.",
+        "Outside the sandbox, behind the model proxy."
+      ],
+      "answer": 2,
+      "explanation": "The coding agent receives a limited token. The trusted proxy holds the real key and enforces cost limits."
+    },
+    "takeaway": "Isolation, limited credentials, data policies, and publication checks protect different boundaries."
+  },
+  {
+    "id": "costs",
+    "title": "Track cost during each turn",
+    "subtitle": "The report proposes a credit process and gives estimates that require real measurements.",
+    "group": "Protect and publish",
+    "scene": "money",
+    "sourceSections": "6.10, 8.2–8.3, 9, 14",
+    "sourceAnchor": "6-10-money",
+    "steps": [
+      {
+        "title": "Reserve credit before the run",
+        "body": "The API examines the balance and project limits. It reserves part of the balance for the requested work.",
+        "caption": "A credit hold sets aside money before the task starts."
+      },
+      {
+        "title": "Record use during the run",
+        "body": "The task receives usage events as the agent runs. It records checkpoint debits after groups of steps. Limits can stop further spending.",
+        "caption": "Cost records grow during the task, not only at the end."
+      },
+      {
+        "title": "Calculate the final charge",
+        "body": "The server calculates charges from token counts and its price table. It settles the hold against the calculated charge.",
+        "caption": "The final charge uses measured usage and a controlled price table."
+      },
+      {
+        "title": "Show the receipt",
+        "body": "The user sees the recorded charge after the turn. Backend access and mobile preview minutes have separate plan allowances.",
+        "caption": "AI work, backend access, and mobile preview have different cost controls."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Token",
+        "definition": "A unit of text that a language model reads or produces.",
+        "example": "Input and output tokens can have different prices."
+      },
+      {
+        "term": "Credit",
+        "definition": "The billing unit that Wandit shows to the user."
+      },
+      {
+        "term": "Credit hold",
+        "definition": "A reserved part of the balance for work that has not finished."
+      },
+      {
+        "term": "Checkpoint debit",
+        "definition": "A charge record made during a long task."
+      },
+      {
+        "term": "Settle",
+        "definition": "Calculate the final charge and resolve the reserved credit hold."
+      },
+      {
+        "term": "Margin",
+        "definition": "The part of revenue that remains after the costs included in a calculation.",
+        "example": "Different margin calculations can include different costs."
+      },
+      {
+        "term": "Ledger",
+        "definition": "A record of balance changes and the reasons for those changes."
+      },
+      {
+        "term": "Entitlement",
+        "definition": "A resource allowance included in a plan.",
+        "example": "A plan can permit one active backend."
+      },
+      {
+        "term": "Prompt cache",
+        "definition": "Stored reusable model input that can reduce repeated input cost."
+      }
+    ],
+    "details": [
+      {
+        "title": "The SDK estimate does not set the bill",
+        "body": "The report says that total_cost_usd is an estimate from the Agent SDK. The proposed billing process uses token counts and the server price table. Usage records also include projectId."
+      },
+      {
+        "title": "The report keeps the existing credit rule",
+        "body": "The proposal keeps one credit equal to $0.04. It keeps the existing ledger, reserve, settle, and reconcile process. Reconciliation compares local records with provider usage records."
+      },
+      {
+        "title": "Illustrative message costs",
+        "body": "The report estimates $0.14 for a small edit, $0.44 for a typical feature, and $1.40 for a large build. These examples assume its selected model and cache behavior. They are not measured prices for your next request."
+      },
+      {
+        "title": "The plan trade-off",
+        "body": "The report estimates about 17 typical messages from a $25 plan with 175 credits. It compares this result with competitor plans and margins. These comparisons are report claims. The owner must choose the price position after real measurements."
+      },
+      {
+        "title": "Illustrative project costs per month",
+        "body": "Section 14 estimates about $15 for a landing page and $39 for a web app with a backend. It estimates $43 for a mobile app with a backend. An idle project costs about $0.30 in that example. Actual usage determines actual cost."
+      },
+      {
+        "title": "Backend access and mobile minutes",
+        "body": "The report estimates about $10 monthly for an active backend and $0.06 per mobile preview minute. It proposes plan allowances or add-ons for these resources. These vendor prices require fresh evidence."
+      },
+      {
+        "title": "Proposed model controls",
+        "body": "The report selects Sonnet 5 at medium effort and a one-hour cache. It proposes about $2 as a Pro turn budget. It limits subagents to one level and three simultaneous agents. Model availability and prices require separate evidence."
+      },
+      {
+        "title": "What the staging measurements answer",
+        "body": "The proposal records real step counts and token sizes for two weeks. It also uses 20 real prompts in P0. These measurements determine the credit mapping and actual cache benefit."
+      },
+      {
+        "title": "Platform bills are separate",
+        "body": "Section 14 lists fixed bills for Vercel, Cloudflare, Supabase, and later mobile services. It marks the Trigger.dev plan as unverified. These bills exist separately from a single message receipt and need current provider prices."
+      },
+      {
+        "title": "Two cost rules need a final decision",
+        "body": "The synthesis records sandbox usage as a billing operation but also proposes included sandbox minutes. Evidence rows can measure included usage without a separate user charge. The report also gives inconsistent idle-stop times of 10 and 20 minutes."
+      }
+    ],
+    "quiz": {
+      "question": "Which source does the report choose for the final AI charge?",
+      "options": [
+        "The SDK cost estimate alone.",
+        "Token counts and the server price table.",
+        "The number of words in the user message alone."
+      ],
+      "answer": 1,
+      "explanation": "The proposal uses measured token counts. It does not use total_cost_usd as the final billing source."
+    },
+    "takeaway": "Reserve credit, record usage, settle the charge, and show a receipt. Treat the report prices as estimates."
+  },
+  {
+    "id": "whole-system",
+    "title": "See one request become an app",
+    "subtitle": "The proposed system gives each service one clear responsibility.",
+    "group": "Put the plan together",
+    "scene": "system",
+    "sourceSections": "6.3, 7, 8, 9",
+    "sourceAnchor": "8-the-design",
+    "steps": [
+      {
+        "title": "The browser requests work",
+        "body": "You send a message from the project page. The API examines access, reserves credit, and records a turn. It returns the turn identifier immediately.",
+        "caption": "The browser requests work, and the API admits and records it."
+      },
+      {
+        "title": "A background task manages the turn",
+        "body": "Trigger.dev manages the builder-turn task independently of the browser tab. The task obtains the project sandbox and resumes the harness session.",
+        "caption": "The task keeps responsibility for the run after the browser disconnects."
+      },
+      {
+        "title": "The coding agent changes the project",
+        "body": "The harness runs the coding agent inside the sandbox. The preview shows the development server. Redis carries live progress to the browser.",
+        "caption": "The agent changes files while the browser shows progress and the preview."
+      },
+      {
+        "title": "The task records the result",
+        "body": "The task saves a code version and settles the credit hold. The message records usage and the commit identifier. Publication remains a separate task.",
+        "caption": "A finished chat turn creates a code version without automatic publication."
+      }
+    ],
+    "terms": [
+      {
+        "term": "API",
+        "definition": "An interface through which one program requests an action or data from another program."
+      },
+      {
+        "term": "Harness",
+        "definition": "The system that gives the coding agent tools, instructions, and a work process."
+      },
+      {
+        "term": "Adapter",
+        "definition": "Code that connects one interface to a different implementation.",
+        "example": "A sandbox adapter connects the harness to a sandbox provider."
+      },
+      {
+        "term": "Queue",
+        "definition": "A list of tasks that wait for permission to run."
+      },
+      {
+        "term": "Export",
+        "definition": "A way to transfer a project or its data to a destination outside Wandit."
+      },
+      {
+        "term": "CI",
+        "definition": "Continuous integration: automated checks or deployment tasks after code changes."
+      },
+      {
+        "term": "Project type",
+        "definition": "The web or mobile choice that the proposal fixes at project creation."
+      }
+    ],
+    "details": [
+      {
+        "title": "The service roles stay stable",
+        "body": "Railway hosts the NestJS API. Trigger.dev manages background tasks. The sandbox runs project tools and development servers. Redis carries live events and locks. Cloudflare and R2 serve published web files. Supabase provides proposed customer backends."
+      },
+      {
+        "title": "The preferred agent integration",
+        "body": "The proposal selects AI SDK v7 HarnessAgent with a Claude Code adapter. The direct Claude Agent SDK is its fallback. The harness receives every message, including questions. V2 removes the handoff between the V1 Brain and V1 Builder."
+      },
+      {
+        "title": "Wandit instructions move into the project template",
+        "body": "The proposal places design worlds, brief rules, and project instructions in CLAUDE.md and skills. Host tools provide ask_user and generate_image. Wandit tools that spend money or publish require approval."
+      },
+      {
+        "title": "Provider choices remain replaceable",
+        "body": "The report selects Vercel Sandbox first and keeps a SandboxProvider interface. Cloudflare Sandbox is the second candidate, with E2B as another option. The proposed change requires an adapter and successful experiments."
+      },
+      {
+        "title": "The model access route needs an experiment",
+        "body": "The report proposes a thin Wandit proxy before Vercel AI Gateway. It cites existing V1 usage reconciliation as a reason. It marks Cloudflare AI Gateway header and cache behavior as unverified."
+      },
+      {
+        "title": "Generated app data stays separate",
+        "body": "The proposed backend is one Supabase project per app, created only on first need. The proposal uses Supabase Auth, tenant email credentials, and restricted payment keys. Database-only apps can use a later Neon alternative."
+      },
+      {
+        "title": "User choices remain visible",
+        "body": "The proposal fixes web or mobile at project creation. Web templates include Arabic, French, and right-to-left layouts. Later export features provide GitHub access and backend ownership transfer. The report conflicts on the first delivery date for backend export."
+      },
+      {
+        "title": "Existing V1 functions retain their contracts",
+        "body": "V1 projects keep their engine. Existing leads, domains, media storage, and connector contracts remain available. A later one-way upgrade creates a V2 project from V1 HTML. It does not force every V1 project to migrate."
+      },
+      {
+        "title": "The report is a synthesis, not a completed review",
+        "body": "Three agents wrote separate proposals from different priorities. The report says that they agreed on 11 of 15 blocks. Judge and critic runs failed three times with API 529 overload errors. The main agent produced the synthesis."
+      },
+      {
+        "title": "What the report finds in other app builders",
+        "body": "Section 6.3 describes a common shape across the examined products. A coding agent changes files, and a development server supplies a preview. Versions preserve changes, and a publish action releases the result. The report uses this comparison to guide the proposed V2 design."
+      },
+      {
+        "title": "Three ways to supply an app backend",
+        "body": "A platform can rent a managed backend for each app. It can build and operate its own backend system. It can also connect an account that the user already owns. The report chooses the managed Supabase path for Wandit."
+      },
+      {
+        "title": "Different places to run the tools",
+        "body": "The report compares cloud virtual machines, containers, and development environments inside the browser. These choices provide different isolation and runtime features. The report selects a cloud sandbox that can run its chosen coding harness. Browser-only execution does not meet that proposed requirement."
+      },
+      {
+        "title": "Lessons from the market comparison",
+        "body": "The report favors a protected preview, saved versions, and an export path. It fixes web or mobile at project creation. It also uses publish checks to detect open database access. Competitor capabilities and prices in the source remain dated research claims."
+      }
+    ],
+    "quiz": {
+      "question": "Which component runs the project commands and development server?",
+      "options": [
+        "The customer browser alone.",
+        "The domain routing record.",
+        "The sandbox."
+      ],
+      "answer": 2,
+      "explanation": "The sandbox contains the project files and processes. Other services manage tasks, access, progress, data, and publication."
+    },
+    "takeaway": "The browser asks, the API admits, the task manages, and the sandbox runs the coding agent."
+  },
+  {
+    "id": "records",
+    "title": "Give every result a durable record",
+    "subtitle": "The proposal adds V2 database records while existing V1 readers keep their current data.",
+    "group": "Put the plan together",
+    "scene": "records",
+    "sourceSections": "9, 10",
+    "sourceAnchor": "10-changes-to-the-database-and-the-environment",
+    "steps": [
+      {
+        "title": "Identify the project and turn",
+        "body": "A project record identifies the engine and target platform. A builder_turns record tracks one request and its task status.",
+        "caption": "The project owns the work, and a turn records one attempt."
+      },
+      {
+        "title": "Connect records by identifiers",
+        "body": "The turn refers to its task, message, and input and output commits. These identifiers connect the records without copying every file into each row.",
+        "caption": "References connect the request, its work, and its result."
+      },
+      {
+        "title": "Keep different state in the right place",
+        "body": "Sandbox records describe the runtime. Git records describe code versions. Backend records identify the app database.",
+        "caption": "A sandbox status, a code version, and a database project are different facts."
+      },
+      {
+        "title": "Protect secrets and preserve V1",
+        "body": "Secret records contain encrypted values or references to a secure store. V2 adds its own records. Existing V1 code keeps its current data contract.",
+        "caption": "Secrets need protection, and V1 needs compatible records."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Database row",
+        "definition": "One record in a database table.",
+        "example": "One builder_turns row describes one coding agent turn."
+      },
+      {
+        "term": "Reference",
+        "definition": "An identifier that connects one record to another record or service."
+      },
+      {
+        "term": "Source of truth",
+        "definition": "The authoritative record for a particular fact.",
+        "example": "Git records code history. The backend database records customer bookings."
+      },
+      {
+        "term": "Encryption",
+        "definition": "A process that makes stored data unreadable without the required key."
+      },
+      {
+        "term": "Environment value",
+        "definition": "A value that the server reads from its runtime configuration."
+      },
+      {
+        "term": "Feature flag",
+        "definition": "A switch that controls whether a feature is available."
+      },
+      {
+        "term": "Additive change",
+        "definition": "A change that adds records or fields while existing readers retain their current contract."
+      }
+    ],
+    "details": [
+      {
+        "title": "Sessions and turns",
+        "body": "builder_sessions stores harness resume state per chat. builder_turns records status, requestKey, triggerRunId, and input and output commits. It also records failure information and a Sentry event identifier."
+      },
+      {
+        "title": "Sandbox state",
+        "body": "sandbox_sessions records the provider identifier, image, status, preview host, and expiry time. These records describe the runtime. They do not replace code history or customer database data."
+      },
+      {
+        "title": "Code history and build results",
+        "body": "app_commits, app_bundles, and app_branches hold version information. app_builds records web builds. mobile_builds records Expo builds. A version record and a build record serve different purposes."
+      },
+      {
+        "title": "Backends and secrets",
+        "body": "app_backends identifies one proposed Supabase project per V2 project. It records the backend reference, region, and status. project_secrets stores encrypted values or an external reference. It never stores secrets as plain text."
+      },
+      {
+        "title": "Cost and accountability",
+        "body": "project_cost_caps records limits for project costs. audit_events records sensitive actions. ai_usage_events gains projectId and the new billing operation names."
+      },
+      {
+        "title": "Changes to existing tables",
+        "body": "projects gains engine, targetPlatform, and framework. deployments gains kind, a build prefix, a file count, and bytes. messages gains a turn reference. product_settings gains v2BuilderEnabled. V2 app projects never insert an artifacts row."
+      },
+      {
+        "title": "Core runtime configuration",
+        "body": "V2_BUILDER_ENABLED controls module availability. VERCEL_SANDBOX_TOKEN grants sandbox access. ANTHROPIC_API_KEY belongs to the model proxy. LLM_PROXY_SIGNING_KEY protects the short tokens. The proposal makes these values optional at boot and examines them when an operation needs them."
+      },
+      {
+        "title": "Backend and preview configuration",
+        "body": "SUPABASE_PLATFORM_TOKEN and SUPABASE_PLATFORM_ORG_ID identify platform access and ownership. APP_SECRETS_ENCRYPTION_KEY protects stored secrets. PREVIEW_DOMAIN names the separate preview domain. PREVIEW_TOKEN_SIGNING_KEY protects preview access tokens."
+      },
+      {
+        "title": "Publication and later services",
+        "body": "CLOUDFLARE_V2_DEPLOY_TOKEN supports publication. EXPO_TOKEN and APPETIZE_API_TOKEN support mobile services. RESEND_PLATFORM_API_KEY supports email. A missing optional value must not prevent V1 from starting."
+      },
+      {
+        "title": "The ownership boundary needs precise keys",
+        "body": "Project identifiers connect turns, versions, backends, builds, and cost records. The proposal adds workspace context to API requests. Each operation must enforce that ownership boundary. A valid record identifier alone does not grant access."
+      }
+    ],
+    "quiz": {
+      "question": "Which record holds the bookings that customers create inside a generated app?",
+      "options": [
+        "The generated app's backend database.",
+        "The sandbox expiry record.",
+        "The Git commit identifier."
+      ],
+      "answer": 0,
+      "explanation": "Customer records belong to the app backend. Runtime records and Git history describe different parts of the system."
+    },
+    "takeaway": "Each record has a clear purpose. References connect the work without mixing code, runtime state, secrets, and customer data."
+  },
+  {
+    "id": "rollout",
+    "title": "Deliver the system in usable phases",
+    "subtitle": "The report gives an estimated sequence, with staging checks before wider access.",
+    "group": "Put the plan together",
+    "scene": "rollout",
+    "sourceSections": "8.2–8.3, 11",
+    "sourceAnchor": "11-the-phases",
+    "steps": [
+      {
+        "title": "Resolve the uncertain foundations",
+        "body": "P0 uses experiments to examine the runtime, proxy, costs, and provider access. The results determine which integrations can support the coding agent.",
+        "caption": "Experiments come before detailed implementation tickets."
+      },
+      {
+        "title": "Deliver a web editor and host",
+        "body": "P1 gives internal users a V2 web editor in staging. P2 adds publication and security controls for the first external users.",
+        "caption": "A usable V2 web editor arrives before the full backend product."
+      },
+      {
+        "title": "Add data and mobile support",
+        "body": "P3 adds the Cloud tab and app backends. P4 adds the first mobile experience. P5 adds a device preview in the browser on demand.",
+        "caption": "Backend and mobile features extend the working web product."
+      },
+      {
+        "title": "Expand after the first product passes its checks",
+        "body": "P6 adds advanced features and wider access. P7 adds Wandit's own device infrastructure. Feature flags control access throughout the rollout.",
+        "caption": "Later infrastructure follows evidence from the earlier phases."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Phase",
+        "definition": "A group of changes that ends with a usable result."
+      },
+      {
+        "term": "Staging",
+        "definition": "A separate environment for checks before production access."
+      },
+      {
+        "term": "Production",
+        "definition": "The environment that serves real users."
+      },
+      {
+        "term": "Feature flag",
+        "definition": "A switch that controls whether a feature is available."
+      },
+      {
+        "term": "Dependency",
+        "definition": "A condition or earlier result that another task needs."
+      },
+      {
+        "term": "Exit condition",
+        "definition": "The observable result that defines completion for a task or experiment."
+      },
+      {
+        "term": "Engineer-week",
+        "definition": "An estimate of one engineer's work for one week.",
+        "example": "This measure does not guarantee a calendar delivery date."
+      }
+    ],
+    "details": [
+      {
+        "title": "P0 · 3 estimated weeks · Evidence",
+        "body": "P0 examines the harness, sandbox access, ports, resume behavior, abort behavior, cache use, and costs. It requests provider answers and a preview domain. It also corrects Redis location, CI gaps, Worker deployment checks, and the staging same-site error."
+      },
+      {
+        "title": "P1 · 9 estimated weeks · Internal web editor",
+        "body": "P1 adds the V2 module, contracts, tables, task, event stream, cancellation, and message queue. It adds the sandbox image, template, tools, and protected preview. Versions, restoration, file views, and cost receipts complete the internal staging experience."
+      },
+      {
+        "title": "P2 · 4 estimated weeks · Publication",
+        "body": "P2 adds build publication, file delivery, rollback, unpublish, and the leads SDK. It adds network rules, protected paths, secret scans, rate limits, and audit records. It also adds phishing checks and suspension. The report describes the result as Lovable without Cloud."
+      },
+      {
+        "title": "P3 · 7 estimated weeks · App backends",
+        "body": "P3 adds backend creation, secret records, server tools, and Cloud tab panels. It adds email domains, payment credentials, login redirects, RLS probes, and advisors. It also adds pause processes and backend plan allowances. The report targets Lovable Cloud parity for web."
+      },
+      {
+        "title": "P4 · 4 estimated weeks · First mobile version",
+        "body": "P4 adds an Expo template and a fixed mobile project type. It connects Metro through the preview proxy. A phone frame shows Expo web, and a QR code opens the phone experience. EAS builds support internal distribution and TestFlight."
+      },
+      {
+        "title": "P5 · 3 estimated weeks · Browser device",
+        "body": "P5 adds a Wandit preview app with expo-dev-client. It adds simulator and APK builds. Appetize provides a device in the browser on demand. Plan allowances limit preview minutes."
+      },
+      {
+        "title": "P6 · 8 estimated weeks · Advanced features",
+        "body": "P6 adds branches per chat, fork previews, AI merge, and GitHub export followed by two-way sync. It includes backend ownership transfer, Vercel export, server apps, and Stripe Connect. It also includes V1 upgrade, click-to-target, history pagination, native client parity, and early access."
+      },
+      {
+        "title": "P7 · 6 estimated weeks plus review · Own devices",
+        "body": "P7 proposes Android emulators on KVM with WebRTC. It also proposes a Mac mini pool with serve-sim behind a login proxy. The Apple simulator licensing question needs legal review before this phase."
+      },
+      {
+        "title": "How feature flags protect the rollout",
+        "body": "The module loads only with V2_BUILDER_ENABLED=true. New routes use /api/v2 and contracts use packages/contracts/src/v2. A product flag, user flag, and server guard control access. The sequence is development, staging enabled, main disabled, then selected users."
+      },
+      {
+        "title": "Dependencies outside code",
+        "body": "The report requires an Anthropic license answer before external users and Supabase terms before P3 pricing. It places the preview domain and Public Suffix List request in P0. P1 needs Cloudflare access. P5 needs Apple and Google developer accounts."
+      },
+      {
+        "title": "The estimates disagree",
+        "body": "The summary proposes about 24 engineer-weeks for web parity plus the first mobile phase. The detailed plan gives 23 weeks for P0–P3 and four more for P4. P4–P5 add seven weeks. P6–P7 add 14 weeks plus legal review. The owner needs one reconciled schedule."
+      }
+    ],
+    "quiz": {
+      "question": "Why does P0 come before the full V2 implementation?",
+      "options": [
+        "It publishes every customer project.",
+        "It replaces all V1 records.",
+        "It produces evidence for uncertain integration choices."
+      ],
+      "answer": 2,
+      "explanation": "The report lists unresolved runtime, cost, and provider questions. P0 experiments determine whether those foundations meet the required conditions."
+    },
+    "takeaway": "Each phase ends with a usable result. The schedule remains an estimate until dependencies and experiments have answers."
+  },
+  {
+    "id": "decisions",
+    "title": "Separate decisions from experiments",
+    "subtitle": "The report ends with 12 owner choices, 14 open experiments, and a source list.",
+    "group": "Put the plan together",
+    "scene": "decisions",
+    "sourceSections": "12, 13, 15, 16",
+    "sourceAnchor": "12-decisions-that-only-you-can-make",
+    "steps": [
+      {
+        "title": "Mark what the report proposes",
+        "body": "A proposal describes a preferred design. It does not prove provider support, price, or legal permission. The report identifies several unverified claims.",
+        "caption": "A detailed plan still contains assumptions."
+      },
+      {
+        "title": "Choose the product position",
+        "body": "The owner decides the price stance, mobile experience, languages, export timing, and other product choices. These choices change the implementation tickets.",
+        "caption": "A product decision selects the result that Wandit wants."
+      },
+      {
+        "title": "Collect evidence for open claims",
+        "body": "Each uncertain claim becomes an experiment with an exit condition. Measurements and provider answers determine whether the proposed design can proceed.",
+        "caption": "An experiment answers a question that preference alone cannot answer."
+      },
+      {
+        "title": "Create the next implementation tickets",
+        "body": "After P0 resolves the runtime questions, the team creates the P1 tickets. The detailed documents provide the evidence behind the report.",
+        "caption": "The next plan uses measured results and recorded decisions."
+      }
+    ],
+    "terms": [
+      {
+        "term": "Proposal",
+        "definition": "A suggested design that still needs decisions or evidence."
+      },
+      {
+        "term": "Assumption",
+        "definition": "A statement that the plan treats as true before sufficient evidence exists."
+      },
+      {
+        "term": "Experiment",
+        "definition": "A small controlled task that answers a specific open question."
+      },
+      {
+        "term": "Exit condition",
+        "definition": "The observable result that defines completion for a task or experiment."
+      },
+      {
+        "term": "Primary evidence",
+        "definition": "Information from the original system, measurement, provider, or source."
+      },
+      {
+        "term": "Legal review",
+        "definition": "An assessment of permission and obligations by a qualified legal professional."
+      }
+    ],
+    "details": [
+      {
+        "title": "Owner choice 1 · Sandbox provider",
+        "body": "The report prefers Vercel because of its stated harness adapter support. This choice adds a runtime vendor. An alternative needs adapter work and separate evidence."
+      },
+      {
+        "title": "Owner choice 2 · Price stance",
+        "body": "The owner chooses between a larger margin and a lower user price for comparable work. The report requires two weeks of staging measurements before the credit decision."
+      },
+      {
+        "title": "Owner choice 3 · Backend allowances",
+        "body": "The proposal suggests one active backend on Pro and three on Business. It suggests a paid add-on and a pause after seven idle days. These allowances remain product choices."
+      },
+      {
+        "title": "Owner choice 4 · First mobile preview",
+        "body": "The report prefers the user's phone for the first phase. A device in the browser adds service costs. The owner chooses the initial experience."
+      },
+      {
+        "title": "Owner choice 5 · Preview domain",
+        "body": "The proposal requires a separate preview domain. The owner needs to identify an existing suitable domain or obtain one."
+      },
+      {
+        "title": "Owner choice 6 · Generated UI components",
+        "body": "The proposal uses shadcn/ui for web apps. The mobile choice is HeroUI Native with Uniwind, or plain Expo components."
+      },
+      {
+        "title": "Owner choice 7 · Languages",
+        "body": "The report proposes Arabic and French from day one. This choice adds template and instruction work in P1. Arabic also needs right-to-left layout support."
+      },
+      {
+        "title": "Owner choice 8 · Data location and retention",
+        "body": "The owner chooses the privacy position before external access. The report includes provider claims about inference location and data retention. Those claims need fresh primary evidence."
+      },
+      {
+        "title": "Owner choice 9 · Export timing",
+        "body": "The owner chooses early export or P6 delivery. The report calls export available from day one in one section and places it in P6 elsewhere. One decision must resolve that conflict."
+      },
+      {
+        "title": "Owner choice 10 · Default model",
+        "body": "The report proposes Sonnet 5 at medium effort and a visible Opus mode. It leaves Fable off by default. Availability, price multipliers, and the final model choice need evidence."
+      },
+      {
+        "title": "Owner choice 11 · Existing V1 projects",
+        "body": "The owner can keep V1 projects on V1 indefinitely. A later Upgrade to app feature can create a V2 project. The plan does not require automatic migration."
+      },
+      {
+        "title": "Owner choice 12 · Wandit native client",
+        "body": "The owner chooses whether the native Wandit app remains a V1 client initially. The alternative adds the V2 transport later, as part of native client parity."
+      },
+      {
+        "title": "Open experiment 1 · Harness events",
+        "body": "P0 must capture all event types during one turn. The changed-file list, checkpoint charges, and stall detection depend on hook events and usage events."
+      },
+      {
+        "title": "Open experiment 2 · External sandbox access",
+        "body": "P0 must establish sandbox access from a Railway-like process. The real task host runs outside Vercel, so Vercel-only access is insufficient."
+      },
+      {
+        "title": "Open experiment 3 · Preview port and traffic",
+        "body": "P0 must measure a Vite hot-reload session through a second open port. The result must cover connectivity and transferred bytes."
+      },
+      {
+        "title": "Open experiment 4 · Host cancellation",
+        "body": "P0 must abort a turn without detach() and examine the proxy log. The result must show whether model requests continue after the host stops."
+      },
+      {
+        "title": "Open experiment 5 · Sandbox image contents",
+        "body": "P0 must examine Git and Chromium availability in the image. If the image lacks required tools, the plan needs a custom image."
+      },
+      {
+        "title": "Open experiment 6 · Managed Git service",
+        "body": "P0 must create 100 code.storage repositories and push changes after turns. It must measure fetch behavior after resume, latency, and cost. This evidence selects managed Git or the R2 bundle fallback."
+      },
+      {
+        "title": "Open experiment 7 · Prompt cache through the proxy",
+        "body": "P0 must measure cacheReadInputTokens on 20 prompts. A nonzero result provides evidence that the cache path works. The report warns that failed caching can increase cost."
+      },
+      {
+        "title": "Open experiment 8 · Anthropic license",
+        "body": "P0 requires a written answer from Anthropic sales about the proposed hosted harness and Wandit key. This answer affects permission to launch the service."
+      },
+      {
+        "title": "Open experiment 9 · Supabase capacity and cost",
+        "body": "The team needs provider answers about organization limits, backend price, and creation time. P3 also requires measurements of real backend creation behavior."
+      },
+      {
+        "title": "Open experiment 10 · Expo Go compatibility",
+        "body": "P4 requires a real-phone experiment with the current store Expo Go version. Its supported SDK and loading policy determine the compatible template."
+      },
+      {
+        "title": "Open experiment 11 · Appetize and Metro",
+        "body": "P5 requires a trial that connects an Appetize device to the proposed public Metro host. The browser device experience depends on this connection."
+      },
+      {
+        "title": "Open experiment 12 · Trigger.dev plan",
+        "body": "P1 requires current evidence for Trigger.dev prices and Realtime connection limits. These details affect the cost of the durable event copy."
+      },
+      {
+        "title": "Open experiment 13 · Cloudflare sandbox behavior",
+        "body": "A later provider evaluation must examine the hypervisor and disk behavior. This experiment matters only if the team pursues the Cloudflare sandbox alternative."
+      },
+      {
+        "title": "Open experiment 14 · Apple simulator permission",
+        "body": "P7 requires legal review of simulators streamed to customers. The report does not establish that permission."
+      },
+      {
+        "title": "Where the report evidence lives",
+        "body": "The source list contains 22 documents: nine V1 inspections, ten research documents, and three proposals. They are under docs/v2/research/. The report identifies docs/v2/V2-ARCHITECTURE-REPORT.md as its source of truth."
+      },
+      {
+        "title": "Review work that did not complete",
+        "body": "The judge panel, synthesis file, critic, and gap-fill files did not complete. The report records API 529 overload errors. It says that the workflow can run again later. Those missing reviews cannot count as completed independent evidence."
+      },
+      {
+        "title": "Report conflicts that need one answer",
+        "body": "The report gives different sandbox idle times and different total effort estimates. It also differs on managed Git adoption and backend export timing. Harness session scope alternates between chat and project. These conflicts need explicit decisions before implementation."
+      },
+      {
+        "title": "The practical next step",
+        "body": "The owner records the 12 choices. Each open experiment gets one ticket with an exit condition. After P0 provides runtime evidence, the team creates the P1 implementation tickets. This guide explains the report rather than proving its vendor claims."
+      }
+    ],
+    "quiz": {
+      "question": "The team does not know whether cancellation stops model requests. What resolves this question?",
+      "options": [
+        "A preference vote about the sandbox logo.",
+        "A controlled abort experiment and proxy evidence.",
+        "A longer architecture diagram."
+      ],
+      "answer": 1,
+      "explanation": "This is a behavior question. A measured experiment supplies evidence that a product preference cannot supply."
+    },
+    "takeaway": "Owner choices define the product. Experiments establish whether the proposed implementation can deliver it."
+  }
+];
+
+</script>
+  <script>
+/* Concrete, self-contained SVG scenes. Every scene has four stable visual states. */
+(() => {
+  'use strict';
+  const C = { ink: '#25362d', paper: '#f4f1e8', cream: '#fffcf5', green: '#b5caaa', gold: '#e1c68f', light: '#dfe5d6', faint: '#e6e1d5', dim: '#7c897b' };
+  let serial = 0;
+  const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]);
+  const rect = (x,y,w,h,fill=C.cream,r=12,extra='') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" ${extra}/>`;
+  const circle = (x,y,r,fill=C.cream,extra='') => `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" ${extra}/>`;
+  const line = (x1,y1,x2,y2,extra='') => `<path d="M${x1} ${y1}L${x2} ${y2}" fill="none" ${extra}/>`;
+  const path = (d,fill='none',extra='') => `<path d="${d}" fill="${fill}" ${extra}/>`;
+  const group = (x,y,body,opacity=1) => `<g transform="translate(${x} ${y})" opacity="${opacity}">${body}</g>`;
+  const label = (text,x,y=416,size=28,anchor='middle',fill=C.ink) => `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="${fill}" stroke="none" font-size="${size}" font-weight="600">${esc(text)}</text>`;
+  const smallLabel = (text,x,y) => label(text,x,y,28);
+  const base = (y=372) => line(55,y,745,y,`stroke="${C.faint}"`);
+  const halo = (x,y,rx=90,ry=90) => `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="${C.green}" stroke="none" opacity=".27"/>`;
+  const foot = (x,y,w=100) => `<ellipse cx="${x}" cy="${y}" rx="${w}" ry="10" fill="${C.ink}" stroke="none" opacity=".08"/>`;
+  const check = (x,y,color=C.ink) => path(`M${x-10} ${y}l7 7 14-16`,'none',`stroke="${color}" stroke-width="4"`);
+  const spark = (x,y) => line(x-9,y,x+9,y)+line(x,y-9,x,y+9);
+  const bars = (x,y,w=70,count=3,color=C.faint) => Array.from({length:count},(_,i)=>rect(x,y+i*17,w-(i%2)*w*.25,6,color,3,'stroke="none"')).join('');
+  const paper = (x,y,w=82,h=104,fill=C.cream,kind='lines') => group(x,y,
+    path(`M0 0H${w-22}L${w} 22V${h}H0Z`,fill)+path(`M${w-22} 0V22H${w}`)+
+    (kind==='code' ? path(`M25 43l-11 12 11 12M${w-25} 43l11 12-11 12M${w/2+4} 40l-8 31`):bars(15,42,w-30,3)));
+  const folder = (x,y,w=160,h=124,fill=C.gold,files=0) => group(x,y,
+    path(`M0 20V0h${w*.42}l15 20H${w}v${h-20}H0Z`,fill)+
+    (files ? paper(22,-32,64,85,C.cream,'code')+paper(73,-18,61,80,C.cream) : '')+
+    path(`M0 43Q0 34 12 34H${w-12}Q${w} 34 ${w} 46v${h-46}H0Z`,fill)+
+    rect(w*.4,h*.62,w*.2,7,C.ink,3,'stroke="none"'));
+  const browser = (x,y,w=230,h=190,opts={}) => w<140||h<130 ? `<g transform="translate(${x} ${y}) scale(${w/200} ${h/180})">${browser(0,0,200,180,opts)}</g>` : group(x,y,
+    rect(6,8,w,h,C.faint,15,'stroke="none"')+rect(0,0,w,h,opts.fill||C.cream,15)+line(0,34,w,34)+
+    [15,29,43].map(cx=>circle(cx,17,3,C.ink,'stroke="none"')).join('')+
+    rect(65,12,w-88,10,C.faint,5,'stroke="none"')+
+    (opts.empty ? bars(24,63,w-48,4) : opts.error ? circle(w/2,97,29,C.gold)+line(w/2,82,w/2,100)+circle(w/2,110,2,C.ink)+bars(40,145,w-80,2) :
+    rect(20,54,w*.38,h-78,opts.active?C.green:C.faint,7,'stroke="none"')+
+    path(`M30 ${h-47}q15-45 36-24q15-32 ${w*.38-20}-21`,'none',`stroke="${C.ink}"`)+
+    circle(42,77,9,C.gold,'stroke="none"')+bars(w*.51,61,w*.36,3)+rect(w*.51,h-62,w*.32,24,opts.active?C.green:C.faint,7,'stroke="none"')));
+  const robot = (x,y,scale=1,awake=true,holding=false) => `<g transform="translate(${x} ${y}) scale(${scale})">`+
+    line(44,-13,44,0)+circle(44,-18,5,awake?C.gold:C.faint)+rect(0,0,88,69,awake?C.green:C.faint,22)+
+    rect(13,19,62,30,C.ink,12,'stroke="none"')+
+    (awake ? circle(30,33,4,C.cream,'stroke="none"')+circle(58,33,4,C.cream,'stroke="none"') : line(24,33,35,33,`stroke="${C.cream}"`)+line(53,33,64,33,`stroke="${C.cream}"`))+
+    rect(14,76,60,61,C.cream,15)+circle(44,99,8,awake?C.gold:C.faint)+
+    path(holding?'M15 92L-8 117L-28 97':'M15 91L-9 118M73 91L96 117')+
+    line(28,137,22,156)+line(60,137,66,156)+line(12,157,30,157)+line(59,157,77,157)+'</g>';
+  const server = (x,y,w=126,h=212,active=true) => group(x,y,
+    rect(5,8,w,h,C.faint,12,'stroke="none"')+rect(0,0,w,h,C.cream,12)+
+    [22,82,142].map((top,i)=>rect(12,top,w-24,47,i===1&&active?C.green:C.paper,7)+circle(25,top+23,4,active?C.ink:C.faint,'stroke="none"')+bars(40,top+15,w-57,2,C.dim)).join(''));
+  const coin = (x,y,r=25) => circle(x,y,r,C.gold)+circle(x,y,r-7,C.gold)+line(x,y-r*.4,x,y+r*.4);
+  const coins = (x,y,n=3) => Array.from({length:n},(_,i)=>rect(x,y-i*12,72,18,C.gold,9)).join('')+`<ellipse cx="${x+36}" cy="${y-(n-1)*12}" rx="36" ry="10" fill="${C.gold}"/>`;
+  const lock = (x,y,open=false,scale=1) => `<g transform="translate(${x} ${y}) scale(${scale})">`+path(open?'M16 23V9q0-20 22-20q22 0 22 20':'M16 23V9q0-23 22-23q22 0 22 23v14')+rect(0,23,76,59,C.gold,10)+circle(38,46,6,C.ink,'stroke="none"')+line(38,52,38,62)+'</g>';
+  const key = (x,y,scale=1) => `<g transform="translate(${x} ${y}) scale(${scale})">`+circle(0,0,23,C.gold)+circle(0,0,9,C.cream)+path('M22-7h66v14H75v15H59V7H22Z',C.gold)+'</g>';
+  const database = (x,y,w=130,h=150,active=true) => group(x,y,
+    path(`M0 20v${h-40}a${w/2} 20 0 0 0 ${w} 0V20`,active?C.green:C.cream)+
+    `<ellipse cx="${w/2}" cy="20" rx="${w/2}" ry="20" fill="${active?C.green:C.cream}"/>`+
+    path(`M0 ${h*.43}a${w/2} 20 0 0 0 ${w} 0M0 ${h*.7}a${w/2} 20 0 0 0 ${w} 0`));
+  const table = (x,y,w=264,h=120) => group(x,y,rect(0,0,w,h,C.cream,8)+rect(0,0,w,34,C.green,8)+line(0,34,w,34)+line(w*.37,0,w*.37,h)+line(w*.71,0,w*.71,h)+line(0,64,w,64)+line(0,94,w,94)+bars(12,47,w*.24,3));
+  const phone = (x,y,w=105,h=205,active=true,qr=false) => group(x,y,rect(4,6,w,h,C.faint,22,'stroke="none"')+rect(0,0,w,h,C.cream,22)+rect(w*.3,9,w*.4,8,C.ink,4,'stroke="none"')+
+    (qr ? [[20,55],[61,55],[20,98]].map(([px,py])=>rect(px,py,26,26,C.ink,2,'stroke="none"')+rect(px+6,py+6,14,14,C.cream,0,'stroke="none"')).join('')+rect(61,98,11,11,C.ink,0,'stroke="none"')+rect(78,98,9,23,C.ink,0,'stroke="none"')+rect(61,114,11,11,C.ink,0,'stroke="none"') : rect(13,38,w-26,84,active?C.green:C.faint,10,'stroke="none"')+circle(w/2,74,18,C.gold,'stroke="none"')+bars(17,141,w-34,2)+rect(17,178,w-34,12,active?C.green:C.faint,5,'stroke="none"'))+line(w*.35,h-8,w*.65,h-8));
+  const bench = (x,y,w=310) => group(x,y,rect(0,0,w,17,C.gold,5)+line(22,17,22,74)+line(w-22,17,w-22,74)+line(22,55,w-22,55));
+  const gate = (x,y,w=98,h=205,open=true) => group(x,y,
+    rect(0,0,15,h,C.ink,3,'stroke="none"')+rect(w-15,0,15,h,C.ink,3,'stroke="none"')+rect(0,0,w,16,C.ink,3,'stroke="none"')+
+    (open ? path(`M17 16L${w-34} 34v${h-32}L17 ${h-5}Z`,C.green) : rect(17,17,w-34,h-22,C.gold,2))+
+    circle(open?w-43:w-37,h/2,4,C.ink,'stroke="none"'));
+  const receipt = (x,y,w=155,h=205,final=false) => group(x,y,
+    path(`M0 0H${w}V${h}l-13-10-13 10-13-10-13 10-13-10-13 10-13-10-13 10-13-10-13 10-12-10-12 10Z`,C.cream)+bars(20,25,w-40,4)+line(20,109,w-20,109)+rect(20,126,w-40,44,final?C.green:C.gold,8,'stroke="none"')+(final?check(w/2,149):bars(36,143,w-72,1,C.ink)));
+  const progress = (x,y,w=180,value=1) => rect(x,y,w,14,C.faint,7,'stroke="none"')+rect(x,y,w*Math.max(.04,value),14,C.green,7,'stroke="none"');
+  const scenes = {};
+
+  scenes.evolution = s => base()+halo([139,391,638,391][s],225,s===0?95:123,128)+
+    group(59,169,path('M0 0h152q16 0 16 16v88q0 16-16 16H47L17 147v-27H0q-16 0-16-16V16Q-16 0 0 0Z',C.cream)+bars(8,28,132,4))+
+    group(0,0,s===3?folder(305,201,176,142,C.gold,2):paper(342,133,107,175,s===1?C.green:C.cream,'code'),s>0?1:.48)+
+    group(0,0,browser(524,125,229,217,{active:s>=2,empty:s<2}),s>1?1:.48)+
+    (s===1?group(420,271,robot(0,0,.45,true,true)):'')+
+    label('Request',141)+label(s===3?'Project files':'One HTML file',391)+label(s===3?'Live preview':'Page preview',641);
+
+  scenes.foundation = s => base()+
+    rect(80,319,640,49,C.gold,9)+line(285,320,285,368)+line(505,320,505,368)+
+    [165,380,595].map((x,i)=>rect(x,219,50,99,(s===0||s===2)?C.green:C.cream,3)+rect(x-12,208,74,14,C.cream,3)+rect(x-12,306,74,13,C.cream,3)).join('')+
+    (s>0?halo(400,152,230,113):'')+
+    group(0,0,rect(137,173,526,35,C.cream,7)+path('M210 173V89H590v84',C.cream,s===3?'stroke-dasharray="8 7"':'')+path('M182 89L400 36L618 89Z',s===3?C.paper:C.green,s===3?'stroke-dasharray="8 7"':'')+
+      bars(325,114,150,1),s>0?1:.48)+
+    (s===2?group(654,257,path('M0 0l13 13-34 34-13-13Z',C.gold)+circle(-28,41,4,C.cream)):'')+
+    label(s===3?'Proposed builder':'New builder',400,154)+label('Login',190)+label('Credits',405)+label('Domains',620);
+
+  scenes.harness = s => base()+halo(s===0?169:493,213,s===0?95:239,140)+
+    (s>=2?rect(285,73,445,295,C.cream,16)+label(s===3?'One harness path':'Sandbox',507,108,28):'')+
+    group(0,0,robot(94,155,1.5,true,s>1),1)+
+    group(0,0,bench(303,299,410),s>0?1:.48)+
+    group(0,0,rect(322,151,180,122,C.cream,10)+line(322,186,502,186)+paper(344,207,51,68,C.cream,'code')+paper(413,207,51,68,s===2?C.green:C.cream,'code'),s>0?1:.48)+
+    group(0,0,browser(530,145,164,143,{empty:true})+path('M550 214l10 10-10 10M578 234h30'),s>0?1:.48)+
+    (s===3?rect(550,250,121,15,C.green,6,'stroke="none"')+check(684,136):'')+
+    label('AI model',158)+label('File tools',405)+label('Commands',622)+
+    (s===0?group(220,98,circle(0,0,18,C.gold)+circle(26,-18,9,C.gold)+circle(39,-43,5,C.gold)):'');
+
+  scenes.workshop = s => base()+halo(393,218,242,147)+
+    rect(131,71,538,291,C.cream,13)+rect(131,71,538,38,C.green,13)+line(131,109,669,109)+
+    label(s===2?'Asleep':s===3?'Restarted':'Private machine',400,99,28)+
+    bench(165,296,322)+robot(205,145,.91,s!==2)+
+    group(335,181,paper(0,0,85,107,s===1?C.green:C.cream,'code'))+
+    server(516,139,113,206,s!==2)+
+    (s===1?circle(572,304,19,C.green)+check(572,304):'')+
+    (s===2?path('M285 154q-24 1-24-22q-21 29 12 35q6-1 12-13Z',C.gold):'')+
+    (s===3?circle(572,304,19,C.green)+check(572,304):'')+
+    label('Work area',303)+label('Saved disk',574);
+
+  scenes.relay = s => base()+halo([151,402,635,152][s],218,s===2?116:125,130)+
+    browser(45,133,211,190,{active:s===3,empty:s<3})+
+    group(0,0,server(328,127,139,226,s>0),s>0?1:.48)+
+    group(0,0,rect(542,131,198,227,C.cream,12)+rect(559,155,164,35,C.green,6)+
+      [219,250,281].map((y,i)=>circle(569,y,5,s>=2?C.green:C.faint,'stroke="none"')+bars(585,y-3,120-i*12,1)).join('')+
+      progress(559,322,164,s===3?1:.62),s>=2?1:.48)+
+    (s===0?group(200,258,lock(0,0,true,.55)):'')+
+    (s===2?lock(471,43,false,.6):'')+
+    (s===3?rect(57,177,187,111,C.green,9,'stroke="none"')+check(151,230)+path('M77 149l10 10M87 149l-10 10'):'')+
+    label('Browser',151)+label('Trigger.dev',398)+label('Redis',640);
+
+  scenes.preview = s => base()+halo([144,387,631,631][s],222,s<2?101:141,133)+
+    server(84,126,130,219,true)+
+    group(0,0,gate(341,129,97,217,s>0),s>0?1:.48)+
+    group(0,0,browser(501,111,251,233,{active:s===2,error:s===3,empty:s<2}),s>=1?1:.48)+
+    (s===3?group(439,291,robot(0,0,.46,true,true)):'')+
+    label('Dev server',151)+label('Proxy',390)+label('Your preview',626);
+
+  scenes.backend = s => base()+halo([155,523,523,537][s],221,s===0?118:187,142)+
+    browser(41,123,223,211,{active:true})+
+    group(0,0,rect(348,86,387,278,C.cream,13)+path('M348 126H735')+
+      label('Separate backend',542,115)+database(395,155,116,135,true)+
+      (s>=2?table(535,164,165,109):lock(572,178,false,.7))+
+      (s===3?rect(369,309,345,37,C.green,7)+circle(393,327,7,C.cream)+circle(425,327,7,C.cream)+circle(457,327,7,C.cream)+bars(488,324,204,1,C.ink):''),s>0?1:.48)+
+    (s===0?group(131,185,lock(0,0,false,.58)):'')+
+    label('Generated app',153)+label(s===3?'Cloud tab controls':'Login + stored data',541);
+
+  scenes.mobile = s => base()+halo([155,155,400,641][s],220,s===3?134:115,134)+
+    browser(37,133,231,200,{active:s===1,empty:s===0})+
+    (s===0?folder(98,214,105,87,C.gold,1):'')+
+    group(0,0,phone(344,118,107,220,true,s===1),s>0?1:.48)+
+    group(0,0,rect(538,82,207,262,C.cream,15)+rect(547,93,189,20,C.faint,6,'stroke="none"')+phone(593,126,96,200,s===3,false),s===3?1:.48)+
+    (s===3?group(542,279,rect(0,0,191,68,C.gold,8)+path('M84 0v68M107 0v68')+check(152,35)):'')+
+    label(s===0?'Expo project':'Web preview',152)+label(s===2?'Preview app':'Your phone',400)+label(s===3?'Device + EAS':'Hosted device',643);
+
+  scenes.versions = s => base()+halo([143,391,391,391][s],225,122,135)+
+    folder(64,210,159,128,C.gold,s>0?2:0)+
+    group(0,0,rect(296,109,189,253,C.cream,12)+
+      [129,201,273].map((y,i)=>rect(312,y,157,58,(s===3&&i===0)||(s===1&&i===2)?C.green:C.paper,7)+rect(369,y+13,43,7,C.ink,3,'stroke="none"')+line(378,y+31,402,y+31)).join(''),s>0?1:.48)+
+    database(590,187,138,154,true)+
+    (s===0?paper(115,110,79,109,C.cream,'code'):'')+
+    (s===2?group(350,70,rect(0,0,84,45,C.gold,7)+check(42,22)):'')+
+    (s===3?check(389,156)+circle(660,134,20,C.green)+check(660,134):'')+
+    label('Project code',143)+label(s===2?'R2 code history':'Saved versions',391)+label('App data',660);
+
+  scenes.publish = s => base()+halo([141,387,390,637][s],221,s===3?125:109,133)+
+    group(62,167,path('M0 31L79 0l79 31v124l-79 32L0 155Z',s===0?C.green:C.gold)+path('M0 31l79 33 79-33M79 64v123M39 16l80 32v40l-22 9V57Z',C.gold))+
+    group(0,0,rect(306,116,165,248,C.cream,10)+rect(321,138,135,64,C.green,7)+folder(321,225,135,107,C.gold,1),s>0?1:.48)+
+    group(0,0,browser(520,131,235,218,{active:s===3,empty:s<3}),s>1?1:.48)+
+    (s===2?group(334,67,rect(0,0,111,44,C.gold,8)+check(55,22)):'')+
+    (s===3?group(709,306,circle(0,0,28,C.green)+path('M-28 0h56M0-28q25 28 0 56q-25-28 0-56M-23-15h46M-23 15h46')):'')+
+    label('Built files',141)+label('R2 storage',389)+label('Public app',635);
+
+  scenes.security = s => base()+halo([199,459,664,664][s],218,s===0?151:110,139)+
+    rect(65,104,268,260,C.cream,10)+rect(65,104,268,35,C.green,10)+line(65,139,333,139)+
+    (s===2?browser(86,166,226,174,{active:true}):robot(154,177,1.03,true))+
+    group(0,0,gate(414,133,90,220,true)+key(454,208,.53),s>=1?1:.48)+
+    group(0,0,rect(593,175,145,173,C.cream,9)+lock(628,190,false,.94)+
+      (s===3?circle(666,312,19,C.green)+check(666,312):s===2?rect(613,301,105,23,C.green,5)+line(647,301,647,324)+line(682,301,682,324):''),s>=2?1:.48)+
+    (s===3?group(691,133,circle(0,0,22,C.gold)+rect(-10,-10,20,20,C.ink,3,'stroke="none"')):'')+
+    label(s===2?'Preview':'Project wall',198)+label('Key proxy',459)+label(s===3?'Release checks':'App rules',666);
+
+  scenes.money = s => base()+halo([150,405,405,652][s],224,s===3?98:120,133)+
+    group(0,0,rect(67,257,170,87,C.cream,14)+path('M67 279h170M202 280v28h35')+coins(93,239,4)+coin(194,191,23))+
+    group(0,0,rect(307,98,191,246,C.cream,13)+rect(329,121,147,75,C.ink,9,'stroke="none"')+
+      [351,398,445].map((x,i)=>rect(x-13,139,26,39,s>0?C.green:C.faint,4,'stroke="none"')).join('')+
+      [221,262,303].map((y,i)=>[348,400,452].map(x=>circle(x,y,9,i===2&&s===2?C.green:C.paper)).join('')).join('')+
+      (s===2?circle(484,91,22,C.green)+check(484,91):''),s>0?1:.48)+
+    group(0,0,receipt(581,110,151,224,s===3),s===3?1:.48)+
+    (s===0?lock(197,241,false,.42):'')+
+    label('Credit hold',151)+label(s===2?'Final charge':'AI usage',402)+label('Receipt',655);
+
+  scenes.system = s => base()+halo([96,291,504,691][s],230,s===1?112:91,121)+
+    group(46,192,path('M0 0H104q12 0 12 12v76q0 12-12 12H40L18 121v-21H0q-12 0-12-12V12Q-12 0 0 0Z',C.cream)+bars(9,25,72,3))+
+    group(0,0,rect(204,130,183,226,C.cream,12)+rect(204,130,183,27,C.green,8)+robot(251,180,.87,true)+bench(219,318,151),s>0?1:.48)+
+    group(0,0,browser(419,151,176,179,{active:s>=2,empty:s<2}),s>=2?1:.48)+
+    group(0,0,rect(622,142,133,209,C.cream,12)+[162,224,286].map((y,i)=>rect(635,y,107,49,i===2&&s===3?C.green:C.paper,7)+rect(671,y+13,33,6,C.ink,3,'stroke="none"')).join(''),s===3?1:.48)+
+    label('Request',101)+label('Workshop',296)+label('Preview',507)+label('Saved version',690)+
+    (s===1?group(211,60,rect(0,0,168,45,C.gold,8)+label('Trigger.dev',84,32,28)):'');
+
+  scenes.records = s => base()+halo([173,434,434,638][s],225,s===0?111:126,139)+
+    folder(63,200,187,152,C.gold,2)+
+    group(0,0,rect(307,79,194,281,C.cream,13)+line(307,124,501,124)+
+      [150,203,256].map((y,i)=>rect(324,y,160,40,((s===1&&i===0)||(s===2&&i===1))?C.green:C.paper,7)+circle(345,y+20,5,C.ink,'stroke="none"')+bars(362,y+17,98,1,C.dim)).join('')+
+      label('Project ID',404,111,28),1)+
+    group(0,0,rect(543,111,199,102,C.cream,10)+database(558,128,56,67)+bars(630,140,92,3)+
+      rect(543,237,199,108,C.cream,10)+browser(558,253,68,65,{active:true})+bars(641,266,82,3),s>=2?1:.48)+
+    (s===3?lock(692,71,false,.58):'')+
+    label('One project',159)+label(s===2?'Code + turn':'Build records',407)+label(s===3?'Protected records':'Linked records',643);
+
+  scenes.rollout = s => base()+
+    [95,273,451,629].map((x,i)=>{
+      const active = i===s;
+      return (active?halo(x+37,208,89,131):'')+rect(x-21,317-i*28,117,50+i*28,active?C.green:C.cream,9)+
+        line(x+36,317-i*28,x+36,116-i*8)+path(`M${x+36} ${116-i*8}h69l-17 29 17 29h-69Z`,i<=s?C.gold:C.faint)+
+        (i<s?circle(x+37,283-i*28,20,C.green)+check(x+37,283-i*28):active?circle(x+37,278-i*28,24,C.cream)+label(String(i+1),x+37,288-i*28,28):'')+
+        label(['P0','P1–2','P3–5','P6–7'][i],x+38,415,28);
+    }).join('')+
+    (s===0?group(58,264,rect(0,0,37,46,C.cream,5)+path('M10 0v18L2 34h33l-9-16V0')):'');
+
+  scenes.decisions = s => base()+halo([151,151,400,643][s],231,s===0?113:122,129)+
+    group(0,0,paper(55,123,114,156,C.cream)+paper(125,178,114,157,s===1?C.green:C.cream)+
+      circle(94,166,10,C.green)+circle(163,221,10,C.gold)+(s===1?check(181,294):''))+
+    group(0,0,bench(288,296,228)+path('M344 134h61v17h-8v43l37 70q9 23-19 23h-85q-28 0-18-23l40-70v-43h-8Z',C.cream)+
+      path('M329 240h88l13 27q4 12-11 12h-84q-15 0-10-12Z',s>=2?C.green:C.faint)+circle(355,224,6,C.gold)+circle(385,245,5,C.cream),s>=2?1:.48)+
+    group(0,0,rect(563,111,171,241,C.cream,10)+rect(608,97,81,27,C.gold,7)+
+      [165,213,261].map((y,i)=>rect(580,y,24,24,s>=2?C.green:C.paper,5)+(s>=2?check(592,y+12):'')+bars(617,y+8,98-i*10,1,C.dim)).join('')+
+      (s===3?circle(721,336,25,C.green)+check(721,336):''),s>=2?1:.48)+
+    label(s===1?'Product choice':'Open choices',150)+label('Small trial',402)+label(s===3?'Next tickets':'Evidence',649);
+
+  window.renderIllustration = function renderIllustration(chapter, stepIndex) {
+    const step = Math.max(0,Math.min(3,Number(stepIndex)||0));
+    const id = `wandit-art-${++serial}`;
+    const current = chapter.steps && chapter.steps[step] || {};
+    const title = `${chapter.title || 'Wandit V2'}: ${current.title || `Step ${step+1}`}`;
+    const desc = current.caption || current.body || 'An illustrated explanation of this step.';
+    const draw = scenes[chapter.scene] || scenes.system;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="${id}-title ${id}-desc" style="display:block;width:100%;height:auto;font-family:inherit;overflow:visible"><title id="${id}-title">${esc(title)}</title><desc id="${id}-desc">${esc(desc)}</desc><g stroke="${C.ink}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">${draw(step)}</g></svg>`;
+  };
+})();
+
+</script>
+  <script>
+(() => {
+  'use strict';
+  const chapters = [...(window.GUIDE_PART_A || []), ...(window.GUIDE_PART_B || [])];
+  if (!chapters.length || !window.renderIllustration) {
+    document.getElementById('chapter-title').textContent = 'The guide cannot load.';
+    document.getElementById('chapter-subtitle').textContent = 'Open wandit-v2-visual-guide.html. That file contains the complete guide.';
+    return;
+  }
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const arrow = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 5 7 7-7 7M16 12H3"/></svg>';
+  const volume = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 8c3 2 3 6 0 8m3-11c5 4 5 10 0 14"/></svg>';
+  const check = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>';
+  const storageKey = 'wandit-v2-visual-guide-v1';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch {}
+  let chapterIndex = Math.max(0, chapters.findIndex(c => c.id === saved.chapter));
+  let stepIndex = Math.min(3, Math.max(0, Number(saved.step) || 0));
+  const completed = new Set(Array.isArray(saved.completed) ? saved.completed.filter(id => chapters.some(c => c.id === id)) : []);
+  const answers = saved.answers && typeof saved.answers === 'object' ? saved.answers : {};
+  let playTimer = null;
+  let playing = false;
+  let speaking = false;
+  let speechGeneration = 0;
+  const terms = [];
+  const termMap = new Map();
+  chapters.forEach((c, index) => c.terms.forEach(t => {
+    const key = t.term.toLowerCase();
+    if (!termMap.has(key)) { const entry = {...t, chapterIndex:index}; termMap.set(key, entry); terms.push(entry); }
+  }));
+  terms.sort((a,b) => a.term.localeCompare(b.term));
+  const termPattern = new RegExp('\\b(' + [...termMap.values()].map(t=>t.term).sort((a,b)=>b.length-a.length).map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\b', 'gi');
+  function explainableText(value) {
+    const text=String(value); let output='',position=0,count=0; const seen=new Set();
+    for(const match of text.matchAll(termPattern)) {
+      const entry=termMap.get(match[0].toLowerCase());
+      output+=esc(text.slice(position,match.index));
+      if(entry&&count<4&&!seen.has(entry.term)){output+=`<button class="inline-term" data-term="${esc(entry.term)}" aria-label="Explain ${esc(entry.term)}">${esc(match[0])}</button>`;seen.add(entry.term);count++;}
+      else output+=esc(match[0]);
+      position=match.index+match[0].length;
+    }
+    return output+esc(text.slice(position));
+  }
+  const reportURL = new URL(document.documentElement.dataset.report, location.href);
+  $('full-report-link').href = reportURL.href;
+  $('back-step').innerHTML = arrow.replace('viewBox=', 'style="transform:rotate(180deg)" viewBox=');
+  const current = () => chapters[chapterIndex];
+  function save() {
+    try { localStorage.setItem(storageKey, JSON.stringify({chapter:current().id,step:stepIndex,completed:[...completed],answers})); } catch { document.querySelector('.save-note').textContent = 'This browser cannot save your place.'; }
+  }
+  function stopSpeech() {
+    speechGeneration++;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    speaking = false;
+    $('listen').innerHTML = volume + '<span>Listen</span>';
+    $('listen').setAttribute('aria-label','Listen to this step');
+    $('voice-status').textContent = '';
+  }
+  function pause() {
+    if (playTimer) clearTimeout(playTimer);
+    playTimer = null;
+    playing = false;
+    $('autoplay').textContent = 'Play steps';
+    $('autoplay').setAttribute('aria-pressed','false');
+  }
+  function scheduleNext() {
+    clearTimeout(playTimer);
+    const words = current().steps[stepIndex].body.split(/\s+/).length;
+    playTimer = setTimeout(() => {
+      if (stepIndex === current().steps.length - 1) { pause(); return; }
+      stepIndex++;
+      renderStep();
+      save();
+      scheduleNext();
+    }, Math.max(10500, words * 420 + 2000));
+  }
+  function renderNav() {
+    let lastGroup = '';
+    $('chapter-nav').innerHTML = chapters.map((c, i) => {
+      const group = c.group !== lastGroup ? `<p class="nav-group">${esc(c.group)}</p>` : '';
+      lastGroup = c.group;
+      return `${group}<button class="nav-chapter" data-chapter="${i}" ${i===chapterIndex?'aria-current="page"':''} aria-label="Chapter ${i+1}: ${esc(c.title)}${completed.has(c.id)?', read':''}"><span class="nav-number">${String(i+1).padStart(2,'0')}</span><span>${esc(c.title)}</span><span class="nav-check">${completed.has(c.id)?check:''}</span></button>`;
+    }).join('');
+    $('progress-count').textContent = `${completed.size} of ${chapters.length} chapters read`;
+    $('progress-percent').textContent = `${Math.round(completed.size/chapters.length*100)}%`;
+    $('progress').value = completed.size;
+    $('progress').max = chapters.length;
+  }
+  function renderStep() {
+    stopSpeech();
+    const c = current();
+    const step = c.steps[stepIndex];
+    $('step-number').textContent = `Step ${stepIndex+1} of ${c.steps.length}`;
+    $('step-title').textContent = step.title;
+    $('step-body').innerHTML = explainableText(step.body);
+    $('scene-caption').textContent = step.caption;
+    $('illustration').innerHTML = `<div class="art-enter" style="width:100%">${window.renderIllustration(c,stepIndex)}</div>`;
+    $('step-dots').innerHTML = c.steps.map((s,i) => `<button class="step-dot ${i===stepIndex?'active':i<stepIndex?'past':''}" data-step="${i}" aria-label="Step ${i+1}: ${esc(s.title)}" ${i===stepIndex?'aria-current="step"':''}></button>`).join('');
+    $('back-step').disabled = stepIndex === 0;
+    $('next-step').innerHTML = `${stepIndex < c.steps.length-1 ? 'Next step' : chapterIndex < chapters.length-1 ? 'Next chapter' : 'Finish the guide'} ${arrow}`;
+    $('replay').disabled = stepIndex === 0 && !playing;
+    $('listen').disabled = !('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window);
+    if ($('listen').disabled) $('listen').title = 'This browser has no speech control.';
+    $('complete-banner').hidden = true;
+  }
+  function renderQuiz() {
+    const c = current();
+    $('quiz-heading').textContent = c.quiz.question;
+    const selected = Number.isInteger(answers[c.id]) ? answers[c.id] : -1;
+    $('quiz-options').innerHTML = c.quiz.options.map((o,i) => `<button class="quiz-option" data-answer="${i}" aria-pressed="${selected===i}"><span class="option-letter" aria-hidden="true">${String.fromCharCode(65+i)}</span><span>${esc(o)}</span></button>`).join('');
+    $('quiz-feedback').textContent = selected<0 ? '' : `${selected===c.quiz.answer?'Correct.':'The correct answer is '+String.fromCharCode(65+c.quiz.answer)+'.'} ${c.quiz.explanation}`;
+  }
+  function renderChapter(scroll = false) {
+    pause(); stopSpeech();
+    const c = current();
+    document.title = `${chapterIndex+1}. ${c.title} — Wandit V2`;
+    $('chapter-group').textContent = c.group;
+    $('chapter-number').textContent = `CHAPTER ${String(chapterIndex+1).padStart(2,'0')} / ${chapters.length}`;
+    $('chapter-title').textContent = c.title;
+    $('chapter-subtitle').textContent = c.subtitle;
+    $('takeaway').textContent = c.takeaway;
+    const url = new URL(reportURL); url.hash = c.sourceAnchor;
+    $('source-link').href = url.href;
+    $('source-link').textContent = `Source: ${c.sourceSections}`;
+    $('term-buttons').innerHTML = c.terms.map(t => `<button class="term-button" data-term="${esc(t.term)}">${esc(t.term)}<span aria-hidden="true">+</span></button>`).join('');
+    $('detail-list').innerHTML = c.details.map(d => `<details><summary>${esc(d.title)}</summary><p>${esc(d.body)}</p></details>`).join('');
+    $('previous-chapter').disabled = chapterIndex===0;
+    $('next-chapter').textContent = chapterIndex===chapters.length-1 ? 'Finish the guide' : `Chapter ${String(chapterIndex+2).padStart(2,'0')} ${chapters[chapterIndex+1].title}`;
+    $('footer-count').textContent = `${chapterIndex+1} / ${chapters.length}`;
+    renderNav(); renderStep(); renderQuiz(); save();
+    if (scroll) { window.scrollTo({top:0,behavior:'instant'}); $('main').focus({preventScroll:true}); }
+  }
+  function goChapter(index, scroll = true) {
+    chapterIndex = Math.max(0,Math.min(chapters.length-1,index)); stepIndex=0;
+    try { history.replaceState(null,'',`#${current().id}`); } catch {}
+    closeChapters(); renderChapter(scroll);
+  }
+  function finishChapter() {
+    completed.add(current().id); save(); renderNav();
+    if (chapterIndex<chapters.length-1) { goChapter(chapterIndex+1); return; }
+    pause(); stopSpeech(); $('complete-banner').hidden=false;
+    $('complete-banner').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});
+  }
+  function changeStep(index) { pause(); stepIndex=index; renderStep(); save(); }
+  function closeChapters() { $('sidebar').classList.remove('open'); $('chapters-toggle').setAttribute('aria-expanded','false'); }
+  function openGlossary(term = '') {
+    pause(); stopSpeech(); $('term-search').value=term; renderGlossary(); $('glossary-dialog').showModal();
+    $('term-search').focus(); if (term) $('term-search').select();
+  }
+  function renderGlossary() {
+    const search = $('term-search').value.trim().toLowerCase();
+    const results = terms.filter(t => `${t.term} ${t.definition} ${t.example||''}`.toLowerCase().includes(search)).sort((a,b)=>Number(b.term.toLowerCase()===search)-Number(a.term.toLowerCase()===search));
+    $('term-count').textContent = `${results.length} ${results.length===1?'word':'words'}`;
+    $('glossary-list').innerHTML = results.length ? results.map(t=>`<article class="glossary-entry"><h3>${esc(t.term)}</h3><p>${esc(t.definition)}</p>${t.example?`<p class="term-example">Example: ${esc(t.example)}</p>`:''}<button class="term-chapter-link" data-term-chapter="${t.chapterIndex}">Read chapter ${t.chapterIndex+1}: ${esc(chapters[t.chapterIndex].title)}</button></article>`).join('') : '<p>No matching word exists in this guide. Use a shorter search.</p>';
+  }
+  $('source-map').innerHTML = chapters.map((c,i)=>`<div class="source-row"><strong>${String(i+1).padStart(2,'0')} ${esc(c.title)}</strong><span>Report ${esc(c.sourceSections)}</span></div>`).join('');
+  document.addEventListener('click', event => {
+    const b = event.target.closest('button'); if (!b) return;
+    if (b.dataset.chapter!==undefined) goChapter(Number(b.dataset.chapter));
+    if (b.dataset.step!==undefined) changeStep(Number(b.dataset.step));
+    if (b.dataset.term!==undefined) openGlossary(b.dataset.term);
+    if (b.dataset.answer!==undefined) { answers[current().id]=Number(b.dataset.answer); renderQuiz(); save(); }
+    if (b.dataset.close) $(b.dataset.close).close();
+    if (b.dataset.termChapter!==undefined) { $('glossary-dialog').close(); goChapter(Number(b.dataset.termChapter)); }
+  });
+  $('next-step').addEventListener('click',()=>{pause();stepIndex<current().steps.length-1 ? changeStep(stepIndex+1) : finishChapter();});
+  $('back-step').addEventListener('click',()=>{if(stepIndex>0)changeStep(stepIndex-1);});
+  $('replay').addEventListener('click',()=>changeStep(0));
+  $('autoplay').addEventListener('click',()=>{
+    if(playing){pause();return;} stopSpeech(); if(stepIndex===current().steps.length-1){stepIndex=0;renderStep();}
+    playing=true; $('autoplay').textContent='Pause steps'; $('autoplay').setAttribute('aria-pressed','true'); $('replay').disabled=false; scheduleNext();
+  });
+  $('listen').addEventListener('click',()=>{
+    if(speaking){stopSpeech();return;} pause();
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(v=>v.localService&&/^en(-|_)/i.test(v.lang));
+    if(!voice){$('voice-status').textContent='This browser has no local English voice. You can read the step text.';return;}
+    const step=current().steps[stepIndex];
+    const utterance=new SpeechSynthesisUtterance(`${step.title}. ${step.body}`);
+    utterance.voice=voice;utterance.lang=voice.lang;utterance.rate=.88;
+    const generation=++speechGeneration;
+    speaking=true;$('listen').innerHTML=volume+'<span>Stop</span>';$('listen').setAttribute('aria-label','Stop the voice');
+    utterance.onend=()=>{if(generation===speechGeneration)stopSpeech();};
+    utterance.onerror=()=>{if(generation===speechGeneration){stopSpeech();$('voice-status').textContent='The voice cannot start. You can read the step text.';}};
+    window.speechSynthesis.speak(utterance);
+  });
+  $('previous-chapter').addEventListener('click',()=>goChapter(chapterIndex-1));
+  $('next-chapter').addEventListener('click',()=>{if(stepIndex===current().steps.length-1)finishChapter();else if(chapterIndex<chapters.length-1)goChapter(chapterIndex+1);else{stepIndex=3;renderStep();save();}});
+  $('review-first').addEventListener('click',()=>goChapter(0));
+  $('glossary-open').addEventListener('click',()=>openGlossary());
+  $('about-open').addEventListener('click',()=>{pause();stopSpeech();$('about-dialog').showModal();});
+  $('about-mobile').addEventListener('click',()=>{pause();stopSpeech();closeChapters();$('about-dialog').showModal();});
+  $('term-search').addEventListener('input',renderGlossary);
+  $('chapters-toggle').addEventListener('click',()=>{const open=$('sidebar').classList.toggle('open');$('chapters-toggle').setAttribute('aria-expanded',String(open));});
+  document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}}));
+  document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();dialog.close();}}));
+  document.addEventListener('keydown',e=>{
+    if(document.querySelector('dialog[open]')||!e.altKey)return;
+    if(e.key==='ArrowRight'){e.preventDefault();$('next-step').click();}
+    if(e.key==='ArrowLeft'&&stepIndex>0){e.preventDefault();changeStep(stepIndex-1);}
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){pause();stopSpeech();}});
+  window.addEventListener('pagehide',()=>{pause();stopSpeech();});
+  window.addEventListener('hashchange',()=>{const found=chapters.findIndex(c=>c.id===location.hash.slice(1));if(found>=0)goChapter(found);});
+  const hashIndex=chapters.findIndex(c=>c.id===location.hash.slice(1));
+  if(hashIndex>=0){if(hashIndex!==chapterIndex)stepIndex=0;chapterIndex=hashIndex;}
+  renderChapter();
+})();
+
+</script>
+</body>
+</html>
