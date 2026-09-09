@@ -36,8 +36,6 @@ import { Spark } from "@/components/logo";
 import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
-import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
-import { useChatUsageQuery } from "../../api/chat.queries";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { chatErrorPresentation } from "../../lib/ai-error-copy";
@@ -51,7 +49,6 @@ import { usePageEditor } from "../../lib/use-page-editor";
 import { useTokenUsageVisible } from "../../lib/use-token-usage-visible";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
-import { ConversationModelIndicator } from "./model-indicator";
 import { MessageParts } from "./parts/message-parts";
 import { isVisibleAssistantReplyPart } from "./parts/visible-reply-part";
 import { RequestTray } from "./request-tray/request-tray";
@@ -60,7 +57,6 @@ import { TrayStatusPill } from "./request-tray/tray-signals";
 import { useRequestTray } from "./request-tray/use-request-tray";
 import { StatusMessageHeader } from "./status-message-header";
 import { TargetChip } from "./target-chip";
-import { ConversationContextMeter, ConversationCost } from "./token-usage";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
@@ -73,7 +69,6 @@ export function ChatPane({ className }: { className?: string }) {
 		billingError,
 		aiError,
 		notices,
-		chatId,
 		isResolvingChat,
 		isLoadingMessages,
 		composerPrefill,
@@ -84,21 +79,6 @@ export function ChatPane({ className }: { className?: string }) {
 	} = useSharedAiChat();
 	const editor = usePageEditor();
 	const tokenUsageVisible = useTokenUsageVisible();
-	const completedAssistantMessageCount = useMemo(
-		() =>
-			messages.reduce(
-				(count, message) =>
-					message.role === "assistant" && message.metadata?.usage
-						? count + 1
-						: count,
-				0,
-			),
-		[messages],
-	);
-	const chatUsageQuery = useChatUsageQuery(
-		chatId,
-		completedAssistantMessageCount,
-	);
 	// Empty pool: the composer locks and the banner above it owns the upgrade
 	// CTA. Derived from the polled balance query, so a resubscribe or top-up
 	// unlocks it without any manual refresh.
@@ -131,10 +111,6 @@ export function ChatPane({ className }: { className?: string }) {
 	useEffect(() => {
 		setComposerText(composerPrefill.value);
 	}, [composerPrefill.revision, composerPrefill.value]);
-	const [pickerBuilderModel, setPickerBuilderModel] = useState<
-		string | undefined
-	>(() => (import.meta.env.DEV ? readStoredBuilderGatewayModel() : undefined));
-
 	// The live "waiting on you" state: derives the docked ask from the message
 	// list and answers it through answerAskUser (chips, free text, escape
 	// hatch and dismiss all complete the same tool call).
@@ -474,18 +450,6 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
-					{tokenUsageVisible ? (
-						<>
-							<ConversationContextMeter messages={messages} />
-							<ConversationCost
-								usage={chatUsageQuery.isError ? undefined : chatUsageQuery.data}
-							/>
-							<ConversationModelIndicator
-								messages={messages}
-								pickerBuilderModel={pickerBuilderModel}
-							/>
-						</>
-					) : null}
 					{/* Click-to-target chip (contract §12) — sibling of the tray slot
 					    on purpose: the tray owns topSlot. Edit-mode selection stays
 					    within the manual inspector. */}
@@ -521,9 +485,6 @@ export function ChatPane({ className }: { className?: string }) {
 							initialValue={composerPrefill.value}
 							onSubmit={handleComposerSubmit}
 							onValueChange={setComposerText}
-							onBuilderModelChange={
-								import.meta.env.DEV ? setPickerBuilderModel : undefined
-							}
 							isSubmitting={isSubmitting}
 							submitOverride={
 								tray.active
