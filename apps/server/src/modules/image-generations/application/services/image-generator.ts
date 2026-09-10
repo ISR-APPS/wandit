@@ -96,8 +96,8 @@ export type EditImageResult =
 	  } & GatewayGenerationMetadata);
 
 /**
- * Low-level edit call, shared with the site builder's in-build image tool.
- * Never throws; a failed edit is a normal result the caller can degrade on.
+ * The site builder and standalone image generator share this edit call.
+ * The function sends inline source bytes and returns a typed failure on error.
  */
 export async function editImageFromSources(params: {
 	abortSignal?: AbortSignal;
@@ -135,13 +135,14 @@ export async function editImageFromSources(params: {
 		const loadedPhotos = await Promise.all(
 			params.sourceImageUrls.map((url) => photoLoader(url)),
 		);
-		const sourceImages: Array<string | Uint8Array> = [];
+		const sourceImages: Uint8Array[] = [];
 		const sourceFileParts: Array<{
-			data: string | Uint8Array;
+			data: Uint8Array;
 			mediaType: string;
 			type: "file";
 		}> = [];
 
+		// Both provider APIs receive inline bytes to avoid a gateway URL fetch.
 		for (const photo of loadedPhotos) {
 			// One bad source must not remove usable sources from the same edit.
 			if (photo.kind === "unusable") {
@@ -151,19 +152,12 @@ export async function editImageFromSources(params: {
 				continue;
 			}
 
-			// Safe stored photos keep their URLs. Optimized photos use their checked replacement bytes.
-			const data = photo.kind === "url" ? photo.url : photo.bytes;
-			sourceImages.push(data);
-			sourceFileParts.push(
-				photo.kind === "url"
-					? {
-							data,
-							// The AI SDK accepts the generic "image" media type for a URL whose MIME type is unknown.
-							mediaType: "image",
-							type: "file",
-						}
-					: { data, mediaType: photo.mediaType, type: "file" },
-			);
+			sourceImages.push(photo.bytes);
+			sourceFileParts.push({
+				data: photo.bytes,
+				mediaType: photo.mediaType,
+				type: "file",
+			});
 		}
 
 		// An edit without a source can invent the product. This result fails before the provider call.
