@@ -69,15 +69,23 @@ vi.mock(
 	},
 );
 
-function loadUrlPhoto(url: string): Promise<ModelSafePhoto> {
-	return Promise.resolve({ kind: "url", url });
+// Stable source bytes let provider assertions detect any URL part.
+const SOURCE_PHOTO_BYTES = new Uint8Array([1, 2, 3]);
+
+function loadBytesPhoto(url: string): Promise<ModelSafePhoto> {
+	return Promise.resolve({
+		bytes: SOURCE_PHOTO_BYTES,
+		kind: "bytes",
+		mediaType: "image/png",
+		url,
+	});
 }
 
 const PARAMS = {
 	aspect: "1:1" as const,
 	attemptId: "attempt_1",
 	index: 1,
-	loadModelSafePhoto: loadUrlPhoto,
+	loadModelSafePhoto: loadBytesPhoto,
 	metering: { operation: "image" as const, userId: "user_1" },
 	projectId: "project_1",
 	prompt: "editorial photography of a ceramic tagine in warm light",
@@ -339,7 +347,7 @@ describe("generateStandaloneImage", () => {
 			expect.objectContaining({
 				model,
 				prompt: {
-					images: sourceImageUrls,
+					images: [SOURCE_PHOTO_BYTES],
 					text: expect.stringContaining(SINGLE_FRAME_INSTRUCTION),
 				},
 			}),
@@ -538,7 +546,7 @@ describe("generateStandaloneImage", () => {
 describe("editImageFromSources", () => {
 	const EDIT_PARAMS = {
 		aspect: "4:5",
-		loadModelSafePhoto: loadUrlPhoto,
+		loadModelSafePhoto: loadBytesPhoto,
 		metering: { operation: "image" as const, userId: "user_1" },
 		prompt: "restage on a marble bench",
 		sourceImageUrls: [
@@ -582,11 +590,13 @@ describe("editImageFromSources", () => {
 			text: expect.stringContaining("Target aspect ratio: 4:5."),
 		});
 		expect(content[1]).toMatchObject({
-			data: EDIT_PARAMS.sourceImageUrls[0],
+			data: SOURCE_PHOTO_BYTES,
+			mediaType: "image/png",
 			type: "file",
 		});
 		expect(content[2]).toMatchObject({
-			data: EDIT_PARAMS.sourceImageUrls[1],
+			data: SOURCE_PHOTO_BYTES,
+			mediaType: "image/png",
 			type: "file",
 		});
 		expect(call?.providerOptions).toMatchObject({
@@ -670,7 +680,7 @@ describe("editImageFromSources", () => {
 			aspectRatio: "4:5",
 			model: "meta/muse-image-1.0",
 			prompt: {
-				images: EDIT_PARAMS.sourceImageUrls,
+				images: [SOURCE_PHOTO_BYTES, SOURCE_PHOTO_BYTES],
 				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
 			},
 			providerOptions: {
@@ -725,7 +735,7 @@ describe("editImageFromSources", () => {
 			abortSignal,
 			model: "openai/gpt-image-2",
 			prompt: {
-				images: EDIT_PARAMS.sourceImageUrls,
+				images: [SOURCE_PHOTO_BYTES, SOURCE_PHOTO_BYTES],
 				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
 			},
 			providerOptions: {

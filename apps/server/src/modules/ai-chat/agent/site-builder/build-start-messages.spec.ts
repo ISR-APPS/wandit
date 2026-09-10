@@ -7,13 +7,20 @@ describe("composeBuildStartMessages", () => {
 		const firstUrl = "https://assets.example.com/uploads/u/one/photo.jpg";
 		const secondUrl = "https://assets.example.com/uploads/u/two/photo.webp";
 		const thirdUrl = "https://assets.example.com/uploads/u/three/photo.png";
+		// Distinct bytes expose any change to the source order.
+		const firstBytes = new Uint8Array([4, 5, 6]);
 		const bytes = new Uint8Array([1, 2, 3]);
 
 		const messages = composeBuildStartMessages({
 			brief: "Use the supplied product photos.",
 			title: "Photo page",
 			userPhotos: [
-				{ kind: "url", url: firstUrl },
+				{
+					bytes: firstBytes,
+					kind: "bytes",
+					mediaType: "image/jpeg",
+					url: firstUrl,
+				},
 				{ bytes, kind: "bytes", mediaType: "image/webp", url: secondUrl },
 				{ kind: "unusable", reason: "object missing", url: thirdUrl },
 			],
@@ -29,7 +36,7 @@ describe("composeBuildStartMessages", () => {
 				text: `[User photo 1 — URL: ${firstUrl}]`,
 				type: "text",
 			},
-			{ data: firstUrl, mediaType: "image", type: "file" },
+			{ data: firstBytes, mediaType: "image/jpeg", type: "file" },
 			{
 				text: `[User photo 2 — URL: ${secondUrl}]`,
 				type: "text",
