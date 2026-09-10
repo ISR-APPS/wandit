@@ -4,6 +4,7 @@ import type {
 	AdminRenewManualSubscriptionInput,
 	ProductSettings,
 } from "@wandit/contracts";
+import { OPEN_MANUAL_REQUEST_STATUSES } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
@@ -356,8 +357,8 @@ function createContext(
 		findAdminById: vi.fn(),
 		findOpenByOwner: vi.fn(
 			async (): Promise<ManualSubscriptionRequestRow | null> =>
-				[...requests.values()].find(
-					(row) => row.status === "pending" || row.status === "contacted",
+				[...requests.values()].find((row) =>
+					OPEN_MANUAL_REQUEST_STATUSES.some((status) => status === row.status),
 				) ?? null,
 		),
 		findById: vi.fn(
@@ -782,6 +783,26 @@ describe("ManualSubscriptionsService", () => {
 		);
 	});
 
+	it("auto-links an awaiting payment request when a grant has no requestId", async () => {
+		const context = createContext();
+		context.requests.set(REQUEST_ID, request({ status: "awaiting_payment" }));
+
+		await context.service.grant(
+			"admin_1",
+			grantInput({ requestId: undefined }),
+		);
+
+		expect(context.requestsRepository.update).toHaveBeenCalledWith(
+			REQUEST_ID,
+			expect.objectContaining({
+				status: "approved",
+				subscriptionId: SUBSCRIPTION_ID,
+				handledByUserId: "admin_1",
+			}),
+			TRANSACTION,
+		);
+	});
+
 	it("auto-links a MATCHING open renewal request when none is passed", async () => {
 		const currentEnd = new Date("2026-09-01T00:00:00.000Z");
 		const context = createContext([
@@ -842,6 +863,50 @@ describe("ManualSubscriptionsService", () => {
 			status: 409,
 		});
 		expect(context.creditsService.applyCappedRefill).not.toHaveBeenCalled();
+	});
+
+	it("cancels an open request with the admin and reason", async () => {
+		const context = createContext();
+		const adminNotes = "The customer canceled the order.";
+		context.requestsRepository.findAdminById.mockResolvedValueOnce({
+			request: request({ status: "canceled", adminNotes }),
+			user: USER,
+			organization: null,
+			handledBy: null,
+			currentSubscription: null,
+		});
+
+		await context.service.updateRequest("admin_1", REQUEST_ID, {
+			status: "canceled",
+			adminNotes,
+		});
+
+		expect(context.requestsRepository.updateIfNotTerminal).toHaveBeenCalledWith(
+			REQUEST_ID,
+			{
+				status: "canceled",
+				handledByUserId: "admin_1",
+				handledAt: NOW,
+				adminNotes,
+			},
+		);
+		expect(context.requests.get(REQUEST_ID)?.status).toBe("canceled");
+		expect(context.requestsRepository.update).not.toHaveBeenCalled();
+	});
+
+	it("refuses a call back status on an already canceled request before any update", async () => {
+		const context = createContext();
+		context.requests.set(REQUEST_ID, request({ status: "canceled" }));
+
+		await expect(
+			context.service.updateRequest("admin_1", REQUEST_ID, {
+				status: "call_back",
+			}),
+		).rejects.toBeInstanceOf(ConflictException);
+		expect(
+			context.requestsRepository.updateIfNotTerminal,
+		).not.toHaveBeenCalled();
+		expect(context.requestsRepository.update).not.toHaveBeenCalled();
 	});
 
 	it("does not reopen a request that becomes terminal during an admin update", async () => {

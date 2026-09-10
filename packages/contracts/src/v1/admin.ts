@@ -1,3 +1,7 @@
+/**
+ * Defines admin payloads for API handlers and the admin app.
+ * Uses Zod and feature contracts to validate input and responses.
+ */
 import { z } from "zod";
 import {
 	paginatedResultSchema,
@@ -11,6 +15,7 @@ import {
 	manualPaymentMethodSchema,
 	manualSubscriptionRequestSchema,
 	manualSubscriptionRequestStatusSchema,
+	OPEN_MANUAL_REQUEST_STATUSES,
 } from "./billing";
 import {
 	creditBalanceResponseSchema,
@@ -1173,11 +1178,13 @@ export type AdminListManualRequestsResponse = z.infer<
 	typeof adminListManualRequestsResponseSchema
 >;
 
-// Approval happens through the grant endpoint (it links + approves). This
-// PATCH only moves a request between the manual states and edits the note.
+// PATCH accepts OPEN statuses, rejection, cancellation, and note edits.
+// Approval requires the grant endpoint to link the subscription.
 export const adminUpdateManualRequestBodySchema = z
 	.object({
-		status: z.enum(["pending", "contacted", "rejected"]).optional(),
+		status: z
+			.enum([...OPEN_MANUAL_REQUEST_STATUSES, "rejected", "canceled"])
+			.optional(),
 		adminNotes: z.string().trim().max(2000).nullable().optional(),
 	})
 	.refine(
