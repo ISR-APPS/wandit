@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
 	BuilderStallError,
 	classifyBuildFailure,
+	fallbackBuilderModel,
+	isTransientProviderFailure,
 	TaggedBuildError,
 } from "./build-failure";
 
@@ -157,5 +159,148 @@ describe("classifyBuildFailure", () => {
 		b.cause = a;
 
 		expect(classifyBuildFailure(a)).toBe("internal_error");
+	});
+});
+
+describe("fallbackBuilderModel", () => {
+	it.each([
+		{
+			chain: [
+				"google/gemini-3.8-flash",
+				"google/gemini-3.7-flash",
+				"google/gemini-3.5-flash",
+				"openai/gpt-5.6-luna",
+			],
+			pageKind: "website",
+		},
+		{
+			chain: [
+				"openai/gpt-5.6-luna",
+				"google/gemini-3.8-flash",
+				"google/gemini-3.7-flash",
+				"google/gemini-3.5-flash",
+			],
+			pageKind: "cod",
+		},
+	] as const)("walks the $pageKind chain as the tried list grows", ({
+		chain,
+		pageKind,
+	}) => {
+		for (const [index, model] of chain.entries()) {
+			expect(fallbackBuilderModel(pageKind, chain.slice(0, index))).toBe(model);
+		}
+	});
+
+	it.each([
+		{ firstModel: "google/gemini-3.8-flash", pageKind: "website" },
+		{ firstModel: "openai/gpt-5.6-luna", pageKind: "cod" },
+	] as const)("starts the $pageKind chain for an outside model", ({
+		firstModel,
+		pageKind,
+	}) => {
+		expect(fallbackBuilderModel(pageKind, ["xai/grok-4.5"])).toBe(firstModel);
+	});
+
+	it.each([
+		"website",
+		"cod",
+	] as const)("returns null after every %s chain model fails", (pageKind) => {
+		expect(
+			fallbackBuilderModel(pageKind, [
+				"google/gemini-3.8-flash",
+				"google/gemini-3.7-flash",
+				"google/gemini-3.5-flash",
+				"openai/gpt-5.6-luna",
+			]),
+		).toBeNull();
+	});
+
+	it("ignores the order of the tried models", () => {
+		expect(
+			fallbackBuilderModel("website", [
+				"google/gemini-3.7-flash",
+				"google/gemini-3.8-flash",
+			]),
+		).toBe("google/gemini-3.5-flash");
+	});
+});
+
+describe("isTransientProviderFailure", () => {
+	it.each([
+		"provider_timeout",
+		"provider_overloaded",
+		"provider_rate_limited",
+	] as const)("accepts %s without another provider signal", (failureCode) => {
+		expect(
+			isTransientProviderFailure(failureCode, {
+				kind: "internal",
+				statusCode: null,
+			}),
+		).toBe(true);
+	});
+
+	it.each([
+		"network",
+		"timeout",
+		"capacity",
+		"rate_limited",
+	] as const)("accepts provider_error with normalized kind %s", (kind) => {
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind,
+				statusCode: null,
+			}),
+		).toBe(true);
+	});
+
+	it("accepts a provider 503 and rejects a provider 400", () => {
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind: "provider_error",
+				statusCode: 503,
+			}),
+		).toBe(true);
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind: "provider_error",
+				statusCode: 400,
+			}),
+		).toBe(false);
+	});
+
+	it.each([
+		"insufficient_credits",
+		"member_limit",
+		"invalid_output",
+		"storage_failure",
+		"internal_error",
+	] as const)("rejects the non-provider failure %s", (failureCode) => {
+		expect(
+			isTransientProviderFailure(failureCode, {
+				kind: "timeout",
+				statusCode: 503,
+			}),
+		).toBe(false);
+	});
+
+	it("rejects non-transient normalized provider kinds", () => {
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind: "invalid_request",
+				statusCode: 503,
+			}),
+		).toBe(false);
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind: "content_moderated",
+				statusCode: null,
+			}),
+		).toBe(false);
+		expect(
+			isTransientProviderFailure("provider_error", {
+				kind: "billing",
+				statusCode: null,
+			}),
+		).toBe(false);
 	});
 });

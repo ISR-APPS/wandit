@@ -16,6 +16,7 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
+import { isModelSafeImage } from "../../../../infrastructure/storage/model-safe-photo";
 import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
 	IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -176,6 +177,7 @@ export function attachmentSizeLimitFor(mediaType: string): {
 	return ATTACHMENT_SIZE_LIMITS[attachmentCategory(mediaType)];
 }
 
+/** Validates and stores one attachment for an authenticated upload route. */
 @Injectable()
 export class UploadsService {
 	async uploadAttachment(
@@ -244,6 +246,24 @@ export class UploadsService {
 			storedBytes = optimized.bytes;
 			width = optimized.width;
 			height = optimized.height;
+		}
+
+		// OpenAI rejects more than 30,000 patches. This guard blocks the 2026-09-09 50 MP incident.
+		if (
+			isRaster &&
+			width !== null &&
+			height !== null &&
+			!isModelSafeImage({
+				byteLength: storedBytes.byteLength,
+				height,
+				width,
+			})
+		) {
+			throw new PayloadTooLargeException({
+				code: "ATTACHMENT_FILE_TOO_LARGE",
+				message:
+					"Images must be at most 30 megapixels, 8000 px per side, and 7 MB after processing",
+			});
 		}
 
 		const filename = sanitizeFilename(file.filename, storedType);

@@ -1,7 +1,15 @@
+/**
+ * Renders safe English copy from a normalized AI error.
+ * Server generation workflows call it before they store a failure.
+ * It selects copy from the error kind and timeout message key.
+ */
 import type { NormalizedAiError } from "./normalized-ai-error";
 
 const PROVIDER_FALLBACK = "The AI provider";
+const PROVIDER_DEMAND_MESSAGE =
+	"Our AI provider is experiencing high demand. Please try again in a few minutes.";
 
+/** Keeps persisted server copy consistent with the localized chat copy. */
 export function renderAiErrorSentence(normalized: NormalizedAiError): string {
 	const provider = normalized.providerLabel ?? PROVIDER_FALLBACK;
 
@@ -14,12 +22,11 @@ export function renderAiErrorSentence(normalized: NormalizedAiError): string {
 			return `${provider} did not accept this request. Try a shorter prompt or a different file.`;
 		case "model_not_found":
 			return "The AI model is not available right now. Our team is notified.";
+		// Product rule (Zack, 2026-09-09): every transient provider failure shows the same demand copy in every locale.
 		case "rate_limited":
-			return `${provider} is busy. Please wait a moment and try again.`;
 		case "capacity":
-			return `${provider} is over capacity right now. Please try again in a minute.`;
 		case "provider_error":
-			return `${provider} returned an error. Please try again.`;
+			return PROVIDER_DEMAND_MESSAGE;
 		case "content_moderated":
 			return normalized.moderationStage === "output"
 				? `The content filter of ${provider} stopped this generation. Change the prompt and try again.`
@@ -31,7 +38,8 @@ export function renderAiErrorSentence(normalized: NormalizedAiError): string {
 			if (normalized.userMessage.key === "errors.ai.timeout_connector") {
 				return `${provider} accepted the job but did not report a result in time. Check ${provider} before you try again.`;
 			}
-			return `${provider} took too long to answer. Please try again.`;
+			// Product rule: ordinary provider timeouts use the same demand copy as other transient failures.
+			return PROVIDER_DEMAND_MESSAGE;
 		case "network":
 			return `We cannot reach ${provider}. Please try again.`;
 		case "cancelled":

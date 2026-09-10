@@ -80,6 +80,7 @@ async function main() {
 		attemptId,
 		brief,
 		model,
+		pageAttemptId: attemptId,
 		projectId: "design-baselines",
 		system,
 		title,

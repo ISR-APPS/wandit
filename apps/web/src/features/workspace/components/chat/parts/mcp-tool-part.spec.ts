@@ -47,7 +47,7 @@ vi.mock("@/lib/i18n", () => ({
 						"workspace.chat.aiError.attribution.viaGateway":
 							"{provider} via Vercel AI Gateway",
 						"errors.ai.provider_error":
-							"{provider} returned an error. Please try again.",
+							"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 					} as Record<string, string>
 				)[key] ?? key;
 
@@ -900,7 +900,9 @@ describe("McpActivityCard", () => {
 		const html = renderActivity([failedPart], true, undefined, true);
 
 		expect(html).toContain("Provider issue");
-		expect(html).toContain("Higgsfield returned an error. Please try again.");
+		expect(html).toContain(
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
+		);
 		expect(html).not.toContain("RAW CONNECTOR ERROR");
 		expect(html).not.toContain("private.png");
 		expect(mcpRunHasDeliverables([failedPart])).toBe(false);

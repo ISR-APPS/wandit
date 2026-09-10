@@ -22,7 +22,7 @@ vi.mock("@/lib/i18n", () => ({
 		t: (key: string, params?: Record<string, unknown>) => {
 			const values: Record<string, string> = {
 				"errors.ai.capacity":
-					"{provider} is over capacity right now. Please try again in a minute.",
+					"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 				"workspace.chat.aiError.attribution.viaGateway":
 					"{provider} via Vercel AI Gateway",
 				"workspace.chat.aiError.kicker.provider": "Provider issue",
@@ -968,7 +968,7 @@ describe("MessageParts turn block", () => {
 
 			expect(html).toContain("Provider issue");
 			expect(html).toContain(
-				"Anthropic is over capacity right now. Please try again in a minute.",
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			);
 			expect(html).toContain("Anthropic via Vercel AI Gateway");
 			expect(html).toContain(">Retry<");

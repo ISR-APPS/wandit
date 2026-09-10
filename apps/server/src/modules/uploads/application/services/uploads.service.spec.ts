@@ -381,6 +381,31 @@ describe("UploadsService.uploadAttachment", () => {
 		});
 	});
 
+	it("rejects a raster that remains above model limits after processing", async () => {
+		// Two short frames keep the fixture small while its width exceeds the 8,000 px limit.
+		const oversizedAnimatedWebp = await sharp(randomBytes(8001 * 2 * 3), {
+			raw: { channels: 3, height: 2, pageHeight: 1, width: 8001 },
+		})
+			.webp({ effort: 0, lossless: true })
+			.toBuffer();
+
+		const failure = service.uploadAttachment("user_1", {
+			buffer: oversizedAnimatedWebp,
+			filename: "wide-animation.webp",
+			mimetype: "image/webp",
+		});
+
+		await expect(failure).rejects.toBeInstanceOf(PayloadTooLargeException);
+		await expect(failure).rejects.toMatchObject({
+			response: {
+				code: "ATTACHMENT_FILE_TOO_LARGE",
+				message:
+					"Images must be at most 30 megapixels, 8000 px per side, and 7 MB after processing",
+			},
+		});
+		expect(putSiteFile).not.toHaveBeenCalled();
+	});
+
 	it("stores srcset renditions as siblings inside the same uuid directory", async () => {
 		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
 			raw: { channels: 3, height: 300, width: 2500 },

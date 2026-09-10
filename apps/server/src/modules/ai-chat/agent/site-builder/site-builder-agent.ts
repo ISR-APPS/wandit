@@ -25,6 +25,12 @@ import {
 } from "ai";
 import * as cheerio from "cheerio";
 import { z } from "zod";
+import { loadModelSafePhoto } from "../../../../infrastructure/storage/model-safe-photo";
+import {
+	captureAiError,
+	redactProviderText,
+	sentryRouteForSource,
+} from "../../../ai-errors/domain";
 import {
 	createLlmModel,
 	gatewayRoutingForModel,
@@ -80,6 +86,7 @@ import {
 } from "./screenshot";
 import { type SiteFile, VirtualFileSystem } from "./virtual-files";
 
+/** Defines one site build, including optional functions for isolated tests. */
 export type SiteBuildParams = {
 	/** Abort both model generation and the streaming tool loop when the task is cancelled. */
 	abortSignal?: AbortSignal;
@@ -91,6 +98,8 @@ export type SiteBuildParams = {
 	imageEditModel?: string;
 	/** Image model snapshotted on the attempt; absent = legacy attempt (worker env). */
 	imageModel?: string;
+	/** Replaces R2 photo loading in isolated tests. Production uses the storage function. */
+	loadModelSafePhoto?: typeof loadModelSafePhoto;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
 	model: string;
 	/** Present only while billing enforcement is enabled. */
@@ -109,6 +118,8 @@ export type SiteBuildParams = {
 	codMode?: "simple" | "max";
 	/** Selects the validation contract for the generated landing page. */
 	pageKind?: "cod" | "website";
+	/** The queue-time attempt row id; attemptId is the per-run asset namespace. */
+	pageAttemptId: string;
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
 	/** Composer's per-message reasoning pick, snapshotted on the attempt spec. */
@@ -193,7 +204,9 @@ export function fallbackBuildSummary(stepCount: number): string {
  * Per-model effort forcing was removed on purpose (2026-08-05): effort is
  * an explicit user/env choice, never a hidden model-keyed default.
  */
-export function resolveBuilderReasoningEffort(override?: BuilderReasoningOption) {
+export function resolveBuilderReasoningEffort(
+	override?: BuilderReasoningOption,
+) {
 	const configuredReasoningEffort = override ?? env.AI_PAGE_DESIGN_REASONING;
 
 	if (configuredReasoningEffort === "auto") {
@@ -378,6 +391,8 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	/** Replaces failure capture in isolated tests. Production uses the shared capture function. */
+	captureFailure?: typeof captureAiError;
 	codMode?: "simple" | "max";
 	/** Queue-time image-model snapshots; absent on legacy attempts (worker env wins). */
 	imageEditModel?: string;
@@ -385,6 +400,8 @@ type BuilderToolsParams = {
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	pageKind?: "cod" | "website";
+	/** The queue-time attempt row id; attemptId is the per-run asset namespace. */
+	pageAttemptId: string;
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
@@ -493,6 +510,7 @@ function createEditContext(
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const { pageKind = "website", screenshots, state, vfs } = params;
+	const captureFailure = params.captureFailure ?? captureAiError;
 	// Simple COD keeps the cheap 2-pass profile its prompt promises; only max
 	// COD runs the deep 4-pass review. Validation still keys on pageKind.
 	const passKind: BuilderPageKind =
@@ -822,7 +840,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 								estimate: imageModel
 									? { count: 1, kind: "image", modelId: imageModel }
 									: null,
-								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
+								// A fallback run image 1 cannot replay first-run image 1.
+								idempotencyKey: `page-build-image:${params.usageEventId}:${params.attemptId}:${index}`,
 								model: imageModel,
 								parentEventId: params.usageEventId,
 								subject: params.subject,
@@ -869,6 +888,32 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (result.status !== "generated") {
 					state.imagesGenerated -= 1;
+					const failure =
+						result.status === "failed" ? result.failure : undefined;
+					const providerCause =
+						failure?.raw.cause instanceof Error ? failure.raw.cause : null;
+					const rawFailureMessage =
+						failure?.raw.responseBody ??
+						providerCause?.message ??
+						failure?.raw.message ??
+						result.message;
+					const observedError =
+						providerCause ??
+						new Error(failure?.raw.message ?? "Image generation failed");
+
+					if (failure) {
+						const route = sentryRouteForSource(failure.source);
+						// Image tool failures need a trace before the builder continues with another role.
+						captureFailure(observedError, failure, {
+							functionId: "page-build.generate_image",
+							generationId: params.pageAttemptId,
+							projectId: params.projectId,
+							route,
+							surface: "image",
+							toolName: "generate_image",
+							userId: params.subject.actorUserId,
+						});
+					}
 					if (childReservation && childEvent && params.meteringService) {
 						if (hasGatewayGenerationMetadata(result)) {
 							const providerUnits =
@@ -903,9 +948,15 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					}
 					// Named loudly: a silently missing 6th image reads as a model
 					// choice in the dashboard unless the failed role is spelled out.
+					// A provider body can echo a source photo URL or a full HTML page.
+					const failureMessage = redactProviderText(rawFailureMessage).slice(
+						0,
+						4096,
+					);
 					log(
 						`generate_image ${result.status} (${role}, model ` +
-							`${imageModel ?? "unconfigured"}): ${result.message} — ` +
+							`${imageModel ?? "unconfigured"}, kind=${failure?.kind ?? "unclassified"} ` +
+							`status=${failure?.statusCode ?? "unknown"}): ${failureMessage} — ` +
 							`${state.imagesGenerated} generated / ` +
 							`${state.imageSequence - state.imagesGenerated} failed / ` +
 							`${state.imageSequence} requested; prompt: ` +
@@ -944,7 +995,14 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						`${state.imageSequence - state.imagesGenerated} failed / ` +
 						`${state.imageSequence} requested`,
 				);
-				emitEvent({ role, type: "image-generated", url: result.url });
+				emitEvent({
+					aspect,
+					height: result.height,
+					role,
+					type: "image-generated",
+					url: result.url,
+					width: result.width,
+				});
 
 				return {
 					aspect,
@@ -1353,6 +1411,7 @@ async function captureRequiredGeneration(
 	throw lastError;
 }
 
+/** Runs one page-build agent. Trigger workers call it with stored attempt inputs. */
 export async function runSiteBuild(
 	params: SiteBuildParams,
 ): Promise<SiteBuildResult> {
@@ -1591,6 +1650,7 @@ export async function runSiteBuild(
 				...(params.codMode ? { codMode: params.codMode } : {}),
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
 				pageKind: params.pageKind ?? "website",
+				pageAttemptId: params.pageAttemptId,
 				projectId: params.projectId,
 				screenshots,
 				state,
@@ -1608,6 +1668,11 @@ export async function runSiteBuild(
 		const userPhotoUrls = screenshotRequired
 			? extractBriefUserPhotoUrls(params.brief)
 			: [];
+		const photoLoader = params.loadModelSafePhoto ?? loadModelSafePhoto;
+		// A stored photo can exceed model limits after upload decoding fails. This load is the last guard.
+		const userPhotos = await Promise.all(
+			userPhotoUrls.map((url) => photoLoader(url)),
+		);
 		watchdogActive = true;
 		resetStallWatchdog();
 		let stream: Awaited<ReturnType<typeof agent.stream>>;
@@ -1619,7 +1684,7 @@ export async function runSiteBuild(
 							messages: composeBuildStartMessages({
 								brief: params.brief,
 								title: params.title,
-								userPhotoUrls,
+								userPhotos,
 							}),
 						})
 					: await agent.stream({
