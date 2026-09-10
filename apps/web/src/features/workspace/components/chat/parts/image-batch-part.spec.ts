@@ -14,7 +14,7 @@ import {
 vi.mock("@/lib/i18n", () => {
 	const messages: Record<string, string> = {
 		"errors.ai.provider_error":
-			"{provider} returned an error. Please try again.",
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 		"workspace.chat.aiError.kicker.provider": "Provider issue",
 		"workspace.chat.aiError.providerFallback": "The AI provider",
 		"workspace.chat.generateImage.failedBody":

@@ -23,9 +23,18 @@ import {
 	REQUIRED_SCREENSHOT_PASSES_BY_KIND,
 } from "./site-builder-agent";
 
+/** Carries builder activity without percentages. The tracker computes each percentage. */
 export type BuildProgressEvent =
 	| { type: "image-start"; role: string }
-	| { type: "image-generated"; role: string; url: string }
+	| {
+			type: "image-generated";
+			role: string;
+			url: string;
+			aspect: string;
+			width: number;
+			height: number;
+	  }
+	| { type: "model-fallback"; fromModel: string; toModel: string }
 	| { type: "write-start" }
 	| {
 			type: "page-written";
@@ -70,8 +79,9 @@ const MAX_IMAGES = 12;
 const MAX_FINDINGS = 6;
 const SECTION_LABEL_MAX = 24;
 
+/** Creates one tracker. Publish failures never stop its build. */
 export function createBuildProgressTracker(params: {
-	/** R2 asset namespace for this run (the namespaced attempt id). */
+	/** R2 screenshot namespace for the full fallback chain. */
 	attemptId: string;
 	/** Sets the card's review-pass target (COD runs more passes than landing). */
 	pageKind?: BuilderPageKind;
@@ -112,7 +122,8 @@ export function createBuildProgressTracker(params: {
 		percent: 3,
 		phase: "starting",
 		reviewPasses: 0,
-		reviewTarget: REQUIRED_SCREENSHOT_PASSES_BY_KIND[params.pageKind ?? "website"],
+		reviewTarget:
+			REQUIRED_SCREENSHOT_PASSES_BY_KIND[params.pageKind ?? "website"],
 		sections: [],
 		shots: [],
 	};
@@ -140,6 +151,7 @@ export function createBuildProgressTracker(params: {
 	// Shot uploads are async; everything else is sync. Serialize the async
 	// work so two passes cannot interleave their strips.
 	let chain: Promise<unknown> = Promise.resolve();
+	let buildSequence = 0;
 
 	// Only the thumbnail uploads run async (serialized on the chain); every
 	// other pass field folds synchronously in emit() so a fix edit arriving
@@ -147,6 +159,7 @@ export function createBuildProgressTracker(params: {
 	// late upload can never rewind the phase or headline.
 	const handleShotUploads = async (
 		event: Extract<BuildProgressEvent, { type: "screenshot-pass" }>,
+		eventBuildSequence: number,
 	) => {
 		const desktop = event.shots
 			.filter((shot) => shot.viewport === "desktop")
@@ -172,6 +185,11 @@ export function createBuildProgressTracker(params: {
 				shot !== null,
 		);
 
+		// A previous run can finish uploads after fallback. Ignore its stale shots.
+		if (eventBuildSequence !== buildSequence) {
+			return;
+		}
+
 		if (shots.length > 0) {
 			progress.shots = shots;
 			publishNow();
@@ -186,6 +204,20 @@ export function createBuildProgressTracker(params: {
 			if (progress.done) return;
 
 			switch (event.type) {
+				case "model-fallback":
+					// A fallback keeps finished images and removes progress from the discarded page.
+					buildSequence += 1;
+					progress.findings = [];
+					progress.fixes = 0;
+					progress.headline = "Switching to fallback model…";
+					progress.pageBytes = 0;
+					progress.phase = "starting";
+					progress.reviewPasses = 0;
+					progress.sections = [];
+					progress.shots = [];
+					delete progress.currentPass;
+					publishNow();
+					break;
 				case "image-start":
 					progress.headline = "Generating the product art…";
 					progress.phase = "art";
@@ -229,7 +261,7 @@ export function createBuildProgressTracker(params: {
 					progress.phase = "reviewing";
 					publishNow();
 					break;
-				case "screenshot-pass":
+				case "screenshot-pass": {
 					progress.currentPass = event.pass;
 					progress.reviewPasses = Math.max(progress.reviewPasses, event.pass);
 					progress.findings = humanizeFindings(event);
@@ -240,10 +272,12 @@ export function createBuildProgressTracker(params: {
 						event.pass === 1 ? 70 : event.pass === 2 ? 85 : estimate + 3,
 					);
 					publishNow();
+					const eventBuildSequence = buildSequence;
 					chain = chain.then(() =>
-						handleShotUploads(event).catch(() => undefined),
+						handleShotUploads(event, eventBuildSequence).catch(() => undefined),
 					);
 					break;
+				}
 				case "finished":
 					progress.done = true;
 					progress.headline = "Publishing the page…";
