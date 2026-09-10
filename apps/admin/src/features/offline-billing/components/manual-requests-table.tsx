@@ -1,5 +1,11 @@
+/**
+ * Shows offline requests and admin actions on the billing page.
+ * Uses request queries, mutations, and the billing dialogs.
+ */
 import { Link } from "@tanstack/react-router";
+import { OPEN_MANUAL_REQUEST_STATUSES } from "@wandit/contracts";
 import {
+	BanIcon,
 	CalendarXIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
@@ -26,6 +32,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -63,6 +72,7 @@ import { useManualRequestsQuery } from "@/features/offline-billing/api/offline-b
 import {
 	MANUAL_COUNTRY_LABELS,
 	MANUAL_PAYMENT_METHOD_LABELS,
+	MANUAL_REQUEST_STATUS_LABELS,
 } from "@/features/offline-billing/lib/offline-billing";
 import {
 	formatAdminDate,
@@ -80,16 +90,7 @@ import { RenewManualSubscriptionDialog } from "./renew-manual-subscription-dialo
 const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE = 25;
 
-const STATUS_LABELS: Record<AdminManualRequestStatusFilter, string> = {
-	open: "Open requests",
-	all: "All statuses",
-	pending: "Pending",
-	contacted: "Contacted",
-	approved: "Approved",
-	rejected: "Rejected",
-	canceled: "Canceled",
-};
-
+/** The initial filter includes every request that still needs admin action. */
 export function ManualRequestsTable() {
 	const [page, setPage] = useState(1);
 	const [status, setStatus] = useState<AdminManualRequestStatusFilter>("open");
@@ -210,11 +211,15 @@ export function ManualRequestsTable() {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{Object.entries(STATUS_LABELS).map(([value, label]) => (
-										<SelectItem key={value} value={value}>
-											{label}
-										</SelectItem>
-									))}
+									<SelectItem value="open">Open requests</SelectItem>
+									<SelectItem value="all">All statuses</SelectItem>
+									{Object.entries(MANUAL_REQUEST_STATUS_LABELS).map(
+										([value, label]) => (
+											<SelectItem key={value} value={value}>
+												{label}
+											</SelectItem>
+										),
+									)}
 								</SelectContent>
 							</Select>
 						</div>
@@ -404,7 +409,14 @@ export function ManualRequestsTable() {
 	);
 }
 
-type RequestActionDialog = "grant" | "renew" | "end" | "note" | "reject" | null;
+type RequestActionDialog =
+	| "grant"
+	| "renew"
+	| "end"
+	| "note"
+	| "reject"
+	| "cancel"
+	| null;
 
 function ManualRequestActions({
 	request,
@@ -416,19 +428,26 @@ function ManualRequestActions({
 	const [activeDialog, setActiveDialog] = useState<RequestActionDialog>(null);
 	const updateMutation = useUpdateManualRequestMutation();
 	const canManage = useAdminPermission({ billing: ["manage"] });
-	const canAct = request.status === "pending" || request.status === "contacted";
+	// Only open requests accept call outcomes or closure actions from this menu.
+	const canAct = OPEN_MANUAL_REQUEST_STATUSES.some(
+		(status) => status === request.status,
+	);
 	const currentManualSubscription =
 		request.currentSubscription?.provider === "manual"
 			? request.currentSubscription
 			: null;
 
-	async function markContacted() {
+	async function setStatus(
+		status: (typeof OPEN_MANUAL_REQUEST_STATUSES)[number],
+	) {
 		try {
 			await updateMutation.mutateAsync({
 				requestId: request.id,
-				body: { status: "contacted" },
+				body: { status },
 			});
-			toast.success(`${request.fullName} marked as contacted.`);
+			toast.success(
+				`${request.fullName} marked as ${MANUAL_REQUEST_STATUS_LABELS[status]}.`,
+			);
 		} catch (error) {
 			toast.error(
 				isApiClientError(error)
@@ -485,14 +504,30 @@ function ManualRequestActions({
 								</Link>
 							)}
 						</DropdownMenuItem>
-						{canManage && request.status === "pending" ? (
-							<DropdownMenuItem
-								disabled={updateMutation.isPending}
-								onSelect={() => void markContacted()}
-							>
-								<PhoneCallIcon />
-								Mark contacted
-							</DropdownMenuItem>
+						{/* Only billing managers can change an open request. */}
+						{canManage && canAct ? (
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger disabled={updateMutation.isPending}>
+									<PhoneCallIcon />
+									Set status
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent>
+									<DropdownMenuGroup>
+										{/* The current status has no transition to record. */}
+										{OPEN_MANUAL_REQUEST_STATUSES.map((status) =>
+											status !== request.status ? (
+												<DropdownMenuItem
+													key={status}
+													disabled={updateMutation.isPending}
+													onSelect={() => void setStatus(status)}
+												>
+													{MANUAL_REQUEST_STATUS_LABELS[status]}
+												</DropdownMenuItem>
+											) : null,
+										)}
+									</DropdownMenuGroup>
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
 						) : null}
 						{canManage && canAct && currentManualSubscription ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
@@ -519,16 +554,26 @@ function ManualRequestActions({
 							</DropdownMenuItem>
 						) : null}
 					</DropdownMenuGroup>
+					{/* Closed requests must not expose rejection or cancellation actions. */}
 					{canManage && canAct ? (
 						<>
 							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								variant="destructive"
-								onSelect={() => setActiveDialog("reject")}
-							>
-								<XCircleIcon />
-								Reject
-							</DropdownMenuItem>
+							<DropdownMenuGroup>
+								<DropdownMenuItem
+									variant="destructive"
+									onSelect={() => setActiveDialog("reject")}
+								>
+									<XCircleIcon />
+									Reject
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									variant="destructive"
+									onSelect={() => setActiveDialog("cancel")}
+								>
+									<BanIcon />
+									Cancel request…
+								</DropdownMenuItem>
+							</DropdownMenuGroup>
 						</>
 					) : null}
 				</DropdownMenuContent>
@@ -593,6 +638,12 @@ function ManualRequestActions({
 						mode="reject"
 						open={activeDialog === "reject"}
 						onOpenChange={(open) => setActiveDialog(open ? "reject" : null)}
+					/>
+					<ManualRequestNoteDialog
+						request={request}
+						mode="cancel"
+						open={activeDialog === "cancel"}
+						onOpenChange={(open) => setActiveDialog(open ? "cancel" : null)}
 					/>
 				</>
 			) : null}

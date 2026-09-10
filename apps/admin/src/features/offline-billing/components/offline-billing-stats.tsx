@@ -1,3 +1,7 @@
+/**
+ * Shows totals on the offline billing page.
+ * Reads the stats query and formats recorded payment amounts.
+ */
 import type { LucideIcon } from "lucide-react";
 import {
 	CalendarClockIcon,
@@ -52,7 +56,7 @@ export function OfflineBillingStats() {
 				icon={ClipboardListIcon}
 				label="Open requests"
 				value={stats.openRequests.toLocaleString("en-US")}
-				description="Pending or contacted — waiting on a call."
+				description="Not yet approved, rejected, or canceled."
 			/>
 			<StatTile
 				icon={CalendarClockIcon}

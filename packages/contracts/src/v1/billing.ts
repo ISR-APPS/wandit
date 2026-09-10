@@ -1,3 +1,7 @@
+/**
+ * Defines billing payloads for API handlers and app clients.
+ * Uses Zod and shared primitives to validate billing data.
+ */
 import { z } from "zod";
 import { creditBalanceResponseSchema } from "./credits";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
@@ -533,9 +537,16 @@ export const manualPaymentMethodSchema = z.enum(manualPaymentMethods);
 
 export type ManualPaymentMethod = z.infer<typeof manualPaymentMethodSchema>;
 
+// no_answer: the customer does not answer the call. call_back: the customer asks for another call, or the admin plans one.
+// wrong_number: the phone number does not reach the customer.
+// awaiting_payment: the customer agrees and the admin waits for the money.
 export const manualSubscriptionRequestStatuses = [
 	"pending",
 	"contacted",
+	"no_answer",
+	"call_back",
+	"wrong_number",
+	"awaiting_payment",
 	"approved",
 	"rejected",
 	"canceled",
@@ -549,8 +560,15 @@ export type ManualSubscriptionRequestStatus = z.infer<
 	typeof manualSubscriptionRequestStatusSchema
 >;
 
-/** Statuses an admin still has to act on. */
-export const OPEN_MANUAL_REQUEST_STATUSES = ["pending", "contacted"] as const;
+/** These requests still need admin action and can fund a grant or renewal. */
+export const OPEN_MANUAL_REQUEST_STATUSES = [
+	"pending",
+	"contacted",
+	"no_answer",
+	"call_back",
+	"wrong_number",
+	"awaiting_payment",
+] as const;
 
 export const manualBillingCountries = ["DZ", "TN", "MA", "OTHER"] as const;
 
