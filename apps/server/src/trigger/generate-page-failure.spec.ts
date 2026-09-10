@@ -1,6 +1,7 @@
 import { GatewayRateLimitError } from "@ai-sdk/gateway";
 import { describe, expect, it } from "vitest";
 
+import { BuilderStallError } from "../modules/pages/domain/build-failure";
 import {
 	classifyPageTaskFailure,
 	pageFailurePersistenceValues,
@@ -19,13 +20,70 @@ describe("page task failure persistence", () => {
 		);
 
 		expect(values).toMatchObject({
-			error: "OpenAI is busy. Please wait a moment and try again.",
+			error:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			failureCode: "provider_rate_limited",
 			failureKind: "rate_limited",
 			failureProvider: "openai",
 			failureProviderMessage: null,
 			failureRequestId: "gen_page_1",
 			failureSource: "gateway",
+		});
+	});
+
+	it("keeps a builder stall behind a page validation error", () => {
+		// The production watchdog marks 180 seconds without progress as a stall.
+		const stall = new BuilderStallError(180_000, "google/gemini-3.8-flash");
+		const validation = new Error(
+			"The builder finished without writing index.html",
+			{ cause: stall },
+		);
+		validation.name = "PageValidationError";
+
+		const classified = classifyPageTaskFailure(validation, {
+			model: "google/gemini-3.8-flash",
+			route: "vercel",
+		});
+
+		expect(classified).toMatchObject({
+			failureCode: "provider_timeout",
+			normalized: {
+				kind: "timeout",
+				provider: "google",
+				providerLabel: "Google",
+				source: "gateway",
+			},
+		});
+		expect(
+			pageFailurePersistenceValues(
+				classified.normalized,
+				classified.failureCode,
+			).error,
+		).toBe(
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
+		);
+	});
+
+	it("keeps a network failure behind a page validation error", () => {
+		const network = new TypeError("fetch failed", {
+			cause: Object.assign(new Error("read ECONNRESET"), {
+				code: "ECONNRESET",
+			}),
+		});
+		const validation = new Error(
+			"The builder finished without writing index.html",
+			{ cause: network },
+		);
+		validation.name = "PageValidationError";
+
+		const classified = classifyPageTaskFailure(validation, {
+			model: "google/gemini-3.8-flash",
+			route: "vercel",
+		});
+
+		expect(classified.normalized).toMatchObject({
+			kind: "network",
+			source: "gateway",
 		});
 	});
 });

@@ -963,23 +963,23 @@
 			},
 			"provider_error": {
 				"kicker": "Provider issue",
-				"title": "The AI provider had an error.",
-				"message": "Something broke on the model provider's side — not on Wandit. Your last version is safe; a retry usually works."
+				"title": "Our AI provider is experiencing high demand.",
+				"message": "Please try again in a few minutes. Your last version is safe."
 			},
 			"provider_overloaded": {
 				"kicker": "Provider issue",
-				"title": "The AI provider is at capacity.",
-				"message": "The model provider (not Wandit) is temporarily overloaded. Your last version is safe — try again in a minute."
+				"title": "Our AI provider is experiencing high demand.",
+				"message": "Please try again in a few minutes. Your last version is safe."
 			},
 			"provider_rate_limited": {
 				"kicker": "Provider issue",
-				"title": "The AI provider is busy right now.",
-				"message": "Too many requests hit the model provider at once — this isn't a Wandit problem. Your last version is safe; try again in a minute."
+				"title": "Our AI provider is experiencing high demand.",
+				"message": "Please try again in a few minutes. Your last version is safe."
 			},
 			"provider_timeout": {
 				"kicker": "Provider issue",
-				"title": "The AI provider took too long.",
-				"message": "The model provider stopped responding mid-build — not a Wandit issue. Your last version is safe — please retry."
+				"title": "Our AI provider is experiencing high demand.",
+				"message": "Please try again in a few minutes. Your last version is safe."
 			},
 			"storage_failure": {
 				"kicker": "Something went wrong",

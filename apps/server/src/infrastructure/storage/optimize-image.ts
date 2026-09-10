@@ -1,14 +1,9 @@
 /**
- * Raster-image optimization before an R2 upload: cap width at 1920 (never
- * upscaling) and recompress as WebP q80 with alpha intact, so published
- * pages stop shipping multi-megabyte PNGs. Anything that must not be
- * touched — SVG, GIF, animated inputs, non-image bytes — passes through
- * unchanged, and NO failure ever escapes: a broken image ships as-is instead
- * of failing its upload.
- *
- * Two things a caller needs and could not get before: the POST-optimization
- * intrinsic dimensions (so an <img> can carry real width/height and reserve
- * its box), and narrower renditions for a srcset.
+ * Optimizes still raster images before R2 uploads.
+ * Upload and image-generation callers use its dimensions and WebP renditions.
+ * It caps primary width at 1920 px and height at 8000 px.
+ * It leaves SVG, GIF, animated inputs, and unreadable bytes unchanged.
+ * It calls sharp for metadata, orientation, resizing, color conversion, and encoding.
  */
 import sharp from "sharp";
 
@@ -20,6 +15,25 @@ type SharpMetadata = Awaited<ReturnType<SharpPipeline["metadata"]>>;
 const MIN_OPTIMIZE_BYTES = 150 * 1024;
 const MAX_WIDTH = 1920;
 const WEBP_QUALITY = 80;
+
+/**
+ * Samsung JPEGs can contain SOS parameters that libjpeg reports as warnings.
+ * Sharp ignores decoder warnings but rejects broken image data.
+ */
+export const SHARP_DECODE_OPTIONS = { failOn: "error" } as const;
+
+// LIMIT: one shared budget serves all current image providers. Upgrade: select a budget for each provider.
+/** OpenAI accepts no more than 30,000 image patches. */
+export const MAX_MODEL_IMAGE_PATCHES = 30_000;
+
+/** OpenAI calculates image patches from 32 px squares. */
+export const MODEL_IMAGE_PATCH_PX = 32;
+
+/** Anthropic accepts no image side longer than 8,000 px. */
+export const MAX_MODEL_IMAGE_SIDE_PX = 8000;
+
+/** Google Gemini on Vertex accepts inline images of at most 7,000,000 bytes. */
+export const MAX_MODEL_IMAGE_BYTES = 7_000_000;
 
 // Layout breakpoints worth a rendition: a phone, a tablet/half-width column,
 // and a desktop hero below the 1920 primary.
@@ -59,9 +73,9 @@ export type ImageVariant = {
  * The one WebP pipeline, shared by the primary object and every variant so a
  * rendition can never drift from the image it must match.
  *
- * Rotate pixels per the EXIF orientation tag BEFORE resizing: the WebP output
- * carries no orientation metadata, so phone photos would render sideways
- * without this. The width cap applies to the displayed axis.
+ * The pipeline applies EXIF orientation before resizing because WebP output carries no orientation metadata.
+ * The primary image uses fit inside with width 1920 px and height 8000 px.
+ * Variants use the requested width and the same height cap.
  *
  * withIccProfile("srgb") makes the output genuinely sRGB: pixels are
  * converted out of the input profile (Display-P3 iPhone photos, and the P3
@@ -70,16 +84,26 @@ export type ImageVariant = {
  * Verified empirically against sharp 0.35.x.
  */
 function webpPipeline(bytes: Uint8Array, width: number): SharpPipeline {
-	return sharp(bytes)
-		.autoOrient()
-		.resize({ width, withoutEnlargement: true })
-		.withIccProfile("srgb")
-		.webp({ quality: WEBP_QUALITY });
+	return (
+		sharp(bytes, SHARP_DECODE_OPTIONS)
+			.autoOrient()
+			// Anthropic rejects a side above 8,000 px. The height cap keeps tall panoramas under it.
+			.resize({
+				fit: "inside",
+				height: MAX_MODEL_IMAGE_SIDE_PX,
+				width,
+				withoutEnlargement: true,
+			})
+			.withIccProfile("srgb")
+			.webp({ quality: WEBP_QUALITY })
+	);
 }
 
-// What the browser will SEE: EXIF orientations 5-8 turn the image a quarter
-// turn, so the stored axes are swapped once autoOrient() has run.
-function displayDimensions(metadata: SharpMetadata): {
+/**
+ * EXIF orientations 5 through 8 swap the display axes after autoOrient runs.
+ * model-safe-photo uses the same rule for stored photos.
+ */
+export function displayDimensions(metadata: SharpMetadata): {
 	height: number | null;
 	width: number | null;
 } {
@@ -91,6 +115,26 @@ function displayDimensions(metadata: SharpMetadata): {
 		: { height, width };
 }
 
+/** Applies the strictest shared limits before a provider receives a photo. */
+export function isModelSafeImage(image: {
+	byteLength: number;
+	height: number;
+	width: number;
+}): boolean {
+	// OpenAI counts a partial 32 px square as one full patch.
+	const patches =
+		Math.ceil(image.width / MODEL_IMAGE_PATCH_PX) *
+		Math.ceil(image.height / MODEL_IMAGE_PATCH_PX);
+
+	return (
+		patches <= MAX_MODEL_IMAGE_PATCHES &&
+		image.width <= MAX_MODEL_IMAGE_SIDE_PX &&
+		image.height <= MAX_MODEL_IMAGE_SIDE_PX &&
+		image.byteLength <= MAX_MODEL_IMAGE_BYTES
+	);
+}
+
+/** Optimizes still images and keeps known dimensions after a logged encode failure. */
 export async function optimizeImage(
 	bytes: Uint8Array,
 	declared: { contentType?: string; ext?: string } = {},
@@ -115,30 +159,42 @@ export async function optimizeImage(
 		return unchanged;
 	}
 
+	let metadata: SharpMetadata;
+
 	try {
-		const metadata = await sharp(bytes).metadata();
+		metadata = await sharp(bytes, SHARP_DECODE_OPTIONS).metadata();
+	} catch (error) {
+		console.warn(
+			`[optimize-image] Failed to read ${unchanged.contentType} ` +
+				`(${bytes.byteLength} bytes): ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+		);
+		return unchanged;
+	}
 
-		if (
-			!OPTIMIZABLE_FORMATS.has(metadata.format ?? "") ||
-			(metadata.pages ?? 1) > 1
-		) {
-			return unchanged;
-		}
+	const source = displayDimensions(metadata);
 
-		const source = displayDimensions(metadata);
+	if (
+		!OPTIMIZABLE_FORMATS.has(metadata.format ?? "") ||
+		(metadata.pages ?? 1) > 1
+	) {
+		return { ...unchanged, height: source.height, width: source.width };
+	}
 
-		// TWO independent reasons to recompress, because either one alone
-		// misses real traffic: heavy bytes, and a canvas wider than any layout
-		// can use. A 269KB 3072px PNG passes a byte gate and still ships 13
-		// megapixels to a phone — the header parse above is what makes the
-		// dimension trigger affordable on every file.
-		const heavy = bytes.byteLength >= MIN_OPTIMIZE_BYTES;
-		const oversized = source.width !== null && source.width > MAX_WIDTH;
+	// Heavy bytes and excessive dimensions independently require recompression.
+	// A byte-only gate misses a 269 KB PNG with a 3,072 px width.
+	// The metadata read makes the dimension check inexpensive for each file.
+	const heavy = bytes.byteLength >= MIN_OPTIMIZE_BYTES;
+	const oversized =
+		(source.width !== null && source.width > MAX_WIDTH) ||
+		(source.height !== null && source.height > MAX_MODEL_IMAGE_SIDE_PX);
 
-		if (!heavy && !oversized) {
-			return { ...unchanged, height: source.height, width: source.width };
-		}
+	if (!heavy && !oversized) {
+		return { ...unchanged, height: source.height, width: source.width };
+	}
 
+	try {
 		const optimized = await webpPipeline(bytes, MAX_WIDTH).toBuffer({
 			resolveWithObject: true,
 		});
@@ -156,8 +212,14 @@ export async function optimizeImage(
 			height: optimized.info.height,
 			width: optimized.info.width,
 		};
-	} catch {
-		return unchanged;
+	} catch (error) {
+		console.warn(
+			`[optimize-image] Failed to encode ${unchanged.contentType} ` +
+				`(${bytes.byteLength} bytes): ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+		);
+		return { ...unchanged, height: source.height, width: source.width };
 	}
 }
 
@@ -180,7 +242,7 @@ export async function buildImageVariants(
 	let sourceWidth: number | null = null;
 
 	try {
-		const metadata = await sharp(bytes).metadata();
+		const metadata = await sharp(bytes, SHARP_DECODE_OPTIONS).metadata();
 
 		// Same exclusions as the primary path: vectors, animations and formats
 		// sharp must not recompress have no meaningful renditions.

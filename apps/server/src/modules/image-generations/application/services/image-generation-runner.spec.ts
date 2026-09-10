@@ -868,7 +868,7 @@ describe("runImageGeneration", () => {
 		gates.get(2)?.resolve({
 			failure: capacity,
 			message:
-				"OpenAI is over capacity right now. Please try again in a minute.",
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 		gates.get(3)?.resolve(generated(3));

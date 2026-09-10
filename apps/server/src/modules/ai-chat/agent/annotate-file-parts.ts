@@ -1,20 +1,79 @@
+/**
+ * PDFs and office files reach the model through read_attachment because the gateway routes for GLM reject PDF URL parts.
+ * Video and audio never travel raw.
+ * Each request contains at most 8 raw images.
+ * ai-chat.service.ts calls these functions on the model-bound message copy before each provider request. They import only the chat message type.
+ */
 import type { WanditUIMessage } from "./chat-agent";
 
-// What a provider can actually take as a raw file part. Everything else
-// (docx, xlsx, csv) reaches the model through read_attachment instead.
+// The gateway routes for GLM reject PDF URL parts, so read_attachment reads PDFs.
 const MODEL_SAFE_MEDIA_TYPES = (mediaType: string): boolean =>
-	mediaType.startsWith("image/") ||
-	mediaType === "application/pdf" ||
-	mediaType === "text/plain";
+	mediaType.startsWith("image/") || mediaType === "text/plain";
+
+// Friendli, the first gateway route for GLM, accepts at most 8 images per request.
+// The newest images matter most. Older ones stay in the transcript as URL markers.
+// LIMIT: 8 raw images per request. Upgrade: raise this cap after all gateway routes accept more images.
+const MAX_CHAT_IMAGE_PARTS = 8;
 
 const ASK_USER_ANSWER_FILES_MARKER =
 	"[Files the user attached when answering the questions above — shown here so you can see them. Their URLs are in the ask_user results.]";
+const READ_ATTACHMENT_GUIDANCE =
+	"Use the read_attachment tool with this URL to read its contents.";
+
+type AttachmentFile = {
+	filename?: string;
+	mediaType: string;
+	url: string;
+};
+
+function buildAttachmentMarker(file: AttachmentFile): string {
+	const kind = file.mediaType.startsWith("image/")
+		? "image"
+		: file.mediaType.startsWith("video/")
+			? "video"
+			: file.mediaType.startsWith("audio/")
+				? "audio"
+				: "file";
+	const name = file.filename ? ` "${file.filename}"` : "";
+
+	return `[Attached ${kind}${name} (${file.mediaType}): ${file.url}]`;
+}
+
+function modelPartsForFile(
+	file: AttachmentFile,
+): WanditUIMessage["parts"][number][] {
+	const marker = buildAttachmentMarker(file);
+
+	// Audio and video URLs can reach connector tools, but providers reject their raw parts.
+	if (
+		file.mediaType.startsWith("video/") ||
+		file.mediaType.startsWith("audio/")
+	) {
+		return [{ text: marker, type: "text" }];
+	}
+
+	// Providers can ingest images and plain text without read_attachment.
+	if (MODEL_SAFE_MEDIA_TYPES(file.mediaType)) {
+		return [
+			{
+				...file,
+				type: "file",
+			},
+			{ text: marker, type: "text" },
+		];
+	}
+
+	return [
+		{
+			text: `${marker} ${READ_ATTACHMENT_GUIDANCE}`,
+			type: "text",
+		},
+	];
+}
 
 /**
- * ask_user outputs are tool-result JSON, so their file URLs are readable but
- * their contents are not visible to the model. Follow each qualifying
- * assistant turn with a synthetic user turn that re-emits provider-safe files.
- * Applied to the MODEL-BOUND copy only; the persisted transcript is untouched.
+ * Adds a synthetic user message after each ask_user answer that includes files.
+ * The model-bound copy includes only the first file for each URL.
  */
 export function annotateAskUserAnswerFiles(
 	messages: readonly WanditUIMessage[],
@@ -24,10 +83,7 @@ export function annotateAskUserAnswerFiles(
 			return [message];
 		}
 
-		const files = new Map<
-			string,
-			{ filename?: string; mediaType: string; url: string }
-		>();
+		const files = new Map<string, AttachmentFile>();
 
 		for (const part of message.parts) {
 			if (part.type !== "tool-ask_user" || part.state !== "output-available") {
@@ -35,7 +91,8 @@ export function annotateAskUserAnswerFiles(
 			}
 
 			for (const file of part.output.files ?? []) {
-				if (!MODEL_SAFE_MEDIA_TYPES(file.mediaType) || files.has(file.url)) {
+				// Repeated ask_user outputs can contain the same upload URL.
+				if (files.has(file.url)) {
 					continue;
 				}
 
@@ -47,17 +104,12 @@ export function annotateAskUserAnswerFiles(
 			return [message];
 		}
 
-		const fileParts = [...files.values()].map((file) => ({
-			...(file.filename ? { filename: file.filename } : {}),
-			mediaType: file.mediaType,
-			type: "file" as const,
-			url: file.url,
-		}));
+		const answerParts = [...files.values()].flatMap(modelPartsForFile);
 		const answerFilesMessage: WanditUIMessage = {
 			id: `${message.id}:ask-answer-files`,
 			parts: [
 				{ text: ASK_USER_ANSWER_FILES_MARKER, type: "text" },
-				...fileParts,
+				...answerParts,
 			],
 			role: "user",
 		};
@@ -67,14 +119,8 @@ export function annotateAskUserAnswerFiles(
 }
 
 /**
- * A user file part reaches the model as opaque visual content — the model can
- * SEE the image but cannot read (or quote) its URL, so it has no way to pass
- * the attachment to generate_image.sourceImageUrls or a connector. That made
- * the agent ask for a photo the user had already attached. Follow every user
- * file part with a text marker exposing the exact URL as readable text.
- * A file part the provider cannot ingest is REPLACED by its marker (the raw
- * part is dropped so the gateway never chokes on the media type).
- * Applied to the MODEL-BOUND copy only; the persisted transcript is untouched.
+ * Adds readable URL markers to file parts in the model-bound copy.
+ * Provider-incompatible file parts become markers for read_attachment or connector tools.
  */
 export function annotateUserFileParts(
 	messages: readonly WanditUIMessage[],
@@ -93,39 +139,49 @@ export function annotateUserFileParts(
 					return [part];
 				}
 
-				const kind = part.mediaType.startsWith("image/")
-					? "image"
-					: part.mediaType.startsWith("video/")
-						? "video"
-						: part.mediaType.startsWith("audio/")
-							? "audio"
-							: "file";
-				const name = part.filename ? ` "${part.filename}"` : "";
-				// NO pixel size here on purpose: nothing on the persisted file
-				// part carries the upload's intrinsic width/height, so any number
-				// printed would be invented. The builder prompts tell the model to
-				// size user photos with CSS rather than guess an attribute.
-				const marker = `[Attached ${kind}${name} (${part.mediaType}): ${part.url}]`;
-
-				// Audio and video URLs are forwarded to connector tools, but their raw
-				// file parts must never be sent to the model provider.
-				if (kind === "video" || kind === "audio") {
-					return [{ text: marker, type: "text" }];
-				}
-
-				if (!MODEL_SAFE_MEDIA_TYPES(part.mediaType)) {
-					return [
-						{
-							text: `${marker} Use the read_attachment tool with this URL to read its contents.`,
-							type: "text",
-						},
-					];
-				}
-
-				return [part, { text: marker, type: "text" }];
+				return modelPartsForFile(part);
 			},
 		);
 
 		return { ...message, parts };
 	});
+}
+
+/**
+ * Keeps the newest eight raw image parts across the transcript.
+ * Returns the input array when no image part is removed.
+ */
+export function capModelImageParts(
+	messages: WanditUIMessage[],
+): WanditUIMessage[] {
+	let keptImageCount = 0;
+	let removedImage = false;
+	const cappedMessages = messages
+		.toReversed()
+		.map((message) => {
+			const parts = message.parts
+				.toReversed()
+				.filter((part) => {
+					if (part.type !== "file" || !part.mediaType.startsWith("image/")) {
+						return true;
+					}
+
+					keptImageCount += 1;
+					// Older images keep their markers, so the model can still use their URLs.
+					if (keptImageCount > MAX_CHAT_IMAGE_PARTS) {
+						removedImage = true;
+						return false;
+					}
+
+					return true;
+				})
+				.toReversed();
+
+			return parts.length === message.parts.length
+				? message
+				: { ...message, parts };
+		})
+		.toReversed();
+
+	return removedImage ? cappedMessages : messages;
 }

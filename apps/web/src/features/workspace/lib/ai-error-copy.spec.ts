@@ -50,7 +50,7 @@ describe("chatErrorPresentation", () => {
 
 		expect(copy).toMatchObject({
 			kicker: "Provider issue",
-			body: "The AI provider is busy. Please wait a moment and try again.",
+			body: "Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			attribution: null,
 			retryable: true,
 			showRetry: true,

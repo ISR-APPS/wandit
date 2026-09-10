@@ -9,7 +9,77 @@
  * (pageBuildFailureCodeSchema); raw error text stays in the attempt's
  * `error` column and the Trigger/Sentry logs.
  */
-import type { PageBuildFailureCode } from "@wandit/contracts";
+import type { AiErrorKind, PageBuildFailureCode } from "@wandit/contracts";
+
+// Zack's 2026-09-10 chains. A website build starts on Gemini Flash and ends on Luna.
+// A COD build starts on Luna and then walks the Gemini Flash models.
+const FALLBACK_BUILDER_CHAINS = {
+	cod: [
+		"openai/gpt-5.6-luna",
+		"google/gemini-3.8-flash",
+		"google/gemini-3.7-flash",
+		"google/gemini-3.5-flash",
+	],
+	website: [
+		"google/gemini-3.8-flash",
+		"google/gemini-3.7-flash",
+		"google/gemini-3.5-flash",
+		"openai/gpt-5.6-luna",
+	],
+} as const;
+
+/**
+ * Returns the first chain model that no run has tried, or null when the chain is exhausted.
+ * A start model outside the chain still falls back to the first chain model.
+ */
+export function fallbackBuilderModel(
+	pageKind: keyof typeof FALLBACK_BUILDER_CHAINS,
+	triedModels: readonly string[],
+): string | null {
+	return (
+		FALLBACK_BUILDER_CHAINS[pageKind].find(
+			(model) => !triedModels.includes(model),
+		) ?? null
+	);
+}
+
+/** Limits automatic fallback to provider failures that another model can recover. */
+export function isTransientProviderFailure(
+	failureCode: PageBuildFailureCode,
+	normalized: { kind: AiErrorKind; statusCode: number | null },
+): boolean {
+	// These codes already prove a temporary provider condition.
+	if (
+		failureCode === "provider_timeout" ||
+		failureCode === "provider_overloaded" ||
+		failureCode === "provider_rate_limited"
+	) {
+		return true;
+	}
+
+	// Other build failures come from our pipeline or the user account.
+	if (failureCode !== "provider_error") {
+		return false;
+	}
+
+	// These provider conditions can recover through a different model request.
+	if (
+		normalized.kind === "network" ||
+		normalized.kind === "timeout" ||
+		normalized.kind === "capacity" ||
+		normalized.kind === "rate_limited"
+	) {
+		return true;
+	}
+
+	// A provider 5xx response can recover through a different model route.
+	return (
+		normalized.kind === "provider_error" &&
+		normalized.statusCode !== null &&
+		normalized.statusCode >= 500 &&
+		normalized.statusCode <= 599
+	);
+}
 
 export class BuilderStallError extends Error {
 	constructor(
