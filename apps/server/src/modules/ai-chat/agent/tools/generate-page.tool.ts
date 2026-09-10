@@ -35,14 +35,15 @@ import {
 	WORLD_DEPARTURE_POINT_HEADING,
 } from "../site-builder/builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
+import { appendReadyMediaAssets } from "../site-builder/ready-media-assets";
 import { buildSimpleCodSiteBuilderSystemPrompt } from "../site-builder/simple-cod-builder-prompt";
 import {
 	SIMPLE_COD_STYLE_DOC,
 	sampleSimpleCodRecipe,
 } from "../site-builder/simple-cod-recipe";
-import type { BuilderReasoningOption } from "./builder-model-options";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
+import type { BuilderReasoningOption } from "./builder-model-options";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
@@ -74,7 +75,6 @@ export type GeneratePageToolDeps = {
 
 // Media- and link-heavy chats stay bounded so deterministic appendices can
 // never crowd out the brief itself.
-const MAX_READY_MEDIA_ASSET_LINES = 16;
 const MAX_USER_LINKS = 16;
 const USER_HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/giu;
 const TRAILING_URL_SYNTAX_PATTERN = /[.,;:!?…。，、；：！？\p{Pe}\p{Pf}]+$/gu;
@@ -100,34 +100,6 @@ function collectHttpUrls(text: string): Set<string> {
 			)
 			.filter(Boolean),
 	);
-}
-
-/**
- * Deterministic belt-and-braces for generated media: whatever the Brain's
- * free-text brief forgot, the server appends. Assets whose URL the brief
- * already mentions are skipped, so a diligent brief passes through unchanged.
- */
-export function appendReadyMediaAssets(
-	brief: string,
-	assets: readonly ConversationGeneratedAsset[],
-): string {
-	const missing = assets
-		.filter((asset) => !brief.includes(asset.url))
-		.slice(0, MAX_READY_MEDIA_ASSET_LINES);
-
-	if (missing.length === 0) {
-		return brief;
-	}
-
-	const lines = missing.map((asset) => `- ${asset.kind}: ${asset.url}`);
-
-	return [
-		brief.trimEnd(),
-		"",
-		"READY MEDIA ASSETS (generated in this conversation — hosted, final, and allowed on the page):",
-		...lines,
-		"Placing every listed asset is part of the brief: give each one the role it serves best, and never generate a new image for a role a listed asset already covers.",
-	].join("\n");
 }
 
 /**

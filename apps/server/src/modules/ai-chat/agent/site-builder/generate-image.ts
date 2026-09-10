@@ -17,6 +17,7 @@ import {
 	siteAssetKey,
 } from "../../../../infrastructure/storage/r2";
 import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
+import type { NormalizedAiError } from "../../../ai-errors/domain";
 import {
 	editImageFromSources,
 	generateImageFromPrompt,
@@ -62,8 +63,9 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"image/webp": "webp",
 };
 
+/** Carries normalized provider details only for failures before local storage. */
 export type GeneratedBuildImage =
-	| GatewayGenerationFailure
+	| (GatewayGenerationFailure & { failure?: NormalizedAiError })
 	| { message: string; status: "unavailable" }
 	| ({
 			/** Intrinsic height of the STORED object, for the img attribute. */

@@ -158,7 +158,8 @@ describe("MarketingAssetsService stale recovery billing", () => {
 			{
 				...BASE_ROW,
 				completedAt: new Date("2026-07-24T10:05:00.000Z"),
-				error: "The AI provider is over capacity.",
+				error:
+					"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 				failureKind: "capacity",
 				failureProvider: "anthropic",
 				failureProviderMessage: null,

@@ -70,9 +70,12 @@ describe("createBuildProgressTracker", () => {
 
 		tracker.emit({ role: "hero", type: "image-start" });
 		tracker.emit({
+			aspect: "3:2",
+			height: 1024,
 			role: "hero",
 			type: "image-generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 		});
 		tracker.emit({ type: "write-start" });
 		tracker.emit({
@@ -232,6 +235,81 @@ describe("createBuildProgressTracker", () => {
 		await tracker.idle();
 
 		expect(snapshots.at(-1)?.findings).toEqual([]);
+	});
+
+	it("resets run details for a fallback without losing images or progress", async () => {
+		const { snapshots, tracker } = makeTracker();
+
+		tracker.emit({
+			aspect: "16:9",
+			height: 1024,
+			role: "hero",
+			type: "image-generated",
+			url: "https://assets.example.com/img-1.png",
+			width: 1536,
+		});
+		tracker.emit({
+			bytes: 24_000,
+			html: SECTIONED_HTML,
+			kind: "write",
+			type: "page-written",
+		});
+		tracker.emit({
+			...shotEvent(1),
+			consoleErrors: ["boom"],
+		});
+		await tracker.idle();
+		tracker.emit({
+			bytes: 24_100,
+			html: SECTIONED_HTML,
+			kind: "edit",
+			type: "page-written",
+		});
+		const percentBeforeFallback = snapshots.at(-1)?.percent ?? 0;
+
+		tracker.emit({
+			fromModel: "google/gemini-3.8-flash",
+			toModel: "google/gemini-3.7-flash",
+			type: "model-fallback",
+		});
+
+		const fallback = snapshots.at(-1);
+
+		expect(fallback).toMatchObject({
+			findings: [],
+			fixes: 0,
+			headline: "Switching to fallback model…",
+			images: [{ role: "hero", url: "https://assets.example.com/img-1.png" }],
+			pageBytes: 0,
+			phase: "starting",
+			reviewPasses: 0,
+			sections: [],
+			shots: [],
+		});
+		expect(fallback).not.toHaveProperty("currentPass");
+		expect(fallback?.percent).toBeGreaterThanOrEqual(percentBeforeFallback);
+	});
+
+	it("discards a previous run shot upload after fallback", async () => {
+		const upload = Promise.withResolvers<string | null>();
+		const { snapshots, tracker } = makeTracker({
+			uploadShot: () => upload.promise,
+		});
+
+		tracker.emit(shotEvent(1, { desktop: 1, mobile: 0 }));
+		tracker.emit({
+			fromModel: "google/gemini-3.8-flash",
+			toModel: "google/gemini-3.7-flash",
+			type: "model-fallback",
+		});
+		upload.resolve("https://assets.example.com/stale.jpg");
+		await tracker.idle();
+
+		expect(snapshots.at(-1)).toMatchObject({
+			headline: "Switching to fallback model…",
+			phase: "starting",
+			shots: [],
+		});
 	});
 
 	it("ignores every event after the accepted finish", async () => {

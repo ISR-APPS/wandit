@@ -272,7 +272,8 @@ describe("generateMarketingAssetHtml", () => {
 				kind: "provider_error",
 				source: "openrouter",
 			},
-			message: "The AI provider returned an error. Please try again.",
+			message:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 		if (result.status === "generated") {

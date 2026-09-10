@@ -123,7 +123,7 @@
 			"remove": "Remove",
 			"retry": "Retry",
 			"unsupported": "Unsupported format",
-			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max)",
+			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max; images also at most 30 megapixels, 8000 px per side, and 7 MB after processing)",
 			"failed": "Upload failed",
 			"signInFirst": "Sign in to attach files"
 		},

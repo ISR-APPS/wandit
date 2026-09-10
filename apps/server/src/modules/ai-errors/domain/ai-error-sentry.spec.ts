@@ -17,6 +17,7 @@ vi.mock("@wandit/observability/node", () => ({
 import {
 	aiCallFinished,
 	captureAiError,
+	sentryRouteForSource,
 	toSentryCapture,
 	WANDIT_CAPTURED,
 } from "./ai-error-sentry";
@@ -64,6 +65,17 @@ const captureContext = {
 	toolName: "generate_video",
 	userId: "user_1",
 };
+
+describe("sentryRouteForSource", () => {
+	it.each([
+		["gateway", "vercel"],
+		["provider:openai", "vercel"],
+		["openrouter", "none"],
+		["ours", "none"],
+	] as const)("maps %s to %s", (source, route) => {
+		expect(sentryRouteForSource(source)).toBe(route);
+	});
+});
 
 describe("captureAiError", () => {
 	beforeEach(() => {

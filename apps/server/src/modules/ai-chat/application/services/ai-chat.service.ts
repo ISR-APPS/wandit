@@ -1,3 +1,8 @@
+/**
+ * Coordinates each server-side AI chat turn.
+ * The chat controller calls this service.
+ * This service calls model, storage, connector, and billing dependencies.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import {
 	ConflictException,
@@ -132,6 +137,7 @@ import {
 import {
 	annotateAskUserAnswerFiles,
 	annotateUserFileParts,
+	capModelImageParts,
 } from "../../agent/annotate-file-parts";
 import {
 	annotateGeneratedAssets,
@@ -268,9 +274,14 @@ export class AiChatService {
 		let release = releaseSlot;
 
 		try {
-			const modelBoundMessages = annotateAskUserAnswerFiles(
-				annotateUserFileParts(
-					elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+			// Gateway routes can change, so the image cap applies to every model.
+			const modelBoundMessages = capModelImageParts(
+				annotateAskUserAnswerFiles(
+					annotateUserFileParts(
+						elideRetiredToolOutputs(
+							completeDanglingToolCalls(options.messages),
+						),
+					),
 				),
 			);
 			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
@@ -778,7 +789,7 @@ export class AiChatService {
 			const contextWithMcpNotices = [context, mcpNoticeBlock, adsBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
-			// Five transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// Six transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 			// 1. complete tool calls that never got a result (typed-past ask_user,
 			//    or a stream aborted mid-execute) — providers reject a history that
 			//    carries a tool call without a matching result,
@@ -786,28 +797,34 @@ export class AiChatService {
 			//    guidance does not cost tokens on every request,
 			// 3. follow user file parts with a text marker exposing their URL —
 			//    without it the model sees the image but cannot reference it in
-			//    generate_image and asks for an already-sent photo,
+			//    generate_image and asks for an already-sent photo; a PDF part is
+			//    replaced by its marker (read_attachment reads it),
 			// 4. follow settled generation tool parts with a [Generated …] marker
 			//    exposing the finished asset's URL — without it the model never
 			//    learns any generated URL and asks the user to re-attach media
 			//    that Wandit itself produced,
 			// 5. follow ask_user answers carrying provider-safe files with a user
 			//    message that exposes their contents to the model; the tool-result
-			//    JSON alone exposes URLs, not the image or document contents.
+			//    JSON alone exposes URLs, not the image or document contents,
+			// 6. keep only the newest 8 raw image parts — the gateway routes for
+			//    GLM accept at most 8 images per request; older images keep their
+			//    URL markers.
 			// Runs BEFORE the agent is built: generate_page receives the marker
 			// URLs so a brief can never silently drop this chat's generated media.
-			const agentMessages = await annotateGeneratedAssets(
-				annotateAskUserAnswerFiles(
-					annotateUserFileParts(
-						elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+			const agentMessages = capModelImageParts(
+				await annotateGeneratedAssets(
+					annotateAskUserAnswerFiles(
+						annotateUserFileParts(
+							elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+						),
 					),
+					{
+						connectorGenerationsRepository: this.connectorGenerationsRepository,
+						imageGenerationsRepository: this.imageGenerationsRepository,
+						projectId,
+						scope,
+					},
 				),
-				{
-					connectorGenerationsRepository: this.connectorGenerationsRepository,
-					imageGenerationsRepository: this.imageGenerationsRepository,
-					projectId,
-					scope,
-				},
 			);
 			// Per-request agent: generate_page, scrape_leads, and the page-edit
 			// tools need to know which project/chat they act for (see chat-agent.ts).

@@ -2347,6 +2347,54 @@
 			"type": "language"
 		},
 		{
+			"id": "google/gemini-3.7-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000075",
+				"input_cache_read": "0.00000015",
+				"output": "0.00000375",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000027",
+						"output": "0.0000135",
+						"input_cache_read": "0.00000027"
+					},
+					"flex": {
+						"input": "0.00000075",
+						"output": "0.00000375",
+						"input_cache_read": "0.00000008"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.8-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000075",
+				"input_cache_read": "0.00000015",
+				"output": "0.00000375",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000027",
+						"output": "0.0000135",
+						"input_cache_read": "0.00000027"
+					},
+					"flex": {
+						"input": "0.00000075",
+						"output": "0.00000375",
+						"input_cache_read": "0.00000008"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
 			"id": "google/gemini-embedding-001",
 			"owned_by": "google",
 			"pricing": {

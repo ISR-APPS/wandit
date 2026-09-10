@@ -312,13 +312,19 @@ describe("FailedBuildCard (design card 12)", () => {
 		);
 	}
 
-	it("blames the provider — not Wandit — for a rate limit, with Retry", () => {
-		const html = renderFailed("provider_rate_limited");
+	it.each([
+		"provider_error",
+		"provider_overloaded",
+		"provider_rate_limited",
+		"provider_timeout",
+	] as const)("uses the shared provider demand copy for %s", (failureCode) => {
+		const html = renderFailed(failureCode);
 
 		expect(html).toContain("Provider issue");
-		expect(html).toContain("The AI provider is busy right now.");
-		expect(html).toContain("isn&#x27;t a Wandit problem");
-		expect(html).toContain("error · provider_rate_limited");
+		expect(html).toContain("Our AI provider is experiencing high demand.");
+		expect(html).toContain("Please try again in a few minutes.");
+		expect(html).toContain("Your last version is safe.");
+		expect(html).toContain(`error · ${failureCode}`);
 		expect(html).toContain("Retry");
 		expect(html).toContain("Dismiss");
 	});

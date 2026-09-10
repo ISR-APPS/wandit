@@ -1,7 +1,13 @@
+/**
+ * Converts normalized AI errors into Sentry events and structured logs.
+ * AI features call these helpers after the shared classifier returns.
+ * The helpers redact provider data before observability writes.
+ */
 import { Sentry } from "@wandit/observability/node";
 
 import type {
 	AiErrorContext,
+	AiErrorSource,
 	AiErrorSurface,
 	NormalizedAiError,
 } from "./normalized-ai-error";
@@ -69,6 +75,15 @@ type SentryCapture = {
 	};
 	level: "error" | "warning";
 };
+
+/** Maps gateway and direct provider sources to the Vercel media route. */
+export function sentryRouteForSource(
+	source: AiErrorSource,
+): AiErrorContext["route"] {
+	return source === "gateway" || source.startsWith("provider:")
+		? "vercel"
+		: "none";
+}
 
 export function toSentryCapture(
 	normalized: NormalizedAiError,
