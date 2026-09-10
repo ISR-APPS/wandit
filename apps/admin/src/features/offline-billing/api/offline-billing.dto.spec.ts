@@ -1,3 +1,8 @@
+import {
+	adminUpdateManualRequestBodySchema,
+	manualSubscriptionRequestStatuses,
+	OPEN_MANUAL_REQUEST_STATUSES,
+} from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,10 +13,39 @@ import {
 } from "./offline-billing.dto";
 
 describe("offline billing DTO mapping", () => {
-	it("validates and preserves an admin manual request", () => {
+	it.each([
+		...OPEN_MANUAL_REQUEST_STATUSES,
+		"rejected",
+		"canceled",
+	] as const)("accepts %s in an admin status update", (status) => {
+		const body = { status, adminNotes: "The admin records the call outcome." };
+
+		expect(adminUpdateManualRequestBodySchema.parse(body)).toEqual(body);
+	});
+
+	it("keeps approval outside the admin status PATCH", () => {
+		expect(
+			adminUpdateManualRequestBodySchema.safeParse({ status: "approved" })
+				.success,
+		).toBe(false);
+	});
+
+	it("splits every status into open or terminal", () => {
+		// The open-request DB index excludes exactly these three terminal statuses.
+		expect(
+			[
+				...OPEN_MANUAL_REQUEST_STATUSES,
+				"approved",
+				"rejected",
+				"canceled",
+			].sort(),
+		).toEqual([...manualSubscriptionRequestStatuses].sort());
+	});
+
+	it("validates and preserves an admin manual request with a call-outcome status", () => {
 		const payload = {
 			id: "11111111-1111-4111-8111-111111111111",
-			status: "pending",
+			status: "no_answer",
 			organizationId: null,
 			plan: "pro",
 			tierCredits: 500,

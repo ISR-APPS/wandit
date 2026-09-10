@@ -6,6 +6,7 @@ import {
 	computeDefaultRenewalEnd,
 	formatManualPaymentAmount,
 	mapManualPaymentFormDto,
+	mapManualRequestNoteFormDto,
 } from "./offline-billing";
 
 describe("amountToMinorUnits", () => {
@@ -111,5 +112,39 @@ describe("currency minor-unit exponents", () => {
 	it("formats TND back from millimes", () => {
 		expect(formatManualPaymentAmount(25000, "TND")).toContain("25");
 		expect(formatManualPaymentAmount(250000, "DZD")).toContain("2,500");
+	});
+});
+
+describe("mapManualRequestNoteFormDto", () => {
+	it.each([
+		["reject", "rejected"],
+		["cancel", "canceled"],
+	] as const)("maps %s to status %s with the trimmed reason", (mode, status) => {
+		expect(
+			mapManualRequestNoteFormDto(mode, "  The customer changed their mind.  "),
+		).toEqual({
+			status,
+			adminNotes: "The customer changed their mind.",
+		});
+	});
+
+	it("returns null when a reject or cancel has no reason", () => {
+		expect(mapManualRequestNoteFormDto("cancel", "   ")).toBeNull();
+		expect(mapManualRequestNoteFormDto("reject", "")).toBeNull();
+	});
+
+	it("keeps the status on a note edit and clears a blank note", () => {
+		expect(
+			mapManualRequestNoteFormDto("note", " Call again on Monday. "),
+		).toEqual({
+			adminNotes: "Call again on Monday.",
+		});
+		expect(mapManualRequestNoteFormDto("note", "  ")).toEqual({
+			adminNotes: null,
+		});
+	});
+
+	it("returns null when the note is longer than the contract allows", () => {
+		expect(mapManualRequestNoteFormDto("note", "x".repeat(2001))).toBeNull();
 	});
 });
