@@ -9,8 +9,8 @@ import type { ModelMessage, UserContent } from "ai";
 import type { ModelSafePhoto } from "../../../../infrastructure/storage/model-safe-photo";
 
 /**
- * Keeps each photo URL marker beside its optional model file part.
- * The caller loads the photos first; this function only arranges parts.
+ * Keeps each photo URL marker beside its optional inline file part.
+ * The caller loads the photos first. This function only arranges parts.
  */
 export function composeBuildStartMessages(params: {
 	brief: string;
@@ -44,21 +44,12 @@ export function composeBuildStartMessages(params: {
 			text: marker,
 			type: "text",
 		});
-		// Safe stored photos stay as URLs. Optimized photos use their checked replacement bytes.
-		content.push(
-			photo.kind === "url"
-				? {
-						data: photo.url,
-						// The AI SDK accepts the generic "image" media type for a URL whose MIME type is unknown.
-						mediaType: "image",
-						type: "file",
-					}
-				: {
-						data: photo.bytes,
-						mediaType: photo.mediaType,
-						type: "file",
-					},
-		);
+		// Inline bytes let the model view the photo without a gateway URL fetch.
+		content.push({
+			data: photo.bytes,
+			mediaType: photo.mediaType,
+			type: "file",
+		});
 	}
 
 	// An unusable marker must not tell the model that its photo is attached.

@@ -2815,6 +2815,8 @@ describe("runSiteBuild", () => {
 
 	it("starts a vision-capable build with the brief's user photos attached", async () => {
 		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		// Stable source bytes expose any URL part in the model request.
+		const bytes = new Uint8Array([1, 2, 3]);
 		const firstPhoto =
 			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
 		const secondPhoto =
@@ -2830,7 +2832,13 @@ describe("runSiteBuild", () => {
 			await runSiteBuild({
 				attemptId: "attempt_photos",
 				brief,
-				loadModelSafePhoto: (url) => Promise.resolve({ kind: "url", url }),
+				loadModelSafePhoto: (url) =>
+					Promise.resolve({
+						bytes,
+						kind: "bytes",
+						mediaType: "image/png",
+						url,
+					}),
 				model: "openai/test",
 				pageAttemptId: "page_attempt_photos",
 				projectId: "project_1",
@@ -2853,12 +2861,12 @@ describe("runSiteBuild", () => {
 								text: `[User photo 1 — URL: ${firstPhoto}]`,
 								type: "text",
 							},
-							{ data: firstPhoto, mediaType: "image", type: "file" },
+							{ data: bytes, mediaType: "image/png", type: "file" },
 							{
 								text: `[User photo 2 — URL: ${secondPhoto}]`,
 								type: "text",
 							},
-							{ data: secondPhoto, mediaType: "image", type: "file" },
+							{ data: bytes, mediaType: "image/png", type: "file" },
 							{
 								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
 								type: "text",

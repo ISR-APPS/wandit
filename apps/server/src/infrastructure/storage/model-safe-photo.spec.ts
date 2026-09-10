@@ -62,8 +62,11 @@ describe("isModelSafeImage", () => {
 });
 
 describe("loadModelSafePhoto", () => {
-	it("keeps a safe stored photo as a URL", async () => {
-		const bytes = await solidPng(64, 48);
+	it("returns stored bytes with the detected media type despite a different key extension", async () => {
+		// The PNG key intentionally disagrees with the small JPEG fixture to test format detection.
+		const bytes = await sharp(await solidPng(64, 48))
+			.jpeg()
+			.toBuffer();
 		const getObjectBytes = vi.fn(() => Promise.resolve(bytes));
 
 		const result = await loadModelSafePhoto(PHOTO_URL, {
@@ -71,10 +74,87 @@ describe("loadModelSafePhoto", () => {
 			publicAssetKeyFromUrl: resolveFixtureAssetKey,
 		});
 
-		expect(result).toEqual({ kind: "url", url: PHOTO_URL });
+		expect(result).toEqual({
+			bytes,
+			kind: "bytes",
+			mediaType: "image/jpeg",
+			url: PHOTO_URL,
+		});
 		expect(getObjectBytes).toHaveBeenCalledWith(
 			"uploads/user_1/upload_1/photo.png",
 		);
+	});
+
+	it.each([
+		"png",
+		"avif",
+		"webp",
+	])("rejects small AVIF bytes under a %s key", async (extension) => {
+		// This small fixture avoids recompression and exposes media types that come from the key extension.
+		const bytes = await sharp(await solidPng(64, 48))
+			.avif()
+			.toBuffer();
+		const result = await loadModelSafePhoto(PHOTO_URL, {
+			getObjectBytes: () => Promise.resolve(bytes),
+			publicAssetKeyFromUrl: () => PHOTO_KEY.replace(/png$/, extension),
+		});
+
+		expect(result).toEqual({
+			kind: "unusable",
+			reason: "unsupported image format",
+			url: PHOTO_URL,
+		});
+	});
+
+	it("rejects GIF bytes that the optimizer preserves", async () => {
+		// Gemini image models reject GIF files even when their dimensions fit the shared limits.
+		const bytes = await sharp(await solidPng(64, 48))
+			.gif()
+			.toBuffer();
+		const result = await loadModelSafePhoto(PHOTO_URL, {
+			getObjectBytes: () => Promise.resolve(bytes),
+			publicAssetKeyFromUrl: resolveFixtureAssetKey,
+		});
+
+		expect(result).toEqual({
+			kind: "unusable",
+			reason: "unsupported image format",
+			url: PHOTO_URL,
+		});
+	});
+
+	it("optimizes a safe stored photo above 2 MB to smaller WebP bytes", async () => {
+		// Grayscale noise exceeds the inline threshold while its dimensions and bytes stay within the model limits.
+		const side = 1600;
+		const bytes = await sharp(randomBytes(side * side), {
+			raw: { channels: 1, height: side, width: side },
+		})
+			.toColourspace("b-w")
+			.png()
+			.toBuffer();
+
+		// This fixture must exceed the inline threshold without exceeding the existing model limits.
+		expect(bytes.byteLength).toBeGreaterThan(2_000_000);
+		expect(
+			isModelSafeImage({
+				byteLength: bytes.byteLength,
+				height: side,
+				width: side,
+			}),
+		).toBe(true);
+
+		const result = await loadModelSafePhoto(PHOTO_URL, {
+			getObjectBytes: () => Promise.resolve(bytes),
+			publicAssetKeyFromUrl: resolveFixtureAssetKey,
+		});
+
+		if (result.kind !== "bytes") {
+			throw new Error(`Expected bytes, received ${result.kind}`);
+		}
+
+		expect(result.mediaType).toBe("image/webp");
+		expect(result.bytes.byteLength).toBeLessThan(bytes.byteLength);
+		expect((await sharp(result.bytes).metadata()).format).toBe("webp");
 	});
 
 	it("returns optimized bytes for a photo above the OpenAI patch limit", async () => {
