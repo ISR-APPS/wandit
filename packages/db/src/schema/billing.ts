@@ -1,3 +1,7 @@
+/**
+ * Defines billing tables and constraints for server repositories.
+ * Uses Drizzle schema builders and shared owner tables.
+ */
 import { relations, sql } from "drizzle-orm";
 import {
 	boolean,
@@ -82,9 +86,21 @@ export const betaAccessAction = pgEnum("beta_access_action", [
 // Offline ("cash on delivery" / wire) billing: a user files a request from the
 // plan picker, an admin calls them, records the payment, and grants a
 // provider = "manual" subscription by hand. No Stripe object exists for these.
+// The call-outcome statuses (no_answer, call_back, wrong_number,
+// awaiting_payment) are OPEN: the request stays in the admin queue.
 export const manualSubscriptionRequestStatus = pgEnum(
 	"manual_subscription_request_status",
-	["pending", "contacted", "approved", "rejected", "canceled"],
+	[
+		"pending",
+		"contacted",
+		"no_answer",
+		"call_back",
+		"wrong_number",
+		"awaiting_payment",
+		"approved",
+		"rejected",
+		"canceled",
+	],
 );
 
 export const manualPaymentMethod = pgEnum("manual_payment_method", [
@@ -687,6 +703,7 @@ export const betaAccessEvents = pgTable(
 	],
 );
 
+/** Offline plan requests. The partial unique indexes allow one OPEN request per owner. */
 export const manualSubscriptionRequests = pgTable(
 	"manual_subscription_requests",
 	{
@@ -741,15 +758,19 @@ export const manualSubscriptionRequests = pgTable(
 			table.createdAt,
 		),
 		// One OPEN request per owner (personal user / organization).
+		// OPEN means every status except approved, rejected, and canceled. This equals
+		// OPEN_MANUAL_REQUEST_STATUSES in packages/contracts, which packages/db cannot import.
+		// The predicate names only the three terminal values. They exist before any
+		// migration that adds a status, so Postgres accepts the index in that transaction.
 		uniqueIndex("manual_subscription_requests_userId_open_uq")
 			.on(table.userId)
 			.where(
-				sql`${table.status} IN ('pending', 'contacted') AND ${table.organizationId} IS NULL`,
+				sql`${table.status} NOT IN ('approved', 'rejected', 'canceled') AND ${table.organizationId} IS NULL`,
 			),
 		uniqueIndex("manual_subscription_requests_orgId_open_uq")
 			.on(table.organizationId)
 			.where(
-				sql`${table.status} IN ('pending', 'contacted') AND ${table.organizationId} IS NOT NULL`,
+				sql`${table.status} NOT IN ('approved', 'rejected', 'canceled') AND ${table.organizationId} IS NOT NULL`,
 			),
 		check(
 			"manual_subscription_requests_tier_credits_positive_ck",
