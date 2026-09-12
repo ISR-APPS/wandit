@@ -61,6 +61,15 @@ export const PLAN_TIERS = {
 	business: [250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500],
 } as const satisfies Record<BillingPlanId, readonly CreditTier[]>;
 
+/**
+ * Plans a workspace can start a new subscription on.
+ * Starter is not here: it is a retention offer for a current subscriber.
+ * The cancel dialog on /billing schedules it at renewal through the change flow.
+ */
+export function isNewSubscriptionPlan(plan: BillingPlanId): boolean {
+	return plan !== "starter";
+}
+
 export function purchasableTiersFor(
 	plan: BillingPlanId,
 ): readonly CreditTier[] {

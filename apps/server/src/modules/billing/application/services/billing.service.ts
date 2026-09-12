@@ -1,3 +1,8 @@
+/**
+ * Implements billing application workflows.
+ * Billing controllers call this file for subscription, top-up, and portal operations.
+ * This file calls billing repositories, credit services, and the payment-provider port.
+ */
 import { randomUUID } from "node:crypto";
 import {
 	BadRequestException,
@@ -29,6 +34,7 @@ import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	isKnownTier,
 	isManualSubscription,
+	isNewSubscriptionPlan,
 	isPurchasableTier,
 	PERSISTED_TOPUP_PACKS,
 	type PreviewBillingSubscriptionChangeBody,
@@ -86,6 +92,9 @@ import { SubscriptionsRepository } from "../../infrastructure/persistence/subscr
 import { BillingCustomerService } from "./billing-customer.service";
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 
+/**
+ * Coordinates billing operations after controllers validate each request.
+ */
 @Injectable()
 export class BillingService {
 	private readonly logger = new Logger(BillingService.name);
@@ -242,6 +251,12 @@ export class BillingService {
 			admission: true,
 		});
 		this.assertPlanMatchesScope(body.plan, scope.organizationId);
+		// New subscriptions exclude Starter because only current subscribers receive its renewal offer.
+		if (!isNewSubscriptionPlan(body.plan)) {
+			throw new BadRequestException(
+				"The Starter plan is only offered to current subscribers",
+			);
+		}
 		this.assertPurchasableSelection(body.plan, body.tierCredits);
 		const visibleSubscription =
 			await this.subscriptionsRepository.findActiveByOwner(scope.owner);

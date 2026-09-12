@@ -1170,14 +1170,14 @@ describe("BillingService manual subscription provider boundaries", () => {
 });
 
 describe("BillingService checkout attempts", () => {
-	it("allows Starter on personal workspaces and rejects Business there", async () => {
-		const starter = setup(null);
+	it("allows Pro on personal workspaces and rejects Business there", async () => {
+		const personal = setup(null);
 
 		await expect(
-			starter.service.checkout(user, {
+			personal.service.checkout(user, {
 				interval: "month",
-				plan: "starter",
-				tierCredits: 60,
+				plan: "pro",
+				tierCredits: 250,
 			}),
 		).resolves.toEqual({
 			url: "https://checkout.stripe.test/cs_subscription",
@@ -1194,6 +1194,19 @@ describe("BillingService checkout attempts", () => {
 		expect(
 			business.paymentProvider.createSubscriptionCheckout,
 		).not.toHaveBeenCalled();
+	});
+
+	it("rejects a Starter checkout because Starter is only a cancel-time offer", async () => {
+		const { paymentProvider, service } = setup(null);
+
+		await expect(
+			service.checkout(user, {
+				interval: "month",
+				plan: "starter",
+				tierCredits: 60,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(paymentProvider.createSubscriptionCheckout).not.toHaveBeenCalled();
 	});
 
 	it("allows Business on org workspaces and rejects Starter there", async () => {
@@ -1242,7 +1255,7 @@ describe("BillingService checkout attempts", () => {
 	it("rejects legacy and cross-plan tiers before creating checkout state", async () => {
 		for (const request of [
 			{ interval: "month", plan: "pro", tierCredits: 175 },
-			{ interval: "month", plan: "starter", tierCredits: 250 },
+			{ interval: "month", plan: "pro", tierCredits: 60 },
 		] as const) {
 			const { checkoutAttempts, paymentProvider, service } = setup(null);
 
@@ -2148,15 +2161,15 @@ describe("BillingService subscription change intents", () => {
 		});
 	});
 
-	it("blocks a second Starter checkout while Pro is active or scheduled to end", async () => {
+	it("blocks a second Pro checkout while Pro is active or scheduled to end", async () => {
 		for (const cancelAtPeriodEnd of [false, true]) {
 			const { service, paymentProvider } = setup(
 				subscriptionRow({ cancelAtPeriodEnd }),
 			);
 			await expect(
 				service.checkout(user, {
-					plan: "starter",
-					tierCredits: 60,
+					plan: "pro",
+					tierCredits: 250,
 					interval: "month",
 				}),
 			).rejects.toThrow();

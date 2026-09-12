@@ -1,8 +1,11 @@
+/**
+ * Shows workspace billing, subscription controls, and credit activity.
+ * The billing route calls this page, which uses billing queries and mutations.
+ */
 import { Link } from "@tanstack/react-router";
 import type {
 	BillingCancelRequest,
 	BillingTopupPack,
-	CancellationReasonCode,
 	ManualSubscriptionRequest,
 	Subscription,
 } from "@wandit/contracts";
@@ -12,17 +15,6 @@ import {
 	formatNumber,
 	type Locale,
 } from "@wandit/internationalization";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@wandit/ui/components/alert-dialog";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -34,7 +26,6 @@ import {
 	CardTitle,
 } from "@wandit/ui/components/card";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { Textarea } from "@wandit/ui/components/textarea";
 import {
 	AlertTriangle,
 	ArrowLeft,
@@ -62,13 +53,15 @@ import {
 	useManualSubscriptionRequestQuery,
 } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
+import { CancelSubscriptionDialog } from "@/features/billing/components/cancel-subscription-dialog";
 import { ManualRequestCancelDialog } from "@/features/billing/components/manual-payment-request-panel";
 import {
 	areTopupsAvailable,
 	getManualGraceNoticeDates,
 	getPendingSubscriptionChange,
+	getStarterCancelOffer,
+	type StarterCancelOffer,
 } from "@/features/billing/lib/billing-ui-policy";
-import { parseBillingCancelRequest } from "@/features/billing/lib/cancel-subscription";
 import { getBillingPlanName } from "@/features/billing/lib/plan-copy";
 import {
 	useCreditActivityQuery,
@@ -82,19 +75,10 @@ import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
 const LEDGER_PAGE_SIZE = 10;
-const CANCELLATION_REASON_CODES = [
-	"too_expensive",
-	"not_using_enough",
-	"missing_features",
-	"technical_issues",
-	"switching_provider",
-	"temporary_pause",
-	"other",
-] as const satisfies readonly CancellationReasonCode[];
-
+/** The /billing route renders this page: subscription, credits, ledger, and the plan picker. */
 export default function BillingPage() {
 	const { locale, t } = useTranslation();
-	const { actorCanManageBilling } = useWorkspace();
+	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const copy = useDictionary().billing;
 	const { openPlanPicker } = useBillingModal();
 	const [ledgerPage, setLedgerPage] = useState(1);
@@ -132,6 +116,18 @@ export default function BillingPage() {
 		subscriptionQuery.data?.subscription,
 		settingsQuery.data?.manualGraceDays ?? 0,
 	);
+
+	const subscription = subscriptionQuery.data?.subscription;
+	const starterPlan = plansQuery.data?.plans.find(
+		(plan) => plan.id === "starter",
+	);
+	const starterOffer = getStarterCancelOffer({
+		subscription,
+		starterPlan,
+		isPersonal,
+		paidSubscriptionsEnabled:
+			settingsQuery.data?.paidSubscriptionsEnabled === true,
+	});
 
 	const retryCore = () => {
 		void Promise.all([
@@ -265,6 +261,13 @@ export default function BillingPage() {
 										settingsQuery.data.manualPaymentsEnabled
 									}
 									locale={locale}
+									starterOffer={starterOffer}
+									onAcceptStarterOffer={() => {
+										// The picker opens on Starter and runs the existing renewal change flow.
+										if (starterOffer) {
+											openPlanPicker("billing_page", starterOffer);
+										}
+									}}
 									onOpenPlanPicker={() => openPlanPicker("billing_page")}
 									onOpenOfflinePlanPicker={() => {
 										const subscription = subscriptionQuery.data.subscription;
@@ -441,6 +444,8 @@ function BucketMetric({ label, value }: { label: string; value: string }) {
 
 function SubscriptionCard({
 	subscription,
+	starterOffer,
+	onAcceptStarterOffer,
 	paidSubscriptionsEnabled,
 	manualPaymentsEnabled,
 	locale,
@@ -454,6 +459,8 @@ function SubscriptionCard({
 	onResume,
 }: {
 	subscription: Subscription | null;
+	starterOffer: StarterCancelOffer | null;
+	onAcceptStarterOffer: () => void;
 	paidSubscriptionsEnabled: boolean;
 	manualPaymentsEnabled: boolean;
 	locale: Locale;
@@ -591,6 +598,10 @@ function SubscriptionCard({
 							)}
 							{!subscription.cancelAtPeriodEnd ? (
 								<CancelSubscriptionDialog
+									starterOffer={starterOffer}
+									onAcceptStarterOffer={onAcceptStarterOffer}
+									periodEnd={subscription.currentPeriodEnd}
+									locale={locale}
 									pending={cancelPending}
 									onConfirm={onCancel}
 								/>
@@ -730,118 +741,6 @@ function PlanDetail({ label, value }: { label: string; value: string }) {
 			</dt>
 			<dd className="mt-1 text-sm">{value}</dd>
 		</div>
-	);
-}
-
-function CancelSubscriptionDialog({
-	pending,
-	onConfirm,
-}: {
-	pending: boolean;
-	onConfirm: (request: BillingCancelRequest) => void;
-}) {
-	const copy = useDictionary().billing.page;
-	const [open, setOpen] = useState(false);
-	const [reason, setReason] = useState<CancellationReasonCode | null>(null);
-	const [details, setDetails] = useState("");
-	const request = parseBillingCancelRequest(reason, details);
-	const detailsRequired = reason === "other" && details.trim().length === 0;
-
-	const handleOpenChange = (nextOpen: boolean) => {
-		setOpen(nextOpen);
-		if (!nextOpen) {
-			setReason(null);
-			setDetails("");
-		}
-	};
-
-	return (
-		<AlertDialog open={open} onOpenChange={handleOpenChange}>
-			<AlertDialogTrigger asChild>
-				<Button type="button" variant="ghost" className="text-destructive">
-					{copy.cancelPlan}
-				</Button>
-			</AlertDialogTrigger>
-			<AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
-				<AlertDialogHeader>
-					<AlertDialogTitle>{copy.cancelTitle}</AlertDialogTitle>
-					<AlertDialogDescription>{copy.cancelBody}</AlertDialogDescription>
-				</AlertDialogHeader>
-				<fieldset className="space-y-2">
-					<legend className="font-medium text-sm">
-						{copy.cancelReasonPrompt}
-					</legend>
-					<div className="grid gap-2">
-						{CANCELLATION_REASON_CODES.map((reasonCode) => (
-							<label
-								key={reasonCode}
-								className="flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors hover:bg-muted/40 has-[:disabled]:cursor-not-allowed has-[:checked]:border-primary/50 has-[:checked]:bg-primary/[0.04] has-[:disabled]:opacity-50"
-							>
-								<input
-									type="radio"
-									name="cancellation-reason"
-									value={reasonCode}
-									checked={reason === reasonCode}
-									disabled={pending}
-									required
-									className="size-4 shrink-0 accent-primary"
-									onChange={() => setReason(reasonCode)}
-								/>
-								<span>{copy.cancelReasons[reasonCode]}</span>
-							</label>
-						))}
-					</div>
-				</fieldset>
-				<div className="space-y-2">
-					<label htmlFor="cancellation-details" className="font-medium text-sm">
-						{copy.cancelDetailsLabel}
-						{reason === "other" ? null : (
-							<span className="ms-1 font-normal text-muted-foreground">
-								{copy.cancelDetailsOptional}
-							</span>
-						)}
-					</label>
-					<Textarea
-						id="cancellation-details"
-						value={details}
-						disabled={pending}
-						required={reason === "other"}
-						maxLength={1000}
-						rows={3}
-						placeholder={copy.cancelDetailsPlaceholder}
-						aria-invalid={detailsRequired || undefined}
-						aria-describedby={
-							detailsRequired ? "cancellation-details-error" : undefined
-						}
-						onChange={(event) => setDetails(event.target.value)}
-					/>
-					{detailsRequired ? (
-						<p
-							id="cancellation-details-error"
-							className="text-destructive text-xs"
-						>
-							{copy.cancelDetailsRequired}
-						</p>
-					) : null}
-				</div>
-				<AlertDialogFooter>
-					<AlertDialogCancel disabled={pending}>
-						{copy.keepPlan}
-					</AlertDialogCancel>
-					<AlertDialogAction
-						variant="destructive"
-						disabled={pending || !request.success}
-						onClick={() => {
-							if (request.success) {
-								onConfirm(request.data);
-							}
-						}}
-					>
-						{pending ? copy.cancelling : copy.confirmCancel}
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
 	);
 }
 

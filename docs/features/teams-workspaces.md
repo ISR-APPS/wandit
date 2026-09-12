@@ -15,9 +15,9 @@
 - **Business plan**: organization-only catalog plan, with the same purchasable tier ladder as
   Pro at exactly **2× the Pro price** (175 credits/$50 through 8,750 credits/$2,250 monthly;
   yearly = monthly × 10). Unlimited seats; the pool is what's priced, not chairs.
-- **Entity rule**: at most one live subscription per entity (user or org). A person may hold a
-  personal Starter or Pro subscription *and* administer any number of org Business
-  subscriptions.
+- **Entity rule**: at most one live subscription per entity (user or org). A person can start
+  a personal Pro subscription. Existing Starter subscriptions remain valid. The person can
+  also administer any number of organization Business subscriptions.
 - **Pooling**: work done in an org workspace debits the org pool; the acting member is recorded
   on every usage event. Optional per-member credit limits (calendar-month UTC).
 - **Roles v1**: fixed `owner` / `admin` / `member` (Better Auth defaults + our permission
@@ -393,8 +393,8 @@ gains the workspace dimension via `@CurrentWorkspace()`:
 - Personal workspace → behavior byte-identical to today (same tables, same queries).
 - Org workspace → `@RequireWorkspacePermission("billing", "manage")` on checkout, topup,
   change/preview, cancel, resume, portal, sync; subscription view readable by any member.
-- `checkout` with org scope requires `plan: "business"`; personal scope accepts
-  `plan: "starter"` or `plan: "pro"` (typed 400 for any other pairing).
+- `checkout` with org scope requires `plan: "business"`. A new personal checkout requires
+  `plan: "pro"`. Starter is only a change target for a current personal subscriber.
 - Org portal sessions are created from the **org** customer id only; personal portal from the
   personal customer only — the §5.1 table split makes crossover structurally impossible.
 - Top-ups: org top-ups allowed for billing managers; ledger row `organizationId` set;

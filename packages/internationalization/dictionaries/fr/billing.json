@@ -29,6 +29,12 @@
 		"cancelPlan": "Annuler l’offre",
 		"cancelTitle": "Annuler votre abonnement ?",
 		"cancelBody": "Votre offre reste active jusqu’à la fin de la période en cours. Vous pouvez la reprendre avant cette date.",
+		"cancelOffer": {
+			"title": "Essayez plutôt Starter",
+			"body": "Votre offre actuelle reste active jusqu’au {date}. Starter commence au renouvellement. Vous pouvez annuler à tout moment.",
+			"cta": "Passer plutôt à Starter",
+			"orCancel": "Ou dites-nous pourquoi vous partez"
+		},
 		"cancelReasonPrompt": "Quelle est la principale raison de votre départ ?",
 		"cancelReasons": {
 			"too_expensive": "C’est trop cher",

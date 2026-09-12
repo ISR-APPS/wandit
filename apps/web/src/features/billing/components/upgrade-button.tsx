@@ -1,4 +1,8 @@
-import type { BillingPlanId } from "@wandit/contracts";
+/**
+ * Shows upgrade actions for free workspaces.
+ * Project shells call these components through the billing feature.
+ * The actions open the shared plan picker.
+ */
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { Zap } from "lucide-react";
@@ -54,7 +58,7 @@ export function UpgradeButton() {
 	);
 }
 
-/** Sidebar-footer upgrade card, Lovable-style. */
+/** Shows the Pro title for personal workspaces and the Business title for team workspaces. */
 export function UpgradeCard({ className }: { className?: string }) {
 	const { t } = useTranslation();
 	const { isPersonal } = useWorkspace();
@@ -65,7 +69,8 @@ export function UpgradeCard({ className }: { className?: string }) {
 		return null;
 	}
 
-	const targetPlan: BillingPlanId = isPersonal ? "starter" : "business";
+	// Each workspace type has one supported plan for a new subscription.
+	const targetPlan = isPersonal ? "pro" : "business";
 
 	return (
 		<button
