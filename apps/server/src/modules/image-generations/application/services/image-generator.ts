@@ -12,6 +12,7 @@ import type { ImageGenerationAspect } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateImage, generateText } from "ai";
 
+import { loadModelSafePhoto } from "../../../../infrastructure/storage/model-safe-photo";
 import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
 	IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -95,12 +96,14 @@ export type EditImageResult =
 	  } & GatewayGenerationMetadata);
 
 /**
- * Low-level edit call, shared with the site builder's in-build image tool.
- * Never throws; a failed edit is a normal result the caller can degrade on.
+ * The site builder and standalone image generator share this edit call.
+ * The function sends inline source bytes and returns a typed failure on error.
  */
 export async function editImageFromSources(params: {
 	abortSignal?: AbortSignal;
 	aspect: string;
+	/** Replaces R2 photo loading in isolated tests. Production uses the storage function. */
+	loadModelSafePhoto?: typeof loadModelSafePhoto;
 	metering: GatewayMeteringContext<"image">;
 	/** Queue-time snapshot override; the env default serves legacy callers. */
 	model?: string;
@@ -128,6 +131,49 @@ export async function editImageFromSources(params: {
 		`Target aspect ratio: ${params.aspect}.`;
 
 	try {
+		const photoLoader = params.loadModelSafePhoto ?? loadModelSafePhoto;
+		const loadedPhotos = await Promise.all(
+			params.sourceImageUrls.map((url) => photoLoader(url)),
+		);
+		const sourceImages: Uint8Array[] = [];
+		const sourceFileParts: Array<{
+			data: Uint8Array;
+			mediaType: string;
+			type: "file";
+		}> = [];
+
+		// Both provider APIs receive inline bytes to avoid a gateway URL fetch.
+		for (const photo of loadedPhotos) {
+			// One bad source must not remove usable sources from the same edit.
+			if (photo.kind === "unusable") {
+				console.warn(
+					`[image-generator] Unusable source ${photo.url}: ${photo.reason}`,
+				);
+				continue;
+			}
+
+			sourceImages.push(photo.bytes);
+			sourceFileParts.push({
+				data: photo.bytes,
+				mediaType: photo.mediaType,
+				type: "file",
+			});
+		}
+
+		// An edit without a source can invent the product. This result fails before the provider call.
+		if (sourceImages.length === 0) {
+			const error = new Error("No usable source images could be loaded.");
+			return {
+				failure: classifyImageError(error, {
+					model,
+					route: "none",
+					surface: "image",
+				}),
+				message: error.message,
+				status: "failed",
+			};
+		}
+
 		// Muse and GPT Image 2 use native image models for generation and editing.
 		// Their reference photos belong in prompt.images; generateText's files
 		// contract is only appropriate for image-output language models.
@@ -144,7 +190,7 @@ export async function editImageFromSources(params: {
 						}
 					: { aspectRatio: params.aspect as `${number}:${number}` }),
 				model,
-				prompt: { images: [...params.sourceImageUrls], text: prompt },
+				prompt: { images: sourceImages, text: prompt },
 				providerOptions: withGatewayAttribution({}, params.metering),
 			});
 			providerEvidence = {
@@ -169,13 +215,7 @@ export async function editImageFromSources(params: {
 							text: prompt,
 							type: "text" as const,
 						},
-						...params.sourceImageUrls.map((url) => ({
-							data: url,
-							// Generic "image" is the AI SDK 7 documented shorthand when
-							// the exact MIME type of a URL source is unknown.
-							mediaType: "image",
-							type: "file" as const,
-						})),
+						...sourceFileParts,
 					],
 					role: "user" as const,
 				},
@@ -420,6 +460,8 @@ export async function generateStandaloneImage(params: {
 	deferVariants?: boolean;
 	/** 1-based position in the attempt, used for the R2 object name. */
 	index: number;
+	/** Replaces R2 photo loading in isolated tests. Production uses the storage function. */
+	loadModelSafePhoto?: typeof loadModelSafePhoto;
 	metering: GatewayMeteringContext<"image">;
 	/** Persist Gateway evidence before bytes become recoverable in R2. */
 	onProviderGeneration?: (

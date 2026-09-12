@@ -231,7 +231,7 @@ describe("createImageGenerationRuntime", () => {
 		expect(persistence.updateSet).toHaveBeenCalledWith(
 			expect.objectContaining({
 				error:
-					"OpenAI is over capacity right now. Please try again in a minute.",
+					"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 				failureKind: "capacity",
 				failureProvider: "openai",
 				failureProviderMessage: null,
@@ -266,7 +266,8 @@ describe("createImageGenerationRuntime", () => {
 
 		await runtime.runner.fail(makeAttempt(), {
 			completedAt: new Date("2026-01-01T00:05:00Z"),
-			error: "OpenAI is over capacity right now. Please try again in a minute.",
+			error:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			expectedStatus: "generating",
 			failure: classified,
 			reason: "generation_failed",

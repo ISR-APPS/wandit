@@ -38,6 +38,7 @@ import {
 	siteFileKey,
 } from "../infrastructure/storage/r2";
 import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
+import { runSiteBuildWithFallback } from "../modules/ai-chat/agent/site-builder/build-with-fallback";
 import {
 	captureGatewayGenerationError,
 	createGenerationCaptureBuffer,
@@ -52,7 +53,6 @@ import { captureAiError } from "../modules/ai-errors/domain";
 import { llmProviderForTask } from "../modules/ai-provider/domain/llm-provider";
 import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import { LifecycleEventsRepository } from "../modules/lifecycle-events/infrastructure/persistence/lifecycle-events.repository";
-import type { MeteringService } from "../modules/metering/application/services/metering.service";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
 import { TaggedBuildError } from "../modules/pages/domain/build-failure";
@@ -62,7 +62,10 @@ import {
 	pageFailurePersistenceValues,
 } from "./generate-page-failure";
 import { enqueuePageGenerationLifecycleEvent } from "./generate-page-lifecycle";
-import { flushPageBuildGenerationsForSettlement } from "./generate-page-metering";
+import {
+	closeBuilderMetering,
+	flushPageBuildGenerationsForSettlement,
+} from "./generate-page-metering";
 import { triggerAnalytics } from "./init";
 import { createTriggerMetering } from "./metering.runtime";
 
@@ -100,6 +103,7 @@ const pageBuildCancelFinalizers = new Map<string, () => Promise<unknown>>();
 // direct path keeps time for its metering and DB writes.
 const CANCEL_RUN_SETTLE_GRACE_MS = 15_000;
 
+/** Runs one queued page attempt and publishes its final build or failure. */
 export const generatePageTask = task({
 	id: "generate-page",
 	// Chromium for the screenshot passes plus the builder's in-memory file
@@ -248,9 +252,9 @@ export const generatePageTask = task({
 							await closeBuilderMetering(
 								meteringService,
 								usageEvent,
-								attempt.model,
 								meteredSteps,
 								failedProviderGenerationObserved,
+								logger,
 							);
 							meteringClosed = true;
 						} catch (meteringError) {
@@ -302,6 +306,8 @@ export const generatePageTask = task({
 			};
 
 			pageBuildCancelFinalizers.set(ctx.run.id, finalizeCanceledBuild);
+			const route = llmProviderForTask("page_build");
+			let lastBuilderModel = attempt.model;
 
 			try {
 				if (meteringService) {
@@ -315,6 +321,8 @@ export const generatePageTask = task({
 				}
 
 				const spec = attemptSpecSchema.parse(attempt.spec);
+				// Legacy rows omit the page kind. They are website builds.
+				const pageKind = spec.pageKind ?? "website";
 				const [projectBrand] = await db
 					.select({ logoUrl: projects.logoUrl })
 					.from(projects)
@@ -346,14 +354,13 @@ export const generatePageTask = task({
 						"screenshot review passes when vision and Playwright are available",
 				);
 
-				// Every run gets a fresh asset namespace. A deliberate retry
-				// can never overwrite images referenced by an older version.
-				const assetNamespace = `${attempt.id}-${crypto.randomUUID()}`;
+				// Each task run gets a fresh screenshot namespace. It stays stable across builder fallbacks.
+				const progressAssetNamespace = `${attempt.id}-${crypto.randomUUID()}`;
 
 				// Live progress for the chat card: builder tool events fold into
 				// one metadata object that Realtime pushes to the subscribed card.
 				const progress = createBuildProgressTracker({
-					attemptId: assetNamespace,
+					attemptId: progressAssetNamespace,
 					pageKind: passKind,
 					projectId: attempt.projectId,
 					publish: (snapshot) => {
@@ -377,53 +384,100 @@ export const generatePageTask = task({
 				// The build brain: a tool-loop agent writing into a virtual FS.
 				// It validates its own output (index.html present, complete,
 				// non-trivial) and throws human-readable errors on failure.
-				const build = await runSiteBuild({
+				const result = await runSiteBuildWithFallback({
 					abortSignal: signal,
-					attemptId: assetNamespace,
 					brief,
-					...(spec.imageEditModel
-						? { imageEditModel: spec.imageEditModel }
-						: {}),
-					...(spec.imageModel ? { imageModel: spec.imageModel } : {}),
+					classifyFailure: (error, model) =>
+						classifyPageTaskFailure(error, { model, route }),
 					model: attempt.model,
+					nextAssetNamespace: () => `${attempt.id}-${crypto.randomUUID()}`,
 					onEvent: (event) => {
-						if (event.type === "screenshot-pass") {
+						// A failed model can leave a stale review shot. The fallback starts without a publishable page.
+						if (event.type === "model-fallback") {
+							heroShotBase64 = null;
+						} else if (event.type === "screenshot-pass") {
 							heroShotBase64 =
 								event.shots.find((shot) => shot.viewport === "desktop")
 									?.base64 ?? heroShotBase64;
 						}
 						progress.emit(event);
 					},
-					pageKind: spec.pageKind ?? "website",
-					...(spec.codMode ? { codMode: spec.codMode } : {}),
-					...(spec.reasoningEffort
-						? { reasoningEffort: spec.reasoningEffort }
-						: {}),
-					...(meteringService && usageEventId && activeGenerationCaptureBuffer
-						? {
-								meteringService,
-								onGenerationError: async (error: unknown) => {
-									failedProviderGenerationObserved =
-										(await captureGatewayGenerationError(
-											activeGenerationCaptureBuffer,
-											error,
-										)) || failedProviderGenerationObserved;
-								},
-								onStepEnd: async (step: SiteBuildMeteringStep) => {
-									meteredSteps.push(step);
-									await activeGenerationCaptureBuffer.capture({
-										providerMetadata: step.providerMetadata,
-										stepUsage: step.usage,
-									});
-								},
-								usageEventId,
-							}
-						: {}),
-					projectId: attempt.projectId,
-					system: spec.designerSystemPrompt,
-					title: spec.title,
-					subject,
+					onFallback: ({
+						error,
+						failureCode,
+						fromModel,
+						normalized,
+						toModel,
+					}) => {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						logger.info(
+							`Builder ${fromModel} failed (${failureCode}): ${message}; switching to ${toModel}`,
+						);
+						// A recovered provider failure still needs an event before the task publishes success.
+						captureAiError(error, normalized, {
+							generationId: attempt.id,
+							projectId: attempt.projectId,
+							route,
+							surface: "page_build",
+							userId: subject.actorUserId,
+						});
+					},
+					pageKind,
+					runBuild: (run, onEvent) => {
+						lastBuilderModel = run.model;
+
+						return runSiteBuild({
+							abortSignal: signal,
+							attemptId: run.assetNamespace,
+							brief: run.brief,
+							...(spec.imageEditModel
+								? { imageEditModel: spec.imageEditModel }
+								: {}),
+							...(spec.imageModel ? { imageModel: spec.imageModel } : {}),
+							model: run.model,
+							onEvent,
+							pageKind,
+							...(spec.codMode ? { codMode: spec.codMode } : {}),
+							...(spec.reasoningEffort
+								? { reasoningEffort: spec.reasoningEffort }
+								: {}),
+							...(meteringService &&
+							usageEventId &&
+							activeGenerationCaptureBuffer
+								? {
+										meteringService,
+										onGenerationError: async (error: unknown) => {
+											failedProviderGenerationObserved =
+												(await captureGatewayGenerationError(
+													activeGenerationCaptureBuffer,
+													error,
+												)) || failedProviderGenerationObserved;
+										},
+										onStepEnd: async (step: SiteBuildMeteringStep) => {
+											meteredSteps.push(step);
+											await activeGenerationCaptureBuffer.capture({
+												providerMetadata: step.providerMetadata,
+												stepUsage: step.usage,
+											});
+										},
+										usageEventId,
+									}
+								: {}),
+							pageAttemptId: attempt.id,
+							projectId: attempt.projectId,
+							system: spec.designerSystemPrompt,
+							title: spec.title,
+							subject,
+						});
+					},
 				});
+				const build = result.build;
+
+				// Multiple runs mean the shipped version used automatic fallback.
+				if (result.runs.length > 1) {
+					logger.info(`Builder fallback chain: ${JSON.stringify(result.runs)}`);
+				}
 
 				// AI SDK swallows onStepEnd errors. Flush every exact metadata/usage
 				// pair that could not be confirmed in the callback before settlement
@@ -434,9 +488,9 @@ export const generatePageTask = task({
 					await closeBuilderMetering(
 						meteringService,
 						usageEvent,
-						attempt.model,
 						meteredSteps,
 						failedProviderGenerationObserved,
+						logger,
 					);
 					meteringClosed = true;
 				}
@@ -536,7 +590,7 @@ export const generatePageTask = task({
 							builderSteps: build.steps,
 							files: build.files.map((file) => file.path),
 							generationModels: {
-								builder: attempt.model,
+								builder: result.model,
 								...(spec.imageModel ? { image: spec.imageModel } : {}),
 								...(spec.imageEditModel
 									? { imageEdit: spec.imageEditModel }
@@ -544,7 +598,7 @@ export const generatePageTask = task({
 							},
 							// Contract §9: absent source means LEGACY builder rows.
 							source: "builder",
-							pageKind: spec.pageKind ?? "website",
+							pageKind,
 							title: spec.title,
 						},
 						number: nextNumber,
@@ -637,7 +691,7 @@ export const generatePageTask = task({
 						"newer build already finished, so the active pointer was " +
 						"left on its version";
 				logger.info(
-					`${completionMessage} — usage: in=${build.usage.inputTokens} ` +
+					`${completionMessage} — builder=${result.model} usage: in=${build.usage.inputTokens} ` +
 						`out=${build.usage.outputTokens} total=${build.usage.totalTokens} ` +
 						`steps=${build.steps}`,
 				);
@@ -668,10 +722,9 @@ export const generatePageTask = task({
 					terminalError = meteringError;
 				}
 
-				const route = llmProviderForTask("page_build");
 				const { failureCode, normalized } = classifyPageTaskFailure(
 					terminalError,
-					{ model: attempt.model, route },
+					{ model: lastBuilderModel, route },
 				);
 				normalized.sentryEventId = captureAiError(terminalError, normalized, {
 					generationId: attempt.id,
@@ -750,65 +803,3 @@ export const generatePageTask = task({
 		}
 	},
 });
-
-async function closeBuilderMetering(
-	meteringService: MeteringService,
-	event: AiUsageEvent,
-	model: string,
-	steps: readonly SiteBuildMeteringStep[],
-	failedProviderGenerationObserved = false,
-): Promise<void> {
-	if (steps.length === 0) {
-		// A failed Gateway call has real provider evidence but no AI SDK usage
-		// step. Keep the reservation open so the reconciliation sweep can fetch
-		// authoritative usage from the captured generation reference.
-		if (failedProviderGenerationObserved) {
-			return;
-		}
-
-		await meteringService.refund(event.id, "page_build_no_provider_usage");
-		return;
-	}
-
-	const usage = steps.reduce(
-		(total, step) => {
-			const inputTokens = step.usage.inputTokens ?? 0;
-			const cacheReadTokens = step.usage.inputTokenDetails.cacheReadTokens ?? 0;
-			const cacheWriteTokens =
-				step.usage.inputTokenDetails.cacheWriteTokens ?? 0;
-			const noCacheTokens =
-				step.usage.inputTokenDetails.noCacheTokens ??
-				Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
-
-			return {
-				inputTokenDetails: {
-					cacheReadTokens:
-						total.inputTokenDetails.cacheReadTokens + cacheReadTokens,
-					cacheWriteTokens:
-						total.inputTokenDetails.cacheWriteTokens + cacheWriteTokens,
-					noCacheTokens: total.inputTokenDetails.noCacheTokens + noCacheTokens,
-				},
-				inputTokens: total.inputTokens + inputTokens,
-				outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
-			};
-		},
-		{
-			inputTokenDetails: {
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				noCacheTokens: 0,
-			},
-			inputTokens: 0,
-			outputTokens: 0,
-		},
-	);
-	const providers = new Set(steps.map((step) => step.model.provider));
-
-	await meteringService.settle(event.id, {
-		modelId: model,
-		pricing: "token",
-		provider: providers.size === 1 ? steps[0]?.model.provider : "multiple",
-		rawUsage: { steps: steps.map((step) => step.usage) },
-		usage,
-	});
-}

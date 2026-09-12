@@ -962,23 +962,23 @@
 			},
 			"provider_error": {
 				"kicker": "Problème du fournisseur",
-				"title": "Le fournisseur d'IA a rencontré une erreur.",
-				"message": "Le problème vient du fournisseur du modèle, pas de Wandit. Ta dernière version est intacte ; réessayer marche en général."
+				"title": "Notre fournisseur d’IA connaît une forte demande.",
+				"message": "Réessaie dans quelques minutes. Ta dernière version est intacte."
 			},
 			"provider_overloaded": {
 				"kicker": "Problème du fournisseur",
-				"title": "Le fournisseur d'IA est saturé.",
-				"message": "Le fournisseur du modèle (pas Wandit) est temporairement surchargé. Ta dernière version est intacte — réessaie dans une minute."
+				"title": "Notre fournisseur d’IA connaît une forte demande.",
+				"message": "Réessaie dans quelques minutes. Ta dernière version est intacte."
 			},
 			"provider_rate_limited": {
 				"kicker": "Problème du fournisseur",
-				"title": "Le fournisseur d'IA est très sollicité.",
-				"message": "Trop de requêtes ont atteint le fournisseur du modèle en même temps — ce n'est pas un problème Wandit. Ta dernière version est intacte ; réessaie dans une minute."
+				"title": "Notre fournisseur d’IA connaît une forte demande.",
+				"message": "Réessaie dans quelques minutes. Ta dernière version est intacte."
 			},
 			"provider_timeout": {
 				"kicker": "Problème du fournisseur",
-				"title": "Le fournisseur d'IA a mis trop de temps.",
-				"message": "Le fournisseur du modèle a cessé de répondre en cours de génération — pas un souci Wandit. Ta dernière version est intacte — réessaie."
+				"title": "Notre fournisseur d’IA connaît une forte demande.",
+				"message": "Réessaie dans quelques minutes. Ta dernière version est intacte."
 			},
 			"storage_failure": {
 				"kicker": "Un problème est survenu",

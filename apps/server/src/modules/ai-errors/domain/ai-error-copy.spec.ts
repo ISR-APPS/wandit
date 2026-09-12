@@ -51,17 +51,26 @@ describe("renderAiErrorSentence", () => {
 			"model_not_found",
 			"The AI model is not available right now. Our team is notified.",
 		],
-		["rate_limited", "Anthropic is busy. Please wait a moment and try again."],
+		[
+			"rate_limited",
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
+		],
 		[
 			"capacity",
-			"Anthropic is over capacity right now. Please try again in a minute.",
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 		],
-		["provider_error", "Anthropic returned an error. Please try again."],
+		[
+			"provider_error",
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
+		],
 		[
 			"content_moderated",
 			"Anthropic declined this request because of its content rules. Change the prompt and try again.",
 		],
-		["timeout", "Anthropic took too long to answer. Please try again."],
+		[
+			"timeout",
+			"Our AI provider is experiencing high demand. Please try again in a few minutes.",
+		],
 		["network", "We cannot reach Anthropic. Please try again."],
 		["cancelled", "This generation was stopped."],
 		["billing", "Not enough credits for this action."],
@@ -121,12 +130,14 @@ describe("renderAiErrorSentence", () => {
 		);
 		expect(
 			renderAiErrorSentence(
-				normalized("rate_limited", {
+				normalized("invalid_request", {
 					provider: null,
 					providerLabel: null,
 				}),
 			),
-		).toBe("The AI provider is busy. Please wait a moment and try again.");
+		).toBe(
+			"The AI provider did not accept this request. Try a shorter prompt or a different file.",
+		);
 	});
 
 	it("renders the current workspace member billing sentence", () => {

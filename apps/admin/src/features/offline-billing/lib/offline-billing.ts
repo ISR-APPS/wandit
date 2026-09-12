@@ -1,10 +1,33 @@
+/**
+ * Supplies labels and payment helpers to offline billing components.
+ * Uses billing contracts to validate payments and calculate periods.
+ */
 import {
 	type AdminManualPaymentInput,
+	type AdminUpdateManualRequestBody,
 	addBillingInterval,
 	adminManualPaymentInputSchema,
+	adminUpdateManualRequestBodySchema,
 	type BillingInterval,
 	type ManualPaymentMethod,
+	type ManualSubscriptionRequestStatus,
 } from "@wandit/contracts";
+
+/** The request table and badges use the same labels and status order. */
+export const MANUAL_REQUEST_STATUS_LABELS: Record<
+	ManualSubscriptionRequestStatus,
+	string
+> = {
+	pending: "Pending",
+	contacted: "Contacted",
+	no_answer: "No answer",
+	call_back: "Call back",
+	wrong_number: "Wrong number",
+	awaiting_payment: "Awaiting payment",
+	approved: "Approved",
+	rejected: "Rejected",
+	canceled: "Canceled",
+};
 
 const MAX_AMOUNT_MINOR = 1_000_000_000;
 
@@ -169,4 +192,33 @@ export function daysUntil(value: string, now = new Date()): number {
 export function trimmedOptional(value: string): string | undefined {
 	const trimmed = value.trim();
 	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** What the note dialog does on submit: edit the note, reject, or cancel the request. */
+export type ManualRequestNoteMode = "note" | "reject" | "cancel";
+
+/**
+ * Map the note dialog form to the admin PATCH body.
+ * Returns null when the note is too long, or when a reject or cancel has no reason.
+ */
+export function mapManualRequestNoteFormDto(
+	mode: ManualRequestNoteMode,
+	note: string,
+): AdminUpdateManualRequestBody | null {
+	const trimmedNote = note.trim();
+	// A note edit may clear the note. Closing a request requires a reason for later review.
+	if (mode !== "note" && trimmedNote.length === 0) {
+		return null;
+	}
+
+	const result = adminUpdateManualRequestBodySchema.safeParse(
+		mode === "note"
+			? { adminNotes: trimmedNote || null }
+			: {
+					status: mode === "reject" ? "rejected" : "canceled",
+					adminNotes: trimmedNote,
+				},
+	);
+
+	return result.success ? result.data : null;
 }

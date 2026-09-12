@@ -37,16 +37,16 @@ Non-goals (v1): no automatic reminders before expiry, no self-serve renewal paym
 revenue in the admin revenue analytics (manual payments have their own table; analytics
 stay USD/Stripe), no mobile (native) UI.
 
-## 1. Schema (DONE — `packages/db/src/schema/billing.ts`, migration `0041_manual-billing`)
+## 1. Schema (DONE — `packages/db/src/schema/billing.ts`, migrations `0041_manual-billing` and `0071_offline-request-statuses`)
 
-- enums `manual_subscription_request_status` (pending | contacted | approved | rejected |
-  canceled), `manual_payment_method` (cash_on_delivery | bank_transfer | ccp | baridimob |
+- enums `manual_subscription_request_status` (pending | contacted | no_answer | call_back |
+  wrong_number | awaiting_payment | approved | rejected | canceled), `manual_payment_method` (cash_on_delivery | bank_transfer | ccp | baridimob |
   other), `manual_subscription_payment_kind` (initial | renewal).
 - `product_settings.manual_payments_enabled boolean not null default false`.
 - `manual_subscription_requests`: owner = `organization_id ?? user_id` (same owner rule as
   subscriptions); plan / tier_credits (whole credits) / interval; contact fields; status;
   admin_notes; handled_by_user_id; handled_at; subscription_id (set on approval). Partial
-  unique indexes: ONE open (pending|contacted) request per personal user and per org.
+  unique indexes: ONE open (pending|contacted|no_answer|call_back|wrong_number|awaiting_payment) request per personal user and per org.
 - `manual_subscription_payments`: append-only; subscription_id, request_id?, kind, method,
   amount_minor (minor units of `currency`, ≥ 0), currency (3 letters), reference?, note?,
   period_start/period_end (the funded period), idempotency_key (UNIQUE — the admin's
@@ -77,7 +77,7 @@ PATCH body.
 `v1/admin.ts`: `adminUserSubscriptionSchema` (and the org one that extends it) now carry
 `id` + `provider`; `adminManualRequestSchema`, `adminListManualRequestsQuerySchema`
 (status filter `open` default | `all` | each status; `q`), `adminUpdateManualRequestBodySchema`
-(status pending|contacted|rejected, adminNotes), `adminGrantManualSubscriptionInputSchema`,
+(status pending|contacted|no_answer|call_back|wrong_number|awaiting_payment|rejected|canceled, adminNotes), `adminGrantManualSubscriptionInputSchema`,
 `adminRenewManualSubscriptionInputSchema`, `adminEndManualSubscriptionInputSchema`,
 `adminManualPaymentSchema`, `adminManualSubscriptionSchema`,
 `adminManualSubscriptionDetailSchema`, `adminListManualSubscriptionsQuerySchema`
@@ -119,7 +119,7 @@ the checkout-return sync or any webhook). Scope that lookup to `provider = "stri
 
 ### 3.3 `ManualSubscriptionRequestsService` (user side)
 
-- `getCurrent(user, workspace)` → `{ request }`: the owner's open (pending|contacted)
+- `getCurrent(user, workspace)` → `{ request }`: the owner's open (pending|contacted|no_answer|call_back|wrong_number|awaiting_payment)
   request or null. Scope = same `resolveBillingScope` rule as BillingService (personal →
   `userOwner`, org → `orgOwner`; admission false).
 - `create(user, body, workspace)`:
@@ -222,7 +222,7 @@ runs inside `subscriptionCreditsRepository.withOwnerLock(owner, tx)`.
   `cancelAtPeriodEnd = true` ends the same way. Do NOT end rows whose period was extended
   concurrently (re-read inside the lock and skip when `currentPeriodEnd > now`).
 - Admin reads: `listRequests(query)`, `getRequest(id)`, `updateRequest(adminId, id, body)`
-  (status ∈ pending|contacted|rejected + adminNotes; approved/canceled rows cannot be moved
+  (status ∈ OPEN_MANUAL_REQUEST_STATUSES|rejected|canceled + adminNotes; approved/canceled rows cannot be moved
   back: 409), `listSubscriptions(query)`, `getSubscription(id)`.
 
 ### 3.5 `BillingService` branching for manual subscriptions
@@ -366,9 +366,9 @@ assembly); keep existing specs green.
   - Requests table: contact (name, phone — `tel:` link, company), user (name/email link to
     `/users/$userId`), workspace (personal / org name), plan (tier · interval), country/city,
     preferred method, created, status badge, current subscription hint. Filters: status
-    (open default), search. Row actions: **Mark contacted**, **Approve & grant** (opens
+    (open default), search. Row actions: **Set status** (OPEN statuses except the current status), **Approve & grant** (opens
     `GrantManualSubscriptionDialog` prefilled: user, org, plan, tier, interval, requestId),
-    **Reject** (note), **Edit note**. Detail sheet/drawer with all fields + notes.
+    **Reject** (required note), **Cancel request…** (required note), **Edit note**. Status and closure actions require an open request and billing management permission. Detail sheet/drawer with all fields + notes.
   - Subscriptions table: owner, plan/tier/interval, period start → end, days left, status
     badge (Active / Ended), payments count, last payment, created. Filters: active default /
     ended / all, search. Row actions: **Renew** (`RenewManualSubscriptionDialog`: period end
@@ -403,7 +403,7 @@ The adversarial review pass added, on top of the spec above:
 - Termination idempotency keys are CYCLE-scoped (`manual:<subId>:expire:<periodStartMs>:<periodEndMs>`,
   same for the `ended` state event) — an end → renew → end sequence that restores the same
   period end must still expire credits the second time.
-- `assertRequestCanFundOwner` only accepts OPEN (pending | contacted) requests: a grant or
+- `assertRequestCanFundOwner` only accepts OPEN (pending | contacted | no_answer | call_back | wrong_number | awaiting_payment) requests: a grant or
   renewal can never resurrect a request the user canceled or an admin rejected.
 - A grant WITHOUT `requestId` auto-links the owner's open request (grants from the user/org
   detail pages fulfill and close it instead of leaving it pending forever).

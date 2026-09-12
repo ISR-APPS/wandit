@@ -160,6 +160,40 @@ describe("optimizeImage", () => {
 		expect(metadata.orientation).toBeUndefined();
 	});
 
+	it("decodes a JPEG whose SOS segment has Se=0 (Samsung)", async () => {
+		// A 2,000 px width forces the WebP path while the short height keeps the fixture small.
+		const input = await sharp({
+			create: {
+				background: { b: 200, g: 120, r: 30 },
+				channels: 3,
+				height: 48,
+				width: 2000,
+			},
+		})
+			.jpeg({ quality: 80 })
+			.toBuffer();
+		const sosIndex = input.indexOf(Buffer.from([0xff, 0xda]));
+
+		if (sosIndex < 0) {
+			throw new Error("The JPEG fixture has no SOS segment");
+		}
+
+		const patched = Buffer.from(input);
+		const segmentLength = patched.readUInt16BE(sosIndex + 2);
+		// JPEG stores Se as the second-last byte in the SOS segment.
+		patched[sosIndex + 2 + segmentLength - 2] = 0x00;
+
+		await expect(sharp(patched).toBuffer()).rejects.toThrow(/Invalid SOS/);
+
+		const result = await optimizeImage(patched, {
+			contentType: "image/jpeg",
+			ext: "jpg",
+		});
+
+		expect(result.contentType).toBe("image/webp");
+		expect(result.width).toBe(1920);
+	});
+
 	it("preserves alpha through the webp conversion", async () => {
 		const input = await noisePng(2200, 260, 4);
 
@@ -230,6 +264,19 @@ describe("optimizeImage", () => {
 		expect(result.height).toBe(256);
 	});
 
+	it("resizes a tall noise PNG to 8000 px", async () => {
+		// The narrow width isolates the 8,000 px height cap and limits fixture memory.
+		const input = await noisePng(500, 9000);
+
+		const result = await optimizeImage(input, {
+			contentType: "image/png",
+			ext: "png",
+		});
+
+		expect(result.contentType).toBe("image/webp");
+		expect(result.height).toBe(8000);
+	});
+
 	it("returns SVG unchanged regardless of size", async () => {
 		const input = Buffer.from(
 			`<svg xmlns="http://www.w3.org/2000/svg"><!--${"pad".repeat(60_000)}--><rect width="4000" height="4000"/></svg>`,
@@ -258,7 +305,7 @@ describe("optimizeImage", () => {
 		expect(result.contentType).toBe("image/gif");
 	});
 
-	it("returns animated inputs unchanged", async () => {
+	it("returns animated inputs unchanged with measured dimensions", async () => {
 		// Two noise frames stacked as a raw "toilet roll" become a 2-page
 		// animated webp; lossless noise stays over the 150KB threshold.
 		const input = await sharp(randomBytes(320 * 480 * 3), {
@@ -275,6 +322,8 @@ describe("optimizeImage", () => {
 
 		expect(result.bytes).toBe(input);
 		expect(result.contentType).toBe("image/webp");
+		expect(result.width).toBe(320);
+		expect(result.height).toBe(240);
 	});
 
 	it("never throws on non-image bytes, answering them unchanged", async () => {
@@ -288,6 +337,37 @@ describe("optimizeImage", () => {
 		expect(result.bytes).toBe(input);
 		expect(result.contentType).toBe("image/png");
 		expect(result.ext).toBe("png");
+	});
+
+	it("keeps known dimensions when WebP encoding fails", async () => {
+		const input = await sharp({
+			create: {
+				background: { b: 200, g: 120, r: 30 },
+				channels: 3,
+				height: 400,
+				width: 3000,
+			},
+		})
+			.png()
+			.toBuffer();
+		// The truncated file keeps its header, but sharp cannot read all pixels.
+		const truncated = input.subarray(0, input.byteLength - 20);
+
+		await expect(
+			sharp(truncated, { failOn: "error" }).metadata(),
+		).resolves.toMatchObject({ height: 400, width: 3000 });
+		await expect(
+			sharp(truncated, { failOn: "error" }).webp().toBuffer(),
+		).rejects.toThrow();
+
+		const result = await optimizeImage(truncated, {
+			contentType: "image/png",
+			ext: "png",
+		});
+
+		expect(result.bytes).toBe(truncated);
+		expect(result.width).toBe(3000);
+		expect(result.height).toBe(400);
 	});
 
 	it("falls back to generic type fields when nothing is declared", async () => {

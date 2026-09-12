@@ -123,7 +123,7 @@
 			"remove": "Retirer",
 			"retry": "Réessayer",
 			"unsupported": "Format non pris en charge",
-			"tooLarge": "Fichier trop lourd (vidéo 50 Mo, audio 25 Mo, images et documents 15 Mo max)",
+			"tooLarge": "Fichier trop lourd (vidéo 50 Mo, audio 25 Mo, images et documents 15 Mo max ; images limitées à 30 mégapixels, 8000 px par côté et 7 Mo après traitement)",
 			"failed": "Échec de l'envoi",
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},

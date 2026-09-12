@@ -1,8 +1,8 @@
-// Honest copy per bounded build-failure code, shared by the chat card and
-// the Page tab banner. provider_* codes explicitly say the model's PROVIDER
-// — not Wandit — had the problem; every message reassures that the last
-// version is safe (failed builds never touch the active page).
-// English chrome, same rule as the tray strings.
+/**
+ * Defines English copy for classified build failures.
+ * The chat card and Page tab call this module.
+ * Provider failures use one demand message and confirm that the last version is safe.
+ */
 
 import type { PageBuildFailureCode } from "@wandit/contracts";
 
@@ -12,6 +12,7 @@ export type BuildFailureCopy = {
 	message: string;
 };
 
+/** One entry per PageBuildFailureCode. The four provider_* codes share the demand copy. */
 export const BUILD_FAILURE_COPY: Record<
 	PageBuildFailureCode,
 	BuildFailureCopy
@@ -42,27 +43,23 @@ export const BUILD_FAILURE_COPY: Record<
 	},
 	provider_error: {
 		kicker: "Provider issue",
-		title: "The AI provider had an error.",
-		message:
-			"Something broke on the model provider's side — not on Wandit. Your last version is safe; a retry usually works.",
+		title: "Our AI provider is experiencing high demand.",
+		message: "Please try again in a few minutes. Your last version is safe.",
 	},
 	provider_overloaded: {
 		kicker: "Provider issue",
-		title: "The AI provider is at capacity.",
-		message:
-			"The model provider (not Wandit) is temporarily overloaded. Your last version is safe — try again in a minute.",
+		title: "Our AI provider is experiencing high demand.",
+		message: "Please try again in a few minutes. Your last version is safe.",
 	},
 	provider_rate_limited: {
 		kicker: "Provider issue",
-		title: "The AI provider is busy right now.",
-		message:
-			"Too many requests hit the model provider at once — this isn't a Wandit problem. Your last version is safe; try again in a minute.",
+		title: "Our AI provider is experiencing high demand.",
+		message: "Please try again in a few minutes. Your last version is safe.",
 	},
 	provider_timeout: {
 		kicker: "Provider issue",
-		title: "The AI provider took too long.",
-		message:
-			"The model provider stopped responding mid-build — not a Wandit issue. Your last version is safe — please retry.",
+		title: "Our AI provider is experiencing high demand.",
+		message: "Please try again in a few minutes. Your last version is safe.",
 	},
 	storage_failure: {
 		kicker: "Something went wrong",

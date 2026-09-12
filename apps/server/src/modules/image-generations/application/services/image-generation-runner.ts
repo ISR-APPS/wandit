@@ -1,3 +1,8 @@
+/**
+ * Runs queued image attempts and records provider usage.
+ * The image task calls this module after it claims an attempt.
+ * The runner calls image providers, metering services, and persistence functions.
+ */
 import {
 	type ImageGenerationAspect,
 	MAX_IMAGES_PER_GENERATION,
@@ -10,6 +15,7 @@ import {
 	classifyAiError,
 	type NormalizedAiError,
 	renderAiErrorSentence,
+	sentryRouteForSource,
 } from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
@@ -856,11 +862,7 @@ function captureObservedFailures(
 			refunded,
 			sentryEventId: null,
 		};
-		const route: AiErrorContext["route"] =
-			normalized.source === "gateway" ||
-			normalized.source.startsWith("provider:")
-				? "vercel"
-				: "none";
+		const route = sentryRouteForSource(normalized.source);
 		const sentryEventId =
 			observed.capture === false || normalized.kind === "cancelled"
 				? null

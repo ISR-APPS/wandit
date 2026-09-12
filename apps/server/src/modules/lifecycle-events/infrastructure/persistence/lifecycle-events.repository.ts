@@ -1,7 +1,12 @@
+/**
+ * Stores lifecycle events and loads dispatch facts for lifecycle services.
+ * Uses Drizzle queries against the application database.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type BillingPlanId,
 	creditsToCentiCredits,
+	OPEN_MANUAL_REQUEST_STATUSES,
 	SIGNUP_GRANT_CREDITS,
 } from "@wandit/contracts";
 import { and, asc, eq, gte, isNull, lte, sql } from "@wandit/db";
@@ -74,6 +79,7 @@ type LifecycleDispatchContextDbRow = {
 	name: string;
 };
 
+/** Dispatch queries include open offline requests to prevent conflicting lifecycle messages. */
 @Injectable()
 export class LifecycleEventsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -230,6 +236,11 @@ export class LifecycleEventsRepository {
 		userId: string,
 		now = new Date(),
 	): Promise<LifecycleDispatchContext | null> {
+		// Lifecycle messages must respect every request that still needs admin action.
+		const openRequestStatuses = sql.join(
+			OPEN_MANUAL_REQUEST_STATUSES.map((status) => sql`${status}`),
+			sql`, `,
+		);
 		const result = await this.db.execute<LifecycleDispatchContextDbRow>(sql`
 			select
 				u.email,
@@ -249,7 +260,7 @@ export class LifecycleEventsRepository {
 					from manual_subscription_requests request
 					where request.user_id = u.id
 						and request.organization_id is null
-						and request.status in ('pending', 'contacted')
+						and request.status in (${openRequestStatuses})
 				) as has_open_personal_manual_request,
 				exists (
 					select 1

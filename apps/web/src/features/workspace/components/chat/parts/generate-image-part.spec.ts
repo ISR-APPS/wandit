@@ -18,7 +18,7 @@ vi.mock("@/lib/i18n", () => ({
 						"workspace.chat.aiError.attribution.viaGateway":
 							"{provider} via Vercel AI Gateway",
 						"errors.ai.provider_error":
-							"{provider} returned an error. Please try again.",
+							"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 					} as Record<string, string>
 				)[key] ?? key;
 
@@ -294,7 +294,7 @@ describe("ImageGenerationResult", () => {
 
 		expect(html).toContain('data-gallery="true"');
 		expect(html).toContain(
-			"1 image was not made: OpenAI returned an error. Please try again.",
+			"1 image was not made: Our AI provider is experiencing high demand. Please try again in a few minutes.",
 		);
 		expect(html).toContain("OpenAI via Vercel AI Gateway");
 	});

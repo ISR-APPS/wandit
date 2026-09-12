@@ -1,4 +1,13 @@
-import { Loader2Icon, MessageSquareTextIcon, XCircleIcon } from "lucide-react";
+/**
+ * Collects admin notes and closure reasons from request row actions.
+ * Uses the request mutation and reports API errors through toasts.
+ */
+import {
+	BanIcon,
+	Loader2Icon,
+	MessageSquareTextIcon,
+	XCircleIcon,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
@@ -15,15 +24,20 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdminManualRequest } from "@/features/offline-billing/api/offline-billing.dto";
 import { useUpdateManualRequestMutation } from "@/features/offline-billing/api/offline-billing.mutations";
+import {
+	type ManualRequestNoteMode,
+	mapManualRequestNoteFormDto,
+} from "@/features/offline-billing/lib/offline-billing";
 import { isApiClientError } from "@/lib/api-client";
 
 type ManualRequestNoteDialogProps = {
 	request: AdminManualRequest;
-	mode: "note" | "reject";
+	mode: ManualRequestNoteMode;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 };
 
+/** Reopening the dialog loads the latest saved note into a fresh form. */
 export function ManualRequestNoteDialog(props: ManualRequestNoteDialogProps) {
 	if (!props.open) {
 		return null;
@@ -40,9 +54,35 @@ function OpenManualRequestNoteDialog({
 	const [note, setNote] = useState(request.adminNotes ?? "");
 	const [submitted, setSubmitted] = useState(false);
 	const mutation = useUpdateManualRequestMutation();
-	const trimmedNote = note.trim();
-	const noteIsValid =
-		trimmedNote.length <= 2000 && (mode !== "reject" || trimmedNote.length > 0);
+	// Null means the form is not valid for this mode.
+	const body = mapManualRequestNoteFormDto(mode, note);
+	const noteIsValid = body !== null;
+	const content = {
+		note: {
+			Icon: MessageSquareTextIcon,
+			title: "Edit admin note",
+			description: `Keep internal follow-up context for ${request.fullName}.`,
+			submitLabel: "Save note",
+			successMessage: "Admin note updated.",
+			validationMessage: "Keep the note under 2,000 characters.",
+		},
+		reject: {
+			Icon: XCircleIcon,
+			title: "Reject offline request",
+			description: `Record why ${request.fullName}'s request will not proceed.`,
+			submitLabel: "Reject request",
+			successMessage: "Offline request rejected.",
+			validationMessage: "Enter a rejection note.",
+		},
+		cancel: {
+			Icon: BanIcon,
+			title: "Cancel offline request",
+			description: `Record why ${request.fullName} canceled the order.`,
+			submitLabel: "Cancel request",
+			successMessage: "Offline request canceled.",
+			validationMessage: "Enter a cancellation note.",
+		},
+	}[mode];
 
 	function handleOpenChange(nextOpen: boolean) {
 		if (!nextOpen && mutation.isPending) {
@@ -54,21 +94,13 @@ function OpenManualRequestNoteDialog({
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setSubmitted(true);
-		if (!noteIsValid) {
+		if (body === null) {
 			return;
 		}
 
 		try {
-			await mutation.mutateAsync({
-				requestId: request.id,
-				body:
-					mode === "reject"
-						? { status: "rejected", adminNotes: trimmedNote }
-						: { adminNotes: trimmedNote || null },
-			});
-			toast.success(
-				mode === "reject" ? "Offline request rejected." : "Admin note updated.",
-			);
+			await mutation.mutateAsync({ requestId: request.id, body });
+			toast.success(content.successMessage);
 			onOpenChange(false);
 		} catch (error) {
 			toast.error(
@@ -79,7 +111,7 @@ function OpenManualRequestNoteDialog({
 		}
 	}
 
-	const Icon = mode === "reject" ? XCircleIcon : MessageSquareTextIcon;
+	const { Icon } = content;
 
 	return (
 		<Dialog open onOpenChange={handleOpenChange}>
@@ -95,15 +127,9 @@ function OpenManualRequestNoteDialog({
 								<Icon aria-hidden="true" />
 							</div>
 							<div>
-								<DialogTitle>
-									{mode === "reject"
-										? "Reject offline request"
-										: "Edit admin note"}
-								</DialogTitle>
+								<DialogTitle>{content.title}</DialogTitle>
 								<DialogDescription className="mt-1">
-									{mode === "reject"
-										? `Record why ${request.fullName}'s request will not proceed.`
-										: `Keep internal follow-up context for ${request.fullName}.`}
+									{content.description}
 								</DialogDescription>
 							</div>
 						</div>
@@ -123,11 +149,7 @@ function OpenManualRequestNoteDialog({
 							autoFocus
 						/>
 						<FieldError>
-							{submitted && !noteIsValid
-								? mode === "reject"
-									? "Enter a rejection note."
-									: "Keep the note under 2,000 characters."
-								: null}
+							{submitted && !noteIsValid ? content.validationMessage : null}
 						</FieldError>
 					</Field>
 
@@ -142,7 +164,8 @@ function OpenManualRequestNoteDialog({
 						</Button>
 						<Button
 							type="submit"
-							variant={mode === "reject" ? "destructive" : "default"}
+							// Both closure actions remove the request from the open queue.
+							variant={mode === "note" ? "default" : "destructive"}
 							disabled={mutation.isPending}
 						>
 							{mutation.isPending ? (
@@ -154,11 +177,7 @@ function OpenManualRequestNoteDialog({
 							) : (
 								<Icon data-icon="inline-start" aria-hidden="true" />
 							)}
-							{mutation.isPending
-								? "Saving…"
-								: mode === "reject"
-									? "Reject request"
-									: "Save note"}
+							{mutation.isPending ? "Saving…" : content.submitLabel}
 						</Button>
 					</DialogFooter>
 				</form>

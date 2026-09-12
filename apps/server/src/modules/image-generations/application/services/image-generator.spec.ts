@@ -9,6 +9,7 @@ import { APICallError, generateImage, generateText } from "ai";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ModelSafePhoto } from "../../../../infrastructure/storage/model-safe-photo";
 import {
 	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
@@ -68,10 +69,23 @@ vi.mock(
 	},
 );
 
+// Stable source bytes let provider assertions detect any URL part.
+const SOURCE_PHOTO_BYTES = new Uint8Array([1, 2, 3]);
+
+function loadBytesPhoto(url: string): Promise<ModelSafePhoto> {
+	return Promise.resolve({
+		bytes: SOURCE_PHOTO_BYTES,
+		kind: "bytes",
+		mediaType: "image/png",
+		url,
+	});
+}
+
 const PARAMS = {
 	aspect: "1:1" as const,
 	attemptId: "attempt_1",
 	index: 1,
+	loadModelSafePhoto: loadBytesPhoto,
 	metering: { operation: "image" as const, userId: "user_1" },
 	projectId: "project_1",
 	prompt: "editorial photography of a ceramic tagine in warm light",
@@ -333,7 +347,7 @@ describe("generateStandaloneImage", () => {
 			expect.objectContaining({
 				model,
 				prompt: {
-					images: sourceImageUrls,
+					images: [SOURCE_PHOTO_BYTES],
 					text: expect.stringContaining(SINGLE_FRAME_INSTRUCTION),
 				},
 			}),
@@ -402,7 +416,7 @@ describe("generateStandaloneImage", () => {
 		expect(result).toMatchObject({
 			failure: { kind: "capacity", provider: "openai" },
 			message:
-				"OpenAI is over capacity right now. Please try again in a minute.",
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 	});
@@ -419,7 +433,8 @@ describe("generateStandaloneImage", () => {
 
 		expect(result).toMatchObject({
 			failure: { kind: "timeout", source: "gateway" },
-			message: "OpenAI took too long to answer. Please try again.",
+			message:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 	});
@@ -473,7 +488,8 @@ describe("generateStandaloneImage", () => {
 
 		expect(result).toMatchObject({
 			failure: { kind: "provider_error", provider: "google" },
-			message: "Google returned an error. Please try again.",
+			message:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 	});
@@ -530,6 +546,7 @@ describe("generateStandaloneImage", () => {
 describe("editImageFromSources", () => {
 	const EDIT_PARAMS = {
 		aspect: "4:5",
+		loadModelSafePhoto: loadBytesPhoto,
 		metering: { operation: "image" as const, userId: "user_1" },
 		prompt: "restage on a marble bench",
 		sourceImageUrls: [
@@ -573,11 +590,13 @@ describe("editImageFromSources", () => {
 			text: expect.stringContaining("Target aspect ratio: 4:5."),
 		});
 		expect(content[1]).toMatchObject({
-			data: EDIT_PARAMS.sourceImageUrls[0],
+			data: SOURCE_PHOTO_BYTES,
+			mediaType: "image/png",
 			type: "file",
 		});
 		expect(content[2]).toMatchObject({
-			data: EDIT_PARAMS.sourceImageUrls[1],
+			data: SOURCE_PHOTO_BYTES,
+			mediaType: "image/png",
 			type: "file",
 		});
 		expect(call?.providerOptions).toMatchObject({
@@ -587,6 +606,62 @@ describe("editImageFromSources", () => {
 			},
 		});
 		expect(call?.telemetry).toEqual({ functionId: "image.edit" });
+	});
+
+	it("passes loaded source bytes to the provider", async () => {
+		mockEditedImage();
+		const bytes = new Uint8Array([4, 5, 6]);
+		const url = EDIT_PARAMS.sourceImageUrls[0] ?? "";
+
+		await editImageFromSources({
+			...EDIT_PARAMS,
+			loadModelSafePhoto: (sourceUrl) =>
+				Promise.resolve({
+					bytes,
+					kind: "bytes",
+					mediaType: "image/webp",
+					url: sourceUrl,
+				}),
+			sourceImageUrls: [url],
+		});
+
+		const content =
+			vi.mocked(generateText).mock.calls[0]?.[0]?.messages?.[0]?.content;
+
+		if (!Array.isArray(content)) {
+			throw new Error("Expected a content array");
+		}
+
+		expect(content[1]).toEqual({
+			data: bytes,
+			mediaType: "image/webp",
+			type: "file",
+		});
+	});
+
+	it("fails before the provider call when every source is unusable", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		try {
+			const result = await editImageFromSources({
+				...EDIT_PARAMS,
+				loadModelSafePhoto: (url) =>
+					Promise.resolve({ kind: "unusable", reason: "object missing", url }),
+			});
+
+			expect(result).toMatchObject({
+				failure: { kind: "internal", source: "ours" },
+				message: "No usable source images could be loaded.",
+				status: "failed",
+			});
+			expect(generateImage).not.toHaveBeenCalled();
+			expect(generateText).not.toHaveBeenCalled();
+			expect(warnSpy).toHaveBeenCalledWith(
+				`[image-generator] Unusable source ${EDIT_PARAMS.sourceImageUrls[0]}: object missing`,
+			);
+		} finally {
+			warnSpy.mockRestore();
+		}
 	});
 
 	it("uses the image API for a Muse override with sources, attribution, and cancellation", async () => {
@@ -605,7 +680,7 @@ describe("editImageFromSources", () => {
 			aspectRatio: "4:5",
 			model: "meta/muse-image-1.0",
 			prompt: {
-				images: EDIT_PARAMS.sourceImageUrls,
+				images: [SOURCE_PHOTO_BYTES, SOURCE_PHOTO_BYTES],
 				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
 			},
 			providerOptions: {
@@ -660,7 +735,7 @@ describe("editImageFromSources", () => {
 			abortSignal,
 			model: "openai/gpt-image-2",
 			prompt: {
-				images: EDIT_PARAMS.sourceImageUrls,
+				images: [SOURCE_PHOTO_BYTES, SOURCE_PHOTO_BYTES],
 				text: `${SOURCE_FIDELITY_INSTRUCTION}${EDIT_PARAMS.prompt}\nTarget aspect ratio: 4:5.`,
 			},
 			providerOptions: {
@@ -759,7 +834,8 @@ describe("editImageFromSources", () => {
 
 		expect(result).toMatchObject({
 			failure: { kind: "provider_error", provider: "google" },
-			message: "Google returned an error. Please try again.",
+			message:
+				"Our AI provider is experiencing high demand. Please try again in a few minutes.",
 			status: "failed",
 		});
 	});

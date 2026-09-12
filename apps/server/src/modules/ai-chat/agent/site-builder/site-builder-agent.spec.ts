@@ -1,7 +1,11 @@
-import { ToolLoopAgent } from "ai";
+import { APICallError, ToolLoopAgent } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
+import {
+	type captureAiError,
+	classifyAiError,
+} from "../../../ai-errors/domain";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { openrouterGenerationIdFromError } from "../../../metering/domain/gateway-metering";
 import {
@@ -154,6 +158,7 @@ function fakeCapture(): ScreenshotCapture {
 
 function setup(config?: {
 	abortSignal?: AbortSignal;
+	captureFailure?: typeof captureAiError;
 	imageEditModel?: string;
 	imageModel?: string;
 	meteringService?: MeteringService;
@@ -176,6 +181,7 @@ function setup(config?: {
 	const tools = createBuilderTools({
 		...toolConfig,
 		attemptId: "attempt_1",
+		pageAttemptId: "page_attempt_1",
 		projectId: "project_1",
 		screenshots,
 		state,
@@ -1979,6 +1985,7 @@ describe("self-contained script finish gate", () => {
 				attemptId: "attempt_gsap",
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_gsap",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2022,6 +2029,7 @@ describe("finish-pass document title", () => {
 				attemptId: "attempt_title",
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_title",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2110,7 +2118,7 @@ describe("generate_image tool", () => {
 				attemptRef: "attempt_1:image:1",
 				credits: 336,
 				estimatedCostUsdMicros: 134_400,
-				idempotencyKey: "page-build-image:page_event_1:1",
+				idempotencyKey: "page-build-image:page_event_1:attempt_1:1",
 				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
 				parentEventId: "page_event_1",
 			}),
@@ -2344,33 +2352,75 @@ describe("generate_image tool", () => {
 	});
 
 	it("passes handler failures through without counting the image", async () => {
-		const { options, state, tools } = setup();
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const captureFailure = vi.fn<typeof captureAiError>();
+		const { options, state, tools } = setup({ captureFailure });
+		const rawProviderMessage =
+			'{"error":"invalid image size","source":"https://private.example/source.png"}';
+		const providerError = new APICallError({
+			message: "Provider request failed",
+			requestBodyValues: {},
+			responseBody: rawProviderMessage,
+			statusCode: 400,
+			url: "https://api.openai.com/v1/images",
+		});
+		const failure = classifyAiError(providerError, {
+			model: "openai/gpt-image-2",
+			route: "vercel",
+			surface: "image",
+		});
+		if (!failure) throw new Error("expected a classified provider failure");
+		const publicMessage =
+			"OpenAI did not accept this request. Try a shorter prompt or a different file.";
 		vi.mocked(generateBuildImage).mockResolvedValue({
-			message: "gateway exploded",
+			failure,
+			message: publicMessage,
 			status: "failed",
 		});
 
-		const output = await tools.generate_image.execute?.(IMAGE_INPUT, options());
+		try {
+			const output = await tools.generate_image.execute?.(
+				IMAGE_INPUT,
+				options(),
+			);
 
-		expect(output).toEqual({ message: "gateway exploded", status: "failed" });
-		expect(state.imagesGenerated).toBe(0);
+			expect(output).toEqual({ message: publicMessage, status: "failed" });
+			expect(JSON.stringify(output)).not.toContain(rawProviderMessage);
+			expect(state.imagesGenerated).toBe(0);
+			const logs = consoleSpy.mock.calls.flat().join("\n");
+			expect(logs).toContain("invalid image size");
+			expect(logs).not.toContain("private.example");
+			expect(logs).toContain("kind=invalid_request status=400");
+			expect(captureFailure).toHaveBeenCalledOnce();
+			expect(captureFailure).toHaveBeenCalledWith(expect.any(Error), failure, {
+				functionId: "page-build.generate_image",
+				generationId: "page_attempt_1",
+				projectId: "project_1",
+				route: "vercel",
+				surface: "image",
+				toolName: "generate_image",
+				userId: "user_1",
+			});
 
-		// The key sequence is never reused: a retry after a failure must not
-		// collide with an image a concurrent call may have uploaded meanwhile.
-		vi.mocked(generateBuildImage).mockResolvedValue({
-			height: 1024,
-			imageBase64: "aW1nLWJ5dGVz",
-			mediaType: "image/png",
-			model: "test/image-model",
-			providerMetadata: {},
-			status: "generated",
-			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
-			width: 1536,
-		});
-		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_2"));
-		expect(generateBuildImage).toHaveBeenLastCalledWith(
-			expect.objectContaining({ index: 2 }),
-		);
+			// The key sequence is never reused: a retry after a failure must not
+			// collide with an image a concurrent call may have uploaded meanwhile.
+			vi.mocked(generateBuildImage).mockResolvedValue({
+				height: 1024,
+				imageBase64: "aW1nLWJ5dGVz",
+				mediaType: "image/png",
+				model: "test/image-model",
+				providerMetadata: {},
+				status: "generated",
+				url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+				width: 1536,
+			});
+			await tools.generate_image.execute?.(IMAGE_INPUT, options("img_2"));
+			expect(generateBuildImage).toHaveBeenLastCalledWith(
+				expect.objectContaining({ index: 2 }),
+			);
+		} finally {
+			consoleSpy.mockRestore();
+		}
 	});
 
 	it("reserves budget and key indexes atomically across parallel calls", async () => {
@@ -2513,6 +2563,7 @@ describe("runSiteBuild", () => {
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/stalled",
 				onGenerationError,
+				pageAttemptId: "page_attempt_stalled",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2595,6 +2646,7 @@ describe("runSiteBuild", () => {
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/stalled",
 				onGenerationError,
+				pageAttemptId: "page_attempt_partial_stall",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2675,6 +2727,7 @@ describe("runSiteBuild", () => {
 				attemptId: "attempt_slow_tool",
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_slow_tool",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2737,6 +2790,7 @@ describe("runSiteBuild", () => {
 				attemptId: "attempt_progressing",
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_progressing",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2761,6 +2815,8 @@ describe("runSiteBuild", () => {
 
 	it("starts a vision-capable build with the brief's user photos attached", async () => {
 		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		// Stable source bytes expose any URL part in the model request.
+		const bytes = new Uint8Array([1, 2, 3]);
 		const firstPhoto =
 			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
 		const secondPhoto =
@@ -2776,7 +2832,15 @@ describe("runSiteBuild", () => {
 			await runSiteBuild({
 				attemptId: "attempt_photos",
 				brief,
+				loadModelSafePhoto: (url) =>
+					Promise.resolve({
+						bytes,
+						kind: "bytes",
+						mediaType: "image/png",
+						url,
+					}),
 				model: "openai/test",
+				pageAttemptId: "page_attempt_photos",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2797,12 +2861,12 @@ describe("runSiteBuild", () => {
 								text: `[User photo 1 — URL: ${firstPhoto}]`,
 								type: "text",
 							},
-							{ data: firstPhoto, mediaType: "image", type: "file" },
+							{ data: bytes, mediaType: "image/png", type: "file" },
 							{
 								text: `[User photo 2 — URL: ${secondPhoto}]`,
 								type: "text",
 							},
-							{ data: secondPhoto, mediaType: "image", type: "file" },
+							{ data: bytes, mediaType: "image/png", type: "file" },
 							{
 								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
 								type: "text",
@@ -2833,6 +2897,7 @@ describe("runSiteBuild", () => {
 				attemptId: "attempt_text_only",
 				brief,
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_text_only",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -2905,6 +2970,7 @@ describe("runSiteBuild", () => {
 				attemptId: "attempt_budget",
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
+				pageAttemptId: "page_attempt_budget",
 				projectId: "project_1",
 				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
@@ -3008,9 +3074,12 @@ describe("progress events", () => {
 			type: "image-start",
 		});
 		expect(events).toContainEqual({
+			aspect: "16:9",
+			height: 1024,
 			role: "hero background",
 			type: "image-generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+			width: 1536,
 		});
 	});
 

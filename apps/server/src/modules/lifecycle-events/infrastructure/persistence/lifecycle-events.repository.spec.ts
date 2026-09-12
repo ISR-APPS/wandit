@@ -1,3 +1,4 @@
+import { OPEN_MANUAL_REQUEST_STATUSES } from "@wandit/contracts";
 import { db } from "@wandit/db";
 import { lifecycleEvents } from "@wandit/db/schema/lifecycle-events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -321,8 +322,13 @@ describe("LifecycleEventsRepository due and dispatch context queries", () => {
 		);
 		expect(contextQuery.statement).toContain("receipt.organization_id is null");
 		expect(contextQuery.statement).toContain(
-			"request.status in ('pending', 'contacted')",
+			"request.status in ($1, $2, $3, $4, $5, $6)",
 		);
+		expect(contextQuery.params).toEqual([
+			...OPEN_MANUAL_REQUEST_STATUSES,
+			NOW,
+			"user-1",
+		]);
 		expect(contextQuery.statement).toContain(
 			"prompt.event = 'first_prompt_sent'",
 		);
