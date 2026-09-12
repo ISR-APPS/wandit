@@ -11,6 +11,8 @@ import {
 import {
 	BILLING_CATALOG,
 	type BillingPlanCatalogItem,
+	type BillingPlanId,
+	type CreditTier,
 	priceLookupKey,
 	purchasableTiersFor,
 	type Subscription,
@@ -373,10 +375,16 @@ describe("plan picker query resilience", () => {
 
 	afterEach(cleanup);
 
-	function renderPicker(initialInterval?: "month" | "year") {
+	function renderPicker(
+		initialInterval?: "month" | "year",
+		initialPlan?: BillingPlanId,
+		initialTierCredits?: CreditTier,
+	) {
 		return render(
 			createElement(PlanPickerDialog, {
 				initialInterval,
+				initialPlan,
+				initialTierCredits,
 				onOpenChange: vi.fn(),
 				open: true,
 				surface: "marketing_pricing",
@@ -426,7 +434,7 @@ describe("plan picker query resilience", () => {
 				balance: { settledBalance: 250 },
 			};
 		});
-		renderPicker(interval);
+		renderPicker(interval, "starter", 60);
 		const starter = screen
 			.getByRole("heading", { name: "Starter" })
 			.closest("article");
@@ -514,12 +522,34 @@ describe("plan picker query resilience", () => {
 
 		renderPicker();
 
-		expect(screen.getByRole("heading", { name: "Starter" })).toBeTruthy();
+		expect(screen.queryByRole("heading", { name: "Starter" })).toBeNull();
 		expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
-		expect(screen.getAllByRole("button", { name: "Continue" })).toHaveLength(2);
+		expect(screen.getAllByRole("button", { name: "Continue" })).toHaveLength(1);
 		expect(screen.queryByRole("heading", { name: "Business" })).toBeNull();
 		expect(screen.queryByRole("tab", { name: "Cash / transfer" })).toBeNull();
 		expect(screen.queryByText("Plans could not load")).toBeNull();
+	});
+
+	it("hides Starter from a workspace without a subscription even when the landing stash asks for it", () => {
+		pickerState.subscription = null;
+		renderPicker("month", "starter", 60);
+		expect(screen.queryByRole("heading", { name: "Starter" })).toBeNull();
+		expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
+	});
+
+	it("keeps the Starter card for a current Starter subscriber", () => {
+		subscribeToPro();
+		if (!pickerState.subscription)
+			throw new Error("Expected the subscription fixture");
+		pickerState.subscription = {
+			...pickerState.subscription,
+			plan: "starter",
+			tierCredits: 60,
+			priceLookupKey: "starter_60_month",
+		};
+		renderPicker();
+		expect(screen.getByRole("heading", { name: "Starter" })).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Pro" })).toBeTruthy();
 	});
 
 	it("still honors a valid paid-subscriptions switch", () => {
@@ -530,7 +560,7 @@ describe("plan picker query resilience", () => {
 		expect(
 			screen.getByRole("heading", { name: "Paid plans coming soon" }),
 		).toBeTruthy();
-		expect(screen.queryByRole("heading", { name: "Starter" })).toBeNull();
+		expect(screen.queryByRole("heading", { name: "Pro" })).toBeNull();
 	});
 
 	it.each([
@@ -548,6 +578,6 @@ describe("plan picker query resilience", () => {
 		expect(
 			screen.getByRole("heading", { name: "Plans could not load" }),
 		).toBeTruthy();
-		expect(screen.queryByRole("heading", { name: "Starter" })).toBeNull();
+		expect(screen.queryByRole("heading", { name: "Pro" })).toBeNull();
 	});
 });

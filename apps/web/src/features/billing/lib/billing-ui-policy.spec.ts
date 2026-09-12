@@ -1,9 +1,12 @@
+import type { BillingPlanCatalogItem, Subscription } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
 	areTopupsAvailable,
 	getManualGraceNoticeDates,
 	getPendingSubscriptionChange,
+	getStarterCancelOffer,
+	isStarterPlanVisible,
 	resolvePlanPickerInterval,
 	resolvePlanPickerPaymentMethod,
 } from "./billing-ui-policy";
@@ -141,5 +144,154 @@ describe("billing UI policy", () => {
 		it("returns null when every payment method is disabled", () => {
 			expect(resolvePlanPickerPaymentMethod("card", false, false)).toBeNull();
 		});
+	});
+});
+
+const proSubscription: Subscription = {
+	cancelAtPeriodEnd: false,
+	createdAt: "2026-09-01T00:00:00.000Z",
+	currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+	currentPeriodStart: "2026-09-01T00:00:00.000Z",
+	entitled: true,
+	id: "2d8aa13f-512f-41cd-be6d-bd76310cae02",
+	interval: "month",
+	organizationId: null,
+	pendingInterval: null,
+	pendingPlan: null,
+	pendingTierCredits: null,
+	plan: "pro",
+	priceLookupKey: "pro_250_month",
+	provider: "stripe",
+	providerSubscriptionId: "sub_pro",
+	status: "active",
+	tierCredits: 250,
+	updatedAt: "2026-09-01T00:00:00.000Z",
+	userId: "user-1",
+};
+const starterPlan: BillingPlanCatalogItem = {
+	basePer100Usd: 15,
+	features: { seats: false, teamWorkspace: false },
+	id: "starter",
+	tiers: [
+		{
+			annualLookupKey: "starter_60_year",
+			annualUsd: 90,
+			monthlyLookupKey: "starter_60_month",
+			monthlyUsd: 9,
+			tierCredits: 60,
+		},
+	],
+};
+const eligibleOfferInput = {
+	subscription: proSubscription,
+	starterPlan,
+	isPersonal: true,
+	paidSubscriptionsEnabled: true,
+};
+
+describe("Starter cancel offer", () => {
+	it.each([
+		"month",
+		"year",
+	] as const)("keeps the Pro subscriber's %s interval and uses the catalog tier", (interval) => {
+		expect(
+			getStarterCancelOffer({
+				...eligibleOfferInput,
+				subscription: { ...proSubscription, interval },
+			}),
+		).toEqual({
+			interval,
+			plan: "starter",
+			priceUsd: interval === "month" ? 9 : 90,
+			tierCredits: 60,
+		});
+	});
+
+	it.each([
+		{
+			label: "Starter subscriber",
+			input: { subscription: { ...proSubscription, plan: "starter" as const } },
+		},
+		{
+			label: "pending Starter change",
+			input: {
+				subscription: {
+					...proSubscription,
+					pendingPlan: "starter" as const,
+					pendingTierCredits: 60 as const,
+				},
+			},
+		},
+		{
+			label: "manual subscriber",
+			input: { subscription: { ...proSubscription, provider: "manual" } },
+		},
+		{ label: "team workspace", input: { isPersonal: false } },
+		{
+			label: "disabled paid subscriptions",
+			input: { paidSubscriptionsEnabled: false },
+		},
+		{ label: "missing Starter catalog", input: { starterPlan: undefined } },
+		{
+			label: "empty Starter tiers",
+			input: { starterPlan: { ...starterPlan, tiers: [] } },
+		},
+		{
+			label: "scheduled cancellation",
+			input: { subscription: { ...proSubscription, cancelAtPeriodEnd: true } },
+		},
+		{
+			label: "past-due subscriber without entitlement",
+			input: {
+				subscription: {
+					...proSubscription,
+					status: "past_due",
+					entitled: false,
+				},
+			},
+		},
+		{
+			label: "workspace without a subscription",
+			input: { subscription: null },
+		},
+		{ label: "unresolved subscription", input: { subscription: undefined } },
+	])("has no offer for $label", ({ input }) => {
+		expect(
+			getStarterCancelOffer({ ...eligibleOfferInput, ...input }),
+		).toBeNull();
+	});
+});
+
+describe("Starter plan visibility", () => {
+	it("hides Starter without a subscription even when the initial plan asks for it", () => {
+		expect(isStarterPlanVisible(null, "starter")).toBe(false);
+		expect(isStarterPlanVisible(undefined, "starter")).toBe(false);
+	});
+	it("shows Starter to a Pro subscriber who opens the cancel offer", () => {
+		expect(isStarterPlanVisible(proSubscription, "starter")).toBe(true);
+	});
+	it("keeps Starter visible for a current Starter subscriber", () => {
+		expect(
+			isStarterPlanVisible({ ...proSubscription, plan: "starter" }, undefined),
+		).toBe(true);
+	});
+	it("hides Starter from the usual Pro picker", () => {
+		expect(isStarterPlanVisible(proSubscription, undefined)).toBe(false);
+	});
+	it("shows a pending Starter change without an initial selection", () => {
+		expect(
+			isStarterPlanVisible(
+				{ ...proSubscription, pendingPlan: "starter", pendingTierCredits: 60 },
+				undefined,
+			),
+		).toBe(true);
+	});
+	it("hides Starter for manual subscribers even with an initial Starter selection", () => {
+		expect(
+			isStarterPlanVisible(
+				{ ...proSubscription, provider: "manual", plan: "starter" },
+				"starter",
+			),
+		).toBe(false);
 	});
 });
