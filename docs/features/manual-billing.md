@@ -128,9 +128,11 @@ the checkout-return sync or any webhook). Scope that lookup to `provider = "stri
      `ManualPaymentsEnabledGuard` in the settings module (same shape as
      `SubscriptionsEnabledGuard`) and use it on the POST route.
   2. Org scope requires `organizationsEnabled` (reuse the admission rule).
-  3. Plan pairing: personal → `starter | pro`, org → `business` (same
-     `assertPlanMatchesScope` rule; throw `WorkspaceNotSupportedError`). The tier must also be
-     purchasable for that plan; legacy and cross-plan tiers are rejected.
+  3. New personal requests accept Pro. New organization requests accept Business. A scope
+     mismatch throws `WorkspaceNotSupportedError`. A new Starter request throws a plain
+     `BadRequestException`. The tier must be purchasable for its plan. Legacy and cross-plan
+     tiers are rejected. Admin grants and admin renewals of Starter stay available.
+     A subscriber's own new request must ask for Pro.
   4. If the owner has a live subscription that is NOT manual (Stripe) → `ActiveSubscriptionExistsError`
      (409 `ALREADY_SUBSCRIBED`). A live MANUAL subscription is allowed (the request is then a
      change/renewal request; the admin sees `currentSubscription`).
@@ -274,7 +276,7 @@ new repositories). Mirror the pattern/specs of `subscription-refill.task.ts` and
 
 ### 3.9 Tests (vitest, colocated `*.spec.ts`)
 
-- `ManualSubscriptionRequestsService`: disabled switch, Starter/Pro personal pairing,
+- `ManualSubscriptionRequestsService`: disabled switch, Pro personal pairing, Starter rejection,
   Business organization pairing, legacy/cross-plan tier rejection, blocked by Stripe sub,
   allowed with manual sub, duplicate open request → 409, happy path, cancel.
 - `ManualSubscriptionsService`: grant (credits ×100, yearly slots, request approved,
@@ -311,7 +313,7 @@ new repositories). Mirror the pattern/specs of `subscription-refill.task.ts` and
 - Cash / transfer tab (`ManualPaymentRequestPanel`, new file
   `components/manual-payment-request-panel.tsx`):
   - Shows the same billing-cycle toggle + plan-specific tier select (reuse `PlanCard` for
-    Starter/Pro/Business price display so the user sees the USD price; add a line "Local price
+    Pro/Business price display so the user sees the USD price; add a line "Local price
     agreed on the call").
   - Form: full name (prefilled from session name), phone (required), company (optional),
     country select (DZ default when locale is `ar`/`fr`? — default `DZ`), city (optional),

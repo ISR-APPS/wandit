@@ -8,6 +8,7 @@ import {
 	changeBillingSubscriptionBodySchema,
 	createBillingCheckoutBodySchema,
 	ENTITLED_SUBSCRIPTION_STATUSES,
+	isNewSubscriptionPlan,
 	isPurchasableTier,
 	LEGACY_CREDIT_TIERS,
 	PERSISTED_TOPUP_PACKS,
@@ -54,6 +55,12 @@ const LEGACY_PRO_ECONOMICS = [
 ] as const;
 
 describe("billing catalog", () => {
+	it("allows only Pro and Business to start subscriptions", () => {
+		expect(isNewSubscriptionPlan("starter")).toBe(false);
+		expect(isNewSubscriptionPlan("pro")).toBe(true);
+		expect(isNewSubscriptionPlan("business")).toBe(true);
+	});
+
 	it("publishes Starter and the exact active Pro and Business economics", () => {
 		expect(billingPlanIds).toEqual(["starter", "pro", "business"]);
 		expect(purchasableTiersFor("starter")).toEqual([60]);

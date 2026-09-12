@@ -1,3 +1,7 @@
+/**
+ * Shows scoped subscription plans and previews changes before confirmation.
+ * The billing modal supplies selections; billing queries and mutations handle requests.
+ */
 import type {
 	BillingInterval,
 	BillingPlanCatalogItem,
@@ -59,6 +63,7 @@ import {
 import {
 	areTopupsAvailable,
 	getPendingSubscriptionChange,
+	isStarterPlanVisible,
 	type PlanPickerPaymentMethod,
 	resolvePlanPickerInterval,
 	resolvePlanPickerPaymentMethod,
@@ -118,9 +123,12 @@ type ChangeTarget = {
 	tierCredits: CreditTier;
 };
 
-const PERSONAL_PLAN_IDS = ["starter", "pro"] as const;
 const ORGANIZATION_PLAN_IDS = ["business"] as const;
 
+/**
+ * Opens from the billing modal provider. Starter shows only to a current subscriber;
+ * a workspace without a subscription sees Pro, or Business in a team workspace.
+ */
 export function PlanPickerDialog({
 	open,
 	onOpenChange,
@@ -523,8 +531,15 @@ function PlanPickerContent({
 		);
 	}
 
+	// Starter is available only to current subscribers who hold it or enter through the offer.
+	const personalPlanIds: readonly BillingPlanId[] = isStarterPlanVisible(
+		subscription,
+		initialPlan,
+	)
+		? ["starter", "pro"]
+		: ["pro"];
 	const scopedPlanIds: readonly BillingPlanId[] = isPersonal
-		? PERSONAL_PLAN_IDS
+		? personalPlanIds
 		: ORGANIZATION_PLAN_IDS;
 	const scopedPlans = scopedPlanIds.flatMap((planId) => {
 		const catalogPlan = catalog.plans.find((item) => item.id === planId);
@@ -658,7 +673,12 @@ function PlanPickerContent({
 				) : null}
 			</div>
 
-			<div className={cn("grid gap-4", isPersonal && "sm:grid-cols-2")}>
+			<div
+				className={cn(
+					"grid gap-4",
+					isPersonal && scopedPlans.length > 1 && "sm:grid-cols-2",
+				)}
+			>
 				{scopedPlans.map((plan) => {
 					const planCopy = getBillingPlanCopy(plan.id, copy);
 					const tier = resolveSelectedTier(

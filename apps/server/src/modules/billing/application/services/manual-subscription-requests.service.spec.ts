@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import {
+	BadRequestException,
+	ConflictException,
+	NotFoundException,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type {
 	CreateManualSubscriptionRequestBody,
@@ -251,22 +255,17 @@ describe("ManualSubscriptionRequestsService", () => {
 		});
 	});
 
-	it("accepts Starter for a personal workspace", async () => {
+	it("rejects Starter because it is only a cancel-time offer", async () => {
 		const { requests, service } = setup();
 
 		await expect(
 			service.create(
 				user,
-				{ ...body, plan: "starter", tierCredits: 50 },
+				{ ...body, plan: "starter", tierCredits: 60 },
 				personalWorkspace,
 			),
-		).resolves.toMatchObject({
-			request: { plan: "starter", tierCredits: 50 },
-		});
-		expect(requests.insert).toHaveBeenCalledWith(
-			expect.objectContaining({ plan: "starter", tierCredits: 50 }),
-			expect.anything(),
-		);
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(requests.insert).not.toHaveBeenCalled();
 	});
 
 	it("blocks a request when the owner has a Stripe subscription", async () => {

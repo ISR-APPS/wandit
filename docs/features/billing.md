@@ -1,16 +1,18 @@
 # Billing & Subscriptions (Stripe now, LASATIM/CIB later)
 
-**Status:** shipped billing system, catalog updated for pricing v6 · **Original branch:**
+**Status:** shipped billing system, catalog updated for pricing v7 and Starter retention · **Original branch:**
 `feat/billing-subscriptions`. Extends `docs/features/credits.md` (slice 7) with the real-money
 layer (slice 8). This doc is the current billing operations reference.
 
 ## Purpose
 
-Everything needed for a personal workspace to subscribe to **Starter** or **Pro**, or an
-organization workspace to subscribe to **Business**, buy one-time **top-up packs** when they
-are enabled, manage/cancel via the Stripe portal, and have credits granted, expired, and
-revoked correctly and idempotently by webhooks. Payment-provider-agnostic: Stripe is adapter
-#1; LASATIM (CIB, DZD) can later write the same ledger through adapter #2.
+Everything needed for a personal workspace to start **Pro** and an organization workspace to
+start **Business**. It supports enabled **top-up packs**, Stripe portal management, and
+idempotent credit updates from webhooks. Stripe is adapter #1. LASATIM (CIB, DZD) can later
+write the same ledger through adapter #2.
+
+Starter remains available to existing subscribers and as a cancel-time retention offer.
+See [`starter-cancel-offer.md`](starter-cancel-offer.md).
 
 ## Settled decisions
 
@@ -24,11 +26,16 @@ revoked correctly and idempotently by webhooks. Payment-provider-agnostic: Strip
 - **Webhooks are the source of truth** for subscription state; API responses update the mirror opportunistically but never skip the inbox.
 - **Currency:** USD prices in v1 (Stripe Checkout Adaptive Pricing can localize display later; EUR/DZD are catalog/config concerns, not schema concerns).
 
-## Plan catalog (pricing v6)
+## Plan catalog (pricing v7 with Starter retention)
 
-The plan ids are `starter`, `pro`, and `business`. Starter and Pro are personal-workspace
-plans. Business is the organization-workspace plan. Yearly prices are exactly 10× the
-corresponding monthly price.
+The plan ids are `starter`, `pro`, and `business`. Pro starts new personal subscriptions.
+Business starts new organization subscriptions. Yearly prices are exactly 10× the monthly
+prices.
+
+Starter is a retention offer only. Entitled Stripe Pro subscribers on personal workspaces see
+it in the cancel dialog. Acceptance schedules Starter at renewal through the existing change flow.
+New checkouts and new offline requests reject Starter. The public catalog still includes it
+for this offer and for existing Starter subscribers.
 
 | Plan | Credits / month | Monthly | Yearly | Volume discount |
 |---|---:|---:|---:|---:|
@@ -94,9 +101,11 @@ defined by valid plan/tier pairs.
   `organization_id`, `provider`, `provider_subscription_id` unique, `plan` (`starter | pro |
   business`), `tier_credits` int, `interval` (`'month'|'year'`), `status` text (Stripe status
   vocabulary), `price_lookup_key` text, `current_period_start/end` timestamptz,
-  `cancel_at_period_end` bool, timestamps + `updatedAt $onUpdate`. Personal owners may use
-  Starter or Pro; organization owners may use Business. Partial unique indexes allow one
-  non-terminal (`status not in ('canceled','incomplete_expired')`) subscription per owner.
+  `cancel_at_period_end` bool, timestamps + `updatedAt $onUpdate`. New personal subscriptions
+  start on Pro. Current entitled Stripe personal subscribers on other plans can schedule Starter at renewal.
+  Existing Starter rows, admin manual Starter grants, and renewals remain valid. Organization
+  owners use Business. Partial unique indexes allow one non-terminal
+  (`status not in ('canceled','incomplete_expired')`) subscription per owner.
 - `billing_webhook_events` — durable inbox with claim leases, attempt counts, failed-event retry, and terminal processed/skipped states.
 - `billing_checkout_attempts` — a UUID nonce is persisted before either subscription or top-up Checkout Session creation; guarded states are `created → session_attached → completed|expired`.
 - `billing_change_intents` — binds a preview, target price, fixed `proration_date`, amount/currency, expiry, durable provider-attempt state, and replayable provider outcome.

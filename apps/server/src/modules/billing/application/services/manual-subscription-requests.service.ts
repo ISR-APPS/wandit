@@ -1,8 +1,19 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+/**
+ * Implements requests for offline subscriptions.
+ * Manual billing controllers call this service for request reads, creates, and cancellations.
+ * This file calls billing repositories, email, settings, and analytics services.
+ */
+import {
+	BadRequestException,
+	Inject,
+	Injectable,
+	Logger,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type BillingPlanId,
 	type CreateManualSubscriptionRequestBody,
+	isNewSubscriptionPlan,
 	type ManualSubscriptionRequest,
 	type ManualSubscriptionRequestViewResponse,
 	SUBSCRIPTION_PROVIDERS,
@@ -38,6 +49,9 @@ type BillingScope = {
 	owner: CreditOwner;
 };
 
+/**
+ * Coordinates offline requests and limits new personal requests to Pro.
+ */
 @Injectable()
 export class ManualSubscriptionRequestsService {
 	private readonly logger = new Logger(ManualSubscriptionRequestsService.name);
@@ -85,6 +99,12 @@ export class ManualSubscriptionRequestsService {
 		}
 
 		this.assertPlanMatchesScope(body.plan, scope.organizationId);
+		// New subscriptions exclude Starter because only current subscribers receive its renewal offer.
+		if (!isNewSubscriptionPlan(body.plan)) {
+			throw new BadRequestException(
+				"The Starter plan is only offered to current subscribers",
+			);
+		}
 
 		const request = await this.subscriptionCreditsRepository.withOwnerLock(
 			scope.owner,

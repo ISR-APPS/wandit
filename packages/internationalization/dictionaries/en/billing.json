@@ -29,6 +29,12 @@
 		"cancelPlan": "Cancel plan",
 		"cancelTitle": "Cancel your subscription?",
 		"cancelBody": "Your plan remains active until the end of the current billing period. You can resume before then.",
+		"cancelOffer": {
+			"title": "Try Starter instead",
+			"body": "Your current plan stays active until {date}. Starter starts at renewal. Cancel anytime.",
+			"cta": "Switch to Starter instead",
+			"orCancel": "Or tell us why you are leaving"
+		},
 		"cancelReasonPrompt": "What's the main reason you're leaving?",
 		"cancelReasons": {
 			"too_expensive": "It's too expensive",
