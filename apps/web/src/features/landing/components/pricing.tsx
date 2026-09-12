@@ -1,3 +1,8 @@
+/**
+ * Shows the public Free, Pro, and Business pricing cards.
+ * The landing pricing page calls this component.
+ * This component opens billing and workspace dialogs.
+ */
 import { useNavigate } from "@tanstack/react-router";
 import type {
 	BillingInterval,
@@ -76,6 +81,7 @@ function PlanCard({
 	);
 }
 
+/** Shows live catalog prices and keeps unavailable purchase actions hidden. */
 export function Pricing() {
 	const { data: session } = useSession();
 	const { open: openAuth } = useAuthModal();
@@ -88,10 +94,6 @@ export function Pricing() {
 	const [interval, setBillingInterval] = useState<BillingInterval>("month");
 	const [selectedCredits, setSelectedCredits] = useState<CreditTier>();
 	const [createTeamOpen, setCreateTeamOpen] = useState(false);
-	const starterPlan = plansQuery.data?.plans.find(
-		(plan) => plan.id === "starter",
-	);
-	const starterTier = starterPlan?.tiers[0];
 	const proPlan = plansQuery.data?.plans.find((plan) => plan.id === "pro");
 	const selectedTier =
 		proPlan?.tiers.find((tier) => tier.tierCredits === selectedCredits) ??
@@ -103,9 +105,6 @@ export function Pricing() {
 		settingsQuery.data?.manualPaymentsEnabled === true;
 	const showBetaPosture =
 		settingsQuery.isSuccess && !subscriptionPlansAvailable;
-	const starterCatalogUnavailable =
-		plansQuery.isError ||
-		(plansQuery.isSuccess && (!starterPlan || !starterTier));
 	const proCatalogUnavailable =
 		plansQuery.isError || (plansQuery.isSuccess && (!proPlan || !selectedTier));
 	const freeCreditsLine =
@@ -184,8 +183,10 @@ export function Pricing() {
 				</Reveal>
 				<div
 					className={cn(
-						"grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5",
-						showBusiness ? "lg:grid-cols-4" : "lg:grid-cols-3",
+						"grid grid-cols-1 gap-4 md:gap-5",
+						showBusiness
+							? "md:grid-cols-2 lg:grid-cols-[0.75fr_1.05fr_0.9fr]"
+							: "md:grid-cols-[0.82fr_1.18fr]",
 					)}
 				>
 					<Reveal>
@@ -221,63 +222,6 @@ export function Pricing() {
 					</Reveal>
 
 					<Reveal delay={0.07}>
-						<PlanCard>
-							<h3 className="font-display font-semibold text-lg">
-								{pricing.starter.name}
-							</h3>
-							<p className="mt-1 text-muted-foreground text-sm">
-								{pricing.starter.tagline}
-							</p>
-							<div className="mt-5 min-h-11">
-								{starterTier ? (
-									<PriceSummary
-										interval={interval}
-										locale={locale}
-										periodLabel={
-											interval === "month"
-												? pricing.starter.perMonth
-												: pricing.starter.perYear
-										}
-										tier={starterTier}
-									/>
-								) : starterCatalogUnavailable ? (
-									<p className="text-destructive text-sm" role="alert">
-										{pricing.pro.catalogUnavailable}
-									</p>
-								) : (
-									<>
-										<Skeleton className="h-9 w-36" />
-										<span className="sr-only">{pricing.pro.loading}</span>
-									</>
-								)}
-							</div>
-							<p className="mt-4 font-semibold text-base">
-								{pricing.starter.creditsLine}
-							</p>
-							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
-								{pricing.starter.features.map((feature) => (
-									<FeatureRow key={feature} label={feature} />
-								))}
-							</ul>
-							{subscriptionPlansAvailable && starterTier ? (
-								<Button
-									variant="outline"
-									className="mt-8 active:translate-y-px"
-									onClick={() =>
-										openPlanPicker("marketing_pricing", {
-											plan: "starter",
-											interval,
-											tierCredits: starterTier.tierCredits,
-										})
-									}
-								>
-									{pricing.starter.cta}
-								</Button>
-							) : null}
-						</PlanCard>
-					</Reveal>
-
-					<Reveal delay={0.12}>
 						<PlanCard featured>
 							<Badge className="absolute inset-x-0 -top-2.5 mx-auto w-fit border-none bg-gradient-ember font-medium font-mono text-[10px] text-[oklch(0.2_0.03_55)] uppercase tracking-[0.14em]">
 								{showBetaPosture ? pricing.beta.badge : pricing.pro.badge}
@@ -389,7 +333,7 @@ export function Pricing() {
 					</Reveal>
 
 					{showBusiness && businessFromUsd !== null ? (
-						<Reveal delay={0.17}>
+						<Reveal delay={0.12}>
 							<PlanCard>
 								<h3 className="font-display font-semibold text-lg">
 									{pricing.business.name}

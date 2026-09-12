@@ -11,7 +11,7 @@ and the grant of `pricing-v6-starter-plan.md` §3 (all stay as history).
 | D1 | Credit unit | **1 credit = $0.032 of AI-provider cost.** `AI_USD_PER_CREDIT` default 0.032; `DEFAULT_USD_MICROS_PER_CREDIT` 32_000. Was $0.04. |
 | D2 | Pro | The pre-v6 ladder returns: 250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500 credits at the unchanged prices $25, $50, $100, $200, $294, $480, $705, $920, $1125. $25 buys $8.00 of AI. |
 | D3 | Business | Same tiers as Pro at exactly 2× the Pro price. Org workspaces only. |
-| D4 | Starter | $9 / month, $90 / year, **60 credits** ($1.92 of AI). Personal workspaces only. |
+| D4 | Starter | $9 / month, $90 / year, **60 credits** ($1.92 of AI). Personal workspaces only.<br>2026-09-12: Starter is no longer sold to new buyers; see `starter-cancel-offer.md`. |
 | D5 | Free signup grant | **20 credits = 2000 centi-credits = $0.64 of AI.** Was 18 / 1800. |
 | D6 | Top-ups | Back to 250 / 1000 / 2500 credits at $25 / $100 / $250 (ids `topup_250`, `topup_1000`, `topup_2500`). Still disabled. The v6 ids `topup_175` / `topup_700` / `topup_1750` become persisted-only. |
 | D7 | Existing subscribers (36, all monthly Stripe) | Move back to the tier with the same price: 175 → 250, 350 → 500. Same price, no proration, effective at the next renewal (first one 2026-09-11). Nobody has renewed on a v6 tier yet. |

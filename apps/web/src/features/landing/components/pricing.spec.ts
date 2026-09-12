@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,19 +59,6 @@ const dictionary = vi.hoisted(() => ({
 				tierLabel: "Monthly credit allowance",
 				twoMonthsFree: "2 months free",
 				yearly: "Yearly",
-			},
-			starter: {
-				creditsLine: "60 credits every month",
-				cta: "Choose Starter",
-				features: [
-					"AI product images and marketing copy",
-					"Custom domains",
-					"Publishing always free",
-				],
-				name: "Starter",
-				perMonth: "/ month",
-				perYear: "/ year",
-				tagline: "For your first store and first campaigns",
 			},
 			title: "Start small. Grow when you need more.",
 		},
@@ -187,19 +174,14 @@ describe("landing pricing", () => {
 
 	afterEach(cleanup);
 
-	it("shows all four cards and the live signup grant", () => {
+	it("shows three cards and the live signup grant", () => {
 		render(createElement(Pricing));
 
-		for (const plan of ["Free", "Starter", "Pro", "Business"]) {
+		for (const plan of ["Free", "Pro", "Business"]) {
 			expect(screen.getByRole("heading", { name: plan })).toBeTruthy();
 		}
 		expect(screen.getByText("20 free credits")).toBeTruthy();
-		expect(screen.getByText("60 credits every month")).toBeTruthy();
-		expect(
-			screen.getByText("AI product images and marketing copy"),
-		).toBeTruthy();
-		expect(screen.getByText("Custom domains")).toBeTruthy();
-		expect(screen.getByText("$9")).toBeTruthy();
+		expect(screen.queryByRole("heading", { name: "Starter" })).toBeNull();
 	});
 
 	it("formats a fractional signup grant without rounding it", () => {
@@ -237,26 +219,5 @@ describe("landing pricing", () => {
 		expect(
 			screen.queryByRole("button", { name: "Create a team workspace" }),
 		).toBeNull();
-	});
-
-	it("opens the plan picker with the Starter plan and tier selected", () => {
-		render(createElement(Pricing));
-
-		fireEvent.click(screen.getByRole("button", { name: "Choose Starter" }));
-
-		expect(state.openPlanPicker).toHaveBeenCalledWith("marketing_pricing", {
-			interval: "month",
-			plan: "starter",
-			tierCredits: 60,
-		});
-	});
-
-	it("shows the annual Starter price when yearly billing is selected", () => {
-		render(createElement(Pricing));
-
-		expect(screen.getByText("$9")).toBeTruthy();
-		fireEvent.click(screen.getByRole("radio", { name: /Yearly/ }));
-
-		expect(screen.getByText("$90")).toBeTruthy();
 	});
 });
