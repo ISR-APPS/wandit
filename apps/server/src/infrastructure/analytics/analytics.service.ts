@@ -18,6 +18,17 @@ export class AnalyticsService implements OnApplicationShutdown {
 		this.analytics.capture(distinctId, event, properties);
 	}
 
+	/**
+	 * PostHog per-user flag answer. Resolves `undefined` when analytics has
+	 * no key, so callers treat "no client" as "flag unknown".
+	 */
+	isFeatureEnabled(
+		flag: string,
+		distinctId: string,
+	): Promise<boolean | undefined> {
+		return this.analytics.isFeatureEnabled(flag, distinctId);
+	}
+
 	async onApplicationShutdown(): Promise<void> {
 		await this.analytics.shutdown();
 	}

@@ -1,3 +1,8 @@
+/**
+ * The closed list of `code` values an API error body may carry.
+ * `apiErrorCodeSchema` validates them; the web client maps each code to a
+ * user message in `apps/web/src/lib/BaseService.ts`.
+ */
 import { z } from "zod";
 
 export const apiErrorCodes = [
@@ -30,6 +35,12 @@ export const apiErrorCodes = [
 	"MANUAL_PAYMENTS_DISABLED",
 	"MANUAL_REQUEST_PENDING",
 	"MANUAL_SUBSCRIPTION_UNSUPPORTED",
+	"V2_BUILDER_DISABLED",
+	"V2_ENV_MISSING",
+	"V2_MODEL_UNPRICED",
+	"BUILDER_TURN_ACTIVE",
+	"BUILDER_TURN_STALE",
+	"VERSION_CONFLICT",
 	"RATE_LIMITED",
 	"INTERNAL_ERROR",
 	"HTTP_400",

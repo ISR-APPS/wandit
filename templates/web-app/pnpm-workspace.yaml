@@ -1,0 +1,7 @@
+# This file makes the template its own install root. Without it, pnpm walks
+# up into the monorepo workspace and installs that instead.
+packages: []
+# esbuild downloads its platform binary; workerd runs the Workers preview.
+allowBuilds:
+  esbuild: true
+  workerd: true

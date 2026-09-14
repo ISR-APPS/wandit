@@ -12,7 +12,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@ai-sdk/react": "^4.0.17",
+		"@ai-sdk/react": "4.0.102",
 		"@hookform/resolvers": "^5.2.2",
 		"@marsidev/react-turnstile": "^1.5.4",
 		"@tailwindcss/vite": "^4.3.1",
@@ -28,7 +28,7 @@
 		"@wandit/observability": "workspace:*",
 		"@wandit/preview-editor": "workspace:*",
 		"@wandit/ui": "workspace:*",
-		"ai": "^7.0.19",
+		"ai": "7.0.99",
 		"axios": "^1.18.1",
 		"better-auth": "catalog:",
 		"country-flag-icons": "^1.5.21",

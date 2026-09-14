@@ -30,6 +30,7 @@ export function mapProductSettingsRow(
 		topupsEnabled: row.topupsEnabled,
 		updatedAt: row.updatedAt.toISOString(),
 		updatedByUserId: row.updatedByUserId,
+		v2BuilderEnabled: row.v2BuilderEnabled,
 		version: row.version,
 	};
 }

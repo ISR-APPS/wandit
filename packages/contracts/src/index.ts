@@ -96,3 +96,17 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 app-builder health contract.
+export * from "./v2/health";
+// V2 LLM proxy token, model, and status contracts.
+export * from "./v2/llm-proxy";
+// V2 app-builder preview token contract.
+export * from "./v2/preview";
+// V2 app project contracts.
+export * from "./v2/projects";
+// V2 app-builder route paths.
+export * from "./v2/routes";
+// V2 builder turn and stream contracts.
+export * from "./v2/turns";
+// V2 app version history contracts.
+export * from "./v2/versions";

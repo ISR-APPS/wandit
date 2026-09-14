@@ -16,7 +16,7 @@ import {
 	FastifyAdapter,
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { feedbackRoutes } from "@wandit/contracts";
+import { appBuilderRoutes, feedbackRoutes } from "@wandit/contracts";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
@@ -70,13 +70,19 @@ async function bootstrap() {
 			},
 		);
 	// Fastify accepts 1 MiB of JSON by default, and every route keeps that limit
-	// except feedback: its screenshot data URL alone can reach 2.6 MB. Nest
-	// registers the controller routes in `app.init()`, which `app.listen()` calls
-	// below, so this hook is in place before the feedback route is added.
+	// except feedback: its screenshot data URL alone can reach 2.6 MB. The V2
+	// LLM proxy routes get 4 MiB too: a builder prompt with cache_control
+	// blocks can exceed 1 MiB. Nest registers the controller routes in
+	// `app.init()`, which `app.listen()` calls below, so this hook is in place
+	// before the routes are added.
 	adapter.getInstance().addHook("onRoute", (route) => {
 		const methods = Array.isArray(route.method) ? route.method : [route.method];
+		const isLargeBodyRoute =
+			route.url === feedbackRoutes.create ||
+			route.url === appBuilderRoutes.llmProxyMessages ||
+			route.url === appBuilderRoutes.llmProxyCountTokens;
 
-		if (methods.includes("POST") && route.url === feedbackRoutes.create) {
+		if (methods.includes("POST") && isLargeBodyRoute) {
 			route.bodyLimit = 4 * 1024 * 1024;
 		}
 	});

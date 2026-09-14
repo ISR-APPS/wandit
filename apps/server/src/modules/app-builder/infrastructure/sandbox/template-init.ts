@@ -1,0 +1,135 @@
+/**
+ * Initializes a fresh sandbox disk from a template archive.
+ * `VercelSandboxProvider` calls `apply` whenever the vendor creates a new
+ * sandbox (first create and rebuild); the idle sweep never calls it.
+ * Reads the archive from the repo `templates/` folder that WANDIT-168 fills.
+ */
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Sentry } from "@wandit/observability/node";
+
+import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
+import type {
+	SandboxHandle,
+	SandboxLogger,
+} from "../../domain/ports/sandbox-provider";
+import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
+
+/** Nest token for the `TemplateInit` implementation. */
+export const TEMPLATE_INIT = Symbol.for("app-builder.template-init");
+
+/** What a template init needs to put a project skeleton into a sandbox. */
+export interface TemplateInit {
+	apply(
+		sandbox: SandboxHandle,
+		options: { framework: string; templateVersion: string },
+	): Promise<void>;
+}
+
+/**
+ * The folder holding `web-app-<version>.tar.gz` archives, resolved against
+ * the repo root. Bundled worker layouts can move it — WANDIT-168 verifies
+ * the path where the tasks actually run. UNVERIFIED.
+ */
+export const TEMPLATE_ARCHIVE_DIR = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	"../../../../../../../templates",
+);
+
+/** Upload target for the archive; `tar` reads it from here. */
+const ARCHIVE_PATH = "/tmp/template.tar.gz";
+
+/**
+ * Uploads `<framework>-<semver>.tar.gz`, extracts it into
+ * `SANDBOX_WORKSPACE_DIR`, installs dependencies, and commits the result
+ * so later turns diff against a clean baseline.
+ */
+export class ArchiveTemplateInit implements TemplateInit {
+	constructor(
+		/** Folder that holds the archive files, for example `templates/`. */
+		private readonly templateDir: string,
+		private readonly logger: SandboxLogger = Sentry.logger,
+	) {}
+
+	async apply(
+		sandbox: SandboxHandle,
+		options: { framework: string; templateVersion: string },
+	): Promise<void> {
+		// "web-app@1.0.0" and "1.0.0" both map to `web-app-1.0.0.tar.gz`.
+		const version = options.templateVersion.split("@").pop();
+		const archivePath = join(
+			this.templateDir,
+			`${options.framework}-${version}.tar.gz`,
+		);
+		const bytes = await readFile(archivePath).catch((error: unknown) => {
+			throw new TemplateArchiveMissingError(archivePath, error);
+		});
+
+		await sandbox.writeFiles([{ content: bytes, path: ARCHIVE_PATH }]);
+		await this.mustRun(sandbox, "mkdir", ["-p", SANDBOX_WORKSPACE_DIR]);
+		await this.mustRun(sandbox, "tar", [
+			"-xzf",
+			ARCHIVE_PATH,
+			"-C",
+			SANDBOX_WORKSPACE_DIR,
+		]);
+
+		// The image ships a warm pnpm store; offline first keeps the create fast.
+		const offline = await sandbox.exec(
+			"pnpm",
+			["install", "--frozen-lockfile", "--offline"],
+			{ cwd: SANDBOX_WORKSPACE_DIR },
+		);
+		if (offline.exitCode !== 0) {
+			this.logger.warn("sandbox.template-init.offline-install-miss", {
+				sandboxId: sandbox.providerSandboxId,
+			});
+			await this.mustRun(sandbox, "pnpm", ["install", "--frozen-lockfile"], {
+				cwd: SANDBOX_WORKSPACE_DIR,
+			});
+		}
+
+		const hasRepo = await sandbox.exec("git", ["rev-parse", "--git-dir"], {
+			cwd: SANDBOX_WORKSPACE_DIR,
+		});
+		if (hasRepo.exitCode !== 0) {
+			await this.mustRun(sandbox, "git", ["init"], {
+				cwd: SANDBOX_WORKSPACE_DIR,
+			});
+			await this.mustRun(sandbox, "git", ["add", "-A"], {
+				cwd: SANDBOX_WORKSPACE_DIR,
+			});
+			await this.mustRun(
+				sandbox,
+				"git",
+				[
+					"-c",
+					"user.name=wandit",
+					"-c",
+					"user.email=builder@wandit.dev",
+					"commit",
+					"-m",
+					`init: template ${options.templateVersion}`,
+				],
+				{ cwd: SANDBOX_WORKSPACE_DIR },
+			);
+		}
+	}
+
+	private async mustRun(
+		sandbox: SandboxHandle,
+		command: string,
+		args: string[],
+		options?: { cwd: string },
+	): Promise<void> {
+		const result = await sandbox.exec(command, args, options);
+		if (result.exitCode !== 0) {
+			throw new Error(
+				`Template init failed at "${command} ${args.join(" ")}" ` +
+					`in sandbox ${sandbox.providerSandboxId}: ${result.stderr}`,
+			);
+		}
+	}
+}
