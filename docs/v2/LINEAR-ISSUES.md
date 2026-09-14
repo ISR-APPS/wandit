@@ -2,6 +2,10 @@
 
 Project: https://linear.app/scalemindapps/project/wandit-v2-app-builder-87ef3ccaf3bf (team ISR-WANDIT). Overview issue: WANDIT-147. Created 2026-09-06 from `V2-ARCHITECTURE-REPORT.md` sections 11 and 13.
 
+Decision updates on 2026-09-12: the founder decisions in `DECISIONS.md` changed some issues. Each changed issue has a "Decision updates" section at the top. Moves: WANDIT-183 to P1, WANDIT-199 and WANDIT-200 to P2. Renamed: WANDIT-186, WANDIT-199, WANDIT-200, WANDIT-202.
+
+Batch edits applied to Linear on 2026-09-14: D17 (Claude Code first), D19 (pixels by the agent), D20 (turn stream transport), D21 (code.storage), the WANDIT-154 shrink, and the WANDIT-156 and WANDIT-157 facts. New issue WANDIT-241. See the section "Linear edits applied on 2026-09-14" below.
+
 Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of scope, How, Acceptance criteria, Verification, Dependencies, References. Effort is an ESTIMATE in days for 1 senior engineer who knows the repo.
 
 
@@ -10,12 +14,12 @@ Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of s
 | Issue | Title | Prio | Days | Blocked by |
 |---|---|---|---|---|
 | WANDIT-148 | Bump the AI SDK to the latest v7 and add the harness packages | 2 | 2 | none |
-| WANDIT-149 | Spike: run HarnessAgent with Claude Code on Vercel Sandbox from a Railway-like process | 1 | 5 | WANDIT-148, WANDIT-156 |
-| WANDIT-150 | Spike: the LLM proxy path for Claude Code with short tokens and cache pass-through | 1 | 4 | WANDIT-148 |
+| WANDIT-149 | Spike: run the harness, Claude Code, on Vercel Sandbox from a Railway-like process | 1 | 5 | WANDIT-148, WANDIT-156 |
+| WANDIT-150 | Spike: the LLM proxy path for Claude Code, short tokens, cache pass-through, and a non-Anthropic model | 1 | 4 | WANDIT-148 |
 | WANDIT-151 | Spike: cost and quality of 20 real prompts through the harness | 2 | 3 | WANDIT-149, WANDIT-150 |
-| WANDIT-152 | Spike: code.storage as the internal git remote against R2 bundles | 2 | 3 | none |
+| WANDIT-152 | Set up code.storage as the git remote per project | 2 | 3 | none |
 | WANDIT-153 | Vendor: send the Supabase for Platforms request and get the answers | 2 | 1 | none |
-| WANDIT-154 | Vendor: get a written license answer from Anthropic for a hosted Claude Code harness | 1 | 1 | none |
+| WANDIT-154 | Read the Claude Agent SDK terms for the hosted harness | 1 | 1 | none |
 | WANDIT-155 | Buy the preview domain and submit the Public Suffix List entries | 1 | 1 | none |
 | WANDIT-156 | Vendor: open the accounts, plans, quotas, and tokens V2 needs | 2 | 1 | none |
 | WANDIT-157 | Move Redis to the API region | 2 | 2 | none |
@@ -41,28 +45,31 @@ Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of s
 | WANDIT-172 | Build the BuilderTransport with resume and the harness message parts | 1 | 5 | WANDIT-148, WANDIT-162, WANDIT-167 |
 | WANDIT-173 | Build the builder shell: engine switch, preview iframe, file tree, and versions panel | 2 | 6 | WANDIT-170, WANDIT-171, WANDIT-172 |
 | WANDIT-174 | Add the agent_session money operation, checkpoint debits, project caps, estimate, and receipt | 1 | 5 | WANDIT-151, WANDIT-163, WANDIT-165, WANDIT-166, WANDIT-167 |
-| WANDIT-175 | Add V2 project creation and the per-user rollout flags | 2 | 3 | WANDIT-162, WANDIT-163, WANDIT-164, WANDIT-168 |
+| WANDIT-175 | Add V2 project creation and the per-user rollout flags | 2 | 3 | WANDIT-162, WANDIT-163, WANDIT-164, WANDIT-168, WANDIT-183 |
+| WANDIT-183 | Build Supabase provisioning: the Management API client, the provision-backend task, and app_backends (moved from P3, runs at project creation) | 1 | 6 | WANDIT-153, WANDIT-163 |
 | WANDIT-176 | Run the P1 staging alpha: end-to-end, observability, and the internal test script | 2 | 4 | WANDIT-158, WANDIT-160, WANDIT-166, WANDIT-167, WANDIT-172, WANDIT-173, WANDIT-174, WANDIT-175 |
 
 ## P2 · Publish, security basics, first external users
 
 | Issue | Title | Prio | Days | Blocked by |
 |---|---|---|---|---|
-| WANDIT-177 | Extend the edge Worker to serve multi-file apps with a manifest, a flip object, and SPA fallback | 1 | 5 | WANDIT-159 |
-| WANDIT-178 | Build the publish-app task: build in the sandbox, upload, flip, rollback, and unpublish | 1 | 6 | WANDIT-177, WANDIT-164, WANDIT-166, WANDIT-173, WANDIT-179 |
+| WANDIT-200 | Set up Workers for Platforms: namespace, dispatch, static assets, and secrets for published apps (moved from P6) | 1 | 5 | WANDIT-156, WANDIT-159 |
+| WANDIT-177 | Extend the edge Worker to serve multi-file apps with a manifest, a flip object, and SPA fallback | 1 | 5 | WANDIT-159, WANDIT-200 |
+| WANDIT-178 | Build the publish-app task: build in the sandbox, upload, flip, rollback, and unpublish | 1 | 6 | WANDIT-177, WANDIT-200, WANDIT-164, WANDIT-166, WANDIT-173, WANDIT-179 |
+| WANDIT-199 | Add the exit path: Supabase claim export (moved from P6) | 2 | 3 | WANDIT-183, WANDIT-178 |
 | WANDIT-179 | Build the @wandit/leads SDK and wire it into the template | 3 | 3 | WANDIT-168 |
 | WANDIT-180 | Harden the sandbox: network policy, deny rules, and the PreToolUse hook | 2 | 4 | WANDIT-164, WANDIT-168 |
 | WANDIT-181 | Add abuse controls: rate limits, audit events, secret scanner, phishing rules, and the suspend switch | 2 | 5 | WANDIT-163, WANDIT-177, WANDIT-178 |
 | WANDIT-182 | Open V2 to the first external users: rollout checklist, privacy text, and support runbook | 2 | 3 | WANDIT-154, WANDIT-176, WANDIT-177, WANDIT-178, WANDIT-180, WANDIT-181 |
+| WANDIT-241 | Delete the dead V1 chat stack: BullMQ, worker, SSE routes, Redis chat events | 3 | 1 | WANDIT-166, D20 decided |
 
 ## P3 · Cloud tab with Supabase
 
 | Issue | Title | Prio | Days | Blocked by |
 |---|---|---|---|---|
-| WANDIT-183 | Build Supabase provisioning: the Management API client, the provision-backend task, and app_backends | 1 | 6 | WANDIT-153, WANDIT-163, WANDIT-166, WANDIT-185 |
 | WANDIT-184 | Add the backend lifecycle: pause and restore sweeps, entitlements, and billing operations | 2 | 4 | WANDIT-183, WANDIT-174 |
 | WANDIT-185 | Add project_secrets with encrypted storage and the write-only Secrets panel | 2 | 3 | WANDIT-163 |
-| WANDIT-186 | Add the agent backend tools: ensure_backend, apply_migration, run_sql, deploy_function, set_secret, get_advisors | 1 | 6 | WANDIT-183, WANDIT-169, WANDIT-185 |
+| WANDIT-186 | Add the agent backend tools: apply_migration, run_sql, deploy_function, set_secret, get_advisors | 1 | 6 | WANDIT-183, WANDIT-169, WANDIT-185 |
 | WANDIT-187 | Add the Cloud tab server endpoints | 2 | 5 | WANDIT-183 |
 | WANDIT-188 | Build the Cloud tab UI panels | 2 | 6 | WANDIT-187, WANDIT-185, WANDIT-173 |
 | WANDIT-189 | Add the app connectors: Resend tenant domains and the Stripe restricted key | 2 | 5 | WANDIT-185, WANDIT-186, WANDIT-180 |
@@ -90,10 +97,8 @@ Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of s
 |---|---|---|---|---|
 | WANDIT-197 | Design and build a branch per chat with forked sandbox previews and AI merge | 4 | 10 | WANDIT-171, WANDIT-173 |
 | WANDIT-198 | Add GitHub export, then two-way sync | 4 | 8 | WANDIT-171 |
-| WANDIT-199 | Add the exit paths: Supabase claim export and Vercel claim export | 4 | 5 | WANDIT-183, WANDIT-198 |
-| WANDIT-200 | Add Workers for Platforms for server-side apps | 4 | 10 | WANDIT-178 |
 | WANDIT-201 | Add Stripe Connect for user payments | 4 | 6 | WANDIT-189 |
-| WANDIT-202 | Build 'Upgrade to app' for V1 page projects | 4 | 5 | WANDIT-178 |
+| WANDIT-202 | Build the Migrate button: a V1 page project becomes a V2 app on the user's request | 4 | 5 | WANDIT-178 |
 | WANDIT-203 | Add click-to-target editing through a Vite source plugin | 4 | 6 | WANDIT-173 |
 | WANDIT-204 | Add history pagination and native client parity for V2 | 4 | 6 | WANDIT-172, WANDIT-173 |
 | WANDIT-205 | Research: install the user app with its own icon on the phone, like Rork | 4 | 3 | WANDIT-194 |
@@ -105,6 +110,22 @@ Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of s
 |---|---|---|---|---|
 | WANDIT-207 | Run own Android emulators on KVM with WebRTC streaming | 4 | 15 | WANDIT-196 |
 | WANDIT-208 | Run a Mac mini pool with serve-sim behind a login proxy, after legal review | 4 | 15 | WANDIT-196 |
+
+## Linear edits applied on 2026-09-14
+
+Applied to Linear on 2026-09-14 with one workflow: 16 issues edited, WANDIT-241 created, every edit re-read and checked. The list below is the record of what changed.
+
+- WANDIT-178: remove the pixel and badge bindings from the publish task (D19). The badge, if kept, comes from the edge Worker.
+- WANDIT-168: add the agent rule "a pixel id from the user goes into the root route head" (D19).
+- WANDIT-173: drop the V1 pixel settings panel for V2 projects (D19).
+- WANDIT-156: one Trigger.dev project for V1 and V2, no `wandit-v2-experiment` project (Zack, 2026-09-13).
+- WANDIT-149, 150, 151, 166, 168: Claude Code first. The OpenCode runs and the OpenCode rules move to a later follow-up, after the foundation works (D17, Zack, 2026-09-13). Keep the harness interface with two implementations.
+- WANDIT-157: add these facts (2026-09-14). Redis runs in Railway region `sfo`; the API runs in `europe-west4`. Move Redis to `europe-west4` before any relay. The Redis public TCP proxy has a password and no TLS. Redis jobs in V2: the turn lock (today in-memory `claimTurnKey`), the auth rate limits, and the stream relay only if D20 picks Redis. V1 has no resume. Resume after refresh is a new feature: `useChat({ resume: true })` sends a plain GET with no cursor header, and the API replays the turn stream from the start. Trigger.dev Realtime does not go to the browser in V2. `useLiveRun` stays for the V1 cards only.
+- WANDIT-166, 167, 172: the report (`V2-ARCHITECTURE-REPORT.md:448`, `:478`) writes each chunk to a Redis Stream and to a Trigger stream. D20 says one box only, behind one write function in the task and one read function in the API. Replace the double write in these three issues with the D20 box. Hello-world starts with the Trigger stream (D20 default).
+- WANDIT-154: shrink from "get a written license answer" to "read the Claude Agent SDK terms once, 30 minutes" (Zack, 2026-09-14). The harness is the official Claude Agent SDK with our own API key through the proxy, the use it is made for. No subscription OAuth token in the product. Remove the P1 blocker on D17.
+- WANDIT-152: decided, code.storage (D21, Zack, 2026-09-14). The spike becomes "Set up code.storage as the git remote per project". Keep the checks: per-repository short-lived credentials, push after a turn, pull on resume, size after 50 commits. Drop the R2 bundles half. WANDIT-171 builds on it.
+- WANDIT-156: add a code.storage account, Starter plan, $20 per month, and its API token (D21).
+- New issue, cleanup, about 1 day, after hello-world and after D20: delete the dead V1 chat stack. BullMQ queues and `QUEUE_ENABLED`, `apps/worker`, the publish and lead-processing scaffolds, the `packages/jobs` queue names, the dead routes `GET :chatId/stream` and `POST :chatId/messages`, `chat-events.repository.ts`, `use-project-chat.tsx`, `mock-thread.tsx`, and the stale comments (`main.ts:88`, `chat.services.ts:73-81`, `projects.services.ts:52-53`). Wait for D20, because the dead Redis Stream code is a reference to read if D20 picks Redis.
 
 ## Open points from the cross-issue review
 
