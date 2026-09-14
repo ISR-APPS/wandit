@@ -1,5 +1,6 @@
 import enAcademy from "../dictionaries/en/academy.json";
 import enAffiliates from "../dictionaries/en/affiliates.json";
+import enAppBuilder from "../dictionaries/en/app-builder.json";
 import enAuth from "../dictionaries/en/auth.json";
 import enBilling from "../dictionaries/en/billing.json";
 import enCommon from "../dictionaries/en/common.json";
@@ -19,6 +20,7 @@ import type { Locale } from "./config";
 const en = {
 	academy: enAcademy,
 	affiliates: enAffiliates,
+	appBuilder: enAppBuilder,
 	common: enCommon,
 	landing: enLanding,
 	auth: enAuth,
@@ -93,6 +95,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 	const [
 		academy,
 		affiliates,
+		appBuilder,
 		common,
 		landing,
 		auth,
@@ -110,6 +113,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 	] = await Promise.all([
 		import("../dictionaries/fr/academy.json"),
 		import("../dictionaries/fr/affiliates.json"),
+		import("../dictionaries/fr/app-builder.json"),
 		import("../dictionaries/fr/common.json"),
 		import("../dictionaries/fr/landing.json"),
 		import("../dictionaries/fr/auth.json"),
@@ -129,6 +133,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 	return normalizeDictionary({
 		academy: academy.default,
 		affiliates: affiliates.default,
+		appBuilder: appBuilder.default,
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,
@@ -150,6 +155,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 	const [
 		academy,
 		affiliates,
+		appBuilder,
 		common,
 		landing,
 		auth,
@@ -167,6 +173,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 	] = await Promise.all([
 		import("../dictionaries/ar/academy.json"),
 		import("../dictionaries/ar/affiliates.json"),
+		import("../dictionaries/ar/app-builder.json"),
 		import("../dictionaries/ar/common.json"),
 		import("../dictionaries/ar/landing.json"),
 		import("../dictionaries/ar/auth.json"),
@@ -186,6 +193,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 	return normalizeDictionary({
 		academy: academy.default,
 		affiliates: affiliates.default,
+		appBuilder: appBuilder.default,
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,

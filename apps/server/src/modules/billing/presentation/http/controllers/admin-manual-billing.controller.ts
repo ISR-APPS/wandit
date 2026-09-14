@@ -1,3 +1,8 @@
+/**
+ * Admin HTTP routes for offline (cash or transfer) billing.
+ * Lists and updates manual requests. Grants, renews, and ends manual subscriptions.
+ * Called by the admin SPA. Calls ManualSubscriptionsService and ProductSettingsService.
+ */
 import {
 	Body,
 	Controller,
@@ -78,7 +83,8 @@ export class AdminManualBillingController {
 	}
 
 	@Patch("manual-requests/:id")
-	@AdminPermission({ billing: ["manage"] })
+	// Support records the call outcome here. Grant, renew, and end stay behind "manage".
+	@AdminPermission({ billing: ["update-request"] })
 	updateRequest(
 		@CurrentUser() admin: AuthUser,
 		@Param("id", new ZodValidationPipe(uuidSchema)) id: string,

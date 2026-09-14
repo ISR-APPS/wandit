@@ -1,7 +1,7 @@
 /**
- * The closed list of `code` values an API error body may carry.
- * `apiErrorCodeSchema` validates them; the web client maps each code to a
- * user message in `apps/web/src/lib/BaseService.ts`.
+ * Error codes the API sends in the `error.code` field of a failed reply.
+ * The server exception filter and the domain errors produce them. The web app
+ * maps each code to a translated message in the `errors.codes` dictionary.
  */
 import { z } from "zod";
 
@@ -25,6 +25,7 @@ export const apiErrorCodes = [
 	"EMAIL_AUTH_DISABLED",
 	"EMAIL_DOMAIN_BLOCKED",
 	"EMAIL_SEND_RATE_LIMITED",
+	"PHONE_ALREADY_TAKEN",
 	"BILLING_CHECKOUT_PENDING",
 	"SUBSCRIPTION_CHANGE_PENDING",
 	"BILLING_CHANGE_INTENT_EXPIRED",

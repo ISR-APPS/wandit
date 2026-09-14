@@ -27,6 +27,7 @@
 		"NETWORK_ERROR": "Impossible de joindre le serveur. Vérifie ta connexion et réessaie.",
 		"CLIENT_ERROR": "Un souci est survenu dans l’app. Réessaie.",
 		"VALIDATION_ERROR": "Vérifie les champs indiqués puis réessaie.",
+		"PHONE_ALREADY_TAKEN": "Ce numéro de téléphone est déjà utilisé par un autre compte.",
 		"NOT_FOUND": "Impossible de trouver ce que tu cherches.",
 		"DOMAIN_ALREADY_EXISTS": "Ce domaine est déjà connecté.",
 		"INVALID_DOMAIN_STATE": "L’état de ce domaine ne permet pas cette action.",

@@ -13,6 +13,10 @@ describe("admin session permissions", () => {
 		expect(hasAdminPermission("user,support", { academy: ["read"] })).toBe(
 			true,
 		);
+		expect(hasAdminPermission("support", { billing: ["update-request"] })).toBe(
+			true,
+		);
+		expect(hasAdminPermission("support", { billing: ["manage"] })).toBe(false);
 		expect(hasAdminPermission("user", { overview: ["read"] })).toBe(false);
 		expect(hasAdminPermission(undefined, { overview: ["read"] })).toBe(false);
 	});

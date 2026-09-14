@@ -1,3 +1,8 @@
+/**
+ * The post-signup onboarding page: one question per step, then one submit.
+ * Rendered by routes/onboarding.tsx. Calls the onboarding mutations of
+ * api/onboarding.mutations.ts and refreshes the session before it navigates.
+ */
 import { useNavigate } from "@tanstack/react-router";
 import { captureEvent, identifyAnalyticsUser } from "@wandit/analytics/browser";
 import {
@@ -25,7 +30,10 @@ import {
 } from "@/features/auth/lib/session";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
-import { useCompleteOnboarding } from "../api/onboarding.mutations";
+import {
+	useCheckOnboardingPhone,
+	useCompleteOnboarding,
+} from "../api/onboarding.mutations";
 import {
 	ChoiceStep,
 	type OnboardingChoiceOption,
@@ -37,6 +45,7 @@ import { PhoneStep } from "../components/phone-step";
 import { SoundToggle } from "../components/sound-toggle";
 import { SparkFlare } from "../components/spark-flare";
 import { TextStep } from "../components/text-step";
+import { isPhoneTakenError } from "../lib/phone-availability";
 import {
 	getOnboardingQuestionViewConfig,
 	isOnboardingChoiceQuestionViewConfig,
@@ -78,6 +87,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 	const { t, dir, locale } = useTranslation();
 	const copy = useDictionary().onboarding;
 	const completeOnboarding = useCompleteOnboarding();
+	const checkPhone = useCheckOnboardingPhone();
 	const { muted, toggle, playSelect, playCompletion } = useOnboardingSound();
 	const [activeIndex, setActiveIndex] = useState(0);
 	const [answers, setAnswers] = useState<OnboardingAnswerState>(() => ({
@@ -85,6 +95,9 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 	}));
 	const [pulse, setPulse] = useState(0);
 	const [submitting, setSubmitting] = useState(false);
+	// Translated "phone already taken" message for the phone step. Null when the
+	// number is free or not checked yet.
+	const [phoneError, setPhoneError] = useState<string | null>(null);
 	const advanceTimerRef = useRef<number | null>(null);
 	const interactionLockedRef = useRef(false);
 	const completedStepsRef = useRef(new Set<OnboardingQuestionId>());
@@ -149,6 +162,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 	}
 
 	function updateTextAnswer(value: string, phoneCountryIso?: DialCountryIso) {
+		if (question.id === "phone") setPhoneError(null);
 		setAnswers((current) => ({
 			...current,
 			[question.id]: value,
@@ -200,9 +214,9 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 				// Must settle before navigating: the _auth guard reads the session
 				// and would bounce a stale "not onboarded" user straight back here.
 				await refreshSession().catch(() => invalidateSessionCache());
-				return true;
+				return { ok: true as const };
 			})
-			.catch(() => false);
+			.catch((error: unknown) => ({ ok: false as const, error }));
 
 		await new Promise<void>((resolve) => {
 			window.setTimeout(resolve, AUTO_ADVANCE_MS);
@@ -213,7 +227,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		}
 
 		setSubmitting(true);
-		const [requestSucceeded] = await Promise.all([
+		const [outcome] = await Promise.all([
 			requestOutcome,
 			new Promise<void>((resolve) => {
 				window.setTimeout(resolve, MINIMUM_IGNITION_MS);
@@ -222,9 +236,20 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 
 		if (!mountedRef.current) return;
 
-		if (!requestSucceeded) {
+		if (!outcome.ok) {
 			interactionLockedRef.current = false;
 			setSubmitting(false);
+			// Product rule: one account per phone number. The server refused the
+			// phone, so the user lands back on the phone step.
+			if (isPhoneTakenError(outcome.error)) {
+				setPhoneError(t("errors.codes.PHONE_ALREADY_TAKEN"));
+				setActiveIndex(
+					getApplicableOnboardingQuestions(nextAnswers).findIndex(
+						({ id }) => id === "phone",
+					),
+				);
+				return;
+			}
 			toast.error(copy.error.submit);
 			return;
 		}
@@ -233,7 +258,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 		await navigate({ href: next ?? "/dashboard", replace: true });
 	}
 
-	function answerCurrentQuestion(
+	async function answerCurrentQuestion(
 		value: string,
 		phoneCountryIso?: DialCountryIso,
 	) {
@@ -245,6 +270,26 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 
 		interactionLockedRef.current = true;
 		clearAdvanceTimer();
+
+		// Product rule: one account per phone number. Ask the server before the
+		// user leaves the phone step.
+		if (question.id === "phone") {
+			const available = await checkPhone
+				.mutateAsync({ phone: answer })
+				.then((response) => response.available)
+				// The complete endpoint enforces the same rule. A failed pre-check must
+				// not trap the user on this step (old server during a deploy, or a
+				// lost connection).
+				.catch(() => true);
+			if (!mountedRef.current) return;
+			// The result replaces any older message, so a phone that is free again
+			// never shows a stale error on a back step.
+			setPhoneError(available ? null : t("errors.codes.PHONE_ALREADY_TAKEN"));
+			if (!available) {
+				interactionLockedRef.current = false;
+				return;
+			}
+		}
 
 		if (question.id === "style" && (answer === "light" || answer === "dark")) {
 			setTheme(answer);
@@ -346,6 +391,8 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 												view={view}
 												answer={answers[question.id] ?? ""}
 												phoneCountryIso={answers.phone_country}
+												phoneError={phoneError ?? undefined}
+												phoneCheckPending={checkPhone.isPending}
 												dir={dir}
 												locale={locale}
 												pulse={pulse}
@@ -377,6 +424,10 @@ type QuestionRendererProps = {
 	view: OnboardingQuestionViewConfig;
 	answer: string;
 	phoneCountryIso?: DialCountryIso;
+	/** Translated "phone already taken" message; the phone step shows it under the input. */
+	phoneError?: string;
+	/** True while the page asks the API whether the phone is free; the phone step locks its inputs. */
+	phoneCheckPending: boolean;
 	dir: "ltr" | "rtl";
 	locale: string;
 	pulse: number;
@@ -391,6 +442,8 @@ function QuestionRenderer({
 	view,
 	answer,
 	phoneCountryIso,
+	phoneError,
+	phoneCheckPending,
 	dir,
 	locale,
 	pulse,
@@ -442,6 +495,8 @@ function QuestionRenderer({
 				locale={locale}
 				onChange={onTextChange}
 				onSubmit={onAnswer}
+				disabled={phoneCheckPending}
+				errorMessage={phoneError}
 				inputId={`onboarding-answer-${question.id}`}
 			/>
 		);
