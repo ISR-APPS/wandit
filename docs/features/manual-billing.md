@@ -368,7 +368,7 @@ assembly); keep existing specs green.
     preferred method, created, status badge, current subscription hint. Filters: status
     (open default), search. Row actions: **Set status** (OPEN statuses except the current status), **Approve & grant** (opens
     `GrantManualSubscriptionDialog` prefilled: user, org, plan, tier, interval, requestId),
-    **Reject** (required note), **Cancel request…** (required note), **Edit note**. Status and closure actions require an open request and billing management permission. Detail sheet/drawer with all fields + notes.
+    **Reject** (required note), **Cancel request…** (required note), **Edit note**. Set status, Reject, Cancel request, and Edit note need `billing:update-request` (support has it). Approve & grant, Renew, and End need `billing:manage`. Status and closure actions also require an open request. Detail sheet/drawer with all fields + notes.
   - Subscriptions table: owner, plan/tier/interval, period start → end, days left, status
     badge (Active / Ended), payments count, last payment, created. Filters: active default /
     ended / all, search. Row actions: **Renew** (`RenewManualSubscriptionDialog`: period end
