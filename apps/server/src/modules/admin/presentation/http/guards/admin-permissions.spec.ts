@@ -37,6 +37,7 @@ const expectedPermissionMatrix = [
 		support: false,
 	},
 	{ action: "read", admin: true, resource: "billing", support: true },
+	{ action: "update-request", admin: true, resource: "billing", support: true },
 	{ action: "manage", admin: true, resource: "billing", support: false },
 	{
 		action: "read",
@@ -87,7 +88,7 @@ describe("admin dashboard permission matrix", () => {
 			academy: ["read"],
 			affiliates: ["read"],
 			analytics: ["read"],
-			billing: ["read"],
+			billing: ["read", "update-request"],
 			conversations: ["read"],
 			costs: ["read"],
 			feedback: ["read", "manage"],
@@ -134,7 +135,7 @@ describe("admin dashboard permission matrix", () => {
 		expect(adminRoles.admin.statements).toEqual(adminStatement);
 		expect(adminRoles.support.statements).toEqual({
 			academy: ["read"],
-			billing: ["read"],
+			billing: ["read", "update-request"],
 			feedback: ["read", "manage"],
 			links: ["read"],
 			organizations: ["read"],
