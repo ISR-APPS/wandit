@@ -20,7 +20,7 @@ Each issue is written for one Claude Code session: Why, Outcome, Scope, Out of s
 | WANDIT-152 | Set up code.storage as the git remote per project | 2 | 3 | none |
 | WANDIT-153 | Vendor: send the Supabase for Platforms request and get the answers | 2 | 1 | none |
 | WANDIT-154 | Read the Claude Agent SDK terms for the hosted harness | 1 | 1 | none |
-| WANDIT-155 | Buy the preview domain and submit the Public Suffix List entries | 1 | 1 | none |
+| WANDIT-155 | Buy the preview domain and prepare the Public Suffix List entries | 1 | 1 | none |
 | WANDIT-156 | Vendor: open the accounts, plans, quotas, and tokens V2 needs | 2 | 1 | none |
 | WANDIT-157 | Move Redis to the API region | 2 | 2 | none |
 | WANDIT-158 | Add CI for type checks and tests | 2 | 2 | none |
@@ -153,3 +153,11 @@ Decide these before the named issue starts. They are also in WANDIT-147.
 
 11. Turn status enum: the text fixes extend `builder_turn_status` in WANDIT-163 (P1-02) and WANDIT-162 (P1-01) to 13 values and add `cancelling` to the active-turn unique index. Confirm this list before WANDIT-163 (P1-02) starts, because every later issue writes these values.
 
+## Added after the plan
+
+Issues created later, outside the phases.
+
+| Issue | Title | Prio | Days | Blocked by |
+|---|---|---|---|---|
+| WANDIT-211 | Add Oxlint next to Biome for the anti-slop typing rules (later, not now) | 4 | 0.5 | none. Start when /slop-review shows missed type findings |
+| WANDIT-220 | Resubmit the Public Suffix List entries when wandit.app has live customer sites | 3 | 0.5 | none. Start after the public launch, milestone P3 |

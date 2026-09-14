@@ -18,7 +18,7 @@ Only report to me in ASD-STE100 Simplified Technical English
 ## Codex / GPT models
 
 - Mechanics: GPT models are only reachable through the Codex CLI — `codex exec` / `codex review`
-  (my `~/.codex/config.toml` defaults to `gpt-5.6-sol` at `ultra` reasoning effort). Use the
+  (my `~/.codex/config.toml` defaults to `gpt-6-astra` at `ultra` reasoning effort). Use the
   codex-implementation, codex-review, and codex-computer-use skills; for work they don't cover
   (investigation, data analysis), run `codex exec -s read-only` directly with a self-contained prompt.
 - Claude models (sonnet-5, opus-4.8, fable-5) run via the Agent/Workflow `model` parameter.
@@ -26,8 +26,8 @@ Only report to me in ASD-STE100 Simplified Technical English
 ### GPT model routing (always follow — workflows, agents, and direct CLI alike)
 
 - **Implementation** (writing or editing code, fixes, refactors, features):
-  `gpt-5.6-sol` at `ultra` effort. This matches the config default, so plain `codex exec` works;
-  to be explicit: `codex exec -m gpt-5.6-sol -c model_reasoning_effort="ultra" "<prompt>"`
+  `gpt-6-astra` at `xhigh` effort. Never `gpt-5.6-sol` for implementation (Zack, 2026-09-10).
+  Always pass the flags: `codex exec -m gpt-6-astra -c model_reasoning_effort="xhigh" "<prompt>"`
 - **Batch inspection probes** (the pre-implementation codebase investigation for a feature batch):
   `gpt-5.6-sol` at `high` effort — NOT Claude agents, NOT luna:
   `codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort="high" "<prompt>"`
