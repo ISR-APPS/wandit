@@ -124,6 +124,18 @@ Add a comment for:
   ```
 
 - **Every exported function, class, type, and constant that you add or change, one to three lines.** Give at least one fact that the name and the types do not show: what it is for, a unit, a limit, a caller, what happens on error, the reason for a value. `/** Lock TTL. */` on `LOCK_TTL_MS` is noise. `/** 30 s. Longer than the slowest builder turn seen in Sentry. */` is a comment. When you change an export that has no comment, add one.
+- **Every prop, parameter field, and type field that a reader cannot understand from this file alone, one line.** Zack reads one file at a time, in an editor, without a tour. He must not open the parent component, the caller, or the schema to learn what a value is. Write the comment at the definition: what the value is, its unit or shape, and where it comes from. Example:
+
+  ```ts
+  type TurnCardProps = {
+    /** Id of the row in `builder_turns`. Also the key of the SSE route. */
+    turnId: string;
+    /** Credits held before the turn starts, in whole credits. Shown as an estimate. */
+    reservedCredits: number;
+  };
+  ```
+
+  A name that only makes sense with its comment is a bad name. Fix the name first, then add the comment.
 - **One "why" line above each of these blocks:**
   - a branch that follows a product rule ("free users get one project")
   - a loop that stops on a condition that is not in the loop header
@@ -144,7 +156,7 @@ Do not comment:
 
 Keep comments true. When you change the code, change the comment in the same edit. A wrong comment is worse than no comment.
 
-Names are the first comment. Name a function by what it does (`debitTurnCredits`), a boolean by the question it answers (`isSameBrowserSite`), a constant by its meaning and unit (`LOCK_TTL_MS`). Do not abbreviate, except units (`MS`, `SEC`) and names the repo already uses everywhere (`id`, `url`, `dto`, `ttl`).
+Names are the first comment. Name a function by what it does (`debitTurnCredits`), a boolean by the question it answers (`isSameBrowserSite`), a constant by its meaning and unit (`LOCK_TTL_MS`). Do not abbreviate, except units (`MS`, `SEC`) and names the repo already uses everywhere (`id`, `url`, `dto`, `ttl`). A prop or field name says what the value is, not where it comes from: `reservedCredits`, never `data`, `value`, `item`, or `props`.
 
 ### Checks and the report
 
@@ -180,7 +192,7 @@ Code contract (repo ISR-AI). Follow all eight points.
 1. Make the smallest change that is fully correct. No new abstraction, dependency, config, layer, or file unless the task needs it now. Search the repo and reuse what exists. Reuse across features goes through the feature index.ts barrel, or the code moves to a shared folder, or you copy it. Never a deep import from another feature. An existing line that breaks these rules is not a pattern to copy. Put code where the layout docs say: apps/server/src/modules/README.md, docs/frontend-structure.md.
 2. Never cut: validation at a trust boundary (zod with named fields, from packages/contracts), error handling (no empty catch), security checks, a lock or an idempotency key where money, credits, or a queue is involved, and the spec case that fails if the logic breaks. "Skipped" may hold only work outside the task. If you cannot complete one of these items, stop and ask.
 3. Types: no any; no unknown, object, or {} in a signature, a type alias, a read property, or an index signature, except a zod parse input, a caught error, and an error cause; no "x as unknown as Y"; a "// SAFETY: <fact>" comment above every "as" and every non-null "!", except "as const" and "satisfies"; no Record<string, unknown> for data you read; no @ts-ignore; no new vi.mock, vi.doMock, vi.hoisted, or vi.spyOn on a repo module.
-4. Comments in Simplified Technical English (sentences of at most 20 words, present tense, active voice): a 2 to 5 line header on every new file and on every edited file that has none (what it does, who calls it, what it calls; not on specs, barrels, generated files); 1 to 3 lines on every export you add or change, with one fact the name does not show; one "why" line above a product-rule branch, a lock, a retry, a cache, a security check, a unit conversion, a bare number, or a library workaround. Never restate the code. Update a comment when you change its code.
+4. Comments in Simplified Technical English (sentences of at most 20 words, present tense, active voice): a 2 to 5 line header on every new file and on every edited file that has none (what it does, who calls it, what it calls; not on specs, barrels, generated files); 1 to 3 lines on every export you add or change, with one fact the name does not show; one line on every prop, parameter field, and type field a reader cannot understand from the file alone (what it is, its unit or shape, where it comes from); one "why" line above a product-rule branch, a lock, a retry, a cache, a security check, a unit conversion, a bare number, or a library workaround. Never restate the code. Update a comment when you change its code.
 5. Mark an accepted ceiling on scale or precision in the code: "// LIMIT: <ceiling>. Upgrade: <path>." Never use it for a missing check.
 6. Run and paste the last line of each: "npx biome check --error-on-warnings <files>"; "npx -y pnpm@11.7.0 -F <package> check-types"; "npx -y pnpm@11.7.0 -F <package> test -- <spec of each touched module>". A warning is a failure. Do not run biome --write on the whole repo.
 7. Do not commit. Leave the diff for review.
