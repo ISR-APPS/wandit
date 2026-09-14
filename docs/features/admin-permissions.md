@@ -63,6 +63,7 @@ type AdminPermissionRequest = {
 | `organizations` | `read` | Yes | Yes |
 | `organizations` | `manage` | Yes | No |
 | `billing` | `read` | Yes | Yes |
+| `billing` | `update-request` | Yes | Yes |
 | `billing` | `manage` | Yes | No |
 | `publications` | `read` | Yes | Yes |
 | `feedback` | `read` | Yes | Yes |

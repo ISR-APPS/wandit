@@ -59,3 +59,21 @@ describe("AdminManualBillingController receipt config", () => {
 		expect(productSettingsService.get).toHaveBeenCalledOnce();
 	});
 });
+
+describe("AdminManualBillingController request permissions", () => {
+	it("lets support update a request but not grant a subscription", () => {
+		const updatePermission = Reflect.getMetadata(
+			ADMIN_PERMISSION_KEY,
+			AdminManualBillingController.prototype.updateRequest,
+		);
+		const grantPermission = Reflect.getMetadata(
+			ADMIN_PERMISSION_KEY,
+			AdminManualBillingController.prototype.grant,
+		);
+
+		expect(updatePermission).toEqual({ billing: ["update-request"] });
+		expect(adminRoleHasPermission("support", updatePermission)).toBe(true);
+		expect(grantPermission).toEqual({ billing: ["manage"] });
+		expect(adminRoleHasPermission("support", grantPermission)).toBe(false);
+	});
+});
