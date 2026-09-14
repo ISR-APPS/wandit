@@ -428,6 +428,9 @@ function ManualRequestActions({
 	const [activeDialog, setActiveDialog] = useState<RequestActionDialog>(null);
 	const updateMutation = useUpdateManualRequestMutation();
 	const canManage = useAdminPermission({ billing: ["manage"] });
+	const canUpdateRequest = useAdminPermission({
+		billing: ["update-request"],
+	});
 	// Only open requests accept call outcomes or closure actions from this menu.
 	const canAct = OPEN_MANUAL_REQUEST_STATUSES.some(
 		(status) => status === request.status,
@@ -504,8 +507,8 @@ function ManualRequestActions({
 								</Link>
 							)}
 						</DropdownMenuItem>
-						{/* Only billing managers can change an open request. */}
-						{canManage && canAct ? (
+						{/* Support and admins record the call outcome on an open request. */}
+						{canUpdateRequest && canAct ? (
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger disabled={updateMutation.isPending}>
 									<PhoneCallIcon />
@@ -547,15 +550,15 @@ function ManualRequestActions({
 								Approve & grant
 							</DropdownMenuItem>
 						) : null}
-						{canManage ? (
+						{canUpdateRequest ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("note")}>
 								<MessageSquareTextIcon />
 								Edit note
 							</DropdownMenuItem>
 						) : null}
 					</DropdownMenuGroup>
-					{/* Closed requests must not expose rejection or cancellation actions. */}
-					{canManage && canAct ? (
+					{/* Reject and cancel are request updates. Closed requests must not expose them. */}
+					{canUpdateRequest && canAct ? (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuGroup>
@@ -625,7 +628,7 @@ function ManualRequestActions({
 					onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
 				/>
 			) : null}
-			{canManage ? (
+			{canUpdateRequest ? (
 				<>
 					<ManualRequestNoteDialog
 						request={request}
