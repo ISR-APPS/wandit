@@ -8,7 +8,11 @@
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
-import type { ChatUsageResponse, ComposerMetadata } from "@wandit/contracts";
+import type {
+	ChatUsageResponse,
+	ComposerMetadata,
+	FileRef,
+} from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
@@ -195,6 +199,52 @@ export class ChatsRepository {
 			.returning();
 
 		// The caller needs the message id for the queue job.
+		return this.expectMessage(row);
+	}
+
+	/**
+	 * V2 turn user message. Same parts layout as the project-create path —
+	 * file parts BEFORE the text part — plus the `builder_turns` FK so the
+	 * history filter can hide its in-flight assistant answer.
+	 */
+	async insertTurnUserMessage(input: {
+		attachments?: FileRef[];
+		chatId: string;
+		composer?: ComposerMetadata;
+		id: string;
+		text: string;
+		turnId: string;
+	}): Promise<InsertedMessageRow> {
+		const [row] = await this.db
+			.insert(messages)
+			.values({
+				chatId: input.chatId,
+				id: input.id,
+				metadata: input.composer ?? null,
+				// Attachment file parts sit BEFORE the text part (contract §10.4);
+				// attachment-only turns skip the text part entirely.
+				parts: [
+					...(input.attachments ?? []).map((attachment) => ({
+						...(attachment.filename ? { filename: attachment.filename } : {}),
+						mediaType: attachment.mediaType,
+						type: "file",
+						url: attachment.url,
+					})),
+					...(input.text.trim().length > 0
+						? [
+								{
+									state: "done",
+									text: input.text,
+									type: "text",
+								},
+							]
+						: []),
+				],
+				role: "user",
+				turnId: input.turnId,
+			})
+			.returning();
+
 		return this.expectMessage(row);
 	}
 

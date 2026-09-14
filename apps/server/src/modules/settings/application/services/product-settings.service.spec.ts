@@ -143,6 +143,7 @@ describe("ProductSettingsService", () => {
 			topupsEnabled: false,
 			updatedAt: INITIAL_DATE.toISOString(),
 			updatedByUserId: null,
+			v2BuilderEnabled: false,
 			version: 1,
 		});
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(1);
@@ -282,6 +283,7 @@ describe("ProductSettingsService", () => {
 			signupGrantCredits: exposedCredits,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
+			v2BuilderEnabled: false,
 		};
 
 		expect(publicSettings).toEqual(expectedPublicSettings);

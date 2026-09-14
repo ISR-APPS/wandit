@@ -26,6 +26,7 @@ function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 		topupsEnabled: false,
 		updatedAt: "2026-08-01T10:00:00.000Z",
 		updatedByUserId: null,
+		v2BuilderEnabled: false,
 		version: 1,
 		...overrides,
 	};

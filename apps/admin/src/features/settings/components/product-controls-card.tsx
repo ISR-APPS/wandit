@@ -61,6 +61,7 @@ const BOOLEAN_SETTING_KEYS = [
 	"organizationsEnabled",
 	"emailAuthEnabled",
 	"lifecycleEmailsEnabled",
+	"v2BuilderEnabled",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -140,6 +141,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "New eligible lifecycle events will be delivered to Resend automations. Events dropped while this switch was disabled will not be replayed."
 				: "Queued and future lifecycle events will be recorded but dropped without sending. Transactional emails such as sign-in links, invitations, and receipts are unaffected.",
+	},
+	v2BuilderEnabled: {
+		label: "V2 app builder",
+		description:
+			"Open the V2 app builder (web apps on a sandbox) to users who also carry the PostHog flag v2-builder.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Users whose PostHog flag v2-builder is on will reach the V2 app builder routes. Everyone else still gets the V1 page builder."
+				: "The V2 app builder routes will deny every user regardless of the PostHog flag. Existing V2 projects keep their data but their turns stop.",
 	},
 };
 

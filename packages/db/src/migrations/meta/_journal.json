@@ -505,6 +505,20 @@
       "when": 1789032783710,
       "tag": "0071_offline-request-statuses",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1789384946979,
+      "tag": "0072_v2-core-tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1789396922981,
+      "tag": "0073_llm-proxy-requests",
+      "breakpoints": true
     }
   ]
 }

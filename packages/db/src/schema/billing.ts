@@ -152,6 +152,9 @@ export const productSettings = pgTable(
 		manualPaymentsEnabled: boolean("manual_payments_enabled")
 			.notNull()
 			.default(false),
+		// V2 app builder kill switch. The V2 guard reads it together with the
+		// PostHog flag per user.
+		v2BuilderEnabled: boolean("v2_builder_enabled").notNull().default(false),
 		manualGraceDays: integer("manual_grace_days").notNull().default(0),
 		// Hundredths of a DZD per 1 USD (27000 = 270.00 DZD/USD).
 		dzdPerUsdRate: integer("dzd_per_usd_rate").notNull().default(27_000),

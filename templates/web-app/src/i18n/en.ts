@@ -1,0 +1,65 @@
+// English dictionary. The source of truth for every user-facing string.
+// French and Arabic must keep the same keys and the same tree shape.
+export const en = {
+	common: {
+		appName: "Wandit App",
+		save: "Save",
+		signOut: "Sign out",
+	},
+	nav: {
+		features: "Features",
+		signIn: "Sign in",
+	},
+	landing: {
+		heroTitle: "Your business, online in minutes",
+		heroSubtitle:
+			"A fast storefront with a built-in lead form. Your customers reach you directly.",
+		heroCta: "Get started",
+		featuresTitle: "Everything you need",
+		feature1Title: "Fast by default",
+		feature1Body: "Static pages served from the edge, close to your customers.",
+		feature2Title: "Leads that reach you",
+		feature2Body: "Every form submission lands in your lead inbox instantly.",
+		feature3Title: "Three languages",
+		feature3Body:
+			"English, French, and Arabic with full right-to-left support.",
+	},
+	lead: {
+		title: "Request a callback",
+		subtitle: "Leave your details and we call you back today.",
+		name: "Full name",
+		namePlaceholder: "Your name",
+		phone: "Phone",
+		phonePlaceholder: "05 00 00 00 00",
+		wilaya: "Wilaya",
+		wilayaPlaceholder: "Alger",
+		commune: "Commune",
+		communePlaceholder: "Your commune",
+		product: "Product",
+		productPlaceholder: "What do you want to order?",
+		quantity: "Quantity",
+		submit: "Send request",
+		successTitle: "Request received",
+		successBody: "Thank you. We call you back as soon as possible.",
+		errorRequired: "Fill every field before you send.",
+	},
+	login: {
+		title: "Sign in",
+		subtitle: "We email you a magic link. No password needed.",
+		email: "Email",
+		emailPlaceholder: "you@example.com",
+		submit: "Send magic link",
+		sending: "Sending…",
+		sentTitle: "Check your email",
+		sentBody: "Open the link in the email to finish signing in.",
+		error: "Sign-in failed. Try again.",
+	},
+	app: {
+		profileTitle: "Profile",
+		fullName: "Full name",
+		fullNamePlaceholder: "Your display name",
+		savedBody: "Your profile was updated.",
+		loadError: "Your profile did not load. Refresh the page.",
+		saveError: "Your profile was not saved. Try again.",
+	},
+} as const;

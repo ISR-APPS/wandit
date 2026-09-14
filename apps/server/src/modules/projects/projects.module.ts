@@ -11,5 +11,7 @@ import { ProjectsController } from "./presentation/http/controllers/projects.con
 	controllers: [ProjectsController],
 	imports: [DatabaseModule, MeteringModule],
 	providers: [ProjectsRepository, ProjectTitleService, ProjectsService],
+	// The V2 turn API reads `findEngineByIdForScope` through this export.
+	exports: [ProjectsRepository],
 })
 export class ProjectsModule {}

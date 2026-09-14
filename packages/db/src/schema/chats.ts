@@ -75,6 +75,8 @@ export const messages = pgTable(
 		failureProviderMessage: text("failure_provider_message"),
 		failureRequestId: text("failure_request_id"),
 		sentryEventId: text("sentry_event_id"),
+		// The `builder_turns` row that produced the message. Null on V1 chats.
+		turnId: uuid("turn_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -85,6 +87,10 @@ export const messages = pgTable(
 		index("messages_failureKind_createdAt_idx")
 			.on(table.failureKind, table.createdAt)
 			.where(sql`${table.failureKind} IS NOT NULL`),
+		// Finds the assistant message of a V2 turn.
+		index("messages_turnId_idx")
+			.on(table.turnId)
+			.where(sql`${table.turnId} IS NOT NULL`),
 	],
 );
 

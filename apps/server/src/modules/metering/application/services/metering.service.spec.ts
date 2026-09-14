@@ -4677,6 +4677,7 @@ function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 		outputTokens: null,
 		parentEventId: input.parentEventId ?? null,
 		pricingSnapshot: input.pricingSnapshot ?? null,
+		projectId: input.projectId ?? null,
 		provider: input.provider ?? null,
 		rawUsage: null,
 		reconciledAt: null,

@@ -126,6 +126,30 @@ export class ProjectsRepository {
 		return row ?? null;
 	}
 
+	/**
+	 * Engine of one non-deleted project visible in this scope, or null.
+	 * The V2 turn API uses it for the `v2_app` gate without loading the
+	 * full `ProjectQueryRow` join shape.
+	 */
+	async findEngineByIdForScope(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<"v1_page" | "v2_app" | null> {
+		const [row] = await this.db
+			.select({ engine: projects.engine })
+			.from(projects)
+			.where(
+				and(
+					projectScopePredicate(scope),
+					eq(projects.id, projectId),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		return row?.engine ?? null;
+	}
+
 	// Create project + chat + first user message together.
 	async createWithChatAndFirstMessage(input: {
 		attachments?: FileRef[];

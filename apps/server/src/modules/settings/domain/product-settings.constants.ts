@@ -16,6 +16,8 @@ export const DEFAULT_PRODUCT_SETTINGS = {
 	signupGrantCredits: 2000,
 	signupGrantEnabled: false,
 	topupsEnabled: false,
+	// Matches the v2_builder_enabled column default: the V2 builder is off.
+	v2BuilderEnabled: false,
 	version: 1,
 } as const;
 
