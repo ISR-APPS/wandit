@@ -1,3 +1,8 @@
+/**
+ * The phone step of onboarding: a country picker and a national number input.
+ * Rendered by pages/onboarding-page.tsx. Composes one E.164 answer with the
+ * helpers of lib/dial-codes.ts and hands it to the page on submit.
+ */
 import { Button } from "@wandit/ui/components/button";
 import {
 	Command,
@@ -64,6 +69,8 @@ type PhoneStepProps = {
 	onSubmit: (value: string, countryIso: DialCountryIso) => void;
 	disabled?: boolean;
 	inputId?: string;
+	/** The taken-phone message from the page, shown under the input until the number changes. */
+	errorMessage?: string;
 };
 
 // Every listed country renders its flag, so tree shaking has nothing to drop;
@@ -112,6 +119,7 @@ export function PhoneStep({
 	onSubmit,
 	disabled = false,
 	inputId = "onboarding-phone-answer",
+	errorMessage,
 }: PhoneStepProps) {
 	// The stored answer is one E.164 string; the split restores country and
 	// national number when the user navigates back to this step. Preserve the
@@ -288,9 +296,20 @@ export function PhoneStep({
 						required
 						autoFocus
 						disabled={disabled}
+						aria-invalid={errorMessage ? true : undefined}
+						aria-describedby={errorMessage ? `${inputId}-error` : undefined}
 						className="h-11 rounded-xl bg-card px-4 text-base shadow-none"
 					/>
 				</div>
+				{errorMessage ? (
+					<p
+						role="alert"
+						id={`${inputId}-error`}
+						className="text-destructive text-sm"
+					>
+						{errorMessage}
+					</p>
+				) : null}
 			</div>
 			<Button
 				type="submit"

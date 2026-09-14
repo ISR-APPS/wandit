@@ -1,0 +1,742 @@
+- generic [active] [ref=f17e1]:
+  - generic [ref=f17e25]:
+    - link "Skip to main content" [ref=f17e26] [cursor=pointer]:
+      - /url: "#main"
+    - generic [ref=f17e28]:
+      - navigation "Primary Navigation" [ref=f17e29]:
+        - button "Toggle organization menu" [ref=f17e31] [cursor=pointer]:
+          - img [ref=f17e34]:
+            - generic [ref=f17e36]: S
+        - list [ref=f17e37]:
+          - listitem [ref=f17e38]:
+            - link "Issues" [ref=f17e39] [cursor=pointer]:
+              - /url: /issues/
+          - listitem [ref=f17e44]:
+            - link "Explore" [ref=f17e45] [cursor=pointer]:
+              - /url: /explore/traces/
+          - listitem [ref=f17e50]:
+            - link "Dashboards" [ref=f17e51] [cursor=pointer]:
+              - /url: /dashboards/
+          - listitem [ref=f17e56]:
+            - link "Monitors" [ref=f17e57] [cursor=pointer]:
+              - /url: /monitors/
+          - listitem [ref=f17e62]:
+            - link "Settings" [ref=f17e63] [cursor=pointer]:
+              - /url: /settings/organization/
+        - generic [ref=f17e68]:
+          - generic [ref=f17e71]:
+            - button "Onboarding" [ref=f17e72] [cursor=pointer]:
+              - img [ref=f17e76]:
+                - generic [ref=f17e79]: "9"
+            - button "Try Business" [ref=f17e82] [cursor=pointer]
+            - button "What's New" [ref=f17e87] [cursor=pointer]
+            - button "Help" [ref=f17e93] [cursor=pointer]
+          - button "contact@scalemindapps.com" [ref=f17e101] [cursor=pointer]:
+            - img [ref=f17e104]:
+              - generic [ref=f17e106]: C
+      - navigation "Secondary Navigation" [ref=f17e109]:
+        - generic [ref=f17e110]:
+          - generic [ref=f17e111]:
+            - generic [ref=f17e112]: Issues
+            - button "Collapse" [ref=f17e114] [cursor=pointer]
+          - generic [ref=f17e119]:
+            - list [ref=f17e123]:
+              - listitem [ref=f17e124]:
+                - link "Feed" [ref=f17e125] [cursor=pointer]:
+                  - /url: /issues/
+            - separator [ref=f17e128]
+            - list [ref=f17e132]:
+              - listitem [ref=f17e133]:
+                - link "Errors & Outages" [ref=f17e134] [cursor=pointer]:
+                  - /url: /issues/errors-outages/
+              - listitem [ref=f17e136]:
+                - link "Breached Metrics" [ref=f17e137] [cursor=pointer]:
+                  - /url: /issues/breached-metrics/
+              - listitem [ref=f17e139]:
+                - link "Warnings" [ref=f17e140] [cursor=pointer]:
+                  - /url: /issues/warnings/
+              - listitem [ref=f17e142]:
+                - link "User Feedback" [ref=f17e143] [cursor=pointer]:
+                  - /url: /issues/feedback/
+            - separator [ref=f17e146]
+            - generic [ref=f17e147]:
+              - button "Autofix" [ref=f17e148] [cursor=pointer]
+              - list [ref=f17e156]:
+                - listitem [ref=f17e157]:
+                  - link "Overview new" [ref=f17e158] [cursor=pointer]:
+                    - /url: /issues/autofix/
+                    - generic [ref=f17e159]: Overview
+                    - generic "new" [ref=f17e160]
+                - listitem [ref=f17e164]:
+                  - link "Recently Run" [ref=f17e165] [cursor=pointer]:
+                    - /url: /issues/autofix/recent/
+            - separator [ref=f17e168]
+            - list [ref=f17e172]:
+              - listitem [ref=f17e173]:
+                - link "All Views" [ref=f17e174] [cursor=pointer]:
+                  - /url: /issues/views/
+    - generic [ref=f17e177]:
+      - banner [ref=f17e178]:
+        - generic [ref=f17e179]:
+          - list [ref=f17e183]:
+            - listitem [ref=f17e184]:
+              - link "Issues" [ref=f17e187] [cursor=pointer]:
+                - /url: /issues/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+          - heading "WANDIT-WEB-K Copy Issue Short-ID" [level=1] [ref=f17e192]:
+            - generic [ref=f17e193]:
+              - generic [ref=f17e199]: WANDIT-WEB-K
+              - button "Copy Issue Short-ID" [ref=f17e201] [cursor=pointer]
+        - generic [ref=f17e208]:
+          - button "Ask Seer" [ref=f17e209] [cursor=pointer]
+          - button "Command Palette" [ref=f17e218] [cursor=pointer]
+          - button "Give Feedback" [ref=f17e224] [cursor=pointer]
+      - main [ref=f17e229]:
+        - generic [ref=f17e231]:
+          - generic [ref=f17e233]:
+            - generic [ref=f17e234]: ZodError
+            - link "View events" [ref=f17e237] [cursor=pointer]:
+              - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - text: Events (total)
+            - link "View affected users" [ref=f17e239] [cursor=pointer]:
+              - /url: /issues/139576149/distributions/user/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - text: Users (90d)
+            - generic [ref=f17e240]:
+              - generic [ref=f17e241]: "Level: Error"
+              - generic [ref=f17e243]: "[ { \"code\": \"invalid_value\", \"values\": [ \"pro\", \"business\" ], \"path\": [ \"plans\", 0, \"id\" ], \"message\": \"Invalid input\" }, { \"code\": \"invalid_union\", \"errors\": [ [ { \"code\": \"invalid_value\", \"values\": [ 250 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 1000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 2000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", ..."
+            - generic "111" [ref=f17e244]
+            - generic "68" [ref=f17e245]
+            - generic [ref=f17e246]:
+              - generic [ref=f17e247]: Ongoing
+              - generic [aria-hidden] [ref=f17e248]: "|"
+              - generic [ref=f17e249]: /_auth/dashboard
+          - banner [ref=f17e251]:
+            - generic [ref=f17e252]:
+              - generic [ref=f17e253]:
+                - button "Resolve" [ref=f17e254] [cursor=pointer]
+                - button "More resolve options" [ref=f17e256] [cursor=pointer]
+              - generic [ref=f17e261]:
+                - button "Archive" [ref=f17e262] [cursor=pointer]
+                - button "Archive options" [ref=f17e264] [cursor=pointer]
+              - button "Subscribe" [ref=f17e269] [cursor=pointer]
+              - button "Share" [ref=f17e274] [cursor=pointer]
+              - button "More Actions" [ref=f17e279] [cursor=pointer]
+            - generic [ref=f17e284]:
+              - generic [ref=f17e285]:
+                - text: Priority
+                - button "Modify issue priority" [ref=f17e286] [cursor=pointer]:
+                  - generic [ref=f17e287]: High
+              - generic [ref=f17e298]:
+                - text: Assignee
+                - button "Modify issue assignee" [ref=f17e301] [cursor=pointer]:
+                  - generic [ref=f17e302]: Unassigned
+          - generic [ref=f17e308]:
+            - generic [ref=f17e309]:
+              - group [ref=f17e311]:
+                - generic [ref=f17e313]:
+                  - generic [ref=f17e314]:
+                    - generic [ref=f17e315]:
+                      - button "All Envs" [ref=f17e317] [cursor=pointer]
+                      - button "Since First Seen (1 month)" [ref=f17e325] [cursor=pointer]
+                    - grid "Filter events…" [ref=f17e336]:
+                      - textbox [ref=f17e338]
+                      - row "Space" [ref=f17e339]:
+                        - gridcell [ref=f17e340]:
+                          - combobox "Add a search term" [ref=f17e344]
+                  - button "Close sidebar" [ref=f17e346] [cursor=pointer]
+                - generic [ref=f17e351]:
+                  - generic [ref=f17e352]:
+                    - generic [ref=f17e353]:
+                      - button "Toggle graph series - Events" [disabled] [ref=f17e354]:
+                        - generic [ref=f17e356]:
+                          - generic [ref=f17e357]: Events
+                          - generic [ref=f17e358]: "111"
+                      - button "Toggle graph series - Users" [ref=f17e359] [cursor=pointer]:
+                        - generic [ref=f17e361]:
+                          - generic [ref=f17e362]: Users
+                          - generic [ref=f17e363]: "68"
+                    - figure [ref=f17e364]:
+                      - 'img "bar and custom chart with September 8th to September 8th featuring 2 data series: Events and Releases. The Events series contains 65 data points. Its lowest value is Infinity on January 1st and highest value is -Infinity on January 1st. The Releases series contains 65 data points. Its lowest value is Infinity on January 1st and highest value is -Infinity on January 1st" [ref=f17e366]':
+                        - img [ref=f17e368]:
+                          - generic [ref=f17e370]:
+                            - generic [ref=f17e374]: "0"
+                            - generic [ref=f17e375]: "20"
+                            - generic [ref=f17e376]: "40"
+                            - generic [ref=f17e377]: Aug 7 11:00 PM
+                            - generic [ref=f17e378]: Aug 14 11:00 PM
+                            - generic [ref=f17e379]: Aug 21 11:00 PM
+                            - generic [ref=f17e380]: Sep 7 11:00 PM
+                            - generic [ref=f17e381]: Aug 31 11:00 PM
+                            - generic [ref=f17e406]: Releases
+                  - generic [ref=f17e408]:
+                    - generic [ref=f17e409]:
+                      - link "browser 35% Chrome 151.0.0" [ref=f17e410] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/browser/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f17e411]: browser
+                        - generic [ref=f17e417]: 35%
+                        - generic [ref=f17e418]: Chrome 151.0.0
+                      - link "release 95%" [ref=f17e419] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/release/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f17e420]: release
+                        - generic [ref=f17e426]: 95%
+                      - link "url 23% https://wandit.dev/dashboard" [ref=f17e427] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/url/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f17e428]: url
+                        - generic [ref=f17e434]: 23%
+                        - generic [ref=f17e435]: https://wandit.dev/dashboard
+                      - link "environment 92% production" [ref=f17e436] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/environment/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f17e437]: environment
+                        - generic [ref=f17e442]: 92%
+                        - generic [ref=f17e443]: production
+                    - link "View all tags and feature flags" [ref=f17e444] [cursor=pointer]:
+                      - /url: /issues/139576149/distributions/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - generic [ref=f17e446]:
+                - navigation [ref=f17e448]:
+                  - generic [ref=f17e449]:
+                    - button "Select issue content" [ref=f17e450] [cursor=pointer]:
+                      - generic [ref=f17e451]: Events
+                    - generic [aria-hidden] [ref=f17e455]: in this issue
+                  - generic [ref=f17e457]:
+                    - generic [ref=f17e458]:
+                      - button "Previous Event" [ref=f17e459] [cursor=pointer]
+                      - button "Next Event" [disabled] [ref=f17e464]
+                    - tablist [ref=f17e471]:
+                      - tab [ref=f17e473] [cursor=pointer]:
+                        - link "First" [ref=f17e474]:
+                          - /url: /issues/139576149/events/oldest/?project=4511831307845712&query=is%3Aunresolved&referrer=oldest-event
+                      - tab [ref=f17e476] [cursor=pointer]:
+                        - link "Latest" [ref=f17e477]:
+                          - /url: /issues/139576149/events/latest/?project=4511831307845712&query=is%3Aunresolved&referrer=latest-event
+                      - tab "Recommended" [selected] [ref=f17e479] [cursor=pointer]
+                    - button "View More Events" [ref=f17e481] [cursor=pointer]
+                    - button "Copy as" [ref=f17e483] [cursor=pointer]
+                - main [ref=f17e493]:
+                  - generic [ref=f17e496]:
+                    - generic [ref=f17e497]:
+                      - generic [ref=f17e498]: "ID: 7a2dc298"
+                      - time [ref=f17e500]: 9 minutes ago
+                      - generic [ref=f17e501]:
+                        - generic [aria-hidden] [ref=f17e502]: "|"
+                        - link "JSON" [ref=f17e503] [cursor=pointer]:
+                          - /url: https://de.sentry.io/api/0/projects/scalemindapps/wandit-web/events/7a2dc298cc1b4951b9b0a1683eb35b24/json/
+                    - generic [ref=f17e504]:
+                      - generic [aria-hidden] [ref=f17e505]: "Jump to:"
+                      - group "Jump to section links" [ref=f17e507]:
+                        - button "Highlights" [ref=f17e508] [cursor=pointer]
+                        - button "Stack Trace" [ref=f17e510] [cursor=pointer]
+                        - button "Breadcrumbs" [ref=f17e512] [cursor=pointer]
+                        - button "Trace" [ref=f17e514] [cursor=pointer]
+                        - button "Tags" [ref=f17e516] [cursor=pointer]
+                        - button "Context" [ref=f17e518] [cursor=pointer]
+                  - generic [ref=f17e520]:
+                    - group "Icon highlights" [ref=f17e523]:
+                      - generic [ref=f17e524]: Frontend
+                      - generic [aria-hidden] [ref=f17e526]: "|"
+                      - generic [ref=f17e527]:
+                        - generic "oussamachasse@outlook.com" [ref=f17e529]:
+                          - img [ref=f17e530]:
+                            - generic [ref=f17e532]: O
+                        - generic [ref=f17e533]:
+                          - generic [ref=f17e534]: oussamachasse@outlook.com
+                          - generic [ref=f17e535]: jJifW83KvzRlvsM20kcG8QIprOWsPKHa
+                      - generic [ref=f17e536]:
+                        - img "chrome" [ref=f17e538]
+                        - generic [ref=f17e539]:
+                          - generic [ref=f17e540]: Chrome Mobile
+                          - generic [ref=f17e541]: 152.0.0
+                      - generic [ref=f17e542]:
+                        - img "android" [ref=f17e544]
+                        - generic [ref=f17e545]:
+                          - generic [ref=f17e546]: Android
+                          - generic [ref=f17e547]: "10"
+                      - generic "Event environment" [ref=f17e552]: production
+                    - separator [ref=f17e554]
+                    - region "Highlights" [ref=f17e555]:
+                      - generic [ref=f17e556]:
+                        - button "Collapse Highlights Section" [expanded] [ref=f17e557] [cursor=pointer]:
+                          - generic [ref=f17e558]: Highlights
+                        - button "Edit" [ref=f17e563] [cursor=pointer]
+                      - group "Collapse Highlights Section" [ref=f17e568]:
+                        - generic [ref=f17e569]:
+                          - generic [ref=f17e570]:
+                            - generic [ref=f17e571]:
+                              - generic "handled" [ref=f17e573]
+                              - generic [ref=f17e574]:
+                                - generic [ref=f17e575]: "yes"
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e576]:
+                              - generic "level" [ref=f17e578]
+                              - generic [ref=f17e579]:
+                                - generic [ref=f17e580]: error
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e581]:
+                              - generic "transaction" [ref=f17e583]
+                              - generic [ref=f17e584]:
+                                - link "/_auth/dashboard" [ref=f17e587] [cursor=pointer]:
+                                  - /url: /insights/summary/?project=4511831307845712&referrer=event-tags-table&transaction=%2F_auth%2Fdashboard
+                                - generic:
+                                  - button "Tag Actions Menu"
+                          - generic [ref=f17e588]:
+                            - generic [ref=f17e589]:
+                              - generic "url" [ref=f17e591]
+                              - generic [ref=f17e592]:
+                                - generic [ref=f17e593]: https://wandit.dev/dashboard
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e595]:
+                              - generic [ref=f17e596]: "Trace: Trace ID"
+                              - link "79728b2deabf4372831ff3fd84268d0b" [ref=f17e599] [cursor=pointer]:
+                                - /url: /explore/traces/trace/79728b2deabf4372831ff3fd84268d0b/?eventId=7a2dc298cc1b4951b9b0a1683eb35b24&pageEnd=2026-09-08T22%3A03%3A53.771&pageStart=2026-09-07T22%3A03%3A53.771&project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&timestamp=1788861832.036
+                    - separator [ref=f17e600]
+                    - region "Stack Trace" [ref=f17e601]:
+                      - generic [ref=f17e602]:
+                        - button "Collapse Stack Trace Section" [expanded] [ref=f17e603] [cursor=pointer]:
+                          - generic [ref=f17e604]: Stack Trace
+                        - generic [ref=f17e609]:
+                          - button "Display options" [ref=f17e611] [cursor=pointer]:
+                            - generic [ref=f17e612]: Display
+                          - button "Copy as" [ref=f17e619] [cursor=pointer]
+                      - group "Collapse Stack Trace Section" [ref=f17e627]:
+                        - generic [ref=f17e628]:
+                          - generic [ref=f17e629]:
+                            - heading "ZodError" [level=5] [ref=f17e631]
+                            - generic [ref=f17e632]:
+                              - generic [ref=f17e633]: "[ { \"code\": \"invalid_value\", \"values\": [ \"pro\", \"business\" ], \"path\": [ \"plans\", 0, \"id\" ], \"message\": \"Invalid input\" }, { \"code\": \"invalid_union\", \"errors\": [ [ { \"code\": \"invalid_value\", \"values\": [ 250 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 1000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 2000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 3000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 5000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 7500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 10000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 12500 ], \"path\": [], \"message\": \"Invalid input\" } ] ], \"path\": [ \"plans\", 0, \"tiers\", 0, \"tierCredits\" ], \"message\": \"Invalid input\" } ]"
+                              - generic [ref=f17e634]:
+                                - listitem [ref=f17e635]:
+                                  - generic [ref=f17e636]: mechanism
+                                  - generic [ref=f17e637]: generic
+                                - listitem [ref=f17e638]:
+                                  - generic [ref=f17e639]: handled
+                                  - generic [ref=f17e640]: "true"
+                          - generic [ref=f17e641]:
+                            - generic [ref=f17e642]:
+                              - generic [ref=f17e643]: Connect with Git Providers
+                              - generic [ref=f17e644]: Install Git providers (GitHub, GitLab…) to enable features like code mapping and stack trace linking.
+                              - button "Get Started" [ref=f17e645] [cursor=pointer]
+                            - button "Dismiss" [ref=f17e647] [cursor=pointer]
+                          - generic [ref=f17e653]:
+                            - generic [ref=f17e654] [cursor=pointer]:
+                              - generic [ref=f17e655]:
+                                - generic [ref=f17e656]: /assets/billing.mutations-CLDAMTT-.js:1:308
+                                - generic [ref=f17e660]:
+                                  - generic [ref=f17e661]: in
+                                  - generic [ref=f17e662]: m
+                              - generic [ref=f17e663]: In App
+                            - generic [ref=f17e671]:
+                              - generic [ref=f17e672]:
+                                - generic "Line 1" [ref=f17e673]: "1"
+                                - code [ref=f17e674]: <!doctype html>
+                              - generic [ref=f17e675]:
+                                - generic "Line 2" [ref=f17e676]: "2"
+                                - code [ref=f17e677]: <html lang="en">
+                              - generic [ref=f17e678]:
+                                - generic "Line 3" [ref=f17e679]: "3"
+                                - code [ref=f17e680]: <head>
+                              - generic [ref=f17e681]:
+                                - generic "Line 4" [ref=f17e682]: "4"
+                                - code [ref=f17e683]: <meta charset="UTF-8" />
+                              - generic [ref=f17e684]:
+                                - generic "Line 5" [ref=f17e685]: "5"
+                                - code [ref=f17e686]: <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                              - generic [ref=f17e687]:
+                                - generic "Line 6" [ref=f17e688]: "6"
+                                - code [ref=f17e689]: <title>Wandit</title>
+                    - separator [ref=f17e690]
+                    - region "Breadcrumbs" [ref=f17e691]:
+                      - generic [ref=f17e692]:
+                        - button "Collapse Breadcrumbs Section" [expanded] [ref=f17e693] [cursor=pointer]:
+                          - generic [ref=f17e694]: Breadcrumbs
+                        - generic [ref=f17e699]:
+                          - button "Open Breadcrumb Search" [ref=f17e700] [cursor=pointer]
+                          - button "Change Time Format for Breadcrumbs" [ref=f17e705] [cursor=pointer]
+                          - button "Copy as" [ref=f17e710] [cursor=pointer]
+                      - group "Collapse Breadcrumbs Section" [ref=f17e718]:
+                        - generic [ref=f17e722]:
+                          - generic [ref=f17e723]:
+                            - generic [ref=f17e729]:
+                              - generic [ref=f17e730]:
+                                - text: Exception
+                                - paragraph [ref=f17e731]: "- This event"
+                              - generic [ref=f17e732]: error
+                            - time [ref=f17e735]: Sep 8, 10:03:52.036 AM UTC
+                            - generic [ref=f17e736]: "ZodError: [ { \"code\": \"invalid_value\", \"values\": [ \"pro\", \"business\" ], \"path\": [ \"plans\", 0, \"id\" ], \"message\": \"Invalid input\" }, { \"code\": \"invalid_union\", \"errors\": [ [ { \"code\": \"invalid_value\", \"values\": [ 250 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 1000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 2000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 3000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 5000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 7500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 10000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 12500 ], \"path\": [], \"message\": \"Invalid input\" } ] ], \"path\": [ \"plans\", 0, \"tiers\", 0, \"tierCredits\" ], \"message\": \"Invalid input\" } ]"
+                          - generic [ref=f17e739]:
+                            - generic [ref=f17e745]:
+                              - generic [ref=f17e746]: XHR
+                              - generic [ref=f17e747]: info
+                            - time [ref=f17e750]: Sep 8, 10:03:52.028 AM UTC
+                            - generic [ref=f17e753]:
+                              - text: "GET:"
+                              - link "https://api.wandit.dev/api/v1/billing/plans" [ref=f17e754] [cursor=pointer]
+                              - text: "[200]"
+                          - generic [ref=f17e755]:
+                            - generic [ref=f17e761]:
+                              - generic [ref=f17e762]: XHR
+                              - generic [ref=f17e763]: info
+                            - time [ref=f17e766]: Sep 8, 10:03:50.948 AM UTC
+                            - generic [ref=f17e769]:
+                              - text: "GET:"
+                              - link "https://api.wandit.dev/api/v1/workspaces" [ref=f17e770] [cursor=pointer]
+                              - text: "[200]"
+                          - generic [ref=f17e771]:
+                            - generic [ref=f17e777]:
+                              - generic [ref=f17e778]: XHR
+                              - generic [ref=f17e779]: info
+                            - time [ref=f17e782]: Sep 8, 10:03:50.944 AM UTC
+                            - generic [ref=f17e785]:
+                              - text: "GET:"
+                              - link "https://api.wandit.dev/api/v1/settings/public" [ref=f17e786] [cursor=pointer]
+                              - text: "[200]"
+                          - generic [ref=f17e787]:
+                            - generic [ref=f17e793]:
+                              - generic [ref=f17e794]: XHR
+                              - generic [ref=f17e795]: info
+                            - time [ref=f17e798]: Sep 8, 10:03:50.936 AM UTC
+                            - generic [ref=f17e801]:
+                              - text: "GET:"
+                              - link "https://api.wandit.dev/api/v1/billing/plans" [ref=f17e802] [cursor=pointer]
+                              - text: "[200]"
+                        - button "View 7 more" [ref=f17e807] [cursor=pointer]
+                    - separator [ref=f17e809]
+                    - region "Trace Preview" [ref=f17e810]:
+                      - generic [ref=f17e811]:
+                        - button "Collapse Trace Preview Section" [expanded] [ref=f17e812] [cursor=pointer]:
+                          - generic [ref=f17e813]: Trace Preview
+                        - button "View Full Trace" [ref=f17e818] [cursor=pointer]
+                      - group "Collapse Trace Preview Section" [ref=f17e820]
+                    - separator [ref=f17e821]
+                    - region "HTTP Request" [ref=f17e822]:
+                      - generic [ref=f17e823]:
+                        - button "Collapse HTTP Request Section" [expanded] [ref=f17e824] [cursor=pointer]:
+                          - generic [ref=f17e825]: HTTP Request
+                        - button "Copy as" [ref=f17e831] [cursor=pointer]
+                      - group "Collapse HTTP Request Section" [ref=f17e839]:
+                        - generic [ref=f17e840]:
+                          - generic [ref=f17e841]: GET
+                          - link "/dashboard" [ref=f17e842] [cursor=pointer]:
+                            - /url: https://wandit.dev/dashboard
+                          - generic [ref=f17e847]: wandit.dev
+                        - generic [ref=f17e848]:
+                          - generic [ref=f17e849]: Headers
+                          - generic [ref=f17e850]:
+                            - generic [ref=f17e851]: Referer
+                            - generic [ref=f17e854]:
+                              - text: https://wandit.dev/
+                              - link [ref=f17e855] [cursor=pointer]:
+                                - img "Open link" [ref=f17e856]
+                          - generic [ref=f17e858]:
+                            - generic [ref=f17e859]: User-Agent
+                            - generic [ref=f17e860]: Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36
+                    - separator [ref=f17e862]
+                    - region "Tags" [ref=f17e863]:
+                      - generic [ref=f17e864]:
+                        - button "Collapse Tags Section" [expanded] [ref=f17e865] [cursor=pointer]:
+                          - generic [ref=f17e866]: Tags
+                        - radiogroup "Filter tags" [ref=f17e872]:
+                          - generic [ref=f17e873] [cursor=pointer]:
+                            - radio "All" [checked] [ref=f17e874]
+                            - generic [ref=f17e875]: All
+                          - generic [ref=f17e876] [cursor=pointer]:
+                            - radio "Custom" [ref=f17e877]
+                            - generic [ref=f17e878]: Custom
+                          - generic [ref=f17e879] [cursor=pointer]:
+                            - radio "Application" [ref=f17e880]
+                            - generic [ref=f17e881]: Application
+                          - generic [ref=f17e882] [cursor=pointer]:
+                            - radio "Client" [ref=f17e883]
+                            - generic [ref=f17e884]: Client
+                          - generic [ref=f17e885] [cursor=pointer]:
+                            - radio "Other" [ref=f17e886]
+                            - generic [ref=f17e887]: Other
+                      - group "Collapse Tags Section" [ref=f17e888]:
+                        - generic [ref=f17e889]:
+                          - generic [ref=f17e890]:
+                            - generic [ref=f17e891]:
+                              - generic "PostHog-Person-URL" [ref=f17e893]
+                              - generic [ref=f17e894]:
+                                - generic [ref=f17e895]: https://eu.posthog.com/project/phc_rhyz8U6BDpjbGKuHJeX536bJwc8JgEkqiFZLB4mrM54U/person/jJifW83KvzRlvsM20kcG8QIprOWsPKHa
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e897]:
+                              - generic "PostHog-Recording-URL" [ref=f17e899]
+                              - generic [ref=f17e900]:
+                                - generic [ref=f17e901]: https://eu.posthog.com/project/phc_rhyz8U6BDpjbGKuHJeX536bJwc8JgEkqiFZLB4mrM54U/replay/01a08079-5332-7826-8c17-f2588753b48e?t=0
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e903]:
+                              - generic "browser" [ref=f17e905]
+                              - generic [ref=f17e906]:
+                                - generic [ref=f17e907]: Chrome Mobile 152.0.0
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e908]:
+                              - generic "browser.name" [ref=f17e912]: name
+                              - generic [ref=f17e913]:
+                                - generic [ref=f17e914]: Chrome Mobile
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e915]:
+                              - generic "device" [ref=f17e917]
+                              - generic [ref=f17e918]:
+                                - generic [ref=f17e919]: K
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e920]:
+                              - generic "device.family" [ref=f17e924]: family
+                              - generic [ref=f17e925]:
+                                - generic [ref=f17e926]: K
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e927]:
+                              - generic "environment" [ref=f17e929]
+                              - generic [ref=f17e930]:
+                                - generic [ref=f17e931]: production
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e932]:
+                              - generic "handled" [ref=f17e934]
+                              - generic [ref=f17e935]:
+                                - generic [ref=f17e936]: "yes"
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e937]:
+                              - generic "interface_type" [ref=f17e939]
+                              - generic [ref=f17e940]:
+                                - generic [ref=f17e941]: exception
+                                - generic:
+                                  - button "Tag Actions Menu"
+                          - generic [ref=f17e942]:
+                            - generic [ref=f17e943]:
+                              - generic "level" [ref=f17e945]
+                              - generic [ref=f17e946]:
+                                - generic [ref=f17e947]: error
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e948]:
+                              - generic "mechanism" [ref=f17e950]
+                              - generic [ref=f17e951]:
+                                - generic [ref=f17e952]: generic
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e953]:
+                              - generic "os" [ref=f17e955]
+                              - generic [ref=f17e956]:
+                                - generic [ref=f17e957]: Android 10
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e958]:
+                              - generic "os.name" [ref=f17e962]: name
+                              - generic [ref=f17e963]:
+                                - generic [ref=f17e964]: Android
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e965]:
+                              - generic "page_translated" [ref=f17e967]
+                              - generic [ref=f17e968]:
+                                - generic [ref=f17e969]: "no"
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e970]:
+                              - generic "source" [ref=f17e972]
+                              - generic [ref=f17e973]:
+                                - generic [ref=f17e974]: query
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e975]:
+                              - generic "transaction" [ref=f17e977]
+                              - generic [ref=f17e978]:
+                                - link "/_auth/dashboard" [ref=f17e981] [cursor=pointer]:
+                                  - /url: /insights/summary/?project=4511831307845712&referrer=event-tags-table&transaction=%2F_auth%2Fdashboard
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e982]:
+                              - generic "url" [ref=f17e984]
+                              - generic [ref=f17e985]:
+                                - generic [ref=f17e986]: https://wandit.dev/dashboard
+                                - generic:
+                                  - button "Tag Actions Menu"
+                            - generic [ref=f17e988]:
+                              - generic "user" [ref=f17e990]
+                              - generic [ref=f17e991]:
+                                - generic [ref=f17e992]: id:jJifW83KvzRlvsM20kcG8QIprOWsPKHa
+                                - generic:
+                                  - button "Tag Actions Menu"
+                    - separator [ref=f17e993]
+                    - region "Contexts" [ref=f17e994]:
+                      - button "Collapse Contexts Section" [expanded] [ref=f17e996] [cursor=pointer]:
+                        - generic [ref=f17e997]: Contexts
+                      - group "Collapse Contexts Section" [ref=f17e1002]:
+                        - generic [ref=f17e1003]:
+                          - generic [ref=f17e1004]:
+                            - generic [ref=f17e1005]:
+                              - generic [ref=f17e1007]:
+                                - generic [ref=f17e1008]: User
+                                - generic "oussamachasse@outlook.com" [ref=f17e1010]:
+                                  - img [ref=f17e1011]:
+                                    - generic [ref=f17e1013]: O
+                              - generic [ref=f17e1014]:
+                                - generic [ref=f17e1015]: Email
+                                - link "oussamachasse@outlook.com" [ref=f17e1018] [cursor=pointer]:
+                                  - /url: mailto:oussamachasse@outlook.com
+                              - generic [ref=f17e1019]:
+                                - generic [ref=f17e1020]: Geography
+                                - generic [ref=f17e1021]: Jijelli, Algeria (DZ)
+                              - generic [ref=f17e1023]:
+                                - generic [ref=f17e1024]: ID
+                                - generic [ref=f17e1025]: jJifW83KvzRlvsM20kcG8QIprOWsPKHa
+                            - generic [ref=f17e1027]:
+                              - generic [ref=f17e1029]:
+                                - generic [ref=f17e1030]: Browser
+                                - img "chrome" [ref=f17e1032]
+                              - generic [ref=f17e1033]:
+                                - generic [ref=f17e1034]: Name
+                                - generic [ref=f17e1035]: Chrome Mobile
+                              - generic [ref=f17e1037]:
+                                - generic [ref=f17e1038]: Version
+                                - generic [ref=f17e1039]: 152.0.0
+                            - generic [ref=f17e1041]:
+                              - generic [ref=f17e1043]:
+                                - generic [ref=f17e1044]: Operating System
+                                - img "android" [ref=f17e1046]
+                              - generic [ref=f17e1047]:
+                                - generic [ref=f17e1048]: Name
+                                - generic [ref=f17e1049]: Android
+                              - generic [ref=f17e1051]:
+                                - generic [ref=f17e1052]: Version
+                                - generic [ref=f17e1053]: "10"
+                            - generic [ref=f17e1055]:
+                              - generic [ref=f17e1056]: Culture
+                              - generic [ref=f17e1059]:
+                                - generic [ref=f17e1060]: Calendar
+                                - generic [ref=f17e1061]: gregory
+                              - generic [ref=f17e1063]:
+                                - generic [ref=f17e1064]: Locale
+                                - generic [ref=f17e1065]: fr
+                              - generic [ref=f17e1067]:
+                                - generic [ref=f17e1068]: Timezone
+                                - generic [ref=f17e1069]: Africa/Algiers
+                          - generic [ref=f17e1071]:
+                            - generic [ref=f17e1072]:
+                              - generic [ref=f17e1073]: Device
+                              - generic [ref=f17e1076]:
+                                - generic [ref=f17e1077]: Brand
+                                - generic [ref=f17e1078]: Generic_Android
+                              - generic [ref=f17e1080]:
+                                - generic [ref=f17e1081]: Family
+                                - generic [ref=f17e1082]: K
+                              - generic [ref=f17e1084]:
+                                - generic [ref=f17e1085]: Model
+                                - generic [ref=f17e1086]: K
+                            - generic [ref=f17e1088]:
+                              - generic [ref=f17e1089]: query
+                              - generic [ref=f17e1092]:
+                                - generic [ref=f17e1093]: queryKeyNamespace
+                                - generic [ref=f17e1094]: billing
+                            - generic [ref=f17e1096]:
+                              - generic [ref=f17e1098]:
+                                - generic [ref=f17e1099]: React
+                                - img "javascript-react" [ref=f17e1101]
+                              - generic [ref=f17e1102]:
+                                - generic [ref=f17e1103]: Version
+                                - generic [ref=f17e1104]: 19.2.7
+                            - generic [ref=f17e1106]:
+                              - generic [ref=f17e1107]: Trace Details
+                              - generic [ref=f17e1110]:
+                                - generic [ref=f17e1111]: Client Sample Rate
+                                - generic [ref=f17e1112]: "1"
+                              - generic [ref=f17e1114]:
+                                - generic [ref=f17e1115]: Span ID
+                                - generic [ref=f17e1116]: 8f061613d4871cbc
+                              - generic [ref=f17e1118]:
+                                - generic [ref=f17e1119]: Status
+                                - generic [ref=f17e1120]: unknown
+                              - generic [ref=f17e1122]:
+                                - generic [ref=f17e1123]: Trace ID
+                                - link "79728b2deabf4372831ff3fd84268d0b" [ref=f17e1126] [cursor=pointer]:
+                                  - /url: /explore/traces/trace/79728b2deabf4372831ff3fd84268d0b/?eventId=7a2dc298cc1b4951b9b0a1683eb35b24&pageEnd=2026-09-08T22%3A03%3A53.771&pageStart=2026-09-07T22%3A03%3A53.771&project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&timestamp=1788861832.036
+                    - separator [ref=f17e1127]
+                    - region "SDK" [ref=f17e1128]:
+                      - button "View SDK Section" [ref=f17e1130] [cursor=pointer]:
+                        - generic [ref=f17e1131]: SDK
+                    - separator [ref=f17e1136]
+                    - region "Event Grouping Information" [ref=f17e1137]:
+                      - button "View Event Grouping Information Section" [ref=f17e1139] [cursor=pointer]:
+                        - generic [ref=f17e1140]: Event Grouping Information
+            - complementary [ref=f17e1145]:
+              - generic [ref=f17e1146]:
+                - generic [ref=f17e1147]:
+                  - generic [ref=f17e1148]:
+                    - generic [ref=f17e1149]: Last seen
+                    - time [ref=f17e1154]: 9 minutes ago
+                  - generic [ref=f17e1155]:
+                    - generic [ref=f17e1156]: in release
+                    - link "26.34.0" [ref=f17e1160] [cursor=pointer]:
+                      - /url: /issues/139576149/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=26.34.0&rdReleaseProjectId=4511831307845712&rdSource=release-version-link&referrer=issue-stream
+                - generic [ref=f17e1162]:
+                  - generic [ref=f17e1163]:
+                    - generic [ref=f17e1164]: First seen
+                    - time [ref=f17e1169]: a month ago
+                  - generic [ref=f17e1170]:
+                    - generic [ref=f17e1171]: in release
+                    - link "2.91.5" [ref=f17e1175] [cursor=pointer]:
+                      - /url: /issues/139576149/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=2.91.5&rdReleaseProjectId=4511831307845712&rdSource=release-version-link&referrer=issue-stream
+              - separator [ref=f17e1177]
+              - region "seer" [ref=f17e1178]:
+                - button "Collapse Section" [expanded] [ref=f17e1180] [cursor=pointer]:
+                  - generic [ref=f17e1181]: Seer Autofix
+                - group "Collapse Section" [ref=f17e1189]:
+                  - generic [ref=f17e1191]:
+                    - generic [ref=f17e1192]: Meet Seer, your AI assistant
+                    - generic [ref=f17e1193]: Debug faster with Sentry’s agent, Seer. Seer connects to your repos, scans your issues, highlights quick fixes, and proposes solutions. You can even integrate with your favorite agent to implement changes in code.
+                    - button "Try out Seer now" [ref=f17e1195] [cursor=pointer]
+              - separator [ref=f17e1200]
+              - region "external-issues" [ref=f17e1201]:
+                - button "Collapse Section" [expanded] [ref=f17e1203] [cursor=pointer]:
+                  - heading "External Links" [level=3] [ref=f17e1208]
+                - group "Collapse Section" [ref=f17e1209]:
+                  - link "Track this issue in Jira, GitHub, etc." [ref=f17e1211] [cursor=pointer]:
+                    - /url: /settings/integrations/?category=issue%20tracking
+              - separator [ref=f17e1220]
+              - region "activity" [ref=f17e1221]:
+                - button "Collapse Section" [expanded] [ref=f17e1223] [cursor=pointer]:
+                  - heading "Activity" [level=3] [ref=f17e1228]
+                - group "Collapse Section" [ref=f17e1229]:
+                  - generic [ref=f17e1230]:
+                    - combobox "Add a comment" [ref=f17e1235]: Add a comment…
+                    - generic [ref=f17e1237]:
+                      - generic [ref=f17e1238]:
+                        - img "Activity update" [ref=f17e1241]
+                        - generic [ref=f17e1243]:
+                          - text: Became ongoing
+                          - generic [ref=f17e1244]: after 7 days
+                          - generic [ref=f17e1245]:
+                            - generic [ref=f17e1246]: •
+                            - time [ref=f17e1248]: 3wk ago
+                      - generic [ref=f17e1249]:
+                        - img "Activity update" [ref=f17e1252]
+                        - generic [ref=f17e1254]:
+                          - text: First seen
+                          - generic [ref=f17e1255]:
+                            - text: with
+                            - generic [ref=f17e1256]: High
+                            - text: priority
+                          - generic [ref=f17e1261]:
+                            - generic [ref=f17e1262]: •
+                            - time [ref=f17e1264]: 1mo ago
+                      - button "View all activity" [ref=f17e1270] [cursor=pointer]:
+                        - generic [ref=f17e1271]: Expand
+              - separator [ref=f17e1272]
+              - generic [ref=f17e1273]:
+                - heading "Similar Issues" [level=6] [ref=f17e1274]
+                - button "View Similar Issues" [ref=f17e1275] [cursor=pointer]:
+                  - generic [ref=f17e1276]: View
+              - separator [ref=f17e1277]
+              - generic [ref=f17e1278]:
+                - heading "Merged Issues" [level=6] [ref=f17e1279]
+                - button "View Merged Issues" [ref=f17e1280] [cursor=pointer]:
+                  - generic [ref=f17e1281]: View
+              - separator [ref=f17e1282]
+  - generic: Filter events…

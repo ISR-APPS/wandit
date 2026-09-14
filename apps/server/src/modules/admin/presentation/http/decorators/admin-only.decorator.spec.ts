@@ -63,6 +63,8 @@ const adminControllers = [
 ];
 
 const SUPPORT_ALLOWED_WRITE_HANDLERS = new Set([
+	// Support holds billing:update-request to record call outcomes on offline requests.
+	"AdminManualBillingController.updateRequest",
 	"AdminUsersController.setBanned",
 	// Support holds feedback:manage by design (see the permission matrix spec).
 	"FeedbackAdminController.remove",

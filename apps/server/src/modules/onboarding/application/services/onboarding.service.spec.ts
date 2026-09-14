@@ -2,10 +2,12 @@ import {
 	type CompleteOnboardingBody,
 	completeOnboardingBodySchema,
 	getApplicableOnboardingQuestions,
+	onboardingPhoneAvailabilityBodySchema,
 } from "@wandit/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { PhoneAlreadyTakenError } from "../../domain/errors/phone-already-taken.error";
 import type { OnboardingRepository } from "../../infrastructure/persistence/onboarding.repository";
 import { OnboardingService } from "./onboarding.service";
 
@@ -38,6 +40,7 @@ const organizationBody: CompleteOnboardingBody = {
 function setup() {
 	const onboardingRepository = {
 		complete: vi.fn().mockResolvedValue(completedAt),
+		isPhoneUsedByOtherUser: vi.fn().mockResolvedValue(false),
 	};
 	const analytics = { capture: vi.fn() };
 	const service = new OnboardingService(
@@ -138,6 +141,46 @@ describe("OnboardingService", () => {
 			completedAt: completedAt.toISOString(),
 		});
 	});
+
+	it("rejects a phone that another user holds before any write", async () => {
+		const { analytics, onboardingRepository, service } = setup();
+		onboardingRepository.isPhoneUsedByOtherUser.mockResolvedValue(true);
+
+		await expect(service.complete("user_1", soloBody)).rejects.toBeInstanceOf(
+			PhoneAlreadyTakenError,
+		);
+		expect(onboardingRepository.complete).not.toHaveBeenCalled();
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("checks the phone answer against every other user's row", async () => {
+		const { onboardingRepository, service } = setup();
+
+		await service.complete("user_1", soloBody);
+
+		expect(onboardingRepository.isPhoneUsedByOtherUser).toHaveBeenCalledWith(
+			"+213661223344",
+			"user_1",
+		);
+	});
+
+	it("reports availability from the same repository check", async () => {
+		const { onboardingRepository, service } = setup();
+		const body = { phone: "+213661223344" };
+
+		await expect(
+			service.checkPhoneAvailability("user_1", body),
+		).resolves.toEqual({ available: true });
+
+		onboardingRepository.isPhoneUsedByOtherUser.mockResolvedValue(true);
+		await expect(
+			service.checkPhoneAvailability("user_1", body),
+		).resolves.toEqual({ available: false });
+		expect(onboardingRepository.isPhoneUsedByOtherUser).toHaveBeenCalledWith(
+			"+213661223344",
+			"user_1",
+		);
+	});
 });
 
 describe("completeOnboardingBodySchema", () => {
@@ -231,6 +274,24 @@ describe("completeOnboardingBodySchema", () => {
 			completeOnboardingBodySchema.safeParse({
 				...soloBody,
 				unexpected: true,
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("onboardingPhoneAvailabilityBodySchema", () => {
+	it("accepts one trimmed E.164 phone and nothing else", () => {
+		expect(
+			onboardingPhoneAvailabilityBodySchema.parse({ phone: " +213661223344 " }),
+		).toEqual({ phone: "+213661223344" });
+		expect(
+			onboardingPhoneAvailabilityBodySchema.safeParse({ phone: "0661223344" })
+				.success,
+		).toBe(false);
+		expect(
+			onboardingPhoneAvailabilityBodySchema.safeParse({
+				phone: "+213661223344",
+				phone_country: "DZ",
 			}).success,
 		).toBe(false);
 	});

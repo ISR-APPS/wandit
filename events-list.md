@@ -1,0 +1,2797 @@
+- generic [active] [ref=f25e1]:
+  - generic [ref=f25e25]:
+    - link "Skip to main content" [ref=f25e26] [cursor=pointer]:
+      - /url: "#main"
+    - generic [ref=f25e28]:
+      - navigation "Primary Navigation" [ref=f25e29]:
+        - button "Toggle organization menu" [ref=f25e31] [cursor=pointer]:
+          - img [ref=f25e34]:
+            - generic [ref=f25e36]: S
+        - list [ref=f25e37]:
+          - listitem [ref=f25e38]:
+            - link "Issues" [ref=f25e39] [cursor=pointer]:
+              - /url: /issues/
+          - listitem [ref=f25e44]:
+            - link "Explore" [ref=f25e45] [cursor=pointer]:
+              - /url: /explore/traces/
+          - listitem [ref=f25e50]:
+            - link "Dashboards" [ref=f25e51] [cursor=pointer]:
+              - /url: /dashboards/
+          - listitem [ref=f25e56]:
+            - link "Monitors" [ref=f25e57] [cursor=pointer]:
+              - /url: /monitors/
+          - listitem [ref=f25e62]:
+            - link "Settings" [ref=f25e63] [cursor=pointer]:
+              - /url: /settings/organization/
+        - generic [ref=f25e68]:
+          - generic [ref=f25e71]:
+            - button "Onboarding" [ref=f25e72] [cursor=pointer]:
+              - img [ref=f25e76]:
+                - generic [ref=f25e79]: "9"
+            - button "Try Business" [ref=f25e82] [cursor=pointer]
+            - button "What's New" [ref=f25e87] [cursor=pointer]
+            - button "Help" [ref=f25e93] [cursor=pointer]
+          - button "contact@scalemindapps.com" [ref=f25e101] [cursor=pointer]:
+            - img [ref=f25e104]:
+              - generic [ref=f25e106]: C
+      - navigation "Secondary Navigation" [ref=f25e109]:
+        - generic [ref=f25e110]:
+          - generic [ref=f25e111]:
+            - generic [ref=f25e112]: Issues
+            - button "Collapse" [ref=f25e114] [cursor=pointer]
+          - generic [ref=f25e119]:
+            - list [ref=f25e123]:
+              - listitem [ref=f25e124]:
+                - link "Feed" [ref=f25e125] [cursor=pointer]:
+                  - /url: /issues/
+            - separator [ref=f25e128]
+            - list [ref=f25e132]:
+              - listitem [ref=f25e133]:
+                - link "Errors & Outages" [ref=f25e134] [cursor=pointer]:
+                  - /url: /issues/errors-outages/
+              - listitem [ref=f25e136]:
+                - link "Breached Metrics" [ref=f25e137] [cursor=pointer]:
+                  - /url: /issues/breached-metrics/
+              - listitem [ref=f25e139]:
+                - link "Warnings" [ref=f25e140] [cursor=pointer]:
+                  - /url: /issues/warnings/
+              - listitem [ref=f25e142]:
+                - link "User Feedback" [ref=f25e143] [cursor=pointer]:
+                  - /url: /issues/feedback/
+            - separator [ref=f25e146]
+            - generic [ref=f25e147]:
+              - button "Autofix" [ref=f25e148] [cursor=pointer]
+              - list [ref=f25e156]:
+                - listitem [ref=f25e157]:
+                  - link "Overview new" [ref=f25e158] [cursor=pointer]:
+                    - /url: /issues/autofix/
+                    - generic [ref=f25e159]: Overview
+                    - generic "new" [ref=f25e160]
+                - listitem [ref=f25e164]:
+                  - link "Recently Run" [ref=f25e165] [cursor=pointer]:
+                    - /url: /issues/autofix/recent/
+            - separator [ref=f25e168]
+            - list [ref=f25e172]:
+              - listitem [ref=f25e173]:
+                - link "All Views" [ref=f25e174] [cursor=pointer]:
+                  - /url: /issues/views/
+    - generic [ref=f25e177]:
+      - banner [ref=f25e178]:
+        - generic [ref=f25e179]:
+          - list [ref=f25e183]:
+            - listitem [ref=f25e184]:
+              - link "Issues" [ref=f25e187] [cursor=pointer]:
+                - /url: /issues/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+          - heading "WANDIT-WEB-K Copy Issue Short-ID" [level=1] [ref=f25e192]:
+            - generic [ref=f25e193]:
+              - generic [ref=f25e199]: WANDIT-WEB-K
+              - button "Copy Issue Short-ID" [ref=f25e201] [cursor=pointer]
+        - generic [ref=f25e208]:
+          - button "Ask Seer" [ref=f25e209] [cursor=pointer]
+          - button "Command Palette" [ref=f25e218] [cursor=pointer]
+          - button "Give Feedback" [ref=f25e224] [cursor=pointer]
+      - main [ref=f25e229]:
+        - generic [ref=f25e231]:
+          - generic [ref=f25e233]:
+            - generic [ref=f25e234]: ZodError
+            - link "View events" [ref=f25e237] [cursor=pointer]:
+              - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - text: Events (total)
+            - link "View affected users" [ref=f25e239] [cursor=pointer]:
+              - /url: /issues/139576149/distributions/user/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - text: Users (90d)
+            - generic [ref=f25e240]:
+              - generic [ref=f25e241]: "Level: Error"
+              - generic [ref=f25e243]: "[ { \"code\": \"invalid_value\", \"values\": [ \"pro\", \"business\" ], \"path\": [ \"plans\", 0, \"id\" ], \"message\": \"Invalid input\" }, { \"code\": \"invalid_union\", \"errors\": [ [ { \"code\": \"invalid_value\", \"values\": [ 250 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 500 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 1000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", \"values\": [ 2000 ], \"path\": [], \"message\": \"Invalid input\" } ], [ { \"code\": \"invalid_value\", ..."
+            - generic "111" [ref=f25e244]
+            - generic "68" [ref=f25e245]
+            - generic [ref=f25e246]:
+              - generic [ref=f25e247]: Ongoing
+              - generic [aria-hidden] [ref=f25e248]: "|"
+              - generic [ref=f25e249]: /_auth/dashboard
+          - banner [ref=f25e251]:
+            - generic [ref=f25e252]:
+              - generic [ref=f25e253]:
+                - button "Resolve" [ref=f25e254] [cursor=pointer]
+                - button "More resolve options" [ref=f25e256] [cursor=pointer]
+              - generic [ref=f25e261]:
+                - button "Archive" [ref=f25e262] [cursor=pointer]
+                - button "Archive options" [ref=f25e264] [cursor=pointer]
+              - button "Subscribe" [ref=f25e269] [cursor=pointer]
+              - button "Share" [ref=f25e274] [cursor=pointer]
+              - button "More Actions" [ref=f25e279] [cursor=pointer]
+            - generic [ref=f25e284]:
+              - generic [ref=f25e285]:
+                - text: Priority
+                - button "Modify issue priority" [ref=f25e286] [cursor=pointer]:
+                  - generic [ref=f25e287]: High
+              - generic [ref=f25e298]:
+                - text: Assignee
+                - button "Modify issue assignee" [ref=f25e301] [cursor=pointer]:
+                  - generic [ref=f25e302]: Unassigned
+          - generic [ref=f25e308]:
+            - generic [ref=f25e309]:
+              - group [ref=f25e311]:
+                - generic [ref=f25e313]:
+                  - generic [ref=f25e314]:
+                    - generic [ref=f25e315]:
+                      - button "All Envs" [ref=f25e317] [cursor=pointer]
+                      - button "Since First Seen (1 month)" [ref=f25e325] [cursor=pointer]
+                    - grid "Filter events…" [ref=f25e336]:
+                      - textbox [ref=f25e338]
+                      - row "Space" [ref=f25e339]:
+                        - gridcell [ref=f25e340]:
+                          - combobox "Add a search term" [ref=f25e344]
+                  - button "Close sidebar" [ref=f25e346] [cursor=pointer]
+                - generic [ref=f25e351]:
+                  - generic [ref=f25e352]:
+                    - generic [ref=f25e353]:
+                      - button "Toggle graph series - Events" [disabled] [ref=f25e354]:
+                        - generic [ref=f25e356]:
+                          - generic [ref=f25e357]: Events
+                          - generic [ref=f25e358]: "111"
+                      - button "Toggle graph series - Users" [ref=f25e359] [cursor=pointer]:
+                        - generic [ref=f25e361]:
+                          - generic [ref=f25e362]: Users
+                          - generic [ref=f25e363]: "68"
+                    - figure [ref=f25e364]:
+                      - 'img "bar and custom chart with September 8th to September 8th featuring 2 data series: Events and Releases. The Events series contains 65 data points. Its lowest value is Infinity on January 1st and highest value is -Infinity on January 1st. The Releases series contains 65 data points. Its lowest value is Infinity on January 1st and highest value is -Infinity on January 1st" [ref=f25e366]':
+                        - img [ref=f25e368]:
+                          - generic [ref=f25e370]:
+                            - generic [ref=f25e374]: "0"
+                            - generic [ref=f25e375]: "20"
+                            - generic [ref=f25e376]: "40"
+                            - generic [ref=f25e377]: Aug 7 11:00 PM
+                            - generic [ref=f25e378]: Aug 14 11:00 PM
+                            - generic [ref=f25e379]: Aug 21 11:00 PM
+                            - generic [ref=f25e380]: Sep 7 11:00 PM
+                            - generic [ref=f25e381]: Aug 31 11:00 PM
+                            - generic [ref=f25e406]: Releases
+                  - generic [ref=f25e408]:
+                    - generic [ref=f25e409]:
+                      - link "browser 35% Chrome 151.0.0" [ref=f25e410] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/browser/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f25e411]: browser
+                        - generic [ref=f25e417]: 35%
+                        - generic [ref=f25e418]: Chrome 151.0.0
+                      - link "release 95%" [ref=f25e419] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/release/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f25e420]: release
+                        - generic [ref=f25e426]: 95%
+                      - link "url 23% https://wandit.dev/dashboard" [ref=f25e427] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/url/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f25e428]: url
+                        - generic [ref=f25e434]: 23%
+                        - generic [ref=f25e435]: https://wandit.dev/dashboard
+                      - link "environment 92% production" [ref=f25e436] [cursor=pointer]:
+                        - /url: /issues/139576149/distributions/environment/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+                        - generic [ref=f25e437]: environment
+                        - generic [ref=f25e442]: 92%
+                        - generic [ref=f25e443]: production
+                    - link "View all tags and feature flags" [ref=f25e444] [cursor=pointer]:
+                      - /url: /issues/139576149/distributions/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream
+              - generic [ref=f25e446]:
+                - navigation [ref=f25e448]:
+                  - generic [ref=f25e449]:
+                    - button "Select issue content" [ref=f25e450] [cursor=pointer]:
+                      - generic [ref=f25e451]: Events
+                    - generic [aria-hidden] [ref=f25e455]: in this issue
+                  - generic [ref=f25e458]:
+                    - button "Open in Explore" [ref=f25e459] [cursor=pointer]
+                    - button "Return to event details" [ref=f25e464] [cursor=pointer]:
+                      - generic [ref=f25e465]: Close
+                - generic [ref=f25e468]:
+                  - generic [ref=f25e469]:
+                    - generic [ref=f25e470]: All Events
+                    - generic [ref=f25e471]: Showing 1-50 of 111 matching events
+                    - generic [ref=f25e473]:
+                      - button "Previous Page" [disabled] [ref=f25e474]
+                      - button "Next Page" [ref=f25e479] [cursor=pointer]
+                  - table [ref=f25e486]:
+                    - rowgroup [ref=f25e487]:
+                      - row [ref=f25e488]:
+                        - columnheader "Event ID" [ref=f25e489]:
+                          - text: Event ID
+                          - generic:
+                            - separator "Event ID"
+                        - columnheader [ref=f25e490]:
+                          - link "Timestamp" [ref=f25e491] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=timestamp
+                          - generic:
+                            - separator "Timestamp"
+                        - columnheader [ref=f25e495]:
+                          - link "Title" [ref=f25e496] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-title
+                          - generic:
+                            - separator "Title"
+                        - columnheader [ref=f25e498]:
+                          - link "Transaction" [ref=f25e499] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-transaction
+                          - generic:
+                            - separator "Transaction"
+                        - columnheader [ref=f25e501]:
+                          - link "Release" [ref=f25e502] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-release
+                          - generic:
+                            - separator "Release"
+                        - columnheader [ref=f25e504]:
+                          - link "Environment" [ref=f25e505] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-environment
+                          - generic:
+                            - separator "Environment"
+                        - columnheader [ref=f25e507]:
+                          - link "User" [ref=f25e508] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-user.display
+                          - generic:
+                            - separator "User"
+                        - columnheader [ref=f25e510]:
+                          - link "Device" [ref=f25e511] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-device
+                          - generic:
+                            - separator "Device"
+                        - columnheader [ref=f25e513]:
+                          - link "OS" [ref=f25e514] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-os
+                          - generic:
+                            - separator "OS"
+                        - columnheader [ref=f25e516]:
+                          - link "URL" [ref=f25e517] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-url
+                          - generic:
+                            - separator "URL"
+                        - columnheader [ref=f25e519]:
+                          - link "Browser" [ref=f25e520] [cursor=pointer]:
+                            - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&sort=-browser
+                          - generic:
+                            - separator "Browser"
+                        - columnheader "Replay" [ref=f25e522]:
+                          - text: Replay
+                          - generic:
+                            - separator "Replay"
+                        - columnheader "Trace" [ref=f25e523]
+                    - rowgroup [ref=f25e524]:
+                      - row [ref=f25e525]:
+                        - cell [ref=f25e526]:
+                          - button "Actions" [ref=f25e528] [cursor=pointer]:
+                            - link "7a2dc298" [ref=f25e529]:
+                              - /url: /issues/139576149/events/7a2dc298cc1b4951b9b0a1683eb35b24/
+                        - cell [ref=f25e531]:
+                          - button "Actions" [ref=f25e533] [cursor=pointer]:
+                            - time [ref=f25e536]: Sep 8, 2026 10:03:52 AM UTC
+                        - cell [ref=f25e537]:
+                          - button "Actions" [ref=f25e539] [cursor=pointer]:
+                            - generic [ref=f25e540]: "ZodError: ["
+                        - cell [ref=f25e542]:
+                          - button "Actions" [ref=f25e544] [cursor=pointer]:
+                            - generic [ref=f25e545]: /_auth/dashboard
+                        - cell [ref=f25e547]:
+                          - button "Actions" [ref=f25e549] [cursor=pointer]:
+                            - generic [ref=f25e550]: (no value)
+                        - cell [ref=f25e551]:
+                          - button "Actions" [ref=f25e553] [cursor=pointer]:
+                            - generic [ref=f25e554]: production
+                        - cell [ref=f25e556]:
+                          - button "Actions" [ref=f25e558] [cursor=pointer]:
+                            - generic [ref=f25e560]:
+                              - generic "oussamachasse@outlook.com" [ref=f25e561]:
+                                - img [ref=f25e562]:
+                                  - generic [ref=f25e564]: O
+                              - generic [ref=f25e565]: oussamachasse@outlook.com
+                        - cell [ref=f25e569]:
+                          - button "Actions" [ref=f25e571] [cursor=pointer]:
+                            - generic [ref=f25e572]: K
+                        - cell [ref=f25e573]:
+                          - button "Actions" [ref=f25e575] [cursor=pointer]:
+                            - generic [ref=f25e576]:
+                              - img "android" [ref=f25e577]
+                              - generic [ref=f25e578]: Android 10
+                        - cell [ref=f25e579]:
+                          - button "Actions" [ref=f25e581] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e585]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e586]:
+                          - button "Actions" [ref=f25e588] [cursor=pointer]:
+                            - generic [ref=f25e589]:
+                              - img "chrome" [ref=f25e590]
+                              - generic [ref=f25e591]: Chrome Mobile 152.0.0
+                        - cell [ref=f25e592]:
+                          - button "Actions" [ref=f25e594] [cursor=pointer]: (no value)
+                        - cell [ref=f25e595]:
+                          - button "Actions" [ref=f25e597] [cursor=pointer]:
+                            - link "79728b2d" [ref=f25e598]:
+                              - /url: /insights/summary/trace/79728b2deabf4372831ff3fd84268d0b/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788861832
+                      - row [ref=f25e600]:
+                        - cell [ref=f25e601]:
+                          - button "Actions" [ref=f25e603] [cursor=pointer]:
+                            - link "8ccbb073" [ref=f25e604]:
+                              - /url: /issues/139576149/events/8ccbb0738fa9413fb66a75413f154d66/
+                        - cell [ref=f25e606]:
+                          - button "Actions" [ref=f25e608] [cursor=pointer]:
+                            - time [ref=f25e611]: Sep 8, 2026 8:45:54 AM UTC
+                        - cell [ref=f25e612]:
+                          - button "Actions" [ref=f25e614] [cursor=pointer]:
+                            - generic [ref=f25e615]: "ZodError: ["
+                        - cell [ref=f25e617]:
+                          - button "Actions" [ref=f25e619] [cursor=pointer]:
+                            - generic [ref=f25e620]: /_auth/p/$projectId
+                        - cell [ref=f25e622]:
+                          - button "Actions" [ref=f25e624] [cursor=pointer]:
+                            - generic [ref=f25e625]: (no value)
+                        - cell [ref=f25e626]:
+                          - button "Actions" [ref=f25e628] [cursor=pointer]:
+                            - generic [ref=f25e629]: production
+                        - cell [ref=f25e631]:
+                          - button "Actions" [ref=f25e633] [cursor=pointer]:
+                            - generic [ref=f25e634]: (no value)
+                        - cell [ref=f25e635]:
+                          - button "Actions" [ref=f25e637] [cursor=pointer]:
+                            - generic [ref=f25e638]: K
+                        - cell [ref=f25e639]:
+                          - button "Actions" [ref=f25e641] [cursor=pointer]:
+                            - generic [ref=f25e642]:
+                              - img "android" [ref=f25e643]
+                              - generic [ref=f25e644]: Android 10
+                        - cell [ref=f25e645]:
+                          - button "Actions" [ref=f25e647] [cursor=pointer]:
+                            - link "https://wandit.dev/p/a418f365-0324-4e33-a893-4523d472b085" [ref=f25e651]:
+                              - /url: https://wandit.dev/p/a418f365-0324-4e33-a893-4523d472b085
+                        - cell [ref=f25e652]:
+                          - button "Actions" [ref=f25e654] [cursor=pointer]:
+                            - generic [ref=f25e655]:
+                              - img "chrome" [ref=f25e656]
+                              - generic [ref=f25e657]: Chrome Mobile 151.0.0
+                        - cell [ref=f25e658]:
+                          - button "Actions" [ref=f25e660] [cursor=pointer]: (no value)
+                        - cell [ref=f25e661]:
+                          - button "Actions" [ref=f25e663] [cursor=pointer]:
+                            - link "54873820" [ref=f25e664]:
+                              - /url: /insights/summary/trace/54873820450d4ec798aed5671b18ba7a/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788857154
+                      - row [ref=f25e666]:
+                        - cell [ref=f25e667]:
+                          - button "Actions" [ref=f25e669] [cursor=pointer]:
+                            - link "a6e78291" [ref=f25e670]:
+                              - /url: /issues/139576149/events/a6e78291e07d4cfeb759ff7f4becb842/
+                        - cell [ref=f25e672]:
+                          - button "Actions" [ref=f25e674] [cursor=pointer]:
+                            - time [ref=f25e677]: Sep 7, 2026 9:11:59 PM UTC
+                        - cell [ref=f25e678]:
+                          - button "Actions" [ref=f25e680] [cursor=pointer]:
+                            - generic [ref=f25e681]: "ZodError: ["
+                        - cell [ref=f25e683]:
+                          - button "Actions" [ref=f25e685] [cursor=pointer]:
+                            - generic [ref=f25e686]: /_auth/dashboard
+                        - cell [ref=f25e688]:
+                          - button "Actions" [ref=f25e690] [cursor=pointer]:
+                            - generic [ref=f25e691]: (no value)
+                        - cell [ref=f25e692]:
+                          - button "Actions" [ref=f25e694] [cursor=pointer]:
+                            - generic [ref=f25e695]: production
+                        - cell [ref=f25e697]:
+                          - button "Actions" [ref=f25e699] [cursor=pointer]:
+                            - generic [ref=f25e700]: (no value)
+                        - cell [ref=f25e701]:
+                          - generic [ref=f25e702]:
+                            - button "Actions"
+                        - cell [ref=f25e703]:
+                          - button "Actions" [ref=f25e705] [cursor=pointer]:
+                            - generic [ref=f25e706]:
+                              - img "windows" [ref=f25e707]
+                              - generic [ref=f25e708]: Windows >=10
+                        - cell [ref=f25e710]:
+                          - button "Actions" [ref=f25e712] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e716]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e717]:
+                          - button "Actions" [ref=f25e719] [cursor=pointer]:
+                            - generic [ref=f25e720]:
+                              - img "opera" [ref=f25e721]
+                              - generic [ref=f25e722]: Opera 135.0.0
+                        - cell [ref=f25e723]:
+                          - button "Actions" [ref=f25e725] [cursor=pointer]: (no value)
+                        - cell [ref=f25e726]:
+                          - button "Actions" [ref=f25e728] [cursor=pointer]:
+                            - link "8964cdb9" [ref=f25e729]:
+                              - /url: /insights/summary/trace/8964cdb960754f6b80b26c1ae54aee9b/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788815519
+                      - row [ref=f25e731]:
+                        - cell [ref=f25e732]:
+                          - button "Actions" [ref=f25e734] [cursor=pointer]:
+                            - link "b19b2689" [ref=f25e735]:
+                              - /url: /issues/139576149/events/b19b2689ae884dbe81aff5cbb5672d1e/
+                        - cell [ref=f25e737]:
+                          - button "Actions" [ref=f25e739] [cursor=pointer]:
+                            - time [ref=f25e742]: Sep 7, 2026 4:47:06 PM UTC
+                        - cell [ref=f25e743]:
+                          - button "Actions" [ref=f25e745] [cursor=pointer]:
+                            - generic [ref=f25e746]: "ZodError: ["
+                        - cell [ref=f25e748]:
+                          - button "Actions" [ref=f25e750] [cursor=pointer]:
+                            - generic [ref=f25e751]: /_auth/dashboard
+                        - cell [ref=f25e753]:
+                          - button "Actions" [ref=f25e755] [cursor=pointer]:
+                            - generic [ref=f25e756]: (no value)
+                        - cell [ref=f25e757]:
+                          - button "Actions" [ref=f25e759] [cursor=pointer]:
+                            - generic [ref=f25e760]: production
+                        - cell [ref=f25e762]:
+                          - button "Actions" [ref=f25e764] [cursor=pointer]:
+                            - generic [ref=f25e765]: (no value)
+                        - cell [ref=f25e766]:
+                          - generic [ref=f25e767]:
+                            - button "Actions"
+                        - cell [ref=f25e768]:
+                          - button "Actions" [ref=f25e770] [cursor=pointer]:
+                            - generic [ref=f25e771]:
+                              - img "windows" [ref=f25e772]
+                              - generic [ref=f25e773]: Windows >=10
+                        - cell [ref=f25e775]:
+                          - button "Actions" [ref=f25e777] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e781]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e782]:
+                          - button "Actions" [ref=f25e784] [cursor=pointer]:
+                            - generic [ref=f25e785]:
+                              - img "chrome" [ref=f25e786]
+                              - generic [ref=f25e787]: Chrome 144.0.0
+                        - cell [ref=f25e788]:
+                          - button "Actions" [ref=f25e790] [cursor=pointer]: (no value)
+                        - cell [ref=f25e791]:
+                          - button "Actions" [ref=f25e793] [cursor=pointer]:
+                            - link "485cdaad" [ref=f25e794]:
+                              - /url: /insights/summary/trace/485cdaaddfa04957b288fdc96f6c350e/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788799626
+                      - row [ref=f25e796]:
+                        - cell [ref=f25e797]:
+                          - button "Actions" [ref=f25e799] [cursor=pointer]:
+                            - link "43b9966b" [ref=f25e800]:
+                              - /url: /issues/139576149/events/43b9966b568c425fb0138c4541475941/
+                        - cell [ref=f25e802]:
+                          - button "Actions" [ref=f25e804] [cursor=pointer]:
+                            - time [ref=f25e807]: Sep 7, 2026 3:25:23 PM UTC
+                        - cell [ref=f25e808]:
+                          - button "Actions" [ref=f25e810] [cursor=pointer]:
+                            - generic [ref=f25e811]: "ZodError: ["
+                        - cell [ref=f25e813]:
+                          - button "Actions" [ref=f25e815] [cursor=pointer]:
+                            - generic [ref=f25e816]: /
+                        - cell [ref=f25e818]:
+                          - button "Actions" [ref=f25e820] [cursor=pointer]:
+                            - generic [ref=f25e821]: (no value)
+                        - cell [ref=f25e822]:
+                          - button "Actions" [ref=f25e824] [cursor=pointer]:
+                            - generic [ref=f25e825]: production
+                        - cell [ref=f25e827]:
+                          - button "Actions" [ref=f25e829] [cursor=pointer]:
+                            - generic [ref=f25e830]: (no value)
+                        - cell [ref=f25e831]:
+                          - button "Actions" [ref=f25e833] [cursor=pointer]:
+                            - generic [ref=f25e834]: Mac
+                        - cell [ref=f25e835]:
+                          - button "Actions" [ref=f25e837] [cursor=pointer]:
+                            - generic [ref=f25e838]:
+                              - img "apple" [ref=f25e839]
+                              - generic [ref=f25e840]: Mac OS X >=10.15.7
+                        - cell [ref=f25e842]:
+                          - button "Actions" [ref=f25e844] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e848]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e849]:
+                          - button "Actions" [ref=f25e851] [cursor=pointer]:
+                            - generic [ref=f25e852]:
+                              - img "chrome" [ref=f25e853]
+                              - generic [ref=f25e854]: Chrome 151.0.0
+                        - cell [ref=f25e855]:
+                          - button "Actions" [ref=f25e857] [cursor=pointer]: (no value)
+                        - cell [ref=f25e858]:
+                          - button "Actions" [ref=f25e860] [cursor=pointer]:
+                            - link "c61b4b92" [ref=f25e861]:
+                              - /url: /insights/summary/trace/c61b4b92c2994b29be512bfa5ac0dd1b/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788794723
+                      - row [ref=f25e863]:
+                        - cell [ref=f25e864]:
+                          - button "Actions" [ref=f25e866] [cursor=pointer]:
+                            - link "21a12232" [ref=f25e867]:
+                              - /url: /issues/139576149/events/21a12232ee1c40d49b48609a7fd27eb6/
+                        - cell [ref=f25e869]:
+                          - button "Actions" [ref=f25e871] [cursor=pointer]:
+                            - time [ref=f25e874]: Sep 7, 2026 3:00:06 PM UTC
+                        - cell [ref=f25e875]:
+                          - button "Actions" [ref=f25e877] [cursor=pointer]:
+                            - generic [ref=f25e878]: "ZodError: ["
+                        - cell [ref=f25e880]:
+                          - button "Actions" [ref=f25e882] [cursor=pointer]:
+                            - generic [ref=f25e883]: /_auth/p/$projectId
+                        - cell [ref=f25e885]:
+                          - button "Actions" [ref=f25e887] [cursor=pointer]:
+                            - generic [ref=f25e888]: (no value)
+                        - cell [ref=f25e889]:
+                          - button "Actions" [ref=f25e891] [cursor=pointer]:
+                            - generic [ref=f25e892]: production
+                        - cell [ref=f25e894]:
+                          - button "Actions" [ref=f25e896] [cursor=pointer]:
+                            - generic [ref=f25e897]: (no value)
+                        - cell [ref=f25e898]:
+                          - generic [ref=f25e899]:
+                            - button "Actions"
+                        - cell [ref=f25e900]:
+                          - button "Actions" [ref=f25e902] [cursor=pointer]:
+                            - generic [ref=f25e903]:
+                              - img "windows" [ref=f25e904]
+                              - generic [ref=f25e905]: Windows >=10
+                        - cell [ref=f25e907]:
+                          - button "Actions" [ref=f25e909] [cursor=pointer]:
+                            - link "https://wandit.dev/p/865546a3-5fb7-4c97-9e70-156e066d86f1" [ref=f25e913]:
+                              - /url: https://wandit.dev/p/865546a3-5fb7-4c97-9e70-156e066d86f1
+                        - cell [ref=f25e914]:
+                          - button "Actions" [ref=f25e916] [cursor=pointer]:
+                            - generic [ref=f25e917]:
+                              - img "edge" [ref=f25e918]
+                              - generic [ref=f25e919]: Edge 150.0.0
+                        - cell [ref=f25e920]:
+                          - button "Actions" [ref=f25e922] [cursor=pointer]: (no value)
+                        - cell [ref=f25e923]:
+                          - button "Actions" [ref=f25e925] [cursor=pointer]:
+                            - link "526ceb2d" [ref=f25e926]:
+                              - /url: /insights/summary/trace/526ceb2d5611472cb73891051faec4aa/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788793206
+                      - row [ref=f25e928]:
+                        - cell [ref=f25e929]:
+                          - button "Actions" [ref=f25e931] [cursor=pointer]:
+                            - link "8e63b6e7" [ref=f25e932]:
+                              - /url: /issues/139576149/events/8e63b6e7b1444ca38f54eea7c498af1a/
+                        - cell [ref=f25e934]:
+                          - button "Actions" [ref=f25e936] [cursor=pointer]:
+                            - time [ref=f25e939]: Sep 7, 2026 1:29:22 PM UTC
+                        - cell [ref=f25e940]:
+                          - button "Actions" [ref=f25e942] [cursor=pointer]:
+                            - generic [ref=f25e943]: "ZodError: ["
+                        - cell [ref=f25e945]:
+                          - button "Actions" [ref=f25e947] [cursor=pointer]:
+                            - generic [ref=f25e948]: /_auth/dashboard
+                        - cell [ref=f25e950]:
+                          - button "Actions" [ref=f25e952] [cursor=pointer]:
+                            - generic [ref=f25e953]: (no value)
+                        - cell [ref=f25e954]:
+                          - button "Actions" [ref=f25e956] [cursor=pointer]:
+                            - generic [ref=f25e957]: production
+                        - cell [ref=f25e959]:
+                          - button "Actions" [ref=f25e961] [cursor=pointer]:
+                            - generic [ref=f25e963]:
+                              - generic "totoriyal@gmail.com" [ref=f25e964]:
+                                - img [ref=f25e965]:
+                                  - generic [ref=f25e967]: T
+                              - generic [ref=f25e968]: totoriyal@gmail.com
+                        - cell [ref=f25e972]:
+                          - generic [ref=f25e973]:
+                            - button "Actions"
+                        - cell [ref=f25e974]:
+                          - button "Actions" [ref=f25e976] [cursor=pointer]:
+                            - generic [ref=f25e977]:
+                              - img "linux" [ref=f25e978]
+                              - generic [ref=f25e979]: Linux
+                        - cell [ref=f25e980]:
+                          - button "Actions" [ref=f25e982] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e986]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e987]:
+                          - button "Actions" [ref=f25e989] [cursor=pointer]:
+                            - generic [ref=f25e990]:
+                              - img "chrome" [ref=f25e991]
+                              - generic [ref=f25e992]: Chrome 151.0.0
+                        - cell [ref=f25e993]:
+                          - button "Actions" [ref=f25e995] [cursor=pointer]: (no value)
+                        - cell [ref=f25e996]:
+                          - button "Actions" [ref=f25e998] [cursor=pointer]:
+                            - link "291a0356" [ref=f25e999]:
+                              - /url: /insights/summary/trace/291a03560c684ae394e67aa88968a1e2/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788787762
+                      - row [ref=f25e1001]:
+                        - cell [ref=f25e1002]:
+                          - button "Actions" [ref=f25e1004] [cursor=pointer]:
+                            - link "af5b1186" [ref=f25e1005]:
+                              - /url: /issues/139576149/events/af5b118649d14ccf80dc30ed22265882/
+                        - cell [ref=f25e1007]:
+                          - button "Actions" [ref=f25e1009] [cursor=pointer]:
+                            - time [ref=f25e1012]: Sep 7, 2026 1:22:16 PM UTC
+                        - cell [ref=f25e1013]:
+                          - button "Actions" [ref=f25e1015] [cursor=pointer]:
+                            - generic [ref=f25e1016]: "ZodError: ["
+                        - cell [ref=f25e1018]:
+                          - button "Actions" [ref=f25e1020] [cursor=pointer]:
+                            - generic [ref=f25e1021]: /pricing
+                        - cell [ref=f25e1023]:
+                          - button "Actions" [ref=f25e1025] [cursor=pointer]:
+                            - generic [ref=f25e1026]: (no value)
+                        - cell [ref=f25e1027]:
+                          - button "Actions" [ref=f25e1029] [cursor=pointer]:
+                            - generic [ref=f25e1030]: production
+                        - cell [ref=f25e1032]:
+                          - button "Actions" [ref=f25e1034] [cursor=pointer]:
+                            - generic [ref=f25e1035]: (no value)
+                        - cell [ref=f25e1036]:
+                          - generic [ref=f25e1037]:
+                            - button "Actions"
+                        - cell [ref=f25e1038]:
+                          - button "Actions" [ref=f25e1040] [cursor=pointer]:
+                            - generic [ref=f25e1041]:
+                              - img "chrome" [ref=f25e1042]
+                              - generic [ref=f25e1043]: Chrome OS 14541.0.0
+                        - cell [ref=f25e1044]:
+                          - button "Actions" [ref=f25e1046] [cursor=pointer]:
+                            - link "https://wandit.dev/pricing" [ref=f25e1050]:
+                              - /url: https://wandit.dev/pricing
+                        - cell [ref=f25e1051]:
+                          - button "Actions" [ref=f25e1053] [cursor=pointer]:
+                            - generic [ref=f25e1054]:
+                              - img "chrome" [ref=f25e1055]
+                              - generic [ref=f25e1056]: Chrome 151.0.0
+                        - cell [ref=f25e1057]:
+                          - button "Actions" [ref=f25e1059] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1060]:
+                          - button "Actions" [ref=f25e1062] [cursor=pointer]:
+                            - link "46f90c0e" [ref=f25e1063]:
+                              - /url: /insights/summary/trace/46f90c0eeb974c188a2e85f32a1f8dd0/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788787336
+                      - row [ref=f25e1065]:
+                        - cell [ref=f25e1066]:
+                          - button "Actions" [ref=f25e1068] [cursor=pointer]:
+                            - link "dfa3d4cb" [ref=f25e1069]:
+                              - /url: /issues/139576149/events/dfa3d4cbaa9c450aac8dad397658acc1/
+                        - cell [ref=f25e1071]:
+                          - button "Actions" [ref=f25e1073] [cursor=pointer]:
+                            - time [ref=f25e1076]: Sep 7, 2026 1:03:56 PM UTC
+                        - cell [ref=f25e1077]:
+                          - button "Actions" [ref=f25e1079] [cursor=pointer]:
+                            - generic [ref=f25e1080]: "ZodError: ["
+                        - cell [ref=f25e1082]:
+                          - button "Actions" [ref=f25e1084] [cursor=pointer]:
+                            - generic [ref=f25e1085]: /
+                        - cell [ref=f25e1087]:
+                          - button "Actions" [ref=f25e1089] [cursor=pointer]:
+                            - link "26.34.0" [ref=f25e1093]:
+                              - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=26.34.0&rdSource=release-version-link&referrer=issue-stream
+                        - cell [ref=f25e1095]:
+                          - button "Actions" [ref=f25e1097] [cursor=pointer]:
+                            - generic [ref=f25e1098]: production
+                        - cell [ref=f25e1100]:
+                          - button "Actions" [ref=f25e1102] [cursor=pointer]:
+                            - generic [ref=f25e1103]: (no value)
+                        - cell [ref=f25e1104]:
+                          - button "Actions" [ref=f25e1106] [cursor=pointer]:
+                            - generic [ref=f25e1107]: Mac
+                        - cell [ref=f25e1108]:
+                          - button "Actions" [ref=f25e1110] [cursor=pointer]:
+                            - generic [ref=f25e1111]:
+                              - img "apple" [ref=f25e1112]
+                              - generic [ref=f25e1113]: Mac OS X >=10.15.7
+                        - cell [ref=f25e1115]:
+                          - button "Actions" [ref=f25e1117] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e1121]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e1122]:
+                          - button "Actions" [ref=f25e1124] [cursor=pointer]:
+                            - generic [ref=f25e1125]:
+                              - img "chrome" [ref=f25e1126]
+                              - generic [ref=f25e1127]: Chrome 152.0.0
+                        - cell [ref=f25e1128]:
+                          - button "Actions" [ref=f25e1130] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1131]:
+                          - button "Actions" [ref=f25e1133] [cursor=pointer]:
+                            - link "5a7760e6" [ref=f25e1134]:
+                              - /url: /insights/summary/trace/5a7760e637364c3a92a16db10e6e8740/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788786236
+                      - row [ref=f25e1136]:
+                        - cell [ref=f25e1137]:
+                          - button "Actions" [ref=f25e1139] [cursor=pointer]:
+                            - link "7f46f366" [ref=f25e1140]:
+                              - /url: /issues/139576149/events/7f46f36623ac4e848433ed1a847058d3/
+                        - cell [ref=f25e1142]:
+                          - button "Actions" [ref=f25e1144] [cursor=pointer]:
+                            - time [ref=f25e1147]: Sep 7, 2026 12:29:16 PM UTC
+                        - cell [ref=f25e1148]:
+                          - button "Actions" [ref=f25e1150] [cursor=pointer]:
+                            - generic [ref=f25e1151]: "ZodError: ["
+                        - cell [ref=f25e1153]:
+                          - button "Actions" [ref=f25e1155] [cursor=pointer]:
+                            - generic [ref=f25e1156]: /_auth/p/$projectId
+                        - cell [ref=f25e1158]:
+                          - button "Actions" [ref=f25e1160] [cursor=pointer]:
+                            - generic [ref=f25e1161]: (no value)
+                        - cell [ref=f25e1162]:
+                          - button "Actions" [ref=f25e1164] [cursor=pointer]:
+                            - generic [ref=f25e1165]: production
+                        - cell [ref=f25e1167]:
+                          - button "Actions" [ref=f25e1169] [cursor=pointer]:
+                            - generic [ref=f25e1171]:
+                              - generic "jennanesalaheddine29@gmail.com" [ref=f25e1172]:
+                                - img [ref=f25e1173]:
+                                  - generic [ref=f25e1175]: J
+                              - generic [ref=f25e1176]: jennanesalaheddine29@gmail.com
+                        - cell [ref=f25e1180]:
+                          - generic [ref=f25e1181]:
+                            - button "Actions"
+                        - cell [ref=f25e1182]:
+                          - button "Actions" [ref=f25e1184] [cursor=pointer]:
+                            - generic [ref=f25e1185]:
+                              - img "windows" [ref=f25e1186]
+                              - generic [ref=f25e1187]: Windows >=10
+                        - cell [ref=f25e1189]:
+                          - button "Actions" [ref=f25e1191] [cursor=pointer]:
+                            - link "https://wandit.dev/p/5e1cd249-7fb7-4ab8-951c-2395114f458f" [ref=f25e1195]:
+                              - /url: https://wandit.dev/p/5e1cd249-7fb7-4ab8-951c-2395114f458f
+                        - cell [ref=f25e1196]:
+                          - button "Actions" [ref=f25e1198] [cursor=pointer]:
+                            - generic [ref=f25e1199]:
+                              - img "chrome" [ref=f25e1200]
+                              - generic [ref=f25e1201]: Chrome 152.0.0
+                        - cell [ref=f25e1202]:
+                          - button "Actions" [ref=f25e1204] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1205]:
+                          - button "Actions" [ref=f25e1207] [cursor=pointer]:
+                            - link "09c0e8f8" [ref=f25e1208]:
+                              - /url: /insights/summary/trace/09c0e8f8d43746e795f7c5c80f4f4687/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788784156
+                      - row [ref=f25e1210]:
+                        - cell [ref=f25e1211]:
+                          - button "Actions" [ref=f25e1213] [cursor=pointer]:
+                            - link "c32ab07b" [ref=f25e1214]:
+                              - /url: /issues/139576149/events/c32ab07be3f7482a8aa129a84b9e615c/
+                        - cell [ref=f25e1216]:
+                          - button "Actions" [ref=f25e1218] [cursor=pointer]:
+                            - time [ref=f25e1221]: Sep 7, 2026 11:32:28 AM UTC
+                        - cell [ref=f25e1222]:
+                          - button "Actions" [ref=f25e1224] [cursor=pointer]:
+                            - generic [ref=f25e1225]: "ZodError: ["
+                        - cell [ref=f25e1227]:
+                          - button "Actions" [ref=f25e1229] [cursor=pointer]:
+                            - generic [ref=f25e1230]: /_auth/p/$projectId
+                        - cell [ref=f25e1232]:
+                          - button "Actions" [ref=f25e1234] [cursor=pointer]:
+                            - generic [ref=f25e1235]: (no value)
+                        - cell [ref=f25e1236]:
+                          - button "Actions" [ref=f25e1238] [cursor=pointer]:
+                            - generic [ref=f25e1239]: production
+                        - cell [ref=f25e1241]:
+                          - button "Actions" [ref=f25e1243] [cursor=pointer]:
+                            - generic [ref=f25e1245]:
+                              - generic "blidayakine9@gmail.com" [ref=f25e1246]:
+                                - img [ref=f25e1247]:
+                                  - generic [ref=f25e1249]: B
+                              - generic [ref=f25e1250]: blidayakine9@gmail.com
+                        - cell [ref=f25e1254]:
+                          - button "Actions" [ref=f25e1256] [cursor=pointer]:
+                            - generic [ref=f25e1257]: Smartphone
+                        - cell [ref=f25e1258]:
+                          - button "Actions" [ref=f25e1260] [cursor=pointer]:
+                            - generic [ref=f25e1261]:
+                              - img "android" [ref=f25e1262]
+                              - generic [ref=f25e1263]: Android 16
+                        - cell [ref=f25e1264]:
+                          - button "Actions" [ref=f25e1266] [cursor=pointer]:
+                            - link "https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332" [ref=f25e1270]:
+                              - /url: https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332
+                        - cell [ref=f25e1271]:
+                          - button "Actions" [ref=f25e1273] [cursor=pointer]:
+                            - generic [ref=f25e1274]:
+                              - img "firefox" [ref=f25e1275]
+                              - generic [ref=f25e1276]: Firefox Mobile 153.0
+                        - cell [ref=f25e1277]:
+                          - button "Actions" [ref=f25e1279] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1280]:
+                          - button "Actions" [ref=f25e1282] [cursor=pointer]:
+                            - link "ad45a2fd" [ref=f25e1283]:
+                              - /url: /insights/summary/trace/ad45a2fdadc4450ea1ca5d1a26fce724/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788780748
+                      - row [ref=f25e1285]:
+                        - cell [ref=f25e1286]:
+                          - button "Actions" [ref=f25e1288] [cursor=pointer]:
+                            - link "dec382a9" [ref=f25e1289]:
+                              - /url: /issues/139576149/events/dec382a975ae4342ad079a8efba32d64/
+                        - cell [ref=f25e1291]:
+                          - button "Actions" [ref=f25e1293] [cursor=pointer]:
+                            - time [ref=f25e1296]: Sep 7, 2026 10:42:52 AM UTC
+                        - cell [ref=f25e1297]:
+                          - button "Actions" [ref=f25e1299] [cursor=pointer]:
+                            - generic [ref=f25e1300]: "ZodError: ["
+                        - cell [ref=f25e1302]:
+                          - button "Actions" [ref=f25e1304] [cursor=pointer]:
+                            - generic [ref=f25e1305]: /_auth/dashboard
+                        - cell [ref=f25e1307]:
+                          - button "Actions" [ref=f25e1309] [cursor=pointer]:
+                            - generic [ref=f25e1310]: (no value)
+                        - cell [ref=f25e1311]:
+                          - button "Actions" [ref=f25e1313] [cursor=pointer]:
+                            - generic [ref=f25e1314]: production
+                        - cell [ref=f25e1316]:
+                          - button "Actions" [ref=f25e1318] [cursor=pointer]:
+                            - generic [ref=f25e1319]: (no value)
+                        - cell [ref=f25e1320]:
+                          - generic [ref=f25e1321]:
+                            - button "Actions"
+                        - cell [ref=f25e1322]:
+                          - button "Actions" [ref=f25e1324] [cursor=pointer]:
+                            - generic [ref=f25e1325]:
+                              - img "windows" [ref=f25e1326]
+                              - generic [ref=f25e1327]: Windows >=10
+                        - cell [ref=f25e1329]:
+                          - button "Actions" [ref=f25e1331] [cursor=pointer]:
+                            - link "https://wandit.dev/onboarding" [ref=f25e1335]:
+                              - /url: https://wandit.dev/onboarding
+                        - cell [ref=f25e1336]:
+                          - button "Actions" [ref=f25e1338] [cursor=pointer]:
+                            - generic [ref=f25e1339]:
+                              - img "edge" [ref=f25e1340]
+                              - generic [ref=f25e1341]: Edge 150.0.0
+                        - cell [ref=f25e1342]:
+                          - button "Actions" [ref=f25e1344] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1345]:
+                          - button "Actions" [ref=f25e1347] [cursor=pointer]:
+                            - link "971192a8" [ref=f25e1348]:
+                              - /url: /insights/summary/trace/971192a85acb413eb8c8cb914ee6abd2/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788777772
+                      - row [ref=f25e1350]:
+                        - cell [ref=f25e1351]:
+                          - button "Actions" [ref=f25e1353] [cursor=pointer]:
+                            - link "d09874ec" [ref=f25e1354]:
+                              - /url: /issues/139576149/events/d09874ec9da345a583c87621de9ef611/
+                        - cell [ref=f25e1356]:
+                          - button "Actions" [ref=f25e1358] [cursor=pointer]:
+                            - time [ref=f25e1361]: Sep 7, 2026 10:36:18 AM UTC
+                        - cell [ref=f25e1362]:
+                          - button "Actions" [ref=f25e1364] [cursor=pointer]:
+                            - generic [ref=f25e1365]: "ZodError: ["
+                        - cell [ref=f25e1367]:
+                          - button "Actions" [ref=f25e1369] [cursor=pointer]:
+                            - generic [ref=f25e1370]: /
+                        - cell [ref=f25e1372]:
+                          - button "Actions" [ref=f25e1374] [cursor=pointer]:
+                            - generic [ref=f25e1375]: (no value)
+                        - cell [ref=f25e1376]:
+                          - button "Actions" [ref=f25e1378] [cursor=pointer]:
+                            - generic [ref=f25e1379]: production
+                        - cell [ref=f25e1381]:
+                          - button "Actions" [ref=f25e1383] [cursor=pointer]:
+                            - generic [ref=f25e1384]: (no value)
+                        - cell [ref=f25e1385]:
+                          - button "Actions" [ref=f25e1387] [cursor=pointer]:
+                            - generic [ref=f25e1388]: Mac
+                        - cell [ref=f25e1389]:
+                          - button "Actions" [ref=f25e1391] [cursor=pointer]:
+                            - generic [ref=f25e1392]:
+                              - img "apple" [ref=f25e1393]
+                              - generic [ref=f25e1394]: Mac OS X >=10.15.7
+                        - cell [ref=f25e1396]:
+                          - button "Actions" [ref=f25e1398] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e1402]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e1403]:
+                          - button "Actions" [ref=f25e1405] [cursor=pointer]:
+                            - generic [ref=f25e1406]:
+                              - img "chrome" [ref=f25e1407]
+                              - generic [ref=f25e1408]: Chrome 151.0.0
+                        - cell [ref=f25e1409]:
+                          - button "Actions" [ref=f25e1411] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1412]:
+                          - button "Actions" [ref=f25e1414] [cursor=pointer]:
+                            - link "23daca4c" [ref=f25e1415]:
+                              - /url: /insights/summary/trace/23daca4c89b74eb5a57a2cd3ef6bc1ab/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788777378
+                      - row [ref=f25e1417]:
+                        - cell [ref=f25e1418]:
+                          - button "Actions" [ref=f25e1420] [cursor=pointer]:
+                            - link "e15a3944" [ref=f25e1421]:
+                              - /url: /issues/139576149/events/e15a39447f39442f810a6234240cb19b/
+                        - cell [ref=f25e1423]:
+                          - button "Actions" [ref=f25e1425] [cursor=pointer]:
+                            - time [ref=f25e1428]: Sep 7, 2026 9:12:34 AM UTC
+                        - cell [ref=f25e1429]:
+                          - button "Actions" [ref=f25e1431] [cursor=pointer]:
+                            - generic [ref=f25e1432]: "ZodError: ["
+                        - cell [ref=f25e1434]:
+                          - button "Actions" [ref=f25e1436] [cursor=pointer]:
+                            - generic [ref=f25e1437]: /_auth/p/$projectId
+                        - cell [ref=f25e1439]:
+                          - button "Actions" [ref=f25e1441] [cursor=pointer]:
+                            - generic [ref=f25e1442]: (no value)
+                        - cell [ref=f25e1443]:
+                          - button "Actions" [ref=f25e1445] [cursor=pointer]:
+                            - generic [ref=f25e1446]: production
+                        - cell [ref=f25e1448]:
+                          - button "Actions" [ref=f25e1450] [cursor=pointer]:
+                            - generic [ref=f25e1452]:
+                              - generic "minabouchachi1@gmail.com" [ref=f25e1453]:
+                                - img [ref=f25e1454]:
+                                  - generic [ref=f25e1456]: M
+                              - generic [ref=f25e1457]: minabouchachi1@gmail.com
+                        - cell [ref=f25e1461]:
+                          - generic [ref=f25e1462]:
+                            - button "Actions"
+                        - cell [ref=f25e1463]:
+                          - button "Actions" [ref=f25e1465] [cursor=pointer]:
+                            - generic [ref=f25e1466]:
+                              - img "windows" [ref=f25e1467]
+                              - generic [ref=f25e1468]: Windows >=10
+                        - cell [ref=f25e1470]:
+                          - button "Actions" [ref=f25e1472] [cursor=pointer]:
+                            - link "https://wandit.dev/p/fc4fc663-7f9e-4ee7-bfce-1d3c4d299714" [ref=f25e1476]:
+                              - /url: https://wandit.dev/p/fc4fc663-7f9e-4ee7-bfce-1d3c4d299714
+                        - cell [ref=f25e1477]:
+                          - button "Actions" [ref=f25e1479] [cursor=pointer]:
+                            - generic [ref=f25e1480]:
+                              - img "chrome" [ref=f25e1481]
+                              - generic [ref=f25e1482]: Chrome 151.0.0
+                        - cell [ref=f25e1483]:
+                          - button "Actions" [ref=f25e1485] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1486]:
+                          - button "Actions" [ref=f25e1488] [cursor=pointer]:
+                            - link "5678d4eb" [ref=f25e1489]:
+                              - /url: /insights/summary/trace/5678d4ebf9b54440828c3027b65ea117/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788772354
+                      - row [ref=f25e1491]:
+                        - cell [ref=f25e1492]:
+                          - button "Actions" [ref=f25e1494] [cursor=pointer]:
+                            - link "b6f2bff1" [ref=f25e1495]:
+                              - /url: /issues/139576149/events/b6f2bff1f62e4784b22c6bd6402a1e9f/
+                        - cell [ref=f25e1497]:
+                          - button "Actions" [ref=f25e1499] [cursor=pointer]:
+                            - time [ref=f25e1502]: Sep 7, 2026 8:31:06 AM UTC
+                        - cell [ref=f25e1503]:
+                          - button "Actions" [ref=f25e1505] [cursor=pointer]:
+                            - generic [ref=f25e1506]: "ZodError: ["
+                        - cell [ref=f25e1508]:
+                          - button "Actions" [ref=f25e1510] [cursor=pointer]:
+                            - generic [ref=f25e1511]: /_auth/p/$projectId
+                        - cell [ref=f25e1513]:
+                          - button "Actions" [ref=f25e1515] [cursor=pointer]:
+                            - generic [ref=f25e1516]: (no value)
+                        - cell [ref=f25e1517]:
+                          - button "Actions" [ref=f25e1519] [cursor=pointer]:
+                            - generic [ref=f25e1520]: production
+                        - cell [ref=f25e1522]:
+                          - button "Actions" [ref=f25e1524] [cursor=pointer]:
+                            - generic [ref=f25e1526]:
+                              - generic "djilaniinaya@gmail.com" [ref=f25e1527]:
+                                - img [ref=f25e1528]:
+                                  - generic [ref=f25e1530]: D
+                              - generic [ref=f25e1531]: djilaniinaya@gmail.com
+                        - cell [ref=f25e1535]:
+                          - generic [ref=f25e1536]:
+                            - button "Actions"
+                        - cell [ref=f25e1537]:
+                          - button "Actions" [ref=f25e1539] [cursor=pointer]:
+                            - generic [ref=f25e1540]:
+                              - img "windows" [ref=f25e1541]
+                              - generic [ref=f25e1542]: Windows >=10
+                        - cell [ref=f25e1544]:
+                          - button "Actions" [ref=f25e1546] [cursor=pointer]:
+                            - link "https://wandit.dev/p/b66708d5-fbb7-42d2-9948-871969f79ffd" [ref=f25e1550]:
+                              - /url: https://wandit.dev/p/b66708d5-fbb7-42d2-9948-871969f79ffd
+                        - cell [ref=f25e1551]:
+                          - button "Actions" [ref=f25e1553] [cursor=pointer]:
+                            - generic [ref=f25e1554]:
+                              - img "chrome" [ref=f25e1555]
+                              - generic [ref=f25e1556]: Chrome 151.0.0
+                        - cell [ref=f25e1557]:
+                          - button "Actions" [ref=f25e1559] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1560]:
+                          - button "Actions" [ref=f25e1562] [cursor=pointer]:
+                            - link "05955682" [ref=f25e1563]:
+                              - /url: /insights/summary/trace/05955682a38e4d7d98bb149cf54318f9/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788769866
+                      - row [ref=f25e1565]:
+                        - cell [ref=f25e1566]:
+                          - button "Actions" [ref=f25e1568] [cursor=pointer]:
+                            - link "1336d0fc" [ref=f25e1569]:
+                              - /url: /issues/139576149/events/1336d0fc64644c41949e785ee17f8740/
+                        - cell [ref=f25e1571]:
+                          - button "Actions" [ref=f25e1573] [cursor=pointer]:
+                            - time [ref=f25e1576]: Sep 6, 2026 11:02:52 PM UTC
+                        - cell [ref=f25e1577]:
+                          - button "Actions" [ref=f25e1579] [cursor=pointer]:
+                            - generic [ref=f25e1580]: "ZodError: ["
+                        - cell [ref=f25e1582]:
+                          - button "Actions" [ref=f25e1584] [cursor=pointer]:
+                            - generic [ref=f25e1585]: /_auth/p/$projectId
+                        - cell [ref=f25e1587]:
+                          - button "Actions" [ref=f25e1589] [cursor=pointer]:
+                            - generic [ref=f25e1590]: (no value)
+                        - cell [ref=f25e1591]:
+                          - button "Actions" [ref=f25e1593] [cursor=pointer]:
+                            - generic [ref=f25e1594]: production
+                        - cell [ref=f25e1596]:
+                          - button "Actions" [ref=f25e1598] [cursor=pointer]:
+                            - generic [ref=f25e1600]:
+                              - generic "chouchaniyoussef@gmail.com" [ref=f25e1601]:
+                                - img [ref=f25e1602]:
+                                  - generic [ref=f25e1604]: C
+                              - generic [ref=f25e1605]: chouchaniyoussef@gmail.com
+                        - cell [ref=f25e1609]:
+                          - generic [ref=f25e1610]:
+                            - button "Actions"
+                        - cell [ref=f25e1611]:
+                          - button "Actions" [ref=f25e1613] [cursor=pointer]:
+                            - generic [ref=f25e1614]:
+                              - img "windows" [ref=f25e1615]
+                              - generic [ref=f25e1616]: Windows >=10
+                        - cell [ref=f25e1618]:
+                          - button "Actions" [ref=f25e1620] [cursor=pointer]:
+                            - link "https://wandit.dev/p/c6a1498f-9e0a-472e-88c8-60404e9c94e6" [ref=f25e1624]:
+                              - /url: https://wandit.dev/p/c6a1498f-9e0a-472e-88c8-60404e9c94e6
+                        - cell [ref=f25e1625]:
+                          - button "Actions" [ref=f25e1627] [cursor=pointer]:
+                            - generic [ref=f25e1628]:
+                              - img "chrome" [ref=f25e1629]
+                              - generic [ref=f25e1630]: Chrome 151.0.0
+                        - cell [ref=f25e1631]:
+                          - button "Actions" [ref=f25e1633] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1634]:
+                          - button "Actions" [ref=f25e1636] [cursor=pointer]:
+                            - link "8e0d04e9" [ref=f25e1637]:
+                              - /url: /insights/summary/trace/8e0d04e9663f4cb2a57b9970046b0387/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788735772
+                      - row [ref=f25e1639]:
+                        - cell [ref=f25e1640]:
+                          - button "Actions" [ref=f25e1642] [cursor=pointer]:
+                            - link "85642b02" [ref=f25e1643]:
+                              - /url: /issues/139576149/events/85642b024ebc4ffbb72568e10f90784d/
+                        - cell [ref=f25e1645]:
+                          - button "Actions" [ref=f25e1647] [cursor=pointer]:
+                            - time [ref=f25e1650]: Sep 6, 2026 9:31:55 PM UTC
+                        - cell [ref=f25e1651]:
+                          - button "Actions" [ref=f25e1653] [cursor=pointer]:
+                            - generic [ref=f25e1654]: "ZodError: ["
+                        - cell [ref=f25e1656]:
+                          - button "Actions" [ref=f25e1658] [cursor=pointer]:
+                            - generic [ref=f25e1659]: /_auth/p/$projectId
+                        - cell [ref=f25e1661]:
+                          - button "Actions" [ref=f25e1663] [cursor=pointer]:
+                            - generic [ref=f25e1664]: (no value)
+                        - cell [ref=f25e1665]:
+                          - button "Actions" [ref=f25e1667] [cursor=pointer]:
+                            - generic [ref=f25e1668]: production
+                        - cell [ref=f25e1670]:
+                          - button "Actions" [ref=f25e1672] [cursor=pointer]:
+                            - generic [ref=f25e1674]:
+                              - generic "ecomaimane01@gmail.com" [ref=f25e1675]:
+                                - img [ref=f25e1676]:
+                                  - generic [ref=f25e1678]: E
+                              - generic [ref=f25e1679]: ecomaimane01@gmail.com
+                        - cell [ref=f25e1683]:
+                          - button "Actions" [ref=f25e1685] [cursor=pointer]:
+                            - generic [ref=f25e1686]: K
+                        - cell [ref=f25e1687]:
+                          - button "Actions" [ref=f25e1689] [cursor=pointer]:
+                            - generic [ref=f25e1690]:
+                              - img "android" [ref=f25e1691]
+                              - generic [ref=f25e1692]: Android 10
+                        - cell [ref=f25e1693]:
+                          - button "Actions" [ref=f25e1695] [cursor=pointer]:
+                            - link "https://wandit.dev/p/30774a5e-6b05-40dd-89e2-39e79e9f479d" [ref=f25e1699]:
+                              - /url: https://wandit.dev/p/30774a5e-6b05-40dd-89e2-39e79e9f479d
+                        - cell [ref=f25e1700]:
+                          - button "Actions" [ref=f25e1702] [cursor=pointer]:
+                            - generic [ref=f25e1703]:
+                              - img "chrome" [ref=f25e1704]
+                              - generic [ref=f25e1705]: Chrome Mobile 151.0.0
+                        - cell [ref=f25e1706]:
+                          - button "Actions" [ref=f25e1708] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1709]:
+                          - button "Actions" [ref=f25e1711] [cursor=pointer]:
+                            - link "e1e14fb3" [ref=f25e1712]:
+                              - /url: /insights/summary/trace/e1e14fb3031749138208275240c57ffa/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788730315
+                      - row [ref=f25e1714]:
+                        - cell [ref=f25e1715]:
+                          - button "Actions" [ref=f25e1717] [cursor=pointer]:
+                            - link "962a7fa1" [ref=f25e1718]:
+                              - /url: /issues/139576149/events/962a7fa1a39342e682bdfd0af489bc45/
+                        - cell [ref=f25e1720]:
+                          - button "Actions" [ref=f25e1722] [cursor=pointer]:
+                            - time [ref=f25e1725]: Sep 6, 2026 8:52:35 PM UTC
+                        - cell [ref=f25e1726]:
+                          - button "Actions" [ref=f25e1728] [cursor=pointer]:
+                            - generic [ref=f25e1729]: "ZodError: ["
+                        - cell [ref=f25e1731]:
+                          - button "Actions" [ref=f25e1733] [cursor=pointer]:
+                            - generic [ref=f25e1734]: /_auth/p/$projectId
+                        - cell [ref=f25e1736]:
+                          - button "Actions" [ref=f25e1738] [cursor=pointer]:
+                            - generic [ref=f25e1739]: (no value)
+                        - cell [ref=f25e1740]:
+                          - button "Actions" [ref=f25e1742] [cursor=pointer]:
+                            - generic [ref=f25e1743]: production
+                        - cell [ref=f25e1745]:
+                          - button "Actions" [ref=f25e1747] [cursor=pointer]:
+                            - generic [ref=f25e1749]:
+                              - generic "blidayakine9@gmail.com" [ref=f25e1750]:
+                                - img [ref=f25e1751]:
+                                  - generic [ref=f25e1753]: B
+                              - generic [ref=f25e1754]: blidayakine9@gmail.com
+                        - cell [ref=f25e1758]:
+                          - button "Actions" [ref=f25e1760] [cursor=pointer]:
+                            - generic [ref=f25e1761]: Smartphone
+                        - cell [ref=f25e1762]:
+                          - button "Actions" [ref=f25e1764] [cursor=pointer]:
+                            - generic [ref=f25e1765]:
+                              - img "android" [ref=f25e1766]
+                              - generic [ref=f25e1767]: Android 16
+                        - cell [ref=f25e1768]:
+                          - button "Actions" [ref=f25e1770] [cursor=pointer]:
+                            - link "https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332" [ref=f25e1774]:
+                              - /url: https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332
+                        - cell [ref=f25e1775]:
+                          - button "Actions" [ref=f25e1777] [cursor=pointer]:
+                            - generic [ref=f25e1778]:
+                              - img "firefox" [ref=f25e1779]
+                              - generic [ref=f25e1780]: Firefox Mobile 153.0
+                        - cell [ref=f25e1781]:
+                          - button "Actions" [ref=f25e1783] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1784]:
+                          - button "Actions" [ref=f25e1786] [cursor=pointer]:
+                            - link "d638ae98" [ref=f25e1787]:
+                              - /url: /insights/summary/trace/d638ae98bbcc490da97630bf1beaec33/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788727955
+                      - row [ref=f25e1789]:
+                        - cell [ref=f25e1790]:
+                          - button "Actions" [ref=f25e1792] [cursor=pointer]:
+                            - link "14b5dcd3" [ref=f25e1793]:
+                              - /url: /issues/139576149/events/14b5dcd3ff4d41b8a805d49024ef52d7/
+                        - cell [ref=f25e1795]:
+                          - button "Actions" [ref=f25e1797] [cursor=pointer]:
+                            - time [ref=f25e1800]: Sep 6, 2026 7:40:54 PM UTC
+                        - cell [ref=f25e1801]:
+                          - button "Actions" [ref=f25e1803] [cursor=pointer]:
+                            - generic [ref=f25e1804]: "ZodError: ["
+                        - cell [ref=f25e1806]:
+                          - button "Actions" [ref=f25e1808] [cursor=pointer]:
+                            - generic [ref=f25e1809]: /
+                        - cell [ref=f25e1811]:
+                          - button "Actions" [ref=f25e1813] [cursor=pointer]:
+                            - generic [ref=f25e1814]: (no value)
+                        - cell [ref=f25e1815]:
+                          - button "Actions" [ref=f25e1817] [cursor=pointer]:
+                            - generic [ref=f25e1818]: production
+                        - cell [ref=f25e1820]:
+                          - button "Actions" [ref=f25e1822] [cursor=pointer]:
+                            - generic [ref=f25e1823]: (no value)
+                        - cell [ref=f25e1824]:
+                          - generic [ref=f25e1825]:
+                            - button "Actions"
+                        - cell [ref=f25e1826]:
+                          - button "Actions" [ref=f25e1828] [cursor=pointer]:
+                            - generic [ref=f25e1829]:
+                              - img "windows" [ref=f25e1830]
+                              - generic [ref=f25e1831]: Windows >=10
+                        - cell [ref=f25e1833]:
+                          - button "Actions" [ref=f25e1835] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e1839]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e1840]:
+                          - button "Actions" [ref=f25e1842] [cursor=pointer]:
+                            - generic [ref=f25e1843]:
+                              - img "chrome" [ref=f25e1844]
+                              - generic [ref=f25e1845]: Chrome 152.0.0
+                        - cell [ref=f25e1846]:
+                          - button "Actions" [ref=f25e1848] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1849]:
+                          - button "Actions" [ref=f25e1851] [cursor=pointer]:
+                            - link "8ea75784" [ref=f25e1852]:
+                              - /url: /insights/summary/trace/8ea757845ce742adbaf26852d36b8254/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788723654
+                      - row [ref=f25e1854]:
+                        - cell [ref=f25e1855]:
+                          - button "Actions" [ref=f25e1857] [cursor=pointer]:
+                            - link "cc351cda" [ref=f25e1858]:
+                              - /url: /issues/139576149/events/cc351cdaf51043d381911007af7db76e/
+                        - cell [ref=f25e1860]:
+                          - button "Actions" [ref=f25e1862] [cursor=pointer]:
+                            - time [ref=f25e1865]: Sep 6, 2026 3:59:07 PM UTC
+                        - cell [ref=f25e1866]:
+                          - button "Actions" [ref=f25e1868] [cursor=pointer]:
+                            - generic [ref=f25e1869]: "ZodError: ["
+                        - cell [ref=f25e1871]:
+                          - button "Actions" [ref=f25e1873] [cursor=pointer]:
+                            - generic [ref=f25e1874]: /_auth/p/$projectId
+                        - cell [ref=f25e1876]:
+                          - button "Actions" [ref=f25e1878] [cursor=pointer]:
+                            - generic [ref=f25e1879]: (no value)
+                        - cell [ref=f25e1880]:
+                          - button "Actions" [ref=f25e1882] [cursor=pointer]:
+                            - generic [ref=f25e1883]: production
+                        - cell [ref=f25e1885]:
+                          - button "Actions" [ref=f25e1887] [cursor=pointer]:
+                            - generic [ref=f25e1889]:
+                              - generic "isslamsaari@gmail.com" [ref=f25e1890]:
+                                - img [ref=f25e1891]:
+                                  - generic [ref=f25e1893]: I
+                              - generic [ref=f25e1894]: isslamsaari@gmail.com
+                        - cell [ref=f25e1898]:
+                          - generic [ref=f25e1899]:
+                            - button "Actions"
+                        - cell [ref=f25e1900]:
+                          - button "Actions" [ref=f25e1902] [cursor=pointer]:
+                            - generic [ref=f25e1903]:
+                              - img "windows" [ref=f25e1904]
+                              - generic [ref=f25e1905]: Windows >=10
+                        - cell [ref=f25e1907]:
+                          - button "Actions" [ref=f25e1909] [cursor=pointer]:
+                            - link "https://wandit.dev/p/c9dee564-8ef0-4f79-b192-df39cac5e0bd" [ref=f25e1913]:
+                              - /url: https://wandit.dev/p/c9dee564-8ef0-4f79-b192-df39cac5e0bd
+                        - cell [ref=f25e1914]:
+                          - button "Actions" [ref=f25e1916] [cursor=pointer]:
+                            - generic [ref=f25e1917]:
+                              - img "chrome" [ref=f25e1918]
+                              - generic [ref=f25e1919]: Chrome 151.0.0
+                        - cell [ref=f25e1920]:
+                          - button "Actions" [ref=f25e1922] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1923]:
+                          - button "Actions" [ref=f25e1925] [cursor=pointer]:
+                            - link "31f430ed" [ref=f25e1926]:
+                              - /url: /insights/summary/trace/31f430ed9b074fc68c9c7bfb64338b35/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788710347
+                      - row [ref=f25e1928]:
+                        - cell [ref=f25e1929]:
+                          - button "Actions" [ref=f25e1931] [cursor=pointer]:
+                            - link "7aeeaf44" [ref=f25e1932]:
+                              - /url: /issues/139576149/events/7aeeaf444aaf416cb89983493d6c87f8/
+                        - cell [ref=f25e1934]:
+                          - button "Actions" [ref=f25e1936] [cursor=pointer]:
+                            - time [ref=f25e1939]: Sep 6, 2026 1:56:44 PM UTC
+                        - cell [ref=f25e1940]:
+                          - button "Actions" [ref=f25e1942] [cursor=pointer]:
+                            - generic [ref=f25e1943]: "ZodError: ["
+                        - cell [ref=f25e1945]:
+                          - button "Actions" [ref=f25e1947] [cursor=pointer]:
+                            - generic [ref=f25e1948]: /_auth/p/$projectId
+                        - cell [ref=f25e1950]:
+                          - button "Actions" [ref=f25e1952] [cursor=pointer]:
+                            - generic [ref=f25e1953]: (no value)
+                        - cell [ref=f25e1954]:
+                          - button "Actions" [ref=f25e1956] [cursor=pointer]:
+                            - generic [ref=f25e1957]: production
+                        - cell [ref=f25e1959]:
+                          - button "Actions" [ref=f25e1961] [cursor=pointer]:
+                            - generic [ref=f25e1963]:
+                              - generic "mm13387372@gmail.com" [ref=f25e1964]:
+                                - img [ref=f25e1965]:
+                                  - generic [ref=f25e1967]: M
+                              - generic [ref=f25e1968]: mm13387372@gmail.com
+                        - cell [ref=f25e1972]:
+                          - button "Actions" [ref=f25e1974] [cursor=pointer]:
+                            - generic [ref=f25e1975]: K
+                        - cell [ref=f25e1976]:
+                          - button "Actions" [ref=f25e1978] [cursor=pointer]:
+                            - generic [ref=f25e1979]:
+                              - img "android" [ref=f25e1980]
+                              - generic [ref=f25e1981]: Android 10
+                        - cell [ref=f25e1982]:
+                          - button "Actions" [ref=f25e1984] [cursor=pointer]:
+                            - link "https://wandit.dev/p/b182ea00-fcfa-4026-a9ff-63200766c7a5" [ref=f25e1988]:
+                              - /url: https://wandit.dev/p/b182ea00-fcfa-4026-a9ff-63200766c7a5
+                        - cell [ref=f25e1989]:
+                          - button "Actions" [ref=f25e1991] [cursor=pointer]:
+                            - generic [ref=f25e1992]:
+                              - img "chrome" [ref=f25e1993]
+                              - generic [ref=f25e1994]: Chrome Mobile 152.0.0
+                        - cell [ref=f25e1995]:
+                          - button "Actions" [ref=f25e1997] [cursor=pointer]: (no value)
+                        - cell [ref=f25e1998]:
+                          - button "Actions" [ref=f25e2000] [cursor=pointer]:
+                            - link "d489883c" [ref=f25e2001]:
+                              - /url: /insights/summary/trace/d489883c5a5a46b194825520fc760227/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788703004
+                      - row [ref=f25e2003]:
+                        - cell [ref=f25e2004]:
+                          - button "Actions" [ref=f25e2006] [cursor=pointer]:
+                            - link "37a58e8a" [ref=f25e2007]:
+                              - /url: /issues/139576149/events/37a58e8a426b40f5949ebb5ff682829c/
+                        - cell [ref=f25e2009]:
+                          - button "Actions" [ref=f25e2011] [cursor=pointer]:
+                            - time [ref=f25e2014]: Sep 6, 2026 1:56:02 PM UTC
+                        - cell [ref=f25e2015]:
+                          - button "Actions" [ref=f25e2017] [cursor=pointer]:
+                            - generic [ref=f25e2018]: "ZodError: ["
+                        - cell [ref=f25e2020]:
+                          - button "Actions" [ref=f25e2022] [cursor=pointer]:
+                            - generic [ref=f25e2023]: /_auth/p/$projectId
+                        - cell [ref=f25e2025]:
+                          - button "Actions" [ref=f25e2027] [cursor=pointer]:
+                            - generic [ref=f25e2028]: (no value)
+                        - cell [ref=f25e2029]:
+                          - button "Actions" [ref=f25e2031] [cursor=pointer]:
+                            - generic [ref=f25e2032]: production
+                        - cell [ref=f25e2034]:
+                          - button "Actions" [ref=f25e2036] [cursor=pointer]:
+                            - generic [ref=f25e2038]:
+                              - generic "sahliilyas30@gmail.com" [ref=f25e2039]:
+                                - img [ref=f25e2040]:
+                                  - generic [ref=f25e2042]: S
+                              - generic [ref=f25e2043]: sahliilyas30@gmail.com
+                        - cell [ref=f25e2047]:
+                          - generic [ref=f25e2048]:
+                            - button "Actions"
+                        - cell [ref=f25e2049]:
+                          - button "Actions" [ref=f25e2051] [cursor=pointer]:
+                            - generic [ref=f25e2052]:
+                              - img "windows" [ref=f25e2053]
+                              - generic [ref=f25e2054]: Windows >=10
+                        - cell [ref=f25e2056]:
+                          - button "Actions" [ref=f25e2058] [cursor=pointer]:
+                            - link "https://wandit.dev/p/eee291c6-6cc3-406d-baab-0bbbc6d5d5be" [ref=f25e2062]:
+                              - /url: https://wandit.dev/p/eee291c6-6cc3-406d-baab-0bbbc6d5d5be
+                        - cell [ref=f25e2063]:
+                          - button "Actions" [ref=f25e2065] [cursor=pointer]:
+                            - generic [ref=f25e2066]:
+                              - img "chrome" [ref=f25e2067]
+                              - generic [ref=f25e2068]: Chrome 150.0.0
+                        - cell [ref=f25e2069]:
+                          - button "Actions" [ref=f25e2071] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2072]:
+                          - button "Actions" [ref=f25e2074] [cursor=pointer]:
+                            - link "937558ed" [ref=f25e2075]:
+                              - /url: /insights/summary/trace/937558edc611445f88858a418d52695c/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788702962
+                      - row [ref=f25e2077]:
+                        - cell [ref=f25e2078]:
+                          - button "Actions" [ref=f25e2080] [cursor=pointer]:
+                            - link "4f4c4f2a" [ref=f25e2081]:
+                              - /url: /issues/139576149/events/4f4c4f2aa7f04cc29b67386dc7339fc1/
+                        - cell [ref=f25e2083]:
+                          - button "Actions" [ref=f25e2085] [cursor=pointer]:
+                            - time [ref=f25e2088]: Sep 6, 2026 11:42:31 AM UTC
+                        - cell [ref=f25e2089]:
+                          - button "Actions" [ref=f25e2091] [cursor=pointer]:
+                            - generic [ref=f25e2092]: "ZodError: ["
+                        - cell [ref=f25e2094]:
+                          - button "Actions" [ref=f25e2096] [cursor=pointer]:
+                            - generic [ref=f25e2097]: /_auth/p/$projectId
+                        - cell [ref=f25e2099]:
+                          - button "Actions" [ref=f25e2101] [cursor=pointer]:
+                            - generic [ref=f25e2102]: (no value)
+                        - cell [ref=f25e2103]:
+                          - button "Actions" [ref=f25e2105] [cursor=pointer]:
+                            - generic [ref=f25e2106]: production
+                        - cell [ref=f25e2108]:
+                          - button "Actions" [ref=f25e2110] [cursor=pointer]:
+                            - generic [ref=f25e2112]:
+                              - generic "yasserachraf5@gmail.com" [ref=f25e2113]:
+                                - img [ref=f25e2114]:
+                                  - generic [ref=f25e2116]: "Y"
+                              - generic [ref=f25e2117]: yasserachraf5@gmail.com
+                        - cell [ref=f25e2121]:
+                          - generic [ref=f25e2122]:
+                            - button "Actions"
+                        - cell [ref=f25e2123]:
+                          - button "Actions" [ref=f25e2125] [cursor=pointer]:
+                            - generic [ref=f25e2126]:
+                              - img "windows" [ref=f25e2127]
+                              - generic [ref=f25e2128]: Windows >=10
+                        - cell [ref=f25e2130]:
+                          - button "Actions" [ref=f25e2132] [cursor=pointer]:
+                            - link "https://wandit.dev/p/bd0e67c6-a10d-4ef7-80a6-dafc6bfbbb9b" [ref=f25e2136]:
+                              - /url: https://wandit.dev/p/bd0e67c6-a10d-4ef7-80a6-dafc6bfbbb9b
+                        - cell [ref=f25e2137]:
+                          - button "Actions" [ref=f25e2139] [cursor=pointer]:
+                            - generic [ref=f25e2140]:
+                              - img "chrome" [ref=f25e2141]
+                              - generic [ref=f25e2142]: Chrome 150.0.0
+                        - cell [ref=f25e2143]:
+                          - button "Actions" [ref=f25e2145] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2146]:
+                          - button "Actions" [ref=f25e2148] [cursor=pointer]:
+                            - link "534fddce" [ref=f25e2149]:
+                              - /url: /insights/summary/trace/534fddcee2a7425ba727d055f9d48fae/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788694951
+                      - row [ref=f25e2151]:
+                        - cell [ref=f25e2152]:
+                          - button "Actions" [ref=f25e2154] [cursor=pointer]:
+                            - link "ad073855" [ref=f25e2155]:
+                              - /url: /issues/139576149/events/ad073855502747ad9f074df59afb559b/
+                        - cell [ref=f25e2157]:
+                          - button "Actions" [ref=f25e2159] [cursor=pointer]:
+                            - time [ref=f25e2162]: Sep 6, 2026 11:39:46 AM UTC
+                        - cell [ref=f25e2163]:
+                          - button "Actions" [ref=f25e2165] [cursor=pointer]:
+                            - generic [ref=f25e2166]: "ZodError: ["
+                        - cell [ref=f25e2168]:
+                          - button "Actions" [ref=f25e2170] [cursor=pointer]:
+                            - generic [ref=f25e2171]: /_auth/p/$projectId
+                        - cell [ref=f25e2173]:
+                          - button "Actions" [ref=f25e2175] [cursor=pointer]:
+                            - generic [ref=f25e2176]: (no value)
+                        - cell [ref=f25e2177]:
+                          - button "Actions" [ref=f25e2179] [cursor=pointer]:
+                            - generic [ref=f25e2180]: production
+                        - cell [ref=f25e2182]:
+                          - button "Actions" [ref=f25e2184] [cursor=pointer]:
+                            - generic [ref=f25e2186]:
+                              - generic "blidayakine9@gmail.com" [ref=f25e2187]:
+                                - img [ref=f25e2188]:
+                                  - generic [ref=f25e2190]: B
+                              - generic [ref=f25e2191]: blidayakine9@gmail.com
+                        - cell [ref=f25e2195]:
+                          - generic [ref=f25e2196]:
+                            - button "Actions"
+                        - cell [ref=f25e2197]:
+                          - button "Actions" [ref=f25e2199] [cursor=pointer]:
+                            - generic [ref=f25e2200]:
+                              - img "windows" [ref=f25e2201]
+                              - generic [ref=f25e2202]: Windows >=10
+                        - cell [ref=f25e2204]:
+                          - button "Actions" [ref=f25e2206] [cursor=pointer]:
+                            - link "https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332" [ref=f25e2210]:
+                              - /url: https://wandit.dev/p/fcad5c47-192c-4acd-8e1a-020246382332
+                        - cell [ref=f25e2211]:
+                          - button "Actions" [ref=f25e2213] [cursor=pointer]:
+                            - generic [ref=f25e2214]:
+                              - img "chrome" [ref=f25e2215]
+                              - generic [ref=f25e2216]: Chrome 151.0.0
+                        - cell [ref=f25e2217]:
+                          - button "Actions" [ref=f25e2219] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2220]:
+                          - button "Actions" [ref=f25e2222] [cursor=pointer]:
+                            - link "eb710dc8" [ref=f25e2223]:
+                              - /url: /insights/summary/trace/eb710dc8336c44ac8e1afdf7d00ba59a/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788694786
+                      - row [ref=f25e2225]:
+                        - cell [ref=f25e2226]:
+                          - button "Actions" [ref=f25e2228] [cursor=pointer]:
+                            - link "ab9bf338" [ref=f25e2229]:
+                              - /url: /issues/139576149/events/ab9bf33832d04069ba99dffa7306defa/
+                        - cell [ref=f25e2231]:
+                          - button "Actions" [ref=f25e2233] [cursor=pointer]:
+                            - time [ref=f25e2236]: Sep 6, 2026 9:56:24 AM UTC
+                        - cell [ref=f25e2237]:
+                          - button "Actions" [ref=f25e2239] [cursor=pointer]:
+                            - generic [ref=f25e2240]: "ZodError: ["
+                        - cell [ref=f25e2242]:
+                          - button "Actions" [ref=f25e2244] [cursor=pointer]:
+                            - generic [ref=f25e2245]: /_auth/p/$projectId
+                        - cell [ref=f25e2247]:
+                          - button "Actions" [ref=f25e2249] [cursor=pointer]:
+                            - generic [ref=f25e2250]: (no value)
+                        - cell [ref=f25e2251]:
+                          - button "Actions" [ref=f25e2253] [cursor=pointer]:
+                            - generic [ref=f25e2254]: production
+                        - cell [ref=f25e2256]:
+                          - button "Actions" [ref=f25e2258] [cursor=pointer]:
+                            - generic [ref=f25e2260]:
+                              - generic "cellcarecosmetique@gmail.com" [ref=f25e2261]:
+                                - img [ref=f25e2262]:
+                                  - generic [ref=f25e2264]: C
+                              - generic [ref=f25e2265]: cellcarecosmetique@gmail.com
+                        - cell [ref=f25e2269]:
+                          - generic [ref=f25e2270]:
+                            - button "Actions"
+                        - cell [ref=f25e2271]:
+                          - button "Actions" [ref=f25e2273] [cursor=pointer]:
+                            - generic [ref=f25e2274]:
+                              - img "windows" [ref=f25e2275]
+                              - generic [ref=f25e2276]: Windows >=10
+                        - cell [ref=f25e2278]:
+                          - button "Actions" [ref=f25e2280] [cursor=pointer]:
+                            - link "https://wandit.dev/p/00bbf348-69e6-467d-8d03-e38c43f3918f" [ref=f25e2284]:
+                              - /url: https://wandit.dev/p/00bbf348-69e6-467d-8d03-e38c43f3918f
+                        - cell [ref=f25e2285]:
+                          - button "Actions" [ref=f25e2287] [cursor=pointer]:
+                            - generic [ref=f25e2288]:
+                              - img "chrome" [ref=f25e2289]
+                              - generic [ref=f25e2290]: Chrome 150.0.0
+                        - cell [ref=f25e2291]:
+                          - button "Actions" [ref=f25e2293] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2294]:
+                          - button "Actions" [ref=f25e2296] [cursor=pointer]:
+                            - link "4b8df6c5" [ref=f25e2297]:
+                              - /url: /insights/summary/trace/4b8df6c51ce54b0091bbdf4da4d10bb7/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788688584
+                      - row [ref=f25e2299]:
+                        - cell [ref=f25e2300]:
+                          - button "Actions" [ref=f25e2302] [cursor=pointer]:
+                            - link "3cb069e7" [ref=f25e2303]:
+                              - /url: /issues/139576149/events/3cb069e7da894648ac9157a144db9300/
+                        - cell [ref=f25e2305]:
+                          - button "Actions" [ref=f25e2307] [cursor=pointer]:
+                            - time [ref=f25e2310]: Sep 6, 2026 9:36:02 AM UTC
+                        - cell [ref=f25e2311]:
+                          - button "Actions" [ref=f25e2313] [cursor=pointer]:
+                            - generic [ref=f25e2314]: "ZodError: ["
+                        - cell [ref=f25e2316]:
+                          - button "Actions" [ref=f25e2318] [cursor=pointer]:
+                            - generic [ref=f25e2319]: /_auth/p/$projectId
+                        - cell [ref=f25e2321]:
+                          - button "Actions" [ref=f25e2323] [cursor=pointer]:
+                            - generic [ref=f25e2324]: (no value)
+                        - cell [ref=f25e2325]:
+                          - button "Actions" [ref=f25e2327] [cursor=pointer]:
+                            - generic [ref=f25e2328]: production
+                        - cell [ref=f25e2330]:
+                          - button "Actions" [ref=f25e2332] [cursor=pointer]:
+                            - generic [ref=f25e2334]:
+                              - generic "raniabourouina5@gmail.com" [ref=f25e2335]:
+                                - img [ref=f25e2336]:
+                                  - generic [ref=f25e2338]: R
+                              - generic [ref=f25e2339]: raniabourouina5@gmail.com
+                        - cell [ref=f25e2343]:
+                          - generic [ref=f25e2344]:
+                            - button "Actions"
+                        - cell [ref=f25e2345]:
+                          - button "Actions" [ref=f25e2347] [cursor=pointer]:
+                            - generic [ref=f25e2348]:
+                              - img "windows" [ref=f25e2349]
+                              - generic [ref=f25e2350]: Windows >=10
+                        - cell [ref=f25e2352]:
+                          - button "Actions" [ref=f25e2354] [cursor=pointer]:
+                            - link "https://wandit.dev/p/46f29a00-5331-46a8-b7e0-4dc3cf198904" [ref=f25e2358]:
+                              - /url: https://wandit.dev/p/46f29a00-5331-46a8-b7e0-4dc3cf198904
+                        - cell [ref=f25e2359]:
+                          - button "Actions" [ref=f25e2361] [cursor=pointer]:
+                            - generic [ref=f25e2362]:
+                              - img "chrome" [ref=f25e2363]
+                              - generic [ref=f25e2364]: Chrome 151.0.0
+                        - cell [ref=f25e2365]:
+                          - button "Actions" [ref=f25e2367] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2368]:
+                          - button "Actions" [ref=f25e2370] [cursor=pointer]:
+                            - link "a802b817" [ref=f25e2371]:
+                              - /url: /insights/summary/trace/a802b817c2f9446cb7a4529ca69f1e58/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788687362
+                      - row [ref=f25e2373]:
+                        - cell [ref=f25e2374]:
+                          - button "Actions" [ref=f25e2376] [cursor=pointer]:
+                            - link "4e6f4d29" [ref=f25e2377]:
+                              - /url: /issues/139576149/events/4e6f4d29451343f781c5d8efabd0210b/
+                        - cell [ref=f25e2379]:
+                          - button "Actions" [ref=f25e2381] [cursor=pointer]:
+                            - time [ref=f25e2384]: Sep 6, 2026 8:36:07 AM UTC
+                        - cell [ref=f25e2385]:
+                          - button "Actions" [ref=f25e2387] [cursor=pointer]:
+                            - generic [ref=f25e2388]: "ZodError: ["
+                        - cell [ref=f25e2390]:
+                          - button "Actions" [ref=f25e2392] [cursor=pointer]:
+                            - generic [ref=f25e2393]: /_auth/p/$projectId
+                        - cell [ref=f25e2395]:
+                          - button "Actions" [ref=f25e2397] [cursor=pointer]:
+                            - generic [ref=f25e2398]: (no value)
+                        - cell [ref=f25e2399]:
+                          - button "Actions" [ref=f25e2401] [cursor=pointer]:
+                            - generic [ref=f25e2402]: production
+                        - cell [ref=f25e2404]:
+                          - button "Actions" [ref=f25e2406] [cursor=pointer]:
+                            - generic [ref=f25e2408]:
+                              - generic "ladoulsamido@gmail.com" [ref=f25e2409]:
+                                - img [ref=f25e2410]:
+                                  - generic [ref=f25e2412]: L
+                              - generic [ref=f25e2413]: ladoulsamido@gmail.com
+                        - cell [ref=f25e2417]:
+                          - button "Actions" [ref=f25e2419] [cursor=pointer]:
+                            - generic [ref=f25e2420]: Mac
+                        - cell [ref=f25e2421]:
+                          - button "Actions" [ref=f25e2423] [cursor=pointer]:
+                            - generic [ref=f25e2424]:
+                              - img "apple" [ref=f25e2425]
+                              - generic [ref=f25e2426]: Mac OS X >=10.15.7
+                        - cell [ref=f25e2428]:
+                          - button "Actions" [ref=f25e2430] [cursor=pointer]:
+                            - link "https://wandit.dev/p/90492fa4-3668-4d19-8402-d4202605a864" [ref=f25e2434]:
+                              - /url: https://wandit.dev/p/90492fa4-3668-4d19-8402-d4202605a864
+                        - cell [ref=f25e2435]:
+                          - button "Actions" [ref=f25e2437] [cursor=pointer]:
+                            - generic [ref=f25e2438]:
+                              - img "chrome" [ref=f25e2439]
+                              - generic [ref=f25e2440]: Chrome 151.0.0
+                        - cell [ref=f25e2441]:
+                          - button "Actions" [ref=f25e2443] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2444]:
+                          - button "Actions" [ref=f25e2446] [cursor=pointer]:
+                            - link "3541a454" [ref=f25e2447]:
+                              - /url: /insights/summary/trace/3541a4546f8540d18d186424a1e73387/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788683767
+                      - row [ref=f25e2449]:
+                        - cell [ref=f25e2450]:
+                          - button "Actions" [ref=f25e2452] [cursor=pointer]:
+                            - link "73ba5e72" [ref=f25e2453]:
+                              - /url: /issues/139576149/events/73ba5e720818412e80f3381d9160be1d/
+                        - cell [ref=f25e2455]:
+                          - button "Actions" [ref=f25e2457] [cursor=pointer]:
+                            - time [ref=f25e2460]: Sep 6, 2026 8:28:14 AM UTC
+                        - cell [ref=f25e2461]:
+                          - button "Actions" [ref=f25e2463] [cursor=pointer]:
+                            - generic [ref=f25e2464]: "ZodError: ["
+                        - cell [ref=f25e2466]:
+                          - button "Actions" [ref=f25e2468] [cursor=pointer]:
+                            - generic [ref=f25e2469]: /_auth/p/$projectId
+                        - cell [ref=f25e2471]:
+                          - button "Actions" [ref=f25e2473] [cursor=pointer]:
+                            - generic [ref=f25e2474]: (no value)
+                        - cell [ref=f25e2475]:
+                          - button "Actions" [ref=f25e2477] [cursor=pointer]:
+                            - generic [ref=f25e2478]: production
+                        - cell [ref=f25e2480]:
+                          - button "Actions" [ref=f25e2482] [cursor=pointer]:
+                            - generic [ref=f25e2484]:
+                              - generic "bynnovtech@gmail.com" [ref=f25e2485]:
+                                - img [ref=f25e2486]:
+                                  - generic [ref=f25e2488]: B
+                              - generic [ref=f25e2489]: bynnovtech@gmail.com
+                        - cell [ref=f25e2493]:
+                          - generic [ref=f25e2494]:
+                            - button "Actions"
+                        - cell [ref=f25e2495]:
+                          - button "Actions" [ref=f25e2497] [cursor=pointer]:
+                            - generic [ref=f25e2498]:
+                              - img "windows" [ref=f25e2499]
+                              - generic [ref=f25e2500]: Windows >=10
+                        - cell [ref=f25e2502]:
+                          - button "Actions" [ref=f25e2504] [cursor=pointer]:
+                            - link "https://wandit.dev/p/cd8f182a-49b1-45ad-9813-e147939644cb" [ref=f25e2508]:
+                              - /url: https://wandit.dev/p/cd8f182a-49b1-45ad-9813-e147939644cb
+                        - cell [ref=f25e2509]:
+                          - button "Actions" [ref=f25e2511] [cursor=pointer]:
+                            - generic [ref=f25e2512]:
+                              - img "chrome" [ref=f25e2513]
+                              - generic [ref=f25e2514]: Chrome 151.0.0
+                        - cell [ref=f25e2515]:
+                          - button "Actions" [ref=f25e2517] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2518]:
+                          - button "Actions" [ref=f25e2520] [cursor=pointer]:
+                            - link "8c5b91b9" [ref=f25e2521]:
+                              - /url: /insights/summary/trace/8c5b91b98c404cf49cd1469880402e9b/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788683294
+                      - row [ref=f25e2523]:
+                        - cell [ref=f25e2524]:
+                          - button "Actions" [ref=f25e2526] [cursor=pointer]:
+                            - link "aa0f146c" [ref=f25e2527]:
+                              - /url: /issues/139576149/events/aa0f146c25794369bcff6983f5bcdc62/
+                        - cell [ref=f25e2529]:
+                          - button "Actions" [ref=f25e2531] [cursor=pointer]:
+                            - time [ref=f25e2534]: Sep 6, 2026 8:21:13 AM UTC
+                        - cell [ref=f25e2535]:
+                          - button "Actions" [ref=f25e2537] [cursor=pointer]:
+                            - generic [ref=f25e2538]: "ZodError: ["
+                        - cell [ref=f25e2540]:
+                          - button "Actions" [ref=f25e2542] [cursor=pointer]:
+                            - generic [ref=f25e2543]: /_auth/p/$projectId
+                        - cell [ref=f25e2545]:
+                          - button "Actions" [ref=f25e2547] [cursor=pointer]:
+                            - generic [ref=f25e2548]: (no value)
+                        - cell [ref=f25e2549]:
+                          - button "Actions" [ref=f25e2551] [cursor=pointer]:
+                            - generic [ref=f25e2552]: production
+                        - cell [ref=f25e2554]:
+                          - button "Actions" [ref=f25e2556] [cursor=pointer]:
+                            - generic [ref=f25e2558]:
+                              - generic "ghalmiamine77@gmail.com" [ref=f25e2559]:
+                                - img [ref=f25e2560]:
+                                  - generic [ref=f25e2562]: G
+                              - generic [ref=f25e2563]: ghalmiamine77@gmail.com
+                        - cell [ref=f25e2567]:
+                          - generic [ref=f25e2568]:
+                            - button "Actions"
+                        - cell [ref=f25e2569]:
+                          - button "Actions" [ref=f25e2571] [cursor=pointer]:
+                            - generic [ref=f25e2572]:
+                              - img "windows" [ref=f25e2573]
+                              - generic [ref=f25e2574]: Windows >=10
+                        - cell [ref=f25e2576]:
+                          - button "Actions" [ref=f25e2578] [cursor=pointer]:
+                            - link "https://wandit.dev/p/85cefcc2-d45b-40af-8361-7295c3f94697" [ref=f25e2582]:
+                              - /url: https://wandit.dev/p/85cefcc2-d45b-40af-8361-7295c3f94697
+                        - cell [ref=f25e2583]:
+                          - button "Actions" [ref=f25e2585] [cursor=pointer]:
+                            - generic [ref=f25e2586]:
+                              - img "chrome" [ref=f25e2587]
+                              - generic [ref=f25e2588]: Chrome 151.0.0
+                        - cell [ref=f25e2589]:
+                          - button "Actions" [ref=f25e2591] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2592]:
+                          - button "Actions" [ref=f25e2594] [cursor=pointer]:
+                            - link "7091404d" [ref=f25e2595]:
+                              - /url: /insights/summary/trace/7091404d20c145969ad6f1822d114b65/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788682873
+                      - row [ref=f25e2597]:
+                        - cell [ref=f25e2598]:
+                          - button "Actions" [ref=f25e2600] [cursor=pointer]:
+                            - link "33e9c087" [ref=f25e2601]:
+                              - /url: /issues/139576149/events/33e9c0873af247e7ade51b9dab59ba10/
+                        - cell [ref=f25e2603]:
+                          - button "Actions" [ref=f25e2605] [cursor=pointer]:
+                            - time [ref=f25e2608]: Sep 6, 2026 6:44:48 AM UTC
+                        - cell [ref=f25e2609]:
+                          - button "Actions" [ref=f25e2611] [cursor=pointer]:
+                            - generic [ref=f25e2612]: "ZodError: ["
+                        - cell [ref=f25e2614]:
+                          - button "Actions" [ref=f25e2616] [cursor=pointer]:
+                            - generic [ref=f25e2617]: /_auth/dashboard
+                        - cell [ref=f25e2619]:
+                          - button "Actions" [ref=f25e2621] [cursor=pointer]:
+                            - generic [ref=f25e2622]: (no value)
+                        - cell [ref=f25e2623]:
+                          - button "Actions" [ref=f25e2625] [cursor=pointer]:
+                            - generic [ref=f25e2626]: production
+                        - cell [ref=f25e2628]:
+                          - button "Actions" [ref=f25e2630] [cursor=pointer]:
+                            - generic [ref=f25e2632]:
+                              - generic "zakimer95@gmail.com" [ref=f25e2633]:
+                                - img [ref=f25e2634]:
+                                  - generic [ref=f25e2636]: Z
+                              - generic [ref=f25e2637]: zakimer95@gmail.com
+                        - cell [ref=f25e2641]:
+                          - generic [ref=f25e2642]:
+                            - button "Actions"
+                        - cell [ref=f25e2643]:
+                          - button "Actions" [ref=f25e2645] [cursor=pointer]:
+                            - generic [ref=f25e2646]:
+                              - img "windows" [ref=f25e2647]
+                              - generic [ref=f25e2648]: Windows >=10
+                        - cell [ref=f25e2650]:
+                          - button "Actions" [ref=f25e2652] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e2656]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e2657]:
+                          - button "Actions" [ref=f25e2659] [cursor=pointer]:
+                            - generic [ref=f25e2660]:
+                              - img "chrome" [ref=f25e2661]
+                              - generic [ref=f25e2662]: Chrome 151.0.0
+                        - cell [ref=f25e2663]:
+                          - button "Actions" [ref=f25e2665] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2666]:
+                          - button "Actions" [ref=f25e2668] [cursor=pointer]:
+                            - link "73147426" [ref=f25e2669]:
+                              - /url: /insights/summary/trace/73147426d4054e3ba3d1686f8012edad/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788677088
+                      - row [ref=f25e2671]:
+                        - cell [ref=f25e2672]:
+                          - button "Actions" [ref=f25e2674] [cursor=pointer]:
+                            - link "0b723357" [ref=f25e2675]:
+                              - /url: /issues/139576149/events/0b7233573bd34520964fcd56eb1e4719/
+                        - cell [ref=f25e2677]:
+                          - button "Actions" [ref=f25e2679] [cursor=pointer]:
+                            - time [ref=f25e2682]: Sep 6, 2026 6:14:08 AM UTC
+                        - cell [ref=f25e2683]:
+                          - button "Actions" [ref=f25e2685] [cursor=pointer]:
+                            - generic [ref=f25e2686]: "ZodError: ["
+                        - cell [ref=f25e2688]:
+                          - button "Actions" [ref=f25e2690] [cursor=pointer]:
+                            - generic [ref=f25e2691]: /_auth/billing
+                        - cell [ref=f25e2693]:
+                          - button "Actions" [ref=f25e2695] [cursor=pointer]:
+                            - link "3.3.3" [ref=f25e2699]:
+                              - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=3.3.3&rdSource=release-version-link&referrer=issue-stream
+                        - cell [ref=f25e2701]:
+                          - button "Actions" [ref=f25e2703] [cursor=pointer]:
+                            - generic [ref=f25e2704]: production
+                        - cell [ref=f25e2706]:
+                          - button "Actions" [ref=f25e2708] [cursor=pointer]:
+                            - generic [ref=f25e2709]: (no value)
+                        - cell [ref=f25e2710]:
+                          - generic [ref=f25e2711]:
+                            - button "Actions"
+                        - cell [ref=f25e2712]:
+                          - button "Actions" [ref=f25e2714] [cursor=pointer]:
+                            - generic [ref=f25e2715]:
+                              - img "windows" [ref=f25e2716]
+                              - generic [ref=f25e2717]: Windows >=10
+                        - cell [ref=f25e2719]:
+                          - button "Actions" [ref=f25e2721] [cursor=pointer]:
+                            - link "https://wandit.dev/billing" [ref=f25e2725]:
+                              - /url: https://wandit.dev/billing
+                        - cell [ref=f25e2726]:
+                          - button "Actions" [ref=f25e2728] [cursor=pointer]:
+                            - generic [ref=f25e2729]:
+                              - img "chrome" [ref=f25e2730]
+                              - generic [ref=f25e2731]: Chrome 151.0.0
+                        - cell [ref=f25e2732]:
+                          - button "Actions" [ref=f25e2734] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2735]:
+                          - button "Actions" [ref=f25e2737] [cursor=pointer]:
+                            - link "f2ea5c01" [ref=f25e2738]:
+                              - /url: /insights/summary/trace/f2ea5c0107574ab08c9cef5fa6247f94/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788675248
+                      - row [ref=f25e2740]:
+                        - cell [ref=f25e2741]:
+                          - button "Actions" [ref=f25e2743] [cursor=pointer]:
+                            - link "17a3712b" [ref=f25e2744]:
+                              - /url: /issues/139576149/events/17a3712bc36e4490a10ad8324188ae92/
+                        - cell [ref=f25e2746]:
+                          - button "Actions" [ref=f25e2748] [cursor=pointer]:
+                            - time [ref=f25e2751]: Sep 6, 2026 1:22:52 AM UTC
+                        - cell [ref=f25e2752]:
+                          - button "Actions" [ref=f25e2754] [cursor=pointer]:
+                            - generic [ref=f25e2755]: "ZodError: ["
+                        - cell [ref=f25e2757]:
+                          - button "Actions" [ref=f25e2759] [cursor=pointer]:
+                            - generic [ref=f25e2760]: /
+                        - cell [ref=f25e2762]:
+                          - button "Actions" [ref=f25e2764] [cursor=pointer]:
+                            - generic [ref=f25e2765]: (no value)
+                        - cell [ref=f25e2766]:
+                          - button "Actions" [ref=f25e2768] [cursor=pointer]:
+                            - generic [ref=f25e2769]: production
+                        - cell [ref=f25e2771]:
+                          - button "Actions" [ref=f25e2773] [cursor=pointer]:
+                            - generic [ref=f25e2774]: (no value)
+                        - cell [ref=f25e2775]:
+                          - generic [ref=f25e2776]:
+                            - button "Actions"
+                        - cell [ref=f25e2777]:
+                          - button "Actions" [ref=f25e2779] [cursor=pointer]:
+                            - generic [ref=f25e2780]:
+                              - img "windows" [ref=f25e2781]
+                              - generic [ref=f25e2782]: Windows >=10
+                        - cell [ref=f25e2784]:
+                          - button "Actions" [ref=f25e2786] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e2790]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e2791]:
+                          - button "Actions" [ref=f25e2793] [cursor=pointer]:
+                            - generic [ref=f25e2794]:
+                              - img "chrome" [ref=f25e2795]
+                              - generic [ref=f25e2796]: Chrome 150.0.0
+                        - cell [ref=f25e2797]:
+                          - button "Actions" [ref=f25e2799] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2800]:
+                          - button "Actions" [ref=f25e2802] [cursor=pointer]:
+                            - link "59b10d74" [ref=f25e2803]:
+                              - /url: /insights/summary/trace/59b10d749b164c12a57f7bccf137b057/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788657772
+                      - row [ref=f25e2805]:
+                        - cell [ref=f25e2806]:
+                          - button "Actions" [ref=f25e2808] [cursor=pointer]:
+                            - link "2a696e2f" [ref=f25e2809]:
+                              - /url: /issues/139576149/events/2a696e2fa2b34e638ef5ac71b6fd0d11/
+                        - cell [ref=f25e2811]:
+                          - button "Actions" [ref=f25e2813] [cursor=pointer]:
+                            - time [ref=f25e2816]: Sep 6, 2026 12:04:00 AM UTC
+                        - cell [ref=f25e2817]:
+                          - button "Actions" [ref=f25e2819] [cursor=pointer]:
+                            - generic [ref=f25e2820]: "ZodError: ["
+                        - cell [ref=f25e2822]:
+                          - button "Actions" [ref=f25e2824] [cursor=pointer]:
+                            - generic [ref=f25e2825]: /_auth/p/$projectId
+                        - cell [ref=f25e2827]:
+                          - button "Actions" [ref=f25e2829] [cursor=pointer]:
+                            - generic [ref=f25e2830]: (no value)
+                        - cell [ref=f25e2831]:
+                          - button "Actions" [ref=f25e2833] [cursor=pointer]:
+                            - generic [ref=f25e2834]: production
+                        - cell [ref=f25e2836]:
+                          - button "Actions" [ref=f25e2838] [cursor=pointer]:
+                            - generic [ref=f25e2840]:
+                              - generic "ibrabdelli12209@gmail.com" [ref=f25e2841]:
+                                - img [ref=f25e2842]:
+                                  - generic [ref=f25e2844]: I
+                              - generic [ref=f25e2845]: ibrabdelli12209@gmail.com
+                        - cell [ref=f25e2849]:
+                          - button "Actions" [ref=f25e2851] [cursor=pointer]:
+                            - generic [ref=f25e2852]: Mac
+                        - cell [ref=f25e2853]:
+                          - button "Actions" [ref=f25e2855] [cursor=pointer]:
+                            - generic [ref=f25e2856]:
+                              - img "apple" [ref=f25e2857]
+                              - generic [ref=f25e2858]: Mac OS X >=10.15.7
+                        - cell [ref=f25e2860]:
+                          - button "Actions" [ref=f25e2862] [cursor=pointer]:
+                            - link "https://wandit.dev/p/2435516e-8282-49b2-b3ef-1c47370dda8e" [ref=f25e2866]:
+                              - /url: https://wandit.dev/p/2435516e-8282-49b2-b3ef-1c47370dda8e
+                        - cell [ref=f25e2867]:
+                          - button "Actions" [ref=f25e2869] [cursor=pointer]:
+                            - generic [ref=f25e2870]:
+                              - img "chrome" [ref=f25e2871]
+                              - generic [ref=f25e2872]: Chrome 152.0.0
+                        - cell [ref=f25e2873]:
+                          - button "Actions" [ref=f25e2875] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2876]:
+                          - button "Actions" [ref=f25e2878] [cursor=pointer]:
+                            - link "194f2127" [ref=f25e2879]:
+                              - /url: /insights/summary/trace/194f212724b04498aa828d495ec476c2/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788653040
+                      - row [ref=f25e2881]:
+                        - cell [ref=f25e2882]:
+                          - button "Actions" [ref=f25e2884] [cursor=pointer]:
+                            - link "4cf28f88" [ref=f25e2885]:
+                              - /url: /issues/139576149/events/4cf28f886e874f79bc0565d548fae2d9/
+                        - cell [ref=f25e2887]:
+                          - button "Actions" [ref=f25e2889] [cursor=pointer]:
+                            - time [ref=f25e2892]: Sep 5, 2026 9:27:12 PM UTC
+                        - cell [ref=f25e2893]:
+                          - button "Actions" [ref=f25e2895] [cursor=pointer]:
+                            - generic [ref=f25e2896]: "ZodError: ["
+                        - cell [ref=f25e2898]:
+                          - button "Actions" [ref=f25e2900] [cursor=pointer]:
+                            - generic [ref=f25e2901]: /_auth/p/$projectId
+                        - cell [ref=f25e2903]:
+                          - button "Actions" [ref=f25e2905] [cursor=pointer]:
+                            - generic [ref=f25e2906]: (no value)
+                        - cell [ref=f25e2907]:
+                          - button "Actions" [ref=f25e2909] [cursor=pointer]:
+                            - generic [ref=f25e2910]: production
+                        - cell [ref=f25e2912]:
+                          - button "Actions" [ref=f25e2914] [cursor=pointer]:
+                            - generic [ref=f25e2916]:
+                              - generic "moazmeddjfr18@gmail.com" [ref=f25e2917]:
+                                - img [ref=f25e2918]:
+                                  - generic [ref=f25e2920]: M
+                              - generic [ref=f25e2921]: moazmeddjfr18@gmail.com
+                        - cell [ref=f25e2925]:
+                          - generic [ref=f25e2926]:
+                            - button "Actions"
+                        - cell [ref=f25e2927]:
+                          - button "Actions" [ref=f25e2929] [cursor=pointer]:
+                            - generic [ref=f25e2930]:
+                              - img "windows" [ref=f25e2931]
+                              - generic [ref=f25e2932]: Windows >=10
+                        - cell [ref=f25e2934]:
+                          - button "Actions" [ref=f25e2936] [cursor=pointer]:
+                            - link "https://wandit.dev/p/ecb2510e-8e26-4870-bb49-e292b2aa64b9" [ref=f25e2940]:
+                              - /url: https://wandit.dev/p/ecb2510e-8e26-4870-bb49-e292b2aa64b9
+                        - cell [ref=f25e2941]:
+                          - button "Actions" [ref=f25e2943] [cursor=pointer]:
+                            - generic [ref=f25e2944]:
+                              - img "chrome" [ref=f25e2945]
+                              - generic [ref=f25e2946]: Chrome 152.0.0
+                        - cell [ref=f25e2947]:
+                          - button "Actions" [ref=f25e2949] [cursor=pointer]: (no value)
+                        - cell [ref=f25e2950]:
+                          - button "Actions" [ref=f25e2952] [cursor=pointer]:
+                            - link "d54a45e3" [ref=f25e2953]:
+                              - /url: /insights/summary/trace/d54a45e36f294ef3a1ba9e1068ba780e/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788643632
+                      - row [ref=f25e2955]:
+                        - cell [ref=f25e2956]:
+                          - button "Actions" [ref=f25e2958] [cursor=pointer]:
+                            - link "55141b37" [ref=f25e2959]:
+                              - /url: /issues/139576149/events/55141b3730094b7ca13768716f6dacb2/
+                        - cell [ref=f25e2961]:
+                          - button "Actions" [ref=f25e2963] [cursor=pointer]:
+                            - time [ref=f25e2966]: Sep 5, 2026 9:15:52 PM UTC
+                        - cell [ref=f25e2967]:
+                          - button "Actions" [ref=f25e2969] [cursor=pointer]:
+                            - generic [ref=f25e2970]: "ZodError: ["
+                        - cell [ref=f25e2972]:
+                          - button "Actions" [ref=f25e2974] [cursor=pointer]:
+                            - generic [ref=f25e2975]: /_auth/p/$projectId
+                        - cell [ref=f25e2977]:
+                          - button "Actions" [ref=f25e2979] [cursor=pointer]:
+                            - generic [ref=f25e2980]: (no value)
+                        - cell [ref=f25e2981]:
+                          - button "Actions" [ref=f25e2983] [cursor=pointer]:
+                            - generic [ref=f25e2984]: production
+                        - cell [ref=f25e2986]:
+                          - button "Actions" [ref=f25e2988] [cursor=pointer]:
+                            - generic [ref=f25e2990]:
+                              - generic "dixix42919@slotbeer.com" [ref=f25e2991]:
+                                - img [ref=f25e2992]:
+                                  - generic [ref=f25e2994]: D
+                              - generic [ref=f25e2995]: dixix42919@slotbeer.com
+                        - cell [ref=f25e2999]:
+                          - generic [ref=f25e3000]:
+                            - button "Actions"
+                        - cell [ref=f25e3001]:
+                          - button "Actions" [ref=f25e3003] [cursor=pointer]:
+                            - generic [ref=f25e3004]:
+                              - img "windows" [ref=f25e3005]
+                              - generic [ref=f25e3006]: Windows >=10
+                        - cell [ref=f25e3008]:
+                          - button "Actions" [ref=f25e3010] [cursor=pointer]:
+                            - link "https://wandit.dev/p/e6ca23fb-0aae-4388-8bc0-1b40c5bb1535" [ref=f25e3014]:
+                              - /url: https://wandit.dev/p/e6ca23fb-0aae-4388-8bc0-1b40c5bb1535
+                        - cell [ref=f25e3015]:
+                          - button "Actions" [ref=f25e3017] [cursor=pointer]:
+                            - generic [ref=f25e3018]:
+                              - img "chrome" [ref=f25e3019]
+                              - generic [ref=f25e3020]: Chrome 120.0.0
+                        - cell [ref=f25e3021]:
+                          - button "Actions" [ref=f25e3023] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3024]:
+                          - button "Actions" [ref=f25e3026] [cursor=pointer]:
+                            - link "51422859" [ref=f25e3027]:
+                              - /url: /insights/summary/trace/51422859572b48f5b8dc8ad45bc39bf6/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788642952
+                      - row [ref=f25e3029]:
+                        - cell [ref=f25e3030]:
+                          - button "Actions" [ref=f25e3032] [cursor=pointer]:
+                            - link "aa5d0e2b" [ref=f25e3033]:
+                              - /url: /issues/139576149/events/aa5d0e2b03ea4a4c841b58c5283a299b/
+                        - cell [ref=f25e3035]:
+                          - button "Actions" [ref=f25e3037] [cursor=pointer]:
+                            - time [ref=f25e3040]: Sep 5, 2026 8:18:47 PM UTC
+                        - cell [ref=f25e3041]:
+                          - button "Actions" [ref=f25e3043] [cursor=pointer]:
+                            - generic [ref=f25e3044]: "ZodError: ["
+                        - cell [ref=f25e3046]:
+                          - button "Actions" [ref=f25e3048] [cursor=pointer]:
+                            - generic [ref=f25e3049]: /
+                        - cell [ref=f25e3051]:
+                          - button "Actions" [ref=f25e3053] [cursor=pointer]:
+                            - generic [ref=f25e3054]: (no value)
+                        - cell [ref=f25e3055]:
+                          - button "Actions" [ref=f25e3057] [cursor=pointer]:
+                            - generic [ref=f25e3058]: production
+                        - cell [ref=f25e3060]:
+                          - button "Actions" [ref=f25e3062] [cursor=pointer]:
+                            - generic [ref=f25e3064]:
+                              - generic "karzikaabdelhakim9@gmail.com" [ref=f25e3065]:
+                                - img [ref=f25e3066]:
+                                  - generic [ref=f25e3068]: K
+                              - generic [ref=f25e3069]: karzikaabdelhakim9@gmail.com
+                        - cell [ref=f25e3073]:
+                          - generic [ref=f25e3074]:
+                            - button "Actions"
+                        - cell [ref=f25e3075]:
+                          - button "Actions" [ref=f25e3077] [cursor=pointer]:
+                            - generic [ref=f25e3078]:
+                              - img "windows" [ref=f25e3079]
+                              - generic [ref=f25e3080]: Windows >=10
+                        - cell [ref=f25e3082]:
+                          - button "Actions" [ref=f25e3084] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e3088]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e3089]:
+                          - button "Actions" [ref=f25e3091] [cursor=pointer]:
+                            - generic [ref=f25e3092]:
+                              - img "chrome" [ref=f25e3093]
+                              - generic [ref=f25e3094]: Chrome 152.0.0
+                        - cell [ref=f25e3095]:
+                          - button "Actions" [ref=f25e3097] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3098]:
+                          - button "Actions" [ref=f25e3100] [cursor=pointer]:
+                            - link "8bf2544e" [ref=f25e3101]:
+                              - /url: /insights/summary/trace/8bf2544e38fa4744b135b377b0a1e856/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788639527
+                      - row [ref=f25e3103]:
+                        - cell [ref=f25e3104]:
+                          - button "Actions" [ref=f25e3106] [cursor=pointer]:
+                            - link "6dc34533" [ref=f25e3107]:
+                              - /url: /issues/139576149/events/6dc34533f2e0495c8d2535b52f2a6868/
+                        - cell [ref=f25e3109]:
+                          - button "Actions" [ref=f25e3111] [cursor=pointer]:
+                            - time [ref=f25e3114]: Sep 5, 2026 8:08:13 PM UTC
+                        - cell [ref=f25e3115]:
+                          - button "Actions" [ref=f25e3117] [cursor=pointer]:
+                            - generic [ref=f25e3118]: "ZodError: ["
+                        - cell [ref=f25e3120]:
+                          - button "Actions" [ref=f25e3122] [cursor=pointer]:
+                            - generic [ref=f25e3123]: /_auth/p/$projectId
+                        - cell [ref=f25e3125]:
+                          - button "Actions" [ref=f25e3127] [cursor=pointer]:
+                            - generic [ref=f25e3128]: (no value)
+                        - cell [ref=f25e3129]:
+                          - button "Actions" [ref=f25e3131] [cursor=pointer]:
+                            - generic [ref=f25e3132]: production
+                        - cell [ref=f25e3134]:
+                          - button "Actions" [ref=f25e3136] [cursor=pointer]:
+                            - generic [ref=f25e3138]:
+                              - generic "valeryajewelry@gmail.com" [ref=f25e3139]:
+                                - img [ref=f25e3140]:
+                                  - generic [ref=f25e3142]: V
+                              - generic [ref=f25e3143]: valeryajewelry@gmail.com
+                        - cell [ref=f25e3147]:
+                          - generic [ref=f25e3148]:
+                            - button "Actions"
+                        - cell [ref=f25e3149]:
+                          - button "Actions" [ref=f25e3151] [cursor=pointer]:
+                            - generic [ref=f25e3152]:
+                              - img "windows" [ref=f25e3153]
+                              - generic [ref=f25e3154]: Windows >=10
+                        - cell [ref=f25e3156]:
+                          - button "Actions" [ref=f25e3158] [cursor=pointer]:
+                            - link "https://wandit.dev/p/0579988a-c9ca-40fa-b80c-599fc278121a" [ref=f25e3162]:
+                              - /url: https://wandit.dev/p/0579988a-c9ca-40fa-b80c-599fc278121a
+                        - cell [ref=f25e3163]:
+                          - button "Actions" [ref=f25e3165] [cursor=pointer]:
+                            - generic [ref=f25e3166]:
+                              - img "chrome" [ref=f25e3167]
+                              - generic [ref=f25e3168]: Chrome 151.0.0
+                        - cell [ref=f25e3169]:
+                          - button "Actions" [ref=f25e3171] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3172]:
+                          - button "Actions" [ref=f25e3174] [cursor=pointer]:
+                            - link "988a78ce" [ref=f25e3175]:
+                              - /url: /insights/summary/trace/988a78ce75844640a0e663c3b3ba53d6/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788638893
+                      - row [ref=f25e3177]:
+                        - cell [ref=f25e3178]:
+                          - button "Actions" [ref=f25e3180] [cursor=pointer]:
+                            - link "f394cfc0" [ref=f25e3181]:
+                              - /url: /issues/139576149/events/f394cfc0e0394bceb92c676f9a423e78/
+                        - cell [ref=f25e3183]:
+                          - button "Actions" [ref=f25e3185] [cursor=pointer]:
+                            - time [ref=f25e3188]: Sep 5, 2026 8:08:10 PM UTC
+                        - cell [ref=f25e3189]:
+                          - button "Actions" [ref=f25e3191] [cursor=pointer]:
+                            - generic [ref=f25e3192]: "ZodError: ["
+                        - cell [ref=f25e3194]:
+                          - button "Actions" [ref=f25e3196] [cursor=pointer]:
+                            - generic [ref=f25e3197]: /_auth/academy/
+                        - cell [ref=f25e3199]:
+                          - button "Actions" [ref=f25e3201] [cursor=pointer]:
+                            - generic [ref=f25e3202]: (no value)
+                        - cell [ref=f25e3203]:
+                          - button "Actions" [ref=f25e3205] [cursor=pointer]:
+                            - generic [ref=f25e3206]: production
+                        - cell [ref=f25e3208]:
+                          - button "Actions" [ref=f25e3210] [cursor=pointer]:
+                            - generic [ref=f25e3212]:
+                              - generic "valeryajewelry@gmail.com" [ref=f25e3213]:
+                                - img [ref=f25e3214]:
+                                  - generic [ref=f25e3216]: V
+                              - generic [ref=f25e3217]: valeryajewelry@gmail.com
+                        - cell [ref=f25e3221]:
+                          - generic [ref=f25e3222]:
+                            - button "Actions"
+                        - cell [ref=f25e3223]:
+                          - button "Actions" [ref=f25e3225] [cursor=pointer]:
+                            - generic [ref=f25e3226]:
+                              - img "windows" [ref=f25e3227]
+                              - generic [ref=f25e3228]: Windows >=10
+                        - cell [ref=f25e3230]:
+                          - button "Actions" [ref=f25e3232] [cursor=pointer]:
+                            - link "https://wandit.dev/academy" [ref=f25e3236]:
+                              - /url: https://wandit.dev/academy
+                        - cell [ref=f25e3237]:
+                          - button "Actions" [ref=f25e3239] [cursor=pointer]:
+                            - generic [ref=f25e3240]:
+                              - img "chrome" [ref=f25e3241]
+                              - generic [ref=f25e3242]: Chrome 151.0.0
+                        - cell [ref=f25e3243]:
+                          - button "Actions" [ref=f25e3245] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3246]:
+                          - button "Actions" [ref=f25e3248] [cursor=pointer]:
+                            - link "38ed3d90" [ref=f25e3249]:
+                              - /url: /insights/summary/trace/38ed3d90f050437fb1c1926a70dcfb22/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788638890
+                      - row [ref=f25e3251]:
+                        - cell [ref=f25e3252]:
+                          - button "Actions" [ref=f25e3254] [cursor=pointer]:
+                            - link "d7428e71" [ref=f25e3255]:
+                              - /url: /issues/139576149/events/d7428e71eb364bab93067a4c7301aff2/
+                        - cell [ref=f25e3257]:
+                          - button "Actions" [ref=f25e3259] [cursor=pointer]:
+                            - time [ref=f25e3262]: Sep 5, 2026 8:01:30 PM UTC
+                        - cell [ref=f25e3263]:
+                          - button "Actions" [ref=f25e3265] [cursor=pointer]:
+                            - generic [ref=f25e3266]: "ZodError: ["
+                        - cell [ref=f25e3268]:
+                          - button "Actions" [ref=f25e3270] [cursor=pointer]:
+                            - generic [ref=f25e3271]: /_auth/dashboard
+                        - cell [ref=f25e3273]:
+                          - button "Actions" [ref=f25e3275] [cursor=pointer]:
+                            - generic [ref=f25e3276]: (no value)
+                        - cell [ref=f25e3277]:
+                          - button "Actions" [ref=f25e3279] [cursor=pointer]:
+                            - generic [ref=f25e3280]: production
+                        - cell [ref=f25e3282]:
+                          - button "Actions" [ref=f25e3284] [cursor=pointer]:
+                            - generic [ref=f25e3286]:
+                              - generic "karzikaabdelhakim9@gmail.com" [ref=f25e3287]:
+                                - img [ref=f25e3288]:
+                                  - generic [ref=f25e3290]: K
+                              - generic [ref=f25e3291]: karzikaabdelhakim9@gmail.com
+                        - cell [ref=f25e3295]:
+                          - generic [ref=f25e3296]:
+                            - button "Actions"
+                        - cell [ref=f25e3297]:
+                          - button "Actions" [ref=f25e3299] [cursor=pointer]:
+                            - generic [ref=f25e3300]:
+                              - img "windows" [ref=f25e3301]
+                              - generic [ref=f25e3302]: Windows >=10
+                        - cell [ref=f25e3304]:
+                          - button "Actions" [ref=f25e3306] [cursor=pointer]:
+                            - link "https://wandit.dev/dashboard" [ref=f25e3310]:
+                              - /url: https://wandit.dev/dashboard
+                        - cell [ref=f25e3311]:
+                          - button "Actions" [ref=f25e3313] [cursor=pointer]:
+                            - generic [ref=f25e3314]:
+                              - img "chrome" [ref=f25e3315]
+                              - generic [ref=f25e3316]: Chrome 152.0.0
+                        - cell [ref=f25e3317]:
+                          - button "Actions" [ref=f25e3319] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3320]:
+                          - button "Actions" [ref=f25e3322] [cursor=pointer]:
+                            - link "f3d22397" [ref=f25e3323]:
+                              - /url: /insights/summary/trace/f3d223970b6f48e9ae9bcc154e492dc8/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788638490
+                      - row [ref=f25e3325]:
+                        - cell [ref=f25e3326]:
+                          - button "Actions" [ref=f25e3328] [cursor=pointer]:
+                            - link "2726f203" [ref=f25e3329]:
+                              - /url: /issues/139576149/events/2726f203d5fb4981962aaee48de9affa/
+                        - cell [ref=f25e3331]:
+                          - button "Actions" [ref=f25e3333] [cursor=pointer]:
+                            - time [ref=f25e3336]: Sep 5, 2026 7:59:39 PM UTC
+                        - cell [ref=f25e3337]:
+                          - button "Actions" [ref=f25e3339] [cursor=pointer]:
+                            - generic [ref=f25e3340]: "ZodError: ["
+                        - cell [ref=f25e3342]:
+                          - button "Actions" [ref=f25e3344] [cursor=pointer]:
+                            - generic [ref=f25e3345]: /_auth/billing
+                        - cell [ref=f25e3347]:
+                          - button "Actions" [ref=f25e3349] [cursor=pointer]:
+                            - generic [ref=f25e3350]: (no value)
+                        - cell [ref=f25e3351]:
+                          - button "Actions" [ref=f25e3353] [cursor=pointer]:
+                            - generic [ref=f25e3354]: production
+                        - cell [ref=f25e3356]:
+                          - button "Actions" [ref=f25e3358] [cursor=pointer]:
+                            - generic [ref=f25e3360]:
+                              - generic "djebbarazeddine21@gmail.com" [ref=f25e3361]:
+                                - img [ref=f25e3362]:
+                                  - generic [ref=f25e3364]: D
+                              - generic [ref=f25e3365]: djebbarazeddine21@gmail.com
+                        - cell [ref=f25e3369]:
+                          - button "Actions" [ref=f25e3371] [cursor=pointer]:
+                            - generic [ref=f25e3372]: Mac
+                        - cell [ref=f25e3373]:
+                          - button "Actions" [ref=f25e3375] [cursor=pointer]:
+                            - generic [ref=f25e3376]:
+                              - img "apple" [ref=f25e3377]
+                              - generic [ref=f25e3378]: Mac OS X >=10.15.7
+                        - cell [ref=f25e3380]:
+                          - button "Actions" [ref=f25e3382] [cursor=pointer]:
+                            - link "https://wandit.dev/billing" [ref=f25e3386]:
+                              - /url: https://wandit.dev/billing
+                        - cell [ref=f25e3387]:
+                          - button "Actions" [ref=f25e3389] [cursor=pointer]:
+                            - generic [ref=f25e3390]:
+                              - img "chrome" [ref=f25e3391]
+                              - generic [ref=f25e3392]: Chrome 151.0.0
+                        - cell [ref=f25e3393]:
+                          - button "Actions" [ref=f25e3395] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3396]:
+                          - button "Actions" [ref=f25e3398] [cursor=pointer]:
+                            - link "0d115baa" [ref=f25e3399]:
+                              - /url: /insights/summary/trace/0d115baaf5bb4297bd5ead552e89b636/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788638379
+                      - row [ref=f25e3401]:
+                        - cell [ref=f25e3402]:
+                          - button "Actions" [ref=f25e3404] [cursor=pointer]:
+                            - link "6e6ab737" [ref=f25e3405]:
+                              - /url: /issues/139576149/events/6e6ab737ec894c5aaa6c59f682a6b28b/
+                        - cell [ref=f25e3407]:
+                          - button "Actions" [ref=f25e3409] [cursor=pointer]:
+                            - time [ref=f25e3412]: Sep 5, 2026 7:56:40 PM UTC
+                        - cell [ref=f25e3413]:
+                          - button "Actions" [ref=f25e3415] [cursor=pointer]:
+                            - generic [ref=f25e3416]: "ZodError: ["
+                        - cell [ref=f25e3418]:
+                          - button "Actions" [ref=f25e3420] [cursor=pointer]:
+                            - generic [ref=f25e3421]: /_auth/p/$projectId
+                        - cell [ref=f25e3423]:
+                          - button "Actions" [ref=f25e3425] [cursor=pointer]:
+                            - generic [ref=f25e3426]: (no value)
+                        - cell [ref=f25e3427]:
+                          - button "Actions" [ref=f25e3429] [cursor=pointer]:
+                            - generic [ref=f25e3430]: production
+                        - cell [ref=f25e3432]:
+                          - button "Actions" [ref=f25e3434] [cursor=pointer]:
+                            - generic [ref=f25e3436]:
+                              - generic "karzikaabdelhakim9@gmail.com" [ref=f25e3437]:
+                                - img [ref=f25e3438]:
+                                  - generic [ref=f25e3440]: K
+                              - generic [ref=f25e3441]: karzikaabdelhakim9@gmail.com
+                        - cell [ref=f25e3445]:
+                          - generic [ref=f25e3446]:
+                            - button "Actions"
+                        - cell [ref=f25e3447]:
+                          - button "Actions" [ref=f25e3449] [cursor=pointer]:
+                            - generic [ref=f25e3450]:
+                              - img "windows" [ref=f25e3451]
+                              - generic [ref=f25e3452]: Windows >=10
+                        - cell [ref=f25e3454]:
+                          - button "Actions" [ref=f25e3456] [cursor=pointer]:
+                            - link "https://wandit.dev/p/064535fe-70cb-468e-bec2-74fbe0b257c5" [ref=f25e3460]:
+                              - /url: https://wandit.dev/p/064535fe-70cb-468e-bec2-74fbe0b257c5
+                        - cell [ref=f25e3461]:
+                          - button "Actions" [ref=f25e3463] [cursor=pointer]:
+                            - generic [ref=f25e3464]:
+                              - img "chrome" [ref=f25e3465]
+                              - generic [ref=f25e3466]: Chrome 152.0.0
+                        - cell [ref=f25e3467]:
+                          - button "Actions" [ref=f25e3469] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3470]:
+                          - button "Actions" [ref=f25e3472] [cursor=pointer]:
+                            - link "d7723889" [ref=f25e3473]:
+                              - /url: /insights/summary/trace/d772388969ff4747981db9aed788299a/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788638200
+                      - row [ref=f25e3475]:
+                        - cell [ref=f25e3476]:
+                          - button "Actions" [ref=f25e3478] [cursor=pointer]:
+                            - link "2b74f061" [ref=f25e3479]:
+                              - /url: /issues/139576149/events/2b74f0615750438caffb5b05f67fa754/
+                        - cell [ref=f25e3481]:
+                          - button "Actions" [ref=f25e3483] [cursor=pointer]:
+                            - time [ref=f25e3486]: Sep 5, 2026 3:06:57 PM UTC
+                        - cell [ref=f25e3487]:
+                          - button "Actions" [ref=f25e3489] [cursor=pointer]:
+                            - generic [ref=f25e3490]: "ZodError: ["
+                        - cell [ref=f25e3492]:
+                          - button "Actions" [ref=f25e3494] [cursor=pointer]:
+                            - generic [ref=f25e3495]: /_auth/p/$projectId
+                        - cell [ref=f25e3497]:
+                          - button "Actions" [ref=f25e3499] [cursor=pointer]:
+                            - generic [ref=f25e3500]: (no value)
+                        - cell [ref=f25e3501]:
+                          - button "Actions" [ref=f25e3503] [cursor=pointer]:
+                            - generic [ref=f25e3504]: production
+                        - cell [ref=f25e3506]:
+                          - button "Actions" [ref=f25e3508] [cursor=pointer]:
+                            - generic [ref=f25e3510]:
+                              - generic "bnss0968@gmail.com" [ref=f25e3511]:
+                                - img [ref=f25e3512]:
+                                  - generic [ref=f25e3514]: B
+                              - generic [ref=f25e3515]: bnss0968@gmail.com
+                        - cell [ref=f25e3519]:
+                          - generic [ref=f25e3520]:
+                            - button "Actions"
+                        - cell [ref=f25e3521]:
+                          - button "Actions" [ref=f25e3523] [cursor=pointer]:
+                            - generic [ref=f25e3524]:
+                              - img "windows" [ref=f25e3525]
+                              - generic [ref=f25e3526]: Windows >=10
+                        - cell [ref=f25e3528]:
+                          - button "Actions" [ref=f25e3530] [cursor=pointer]:
+                            - link "https://wandit.dev/p/e6abbb5b-5538-4bbb-a9c3-395dc429500c" [ref=f25e3534]:
+                              - /url: https://wandit.dev/p/e6abbb5b-5538-4bbb-a9c3-395dc429500c
+                        - cell [ref=f25e3535]:
+                          - button "Actions" [ref=f25e3537] [cursor=pointer]:
+                            - generic [ref=f25e3538]:
+                              - img "chrome" [ref=f25e3539]
+                              - generic [ref=f25e3540]: Chrome 151.0.0
+                        - cell [ref=f25e3541]:
+                          - button "Actions" [ref=f25e3543] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3544]:
+                          - button "Actions" [ref=f25e3546] [cursor=pointer]:
+                            - link "7a86cc2e" [ref=f25e3547]:
+                              - /url: /insights/summary/trace/7a86cc2e04334d41954d6920a6f3cfbd/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788620817
+                      - row [ref=f25e3549]:
+                        - cell [ref=f25e3550]:
+                          - button "Actions" [ref=f25e3552] [cursor=pointer]:
+                            - link "df367669" [ref=f25e3553]:
+                              - /url: /issues/139576149/events/df367669bce0419badeb745f1d98cc75/
+                        - cell [ref=f25e3555]:
+                          - button "Actions" [ref=f25e3557] [cursor=pointer]:
+                            - time [ref=f25e3560]: Sep 5, 2026 2:47:38 PM UTC
+                        - cell [ref=f25e3561]:
+                          - button "Actions" [ref=f25e3563] [cursor=pointer]:
+                            - generic [ref=f25e3564]: "ZodError: ["
+                        - cell [ref=f25e3566]:
+                          - button "Actions" [ref=f25e3568] [cursor=pointer]:
+                            - generic [ref=f25e3569]: /_auth/p/$projectId
+                        - cell [ref=f25e3571]:
+                          - button "Actions" [ref=f25e3573] [cursor=pointer]:
+                            - generic [ref=f25e3574]: (no value)
+                        - cell [ref=f25e3575]:
+                          - button "Actions" [ref=f25e3577] [cursor=pointer]:
+                            - generic [ref=f25e3578]: production
+                        - cell [ref=f25e3580]:
+                          - button "Actions" [ref=f25e3582] [cursor=pointer]:
+                            - generic [ref=f25e3584]:
+                              - generic "oussakouaf@gmail.com" [ref=f25e3585]:
+                                - img [ref=f25e3586]:
+                                  - generic [ref=f25e3588]: O
+                              - generic [ref=f25e3589]: oussakouaf@gmail.com
+                        - cell [ref=f25e3593]:
+                          - button "Actions" [ref=f25e3595] [cursor=pointer]:
+                            - generic [ref=f25e3596]: Mac
+                        - cell [ref=f25e3597]:
+                          - button "Actions" [ref=f25e3599] [cursor=pointer]:
+                            - generic [ref=f25e3600]:
+                              - img "apple" [ref=f25e3601]
+                              - generic [ref=f25e3602]: Mac OS X >=10.15.7
+                        - cell [ref=f25e3604]:
+                          - button "Actions" [ref=f25e3606] [cursor=pointer]:
+                            - link "https://wandit.dev/p/47c99f34-e160-4792-aab7-3cabd9974350" [ref=f25e3610]:
+                              - /url: https://wandit.dev/p/47c99f34-e160-4792-aab7-3cabd9974350
+                        - cell [ref=f25e3611]:
+                          - button "Actions" [ref=f25e3613] [cursor=pointer]:
+                            - generic [ref=f25e3614]:
+                              - img "chrome" [ref=f25e3615]
+                              - generic [ref=f25e3616]: Chrome 151.0.0
+                        - cell [ref=f25e3617]:
+                          - button "Actions" [ref=f25e3619] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3620]:
+                          - button "Actions" [ref=f25e3622] [cursor=pointer]:
+                            - link "6b3cb912" [ref=f25e3623]:
+                              - /url: /insights/summary/trace/6b3cb9122ad041a4b1d32601df868cb4/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788619658
+                      - row [ref=f25e3625]:
+                        - cell [ref=f25e3626]:
+                          - button "Actions" [ref=f25e3628] [cursor=pointer]:
+                            - link "00e25b97" [ref=f25e3629]:
+                              - /url: /issues/139576149/events/00e25b97bba34cbbbf1881b65cb78dfb/
+                        - cell [ref=f25e3631]:
+                          - button "Actions" [ref=f25e3633] [cursor=pointer]:
+                            - time [ref=f25e3636]: Sep 5, 2026 2:00:12 PM UTC
+                        - cell [ref=f25e3637]:
+                          - button "Actions" [ref=f25e3639] [cursor=pointer]:
+                            - generic [ref=f25e3640]: "ZodError: ["
+                        - cell [ref=f25e3642]:
+                          - button "Actions" [ref=f25e3644] [cursor=pointer]:
+                            - generic [ref=f25e3645]: /_auth/p/$projectId
+                        - cell [ref=f25e3647]:
+                          - button "Actions" [ref=f25e3649] [cursor=pointer]:
+                            - generic [ref=f25e3650]: (no value)
+                        - cell [ref=f25e3651]:
+                          - button "Actions" [ref=f25e3653] [cursor=pointer]:
+                            - generic [ref=f25e3654]: production
+                        - cell [ref=f25e3656]:
+                          - button "Actions" [ref=f25e3658] [cursor=pointer]:
+                            - generic [ref=f25e3660]:
+                              - generic "ausmh34@gmail.com" [ref=f25e3661]:
+                                - img [ref=f25e3662]:
+                                  - generic [ref=f25e3664]: A
+                              - generic [ref=f25e3665]: ausmh34@gmail.com
+                        - cell [ref=f25e3669]:
+                          - generic [ref=f25e3670]:
+                            - button "Actions"
+                        - cell [ref=f25e3671]:
+                          - button "Actions" [ref=f25e3673] [cursor=pointer]:
+                            - generic [ref=f25e3674]:
+                              - img "windows" [ref=f25e3675]
+                              - generic [ref=f25e3676]: Windows >=10
+                        - cell [ref=f25e3678]:
+                          - button "Actions" [ref=f25e3680] [cursor=pointer]:
+                            - link "https://wandit.dev/p/9ddd152f-f658-457f-bf25-6e780324955c" [ref=f25e3684]:
+                              - /url: https://wandit.dev/p/9ddd152f-f658-457f-bf25-6e780324955c
+                        - cell [ref=f25e3685]:
+                          - button "Actions" [ref=f25e3687] [cursor=pointer]:
+                            - generic [ref=f25e3688]:
+                              - img "chrome" [ref=f25e3689]
+                              - generic [ref=f25e3690]: Chrome 151.0.0
+                        - cell [ref=f25e3691]:
+                          - button "Actions" [ref=f25e3693] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3694]:
+                          - button "Actions" [ref=f25e3696] [cursor=pointer]:
+                            - link "a5e764f5" [ref=f25e3697]:
+                              - /url: /insights/summary/trace/a5e764f5a38d469bb5bd277a8b2d6b61/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788616812
+                      - row [ref=f25e3699]:
+                        - cell [ref=f25e3700]:
+                          - button "Actions" [ref=f25e3702] [cursor=pointer]:
+                            - link "b328dc85" [ref=f25e3703]:
+                              - /url: /issues/139576149/events/b328dc8566d042af82c0223cc06637f3/
+                        - cell [ref=f25e3705]:
+                          - button "Actions" [ref=f25e3707] [cursor=pointer]:
+                            - time [ref=f25e3710]: Sep 5, 2026 12:32:02 PM UTC
+                        - cell [ref=f25e3711]:
+                          - button "Actions" [ref=f25e3713] [cursor=pointer]:
+                            - generic [ref=f25e3714]: "ZodError: ["
+                        - cell [ref=f25e3716]:
+                          - button "Actions" [ref=f25e3718] [cursor=pointer]:
+                            - generic [ref=f25e3719]: /_auth/p/$projectId
+                        - cell [ref=f25e3721]:
+                          - button "Actions" [ref=f25e3723] [cursor=pointer]:
+                            - generic [ref=f25e3724]: (no value)
+                        - cell [ref=f25e3725]:
+                          - button "Actions" [ref=f25e3727] [cursor=pointer]:
+                            - generic [ref=f25e3728]: production
+                        - cell [ref=f25e3730]:
+                          - button "Actions" [ref=f25e3732] [cursor=pointer]:
+                            - generic [ref=f25e3734]:
+                              - generic "kortobbrahim@gmail.com" [ref=f25e3735]:
+                                - img [ref=f25e3736]:
+                                  - generic [ref=f25e3738]: K
+                              - generic [ref=f25e3739]: kortobbrahim@gmail.com
+                        - cell [ref=f25e3743]:
+                          - generic [ref=f25e3744]:
+                            - button "Actions"
+                        - cell [ref=f25e3745]:
+                          - button "Actions" [ref=f25e3747] [cursor=pointer]:
+                            - generic [ref=f25e3748]:
+                              - img "windows" [ref=f25e3749]
+                              - generic [ref=f25e3750]: Windows >=10
+                        - cell [ref=f25e3752]:
+                          - button "Actions" [ref=f25e3754] [cursor=pointer]:
+                            - link "https://wandit.dev/p/06c54053-f046-4507-90a9-032a43141f79" [ref=f25e3758]:
+                              - /url: https://wandit.dev/p/06c54053-f046-4507-90a9-032a43141f79
+                        - cell [ref=f25e3759]:
+                          - button "Actions" [ref=f25e3761] [cursor=pointer]:
+                            - generic [ref=f25e3762]:
+                              - img "chrome" [ref=f25e3763]
+                              - generic [ref=f25e3764]: Chrome 151.0.0
+                        - cell [ref=f25e3765]:
+                          - button "Actions" [ref=f25e3767] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3768]:
+                          - button "Actions" [ref=f25e3770] [cursor=pointer]:
+                            - link "a11bfd27" [ref=f25e3771]:
+                              - /url: /insights/summary/trace/a11bfd27e0eb4aed8cfd84dcbc716e3c/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788611522
+                      - row [ref=f25e3773]:
+                        - cell [ref=f25e3774]:
+                          - button "Actions" [ref=f25e3776] [cursor=pointer]:
+                            - link "ede4e0a1" [ref=f25e3777]:
+                              - /url: /issues/139576149/events/ede4e0a1b04943ba9735594227474c62/
+                        - cell [ref=f25e3779]:
+                          - button "Actions" [ref=f25e3781] [cursor=pointer]:
+                            - time [ref=f25e3784]: Sep 5, 2026 10:57:07 AM UTC
+                        - cell [ref=f25e3785]:
+                          - button "Actions" [ref=f25e3787] [cursor=pointer]:
+                            - generic [ref=f25e3788]: "ZodError: ["
+                        - cell [ref=f25e3790]:
+                          - button "Actions" [ref=f25e3792] [cursor=pointer]:
+                            - generic [ref=f25e3793]: /
+                        - cell [ref=f25e3795]:
+                          - button "Actions" [ref=f25e3797] [cursor=pointer]:
+                            - generic [ref=f25e3798]: (no value)
+                        - cell [ref=f25e3799]:
+                          - button "Actions" [ref=f25e3801] [cursor=pointer]:
+                            - generic [ref=f25e3802]: production
+                        - cell [ref=f25e3804]:
+                          - button "Actions" [ref=f25e3806] [cursor=pointer]:
+                            - generic [ref=f25e3807]: (no value)
+                        - cell [ref=f25e3808]:
+                          - generic [ref=f25e3809]:
+                            - button "Actions"
+                        - cell [ref=f25e3810]:
+                          - button "Actions" [ref=f25e3812] [cursor=pointer]:
+                            - generic [ref=f25e3813]:
+                              - img "windows" [ref=f25e3814]
+                              - generic [ref=f25e3815]: Windows >=10
+                        - cell [ref=f25e3817]:
+                          - button "Actions" [ref=f25e3819] [cursor=pointer]:
+                            - link "https://wandit.dev/" [ref=f25e3823]:
+                              - /url: https://wandit.dev/
+                        - cell [ref=f25e3824]:
+                          - button "Actions" [ref=f25e3826] [cursor=pointer]:
+                            - generic [ref=f25e3827]:
+                              - img "chrome" [ref=f25e3828]
+                              - generic [ref=f25e3829]: Chrome 152.0.0
+                        - cell [ref=f25e3830]:
+                          - button "Actions" [ref=f25e3832] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3833]:
+                          - button "Actions" [ref=f25e3835] [cursor=pointer]:
+                            - link "ccfe337f" [ref=f25e3836]:
+                              - /url: /insights/summary/trace/ccfe337f31764837aceb985901841c4f/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788605827
+                      - row [ref=f25e3838]:
+                        - cell [ref=f25e3839]:
+                          - button "Actions" [ref=f25e3841] [cursor=pointer]:
+                            - link "95978263" [ref=f25e3842]:
+                              - /url: /issues/139576149/events/9597826308e64584b25fd4c49fc0e413/
+                        - cell [ref=f25e3844]:
+                          - button "Actions" [ref=f25e3846] [cursor=pointer]:
+                            - time [ref=f25e3849]: Sep 5, 2026 10:43:25 AM UTC
+                        - cell [ref=f25e3850]:
+                          - button "Actions" [ref=f25e3852] [cursor=pointer]:
+                            - generic [ref=f25e3853]: "ZodError: ["
+                        - cell [ref=f25e3855]:
+                          - button "Actions" [ref=f25e3857] [cursor=pointer]:
+                            - generic [ref=f25e3858]: /_auth/p/$projectId
+                        - cell [ref=f25e3860]:
+                          - button "Actions" [ref=f25e3862] [cursor=pointer]:
+                            - generic [ref=f25e3863]: (no value)
+                        - cell [ref=f25e3864]:
+                          - button "Actions" [ref=f25e3866] [cursor=pointer]:
+                            - generic [ref=f25e3867]: production
+                        - cell [ref=f25e3869]:
+                          - button "Actions" [ref=f25e3871] [cursor=pointer]:
+                            - generic [ref=f25e3873]:
+                              - generic "abdeldjalilsichaib@gmail.com" [ref=f25e3874]:
+                                - img [ref=f25e3875]:
+                                  - generic [ref=f25e3877]: A
+                              - generic [ref=f25e3878]: abdeldjalilsichaib@gmail.com
+                        - cell [ref=f25e3882]:
+                          - button "Actions" [ref=f25e3884] [cursor=pointer]:
+                            - generic [ref=f25e3885]: Mac
+                        - cell [ref=f25e3886]:
+                          - button "Actions" [ref=f25e3888] [cursor=pointer]:
+                            - generic [ref=f25e3889]:
+                              - img "apple" [ref=f25e3890]
+                              - generic [ref=f25e3891]: Mac OS X >=10.15.7
+                        - cell [ref=f25e3893]:
+                          - button "Actions" [ref=f25e3895] [cursor=pointer]:
+                            - link "https://wandit.dev/p/5f248d7c-5c6c-439f-b2e1-b8d2e8eb5876" [ref=f25e3899]:
+                              - /url: https://wandit.dev/p/5f248d7c-5c6c-439f-b2e1-b8d2e8eb5876
+                        - cell [ref=f25e3900]:
+                          - button "Actions" [ref=f25e3902] [cursor=pointer]:
+                            - generic [ref=f25e3903]:
+                              - img "chrome" [ref=f25e3904]
+                              - generic [ref=f25e3905]: Chrome 150.0.0
+                        - cell [ref=f25e3906]:
+                          - button "Actions" [ref=f25e3908] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3909]:
+                          - button "Actions" [ref=f25e3911] [cursor=pointer]:
+                            - link "28dc859d" [ref=f25e3912]:
+                              - /url: /insights/summary/trace/28dc859d7bd54080b51e6f6010ada7fc/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788605005
+                      - row [ref=f25e3914]:
+                        - cell [ref=f25e3915]:
+                          - button "Actions" [ref=f25e3917] [cursor=pointer]:
+                            - link "b804eeda" [ref=f25e3918]:
+                              - /url: /issues/139576149/events/b804eeda346e4dfbaeeefd855a6e58c4/
+                        - cell [ref=f25e3920]:
+                          - button "Actions" [ref=f25e3922] [cursor=pointer]:
+                            - time [ref=f25e3925]: Sep 5, 2026 10:14:10 AM UTC
+                        - cell [ref=f25e3926]:
+                          - button "Actions" [ref=f25e3928] [cursor=pointer]:
+                            - generic [ref=f25e3929]: "ZodError: ["
+                        - cell [ref=f25e3931]:
+                          - button "Actions" [ref=f25e3933] [cursor=pointer]:
+                            - generic [ref=f25e3934]: /_auth/p/$projectId
+                        - cell [ref=f25e3936]:
+                          - button "Actions" [ref=f25e3938] [cursor=pointer]:
+                            - generic [ref=f25e3939]: (no value)
+                        - cell [ref=f25e3940]:
+                          - button "Actions" [ref=f25e3942] [cursor=pointer]:
+                            - generic [ref=f25e3943]: production
+                        - cell [ref=f25e3945]:
+                          - button "Actions" [ref=f25e3947] [cursor=pointer]:
+                            - generic [ref=f25e3949]:
+                              - generic "dibaya2024@gmail.com" [ref=f25e3950]:
+                                - img [ref=f25e3951]:
+                                  - generic [ref=f25e3953]: D
+                              - generic [ref=f25e3954]: dibaya2024@gmail.com
+                        - cell [ref=f25e3958]:
+                          - generic [ref=f25e3959]:
+                            - button "Actions"
+                        - cell [ref=f25e3960]:
+                          - button "Actions" [ref=f25e3962] [cursor=pointer]:
+                            - generic [ref=f25e3963]:
+                              - img "windows" [ref=f25e3964]
+                              - generic [ref=f25e3965]: Windows >=10
+                        - cell [ref=f25e3967]:
+                          - button "Actions" [ref=f25e3969] [cursor=pointer]:
+                            - link "https://wandit.dev/p/994c11a5-b6b4-423d-8224-b2349fa7e1dc" [ref=f25e3973]:
+                              - /url: https://wandit.dev/p/994c11a5-b6b4-423d-8224-b2349fa7e1dc
+                        - cell [ref=f25e3974]:
+                          - button "Actions" [ref=f25e3976] [cursor=pointer]:
+                            - generic [ref=f25e3977]:
+                              - img "chrome" [ref=f25e3978]
+                              - generic [ref=f25e3979]: Chrome 149.0.0
+                        - cell [ref=f25e3980]:
+                          - button "Actions" [ref=f25e3982] [cursor=pointer]: (no value)
+                        - cell [ref=f25e3983]:
+                          - button "Actions" [ref=f25e3985] [cursor=pointer]:
+                            - link "ec45219c" [ref=f25e3986]:
+                              - /url: /insights/summary/trace/ec45219c27de45b6973da703d50bd4d9/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788603250
+                      - row [ref=f25e3988]:
+                        - cell [ref=f25e3989]:
+                          - button "Actions" [ref=f25e3991] [cursor=pointer]:
+                            - link "d0ac81a1" [ref=f25e3992]:
+                              - /url: /issues/139576149/events/d0ac81a156224f45a817e98a6bbafff6/
+                        - cell [ref=f25e3994]:
+                          - button "Actions" [ref=f25e3996] [cursor=pointer]:
+                            - time [ref=f25e3999]: Sep 5, 2026 9:57:57 AM UTC
+                        - cell [ref=f25e4000]:
+                          - button "Actions" [ref=f25e4002] [cursor=pointer]:
+                            - generic [ref=f25e4003]: "ZodError: ["
+                        - cell [ref=f25e4005]:
+                          - button "Actions" [ref=f25e4007] [cursor=pointer]:
+                            - generic [ref=f25e4008]: /_auth/p/$projectId
+                        - cell [ref=f25e4010]:
+                          - button "Actions" [ref=f25e4012] [cursor=pointer]:
+                            - generic [ref=f25e4013]: (no value)
+                        - cell [ref=f25e4014]:
+                          - button "Actions" [ref=f25e4016] [cursor=pointer]:
+                            - generic [ref=f25e4017]: production
+                        - cell [ref=f25e4019]:
+                          - button "Actions" [ref=f25e4021] [cursor=pointer]:
+                            - generic [ref=f25e4023]:
+                              - generic "tebbakhslimani@gmail.com" [ref=f25e4024]:
+                                - img [ref=f25e4025]:
+                                  - generic [ref=f25e4027]: T
+                              - generic [ref=f25e4028]: tebbakhslimani@gmail.com
+                        - cell [ref=f25e4032]:
+                          - generic [ref=f25e4033]:
+                            - button "Actions"
+                        - cell [ref=f25e4034]:
+                          - button "Actions" [ref=f25e4036] [cursor=pointer]:
+                            - generic [ref=f25e4037]:
+                              - img "windows" [ref=f25e4038]
+                              - generic [ref=f25e4039]: Windows >=10
+                        - cell [ref=f25e4041]:
+                          - button "Actions" [ref=f25e4043] [cursor=pointer]:
+                            - link "https://wandit.dev/p/0ecd0a5e-3eca-46b3-ad68-253d5e8d289e" [ref=f25e4047]:
+                              - /url: https://wandit.dev/p/0ecd0a5e-3eca-46b3-ad68-253d5e8d289e
+                        - cell [ref=f25e4048]:
+                          - button "Actions" [ref=f25e4050] [cursor=pointer]:
+                            - generic [ref=f25e4051]:
+                              - img "chrome" [ref=f25e4052]
+                              - generic [ref=f25e4053]: Chrome 151.0.0
+                        - cell [ref=f25e4054]:
+                          - button "Actions" [ref=f25e4056] [cursor=pointer]: (no value)
+                        - cell [ref=f25e4057]:
+                          - button "Actions" [ref=f25e4059] [cursor=pointer]:
+                            - link "cecad1ee" [ref=f25e4060]:
+                              - /url: /insights/summary/trace/cecad1eea0b74441b16d58126f018213/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788602277
+                      - row [ref=f25e4062]:
+                        - cell [ref=f25e4063]:
+                          - button "Actions" [ref=f25e4065] [cursor=pointer]:
+                            - link "8db04da9" [ref=f25e4066]:
+                              - /url: /issues/139576149/events/8db04da934d042ce9cc08a6c6616e1cc/
+                        - cell [ref=f25e4068]:
+                          - button "Actions" [ref=f25e4070] [cursor=pointer]:
+                            - time [ref=f25e4073]: Sep 5, 2026 9:07:20 AM UTC
+                        - cell [ref=f25e4074]:
+                          - button "Actions" [ref=f25e4076] [cursor=pointer]:
+                            - generic [ref=f25e4077]: "ZodError: ["
+                        - cell [ref=f25e4079]:
+                          - button "Actions" [ref=f25e4081] [cursor=pointer]:
+                            - generic [ref=f25e4082]: /_auth/p/$projectId
+                        - cell [ref=f25e4084]:
+                          - button "Actions" [ref=f25e4086] [cursor=pointer]:
+                            - generic [ref=f25e4087]: (no value)
+                        - cell [ref=f25e4088]:
+                          - button "Actions" [ref=f25e4090] [cursor=pointer]:
+                            - generic [ref=f25e4091]: production
+                        - cell [ref=f25e4093]:
+                          - button "Actions" [ref=f25e4095] [cursor=pointer]:
+                            - generic [ref=f25e4097]:
+                              - generic "astrolabehealthcare@gmail.com" [ref=f25e4098]:
+                                - img [ref=f25e4099]:
+                                  - generic [ref=f25e4101]: A
+                              - generic [ref=f25e4102]: astrolabehealthcare@gmail.com
+                        - cell [ref=f25e4106]:
+                          - button "Actions" [ref=f25e4108] [cursor=pointer]:
+                            - generic [ref=f25e4109]: Mac
+                        - cell [ref=f25e4110]:
+                          - button "Actions" [ref=f25e4112] [cursor=pointer]:
+                            - generic [ref=f25e4113]:
+                              - img "apple" [ref=f25e4114]
+                              - generic [ref=f25e4115]: Mac OS X >=10.15.7
+                        - cell [ref=f25e4117]:
+                          - button "Actions" [ref=f25e4119] [cursor=pointer]:
+                            - link "https://wandit.dev/p/22d2164c-329f-4615-b333-b5ae08d1af85" [ref=f25e4123]:
+                              - /url: https://wandit.dev/p/22d2164c-329f-4615-b333-b5ae08d1af85
+                        - cell [ref=f25e4124]:
+                          - button "Actions" [ref=f25e4126] [cursor=pointer]:
+                            - generic [ref=f25e4127]:
+                              - img "chrome" [ref=f25e4128]
+                              - generic [ref=f25e4129]: Chrome 150.0.0
+                        - cell [ref=f25e4130]:
+                          - button "Actions" [ref=f25e4132] [cursor=pointer]: (no value)
+                        - cell [ref=f25e4133]:
+                          - button "Actions" [ref=f25e4135] [cursor=pointer]:
+                            - link "ae40195e" [ref=f25e4136]:
+                              - /url: /insights/summary/trace/ae40195ec10347cba6b4ea33d1b0f0a9/?project=4511831307845712&query=is%3Aunresolved&referrer=issue-stream&source=performance_transaction_summary&timestamp=1788599240
+            - complementary [ref=f25e4138]:
+              - generic [ref=f25e4139]:
+                - generic [ref=f25e4140]:
+                  - generic [ref=f25e4141]:
+                    - generic [ref=f25e4142]: Last seen
+                    - time [ref=f25e4147]: 13 minutes ago
+                  - generic [ref=f25e4148]:
+                    - generic [ref=f25e4149]: in release
+                    - link "26.34.0" [ref=f25e4153] [cursor=pointer]:
+                      - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=26.34.0&rdReleaseProjectId=4511831307845712&rdSource=release-version-link&referrer=issue-stream
+                - generic [ref=f25e4155]:
+                  - generic [ref=f25e4156]:
+                    - generic [ref=f25e4157]: First seen
+                    - time [ref=f25e4162]: a month ago
+                  - generic [ref=f25e4163]:
+                    - generic [ref=f25e4164]: in release
+                    - link "2.91.5" [ref=f25e4168] [cursor=pointer]:
+                      - /url: /issues/139576149/events/?project=4511831307845712&query=is%3Aunresolved&rd=show&rdRelease=2.91.5&rdReleaseProjectId=4511831307845712&rdSource=release-version-link&referrer=issue-stream
+              - separator [ref=f25e4170]
+              - region "seer" [ref=f25e4171]:
+                - button "Collapse Section" [expanded] [ref=f25e4173] [cursor=pointer]:
+                  - generic [ref=f25e4174]: Seer Autofix
+                - group "Collapse Section" [ref=f25e4182]:
+                  - generic [ref=f25e4184]:
+                    - generic [ref=f25e4185]: Meet Seer, your AI assistant
+                    - generic [ref=f25e4186]: Debug faster with Sentry’s agent, Seer. Seer connects to your repos, scans your issues, highlights quick fixes, and proposes solutions. You can even integrate with your favorite agent to implement changes in code.
+                    - button "Try out Seer now" [ref=f25e4188] [cursor=pointer]
+              - separator [ref=f25e4193]
+              - region "external-issues" [ref=f25e4194]:
+                - button "Collapse Section" [expanded] [ref=f25e4196] [cursor=pointer]:
+                  - heading "External Links" [level=3] [ref=f25e4201]
+                - group "Collapse Section" [ref=f25e4202]:
+                  - link "Track this issue in Jira, GitHub, etc." [ref=f25e4204] [cursor=pointer]:
+                    - /url: /settings/integrations/?category=issue%20tracking
+              - separator [ref=f25e4213]
+              - region "activity" [ref=f25e4214]:
+                - button "Collapse Section" [expanded] [ref=f25e4216] [cursor=pointer]:
+                  - heading "Activity" [level=3] [ref=f25e4221]
+                - group "Collapse Section" [ref=f25e4222]:
+                  - generic [ref=f25e4223]:
+                    - combobox "Add a comment" [ref=f25e4228]: Add a comment…
+                    - generic [ref=f25e4230]:
+                      - generic [ref=f25e4231]:
+                        - img "Activity update" [ref=f25e4234]
+                        - generic [ref=f25e4236]:
+                          - text: Became ongoing
+                          - generic [ref=f25e4237]: after 7 days
+                          - generic [ref=f25e4238]:
+                            - generic [ref=f25e4239]: •
+                            - time [ref=f25e4241]: 3wk ago
+                      - generic [ref=f25e4242]:
+                        - img "Activity update" [ref=f25e4245]
+                        - generic [ref=f25e4247]:
+                          - text: First seen
+                          - generic [ref=f25e4248]:
+                            - text: with
+                            - generic [ref=f25e4249]: High
+                            - text: priority
+                          - generic [ref=f25e4254]:
+                            - generic [ref=f25e4255]: •
+                            - time [ref=f25e4257]: 1mo ago
+                      - button "View all activity" [ref=f25e4263] [cursor=pointer]:
+                        - generic [ref=f25e4264]: Expand
+              - separator [ref=f25e4265]
+              - generic [ref=f25e4266]:
+                - heading "Similar Issues" [level=6] [ref=f25e4267]
+                - button "View Similar Issues" [ref=f25e4268] [cursor=pointer]:
+                  - generic [ref=f25e4269]: View
+              - separator [ref=f25e4270]
+              - generic [ref=f25e4271]:
+                - heading "Merged Issues" [level=6] [ref=f25e4272]
+                - button "View Merged Issues" [ref=f25e4273] [cursor=pointer]:
+                  - generic [ref=f25e4274]: View
+              - separator [ref=f25e4275]
+  - generic: Filter events…

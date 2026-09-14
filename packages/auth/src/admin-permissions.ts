@@ -5,13 +5,15 @@ import { createAccessControl } from "better-auth/plugins/access";
 // staff role may do. Shared by the Better Auth admin plugin (typing only), the
 // NestJS AdminGuard (@AdminPermission) and the admin SPA (nav/actions).
 // One resource per dashboard section; "read" opens the section, the other
-// actions gate its mutations. Tweak supportViewActions/defaultSupportViews to
+// actions gate its mutations. On "billing", "update-request" only changes an
+// offline request; "manage" grants, renews, or ends a paid period and replays
+// billing webhooks. Tweak supportViewActions/defaultSupportViews to
 // change the per-view or default support policy.
 export const adminStatement = {
 	overview: ["read"],
 	users: ["read", "grant-credits", "ban", "set-role"],
 	organizations: ["read", "manage"],
-	billing: ["read", "manage"],
+	billing: ["read", "update-request", "manage"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
@@ -37,7 +39,7 @@ const fullAdminStatements = {
 	overview: ["read"],
 	users: ["read", "grant-credits", "ban", "set-role"],
 	organizations: ["read", "manage"],
-	billing: ["read", "manage"],
+	billing: ["read", "update-request", "manage"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
@@ -56,7 +58,9 @@ export const supportViewActions = {
 	overview: ["read"],
 	users: ["read", "ban"],
 	organizations: ["read"],
-	billing: ["read"],
+	// Support agents call the customer and record the call outcome. Only an
+	// admin grants, renews, or ends a paid period.
+	billing: ["read", "update-request"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read"],
