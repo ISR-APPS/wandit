@@ -1,0 +1,370 @@
+{
+	"meta": {
+		"title": "منشئ التطبيقات — Wandit"
+	},
+	"kind": {
+		"web": "تطبيق ويب",
+		"mobile": "تطبيق جوال"
+	},
+	"topBar": {
+		"backToDashboard": "العودة إلى لوحة التحكم",
+		"projectMenu": "تبديل المشروع",
+		"allProjects": "كل المشاريع",
+		"history": "سجل الإصدارات",
+		"collapseChat": "إخفاء المحادثة",
+		"expandChat": "إظهار المحادثة",
+		"reload": "إعادة تحميل المعاينة",
+		"openExternal": "فتح في تبويب جديد",
+		"viewsAriaLabel": "طرق عرض مساحة العمل"
+	},
+	"views": {
+		"preview": "معاينة",
+		"code": "الكود",
+		"more": "المزيد"
+	},
+	"viewport": {
+		"ariaLabel": "عرض المعاينة",
+		"desktop": "حاسوب",
+		"mobile": "جوال"
+	},
+	"device": {
+		"ariaLabel": "جهاز المعاينة",
+		"ios": "iOS",
+		"android": "Android",
+		"iosLabel": "iPhone 15 · iOS 17",
+		"androidLabel": "Pixel 8 · Android 14"
+	},
+	"preview": {
+		"liveReload": "تحديث مباشر",
+		"back": "رجوع",
+		"forward": "تقدم",
+		"frameTitle": "معاينة {name}"
+	},
+	"code": {
+		"searchFiles": "ابحث في الملفات",
+		"treeAriaLabel": "ملفات المشروع",
+		"expand": "توسيع {name}",
+		"collapse": "طي {name}",
+		"noMatch": "لا يوجد ملف مطابق.",
+		"synced": "متزامن · {branch}",
+		"github": "GitHub",
+		"editCode": "تعديل الكود",
+		"readOnly": "الكود للقراءة فقط في نسخة المعاينة هذه.",
+		"fileMissing": "هذا الملف غير موجود في المستودع."
+	},
+	"moreNavAriaLabel": "أقسام التطبيق",
+	"panels": {
+		"analytics": {
+			"title": "التحليلات",
+			"description": "الزيارات والتسجيلات ومعدل التحويل.",
+			"cta": "تفعيل التحليلات"
+		},
+		"backend": {
+			"title": "الخادم",
+			"description": "جداول قاعدة البيانات والتخزين ودوال الخادم التي أنشأها Wandit لهذا التطبيق."
+		},
+		"signIn": {
+			"title": "تسجيل الدخول",
+			"description": "كيف يسجّل مستخدموك الدخول. فعّل أو عطّل طريقة، وسيحدّث Wandit التطبيق."
+		},
+		"ai": {
+			"title": "الذكاء الاصطناعي",
+			"description": "أضف إلى تطبيقك ميزات ذكاء اصطناعي خاصة به، تُحتسب من رصيدك.",
+			"cta": "إضافة ميزة ذكاء اصطناعي"
+		},
+		"payments": {
+			"title": "المدفوعات",
+			"description": "اقبل بطاقات CIB والذهبية عبر Chargily Pay، وأدر ما تبيعه."
+		},
+		"integrations": {
+			"title": "التكاملات",
+			"description": "Google Sheets وWhatsApp والبريد والخدمات الأخرى التي يتواصل معها تطبيقك.",
+			"cta": "إضافة تكامل"
+		},
+		"domains": {
+			"title": "النطاقات",
+			"description": "أين يعيش تطبيق الويب. نطاق Wandit مجاني؛ اربط نطاقك أو اشترِ واحدًا."
+		},
+		"appStores": {
+			"title": "متاجر التطبيقات",
+			"description": "التوقيع والبناء وصفحة التطبيق على App Store وGoogle Play."
+		},
+		"security": {
+			"title": "الأمان",
+			"description": "قواعد الوصول والأسرار وما يمكن لمستخدميك رؤيته.",
+			"cta": "مراجعة قواعد الوصول"
+		},
+		"settings": {
+			"title": "الإعدادات",
+			"description": "الاسم ونوع المشروع والمتعاونون ومتغيرات البيئة."
+		}
+	},
+	"empty": {
+		"title": "لم يتم إعداد شيء بعد",
+		"description": "اطلب من Wandit في المحادثة، أو أعدّه هنا."
+	},
+	"backend": {
+		"database": "قاعدة البيانات",
+		"tableCount": {
+			"zero": "لا جداول",
+			"one": "جدول واحد",
+			"two": "جدولان",
+			"few": "{count} جداول",
+			"many": "{count} جدولًا",
+			"other": "{count} جدول"
+		},
+		"databaseNote": "{rows} صف · {size} م.ب",
+		"storage": "التخزين",
+		"storageSize": "{size} ج.ب",
+		"functions": "الدوال",
+		"callsToday": "{count} استدعاء اليوم",
+		"tablesTitle": "الجداول",
+		"openSql": "فتح محرر SQL",
+		"rowCount": {
+			"zero": "لا صفوف",
+			"one": "صف واحد",
+			"two": "صفان",
+			"few": "{count} صفوف",
+			"many": "{count} صفًا",
+			"other": "{count} صف"
+		},
+		"functionsTitle": "دوال الخادم",
+		"today": "{count} اليوم"
+	},
+	"signIn": {
+		"methodsTitle": "طرق تسجيل الدخول",
+		"userCount": {
+			"zero": "لا مستخدمين",
+			"one": "مستخدم واحد",
+			"two": "مستخدمان",
+			"few": "{count} مستخدمين",
+			"many": "{count} مستخدمًا",
+			"other": "{count} مستخدم"
+		},
+		"methods": {
+			"phoneOtp": {
+				"title": "رقم الهاتف (OTP)",
+				"description": "رمز من ستة أرقام عبر SMS · أرقام +213"
+			},
+			"emailPassword": {
+				"title": "البريد وكلمة المرور",
+				"description": "تسجيل دخول تقليدي مع رابط إعادة التعيين"
+			},
+			"google": {
+				"title": "Google",
+				"description": "بنقرة واحدة على Android والويب"
+			},
+			"magicLink": {
+				"title": "رابط سحري",
+				"description": "رابط بلا كلمة مرور عبر البريد"
+			}
+		},
+		"otpNote": "تُرسل رموز OTP عبر SMS إلى الأرقام الجزائرية (+213). كل رمز يكلف 1 رصيد."
+	},
+	"payments": {
+		"connectedAs": "متصل باسم {account} · {cards}",
+		"live": "مباشر",
+		"test": "تجريبي",
+		"modeAriaLabel": "مفاتيح المزوّد",
+		"products": "المنتجات",
+		"addProduct": "+ إضافة منتج",
+		"recurring": "متكرر · {days} يومًا",
+		"oneTime": "لمرة واحدة",
+		"collected": "المحصّل · {month}",
+		"paymentCount": {
+			"zero": "لا مدفوعات",
+			"one": "دفعة واحدة",
+			"two": "دفعتان",
+			"few": "{count} دفعات",
+			"many": "{count} دفعة",
+			"other": "{count} دفعة"
+		},
+		"refundCount": {
+			"zero": "لا استردادات",
+			"one": "استرداد واحد",
+			"two": "استردادان",
+			"few": "{count} استردادات",
+			"many": "{count} استردادًا",
+			"other": "{count} استرداد"
+		},
+		"webhook": "Webhook",
+		"receiving": "يستقبل الأحداث",
+		"notReceiving": "لا أحداث بعد",
+		"noProvider": "لا يوجد مزوّد دفع بعد",
+		"connectProvider": "ربط Chargily Pay"
+	},
+	"domains": {
+		"freePrimary": "نطاق Wandit مجاني · أساسي",
+		"waitingDns": "بانتظار DNS · وجّه CNAME إلى {target}",
+		"live": "مباشر",
+		"verifying": "قيد التحقق",
+		"inputLabel": "النطاق المراد ربطه",
+		"placeholder": "yourdomain.dz",
+		"connect": "ربط",
+		"buy": "شراء نطاق"
+	},
+	"appStores": {
+		"appStore": "App Store",
+		"googlePlay": "Google Play",
+		"readyToSubmit": "جاهز للإرسال",
+		"notSetUp": "غير مُعدّ",
+		"bundleId": "معرّف الحزمة",
+		"latestBuild": "آخر بناء",
+		"buildValue": "{build} · v{version}",
+		"testflight": "TestFlight",
+		"testers": {
+			"zero": "لا مختبرين",
+			"one": "مختبر واحد",
+			"two": "مختبران",
+			"few": "{count} مختبرين",
+			"many": "{count} مختبرًا",
+			"other": "{count} مختبر"
+		},
+		"submitForReview": "إرسال للمراجعة",
+		"googlePlayHelp": "اربط حساب مطوّر Google Play وسيوقّع Wandit البناء ويرفعه نيابة عنك.",
+		"connectGooglePlay": "ربط Google Play",
+		"listingTitle": "صفحة المتجر",
+		"listingProgress": "{done} من {total} مكتملة",
+		"listing": {
+			"appIcon": "أيقونة التطبيق",
+			"appName": "اسم التطبيق والعنوان الفرعي",
+			"description": "الوصف",
+			"screenshots": "لقطات الشاشة",
+			"privacyUrl": "رابط سياسة الخصوصية",
+			"ageRating": "التصنيف العمري والفئة"
+		},
+		"neededForReview": "مطلوب للمراجعة"
+	},
+	"settings": {
+		"project": "المشروع",
+		"name": "الاسم",
+		"projectUrl": "رابط المشروع",
+		"projectUrlPrefix": "wandit.dev/app/",
+		"descriptionLabel": "الوصف",
+		"projectType": "نوع المشروع",
+		"projectTypeHelp": "يغيّر ما يبنيه Wandit وأين يمكنك النشر.",
+		"collaborators": "المتعاونون",
+		"seats": "{count} من {max}",
+		"invite": "دعوة",
+		"roles": {
+			"owner": "المالك",
+			"editor": "محرر",
+			"viewer": "مشاهد"
+		},
+		"roleLabel": "دور {name}",
+		"pending": "مدعو · بانتظار القبول",
+		"envTitle": "متغيرات البيئة",
+		"envHelp": "أسرار يمكن للخادم قراءتها",
+		"addVariable": "+ إضافة متغير",
+		"setBy": "أضافها {panel}",
+		"public": "عام",
+		"deleteTitle": "حذف هذا المشروع",
+		"deleteHelp": "يوقف التطبيق ويحذف قاعدة البيانات والإصدارات والمحادثة. لا يمكن التراجع عن ذلك.",
+		"delete": "حذف",
+		"deleteConfirmTitle": "حذف {name}؟",
+		"deleteConfirmBody": "سيتوقف التطبيق وتُحذف قاعدة البيانات والإصدارات والمحادثة.",
+		"cancel": "إلغاء"
+	},
+	"chat": {
+		"title": "الدردشة",
+		"thoughtFor": "فكّر لمدة {seconds} ث",
+		"details": "التفاصيل",
+		"preview": "معاينة",
+		"bookmark": "حفظ كنقطة استعادة",
+		"revert": "العودة إلى هذا الإصدار",
+		"like": "إجابة جيدة",
+		"copy": "نسخ",
+		"copied": "تم النسخ",
+		"placeholder": "اسأل Wandit…",
+		"attach": "إرفاق ملف",
+		"estimate": {
+			"zero": "بلا رصيد",
+			"one": "رصيد واحد",
+			"two": "رصيدان",
+			"few": "{count} أرصدة",
+			"many": "{count} رصيدًا",
+			"other": "{count} رصيد"
+		},
+		"modeLabel": "وضع الكتابة",
+		"modes": {
+			"build": "بناء",
+			"plan": "تخطيط"
+		},
+		"send": "إرسال",
+		"focusChip": "العمل على {label}",
+		"removeFocus": "إزالة",
+		"working": "Wandit يعمل…",
+		"toolCalls": {
+			"zero": "بلا استدعاء أدوات",
+			"one": "استدعاء أداة واحد",
+			"two": "استدعاءا أداة",
+			"few": "{count} استدعاءات أدوات",
+			"many": "{count} استدعاءً للأدوات",
+			"other": "{count} استدعاء أدوات"
+		},
+		"question": {
+			"other": "شيء آخر…",
+			"continue": "متابعة"
+		},
+		"suggestion": {
+			"accept": "قبول",
+			"alternatives": "بدائل",
+			"confidence": {
+				"high": "ثقة عالية",
+				"medium": "ثقة متوسطة",
+				"low": "ثقة منخفضة"
+			}
+		},
+		"followUps": "اقتراحات للمتابعة",
+		"elapsed": "{seconds} ث",
+		"addContext": "إضافة سياق",
+		"attachImage": "إضافة صورة",
+		"attachScreen": "الإشارة إلى شاشة",
+		"dictate": "إملاء"
+	},
+	"publish": {
+		"cta": "نشر",
+		"title": "نشر {name}",
+		"version": "v{version}",
+		"changes": {
+			"zero": "لا تغييرات",
+			"one": "تغيير واحد",
+			"two": "تغييران",
+			"few": "{count} تغييرات",
+			"many": "{count} تغييرًا",
+			"other": "{count} تغيير"
+		},
+		"web": "ويب",
+		"live": "مباشر",
+		"notLive": "لم يُنشر بعد",
+		"update": "تحديث",
+		"publishNow": "نشر",
+		"customDomain": "نطاق مخصص",
+		"connectOne": "اربط نطاقًا",
+		"ios": "iOS · App Store",
+		"android": "Android · Google Play",
+		"buildReady": "البناء {build} جاهز · TestFlight {testers} مختبرين",
+		"notSetUp": "غير مُعدّ",
+		"submit": "إرسال",
+		"setUp": "إعداد",
+		"testOnPhone": "جرّب على هاتفك",
+		"scanQr": "امسح رمز QR · يتحدّث فورًا",
+		"showQr": "إظهار QR",
+		"backendNote": "يُنشر الخادم مع كل عملية نشر"
+	},
+	"versions": {
+		"title": "سجل الإصدارات",
+		"version": "v{number}",
+		"live": "مباشر",
+		"current": "الحالي",
+		"restore": "استعادة"
+	},
+	"mock": {
+		"notWired": "هذا الإجراء غير متصل بعد."
+	},
+	"notFound": {
+		"title": "التطبيق غير موجود",
+		"body": "ربما تم حذفه، أو أن الرابط خاطئ.",
+		"cta": "العودة إلى لوحة التحكم"
+	}
+}
