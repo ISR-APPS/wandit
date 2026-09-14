@@ -1,17 +1,42 @@
+/**
+ * HTTP calls of the onboarding feature, one function per API route.
+ * Called by api/onboarding.mutations.ts. Sends through `apiClient` and parses
+ * every reply with the zod schemas of `@wandit/contracts`.
+ */
 import {
 	completeOnboardingResponseSchema,
+	onboardingPhoneAvailabilityResponseSchema,
 	onboardingRoutes,
 } from "@wandit/contracts";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
 
-import type { CompleteOnboardingBody, CompleteOnboardingResponse } from "./dto";
+import type {
+	CompleteOnboardingBody,
+	CompleteOnboardingResponse,
+	OnboardingPhoneAvailabilityBody,
+	OnboardingPhoneAvailabilityResponse,
+} from "./dto";
 
 export async function completeOnboarding(
 	body: CompleteOnboardingBody,
 ): Promise<CompleteOnboardingResponse> {
 	const data = await apiClient.post<unknown>(onboardingRoutes.complete, body);
 	return completeOnboardingResponseSchema.parse(data);
+}
+
+/**
+ * Asks the API whether another account already holds this phone.
+ * The user's own stored phone counts as free, so a re-onboarding passes.
+ */
+export async function checkOnboardingPhoneAvailability(
+	body: OnboardingPhoneAvailabilityBody,
+): Promise<OnboardingPhoneAvailabilityResponse> {
+	const data = await apiClient.post<unknown>(
+		onboardingRoutes.phoneAvailability,
+		body,
+	);
+	return onboardingPhoneAvailabilityResponseSchema.parse(data);
 }
 
 type CompleteOnboardingRequest = (

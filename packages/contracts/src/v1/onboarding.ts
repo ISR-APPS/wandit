@@ -1,3 +1,9 @@
+/**
+ * Post-signup onboarding contracts: the question list, the answer schemas,
+ * the phone pre-check schemas, and the API routes.
+ * Used by the server onboarding module, the web onboarding feature, and the
+ * admin user filters.
+ */
 import { z } from "zod";
 import {
 	dialCountryIsoSchema,
@@ -12,6 +18,15 @@ export const onboardingQuestionsVersion = "v3";
 // as the leads capture and domains registrant checks. The dial code remains
 // inside the answer; optional phone_country preserves the exact picker ISO.
 export const onboardingPhonePattern = e164PhonePattern;
+
+// A "+" and up to 15 digits: the longest E.164 number the pattern accepts.
+const onboardingPhoneMaxLength = 16;
+
+/** One phone answer: trimmed E.164 text. Shared by the answers and the phone pre-check. The pattern caps the length. */
+export const onboardingPhoneSchema = z
+	.string()
+	.trim()
+	.regex(onboardingPhonePattern);
 
 export const onboardingStyles = ["light", "dark"] as const;
 export const onboardingStyleSchema = z.enum(onboardingStyles);
@@ -86,7 +101,7 @@ type OnboardingQuestionDefinition =
 export const onboardingQuestions = [
 	{ id: "style", type: "choice", options: onboardingStyles },
 	{ id: "name", type: "text", maxLength: 100 },
-	{ id: "phone", type: "phone", maxLength: 16 },
+	{ id: "phone", type: "phone", maxLength: onboardingPhoneMaxLength },
 	{
 		id: "account_type",
 		type: "choice",
@@ -197,11 +212,7 @@ function createOnboardingAnswerSchema(question: OnboardingQuestion): z.ZodType {
 		question.type === "choice"
 			? z.enum(question.options)
 			: question.type === "phone"
-				? z
-						.string()
-						.trim()
-						.regex(onboardingPhonePattern)
-						.max(question.maxLength)
+				? onboardingPhoneSchema
 				: z
 						.string()
 						.trim()
@@ -323,6 +334,32 @@ export type CompleteOnboardingResponse = z.infer<
 	typeof completeOnboardingResponseSchema
 >;
 
+/**
+ * Body of the phone pre-check the web app sends when the user leaves the phone
+ * step. Same schema as the `phone` answer, so both routes accept the same text.
+ */
+export const onboardingPhoneAvailabilityBodySchema = z
+	.object({ phone: onboardingPhoneSchema })
+	.strict();
+
+export type OnboardingPhoneAvailabilityBody = z.infer<
+	typeof onboardingPhoneAvailabilityBodySchema
+>;
+
+/**
+ * `available` is false when another user's onboarding row holds the phone.
+ * The caller's own stored phone never counts as taken.
+ */
+export const onboardingPhoneAvailabilityResponseSchema = z.object({
+	available: z.boolean(),
+});
+
+export type OnboardingPhoneAvailabilityResponse = z.infer<
+	typeof onboardingPhoneAvailabilityResponseSchema
+>;
+
+/** Both routes need a session; the complete route also enforces the phone rule. */
 export const onboardingRoutes = {
 	complete: "/api/v1/onboarding/complete",
+	phoneAvailability: "/api/v1/onboarding/phone-availability",
 } as const;

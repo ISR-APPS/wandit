@@ -27,6 +27,7 @@
 		"NETWORK_ERROR": "We could not reach the server. Check your connection and try again.",
 		"CLIENT_ERROR": "Something went wrong in the app. Please try again.",
 		"VALIDATION_ERROR": "Check the highlighted fields and try again.",
+		"PHONE_ALREADY_TAKEN": "This phone number is already used by another account.",
 		"NOT_FOUND": "We could not find what you were looking for.",
 		"DOMAIN_ALREADY_EXISTS": "This domain is already connected.",
 		"INVALID_DOMAIN_STATE": "This domain is not ready for that action.",
