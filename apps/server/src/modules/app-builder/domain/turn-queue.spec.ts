@@ -40,10 +40,15 @@ describe("nextStatusForCancel", () => {
 	});
 
 	it.each([
-		"queued",
-		"running",
 		"waiting_for_answer",
 		"waiting_for_approval",
+	] as const)("sends %s straight to canceled (the pause ended the run already)", (status) => {
+		expect(nextStatusForCancel(status)).toBe("canceled");
+	});
+
+	it.each([
+		"queued",
+		"running",
 	] as const)("sends %s through cancelling so the task can write a wip commit", (status) => {
 		expect(nextStatusForCancel(status)).toBe("cancelling");
 	});

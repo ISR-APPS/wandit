@@ -57,7 +57,8 @@ export const BUILD_IMAGE_ASPECTS = Object.keys(SIZE_BY_ASPECT) as [
 
 // No verified gateway/openai option for JPEG/WebP output exists in the
 // installed SDK docs, so the model's default (PNG) is kept.
-const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
+/** File extension per stored media type. The V2 `generate_image` host tool reads it too. */
+export const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"image/jpeg": "jpg",
 	"image/png": "png",
 	"image/webp": "webp",

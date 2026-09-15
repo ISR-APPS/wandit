@@ -114,15 +114,16 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 
 function setup() {
 	const turns = {
-		create: vi.fn(async (input: { id: string; status: string }) => ({
-			replayed: false,
-			turn: turnRow({
-				id: input.id,
-				requestKey: input.id,
-				// SAFETY: spec writes only the two legal insert statuses.
-				status: input.status as BuilderTurnRow["status"],
+		create: vi.fn(
+			async (input: Parameters<BuilderTurnsRepository["create"]>[0]) => ({
+				replayed: false,
+				turn: turnRow({
+					id: input.id,
+					requestKey: input.id,
+					status: input.status,
+				}),
 			}),
-		})),
+		),
 		fail: vi.fn(async () => true),
 		findActiveForChat: vi.fn<BuilderTurnsRepository["findActiveForChat"]>(
 			async () => [],
@@ -134,6 +135,9 @@ function setup() {
 		findOldestWaiting: vi.fn<BuilderTurnsRepository["findOldestWaiting"]>(
 			async () => null,
 		),
+		findWaitingForUser: vi.fn<BuilderTurnsRepository["findWaitingForUser"]>(
+			async () => null,
+		),
 		promoteOldestWaiting: vi.fn<BuilderTurnsRepository["promoteOldestWaiting"]>(
 			async () => null,
 		),
@@ -141,6 +145,7 @@ function setup() {
 		transition: vi.fn<BuilderTurnsRepository["transition"]>(async () => true),
 	};
 	const sessions = {
+		clearResumeState: vi.fn(async () => null),
 		create: vi.fn(async () => ({ id: "session-1" })),
 		findByChatId: vi.fn(
 			async (): Promise<{ id: string } | null> => ({ id: "session-1" }),
@@ -431,6 +436,58 @@ describe("TurnsService.create", () => {
 		expect(result.status).toBe("queued");
 	});
 
+	it("answers 409 BUILDER_APPROVAL_PENDING while an approval card waits", async () => {
+		const { metering, service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_approval" }),
+		);
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "BUILDER_APPROVAL_PENDING",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("stores the approval answer in the turn spec", async () => {
+		const { service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_approval" }),
+		);
+
+		await service.create(SCOPE, "project-1", {
+			...BODY,
+			approval: { approvalId: "appr-1", approved: true },
+		});
+
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({
+					approval: { approvalId: "appr-1", approved: true },
+				}),
+			}),
+		);
+	});
+
+	it("lets a plain message through while a question card waits", async () => {
+		const { service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_answer" }),
+		);
+
+		await service.create(SCOPE, "project-1", BODY);
+
+		expect(turns.create).toHaveBeenCalledTimes(1);
+		expect(turns.create.mock.calls[0]?.[0]?.spec.approval).toBeUndefined();
+	});
+
 	it("adopts the existing first message instead of inserting a new one", async () => {
 		const { chats, service, turns } = setup();
 		const existingMessageId = randomUUID();
@@ -489,9 +546,30 @@ describe("TurnsService.cancel", () => {
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
-			["waiting"],
+			["waiting", "waiting_for_answer", "waiting_for_approval"],
 			"canceled",
 		);
+		expect(starter.cancel).not.toHaveBeenCalled();
+		expect(metering.refund).toHaveBeenCalledWith(
+			"event-1",
+			"builder_turn_canceled",
+		);
+		expect(result.status).toBe("canceled");
+	});
+
+	it("cancels a paused turn directly and clears the session resume state", async () => {
+		const { metering, service, sessions, starter, turns } = setup();
+		turns.findById.mockResolvedValue(turnRow({ status: "waiting_for_answer" }));
+		metering.findByIdempotencyKey.mockResolvedValue(usageEvent());
+
+		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+
+		expect(turns.transition).toHaveBeenCalledWith(
+			"turn-1",
+			["waiting", "waiting_for_answer", "waiting_for_approval"],
+			"canceled",
+		);
+		expect(sessions.clearResumeState).toHaveBeenCalledWith("chat-1");
 		expect(starter.cancel).not.toHaveBeenCalled();
 		expect(metering.refund).toHaveBeenCalledWith(
 			"event-1",
@@ -513,7 +591,7 @@ describe("TurnsService.cancel", () => {
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
-			["waiting"],
+			["waiting", "waiting_for_answer", "waiting_for_approval"],
 			"canceled",
 		);
 		expect(result).toEqual({ status: "queued", turnId: "turn-1" });
@@ -535,7 +613,7 @@ describe("TurnsService.cancel", () => {
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
-			["queued", "running", "waiting_for_answer", "waiting_for_approval"],
+			["queued", "running"],
 			"cancelling",
 		);
 		expect(starter.cancel).not.toHaveBeenCalled();
@@ -582,7 +660,7 @@ describe("TurnsService.cancel", () => {
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
-			["queued", "running", "waiting_for_answer", "waiting_for_approval"],
+			["queued", "running"],
 			"cancelling",
 		);
 		expect(starter.cancel).toHaveBeenCalledWith("run-1");

@@ -36,6 +36,8 @@ export type BuilderTurnRow = typeof builderTurns.$inferSelect;
  * reads it back; later edits of the chat never change what a turn meant.
  */
 export type BuilderTurnSpec = {
+	/** The answer to a `data-approval` card; `message` answers a question card. */
+	approval?: { approvalId: string; approved: boolean };
 	/** Attachment refs the user sent with the prompt, in composer order. */
 	attachments: FileRef[];
 	/** Composer metadata (mode, skills); null when the user sent none. */
@@ -280,6 +282,31 @@ export class BuilderTurnsRepository {
 				and(
 					eq(builderTurns.projectId, projectId),
 					eq(builderTurns.status, "waiting"),
+				),
+			)
+			.orderBy(asc(builderTurns.turnNumber))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * The oldest row of a project paused on a user answer (`data-question`
+	 * or `data-approval` card), or null. The API reads it to block a new
+	 * turn with a 409 while an approval card waits. The task moves it to
+	 * `succeeded` when the answer turn starts.
+	 */
+	async findWaitingForUser(projectId: string): Promise<BuilderTurnRow | null> {
+		const [row] = await this.db
+			.select()
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.projectId, projectId),
+					inArray(builderTurns.status, [
+						"waiting_for_answer",
+						"waiting_for_approval",
+					]),
 				),
 			)
 			.orderBy(asc(builderTurns.turnNumber))

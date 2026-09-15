@@ -96,4 +96,23 @@ export class BuilderSessionsRepository {
 
 		return row ?? null;
 	}
+
+	/**
+	 * Drops the harness state of a chat. A canceled paused turn leaves a
+	 * `continue-turn` state no next turn can answer; clearing it makes the
+	 * next turn start cold. Returns the updated row, or null when the
+	 * session row vanished.
+	 */
+	async clearResumeState(chatId: string): Promise<BuilderSessionRow | null> {
+		const [row] = await this.db
+			.update(builderSessions)
+			.set({
+				providerSessionId: null,
+				resumeState: null,
+			})
+			.where(eq(builderSessions.chatId, chatId))
+			.returning();
+
+		return row ?? null;
+	}
 }

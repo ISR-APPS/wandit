@@ -14,7 +14,7 @@ import { z } from "zod";
 
 import { contentTypeFor, putSiteFile } from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
-import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
+import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
@@ -107,7 +107,12 @@ export const builderTurnTask = schemaTask({
 					},
 					counters,
 					harness: createBuilderHarness(env.V2_HARNESS),
-					hostTools: new EmptyHostToolRegistry(),
+					hostTools: new BuilderHostToolRegistry({
+						imageEditModel: env.AI_IMAGE_EDIT_MODEL ?? null,
+						imageModel: env.AI_IMAGE_MODEL ?? null,
+						logger,
+						metering,
+					}),
 					insertAssistantMessage: (input) =>
 						chats.insertTurnAssistantMessage(input),
 					lock: turnLock,

@@ -1,15 +1,21 @@
 /**
  * `BuilderHarness` on the AI SDK `HarnessAgent` with the Claude Code
  * adapter (D17). The `builder-turn` task calls `createSession`,
- * `resumeSession`, `stream`, and `detach`; `builder-harness.factory.ts`
- * builds it. One instance keeps every live session of the run in a Map
- * so `stream` and `detach` find the matching `HarnessAgentSession`.
+ * `resumeSession`, `stream`, `detach`, and `suspendTurn`;
+ * `builder-harness.factory.ts` builds it. One instance keeps every live
+ * session of the run in a Map. `stream`, `hasUnfinishedTurn`, `detach`,
+ * and `suspendTurn` find the matching `HarnessAgentSession` there.
  */
 
+import {
+	harnessV1QuestionsToolInputSchema,
+	harnessV1QuestionsToolOutputSchema,
+} from "@ai-sdk/harness";
 import {
 	getHarnessErrorMessage,
 	HarnessAgent,
 	type HarnessAgentAdapter,
+	type HarnessAgentContinueTurnState,
 	type HarnessAgentResumeSessionState,
 	type HarnessAgentSession,
 	type HarnessAgentSettings,
@@ -18,8 +24,16 @@ import {
 	type ClaudeCodeHarnessSettings,
 	createClaudeCode,
 } from "@ai-sdk/harness-claude-code";
-import { harnessResumeStateSchema } from "@wandit/contracts";
-import type { LanguageModelUsage, UIMessageChunk } from "ai";
+import {
+	type HarnessPendingInteraction,
+	harnessResumeStateSchema,
+} from "@wandit/contracts";
+import type {
+	LanguageModelUsage,
+	ToolApprovalResponse,
+	ToolResultPart,
+	UIMessageChunk,
+} from "ai";
 
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
 import type {
@@ -36,10 +50,16 @@ import {
 	type HarnessSandboxSession,
 } from "../../domain/ports/sandbox-provider";
 
+/**
+ * The built-in tool the adapter pauses on for a user question. The name
+ * is the tool's registered name inside `HarnessAgent`, not our choice.
+ */
+const ASK_USER_QUESTIONS_TOOL_NAME = "askUserQuestions";
+
 /** The `HarnessAgentSession` fields the adapter uses; specs fake this. */
 export type ClaudeCodeSessionHandle = Pick<
 	HarnessAgentSession,
-	"detach" | "sessionId"
+	"detach" | "hasUnfinishedTurn" | "sessionId" | "suspendTurn"
 >;
 
 /** The `StreamTextResult` fields the adapter reads; specs fake this. */
@@ -56,6 +76,7 @@ export type ClaudeCodeStreamResult = {
  */
 export interface ClaudeCodeAgentRunner {
 	createSession(options: {
+		continueFrom?: HarnessAgentContinueTurnState;
 		resumeFrom?: HarnessAgentResumeSessionState;
 		sandboxSession: HarnessSandboxSession;
 		sessionId: string;
@@ -64,6 +85,13 @@ export interface ClaudeCodeAgentRunner {
 		abortSignal: AbortSignal;
 		prompt: string;
 		session: ClaudeCodeSessionHandle;
+	}): Promise<ClaudeCodeStreamResult>;
+	/** Drains a suspended turn after `createSession({ continueFrom })`. */
+	continueStream(options: {
+		abortSignal: AbortSignal;
+		session: ClaudeCodeSessionHandle;
+		toolApprovalContinuations?: ToolApprovalResponse[];
+		toolResultContinuations?: ToolResultPart[];
 	}): Promise<ClaudeCodeStreamResult>;
 }
 
@@ -75,6 +103,8 @@ export interface ClaudeCodeAgentRunner {
 export type ClaudeCodeHarnessDeps = {
 	agentFactory?: (settings: HarnessAgentSettings) => ClaudeCodeAgentRunner;
 	claudeFactory?: (settings: ClaudeCodeHarnessSettings) => HarnessAgentAdapter;
+	/** Warn sink for a skipped pending tool result; defaults to console. */
+	logger?: Pick<Console, "warn">;
 };
 
 type LiveSession = {
@@ -100,6 +130,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	private readonly claudeFactory: NonNullable<
 		ClaudeCodeHarnessDeps["claudeFactory"]
 	>;
+	private readonly logger: NonNullable<ClaudeCodeHarnessDeps["logger"]>;
 
 	/** sessionId → the agent and its live session, for `stream`/`detach`. */
 	private readonly sessions = new Map<string, LiveSession>();
@@ -110,6 +141,15 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			((settings) => {
 				const agent = new HarnessAgent(settings);
 				return {
+					continueStream: (options) =>
+						agent.continueStream({
+							...options,
+							// SAFETY: `createSession` below returns the SDK's
+							// `HarnessAgentSession`; `ClaudeCodeSessionHandle` narrows
+							// it for the spec seam. The runtime value is always the
+							// full session.
+							session: options.session as HarnessAgentSession,
+						}),
 					createSession: (options) => agent.createSession(options),
 					stream: (options) =>
 						agent.stream({
@@ -123,6 +163,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				};
 			});
 		this.claudeFactory = deps.claudeFactory ?? createClaudeCode;
+		this.logger = deps.logger ?? console;
 	}
 
 	async createSession(input: HarnessSessionInput): Promise<HarnessSession> {
@@ -157,17 +198,27 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const parsed = harnessResumeStateSchema.parse(
 			JSON.parse(resumeState.payload),
 		);
-		// SAFETY: zod checked type, harnessId, and specificationVersion above;
-		// the rest is the adapter's own detach() output.
-		const resumeFrom = parsed as HarnessAgentResumeSessionState;
 
 		const agent = this.buildAgent(input);
 		const sandboxSession = await input.sandbox.harnessSession();
-		const session = await agent.createSession({
-			resumeFrom,
-			sandboxSession,
-			sessionId: input.chatId,
-		});
+		const session =
+			parsed.type === "continue-turn"
+				? await agent.createSession({
+						// SAFETY: zod checked type, harnessId, and
+						// specificationVersion above; the rest is the adapter's
+						// own suspendTurn() output.
+						continueFrom: parsed as HarnessAgentContinueTurnState,
+						sandboxSession,
+						sessionId: input.chatId,
+					})
+				: await agent.createSession({
+						// SAFETY: zod checked type, harnessId, and
+						// specificationVersion above; the rest is the adapter's
+						// own detach() output.
+						resumeFrom: parsed as HarnessAgentResumeSessionState,
+						sandboxSession,
+						sessionId: input.chatId,
+					});
 		this.sessions.set(session.sessionId, { agent, session });
 		return { sessionId: session.sessionId };
 	}
@@ -177,13 +228,116 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		input: HarnessTurnInput,
 	): AsyncIterable<HarnessStreamEvent> {
 		const entry = this.requireSession(session.sessionId);
-		const result = await entry.agent.stream({
-			abortSignal: input.signal,
-			prompt: input.prompt,
-			session: entry.session,
-		});
-		// The browser part keeps the SDK's safe text. The error event below
-		// carries the real message, for the turn row and the worker log.
+		const result =
+			input.kind === "continue"
+				? await entry.agent.continueStream({
+						abortSignal: input.signal,
+						session: entry.session,
+						toolApprovalContinuations: input.approvals.map(
+							(approval): ToolApprovalResponse => ({
+								approvalId: approval.approvalId,
+								approved: approval.approved,
+								type: "tool-approval-response",
+							}),
+						),
+						toolResultContinuations: input.toolResults.map(
+							(result): ToolResultPart => ({
+								output: {
+									type: "json",
+									// The parse keeps a malformed caller answer out of
+									// the resumed turn; a bad value throws here.
+									value: harnessV1QuestionsToolOutputSchema.parse({
+										action: result.partial ? "partially-answered" : "answered",
+										answers: result.answers,
+									}),
+								},
+								toolCallId: result.toolCallId,
+								toolName: ASK_USER_QUESTIONS_TOOL_NAME,
+								type: "tool-result",
+							}),
+						),
+					})
+				: await entry.agent.stream({
+						abortSignal: input.signal,
+						prompt: input.prompt,
+						session: entry.session,
+					});
+		yield* this.streamEvents(result);
+	}
+
+	async hasUnfinishedTurn(session: HarnessSession): Promise<boolean> {
+		return this.requireSession(session.sessionId).session.hasUnfinishedTurn();
+	}
+
+	async detach(session: HarnessSession): Promise<HarnessResumeState> {
+		const entry = this.requireSession(session.sessionId);
+		this.sessions.delete(session.sessionId);
+		return {
+			harness: this.kind,
+			payload: JSON.stringify(await entry.session.detach()),
+			pending: [],
+		};
+	}
+
+	async suspendTurn(session: HarnessSession): Promise<HarnessResumeState> {
+		const entry = this.requireSession(session.sessionId);
+		const state = await entry.session.suspendTurn();
+		const pending: HarnessPendingInteraction[] = [];
+
+		for (const result of state.pendingToolResults ?? []) {
+			// Only the built-in question tool pauses for a user answer; a
+			// client-side result of another tool is not a card the user sees.
+			if (result.toolName !== ASK_USER_QUESTIONS_TOOL_NAME) {
+				this.logger.warn(
+					`builder-turn.suspendTurn: skipped pending result for ${result.toolName}`,
+				);
+				continue;
+			}
+			// `input` is the JSON text of the tool call arguments; the parse
+			// keeps a malformed argument out of the question cards.
+			const toolInput = harnessV1QuestionsToolInputSchema.parse(
+				JSON.parse(result.input),
+			);
+			pending.push({
+				kind: "question",
+				questions: toolInput.questions.map((question) => ({
+					id: question.id,
+					options: (question.options ?? []).map((option) => ({
+						id: option.id,
+						label: option.label,
+					})),
+					question: question.question,
+				})),
+				toolCallId: result.toolCallId,
+			});
+		}
+
+		for (const approval of state.pendingToolApprovals ?? []) {
+			pending.push({
+				approvalId: approval.approvalId,
+				input: approval.input,
+				kind: "approval",
+				toolCallId: approval.toolCallId,
+				toolName: approval.toolName,
+			});
+		}
+
+		this.sessions.delete(session.sessionId);
+		return {
+			harness: this.kind,
+			payload: JSON.stringify(state),
+			pending,
+		};
+	}
+
+	/**
+	 * The chunk loop and the usage tail of `stream`, shared between a
+	 * prompt turn and a continued turn. The browser part keeps the SDK's
+	 * safe text; the error event carries the real message for the row.
+	 */
+	private async *streamEvents(
+		result: ClaudeCodeStreamResult,
+	): AsyncIterable<HarnessStreamEvent> {
 		let lastErrorMessage: string | null = null;
 		for await (const chunk of result.toUIMessageStream({
 			onError: (error) => {
@@ -210,15 +364,6 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			type: "usage",
-		};
-	}
-
-	async detach(session: HarnessSession): Promise<HarnessResumeState> {
-		const entry = this.requireSession(session.sessionId);
-		this.sessions.delete(session.sessionId);
-		return {
-			harness: this.kind,
-			payload: JSON.stringify(await entry.session.detach()),
 		};
 	}
 
