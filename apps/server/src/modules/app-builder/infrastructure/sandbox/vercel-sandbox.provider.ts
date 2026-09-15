@@ -42,6 +42,7 @@ import {
 	SandboxSessionsRepository,
 	type SandboxSessionsStore,
 } from "../persistence/sandbox-sessions.repository";
+import { buildNetworkPolicy } from "./network-policy";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
 
 /**
@@ -117,6 +118,13 @@ export type VercelSandboxInstance = {
 		ports?: number[];
 	}): Promise<void>;
 	extendTimeout(duration: number): Promise<void>;
+	/**
+	 * The SDK marks this `@deprecated` in favor of `Sandbox.update`, but its
+	 * implementation is `session.update({ networkPolicy })` on the live
+	 * session — no restart — while `Sandbox.update` writes the sandbox
+	 * config through `updateSandbox`.
+	 */
+	updateNetworkPolicy(policy: NetworkPolicy): Promise<NetworkPolicy>;
 	/** The real SDK resolves to the final session state; we read none of it. */
 	stop(): Promise<{ readonly status: string }>;
 	delete(opts?: { deleteOrphanSnapshots?: boolean }): Promise<void>;
@@ -283,6 +291,10 @@ class VercelSandboxHandle implements SandboxHandle {
 		this.deadlineMs = now + SANDBOX_TIMEOUT_MS;
 	}
 
+	async setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void> {
+		await this.sandbox.updateNetworkPolicy(toVendorNetworkPolicy(policy));
+	}
+
 	async harnessSession(): Promise<HarnessSandboxSession> {
 		// `{ sandbox }` wraps this sandbox; a sessionId/identity settings path
 		// would let the adapter create a second sandbox of its own.
@@ -414,6 +426,33 @@ export class VercelSandboxProvider implements SandboxProvider {
 		context: { hadLiveRow: boolean },
 	): Promise<SandboxHandle> {
 		const image = this.envSource.VERCEL_SANDBOX_IMAGE ?? DEFAULT_IMAGE;
+		// Specs pass a subset of the env; the zod default sets it in production.
+		const mode = this.envSource.V2_SANDBOX_EGRESS_MODE ?? "strict";
+		const org = this.envSource.CODE_STORAGE_ORG ?? null;
+		const assetHost = this.envSource.R2_PUBLIC_BASE_URL
+			? new URL(this.envSource.R2_PUBLIC_BASE_URL).hostname
+			: null;
+		if (
+			mode === "strict" &&
+			options.networkPolicy === undefined &&
+			!options.env.ANTHROPIC_BASE_URL
+		) {
+			// A sandbox with no reachable proxy can never run a turn.
+			throw new Error(
+				"Sandbox env lacks ANTHROPIC_BASE_URL; the egress policy needs the proxy host",
+			);
+		}
+		const built: ReturnType<typeof buildNetworkPolicy> = options.networkPolicy
+			? { policy: options.networkPolicy, rejected: [] }
+			: buildNetworkPolicy({
+					assetHost,
+					connectorHosts: [],
+					gitHost: org ? `${org}.code.storage` : null,
+					mode,
+					projectHosts: [],
+					proxyBaseUrl: options.env.ANTHROPIC_BASE_URL ?? "",
+				});
+		const vendorPolicy = toVendorNetworkPolicy(built.policy);
 		let created = false;
 		let resumed = false;
 		const sandbox = await this.sdk.getOrCreate({
@@ -422,7 +461,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 			image,
 			keepLastSnapshots: { count: 1 },
 			name: projectId,
-			networkPolicy: toVendorNetworkPolicy(options.networkPolicy),
+			networkPolicy: vendorPolicy,
 			persistent: true,
 			// The builder-turn task passes `HARNESS_BRIDGE_PORT` to the
 			// adapter as `port`; the create call only opens it.
@@ -455,10 +494,27 @@ export class VercelSandboxProvider implements SandboxProvider {
 				});
 				await this.repoRestorer.restore(projectId, handle);
 				await this.bootServices(sandbox, options);
-			} else if (resumed) {
-				this.logLifecycle("resume", projectId, sandbox.name);
-				await this.bootServices(sandbox, options);
+			} else {
+				// The vendor may keep the network policy of the stored sandbox;
+				// a changed allow list reaches a live sandbox only through an
+				// update call, and it needs no restart. It runs before
+				// bootServices, or the dev command starts under the stored
+				// policy.
+				await sandbox.updateNetworkPolicy(vendorPolicy);
+				if (resumed) {
+					this.logLifecycle("resume", projectId, sandbox.name);
+					await this.bootServices(sandbox, options);
+				}
 			}
+			this.logger[
+				options.networkPolicy === undefined && mode === "open" ? "warn" : "info"
+			]("sandbox.network-policy.applied", {
+				projectId,
+				sandboxId: sandbox.name,
+				mode: options.networkPolicy === undefined ? mode : "override",
+				allowedHosts: String(built.policy.allowedHosts.length),
+				rejected: built.rejected.join(","),
+			});
 			// A plain reuse reports neither hook: the row already carries the
 			// vendor fields, so writing again would only add log noise.
 			if (created || resumed) {
@@ -629,21 +685,17 @@ export class VercelSandboxProvider implements SandboxProvider {
 }
 
 /**
- * Translates our port policy into the vendor shape. Empty `allowedHosts`
- * means the vendor default, so an all-deny empty allow list is never
- * emitted; WANDIT-180 owns the policy content.
+ * Translates our port policy into the vendor shape. `["*"]` allows every
+ * host (open mode). An empty `allowedHosts` is a caller bug that `start`
+ * and `setNetworkPolicy` reject.
  */
-function toVendorNetworkPolicy(
-	policy: SandboxNetworkPolicy | undefined,
-): NetworkPolicy | undefined {
-	if (
-		!policy ||
-		(policy.allowedHosts.length === 0 && policy.deniedRanges.length === 0)
-	) {
-		return undefined;
+function toVendorNetworkPolicy(policy: SandboxNetworkPolicy): NetworkPolicy {
+	// An empty list must fail closed: mapping it to `["*"]` opens every host.
+	if (policy.allowedHosts.length === 0) {
+		throw new Error("Sandbox egress: an empty allowedHosts is a caller bug");
 	}
 	return {
-		allow: policy.allowedHosts.length > 0 ? policy.allowedHosts : ["*"],
+		allow: policy.allowedHosts,
 		subnets:
 			policy.deniedRanges.length > 0
 				? { deny: policy.deniedRanges }

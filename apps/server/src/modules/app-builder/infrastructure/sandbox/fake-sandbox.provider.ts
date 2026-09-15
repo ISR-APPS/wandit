@@ -11,6 +11,7 @@ import type {
 	SandboxExecResult,
 	SandboxFile,
 	SandboxHandle,
+	SandboxNetworkPolicy,
 	SandboxProvider,
 } from "../../domain/ports/sandbox-provider";
 
@@ -97,6 +98,11 @@ class FakeSandboxHandle implements SandboxHandle {
 		this.provider.keepAliveCalls += 1;
 	}
 
+	async setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void> {
+		this.provider.calls.push({ method: "setNetworkPolicy" });
+		this.provider.networkPolicies.push(policy);
+	}
+
 	harnessSession(): Promise<HarnessSandboxSession> {
 		// The fake never attaches a real harness; the harness fake never
 		// calls this.
@@ -117,6 +123,8 @@ export class FakeSandboxProvider implements SandboxProvider {
 	createdCount = 0;
 	/** `handle.keepAlive()` calls across every project handle. */
 	keepAliveCalls = 0;
+	/** Every policy `handle.setNetworkPolicy` received, across all handles. */
+	readonly networkPolicies: SandboxNetworkPolicy[] = [];
 	readonly scriptedExec = new Map<string, SandboxExecResult[]>();
 	private readonly projects = new Map<string, FakeProjectState>();
 

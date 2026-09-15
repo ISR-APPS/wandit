@@ -110,6 +110,7 @@ function fakeSandbox(): SandboxHandle {
 		projectId: "project-1",
 		providerSandboxId: "sbx-1",
 		readFile: async () => null,
+		setNetworkPolicy: async () => {},
 		workspaceDir: "/vercel/workspace",
 		writeFiles: async () => {},
 	};
@@ -206,6 +207,7 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(Object.keys(captured.claudeSettings?.auth ?? {})).toHaveLength(2);
 		expect(captured.claudeSettings?.env).toEqual({
 			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
+			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 		});
 		expect(captured.agentSettings?.sandboxConfig?.workDir).toBe(
 			HARNESS_WORK_DIR,
@@ -217,14 +219,16 @@ describe("ClaudeCodeHarness.createSession", () => {
 		);
 	});
 
-	it("omits the env key when no custom headers exist", async () => {
+	it("passes only the telemetry flag to env when no custom header exists", async () => {
 		const { captured, harness } = setup();
 		const input = sessionInput();
 		delete input.env.ANTHROPIC_CUSTOM_HEADERS;
 
 		await harness.createSession(input);
 
-		expect(captured.claudeSettings?.env).toBeUndefined();
+		expect(captured.claudeSettings?.env).toEqual({
+			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+		});
 	});
 
 	it("passes the chat id as the session id", async () => {

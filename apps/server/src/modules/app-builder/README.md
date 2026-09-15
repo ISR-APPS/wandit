@@ -57,10 +57,10 @@ PostHog flag `v2-builder`).
 ## Sandbox
 
 Each V2 project owns one named sandbox on Vercel Sandbox (D1): region
-`cdg1`, 2 vCPU / 4 GB, the custom image named by `VERCEL_SANDBOX_IMAGE`
-(`tooling/sandbox-image/` builds it). The `sandbox_sessions` row tracks
-the lifecycle; the partial unique index guarantees at most one live row
-per project.
+`cdg1`, 2 vCPU / 4 GB, the vendor default image `vercel/sandbox/node:22`
+(`VERCEL_SANDBOX_IMAGE` is unset; `tooling/sandbox-image/` is ready but
+not selected). The `sandbox_sessions` row tracks the lifecycle; the
+partial unique index guarantees at most one live row per project.
 
 - `getOrCreate` is the only entry: it creates (row `creating` → `running`),
   reuses a live sandbox, and resumes a stopped one from its vendor
@@ -81,6 +81,21 @@ per project.
   `VITE_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
   is always written empty; `VERCEL_SANDBOX_TOKEN`, signing keys, and
   service-role keys can never enter the sandbox.
+- Egress is deny-by-default: `buildNetworkPolicy` emits the global allow
+  list (`registry.npmjs.org`, `*.supabase.co`, fonts, `api.stripe.com`,
+  `api.resend.com`, `maps.googleapis.com`, `api.openai.com`) plus the
+  proxy host of `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host,
+  and the `R2_PUBLIC_BASE_URL` host. `SANDBOX_DENIED_RANGES` blocks
+  link-local metadata, private, CGNAT, and loopback CIDRs (IPv4 only —
+  the vendor API rejects IPv6 CIDRs).
+- `V2_SANDBOX_EGRESS_MODE` selects the mode: `strict` (default) applies
+  the allow list; `open` allows every host but keeps the deny ranges —
+  the fallback when the allow list breaks a turn. Every start logs
+  `sandbox.network-policy.applied` with mode, host count, and rejected
+  names (warn in `open`).
+- `handle.setNetworkPolicy` replaces the whole vendor policy on the live
+  sandbox without a restart; a resume or reuse re-pushes it through the
+  same call so a changed list reaches a running VM.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
   command env; the vendor route only reaches a `0.0.0.0` listener.
