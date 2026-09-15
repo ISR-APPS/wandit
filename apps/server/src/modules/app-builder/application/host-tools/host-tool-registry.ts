@@ -1,7 +1,8 @@
 /**
- * Host-tool registry for the builder turn (WANDIT-169 keeps real tools
- * out of scope). `builder-turn.runtime.ts` calls `build` after the
- * sandbox exists and closes the result after the turn.
+ * The empty `HostToolRegistry`: no tools, no approvals.
+ * `builder-turn.runtime.spec.ts` injects it so the runtime cases run
+ * without image billing. The task uses `BuilderHostToolRegistry` from
+ * `builder-host-tool-registry.ts`; no Nest module binds this one.
  */
 import type {
 	HostToolContext,
@@ -11,7 +12,7 @@ import type {
 
 /**
  * No host tools: `tools` and `toolApproval` are empty, `close` is a
- * no-op. Real tools land with WANDIT-169.
+ * no-op. Use it only as a spec fake.
  */
 export class EmptyHostToolRegistry implements HostToolRegistry {
 	build(_context: HostToolContext): Promise<HostToolSet> {

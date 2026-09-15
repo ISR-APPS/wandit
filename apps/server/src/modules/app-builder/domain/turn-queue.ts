@@ -42,14 +42,14 @@ export const TERMINAL_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 ];
 
 /**
- * Statuses the cancel flow may interrupt. `waiting` is excluded on purpose:
- * a parked turn has no run and no lock, so it goes straight to `canceled`.
+ * Statuses the cancel flow may interrupt with `cancelling`. `waiting` is
+ * excluded on purpose: a parked turn has no run and no lock, so it goes
+ * straight to `canceled`. The paused `waiting_for_*` states also skip
+ * `cancelling`: the pause ended the run already.
  */
 export const CANCELLABLE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 	"queued",
 	"running",
-	"waiting_for_answer",
-	"waiting_for_approval",
 ];
 
 /**
@@ -71,15 +71,20 @@ export function isTerminalStatus(status: BuilderTurnStatus): boolean {
 }
 
 /**
- * Where a cancel sends a turn. `waiting` goes to `canceled` directly (no
- * run exists to die first); active statuses go through `cancelling` so the
- * task can write its wip commit; `cancelling` stays (idempotent retry);
- * terminal rows answer `null` because cancel is a no-op there.
+ * Where a cancel sends a turn. `waiting` and the paused `waiting_for_*`
+ * states go straight to `canceled`: no run is alive. Active statuses go
+ * through `cancelling` so the task can write its wip commit.
+ * `cancelling` stays for an idempotent retry. Terminal rows answer
+ * `null` because cancel is a no-op there.
  */
 export function nextStatusForCancel(
 	status: BuilderTurnStatus,
 ): BuilderTurnStatus | null {
-	if (status === "waiting") {
+	if (
+		status === "waiting" ||
+		status === "waiting_for_answer" ||
+		status === "waiting_for_approval"
+	) {
 		return "canceled";
 	}
 

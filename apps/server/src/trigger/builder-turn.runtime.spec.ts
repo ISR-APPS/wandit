@@ -1,4 +1,7 @@
-import type { BuilderTurnStatus } from "@wandit/contracts";
+import type {
+	BuilderTurnStatus,
+	HarnessPendingInteraction,
+} from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeBuilderHarness } from "../modules/app-builder/application/harness/fake.harness";
@@ -51,9 +54,59 @@ vi.mock("@wandit/observability/node", () => ({
 const TURN_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const CHAT_ID = "33333333-3333-4333-8333-333333333333";
+const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
 const PROXY_BASE_URL = "https://api.test/api/v2/llm";
+
+/** The question card a suspended turn waits on; two options. */
+const PENDING_QUESTION: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			id: "question-1",
+			options: [
+				{ id: "option-1", label: "Blue" },
+				{ id: "option-2", label: "Green" },
+			],
+			question: "Which color?",
+		},
+	],
+	toolCallId: "call-1",
+};
+
+/** A question card with two questions; the answer turn answers the first. */
+const PENDING_TWO_QUESTIONS: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		...(PENDING_QUESTION.kind === "question" ? PENDING_QUESTION.questions : []),
+		{ id: "question-2", options: [], question: "Which font?" },
+	],
+	toolCallId: "call-1",
+};
+
+/** The approval card a suspended turn waits on. */
+const PENDING_APPROVAL: HarnessPendingInteraction = {
+	approvalId: "appr-1",
+	input: '{"prompt":"a hero image"}',
+	kind: "approval",
+	toolCallId: "call-9",
+	toolName: "generate_image",
+};
+
+/** The session row a paused turn leaves behind for the answer turn. */
+function pausedSessionRow(
+	pending: HarnessPendingInteraction[],
+): BuilderSessionRow {
+	// SAFETY: the runtime reads only resumeState off the session row.
+	return {
+		resumeState: {
+			harness: "claude_code",
+			payload: "{}",
+			pending,
+		},
+	} as BuilderSessionRow;
+}
 
 /** In-memory `builder_turns` store with the CAS surface the runtime uses. */
 class FakeTurns {
@@ -64,6 +117,8 @@ class FakeTurns {
 	/** Highest turn number of the project; fencing reads it per write. */
 	current = 1;
 	row: BuilderTurnRow;
+	/** The paused row `findWaitingForUser` answers, or null. */
+	waitingForUser: BuilderTurnRow | null = null;
 
 	readonly claimCalls: { runId: string; turnId: string }[] = [];
 	readonly completeCalls: {
@@ -94,6 +149,10 @@ class FakeTurns {
 
 	async findById(_turnId: string): Promise<BuilderTurnRow | null> {
 		return this.row;
+	}
+
+	async findWaitingForUser(_projectId: string): Promise<BuilderTurnRow | null> {
+		return this.waitingForUser;
 	}
 
 	async currentTurnNumber(_projectId: string): Promise<number> {
@@ -830,9 +889,11 @@ describe("runBuilderTurn", () => {
 
 		expect(world.harness.resumeCalls).toHaveLength(1);
 		expect(world.harness.createCalls).toHaveLength(0);
+		// The envelope parse fills `pending` with its default.
 		expect(world.harness.resumeCalls[0]?.resumeState).toEqual({
 			harness: "claude_code",
 			payload: "{}",
+			pending: [],
 		});
 	});
 
@@ -894,5 +955,399 @@ describe("runBuilderTurn", () => {
 		expect(env?.ANTHROPIC_CUSTOM_HEADERS).toContain(RUN_ID);
 		expect(env?.VITE_SUPABASE_URL).toBeUndefined();
 		expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+	});
+
+	it("pauses on a pending question and waits for the answer turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_QUESTION];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.completeCalls).toHaveLength(1);
+		expect(world.turns.completeCalls[0]?.input.status).toBe(
+			"waiting_for_answer",
+		);
+		expect(world.harness.suspendCalls).toEqual(["fake-session-1"]);
+		expect(world.harness.detachCalls).toHaveLength(0);
+
+		// The card goes out as a stream part and into the assistant message.
+		type CardChunk = {
+			data?: { answer?: string | null; options?: string[] };
+			id?: string;
+			type?: string;
+		};
+		// SAFETY: the spec wrote the chunks; the card is the only data part.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const card = chunks.find((chunk) => chunk.type === "data-question");
+		expect(card).toEqual({
+			data: {
+				answer: null,
+				options: ["Blue", "Green"],
+				question: "Which color?",
+				questionId: "question-1",
+				toolCallId: "call-1",
+			},
+			id: "call-1:question-1",
+			type: "data-question",
+		});
+		expect(world.inserted[0]?.input.parts).toContainEqual(card);
+
+		// The suspended state lands in the session row with its pending card.
+		expect(world.sessions.saved[0]?.input.resumeState.pending).toEqual([
+			PENDING_QUESTION,
+		]);
+
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"waiting_for_answer",
+		);
+		expect(world.metering.settleCalls).toHaveLength(1);
+		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
+		expect(world.promoted).toEqual([
+			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
+		]);
+	});
+
+	it("writes one question card per question of a pending call", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_TWO_QUESTIONS];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		type CardChunk = { id?: string; type?: string };
+		// SAFETY: the spec wrote the chunks; the cards are the only data parts.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const cards = chunks.filter((chunk) => chunk.type === "data-question");
+		expect(cards.map((card) => card.id)).toEqual([
+			"call-1:question-1",
+			"call-1:question-2",
+		]);
+		for (const card of cards) {
+			expect(world.inserted[0]?.input.parts).toContainEqual(card);
+		}
+	});
+
+	it("pauses on a pending approval and completes as waiting_for_approval", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_APPROVAL];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.completeCalls).toHaveLength(1);
+		expect(world.turns.completeCalls[0]?.input.status).toBe(
+			"waiting_for_approval",
+		);
+		expect(world.harness.suspendCalls).toEqual(["fake-session-1"]);
+
+		// The approval card goes out as a stream part and into the message.
+		type CardChunk = {
+			data?: { decision?: string | null };
+			id?: string;
+			type?: string;
+		};
+		// SAFETY: the spec wrote the chunks; the card is the only data-approval part.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const card = chunks.find((chunk) => chunk.type === "data-approval");
+		expect(card).toEqual({
+			data: {
+				approvalId: "appr-1",
+				decision: null,
+				input: '{"prompt":"a hero image"}',
+				toolCallId: "call-9",
+				toolName: "generate_image",
+			},
+			id: "appr-1",
+			type: "data-approval",
+		});
+		expect(world.inserted[0]?.input.parts).toContainEqual(card);
+
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"waiting_for_approval",
+		);
+	});
+
+	it("continues a suspended turn with the option answer from the message", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_answer",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "green" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls).toHaveLength(1);
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: { "question-1": { optionIds: ["option-2"] } },
+					partial: false,
+					toolCallId: "call-1",
+				},
+			],
+		});
+		// The paused row counts as answered and moves to succeeded.
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["waiting_for_answer", "waiting_for_approval"],
+				patch: undefined,
+				to: "succeeded",
+				turnId: PAUSED_TURN_ID,
+			},
+		]);
+	});
+
+	it("marks the answer partial when the call holds two questions", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_TWO_QUESTIONS]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_answer",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "green" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: { "question-1": { optionIds: ["option-2"] } },
+					partial: true,
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("warns when the paused row moved on before the CAS", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_answer",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "green" },
+		});
+		world.turns.transitionResult = false;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.warnings).toContain(
+			`Waiting turn ${PAUSED_TURN_ID} write lost: row moved on`,
+		);
+		expect(world.turns.completeCalls).toHaveLength(1);
+	});
+
+	it("sends a free-text answer as freeform", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "chartreuse" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: {
+						"question-1": { freeform: "chartreuse", optionIds: [] },
+					},
+					partial: false,
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("sends an attachment-only answer as the attachment text", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_answer",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [
+					{ mediaType: "image/png", url: "https://files.test/shot.png" },
+				],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "continue",
+			toolResults: [
+				{
+					answers: {
+						"question-1": {
+							freeform: "See the attached files.\nhttps://files.test/shot.png",
+							optionIds: [],
+						},
+					},
+					partial: false,
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("continues a suspended turn with the approval decision from the body", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_approval",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: {
+				approval: { approvalId: "appr-1", approved: true },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [{ approvalId: "appr-1", approved: true }],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [],
+		});
+	});
+
+	it("denies an approval the body does not name", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_approval",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: {
+				approval: { approvalId: "other", approved: true },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			approvals: [{ approvalId: "appr-1", approved: false }],
+			kind: "continue",
+			toolResults: [],
+		});
+	});
+
+	it("tells a fresh session that the user denied the call", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "" },
+		});
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.createCalls).toHaveLength(1);
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "The user denied the generate_image call. Continue.",
+		});
+	});
+
+	it("answers the card as plain text when the suspended session is lost", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.turns.row = fakeTurnRow({
+			spec: { attachments: [], composer: null, message: "green" },
+		});
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.createCalls).toHaveLength(1);
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt: 'Answer to your question "Which color?": green',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("saves the suspended state when the settle tail fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_QUESTION];
+		world.deps.insertAssistantMessage = async () => {
+			throw new Error("insert failed");
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls).toHaveLength(1);
+		expect(world.harness.suspendCalls).toEqual(["fake-session-1"]);
+		expect(world.harness.detachCalls).toHaveLength(0);
+		expect(world.sessions.saved).toHaveLength(1);
+		expect(world.sessions.saved[0]?.input.resumeState.pending).toEqual([
+			PENDING_QUESTION,
+		]);
+		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 	});
 });

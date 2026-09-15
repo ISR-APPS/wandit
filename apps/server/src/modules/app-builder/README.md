@@ -42,9 +42,11 @@ PostHog flag `v2-builder`).
 - `SandboxProvider` — one persistent sandbox per project: exec, files,
   ports, preview URL, the harness session.
 - `BuilderHarness` — the coding agent: create/resume a session, stream one
-  turn, detach into `HarnessResumeState`.
+  turn (a prompt or a continuation), detach into `HarnessResumeState`,
+  and suspend a paused turn with its pending cards.
 - `HostToolRegistry` — the host-side tools the agent may call during a
-  turn.
+  turn; `HostToolContext` carries the turn hold and the metering subject
+  so paid tools bill under the turn.
 - `TurnEventWriter` / `TurnEventReader` — the two ends of the `ui` stream
   (D20).
 - `TurnLock` — the per-project lock serializing turns.
@@ -125,7 +127,10 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
   lock, the `queued` row, the user message, and the task handoff — and
   answers with the turn's own stream: the `data-turn-created` part first,
   then the relayed chunks. A parked `waiting` row streams as soon as
-  promotion gives it a run.
+  promotion gives it a run. A turn paused on a `data-approval` card
+  answers 409 `BUILDER_APPROVAL_PENDING` until the body carries
+  `approval`; a turn paused on a question takes the message text as the
+  answer.
 - `GET /:turnId/stream` relays one turn's stream; `204` while the row has
   no run id.
 - `GET /active/stream` is the `useChat` reconnect route: the active
@@ -218,7 +223,14 @@ One run does this, in order:
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
-   harness mismatch is a failure.
+   harness mismatch is a failure. A `waiting_for_*` row of the project
+   moves to `succeeded` first — this run is its answer. When the stored
+   state holds pending cards, the turn streams a `continue` input: the
+   message text answers the first question (a matching option label
+   becomes its id, other text becomes a freeform answer), `spec.approval`
+   answers the approval card (an unnamed approval counts as denied). A
+   session that cannot resume starts fresh and hears the answer as plain
+   text.
 7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
    refresh, `sandbox.keepAlive`, `touchActivity`), a 30 s `Working`
    heartbeat (`STREAM_HEARTBEAT_MS`), and the 4 min stall watchdog
@@ -226,11 +238,17 @@ One run does this, in order:
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
    reconstruction; `usage` events accumulate token counts.
-9. On stream end: `commitTurn` commits the workspace (a commit failure
-   only costs the commit, not the turn), a `files` event carries the
-   numstat, `insertTurnAssistantMessage` persists the assistant message
-   with usage and commit metadata, and `detach` saves the opaque resume
-   state on the session row.
+9. On stream end `hasUnfinishedTurn` picks the path. A paused turn runs
+   `suspendTurn` instead of `detach`: one `data-question` or
+   `data-approval` stream part and message part per pending card, the row
+   completes as `waiting_for_answer` (`waiting_for_approval` when a
+   card is an approval), and the suspended state lands on the session
+   row. A finished turn completes as `succeeded`. Both paths share the
+   same tail: `commitTurn` commits the workspace (a commit failure only
+   costs the commit, not the turn), a `files` event carries the numstat,
+   `insertTurnAssistantMessage` persists the assistant message with
+   usage and commit metadata, and the resume state is saved on the
+   session row.
 10. Settles the hold with a token settlement (`pricing: "token"`; the
     price row only fills `provider`), or refunds it on failure and on a
     cancel the task finalizes; `builderTurns.complete`/`fail` mark the
@@ -242,6 +260,32 @@ One run does this, in order:
     runtime `finally` only stops the timers and closes the host tools;
     the task `finally` closes the event writer, the two Redis clients,
     and the pool.
+
+## Host tools (WANDIT-169)
+
+Host tools run in the task process, not inside the sandbox: platform and
+partner secrets never enter the VM. `BuilderHostToolRegistry` assembles
+the per-turn `HostToolSet` the harness hands to the agent; `build` gets
+the `builder-turn:<turnId>` hold id and the metering subject, so a paid
+tool reserves a measured child event under the parent hold. `close`
+releases per-turn clients (none today — connectors land in a follow-up).
+
+- `generate_image` reuses the V1 `generateBuildImage` pipeline (gateway
+  model, R2 upload, renditions) and writes the bytes into the sandbox
+  project. Rules it pins: the `path` must stay under `public/` or
+  `src/assets/` (checked before any credit moves); at most 6 calls per
+  turn (`MAX_IMAGES`); the file extension follows the stored media type;
+  a child hold is reserved per call (`builder-turn-image:<turnId>:<n>`),
+  gateway evidence is captured before settlement, a provider failure
+  refunds, and a `failed`/`unavailable` result returns to the agent
+  instead of throwing. `null` `holdEventId` answers `failed` — a paid
+  tool never runs unbilled.
+- Approval state comes back in `toolApproval`; a tool with
+  `"user-approval"` pauses the stream on an approval request the same
+  way `askUserQuestions` pauses for an answer. `generate_image` is
+  `"not-applicable"` — it never asks.
+- MCP connector tools are out of scope here: they need the Nest
+  container, and the task has none (follow-up issue).
 
 Run a turn locally: from `apps/server`, start the worker with
 `npx trigger.dev@4.5.3 dev`, then create a turn through

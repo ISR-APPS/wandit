@@ -102,4 +102,14 @@ describe("createTurnRequestSchema", () => {
 			}).success,
 		).toBe(true);
 	});
+
+	it("accepts an approval-only body", () => {
+		expect(
+			createTurnRequestSchema.safeParse({
+				approval: { approvalId: "appr-1", approved: true },
+				chatId: CHAT_ID,
+				message: "",
+			}).success,
+		).toBe(true);
+	});
 });
