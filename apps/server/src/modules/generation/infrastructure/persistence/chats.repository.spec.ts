@@ -284,6 +284,45 @@ describe("ChatsRepository failure persistence", () => {
 	});
 });
 
+describe("ChatsRepository.insertTurnAssistantMessage", () => {
+	it("inserts the assistant row with turnId and conflict drop", async () => {
+		const { onConflictDoNothing, repository, values } = setupWrites();
+
+		await repository.insertTurnAssistantMessage({
+			chatId: "chat-1",
+			id: "message-1",
+			metadata: {
+				harness: "claude_code",
+				model: "anthropic/claude-sonnet-5",
+				outputCommitSha: "abc123",
+				usage: {
+					cacheReadTokens: 1,
+					cacheWriteTokens: 2,
+					credits: 30,
+					inputTokens: 10,
+					outputTokens: 5,
+				},
+			},
+			parts: [{ state: "done", text: "done", type: "text" }],
+			turnId: "turn-1",
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({
+				chatId: "chat-1",
+				failureKind: null,
+				id: "message-1",
+				role: "assistant",
+				sentryEventId: null,
+				turnId: "turn-1",
+			}),
+		);
+		expect(onConflictDoNothing).toHaveBeenCalledWith({
+			target: messages.id,
+		});
+	});
+});
+
 describe("ChatsRepository.deleteTerminalFailedAssistantMessage", () => {
 	function setupDelete(returned: Array<{ id: string }>) {
 		const returning = vi.fn(async (_selection: unknown) => returned);
@@ -395,5 +434,56 @@ describe("ChatsRepository.getUsage", () => {
 			costUsdMicros: null,
 			creditsCenti: null,
 		});
+	});
+});
+
+describe("ChatsRepository.attachTurnToMessage", () => {
+	function setupUpdate(rows: unknown[]) {
+		const captured: { where?: unknown } = {};
+		const returning = vi.fn(async () => rows);
+		const where = vi.fn((w: unknown) => {
+			captured.where = w;
+			return { returning };
+		});
+		const set = vi.fn(() => ({ where }));
+		const update = vi.fn(() => ({ set }));
+		const repository = new ChatsRepository(
+			// SAFETY: `Object.create` yields any; the stub exposes only the
+			// update chain the method calls.
+			Object.assign(Object.create(null), { update }) as Database,
+		);
+
+		return { captured, repository, set };
+	}
+
+	it("links the turn on an unattached message of the chat only", async () => {
+		const { captured, repository, set } = setupUpdate([{ id: "message-1" }]);
+
+		await repository.attachTurnToMessage({
+			chatId: "chat-1",
+			messageId: "message-1",
+			turnId: "turn-1",
+		});
+
+		expect(set).toHaveBeenCalledWith({ turnId: "turn-1" });
+		const query = compile(captured.where);
+		expect(query.sql).toContain('"messages"."id" = $1');
+		expect(query.sql).toContain('"messages"."chat_id" = $2');
+		expect(query.sql).toContain('"messages"."turn_id" is null');
+		expect(query.params).toEqual(["message-1", "chat-1"]);
+	});
+
+	it("throws when the message is missing or already attached", async () => {
+		const { repository } = setupUpdate([]);
+
+		await expect(
+			repository.attachTurnToMessage({
+				chatId: "chat-1",
+				messageId: "message-1",
+				turnId: "turn-1",
+			}),
+		).rejects.toThrow(
+			"Message message-1 not found in chat chat-1 or already attached to a turn",
+		);
 	});
 });

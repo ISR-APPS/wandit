@@ -16,6 +16,8 @@ import { fileRefSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 // Shared id/date validators.
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
+// The engine enum lives next to primitives: V1 and V2 schemas both read it.
+import { projectEngineSchema } from "./shared/project-engine";
 
 // Shared HTTP agreement for Projects & Dashboard
 // (docs/features/projects-dashboard.md) — the exemplar domain file: new
@@ -36,6 +38,9 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 export const projectSchema = z.object({
 	id: uuidSchema,
 	name: z.string(),
+	// Which builder made the project (D11). V1 rows answer "v1_page"; the web
+	// shows an "App" badge for "v2_app".
+	engine: projectEngineSchema.default("v1_page"),
 	// First user prompt shown on dashboard.
 	prompt: z.string(),
 	status: projectStatusSchema,

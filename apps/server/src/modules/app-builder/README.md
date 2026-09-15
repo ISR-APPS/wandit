@@ -29,8 +29,10 @@ PostHog flag `v2-builder`).
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
-| `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository |
+| `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
+| `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
+| `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-175: `POST /api/v2/projects` |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
 | `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy |
@@ -141,6 +143,106 @@ Rules the code pins:
   `trigger-isolation.spec.ts` enforces this.
 - `TurnStreamRelayService` copies the V1 SSE socket handling: 15 s
   heartbeats, backpressure on `drain`, error frames on reader failure.
+
+## Projects (WANDIT-175)
+
+Two routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
+the same workspace permissions V1 uses (`project:create`, read = any
+member):
+
+- `POST /` refuses `mobile` (WANDIT-192), checks attachments and the
+  settled balance, then writes the project row (`engine = 'v2_app'`), the
+  first chat, the first user message, and the `builder_sessions` row in
+  one transaction. The first builder turn starts right after the commit
+  and adopts that message row — a failed turn still answers 201 with
+  `turnId: null`. The title job and `v2_project_created` follow.
+- `GET /:projectId` answers the `AppProject` shape; a `v1_page` row in
+  scope answers 404 like a missing one.
+
+Deletion rides the V1 route: a `v2_app` soft-delete queues the
+`delete-app-project` task. The task is idempotent on `projectId` and
+runs one attempt. It uses its own `app-project-cleanup` queue at
+concurrency 2, so a delete never waits behind a sweep. The runtime runs
+seven steps, each in its own try/catch. It cancels the active turn's
+run, destroys the vendor sandbox, and holds the WANDIT-183/184 backend
+seam. Then it drains the two `v2ProjectPrefixes` and deletes the
+code.storage repository. The prefixes are `git/<id>/` and
+`sites/<id>/assets/`, never `published/` — WANDIT-178 owns that root.
+It writes one `audit_events` row with each step's outcome and sends
+`v2_project_deleted`. The starter binds null when V2 is off, so a V1
+deploy never builds it.
+
+## Builder turn
+
+The `builder-turn` Trigger task (WANDIT-166) runs one turn end to end.
+`builder-task-queues.ts` gives it the `builder-turn` queue
+(`concurrencyLimit: 1`); `builder-turn.task.ts` wires the production
+dependencies; `builder-turn.runtime.ts` holds the step list and runs on
+fakes in `builder-turn.runtime.spec.ts`. The API takes the project lock
+and queues the run; the task only refreshes and releases the lock under
+the turn id.
+
+One run does this, in order:
+
+1. Claims the row (`builderTurns.claimRunning`, a `queued` → `running`
+   CAS under the run id); a lost claim ends the run quietly. Then loads
+   the turn row and the project row (`TurnProjectRepository`); a
+   non-`v2_app` project or a missing framework/template version fails the
+   turn before any sandbox work. The model comes from
+   `V2_DEFAULT_MODEL`.
+2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
+   computes `capUsd` for the token claims.
+3. Mints the scoped proxy token (`mintLlmProxyToken`) with the run, turn,
+   user, project, workspace, and plan claims.
+4. Builds the allow-listed env (`buildSandboxEnv`): the run token becomes
+   `ANTHROPIC_AUTH_TOKEN`, the proxy URL `ANTHROPIC_BASE_URL`, the run id
+   `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
+   an empty string.
+5. Wakes or creates the sandbox (`sandboxes.getOrCreate`) and touches
+   `sandbox_sessions` activity so the idle sweep leaves it alone.
+6. Loads the `builder_sessions` row (`findByChatId`) the API created at
+   turn create, then creates or resumes the `HarnessAgent` session
+   through `createBuilderHarness`; a stored `resumeState` means resume, a
+   harness mismatch is a failure.
+7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
+   refresh, `sandbox.keepAlive`, `touchActivity`), a 30 s `Working`
+   heartbeat (`STREAM_HEARTBEAT_MS`), and the 4 min stall watchdog
+   (`TURN_STALL_MS`; a silent harness ends the turn as `stalled`).
+8. Streams harness parts: each `part` goes to the `ui` Trigger stream
+   (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
+   reconstruction; `usage` events accumulate token counts.
+9. On stream end: `commitTurn` commits the workspace (a commit failure
+   only costs the commit, not the turn), a `files` event carries the
+   numstat, `insertTurnAssistantMessage` persists the assistant message
+   with usage and commit metadata, and `detach` saves the opaque resume
+   state on the session row.
+10. Settles the hold with a token settlement (`pricing: "token"`; the
+    price row only fills `provider`), or refunds it on failure and on a
+    cancel the task finalizes; `builderTurns.complete`/`fail` mark the
+    row terminal with a compare-and-set, so a stale task can never
+    overwrite a newer turn.
+11. Each terminal path ends with `finishTurn`: `counters.revokeRun` kills
+    the token, the lock releases, `promoteNext` hands the slot to the
+    oldest `waiting` turn, and `touchActivity` runs once more. The
+    runtime `finally` only stops the timers and closes the host tools;
+    the task `finally` closes the event writer, the two Redis clients,
+    and the pool.
+
+Run a turn locally: from `apps/server`, start the worker with
+`npx trigger.dev@4.5.3 dev`, then create a turn through
+`POST /api/v2/projects/:projectId/turns`. The handoff queues the run by
+task id `builder-turn`; watch it in the Trigger dev dashboard. The
+worker needs `DATABASE_URL`, `REDIS_URL`, `TRIGGER_SECRET_KEY`,
+`V2_DEFAULT_MODEL`, `LLM_PROXY_SIGNING_KEY`, the sandbox envs
+(`VERCEL_SANDBOX_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`), and the
+code.storage envs.
+
+Switch `V2_HARNESS`: `claude-code` is the default and only built harness
+(D17). The task calls `createBuilderHarness(env.V2_HARNESS)`; an unknown
+value throws `HarnessNotBuiltError` before the sandbox starts. OpenCode
+joins the same enum later; the runtime only sees the `BuilderHarness`
+port.
+
 
 ## Versions and the git store
 

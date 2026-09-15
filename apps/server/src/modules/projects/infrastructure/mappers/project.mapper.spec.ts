@@ -10,8 +10,11 @@ function projectRow(
 	return {
 		activeSlug: null,
 		createdAt: new Date("2026-07-31T08:00:00.000Z"),
+		engine: "v1_page",
+		framework: null,
 		hideWanditBadge: false,
 		id: "project_1",
+		languages: [],
 		leadCount: 0,
 		logoUrl,
 		metaPixelId: null,
@@ -19,6 +22,8 @@ function projectRow(
 		pendingDeploymentCount: 0,
 		previewImageUrl,
 		prompt: "Build a landing page",
+		targetPlatform: null,
+		templateVersion: null,
 		tiktokPixelId: null,
 		updatedAt: new Date("2026-07-31T09:00:00.000Z"),
 	};

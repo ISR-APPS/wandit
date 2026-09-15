@@ -36,6 +36,11 @@ export class FakeTurnEventStream implements TurnEventWriter, TurnEventReader {
 		this.notify(bucket);
 	}
 
+	/** The stamped events written under one key, in write order. */
+	eventsOf(turnId: string): readonly TurnStreamEvent[] {
+		return this.bucketFor(turnId).events;
+	}
+
 	/** Ends every `read` loop waiting on this key. */
 	close(turnId: string): void {
 		const bucket = this.bucketFor(turnId);

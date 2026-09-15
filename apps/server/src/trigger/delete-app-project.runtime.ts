@@ -1,0 +1,219 @@
+/**
+ * Delete-app-project runtime: removes the external resources of one
+ * soft-deleted `v2_app` project.
+ * Seven steps run in order: turn-run cancel, sandbox destroy, backend
+ * seam, R2 drain, repository delete, audit row, analytics event.
+ * Every step runs in its own try/catch, so one failed vendor call never
+ * blocks the audit row.
+ * `delete-app-project.task.ts` calls it through
+ * `createDeleteAppProjectRuntime`. The spec runs `runDeleteAppProject`
+ * on fakes. No Nest here — Trigger workers compose dependencies by
+ * hand.
+ */
+import { runs } from "@trigger.dev/sdk";
+import type { createDb } from "@wandit/db";
+import { env } from "@wandit/env/server";
+import { getErrorMessage } from "@wandit/observability/error";
+import { Sentry } from "@wandit/observability/node";
+
+import {
+	deleteObjectsByPrefix,
+	v2ProjectPrefixes,
+} from "../infrastructure/storage/r2";
+import type { DeleteAppProjectInput } from "../modules/app-builder/domain/ports/delete-app-project-task-starter";
+import type { GitStore } from "../modules/app-builder/domain/ports/git-store";
+import type {
+	SandboxLogger,
+	SandboxProvider,
+} from "../modules/app-builder/domain/ports/sandbox-provider";
+import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
+import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
+import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
+import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import {
+	ArchiveTemplateInit,
+	TEMPLATE_ARCHIVE_DIR,
+} from "../modules/app-builder/infrastructure/sandbox/template-init";
+import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
+
+type TriggerDatabase = ReturnType<typeof createDb>;
+
+/** The slice of the cleanup the spec fakes. */
+export type DeleteAppProjectDeps = {
+	/** Finds the queued or running turn; its `triggerRunId` is the run to cancel. */
+	turns: Pick<BuilderTurnsRepository, "findActiveForProject">;
+	/** `runs.cancel` of the Trigger SDK in production; a `vi.fn` in the spec. */
+	cancelRun: (runId: string) => Promise<void>;
+	/** Vendor sandbox destroy; it marks the `sandbox_sessions` row itself. */
+	sandboxes: Pick<SandboxProvider, "destroy">;
+	/** code.storage repository delete; a 404 or a 409 counts as done. */
+	gitStore: Pick<GitStore, "deleteRepository">;
+	/** Drains one R2 prefix and answers the number of deleted keys. */
+	deleteObjectsByPrefix: (prefix: string) => Promise<number>;
+	/** Append-only writer of the `project.deleted` audit row. */
+	auditEvents: Pick<AuditEventsRepository, "insert">;
+	/** PostHog capture for `v2_project_deleted`; `triggerAnalytics.capture` in production. */
+	capture: (
+		distinctId: string,
+		event: string,
+		properties: Record<string, string | number | boolean | null>,
+	) => void;
+	/** `Sentry.logger` in production; every field value is a string. */
+	logger: SandboxLogger;
+};
+
+/** Outcome of one run. Every step reports; no step aborts the others. */
+export type DeleteAppProjectResult = {
+	/** True when an active turn had a run id and the cancel call resolved. */
+	turnCanceled: boolean;
+	/** "destroyed" when the vendor call resolved; "error" when it threw. */
+	sandbox: "destroyed" | "error";
+	/** "deleted" when code.storage answered; "error" when the call threw. */
+	repository: "deleted" | "error";
+	/** Keys removed under the two `v2ProjectPrefixes`. */
+	objectsDeleted: number;
+	/** False when the audit insert threw; the log line carries the reason. */
+	auditWritten: boolean;
+};
+
+/**
+ * Runs the seven cleanup steps for one soft-deleted `v2_app` project.
+ * It never throws: each step logs its own failure and the result reports every outcome.
+ * The audit row carries the same outcomes, so a failed vendor call stays visible after the run.
+ */
+export async function runDeleteAppProject(
+	deps: DeleteAppProjectDeps,
+	input: DeleteAppProjectInput,
+): Promise<DeleteAppProjectResult> {
+	const { projectId } = input;
+	const fields = { projectId };
+
+	// A running turn keeps the sandbox busy; cancel its Trigger run first.
+	let turnCanceled = false;
+	try {
+		const active = await deps.turns.findActiveForProject(projectId);
+		if (active?.triggerRunId) {
+			await deps.cancelRun(active.triggerRunId);
+			turnCanceled = true;
+		}
+	} catch (error) {
+		deps.logger.error("app-project.delete.turn-cancel-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// destroy is a silent no-op without a live sandbox_sessions row and never
+	// throws SandboxNotFoundError. It marks the row destroyed itself, so this
+	// file never touches that table.
+	let sandbox: "destroyed" | "error" = "error";
+	try {
+		await deps.sandboxes.destroy(projectId);
+		sandbox = "destroyed";
+	} catch (error) {
+		deps.logger.error("app-project.delete.sandbox-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// WANDIT-183/184 add here: backendsService.markDeleting(projectId) (pause the Supabase project, status = deleting; skip a claimed backend).
+
+	let objectsDeleted = 0;
+	for (const prefix of v2ProjectPrefixes(projectId)) {
+		try {
+			objectsDeleted += await deps.deleteObjectsByPrefix(prefix);
+		} catch (error) {
+			deps.logger.error("app-project.delete.objects-failed", {
+				...fields,
+				error: getErrorMessage(error),
+				prefix,
+			});
+		}
+	}
+
+	let repository: "deleted" | "error" = "error";
+	try {
+		await deps.gitStore.deleteRepository(projectId);
+		repository = "deleted";
+	} catch (error) {
+		deps.logger.error("app-project.delete.repository-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	let auditWritten = false;
+	try {
+		await deps.auditEvents.insert({
+			action: "project.deleted",
+			actorUserId: input.actorUserId,
+			metadata: { objectsDeleted, repository, sandbox, turnCanceled },
+			organizationId: input.organizationId,
+			projectId,
+			targetId: projectId,
+			targetType: "project",
+		});
+		auditWritten = true;
+	} catch (error) {
+		deps.logger.error("app-project.delete.audit-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// capture only enqueues to PostHog; it never throws into the audit row.
+	deps.capture(input.actorUserId, "v2_project_deleted", {
+		objectsDeleted,
+		organizationId: input.organizationId,
+		projectId,
+		repository,
+		sandbox,
+	});
+
+	deps.logger.info("app-project.delete.completed", {
+		...fields,
+		objectsDeleted: String(objectsDeleted),
+		repository,
+		sandbox,
+	});
+
+	return { auditWritten, objectsDeleted, repository, sandbox, turnCanceled };
+}
+
+/**
+ * Composes the real repositories, the provider, the git store, the R2
+ * drain, the run cancel, and the PostHog capture for the Trigger worker.
+ * The provider's template-init and repo-restorer arguments exist because
+ * `destroy` shares the provider with the start path; the run closes `db`
+ * itself in its `finally`.
+ */
+export function createDeleteAppProjectRuntime(
+	db: TriggerDatabase,
+	capture: DeleteAppProjectDeps["capture"],
+) {
+	const sessions = new SandboxSessionsRepository(db);
+	return {
+		run: (input: DeleteAppProjectInput) =>
+			runDeleteAppProject(
+				{
+					auditEvents: new AuditEventsRepository(db),
+					cancelRun: async (runId) => {
+						await runs.cancel(runId);
+					},
+					capture,
+					deleteObjectsByPrefix: (prefix) => deleteObjectsByPrefix(prefix),
+					gitStore: new CodeStorageGitStore(env),
+					logger: Sentry.logger,
+					sandboxes: new VercelSandboxProvider(
+						sessions,
+						new LoggingRepoRestorer(),
+						new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
+					),
+					turns: new BuilderTurnsRepository(db),
+				},
+				input,
+			),
+	};
+}

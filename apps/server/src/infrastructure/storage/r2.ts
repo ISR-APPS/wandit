@@ -579,3 +579,39 @@ function isAwsNotFoundError(
 		error.$metadata !== null
 	);
 }
+
+/**
+ * R2 prefixes one `v2_app` project owns. Writers: the `commit-turn.ts`
+ * patches under `git/`, and the generate_image host tool of WANDIT-169
+ * under `sites/<id>/assets/`. Never the `published/` prefix: WANDIT-178
+ * publishes there and the V1 pages share it.
+ */
+export function v2ProjectPrefixes(projectId: string): string[] {
+	return [`git/${projectId}/`, `sites/${projectId}/assets/`];
+}
+
+/**
+ * Deletes every object under `prefix` and answers the count.
+ * The `delete-app-project` runtime calls it; a spec passes a fake `io`.
+ */
+export async function deleteObjectsByPrefix(
+	prefix: string,
+	io: { list: typeof listObjectsByPrefix; remove: typeof deleteObject } = {
+		list: listObjectsByPrefix,
+		remove: deleteObject,
+	},
+): Promise<number> {
+	let deleted = 0;
+	// R2 lists at most 1,000 keys per call; the loop drains the prefix page
+	// by page. A short page is the last one.
+	for (;;) {
+		const page = await io.list(prefix, 1_000);
+		for (const object of page) {
+			await io.remove(object.key);
+		}
+		deleted += page.length;
+		if (page.length < 1_000) {
+			return deleted;
+		}
+	}
+}

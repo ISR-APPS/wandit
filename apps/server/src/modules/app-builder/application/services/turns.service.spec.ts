@@ -147,12 +147,17 @@ function setup() {
 		),
 	};
 	const chats = {
+		attachTurnToMessage: vi.fn(async () => undefined),
 		findAccessibleChatById: vi.fn(async () => ({
 			id: "chat-1",
 			projectId: "project-1",
 			userId: "user-1",
 		})),
-		insertTurnUserMessage: vi.fn(async () => ({ id: "message-1" })),
+		insertTurnUserMessage: vi.fn(
+			async (
+				_input: Parameters<ChatsRepository["insertTurnUserMessage"]>[0],
+			) => ({ id: "message-1" }),
+		),
 	};
 	const projects = {
 		findEngineByIdForScope: vi.fn<ProjectsRepository["findEngineByIdForScope"]>(
@@ -424,6 +429,42 @@ describe("TurnsService.create", () => {
 			expect.objectContaining({ sessionId: "session-raced" }),
 		);
 		expect(result.status).toBe("queued");
+	});
+
+	it("adopts the existing first message instead of inserting a new one", async () => {
+		const { chats, service, turns } = setup();
+		const existingMessageId = randomUUID();
+
+		const result = await service.create(SCOPE, "project-1", BODY, {
+			existingMessageId,
+		});
+
+		expect(chats.insertTurnUserMessage).not.toHaveBeenCalled();
+		expect(chats.attachTurnToMessage).toHaveBeenCalledWith({
+			chatId: BODY.chatId,
+			messageId: existingMessageId,
+			turnId: result.turnId,
+		});
+		// The turn row and the hold carry the adopted message id.
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({ messageId: existingMessageId }),
+		);
+	});
+
+	it("keeps the plain message insert when no existingMessageId is given", async () => {
+		const { chats, service, turns } = setup();
+
+		await service.create(SCOPE, "project-1", BODY);
+
+		expect(chats.attachTurnToMessage).not.toHaveBeenCalled();
+		expect(chats.insertTurnUserMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ turnId: expect.any(String) }),
+		);
+		// The message id is minted once and shared by the hold and the row.
+		const messageId = chats.insertTurnUserMessage.mock.calls[0]?.[0].id;
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({ messageId }),
+		);
 	});
 });
 

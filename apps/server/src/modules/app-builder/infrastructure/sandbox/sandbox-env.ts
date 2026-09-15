@@ -34,10 +34,11 @@ export type SandboxEnvInput = {
 	proxyToken: string;
 	/** The builder-turn run id; lands in `ANTHROPIC_CUSTOM_HEADERS` so the proxy can attribute spend. */
 	runId: string;
+	// Null until WANDIT-183 writes the app_backends row.
 	/** Public Supabase URL of the project's backend, from `app_backends`. */
-	supabaseUrl: string;
+	supabaseUrl: string | null;
 	/** Public anon key of the project's backend, from `app_backends`. */
-	supabaseAnonKey: string;
+	supabaseAnonKey: string | null;
 	/** Host serving the app preview; omitted from the env when null. */
 	previewHost: string | null;
 	/**
@@ -62,9 +63,14 @@ export function buildSandboxEnv(
 		// Security: the real Anthropic key lives on the proxy, never in the VM.
 		ANTHROPIC_API_KEY: "",
 		ANTHROPIC_CUSTOM_HEADERS: `X-Wandit-Run: ${input.runId}`,
-		VITE_SUPABASE_ANON_KEY: input.supabaseAnonKey,
-		VITE_SUPABASE_URL: input.supabaseUrl,
 	};
+	// No backend yet means no VITE_* names at all: the template
+	// src/lib/supabase.ts throws at first use, while an empty string would
+	// pass the env check and fail inside the Supabase client.
+	if (input.supabaseUrl !== null && input.supabaseAnonKey !== null) {
+		env.VITE_SUPABASE_ANON_KEY = input.supabaseAnonKey;
+		env.VITE_SUPABASE_URL = input.supabaseUrl;
+	}
 	if (input.previewHost !== null) {
 		env.WANDIT_PREVIEW_HOST = input.previewHost;
 	}

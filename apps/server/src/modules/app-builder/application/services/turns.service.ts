@@ -10,7 +10,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-	BadRequestException,
 	ConflictException,
 	Inject,
 	Injectable,
@@ -22,13 +21,12 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
-	type FileRef,
 } from "@wandit/contracts";
 import type { V2Harness } from "@wandit/env/v2-harness";
 
-import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
+import { assertWanditHostedAttachments } from "../../../projects/application/services/projects.service";
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
@@ -73,9 +71,10 @@ import { TurnPromoter } from "./turn-promotion";
 /**
  * 10 credits in centi-credits, held per turn. ESTIMATE until WANDIT-174
  * adds `agent_session` estimate math; the `chat` operation stands in for
- * the same reason (its 10 cc floor is far under this hold).
+ * the same reason (its 10 cc floor is far under this hold). The V2 create
+ * route reads it as the 402 `requiredCredits`.
  */
-const TURN_HOLD_CREDITS_ESTIMATE = 1_000;
+export const TURN_HOLD_CREDITS_ESTIMATE = 1_000;
 
 // Cancel waits at most 30 s for the task's terminal write to land after
 // runs.cancel; longer cleanup is the lock TTL's job.
@@ -83,8 +82,8 @@ const CANCEL_SETTLE_TIMEOUT_MS = 30_000;
 // Row-poll cadence while cancel waits for a run that never wrote a run id.
 const CANCEL_SETTLE_POLL_MS = 500;
 
-/** Env harness name → `builder_harness` db enum. */
-const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
+/** Env harness name → `builder_harness` db enum. Shared with the V2 create route. */
+export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 	"claude-code": "claude_code",
 	opencode: "opencode",
 };
@@ -129,6 +128,8 @@ export class TurnsService {
 		scope: ProjectScope,
 		projectId: string,
 		body: CreateTurnRequest,
+		/** Set by the create-project path: the first user message row already exists inside the create transaction. */
+		options: { existingMessageId?: string } = {},
 	): Promise<CreateTurnResponse> {
 		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
 		// One 404 for "missing", "out of scope", and "not a V2 project".
@@ -141,10 +142,12 @@ export class TurnsService {
 			throw new NotFoundException();
 		}
 
-		this.assertWanditHostedAttachments(scope.userId, body.attachments);
+		assertWanditHostedAttachments(scope.userId, body.attachments);
 
 		const turnId = randomUUID();
-		const messageId = randomUUID();
+		// A pre-written first message (project create) keeps its id; every
+		// other turn mints a fresh row id here.
+		const messageId = options.existingMessageId ?? randomUUID();
 		const model = this.v2Env.V2_DEFAULT_MODEL ?? null;
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
@@ -236,14 +239,24 @@ export class TurnsService {
 				return this.responseFor(created.turn, body.chatId);
 			}
 
-			await this.chats.insertTurnUserMessage({
-				attachments: body.attachments,
-				chatId: body.chatId,
-				composer: body.composer,
-				id: messageId,
-				text: body.message,
-				turnId: created.turn.id,
-			});
+			if (options.existingMessageId === undefined) {
+				await this.chats.insertTurnUserMessage({
+					attachments: body.attachments,
+					chatId: body.chatId,
+					composer: body.composer,
+					id: messageId,
+					text: body.message,
+					turnId: created.turn.id,
+				});
+			} else {
+				// The create transaction already wrote the user message; only the
+				// turn link is missing.
+				await this.chats.attachTurnToMessage({
+					chatId: body.chatId,
+					messageId,
+					turnId: created.turn.id,
+				});
+			}
 
 			if (!acquired) {
 				if (oldestWaiting !== null) {
@@ -686,21 +699,5 @@ export class TurnsService {
 			turnId: turn.id,
 			...(turn.status === "waiting" ? { queued: true } : {}),
 		};
-	}
-
-	// Attachments must be objects the same user uploaded through Wandit's
-	// R2 prefix — a raw URL check cannot prove ownership.
-	private assertWanditHostedAttachments(
-		userId: string,
-		attachments: FileRef[] | undefined,
-	): void {
-		for (const attachment of attachments ?? []) {
-			if (!isUserUploadUrl(attachment.url, userId)) {
-				throw new BadRequestException({
-					code: "INVALID_FILE_PART",
-					message: "Attachments must be uploaded through Wandit",
-				});
-			}
-		}
 	}
 }

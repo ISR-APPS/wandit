@@ -12,11 +12,13 @@ import type {
 	ChatUsageResponse,
 	ComposerMetadata,
 	FileRef,
+	TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
+import type { UIMessage } from "ai";
 
 import {
 	DATABASE,
@@ -248,6 +250,33 @@ export class ChatsRepository {
 		return this.expectMessage(row);
 	}
 
+	/**
+	 * V2 turn assistant message. Same insert shape as
+	 * `insertUiMessagesIfAbsent` plus `turnId`; the id-conflict drop keeps a
+	 * re-run of the end step from writing a twin row.
+	 */
+	async insertTurnAssistantMessage(input: {
+		chatId: string;
+		id: string;
+		/** `TurnAssistantMessageMetadata`; the web parses it with the schema. */
+		metadata: TurnAssistantMessageMetadata;
+		parts: UIMessage["parts"];
+		turnId: string;
+	}): Promise<void> {
+		await this.db
+			.insert(messages)
+			.values({
+				chatId: input.chatId,
+				...EMPTY_FAILURE_COLUMNS,
+				id: input.id,
+				metadata: input.metadata,
+				parts: input.parts,
+				role: "assistant",
+				turnId: input.turnId,
+			})
+			.onConflictDoNothing({ target: messages.id });
+	}
+
 	// Insert complete UI messages without changing rows already in history.
 	async insertUiMessagesIfAbsent(
 		chatId: string,
@@ -367,6 +396,35 @@ export class ChatsRepository {
 		}
 
 		return row;
+	}
+
+	/**
+	 * Links a turn row to a user message the create-project transaction
+	 * already wrote. The `turn_id IS NULL` guard makes a retried attach a
+	 * loud no-op instead of a silent move.
+	 */
+	async attachTurnToMessage(input: {
+		chatId: string;
+		messageId: string;
+		turnId: string;
+	}): Promise<void> {
+		const [row] = await this.db
+			.update(messages)
+			.set({ turnId: input.turnId })
+			.where(
+				and(
+					eq(messages.id, input.messageId),
+					eq(messages.chatId, input.chatId),
+					isNull(messages.turnId),
+				),
+			)
+			.returning({ id: messages.id });
+
+		if (!row) {
+			throw new Error(
+				`Message ${input.messageId} not found in chat ${input.chatId} or already attached to a turn`,
+			);
+		}
 	}
 }
 

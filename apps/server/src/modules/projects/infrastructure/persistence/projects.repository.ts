@@ -6,14 +6,18 @@
 // Project creation also creates the first chat and first user message.
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+	AppLanguage,
 	ComposerMetadata,
 	FileRef,
 	ListProjectsQuery,
 	PaginatedResult,
+	ProjectEngine,
+	TargetPlatform,
 	UpdateProjectBody,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, desc, eq, ilike, isNull, or, sql } from "@wandit/db";
+import { builderSessions } from "@wandit/db/schema/builder-sessions";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
@@ -23,6 +27,7 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import type { HarnessKind } from "../../../app-builder/domain/ports/builder-harness";
 import {
 	type ProjectScope,
 	projectOwnerColumns,
@@ -33,8 +38,14 @@ import {
 export type ProjectQueryRow = {
 	activeSlug: string | null;
 	createdAt: Date;
+	// "v1_page" or "v2_app" (D11); the row carries it, never a derivation.
+	engine: ProjectEngine;
+	// App template stack id, for example "web-app"; null on V1 rows.
+	framework: string | null;
 	hideWanditBadge: boolean;
 	id: string;
+	// Languages the app builds in (D7); empty array on V1 rows.
+	languages: string[];
 	leadCount: number;
 	logoUrl: string | null;
 	metaPixelId: string | null;
@@ -42,6 +53,10 @@ export type ProjectQueryRow = {
 	pendingDeploymentCount: number;
 	previewImageUrl: string | null;
 	prompt: string;
+	// "web" or "mobile" on V2 rows; null on V1 rows.
+	targetPlatform: TargetPlatform | null;
+	// Template version the app was created from; null on V1 rows.
+	templateVersion: string | null;
 	tiktokPixelId: string | null;
 	updatedAt: Date;
 };
@@ -152,6 +167,22 @@ export class ProjectsRepository {
 
 	// Create project + chat + first user message together.
 	async createWithChatAndFirstMessage(input: {
+		// V2-only block (WANDIT-175): its presence makes the row `v2_app` and
+		// writes the builder session. Absent keeps the V1 shape untouched.
+		app?: {
+			/** Coding agent that runs the turns (D17), from `V2_HARNESS`. */
+			harness: HarnessKind;
+			/** Languages the app builds in (D7): one to three of ar, fr, en. */
+			languages: AppLanguage[];
+			/** Default builder model id; null until WANDIT-151 picks one. */
+			model: string | null;
+			/** Device family the app targets; only "web" until WANDIT-192. */
+			targetPlatform: "web";
+			/** Template stack id, the fixed string "web-app" today. */
+			framework: string;
+			/** First line of `templates/web-app/template_version`. */
+			templateVersion: string;
+		};
 		attachments?: FileRef[];
 		chatId: string;
 		composer?: ComposerMetadata;
@@ -172,6 +203,17 @@ export class ProjectsRepository {
 					// Org projects record the creator in userId (provenance) and the
 					// workspace in organizationId (authorization).
 					...projectOwnerColumns(input.scope),
+					// The `app` block marks the row `v2_app`; without it the column
+					// defaults keep the V1 shape.
+					...(input.app
+						? {
+								engine: "v2_app" as const,
+								framework: input.app.framework,
+								languages: [...input.app.languages],
+								targetPlatform: input.app.targetPlatform,
+								templateVersion: input.app.templateVersion,
+							}
+						: {}),
 				})
 				.returning({ id: projects.id });
 
@@ -229,6 +271,22 @@ export class ProjectsRepository {
 				throw new Error("Message write did not return a row");
 			}
 
+			if (input.app) {
+				// The session row exists before the first turn, so
+				// TurnsService.ensureSession finds it by chatId.
+				await tx.insert(builderSessions).values({
+					chatId: chat.id,
+					harness: input.app.harness,
+					model: input.app.model,
+					organizationId:
+						input.scope.kind === "org" ? input.scope.organizationId : null,
+					projectId: project.id,
+					providerSessionId: null,
+					templateVersion: input.app.templateVersion,
+					userId: input.scope.userId,
+				});
+			}
+
 			// Service uses these ids for the API response and the queue job.
 			return {
 				chatId: chat.id,
@@ -284,11 +342,12 @@ export class ProjectsRepository {
 		return this.findByIdForScope(scope, row.id);
 	}
 
-	// Soft-delete: mark deletedAt instead of deleting the row.
+	// Soft-delete: mark deletedAt instead of deleting the row. Answers the
+	// deleted row's engine so the caller can pick the right cleanup path.
 	async softDeleteByIdForScope(
 		scope: ProjectScope,
 		projectId: string,
-	): Promise<boolean> {
+	): Promise<{ engine: ProjectEngine } | null> {
 		// Use the same timestamp for deletedAt and updatedAt.
 		const now = new Date();
 		const [row] = await this.db
@@ -304,10 +363,10 @@ export class ProjectsRepository {
 					isNull(projects.deletedAt),
 				),
 			)
-			.returning({ id: projects.id });
+			.returning({ engine: projects.engine });
 
 		// Returned row means a live in-scope project was updated.
-		return row !== undefined;
+		return row ?? null;
 	}
 
 	// Shared SELECT builder used by list/get/update.
@@ -368,8 +427,11 @@ export class ProjectsRepository {
 			.select({
 				activeSlug: deploymentAgg.activeSlug,
 				createdAt: projects.createdAt,
+				engine: projects.engine,
+				framework: projects.framework,
 				hideWanditBadge: projects.hideWanditBadge,
 				id: projects.id,
+				languages: projects.languages,
 				// coalesce turns missing joins into friendly default values.
 				leadCount: sql<number>`coalesce(${leadCounts.leadCount}, 0)::int`,
 				logoUrl: projects.logoUrl,
@@ -378,6 +440,8 @@ export class ProjectsRepository {
 				pendingDeploymentCount: sql<number>`coalesce(${deploymentAgg.pendingDeploymentCount}, 0)::int`,
 				previewImageUrl: projects.previewImageUrl,
 				prompt: sql<string>`coalesce(${firstMessages.prompt}, '')`,
+				targetPlatform: projects.targetPlatform,
+				templateVersion: projects.templateVersion,
 				tiktokPixelId: projects.tiktokPixelId,
 				updatedAt: projects.updatedAt,
 			})

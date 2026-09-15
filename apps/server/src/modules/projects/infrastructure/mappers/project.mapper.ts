@@ -1,3 +1,7 @@
+/**
+ * Maps one `ProjectQueryRow` to the V1 `Project` contract.
+ * `ProjectsService` calls it for the list, get, and update answers.
+ */
 import type { Project } from "@wandit/contracts";
 
 import type { ProjectQueryRow } from "../persistence/projects.repository";
@@ -5,6 +9,7 @@ import type { ProjectQueryRow } from "../persistence/projects.repository";
 export function mapProjectRow(row: ProjectQueryRow): Project {
 	return {
 		createdAt: row.createdAt.toISOString(),
+		engine: row.engine,
 		hideWanditBadge: row.hideWanditBadge,
 		id: row.id,
 		leadCount: row.leadCount,

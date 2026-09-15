@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
+import { CreditsModule } from "../credits/credits.module";
 import { GenerationModule } from "../generation/generation.module";
 import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { AppBuilderModule } from "./app-builder.module";
+import { AppProjectsService } from "./application/services/app-projects.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -30,6 +32,7 @@ import { V2_ENV } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
+import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
@@ -38,8 +41,10 @@ import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import { TEMPLATE_INIT } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
+import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
+import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
@@ -56,6 +61,7 @@ describe("AppBuilderModule", () => {
 		expect(
 			Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppBuilderModule),
 		).toEqual([
+			AppProjectsController,
 			LlmProxyController,
 			TurnsController,
 			V2HealthController,
@@ -64,6 +70,7 @@ describe("AppBuilderModule", () => {
 		expect(
 			Reflect.getMetadata(MODULE_METADATA.IMPORTS, AppBuilderModule),
 		).toEqual([
+			CreditsModule,
 			DatabaseModule,
 			GenerationModule,
 			MeteringModule,
@@ -74,6 +81,8 @@ describe("AppBuilderModule", () => {
 			Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AppBuilderModule),
 		).toEqual([
 			AppCommitsRepository,
+			AppProjectsService,
+			AuditEventsRepository,
 			BuilderSessionsRepository,
 			BuilderTurnsRepository,
 			LlmProxyRequestsRepository,
@@ -81,6 +90,7 @@ describe("AppBuilderModule", () => {
 			LlmSpendCounters,
 			RedisRateLimitGuard,
 			SandboxSessionsRepository,
+			TemplateVersionService,
 			TurnsService,
 			TurnStreamRelayService,
 			V2BuilderEnabledGuard,

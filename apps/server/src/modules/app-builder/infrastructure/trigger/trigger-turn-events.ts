@@ -14,7 +14,11 @@ import { streams } from "@trigger.dev/sdk";
 import { type TurnStreamEvent, turnStreamEventSchema } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
-import type { TurnEventReader } from "../../domain/ports/turn-events";
+import type {
+	TurnEventReader,
+	TurnEventWriter,
+	TurnStreamEventInput,
+} from "../../domain/ports/turn-events";
 
 /**
  * The vendor closes the read after 60 s without data. A long tool call is
@@ -22,6 +26,83 @@ import type { TurnEventReader } from "../../domain/ports/turn-events";
  * terminal.
  */
 const STREAM_READ_TIMEOUT_SECONDS = 60;
+
+/**
+ * `TurnEventWriter` on the Trigger.dev stream `ui` (D20). The
+ * `builder-turn` task constructs it inside the run, so `target` defaults
+ * to `self`. `streams.writer` encodes every `write(part)` as
+ * `JSON.stringify({ data: part, id })` and the SDK read yields `data`
+ * back as the object; the raw `streams.append` sends BodyInit and is not
+ * safe for this envelope.
+ */
+export class TriggerTurnEventWriter implements TurnEventWriter {
+	private readonly logger = new Logger(TriggerTurnEventWriter.name);
+	private sequence = 0;
+	private isClosed = false;
+
+	/** Resolves with the SDK `write` once `execute` runs (it may run late). */
+	private readonly ready: Promise<(part: TurnStreamEvent) => void>;
+	private resolveWrite: (write: (part: TurnStreamEvent) => void) => void =
+		() => {};
+
+	/** Resolves in `close()`; `execute` returns it to end the stream. */
+	private readonly closed: Promise<void>;
+	private resolveClosed: () => void = () => {};
+
+	/** Pipe result of `streams.writer`; `close()` awaits its flush. */
+	private readonly pipeResult: ReturnType<(typeof streams)["writer"]>;
+
+	// A Promise executor runs synchronously, so both fields are set before any call.
+	constructor() {
+		this.ready = new Promise((resolve) => {
+			this.resolveWrite = resolve;
+		});
+		this.closed = new Promise((resolve) => {
+			this.resolveClosed = resolve;
+		});
+		this.pipeResult = streams.writer<TurnStreamEvent>("ui", {
+			execute: ({ write }) => {
+				this.resolveWrite(write);
+				return this.closed;
+			},
+		});
+	}
+
+	/**
+	 * Stamps `id` (1-based write order) and `at`, then appends. After
+	 * `close()` a write is dropped with a warn — the onCancel backstop can
+	 * write after the run already closed the stream.
+	 */
+	async write(turnId: string, event: TurnStreamEventInput): Promise<void> {
+		if (this.isClosed) {
+			this.logger.warn(
+				`Dropping ${event.type} for turn ${turnId}: stream closed`,
+			);
+			return;
+		}
+		const write = await this.ready;
+		this.sequence += 1;
+		write({ ...event, at: Date.now(), id: String(this.sequence) });
+	}
+
+	/**
+	 * Ends the stream and waits for the flush. A flush rejection is
+	 * logged, not thrown: the events reached the stream or the run is dead.
+	 */
+	async close(): Promise<void> {
+		this.isClosed = true;
+		this.resolveClosed();
+		try {
+			await this.pipeResult.waitUntilComplete();
+		} catch (error) {
+			this.logger.warn(
+				`ui stream flush failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+}
 
 @Injectable()
 export class TriggerTurnEventReader implements TurnEventReader {

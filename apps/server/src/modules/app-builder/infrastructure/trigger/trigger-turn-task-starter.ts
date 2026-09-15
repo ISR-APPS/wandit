@@ -120,9 +120,9 @@ export class TriggerTurnTaskStarter implements TurnTaskStarter {
 	}
 }
 
-// A 4xx from the Trigger API can never succeed on retry (same taxonomy the
-// page-build handoff uses; copied because the two callers can diverge).
-function isDefinitiveTriggerRejection(error: unknown): boolean {
+// A 4xx from the Trigger API can never succeed on retry. The turn starter
+// and the delete-app-project starter share this taxonomy.
+export function isDefinitiveTriggerRejection(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) {
 		return false;
 	}

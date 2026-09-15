@@ -3,13 +3,17 @@ import { streams } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TriggerTurnEventReader } from "./trigger-turn-events";
+import {
+	TriggerTurnEventReader,
+	TriggerTurnEventWriter,
+} from "./trigger-turn-events";
 
 vi.mock("@trigger.dev/sdk", () => ({
-	streams: { read: vi.fn() },
+	streams: { read: vi.fn(), writer: vi.fn() },
 }));
 
 const readMock = vi.mocked(streams.read);
+const writerMock = vi.mocked(streams.writer);
 const INITIAL_TRIGGER_SECRET_KEY = env.TRIGGER_SECRET_KEY;
 
 function asyncStream(items: unknown[]): AsyncIterable<unknown> {
@@ -22,6 +26,7 @@ function asyncStream(items: unknown[]): AsyncIterable<unknown> {
 
 beforeEach(() => {
 	readMock.mockReset();
+	writerMock.mockReset();
 	// The reader throws V2_ENV_MISSING without the key; most cases need one.
 	// SAFETY: the env object may be process.env (skipValidation), where only
 	// deleteProperty models a missing key — assignment coerces to a string.
@@ -37,6 +42,88 @@ afterEach(() => {
 		(env as { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
 			INITIAL_TRIGGER_SECRET_KEY;
 	}
+});
+
+describe("TriggerTurnEventWriter", () => {
+	function setupWriter() {
+		const written: unknown[] = [];
+		const waitUntilComplete = vi.fn(async () => ({}));
+		writerMock.mockImplementation(
+			(
+				_key: string,
+				options: {
+					execute: (args: {
+						write: (part: unknown) => void;
+						merge: (stream: ReadableStream<unknown>) => void;
+					}) => Promise<void> | void;
+				},
+			) => {
+				options.execute({
+					merge: () => {},
+					write: (part) => written.push(part),
+				});
+				return {
+					// SAFETY: the writer only awaits `waitUntilComplete`; `.stream`
+					// is never read, so a bare ReadableStream fills the
+					// AsyncIterableStream slot for the mock.
+					stream: new ReadableStream<unknown>() as ReturnType<
+						typeof streams.writer
+					>["stream"],
+					waitUntilComplete,
+				};
+			},
+		);
+		return { waitUntilComplete, written };
+	}
+
+	it("stamps id and at, then flushes on close", async () => {
+		const { waitUntilComplete, written } = setupWriter();
+		const writer = new TriggerTurnEventWriter();
+
+		await writer.write("turn-1", {
+			data: { phase: "running" },
+			type: "status",
+		});
+		await writer.write("turn-1", {
+			data: { status: "succeeded" },
+			type: "done",
+		});
+		await writer.close();
+
+		expect(writerMock).toHaveBeenCalledOnce();
+		expect(writerMock).toHaveBeenCalledWith("ui", expect.anything());
+		expect(written[0]).toMatchObject({
+			data: { phase: "running" },
+			id: "1",
+			type: "status",
+		});
+		expect(written[1]).toMatchObject({
+			data: { status: "succeeded" },
+			id: "2",
+			type: "done",
+		});
+		// SAFETY: the mock pushes the objects the writer emits; the assertion above proved written[0] exists.
+		expect(Number.isInteger((written[0] as { at: number }).at)).toBe(true);
+		expect(waitUntilComplete).toHaveBeenCalledOnce();
+	});
+
+	it("drops a write after close with a warn, never throws", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => {});
+		const { written } = setupWriter();
+		const writer = new TriggerTurnEventWriter();
+
+		await writer.close();
+		await writer.write("turn-1", {
+			data: { status: "failed" },
+			type: "done",
+		});
+
+		expect(written).toHaveLength(0);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("turn-1"));
+		warn.mockRestore();
+	});
 });
 
 describe("TriggerTurnEventReader.read", () => {

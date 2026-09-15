@@ -42,6 +42,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 }));
 
 import {
+	deleteObjectsByPrefix,
 	downloadObjectToFile,
 	feedbackScreenshotKey,
 	IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -52,7 +53,9 @@ import {
 	putPageHtml,
 	putSiteFile,
 	r2ObjectExists,
+	type StoredObject,
 	VARIANT_FILENAME_PATTERN,
+	v2ProjectPrefixes,
 	variantKey,
 } from "./r2";
 
@@ -227,5 +230,44 @@ describe("public R2 URL guards", () => {
 		expect(
 			isWanditUploadUrl("https://evil.example.net/uploads/u/i/f.png"),
 		).toBe(false);
+	});
+});
+
+describe("deleteObjectsByPrefix", () => {
+	it("drains a full page then a short page and answers the count", async () => {
+		const page: StoredObject[] = Array.from({ length: 1_000 }, (_, i) => ({
+			key: `git/p1/${i}`,
+			lastModified: null,
+			sizeBytes: null,
+		}));
+		const tail: StoredObject[] = [
+			{ key: "git/p1/1000", lastModified: null, sizeBytes: null },
+			{ key: "git/p1/1001", lastModified: null, sizeBytes: null },
+		];
+		const io = {
+			list: vi.fn().mockResolvedValueOnce(page).mockResolvedValueOnce(tail),
+			remove: vi.fn(async () => undefined),
+		};
+
+		const deleted = await deleteObjectsByPrefix("git/p1/", io);
+
+		expect(deleted).toBe(1_002);
+		expect(io.remove).toHaveBeenCalledTimes(1_002);
+		expect(io.list).toHaveBeenCalledTimes(2);
+		expect(io.list).toHaveBeenCalledWith("git/p1/", 1_000);
+	});
+
+	it("deletes nothing on an empty prefix", async () => {
+		const io = {
+			list: vi.fn(async () => []),
+			remove: vi.fn(async () => undefined),
+		};
+
+		await expect(deleteObjectsByPrefix("git/p1/", io)).resolves.toBe(0);
+		expect(io.remove).not.toHaveBeenCalled();
+	});
+
+	it("names the two v2 prefixes of a project", () => {
+		expect(v2ProjectPrefixes("p1")).toEqual(["git/p1/", "sites/p1/assets/"]);
 	});
 });

@@ -9,18 +9,16 @@ import { z } from "zod";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength, projectSchema } from "../v1/projects";
+import { uuidSchema } from "../v1/shared/primitives";
+import { projectEngineSchema } from "../v1/shared/project-engine";
 
-/**
- * Which builder produced the project. Matches the `project_engine` database
- * enum (WANDIT-163). A project never changes engine after creation (D11).
- */
-export const projectEngines = ["v1_page", "v2_app"] as const;
-
-/** Runtime validator for a project engine. */
-export const projectEngineSchema = z.enum(projectEngines);
-
-/** TypeScript project engine type. */
-export type ProjectEngine = z.infer<typeof projectEngineSchema>;
+// The engine enum moved to the V1 shared folder (WANDIT-175): the V1
+// `projectSchema` carries it now. This line keeps earlier V2 imports working.
+export {
+	type ProjectEngine,
+	projectEngineSchema,
+	projectEngines,
+} from "../v1/shared/project-engine";
 
 /** Device family a V2 app targets. Matches `project_target_platform`. */
 export const targetPlatforms = ["web", "mobile"] as const;
@@ -65,6 +63,23 @@ export const createAppProjectRequestSchema = z
 /** TypeScript create-app-project body. */
 export type CreateAppProjectRequest = z.infer<
 	typeof createAppProjectRequestSchema
+>;
+
+/**
+ * Answer of `POST /api/v2/projects`: the ids the web app needs to open the
+ * workspace and follow the first turn.
+ */
+export const createAppProjectResponseSchema = z.object({
+	projectId: uuidSchema,
+	chatId: uuidSchema,
+	// Id of the first builder turn. Null when the turn could not start; the
+	// web app sends the first message again through POST .../turns.
+	turnId: uuidSchema.nullable(),
+});
+
+/** TypeScript create-app-project response. */
+export type CreateAppProjectResponse = z.infer<
+	typeof createAppProjectResponseSchema
 >;
 
 /**
