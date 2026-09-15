@@ -4,10 +4,12 @@
  * sandbox (first create and rebuild); the idle sweep never calls it.
  * Reads the archive from the repo `templates/` folder that WANDIT-168 fills.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
 import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
@@ -29,13 +31,37 @@ export interface TemplateInit {
 }
 
 /**
- * The folder holding `web-app-<version>.tar.gz` archives, resolved against
- * the repo root. Bundled worker layouts can move it — WANDIT-168 verifies
- * the path where the tasks actually run. UNVERIFIED.
+ * Picks the folder that holds the `web-app-<version>.tar.gz` archives.
+ * `explicitDir` is `TEMPLATE_ARCHIVE_DIR` from the env and wins when set: a
+ * deployed worker or API carries the archive at a fixed path. Otherwise the
+ * first existing candidate wins: `<cwd>/templates`, `<cwd>/../../templates`
+ * (the Trigger dev worker and the API run from `apps/server`), then
+ * `templates/` next to this source file. The Trigger worker bundles this
+ * file under `.trigger/`, so the source path alone is wrong there. The last
+ * candidate is returned even when absent, so the error names a path.
  */
-export const TEMPLATE_ARCHIVE_DIR = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../../../../../../templates",
+export function resolveTemplateArchiveDir(
+	explicitDir: string | undefined,
+	cwd: string = process.cwd(),
+): string {
+	if (explicitDir) {
+		return resolve(explicitDir);
+	}
+	const sourceRelative = resolve(
+		dirname(fileURLToPath(import.meta.url)),
+		"../../../../../../../templates",
+	);
+	const candidates = [
+		resolve(cwd, "templates"),
+		resolve(cwd, "../../templates"),
+		sourceRelative,
+	];
+	return candidates.find((dir) => existsSync(dir)) ?? sourceRelative;
+}
+
+/** The archive folder this process uses; see `resolveTemplateArchiveDir`. */
+export const TEMPLATE_ARCHIVE_DIR = resolveTemplateArchiveDir(
+	env.TEMPLATE_ARCHIVE_DIR,
 );
 
 /** Upload target for the archive; `tar` reads it from here. */

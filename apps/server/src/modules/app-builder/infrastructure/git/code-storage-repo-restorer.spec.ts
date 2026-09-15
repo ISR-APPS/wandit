@@ -23,6 +23,11 @@ const CREATE_OPTIONS = {
 	organizationId: null,
 };
 
+// A head row for every project unless a test passes `null`.
+function fakeCommits(head: { headSha: string } | null = { headSha: "abc123" }) {
+	return { findBranch: vi.fn(async () => head) };
+}
+
 function fakeGitStore(): GitStore {
 	return {
 		deleteRepository: vi.fn(async () => undefined),
@@ -39,9 +44,23 @@ function fakeGitStore(): GitStore {
 const OK = { exitCode: 0, stderr: "", stdout: "" };
 
 describe("CodeStorageRepoRestorer", () => {
+	it("makes no git call when the project has no branch head yet", async () => {
+		const provider = new FakeSandboxProvider();
+		const sandbox = await provider.getOrCreate("p-1", CREATE_OPTIONS);
+		const restorer = new CodeStorageRepoRestorer(
+			fakeGitStore(),
+			fakeCommits(null),
+		);
+
+		await restorer.restore("p-1", sandbox);
+
+		// The template is the whole worktree until the first commitTurn pushes.
+		expect(provider.calls.filter((call) => call.method === "exec")).toEqual([]);
+	});
+
 	it("pulls main when the sandbox already has .git", async () => {
 		const provider = new FakeSandboxProvider();
-		const restorer = new CodeStorageRepoRestorer(fakeGitStore());
+		const restorer = new CodeStorageRepoRestorer(fakeGitStore(), fakeCommits());
 		const sandbox = await provider.getOrCreate("p-1", CREATE_OPTIONS);
 		provider.respondTo("test", OK);
 		provider.respondTo("git", OK);
@@ -59,7 +78,7 @@ describe("CodeStorageRepoRestorer", () => {
 
 	it(`clones into ${SANDBOX_REPO_DIR} when the directory is empty`, async () => {
 		const provider = new FakeSandboxProvider();
-		const restorer = new CodeStorageRepoRestorer(fakeGitStore());
+		const restorer = new CodeStorageRepoRestorer(fakeGitStore(), fakeCommits());
 		const sandbox = await provider.getOrCreate("p-1", CREATE_OPTIONS);
 		provider.respondTo("test", { exitCode: 1, stderr: "", stdout: "" });
 		provider.respondTo("git", OK);
@@ -77,7 +96,7 @@ describe("CodeStorageRepoRestorer", () => {
 
 	it(`rebuilds the worktree in place when the template occupies ${SANDBOX_REPO_DIR}`, async () => {
 		const provider = new FakeSandboxProvider();
-		const restorer = new CodeStorageRepoRestorer(fakeGitStore());
+		const restorer = new CodeStorageRepoRestorer(fakeGitStore(), fakeCommits());
 		const sandbox = await provider.getOrCreate("p-1", CREATE_OPTIONS);
 		// The template init already wrote files; the repo has no .git yet.
 		await sandbox.writeFiles([
@@ -104,7 +123,7 @@ describe("CodeStorageRepoRestorer", () => {
 
 	it("masks the JWT in an error message when git echoes the URL", async () => {
 		const provider = new FakeSandboxProvider();
-		const restorer = new CodeStorageRepoRestorer(fakeGitStore());
+		const restorer = new CodeStorageRepoRestorer(fakeGitStore(), fakeCommits());
 		const sandbox = await provider.getOrCreate("p-1", CREATE_OPTIONS);
 		provider.respondTo("test", OK);
 		provider.respondTo("git", {

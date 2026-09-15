@@ -8,6 +8,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";
 import { GIT_STORE } from "../../domain/ports/git-store";
 import type { SandboxHandle } from "../../domain/ports/sandbox-provider";
+import { AppCommitsRepository } from "../persistence/app-commits.repository";
 import { authenticatedRemoteUrl } from "./git-remote-url";
 import { mustRunGit, SANDBOX_REPO_DIR } from "./sandbox-git";
 
@@ -34,9 +35,19 @@ export class CodeStorageRepoRestorer implements RepoRestorer {
 		// The store is the code.storage `GitStore`; the module binds it.
 		@Inject(GIT_STORE)
 		private readonly gitStore: GitStore,
+		// Only `findBranch` is read: the head says whether a push ever happened.
+		@Inject(AppCommitsRepository)
+		private readonly commits: Pick<AppCommitsRepository, "findBranch">,
 	) {}
 
 	async restore(projectId: string, sandbox: SandboxHandle): Promise<void> {
+		// A project with no branch head never pushed: the code.storage
+		// repository does not exist yet and the template is the whole worktree.
+		// The first `commitTurn` creates the repository and the head.
+		const head = await this.commits.findBranch(projectId);
+		if (head === null) {
+			return;
+		}
 		const credential = await this.gitStore.issueCredential(
 			projectId,
 			RESTORE_CREDENTIAL_TTL_SECONDS,

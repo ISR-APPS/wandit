@@ -83,7 +83,7 @@ export const builderTurnTask = schemaTask({
 			const gitStore = new CodeStorageGitStore(env);
 			const sandboxes = new VercelSandboxProvider(
 				sandboxSessions,
-				new CodeStorageRepoRestorer(gitStore),
+				new CodeStorageRepoRestorer(gitStore, new AppCommitsRepository(db)),
 				new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 			);
 			const chats = new ChatsRepository(db);
@@ -122,9 +122,11 @@ export const builderTurnTask = schemaTask({
 						// runtime only needs the promotion attempted.
 						await promoter.promoteNext(projectId, endedTurnId);
 					},
+					// The sandbox runs in the vendor cloud, so the proxy needs a
+					// public URL. Local dev sets a tunnel; deployed APIs are public.
 					proxyBaseUrl: new URL(
 						appBuilderRoutes.llmProxyBase,
-						env.BETTER_AUTH_URL,
+						env.V2_LLM_PROXY_PUBLIC_URL ?? env.BETTER_AUTH_URL,
 					).toString(),
 					resolvePlan: async (subject) => {
 						const row = await subscriptions.findActiveByOwner(

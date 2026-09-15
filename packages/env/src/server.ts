@@ -303,6 +303,10 @@ export const env = createEnv({
 		// Model id of the default builder model (D10: a cheaper model, not from
 		// Anthropic, picked by WANDIT-151).
 		V2_DEFAULT_MODEL: z.string().min(1).optional(),
+		// Public base URL of this API as the sandbox reaches it; the run token
+		// and the LLM proxy live there. Unset means BETTER_AUTH_URL. Local dev
+		// sets a tunnel URL because the sandbox runs in the vendor cloud.
+		V2_LLM_PROXY_PUBLIC_URL: z.url().optional(),
 		// The Anthropic-compatible endpoint the LLM proxy forwards to.
 		// Unset means https://api.anthropic.com.
 		V2_LLM_UPSTREAM_BASE_URL: z.url().optional(),
@@ -310,6 +314,9 @@ export const env = createEnv({
 		VERCEL_TEAM_ID: z.string().min(1).optional(),
 		VERCEL_PROJECT_ID: z.string().min(1).optional(),
 		VERCEL_SANDBOX_IMAGE: z.string().min(1).optional(),
+		// Folder with the `web-app-<version>.tar.gz` template archives. Unset
+		// in dev: the code finds the repo `templates/` folder from the cwd.
+		TEMPLATE_ARCHIVE_DIR: z.string().min(1).optional(),
 		ANTHROPIC_API_KEY: z.string().min(1).optional(),
 		// Comma-separated list: the first key signs, any key verifies.
 		LLM_PROXY_SIGNING_KEY: z.string().min(1).optional(),

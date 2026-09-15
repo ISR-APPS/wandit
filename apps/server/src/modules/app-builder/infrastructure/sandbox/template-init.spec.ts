@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,7 +8,10 @@ import { TemplateArchiveMissingError } from "../../domain/errors/template-archiv
 import type { SandboxCreateOptions } from "../../domain/ports/sandbox-provider";
 import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
 import { FakeSandboxProvider } from "./fake-sandbox.provider";
-import { ArchiveTemplateInit } from "./template-init";
+import {
+	ArchiveTemplateInit,
+	resolveTemplateArchiveDir,
+} from "./template-init";
 
 const CREATE_OPTIONS: SandboxCreateOptions = {
 	devCommand: "pnpm dev",
@@ -34,6 +37,42 @@ function execLines(provider: FakeSandboxProvider): string[] {
 		.filter((call) => call.method === "exec")
 		.map((call) => call.detail ?? "");
 }
+
+describe("resolveTemplateArchiveDir", () => {
+	it("returns the explicit env folder unchanged", () => {
+		expect(
+			resolveTemplateArchiveDir("/opt/wandit/templates", "/elsewhere"),
+		).toBe("/opt/wandit/templates");
+	});
+
+	it("picks <cwd>/templates when it exists", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "wandit-cwd-"));
+		await mkdir(join(cwd, "templates"));
+
+		expect(resolveTemplateArchiveDir(undefined, cwd)).toBe(
+			join(cwd, "templates"),
+		);
+	});
+
+	it("picks <cwd>/../../templates for a process started in apps/server", async () => {
+		const root = await mkdtemp(join(tmpdir(), "wandit-root-"));
+		await mkdir(join(root, "templates"));
+		await mkdir(join(root, "apps", "server"), { recursive: true });
+
+		expect(
+			resolveTemplateArchiveDir(undefined, join(root, "apps", "server")),
+		).toBe(join(root, "templates"));
+	});
+
+	it("falls back to the repo folder next to the source when nothing exists", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "wandit-empty-"));
+
+		// The fallback names a real path so a missing archive error can show it.
+		expect(
+			resolveTemplateArchiveDir(undefined, cwd).endsWith("/templates"),
+		).toBe(true);
+	});
+});
 
 describe("ArchiveTemplateInit", () => {
 	it("uploads, extracts, installs offline, and commits a fresh repo", async () => {
