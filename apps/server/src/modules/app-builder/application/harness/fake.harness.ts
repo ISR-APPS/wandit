@@ -1,8 +1,11 @@
 /**
  * In-memory `BuilderHarness` for specs.
  * `builder-turn.runtime.spec.ts` scripts the event list `stream`
- * replays; `detach` records its calls and answers a fixed resume state.
+ * replays; `detach`/`suspendTurn` record their calls and answer fixed
+ * resume states.
  */
+import type { HarnessPendingInteraction } from "@wandit/contracts";
+
 import type {
 	BuilderHarness,
 	HarnessKind,
@@ -41,14 +44,24 @@ export class FakeBuilderHarness implements BuilderHarness {
 		resumeState: HarnessResumeState;
 	}[] = [];
 
-	/** Recorded `stream` calls. */
+	/** Recorded `stream` calls; `input` keeps the full prompt/continue payload. */
 	readonly streamCalls: FakeHarnessStreamCall[] = [];
+
+	/** `sessionId`s passed to `suspendTurn`, in call order. */
+	readonly suspendCalls: string[] = [];
 
 	/** The resume state `detach` returns. */
 	resumeState: HarnessResumeState = {
 		harness: "claude_code",
 		payload: "{}",
+		pending: [],
 	};
+
+	/** What `hasUnfinishedTurn` answers. */
+	unfinishedTurn = false;
+
+	/** The `pending` list `suspendTurn` puts into its resume state. */
+	pendingOnSuspend: HarnessPendingInteraction[] = [];
 
 	/** Error `stream` throws before yielding; null replays `events`. */
 	streamError: Error | null = null;
@@ -104,8 +117,20 @@ export class FakeBuilderHarness implements BuilderHarness {
 		}
 	}
 
+	async hasUnfinishedTurn(_session: HarnessSession): Promise<boolean> {
+		return this.unfinishedTurn;
+	}
+
 	async detach(session: HarnessSession): Promise<HarnessResumeState> {
 		this.detachCalls.push(session.sessionId);
 		return this.resumeState;
+	}
+
+	async suspendTurn(session: HarnessSession): Promise<HarnessResumeState> {
+		this.suspendCalls.push(session.sessionId);
+		return {
+			...this.resumeState,
+			pending: this.pendingOnSuspend,
+		};
 	}
 }

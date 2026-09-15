@@ -1,11 +1,13 @@
 /**
  * Port: the host-side tool set the agent may call during a turn.
- * The builder harness calls `build` at session start; WANDIT-169 fills in
- * the real tools (backend, preview, secrets). AI SDK `ToolSet` only —
- * vendor packages stay out.
+ * `builder-turn.runtime.ts` calls `build` once per turn after the sandbox
+ * exists. `BuilderHostToolRegistry` implements it with `generate_image`;
+ * the backend tools land with WANDIT-186. AI SDK `ToolSet` only: vendor
+ * packages stay out.
  */
 import type { ToolApprovalStatus as AiToolApprovalStatus, ToolSet } from "ai";
 
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { SandboxHandle } from "./sandbox-provider";
 
 /** Nest token for the `HostToolRegistry` implementation. */
@@ -27,6 +29,13 @@ export type HostToolContext = {
 	actorUserId: string;
 	/** Org workspace of the project, or null for a personal project. */
 	organizationId: string | null;
+	/**
+	 * Id of the turn's `builder-turn:<turnId>` metering hold, or null when
+	 * no hold exists. A paid host tool reserves its child against it.
+	 */
+	holdEventId: string | null;
+	/** Who acted and which pool pays; a paid host tool passes it to `reserve`. */
+	subject: MeteringSubject;
 	sandbox: SandboxHandle;
 };
 

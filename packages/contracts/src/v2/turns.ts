@@ -37,10 +37,17 @@ export const builderTurnStatusSchema = z.enum(builderTurnStatuses);
 /** TypeScript builder turn status type. */
 export type BuilderTurnStatus = z.infer<typeof builderTurnStatusSchema>;
 
+/** The answer to a `data-approval` card: the card id and the decision. */
+export const turnApprovalAnswerSchema = z.object({
+	approvalId: z.string().min(1),
+	approved: z.boolean(),
+});
+
 /**
  * Body of `POST /api/v2/projects/:id/turns`. Same admission rule as V1
- * project creation: a non-empty message or at least one attachment, never
- * both empty.
+ * project creation: a non-empty message or at least one attachment. An
+ * `approval` decision alone is also enough: it answers a `data-approval`
+ * card and needs no text.
  */
 export const createTurnRequestSchema = z
 	.object({
@@ -48,12 +55,17 @@ export const createTurnRequestSchema = z
 		message: z.string().max(projectPromptMaxLength),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		composer: composerMetadataSchema.optional(),
+		// The answer to a `data-approval` card; the message text answers a
+		// `data-question` card.
+		approval: turnApprovalAnswerSchema.optional(),
 	})
 	.refine(
 		(body) =>
-			body.message.trim().length > 0 || (body.attachments?.length ?? 0) > 0,
+			body.message.trim().length > 0 ||
+			(body.attachments?.length ?? 0) > 0 ||
+			body.approval !== undefined,
 		{
-			message: "message or at least one attachment is required",
+			message: "message, an attachment, or an approval is required",
 			path: ["message"],
 		},
 	);
@@ -286,6 +298,59 @@ export const turnDoneDataPartSchema = z.object({
 });
 
 /**
+ * `data` of the `data-question` card the UI renders when the agent asks
+ * the user through the harness `askUserQuestions` tool. The builder-turn
+ * task writes the part and the message part; the next turn's message
+ * text answers it.
+ */
+export const turnQuestionDataSchema = z.object({
+	// Harness call id of the `askUserQuestions` tool call.
+	toolCallId: z.string(),
+	// Question id inside that call's `questions` array.
+	questionId: z.string(),
+	question: z.string(),
+	// Option labels in the order the agent offered them.
+	options: z.array(z.string()),
+	answer: z.string().nullable(),
+});
+
+/** One `data-question` card; id is `${toolCallId}:${questionId}`. */
+export const turnQuestionDataPartSchema = z.object({
+	type: z.literal("data-question"),
+	id: z.string(),
+	data: turnQuestionDataSchema,
+});
+
+/** Inferred from `turnQuestionDataSchema`; the question card payload. */
+export type TurnQuestionData = z.infer<typeof turnQuestionDataSchema>;
+
+/**
+ * `data` of the `data-approval` card the UI renders when a host tool
+ * asks for approval. The builder-turn task writes the part and the
+ * message part; the next turn's `approval` field carries the decision.
+ */
+export const turnApprovalDataSchema = z.object({
+	// Approval id the harness issued for the pending call.
+	approvalId: z.string(),
+	// Harness call id of the tool call waiting for the decision.
+	toolCallId: z.string(),
+	toolName: z.string(),
+	// JSON text of the tool call input, as the harness reported it.
+	input: z.string(),
+	decision: z.enum(["approved", "denied"]).nullable(),
+});
+
+/** One `data-approval` card; id is the approvalId. */
+export const turnApprovalDataPartSchema = z.object({
+	type: z.literal("data-approval"),
+	id: z.string(),
+	data: turnApprovalDataSchema,
+});
+
+/** Inferred from `turnApprovalDataSchema`; the approval card payload. */
+export type TurnApprovalData = z.infer<typeof turnApprovalDataSchema>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
@@ -296,6 +361,8 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnUsageDataPartSchema,
 	turnErrorDataPartSchema,
 	turnDoneDataPartSchema,
+	turnQuestionDataPartSchema,
+	turnApprovalDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -311,4 +378,6 @@ export type TurnDataParts = {
 	"turn-usage": TurnUsageData;
 	"turn-error": TurnErrorData;
 	"turn-done": TurnDoneData;
+	question: TurnQuestionData;
+	approval: TurnApprovalData;
 };

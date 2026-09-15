@@ -7,7 +7,10 @@
 import { randomUUID } from "node:crypto";
 import type {
 	BillingPlanId,
+	HarnessPendingInteraction,
+	TurnApprovalData,
 	TurnAssistantMessageMetadata,
+	TurnQuestionData,
 	TurnStreamPhase,
 } from "@wandit/contracts";
 import {
@@ -30,8 +33,10 @@ import {
 } from "../modules/app-builder/domain/llm-model-prices";
 import type {
 	BuilderHarness,
+	HarnessQuestionResult,
 	HarnessResumeState,
 	HarnessSession,
+	HarnessTurnInput,
 } from "../modules/app-builder/domain/ports/builder-harness";
 import type {
 	HostToolRegistry,
@@ -113,6 +118,7 @@ export type BuilderTurnDeps = {
 		| "currentTurnNumber"
 		| "fail"
 		| "findById"
+		| "findWaitingForUser"
 		| "recordUsage"
 		| "transition"
 	>;
@@ -292,6 +298,21 @@ export async function runBuilderTurn(
 		await deps.promoteNext(projectId, turnId);
 		return;
 	}
+	// The project's row that waits on a question or approval card, or null.
+	// This turn carries the answer, so the row now counts as succeeded. Its
+	// usage, commit, and completedAt are already set from the pause.
+	const waitingTurn = await deps.turns.findWaitingForUser(projectId);
+	if (waitingTurn !== null) {
+		const moved = await deps.turns.transition(
+			waitingTurn.id,
+			["waiting_for_answer", "waiting_for_approval"],
+			"succeeded",
+		);
+		if (!moved) {
+			logger.warn(`Waiting turn ${waitingTurn.id} write lost: row moved on`);
+		}
+	}
+
 	const turnNumber = turn.turnNumber;
 	// The commit trailer and the assistant row share one id (step 3).
 	const assistantMessageId = randomUUID();
@@ -319,6 +340,8 @@ export async function runBuilderTurn(
 
 	let sandbox: SandboxHandle | null = null;
 	let session: HarnessSession | null = null;
+	/** Set by `suspendTurn` after a paused stream; the failure path saves it. */
+	let suspendState: HarnessResumeState | null = null;
 	let hostTools: HostToolSet | null = null;
 	let lastPartAt = deps.now();
 	let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -332,13 +355,15 @@ export async function runBuilderTurn(
 	let credits = 0;
 	let unpricedWarned = false;
 
-	/** Best-effort detach + resume save; used by the failure paths. */
+	/** Best-effort resume save for the failure paths: the suspend state, else a detach. */
 	const detachSession = async () => {
 		if (session === null) {
 			return;
 		}
 		try {
-			const resumeState = await deps.harness.detach(session);
+			// A suspended session is already gone from the harness map; its
+			// pending cards must reach the row, so the saved state is the suspend one.
+			const resumeState = suspendState ?? (await deps.harness.detach(session));
 			await deps.sessions.saveResumeState(chatId, {
 				model: deps.model,
 				providerSessionId: session.sessionId,
@@ -612,6 +637,70 @@ export async function runBuilderTurn(
 		const resumeState: HarnessResumeState | null =
 			parsedResume?.success === true ? parsedResume.data : null;
 
+		// The user's words, or the attachment URLs when the message is empty.
+		const prompt =
+			spec.message.trim().length > 0
+				? spec.message
+				: `See the attached files.\n${spec.attachments
+						.map((attachment) => attachment.url)
+						.join("\n")}`;
+		// The pending cards of a suspended turn make a `continue` input.
+		// The message text and `spec.approval` carry the answers.
+		let continuation: HarnessTurnInput | null = null;
+		// The prompt a fresh session gets when the suspended one cannot
+		// resume: the answer still reaches the agent.
+		let continuationFallbackPrompt: string | null = null;
+		if (resumeState !== null && resumeState.pending.length > 0) {
+			const text = prompt.trim();
+			const toolResults: HarnessQuestionResult[] = [];
+			const approvals: { approvalId: string; approved: boolean }[] = [];
+			for (const interaction of resumeState.pending) {
+				if (interaction.kind === "question") {
+					// LIMIT: one answer per turn; a call with several questions
+					// gets the first answered and the rest re-asked by the agent.
+					// Upgrade: one card per question with its own answer.
+					const question = interaction.questions[0];
+					if (question === undefined) {
+						continue;
+					}
+					const option = question.options.find(
+						(candidate) =>
+							candidate.label.trim().toLowerCase() === text.toLowerCase(),
+					);
+					toolResults.push({
+						answers: {
+							[question.id]:
+								option === undefined
+									? { freeform: text, optionIds: [] }
+									: { optionIds: [option.id] },
+						},
+						partial: interaction.questions.length > 1,
+						toolCallId: interaction.toolCallId,
+					});
+					continuationFallbackPrompt ??= `Answer to your question "${question.question}": ${text}`;
+				} else {
+					// An approval the body does not name counts as denied.
+					const approved =
+						spec.approval?.approvalId === interaction.approvalId
+							? spec.approval.approved
+							: false;
+					approvals.push({
+						approvalId: interaction.approvalId,
+						approved,
+					});
+					continuationFallbackPrompt ??= `The user ${
+						approved ? "approved" : "denied"
+					} the ${interaction.toolName} call. Continue.`;
+				}
+			}
+			continuation = {
+				approvals,
+				kind: "continue",
+				signal: ownAbort.signal,
+				toolResults,
+			};
+		}
+
 		const caps = await deps.caps.findByProjectId(projectId);
 		// Centi-credits → dollars: /100 to credits, ×usdPerCredit to dollars.
 		const usdPerCredit = deps.usdMicrosPerCredit / 1_000_000;
@@ -657,9 +746,11 @@ export async function runBuilderTurn(
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
+			holdEventId: (await findHold())?.id ?? null,
 			organizationId: input.organizationId,
 			projectId,
 			sandbox,
+			subject,
 			turnId,
 		});
 		// A stored session can be dead: the sandbox was rebuilt, or the proxy
@@ -667,45 +758,65 @@ export async function runBuilderTurn(
 		// session loses the agent memory but keeps the project alive.
 		const startSession = async (
 			stored: HarnessResumeState | null,
-		): Promise<HarnessSession> => {
+		): Promise<{ resumed: boolean; session: HarnessSession }> => {
 			if (stored === null) {
-				return deps.harness.createSession(sessionInput);
+				return {
+					resumed: false,
+					session: await deps.harness.createSession(sessionInput),
+				};
 			}
 			try {
-				return await deps.harness.resumeSession(sessionInput, stored);
+				return {
+					resumed: true,
+					session: await deps.harness.resumeSession(sessionInput, stored),
+				};
 			} catch (error) {
 				logger.warn(
 					`Resume failed for turn ${turnId}; starting a fresh session: ${messageOf(error)}`,
 				);
 				await writeStatus("session_starting", "Starting a fresh session");
-				return deps.harness.createSession(sessionInput);
+				return {
+					resumed: false,
+					session: await deps.harness.createSession(sessionInput),
+				};
 			}
 		};
 		const sessionInput = {
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// One sentence; the template knows every other rule.
-			instructions: `Build the app in these languages only: ${project.languages.join(", ")}.`,
+			// Two sentences; the template knows every other rule.
+			instructions:
+				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
+				"Ask the user with the AskUserQuestion tool: one question per call, at most 4 options, only when you cannot decide yourself.",
 			model,
 			sandbox,
 		};
-		session = await startSession(resumeState);
+		const started = await startSession(resumeState);
+		session = started.session;
 		const providerSessionId = session.sessionId;
 
 		await writeStatus("running");
 		startTimers();
-		const prompt =
-			spec.message.trim().length > 0
-				? spec.message
-				: `See the attached files.\n${spec.attachments
-						.map((attachment) => attachment.url)
-						.join("\n")}`;
+		// A continued suspended turn gets the user's answers as tool
+		// results; a lost session still hears them as plain text.
+		let turnInput: HarnessTurnInput;
+		if (continuation !== null && started.resumed) {
+			turnInput = continuation;
+		} else if (continuation !== null && continuationFallbackPrompt !== null) {
+			logger.warn(
+				`builder-turn.continuation-fallback turnId=${turnId}: suspended session lost`,
+			);
+			turnInput = {
+				kind: "prompt",
+				prompt: continuationFallbackPrompt,
+				signal: ownAbort.signal,
+			};
+		} else {
+			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
+		}
 
-		for await (const event of deps.harness.stream(session, {
-			prompt,
-			signal: ownAbort.signal,
-		})) {
+		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
 				await chunkWriter.write(event.chunk);
@@ -741,135 +852,215 @@ export async function runBuilderTurn(
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
 
-		await writeStatus("committing");
-		await chunkWriter.close();
-		chunkStreamClosed = true;
-		const finalMessage = await assistantMessage;
-		const assistantText = (finalMessage?.parts ?? [])
-			.filter(
-				(part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
-					part.type === "text",
-			)
-			.map((part) => part.text)
-			.join("\n");
-		// A text-only turn still gets a commit: the turn number names it.
-		const summary =
-			assistantText.trim().slice(0, SUMMARY_MAX_CHARS) || `Turn ${turnNumber}`;
+		// The stream ended clean. A paused turn suspends instead of
+		// detaching: `suspendState.pending` names the cards the user must
+		// answer before the turn can continue.
+		suspendState = (await deps.harness.hasUnfinishedTurn(session))
+			? await deps.harness.suspendTurn(session)
+			: null;
 
-		let commit: CommitTurnResult | null = null;
-		try {
-			commit = await deps.commit(sandbox, deps.commitDeps, {
-				chatId,
-				messageId: assistantMessageId,
-				organizationId: input.organizationId,
-				projectId,
-				source: "agent",
-				summary,
-				turnId,
-				userId: input.actorUserId,
-			});
-		} catch (error) {
-			// A failed commit must not lose the turn's text and usage.
-			logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
-		}
-		const outputCommitSha = commit?.sha ?? null;
-
-		// The files event is a stream-only part; the message row keeps the
-		// harness chunks only.
-		await writeEvent({
-			data: {
-				data: { files: commit?.numstat ?? [] },
-				id: `files-${turnId}`,
-				type: "data-builder-files",
+		// Commit, message, usage, and settle tail of a finished run. The success
+		// path and the pause path share it. The caller passes the live handles.
+		const settleTurn = async (
+			liveSession: HarnessSession,
+			liveSandbox: SandboxHandle,
+			outcome: {
+				pending: HarnessPendingInteraction[];
+				status: "succeeded" | "waiting_for_answer" | "waiting_for_approval";
 			},
-			type: "part",
-		});
-		await fenced(() =>
-			deps.insertAssistantMessage({
-				chatId,
-				id: assistantMessageId,
-				metadata: {
-					harness: deps.harness.kind,
-					model,
-					outputCommitSha,
-					usage: { ...usage, credits },
-				},
-				parts: finalMessage?.parts ?? [],
-				turnId,
-			}),
-		);
+		): Promise<void> => {
+			await writeStatus("committing");
+			await chunkWriter.close();
+			chunkStreamClosed = true;
+			const finalMessage = await assistantMessage;
+			const assistantText = (finalMessage?.parts ?? [])
+				.filter(
+					(
+						part,
+					): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
+						part.type === "text",
+				)
+				.map((part) => part.text)
+				.join("\n");
+			// A text-only turn still gets a commit: the turn number names it.
+			const summary =
+				assistantText.trim().slice(0, SUMMARY_MAX_CHARS) ||
+				`Turn ${turnNumber}`;
 
-		await fenced(() =>
-			deps.turns.recordUsage(turnId, {
-				cacheReadTokens: usage.cacheReadTokens,
-				cacheWriteTokens: usage.cacheWriteTokens,
-				credits,
-				harness: deps.harness.kind,
-				inputTokens: usage.inputTokens,
-				model,
-				outputTokens: usage.outputTokens,
-			}),
-		);
-		// A false CAS means the row went terminal under us (a cancel won):
-		// skip the later row writes, still do the cleanup tail.
-		const completed = await fenced(() =>
-			deps.turns.complete(turnId, {
-				completedAt: new Date(),
-				outputCommitSha,
-				status: "succeeded",
-			}),
-		);
-		if (!completed) {
-			logger.warn(`Complete write lost for turn ${turnId}: row moved on`);
-		} else {
-			const hold = await findHold();
-			if (hold === null) {
-				logger.warn(`No metering hold found for turn ${turnId}; skip settle`);
-			} else if (hold.status !== "reserved") {
-				logger.info(
-					`Metering hold for turn ${turnId} is ${hold.status}; skip settle`,
-				);
-			} else {
-				await deps.metering.settle(hold.id, {
-					modelId: model,
-					pricing: "token",
-					provider: llmModelPrice(model)?.provider ?? null,
-					rawUsage: { ...usage },
-					usage: {
-						inputTokenDetails: {
-							cacheReadTokens: usage.cacheReadTokens,
-							cacheWriteTokens: usage.cacheWriteTokens,
-							noCacheTokens: Math.max(
-								0,
-								usage.inputTokens -
-									usage.cacheReadTokens -
-									usage.cacheWriteTokens,
-							),
-						},
-						inputTokens: usage.inputTokens,
-						outputTokens: usage.outputTokens,
-					},
+			let commit: CommitTurnResult | null = null;
+			try {
+				commit = await deps.commit(liveSandbox, deps.commitDeps, {
+					chatId,
+					messageId: assistantMessageId,
+					organizationId: input.organizationId,
+					projectId,
+					source: "agent",
+					summary,
+					turnId,
+					userId: input.actorUserId,
 				});
+			} catch (error) {
+				// A failed commit must not lose the turn's text and usage.
+				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
+			}
+			const outputCommitSha = commit?.sha ?? null;
+
+			// The files event is a stream-only part; the message row keeps the
+			// harness chunks only.
+			await writeEvent({
+				data: {
+					data: { files: commit?.numstat ?? [] },
+					id: `files-${turnId}`,
+					type: "data-builder-files",
+				},
+				type: "part",
+			});
+
+			// One stream part and one message part per card the user must
+			// answer; the cards are what the next turn answers.
+			const cardParts: UIMessage["parts"] = [];
+			for (const interaction of outcome.pending) {
+				if (interaction.kind === "question") {
+					for (const question of interaction.questions) {
+						const part: UIMessage["parts"][number] = {
+							data: {
+								answer: null,
+								options: question.options.map((option) => option.label),
+								question: question.question,
+								questionId: question.id,
+								toolCallId: interaction.toolCallId,
+							} satisfies TurnQuestionData,
+							id: `${interaction.toolCallId}:${question.id}`,
+							type: "data-question",
+						};
+						await writeEvent({ data: part, type: "part" });
+						cardParts.push(part);
+					}
+				} else {
+					const part: UIMessage["parts"][number] = {
+						data: {
+							approvalId: interaction.approvalId,
+							decision: null,
+							input: interaction.input,
+							toolCallId: interaction.toolCallId,
+							toolName: interaction.toolName,
+						} satisfies TurnApprovalData,
+						id: interaction.approvalId,
+						type: "data-approval",
+					};
+					await writeEvent({ data: part, type: "part" });
+					cardParts.push(part);
+				}
 			}
 
-			const resumeOut = await deps.harness.detach(session);
 			await fenced(() =>
-				deps.sessions.saveResumeState(chatId, {
-					model,
-					providerSessionId,
-					resumeState: resumeOut,
+				deps.insertAssistantMessage({
+					chatId,
+					id: assistantMessageId,
+					metadata: {
+						harness: deps.harness.kind,
+						model,
+						outputCommitSha,
+						usage: { ...usage, credits },
+					},
+					parts: [...(finalMessage?.parts ?? []), ...cardParts],
+					turnId,
 				}),
 			);
-			await deps.writer.write(turnId, {
-				data: {
-					receipt: { credits },
-					status: "succeeded",
-					...(outputCommitSha === null ? {} : { outputCommitSha }),
-				},
-				type: "done",
-			});
-		}
-		await finishTurn();
+
+			await fenced(() =>
+				deps.turns.recordUsage(turnId, {
+					cacheReadTokens: usage.cacheReadTokens,
+					cacheWriteTokens: usage.cacheWriteTokens,
+					credits,
+					harness: deps.harness.kind,
+					inputTokens: usage.inputTokens,
+					model,
+					outputTokens: usage.outputTokens,
+				}),
+			);
+			// A false CAS means the row went terminal under us (a cancel won):
+			// skip the later row writes, still do the cleanup tail.
+			const completed = await fenced(() =>
+				deps.turns.complete(turnId, {
+					completedAt: new Date(),
+					outputCommitSha,
+					status: outcome.status,
+				}),
+			);
+			if (!completed) {
+				logger.warn(`Complete write lost for turn ${turnId}: row moved on`);
+			} else {
+				const hold = await findHold();
+				if (hold === null) {
+					logger.warn(`No metering hold found for turn ${turnId}; skip settle`);
+				} else if (hold.status !== "reserved") {
+					logger.info(
+						`Metering hold for turn ${turnId} is ${hold.status}; skip settle`,
+					);
+				} else {
+					await deps.metering.settle(hold.id, {
+						modelId: model,
+						pricing: "token",
+						provider: llmModelPrice(model)?.provider ?? null,
+						rawUsage: { ...usage },
+						usage: {
+							inputTokenDetails: {
+								cacheReadTokens: usage.cacheReadTokens,
+								cacheWriteTokens: usage.cacheWriteTokens,
+								noCacheTokens: Math.max(
+									0,
+									usage.inputTokens -
+										usage.cacheReadTokens -
+										usage.cacheWriteTokens,
+								),
+							},
+							inputTokens: usage.inputTokens,
+							outputTokens: usage.outputTokens,
+						},
+					});
+				}
+
+				// A suspended session is already parked; a live one detaches.
+				const resumeOut =
+					suspendState === null
+						? await deps.harness.detach(liveSession)
+						: suspendState;
+				await fenced(() =>
+					deps.sessions.saveResumeState(chatId, {
+						model,
+						providerSessionId,
+						resumeState: resumeOut,
+					}),
+				);
+				await deps.writer.write(turnId, {
+					data: {
+						receipt: { credits },
+						status: outcome.status,
+						...(outputCommitSha === null ? {} : { outputCommitSha }),
+					},
+					type: "done",
+				});
+			}
+			await finishTurn();
+		};
+
+		await settleTurn(
+			session,
+			sandbox,
+			suspendState === null
+				? { pending: [], status: "succeeded" }
+				: {
+						pending: suspendState.pending,
+						// An approval card outranks a question card: the API blocks
+						// a new turn on it with a 409.
+						status: suspendState.pending.some(
+							(interaction) => interaction.kind === "approval",
+						)
+							? "waiting_for_approval"
+							: "waiting_for_answer",
+					},
+		);
 	} catch (error) {
 		if (signal.aborted) {
 			await finalizeCanceled();

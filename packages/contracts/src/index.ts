@@ -102,6 +102,8 @@ export * from "./v1/workspaces";
 export * from "./v2/harness";
 // V2 app-builder health contract.
 export * from "./v2/health";
+// V2 builder host-tool input/output contracts.
+export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
 // V2 app-builder preview token contract.

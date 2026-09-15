@@ -274,6 +274,40 @@ describe("BuilderTurnsRepository active-status reads", () => {
 		);
 	});
 
+	it("findWaitingForUser picks the oldest paused row of the project", async () => {
+		const captured: { orderBy?: unknown; where?: unknown } = {};
+		const limit = vi.fn(async () => []);
+		const orderBy = vi.fn((o: unknown) => {
+			captured.orderBy = o;
+			return { limit };
+		});
+		const where = vi.fn((w: unknown) => {
+			captured.where = w;
+			return { orderBy };
+		});
+		const from = vi.fn(() => ({ where }));
+		const select = vi.fn(() => ({ from }));
+		const repository = new BuilderTurnsRepository(
+			// SAFETY: `Object.create` yields `any`; the fake captures the
+			// drizzle fragments and nothing executes.
+			Object.assign(Object.create(null), { select }) as Database,
+		);
+
+		await repository.findWaitingForUser("project-1");
+
+		const whereClause = compile(captured.where);
+		expect(whereClause.sql).toContain('"builder_turns"."project_id" = $1');
+		expect(whereClause.sql).toContain('"builder_turns"."status" in ($2, $3)');
+		expect(whereClause.params).toEqual([
+			"project-1",
+			"waiting_for_answer",
+			"waiting_for_approval",
+		]);
+		expect(compile(captured.orderBy).sql).toContain(
+			'"builder_turns"."turn_number" asc',
+		);
+	});
+
 	it("currentTurnNumber counts only the slot-holding statuses", async () => {
 		const captured: { where?: unknown } = {};
 		const where = vi.fn(async (w: unknown) => {

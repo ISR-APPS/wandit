@@ -1,10 +1,16 @@
 import type {
 	HarnessAgentAdapter,
+	HarnessAgentContinueTurnState,
 	HarnessAgentResumeSessionState,
 	HarnessAgentSettings,
 } from "@ai-sdk/harness/agent";
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code";
-import type { LanguageModelUsage, UIMessageChunk } from "ai";
+import type {
+	LanguageModelUsage,
+	ToolApprovalResponse,
+	ToolResultPart,
+	UIMessageChunk,
+} from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
@@ -38,6 +44,34 @@ const RESUME_STATE: HarnessAgentResumeSessionState = {
 	harnessId: "claude-code",
 	specificationVersion: "harness-v1",
 	type: "resume-session",
+};
+
+/** `suspendTurn` output: one pending `askUserQuestions` call, two options. */
+const CONTINUE_STATE: HarnessAgentContinueTurnState = {
+	data: { claudeSessionId: "claude-1" },
+	harnessId: "claude-code",
+	pendingToolResults: [
+		{
+			input: JSON.stringify({
+				allowPartialAnswers: false,
+				questions: [
+					{
+						id: "question-1",
+						options: [
+							{ id: "option-1", label: "Blue" },
+							{ id: "option-2", label: "Green" },
+						],
+						question: "Which color?",
+					},
+				],
+			}),
+			toolCallId: "call-1",
+			toolName: "askUserQuestions",
+		},
+	],
+	specificationVersion: "harness-v1",
+	turnSettings: { skills: [], tools: [] },
+	type: "continue-turn",
 };
 
 function usage(
@@ -100,19 +134,38 @@ type Captured = {
 	agentSettings?: HarnessAgentSettings;
 	claudeSettings?: ClaudeCodeHarnessSettings;
 	createOptions?: {
+		continueFrom?: HarnessAgentContinueTurnState;
 		resumeFrom?: HarnessAgentResumeSessionState;
 		sandboxSession: HarnessSandboxSession;
 		sessionId: string;
 	};
+	continueOptions?: {
+		toolApprovalContinuations?: ToolApprovalResponse[];
+		toolResultContinuations?: ToolResultPart[];
+	};
 };
 
-function setup(streamResult?: ClaudeCodeStreamResult) {
+function setup(
+	streamResult?: ClaudeCodeStreamResult,
+	logger?: Pick<Console, "warn">,
+) {
 	const captured: Captured = {};
 	const session: ClaudeCodeSessionHandle = {
 		detach: vi.fn(async () => RESUME_STATE),
+		hasUnfinishedTurn: vi.fn(() => false),
 		sessionId: "sess-1",
+		suspendTurn: vi.fn(async () => CONTINUE_STATE),
 	};
 	const agent: ClaudeCodeAgentRunner = {
+		continueStream: async (options) => {
+			captured.continueOptions = options;
+			return (
+				streamResult ?? {
+					toUIMessageStream: () => (async function* () {})(),
+					totalUsage: Promise.resolve(usage()),
+				}
+			);
+		},
 		createSession: async (options) => {
 			captured.createOptions = options;
 			return session;
@@ -134,6 +187,7 @@ function setup(streamResult?: ClaudeCodeStreamResult) {
 			// settings are under test.
 			return {} as HarnessAgentAdapter;
 		},
+		logger,
 	});
 	return { captured, harness, session };
 }
@@ -207,10 +261,39 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		await harness.resumeSession(sessionInput(), {
 			harness: "claude_code",
 			payload: JSON.stringify(RESUME_STATE),
+			pending: [],
 		});
 
 		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 		expect(captured.createOptions?.sessionId).toBe("chat-1");
+	});
+
+	it("resumes a suspended turn through continueFrom, not resumeFrom", async () => {
+		const { captured, harness } = setup();
+
+		await harness.resumeSession(sessionInput(), {
+			harness: "claude_code",
+			payload: JSON.stringify(CONTINUE_STATE),
+			pending: [
+				{
+					kind: "question",
+					questions: [
+						{
+							id: "question-1",
+							options: [
+								{ id: "option-1", label: "Blue" },
+								{ id: "option-2", label: "Green" },
+							],
+							question: "Which color?",
+						},
+					],
+					toolCallId: "call-1",
+				},
+			],
+		});
+
+		expect(captured.createOptions?.continueFrom).toEqual(CONTINUE_STATE);
+		expect(captured.createOptions?.resumeFrom).toBeUndefined();
 	});
 
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
@@ -220,6 +303,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 			harness.resumeSession(sessionInput(), {
 				harness: "opencode",
 				payload: "{}",
+				pending: [],
 			}),
 		).rejects.toBeInstanceOf(HarnessResumeMismatchError);
 	});
@@ -259,6 +343,7 @@ describe("ClaudeCodeHarness.stream", () => {
 
 		const events = [];
 		for await (const event of harness.stream(session, {
+			kind: "prompt",
 			prompt: "hi",
 			signal: new AbortController().signal,
 		})) {
@@ -296,6 +381,7 @@ describe("ClaudeCodeHarness.stream", () => {
 
 		const events = [];
 		for await (const event of harness.stream(session, {
+			kind: "prompt",
 			prompt: "hi",
 			signal: new AbortController().signal,
 		})) {
@@ -319,6 +405,188 @@ describe("ClaudeCodeHarness.stream", () => {
 			},
 		]);
 	});
+
+	it("maps a continue input to one tool result and one approval response", async () => {
+		const { captured, harness } = setup();
+		const session = await harness.createSession(sessionInput());
+
+		const events = [];
+		for await (const event of harness.stream(session, {
+			approvals: [{ approvalId: "appr-1", approved: true }],
+			kind: "continue",
+			signal: new AbortController().signal,
+			toolResults: [
+				{
+					answers: { "question-1": { optionIds: ["option-2"] } },
+					partial: false,
+					toolCallId: "call-1",
+				},
+			],
+		})) {
+			events.push(event);
+		}
+
+		expect(captured.continueOptions?.toolResultContinuations).toEqual([
+			{
+				output: {
+					type: "json",
+					value: {
+						action: "answered",
+						answers: { "question-1": { optionIds: ["option-2"] } },
+					},
+				},
+				toolCallId: "call-1",
+				toolName: "askUserQuestions",
+				type: "tool-result",
+			},
+		]);
+		expect(captured.continueOptions?.toolApprovalContinuations).toEqual([
+			{ approvalId: "appr-1", approved: true, type: "tool-approval-response" },
+		]);
+		// The tail still reports usage, same as the prompt path.
+		expect(events.at(-1)).toEqual({
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			type: "usage",
+		});
+	});
+
+	it("marks a partial answer as partially-answered", async () => {
+		const { captured, harness } = setup();
+		const session = await harness.createSession(sessionInput());
+
+		const events = [];
+		for await (const event of harness.stream(session, {
+			approvals: [],
+			kind: "continue",
+			signal: new AbortController().signal,
+			toolResults: [
+				{
+					answers: { "question-1": { optionIds: ["option-2"] } },
+					partial: true,
+					toolCallId: "call-1",
+				},
+			],
+		})) {
+			events.push(event);
+		}
+
+		expect(
+			captured.continueOptions?.toolResultContinuations?.[0]?.output,
+		).toEqual({
+			type: "json",
+			value: {
+				action: "partially-answered",
+				answers: { "question-1": { optionIds: ["option-2"] } },
+			},
+		});
+	});
+});
+
+describe("ClaudeCodeHarness.suspendTurn", () => {
+	it("maps a pending askUserQuestions result to a question interaction", async () => {
+		const { harness, session: innerSession } = setup();
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.harness).toBe("claude_code");
+		expect(JSON.parse(state.payload)).toEqual(CONTINUE_STATE);
+		expect(state.pending).toEqual([
+			{
+				kind: "question",
+				questions: [
+					{
+						id: "question-1",
+						options: [
+							{ id: "option-1", label: "Blue" },
+							{ id: "option-2", label: "Green" },
+						],
+						question: "Which color?",
+					},
+				],
+				toolCallId: "call-1",
+			},
+		]);
+		expect(innerSession.suspendTurn).toHaveBeenCalledOnce();
+	});
+
+	it("maps a question without options to an empty option list", async () => {
+		const { harness, session: innerSession } = setup();
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: [
+				{
+					input: JSON.stringify({
+						allowPartialAnswers: false,
+						questions: [{ id: "question-2", question: "Any notes?" }],
+					}),
+					toolCallId: "call-2",
+					toolName: "askUserQuestions",
+				},
+			],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.pending).toEqual([
+			{
+				kind: "question",
+				questions: [{ id: "question-2", options: [], question: "Any notes?" }],
+				toolCallId: "call-2",
+			},
+		]);
+	});
+
+	it("maps a pending host-tool call to an approval interaction", async () => {
+		const { harness, session: innerSession } = setup();
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolApprovals: [
+				{
+					approvalId: "appr-1",
+					input: '{"command":"deploy"}',
+					kind: "custom" as const,
+					toolCallId: "call-9",
+					toolName: "request_network_host",
+				},
+			],
+			pendingToolResults: [],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.pending).toEqual([
+			{
+				approvalId: "appr-1",
+				input: '{"command":"deploy"}',
+				kind: "approval",
+				toolCallId: "call-9",
+				toolName: "request_network_host",
+			},
+		]);
+	});
+
+	it("warns and skips a pending result of another tool", async () => {
+		const warn = vi.fn();
+		const { harness, session: innerSession } = setup(undefined, { warn });
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: [
+				{ input: "{}", toolCallId: "call-2", toolName: "other" },
+			],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.pending).toEqual([]);
+		expect(warn).toHaveBeenCalledOnce();
+	});
 });
 
 describe("ClaudeCodeHarness.detach", () => {
@@ -330,6 +598,7 @@ describe("ClaudeCodeHarness.detach", () => {
 
 		expect(state.harness).toBe("claude_code");
 		expect(JSON.parse(state.payload)).toEqual(RESUME_STATE);
+		expect(state.pending).toEqual([]);
 		expect(innerSession.detach).toHaveBeenCalledOnce();
 	});
 });

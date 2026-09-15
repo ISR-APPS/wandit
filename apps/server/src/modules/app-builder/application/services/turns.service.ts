@@ -32,6 +32,7 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
 import {
@@ -122,7 +123,9 @@ export class TurnsService {
 	 * `POST /v2/projects/:id/turns`. Reserves a credit hold, then either
 	 * queues the turn behind an active one (`waiting` row, `queued: true`)
 	 * or takes the project lock and starts `builder-turn` right away. A
-	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE.
+	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project
+	 * whose last turn waits on an approval card answers 409
+	 * BUILDER_APPROVAL_PENDING until the body carries `approval`.
 	 */
 	async create(
 		scope: ProjectScope,
@@ -143,6 +146,16 @@ export class TurnsService {
 		}
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
+
+		// A paused approval card must be answered before a new turn starts;
+		// a paused question is answered by the message text itself.
+		const waitingTurn = await this.turns.findWaitingForUser(projectId);
+		if (
+			waitingTurn?.status === "waiting_for_approval" &&
+			body.approval === undefined
+		) {
+			throw new BuilderApprovalPendingError();
+		}
 
 		const turnId = randomUUID();
 		// A pre-written first message (project create) keeps its id; every
@@ -175,6 +188,7 @@ export class TurnsService {
 				model,
 			);
 			const spec: BuilderTurnSpec = {
+				approval: body.approval,
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,
 				message: body.message,
@@ -303,9 +317,11 @@ export class TurnsService {
 
 	/**
 	 * `POST /v2/projects/:id/turns/:turnId/cancel`. Idempotent: a terminal
-	 * row answers its current status. A `waiting` row flips straight to
-	 * `canceled`; an active row goes through `cancelling`, a best-effort
-	 * remote cancel, and a bounded settle wait before the final CAS.
+	 * row answers its current status. A `waiting` or paused
+	 * `waiting_for_*` row flips straight to `canceled`. A paused one also
+	 * clears the chat resume state. An active row goes through
+	 * `cancelling`, a best-effort remote cancel, and a bounded settle wait
+	 * before the final CAS.
 	 */
 	async cancel(
 		scope: ProjectScope,
@@ -322,12 +338,23 @@ export class TurnsService {
 
 		if (next === "canceled") {
 			// A parked row has no run and no lock; nothing must die first.
+			// A paused row is the same: the pause already ended the run.
 			const moved = await this.turns.transition(
 				turn.id,
-				["waiting"],
+				["waiting", "waiting_for_answer", "waiting_for_approval"],
 				"canceled",
 			);
 			if (moved) {
+				if (
+					turn.chatId !== null &&
+					(turn.status === "waiting_for_answer" ||
+						turn.status === "waiting_for_approval")
+				) {
+					// LIMIT: a canceled question drops the agent memory of the
+					// chat; the next turn starts a cold session. Upgrade:
+					// submit a cancelled tool result on the next turn.
+					await this.sessions.clearResumeState(turn.chatId);
+				}
 				await this.refundHold(scope, turn.id);
 				return { status: "canceled", turnId: turn.id };
 			}
