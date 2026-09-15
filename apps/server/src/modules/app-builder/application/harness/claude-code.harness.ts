@@ -241,10 +241,15 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					ANTHROPIC_AUTH_TOKEN: authToken,
 					ANTHROPIC_BASE_URL: baseUrl,
 				},
-				// Other variables go through `env`; absent means no `env` key.
-				...(customHeaders === undefined
-					? {}
-					: { env: { ANTHROPIC_CUSTOM_HEADERS: customHeaders } }),
+				// Other variables go through `env`. The traffic flag is always
+				// on: deny-by-default egress would turn the telemetry and update
+				// calls into noise. ANTHROPIC_CUSTOM_HEADERS joins when present.
+				env: {
+					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+					...(customHeaders === undefined
+						? {}
+						: { ANTHROPIC_CUSTOM_HEADERS: customHeaders }),
+				},
 				port: HARNESS_BRIDGE_PORT,
 			}),
 			instructions: input.instructions,

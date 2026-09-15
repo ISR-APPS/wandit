@@ -9,6 +9,8 @@ import { type V2EnvName, v2EnvNames } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
 
+import type { SandboxEgressMode } from "../sandbox/network-policy";
+
 /** The contract list of V2 env names, re-exported for server callers. */
 export const V2_ENV_NAMES = v2EnvNames;
 
@@ -19,6 +21,16 @@ export const V2_ENV_NAMES = v2EnvNames;
 export type V2EnvSource = Readonly<
 	Partial<Record<V2EnvName, string | undefined>> & {
 		V2_HARNESS: V2Harness;
+		/**
+		 * Egress mode of the sandbox. The zod default makes the real `env`
+		 * always carry it; specs may omit it and get "strict".
+		 */
+		V2_SANDBOX_EGRESS_MODE?: SandboxEgressMode;
+		/**
+		 * Public base URL of the R2 bucket, not a V2 name: the sandbox
+		 * egress policy allows its host so generated apps can load assets.
+		 */
+		R2_PUBLIC_BASE_URL?: string;
 	}
 >;
 

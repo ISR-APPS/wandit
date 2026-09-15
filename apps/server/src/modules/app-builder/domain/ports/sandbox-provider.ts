@@ -33,7 +33,10 @@ export const HARNESS_BRIDGE_PORT = 4000;
  */
 export type HarnessSandboxSession = HarnessV1NetworkSandboxSession;
 
-/** Hosts a sandbox may reach. Empty `allowedHosts` means the vendor default. */
+/**
+ * Hosts a sandbox may reach. `["*"]` means every host (open mode); an empty
+ * `allowedHosts` is a caller bug that `start` and `setNetworkPolicy` reject.
+ */
 export type SandboxNetworkPolicy = {
 	allowedHosts: string[];
 	/** CIDR blocks the sandbox must not reach, for example "10.0.0.0/8". */
@@ -65,6 +68,10 @@ export type SandboxCreateOptions = {
 	 * on the `sandbox_sessions` row.
 	 */
 	organizationId: string | null;
+	/**
+	 * Override for specs and tools. When absent the provider builds the
+	 * default policy from the env and the sandbox env.
+	 */
 	networkPolicy?: SandboxNetworkPolicy;
 };
 
@@ -114,6 +121,13 @@ export interface SandboxHandle {
 	 * vendor timeout is absolute, not idle.
 	 */
 	keepAlive(): Promise<void>;
+	/**
+	 * Replaces the whole vendor network policy on the live sandbox — no
+	 * restart. Round 2's `request_network_host` tool and the integration
+	 * spec call it. A caller that runs during a harness session must first
+	 * merge the current session policy (round 2 work).
+	 */
+	setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void>;
 	/** The session the HarnessAgent attaches to. */
 	harnessSession(): Promise<HarnessSandboxSession>;
 }

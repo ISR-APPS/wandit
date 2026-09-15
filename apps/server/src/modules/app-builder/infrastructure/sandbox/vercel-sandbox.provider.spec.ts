@@ -1,5 +1,5 @@
 import { ServiceUnavailableException } from "@nestjs/common";
-import { APIError } from "@vercel/sandbox";
+import { APIError, type NetworkPolicy } from "@vercel/sandbox";
 import { describe, expect, it, vi } from "vitest";
 
 import { SandboxForkNotSupportedError } from "../../domain/errors/sandbox-fork-not-supported.error";
@@ -12,6 +12,7 @@ import type {
 } from "../../domain/ports/sandbox-provider";
 import type { V2EnvSource } from "../env/v2-env";
 import { FakeSandboxSessionsRepository } from "../persistence/fake-sandbox-sessions.repository";
+import { GLOBAL_ALLOWED_HOSTS, SANDBOX_DENIED_RANGES } from "./network-policy";
 import type { TemplateInit } from "./template-init";
 import {
 	type VercelGetOrCreateParams,
@@ -53,10 +54,16 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	readonly writtenFiles: { path: string }[] = [];
 	readonly updates: Parameters<VercelSandboxInstance["update"]>[0][] = [];
 	readonly extensions: number[] = [];
+	/** Every policy `updateNetworkPolicy` received, in call order. */
+	readonly networkPolicies: NetworkPolicy[] = [];
 	stopped = false;
 	deleted = false;
+	/** When set, `updateNetworkPolicy` rejects with it: the fail-closed path. */
+	failWith: Error | null = null;
+	/** runCommand and updateNetworkPolicy calls, in order. */
+	readonly events: string[] = [];
 	readonly fs = {
-		readdir: async (_path: string) => [] as string[],
+		readdir: async (_path: string): Promise<string[]> => [],
 	};
 
 	currentSession(): { readonly cwd: string } {
@@ -85,6 +92,7 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	runCommand(params: FakeRunParams): Promise<FakeFinished>;
 	runCommand(params: FakeRunParams): Promise<{ cmdId: string } | FakeFinished> {
 		this.commands.push(params);
+		this.events.push("runCommand");
 		if (params.detached === true) {
 			return Promise.resolve({ cmdId: `cmd-${this.commands.length}` });
 		}
@@ -131,6 +139,15 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	extendTimeout(duration: number): Promise<void> {
 		this.extensions.push(duration);
 		return Promise.resolve();
+	}
+
+	updateNetworkPolicy(policy: NetworkPolicy): Promise<NetworkPolicy> {
+		if (this.failWith) {
+			return Promise.reject(this.failWith);
+		}
+		this.networkPolicies.push(policy);
+		this.events.push("updateNetworkPolicy");
+		return Promise.resolve(policy);
 	}
 
 	stop(): Promise<{ status: string }> {
@@ -251,7 +268,7 @@ const OPTIONS: SandboxCreateOptions = {
 	templateVersion: "web-app@1.0.0",
 };
 
-function setup() {
+function setup(envSource: V2EnvSource = ENV_SOURCE) {
 	const sessions = new FakeSandboxSessionsRepository();
 	const restorer = new FakeRepoRestorer();
 	const templateInit = new FakeTemplateInit();
@@ -263,7 +280,7 @@ function setup() {
 		templateInit,
 		logger,
 		sdk,
-		ENV_SOURCE,
+		envSource,
 	);
 	return { logger, provider, restorer, sdk, sessions, templateInit };
 }
@@ -316,7 +333,7 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		expect(sessions.rows.size).toBe(1);
 	});
 
-	it("logs nothing on a plain reuse of a running sandbox", async () => {
+	it("logs only the network-policy line on a plain reuse of a running sandbox", async () => {
 		const { logger, provider } = setup();
 		await provider.getOrCreate("p1", OPTIONS);
 		logger.info.mockClear();
@@ -325,7 +342,11 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 
 		await provider.getOrCreate("p1", OPTIONS);
 
-		expect(logger.info).not.toHaveBeenCalled();
+		expect(logger.info).toHaveBeenCalledTimes(1);
+		expect(logger.info).toHaveBeenCalledWith(
+			"sandbox.network-policy.applied",
+			expect.objectContaining({ projectId: "p1" }),
+		);
 		expect(logger.warn).not.toHaveBeenCalled();
 		expect(logger.error).not.toHaveBeenCalled();
 	});
@@ -560,5 +581,185 @@ describe("VercelSandboxHandle", () => {
 		await expect(provider.fork("p1")).rejects.toBeInstanceOf(
 			SandboxForkNotSupportedError,
 		);
+	});
+});
+
+describe("VercelSandboxProvider egress policy", () => {
+	const STRICT_ALLOW = [...GLOBAL_ALLOWED_HOSTS, "llm-proxy.test"].sort();
+
+	it("creates with a deny-by-default policy built from the env", async () => {
+		const { provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(sdk.getOrCreateCalls[0]?.networkPolicy).toEqual({
+			allow: STRICT_ALLOW,
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+		// A fresh sandbox gets the policy at create; no live update runs.
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([]);
+	});
+
+	it("pushes the policy to a resumed sandbox through a live update", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		await provider.stop("p1");
+
+		await provider.resume("p1", OPTIONS);
+
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([
+			sdk.getOrCreateCalls[0]?.networkPolicy,
+		]);
+	});
+
+	it("applies the policy update before the dev command on a resume", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		await provider.stop("p1");
+		const sandbox = sdk.instances.get("p1");
+		const before = sandbox?.events.length ?? 0;
+
+		await provider.resume("p1", OPTIONS);
+
+		const events = sandbox?.events.slice(before) ?? [];
+		// The dev command must not boot under the stored policy.
+		expect(events[0]).toBe("updateNetworkPolicy");
+		expect(events).toContain("runCommand");
+	});
+
+	it("pushes the policy again on a plain reuse of a live sandbox", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([
+			sdk.getOrCreateCalls[0]?.networkPolicy,
+		]);
+	});
+
+	it("stops the sandbox and marks the row error when the policy update fails on reuse", async () => {
+		const { provider, sdk, sessions } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		const sandbox = sdk.instances.get("p1");
+		if (!sandbox) {
+			throw new Error("the first getOrCreate created no sandbox");
+		}
+		const failure = new Error("policy update failed");
+		sandbox.failWith = failure;
+
+		await expect(provider.getOrCreate("p1", OPTIONS)).rejects.toBe(failure);
+
+		// The policy update fails closed: a reuse that cannot apply the
+		// policy must not leave the sandbox running under the stored one.
+		expect(sandbox.stopped).toBe(true);
+		expect(sessions.rows.get("row-1")?.status).toBe("error");
+	});
+
+	it("open mode allows every host, keeps the deny ranges, and logs a warn", async () => {
+		const { logger, provider, sdk } = setup({
+			...ENV_SOURCE,
+			V2_SANDBOX_EGRESS_MODE: "open",
+		});
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(sdk.getOrCreateCalls[0]?.networkPolicy).toEqual({
+			allow: ["*"],
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+		expect(logger.warn).toHaveBeenCalledWith(
+			"sandbox.network-policy.applied",
+			expect.objectContaining({ mode: "open", projectId: "p1" }),
+		);
+	});
+
+	it("throws before the vendor call when strict mode lacks the proxy host", async () => {
+		const { provider, sdk } = setup();
+		const env = { ...OPTIONS.env };
+		delete env.ANTHROPIC_BASE_URL;
+
+		await expect(
+			provider.getOrCreate("p1", { ...OPTIONS, env }),
+		).rejects.toThrow("ANTHROPIC_BASE_URL");
+
+		expect(sdk.getOrCreateCalls).toHaveLength(0);
+	});
+
+	it("an explicit options.networkPolicy wins and logs mode override", async () => {
+		const { logger, provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			env: {},
+			networkPolicy: { allowedHosts: ["only.example.com"], deniedRanges: [] },
+		});
+
+		expect(sdk.getOrCreateCalls[0]?.networkPolicy).toEqual({
+			allow: ["only.example.com"],
+			subnets: undefined,
+		});
+		expect(logger.info).toHaveBeenCalledWith(
+			"sandbox.network-policy.applied",
+			expect.objectContaining({ mode: "override", projectId: "p1" }),
+		);
+	});
+
+	it("rejects an options.networkPolicy with an empty allow list before the vendor call", async () => {
+		const { provider, sdk } = setup();
+
+		await expect(
+			provider.getOrCreate("p1", {
+				...OPTIONS,
+				networkPolicy: { allowedHosts: [], deniedRanges: ["10.0.0.0/8"] },
+			}),
+		).rejects.toThrow(/empty allowedHosts/);
+
+		expect(sdk.getOrCreateCalls).toHaveLength(0);
+	});
+
+	it("adds the git host and the asset host when the env carries them", async () => {
+		const { provider, sdk } = setup({
+			...ENV_SOURCE,
+			CODE_STORAGE_ORG: "acme",
+			R2_PUBLIC_BASE_URL: "https://assets.example.com",
+		});
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(sdk.getOrCreateCalls[0]?.networkPolicy).toEqual({
+			allow: [
+				...STRICT_ALLOW,
+				"acme.code.storage",
+				"assets.example.com",
+			].sort(),
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+	});
+
+	it("handle.setNetworkPolicy maps the port policy and forwards it", async () => {
+		const { provider, sdk } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		await handle.setNetworkPolicy({
+			allowedHosts: ["new.example.com"],
+			deniedRanges: ["10.0.0.0/8"],
+		});
+
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([
+			{ allow: ["new.example.com"], subnets: { deny: ["10.0.0.0/8"] } },
+		]);
+	});
+
+	it("handle.setNetworkPolicy rejects an empty allow list", async () => {
+		const { provider } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		await expect(
+			handle.setNetworkPolicy({
+				allowedHosts: [],
+				deniedRanges: ["10.0.0.0/8"],
+			}),
+		).rejects.toThrow(/empty allowedHosts/);
 	});
 });

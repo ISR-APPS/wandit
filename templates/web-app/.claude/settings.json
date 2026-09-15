@@ -39,12 +39,25 @@
 			"Write(~/.zshenv)",
 			"Edit(~/.profile)",
 			"Write(~/.profile)",
+			"Edit(.npmrc)",
+			"Write(.npmrc)",
+			"Edit(~/.npmrc)",
+			"Write(~/.npmrc)",
+			"Edit(.pnpmfile.cjs)",
+			"Write(.pnpmfile.cjs)",
 			"Bash(git push*)",
 			"Bash(git reset*)",
 			"Bash(git checkout*)",
 			"Bash(git switch*)",
 			"Bash(git rebase*)",
-			"Bash(git tag*)"
+			"Bash(git tag*)",
+			"Bash(sudo *)",
+			"Bash(git config*)",
+			"Bash(ssh *)",
+			"Bash(nc *)",
+			"Bash(ncat *)",
+			"Bash(docker *)",
+			"Bash(pnpm approve-builds*)"
 		]
 	},
 	"hooks": {

@@ -310,6 +310,9 @@ export const env = createEnv({
 		// The Anthropic-compatible endpoint the LLM proxy forwards to.
 		// Unset means https://api.anthropic.com.
 		V2_LLM_UPSTREAM_BASE_URL: z.url().optional(),
+		// Egress mode of the V2 sandbox. "open" is the fallback when the allow
+		// list breaks a turn; it keeps the deny ranges.
+		V2_SANDBOX_EGRESS_MODE: z.enum(["strict", "open"]).default("strict"),
 		VERCEL_SANDBOX_TOKEN: z.string().min(1).optional(),
 		VERCEL_TEAM_ID: z.string().min(1).optional(),
 		VERCEL_PROJECT_ID: z.string().min(1).optional(),

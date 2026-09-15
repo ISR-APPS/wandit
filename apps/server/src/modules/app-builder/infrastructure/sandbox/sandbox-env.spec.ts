@@ -21,6 +21,7 @@ describe("buildSandboxEnv", () => {
 			ANTHROPIC_BASE_URL: "https://llm-proxy.test",
 			ANTHROPIC_API_KEY: "",
 			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
+			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 			VITE_SUPABASE_ANON_KEY: "anon-key-1",
 			VITE_SUPABASE_URL: "https://project.supabase.co",
 		});
@@ -63,6 +64,15 @@ describe("buildSandboxEnv", () => {
 		});
 
 		expect(env.ANTHROPIC_API_KEY).toBe("");
+	});
+
+	it("keeps the telemetry flag on when extra sets it", () => {
+		const env = buildSandboxEnv({
+			...INPUT,
+			extra: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "0" },
+		});
+
+		expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe("1");
 	});
 
 	it("contains no name outside the allow list", () => {

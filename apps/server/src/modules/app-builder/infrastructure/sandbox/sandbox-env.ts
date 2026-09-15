@@ -18,6 +18,7 @@ export const SANDBOX_ENV_ALLOW_LIST = [
 	"ANTHROPIC_BASE_URL",
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_CUSTOM_HEADERS",
+	"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
 	"VITE_SUPABASE_ANON_KEY",
 	"VITE_SUPABASE_URL",
 	"WANDIT_PREVIEW_HOST",
@@ -83,5 +84,8 @@ export function buildSandboxEnv(
 	}
 	// Security: the key stays empty even when `extra` reintroduces the name.
 	env.ANTHROPIC_API_KEY = "";
+	// Deny-by-default egress: telemetry and update calls would fail and log
+	// noise, so Claude Code must not make them. `extra` cannot re-enable them.
+	env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
 	return env;
 }
