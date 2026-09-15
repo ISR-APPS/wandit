@@ -6,8 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
 import type { SandboxCreateOptions } from "../../domain/ports/sandbox-provider";
-import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
-import { FakeSandboxProvider } from "./fake-sandbox.provider";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "./fake-sandbox.provider";
 import {
 	ArchiveTemplateInit,
 	resolveTemplateArchiveDir,
@@ -92,8 +94,8 @@ describe("ArchiveTemplateInit", () => {
 		});
 
 		expect(execLines(provider)).toEqual([
-			`mkdir -p ${SANDBOX_WORKSPACE_DIR}`,
-			`tar -xzf /tmp/template.tar.gz -C ${SANDBOX_WORKSPACE_DIR}`,
+			`mkdir -p ${FAKE_WORKSPACE_DIR}`,
+			`tar -xzf /tmp/template.tar.gz -C ${FAKE_WORKSPACE_DIR}`,
 			"pnpm install --frozen-lockfile --offline",
 			"git rev-parse --git-dir",
 			"git init",

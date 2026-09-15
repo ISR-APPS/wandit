@@ -34,7 +34,7 @@ import type {
 } from "../../domain/ports/sandbox-provider";
 import {
 	HARNESS_BRIDGE_PORT,
-	SANDBOX_WORKSPACE_DIR,
+	HARNESS_WORK_DIR,
 } from "../../domain/ports/sandbox-provider";
 import { requireV2Env, V2_ENV, type V2EnvSource } from "../env/v2-env";
 import {
@@ -71,6 +71,8 @@ const DEFAULT_IMAGE = "vercel/sandbox/node:22";
  */
 export type VercelSandboxInstance = {
 	readonly name: string;
+	/** The vendor session; `cwd` is the default working directory of the image. */
+	currentSession(): { readonly cwd: string };
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
 	readonly fs: {
@@ -175,6 +177,11 @@ const vercelSandboxSdk: VercelSandboxSdk = {
 	getOrCreate: (params) => Sandbox.getOrCreate(params),
 };
 
+/** The project root: the harness work dir under the vendor default cwd. */
+function workspaceDirOf(sandbox: VercelSandboxInstance): string {
+	return posix.join(sandbox.currentSession().cwd, HARNESS_WORK_DIR);
+}
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -199,10 +206,13 @@ class VercelSandboxHandle implements SandboxHandle {
 	 */
 	private deadlineMs: number;
 
+	readonly workspaceDir: string;
+
 	constructor(
 		readonly projectId: string,
 		private readonly sandbox: VercelSandboxInstance,
 	) {
+		this.workspaceDir = workspaceDirOf(sandbox);
 		this.openedPorts = new Set(sandbox.routes.map((route) => route.port));
 		this.deadlineMs =
 			sandbox.expiresAt?.getTime() ?? Date.now() + SANDBOX_TIMEOUT_MS;
@@ -517,7 +527,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		await sandbox.runCommand({
 			args: ["-c", options.devCommand],
 			cmd: "bash",
-			cwd: SANDBOX_WORKSPACE_DIR,
+			cwd: workspaceDirOf(sandbox),
 			detached: true,
 			env: commandEnv,
 		});
@@ -526,7 +536,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		const probe = await sandbox.runCommand({
 			args: ["PLAYWRIGHT_SERVICE"],
 			cmd: "printenv",
-			cwd: SANDBOX_WORKSPACE_DIR,
+			cwd: workspaceDirOf(sandbox),
 			env: commandEnv,
 		});
 		if (probe.exitCode === 0) {
@@ -535,7 +545,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 				await sandbox.runCommand({
 					args: ["-c", command],
 					cmd: "bash",
-					cwd: SANDBOX_WORKSPACE_DIR,
+					cwd: workspaceDirOf(sandbox),
 					detached: true,
 					env: commandEnv,
 				});

@@ -76,6 +76,7 @@ function fakeSandbox(): SandboxHandle {
 		projectId: "project-1",
 		providerSandboxId: "sbx-1",
 		readFile: async () => null,
+		workspaceDir: "/vercel/workspace",
 		writeFiles: async () => {},
 	};
 }

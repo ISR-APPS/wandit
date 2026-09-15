@@ -27,8 +27,12 @@ type FakeProjectState = {
 	stopped: boolean;
 };
 
+/** The project root every fake handle reports; the node:22 image's real one. */
+export const FAKE_WORKSPACE_DIR = "/vercel/workspace";
+
 class FakeSandboxHandle implements SandboxHandle {
 	readonly providerSandboxId: string;
+	readonly workspaceDir = FAKE_WORKSPACE_DIR;
 
 	constructor(
 		readonly projectId: string,

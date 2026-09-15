@@ -31,12 +31,15 @@ execFileSync(
 		"--exclude=dist",
 		"--exclude=.wrangler",
 		"--exclude=*.tar.gz",
+		// macOS tar adds "._*" resource-fork files; the sandbox must not get them.
+		"--exclude=._*",
 		// A local env file holds secrets and must never enter the archive.
 		"--exclude=.env",
 		"--exclude=.env.*",
 		".",
 	],
-	{ stdio: "inherit" },
+	// COPYFILE_DISABLE stops macOS tar from adding "._*" resource-fork entries.
+	{ env: { ...process.env, COPYFILE_DISABLE: "1" }, stdio: "inherit" },
 );
 
 console.log(`wrote ${outPath}`);

@@ -6,7 +6,6 @@ import type {
 	SandboxCreateOptions,
 	SandboxHandle,
 } from "../../domain/ports/sandbox-provider";
-import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
 import { LoggingRepoRestorer } from "../git/logging-repo-restorer";
 import { FakeSandboxSessionsRepository } from "../persistence/fake-sandbox-sessions.repository";
 import { ArchiveTemplateInit, TEMPLATE_ARCHIVE_DIR } from "./template-init";
@@ -56,13 +55,13 @@ describe.skipIf(!RUN)("vercel sandbox integration", () => {
 			const handle = await provider.getOrCreate(projectId, OPTIONS);
 			console.log(`create took ${Date.now() - startedAt}ms`);
 
-			// The harness runs the agent in <vendor cwd>/<workDir>: `pwd`
-			// must answer the parent of the workspace, and the template init
-			// must have committed the project inside it.
+			// The harness runs the agent in <vendor cwd>/<workDir>: the handle's
+			// workspace must sit right under the vendor cwd, and the template
+			// init must have committed the project inside it.
 			const pwd = await handle.exec("pwd", []);
-			expect(pwd.stdout.trim()).toBe(posix.dirname(SANDBOX_WORKSPACE_DIR));
+			expect(posix.dirname(handle.workspaceDir)).toBe(pwd.stdout.trim());
 			const gitDir = await handle.exec("test", ["-d", ".git"], {
-				cwd: SANDBOX_WORKSPACE_DIR,
+				cwd: handle.workspaceDir,
 			});
 			expect(gitDir.exitCode).toBe(0);
 
