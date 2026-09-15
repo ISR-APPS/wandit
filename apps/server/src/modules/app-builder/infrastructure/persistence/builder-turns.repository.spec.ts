@@ -273,6 +273,28 @@ describe("BuilderTurnsRepository active-status reads", () => {
 			'"builder_turns"."turn_number" asc',
 		);
 	});
+
+	it("currentTurnNumber counts only the slot-holding statuses", async () => {
+		const captured: { where?: unknown } = {};
+		const where = vi.fn(async (w: unknown) => {
+			captured.where = w;
+			return [{ max: 3 }];
+		});
+		const from = vi.fn(() => ({ where }));
+		const select = vi.fn(() => ({ from }));
+		const repository = new BuilderTurnsRepository(
+			// SAFETY: `Object.create` yields `any`; the fake captures the
+			// drizzle fragments and nothing executes.
+			Object.assign(Object.create(null), { select }) as Database,
+		);
+
+		expect(await repository.currentTurnNumber("project-1")).toBe(3);
+
+		const { params, sql } = compile(captured.where);
+		expect(sql).toContain('"builder_turns"."project_id" = $1');
+		expect(sql).toContain('"builder_turns"."status" in ($2, $3, $4)');
+		expect(params).toEqual(["project-1", "queued", "running", "cancelling"]);
+	});
 });
 
 describe("BuilderTurnsRepository.create", () => {

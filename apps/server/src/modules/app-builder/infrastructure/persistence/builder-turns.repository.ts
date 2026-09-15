@@ -477,14 +477,23 @@ export class BuilderTurnsRepository {
 		}
 	}
 
-	/** Highest allocated turn number of a project; 0 before the first turn. */
+	/**
+	 * Turn number of the row that holds the project slot; 0 when the slot
+	 * is free. A `waiting` row never counts: `create` gives it `max + 1`
+	 * while an older turn still runs, and that turn must keep its fence.
+	 */
 	async currentTurnNumber(projectId: string): Promise<number> {
 		const [row] = await this.db
 			.select({
 				max: sql<number>`coalesce(max(${builderTurns.turnNumber}), 0)::int`,
 			})
 			.from(builderTurns)
-			.where(eq(builderTurns.projectId, projectId));
+			.where(
+				and(
+					eq(builderTurns.projectId, projectId),
+					inArray(builderTurns.status, [...PROJECT_ACTIVE_TURN_STATUSES]),
+				),
+			);
 
 		return row?.max ?? 0;
 	}

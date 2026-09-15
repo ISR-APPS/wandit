@@ -9,10 +9,12 @@ import { env } from "@wandit/env/server";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
+import { CreditsModule } from "../credits/credits.module";
 import { GenerationModule } from "../generation/generation.module";
 import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
+import { AppProjectsService } from "./application/services/app-projects.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -34,6 +36,7 @@ import { V2_ENV } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
+import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
@@ -46,8 +49,10 @@ import {
 	TEMPLATE_INIT,
 } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
+import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
+import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
@@ -61,15 +66,18 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 
 @Module({
 	controllers: [
+		AppProjectsController,
 		LlmProxyController,
 		TurnsController,
 		V2HealthController,
 		VersionsController,
 	],
-	// GenerationModule: ChatsRepository. ProjectsModule: ProjectsRepository.
+	// CreditsModule: CreditsService (the create gate). GenerationModule:
+	// ChatsRepository. ProjectsModule: ProjectsRepository + ProjectsService.
 	// MeteringModule: MeteringService. SettingsModule is global already;
 	// importing it names the dependency the V2 flag guard has.
 	imports: [
+		CreditsModule,
 		DatabaseModule,
 		GenerationModule,
 		MeteringModule,
@@ -78,6 +86,8 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 	],
 	providers: [
 		AppCommitsRepository,
+		AppProjectsService,
+		AuditEventsRepository,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
 		LlmProxyRequestsRepository,
@@ -85,6 +95,7 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		LlmSpendCounters,
 		RedisRateLimitGuard,
 		SandboxSessionsRepository,
+		TemplateVersionService,
 		TurnsService,
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,

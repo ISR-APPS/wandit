@@ -26,6 +26,17 @@ describe("buildSandboxEnv", () => {
 		});
 	});
 
+	it("omits the VITE_SUPABASE names when the backend row is missing", () => {
+		const env = buildSandboxEnv({
+			...INPUT,
+			supabaseAnonKey: null,
+			supabaseUrl: null,
+		});
+
+		expect(env).not.toHaveProperty("VITE_SUPABASE_URL");
+		expect(env).not.toHaveProperty("VITE_SUPABASE_ANON_KEY");
+	});
+
 	it("adds WANDIT_PREVIEW_HOST only when the caller passes a host", () => {
 		const withHost = buildSandboxEnv({
 			...INPUT,

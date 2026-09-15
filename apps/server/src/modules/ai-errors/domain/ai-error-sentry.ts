@@ -32,6 +32,10 @@ export interface AiErrorSentryContext {
 	toolName?: string;
 	functionId?: string;
 	refunded?: boolean | null;
+	// Builder-turn fields (WANDIT-166): the turn row, the sandbox, the harness.
+	turnId?: string;
+	sandboxId?: string;
+	harness?: string;
 }
 
 export interface AiCallFailedAttributes {
@@ -55,6 +59,10 @@ export interface AiCallFailedAttributes {
 	rawCause?: string | null;
 	functionId?: string;
 	refunded?: boolean | null;
+	// Builder-turn fields (WANDIT-166): the turn row, the sandbox, the harness.
+	turnId?: string;
+	sandboxId?: string;
+	harness?: string;
 }
 
 export interface AiCallFinishedAttributes {
@@ -116,14 +124,17 @@ export function toSentryCapture(
 			functionId: context.functionId,
 			gatewayGenerationId: normalized.gatewayGenerationId,
 			generationId: context.generationId,
+			harness: context.harness,
 			model: normalized.model,
 			openrouterGenerationId: normalized.openrouterGenerationId,
 			projectId: context.projectId,
 			provider: normalized.provider,
 			route: context.route,
+			sandboxId: context.sandboxId,
 			statusCode: normalized.statusCode,
 			surface: context.surface,
 			toolName: context.toolName,
+			turnId: context.turnId,
 			userId: context.userId,
 		}),
 	};
@@ -148,6 +159,7 @@ export function captureAiError(
 		functionId: context.functionId,
 		gatewayGenerationId: normalized.gatewayGenerationId,
 		generationId: context.generationId,
+		harness: context.harness,
 		kind: normalized.kind,
 		model: normalized.model,
 		openrouterGenerationId: normalized.openrouterGenerationId,
@@ -157,10 +169,12 @@ export function captureAiError(
 		refunded: context.refunded ?? normalized.refunded,
 		requestId: normalized.requestId,
 		route: context.route,
+		sandboxId: context.sandboxId,
 		source: normalized.source,
 		statusCode: normalized.statusCode,
 		surface: context.surface,
 		toolName: context.toolName,
+		turnId: context.turnId,
 		userId: context.userId,
 	});
 	return null;

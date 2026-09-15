@@ -80,6 +80,11 @@ export default defineConfig({
 		// sharp stays external too: 0.35 moved its entry to dist/index.cjs and
 		// the bundler's copied-node_modules resolution can't find it; externals
 		// are installed from package.json in dev and deploy instead.
-		external: ["playwright", "sharp"],
+		// @ai-sdk/harness-claude-code reads its sandbox bridge files with
+		// `new URL("./bridge/<name>", import.meta.url)` (dist/index.js line 40).
+		// Inside the bundle that URL names the bundle file, which has no
+		// `bridge/` folder, so the first `createSession` fails. External keeps
+		// the package in node_modules, where the folder exists.
+		external: ["playwright", "sharp", "@ai-sdk/harness-claude-code"],
 	},
 });

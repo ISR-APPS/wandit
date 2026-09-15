@@ -1,13 +1,17 @@
-import { BadRequestException, Logger } from "@nestjs/common";
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import type { DeleteAppProjectTaskStarter } from "../../../app-builder/domain/ports/delete-app-project-task-starter";
 import type { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import type { ProjectScope } from "../../domain/project-scope";
-import type { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
+import type {
+	ProjectQueryRow,
+	ProjectsRepository,
+} from "../../infrastructure/persistence/projects.repository";
 import type { ProjectTitleService } from "./project-title.service";
 import { deriveProjectName, ProjectsService } from "./projects.service";
 
@@ -24,7 +28,7 @@ beforeEach(() => {
 	).GENERATION_BILLING_MODE = "enforce";
 });
 
-function setup() {
+function setup(starter: DeleteAppProjectTaskStarter | null = null) {
 	const projectsRepository = {
 		createWithChatAndFirstMessage: vi.fn(
 			(input: { chatId: string; messageId: string; projectId: string }) =>
@@ -64,6 +68,7 @@ function setup() {
 		modelPricingService as unknown as ModelPricingService,
 		projectTitleService as unknown as ProjectTitleService,
 		lifecycleEvents as unknown as LifecycleEventsService,
+		starter,
 	);
 
 	return {
@@ -400,11 +405,99 @@ describe("ProjectsService", () => {
 	});
 });
 
-function projectRow(overrides: { logoUrl: string | null }) {
+describe("ProjectsService.delete", () => {
+	it("starts the cleanup task for a v2_app row", async () => {
+		const starter = { start: vi.fn(async () => ({ runId: "run-1" })) };
+		const { projectsRepository, service } = setup(starter);
+		projectsRepository.softDeleteByIdForScope.mockResolvedValue({
+			engine: "v2_app",
+		});
+		const orgScope: ProjectScope = {
+			actorIsLimitExempt: true,
+			kind: "org",
+			organizationId: "org_1",
+			userId: "user_1",
+		};
+
+		await service.delete(orgScope, "project_1");
+
+		expect(projectsRepository.softDeleteByIdForScope).toHaveBeenCalledWith(
+			orgScope,
+			"project_1",
+		);
+		expect(starter.start).toHaveBeenCalledWith({
+			actorUserId: "user_1",
+			organizationId: "org_1",
+			projectId: "project_1",
+		});
+	});
+
+	it("starts nothing for a v1_page row", async () => {
+		const starter = { start: vi.fn(async () => ({ runId: "run-1" })) };
+		const { projectsRepository, service } = setup(starter);
+		projectsRepository.softDeleteByIdForScope.mockResolvedValue({
+			engine: "v1_page",
+		});
+
+		await service.delete(personalScope, "project_1");
+
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	it("starts nothing when the module bound no starter", async () => {
+		const { projectsRepository, service } = setup(null);
+		projectsRepository.softDeleteByIdForScope.mockResolvedValue({
+			engine: "v2_app",
+		});
+
+		await service.delete(personalScope, "project_1");
+		// No throw and nothing to start: the 204 stands.
+	});
+
+	it("still answers when the starter throws", async () => {
+		const error = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const starter = {
+			start: vi.fn(async () => {
+				throw new Error("trigger down");
+			}),
+		};
+		const { projectsRepository, service } = setup(starter);
+		projectsRepository.softDeleteByIdForScope.mockResolvedValue({
+			engine: "v2_app",
+		});
+
+		await expect(
+			service.delete(personalScope, "project_1"),
+		).resolves.toBeUndefined();
+		expect(error).toHaveBeenCalledWith(
+			"App-project cleanup start failed for project_1: trigger down",
+		);
+		error.mockRestore();
+	});
+
+	it("404s and starts nothing when the row is missing", async () => {
+		const starter = { start: vi.fn(async () => ({ runId: "run-1" })) };
+		const { projectsRepository, service } = setup(starter);
+		projectsRepository.softDeleteByIdForScope.mockResolvedValue(null);
+
+		await expect(
+			service.delete(personalScope, "project_1"),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+});
+
+function projectRow(overrides: { logoUrl: string | null }): ProjectQueryRow {
 	return {
 		activeSlug: null,
 		createdAt: new Date("2026-08-01T08:00:00.000Z"),
+		engine: "v1_page",
+		framework: null,
+		hideWanditBadge: false,
 		id: "project_1",
+		languages: [],
 		leadCount: 0,
 		logoUrl: overrides.logoUrl,
 		metaPixelId: null,
@@ -412,6 +505,8 @@ function projectRow(overrides: { logoUrl: string | null }) {
 		pendingDeploymentCount: 0,
 		previewImageUrl: null,
 		prompt: "Build a page",
+		targetPlatform: null,
+		templateVersion: null,
 		tiktokPixelId: null,
 		updatedAt: new Date("2026-08-01T09:00:00.000Z"),
 	};

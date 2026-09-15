@@ -88,6 +88,8 @@ export * from "./v1/push-tokens";
 export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Shared project-engine enum (V1 and V2 schemas both read it).
+export * from "./v1/shared/project-engine";
 // Story-link campaign and analytics contracts.
 export * from "./v1/story-links";
 // Support (live chat identity) contracts.
@@ -96,6 +98,8 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 builder harness lifecycle contracts.
+export * from "./v2/harness";
 // V2 app-builder health contract.
 export * from "./v2/health";
 // V2 LLM proxy token, model, and status contracts.
