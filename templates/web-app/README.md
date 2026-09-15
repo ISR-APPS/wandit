@@ -7,7 +7,7 @@ React 19, TanStack Router, Tailwind v4, shadcn-style UI, Supabase, i18n (en/fr/a
 
 1. `pnpm run pack` writes `web-app-<version>.tar.gz` next to this folder.
 2. The sandbox init uploads the archive through the `writeFiles` interface.
-3. The sandbox extracts it into `/vercel/sandbox/workspace`.
+3. The sandbox extracts it into ``<sandbox cwd>/workspace` (`/vercel/workspace` on the node:22 image)`.
 4. `pnpm install` runs inside the sandbox. The image pre-warms the pnpm store
    from `pnpm-lock.yaml`, so the install needs no registry.
 

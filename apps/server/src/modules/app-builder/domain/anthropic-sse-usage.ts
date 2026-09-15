@@ -26,10 +26,18 @@ const anthropicUsageFieldsSchema = z.object({
 });
 
 // The JSON inside one SSE `data:` line; other event types are ignored.
+// A gateway (Vercel AI Gateway) reports zero input in `message_start`, the
+// real input count in `message_delta.usage`, and the cache counts under
+// `provider_metadata.anthropic.usage`.
 const anthropicSseEventSchema = z.object({
 	type: z.string(),
 	message: z.object({ usage: anthropicUsageFieldsSchema }).optional(),
 	usage: anthropicUsageFieldsSchema.optional(),
+	provider_metadata: z
+		.object({
+			anthropic: z.object({ usage: anthropicUsageFieldsSchema }).optional(),
+		})
+		.optional(),
 });
 
 // A JSON (non-streamed) Messages response, or a `count_tokens` answer that
@@ -93,8 +101,22 @@ export function createAnthropicSseUsageParser(): {
 			};
 		}
 		if (parsed.type === "message_delta" && parsed.usage !== undefined) {
-			// `output_tokens` is cumulative; the last delta wins.
-			usage = { ...usage, outputTokens: parsed.usage.output_tokens ?? 0 };
+			// `output_tokens` is cumulative; the last delta wins. A delta that
+			// carries input or cache counts (a gateway) also wins over the
+			// zeros of its `message_start`.
+			const cache = parsed.provider_metadata?.anthropic?.usage;
+			usage = {
+				inputTokens: parsed.usage.input_tokens ?? usage.inputTokens,
+				outputTokens: parsed.usage.output_tokens ?? 0,
+				cacheReadTokens:
+					cache?.cache_read_input_tokens ??
+					parsed.usage.cache_read_input_tokens ??
+					usage.cacheReadTokens,
+				cacheWriteTokens:
+					cache?.cache_creation_input_tokens ??
+					parsed.usage.cache_creation_input_tokens ??
+					usage.cacheWriteTokens,
+			};
 		}
 	}
 

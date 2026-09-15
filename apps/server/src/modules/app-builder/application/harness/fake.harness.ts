@@ -67,11 +67,17 @@ export class FakeBuilderHarness implements BuilderHarness {
 		return { sessionId: `fake-session-${this.counter}` };
 	}
 
+	/** Error `resumeSession` throws; null resumes normally. */
+	resumeError: Error | null = null;
+
 	async resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
 	): Promise<HarnessSession> {
 		this.resumeCalls.push({ input, resumeState });
+		if (this.resumeError) {
+			throw this.resumeError;
+		}
 		this.counter += 1;
 		return { sessionId: `fake-session-${this.counter}` };
 	}

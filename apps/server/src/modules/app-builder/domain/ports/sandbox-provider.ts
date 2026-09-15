@@ -11,15 +11,11 @@ import type { HarnessV1NetworkSandboxSession } from "@ai-sdk/harness";
 export const SANDBOX_PROVIDER = Symbol.for("app-builder.sandbox-provider");
 
 /**
- * The project root inside the sandbox. The harness runs Claude Code in
- * `<vendor cwd>/<workDir>`; the vendor cwd is `/vercel/sandbox`, so the
- * project must sit under it or the agent edits an empty folder.
- */
-export const SANDBOX_WORKSPACE_DIR = "/vercel/sandbox/workspace";
-
-/**
  * The relative `sandboxConfig.workDir` the builder-turn task passes to
- * `HarnessAgent`. It names the last segment of `SANDBOX_WORKSPACE_DIR`.
+ * `HarnessAgent`. The harness runs Claude Code in `<vendor cwd>/<workDir>`,
+ * so the project root is `SandboxHandle.workspaceDir`, the same path. The
+ * vendor cwd differs per image (`/vercel` on the node:22 image), so no
+ * absolute path is hardcoded.
  */
 export const HARNESS_WORK_DIR = "workspace";
 
@@ -93,6 +89,11 @@ export type SandboxFile = { path: string; content: string | Uint8Array };
 /** A live sandbox for one project. */
 export interface SandboxHandle {
 	readonly projectId: string;
+	/**
+	 * The project root inside the sandbox: `<vendor cwd>/HARNESS_WORK_DIR`.
+	 * The template, git, and Claude Code all work in this folder.
+	 */
+	readonly workspaceDir: string;
 	/** The vendor id of the sandbox. Logged with every lifecycle step. */
 	readonly providerSandboxId: string;
 	exec(

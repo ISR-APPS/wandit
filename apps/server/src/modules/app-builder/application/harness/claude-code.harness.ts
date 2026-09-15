@@ -82,6 +82,15 @@ type LiveSession = {
 	session: ClaudeCodeSessionHandle;
 };
 
+/**
+ * Kills a bridge process an earlier session left in the sandbox. A detached
+ * session keeps its bridge alive for a resume; when the resume is not
+ * possible, the old bridge still holds the bridge port and a new one cannot
+ * listen. Only sh, tr, grep, and kill are used: the image has no pkill.
+ */
+const KILL_STALE_BRIDGE_SCRIPT =
+	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q 'bridge.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
+
 export class ClaudeCodeHarness implements BuilderHarness {
 	readonly kind = "claude_code";
 
@@ -119,6 +128,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	async createSession(input: HarnessSessionInput): Promise<HarnessSession> {
 		const agent = this.buildAgent(input);
 		const sandboxSession = await input.sandbox.harnessSession();
+		// A fresh session owns the sandbox egress policy. An earlier session on
+		// the same sandbox leaves its request transformations behind (the run
+		// token header for the proxy host), and the SDK refuses to add new ones
+		// next to transformations it cannot attribute. A resume keeps them.
+		await sandboxSession.setRequestTransformations?.([]);
+		await input.sandbox.exec("sh", ["-c", KILL_STALE_BRIDGE_SCRIPT]);
 		// `sessionId` names the Claude Code work dir and the bridge dir; the
 		// chat id keeps them stable across turns. A missing sessionId gets a
 		// random id and a new empty work dir.
@@ -167,17 +182,25 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			prompt: input.prompt,
 			session: entry.session,
 		});
+		// The browser part keeps the SDK's safe text. The error event below
+		// carries the real message, for the turn row and the worker log.
+		let lastErrorMessage: string | null = null;
 		for await (const chunk of result.toUIMessageStream({
-			onError: getHarnessErrorMessage,
+			onError: (error) => {
+				lastErrorMessage =
+					error instanceof Error ? error.message : String(error);
+				return getHarnessErrorMessage(error);
+			},
 		})) {
 			yield { chunk, type: "part" };
 			if (chunk.type === "error") {
 				yield {
 					code: "harness_error",
-					message: chunk.errorText,
+					message: lastErrorMessage ?? chunk.errorText,
 					retryable: false,
 					type: "error",
 				};
+				lastErrorMessage = null;
 			}
 		}
 		const usage = await result.totalUsage;

@@ -17,7 +17,7 @@ import type {
 } from "../persistence/app-commits.repository";
 import { VersionConflictError } from "../persistence/app-commits.repository";
 import { authenticatedRemoteUrl, redactRemoteUrl } from "./git-remote-url";
-import { mustRunGit, SANDBOX_REPO_DIR } from "./sandbox-git";
+import { mustRunGit } from "./sandbox-git";
 
 // LIMIT: 1 MiB of patch bytes per commit. Upgrade: diff on demand through
 // `git diff` in the sandbox for larger commits.
@@ -119,7 +119,7 @@ export async function commitTurn(
 	// `git log` exits non-zero on an empty repository; no HEAD means the
 	// message commit cannot exist.
 	const headMessage = await sandbox.exec("git", ["log", "-1", "--format=%B"], {
-		cwd: SANDBOX_REPO_DIR,
+		cwd: sandbox.workspaceDir,
 	});
 	const alreadyCommitted =
 		headMessage.exitCode === 0 &&
@@ -157,7 +157,7 @@ export async function commitTurn(
 	const sha = head.stdout.trim();
 	// HEAD~1 fails on the root commit; a missing parent is null, not an error.
 	const parent = await sandbox.exec("git", ["rev-parse", "HEAD~1"], {
-		cwd: SANDBOX_REPO_DIR,
+		cwd: sandbox.workspaceDir,
 	});
 	const parentSha = parent.exitCode === 0 ? parent.stdout.trim() : null;
 
@@ -251,7 +251,7 @@ async function recoverPushedHead(
 	const ancestor = await sandbox.exec(
 		"git",
 		["merge-base", "--is-ancestor", storedHead, sha],
-		{ cwd: SANDBOX_REPO_DIR },
+		{ cwd: sandbox.workspaceDir },
 	);
 	const advanced =
 		ancestor.exitCode === 0 &&
@@ -273,6 +273,6 @@ async function pushOnce(
 	pushUrl: string,
 ): Promise<SandboxExecResult> {
 	return sandbox.exec("git", ["push", pushUrl, "HEAD:main"], {
-		cwd: SANDBOX_REPO_DIR,
+		cwd: sandbox.workspaceDir,
 	});
 }

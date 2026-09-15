@@ -27,6 +27,22 @@ describe("createAnthropicSseUsageParser", () => {
 		});
 	});
 
+	it("reads the gateway counts from message_delta and provider_metadata", () => {
+		// Vercel AI Gateway: zero input in message_start, real counts later.
+		const parser = createAnthropicSseUsageParser();
+		parser.feed(
+			`event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":0,"output_tokens":0}}}\n\n` +
+				`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"output_tokens":5},"provider_metadata":{"anthropic":{"usage":{"input_tokens":10,"cache_creation_input_tokens":3,"cache_read_input_tokens":7}}}}\n\n`,
+		);
+
+		expect(parser.usage()).toEqual({
+			cacheReadTokens: 7,
+			cacheWriteTokens: 3,
+			inputTokens: 10,
+			outputTokens: 5,
+		});
+	});
+
 	it("parses events split across chunk boundaries", () => {
 		const parser = createAnthropicSseUsageParser();
 		const mid = Math.floor(CANNED_STREAM.length / 2);

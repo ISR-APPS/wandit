@@ -442,6 +442,14 @@ export async function runBuilderTurn(
 		if (normalized === null) {
 			throw new Error("Builder turn classification returned no result");
 		}
+		// Sentry is optional in dev; the worker log must still say why.
+		logger.error("builder-turn.failed", {
+			failureCode,
+			kind: normalized.kind,
+			message: messageOf(error),
+			stack: error instanceof Error ? error.stack : undefined,
+			turnId,
+		});
 		normalized.sentryEventId = captureAiError(error, normalized, {
 			chatId,
 			harness: deps.harness.kind,
@@ -654,6 +662,25 @@ export async function runBuilderTurn(
 			sandbox,
 			turnId,
 		});
+		// A stored session can be dead: the sandbox was rebuilt, or the proxy
+		// host changed and the SDK rejects the old egress rules. A fresh
+		// session loses the agent memory but keeps the project alive.
+		const startSession = async (
+			stored: HarnessResumeState | null,
+		): Promise<HarnessSession> => {
+			if (stored === null) {
+				return deps.harness.createSession(sessionInput);
+			}
+			try {
+				return await deps.harness.resumeSession(sessionInput, stored);
+			} catch (error) {
+				logger.warn(
+					`Resume failed for turn ${turnId}; starting a fresh session: ${messageOf(error)}`,
+				);
+				await writeStatus("session_starting", "Starting a fresh session");
+				return deps.harness.createSession(sessionInput);
+			}
+		};
 		const sessionInput = {
 			chatId,
 			env: sandboxEnv,
@@ -663,10 +690,7 @@ export async function runBuilderTurn(
 			model,
 			sandbox,
 		};
-		session =
-			resumeState === null
-				? await deps.harness.createSession(sessionInput)
-				: await deps.harness.resumeSession(sessionInput, resumeState);
+		session = await startSession(resumeState);
 		const providerSessionId = session.sessionId;
 
 		await writeStatus("running");

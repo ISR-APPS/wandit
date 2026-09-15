@@ -25,7 +25,13 @@ import {
 // The sandbox session is opaque to the adapter: it goes straight into
 // `agent.createSession`. The fake agent never reads it.
 // SAFETY: only the fake agent touches this value, and it never reads it.
-const FAKE_SANDBOX_SESSION = {} as HarnessSandboxSession;
+const clearTransformations = vi.fn(async () => {});
+const FAKE_SANDBOX_SESSION: HarnessSandboxSession = {
+	// SAFETY: the harness reads only `setRequestTransformations` off the
+	// session and hands the object to the fake agent unchanged.
+	...({} as HarnessSandboxSession),
+	setRequestTransformations: clearTransformations,
+};
 
 const RESUME_STATE: HarnessAgentResumeSessionState = {
 	data: { claudeSessionId: "claude-1", forkOnResume: false },
@@ -54,9 +60,14 @@ function usage(
 	};
 }
 
+const execCalls: { args: string[]; command: string }[] = [];
+
 function fakeSandbox(): SandboxHandle {
 	return {
-		exec: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
+		exec: async (command, args) => {
+			execCalls.push({ args, command });
+			return { exitCode: 0, stderr: "", stdout: "" };
+		},
 		harnessSession: async () => FAKE_SANDBOX_SESSION,
 		keepAlive: async () => {},
 		listFiles: async () => [],
@@ -65,6 +76,7 @@ function fakeSandbox(): SandboxHandle {
 		projectId: "project-1",
 		providerSandboxId: "sbx-1",
 		readFile: async () => null,
+		workspaceDir: "/vercel/workspace",
 		writeFiles: async () => {},
 	};
 }
@@ -170,6 +182,22 @@ describe("ClaudeCodeHarness.createSession", () => {
 		expect(captured.createOptions?.sandboxSession).toBe(FAKE_SANDBOX_SESSION);
 		expect(session.sessionId).toBe("sess-1");
 	});
+
+	it("clears the request transformations an earlier session left on the sandbox", async () => {
+		const { harness } = setup();
+		clearTransformations.mockClear();
+
+		execCalls.length = 0;
+
+		await harness.createSession(sessionInput());
+
+		expect(clearTransformations).toHaveBeenCalledWith([]);
+		// The stale bridge of the earlier session is killed before the new one
+		// binds the bridge port.
+		expect(execCalls).toHaveLength(1);
+		expect(execCalls[0]?.command).toBe("sh");
+		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
+	});
 });
 
 describe("ClaudeCodeHarness.resumeSession", () => {
@@ -249,14 +277,17 @@ describe("ClaudeCodeHarness.stream", () => {
 		]);
 	});
 
-	it("emits a harness_error event after an error chunk", async () => {
+	it("emits a harness_error event with the real message after an error chunk", async () => {
+		// The SDK stream calls onError with the real error and yields a chunk
+		// with the safe text it returned; the event must carry the real one.
 		const errorChunk: UIMessageChunk = {
-			errorText: "model blew up",
+			errorText: "An error occurred.",
 			type: "error",
 		};
 		const { harness } = setup({
-			toUIMessageStream: () =>
+			toUIMessageStream: (options) =>
 				(async function* () {
+					options?.onError?.(new Error("model blew up"));
 					yield errorChunk;
 				})(),
 			totalUsage: Promise.resolve(usage()),

@@ -58,6 +58,10 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	readonly fs = {
 		readdir: async (_path: string) => [] as string[],
 	};
+
+	currentSession(): { readonly cwd: string } {
+		return { cwd: "/vercel" };
+	}
 	private readonly scripted = new Map<string, FakeFinished[]>();
 
 	constructor(

@@ -836,6 +836,24 @@ describe("runBuilderTurn", () => {
 		});
 	});
 
+	it("starts a fresh session when the stored one cannot resume", async () => {
+		const world = makeWorld();
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The dead session is logged and replaced; the turn still runs.
+		expect(world.harness.resumeCalls).toHaveLength(1);
+		expect(world.harness.createCalls).toHaveLength(1);
+		expect(world.turns.failCalls).toHaveLength(0);
+		expect(world.turns.completeCalls).toHaveLength(1);
+	});
+
 	it("mints the run token with plan, cap, and scope claims", async () => {
 		const world = makeWorld();
 		const { controller, input } = makeInput();

@@ -19,7 +19,6 @@ import {
 	versionNumstatKey,
 	versionPatchKey,
 } from "../../infrastructure/git/commit-turn";
-import { SANDBOX_REPO_DIR } from "../../infrastructure/git/sandbox-git";
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
@@ -27,7 +26,10 @@ import {
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
-import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "../../infrastructure/sandbox/fake-sandbox.provider";
 import { type VersionsObjectStore, VersionsService } from "./versions.service";
 
 const SHA = "a".repeat(40);
@@ -131,9 +133,9 @@ function fixture(options?: {
 	// warm sandbox: `test -d .git` then `git pull`.
 	const repoRestorer: RepoRestorer = {
 		restore: vi.fn(async (_projectId: string, sandbox) => {
-			await sandbox.exec("test", ["-d", ".git"], { cwd: SANDBOX_REPO_DIR });
+			await sandbox.exec("test", ["-d", ".git"], { cwd: FAKE_WORKSPACE_DIR });
 			await sandbox.exec("git", ["pull", "url", "main"], {
-				cwd: SANDBOX_REPO_DIR,
+				cwd: FAKE_WORKSPACE_DIR,
 			});
 		}),
 	};

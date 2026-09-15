@@ -4,10 +4,12 @@
  * sandbox (first create and rebuild); the idle sweep never calls it.
  * Reads the archive from the repo `templates/` folder that WANDIT-168 fills.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
 import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
@@ -15,7 +17,6 @@ import type {
 	SandboxHandle,
 	SandboxLogger,
 } from "../../domain/ports/sandbox-provider";
-import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
 
 /** Nest token for the `TemplateInit` implementation. */
 export const TEMPLATE_INIT = Symbol.for("app-builder.template-init");
@@ -29,13 +30,37 @@ export interface TemplateInit {
 }
 
 /**
- * The folder holding `web-app-<version>.tar.gz` archives, resolved against
- * the repo root. Bundled worker layouts can move it — WANDIT-168 verifies
- * the path where the tasks actually run. UNVERIFIED.
+ * Picks the folder that holds the `web-app-<version>.tar.gz` archives.
+ * `explicitDir` is `TEMPLATE_ARCHIVE_DIR` from the env and wins when set: a
+ * deployed worker or API carries the archive at a fixed path. Otherwise the
+ * first existing candidate wins: `<cwd>/templates`, `<cwd>/../../templates`
+ * (the Trigger dev worker and the API run from `apps/server`), then
+ * `templates/` next to this source file. The Trigger worker bundles this
+ * file under `.trigger/`, so the source path alone is wrong there. The last
+ * candidate is returned even when absent, so the error names a path.
  */
-export const TEMPLATE_ARCHIVE_DIR = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../../../../../../templates",
+export function resolveTemplateArchiveDir(
+	explicitDir: string | undefined,
+	cwd: string = process.cwd(),
+): string {
+	if (explicitDir) {
+		return resolve(explicitDir);
+	}
+	const sourceRelative = resolve(
+		dirname(fileURLToPath(import.meta.url)),
+		"../../../../../../../templates",
+	);
+	const candidates = [
+		resolve(cwd, "templates"),
+		resolve(cwd, "../../templates"),
+		sourceRelative,
+	];
+	return candidates.find((dir) => existsSync(dir)) ?? sourceRelative;
+}
+
+/** The archive folder this process uses; see `resolveTemplateArchiveDir`. */
+export const TEMPLATE_ARCHIVE_DIR = resolveTemplateArchiveDir(
+	env.TEMPLATE_ARCHIVE_DIR,
 );
 
 /** Upload target for the archive; `tar` reads it from here. */
@@ -43,7 +68,7 @@ const ARCHIVE_PATH = "/tmp/template.tar.gz";
 
 /**
  * Uploads `<framework>-<semver>.tar.gz`, extracts it into
- * `SANDBOX_WORKSPACE_DIR`, installs dependencies, and commits the result
+ * `sandbox.workspaceDir`, installs dependencies, and commits the result
  * so later turns diff against a clean baseline.
  */
 export class ArchiveTemplateInit implements TemplateInit {
@@ -68,38 +93,38 @@ export class ArchiveTemplateInit implements TemplateInit {
 		});
 
 		await sandbox.writeFiles([{ content: bytes, path: ARCHIVE_PATH }]);
-		await this.mustRun(sandbox, "mkdir", ["-p", SANDBOX_WORKSPACE_DIR]);
+		await this.mustRun(sandbox, "mkdir", ["-p", sandbox.workspaceDir]);
 		await this.mustRun(sandbox, "tar", [
 			"-xzf",
 			ARCHIVE_PATH,
 			"-C",
-			SANDBOX_WORKSPACE_DIR,
+			sandbox.workspaceDir,
 		]);
 
 		// The image ships a warm pnpm store; offline first keeps the create fast.
 		const offline = await sandbox.exec(
 			"pnpm",
 			["install", "--frozen-lockfile", "--offline"],
-			{ cwd: SANDBOX_WORKSPACE_DIR },
+			{ cwd: sandbox.workspaceDir },
 		);
 		if (offline.exitCode !== 0) {
 			this.logger.warn("sandbox.template-init.offline-install-miss", {
 				sandboxId: sandbox.providerSandboxId,
 			});
 			await this.mustRun(sandbox, "pnpm", ["install", "--frozen-lockfile"], {
-				cwd: SANDBOX_WORKSPACE_DIR,
+				cwd: sandbox.workspaceDir,
 			});
 		}
 
 		const hasRepo = await sandbox.exec("git", ["rev-parse", "--git-dir"], {
-			cwd: SANDBOX_WORKSPACE_DIR,
+			cwd: sandbox.workspaceDir,
 		});
 		if (hasRepo.exitCode !== 0) {
 			await this.mustRun(sandbox, "git", ["init"], {
-				cwd: SANDBOX_WORKSPACE_DIR,
+				cwd: sandbox.workspaceDir,
 			});
 			await this.mustRun(sandbox, "git", ["add", "-A"], {
-				cwd: SANDBOX_WORKSPACE_DIR,
+				cwd: sandbox.workspaceDir,
 			});
 			await this.mustRun(
 				sandbox,
@@ -113,7 +138,7 @@ export class ArchiveTemplateInit implements TemplateInit {
 					"-m",
 					`init: template ${options.templateVersion}`,
 				],
-				{ cwd: SANDBOX_WORKSPACE_DIR },
+				{ cwd: sandbox.workspaceDir },
 			);
 		}
 	}

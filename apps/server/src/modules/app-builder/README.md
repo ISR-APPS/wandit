@@ -273,7 +273,7 @@ repository is the durable copy.
   compare-and-swap on the previous head. A head mismatch answers 409
   `VERSION_CONFLICT`.
 - A fresh sandbox restores the code through `RepoRestorer`: `git pull`
-  when `.git` exists, `git clone` when `/vercel/sandbox/workspace` is
+  when `.git` exists, `git clone` when the sandbox workspace (`<vendor cwd>/workspace`) is
   empty, and an in-place `init` + `fetch` + `reset --hard` + `clean -fd`
   when the template files are already unpacked.
 - A restore is copy-forward: `git read-tree -u --reset <sha>` sets the

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
+import { FAKE_WORKSPACE_DIR } from "../sandbox/fake-sandbox.provider";
 
 const specDir = dirname(fileURLToPath(import.meta.url));
 const templateRoot = resolve(
@@ -71,7 +71,7 @@ describe("pre-tool-use hook", () => {
 		const result = runHook({
 			tool_name: "Write",
 			tool_input: {
-				file_path: `${SANDBOX_WORKSPACE_DIR}/app/.claude/settings.json`,
+				file_path: `${FAKE_WORKSPACE_DIR}/app/.claude/settings.json`,
 			},
 		});
 		expect(result.status).toBe(2);

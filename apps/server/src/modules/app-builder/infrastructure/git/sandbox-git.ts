@@ -8,16 +8,9 @@ import type {
 	SandboxExecResult,
 	SandboxHandle,
 } from "../../domain/ports/sandbox-provider";
-import { SANDBOX_WORKSPACE_DIR } from "../../domain/ports/sandbox-provider";
 
 /**
- * The sandbox path that holds the project git worktree. Alias of the
- * provider's `SANDBOX_WORKSPACE_DIR` so git callers keep their own name.
- */
-export const SANDBOX_REPO_DIR = SANDBOX_WORKSPACE_DIR;
-
-/**
- * Runs `git <args>` in `SANDBOX_REPO_DIR` and returns the result. A
+ * Runs `git <args>` in `sandbox.workspaceDir` and returns the result. A
  * non-zero exit throws `new errorType("<label> failed (<code>): <stderr>")`.
  * `options.secret` (a git credential) becomes `***` in the message and in a
  * default label because git echoes the remote URL on errors.
@@ -33,7 +26,7 @@ export async function mustRunGit<E extends Error>(
 		secret?: string;
 	},
 ): Promise<SandboxExecResult> {
-	const result = await sandbox.exec("git", args, { cwd: SANDBOX_REPO_DIR });
+	const result = await sandbox.exec("git", args, { cwd: sandbox.workspaceDir });
 	if (result.exitCode !== 0) {
 		const mask = (text: string): string =>
 			options?.secret === undefined
