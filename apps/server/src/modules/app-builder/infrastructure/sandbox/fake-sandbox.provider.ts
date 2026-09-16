@@ -103,6 +103,11 @@ class FakeSandboxHandle implements SandboxHandle {
 		this.provider.networkPolicies.push(policy);
 	}
 
+	async allowHost(host: string): Promise<void> {
+		this.provider.calls.push({ detail: host, method: "allowHost" });
+		this.provider.allowedHosts.push(host);
+	}
+
 	harnessSession(): Promise<HarnessSandboxSession> {
 		// The fake never attaches a real harness; the harness fake never
 		// calls this.
@@ -125,6 +130,8 @@ export class FakeSandboxProvider implements SandboxProvider {
 	keepAliveCalls = 0;
 	/** Every policy `handle.setNetworkPolicy` received, across all handles. */
 	readonly networkPolicies: SandboxNetworkPolicy[] = [];
+	/** Every host `handle.allowHost` received, across all handles, in order. */
+	readonly allowedHosts: string[] = [];
 	readonly scriptedExec = new Map<string, SandboxExecResult[]>();
 	private readonly projects = new Map<string, FakeProjectState>();
 

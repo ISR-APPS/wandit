@@ -519,6 +519,13 @@
       "when": 1789396922981,
       "tag": "0073_llm-proxy-requests",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1789484348465,
+      "tag": "0074_v2-project-network-allowed-hosts",
+      "breakpoints": true
     }
   ]
 }

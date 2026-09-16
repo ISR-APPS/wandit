@@ -737,6 +737,77 @@ describe("VercelSandboxProvider egress policy", () => {
 		});
 	});
 
+	it("adds valid per-project hosts and drops invalid ones", async () => {
+		const { provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			// One valid host joins the allow list; the IP literal is dropped.
+			networkAllowedHosts: ["extra.example.com", "10.0.0.1"],
+		});
+
+		expect(sdk.getOrCreateCalls[0]?.networkPolicy).toEqual({
+			allow: [...STRICT_ALLOW, "extra.example.com"].sort(),
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+	});
+
+	it("handle.allowHost merges the host into the applied policy and forwards it", async () => {
+		const { provider, sdk } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		await handle.allowHost("new.example.com");
+
+		// No harness session exists yet, so the update goes to the raw vendor
+		// policy: the create-time allow list plus the new host, deny ranges kept.
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([
+			{
+				allow: [...STRICT_ALLOW, "new.example.com"].sort(),
+				subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+			},
+		]);
+	});
+
+	it("handle.allowHost routes through the live harness session as a custom policy", async () => {
+		const { provider, sdk } = setup();
+		const setNetworkPolicy = vi.fn(async () => {});
+		harnessMocks.createVercelSandbox.mockReturnValue({
+			createSession: harnessMocks.createSession.mockResolvedValue({
+				id: "s1",
+				setNetworkPolicy,
+			}),
+		});
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+		// A harness session now owns the sandbox egress; `allowHost` must go
+		// through it, or it would drop the proxy auth transform.
+		await handle.harnessSession();
+
+		await handle.allowHost("new.example.com");
+
+		expect(setNetworkPolicy).toHaveBeenCalledWith({
+			allowedHosts: [...STRICT_ALLOW, "new.example.com"].sort(),
+			deniedCIDRs: [...SANDBOX_DENIED_RANGES],
+			mode: "custom",
+		});
+		// The raw `updateNetworkPolicy` path stays unused.
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([]);
+	});
+
+	it("handle.allowHost keeps the list deduped across two grants", async () => {
+		const { provider, sdk } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		await handle.allowHost("new.example.com");
+		await handle.allowHost("new.example.com");
+
+		const policies = sdk.instances.get("p1")?.networkPolicies ?? [];
+		expect(policies).toHaveLength(2);
+		expect(policies[1]).toEqual({
+			allow: [...STRICT_ALLOW, "new.example.com"].sort(),
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+	});
+
 	it("handle.setNetworkPolicy maps the port policy and forwards it", async () => {
 		const { provider, sdk } = setup();
 		const handle = await provider.getOrCreate("p1", OPTIONS);

@@ -11,6 +11,7 @@ import {
 } from "@wandit/db/schema/builder-turns";
 import {
 	projectEngine,
+	projects,
 	projectTargetPlatform,
 } from "@wandit/db/schema/projects";
 import {
@@ -97,5 +98,14 @@ describe("v2 core schema", () => {
 		);
 		expect(index).toBeDefined();
 		expect(index?.config.unique).toBe(true);
+	});
+
+	it("keeps projects.network_allowed_hosts as a not-null jsonb column", () => {
+		const column = getTableConfig(projects).columns.find(
+			(candidate) => candidate.name === "network_allowed_hosts",
+		);
+		expect(column?.columnType).toBe("PgJsonb");
+		expect(column?.notNull).toBe(true);
+		expect(column?.hasDefault).toBe(true);
 	});
 });

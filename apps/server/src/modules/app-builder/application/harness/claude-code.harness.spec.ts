@@ -109,6 +109,7 @@ function fakeSandbox(): SandboxHandle {
 		previewUrl: async () => "",
 		projectId: "project-1",
 		providerSandboxId: "sbx-1",
+		allowHost: async () => {},
 		readFile: async () => null,
 		setNetworkPolicy: async () => {},
 		workspaceDir: "/vercel/workspace",

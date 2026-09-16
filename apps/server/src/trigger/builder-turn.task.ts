@@ -21,9 +21,11 @@ import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/c
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
 import { commitTurn } from "../modules/app-builder/infrastructure/git/commit-turn";
 import { AppCommitsRepository } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
+import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
+import { ProjectNetworkHostsRepository } from "../modules/app-builder/infrastructure/persistence/project-network-hosts.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { LlmSpendCounters } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
@@ -108,10 +110,12 @@ export const builderTurnTask = schemaTask({
 					counters,
 					harness: createBuilderHarness(env.V2_HARNESS),
 					hostTools: new BuilderHostToolRegistry({
+						audit: new AuditEventsRepository(db),
 						imageEditModel: env.AI_IMAGE_EDIT_MODEL ?? null,
 						imageModel: env.AI_IMAGE_MODEL ?? null,
 						logger,
 						metering,
+						networkHosts: new ProjectNetworkHostsRepository(db),
 					}),
 					insertAssistantMessage: (input) =>
 						chats.insertTurnAssistantMessage(input),

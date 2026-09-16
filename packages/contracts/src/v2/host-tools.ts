@@ -60,3 +60,45 @@ export const generateImageHostToolOutputSchema = z.discriminatedUnion(
 export type GenerateImageHostToolOutput = z.infer<
 	typeof generateImageHostToolOutputSchema
 >;
+
+/**
+ * Input of the `request_network_host` host tool (WANDIT-180). The agent
+ * asks to reach one extra egress host; the user approves the call first.
+ * The tool re-checks `host` before it changes any policy.
+ */
+export const requestNetworkHostToolInputSchema = z.object({
+	// The DNS host to allow, for example `api.github.com` or `*.plausible.io`.
+	// RFC 1035 caps a host name at 253 chars.
+	host: z.string().min(1).max(253),
+	// One short line the approval card shows to the user.
+	reason: z.string().min(1).max(500),
+});
+
+/** Parsed `request_network_host` input; the tool execute body reads this. */
+export type RequestNetworkHostToolInput = z.infer<
+	typeof requestNetworkHostToolInputSchema
+>;
+
+/**
+ * Output of the `request_network_host` host tool. `allowed` means the
+ * sandbox now reaches `host`; `denied` carries the reason the tool
+ * refused, for example an invalid host or a failed policy update.
+ */
+export const requestNetworkHostToolOutputSchema = z.discriminatedUnion(
+	"status",
+	[
+		z.object({
+			status: z.literal("allowed"),
+			host: z.string(),
+		}),
+		z.object({
+			status: z.literal("denied"),
+			reason: z.string(),
+		}),
+	],
+);
+
+/** Parsed `request_network_host` output; the allowed/denied union. */
+export type RequestNetworkHostToolOutput = z.infer<
+	typeof requestNetworkHostToolOutputSchema
+>;

@@ -6,6 +6,7 @@
  * in the codebase live in this folder — vendor isolation is a rule.
  */
 import { posix } from "node:path";
+import type { HarnessV1NetworkPolicy } from "@ai-sdk/harness";
 import { createVercelSandbox } from "@ai-sdk/sandbox-vercel";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import {
@@ -214,16 +215,32 @@ class VercelSandboxHandle implements SandboxHandle {
 	 */
 	private deadlineMs: number;
 
+	/**
+	 * The egress policy now applied to the live sandbox. `allowHost` merges a
+	 * new host into it and re-applies. `start` seeds it with the create-time
+	 * policy.
+	 */
+	private appliedPolicy: SandboxNetworkPolicy;
+
+	/**
+	 * The live harness session, once `harnessSession` created one. `allowHost`
+	 * routes through it so the proxy auth transformation survives; null before
+	 * a session exists.
+	 */
+	private liveHarnessSession: HarnessSandboxSession | null = null;
+
 	readonly workspaceDir: string;
 
 	constructor(
 		readonly projectId: string,
 		private readonly sandbox: VercelSandboxInstance,
+		appliedPolicy: SandboxNetworkPolicy,
 	) {
 		this.workspaceDir = workspaceDirOf(sandbox);
 		this.openedPorts = new Set(sandbox.routes.map((route) => route.port));
 		this.deadlineMs =
 			sandbox.expiresAt?.getTime() ?? Date.now() + SANDBOX_TIMEOUT_MS;
+		this.appliedPolicy = appliedPolicy;
 	}
 
 	get providerSandboxId(): string {
@@ -292,7 +309,36 @@ class VercelSandboxHandle implements SandboxHandle {
 	}
 
 	async setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void> {
-		await this.sandbox.updateNetworkPolicy(toVendorNetworkPolicy(policy));
+		await this.applyPolicy(policy);
+	}
+
+	async allowHost(host: string): Promise<void> {
+		// Merge the host into the current allow list, deduped and sorted, and
+		// keep the deny ranges. A repeated grant maps to the same policy.
+		const allowedHosts = [
+			...new Set([...this.appliedPolicy.allowedHosts, host]),
+		].sort();
+		await this.applyPolicy({
+			allowedHosts,
+			deniedRanges: this.appliedPolicy.deniedRanges,
+		});
+	}
+
+	/**
+	 * Applies `policy` to the live sandbox and remembers it. It prefers the
+	 * harness session's `setNetworkPolicy`, which keeps the proxy auth
+	 * transformation the session added. Before a session exists it writes the
+	 * raw vendor policy directly.
+	 */
+	private async applyPolicy(policy: SandboxNetworkPolicy): Promise<void> {
+		const session = this.liveHarnessSession;
+		if (session?.setNetworkPolicy !== undefined) {
+			// Call as a method so the session stays the receiver.
+			await session.setNetworkPolicy(toHarnessNetworkPolicy(policy));
+		} else {
+			await this.sandbox.updateNetworkPolicy(toVendorNetworkPolicy(policy));
+		}
+		this.appliedPolicy = policy;
 	}
 
 	async harnessSession(): Promise<HarnessSandboxSession> {
@@ -303,7 +349,11 @@ class VercelSandboxHandle implements SandboxHandle {
 		const provider = createVercelSandbox({
 			sandbox: this.sandbox as Sandbox,
 		});
-		return provider.createSession();
+		const session = await provider.createSession();
+		// `allowHost` mid-turn routes policy updates through this session, so
+		// the proxy auth transformation the SDK adds next stays in place.
+		this.liveHarnessSession = session;
+		return session;
 	}
 }
 
@@ -449,7 +499,9 @@ export class VercelSandboxProvider implements SandboxProvider {
 					connectorHosts: [],
 					gitHost: org ? `${org}.code.storage` : null,
 					mode,
-					projectHosts: [],
+					// Layer 3: the project's approved hosts. `buildNetworkPolicy`
+					// drops any that fail validation into `rejected`.
+					projectHosts: options.networkAllowedHosts ?? [],
 					proxyBaseUrl: options.env.ANTHROPIC_BASE_URL ?? "",
 				});
 		const vendorPolicy = toVendorNetworkPolicy(built.policy);
@@ -478,7 +530,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 			},
 		});
 		this.live.set(projectId, sandbox);
-		const handle = new VercelSandboxHandle(projectId, sandbox);
+		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
 		try {
 			if (created) {
 				// A live row means the vendor lost the sandbox — this is a rebuild.
@@ -700,5 +752,24 @@ function toVendorNetworkPolicy(policy: SandboxNetworkPolicy): NetworkPolicy {
 			policy.deniedRanges.length > 0
 				? { deny: policy.deniedRanges }
 				: undefined,
+	};
+}
+
+/**
+ * Maps our policy into the harness session's `custom` policy. The session
+ * manager recomposes the vendor policy from this access policy plus the
+ * request transformations it already holds, so the proxy auth survives.
+ * An empty allow list is the same caller bug `toVendorNetworkPolicy` rejects.
+ */
+function toHarnessNetworkPolicy(
+	policy: SandboxNetworkPolicy,
+): HarnessV1NetworkPolicy {
+	if (policy.allowedHosts.length === 0) {
+		throw new Error("Sandbox egress: an empty allowedHosts is a caller bug");
+	}
+	return {
+		mode: "custom",
+		allowedHosts: policy.allowedHosts,
+		deniedCIDRs: policy.deniedRanges,
 	};
 }

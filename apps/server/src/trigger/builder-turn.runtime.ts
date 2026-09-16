@@ -736,6 +736,8 @@ export async function runBuilderTurn(
 			devPort: DEV_PORT,
 			env: sandboxEnv,
 			framework: project.framework,
+			// Layer 3 egress hosts the `request_network_host` tool approved.
+			networkAllowedHosts: project.networkAllowedHosts,
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
 			templateVersion: project.templateVersion,

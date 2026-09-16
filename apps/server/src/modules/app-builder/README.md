@@ -85,9 +85,10 @@ partial unique index guarantees at most one live row per project.
   list (`registry.npmjs.org`, `*.supabase.co`, fonts, `api.stripe.com`,
   `api.resend.com`, `maps.googleapis.com`, `api.openai.com`) plus the
   proxy host of `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host,
-  and the `R2_PUBLIC_BASE_URL` host. `SANDBOX_DENIED_RANGES` blocks
-  link-local metadata, private, CGNAT, and loopback CIDRs (IPv4 only —
-  the vendor API rejects IPv6 CIDRs).
+  the `R2_PUBLIC_BASE_URL` host, and the per-project hosts from
+  `projects.networkAllowedHosts` (layer 3). `SANDBOX_DENIED_RANGES`
+  blocks link-local metadata, private, CGNAT, and loopback CIDRs (IPv4
+  only — the vendor API rejects IPv6 CIDRs).
 - `V2_SANDBOX_EGRESS_MODE` selects the mode: `strict` (default) applies
   the allow list; `open` allows every host but keeps the deny ranges —
   the fallback when the allow list breaks a turn. Every start logs
@@ -96,6 +97,10 @@ partial unique index guarantees at most one live row per project.
 - `handle.setNetworkPolicy` replaces the whole vendor policy on the live
   sandbox without a restart; a resume or reuse re-pushes it through the
   same call so a changed list reaches a running VM.
+- `handle.allowHost(host)` adds one host to the live allow list, for the
+  `request_network_host` tool. It merges the host into the applied
+  policy and routes through the live harness session, so the proxy
+  run-token transformation the session added stays in place.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
   command env; the vendor route only reaches a `0.0.0.0` listener.
@@ -280,6 +285,15 @@ releases per-turn clients (none today — connectors land in a follow-up).
   refunds, and a `failed`/`unavailable` result returns to the agent
   instead of throwing. `null` `holdEventId` answers `failed` — a paid
   tool never runs unbilled.
+- `request_network_host` (WANDIT-180) asks to reach one extra egress
+  host. It is `"user-approval"`, so the user approves first; the body
+  runs only on approval. It checks the host with `isValidNetworkHost`,
+  appends it to `projects.networkAllowedHosts` (a deduping write), calls
+  `SandboxHandle.allowHost` to apply it to the live sandbox with no
+  restart, and writes a `network.host_allowed` audit row. `allowHost`
+  routes through the live harness session, so the proxy run-token
+  transformation survives. A bad host or a failed update answers
+  `denied` and writes no audit row. See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `askUserQuestions` pauses for an answer. `generate_image` is
