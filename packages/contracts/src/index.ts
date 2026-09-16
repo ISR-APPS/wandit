@@ -108,6 +108,8 @@ export * from "./v2/host-tools";
 export * from "./v2/llm-proxy";
 // V2 app-builder preview token contract.
 export * from "./v2/preview";
+// V2 preview token sign and verify helpers.
+export * from "./v2/preview-token";
 // V2 app project contracts.
 export * from "./v2/projects";
 // V2 app-builder route paths.
