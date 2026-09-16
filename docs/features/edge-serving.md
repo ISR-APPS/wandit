@@ -61,7 +61,8 @@ Nothing in code applies these; they must be clicked once per environment.
    AND the dashboard selection are required, or custom hostnames return
    Error 1016. (`DOMAINS_FALLBACK_ORIGIN` in `packages/env/src/server.ts`
    must stay in sync.)
-3. **Worker routes:** deploy `wandit-edge` (route `*/*` ships in
+3. **Worker routes:** deploy `wandit-edge` (`wrangler deploy --env
+   production`; the `*/*` route lives in `env.production` of
    `wrangler.jsonc`), then add **route exclusions** so the app keeps working:
    `wandit.app/*`, `www.wandit.app/*`, `api.wandit.app/*` each assigned to
    Worker **None**. The Worker also passes these hosts through in code
@@ -77,6 +78,17 @@ Nothing in code applies these; they must be clicked once per environment.
    account for that.
 6. Never onboard `wandit.app` or any `*.wandit.app` host as a SaaS custom
    hostname (documented Cloudflare limitation).
+
+## Deploy
+
+`.github/workflows/edge-deploy.yml` calls the reusable
+`.github/workflows/worker-deploy.yml`. A push to `staging` deploys
+`wandit-edge-staging` on `workers.dev`; a push to `main` deploys
+`wandit-edge` with the `*/*` route; a pull request runs a deploy dry run.
+The one GitHub secret is `CLOUDFLARE_V2_DEPLOY_TOKEN`; `SENTRY_DSN` stays a
+Worker secret set by hand per environment. The dashboard steps above
+(route exclusions, DNS, SaaS fallback origin) stay manual. Rollback:
+`wrangler rollback --env production`.
 
 ## Limits worth knowing
 

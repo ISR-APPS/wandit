@@ -1,0 +1,64 @@
+name: Edge Worker
+
+# Deploys the edge Worker that serves every published site. The staging
+# branch deploys env staging (wandit-edge-staging, a test host on
+# workers.dev). The main branch deploys env production (wandit-edge with
+# the */* route). A pull request runs a dry run against env production.
+# That dry run validates the exact config a merge to main deploys. The
+# steps live in the reusable worker-deploy.yml.
+on:
+  pull_request:
+    # Only changes that can break the Worker run it. That is its source,
+    # the one workspace package it imports, the lockfile, and the two
+    # deploy workflows.
+    paths:
+      - apps/edge/**
+      - packages/observability/**
+      - pnpm-lock.yaml
+      - .github/workflows/edge-deploy.yml
+      - .github/workflows/worker-deploy.yml
+  push:
+    branches: [main, staging]
+    # A push that does not touch the edge Worker must not redeploy it.
+    paths:
+      - apps/edge/**
+      - packages/observability/**
+      - pnpm-lock.yaml
+      - .github/workflows/edge-deploy.yml
+      - .github/workflows/worker-deploy.yml
+  workflow_dispatch:
+    inputs:
+      # Deploy target for a manual run; push runs ignore it and follow the
+      # branch instead.
+      environment:
+        type: choice
+        options: [staging, production]
+        default: staging
+
+# One deploy per branch at a time; a queued run waits, nothing overlaps.
+concurrency:
+  group: edge-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/worker-deploy.yml
+    with:
+      working-directory: apps/edge
+      package-filter: edge
+      wrangler-env: production
+      dry-run: true
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_V2_DEPLOY_TOKEN }}
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/worker-deploy.yml
+    with:
+      working-directory: apps/edge
+      package-filter: edge
+      wrangler-env: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'staging') }}
+      dry-run: false
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_V2_DEPLOY_TOKEN }}

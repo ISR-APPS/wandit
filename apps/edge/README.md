@@ -47,6 +47,26 @@ pnpm --filter edge test          # @cloudflare/vitest-pool-workers, real local b
 pnpm --filter edge check-types
 ```
 
+## Deploy
+
+`.github/workflows/edge-deploy.yml` deploys the Worker through the reusable
+`.github/workflows/worker-deploy.yml`:
+
+- A push to `staging` deploys `wandit-edge-staging` (env `staging`): a test
+  host on `workers.dev`, the `wandit-staging` bucket, no route.
+- A push to `main` deploys `wandit-edge` (env `production`) with the `*/*`
+  route on the `wandit.app` zone.
+- A pull request runs the tests and a deploy dry run of env `production`.
+
+The workflow reads the repository secret `CLOUDFLARE_V2_DEPLOY_TOKEN`
+(Workers Scripts edit and Workers Routes edit on `wandit.app`). `SENTRY_DSN`
+stays a Worker secret: set it by hand with `wrangler secret put SENTRY_DSN
+--env <env>` for each environment.
+
+Manual steps stay in the Cloudflare dashboard: the route exclusions, the DNS
+records, and the SaaS fallback origin. See `docs/features/edge-serving.md`.
+If a deploy breaks serving, run `wrangler rollback --env production`.
+
 ## Invariants
 
 - **Pointer contract:** `projectId` is the ONLY required field of a
