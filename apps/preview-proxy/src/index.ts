@@ -33,7 +33,11 @@ declare global {
 	}
 }
 
-/** Buckets of the Analytics Engine data point; one value per request. */
+/**
+ * Buckets of the Analytics Engine data point; one value per request.
+ * `error` means the proxy itself failed; `not_running` stays the
+ * stopped-sandbox signal.
+ */
 type Outcome =
 	| "forwarded"
 	| "redirect"
@@ -41,7 +45,8 @@ type Outcome =
 	| "forbidden"
 	| "not_running"
 	| "rate_limited"
-	| "not_found";
+	| "not_found"
+	| "error";
 
 /** The response plus the fields the Analytics Engine data point needs. */
 type HandlerResult = {
@@ -83,8 +88,8 @@ const handler = {
 			const headers = securityHeaders(env.FRAME_ANCESTORS);
 			headers.set("content-type", "text/html; charset=utf-8");
 			response = new Response(proxyErrorPage(), { status: 500, headers });
-			// The proxy produced no preview; for the user it is down.
-			outcome = "not_running";
+			// A proxy bug must not count as a stopped sandbox.
+			outcome = "error";
 		}
 		writeDataPoint(
 			env,

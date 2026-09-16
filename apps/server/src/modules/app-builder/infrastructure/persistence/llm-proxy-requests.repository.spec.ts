@@ -142,7 +142,9 @@ describe("LlmProxyRequestsRepository", () => {
 
 		const compiled = compile(execute.mock.calls[0]?.[0]);
 		expect(compiled.sql).toContain('"llm_proxy_requests"."turn_id" = $1');
-		expect(compiled.sql).toContain('"llm_proxy_requests"."status" = \'ok\'');
+		expect(compiled.sql).toContain(
+			"\"llm_proxy_requests\".\"status\" in ('ok', 'client_aborted')",
+		);
 		expect(compiled.sql).toContain("group by");
 		expect(compiled.params).toEqual(["turn_1"]);
 	});

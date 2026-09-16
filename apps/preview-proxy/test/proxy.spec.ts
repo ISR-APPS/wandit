@@ -10,7 +10,7 @@ import {
 	previewHostFor,
 	signPreviewToken,
 } from "@wandit/contracts";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import worker from "../src/index";
 
@@ -25,6 +25,10 @@ const OTHER_RUN_ID = "66666666-6666-4666-8666-666666666666";
 // per isolate, so a shared pid could already hold a write from an earlier test.
 const SEEN_PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const SEEN_RUN_ID = "55555555-5555-4555-8555-555555555555";
+// Same reason as SEEN_PROJECT_ID: the module-level write map is per isolate,
+// so this test needs a pid with no earlier write.
+const THROTTLE_PROJECT_ID = "77777777-7777-4777-8777-777777777777";
+const THROTTLE_RUN_ID = "88888888-8888-4888-8888-888888888888";
 
 beforeAll(() => {
 	fetchMock.activate();
@@ -35,9 +39,12 @@ afterEach(() => {
 	fetchMock.assertNoPendingInterceptors();
 });
 
-async function dispatch(request: Request): Promise<Response> {
+async function dispatch(
+	request: Request,
+	envOverride: Env = env,
+): Promise<Response> {
 	const ctx = createExecutionContext();
-	const response = await worker.fetch(request, env, ctx);
+	const response = await worker.fetch(request, envOverride, ctx);
 	await waitOnExecutionContext(ctx);
 	return response;
 }
@@ -242,6 +249,26 @@ describe("preview proxy", () => {
 		expect(response.headers.get("x-frame-options")).toBeNull();
 	});
 
+	it("forwards a request whose only cookie is the wandit cookie with no Cookie header at all", async () => {
+		const token = await signPreviewToken(makeClaims(), KEY);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/app.js" })
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "bundle";
+			});
+
+		const response = await dispatch(
+			cookieRequest(`https://${host}/app.js`, token),
+		);
+
+		expect(response.status).toBe(200);
+		expect(headerOf(seenHeaders, "cookie")).toBeNull();
+	});
+
 	it("returns a 101 WebSocket answer from the upstream untouched", async () => {
 		// fetchMock hands every request with an Upgrade header to the real
 		// fetch (test-internal.mjs), so this stubs globalThis.fetch: a network
@@ -303,6 +330,35 @@ describe("preview proxy", () => {
 		expect(response.headers.get("retry-after")).toBe("5");
 	});
 
+	it("answers 500 with the error page and records outcome error when the proxy itself throws", async () => {
+		const token = await signPreviewToken(makeClaims(), KEY);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+		const points: AnalyticsEngineDataPoint[] = [];
+		const envOverride: Env = {
+			...env,
+			// A binding that throws gives the same 500 branch as a bug inside the proxy.
+			PREVIEW_RATE: {
+				limit: () => Promise.reject(new Error("boom")),
+			},
+			PREVIEW_ANALYTICS: {
+				writeDataPoint: (point: AnalyticsEngineDataPoint) => {
+					points.push(point);
+				},
+			},
+		};
+
+		const response = await dispatch(
+			cookieRequest(`https://${host}/`, token),
+			envOverride,
+		);
+
+		expect(response.status).toBe(500);
+		expect(await response.text()).toContain("Preview error");
+		expectSecurityHeaders(response);
+		expect(points).toHaveLength(1);
+		expect(points[0]?.blobs?.[2]).toBe("error");
+	});
+
 	it("answers 429 with Retry-After: 60 on request 601 of one jti", async () => {
 		const token = await signPreviewToken(
 			makeClaims({ jti: "jti-rate-limit-test-000000" }),
@@ -339,6 +395,25 @@ describe("preview proxy", () => {
 			`preview:last-seen:${SEEN_PROJECT_ID}`,
 		);
 		expect(seen).toBeTruthy();
+	});
+
+	it("writes preview:last-seen at most once per 60 s per project", async () => {
+		const token = await signPreviewToken(
+			makeClaims({ pid: THROTTLE_PROJECT_ID, rid: THROTTLE_RUN_ID }),
+			KEY,
+		);
+		const host = previewHost(THROTTLE_PROJECT_ID, THROTTLE_RUN_ID);
+		fetchMock.get(UPSTREAM).intercept({ path: "/" }).reply(200, "ok").times(2);
+		// A spy on the third-party binding counts the writes; it calls through.
+		const putSpy = vi.spyOn(env.PREVIEW_KV, "put");
+
+		const first = await dispatch(cookieRequest(`https://${host}/`, token));
+		const second = await dispatch(cookieRequest(`https://${host}/`, token));
+
+		expect(first.status).toBe(200);
+		expect(second.status).toBe(200);
+		expect(putSpy).toHaveBeenCalledTimes(1);
+		putSpy.mockRestore();
 	});
 
 	it("404s an unknown host with the five headers", async () => {

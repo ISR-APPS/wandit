@@ -614,28 +614,38 @@ describe("LlmProxyService", () => {
 	it("writes a client_aborted row when the client disconnects mid-stream", async () => {
 		const upstream = await startUpstream((_req, res) => {
 			res.writeHead(200, { "content-type": "text/event-stream" });
-			const firstFrame = SSE_STREAM.split("\n\n")[0];
-			if (firstFrame === undefined) {
+			const frames = SSE_STREAM.split("\n\n");
+			const messageStart = frames[0];
+			const messageDelta = frames[2];
+			if (messageStart === undefined || messageDelta === undefined) {
 				throw new Error("canned stream is empty");
 			}
-			res.write(`${firstFrame}\n\n`);
-			// The rest never arrives: the client aborts on the first chunk and
-			// the socket just stays open until teardown.
+			// message_start carries input and cache counts, message_delta the
+			// output count. The rest never arrives: the client aborts and the
+			// socket just stays open until teardown.
+			res.write(`${messageStart}\n\n${messageDelta}\n\n`);
 		});
 		try {
 			const env = makeEnv(upstream.baseUrl);
 			const { service, inserted } = makeService(env);
 			const reply = new FakeReply();
 			const { abort, input } = inbound(env);
-			reply.onWrite = () => abort.abort();
+			reply.onWrite = () => {
+				// The parser feeds each chunk before the write, so a delta in the
+				// relayed bytes is already counted.
+				if (reply.bodyText.includes("message_delta")) {
+					abort.abort();
+				}
+			};
 
 			await service.proxyAnthropic(input, reply);
 
 			expect(inserted[0]?.status).toBe("client_aborted");
 			expect(inserted[0]?.reason).toBe("client_aborted");
-			// Counts seen before the abort are kept.
+			// Counts seen before the abort are kept and priced.
 			expect(inserted[0]?.inputTokens).toBe(120);
-			expect(inserted[0]?.outputTokens).toBe(0);
+			expect(inserted[0]?.outputTokens).toBe(17);
+			expect(inserted[0]?.usdMicros).toBeGreaterThan(0);
 		} finally {
 			await upstream.close();
 		}
@@ -718,30 +728,35 @@ describe("LlmProxyService", () => {
 	});
 
 	it("writes client_aborted when the client aborts during a buffered read", async () => {
-		let abort: AbortController | undefined;
-		const upstream = await startUpstream((_req, res) => {
-			res.writeHead(200, { "content-type": "application/json" });
-			res.flushHeaders();
-			// The body never completes; the client aborts mid-read instead.
-			res.write('{"usage":{"input_tokens":5');
-			setTimeout(() => abort?.abort(), 20);
-		});
-		try {
-			const env = makeEnv(upstream.baseUrl);
-			const { service, inserted } = makeService(env);
-			const reply = new FakeReply();
-			const ctx = inbound(env);
-			abort = ctx.abort;
+		const env = makeEnv("https://api.anthropic.com");
+		const ctx = inbound(env);
+		// The fetch stub ignores the abort signal, so the JSON body lands
+		// whole; the dead signal then trips the abort check after the read.
+		const upstreamFetch: typeof fetch = (_input, _init) => {
+			const response = new Response(
+				JSON.stringify({
+					usage: { input_tokens: 5, output_tokens: 7 },
+				}),
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+				},
+			);
+			ctx.abort.abort();
+			return Promise.resolve(response);
+		};
+		const { service, inserted } = makeService(env, upstreamFetch);
+		const reply = new FakeReply();
 
-			await service.proxyAnthropic(ctx.input, reply);
+		await service.proxyAnthropic(ctx.input, reply);
 
-			expect(reply.ended).toBe(true);
-			expect(inserted).toHaveLength(1);
-			expect(inserted[0]?.status).toBe("client_aborted");
-			expect(inserted[0]?.reason).toBe("client_aborted");
-			expect(inserted[0]?.inputTokens).toBe(0);
-		} finally {
-			await upstream.close();
-		}
+		expect(reply.ended).toBe(true);
+		expect(inserted).toHaveLength(1);
+		expect(inserted[0]?.status).toBe("client_aborted");
+		expect(inserted[0]?.reason).toBe("client_aborted");
+		// The buffered body already carried the usage; the row keeps it.
+		expect(inserted[0]?.inputTokens).toBe(5);
+		expect(inserted[0]?.outputTokens).toBe(7);
+		expect(inserted[0]?.usdMicros).toBeGreaterThan(0);
 	});
 });

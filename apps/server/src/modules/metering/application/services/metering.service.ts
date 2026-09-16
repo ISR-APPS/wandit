@@ -9,6 +9,8 @@ import { isDeepStrictEqual } from "node:util";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 
+// metering reads the app-builder proxy-row type; type-only, no runtime edge.
+import type { LlmProxyModelSum } from "../../../app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
 	type CreditOwner,
@@ -19,6 +21,7 @@ import {
 import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
+import { snapshotCheckpointProgress } from "../../domain/checkpoint-progress";
 import { isRefundedFailureStepUsage } from "../../domain/gateway-metering";
 import {
 	type AiUsageEvent,
@@ -862,7 +865,11 @@ export class MeteringService {
 	 */
 	async reconcileAgentSession(
 		eventId: string,
-		input: { costUsdMicros: number; rawUsage: unknown },
+		input: {
+			costUsdMicros: number;
+			/** Per-model sums of the turn's proxy rows; stored as the event's `rawUsage` JSON. */
+			rawUsage: LlmProxyModelSum[];
+		},
 	): Promise<{ deltaCredits: number; event: AiUsageEvent }> {
 		this.assertOptionalCost(input.costUsdMicros);
 
@@ -4315,58 +4322,6 @@ function snapshotActorIsLimitExempt(pricingSnapshot: unknown): boolean {
 	const reservation = pricingSnapshot.reservationPricingSnapshot;
 
 	return isRecord(reservation) && reservation.actorIsLimitExempt === true;
-}
-
-/**
- * Checkpoint progress a checkpoint call wrote into the event snapshot.
- * `checkpoints` counts the landed checkpoints. `checkpointDebits` holds the
- * cc each one moved onto its `checkpoint:<id>:<n>` consume key. The entry is
- * 0 when the spend is still below the hold. A missing field reads as none;
- * a corrupt `checkpointDebits` value throws.
- */
-function snapshotCheckpointProgress(pricingSnapshot: unknown): {
-	checkpointDebits: number[];
-	checkpoints: number;
-} {
-	if (!isRecord(pricingSnapshot)) {
-		return { checkpointDebits: [], checkpoints: 0 };
-	}
-
-	const count = pricingSnapshot.checkpoints;
-	const debits = pricingSnapshot.checkpointDebits;
-
-	// `checkpoint` is the only writer and stores a cc array. Dropping a bad
-	// entry would shift each later debit onto the wrong `checkpoint:<id>:<n>`
-	// refund key, so a corrupt value must fail loudly.
-	if (debits !== undefined && !Array.isArray(debits)) {
-		throw new Error(
-			"AI usage event snapshot has a corrupt checkpointDebits entry",
-		);
-	}
-
-	const checkpointDebits: number[] = [];
-
-	for (const debit of debits ?? []) {
-		if (
-			typeof debit !== "number" ||
-			!Number.isSafeInteger(debit) ||
-			debit < 0
-		) {
-			throw new Error(
-				"AI usage event snapshot has a corrupt checkpointDebits entry",
-			);
-		}
-
-		checkpointDebits.push(debit);
-	}
-
-	return {
-		checkpointDebits,
-		checkpoints:
-			typeof count === "number" && Number.isSafeInteger(count) && count >= 0
-				? count
-				: 0,
-	};
 }
 
 function snapshotReviewFlags(

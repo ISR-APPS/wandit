@@ -223,7 +223,6 @@ describe("operation registry", () => {
 			allowedChildOperations: ["image", "connector", "sandbox"],
 			allowedParentOperations: [],
 			mode: "token",
-			reserveCeilingCredits: AGENT_SESSION_RESERVE_CEILING_CREDITS,
 			reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
 			rootAllowed: true,
 		});
