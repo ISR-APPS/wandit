@@ -7,9 +7,9 @@ import {
 } from "./stale-reservation-window";
 
 describe("staleAfterMsFor", () => {
-	it("gives agent_session the 90-minute window", () => {
-		expect(staleAfterMsFor("agent_session")).toBe(90 * 60_000);
-		expect(AGENT_SESSION_STALE_AFTER_MS).toBe(90 * 60_000);
+	it("gives agent_session the 180-minute window", () => {
+		expect(staleAfterMsFor("agent_session")).toBe(180 * 60_000);
+		expect(AGENT_SESSION_STALE_AFTER_MS).toBe(180 * 60_000);
 	});
 
 	it("keeps every other operation at 40 minutes", () => {

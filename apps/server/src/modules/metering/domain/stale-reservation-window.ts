@@ -12,10 +12,11 @@ import type { AiUsageOperation } from "./operation-registry";
 export const RESERVATION_STALE_AFTER_MS = 40 * 60_000;
 
 /**
- * 90 minutes. A builder turn runs up to 60 minutes plus the 30 s pulse and
- * settle tail; 90 leaves margin so a live turn is never refunded under it.
+ * 180 minutes. A running turn is safe under its execution lease; the window
+ * only covers a queued turn. It waits behind at most two 60-minute turns
+ * (three holds per actor), so 180 leaves margin before the sweep refunds it.
  */
-export const AGENT_SESSION_STALE_AFTER_MS = 90 * 60_000;
+export const AGENT_SESSION_STALE_AFTER_MS = 180 * 60_000;
 
 /** Stale cutoff in ms for one operation; agent_session gets the longer window. */
 export function staleAfterMsFor(operation: AiUsageOperation): number {

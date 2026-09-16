@@ -483,9 +483,12 @@ minutes to 48 hours old, 200 at a time.
 `reconcile:<id>` and marks it `reconciled`. An event whose turn has no
 `ok` row is skipped with a `reconcile.agent-session.no-rows` warn. The
 rows are the truth only when they exist. `recover-stranded-metering`
-(the stranded-hold sweep) gives `agent_session` holds a 90-minute stale
+(the stranded-hold sweep) gives `agent_session` holds a 180-minute stale
 window (`AGENT_SESSION_STALE_AFTER_MS`); other operations keep 40
-minutes. The `sandbox` operation sits in the registry — measured per
+minutes. The window only matters for a queued turn: the runtime takes an
+execution lease on the hold at start and renews it on every 30 s pulse,
+so the sweep never refunds a running turn. A turn that finds its hold
+`refunded` at start fails instead of running without a hold. The `sandbox` operation sits in the registry — measured per
 minute, rate zero, `customerBillable: false` — and has no writer before
 WANDIT-196.
 

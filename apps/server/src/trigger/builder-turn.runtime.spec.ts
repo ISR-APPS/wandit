@@ -31,7 +31,10 @@ import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/re
 import { FakeSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
 import { FakeTurnEventStream } from "../modules/app-builder/infrastructure/trigger/fake-turn-events";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
-import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import {
+	AGENT_SESSION_LEASE_TTL_MS,
+	type MeteringService,
+} from "../modules/metering/application/services/metering.service";
 import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
 import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
@@ -235,6 +238,8 @@ class FakeMetering {
 	monthlySpend = 0;
 	/** Reject this many `checkpoint` calls first; the calls still record. */
 	failCheckpoints = 0;
+	/** True once the hold left `reserved`: the heartbeat and the acquire both fail. */
+	holdLost = false;
 	readonly keys: string[] = [];
 	readonly checkpointCalls: {
 		costUsdMicrosSoFar: number;
@@ -243,6 +248,12 @@ class FakeMetering {
 		n: number;
 	}[] = [];
 	readonly refundCalls: { eventId: string; reason: string }[] = [];
+	readonly leaseCalls: { eventId: string; token: string; ttlMs: number }[] = [];
+	readonly heartbeatCalls: {
+		eventId: string;
+		token: string;
+		ttlMs: number;
+	}[] = [];
 	readonly settleCalls: {
 		eventId: string;
 		settlement: Parameters<MeteringService["settle"]>[1];
@@ -276,6 +287,24 @@ class FakeMetering {
 		_monthStartUtc: Date,
 	): Promise<number> {
 		return this.monthlySpend;
+	}
+
+	async acquireExecutionLease(
+		eventId: string,
+		token: string,
+		ttlMs: number,
+	): ReturnType<MeteringService["acquireExecutionLease"]> {
+		this.leaseCalls.push({ eventId, token, ttlMs });
+		return this.holdLost ? null : this.event;
+	}
+
+	async heartbeatExecutionLease(
+		eventId: string,
+		token: string,
+		ttlMs: number,
+	): ReturnType<MeteringService["heartbeatExecutionLease"]> {
+		this.heartbeatCalls.push({ eventId, token, ttlMs });
+		return this.holdLost ? "lost" : "renewed";
 	}
 
 	async findByIdempotencyKey(
@@ -342,7 +371,7 @@ function fakeCapsRow(
 }
 
 function fakeHoldEvent(
-	status: "reserved" | "settled",
+	status: "reserved" | "settled" | "refunded",
 ): Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>> {
 	// SAFETY: the runtime reads only id, status, and reservedCredits off the hold row.
 	return {
@@ -1045,6 +1074,32 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe("failed");
 	});
 
+	it("aborts with hold_lost when the hold leaves reserved during the run", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld();
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+		// An operator refunded the hold: the heartbeat and the re-acquire fail.
+		world.metering.holdLost = true;
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		expect(world.turns.failCalls).toHaveLength(1);
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe("hold_lost");
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe("failed");
+		// The start acquire plus the re-acquire after the lost heartbeat.
+		expect(world.metering.leaseCalls).toHaveLength(2);
+	});
+
 	it("checkpoints the hold as the run spend crosses each 250k-micros step", async () => {
 		vi.useFakeTimers();
 		const world = makeWorld({ runSpend: [300_000, 600_000] });
@@ -1502,6 +1557,51 @@ describe("runBuilderTurn", () => {
 		// A settled hold is not refunded or settled again.
 		expect(world.metering.refundCalls).toHaveLength(0);
 		expect(world.metering.settleCalls).toHaveLength(0);
+	});
+
+	it("leases the hold at start and renews the lease on every pulse tick", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld();
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		const lease = {
+			eventId: "evt_hold_1",
+			token: RUN_ID,
+			ttlMs: AGENT_SESSION_LEASE_TTL_MS,
+		};
+		expect(world.metering.leaseCalls).toEqual([lease]);
+		expect(world.metering.heartbeatCalls).toEqual([lease, lease]);
+	});
+
+	it("fails the turn before the harness starts when the sweep refunded the hold", async () => {
+		const world = makeWorld();
+		world.metering.event = fakeHoldEvent("refunded");
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls).toHaveLength(0);
+		expect(world.metering.leaseCalls).toHaveLength(0);
+		expect(world.turns.failCalls).toHaveLength(1);
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe("hold_refunded");
+		// A refunded hold is not refunded again.
+		expect(world.metering.refundCalls).toHaveLength(0);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe("failed");
 	});
 
 	it("skips checkpoints and settle when billing is off", async () => {

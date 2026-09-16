@@ -271,6 +271,15 @@ async function forward(
 
 	// A fetch Response has immutable headers; copy before we set ours.
 	const headers = new Headers(upstream.headers);
+	// The app answers on the proxy origin, so its Set-Cookie could replace
+	// the token cookie and lock the viewer out. Only the app's cookies pass.
+	const appCookies = headers
+		.getSetCookie()
+		.filter((cookie) => !cookie.startsWith(`${PREVIEW_COOKIE_NAME}=`));
+	headers.delete("set-cookie");
+	for (const cookie of appCookies) {
+		headers.append("set-cookie", cookie);
+	}
 	applySecurityHeaders(headers, env.FRAME_ANCESTORS);
 	const response = new Response(upstream.body, {
 		status: upstream.status,

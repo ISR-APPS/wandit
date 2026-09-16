@@ -338,13 +338,13 @@ describe("billing Trigger maintenance tasks", () => {
 		await recovery.run({ timestamp }, context);
 
 		expect(mocks.connectorRecovery).toHaveBeenCalledOnce();
-		// The agent-session cutoff is 90 minutes because a builder turn runs up to 60 minutes.
+		// The agent-session cutoff is 180 minutes: a queued turn waits behind up to two 60-minute turns.
 		expect(mocks.reservations).toHaveBeenCalledWith(
 			new Date("2026-08-02T11:20:00.000Z"),
 			100,
 			timestamp,
 			{
-				agentSessionCreatedBefore: new Date("2026-08-02T10:30:00.000Z"),
+				agentSessionCreatedBefore: new Date("2026-08-02T09:00:00.000Z"),
 				reconcileRefs: true,
 			},
 		);
@@ -383,7 +383,7 @@ describe("billing Trigger maintenance tasks", () => {
 			100,
 			timestamp,
 			{
-				agentSessionCreatedBefore: new Date("2026-08-02T10:30:00.000Z"),
+				agentSessionCreatedBefore: new Date("2026-08-02T09:00:00.000Z"),
 				reconcileRefs: false,
 			},
 		);

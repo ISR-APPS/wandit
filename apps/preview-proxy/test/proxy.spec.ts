@@ -20,6 +20,7 @@ const UPSTREAM = "https://x-5173.vercel.run";
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_PROJECT_ID = "33333333-3333-4333-8333-333333333333";
+const OTHER_RUN_ID = "66666666-6666-4666-8666-666666666666";
 // The last-seen test gets its own project: the module-level write map is
 // per isolate, so a shared pid could already hold a write from an earlier test.
 const SEEN_PROJECT_ID = "44444444-4444-4444-8444-444444444444";
@@ -125,6 +126,43 @@ describe("preview proxy", () => {
 		);
 
 		expect(response.status).toBe(403);
+	});
+
+	it("403s a token minted for another run of the same project", async () => {
+		const token = await signPreviewToken(
+			makeClaims({ rid: OTHER_RUN_ID }),
+			KEY,
+		);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+
+		const response = await dispatch(
+			new Request(`https://${host}/?wt=${token}`),
+		);
+
+		expect(response.status).toBe(403);
+	});
+
+	it("drops an upstream Set-Cookie of the token cookie and keeps the app's own", async () => {
+		const token = await signPreviewToken(makeClaims(), KEY);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/login" })
+			.reply(200, "ok", {
+				headers: {
+					"set-cookie": [
+						`${PREVIEW_COOKIE_NAME}=forged; Secure; Path=/`,
+						"app_session=1; Path=/",
+					],
+				},
+			});
+
+		const response = await dispatch(
+			cookieRequest(`https://${host}/login`, token),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.getSetCookie()).toEqual(["app_session=1; Path=/"]);
 	});
 
 	it("401s a token with a bad signature", async () => {

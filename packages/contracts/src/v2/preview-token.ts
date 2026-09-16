@@ -25,8 +25,12 @@ export function base64UrlEncode(bytes: Uint8Array): string {
 		.replace(/=+$/, "");
 }
 
-/** Decodes base64url back to bytes. Throws on characters outside the alphabet. */
-function base64UrlDecode(value: string): Uint8Array {
+/**
+ * Decodes base64url back to bytes. Throws on characters outside the alphabet.
+ * The `ArrayBuffer` type argument matters: `crypto.subtle.verify` under the
+ * DOM lib rejects a `Uint8Array<ArrayBufferLike>`, so web and admin fail.
+ */
+function base64UrlDecode(value: string): Uint8Array<ArrayBuffer> {
 	const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
 	// atob needs the `=` padding that base64url strips.
 	const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
