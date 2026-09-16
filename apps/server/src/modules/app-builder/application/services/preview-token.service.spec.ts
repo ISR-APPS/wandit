@@ -121,6 +121,25 @@ describe("PreviewTokenService.mint", () => {
 		expect(sessions.touchActivity).toHaveBeenCalledWith(PROJECT_ID);
 	});
 
+	it("lower-cases an upper-case project id in the claims and the host", async () => {
+		const { service } = fixture({ row: sessionRow() });
+
+		const body = await service.mint(SCOPE, PROJECT_ID.toUpperCase());
+
+		const parsed = previewTokenResponseSchema.parse(body);
+		const verified = await verifyPreviewToken(
+			parsed.token,
+			SIGNING_KEY,
+			Math.floor(Date.now() / 1000),
+		);
+		expect(verified.ok && verified.claims.pid).toBe(PROJECT_ID);
+		expect(
+			parsed.previewUrl.startsWith(
+				`https://${previewHostFor(PROJECT_ID, RUN_ID, DOMAIN)}/`,
+			),
+		).toBe(true);
+	});
+
 	it("answers 409 SANDBOX_NOT_RUNNING when the live row is stopped", async () => {
 		const { service } = fixture({ row: sessionRow({ status: "stopped" }) });
 

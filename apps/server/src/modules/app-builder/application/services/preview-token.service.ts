@@ -68,14 +68,17 @@ export class PreviewTokenService {
 		scope: ProjectScope,
 		projectId: string,
 	): Promise<PreviewTokenResponse> {
+		// `z.uuid()` accepts upper-case hex and Postgres matches it, but the
+		// Worker lower-cases the host, so the claims must be lower-case too.
+		const pid = projectId.toLowerCase();
 		// Same scope and engine gate as the versions routes: a V1 project or
 		// another workspace's project answers 404, not 403.
-		const project = await this.appCommits.findScopedProject(scope, projectId);
+		const project = await this.appCommits.findScopedProject(scope, pid);
 		if (project?.engine !== "v2_app") {
 			throw new NotFoundException();
 		}
 
-		const row = await this.sessions.findLiveByProjectId(projectId);
+		const row = await this.sessions.findLiveByProjectId(pid);
 		// A `creating` or `stopped` row has no reachable dev port; only a
 		// running sandbox with its vendor host can serve the preview.
 		if (row === null || row.status !== "running" || row.previewHost === null) {
@@ -91,7 +94,7 @@ export class PreviewTokenService {
 			{
 				exp,
 				jti: randomUUID(),
-				pid: projectId,
+				pid,
 				rid: row.id,
 				uid: scope.userId,
 				up: `https://${row.previewHost}`,
@@ -101,11 +104,11 @@ export class PreviewTokenService {
 
 		// The token holds base64url characters and "." only, so the query
 		// value needs no percent-encoding.
-		const previewUrl = `https://${previewHostFor(projectId, row.id, requireV2Env("PREVIEW_DOMAIN", this.v2Env))}/?${PREVIEW_TOKEN_QUERY}=${token}`;
+		const previewUrl = `https://${previewHostFor(pid, row.id, requireV2Env("PREVIEW_DOMAIN", this.v2Env))}/?${PREVIEW_TOKEN_QUERY}=${token}`;
 
 		// A user who opens the preview counts as activity; the stamp keeps
 		// the idle sweep away while the preview is open.
-		await this.sessions.touchActivity(projectId);
+		await this.sessions.touchActivity(pid);
 
 		return {
 			expiresAt: new Date(exp * 1000).toISOString(),

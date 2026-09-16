@@ -104,10 +104,11 @@ export const RECONCILE_RETRY_BASE_DELAY_MS = 5 * 60_000;
 export const RECONCILE_RETRY_MAX_DELAY_MS = 6 * 60 * 60_000;
 
 /**
- * Lease TTL each landed checkpoint applies, with or without a debit. Same 5
- * minutes as the chat stream lease; the runtime pulse (30 s) renews sooner.
+ * Lease TTL of an `agent_session` hold. The builder-turn runtime takes the
+ * lease at start and renews it on every 30 s pulse; a landed checkpoint
+ * renews it too. Same 5 minutes as the chat stream lease.
  */
-const AGENT_SESSION_LEASE_TTL_MS = 5 * 60_000;
+export const AGENT_SESSION_LEASE_TTL_MS = 5 * 60_000;
 
 /** Settlement snapshot flags that ask for an admin review of the charge. */
 export type MeteringReviewFlag = "gateway_zero_cost" | "no_catalog_rate";

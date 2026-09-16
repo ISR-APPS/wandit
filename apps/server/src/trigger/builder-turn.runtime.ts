@@ -78,7 +78,10 @@ import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
 import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
-import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import {
+	AGENT_SESSION_LEASE_TTL_MS,
+	type MeteringService,
+} from "../modules/metering/application/services/metering.service";
 import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
 import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
@@ -101,6 +104,7 @@ const SUMMARY_MAX_CHARS = 72;
 /** Why the turn stopped on its own. */
 type AbortCode =
 	| "disabled"
+	| "hold_lost"
 	| "lock_lost"
 	| "no_credits"
 	| "project_cap"
@@ -181,8 +185,10 @@ export type BuilderTurnDeps = {
 	counters: Pick<LlmSpendCounterStore, "readRunSpend" | "revokeRun">;
 	metering: Pick<
 		MeteringService,
+		| "acquireExecutionLease"
 		| "checkpoint"
 		| "findByIdempotencyKey"
+		| "heartbeatExecutionLease"
 		| "monthlySpendCredits"
 		| "refund"
 		| "settle"
@@ -784,6 +790,29 @@ export async function runBuilderTurn(
 					await writeStatus("running", "Working");
 				}
 				if (!deps.billingDisabled) {
+					// The heartbeat keeps the sweep off the hold. "lost" means
+					// no lease under this run: the start acquire failed, or the
+					// hold left `reserved`. A fresh acquire tells which; a null
+					// answer means the hold is gone, and the turn must not run
+					// without one.
+					if (holdId !== null) {
+						const lease = await deps.metering.heartbeatExecutionLease(
+							holdId,
+							runId,
+							AGENT_SESSION_LEASE_TTL_MS,
+						);
+						if (lease === "lost") {
+							const leased = await deps.metering.acquireExecutionLease(
+								holdId,
+								runId,
+								AGENT_SESSION_LEASE_TTL_MS,
+							);
+							if (leased === null) {
+								abortTurn("hold_lost");
+								return;
+							}
+						}
+					}
 					// Redis holds a string counter; the store parses it. A
 					// corrupt key parses to NaN, which reads as zero spend.
 					const rawSpend = await deps.counters.readRunSpend(runId);
@@ -1016,6 +1045,37 @@ export async function runBuilderTurn(
 		// The hold is loaded once: the pulse tick checkpoints against it.
 		const hold = await findHold();
 		holdId = hold?.id ?? null;
+		// The stranded-hold sweep refunds a hold that waited too long in the
+		// queue. A turn without a hold would run for free, so it fails here.
+		if (hold?.status === "refunded" && !deps.billingDisabled) {
+			// The catch at the end reads `code` into the row's failure code.
+			throw Object.assign(
+				new Error(
+					`The credit hold of turn ${turnId} was refunded while it waited`,
+				),
+				{ code: "hold_refunded" },
+			);
+		}
+		// The lease marks the hold as live, so the sweep skips it during the
+		// run. The pulse renews it; a miss only logs, the sweep window is long.
+		if (hold !== null && !deps.billingDisabled) {
+			try {
+				const leased = await deps.metering.acquireExecutionLease(
+					hold.id,
+					runId,
+					AGENT_SESSION_LEASE_TTL_MS,
+				);
+				if (leased === null) {
+					logger.warn("builder-turn.lease-missed", { holdId: hold.id, turnId });
+				}
+			} catch (error) {
+				logger.warn("builder-turn.lease-failed", {
+					holdId: hold.id,
+					message: messageOf(error),
+					turnId,
+				});
+			}
+		}
 		// LIMIT: the month sum is read once per turn; another turn's spend
 		// in the same month is not re-read. Upgrade: re-read on each tick.
 		if (monthlyCapCredits !== null && !deps.billingDisabled) {

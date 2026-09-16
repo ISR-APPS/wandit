@@ -12,6 +12,11 @@ on:
       - .github/workflows/preview-proxy-deploy.yml
   push:
     branches: [main, staging]
+    # A push that does not touch the proxy must not redeploy it.
+    paths:
+      - apps/preview-proxy/**
+      - packages/contracts/**
+      - .github/workflows/preview-proxy-deploy.yml
 
 # One deploy per branch at a time; a queued run waits, nothing overlaps.
 concurrency:
