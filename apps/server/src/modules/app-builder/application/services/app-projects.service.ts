@@ -1,9 +1,10 @@
 /**
- * Orchestration behind the V2 app-project routes: create and get.
- * Called by `app-projects.controller.ts`. Create order: platform and
- * attachment checks, the settled-balance gate, one transaction (project,
- * chat, first message, builder session), then the first builder turn —
- * which adopts the already-written message row — the title job, and the
+ * Orchestration behind the V2 app-project routes: create, get, and the
+ * project cost caps. Called by `app-projects.controller.ts` and
+ * `cost-caps.controller.ts`. Create order: platform and attachment
+ * checks, the settled-balance gate, one transaction (project, chat,
+ * first message, builder session), then the first builder turn — which
+ * adopts the already-written message row — the title job, and the
  * `v2_project_created` event.
  */
 import { randomUUID } from "node:crypto";
@@ -18,6 +19,8 @@ import type {
 	AppProject,
 	CreateAppProjectRequest,
 	CreateAppProjectResponse,
+	ProjectCostCaps,
+	UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -34,12 +37,14 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
+import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import {
 	HARNESS_BY_ENV,
-	TURN_HOLD_CREDITS_ESTIMATE,
+	TURN_HOLD_DEFAULT_CREDITS,
 	TurnsService,
 } from "./turns.service";
 
@@ -51,7 +56,9 @@ export class AppProjectsService {
 		@Inject(ProjectsRepository)
 		private readonly projects: Pick<
 			ProjectsRepository,
-			"createWithChatAndFirstMessage" | "findByIdForScope"
+			| "createWithChatAndFirstMessage"
+			| "findByIdForScope"
+			| "findEngineByIdForScope"
 		>,
 		@Inject(ProjectsService)
 		private readonly projectsService: Pick<
@@ -68,6 +75,11 @@ export class AppProjectsService {
 		private readonly analytics: Pick<AnalyticsService, "capture">,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
+		@Inject(ProjectCostCapsRepository)
+		private readonly costCaps: Pick<
+			ProjectCostCapsRepository,
+			"findByProjectId" | "upsert"
+		>,
 	) {}
 
 	/**
@@ -97,7 +109,7 @@ export class AppProjectsService {
 		);
 		if (balance.settledBalance <= 0) {
 			throw new InsufficientCreditsError(
-				TURN_HOLD_CREDITS_ESTIMATE,
+				TURN_HOLD_DEFAULT_CREDITS,
 				balance.balance,
 				balance.settledBalance,
 			);
@@ -194,5 +206,54 @@ export class AppProjectsService {
 		}
 
 		return mapAppProjectRow(row);
+	}
+
+	/**
+	 * `GET /v2/projects/:id/cost-caps`. Called by `cost-caps.controller.ts`
+	 * behind a `limits:manage` role gate. A missing row answers the plan
+	 * default so the settings form has a number to edit.
+	 */
+	async getCostCaps(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ProjectCostCaps> {
+		await this.requireV2AppProject(scope, projectId);
+
+		const row = await this.costCaps.findByProjectId(projectId);
+		return (
+			row ?? {
+				monthlyCapCredits: null,
+				perTurnCapCredits: DEFAULT_PER_TURN_CAP_CREDITS,
+			}
+		);
+	}
+
+	/**
+	 * `PUT /v2/projects/:id/cost-caps`. Called by `cost-caps.controller.ts`
+	 * behind the same `limits:manage` role gate. Writes the caps row and
+	 * answers it; `scope.userId` is the acting user stored on the row.
+	 */
+	async updateCostCaps(
+		scope: ProjectScope,
+		projectId: string,
+		body: UpdateProjectCostCapsRequest,
+	): Promise<ProjectCostCaps> {
+		await this.requireV2AppProject(scope, projectId);
+
+		return this.costCaps.upsert(projectId, body, scope.userId);
+	}
+
+	/**
+	 * The cost-cap routes share the turn routes' rule: one 404 for
+	 * "missing", "out of scope", and "not a V2 project".
+	 */
+	private async requireV2AppProject(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<void> {
+		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
+		if (engine !== "v2_app") {
+			throw new NotFoundException();
+		}
 	}
 }

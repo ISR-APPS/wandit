@@ -133,6 +133,9 @@ export const creditActivityStatusSchema = z.enum(creditActivityStatuses);
 export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
 
 // Mirrors ai_usage_operation in packages/db/src/schema/credits.ts.
+// `agent_session` is one V2 builder turn billed from the LLM proxy rows;
+// `sandbox` records sandbox minutes at a zero rate (not billed before
+// WANDIT-196).
 export const creditActivityOperations = [
 	"chat",
 	"page_build",
@@ -142,6 +145,8 @@ export const creditActivityOperations = [
 	"connector",
 	"lead_scrape",
 	"transcription",
+	"agent_session",
+	"sandbox",
 	"topup_adjust",
 ] as const;
 

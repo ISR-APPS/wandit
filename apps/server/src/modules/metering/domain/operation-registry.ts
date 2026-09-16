@@ -1,3 +1,9 @@
+/**
+ * The product-owned price registry of the metering module.
+ * MeteringService and the API reserve path read it for credit amounts,
+ * settlement ceilings, and legal parent/child nesting of usage operations.
+ * Pure constants and helpers; it calls nothing.
+ */
 import type { aiUsageOperation } from "@wandit/db/schema/credits";
 
 export type AiUsageOperation = (typeof aiUsageOperation.enumValues)[number];
@@ -31,6 +37,12 @@ export const MARKETING_RESERVE_FLOOR_CREDITS = 150;
 export const CONNECTOR_RESERVE_FLOOR_CREDITS = 1;
 export const TRANSCRIPTION_RESERVE_FLOOR_CREDITS = 25;
 export const TRANSCRIPTION_MAX_DURATION_SECONDS = 5 * 60;
+// About $0.16 at $0.032/credit: the smallest hold that still blocks a
+// zero-balance payer, because the reserve admits any positive balance.
+export const AGENT_SESSION_RESERVE_FLOOR_CREDITS = 500;
+// $80 of provider cost, the same ceiling as `page_build`. The contract
+// refuses a per-turn cap above it.
+export const AGENT_SESSION_RESERVE_CEILING_CREDITS = 250_000;
 // Lead scrape is a value-priced product: 0.05 credits per delivered lead,
 // never less than 1 credit per scrape (ruling: not measured from Serper).
 export const LEAD_SCRAPE_CREDITS_PER_LEAD = 5;
@@ -44,6 +56,8 @@ type ParentChildRules = {
 
 export type TokenOperationPricing = ParentChildRules & {
 	mode: "token";
+	/** Largest estimate the API may reserve, in cc. Absent means no ceiling. */
+	reserveCeilingCredits?: number;
 	reserveFloorCredits: number;
 };
 
@@ -74,10 +88,12 @@ export type PerMinuteOperationPricing = ParentChildRules & {
  * estimate and gateway reconciliation corrects it to the exact cost.
  */
 export type MeasuredOperationPricing = ParentChildRules & {
+	/** Absent means the customer pays; `false` means the event only records cost. */
+	customerBillable?: false;
 	maxDurationSeconds?: number;
 	mode: "measured";
 	reserveFloorCredits: number;
-	unit: "image" | "operation" | "video";
+	unit: "image" | "minute" | "operation" | "video";
 };
 
 export type OperationPricing =
@@ -95,6 +111,14 @@ const NO_CHILDREN = [] as const;
  * an internal zero-price reconciliation event, not an AI invocation.
  */
 export const OPERATION_REGISTRY = {
+	agent_session: {
+		allowedChildOperations: ["image", "connector", "sandbox"],
+		allowedParentOperations: NO_PARENTS,
+		mode: "token",
+		reserveCeilingCredits: AGENT_SESSION_RESERVE_CEILING_CREDITS,
+		reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
+		rootAllowed: true,
+	},
 	chat: {
 		allowedChildOperations: [
 			"page_build",
@@ -110,7 +134,7 @@ export const OPERATION_REGISTRY = {
 	},
 	connector: {
 		allowedChildOperations: ["image", "video"],
-		allowedParentOperations: ["chat"],
+		allowedParentOperations: ["agent_session", "chat"],
 		mode: "measured",
 		reserveFloorCredits: CONNECTOR_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
@@ -118,7 +142,12 @@ export const OPERATION_REGISTRY = {
 	},
 	image: {
 		allowedChildOperations: NO_CHILDREN,
-		allowedParentOperations: ["chat", "page_build", "connector"],
+		allowedParentOperations: [
+			"agent_session",
+			"chat",
+			"connector",
+			"page_build",
+		],
 		mode: "measured",
 		reserveFloorCredits: IMAGE_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
@@ -147,6 +176,15 @@ export const OPERATION_REGISTRY = {
 		mode: "token",
 		reserveFloorCredits: PAGE_BUILD_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
+	},
+	sandbox: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: ["agent_session"],
+		customerBillable: false,
+		mode: "measured",
+		reserveFloorCredits: 0,
+		rootAllowed: false,
+		unit: "minute",
 	},
 	topup_adjust: {
 		allowedChildOperations: NO_CHILDREN,
@@ -190,11 +228,14 @@ export const EVENT_CEILING_MULTIPLIER = 25;
 // Operations whose single legitimate run can cost far more than the default
 // floor. Token operations reserve a single-call input quote, not a run
 // estimate: a 64-step page build with helper calls billed into the parent can
-// legitimately exceed $10 of provider cost (page_build: 250_000 cc = $100;
-// chat: 50_000 cc = $20). Connector media generations keep their own floors.
+// legitimately exceed $10 of provider cost (page_build: 250_000 cc = $80;
+// chat: 50_000 cc = $16). Connector media generations keep their own floors.
 const EVENT_CEILING_FLOOR_OVERRIDES_CC: Partial<
 	Record<AiUsageOperation, number>
 > = {
+	// A long honest turn settles from many proxy rows and must never hit the
+	// default 200-credit floor.
+	agent_session: 250_000,
 	chat: 50_000,
 	connector: 100_000,
 	page_build: 250_000,
@@ -314,6 +355,13 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "export async function generateStandaloneImage",
 		source:
 			"apps/server/src/modules/image-generations/application/services/image-generator.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "image" },
+		id: "builder-host-tool-image",
+		marker: "const result = await generateImage({",
+		source:
+			"apps/server/src/modules/app-builder/application/host-tools/generate-image.host-tool.ts",
 	},
 	{
 		billing: { kind: "metered", operation: "marketing" },

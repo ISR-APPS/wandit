@@ -23,6 +23,7 @@ import type {
 	BuilderTurnRow,
 	BuilderTurnUsage,
 } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import type { LlmProxyTurnSum } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import type { ProjectCostCapsRow } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import type { TurnProjectRow } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../modules/app-builder/infrastructure/redis/fake-turn-lock";
@@ -31,6 +32,8 @@ import { FakeSandboxProvider } from "../modules/app-builder/infrastructure/sandb
 import { FakeTurnEventStream } from "../modules/app-builder/infrastructure/trigger/fake-turn-events";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
+import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
 import {
 	type BuilderTurnDeps,
@@ -58,6 +61,10 @@ const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
 const PROXY_BASE_URL = "https://api.test/api/v2/llm";
+/** Micros per whole credit; the AI_USD_PER_CREDIT anchor ($0.032). */
+const USD_MICROS_PER_CREDIT = 32_000;
+/** The fake hold's reserve in cc; the monthly sums below include it. */
+const HOLD_RESERVE_CREDITS = 500;
 
 /** The question card a suspended turn waits on; two options. */
 const PENDING_QUESTION: HarnessPendingInteraction = {
@@ -224,12 +231,52 @@ class FakeSessions {
 class FakeMetering {
 	event: Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>> =
 		fakeHoldEvent("reserved");
+	/** The `monthlySpendCredits` answer, in cc. */
+	monthlySpend = 0;
+	/** Reject this many `checkpoint` calls first; the calls still record. */
+	failCheckpoints = 0;
 	readonly keys: string[] = [];
+	readonly checkpointCalls: {
+		costUsdMicrosSoFar: number;
+		eventId: string;
+		modelId: string;
+		n: number;
+	}[] = [];
 	readonly refundCalls: { eventId: string; reason: string }[] = [];
 	readonly settleCalls: {
 		eventId: string;
 		settlement: Parameters<MeteringService["settle"]>[1];
 	}[] = [];
+
+	async checkpoint(
+		eventId: string,
+		input: {
+			costUsdMicrosSoFar: number;
+			modelId: string;
+			n: number;
+		},
+	) {
+		this.checkpointCalls.push({ eventId, ...input });
+		if (this.failCheckpoints > 0) {
+			this.failCheckpoints -= 1;
+			throw new Error("checkpoint failed");
+		}
+		// SAFETY: the runtime reads only `debitedCredits` off the answer.
+		return {
+			debitedCredits: usdMicrosToCentiCredits(
+				input.costUsdMicrosSoFar,
+				USD_MICROS_PER_CREDIT,
+			),
+			event: this.event,
+		} as Awaited<ReturnType<MeteringService["checkpoint"]>>;
+	}
+
+	async monthlySpendCredits(
+		_projectId: string,
+		_monthStartUtc: Date,
+	): Promise<number> {
+		return this.monthlySpend;
+	}
 
 	async findByIdempotencyKey(
 		key: string,
@@ -263,7 +310,7 @@ class FakeMetering {
 }
 
 function fakeTurnRow(over: Partial<BuilderTurnRow>): BuilderTurnRow {
-	// SAFETY: the runtime reads only chatId, turnNumber, and spec off the row.
+	// SAFETY: the runtime reads only chatId, model, turnNumber, and spec off the row.
 	return {
 		chatId: CHAT_ID,
 		id: TURN_ID,
@@ -287,17 +334,75 @@ function fakeProjectRow(over?: Partial<TurnProjectRow>): TurnProjectRow {
 	};
 }
 
-function fakeCapsRow(perTurnCapCredits: number | null): ProjectCostCapsRow {
-	return { monthlyCapCredits: null, perTurnCapCredits };
+function fakeCapsRow(
+	perTurnCapCredits: number | null,
+	monthlyCapCredits: number | null = null,
+): ProjectCostCapsRow {
+	return { monthlyCapCredits, perTurnCapCredits };
 }
 
 function fakeHoldEvent(
 	status: "reserved" | "settled",
 ): Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>> {
-	// SAFETY: the runtime reads only id and status off the hold row.
-	return { id: "evt_hold_1", status } as Awaited<
-		ReturnType<MeteringService["findByIdempotencyKey"]>
-	>;
+	// SAFETY: the runtime reads only id, status, and reservedCredits off the hold row.
+	return {
+		id: "evt_hold_1",
+		reservedCredits: HOLD_RESERVE_CREDITS,
+		status,
+	} as Awaited<ReturnType<MeteringService["findByIdempotencyKey"]>>;
+}
+
+/** 700_000 micros → ceil(70_000_000/32_000) = 2188 cc; tokens differ from the harness counts on purpose. */
+function fakeProxySum(over?: Partial<LlmProxyTurnSum>): LlmProxyTurnSum {
+	return {
+		byModel: [
+			{
+				cacheReadTokens: 2_000,
+				cacheWriteTokens: 500,
+				inputTokens: 10_000,
+				model: MODEL,
+				outputTokens: 4_000,
+				usdMicros: 700_000,
+			},
+		],
+		cacheReadTokens: 2_000,
+		cacheWriteTokens: 500,
+		inputTokens: 10_000,
+		outputTokens: 4_000,
+		usdMicros: 700_000,
+		...over,
+	};
+}
+
+/** A turn that never called the proxy: every sum is zero. */
+function emptyProxySum(): LlmProxyTurnSum {
+	return fakeProxySum({
+		byModel: [],
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		usdMicros: 0,
+	});
+}
+
+/**
+ * Scripted reader: each call shifts one answer; a drained script keeps
+ * answering the last value.
+ */
+function scripted<T extends number | boolean>(
+	values: T[],
+	initial: T,
+): () => T {
+	const queue = [...values];
+	let last = initial;
+	return () => {
+		const next = queue.shift();
+		if (next !== undefined) {
+			last = next;
+		}
+		return last;
+	};
 }
 
 function fakeCommitResult(): CommitTurnResult {
@@ -320,8 +425,17 @@ function textChunks(text: string): UIMessageChunk[] {
 }
 
 function makeWorld(over?: {
+	/** `readBalance` answers, in cc; drained scripts repeat the last. */
+	balances?: number[];
+	billingDisabled?: boolean;
 	caps?: ProjectCostCapsRow | null;
+	monthlySpend?: number;
 	project?: TurnProjectRow | null;
+	proxyRows?: LlmProxyTurnSum;
+	/** `readRunSpend` answers in USD micros, one per call. */
+	runSpend?: number[];
+	/** `readV2Enabled` answers, one per call. */
+	v2Enabled?: boolean[];
 }) {
 	const turns = new FakeTurns();
 	const sessions = new FakeSessions();
@@ -339,6 +453,15 @@ function makeWorld(over?: {
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
 	const warnings: string[] = [];
+	const infos: string[] = [];
+	const nextSpend = scripted(over?.runSpend ?? [0], 0);
+	// 50_000 cc = 500 credits: enough that no default stop rule fires.
+	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
+	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
+	const balanceReads: number[] = [];
+	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
+	const proxySum = over?.proxyRows ?? fakeProxySum();
+	metering.monthlySpend = over?.monthlySpend ?? 0;
 
 	const commitDeps: CommitTurnDeps = {
 		appCommits: {
@@ -364,6 +487,7 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		billingDisabled: over?.billingDisabled ?? false,
 		caps: {
 			findByProjectId: async () =>
 				over?.caps === undefined ? fakeCapsRow(6400) : over.caps,
@@ -374,6 +498,7 @@ function makeWorld(over?: {
 		},
 		commitDeps,
 		counters: {
+			readRunSpend: async () => nextSpend(),
 			revokeRun: async (runId) => {
 				revoked.push(runId);
 			},
@@ -386,7 +511,9 @@ function makeWorld(over?: {
 		lock,
 		logger: {
 			error: () => {},
-			info: () => {},
+			info: (message) => {
+				infos.push(message);
+			},
 			warn: (message) => {
 				warnings.push(message);
 			},
@@ -406,6 +533,15 @@ function makeWorld(over?: {
 			promoted.push({ endedTurnId, projectId });
 		},
 		proxyBaseUrl: PROXY_BASE_URL,
+		proxyRows: {
+			sumByTurn: async () => proxySum,
+		},
+		readBalance: async () => {
+			const balance = nextBalance();
+			balanceReads.push(balance);
+			return balance;
+		},
+		readV2Enabled: async () => nextV2(),
 		resolvePlan: async () => "pro",
 		sandboxSessions: {
 			touchActivity: async (projectId) => {
@@ -415,19 +551,22 @@ function makeWorld(over?: {
 		sandboxes,
 		sessions,
 		turns,
-		usdMicrosPerCredit: 32_000,
+		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
 		writer: stream,
 	};
 
 	return {
+		balanceReads,
 		commits,
 		deps,
 		harness,
+		infos,
 		inserted,
 		lock,
 		metering,
 		minted,
 		promoted,
+		proxySum,
 		revoked,
 		sandboxes,
 		sessions,
@@ -526,6 +665,8 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const events = world.stream.eventsOf(TURN_ID);
+		// The harness `usage` event writes no stream event; the checkpoint
+		// tick owns usage events now.
 		expect(events.map((e) => e.type)).toEqual([
 			"status",
 			"status",
@@ -533,7 +674,6 @@ describe("runBuilderTurn", () => {
 			"part",
 			"part",
 			"part",
-			"usage",
 			"status",
 			"part",
 			"done",
@@ -552,15 +692,22 @@ describe("runBuilderTurn", () => {
 			expect(event.id).toBe(String(index));
 			expect(Number.isInteger(event.at)).toBe(true);
 		}
-		// 700 USD micros of priced usage → ceil(70000/32000) = 3 centi-credits.
-		const usageEvent = events.find((e) => e.type === "usage");
-		expect(usageEvent?.type === "usage" && usageEvent.data.credits).toBe(3);
 		const filesEvent = events.at(-2);
 		expect(filesEvent?.type).toBe("part");
 		const doneEvent = events.at(-1);
+		// The receipt carries the proxy-row sums, not the harness counts
+		// (harness answered 100/50; the rows answer 10_000/4_000/2_000/500).
 		expect(doneEvent?.type === "done" && doneEvent.data).toEqual({
 			outputCommitSha: "commit-sha-1",
-			receipt: { credits: 3 },
+			receipt: {
+				balanceCredits: 50_000,
+				cacheReadTokens: 2_000,
+				cacheWriteTokens: 500,
+				credits: 2188,
+				inputTokens: 10_000,
+				modelId: MODEL,
+				outputTokens: 4_000,
+			},
 			status: "succeeded",
 		});
 
@@ -578,18 +725,25 @@ describe("runBuilderTurn", () => {
 			model: MODEL,
 			outputCommitSha: "commit-sha-1",
 			usage: {
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				credits: 3,
-				inputTokens: 100,
-				outputTokens: 50,
+				cacheReadTokens: 2_000,
+				cacheWriteTokens: 500,
+				credits: 2188,
+				inputTokens: 10_000,
+				outputTokens: 4_000,
 			},
 		});
 		expect(inserted?.parts.at(0)?.type).toBe("text");
 
 		expect(world.turns.usageCalls).toHaveLength(1);
-		expect(world.turns.usageCalls[0]?.usage.credits).toBe(3);
-		expect(world.turns.usageCalls[0]?.usage.model).toBe(MODEL);
+		expect(world.turns.usageCalls[0]?.usage).toEqual({
+			cacheReadTokens: 2_000,
+			cacheWriteTokens: 500,
+			credits: 2188,
+			harness: "claude_code",
+			inputTokens: 10_000,
+			model: MODEL,
+			outputTokens: 4_000,
+		});
 		expect(world.turns.completeCalls).toHaveLength(1);
 		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
 		expect(world.turns.completeCalls[0]?.input.outputCommitSha).toBe(
@@ -599,9 +753,22 @@ describe("runBuilderTurn", () => {
 		expect(world.metering.settleCalls).toHaveLength(1);
 		const settle = world.metering.settleCalls[0];
 		expect(settle?.eventId).toBe("evt_hold_1");
-		expect(settle?.settlement.pricing).toBe("token");
-		if (settle?.settlement.pricing === "token") {
-			expect(settle.settlement.modelId).toBe(MODEL);
+		expect(settle?.settlement.pricing).toBe("direct");
+		if (settle?.settlement.pricing === "direct") {
+			expect(settle.settlement.costUsdMicros).toBe(700_000);
+			expect(settle.settlement.finalCredits).toBe(2188);
+			expect(settle.settlement.model).toBe(MODEL);
+			expect(settle.settlement.pricingSnapshot.table).toBe(
+				HARNESS_PRICE_TABLE_VERSION,
+			);
+			expect(settle.settlement.pricingSnapshot.source).toBe("llm_proxy_rows");
+			// The harness counts (100/50) must not leak into the settle input.
+			expect(settle.settlement.usage).toEqual({
+				cacheReadTokens: 2_000,
+				cacheWriteTokens: 500,
+				inputTokens: 10_000,
+				outputTokens: 4_000,
+			});
 		}
 		expect(world.metering.refundCalls).toHaveLength(0);
 
@@ -878,6 +1045,511 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe("failed");
 	});
 
+	it("checkpoints the hold as the run spend crosses each 250k-micros step", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({ runSpend: [300_000, 600_000] });
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		expect(world.metering.checkpointCalls).toEqual([
+			{
+				costUsdMicrosSoFar: 300_000,
+				eventId: "evt_hold_1",
+				modelId: MODEL,
+				n: 1,
+			},
+			{
+				costUsdMicrosSoFar: 600_000,
+				eventId: "evt_hold_1",
+				modelId: MODEL,
+				n: 2,
+			},
+		]);
+		const usages = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "usage");
+		expect(usages).toHaveLength(2);
+		// 300_000 micros → ceil(30_000_000/32_000) = 938 cc; 600_000 → 1875.
+		expect(usages[0]?.type === "usage" && usages[0].data).toEqual({
+			cacheReadTokens: 2_000,
+			cacheWriteTokens: 500,
+			credits: 938,
+			inputTokens: 10_000,
+			outputTokens: 4_000,
+		});
+		expect(usages[1]?.type === "usage" && usages[1].data.credits).toBe(1875);
+	});
+
+	it("retries the same checkpoint n on the next tick after a failed debit", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({ runSpend: [300_000, 600_000] });
+		world.metering.failCheckpoints = 1;
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		// The failed debit did not skip the stop rules: one balance read at
+		// the start, one on this tick.
+		expect(world.balanceReads).toHaveLength(2);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		// The first debit threw, so n stayed 1 for the second tick.
+		expect(world.metering.checkpointCalls.map((call) => call.n)).toEqual([
+			1, 1,
+		]);
+		// The tick logged the failure once and ran the stop rules anyway.
+		expect(
+			world.warnings.filter((message) =>
+				message.includes("builder-turn.checkpoint-failed"),
+			),
+		).toHaveLength(1);
+	});
+
+	it("reads a corrupt spend counter as zero and still runs the stop rules", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({ runSpend: [Number.NaN] });
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		expect(world.metering.checkpointCalls).toHaveLength(0);
+		expect(
+			world.warnings.filter((message) =>
+				message.includes("builder-turn.spend-counter-invalid"),
+			),
+		).toHaveLength(1);
+		// The tick did not die: the balance read ran after the counter read.
+		expect(world.balanceReads).toHaveLength(2);
+
+		release();
+		await run;
+	});
+
+	it("stops as stopped_no_credits when the balance hits zero on a tick", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({
+			balances: [50_000, 0],
+			runSpend: [300_000],
+		});
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		// A stopped turn keeps its file work: one wip commit.
+		expect(world.commits).toHaveLength(1);
+		expect(world.commits[0]?.source).toBe("wip");
+		expect(world.commits[0]?.summary).toBe("Stopped");
+		// The real spend settles direct; the hold is not refunded.
+		expect(world.metering.settleCalls).toHaveLength(1);
+		const settle = world.metering.settleCalls[0];
+		expect(settle?.settlement.pricing).toBe("direct");
+		if (settle?.settlement.pricing === "direct") {
+			expect(settle.settlement.costUsdMicros).toBe(700_000);
+		}
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_no_credits",
+				}),
+				to: "stopped_no_credits",
+				turnId: TURN_ID,
+			},
+		]);
+		const events = world.stream.eventsOf(TURN_ID);
+		const done = events.at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_no_credits",
+		);
+		const error = events.find((e) => e.type === "error");
+		expect(error?.type === "error" && error.data.code).toBe(
+			"stopped_no_credits",
+		);
+		expect(error?.type === "error" && error.data.retryable).toBe(false);
+		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
+	});
+
+	it("stops as stopped_no_credits on a tick when the hold lookup found nothing", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({ balances: [50_000, 0], runSpend: [300_000] });
+		world.metering.event = null;
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		// The stop rules run without a hold; only the checkpoint debit needs it.
+		expect(world.metering.checkpointCalls).toHaveLength(0);
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_no_credits",
+				}),
+				to: "stopped_no_credits",
+				turnId: TURN_ID,
+			},
+		]);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_no_credits",
+		);
+	});
+
+	it("stops as stopped_project_cap when the spend reaches the per-turn cap", async () => {
+		vi.useFakeTimers();
+		// 1000 cc = 10 credits; the cap lands at 10 × 32_000 = 320_000 micros.
+		const world = makeWorld({
+			caps: fakeCapsRow(1000),
+			runSpend: [320_000],
+		});
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_project_cap",
+				}),
+				to: "stopped_project_cap",
+				turnId: TURN_ID,
+			},
+		]);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_project_cap",
+		);
+	});
+
+	it("stops as stopped_project_cap on a tick when the monthly cap is crossed", async () => {
+		vi.useFakeTimers();
+		// The sum holds this turn's own 500 cc reserve; the runtime subtracts
+		// it, so the start spend is 9_500. 300_000 micros = 938 cc;
+		// 9_500 + 938 = 10_438 reaches the 10_000 cap.
+		const world = makeWorld({
+			caps: fakeCapsRow(null, 10_000),
+			monthlySpend: 9_500 + HOLD_RESERVE_CREDITS,
+			runSpend: [300_000],
+		});
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		// The checkpoint landed before the monthly stop rule fired.
+		expect(world.metering.checkpointCalls).toEqual([
+			{
+				costUsdMicrosSoFar: 300_000,
+				eventId: "evt_hold_1",
+				modelId: MODEL,
+				n: 1,
+			},
+		]);
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_project_cap",
+				}),
+				to: "stopped_project_cap",
+				turnId: TURN_ID,
+			},
+		]);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_project_cap",
+		);
+		// Real spend settles direct; the hold is not refunded.
+		expect(world.metering.settleCalls).toHaveLength(1);
+		expect(world.metering.settleCalls[0]?.settlement.pricing).toBe("direct");
+		expect(world.metering.refundCalls).toHaveLength(0);
+	});
+
+	it("stops as stopped_disabled when the flag flips off on a tick", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({ v2Enabled: [true, false] });
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		release();
+		await run;
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_disabled",
+				}),
+				to: "stopped_disabled",
+				turnId: TURN_ID,
+			},
+		]);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe("stopped_disabled");
+	});
+
+	it("stops as stopped_disabled before the sandbox when the flag is off", async () => {
+		const world = makeWorld({
+			proxyRows: emptyProxySum(),
+			v2Enabled: [false],
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_disabled",
+				}),
+				to: "stopped_disabled",
+				turnId: TURN_ID,
+			},
+		]);
+		const getOrCreateCalls = world.sandboxes.calls.filter(
+			(call) => call.method === "getOrCreate",
+		);
+		expect(getOrCreateCalls).toHaveLength(0);
+		expect(world.minted).toHaveLength(0);
+		// Nothing ran: the hold goes back instead of a 1 cc settle.
+		expect(world.metering.refundCalls).toEqual([
+			{ eventId: "evt_hold_1", reason: "builder_turn_failed" },
+		]);
+		expect(world.metering.settleCalls).toHaveLength(0);
+		expect(world.turns.usageCalls[0]?.usage.credits).toBe(0);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe("stopped_disabled");
+	});
+
+	it("stops as stopped_no_credits before the sandbox when the balance is empty", async () => {
+		const world = makeWorld({
+			balances: [0],
+			proxyRows: emptyProxySum(),
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_no_credits",
+				}),
+				to: "stopped_no_credits",
+				turnId: TURN_ID,
+			},
+		]);
+		const getOrCreateCalls = world.sandboxes.calls.filter(
+			(call) => call.method === "getOrCreate",
+		);
+		expect(getOrCreateCalls).toHaveLength(0);
+		expect(world.minted).toHaveLength(0);
+		// Nothing ran: the hold goes back instead of a 1 cc settle.
+		expect(world.metering.refundCalls).toEqual([
+			{ eventId: "evt_hold_1", reason: "builder_turn_failed" },
+		]);
+		expect(world.metering.settleCalls).toHaveLength(0);
+		expect(world.turns.usageCalls[0]?.usage.credits).toBe(0);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_no_credits",
+		);
+	});
+
+	it("stops as stopped_project_cap before the sandbox at the monthly cap", async () => {
+		// The sum holds this turn's own 500 cc reserve; 10_500 - 500 = 10_000
+		// still reaches the cap before the sandbox starts.
+		const world = makeWorld({
+			caps: fakeCapsRow(null, 10_000),
+			monthlySpend: 10_000 + HOLD_RESERVE_CREDITS,
+			proxyRows: emptyProxySum(),
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_project_cap",
+				}),
+				to: "stopped_project_cap",
+				turnId: TURN_ID,
+			},
+		]);
+		const getOrCreateCalls = world.sandboxes.calls.filter(
+			(call) => call.method === "getOrCreate",
+		);
+		expect(getOrCreateCalls).toHaveLength(0);
+		expect(world.minted).toHaveLength(0);
+		// Nothing ran: the hold goes back instead of a 1 cc settle.
+		expect(world.metering.refundCalls).toEqual([
+			{ eventId: "evt_hold_1", reason: "builder_turn_failed" },
+		]);
+		expect(world.metering.settleCalls).toHaveLength(0);
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(
+			"stopped_project_cap",
+		);
+	});
+
+	it("does not subtract a terminal hold from the monthly spend", async () => {
+		// The settled hold already counts at its final credits in the sum,
+		// so the 500 cc reserve stays in: 10_000 reaches the cap.
+		const world = makeWorld({
+			caps: fakeCapsRow(null, 10_000),
+			monthlySpend: 10_000,
+			proxyRows: emptyProxySum(),
+		});
+		world.metering.event = fakeHoldEvent("settled");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.transitionCalls).toEqual([
+			{
+				from: ["running", "cancelling"],
+				patch: expect.objectContaining({
+					failureCode: "stopped_project_cap",
+				}),
+				to: "stopped_project_cap",
+				turnId: TURN_ID,
+			},
+		]);
+		// A settled hold is not refunded or settled again.
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.metering.settleCalls).toHaveLength(0);
+	});
+
+	it("skips checkpoints and settle when billing is off", async () => {
+		const world = makeWorld({ billingDisabled: true, runSpend: [900_000] });
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.metering.checkpointCalls).toHaveLength(0);
+		expect(world.metering.settleCalls).toHaveLength(0);
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.infos.filter((m) => m === "billing.off")).toHaveLength(1);
+		// The receipt still carries the proxy-row sums.
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.receipt).toEqual({
+			balanceCredits: 50_000,
+			cacheReadTokens: 2_000,
+			cacheWriteTokens: 500,
+			credits: 2188,
+			inputTokens: 10_000,
+			modelId: MODEL,
+			outputTokens: 4_000,
+		});
+	});
+
+	it("runs the turn model over the env default", async () => {
+		const world = makeWorld();
+		world.turns.row = fakeTurnRow({ model: "anthropic/claude-opus-5" });
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.createCalls[0]?.model).toBe("anthropic/claude-opus-5");
+		const settle = world.metering.settleCalls[0];
+		expect(settle?.settlement.pricing).toBe("direct");
+		if (settle?.settlement.pricing === "direct") {
+			expect(settle.settlement.model).toBe("anthropic/claude-opus-5");
+		}
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.receipt).toMatchObject({
+			modelId: "anthropic/claude-opus-5",
+		});
+	});
+
 	it("resumes the stored harness session instead of creating one", async () => {
 		const world = makeWorld();
 		// SAFETY: the runtime reads only resumeState off the session row.
@@ -934,13 +1606,14 @@ describe("runBuilderTurn", () => {
 		expect(claims?.workspaceId).toBeNull();
 	});
 
-	it("falls back to the 5-dollar cap when the project has no caps row", async () => {
+	it("falls back to the default per-turn cap when the project has no caps row", async () => {
 		const world = makeWorld({ caps: null });
 		const { controller, input } = makeInput();
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		expect(world.minted[0]?.capUsd).toBe(5);
+		// 5000 cc = 50 credits × $0.032 = $1.60.
+		expect(world.minted[0]?.capUsd).toBeCloseTo(1.6);
 	});
 
 	it("passes the proxy env to the session without a provider key", async () => {

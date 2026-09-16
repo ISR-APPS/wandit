@@ -3,29 +3,44 @@
  * and the end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
- * metering hold, then the session row, then the project lock, then the
- * turn row, the user message, and the task handoff. Every failure after
- * the hold refunds it.
+ * model allow-list, the monthly cap, and the per-actor turn limit, then
+ * the `agent_session` metering hold, then the session row, the project
+ * lock, the turn row, the user message, and the task handoff. Every
+ * failure after the hold refunds it.
  */
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
+	BadRequestException,
 	ConflictException,
+	ForbiddenException,
+	HttpException,
+	HttpStatus,
 	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
+	ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+	allowedLlmModels,
 	appBuilderRoutes,
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
 
+import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
+import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
+import { harnessModelMultiplier } from "../../../metering/domain/harness-price-table";
+import {
+	AGENT_SESSION_RESERVE_CEILING_CREDITS,
+	AGENT_SESSION_RESERVE_FLOOR_CREDITS,
+} from "../../../metering/domain/operation-registry";
 import { assertWanditHostedAttachments } from "../../../projects/application/services/projects.service";
 import {
 	meteringSubjectFrom,
@@ -45,6 +60,10 @@ import {
 	type TurnTaskStarter,
 } from "../../domain/ports/turn-task-starter";
 import {
+	DEFAULT_PER_TURN_CAP_CREDITS,
+	monthStartUtc,
+} from "../../domain/turn-caps";
+import {
 	CANCELLABLE_TURN_STATUSES,
 	isTerminalStatus,
 	nextStatusForCancel,
@@ -61,6 +80,7 @@ import {
 	BuilderTurnsRepository,
 	isUniqueViolation,
 } from "../../infrastructure/persistence/builder-turns.repository";
+import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import {
 	type LlmSpendCounterStore,
 	LlmSpendCounters,
@@ -70,12 +90,34 @@ import { LLM_PROXY_TOKEN_TTL_SECONDS } from "./llm-proxy-token.service";
 import { TurnPromoter } from "./turn-promotion";
 
 /**
- * 10 credits in centi-credits, held per turn. ESTIMATE until WANDIT-174
- * adds `agent_session` estimate math; the `chat` operation stands in for
- * the same reason (its 10 cc floor is far under this hold). The V2 create
- * route reads it as the 402 `requiredCredits`.
+ * 14 credits in centi-credits: about $0.45 of provider cost, the
+ * WANDIT-151 typical message. The `agent_session` hold for a project with
+ * no settled turn yet. The V2 create-project route reads it as the 402
+ * `requiredCredits`.
  */
-export const TURN_HOLD_CREDITS_ESTIMATE = 1_000;
+export const TURN_HOLD_DEFAULT_CREDITS = 1_400;
+
+/**
+ * Reserved `agent_session` events one user may hold at once, across
+ * projects. Stops a runaway client before it can drain the pool.
+ */
+export const MAX_ACTIVE_TURNS_PER_ACTOR = 3;
+
+/**
+ * The create-time hold estimate `responseFor` reports. `modelId` is null
+ * only when no deploy default is set and the body picks none; the
+ * contract needs a model name, so the response omits `estimate` then.
+ */
+type TurnEstimate = {
+	/** `fixed`: the default hold; `history`: the project's settled median. */
+	basis: "fixed" | "history";
+	/** The hold size in centi-credits (1 credit = 100 cc). */
+	creditsCc: number;
+	/** The model the turn runs on; null when none is configured. */
+	modelId: string | null;
+	/** Output-rate ratio of `modelId` over the deploy default; 1 for it. */
+	multiplier: number;
+};
 
 // Cancel waits at most 30 s for the task's terminal write to land after
 // runs.cancel; longer cleanup is the lock TTL's job.
@@ -115,6 +157,13 @@ export class TurnsService {
 		private readonly v2Env: V2EnvSource,
 		@Inject(LlmSpendCounters)
 		private readonly counters: LlmSpendCounterStore,
+		@Inject(ProjectCostCapsRepository)
+		private readonly caps: Pick<ProjectCostCapsRepository, "findByProjectId">,
+		@Inject(SubscriptionsRepository)
+		private readonly subscriptions: Pick<
+			SubscriptionsRepository,
+			"findActiveByOwner"
+		>,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -161,21 +210,89 @@ export class TurnsService {
 		// A pre-written first message (project create) keeps its id; every
 		// other turn mints a fresh row id here.
 		const messageId = options.existingMessageId ?? randomUUID();
-		const model = this.v2Env.V2_DEFAULT_MODEL ?? null;
+		const defaultModel = this.v2Env.V2_DEFAULT_MODEL ?? null;
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 		const subject = meteringSubjectFrom(scope);
 
+		let model = defaultModel;
+		if (body.model !== undefined) {
+			// Without a deploy default the plan allow-list cannot be computed,
+			// so every pick is denied.
+			const allowed =
+				defaultModel === null
+					? []
+					: allowedLlmModels(
+							await resolveBillingPlan(this.subscriptions, subject),
+							defaultModel,
+						);
+			if (!allowed.includes(body.model)) {
+				throw new BadRequestException({
+					code: "V2_MODEL_DENIED",
+					message: "This plan may not run that model",
+				});
+			}
+			model = body.model;
+		}
+
+		// The monthly cap refuses before the hold: the pool could pay, the
+		// cap could not — buying credits is not the fix.
+		const caps = await this.caps.findByProjectId(projectId);
+		if (
+			caps?.monthlyCapCredits != null &&
+			(await this.metering.monthlySpendCredits(
+				projectId,
+				monthStartUtc(new Date()),
+			)) >= caps.monthlyCapCredits
+		) {
+			throw new ForbiddenException({
+				code: "PROJECT_CREDIT_CAP_REACHED",
+				details: { cap: "monthly" },
+				message: "This project reached its monthly credit cap",
+			});
+		}
+
+		// A runaway client holding many open turns would drain the pool;
+		// three reserved sessions per actor is the hard stop.
+		if (
+			(await this.metering.countReservedByActor(
+				"agent_session",
+				scope.userId,
+			)) >= MAX_ACTIVE_TURNS_PER_ACTOR
+		) {
+			throw new HttpException(
+				{
+					code: "TOO_MANY_ACTIVE_TURNS",
+					message: "Too many turns are running for this user",
+				},
+				HttpStatus.TOO_MANY_REQUESTS,
+			);
+		}
+
+		const estimate = await this.estimateTurn(
+			projectId,
+			model,
+			caps?.perTurnCapCredits ?? null,
+		);
+
 		// The hold runs before the lock on purpose: a 402 must leave the
 		// project lock and the turn tables untouched. InsufficientCreditsError
-		// passes through unchanged.
-		const hold = await this.metering.reserveWithReplay("chat", subject, {
-			attemptRef: turnId,
-			chatId: body.chatId,
-			credits: TURN_HOLD_CREDITS_ESTIMATE,
-			idempotencyKey: `builder-turn:${turnId}`,
-			messageId,
-			model,
-		});
+		// passes through unchanged. GENERATION_BILLING_MODE=off keeps the
+		// local dev bypass: no reserve, nothing to refund later.
+		const billingOff = env.GENERATION_BILLING_MODE === "off";
+		const hold = billingOff
+			? null
+			: await this.metering.reserveWithReplay("agent_session", subject, {
+					attemptRef: turnId,
+					chatId: body.chatId,
+					credits: estimate.creditsCc,
+					idempotencyKey: `builder-turn:${turnId}`,
+					messageId,
+					model,
+					projectId,
+				});
+		if (billingOff) {
+			this.logger.log("billing.off", { turnId });
+		}
 
 		let lockHeld = false;
 		let rowCreated = false;
@@ -246,11 +363,13 @@ export class TurnsService {
 				if (lockHeld) {
 					await this.lock.release(projectId, turnId);
 				}
-				await this.metering.refund(
-					hold.event.id,
-					"builder_turn_create_replayed",
-				);
-				return this.responseFor(created.turn, body.chatId);
+				if (hold !== null) {
+					await this.metering.refund(
+						hold.event.id,
+						"builder_turn_create_replayed",
+					);
+				}
+				return this.responseFor(created.turn, body.chatId, estimate);
 			}
 
 			if (options.existingMessageId === undefined) {
@@ -288,7 +407,7 @@ export class TurnsService {
 							);
 						});
 				}
-				return this.responseFor(created.turn, body.chatId);
+				return this.responseFor(created.turn, body.chatId, estimate);
 			}
 
 			const { runId } = await this.starter.start({
@@ -302,12 +421,13 @@ export class TurnsService {
 			return this.responseFor(
 				{ ...created.turn, triggerRunId: runId },
 				body.chatId,
+				estimate,
 			);
 		} catch (error) {
 			await this.compensateFailedCreate(
 				projectId,
 				turnId,
-				hold.event.id,
+				hold?.event.id ?? null,
 				{ lockHeld, rowCreated },
 				error,
 			);
@@ -541,14 +661,74 @@ export class TurnsService {
 	}
 
 	/**
+	 * Sizes the create hold: the median of the last settled `agent_session`
+	 * events, or the fixed default when none exists. The result is clamped
+	 * to the registry floor/ceiling and the per-turn cap. An outlier history
+	 * cannot lock up more than the cap allows. `perTurnCapCredits` is the
+	 * caps-row field `create` already read; null means the plan default. A
+	 * model with no price row is a deploy error: it answers 503
+	 * `V2_MODEL_UNPRICED`, the same answer the LLM proxy gives.
+	 */
+	private async estimateTurn(
+		projectId: string,
+		modelId: string | null,
+		perTurnCapCredits: number | null,
+	): Promise<TurnEstimate> {
+		const median = await this.metering.medianSettledCredits(
+			projectId,
+			"agent_session",
+			10,
+		);
+		const perTurnCap = perTurnCapCredits ?? DEFAULT_PER_TURN_CAP_CREDITS;
+		// The floor wins over a sub-floor cap: the reserve needs its minimum
+		// collateral, and the runtime cap check stops the turn at once.
+		const upperBound = Math.max(
+			Math.min(AGENT_SESSION_RESERVE_CEILING_CREDITS, perTurnCap),
+			AGENT_SESSION_RESERVE_FLOOR_CREDITS,
+		);
+		const creditsCc = Math.min(
+			Math.max(
+				median ?? TURN_HOLD_DEFAULT_CREDITS,
+				AGENT_SESSION_RESERVE_FLOOR_CREDITS,
+			),
+			upperBound,
+		);
+		let multiplier = 1;
+		const defaultModel = this.v2Env.V2_DEFAULT_MODEL;
+		if (modelId !== null && defaultModel !== undefined) {
+			try {
+				multiplier = harnessModelMultiplier(modelId, defaultModel);
+			} catch (error) {
+				// No price row is a deploy error, not a user error; the LLM
+				// proxy answers 503 for the same case.
+				throw new ServiceUnavailableException(
+					{
+						code: "V2_MODEL_UNPRICED",
+						message: `Model ${modelId} has no price row`,
+					},
+					{ cause: error },
+				);
+			}
+		}
+		return {
+			basis: median === null ? "fixed" : "history",
+			creditsCc,
+			modelId,
+			multiplier,
+		};
+	}
+
+	/**
 	 * Undoes a failed `create` in reverse order: mark a written row failed
 	 * (frees the active slot), release the lock, refund the hold, then let a
 	 * waiting turn try for the freed slot. No step may mask the real error.
+	 * `holdEventId` is null under GENERATION_BILLING_MODE=off: no reserve
+	 * exists, so the refund step is skipped.
 	 */
 	private async compensateFailedCreate(
 		projectId: string,
 		turnId: string,
-		holdEventId: string,
+		holdEventId: string | null,
 		flags: {
 			lockHeld: boolean;
 			rowCreated: boolean;
@@ -580,11 +760,14 @@ export class TurnsService {
 		if (flags.lockHeld) {
 			compensations.push(this.lock.release(projectId, turnId));
 		}
-		// `refund` is idempotent on an already-refunded event, so a replayed
-		// create's earlier refund does not make this second call throw.
-		compensations.push(
-			this.metering.refund(holdEventId, "builder_turn_create_failed"),
-		);
+		if (holdEventId !== null) {
+			// `refund` is idempotent on an already-refunded event, so a
+			// replayed create's earlier refund does not make this second
+			// call throw.
+			compensations.push(
+				this.metering.refund(holdEventId, "builder_turn_create_failed"),
+			);
+		}
 		const results = await Promise.allSettled(compensations);
 		for (const result of results) {
 			if (result.status === "rejected") {
@@ -710,14 +893,25 @@ export class TurnsService {
 	private responseFor(
 		turn: BuilderTurnRow,
 		chatId: string,
+		estimate: TurnEstimate,
 	): CreateTurnResponse {
 		return {
 			chatId,
-			// The estimate surfaces whole credits; the hold is centi-credits.
-			estimate: {
-				basis: "fixed",
-				credits: TURN_HOLD_CREDITS_ESTIMATE / 100,
-			},
+			// The contract's estimate needs a model name; a null model means
+			// no deploy default is set, so the field is omitted (it is
+			// optional).
+			...(estimate.modelId === null
+				? {}
+				: {
+						estimate: {
+							basis: estimate.basis,
+							// The estimate surfaces whole credits; the hold is
+							// centi-credits.
+							credits: Math.ceil(estimate.creditsCc / 100),
+							modelId: estimate.modelId,
+							multiplier: estimate.multiplier,
+						},
+					}),
 			runId: turn.triggerRunId,
 			status: turn.status,
 			// The reconnect route: the create response rides the create

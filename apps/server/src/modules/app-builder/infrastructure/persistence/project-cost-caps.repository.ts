@@ -1,7 +1,8 @@
 /**
- * Read of the `project_cost_caps` row for one project.
+ * Read and write of the `project_cost_caps` row for one project.
  * The `builder-turn` runtime calls `findByProjectId` to price the LLM
- * proxy token cap; a missing row or null field means the plan default.
+ * proxy token cap; the cost-caps controller calls `upsert` to store the
+ * owner's limits. A missing row or null field means the plan default.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "@wandit/db";
@@ -36,5 +37,42 @@ export class ProjectCostCapsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	/**
+	 * Writes the two cap columns of one project; creates the row when the
+	 * project has none. `updatedByUserId` is the acting user from the
+	 * request. Throws when Postgres returns no row.
+	 */
+	async upsert(
+		projectId: string,
+		caps: ProjectCostCapsRow,
+		updatedByUserId: string,
+	): Promise<ProjectCostCapsRow> {
+		const [row] = await this.db
+			.insert(projectCostCaps)
+			.values({
+				projectId,
+				monthlyCapCredits: caps.monthlyCapCredits,
+				perTurnCapCredits: caps.perTurnCapCredits,
+				updatedByUserId,
+			})
+			.onConflictDoUpdate({
+				target: projectCostCaps.projectId,
+				set: {
+					monthlyCapCredits: caps.monthlyCapCredits,
+					perTurnCapCredits: caps.perTurnCapCredits,
+					updatedByUserId,
+					updatedAt: new Date(),
+				},
+			})
+			.returning({
+				monthlyCapCredits: projectCostCaps.monthlyCapCredits,
+				perTurnCapCredits: projectCostCaps.perTurnCapCredits,
+			});
+		if (row === undefined) {
+			throw new Error("project_cost_caps upsert returned no row");
+		}
+		return row;
 	}
 }

@@ -88,4 +88,101 @@ describe("LlmProxyRequestsRepository", () => {
 
 		expect(await repository.sumUsdMicrosByRun("run_none")).toBe(0);
 	});
+
+	it("sums usage and spend per model for one turn", async () => {
+		const { execute, repository } = setup();
+		execute.mockResolvedValue({
+			rows: [
+				{
+					model: "anthropic/claude-sonnet-5",
+					usd_micros: "1500",
+					input_tokens: "60000",
+					output_tokens: "12000",
+					cache_read_tokens: "180000",
+					cache_write_tokens: "20000",
+				},
+				{
+					model: "anthropic/claude-haiku-4-5",
+					usd_micros: "250",
+					input_tokens: "5000",
+					output_tokens: "1000",
+					cache_read_tokens: "0",
+					cache_write_tokens: "0",
+				},
+			],
+		});
+
+		const sum = await repository.sumByTurn("turn_1");
+
+		expect(sum).toEqual({
+			usdMicros: 1750,
+			inputTokens: 65_000,
+			outputTokens: 13_000,
+			cacheReadTokens: 180_000,
+			cacheWriteTokens: 20_000,
+			byModel: [
+				{
+					model: "anthropic/claude-sonnet-5",
+					usdMicros: 1500,
+					inputTokens: 60_000,
+					outputTokens: 12_000,
+					cacheReadTokens: 180_000,
+					cacheWriteTokens: 20_000,
+				},
+				{
+					model: "anthropic/claude-haiku-4-5",
+					usdMicros: 250,
+					inputTokens: 5000,
+					outputTokens: 1000,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			],
+		});
+
+		const compiled = compile(execute.mock.calls[0]?.[0]);
+		expect(compiled.sql).toContain('"llm_proxy_requests"."turn_id" = $1');
+		expect(compiled.sql).toContain('"llm_proxy_requests"."status" = \'ok\'');
+		expect(compiled.sql).toContain("group by");
+		expect(compiled.params).toEqual(["turn_1"]);
+	});
+
+	it("skips a null-model group in the turn sum", async () => {
+		const { execute, repository } = setup();
+		execute.mockResolvedValue({
+			rows: [
+				{
+					model: null,
+					usd_micros: "500",
+					input_tokens: "10",
+					output_tokens: "10",
+					cache_read_tokens: "0",
+					cache_write_tokens: "0",
+				},
+			],
+		});
+
+		expect(await repository.sumByTurn("turn_1")).toEqual({
+			usdMicros: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			byModel: [],
+		});
+	});
+
+	it("reads zeros when the turn has no rows", async () => {
+		const { execute, repository } = setup();
+		execute.mockResolvedValue({ rows: [] });
+
+		expect(await repository.sumByTurn("turn_none")).toEqual({
+			usdMicros: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			byModel: [],
+		});
+	});
 });

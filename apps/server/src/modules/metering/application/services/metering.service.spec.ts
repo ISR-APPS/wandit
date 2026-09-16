@@ -499,6 +499,22 @@ class InMemoryCreditsService {
 		transaction?: unknown,
 	): Promise<[]> {
 		const userId = ownerBalanceKey(owner);
+		const consume = this.consumes.get(consumeIdempotencyKey);
+
+		// Mirrors CreditsService: the amount is checked against the consume key
+		// total, so a checkpointed event cannot refund more than it debited.
+		if (!consume) {
+			throw new Error(
+				`Cannot refund missing credit consume ${consumeIdempotencyKey}`,
+			);
+		}
+
+		if (options.amount > consume.amount) {
+			throw new Error(
+				`Credit refund ${options.idempotencyKey} exceeds consume ${consumeIdempotencyKey}`,
+			);
+		}
+
 		const existing = this.refunds.get(options.idempotencyKey);
 
 		if (existing) {
@@ -4654,6 +4670,446 @@ describe("MeteringService guards and reconciliation durability", () => {
 			executionLeaseExpiresAt: null,
 			executionLeaseToken: null,
 			status: "settled",
+		});
+	});
+
+	describe("agent_session checkpoints", () => {
+		const AGENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
+		const MODEL_ID = "anthropic/claude-sonnet-5";
+
+		// The fake anchor is 50,000 USD micros per credit, so one centi-credit
+		// maps to 500 micros: micros = cc * 500.
+		const microsOf = (centiCredits: number) => centiCredits * 500;
+
+		async function reserveAgentSession(
+			service: MeteringService,
+			credits = 1_400,
+		) {
+			return service.reserve("agent_session", USER_SUBJECT, {
+				credits,
+				eventId: AGENT_EVENT_ID,
+				idempotencyKey: `agent:${randomUUID()}`,
+				projectId: "proj-1",
+			});
+		}
+
+		async function settleDirectAt3100(service: MeteringService) {
+			return service.settle(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(3_100),
+				finalCredits: 3_100,
+				pricing: "direct",
+				pricingSnapshot: {
+					source: "llm_proxy_rows",
+					usdMicrosPerCredit: 50_000,
+				},
+				rawUsage: { proxy: "rows" },
+			});
+		}
+
+		it("debits each checkpoint onto its own key and settles the remainder", async () => {
+			const { credits, repository, service } = setup();
+
+			const reserved = await reserveAgentSession(service);
+			expect(reserved.projectId).toBe("proj-1");
+
+			const first = await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			const second = await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+			const third = await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_900),
+				modelId: MODEL_ID,
+				n: 3,
+			});
+
+			expect(first.debitedCredits).toBe(400);
+			expect(second.debitedCredits).toBe(500);
+			expect(third.debitedCredits).toBe(600);
+			expect(
+				credits.consumeCalls.map((call) => [call.idempotencyKey, call.amount]),
+			).toEqual([
+				[`reserve:${AGENT_EVENT_ID}`, 1_400],
+				[`checkpoint:${AGENT_EVENT_ID}:1`, 400],
+				[`checkpoint:${AGENT_EVENT_ID}:2`, 500],
+				[`checkpoint:${AGENT_EVENT_ID}:3`, 600],
+			]);
+
+			const event = repository.events.get(AGENT_EVENT_ID);
+			expect(event).toMatchObject({
+				model: MODEL_ID,
+				reservedCredits: 2_900,
+				status: "reserved",
+			});
+			expect(event?.pricingSnapshot).toMatchObject({
+				checkpointDebits: [400, 500, 600],
+				checkpoints: 3,
+			});
+
+			await settleDirectAt3100(service);
+
+			expect(credits.consumeCalls.at(-1)).toMatchObject({
+				amount: 200,
+				idempotencyKey: `settle:${AGENT_EVENT_ID}`,
+			});
+			expect(
+				credits.consumeCalls.reduce((total, call) => total + call.amount, 0),
+			).toBe(3_100);
+		});
+
+		it("writes nothing for a replayed or skipped checkpoint number", async () => {
+			const { credits, service } = setup();
+			await reserveAgentSession(service);
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+			const callsBefore = credits.consumeCalls.length;
+
+			const replay = await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+
+			expect(replay.debitedCredits).toBe(0);
+			expect(credits.consumeCalls).toHaveLength(callsBefore);
+			await expect(
+				service.checkpoint(AGENT_EVENT_ID, {
+					costUsdMicrosSoFar: microsOf(2_900),
+					modelId: MODEL_ID,
+					n: 4,
+				}),
+			).rejects.toThrow("checkpoint 4 skips 3");
+		});
+
+		it("does not debit a checkpoint that stays below the reserve", async () => {
+			const { credits, repository, service } = setup();
+			await reserveAgentSession(service);
+			const callsBefore = credits.consumeCalls.length;
+
+			const result = await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(900),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+
+			expect(result.debitedCredits).toBe(0);
+			expect(credits.consumeCalls).toHaveLength(callsBefore);
+			const event = repository.events.get(AGENT_EVENT_ID);
+			expect(event?.reservedCredits).toBe(1_400);
+			expect(event?.pricingSnapshot).toMatchObject({
+				checkpointDebits: [0],
+				checkpoints: 1,
+			});
+		});
+
+		it("rejects a checkpoint when checkpointDebits holds a corrupt entry", async () => {
+			const { repository, service } = setup();
+			await reserveAgentSession(service);
+
+			// Only the service writes `checkpointDebits`; seed the corruption.
+			await repository.updateEvent(AGENT_EVENT_ID, ["reserved"], {
+				pricingSnapshot: { checkpointDebits: ["oops"], checkpoints: 1 },
+			});
+
+			await expect(
+				service.checkpoint(AGENT_EVENT_ID, {
+					costUsdMicrosSoFar: microsOf(1_800),
+					modelId: MODEL_ID,
+					n: 2,
+				}),
+			).rejects.toThrow(
+				"AI usage event snapshot has a corrupt checkpointDebits entry",
+			);
+		});
+
+		it("refunds the reserve and every checkpoint debit separately", async () => {
+			const { credits, repository, service } = setup();
+			await reserveAgentSession(service);
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+
+			const refunded = await service.refund(AGENT_EVENT_ID);
+
+			expect(refunded.status).toBe("refunded");
+			expect(
+				credits.refundCalls.map((call) => [
+					call.consumeIdempotencyKey,
+					call.amount,
+				]),
+			).toEqual([
+				[`reserve:${AGENT_EVENT_ID}`, 1_400],
+				[`checkpoint:${AGENT_EVENT_ID}:1`, 400],
+				[`checkpoint:${AGENT_EVENT_ID}:2`, 500],
+			]);
+			expect(credits.balances.get(USER_ID)).toBe(10_000);
+			expect(repository.events.get(AGENT_EVENT_ID)?.status).toBe("refunded");
+		});
+
+		it("reconciles a settled session up with a reconcile debit", async () => {
+			const { credits, service } = setup();
+			await reserveAgentSession(service);
+			await settleDirectAt3100(service);
+			const callsBefore = credits.consumeCalls.length;
+
+			const result = await service.reconcileAgentSession(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(3_410),
+				rawUsage: { proxy: "rows" },
+			});
+
+			expect(result.deltaCredits).toBe(310);
+			expect(result.event).toMatchObject({
+				finalCredits: 3_410,
+				status: "reconciled",
+			});
+			expect(result.event.pricingSnapshot).toMatchObject({
+				reconciliation: {
+					costUsdMicros: microsOf(3_410),
+					source: "llm_proxy_rows",
+				},
+			});
+			expect(credits.consumeCalls).toHaveLength(callsBefore + 1);
+			expect(credits.consumeCalls.at(-1)).toMatchObject({
+				amount: 310,
+				idempotencyKey: `reconcile:${AGENT_EVENT_ID}`,
+			});
+		});
+
+		it("reconciles a settled session down and drains settle then reserve", async () => {
+			const { credits, service } = setup();
+			await reserveAgentSession(service);
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_900),
+				modelId: MODEL_ID,
+				n: 3,
+			});
+			await settleDirectAt3100(service);
+			const refundsBefore = credits.refundCalls.length;
+
+			const result = await service.reconcileAgentSession(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(2_790),
+				rawUsage: { proxy: "rows" },
+			});
+
+			expect(result.deltaCredits).toBe(-310);
+			expect(result.event).toMatchObject({
+				finalCredits: 2_790,
+				status: "reconciled",
+			});
+			expect(
+				credits.refundCalls
+					.slice(refundsBefore)
+					.map((call) => [
+						call.consumeIdempotencyKey,
+						call.idempotencyKey,
+						call.amount,
+					]),
+			).toEqual([
+				[
+					`settle:${AGENT_EVENT_ID}`,
+					`reconcile-refund:${AGENT_EVENT_ID}:settle`,
+					200,
+				],
+				[
+					`reserve:${AGENT_EVENT_ID}`,
+					`reconcile-refund:${AGENT_EVENT_ID}:reserve`,
+					110,
+				],
+			]);
+
+			const replay = await service.reconcileAgentSession(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(2_790),
+				rawUsage: { proxy: "rows" },
+			});
+			expect(replay.deltaCredits).toBe(0);
+			expect(credits.refundCalls).toHaveLength(refundsBefore + 2);
+		});
+
+		it("rejects checkpoints on a chat event and on a settled event", async () => {
+			const { repository, service } = setup();
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 200,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "chat:no-checkpoints",
+			});
+
+			await expect(
+				service.checkpoint(CHAT_EVENT_ID, {
+					costUsdMicrosSoFar: microsOf(300),
+					modelId: MODEL_ID,
+					n: 1,
+				}),
+			).rejects.toThrow("is not an agent session");
+
+			await reserveAgentSession(service);
+			await settleDirectAt3100(service);
+
+			await expect(
+				service.checkpoint(AGENT_EVENT_ID, {
+					costUsdMicrosSoFar: microsOf(3_200),
+					modelId: MODEL_ID,
+					n: 1,
+				}),
+			).rejects.toThrow(MeteringStateConflictError);
+			expect(repository.events.get(AGENT_EVENT_ID)?.status).toBe("settled");
+		});
+
+		it("renews the execution lease on each landed checkpoint", async () => {
+			const { repository, service } = setup();
+			await reserveAgentSession(service);
+			const heartbeat = vi.fn(
+				async (
+					_eventId: string,
+					_token: string,
+					_ttlMs: number,
+					_transaction?: unknown,
+				) => true,
+			);
+			Object.assign(repository, { heartbeatExecutionLease: heartbeat });
+			await repository.updateEvent(AGENT_EVENT_ID, ["reserved"], {
+				executionLeaseToken: "lease-1",
+			});
+
+			// Below the hold: no debit, but the checkpoint still proves the turn lives.
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(900),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			// Past the hold: the debit branch renews the same lease.
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+
+			expect(heartbeat).toHaveBeenNthCalledWith(
+				1,
+				AGENT_EVENT_ID,
+				"lease-1",
+				300_000,
+				expect.anything(),
+			);
+			expect(heartbeat).toHaveBeenNthCalledWith(
+				2,
+				AGENT_EVENT_ID,
+				"lease-1",
+				300_000,
+				expect.anything(),
+			);
+		});
+
+		it("drains reserve then checkpoint keys on settle and replays the drawdown on reconcile", async () => {
+			const { credits, service } = setup();
+			await reserveAgentSession(service);
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(1_800),
+				modelId: MODEL_ID,
+				n: 1,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_300),
+				modelId: MODEL_ID,
+				n: 2,
+			});
+			await service.checkpoint(AGENT_EVENT_ID, {
+				costUsdMicrosSoFar: microsOf(2_900),
+				modelId: MODEL_ID,
+				n: 3,
+			});
+
+			const settled = await service.settle(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(1_000),
+				finalCredits: 1_000,
+				pricing: "direct",
+				pricingSnapshot: {
+					source: "llm_proxy_rows",
+					usdMicrosPerCredit: 50_000,
+				},
+				rawUsage: { proxy: "rows" },
+			});
+
+			// The settle snapshot keeps the checkpoint breakdown so the reconcile
+			// drain still finds the `checkpoint:<id>:<n>` consume keys.
+			expect(settled.pricingSnapshot).toMatchObject({
+				checkpointDebits: [400, 500, 600],
+				checkpoints: 3,
+			});
+			expect(
+				credits.refundCalls.map((call) => [
+					call.consumeIdempotencyKey,
+					call.idempotencyKey,
+					call.amount,
+				]),
+			).toEqual([
+				[`reserve:${AGENT_EVENT_ID}`, `settle-refund:${AGENT_EVENT_ID}`, 1_400],
+				[
+					`checkpoint:${AGENT_EVENT_ID}:1`,
+					`settle-refund:${AGENT_EVENT_ID}:checkpoint:1`,
+					400,
+				],
+				[
+					`checkpoint:${AGENT_EVENT_ID}:2`,
+					`settle-refund:${AGENT_EVENT_ID}:checkpoint:2`,
+					100,
+				],
+			]);
+
+			const reconciled = await service.reconcileAgentSession(AGENT_EVENT_ID, {
+				costUsdMicros: microsOf(800),
+				rawUsage: { proxy: "rows" },
+			});
+
+			// The settle refund already drained the reserve and checkpoint 1 and
+			// drew checkpoint 2 down to 500, so the 200 lands on it alone.
+			expect(reconciled.deltaCredits).toBe(-200);
+			expect(reconciled.event.finalCredits).toBe(800);
+			expect(
+				credits.refundCalls
+					.slice(3)
+					.map((call) => [
+						call.consumeIdempotencyKey,
+						call.idempotencyKey,
+						call.amount,
+					]),
+			).toEqual([
+				[
+					`checkpoint:${AGENT_EVENT_ID}:2`,
+					`reconcile-refund:${AGENT_EVENT_ID}:checkpoint:2`,
+					200,
+				],
+			]);
+			expect(credits.balances.get(USER_ID)).toBe(10_000 - 800);
 		});
 	});
 });

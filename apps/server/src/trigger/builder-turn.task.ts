@@ -24,6 +24,7 @@ import { AppCommitsRepository } from "../modules/app-builder/infrastructure/pers
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { LlmProxyRequestsRepository } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import { ProjectNetworkHostsRepository } from "../modules/app-builder/infrastructure/persistence/project-network-hosts.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
@@ -37,9 +38,14 @@ import {
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
 import { TriggerTurnEventWriter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
+import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
+import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { subjectPayer } from "../modules/credits/domain/credit-owner";
+import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import { ChatsRepository } from "../modules/generation/infrastructure/persistence/chats.repository";
+import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
+import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
 
 import { builderTurnQueue } from "./builder-task-queues";
 import {
@@ -91,6 +97,10 @@ export const builderTurnTask = schemaTask({
 			const chats = new ChatsRepository(db);
 			const subscriptions = new SubscriptionsRepository(db);
 			const metering = createTriggerMetering(db);
+			const credits = new CreditsService(new CreditsRepository(db));
+			const settings = new ProductSettingsService(
+				new ProductSettingsRepository(db),
+			);
 			const promoter = new TurnPromoter(
 				turns,
 				turnLock,
@@ -99,6 +109,7 @@ export const builderTurnTask = schemaTask({
 
 			await runBuilderTurn(
 				{
+					billingDisabled: env.GENERATION_BILLING_MODE === "off",
 					caps: new ProjectCostCapsRepository(db),
 					commit: commitTurn,
 					commitDeps: {
@@ -137,14 +148,15 @@ export const builderTurnTask = schemaTask({
 						appBuilderRoutes.llmProxyBase,
 						env.V2_LLM_PROXY_PUBLIC_URL ?? env.BETTER_AUTH_URL,
 					).toString(),
-					resolvePlan: async (subject) => {
-						const row = await subscriptions.findActiveByOwner(
-							subjectPayer(subject),
-						);
-						// The billing_plan enum has no free value; starter is the
-						// free tier (llm-proxy.ts).
-						return row?.plan ?? "starter";
-					},
+					proxyRows: new LlmProxyRequestsRepository(db),
+					// Holds are added back and checkpoint debits are not, so the
+					// number falls as the turn's checkpoints land (D5).
+					readBalance: async (subject) =>
+						(await credits.getSettledBalance(subjectPayer(subject)))
+							.settledBalance,
+					// `ProductSettingsService.get` caches 30 s; the tick reads it.
+					readV2Enabled: async () => (await settings.get()).v2BuilderEnabled,
+					resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 					sandboxSessions,
 					sandboxes,
 					sessions: new BuilderSessionsRepository(db),

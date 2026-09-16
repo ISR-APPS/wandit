@@ -33,7 +33,7 @@ PostHog flag `v2-builder`).
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-175: `POST /api/v2/projects` |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects` |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
 | `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy |
 
@@ -128,10 +128,23 @@ compare-and-delete; the running task only refreshes it.
 Four routes under `/api/v2/projects/:projectId/turns`, all behind
 `V2BuilderEnabledGuard` and the workspace `project:update` permission:
 
-- `POST /` creates a turn — credit hold first, then the session, the
-  lock, the `queued` row, the user message, and the task handoff — and
-  answers with the turn's own stream: the `data-turn-created` part first,
-  then the relayed chunks. A parked `waiting` row streams as soon as
+- `POST /` creates a turn — the `agent_session` hold first, then the
+  session, the lock, the `queued` row, the user message, and the task
+  handoff — and answers with the turn's own stream: the
+  `data-turn-created` part first, then the relayed chunks. The hold is
+  the median of the project's last 10 settled `agent_session` events. A
+  project with none gets the fixed 1400 cc. The hold is clamped to
+  500..250_000 cc and the per-turn cap. The `data-turn-created` part
+  carries the estimate: `credits` in whole credits, `basis` (`fixed`
+  or `history`), `modelId`, and `multiplier` (the output-rate ratio
+  over the default model). The optional `model` body field must be in
+  the payer's plan allow-list; a denied pick answers 400
+  `V2_MODEL_DENIED`, a picked or default model with no price row
+  answers 503 `V2_MODEL_UNPRICED` (a deploy error).
+  Two create-time stops refuse early: a project at its monthly cap
+  answers 403 `PROJECT_CREDIT_CAP_REACHED` with `cap: "monthly"`, and a
+  user holding three reserved `agent_session` events answers 429
+  `TOO_MANY_ACTIVE_TURNS`. A parked `waiting` row streams as soon as
   promotion gives it a run. A turn paused on a `data-approval` card
   answers 409 `BUILDER_APPROVAL_PENDING` until the body carries
   `approval`; a turn paused on a question takes the message text as the
@@ -144,6 +157,13 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
 - `POST /:turnId/cancel` CAS-moves the row to `cancelling`, cancels the
   run best-effort, releases the lock, settles to `canceled`, refunds the
   hold, and promotes the oldest `waiting` turn.
+
+`GET` and `PUT /api/v2/projects/:projectId/cost-caps` (WANDIT-174) sit
+behind the same guard and the `limits:manage` permission — an owner or
+org admin, never a member. Amounts are centi-credits: `perTurnCapCredits`
+defaults to 5000 and accepts at most 250_000; `monthlyCapCredits` null
+means no monthly cap. `GET` answers the row or the plan defaults; `PUT`
+upserts and answers the row. A non-`v2_app` project answers 404.
 
 Wire format — the D20 envelope is unwrapped for the browser (the task
 keeps writing it on the `ui` stream): one `data:` line of JSON per frame,
@@ -160,8 +180,10 @@ Rules the code pins:
 
 - One active turn per project. The Redis lock serializes the queue; the
   unique index `builder_turns_active_project_uq` backs it in Postgres.
-- Credit holds use `attemptRef = turnId`; every failure path refunds the
-  hold before the error leaves the service.
+- `agent_session` holds use `attemptRef = turnId`; every failure path
+  refunds the hold before the error leaves the service, checkpoint
+  debits included. A stopped turn settles the hold from the proxy rows
+  instead. `GENERATION_BILLING_MODE=off` skips the hold.
 - The task handoff is idempotent on `builder-turn:{turnId}` (TTL 1 h), so
   a retried create or a promoted requeue can never start a twin run.
 - Only `infrastructure/trigger/` may import the Trigger streams API;
@@ -213,10 +235,14 @@ One run does this, in order:
    CAS under the run id); a lost claim ends the run quietly. Then loads
    the turn row and the project row (`TurnProjectRepository`); a
    non-`v2_app` project or a missing framework/template version fails the
-   turn before any sandbox work. The model comes from
-   `V2_DEFAULT_MODEL`.
+   turn before any sandbox work. The model is `turn.model ??
+   V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
 2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
-   computes `capUsd` for the token claims.
+   computes `capUsd` for the token claims from `perTurnCapCredits` — the
+   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (5000 cc). The pre-start
+   stop rules throw into `failTurn`: the builder flag off →
+   `stopped_disabled`, a settled balance at 0 → `stopped_no_credits`,
+   the monthly cap already reached → `stopped_project_cap`.
 3. Mints the scoped proxy token (`mintLlmProxyToken`) with the run, turn,
    user, project, workspace, and plan claims.
 4. Builds the allow-listed env (`buildSandboxEnv`): the run token becomes
@@ -237,12 +263,29 @@ One run does this, in order:
    session that cannot resume starts fresh and hears the answer as plain
    text.
 7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
-   refresh, `sandbox.keepAlive`, `touchActivity`), a 30 s `Working`
-   heartbeat (`STREAM_HEARTBEAT_MS`), and the 4 min stall watchdog
-   (`TURN_STALL_MS`; a silent harness ends the turn as `stalled`).
+   refresh, `sandbox.keepAlive`, `touchActivity`) and the 30 s pulse
+   (`STREAM_HEARTBEAT_MS`). The pulse runs the 4 min stall watchdog
+   (`TURN_STALL_MS`; a silent harness ends the turn `stalled`) and the
+   `Working` heartbeat. For billing it reads
+   `llm:spend:run:<runId>`; each $0.25 of spend past what the hold
+   covers lands a `checkpoint:<id>:<n>` debit on the hold. It writes a
+   `usage` stream event from the `llm_proxy_requests` sums. A failed
+   checkpoint logs
+   `builder-turn.checkpoint-failed` and the stop rules still run; a
+   non-finite counter reads 0 with a
+   `builder-turn.spend-counter-invalid` warn. Then the stop rules: a
+   settled balance at 0 → `stopped_no_credits`, the per-turn or
+   monthly cap → `stopped_project_cap`, `v2BuilderEnabled` off →
+   `stopped_disabled`. Each stop commits a wip and settles the spend
+   from the rows. Each stop writes the `error` event (`code` = the
+   terminal status, `retryable: false`), then the `done` event with
+   that status. `GENERATION_BILLING_MODE=off` skips the checkpoint and
+   the balance and cap checks.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
-   reconstruction; `usage` events accumulate token counts.
+   reconstruction. Harness `usage` events only feed the
+   `builder-turn.harness-usage` log line; the money path never reads
+   them.
 9. On stream end `hasUnfinishedTurn` picks the path. A paused turn runs
    `suspendTurn` instead of `detach`: one `data-question` or
    `data-approval` stream part and message part per pending card, the row
@@ -252,12 +295,26 @@ One run does this, in order:
    same tail: `commitTurn` commits the workspace (a commit failure only
    costs the commit, not the turn), a `files` event carries the numstat,
    `insertTurnAssistantMessage` persists the assistant message with
-   usage and commit metadata, and the resume state is saved on the
-   session row.
-10. Settles the hold with a token settlement (`pricing: "token"`; the
-    price row only fills `provider`), or refunds it on failure and on a
-    cancel the task finalizes; `builderTurns.complete`/`fail` mark the
-    row terminal with a compare-and-set, so a stale task can never
+   usage (the proxy row sums) and commit metadata, and the resume state
+   is saved on the session row.
+10. Settles the hold from the `llm_proxy_requests` rows
+    (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
+    the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
+    the `usdMicros` sum through `usdMicrosToCentiCredits`. The snapshot
+    carries `source: "llm_proxy_rows"`, `table: "llm-model-prices@1"`
+    (`HARNESS_PRICE_TABLE_VERSION`), `checkpoints`, `modelId`, and
+    `usdMicrosPerCredit`, and `rawUsage` the per-model sums. A
+    zero-spend turn with no checkpoints refunds in full instead.
+    `recordUsage` and the assistant metadata take the row token sums.
+    The `done` frame carries the receipt: `credits` (cc), `modelId`,
+    `inputTokens`, `outputTokens`, `cacheReadTokens`,
+    `cacheWriteTokens`, and the payer's settled `balanceCredits` after
+    the settle.
+    Failure and cancel still refund — the refund pays back the reserve
+    and every `checkpoint:<id>:<n>` debit.
+    `GENERATION_BILLING_MODE=off` skips the settle and logs
+    `billing.off` once. `builderTurns.complete`/`fail` mark the row
+    terminal with a compare-and-set, so a stale task can never
     overwrite a newer turn.
 11. Each terminal path ends with `finishTurn`: `counters.revokeRun` kills
     the token, the lock releases, `promoteNext` hands the slot to the
@@ -414,8 +471,23 @@ provider, normalized model id, token counts, `usdMicros` from
 `LLM_MODEL_PRICES`, status, and latency. A model with no price row fails
 closed: 503 `V2_MODEL_UNPRICED` before the forward, no row. WANDIT-151
 adds the price row of the default model before the first turn. The row
-lands before the Redis counters, so a failed insert never inflates spend;
-WANDIT-174 reconciles counters against the table.
+lands before the Redis counters, so a failed insert never inflates
+spend. The rows are the billing source of truth for a turn; the
+`llm:spend:run:<runId>` counter only drives the mid-turn checkpoints.
+
+Two sweeps maintain the money records. `reconcile-agent-sessions`
+(Trigger cron `*/15 * * * *` UTC, queue `meteringMaintenanceQueue`)
+reprices settled `agent_session` events. Each run takes events 10
+minutes to 48 hours old, 200 at a time.
+`MeteringService.reconcileAgentSession` reprices one under ledger key
+`reconcile:<id>` and marks it `reconciled`. An event whose turn has no
+`ok` row is skipped with a `reconcile.agent-session.no-rows` warn. The
+rows are the truth only when they exist. `recover-stranded-metering`
+(the stranded-hold sweep) gives `agent_session` holds a 90-minute stale
+window (`AGENT_SESSION_STALE_AFTER_MS`); other operations keep 40
+minutes. The `sandbox` operation sits in the registry — measured per
+minute, rate zero, `customerBillable: false` — and has no writer before
+WANDIT-196.
 
 Token revocation: the builder-turn task (WANDIT-166) calls `revokeRun`
 when the turn completes or fails; the API calls it on cancel and on the
@@ -424,5 +496,7 @@ stream end.
 Env: `LLM_PROXY_SIGNING_KEY`, `V2_DEFAULT_MODEL`,
 `V2_LLM_UPSTREAM_BASE_URL` (unset → `https://api.anthropic.com`),
 `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENROUTER_API_KEY`,
-`REDIS_URL`. Logs carry ids, tokens counts, micros, and status — never a
-body, a token, or a provider key.
+`REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
+checkpoints, and the settle), `AI_USD_PER_CREDIT` (0.032, the credit
+anchor the settle uses). Logs carry ids, tokens counts, micros, and
+status — never a body, a token, or a provider key.

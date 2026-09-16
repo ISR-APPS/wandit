@@ -44,6 +44,8 @@
 		"connector": "Connector tool",
 		"lead_scrape": "Lead scrape",
 		"transcription": "Voice transcription",
+		"agent_session": "Builder turn",
+		"sandbox": "Sandbox time",
 		"topup_adjust": "Balance adjustment"
 	},
 	"activityStatus": {

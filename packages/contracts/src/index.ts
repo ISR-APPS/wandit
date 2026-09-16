@@ -98,6 +98,8 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 project cost-cap contracts.
+export * from "./v2/cost-caps";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 app-builder health contract.

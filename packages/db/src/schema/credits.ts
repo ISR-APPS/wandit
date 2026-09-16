@@ -40,6 +40,10 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"connector",
 	"lead_scrape",
 	"transcription",
+	// One V2 builder turn, billed from the llm_proxy_requests rows.
+	"agent_session",
+	// Sandbox minutes at a zero rate; not billed to the customer before WANDIT-196.
+	"sandbox",
 	"topup_adjust",
 ]);
 

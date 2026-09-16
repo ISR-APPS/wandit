@@ -1,3 +1,8 @@
+/**
+ * Zod contracts for the AI chat stream: typed data parts, message
+ * metadata and usage, and tool input/output schemas.
+ * The server chat flow and the web `useChat` transport share them.
+ */
 import { z } from "zod";
 import { paymentRequiredDetailsSchema } from "../http/error-codes";
 import type { AiErrorData } from "./ai-errors";
@@ -20,14 +25,26 @@ import { memberCreditLimitDetailsSchema } from "./workspaces";
 // cachedInputTokens/reasoningTokens fields no longer exist in the SDK.
 const aiChatTokenCountSchema = z.number().int().nonnegative();
 
+// Which project cap refused the request. Raise the cap to fix it. Bought
+// credits do not help.
+export const projectCreditCapDetailsSchema = z.object({
+	cap: z.enum(["monthly", "per_turn"]),
+});
+
+/** Body the API exception filter forwards as `details` on a 403 cap refusal. */
+export type ProjectCreditCapDetails = z.infer<
+	typeof projectCreditCapDetailsSchema
+>;
+
 /**
- * Typed in-stream counterpart of the HTTP 402 response. The AI SDK prefixes
- * the data-part key, so `billing-error` is sent on the wire as
+ * Typed in-stream counterpart of the HTTP 402 or 403 response. The AI SDK
+ * prefixes the data-part key, so `billing-error` is sent on the wire as
  * `data-billing-error`.
  */
-// Discriminated union: the classic out-of-credits 402, plus the org
-// member-limit 403 (the pool could pay, the member's monthly cap could not —
-// buying credits is not the fix, so it is a distinct code/status).
+// Three billing failures share this union: out of credits (402), org member
+// limit (403), and project cost cap (403). On a 403 the pool can pay, so
+// buying credits is not the fix. Each failure keeps its own code and
+// status.
 export const aiChatBillingErrorDataSchema = z.discriminatedUnion("code", [
 	z.object({
 		code: z.literal("INSUFFICIENT_CREDITS"),
@@ -37,6 +54,11 @@ export const aiChatBillingErrorDataSchema = z.discriminatedUnion("code", [
 	z.object({
 		code: z.literal("MEMBER_CREDIT_LIMIT_REACHED"),
 		details: memberCreditLimitDetailsSchema,
+		statusCode: z.literal(403),
+	}),
+	z.object({
+		code: z.literal("PROJECT_CREDIT_CAP_REACHED"),
+		details: projectCreditCapDetailsSchema,
 		statusCode: z.literal(403),
 	}),
 ]);

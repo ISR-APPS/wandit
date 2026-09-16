@@ -1,4 +1,4 @@
-import type { ArgumentsHost } from "@nestjs/common";
+import { type ArgumentsHost, ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../modules/credits/domain/errors/insufficient-credits.error";
@@ -49,6 +49,54 @@ describe("ApiExceptionFilter payment-required details", () => {
 				}),
 				statusCode: 402,
 			}),
+		});
+	});
+});
+
+describe("ApiExceptionFilter project-cap details", () => {
+	it("emits typed 403 details for PROJECT_CREDIT_CAP_REACHED", () => {
+		const { host, reply, send } = setupHost();
+
+		new ApiExceptionFilter().catch(
+			new ForbiddenException({
+				code: "PROJECT_CREDIT_CAP_REACHED",
+				details: { cap: "monthly" },
+				message: "x",
+			}),
+			host,
+		);
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(send).toHaveBeenCalledWith({
+			error: expect.objectContaining({
+				code: "PROJECT_CREDIT_CAP_REACHED",
+				details: { cap: "monthly" },
+				statusCode: 403,
+			}),
+		});
+	});
+
+	it("sends no details key when the 403 details do not parse", () => {
+		const { host, reply, send } = setupHost();
+
+		new ApiExceptionFilter().catch(
+			new ForbiddenException({
+				code: "PROJECT_CREDIT_CAP_REACHED",
+				details: { cap: "weekly" },
+				message: "x",
+			}),
+			host,
+		);
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(send).toHaveBeenCalledWith({
+			error: expect.objectContaining({
+				code: "PROJECT_CREDIT_CAP_REACHED",
+				statusCode: 403,
+			}),
+		});
+		expect(send).toHaveBeenCalledWith({
+			error: expect.not.objectContaining({ details: expect.anything() }),
 		});
 	});
 });

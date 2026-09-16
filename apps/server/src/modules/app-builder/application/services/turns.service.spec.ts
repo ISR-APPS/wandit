@@ -2,33 +2,48 @@ import { randomUUID } from "node:crypto";
 import {
 	BadRequestException,
 	ConflictException,
+	ForbiddenException,
+	HttpException,
+	HttpStatus,
 	NotFoundException,
+	ServiceUnavailableException,
 } from "@nestjs/common";
+import type { BillingPlanId } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type {
+	SubscriptionRow,
+	SubscriptionsRepository,
+} from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AiUsageEvent } from "../../../metering/domain/metering";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
+import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { BuilderSessionsRepository } from "../../infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnRow,
 	BuilderTurnsRepository,
 } from "../../infrastructure/persistence/builder-turns.repository";
+import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeTurnEventStream } from "../../infrastructure/trigger/fake-turn-events";
 import { TurnsService } from "./turns.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A real price-table id: the estimate math prices the model, so a made-up
+// id would throw inside `estimateTurn`.
+const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
 const INITIAL_R2_PUBLIC_BASE_URL = env.R2_PUBLIC_BASE_URL;
+const INITIAL_GENERATION_BILLING_MODE = env.GENERATION_BILLING_MODE;
 
 afterEach(() => {
-	// The env object can be process.env; restore so the storage URL does
-	// not leak into other spec files on the same worker.
+	// The env object can be process.env; restore so the storage URL and the
+	// billing mode do not leak into other spec files on the same worker.
 	if (INITIAL_R2_PUBLIC_BASE_URL === undefined) {
 		Reflect.deleteProperty(env, "R2_PUBLIC_BASE_URL");
 	} else {
@@ -36,7 +51,36 @@ afterEach(() => {
 		(env as { R2_PUBLIC_BASE_URL?: string }).R2_PUBLIC_BASE_URL =
 			INITIAL_R2_PUBLIC_BASE_URL;
 	}
+	// SAFETY: restores the value the process had before the suite ran.
+	(
+		env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+	).GENERATION_BILLING_MODE = INITIAL_GENERATION_BILLING_MODE;
 });
+
+function subscriptionRow(plan: BillingPlanId): SubscriptionRow {
+	const now = new Date("2026-09-16T00:00:00.000Z");
+	return {
+		cancelAtPeriodEnd: false,
+		createdAt: now,
+		currentPeriodEnd: now,
+		currentPeriodStart: now,
+		id: "sub_1",
+		interval: "year",
+		organizationId: null,
+		pendingAppliedBy: null,
+		pendingInterval: null,
+		pendingPlan: null,
+		pendingTierCredits: null,
+		plan,
+		priceLookupKey: "business_1000_year",
+		provider: "stripe",
+		providerSubscriptionId: "sub_stripe_1",
+		status: "active",
+		tierCredits: 1_000,
+		updatedAt: now,
+		userId: "user-1",
+	};
+}
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 	return {
@@ -93,18 +137,18 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		messageId: null,
 		model: null,
 		nextReconcileAttemptAt: null,
-		operation: "chat",
+		operation: "agent_session",
 		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
 		pricingSnapshot: null,
-		projectId: null,
+		projectId: "project-1",
 		provider: null,
 		rawUsage: null,
 		reconcileAttempts: 0,
 		reconciledAt: null,
 		reconciledCostUsdMicros: null,
-		reservedCredits: 1_000,
+		reservedCredits: 1_400,
 		settledAt: null,
 		status: "reserved",
 		userId: "user-1",
@@ -112,7 +156,12 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 	};
 }
 
-function setup() {
+function setup(
+	v2Env: V2EnvSource = {
+		V2_DEFAULT_MODEL: DEFAULT_MODEL,
+		V2_HARNESS: "claude-code",
+	},
+) {
 	const turns = {
 		create: vi.fn(
 			async (input: Parameters<BuilderTurnsRepository["create"]>[0]) => ({
@@ -170,8 +219,17 @@ function setup() {
 		),
 	};
 	const metering = {
+		countReservedByActor: vi.fn<MeteringService["countReservedByActor"]>(
+			async () => 0,
+		),
 		findByIdempotencyKey: vi.fn<MeteringService["findByIdempotencyKey"]>(
 			async () => null,
+		),
+		medianSettledCredits: vi.fn<MeteringService["medianSettledCredits"]>(
+			async () => null,
+		),
+		monthlySpendCredits: vi.fn<MeteringService["monthlySpendCredits"]>(
+			async () => 0,
 		),
 		refund: vi.fn(async () => undefined),
 		reserveWithReplay: vi.fn(async () => ({
@@ -179,6 +237,16 @@ function setup() {
 			replay: "none" as const,
 			replayed: false as const,
 		})),
+	};
+	const caps = {
+		findByProjectId: vi.fn<ProjectCostCapsRepository["findByProjectId"]>(
+			async () => null,
+		),
+	};
+	const subscriptions = {
+		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
+			async () => null,
+		),
 	};
 	const lock = new FakeTurnLock();
 	const starter = {
@@ -197,11 +265,14 @@ function setup() {
 		lock,
 		starter,
 		turnEvents,
-		{ V2_DEFAULT_MODEL: "model-1", V2_HARNESS: "claude-code" },
+		v2Env,
 		counters,
+		caps,
+		subscriptions,
 	);
 
 	return {
+		caps,
 		chats,
 		counters,
 		lock,
@@ -210,6 +281,7 @@ function setup() {
 		service,
 		sessions,
 		starter,
+		subscriptions,
 		turnEvents,
 		turns,
 	};
@@ -261,21 +333,24 @@ describe("TurnsService.create", () => {
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
-	it("reserves the hold, locks, queues, and starts the task", async () => {
+	it("reserves the agent_session hold, locks, queues, and starts the task", async () => {
 		const { chats, lock, metering, service, starter, turns } = setup();
 
 		const result = await service.create(SCOPE, "project-1", BODY);
 
+		// No settled turns yet: the fixed 14-credit default hold applies.
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
-			"chat",
+			"agent_session",
 			{ actorUserId: "user-1" },
 			expect.objectContaining({
-				credits: 1_000,
+				credits: 1_400,
 				idempotencyKey: expect.stringMatching(/^builder-turn:/),
+				model: DEFAULT_MODEL,
+				projectId: "project-1",
 			}),
 		);
 		expect(turns.create).toHaveBeenCalledWith(
-			expect.objectContaining({ status: "queued" }),
+			expect.objectContaining({ model: DEFAULT_MODEL, status: "queued" }),
 		);
 		expect(chats.insertTurnUserMessage).toHaveBeenCalled();
 		expect(starter.start).toHaveBeenCalledTimes(1);
@@ -285,12 +360,238 @@ describe("TurnsService.create", () => {
 		);
 		expect(await lock.holder("project-1")).toBe(result.turnId);
 		expect(result).toMatchObject({
-			estimate: { basis: "fixed", credits: 10 },
+			estimate: {
+				basis: "fixed",
+				credits: 14,
+				modelId: DEFAULT_MODEL,
+				multiplier: 1,
+			},
 			runId: "run-1",
 			status: "queued",
 			streamUrl: "/api/v2/projects/project-1/turns/active/stream",
 		});
 		expect(result).not.toHaveProperty("queued");
+	});
+
+	it("sizes the hold from the settled-turn median when history exists", async () => {
+		const { metering, service } = setup();
+		metering.medianSettledCredits.mockResolvedValue(2_300);
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.medianSettledCredits).toHaveBeenCalledWith(
+			"project-1",
+			"agent_session",
+			10,
+		);
+		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
+			"agent_session",
+			{ actorUserId: "user-1" },
+			expect.objectContaining({ credits: 2_300 }),
+		);
+		expect(result.estimate).toEqual({
+			basis: "history",
+			credits: 23,
+			modelId: DEFAULT_MODEL,
+			multiplier: 1,
+		});
+	});
+
+	it("clamps a tiny median up to the agent_session reserve floor", async () => {
+		const { metering, service } = setup();
+		metering.medianSettledCredits.mockResolvedValue(100);
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
+			"agent_session",
+			{ actorUserId: "user-1" },
+			expect.objectContaining({ credits: 500 }),
+		);
+		expect(result.estimate).toEqual({
+			basis: "history",
+			credits: 5,
+			modelId: DEFAULT_MODEL,
+			multiplier: 1,
+		});
+	});
+
+	it("clamps the hold to the project per-turn cap", async () => {
+		const { caps, metering, service } = setup();
+		caps.findByProjectId.mockResolvedValue({
+			monthlyCapCredits: null,
+			perTurnCapCredits: 5_000,
+		});
+		metering.medianSettledCredits.mockResolvedValue(9_000);
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
+			"agent_session",
+			{ actorUserId: "user-1" },
+			expect.objectContaining({ credits: 5_000 }),
+		);
+		expect(result.estimate).toEqual({
+			basis: "history",
+			credits: 50,
+			modelId: DEFAULT_MODEL,
+			multiplier: 1,
+		});
+	});
+
+	it("denies a picked model outside the plan allow-list before the hold", async () => {
+		const { metering, service, turns } = setup();
+		// The default starter plan may only run the default and haiku.
+
+		const failure = await service
+			.create(SCOPE, "project-1", {
+				...BODY,
+				model: "anthropic/claude-opus-5",
+			})
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(BadRequestException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as BadRequestException).getResponse()).toMatchObject({
+			code: "V2_MODEL_DENIED",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("runs a plan-allowed model pick and stores it on the row", async () => {
+		const { metering, service, subscriptions, turns } = setup();
+		subscriptions.findActiveByOwner.mockResolvedValue(
+			subscriptionRow("business"),
+		);
+
+		const result = await service.create(SCOPE, "project-1", {
+			...BODY,
+			model: "anthropic/claude-opus-5",
+		});
+
+		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
+			"agent_session",
+			{ actorUserId: "user-1" },
+			expect.objectContaining({ model: "anthropic/claude-opus-5" }),
+		);
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({ model: "anthropic/claude-opus-5" }),
+		);
+		// Opus 5 outputs $25/MTok over Sonnet 5's $10/MTok: multiplier 2.5.
+		expect(result.estimate).toEqual({
+			basis: "fixed",
+			credits: 14,
+			modelId: "anthropic/claude-opus-5",
+			multiplier: 2.5,
+		});
+	});
+
+	it("answers 503 V2_MODEL_UNPRICED when the deploy default has no price row", async () => {
+		const { metering, service, turns } = setup({
+			V2_DEFAULT_MODEL: "x/unpriced",
+			V2_HARNESS: "claude-code",
+		});
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ServiceUnavailableException);
+		// SAFETY: toBeInstanceOf above proves the error type; getStatus and
+		// getResponse read what the constructor stored.
+		const exception = failure as ServiceUnavailableException;
+		expect(exception.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+		expect(exception.getResponse()).toMatchObject({
+			code: "V2_MODEL_UNPRICED",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("answers 403 PROJECT_CREDIT_CAP_REACHED when the monthly cap is spent", async () => {
+		const { caps, metering, service, turns } = setup();
+		caps.findByProjectId.mockResolvedValue({
+			monthlyCapCredits: 4_000,
+			perTurnCapCredits: null,
+		});
+		metering.monthlySpendCredits.mockResolvedValue(4_500);
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ForbiddenException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, details, message } body passed to the constructor.
+		expect((failure as ForbiddenException).getResponse()).toMatchObject({
+			code: "PROJECT_CREDIT_CAP_REACHED",
+			details: { cap: "monthly" },
+		});
+		expect(metering.monthlySpendCredits).toHaveBeenCalledWith(
+			"project-1",
+			expect.any(Date),
+		);
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("answers 429 TOO_MANY_ACTIVE_TURNS when the actor holds three sessions", async () => {
+		const { metering, service, turns } = setup();
+		metering.countReservedByActor.mockResolvedValue(3);
+
+		const failure = await service
+			.create(SCOPE, "project-1", BODY)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(HttpException);
+		// SAFETY: toBeInstanceOf above proves the error type; getStatus and
+		// getResponse read what the constructor stored.
+		const exception = failure as HttpException;
+		expect(exception.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+		expect(exception.getResponse()).toMatchObject({
+			code: "TOO_MANY_ACTIVE_TURNS",
+		});
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
+	it("skips the hold under GENERATION_BILLING_MODE=off and still answers the estimate", async () => {
+		// SAFETY: the env schema already types this field as "enforce" | "off".
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = "off";
+		const { metering, service } = setup();
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(result.estimate).toEqual({
+			basis: "fixed",
+			credits: 14,
+			modelId: DEFAULT_MODEL,
+			multiplier: 1,
+		});
+	});
+
+	it("does not refund when a billing-off create fails after the row", async () => {
+		// SAFETY: the env schema already types this field as "enforce" | "off".
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = "off";
+		const { metering, service, starter, turns } = setup();
+		starter.start.mockRejectedValue(new Error("trigger down"));
+
+		await expect(service.create(SCOPE, "project-1", BODY)).rejects.toThrow(
+			"trigger down",
+		);
+
+		expect(turns.fail).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ failureCode: "create_failed" }),
+		);
+		expect(metering.refund).not.toHaveBeenCalled();
 	});
 
 	it("parks the turn as waiting behind an active one", async () => {
