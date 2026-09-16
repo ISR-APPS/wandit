@@ -16,6 +16,7 @@ import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { PreviewTokenService } from "./application/services/preview-token.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -49,6 +50,7 @@ import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-ta
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
+import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -67,6 +69,7 @@ describe("AppBuilderModule", () => {
 			AppProjectsController,
 			CostCapsController,
 			LlmProxyController,
+			PreviewTokenController,
 			TurnsController,
 			V2HealthController,
 			VersionsController,
@@ -92,6 +95,7 @@ describe("AppBuilderModule", () => {
 			LlmProxyRequestsRepository,
 			LlmProxyService,
 			LlmSpendCounters,
+			PreviewTokenService,
 			ProjectCostCapsRepository,
 			RedisRateLimitGuard,
 			SandboxSessionsRepository,

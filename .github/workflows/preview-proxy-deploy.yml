@@ -1,0 +1,78 @@
+name: Preview proxy
+
+# The preview proxy gates every generated-app preview origin; a broken
+# deploy opens sandbox ports to the public. PRs run the Worker checks and a
+# deploy dry run; pushes to staging and main deploy the matching Worker
+# environment.
+on:
+  pull_request:
+    paths:
+      - apps/preview-proxy/**
+      - packages/contracts/**
+      - .github/workflows/preview-proxy-deploy.yml
+  push:
+    branches: [main, staging]
+
+# One deploy per branch at a time; a queued run waits, nothing overlaps.
+concurrency:
+  group: preview-proxy-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # Runs check-types, the Worker tests, and a deploy dry run on every PR
+  # that touches the proxy or the contracts it verifies against.
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 matches the local dev runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The proxy package plus its workspace dependencies only.
+      - name: Install dependencies
+        run: npx -y pnpm@11.7.0 install --frozen-lockfile --filter preview-proxy...
+
+      - name: Check types
+        run: npx -y pnpm@11.7.0 -F preview-proxy check-types
+
+      - name: Test
+        run: npx -y pnpm@11.7.0 -F preview-proxy test
+
+      # The contracts spec pins the token vector the Worker and the API
+      # share; no other workflow runs it.
+      - name: Test the shared token contract
+        run: npx -y pnpm@11.7.0 -F @wandit/contracts test
+
+      # A dry run validates the bundle and the wrangler config; it needs no
+      # API token. `--env ""` names the top-level config: without it wrangler
+      # warns that no target environment was named, and a warning fails CI.
+      - name: Deploy dry run
+        working-directory: apps/preview-proxy
+        run: npx wrangler deploy --dry-run --outdir dist --env ""
+
+  # Deploys the Worker on every push: the staging branch deploys
+  # `--env staging`, main deploys `--env ""` (the top-level config).
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npx -y pnpm@11.7.0 install --frozen-lockfile --filter preview-proxy...
+
+      - name: Deploy the Worker
+        working-directory: apps/preview-proxy
+        run: npx wrangler deploy ${{ github.ref_name == 'staging' && '--env staging' || '--env ""' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_V2_DEPLOY_TOKEN }}

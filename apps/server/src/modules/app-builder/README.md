@@ -33,9 +33,9 @@ PostHog flag `v2-builder`).
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects` |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects` |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token |
 
 ## Ports (`domain/ports/`)
 
@@ -500,3 +500,38 @@ Env: `LLM_PROXY_SIGNING_KEY`, `V2_DEFAULT_MODEL`,
 checkpoints, and the settle), `AI_USD_PER_CREDIT` (0.032, the credit
 anchor the settle uses). Logs carry ids, tokens counts, micros, and
 status — never a body, a token, or a provider key.
+
+## Preview
+
+`GET /api/v2/projects/:projectId/preview-token` mints the signed token
+that opens the app preview on the preview domain `wanditpreview.app`
+(D5, WANDIT-170). The route sits behind `V2BuilderEnabledGuard` and
+`RedisRateLimitGuard` (30 requests per user per minute, key
+`preview-token`). The project scope and `v2_app` engine checks are the
+same as the versions routes: a missing, out-of-scope, or V1 project
+answers 404. Minting is a read, so the route carries no
+workspace-permission decorator.
+
+The token is `base64url(JSON payload).base64url(HMAC-SHA256)`, minted by
+`signPreviewToken` in `@wandit/contracts` with
+`PREVIEW_TOKEN_SIGNING_KEY` and valid for 15 minutes
+(`PREVIEW_TOKEN_TTL_SECONDS`). Claims: `pid` (project id), `rid`
+(`sandbox_sessions.id`), `uid` (user id), `up` (the sandbox origin, for
+example `https://x-5173.vercel.run`), `exp`, `jti`. The answer carries
+`token`, `previewUrl`, and `expiresAt`.
+
+The preview URL is
+`https://r-<rid12>--p-<projectId>.<PREVIEW_DOMAIN>/?wt=<token>`, where
+`rid12` is the first 12 hex characters of the run id. The Worker in
+`apps/preview-proxy` parses that host, verifies the `wt` token, and sets
+the `__Host-wandit_preview` cookie that carries it on later requests.
+
+A `creating` or `stopped` sandbox row, or a running row without
+`previewHost`, answers 409 `SANDBOX_NOT_RUNNING`. Each mint also calls
+`sandbox_sessions.touchActivity`, so an open preview keeps the idle
+sweep away.
+
+Env: `PREVIEW_DOMAIN`, `PREVIEW_TOKEN_SIGNING_KEY`. The same
+`PREVIEW_TOKEN_SIGNING_KEY` is the Worker secret; set it with
+`wrangler secret put`. The two values must match, or every token fails
+the signature check of the Worker.
