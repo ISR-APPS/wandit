@@ -279,6 +279,7 @@ function fakeProjectRow(over?: Partial<TurnProjectRow>): TurnProjectRow {
 		engine: "v2_app",
 		framework: "web-app",
 		languages: ["en"],
+		networkAllowedHosts: [],
 		organizationId: null,
 		templateVersion: "web-app@1.0.0",
 		userId: "user_1",

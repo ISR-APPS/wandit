@@ -73,6 +73,12 @@ export type SandboxCreateOptions = {
 	 * default policy from the env and the sandbox env.
 	 */
 	networkPolicy?: SandboxNetworkPolicy;
+	/**
+	 * Per-project egress hosts from `projects.networkAllowedHosts`, layer 3
+	 * of the allow list. The provider validates each one and drops invalid
+	 * ones. Absent means none; a restore passes none.
+	 */
+	networkAllowedHosts?: string[];
 };
 
 /** How one `exec` runs inside the sandbox. */
@@ -123,11 +129,19 @@ export interface SandboxHandle {
 	keepAlive(): Promise<void>;
 	/**
 	 * Replaces the whole vendor network policy on the live sandbox — no
-	 * restart. Round 2's `request_network_host` tool and the integration
-	 * spec call it. A caller that runs during a harness session must first
-	 * merge the current session policy (round 2 work).
+	 * restart. The integration spec calls it before a harness session runs.
+	 * A caller during a harness session must use `allowHost`, which keeps
+	 * the proxy auth transformation the session added.
 	 */
 	setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void>;
+	/**
+	 * Adds one host to the live allow list and applies it, no restart.
+	 * `request_network_host` calls it after approval. It merges the host
+	 * into the current policy and keeps the proxy auth transformation,
+	 * because a live harness session injects the run token there. The
+	 * caller validates `host` with `isValidNetworkHost` first.
+	 */
+	allowHost(host: string): Promise<void>;
 	/** The session the HarnessAgent attaches to. */
 	harnessSession(): Promise<HarnessSandboxSession>;
 }

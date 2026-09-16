@@ -1,13 +1,14 @@
 # Sandbox security (V2)
 
 The egress, env, and tool-call boundaries of the V2 app-builder sandbox,
-as built in WANDIT-180 round 1. Each control names the file, function,
-or constant to open.
+as built in WANDIT-180. Each control names the file, function, or
+constant to open.
 
 ## 1. Scope
 
-Covers the network egress policy, the sandbox env allow list, the
-template deny rules, and the PreToolUse hook.
+Covers the network egress policy, the `request_network_host` host tool,
+the sandbox env allow list, the template deny rules, and the PreToolUse
+hook.
 
 Does not cover:
 
@@ -26,8 +27,9 @@ merges three allow layers into one sorted, deduped list:
    template fonts), `api.stripe.com`, `api.resend.com`,
    `maps.googleapis.com`, `api.openai.com` (the connectors).
 2. Connector hosts. Empty today; WANDIT-189 feeds the list.
-3. Per-project hosts. Empty today; round 2 adds the
-   `projects.networkAllowedHosts` column.
+3. Per-project hosts, from the `projects.networkAllowedHosts` column.
+   The `request_network_host` host tool appends one host per approval.
+   The runtime reads the column and passes it to `buildNetworkPolicy`.
 
 `VercelSandboxProvider.start` adds three more hosts before the vendor
 call:
@@ -100,11 +102,35 @@ on the sandbox session: the run-token header for the proxy host.
 session leaves transformations the SDK cannot attribute; clearing them
 re-applies the network policy unchanged.
 
-`SandboxHandle.setNetworkPolicy` replaces the whole vendor policy.
-Round 2's `request_network_host` tool must merge the current session
-policy before it adds a host.
+`SandboxHandle.setNetworkPolicy` replaces the whole vendor policy. The
+integration spec calls it before a harness session runs.
 
-## 5. Template deny rules
+## 5. The request_network_host host tool
+
+The agent asks to reach one extra host through `request_network_host`
+(`application/host-tools/request-network-host.host-tool.ts`). The
+registry marks it `user-approval`, so the user approves the call first.
+A denied call never runs the tool body and changes nothing.
+
+On approval the tool does four steps:
+
+1. It normalizes `host` to lower case and checks it with
+   `isValidNetworkHost`. An IP address or a private label returns
+   `denied`. A hostname that resolves into a denied range still fails at
+   the firewall, because the deny ranges outrank the allow list.
+2. It appends the host to `projects.networkAllowedHosts` with a deduping
+   write, so a repeated grant is a no-op and the next sandbox keeps it.
+3. It calls `SandboxHandle.allowHost`, which merges the host into the
+   live allow list and applies it, no restart.
+4. It writes an `audit_events` row with the action `network.host_allowed`
+   (the action name comes from WANDIT-181).
+
+`allowHost` routes through the live harness session, not the raw vendor
+call. The session holds the run-token transformation for the proxy host.
+So the merge keeps that transformation, and the running turn's proxy
+calls still carry the token.
+
+## 6. Template deny rules
 
 `templates/web-app/.claude/settings.json` holds the `permissions.deny`
 list. Grouped:
@@ -128,7 +154,7 @@ Claude Code facts the design relies on:
   them, as one set with the `Edit` rules.
 - A `Bash(x *)` rule also matches the bare `x` command.
 
-## 6. The PreToolUse hook
+## 7. The PreToolUse hook
 
 `templates/web-app/.claude/hooks/pre-tool-use.mjs` runs before every
 tool call and reads the deny list from `settings.json` itself. Exit 2
@@ -243,7 +269,7 @@ launchers not in `WRAPPERS` (`setsid`, `flock`); Debian binary names
 (`nc.openbsd`); `perl -i` and `awk` file writes. Upgrade: a shell
 parser package in the image.
 
-## 7. Telemetry
+## 8. Telemetry
 
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` appears in
 `buildSandboxEnv` (`sandbox-env.ts`) and in `buildAgent`
@@ -252,7 +278,7 @@ Code telemetry and update calls fail and log noise, so the CLI must
 not make them. `buildSandboxEnv` writes the flag last, so `extra`
 cannot re-enable them.
 
-## 8. No platform secret in the VM
+## 9. No platform secret in the VM
 
 `SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the eight env names
 a sandbox may receive: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
@@ -272,7 +298,7 @@ env only, never in the command string or a log. A `command -v grep`
 precondition stops a vacuous pass; an unset source gets an
 `unset-needle-<name>` sentinel.
 
-## 9. Non-root
+## 10. Non-root
 
 `VERCEL_SANDBOX_IMAGE` is unset, so `start` boots `DEFAULT_IMAGE`, the
 vendor's `vercel/sandbox/node:22`. The round-1 integration run measured
@@ -283,7 +309,7 @@ Claude Code, Playwright Chromium) built with `USER builder`; nothing
 selects it yet. Whether the vendor honors `USER` for `runCommand` is
 UNVERIFIED.
 
-## 10. The integration spec
+## 11. The integration spec
 
 `sandbox-hardening.integration.spec.ts` runs only with
 `V2_SANDBOX_INTEGRATION_TEST=true`; CI never sets the flag. One run
@@ -307,18 +333,16 @@ Measured on the final run (2026-09-15): sandbox user `ubuntu`, create
 took 24194 ms, the live policy update took 1335 ms, and the case
 passed.
 
-## 11. Open items
+## 12. Open items
 
-- Layer 3 per-project hosts and the `request_network_host` tool: round
-  2. The tool must merge the current session policy first, because
-  `setNetworkPolicy` replaces the whole policy.
 - Connector hosts into `buildNetworkPolicy`: WANDIT-189.
 - The custom image and `VERCEL_SANDBOX_IMAGE`: `tooling/sandbox-image/`
   is built; whether the vendor honors `USER builder` is UNVERIFIED.
 - IPv6 deny ranges: the vendor API accepts IPv4 only today (`LIMIT` in
   `network-policy.ts`).
 - The `Write(...)` deny rules: Claude Code never reads them; the hook
-  does. Whether to drop the duplicates is a round-2 cleanup.
-- The hook `LIMIT` list (section 6): the upgrade is a shell parser in
+  does. Whether to drop the duplicates is a later cleanup.
+- The hook `LIMIT` list (section 7): the upgrade is a shell parser in
   the image.
-- The harness transformation merge, with the host tool: round 2.
+- The live `allowHost` merge has no integration test: it needs a real
+  harness session. Staging proves it (Verification step 3).

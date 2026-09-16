@@ -23,6 +23,8 @@ export type TurnProjectRow = {
 	templateVersion: string | null;
 	/** Output languages the harness instructions enforce. */
 	languages: string[];
+	/** Per-project egress hosts (WANDIT-180); layer 3 of the allow list. */
+	networkAllowedHosts: string[];
 	/** Project creator; the sandbox owner. */
 	userId: string;
 	/** Org workspace of the project, or null for a personal project. */
@@ -40,6 +42,7 @@ export class TurnProjectRepository {
 				engine: projects.engine,
 				framework: projects.framework,
 				languages: projects.languages,
+				networkAllowedHosts: projects.networkAllowedHosts,
 				organizationId: projects.organizationId,
 				templateVersion: projects.templateVersion,
 				userId: projects.userId,

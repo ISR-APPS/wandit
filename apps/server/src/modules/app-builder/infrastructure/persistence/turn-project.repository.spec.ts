@@ -38,6 +38,7 @@ describe("TurnProjectRepository.findForTurn", () => {
 			engine: "v2_app",
 			framework: "tanstack-start",
 			languages: ["ar", "fr"],
+			networkAllowedHosts: ["api.example.com"],
 			organizationId: null,
 			templateVersion: "tpl-1",
 			userId: "user-1",
