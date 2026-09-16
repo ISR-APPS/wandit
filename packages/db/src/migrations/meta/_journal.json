@@ -526,6 +526,13 @@
       "when": 1789484348465,
       "tag": "0074_v2-project-network-allowed-hosts",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1789558648463,
+      "tag": "0075_agent-session-operation",
+      "breakpoints": true
     }
   ]
 }

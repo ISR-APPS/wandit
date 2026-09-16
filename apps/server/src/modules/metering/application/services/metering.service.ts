@@ -1,3 +1,9 @@
+/**
+ * Reserves, checkpoints, settles, reconciles, and refunds AI-usage credit
+ * holds on `ai_usage_events`. Called by controllers, the chat and generation
+ * services, and the Trigger tasks. Writes rows through `MeteringRepository`
+ * and ledger entries through `CreditsService`.
+ */
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
@@ -97,6 +103,12 @@ export const RECONCILE_DEAD_LETTER_CAP = 10;
 export const RECONCILE_RETRY_BASE_DELAY_MS = 5 * 60_000;
 export const RECONCILE_RETRY_MAX_DELAY_MS = 6 * 60 * 60_000;
 
+/**
+ * Lease TTL each landed checkpoint applies, with or without a debit. Same 5
+ * minutes as the chat stream lease; the runtime pulse (30 s) renews sooner.
+ */
+const AGENT_SESSION_LEASE_TTL_MS = 5 * 60_000;
+
 /** Settlement snapshot flags that ask for an admin review of the charge. */
 export type MeteringReviewFlag = "gateway_zero_cost" | "no_catalog_rate";
 
@@ -189,6 +201,42 @@ export class MeteringService {
 		}
 
 		return event;
+	}
+
+	/**
+	 * The project's `agent_session` spend since `monthStartUtc`, in cc; a
+	 * reserved hold counts at its reserve. The builder-turn runtime and the
+	 * `turns.service.ts` create read it for the monthly-cap stop rule.
+	 */
+	async monthlySpendCredits(
+		projectId: string,
+		monthStartUtc: Date,
+	): Promise<number> {
+		return this.repository.monthlySpendCredits(projectId, monthStartUtc);
+	}
+
+	/**
+	 * Median final charge of the project's recent `operation` events, in
+	 * cc. `turns.service.ts` create reads it to size the `agent_session`
+	 * hold; null when the project has no settled event yet.
+	 */
+	async medianSettledCredits(
+		projectId: string,
+		operation: MeteredOperation,
+		limit = 10,
+	): Promise<number | null> {
+		return this.repository.medianSettledCredits(projectId, operation, limit);
+	}
+
+	/**
+	 * Count of the actor's still-open `reserved` events of `operation`.
+	 * `turns.service.ts` create uses it for the active-turns-per-user cap.
+	 */
+	async countReservedByActor(
+		operation: MeteredOperation,
+		actorUserId: string,
+	): Promise<number> {
+		return this.repository.countReservedByActor(operation, actorUserId);
 	}
 
 	/**
@@ -542,6 +590,7 @@ export class MeteringService {
 					operation,
 					organizationId,
 					parentEventId: estimate.parentEventId ?? null,
+					projectId: estimate.projectId ?? null,
 					provider: estimate.provider ?? null,
 					pricingSnapshot: this.reservationPricingSnapshot(
 						operation,
@@ -684,6 +733,208 @@ export class MeteringService {
 				transaction,
 			),
 		);
+	}
+
+	/**
+	 * Mid-turn debit for one `agent_session`: converts the proxy spend counter
+	 * (USD micros so far) into the running hold. Checkpoint `n` must follow
+	 * `n - 1` exactly: a replayed `n` writes nothing, a gap means a checkpoint
+	 * was lost. Returns the cc this call debited on `checkpoint:<id>:<n>`.
+	 */
+	async checkpoint(
+		eventId: string,
+		input: {
+			costUsdMicrosSoFar: number;
+			modelId: string;
+			n: number;
+		},
+	): Promise<{ debitedCredits: number; event: AiUsageEvent }> {
+		this.assertPositiveCredits(input.n, "checkpoint n");
+		this.assertOptionalCost(input.costUsdMicrosSoFar);
+		this.assertNonEmpty(input.modelId, "checkpoint model");
+
+		// The ledger row and the row update commit together, so a crash cannot
+		// debit twice or lose the count.
+		return this.repository.transaction(async (transaction) => {
+			await this.lockEvent(eventId, transaction);
+			const event = await this.requireEvent(eventId, transaction);
+
+			if (event.status !== "reserved") {
+				throw new MeteringStateConflictError(
+					eventId,
+					event.status,
+					"checkpoint",
+				);
+			}
+
+			if (event.operation !== "agent_session") {
+				throw new Error(`AI usage event ${eventId} is not an agent session`);
+			}
+
+			const snapshot = isRecord(event.pricingSnapshot)
+				? event.pricingSnapshot
+				: {};
+			const { checkpointDebits, checkpoints } =
+				snapshotCheckpointProgress(snapshot);
+
+			if (input.n <= checkpoints) {
+				return { debitedCredits: 0, event };
+			}
+
+			if (input.n !== checkpoints + 1) {
+				throw new Error(
+					`AI usage event ${eventId} checkpoint ${input.n} skips ${checkpoints + 1}`,
+				);
+			}
+
+			// The spend may sit below the hold: the checkpoint still lands with a
+			// zero debit so a replayed `n` keeps answering from the snapshot.
+			const debit = Math.max(
+				0,
+				usdMicrosToCentiCredits(
+					input.costUsdMicrosSoFar,
+					this.reconciliationUsdMicrosPerCredit(event),
+				) - event.reservedCredits,
+			);
+
+			if (debit > 0) {
+				await this.credits.consume(
+					this.eventPayer(event),
+					debit,
+					{
+						actorUserId: event.userId,
+						allowOverdraft: true,
+						idempotencyKey: `checkpoint:${eventId}:${input.n}`,
+						meta: {
+							action: "agent_session",
+							reason: "ai_usage_checkpoint",
+							usageEventId: eventId,
+						},
+						planHold: "inactive",
+					},
+					transaction,
+				);
+			}
+
+			// A landed checkpoint proves the turn is alive in both branches, so
+			// renew the lease this run holds.
+			if (event.executionLeaseToken !== null) {
+				await this.repository.heartbeatExecutionLease(
+					eventId,
+					event.executionLeaseToken,
+					AGENT_SESSION_LEASE_TTL_MS,
+					transaction,
+				);
+			}
+
+			const updated = await this.repository.updateEvent(
+				eventId,
+				["reserved"],
+				{
+					model: input.modelId,
+					pricingSnapshot: {
+						...snapshot,
+						checkpointDebits: [...checkpointDebits, debit],
+						checkpoints: input.n,
+					},
+					reservedCredits: event.reservedCredits + debit,
+				},
+				transaction,
+			);
+
+			if (!updated) {
+				throw new Error(
+					`AI usage event ${eventId} lost its checkpoint transition`,
+				);
+			}
+
+			return { debitedCredits: debit, event: updated };
+		});
+	}
+
+	/**
+	 * Reprices a settled `agent_session` to the final `llm_proxy_requests` sum.
+	 * Idempotent on status: a reconciled event answers a zero delta, anything
+	 * but settled is a state conflict. The ledger delta goes through
+	 * applyCreditAdjustment, so reconcile reuses its debit key and split
+	 * refund.
+	 */
+	async reconcileAgentSession(
+		eventId: string,
+		input: { costUsdMicros: number; rawUsage: unknown },
+	): Promise<{ deltaCredits: number; event: AiUsageEvent }> {
+		this.assertOptionalCost(input.costUsdMicros);
+
+		return this.repository.transaction(async (transaction) => {
+			await this.lockEvent(eventId, transaction);
+			const event = await this.requireEvent(eventId, transaction);
+
+			if (event.status === "reconciled") {
+				return { deltaCredits: 0, event };
+			}
+
+			if (event.status !== "settled") {
+				throw new MeteringStateConflictError(
+					eventId,
+					event.status,
+					"reconcile",
+				);
+			}
+
+			if (event.operation !== "agent_session") {
+				throw new Error(`AI usage event ${eventId} is not an agent session`);
+			}
+
+			const targetCredits = usdMicrosToCentiCredits(
+				input.costUsdMicros,
+				this.reconciliationUsdMicrosPerCredit(event),
+			);
+			const current = event.finalCredits ?? event.reservedCredits;
+			const adjustment = await this.applyCreditAdjustment(
+				event,
+				current,
+				targetCredits,
+				"reconcile",
+				transaction,
+			);
+			const snapshot = isRecord(event.pricingSnapshot)
+				? event.pricingSnapshot
+				: {};
+			const now = new Date();
+			const updated = await this.repository.updateEvent(
+				eventId,
+				["settled"],
+				{
+					finalCredits: adjustment.finalCredits,
+					pricingSnapshot: this.withAdjustmentMarkers(
+						{
+							...snapshot,
+							reconciliation: {
+								costUsdMicros: input.costUsdMicros,
+								source: "llm_proxy_rows",
+							},
+						},
+						adjustment,
+					),
+					rawUsage: input.rawUsage,
+					reconciledAt: now,
+					reconciledCostUsdMicros: input.costUsdMicros,
+					status: "reconciled",
+				},
+				transaction,
+			);
+
+			if (!updated) {
+				throw new Error(
+					`AI usage event ${eventId} lost its reconcile transition`,
+				);
+			}
+
+			return {
+				deltaCredits: adjustment.finalCredits - current,
+				event: updated,
+			};
+		});
 	}
 
 	/**
@@ -1453,11 +1704,19 @@ export class MeteringService {
 		});
 	}
 
+	/**
+	 * Refunds or reconciles `reserved` events older than `createdBefore`;
+	 * `agent_session` rows use `agentSessionCreatedBefore` instead. The
+	 * stranded-metering sweep calls it every 15 minutes.
+	 */
 	async recoverStaleReservations(
 		createdBefore: Date,
 		limit = 100,
 		now = new Date(),
-		options: { reconcileRefs?: boolean } = {},
+		options: {
+			agentSessionCreatedBefore?: Date;
+			reconcileRefs?: boolean;
+		} = {},
 	): Promise<MeteringRecoveryOutcome> {
 		if (!Number.isInteger(limit) || limit <= 0) {
 			throw new Error("Metering recovery limit must be a positive integer");
@@ -1466,6 +1725,8 @@ export class MeteringService {
 		const events = await this.repository.listStaleReserved(
 			createdBefore,
 			limit,
+			undefined,
+			options.agentSessionCreatedBefore,
 		);
 		const outcome: MeteringRecoveryOutcome = {
 			failed: 0,
@@ -2051,6 +2312,12 @@ export class MeteringService {
 			transaction,
 		);
 
+		// The settlement snapshot replaces the reservation snapshot. Checkpoint
+		// debits carry over (caller fields win) so a reconcile refund finds the
+		// `checkpoint:<id>:<n>` keys.
+		const { checkpointDebits, checkpoints } = snapshotCheckpointProgress(
+			event.pricingSnapshot,
+		);
 		const settledAt = new Date();
 		const updated = await this.repository.updateEvent(
 			event.id,
@@ -2065,7 +2332,12 @@ export class MeteringService {
 				model: prepared.model,
 				outputTokens: prepared.usage?.outputTokens ?? null,
 				pricingSnapshot: this.withAdjustmentMarkers(
-					prepared.pricingSnapshot,
+					{
+						...(checkpoints > 0 ? { checkpointDebits, checkpoints } : {}),
+						...(isRecord(prepared.pricingSnapshot)
+							? prepared.pricingSnapshot
+							: {}),
+					},
 					adjustment,
 				),
 				provider: prepared.provider,
@@ -2282,12 +2554,33 @@ export class MeteringService {
 				remaining -= settleAmount;
 			}
 
-			if (remaining > 0) {
+			// Checkpoints move part of `reservedCredits` onto `checkpoint:<id>:<n>`
+			// keys. An earlier settle refund may have drawn keys down. Outstanding
+			// per key is its consume minus the settle refund it received. A refund
+			// past outstanding pays the payer twice.
+			const { checkpointDebits } = snapshotCheckpointProgress(
+				event.pricingSnapshot,
+			);
+			const reserveConsumed =
+				event.reservedCredits -
+				checkpointDebits.reduce((total, debit) => total + debit, 0);
+			const earlierRefund = Math.max(0, event.reservedCredits - currentCredits);
+			const reserveOutstanding = Math.max(
+				0,
+				reserveConsumed - Math.min(earlierRefund, reserveConsumed),
+			);
+			// The settle drain's overflow into the checkpoint keys, replayed here
+			// in the same forward order to keep each key's outstanding exact.
+			let checkpointRefunded = Math.max(0, earlierRefund - reserveConsumed);
+
+			const reserveAmount = Math.min(remaining, reserveOutstanding);
+
+			if (reserveAmount > 0) {
 				await this.credits.refundConsumeAmount(
 					this.eventPayer(event),
 					this.reserveLedgerKey(event.id),
 					{
-						amount: remaining,
+						amount: reserveAmount,
 						idempotencyKey:
 							phase === "settle"
 								? `settle-refund:${event.id}`
@@ -2298,6 +2591,44 @@ export class MeteringService {
 						},
 					},
 					transaction,
+				);
+				remaining -= reserveAmount;
+			}
+
+			for (const [index, debit] of checkpointDebits.entries()) {
+				const alreadyRefunded = Math.min(checkpointRefunded, debit);
+				checkpointRefunded -= alreadyRefunded;
+				const amount = Math.min(remaining, debit - alreadyRefunded);
+
+				if (amount <= 0) {
+					continue;
+				}
+
+				const n = index + 1;
+				await this.credits.refundConsumeAmount(
+					this.eventPayer(event),
+					`checkpoint:${event.id}:${n}`,
+					{
+						amount,
+						idempotencyKey:
+							phase === "settle"
+								? `settle-refund:${event.id}:checkpoint:${n}`
+								: `reconcile-refund:${event.id}:checkpoint:${n}`,
+						meta: {
+							reason: `ai_usage_${phase}_refund`,
+							usageEventId: event.id,
+						},
+					},
+					transaction,
+				);
+				remaining -= amount;
+			}
+
+			if (remaining > 0) {
+				// Unreachable while the holds total reserve + checkpoints + settle:
+				// a refund larger than every debit means a ledger count was lost.
+				throw new Error(
+					`AI usage event ${event.id} refund exceeds its debited holds`,
 				);
 			}
 		}
@@ -2411,16 +2742,48 @@ export class MeteringService {
 				}
 			}
 
-			await this.credits.refundConsumeAmount(
-				this.eventPayer(event),
-				this.reserveLedgerKey(event.id),
-				{
-					amount: event.reservedCredits,
-					idempotencyKey: `settle-refund:${event.id}`,
-					meta: { reason, usageEventId: event.id },
-				},
-				transaction,
+			// Checkpoint debits sit on their own consume keys, so the reserve
+			// key alone would under-refund a checkpointed event.
+			const { checkpointDebits } = snapshotCheckpointProgress(
+				event.pricingSnapshot,
 			);
+			const reserveAmount =
+				event.reservedCredits -
+				checkpointDebits.reduce((total, debit) => total + debit, 0);
+
+			// A real reserve always debited a positive amount; the guard covers
+			// only a well-formed debit sum that reaches `reservedCredits`.
+			if (reserveAmount > 0) {
+				await this.credits.refundConsumeAmount(
+					this.eventPayer(event),
+					this.reserveLedgerKey(event.id),
+					{
+						amount: reserveAmount,
+						idempotencyKey: `settle-refund:${event.id}`,
+						meta: { reason, usageEventId: event.id },
+					},
+					transaction,
+				);
+			}
+
+			for (const [index, debit] of checkpointDebits.entries()) {
+				if (debit === 0) {
+					continue;
+				}
+
+				const n = index + 1;
+				await this.credits.refundConsumeAmount(
+					this.eventPayer(event),
+					`checkpoint:${event.id}:${n}`,
+					{
+						amount: debit,
+						idempotencyKey: `settle-refund:${event.id}:checkpoint:${n}`,
+						meta: { reason, usageEventId: event.id },
+					},
+					transaction,
+				);
+			}
+
 			await this.credits.closePlanHold(
 				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
@@ -3522,6 +3885,7 @@ export class MeteringService {
 			event.messageId !== (estimate.messageId ?? null) ||
 			event.attemptRef !== (estimate.attemptRef ?? null) ||
 			event.model !== (estimate.model ?? null) ||
+			event.projectId !== (estimate.projectId ?? null) ||
 			event.provider !== (estimate.provider ?? null)
 		) {
 			// Typed so callers can surface a graceful 409 replay instead of a 500:
@@ -3860,6 +4224,22 @@ export class MeteringService {
 			throw new Error(`${label} must not be empty`);
 		}
 	}
+
+	/**
+	 * Settled `agent_session` events in an age window, oldest first. The
+	 * reconcile sweep (`runReconcileAgentSessions`) is the only caller.
+	 */
+	listSettledAgentSessions(
+		olderThan: Date,
+		youngerThan: Date,
+		limit: number,
+	): Promise<AiUsageEvent[]> {
+		return this.repository.listSettledAgentSessions(
+			olderThan,
+			youngerThan,
+			limit,
+		);
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -3934,6 +4314,58 @@ function snapshotActorIsLimitExempt(pricingSnapshot: unknown): boolean {
 	const reservation = pricingSnapshot.reservationPricingSnapshot;
 
 	return isRecord(reservation) && reservation.actorIsLimitExempt === true;
+}
+
+/**
+ * Checkpoint progress a checkpoint call wrote into the event snapshot.
+ * `checkpoints` counts the landed checkpoints. `checkpointDebits` holds the
+ * cc each one moved onto its `checkpoint:<id>:<n>` consume key. The entry is
+ * 0 when the spend is still below the hold. A missing field reads as none;
+ * a corrupt `checkpointDebits` value throws.
+ */
+function snapshotCheckpointProgress(pricingSnapshot: unknown): {
+	checkpointDebits: number[];
+	checkpoints: number;
+} {
+	if (!isRecord(pricingSnapshot)) {
+		return { checkpointDebits: [], checkpoints: 0 };
+	}
+
+	const count = pricingSnapshot.checkpoints;
+	const debits = pricingSnapshot.checkpointDebits;
+
+	// `checkpoint` is the only writer and stores a cc array. Dropping a bad
+	// entry would shift each later debit onto the wrong `checkpoint:<id>:<n>`
+	// refund key, so a corrupt value must fail loudly.
+	if (debits !== undefined && !Array.isArray(debits)) {
+		throw new Error(
+			"AI usage event snapshot has a corrupt checkpointDebits entry",
+		);
+	}
+
+	const checkpointDebits: number[] = [];
+
+	for (const debit of debits ?? []) {
+		if (
+			typeof debit !== "number" ||
+			!Number.isSafeInteger(debit) ||
+			debit < 0
+		) {
+			throw new Error(
+				"AI usage event snapshot has a corrupt checkpointDebits entry",
+			);
+		}
+
+		checkpointDebits.push(debit);
+	}
+
+	return {
+		checkpointDebits,
+		checkpoints:
+			typeof count === "number" && Number.isSafeInteger(count) && count >= 0
+				? count
+				: 0,
+	};
 }
 
 function snapshotReviewFlags(

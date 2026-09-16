@@ -1,5 +1,8 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
-import type { CreateAppProjectRequest } from "@wandit/contracts";
+import type {
+	CreateAppProjectRequest,
+	UpdateProjectCostCapsRequest,
+} from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
@@ -8,6 +11,8 @@ import type {
 	ProjectQueryRow,
 	ProjectsRepository,
 } from "../../../projects/infrastructure/persistence/projects.repository";
+import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
+import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { AppProjectsService } from "./app-projects.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
@@ -56,6 +61,9 @@ function setup() {
 				projectId: string,
 			) => Promise<ProjectQueryRow | null>
 		>(async () => projectRow()),
+		findEngineByIdForScope: vi.fn<ProjectsRepository["findEngineByIdForScope"]>(
+			async () => "v2_app",
+		),
 	};
 	const projectsService = {
 		startBackgroundTitle: vi.fn(async () => undefined),
@@ -87,6 +95,14 @@ function setup() {
 		V2_DEFAULT_MODEL: "model-1",
 		V2_HARNESS: "claude-code" as const,
 	};
+	const costCaps = {
+		findByProjectId: vi.fn<ProjectCostCapsRepository["findByProjectId"]>(
+			async () => null,
+		),
+		upsert: vi.fn<ProjectCostCapsRepository["upsert"]>(
+			async (_projectId, caps) => caps,
+		),
+	};
 
 	const service = new AppProjectsService(
 		projects,
@@ -96,10 +112,12 @@ function setup() {
 		templateVersion,
 		analytics,
 		v2Env,
+		costCaps,
 	);
 
 	return {
 		analytics,
+		costCaps,
 		credits,
 		projects,
 		projectsService,
@@ -304,5 +322,84 @@ describe("AppProjectsService.get", () => {
 		await expect(service.get(SCOPE, "project-1")).rejects.toBeInstanceOf(
 			NotFoundException,
 		);
+	});
+});
+
+describe("AppProjectsService.getCostCaps", () => {
+	it("answers the stored caps row", async () => {
+		const { costCaps, service } = setup();
+		costCaps.findByProjectId.mockResolvedValue({
+			monthlyCapCredits: 10_000,
+			perTurnCapCredits: 2_500,
+		});
+
+		const caps = await service.getCostCaps(SCOPE, "project-1");
+
+		expect(caps).toEqual({
+			monthlyCapCredits: 10_000,
+			perTurnCapCredits: 2_500,
+		});
+		expect(costCaps.findByProjectId).toHaveBeenCalledWith("project-1");
+	});
+
+	it("answers the plan defaults when the project has no caps row", async () => {
+		const { service } = setup();
+
+		const caps = await service.getCostCaps(SCOPE, "project-1");
+
+		expect(caps).toEqual({
+			monthlyCapCredits: null,
+			perTurnCapCredits: DEFAULT_PER_TURN_CAP_CREDITS,
+		});
+	});
+
+	it("404s on a v1_page project without reading caps", async () => {
+		const { costCaps, projects, service } = setup();
+		projects.findEngineByIdForScope.mockResolvedValue("v1_page");
+
+		await expect(
+			service.getCostCaps(SCOPE, "project-1"),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(costCaps.findByProjectId).not.toHaveBeenCalled();
+	});
+
+	it("404s on a missing or out-of-scope project", async () => {
+		const { projects, service } = setup();
+		projects.findEngineByIdForScope.mockResolvedValue(null);
+
+		await expect(
+			service.getCostCaps(SCOPE, "project-1"),
+		).rejects.toBeInstanceOf(NotFoundException);
+	});
+});
+
+describe("AppProjectsService.updateCostCaps", () => {
+	it("upserts the body under the acting user and answers the row", async () => {
+		const { costCaps, service } = setup();
+		const body: UpdateProjectCostCapsRequest = {
+			monthlyCapCredits: 20_000,
+			perTurnCapCredits: null,
+		};
+
+		const caps = await service.updateCostCaps(SCOPE, "project-1", body);
+
+		expect(costCaps.upsert).toHaveBeenCalledWith("project-1", body, "user-1");
+		expect(caps).toEqual({
+			monthlyCapCredits: 20_000,
+			perTurnCapCredits: null,
+		});
+	});
+
+	it("404s on a non-V2 or out-of-scope project and writes nothing", async () => {
+		const { costCaps, projects, service } = setup();
+		projects.findEngineByIdForScope.mockResolvedValue(null);
+
+		await expect(
+			service.updateCostCaps(SCOPE, "project-1", {
+				monthlyCapCredits: 1,
+				perTurnCapCredits: 1,
+			}),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(costCaps.upsert).not.toHaveBeenCalled();
 	});
 });

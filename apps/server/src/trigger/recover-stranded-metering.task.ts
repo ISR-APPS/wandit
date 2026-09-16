@@ -1,6 +1,12 @@
+/**
+ * Scheduled sweep (every 15 minutes) that refunds stale reservation holds and
+ * reconciles ref-bearing rows. Runs `recoverStaleReservations` through the
+ * trigger metering runtime.
+ */
 import { logger, schedules } from "@trigger.dev/sdk";
 import { createDb } from "@wandit/db";
 
+import { staleAfterMsFor } from "../modules/metering/domain/stale-reservation-window";
 import {
 	assertMeteringRecoveryConfiguration,
 	meteringGatewayConfigurationError,
@@ -9,9 +15,6 @@ import { meteringMaintenanceQueue } from "./billing-task-queues";
 import { triggerAnalytics } from "./init";
 import { createTriggerMeteringRecovery } from "./metering.runtime";
 
-// Keep the generic reservation window unchanged. The metering query grants a
-// longer window only to reservations tied to a running Personal Clipper job.
-const RESERVATION_STALE_AFTER_MS = 40 * 60_000;
 const RECOVERY_BATCH_LIMIT = 100;
 
 export const strandedMeteringRecoveryTask = schedules.task({
@@ -44,11 +47,20 @@ export const strandedMeteringRecoveryTask = schedules.task({
 			// can be ref-less while its child/provider output is already durable.
 			const connectors =
 				await runtime.connectorRecovery.recoverCompletionCheckpoints();
+			// Builder turns get the 90-minute window. A turn can run 60 minutes,
+			// so the 40-minute cutoff would refund a live hold. "chat" stands for
+			// every non-agent operation, and the metering query still grants
+			// extra time to a running Personal Clipper job.
 			const reservations = await runtime.metering.recoverStaleReservations(
-				new Date(payload.timestamp.getTime() - RESERVATION_STALE_AFTER_MS),
+				new Date(payload.timestamp.getTime() - staleAfterMsFor("chat")),
 				RECOVERY_BATCH_LIMIT,
 				payload.timestamp,
-				{ reconcileRefs: gatewayConfigurationError === null },
+				{
+					agentSessionCreatedBefore: new Date(
+						payload.timestamp.getTime() - staleAfterMsFor("agent_session"),
+					),
+					reconcileRefs: gatewayConfigurationError === null,
+				},
 			);
 			const result = {
 				connectors,

@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type {
 	BillingPlanId,
+	BuilderTurnStatus,
 	HarnessPendingInteraction,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
@@ -27,10 +28,7 @@ import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
-import {
-	llmModelPrice,
-	priceUsdMicros,
-} from "../modules/app-builder/domain/llm-model-prices";
+import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
 import type {
 	BuilderHarness,
 	HarnessQuestionResult,
@@ -52,6 +50,10 @@ import type {
 } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
 import {
+	DEFAULT_PER_TURN_CAP_CREDITS,
+	monthStartUtc,
+} from "../modules/app-builder/domain/turn-caps";
+import {
 	assertCurrentTurn,
 	StaleTurnError,
 } from "../modules/app-builder/domain/turn-queue";
@@ -65,6 +67,10 @@ import type {
 	BuilderTurnFailure,
 	BuilderTurnsRepository,
 } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import type {
+	LlmProxyRequestsRepository,
+	LlmProxyTurnSum,
+} from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import type { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import type { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
@@ -73,6 +79,7 @@ import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/re
 import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import { HARNESS_PRICE_TABLE_VERSION } from "../modules/metering/domain/harness-price-table";
 import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricing";
 
 // 60 s: refreshes the lock, the vendor sandbox deadline, and activity.
@@ -81,8 +88,10 @@ const TURN_KEEPALIVE_MS = 60_000;
 const STREAM_HEARTBEAT_MS = 30_000;
 // 4 minutes without a part means a dead harness, not a slow one.
 const TURN_STALL_MS = 4 * 60_000;
-// ESTIMATE until WANDIT-174 sets plan caps.
-const DEFAULT_TURN_CAP_USD = 5;
+// About $0.25 = 7.8 credits per checkpoint; about 30 debits for an $8
+// turn. The proxy token cap is the hard stop; the checkpoint only keeps
+// the ledger close to the truth while the turn runs.
+const CHECKPOINT_STEP_USD_MICROS = 250_000;
 // The dev server command and port of the app template (D15).
 const DEV_COMMAND = "pnpm run dev";
 const DEV_PORT = 5173;
@@ -90,7 +99,45 @@ const DEV_PORT = 5173;
 const SUMMARY_MAX_CHARS = 72;
 
 /** Why the turn stopped on its own. */
-type AbortCode = "lock_lost" | "stale" | "stalled";
+type AbortCode =
+	| "disabled"
+	| "lock_lost"
+	| "no_credits"
+	| "project_cap"
+	| "stale"
+	| "stalled";
+
+/** Terminal row status each stop code lands on; the other codes fail. */
+const STOP_STATUS: Record<
+	"disabled" | "no_credits" | "project_cap",
+	BuilderTurnStatus
+> = {
+	disabled: "stopped_disabled",
+	no_credits: "stopped_no_credits",
+	project_cap: "stopped_project_cap",
+};
+
+/** The `Turn stopped: <reason>` text of each stop code. */
+const STOP_REASON: Record<keyof typeof STOP_STATUS, string> = {
+	disabled: "V2 builder disabled",
+	no_credits: "no credits left",
+	project_cap: "project credit cap reached",
+};
+
+/** `code` when it is a stop code, else null. */
+const stopCodeOf = (code: AbortCode | null): keyof typeof STOP_STATUS | null =>
+	code === "disabled" || code === "no_credits" || code === "project_cap"
+		? code
+		: null;
+
+/**
+ * The error a pre-start stop throws. The stream loop cannot carry it (the
+ * sandbox is not running yet), so it travels the catch into `failTurn`.
+ */
+const stoppedTurnError = (code: keyof typeof STOP_STATUS) =>
+	Object.assign(new Error(`Turn stopped: ${STOP_REASON[code]}`), {
+		code: STOP_STATUS[code],
+	});
 
 /** The narrow log the runtime writes to; the task passes `logger`. */
 export type BuilderTurnLogger = Pick<Console, "error" | "info" | "warn">;
@@ -130,13 +177,36 @@ export type BuilderTurnDeps = {
 	harness: BuilderHarness;
 	writer: TurnEventWriter;
 	lock: TurnLock;
-	counters: Pick<LlmSpendCounterStore, "revokeRun">;
-	metering: Pick<MeteringService, "findByIdempotencyKey" | "refund" | "settle">;
+	/** Redis run-spend counter and token revocation; the pulse tick reads it. */
+	counters: Pick<LlmSpendCounterStore, "readRunSpend" | "revokeRun">;
+	metering: Pick<
+		MeteringService,
+		| "checkpoint"
+		| "findByIdempotencyKey"
+		| "monthlySpendCredits"
+		| "refund"
+		| "settle"
+	>;
+	/** `llm_proxy_requests` sums: the turn's real spend and token counts. */
+	proxyRows: Pick<LlmProxyRequestsRepository, "sumByTurn">;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
 	mintToken: (claims: LlmProxyTokenClaimsInput) => string;
 	/** Subscription plan lookup; the task binds `SubscriptionsRepository`. */
 	resolvePlan: (subject: MeteringSubject) => Promise<BillingPlanId>;
+	/**
+	 * The payer's settled balance in cc; the task binds
+	 * `CreditsService.getSettledBalance(subjectPayer(subject)).settledBalance`.
+	 * Reserve holds are added back, checkpoint debits are not (D5).
+	 */
+	readBalance: (subject: MeteringSubject) => Promise<number>;
+	/**
+	 * `product_settings.v2BuilderEnabled`; the task binds
+	 * `ProductSettingsService.get`, which caches 30 s.
+	 */
+	readV2Enabled: () => Promise<boolean>;
+	/** `GENERATION_BILLING_MODE === "off"`: no checkpoint, no settle, one `billing.off` log. */
+	billingDisabled: boolean;
 	/** `commitTurn` itself, so the spec asserts its input. */
 	commit: (
 		sandbox: SandboxHandle,
@@ -253,6 +323,77 @@ export async function runBuilderTurn(
 	};
 
 	/**
+	 * Row spend in cc. The 1 cc floor of `usdMicrosToCentiCredits` prices
+	 * work that ran; a turn that never reached the proxy pays nothing.
+	 */
+	const creditsFromRows = (rows: LlmProxyTurnSum): number =>
+		rows.usdMicros === 0
+			? 0
+			: usdMicrosToCentiCredits(rows.usdMicros, deps.usdMicrosPerCredit);
+
+	/**
+	 * Settles the hold at the `llm_proxy_requests` sum (D3 direct pricing:
+	 * the proxy rows are the spend truth, not the harness usage report).
+	 * A zero-spend turn with no checkpoints refunds the hold instead of
+	 * paying the 1 cc floor. Answers the row sums and the settled credits
+	 * for the receipt and `recordUsage`; null when the hold is missing or
+	 * already terminal. With billing off it skips the settle and still
+	 * answers the sums.
+	 */
+	const settleHoldFromRows = async (
+		modelId: string,
+		rows: LlmProxyTurnSum,
+	): Promise<{ credits: number; rows: LlmProxyTurnSum } | null> => {
+		const credits = creditsFromRows(rows);
+		if (deps.billingDisabled) {
+			if (!billingOffLogged) {
+				billingOffLogged = true;
+				logger.info("billing.off", { turnId });
+			}
+			return { credits, rows };
+		}
+		const hold = await findHold();
+		if (hold === null) {
+			logger.warn(`No metering hold found for turn ${turnId}; skip settle`);
+			return null;
+		}
+		if (hold.status !== "reserved") {
+			logger.info(
+				`Metering hold for turn ${turnId} is ${hold.status}; skip settle`,
+			);
+			return null;
+		}
+		if (rows.usdMicros === 0 && checkpointCount === 0) {
+			// Nothing ran and nothing was debited: the hold goes back in
+			// full, not a 1 cc settle on an empty turn.
+			await refundHold("builder_turn_failed");
+			return { credits, rows };
+		}
+		await deps.metering.settle(hold.id, {
+			costUsdMicros: rows.usdMicros,
+			finalCredits: credits,
+			model: modelId,
+			pricing: "direct",
+			pricingSnapshot: {
+				checkpoints: checkpointCount,
+				modelId,
+				source: "llm_proxy_rows",
+				table: HARNESS_PRICE_TABLE_VERSION,
+				usdMicrosPerCredit: deps.usdMicrosPerCredit,
+			},
+			provider: llmModelPrice(modelId)?.provider ?? null,
+			rawUsage: rows.byModel,
+			usage: {
+				cacheReadTokens: rows.cacheReadTokens,
+				cacheWriteTokens: rows.cacheWriteTokens,
+				inputTokens: rows.inputTokens,
+				outputTokens: rows.outputTokens,
+			},
+		});
+		return { credits, rows };
+	};
+
+	/**
 	 * One cleanup step that logs and continues. The row is already
 	 * terminal when this runs, so a failed step must not throw the run
 	 * into the failure path a second time.
@@ -346,14 +487,30 @@ export async function runBuilderTurn(
 	let lastPartAt = deps.now();
 	let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 	let pulseTimer: ReturnType<typeof setInterval> | null = null;
+	// Harness-reported token totals; a log line only, never money (D3: the
+	// `llm_proxy_requests` rows are the spend truth).
 	const usage = {
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
 		inputTokens: 0,
 		outputTokens: 0,
 	};
-	let credits = 0;
-	let unpricedWarned = false;
+	/** The model the turn runs on: the row's pick or the env default. */
+	let resolvedModel: string | null = deps.model;
+	/** The `builder-turn:<turnId>` hold id; loaded once before the session. */
+	let holdId: string | null = null;
+	/** Checkpoints landed on the hold; the next debit is `checkpointCount + 1`. */
+	let checkpointCount = 0;
+	/** Run spend in USD micros at the last landed checkpoint. */
+	let lastCheckpointUsdMicros = 0;
+	/** Per-turn spend cap in cc; the caps row or the plan default. */
+	let perTurnCapCredits = DEFAULT_PER_TURN_CAP_CREDITS;
+	/** Monthly project spend cap in cc, or null for no monthly check. */
+	let monthlyCapCredits: number | null = null;
+	/** The project's month spend in cc, read once before the sandbox starts. */
+	let monthlySpendAtStart = 0;
+	/** Set when `billing.off` was logged; keeps it to once per turn. */
+	let billingOffLogged = false;
 
 	/** Best-effort resume save for the failure paths: the suspend state, else a detach. */
 	const detachSession = async () => {
@@ -365,7 +522,7 @@ export async function runBuilderTurn(
 			// pending cards must reach the row, so the saved state is the suspend one.
 			const resumeState = suspendState ?? (await deps.harness.detach(session));
 			await deps.sessions.saveResumeState(chatId, {
-				model: deps.model,
+				model: resolvedModel,
 				providerSessionId: session.sessionId,
 				resumeState,
 			});
@@ -447,20 +604,21 @@ export async function runBuilderTurn(
 			type: "status",
 		});
 
-	/** One terminal failure: row, error+done events, refund, cleanup. */
+	/** One terminal failure: row, error+done events, refund or settle, cleanup. */
 	const failTurn = async (
 		error: unknown,
 		failureCode: string | null,
 	): Promise<void> => {
+		const stopCode = stopCodeOf(abortCode);
 		const normalized =
 			classifyAiError(error, {
 				abortSignal: signal,
-				model: deps.model ?? undefined,
+				model: resolvedModel ?? undefined,
 				route: "none",
 				surface: "chat",
 			}) ??
 			classifyAiError(new Error("Builder turn failed"), {
-				model: deps.model ?? undefined,
+				model: resolvedModel ?? undefined,
 				route: "none",
 				surface: "chat",
 			});
@@ -489,8 +647,11 @@ export async function runBuilderTurn(
 		// `pageFailurePersistenceValues`. Its key type is page-specific, so
 		// the mapping stays inline here.
 		const failure: BuilderTurnFailure = {
-			error: renderAiErrorSentence(normalized),
-			failureCode,
+			error:
+				stopCode === null
+					? renderAiErrorSentence(normalized)
+					: `Turn stopped: ${STOP_REASON[stopCode]}`,
+			failureCode: stopCode === null ? failureCode : STOP_STATUS[stopCode],
 			failureKind: normalized.kind,
 			failureProvider: normalized.provider,
 			failureProviderMessage: normalized.providerMessage,
@@ -498,34 +659,85 @@ export async function runBuilderTurn(
 			failureSource: normalized.source,
 			sentryEventId: normalized.sentryEventId,
 		};
-		const failed =
+		// `stalled` and the stop codes are their own terminal status;
+		// `fail` would write `failed`.
+		const terminalStatus =
 			abortCode === "stalled"
-				? // `stalled` is its own terminal status; `fail` would write `failed`.
-					await deps.turns.transition(
+				? "stalled"
+				: stopCode === null
+					? null
+					: STOP_STATUS[stopCode];
+		const failed =
+			terminalStatus === null
+				? await deps.turns.fail(turnId, failure)
+				: await deps.turns.transition(
 						turnId,
 						["running", "cancelling"],
-						"stalled",
+						terminalStatus,
 						{ completedAt: new Date(), ...failure },
-					)
-				: await deps.turns.fail(turnId, failure);
+					);
 		if (!failed) {
 			// A false CAS means the row went terminal under us (a cancel won).
 			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
 		}
 		await deps.writer.write(turnId, {
 			data: {
-				code: failureCode ?? normalized.kind,
+				code:
+					stopCode === null
+						? (failureCode ?? normalized.kind)
+						: STOP_STATUS[stopCode],
 				message: failure.error,
-				retryable: normalized.retryable,
+				retryable: stopCode === null ? normalized.retryable : false,
 			},
 			type: "error",
 		});
 		await deps.writer.write(turnId, {
-			data: { status: abortCode === "stalled" ? "stalled" : "failed" },
+			data: { status: terminalStatus ?? "failed" },
 			type: "done",
 		});
-		await cleanupStep(() => refundHold("builder_turn_failed"));
-		await detachSession();
+		if (stopCode === null) {
+			await cleanupStep(() => refundHold("builder_turn_failed"));
+			await detachSession();
+		} else {
+			// D3: a stopped turn keeps its file work and settles the real
+			// spend; the hold is not refunded.
+			if (sandbox !== null) {
+				try {
+					await deps.commit(sandbox, deps.commitDeps, {
+						chatId,
+						messageId: assistantMessageId,
+						organizationId: input.organizationId,
+						projectId,
+						source: "wip",
+						summary: "Stopped",
+						turnId,
+						userId: input.actorUserId,
+					});
+				} catch (commitError) {
+					logger.warn(
+						`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
+					);
+				}
+			}
+			await detachSession();
+			await cleanupStep(async () => {
+				const rows = await deps.proxyRows.sumByTurn(turnId);
+				// A stop code lands only after the `model === null` check, so
+				// `resolvedModel` is set; `recordUsage` still writes when it is not.
+				if (resolvedModel !== null) {
+					await settleHoldFromRows(resolvedModel, rows);
+				}
+				await deps.turns.recordUsage(turnId, {
+					cacheReadTokens: rows.cacheReadTokens,
+					cacheWriteTokens: rows.cacheWriteTokens,
+					credits: creditsFromRows(rows),
+					harness: deps.harness.kind,
+					inputTokens: rows.inputTokens,
+					model: resolvedModel,
+					outputTokens: rows.outputTokens,
+				});
+			});
+		}
 		await finishTurn();
 	};
 
@@ -540,7 +752,7 @@ export async function runBuilderTurn(
 		});
 	};
 
-	const startTimers = () => {
+	const startTimers = (model: string) => {
 		lastPartAt = deps.now();
 		keepAliveTimer = setInterval(() => {
 			guardTick(async () => {
@@ -570,6 +782,97 @@ export async function runBuilderTurn(
 				if (silenceMs >= STREAM_HEARTBEAT_MS) {
 					// A long tool call is quiet; the heartbeat keeps the read open.
 					await writeStatus("running", "Working");
+				}
+				if (!deps.billingDisabled) {
+					// Redis holds a string counter; the store parses it. A
+					// corrupt key parses to NaN, which reads as zero spend.
+					const rawSpend = await deps.counters.readRunSpend(runId);
+					if (!Number.isFinite(rawSpend)) {
+						logger.warn("builder-turn.spend-counter-invalid", {
+							runId,
+							turnId,
+						});
+					}
+					const spent = Number.isFinite(rawSpend)
+						? Math.max(0, Math.trunc(rawSpend))
+						: 0;
+					// The fresh spend in cc; both cap rules read the same number.
+					const spentNowCredits = usdMicrosToCentiCredits(
+						spent,
+						deps.usdMicrosPerCredit,
+					);
+					// Only the debit needs the hold; a null `holdId` must not
+					// disable the stop rules below.
+					if (
+						holdId !== null &&
+						spent - lastCheckpointUsdMicros >= CHECKPOINT_STEP_USD_MICROS
+					) {
+						const nextN = checkpointCount + 1;
+						try {
+							const { debitedCredits } = await deps.metering.checkpoint(
+								holdId,
+								{
+									costUsdMicrosSoFar: spent,
+									modelId: model,
+									n: nextN,
+								},
+							);
+							// Only after the debit lands: a failed checkpoint retries n.
+							checkpointCount = nextN;
+							lastCheckpointUsdMicros = spent;
+							logger.info("builder-turn.checkpoint", {
+								credits: debitedCredits,
+								n: checkpointCount,
+								turnId,
+							});
+							const rows = await deps.proxyRows.sumByTurn(turnId);
+							await writeEvent({
+								data: {
+									cacheReadTokens: rows.cacheReadTokens,
+									cacheWriteTokens: rows.cacheWriteTokens,
+									credits: spentNowCredits,
+									inputTokens: rows.inputTokens,
+									outputTokens: rows.outputTokens,
+								},
+								type: "usage",
+							});
+						} catch (error) {
+							// A stale write still ends the turn. Any other
+							// failure only logs: the debit may already be landed
+							// (then `n` moved), the stop rules run, and the next
+							// tick retries or continues.
+							if (error instanceof StaleTurnError) {
+								throw error;
+							}
+							logger.warn("builder-turn.checkpoint-failed", {
+								message: messageOf(error),
+								n: nextN,
+								turnId,
+							});
+						}
+					}
+					const balance = await deps.readBalance(subject);
+					// Checkpoint debits are not added back, so the balance
+					// falls as they land; at zero the payer is out (D5).
+					if (balance <= 0) {
+						abortTurn("no_credits");
+						return;
+					}
+					if (spentNowCredits >= perTurnCapCredits) {
+						abortTurn("project_cap");
+						return;
+					}
+					if (
+						monthlyCapCredits !== null &&
+						monthlySpendAtStart + spentNowCredits >= monthlyCapCredits
+					) {
+						abortTurn("project_cap");
+						return;
+					}
+				}
+				// The admin kill switch applies every tick, billing or not.
+				if (!(await deps.readV2Enabled())) {
+					abortTurn("disabled");
 				}
 			});
 		}, STREAM_HEARTBEAT_MS);
@@ -614,13 +917,15 @@ export async function runBuilderTurn(
 				code: "project_template_missing",
 			});
 		}
-		if (deps.model === null) {
-			// Checked before the sandbox starts: no model, no spend.
+		const model = turn.model ?? deps.model;
+		if (model === null) {
+			// Checked before the sandbox starts: no model, no spend. When
+			// `turn.model` is set, a null `V2_DEFAULT_MODEL` is allowed.
 			throw Object.assign(new Error("V2_DEFAULT_MODEL is not set"), {
 				code: "model_missing",
 			});
 		}
-		const model = deps.model;
+		resolvedModel = model;
 
 		const sessionRow = await deps.sessions.findByChatId(chatId);
 		// jsonb returns unknown; the envelope schema is the boundary.
@@ -702,16 +1007,50 @@ export async function runBuilderTurn(
 		}
 
 		const caps = await deps.caps.findByProjectId(projectId);
+		perTurnCapCredits = caps?.perTurnCapCredits ?? DEFAULT_PER_TURN_CAP_CREDITS;
+		monthlyCapCredits = caps?.monthlyCapCredits ?? null;
 		// Centi-credits → dollars: /100 to credits, ×usdPerCredit to dollars.
 		const usdPerCredit = deps.usdMicrosPerCredit / 1_000_000;
-		const capUsd =
-			caps?.perTurnCapCredits != null
-				? (caps.perTurnCapCredits / 100) * usdPerCredit
-				: DEFAULT_TURN_CAP_USD;
+		const capUsd = (perTurnCapCredits / 100) * usdPerCredit;
+		const plan = await deps.resolvePlan(subject);
+		// The hold is loaded once: the pulse tick checkpoints against it.
+		const hold = await findHold();
+		holdId = hold?.id ?? null;
+		// LIMIT: the month sum is read once per turn; another turn's spend
+		// in the same month is not re-read. Upgrade: re-read on each tick.
+		if (monthlyCapCredits !== null && !deps.billingDisabled) {
+			// The sum holds this turn's own reserve; the real spend replaces
+			// it on every tick, so the reserve must not count twice. A
+			// terminal hold already counts at its final credits in the sum.
+			monthlySpendAtStart =
+				(await deps.metering.monthlySpendCredits(
+					projectId,
+					monthStartUtc(new Date(deps.now())),
+				)) - (hold?.status === "reserved" ? hold.reservedCredits : 0);
+		}
+		// A stop before the sandbox starts cannot ride the stream loop:
+		// the throw reaches `failTurn` through the catch.
+		if (!(await deps.readV2Enabled())) {
+			abortTurn("disabled");
+			throw stoppedTurnError("disabled");
+		}
+		if (!deps.billingDisabled) {
+			if ((await deps.readBalance(subject)) <= 0) {
+				abortTurn("no_credits");
+				throw stoppedTurnError("no_credits");
+			}
+			if (
+				monthlyCapCredits !== null &&
+				monthlySpendAtStart >= monthlyCapCredits
+			) {
+				abortTurn("project_cap");
+				throw stoppedTurnError("project_cap");
+			}
+		}
 
 		const proxyToken = deps.mintToken({
 			capUsd,
-			plan: await deps.resolvePlan(subject),
+			plan,
 			projectId,
 			runId,
 			turnId,
@@ -748,7 +1087,7 @@ export async function runBuilderTurn(
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
-			holdEventId: (await findHold())?.id ?? null,
+			holdEventId: holdId,
 			organizationId: input.organizationId,
 			projectId,
 			sandbox,
@@ -799,7 +1138,7 @@ export async function runBuilderTurn(
 		const providerSessionId = session.sessionId;
 
 		await writeStatus("running");
-		startTimers();
+		startTimers(model);
 		// A continued suspended turn gets the user's answers as tool
 		// results; a lost session still hears them as plain text.
 		let turnInput: HarnessTurnInput;
@@ -826,33 +1165,27 @@ export async function runBuilderTurn(
 				continue;
 			}
 			if (event.type === "usage") {
+				// The checkpoint tick writes the stream usage events from the
+				// proxy rows; the harness counts stay in `usage` for the log.
 				usage.cacheReadTokens += event.cacheReadTokens;
 				usage.cacheWriteTokens += event.cacheWriteTokens;
 				usage.inputTokens += event.inputTokens;
 				usage.outputTokens += event.outputTokens;
-				// LIMIT: checkpoint debits come in WANDIT-174; the usage
-				// event reports the running total only.
-				const micros = priceUsdMicros(model, usage);
-				if (micros === null) {
-					// The proxy refuses unpriced models; this branch is a second guard.
-					credits = 0;
-					if (!unpricedWarned) {
-						unpricedWarned = true;
-						logger.warn(`No price row for model ${model}; reporting 0 credits`);
-					}
-				} else {
-					credits = usdMicrosToCentiCredits(micros, deps.usdMicrosPerCredit);
-				}
-				await writeEvent({
-					data: { ...usage, credits },
-					type: "usage",
-				});
 				continue;
 			}
 			// A harness error chunk ends the turn as failed. `failTurn` writes
 			// the one `error` event from the `code` this error carries.
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
+
+		// The harness counts stay informational; money comes from the proxy rows.
+		logger.info("builder-turn.harness-usage", {
+			cacheReadTokens: usage.cacheReadTokens,
+			cacheWriteTokens: usage.cacheWriteTokens,
+			inputTokens: usage.inputTokens,
+			outputTokens: usage.outputTokens,
+			turnId,
+		});
 
 		// The stream ended clean. A paused turn suspends instead of
 		// detaching: `suspendState.pending` names the cards the user must
@@ -955,6 +1288,11 @@ export async function runBuilderTurn(
 				}
 			}
 
+			// The proxy rows are the spend truth; the message metadata and
+			// `recordUsage` read them before the CAS and the settle.
+			const rows = await deps.proxyRows.sumByTurn(turnId);
+			const rowCredits = creditsFromRows(rows);
+
 			await fenced(() =>
 				deps.insertAssistantMessage({
 					chatId,
@@ -963,7 +1301,13 @@ export async function runBuilderTurn(
 						harness: deps.harness.kind,
 						model,
 						outputCommitSha,
-						usage: { ...usage, credits },
+						usage: {
+							cacheReadTokens: rows.cacheReadTokens,
+							cacheWriteTokens: rows.cacheWriteTokens,
+							credits: rowCredits,
+							inputTokens: rows.inputTokens,
+							outputTokens: rows.outputTokens,
+						},
 					},
 					parts: [...(finalMessage?.parts ?? []), ...cardParts],
 					turnId,
@@ -972,13 +1316,13 @@ export async function runBuilderTurn(
 
 			await fenced(() =>
 				deps.turns.recordUsage(turnId, {
-					cacheReadTokens: usage.cacheReadTokens,
-					cacheWriteTokens: usage.cacheWriteTokens,
-					credits,
+					cacheReadTokens: rows.cacheReadTokens,
+					cacheWriteTokens: rows.cacheWriteTokens,
+					credits: rowCredits,
 					harness: deps.harness.kind,
-					inputTokens: usage.inputTokens,
+					inputTokens: rows.inputTokens,
 					model,
-					outputTokens: usage.outputTokens,
+					outputTokens: rows.outputTokens,
 				}),
 			);
 			// A false CAS means the row went terminal under us (a cancel won):
@@ -993,35 +1337,7 @@ export async function runBuilderTurn(
 			if (!completed) {
 				logger.warn(`Complete write lost for turn ${turnId}: row moved on`);
 			} else {
-				const hold = await findHold();
-				if (hold === null) {
-					logger.warn(`No metering hold found for turn ${turnId}; skip settle`);
-				} else if (hold.status !== "reserved") {
-					logger.info(
-						`Metering hold for turn ${turnId} is ${hold.status}; skip settle`,
-					);
-				} else {
-					await deps.metering.settle(hold.id, {
-						modelId: model,
-						pricing: "token",
-						provider: llmModelPrice(model)?.provider ?? null,
-						rawUsage: { ...usage },
-						usage: {
-							inputTokenDetails: {
-								cacheReadTokens: usage.cacheReadTokens,
-								cacheWriteTokens: usage.cacheWriteTokens,
-								noCacheTokens: Math.max(
-									0,
-									usage.inputTokens -
-										usage.cacheReadTokens -
-										usage.cacheWriteTokens,
-								),
-							},
-							inputTokens: usage.inputTokens,
-							outputTokens: usage.outputTokens,
-						},
-					});
-				}
+				await settleHoldFromRows(model, rows);
 
 				// A suspended session is already parked; a live one detaches.
 				const resumeOut =
@@ -1035,9 +1351,18 @@ export async function runBuilderTurn(
 						resumeState: resumeOut,
 					}),
 				);
+				const balanceCredits = await deps.readBalance(subject);
 				await deps.writer.write(turnId, {
 					data: {
-						receipt: { credits },
+						receipt: {
+							balanceCredits,
+							cacheReadTokens: rows.cacheReadTokens,
+							cacheWriteTokens: rows.cacheWriteTokens,
+							credits: rowCredits,
+							inputTokens: rows.inputTokens,
+							modelId: model,
+							outputTokens: rows.outputTokens,
+						},
 						status: outcome.status,
 						...(outputCommitSha === null ? {} : { outputCommitSha }),
 					},

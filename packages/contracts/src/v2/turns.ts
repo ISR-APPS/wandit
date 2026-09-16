@@ -55,6 +55,9 @@ export const createTurnRequestSchema = z
 		message: z.string().max(projectPromptMaxLength),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		composer: composerMetadataSchema.optional(),
+		// A paid model the user picked; absent means the deploy default. The
+		// plan allow-list decides which ids are legal.
+		model: z.string().min(1).optional(),
 		// The answer to a `data-approval` card; the message text answers a
 		// `data-question` card.
 		approval: turnApprovalAnswerSchema.optional(),
@@ -92,9 +95,16 @@ export const createTurnResponseSchema = z.object({
 	// Server-side cost hint so the composer can warn before send.
 	estimate: z
 		.object({
+			// Whole credits: the ceil of the centi-credit hold.
 			credits: z.int().nonnegative(),
-			// `fixed`: a flat per-turn guess; `history`: median of past turns.
+			// `fixed`: the default hold; `history`: median of the project's
+			// last settled turns.
 			basis: z.enum(["fixed", "history"]),
+			// The model the turn runs on.
+			modelId: z.string().min(1),
+			// Output USD/MTok of `modelId` over the default model's; 1 for the
+			// default.
+			multiplier: z.number().positive(),
 		})
 		.optional(),
 });
@@ -193,8 +203,23 @@ export const turnDoneDataSchema = z.object({
 	status: builderTurnStatusSchema,
 	// code.storage commit the turn produced; absent when nothing changed.
 	outputCommitSha: z.string().optional(),
-	// Final debit receipt, in centi-credits. Absent on early failure.
-	receipt: z.object({ credits: z.int().nonnegative() }).optional(),
+	// Final debit receipt. Absent on early failure.
+	receipt: z
+		.object({
+			// Centi-credits settled from the llm_proxy_requests rows.
+			credits: z.int().nonnegative(),
+			// The model the turn ran on.
+			modelId: z.string().min(1),
+			// Token counts summed from the proxy rows.
+			inputTokens: z.int().nonnegative(),
+			outputTokens: z.int().nonnegative(),
+			cacheReadTokens: z.int().nonnegative(),
+			cacheWriteTokens: z.int().nonnegative(),
+			// The payer's settled balance in centi-credits after the settle;
+			// can be negative after an accepted overdraft.
+			balanceCredits: z.int(),
+		})
+		.optional(),
 });
 
 /** Inferred from `turnDoneDataSchema`; the last frame before `[DONE]`. */

@@ -30,6 +30,8 @@ export const appBuilderRoutes = {
 	// POST restore one version as a new copy-forward commit.
 	restoreVersion: (projectId: string, sha: string) =>
 		`/api/v2/projects/${projectId}/versions/${sha}/restore`,
+	// GET and PUT the monthly and per-turn credit caps of a project.
+	costCaps: (projectId: string) => `/api/v2/projects/${projectId}/cost-caps`,
 	// Base path the in-sandbox agent reaches for LLM traffic (WANDIT-165).
 	llmProxyBase: "/api/v2/llm",
 	// POST Anthropic Messages API passthrough behind the run-token checks.

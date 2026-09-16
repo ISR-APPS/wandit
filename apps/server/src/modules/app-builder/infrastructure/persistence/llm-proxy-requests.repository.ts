@@ -1,7 +1,8 @@
 /**
  * Writes and reads `llm_proxy_requests` rows for the V2 LLM proxy.
- * `LlmProxyService` calls `insert` once per request; WANDIT-174 calls
- * `sumUsdMicrosByRun` to reconcile a run's spend against its cap.
+ * `LlmProxyService` calls `insert` once per request.
+ * The builder-turn runtime and the reconcile sweep call `sumByTurn` to
+ * settle a turn's spend. `sumUsdMicrosByRun` has no production caller yet.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "@wandit/db";
@@ -23,6 +24,37 @@ export type NewLlmProxyRequest = Omit<
  * pass a plain object without a cast.
  */
 export type LlmProxyRequestWriter = Pick<LlmProxyRequestsRepository, "insert">;
+
+/** Spend and token sums of one turn for one model, in whole tokens/micros. */
+export type LlmProxyModelSum = {
+	model: string;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	usdMicros: number;
+};
+
+/** Spend and token sums of one turn across all models, with the per-model rows. */
+export type LlmProxyTurnSum = {
+	usdMicros: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	byModel: LlmProxyModelSum[];
+};
+
+// Raw Postgres row for the `sumByTurn` query; bigint columns come back as
+// strings under node-postgres.
+type LlmProxyModelSumDbRow = {
+	model: string | null;
+	usd_micros: number | string;
+	input_tokens: number | string;
+	output_tokens: number | string;
+	cache_read_tokens: number | string;
+	cache_write_tokens: number | string;
+};
 
 /** Drizzle repository for the `llm_proxy_requests` table. */
 @Injectable()
@@ -52,5 +84,59 @@ export class LlmProxyRequestsRepository {
 		const row = result.rows[0];
 		// bigint comes back as a string under node-postgres.
 		return Number(row?.usd_micros ?? 0);
+	}
+
+	/**
+	 * Spend and token sums of one turn, grouped by model. Only
+	 * `status = 'ok'` rows count: rejected and failed rows carry no
+	 * billable usage. All zeros when the turn has no rows.
+	 */
+	async sumByTurn(turnId: string): Promise<LlmProxyTurnSum> {
+		const result = await this.db.execute<LlmProxyModelSumDbRow>(sql`
+			select
+				${llmProxyRequests.model} as model,
+				coalesce(sum(${llmProxyRequests.usdMicros}), 0)::bigint as usd_micros,
+				coalesce(sum(${llmProxyRequests.inputTokens}), 0)::bigint as input_tokens,
+				coalesce(sum(${llmProxyRequests.outputTokens}), 0)::bigint as output_tokens,
+				coalesce(sum(${llmProxyRequests.cacheReadTokens}), 0)::bigint as cache_read_tokens,
+				coalesce(sum(${llmProxyRequests.cacheWriteTokens}), 0)::bigint as cache_write_tokens
+			from ${llmProxyRequests}
+			where
+				${llmProxyRequests.turnId} = ${turnId}
+				and ${llmProxyRequests.status} = 'ok'
+			group by ${llmProxyRequests.model}
+			order by ${llmProxyRequests.model}
+		`);
+
+		const sum: LlmProxyTurnSum = {
+			usdMicros: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			byModel: [],
+		};
+		for (const row of result.rows) {
+			// `model` is nullable (rejected rows store null); an `ok` row always
+			// carries one, so a null group cannot carry billable usage.
+			if (row.model === null) {
+				continue;
+			}
+			const modelSum: LlmProxyModelSum = {
+				model: row.model,
+				inputTokens: Number(row.input_tokens),
+				outputTokens: Number(row.output_tokens),
+				cacheReadTokens: Number(row.cache_read_tokens),
+				cacheWriteTokens: Number(row.cache_write_tokens),
+				usdMicros: Number(row.usd_micros),
+			};
+			sum.byModel.push(modelSum);
+			sum.usdMicros += modelSum.usdMicros;
+			sum.inputTokens += modelSum.inputTokens;
+			sum.outputTokens += modelSum.outputTokens;
+			sum.cacheReadTokens += modelSum.cacheReadTokens;
+			sum.cacheWriteTokens += modelSum.cacheWriteTokens;
+		}
+		return sum;
 	}
 }

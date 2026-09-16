@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
+import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
 import { CreditsModule } from "../credits/credits.module";
 import { GenerationModule } from "../generation/generation.module";
 import { MeteringModule } from "../metering/metering.module";
@@ -37,6 +38,7 @@ import { AuditEventsRepository } from "./infrastructure/persistence/audit-events
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
+import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
@@ -46,6 +48,7 @@ import { TemplateVersionService } from "./infrastructure/template/template-versi
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
@@ -64,6 +67,7 @@ describe("AppBuilderModule", () => {
 			Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppBuilderModule),
 		).toEqual([
 			AppProjectsController,
+			CostCapsController,
 			LlmProxyController,
 			PreviewTokenController,
 			TurnsController,
@@ -92,8 +96,10 @@ describe("AppBuilderModule", () => {
 			LlmProxyService,
 			LlmSpendCounters,
 			PreviewTokenService,
+			ProjectCostCapsRepository,
 			RedisRateLimitGuard,
 			SandboxSessionsRepository,
+			SubscriptionsRepository,
 			TemplateVersionService,
 			TurnsService,
 			TurnStreamRelayService,
