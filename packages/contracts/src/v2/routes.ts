@@ -36,4 +36,7 @@ export const appBuilderRoutes = {
 	llmProxyMessages: "/api/v2/llm/v1/messages",
 	// POST Anthropic token counting behind the same proxy checks.
 	llmProxyCountTokens: "/api/v2/llm/v1/messages/count_tokens",
+	// GET a signed 15-minute preview URL of the running sandbox.
+	previewToken: (projectId: string) =>
+		`/api/v2/projects/${projectId}/preview-token`,
 } as const;

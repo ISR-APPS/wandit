@@ -1,0 +1,44 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wandit-preview-proxy",
+	"main": "src/index.ts",
+	"account_id": "6b421048e434497bce142970530e4eb1",
+	"compatibility_date": "2025-10-11",
+	// One wildcard route catches every preview origin:
+	// r-<rid12>--p-<projectId>.wanditpreview.app (one origin per project run).
+	"routes": [{ "pattern": "*.wanditpreview.app/*", "zone_name": "wanditpreview.app" }],
+	"vars": {
+		"PREVIEW_DOMAIN": "wanditpreview.app",
+		// The origins allowed to frame a preview (security.md 9.3 item 4).
+		"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev http://localhost:*"
+	},
+	// PREVIEW_TOKEN_SIGNING_KEY is a secret: `wrangler secret put
+	// PREVIEW_TOKEN_SIGNING_KEY`. It must equal the API env of the same name.
+	// Keys `preview:last-seen:{projectId}` feed the idle sweep heartbeat.
+	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+	// 600 requests per token id (jti) per minute.
+	"ratelimits": [{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }],
+	"analytics_engine_datasets": [
+		{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
+	],
+	"observability": { "enabled": true },
+	"env": {
+		// vars, kv_namespaces, ratelimits, analytics_engine_datasets, and routes
+		// are NOT inherited by an environment block; repeat each one here.
+		// No routes: the staging preview domain is not decided yet (WANDIT-155).
+		"staging": {
+			"vars": {
+				"PREVIEW_DOMAIN": "wanditpreview.app",
+				// Staging also frames previews from Vercel preview deploys.
+				"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev https://*.vercel.app http://localhost:*"
+			},
+			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+			"ratelimits": [
+				{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }
+			],
+			"analytics_engine_datasets": [
+				{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
+			]
+		}
+	}
+}

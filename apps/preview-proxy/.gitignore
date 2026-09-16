@@ -1,0 +1,6 @@
+# wrangler local dev state (KV/rate-limit state) and scratch files
+.wrangler/
+tmp/
+dist/
+# Local secrets for `wrangler dev` (never commit keys)
+.dev.vars
