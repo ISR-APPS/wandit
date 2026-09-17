@@ -184,8 +184,10 @@ export class AppCommitsRepository {
 	 * Compare-and-swap on the branch head: the update runs only when the
 	 * stored head equals `expectedHeadSha` (null-tolerant compare), or when
 	 * the head already holds `headSha` (a retried call is a no-op). When no
-	 * row exists and `expectedHeadSha` is null, inserts the `main` row.
-	 * Returns false on a head mismatch — the caller turns it into a 409.
+	 * row exists, inserts the `main` row for any `expectedHeadSha`. The
+	 * template init commits outside `commitTurn`, so the first turn has a
+	 * parent sha but no row. Returns false when a row with another head
+	 * exists — the caller turns it into a 409.
 	 */
 	async upsertBranchHead(
 		projectId: string,
@@ -217,12 +219,9 @@ export class AppCommitsRepository {
 		if (updated.length > 0) {
 			return true;
 		}
-		// A non-null expected head can never create the row; it is a conflict.
-		if (head.expectedHeadSha !== null) {
-			return false;
-		}
-		// No row yet: insert `main`. A concurrent insert loses on the unique
-		// (projectId, name) index and falls through to false.
+		// No row matched: insert `main`. A row with another head, or a
+		// concurrent insert, already holds the unique (projectId, name) key.
+		// Then the insert returns no row and the call answers false.
 		const inserted = await this.db
 			.insert(appBranches)
 			.values({

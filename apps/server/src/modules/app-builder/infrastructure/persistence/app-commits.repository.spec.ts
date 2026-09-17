@@ -215,8 +215,10 @@ describe("AppCommitsRepository.upsertBranchHead", () => {
 
 	it("answers false on a head mismatch with a non-null expected sha", async () => {
 		const update = updateCapture([]);
+		// The row with the other head wins the unique (projectId, name) index.
+		const insert = insertCapture([]);
 		const repository = new AppCommitsRepository(
-			fakeDb({ update: update.update }),
+			fakeDb({ insert: insert.insert, update: update.update }),
 		);
 
 		const ok = await repository.upsertBranchHead("p-1", "main", {
@@ -227,6 +229,32 @@ describe("AppCommitsRepository.upsertBranchHead", () => {
 		});
 
 		expect(ok).toBe(false);
+		expect(insert.onConflictDoNothing).toHaveBeenCalledOnce();
+	});
+
+	it("inserts the main row when the expected head is non-null and no row exists", async () => {
+		const update = updateCapture([]);
+		const insert = insertCapture([{ id: "b-1" }]);
+		const repository = new AppCommitsRepository(
+			fakeDb({ insert: insert.insert, update: update.update }),
+		);
+
+		// The template init sha is the parent; no row exists for it.
+		const ok = await repository.upsertBranchHead("p-1", "main", {
+			expectedHeadSha: "a".repeat(40),
+			headSha: "b".repeat(40),
+			organizationId: null,
+			userId: "user-1",
+		});
+
+		expect(ok).toBe(true);
+		expect(insert.values).toHaveBeenCalledWith({
+			headSha: "b".repeat(40),
+			name: "main",
+			organizationId: null,
+			projectId: "p-1",
+			userId: "user-1",
+		});
 	});
 
 	it("inserts the main row when the expected head is null and no row exists", async () => {

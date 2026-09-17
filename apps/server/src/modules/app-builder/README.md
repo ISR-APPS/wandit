@@ -433,8 +433,10 @@ repository is the durable copy.
   `git/<projectId>/patches/<sha>.diff` and `.numstat`.
 - Write order: R2 objects, then `git push <url> HEAD:main`, then the
   `app_commits` row, then the `app_branches` `main` head as a
-  compare-and-swap on the previous head. A head mismatch answers 409
-  `VERSION_CONFLICT`.
+  compare-and-swap on the previous head. When no `main` row exists, the
+  write creates it for any previous head. The template init commits
+  outside `commitTurn`, so the first turn has no row. A head mismatch
+  answers 409 `VERSION_CONFLICT`.
 - A fresh sandbox restores the code through `RepoRestorer`: `git pull`
   when `.git` exists, `git clone` when the sandbox workspace (`<vendor cwd>/workspace`) is
   empty, and an in-place `init` + `fetch` + `reset --hard` + `clean -fd`
