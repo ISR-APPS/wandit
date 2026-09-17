@@ -60,6 +60,14 @@ export class FakeBuilderHarness implements BuilderHarness {
 	/** What `hasUnfinishedTurn` answers. */
 	unfinishedTurn = false;
 
+	/**
+	 * When true, only the session `resumeSession` returned answers true to
+	 * `hasUnfinishedTurn`: a stored turn the runtime cannot continue.
+	 */
+	unfinishedOnResume = false;
+
+	private resumedSessionId: string | null = null;
+
 	/** The `pending` list `suspendTurn` puts into its resume state. */
 	pendingOnSuspend: HarnessPendingInteraction[] = [];
 
@@ -92,7 +100,8 @@ export class FakeBuilderHarness implements BuilderHarness {
 			throw this.resumeError;
 		}
 		this.counter += 1;
-		return { sessionId: `fake-session-${this.counter}` };
+		this.resumedSessionId = `fake-session-${this.counter}`;
+		return { sessionId: this.resumedSessionId };
 	}
 
 	async *stream(
@@ -117,8 +126,11 @@ export class FakeBuilderHarness implements BuilderHarness {
 		}
 	}
 
-	async hasUnfinishedTurn(_session: HarnessSession): Promise<boolean> {
-		return this.unfinishedTurn;
+	async hasUnfinishedTurn(session: HarnessSession): Promise<boolean> {
+		return (
+			this.unfinishedTurn ||
+			(this.unfinishedOnResume && session.sessionId === this.resumedSessionId)
+		);
 	}
 
 	async detach(session: HarnessSession): Promise<HarnessResumeState> {

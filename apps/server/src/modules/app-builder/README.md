@@ -325,7 +325,11 @@ One run does this, in order:
    costs the commit, not the turn), a `files` event carries the numstat,
    `insertTurnAssistantMessage` persists the assistant message with
    usage (the proxy row sums) and commit metadata, and the resume state
-   is saved on the session row.
+   is saved on the session row. A `detach` in the middle of a turn (a
+   cancel, a stall) keeps that turn in the state too, with its cards in
+   `pending`, so the next message answers them. When a resumed session
+   still holds an unfinished turn and no card exists to answer, the
+   runtime starts a fresh session: the SDK refuses a new prompt on it.
 10. Settles the hold from the `llm_proxy_requests` rows
     (`settleHoldFromRows` reads `LlmProxyRequestsRepository.sumByTurn`,
     the `status = 'ok'` rows). `pricing` is `"direct"`, `finalCredits`
@@ -516,7 +520,9 @@ rows are the truth only when they exist. `recover-stranded-metering`
 window (`AGENT_SESSION_STALE_AFTER_MS`); other operations keep 40
 minutes. The window only matters for a queued turn: the runtime takes an
 execution lease on the hold at start and renews it on every 30 s pulse,
-so the sweep never refunds a running turn. A turn that finds its hold
+so the sweep never refunds a running turn. The lease token is a random
+uuid per run (`execution_lease_token` is a uuid column; the Trigger run
+id is not one). A turn that finds its hold
 `refunded` at start fails instead of running without a hold. The `sandbox` operation sits in the registry — measured per
 minute, rate zero, `customerBillable: false` — and has no writer before
 WANDIT-196.

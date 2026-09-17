@@ -274,6 +274,10 @@ export async function runBuilderTurn(
 ): Promise<void> {
 	const logger = deps.logger;
 	const { projectId, runId, turnId } = input;
+	// The hold's lease column is a uuid; the Trigger run id (`run_…`) is not
+	// one, and Postgres rejects it. One token per run: the heartbeat matches
+	// only this run's lease.
+	const leaseToken = randomUUID();
 	const subject: MeteringSubject = {
 		actorUserId: input.actorUserId,
 		...(input.actorIsLimitExempt === undefined
@@ -802,13 +806,13 @@ export async function runBuilderTurn(
 					if (holdId !== null) {
 						const lease = await deps.metering.heartbeatExecutionLease(
 							holdId,
-							runId,
+							leaseToken,
 							AGENT_SESSION_LEASE_TTL_MS,
 						);
 						if (lease === "lost") {
 							const leased = await deps.metering.acquireExecutionLease(
 								holdId,
-								runId,
+								leaseToken,
 								AGENT_SESSION_LEASE_TTL_MS,
 							);
 							if (leased === null) {
@@ -1066,7 +1070,7 @@ export async function runBuilderTurn(
 			try {
 				const leased = await deps.metering.acquireExecutionLease(
 					hold.id,
-					runId,
+					leaseToken,
 					AGENT_SESSION_LEASE_TTL_MS,
 				);
 				if (leased === null) {
@@ -1178,27 +1182,34 @@ export async function runBuilderTurn(
 		const startSession = async (
 			stored: HarnessResumeState | null,
 		): Promise<{ resumed: boolean; session: HarnessSession }> => {
-			if (stored === null) {
-				return {
-					resumed: false,
-					session: await deps.harness.createSession(sessionInput),
-				};
-			}
-			try {
-				return {
-					resumed: true,
-					session: await deps.harness.resumeSession(sessionInput, stored),
-				};
-			} catch (error) {
-				logger.warn(
-					`Resume failed for turn ${turnId}; starting a fresh session: ${messageOf(error)}`,
-				);
+			if (stored !== null) {
+				try {
+					const resumed = await deps.harness.resumeSession(
+						sessionInput,
+						stored,
+					);
+					// A resumed session can hold an unfinished turn with no card to
+					// answer. Causes: a detach mid-generation, or a row from before
+					// the cards existed. The SDK refuses a new prompt on it, so the
+					// turn starts fresh. The agent memory is lost; the files stay.
+					if (
+						continuation !== null ||
+						!(await deps.harness.hasUnfinishedTurn(resumed))
+					) {
+						return { resumed: true, session: resumed };
+					}
+					logger.warn(
+						`builder-turn.stale-unfinished-turn turnId=${turnId}: resumed session holds an unfinished turn without cards`,
+					);
+				} catch (error) {
+					logger.warn(`Resume failed for turn ${turnId}: ${messageOf(error)}`);
+				}
 				await writeStatus("session_starting", "Starting a fresh session");
-				return {
-					resumed: false,
-					session: await deps.harness.createSession(sessionInput),
-				};
 			}
+			return {
+				resumed: false,
+				session: await deps.harness.createSession(sessionInput),
+			};
 		};
 		const sessionInput = {
 			chatId,
