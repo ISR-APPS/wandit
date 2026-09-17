@@ -10,6 +10,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@wandit/contracts": "workspace:*",
 		"@wandit/observability": "workspace:*"
 	},
 	"devDependencies": {

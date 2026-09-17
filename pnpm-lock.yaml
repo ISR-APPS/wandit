@@ -223,6 +223,9 @@ importers:
 
   apps/edge:
     dependencies:
+      '@wandit/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@wandit/observability':
         specifier: workspace:*
         version: link:../../packages/observability
