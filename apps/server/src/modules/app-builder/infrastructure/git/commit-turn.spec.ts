@@ -390,6 +390,30 @@ describe("commitTurn", () => {
 		);
 	});
 
+	it("first agent turn after the template init creates the main row", async () => {
+		// The template init commits outside `commitTurn`, so the parent sha
+		// is set and no `main` row exists yet.
+		const { appCommits, deps, headWrites, provider } = fixture({
+			storedHead: null,
+		});
+		scriptCommit(provider);
+		const sandbox = await fixtureSandbox(provider);
+
+		const result = await commitTurn(sandbox, deps, INPUT);
+
+		expect(result.sha).toBe(SHA);
+		expect(headWrites).toEqual([
+			{
+				expectedHeadSha: PARENT,
+				headSha: SHA,
+				organizationId: null,
+				userId: "user-1",
+			},
+		]);
+		// The CAS created the row; no recovery read runs.
+		expect(appCommits.findBranch).not.toHaveBeenCalled();
+	});
+
 	it("throws VersionConflictError when the head CAS loses and no head is stored", async () => {
 		const { deps, provider } = fixture({
 			storedHead: null,

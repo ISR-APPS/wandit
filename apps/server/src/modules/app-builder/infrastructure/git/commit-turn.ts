@@ -236,7 +236,8 @@ export async function commitTurn(
 // behind the pushed history, and every later `commitTurn` then fails the
 // CAS forever. When the stored head is an ancestor of the pushed commit,
 // the remote history already contains it and the head may advance past
-// it. A diverged head is a real conflict.
+// it. A diverged head is a real conflict. A missing row is not a lost
+// CAS: `upsertBranchHead` creates it for any parent sha.
 async function recoverPushedHead(
 	sandbox: SandboxHandle,
 	deps: CommitTurnDeps,
@@ -245,6 +246,9 @@ async function recoverPushedHead(
 ): Promise<void> {
 	const stored = await deps.appCommits.findBranch(input.projectId, "main");
 	const storedHead = stored?.headSha ?? null;
+	// A lost CAS leaves a committed row with another head, so this read
+	// finds one. A null head means another writer removed the row after the
+	// CAS, for example a project delete. Nothing here can repair that.
 	if (storedHead === null) {
 		throw new VersionConflictError();
 	}
