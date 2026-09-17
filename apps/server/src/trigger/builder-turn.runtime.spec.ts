@@ -1603,9 +1603,14 @@ describe("runBuilderTurn", () => {
 		release();
 		await run;
 
+		// The lease column is a uuid; the run id would fail the write.
+		const token = world.metering.leaseCalls[0]?.token ?? "";
+		expect(token).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
 		const lease = {
 			eventId: "evt_hold_1",
-			token: RUN_ID,
+			token,
 			ttlMs: AGENT_SESSION_LEASE_TTL_MS,
 		};
 		expect(world.metering.leaseCalls).toEqual([lease]);
@@ -1712,6 +1717,50 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.createCalls).toHaveLength(1);
 		expect(world.turns.failCalls).toHaveLength(0);
 		expect(world.turns.completeCalls).toHaveLength(1);
+	});
+
+	it("starts a fresh session when the resumed one holds an unfinished turn and no card to answer", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.unfinishedOnResume = true;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The SDK would refuse a prompt on the resumed session; the fresh
+		// one gets the prompt and the turn completes.
+		expect(world.harness.resumeCalls).toHaveLength(1);
+		expect(world.harness.createCalls).toHaveLength(1);
+		expect(world.harness.streamCalls).toHaveLength(1);
+		expect(world.harness.streamCalls[0]?.sessionId).toBe("fake-session-2");
+		expect(world.harness.streamCalls[0]?.input.kind).toBe("prompt");
+		expect(world.turns.failCalls).toHaveLength(0);
+		expect(world.turns.completeCalls).toHaveLength(1);
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+	});
+
+	it("continues the resumed unfinished turn when the stored cards give an answer", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.sessions.row = pausedSessionRow([PENDING_QUESTION]);
+		world.harness.unfinishedOnResume = true;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The message text answers the card; no fresh session. The fake
+		// keeps the resumed session unfinished, so the turn pauses again.
+		expect(world.harness.resumeCalls).toHaveLength(1);
+		expect(world.harness.createCalls).toHaveLength(0);
+		expect(world.harness.streamCalls).toHaveLength(1);
+		expect(world.harness.streamCalls[0]?.input.kind).toBe("continue");
+		expect(world.turns.failCalls).toHaveLength(0);
 	});
 
 	it("mints the run token with plan, cap, and scope claims", async () => {

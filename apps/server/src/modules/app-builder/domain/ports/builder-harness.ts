@@ -21,8 +21,8 @@ export type HarnessKind = "claude_code" | "opencode";
 /**
  * Opaque resume state of `session.detach()` or `session.suspendTurn()`,
  * stored as JSON text in `builder_sessions.resumeState`. The API never
- * reads `payload`; `pending` holds the question/approval cards a
- * suspended turn waits on (`[]` after a plain detach).
+ * reads `payload`; `pending` holds the question/approval cards an
+ * unfinished turn waits on (`[]` when the turn ended).
  */
 export type HarnessResumeState = {
 	harness: HarnessKind;
@@ -106,6 +106,10 @@ export interface BuilderHarness {
 	): AsyncIterable<HarnessStreamEvent>;
 	/** True while the session waits on a tool result or an approval. */
 	hasUnfinishedTurn(session: HarnessSession): Promise<boolean>;
+	/**
+	 * Freezes the session for the next turn. A detach in the middle of a
+	 * turn also fills `pending`; the next turn must answer the cards.
+	 */
 	detach(session: HarnessSession): Promise<HarnessResumeState>;
 	/**
 	 * Freezes a paused turn and fills `pending` on the resume state.

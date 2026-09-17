@@ -606,4 +606,36 @@ describe("ClaudeCodeHarness.detach", () => {
 		expect(state.pending).toEqual([]);
 		expect(innerSession.detach).toHaveBeenCalledOnce();
 	});
+
+	it("maps the unfinished turn of a mid-turn detach to pending cards", async () => {
+		const { harness, session: innerSession } = setup();
+		// The SDK nests the suspended turn inside the resume state when the
+		// session detaches before the turn ends.
+		const state: HarnessAgentResumeSessionState = {
+			...RESUME_STATE,
+			continueFrom: CONTINUE_STATE,
+		};
+		innerSession.detach = vi.fn(async () => state);
+		const session = await harness.createSession(sessionInput());
+
+		const resume = await harness.detach(session);
+
+		expect(JSON.parse(resume.payload)).toEqual(state);
+		expect(resume.pending).toEqual([
+			{
+				kind: "question",
+				questions: [
+					{
+						id: "question-1",
+						options: [
+							{ id: "option-1", label: "Blue" },
+							{ id: "option-2", label: "Green" },
+						],
+						question: "Which color?",
+					},
+				],
+				toolCallId: "call-1",
+			},
+		]);
+	});
 });

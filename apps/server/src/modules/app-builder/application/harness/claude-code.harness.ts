@@ -272,24 +272,47 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	async detach(session: HarnessSession): Promise<HarnessResumeState> {
 		const entry = this.requireSession(session.sessionId);
 		this.sessions.delete(session.sessionId);
+		const state = await entry.session.detach();
+		// A detach in the middle of a turn keeps that turn in `continueFrom`.
+		// Its cards must reach the row. The SDK refuses a new prompt on a
+		// session with an unfinished turn. The next turn answers the cards.
 		return {
 			harness: this.kind,
-			payload: JSON.stringify(await entry.session.detach()),
-			pending: [],
+			payload: JSON.stringify(state),
+			pending: this.pendingOf(state.continueFrom),
 		};
 	}
 
 	async suspendTurn(session: HarnessSession): Promise<HarnessResumeState> {
 		const entry = this.requireSession(session.sessionId);
 		const state = await entry.session.suspendTurn();
+		this.sessions.delete(session.sessionId);
+		return {
+			harness: this.kind,
+			payload: JSON.stringify(state),
+			pending: this.pendingOf(state),
+		};
+	}
+
+	/**
+	 * The cards of an unfinished turn: one question card per pending
+	 * `askUserQuestions` call, one approval card per pending host tool.
+	 * Shared by `detach` and `suspendTurn`; an undefined state has no cards.
+	 */
+	private pendingOf(
+		state: HarnessAgentContinueTurnState | undefined,
+	): HarnessPendingInteraction[] {
 		const pending: HarnessPendingInteraction[] = [];
+		if (state === undefined) {
+			return pending;
+		}
 
 		for (const result of state.pendingToolResults ?? []) {
 			// Only the built-in question tool pauses for a user answer; a
 			// client-side result of another tool is not a card the user sees.
 			if (result.toolName !== ASK_USER_QUESTIONS_TOOL_NAME) {
 				this.logger.warn(
-					`builder-turn.suspendTurn: skipped pending result for ${result.toolName}`,
+					`builder-turn.pending-cards: skipped pending result for ${result.toolName}`,
 				);
 				continue;
 			}
@@ -321,13 +344,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				toolName: approval.toolName,
 			});
 		}
-
-		this.sessions.delete(session.sessionId);
-		return {
-			harness: this.kind,
-			payload: JSON.stringify(state),
-			pending,
-		};
+		return pending;
 	}
 
 	/**
