@@ -264,6 +264,8 @@ describe("optimizeImage", () => {
 		expect(result.height).toBe(256);
 	});
 
+	// The 9,000 px fixture exceeds the 5 s default when turbo runs the suites in parallel.
+	// This case gets 30 s.
 	it("resizes a tall noise PNG to 8000 px", async () => {
 		// The narrow width isolates the 8,000 px height cap and limits fixture memory.
 		const input = await noisePng(500, 9000);
@@ -275,7 +277,7 @@ describe("optimizeImage", () => {
 
 		expect(result.contentType).toBe("image/webp");
 		expect(result.height).toBe(8000);
-	});
+	}, 30_000);
 
 	it("returns SVG unchanged regardless of size", async () => {
 		const input = Buffer.from(

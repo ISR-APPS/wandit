@@ -610,10 +610,10 @@ function WorkspaceLeadsContent() {
 													})}
 												>
 													{relativeTime(lead.createdAt)}
-											</TableCell>
-											<TableCell>
-												<LeadSkuCell productSku={lead.productSku} />
-											</TableCell>
+												</TableCell>
+												<TableCell>
+													<LeadSkuCell productSku={lead.productSku} />
+												</TableCell>
 												<TableCell>
 													<div className="flex justify-end">
 														<WorkspaceLeadStatus lead={lead} />
