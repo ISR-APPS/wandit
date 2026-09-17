@@ -103,6 +103,9 @@ function setup() {
 			async (_projectId, caps) => caps,
 		),
 	};
+	const backends = {
+		provisionBackend: vi.fn(async () => null),
+	};
 
 	const service = new AppProjectsService(
 		projects,
@@ -113,10 +116,12 @@ function setup() {
 		analytics,
 		v2Env,
 		costCaps,
+		backends,
 	);
 
 	return {
 		analytics,
+		backends,
 		costCaps,
 		credits,
 		projects,
@@ -257,6 +262,34 @@ describe("AppProjectsService.create", () => {
 		);
 	});
 
+	it("hands the new project to backend provisioning before the first turn", async () => {
+		const { backends, projects, service } = setup();
+
+		await service.create(SCOPE, BODY, { countryCode: "MA" });
+
+		const input = projects.createWithChatAndFirstMessage.mock.calls[0]?.[0];
+		if (!input) {
+			throw new Error("createWithChatAndFirstMessage was not called");
+		}
+		expect(backends.provisionBackend).toHaveBeenCalledTimes(1);
+		expect(backends.provisionBackend).toHaveBeenCalledWith(input.projectId, {
+			countryCode: "MA",
+			organizationId: null,
+			userId: "user-1",
+		});
+	});
+
+	it("still answers the ids when backend provisioning throws", async () => {
+		const { backends, service } = setup();
+		backends.provisionBackend.mockRejectedValue(new Error("db down"));
+
+		const result = await service.create(SCOPE, BODY, { countryCode: null });
+
+		expect(result.projectId).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(result.chatId).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(result.turnId).toBe("turn-1");
+	});
+
 	it("still answers with turnId null when the first turn throws", async () => {
 		const { service, turns } = setup();
 		turns.create.mockRejectedValue(new Error("hold failed"));
@@ -268,7 +301,7 @@ describe("AppProjectsService.create", () => {
 	});
 
 	it("captures the org id on v2_project_created when scope is org", async () => {
-		const { analytics, service } = setup();
+		const { analytics, backends, service } = setup();
 
 		await service.create(
 			{
@@ -284,6 +317,10 @@ describe("AppProjectsService.create", () => {
 		expect(analytics.capture).toHaveBeenCalledWith(
 			"user-1",
 			"v2_project_created",
+			expect.objectContaining({ organizationId: "org-1" }),
+		);
+		expect(backends.provisionBackend).toHaveBeenCalledWith(
+			expect.any(String),
 			expect.objectContaining({ organizationId: "org-1" }),
 		);
 	});

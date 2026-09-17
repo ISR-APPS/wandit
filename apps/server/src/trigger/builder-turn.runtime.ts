@@ -17,6 +17,7 @@ import type {
 import {
 	builderTurnSpecSchema,
 	harnessResumeEnvelopeSchema,
+	supabaseProjectUrl,
 } from "@wandit/contracts";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
 import {
@@ -62,6 +63,7 @@ import type {
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
+import type { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -175,6 +177,8 @@ export type BuilderTurnDeps = {
 	>;
 	project: Pick<TurnProjectRepository, "findForTurn">;
 	caps: Pick<ProjectCostCapsRepository, "findByProjectId">;
+	/** The `app_backends` row; its URL and anon key enter the sandbox env when `active`. */
+	backends: Pick<AppBackendsRepository, "findByProjectId">;
 	sessions: Pick<BuilderSessionsRepository, "findByChatId" | "saveResumeState">;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
@@ -1118,15 +1122,25 @@ export async function runBuilderTurn(
 			workspaceId: input.organizationId,
 		});
 
-		// WANDIT-183 adds the app_backends lookup here; until then the
-		// sandbox gets no VITE_SUPABASE_* names and the status says why.
+		const backend = await deps.backends.findByProjectId(projectId);
+		// D18: only an `active` row reaches the VM. A `creating` or `error`
+		// row, or no row, keeps the VITE_* names out of the env.
+		const supabase =
+			backend?.status === "active" &&
+			backend.ref !== null &&
+			backend.anonKey !== null
+				? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
+				: null;
+		// LIMIT: a sandbox that already runs keeps its env until its next
+		// resume. Upgrade: write the sandbox `.env` and restart the dev
+		// server (issue step 8).
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
 			proxyToken,
 			runId,
-			supabaseAnonKey: null,
-			supabaseUrl: null,
+			supabaseAnonKey: supabase?.anonKey ?? null,
+			supabaseUrl: supabase?.url ?? null,
 		});
 
 		await writeStatus("sandbox_waking");
@@ -1143,7 +1157,11 @@ export async function runBuilderTurn(
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
 
-		await writeStatus("session_starting", "Backend not ready yet");
+		// The note applies only when no active backend row exists.
+		await writeStatus(
+			"session_starting",
+			supabase === null ? "Backend not ready yet" : undefined,
+		);
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,

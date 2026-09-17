@@ -3,9 +3,9 @@
  * project cost caps. Called by `app-projects.controller.ts` and
  * `cost-caps.controller.ts`. Create order: platform and attachment
  * checks, the settled-balance gate, one transaction (project, chat,
- * first message, builder session), then the first builder turn — which
- * adopts the already-written message row — the title job, and the
- * `v2_project_created` event.
+ * first message, builder session), the backend provision handoff, then
+ * the first builder turn — which adopts the already-written message
+ * row — the title job, and the `v2_project_created` event.
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -22,6 +22,7 @@ import type {
 	ProjectCostCaps,
 	UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
+import { getErrorMessage } from "@wandit/observability/error";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -42,6 +43,7 @@ import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
+import { BackendsService } from "./backends.service";
 import {
 	HARNESS_BY_ENV,
 	TURN_HOLD_DEFAULT_CREDITS,
@@ -80,6 +82,8 @@ export class AppProjectsService {
 			ProjectCostCapsRepository,
 			"findByProjectId" | "upsert"
 		>,
+		@Inject(BackendsService)
+		private readonly backends: Pick<BackendsService, "provisionBackend">,
 	) {}
 
 	/**
@@ -141,7 +145,20 @@ export class AppProjectsService {
 			scope,
 		});
 
-		// WANDIT-183 adds here: backendsService.provisionBackend(projectId, { countryCode }) before the first turn.
+		// D18: every V2 project gets one backend at creation. A failure here
+		// must not lose the project — the `app_backends` row stays `error` or
+		// absent and the first turn still runs.
+		try {
+			await this.backends.provisionBackend(projectId, {
+				countryCode: request.countryCode,
+				organizationId: scope.kind === "org" ? scope.organizationId : null,
+				userId: scope.userId,
+			});
+		} catch (error) {
+			this.logger.error(
+				`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+			);
+		}
 
 		// WANDIT-166 builder-turn task creates the sandbox on the first turn;
 		// no eager start here (request latency).

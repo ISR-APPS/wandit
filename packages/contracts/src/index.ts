@@ -116,6 +116,8 @@ export * from "./v2/preview-token";
 export * from "./v2/projects";
 // V2 app-builder route paths.
 export * from "./v2/routes";
+// V2 Supabase Management API contracts.
+export * from "./v2/supabase-management";
 // V2 builder turn and stream contracts.
 export * from "./v2/turns";
 // V2 app version history contracts.

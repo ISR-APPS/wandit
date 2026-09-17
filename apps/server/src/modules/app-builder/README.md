@@ -32,7 +32,8 @@ PostHog flag `v2-builder`).
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository |
+| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects` |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
 | `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token |
@@ -80,7 +81,9 @@ partial unique index guarantees at most one live row per project.
   names — the per-run proxy values, `VITE_SUPABASE_URL`,
   `VITE_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
   is always written empty; `VERCEL_SANDBOX_TOKEN`, signing keys, and
-  service-role keys can never enter the sandbox.
+  service-role keys can never enter the sandbox. The builder-turn runtime
+  reads `app_backends` and passes the URL and anon key only when the row
+  is `active`. A running sandbox gets them at its next resume.
 - Egress is deny-by-default: `buildNetworkPolicy` emits the global allow
   list (`registry.npmjs.org`, `*.supabase.co`, fonts, `api.stripe.com`,
   `api.resend.com`, `maps.googleapis.com`, `api.openai.com`) plus the
@@ -219,6 +222,30 @@ It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
 
+## Backend provisioning (WANDIT-183)
+
+`BackendsService.provisionBackend` is the single entry of provisioning (D18):
+`AppProjectsService.create` calls it after the create transaction and before
+the first turn; no tool and no button creates a backend. It inserts the
+`creating` row and starts the task with idempotency key
+`provision-backend:<requestKey>`; a second call answers the row and starts
+nothing.
+Without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID` it writes no
+row, logs one `supabase.provisioning.unconfigured` warn, and creation still
+succeeds. `SUPABASE_PLATFORM_REGION` overrides `pickSupabaseRegion`; an
+invalid value logs `supabase.provisioning.region-override-invalid` and the
+picked region wins. A task-start failure never throws: the row is marked
+`backend_provision_start_failed` and the project keeps working.
+The task (`backend-provisioning` queue, concurrency 3, one attempt) claims the row by `requestKey`.
+It creates the Supabase project when the row has no `ref`; a replay creates no second project.
+It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout.
+It reads the anon key.
+It applies `templates/web-app/supabase/migrations/0000_base.sql`.
+It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
+It marks the row `active`.
+A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
+The builder turn reads the row at turn start; a running sandbox gets the env values at its next resume.
+
 ## Builder turn
 
 The `builder-turn` Trigger task (WANDIT-166) runs one turn end to end.
@@ -248,7 +275,9 @@ One run does this, in order:
 4. Builds the allow-listed env (`buildSandboxEnv`): the run token becomes
    `ANTHROPIC_AUTH_TOKEN`, the proxy URL `ANTHROPIC_BASE_URL`, the run id
    `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
-   an empty string.
+   an empty string. An `active` `app_backends` row adds `VITE_SUPABASE_URL`
+   and `VITE_SUPABASE_ANON_KEY`; any other row, or no row, adds the note
+   `Backend not ready yet` to the `session_starting` status.
 5. Wakes or creates the sandbox (`sandboxes.getOrCreate`) and touches
    `sandbox_sessions` activity so the idle sweep leaves it alone.
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at

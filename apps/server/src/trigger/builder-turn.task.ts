@@ -20,6 +20,7 @@ import { TurnPromoter } from "../modules/app-builder/application/services/turn-p
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
 import { commitTurn } from "../modules/app-builder/infrastructure/git/commit-turn";
+import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
@@ -109,6 +110,7 @@ export const builderTurnTask = schemaTask({
 
 			await runBuilderTurn(
 				{
+					backends: new AppBackendsRepository(db),
 					billingDisabled: env.GENERATION_BILLING_MODE === "off",
 					caps: new ProjectCostCapsRepository(db),
 					commit: commitTurn,
