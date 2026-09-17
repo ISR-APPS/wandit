@@ -27,6 +27,8 @@ const MESSAGES: BuilderMessage[] = [
 // The page mounts one TooltipProvider; the pane's message actions need it too.
 function renderPane(props: Partial<ChatPaneProps> = {}) {
 	const onSend = vi.fn();
+	const onDecideApproval = vi.fn();
+	const onCancel = vi.fn();
 	const onCollapse = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -41,8 +43,12 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 				turnEstimateCredits: 6,
 				focusLabel: null,
 				isSending: false,
+				isReady: true,
 				projectName: "Nadi Fitness",
 				onSend,
+				onDecideApproval,
+				onCancel,
+				errorText: null,
 				onCollapse,
 				onPreviewVersion: () => {},
 				...props,
@@ -50,7 +56,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
-	return { onSend, onCollapse };
+	return { onSend, onDecideApproval, onCancel, onCollapse };
 }
 
 afterEach(cleanup);
@@ -93,11 +99,70 @@ describe("ChatPane", () => {
 		expect(busy.onSend).not.toHaveBeenCalled();
 	});
 
+	it("sends an approval decision, and drops it while a turn runs", () => {
+		const approvalMessage: BuilderMessage = {
+			id: "a3",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-approval",
+					id: "ap-1",
+					data: {
+						approvalId: "ap-1",
+						toolName: "Bash",
+						input: '{"command":"pnpm db:push"}',
+						decision: null,
+						isOpen: true,
+					},
+				},
+			],
+		};
+		const idle = renderPane({ messages: [approvalMessage] });
+		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+		expect(idle.onDecideApproval).toHaveBeenCalledWith("ap-1", true);
+		cleanup();
+		const busy = renderPane({
+			messages: [approvalMessage],
+			isSending: true,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+		expect(busy.onDecideApproval).not.toHaveBeenCalled();
+	});
+
 	it("shows the project name in the header and hides the chat from its button", () => {
 		const { onCollapse } = renderPane();
 		expect(screen.getByText(/Nadi Fitness/)).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Hide the chat" }));
 		expect(onCollapse).toHaveBeenCalledOnce();
+	});
+
+	it("locks the composer while the chat id is unknown", () => {
+		renderPane({ isReady: false });
+		const textarea = screen.getByRole("textbox");
+		expect(textarea.hasAttribute("disabled")).toBe(true);
+		expect(
+			screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
+		).toBe(true);
+	});
+
+	it("shows the Stop button only while a turn runs, and it calls onCancel", () => {
+		const onCancel = vi.fn();
+		renderPane({ onCancel });
+		expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+		cleanup();
+		renderPane({ onCancel, isSending: true });
+		fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+		expect(onCancel).toHaveBeenCalledOnce();
+	});
+
+	it("shows the error sentence in an alert row when errorText is set", () => {
+		renderPane();
+		expect(screen.queryByRole("alert")).toBeNull();
+		cleanup();
+		renderPane({ errorText: "You have no credits left for this turn." });
+		expect(screen.getByRole("alert").textContent).toBe(
+			"You have no credits left for this turn.",
+		);
 	});
 
 	it("shows the working row with the elapsed seconds while a turn runs", () => {

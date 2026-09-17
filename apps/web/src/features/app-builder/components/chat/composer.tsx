@@ -37,7 +37,7 @@ export type ComposerProps = {
 	turnEstimateCredits: number;
 	/** Screen or element the next turn targets, or null. Shown as a chip the user can remove. */
 	focusLabel: string | null;
-	/** True while a turn runs. Locks the textarea and the send button. */
+	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
 };

@@ -18,10 +18,11 @@ import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
 import { Suspense, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import Loader from "@/components/loader";
+import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import { useSendBuilderMessage } from "../api/app-builder.mutations";
 import {
 	appProjectQuery,
 	builderThreadQuery,
@@ -46,6 +47,7 @@ import {
 	writeChatOpen,
 } from "../lib/helpers";
 import type { AppBuilderSearch } from "../lib/schemas";
+import { useBuilderThread } from "../lib/use-builder-thread";
 
 export type AppBuilderPageProps = {
 	projectId: string;
@@ -61,8 +63,8 @@ export default function AppBuilderPage({
 	const navigate = useNavigate({ from: "/app/$projectId" });
 	// The route loader filled both queries, so neither suspends on first paint.
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
-	const { data: thread } = useSuspenseQuery(builderThreadQuery(projectId));
-	const sendMessage = useSendBuilderMessage(projectId);
+	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
+	const thread = useBuilderThread(projectId);
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key remounts the preview iframe; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
@@ -118,11 +120,27 @@ export default function AppBuilderPage({
 	const chatCard = (
 		<ChatPane
 			messages={thread.messages}
-			turnEstimateCredits={thread.turnEstimateCredits}
-			focusLabel={thread.focusLabel}
-			isSending={sendMessage.isPending}
+			// LIMIT: the focus chip and the pre-turn estimate come from the mock
+			// thread; the real estimate arrives with the first `data-turn-created`
+			// frame. Upgrade: a preview selection for the chip and an estimate
+			// route for the credits.
+			turnEstimateCredits={
+				thread.estimate?.credits ?? mockThread.turnEstimateCredits
+			}
+			focusLabel={mockThread.focusLabel}
+			isSending={thread.isSending}
+			isReady={thread.isReady}
 			projectName={project.name}
-			onSend={(input) => sendMessage.mutate(input)}
+			// LIMIT: plan mode sends a build turn; the turn body has no mode
+			// field. Upgrade: a builder mode on composerMetadataSchema.
+			onSend={(input) => thread.send(input.text)}
+			onDecideApproval={thread.decideApproval}
+			onCancel={() =>
+				void thread
+					.cancel()
+					.catch((error: unknown) => toast.error(getApiErrorMessage(error)))
+			}
+			errorText={thread.errorText}
 			onCollapse={() => setChatOpenAndStore(false)}
 			onPreviewVersion={() => setSearch({ view: "preview" }, false)}
 			className="h-full rounded-2xl border bg-sidebar"

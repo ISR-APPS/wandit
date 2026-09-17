@@ -44,6 +44,12 @@ export const turnApprovalAnswerSchema = z.object({
 });
 
 /**
+ * Sent as `approval` in the create-turn body with an empty message; answers
+ * one `data-approval` card.
+ */
+export type TurnApprovalAnswer = z.infer<typeof turnApprovalAnswerSchema>;
+
+/**
  * Body of `POST /api/v2/projects/:id/turns`. Same admission rule as V1
  * project creation: a non-empty message or at least one attachment. An
  * `approval` decision alone is also enough: it answers a `data-approval`

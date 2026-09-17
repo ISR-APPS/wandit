@@ -1,48 +1,21 @@
 /**
  * Mutations of the app builder. Each one calls a service and writes the
  * result into the query cache, so the panel that reads the query updates at
- * once. Called by the composer, the Settings panel, the Sign-in panel, and
- * the Payments panel.
+ * once. Called by the Settings panel, the Sign-in panel, and the Payments
+ * panel.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
-import { getApiErrorMessage } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
 	type AppProjectPatch,
-	type SendBuilderMessageInput,
-	sendBuilderMessage,
 	setCollaboratorRole,
 	setPaymentsMode,
 	setSignInMethod,
 	updateAppProject,
 } from "./app-builder.services";
 import type { CollaboratorRole, SignInMethodId } from "./dto";
-
-/** Sends one turn. The thread, the project version, and the version list change on success. */
-export function useSendBuilderMessage(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationKey: [...appBuilderKeys.thread(projectId), "send"],
-		mutationFn: (input: SendBuilderMessageInput) =>
-			sendBuilderMessage(projectId, input),
-		onSuccess: (thread) => {
-			queryClient.setQueryData(appBuilderKeys.thread(projectId), thread);
-			void queryClient.invalidateQueries({
-				queryKey: appBuilderKeys.project(projectId),
-			});
-			void queryClient.invalidateQueries({
-				queryKey: appBuilderKeys.versions(projectId),
-			});
-		},
-		// The composer clears the draft when it sends, so a failed turn must at least say so.
-		onError: (error) => {
-			toast.error(getApiErrorMessage(error));
-		},
-	});
-}
 
 /** Name, description, or kind. The project menu list refreshes too, so its badge stays right. */
 export function useUpdateAppProject(projectId: string) {

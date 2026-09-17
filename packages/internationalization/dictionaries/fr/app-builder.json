@@ -263,6 +263,7 @@
 			"plan": "Planifier"
 		},
 		"send": "Envoyer",
+		"stop": "Arrêter",
 		"focusChip": "En cours sur {label}",
 		"removeFocus": "Retirer",
 		"working": "Wandit travaille…",
@@ -270,9 +271,30 @@
 			"one": "{count} appel d'outil",
 			"other": "{count} appels d'outils"
 		},
+		"phases": {
+			"sandbox_waking": "Réveil du sandbox",
+			"session_starting": "Démarrage de la session",
+			"running": "Travail en cours",
+			"checkpoint": "Enregistrement d'un point de reprise",
+			"committing": "Enregistrement de la version"
+		},
+		"tools": {
+			"think": "Réflexion",
+			"read": "Lecture",
+			"write": "Écriture",
+			"run": "Exécution"
+		},
 		"question": {
 			"other": "Autre chose…",
 			"continue": "Continuer"
+		},
+		"approval": {
+			"title": "Wandit demande l'autorisation d'exécuter {tool}",
+			"approve": "Approuver",
+			"deny": "Refuser",
+			"approved": "Approuvé",
+			"denied": "Refusé",
+			"answered": "Répondu"
 		},
 		"suggestion": {
 			"accept": "Accepter",
@@ -288,7 +310,18 @@
 		"addContext": "Ajouter du contexte",
 		"attachImage": "Ajouter une image",
 		"attachScreen": "Cibler un écran",
-		"dictate": "Dicter"
+		"dictate": "Dicter",
+		"turnError": "L'opération s'est arrêtée : {message}",
+		"turnErrorRetry": "Vous pouvez renvoyer le message.",
+		"receipt": "{credits} · {tokens} jetons",
+		"errors": {
+			"noCredits": "Vous n'avez plus de crédits pour cette opération.",
+			"projectCap": "Ce projet a atteint son plafond de crédits.",
+			"tooManyTurns": "Trop d'opérations s'exécutent en même temps. Attendez que l'une d'elles se termine.",
+			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
+			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
+			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard."
+		}
 	},
 	"publish": {
 		"cta": "Publier",
