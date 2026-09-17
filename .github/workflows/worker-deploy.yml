@@ -1,0 +1,84 @@
+name: Worker deploy
+
+# Reusable Cloudflare Worker deploy: install the package, check its types,
+# run its tests, then `wrangler deploy`. Callers (workflow_call):
+# edge-deploy.yml and preview-proxy-deploy.yml. A dry run bundles the Worker
+# and validates the wrangler config. It skips the upload, so it needs no
+# API token.
+on:
+  workflow_call:
+    inputs:
+      # Worker package directory, for example apps/edge.
+      working-directory:
+        type: string
+        required: true
+      # pnpm -F filter for install, check-types, and test, for example edge.
+      package-filter:
+        type: string
+        required: true
+      # Value of `wrangler deploy --env`; "" names the top-level config.
+      wrangler-env:
+        type: string
+        required: true
+      # true: bundle and validate the config only, skip the upload.
+      dry-run:
+        type: boolean
+        required: true
+      # Optional second pnpm filter whose tests run too (the preview proxy
+      # passes @wandit/contracts, whose spec pins the token vector).
+      also-test-filter:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      # Not required: a dry run needs no token. A real deploy fails fast in
+      # the guard step below when it is empty.
+      CLOUDFLARE_API_TOKEN:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 matches the local dev runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The Worker package plus its workspace dependencies only.
+      - name: Install dependencies
+        run: npx -y pnpm@11.7.0 install --frozen-lockfile --filter ${{ inputs.package-filter }}...
+
+      - name: Check types
+        run: npx -y pnpm@11.7.0 -F ${{ inputs.package-filter }} check-types
+
+      - name: Test
+        run: npx -y pnpm@11.7.0 -F ${{ inputs.package-filter }} test
+
+      - name: Test the extra filter
+        if: ${{ inputs.also-test-filter != '' }}
+        run: npx -y pnpm@11.7.0 -F ${{ inputs.also-test-filter }} test
+
+      # A real deploy with no token fails late inside wrangler with an auth
+      # error. This step fails now and names the missing secret. The token
+      # is a step env, so the install and test steps never see it.
+      - name: Require the deploy token
+        if: ${{ !inputs.dry-run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is empty. Map a repository secret (CLOUDFLARE_V2_DEPLOY_TOKEN) onto it in the caller workflow."
+            exit 1
+          fi
+
+      # `--env ""` names the top-level config: without it wrangler warns
+      # that no target environment was named, and a warning fails CI.
+      - name: Deploy the Worker
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy --env "${{ inputs.wrangler-env }}" ${{ inputs.dry-run && '--dry-run --outdir dist' || '' }}
