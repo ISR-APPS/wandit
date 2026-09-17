@@ -69,6 +69,8 @@
 		"AI_CONTENT_MODERATED": "The AI provider declined this request because of its content rules. Change the prompt and try again.",
 		"AI_INVALID_REQUEST": "The AI provider did not accept this request. Try a shorter prompt or a different file.",
 		"AI_INTERNAL": "Something went wrong on our side. Please try again.",
-		"AI_UNKNOWN": "Something went wrong. Please try again."
+		"AI_UNKNOWN": "Something went wrong. Please try again.",
+		"VERSION_CONFLICT": "The versions changed. Open the list again and retry.",
+		"BUILDER_TURN_ACTIVE": "Wait for the running turn to finish, then retry."
 	}
 }

@@ -66,7 +66,7 @@ export default function AppBuilderPage({
 	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
 	const thread = useBuilderThread(projectId);
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
-	// A new key remounts the preview iframe; the top bar reload button bumps it.
+	// A new key makes the panel mint a new token; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
 	// LIMIT: the first paint on a phone shows the desktop split for one frame. Upgrade: read the breakpoint in the route loader.
 	const isMobile = useIsMobile();
@@ -156,14 +156,17 @@ export default function AppBuilderPage({
 					view === "preview" ? "flex" : "hidden",
 				)}
 			>
+				{/* A project switch in place remounts the preview, so the old frame and its token state go away. */}
 				{project.kind === "web" ? (
 					<WebPreview
+						key={project.id}
 						project={project}
 						viewport={viewport}
 						reloadKey={reloadKey}
 					/>
 				) : (
 					<PhonePreview
+						key={project.id}
 						project={project}
 						device={device}
 						reloadKey={reloadKey}
@@ -194,6 +197,10 @@ export default function AppBuilderPage({
 			project={project}
 			chatOpen={chatOpen}
 			onExpandChat={() => setChatOpenAndStore(true)}
+			// The restore writes the old tree into the sandbox worktree; the reload
+			// mints a new token and shows it. A stopped sandbox shows the waking
+			// state until the next turn.
+			onRestored={() => setReloadKey((key) => key + 1)}
 		/>
 	);
 

@@ -296,12 +296,3 @@ export type ProjectSettings = {
 	collaboratorLimit: number;
 	environmentVariables: EnvironmentVariable[];
 };
-
-export type AppVersion = {
-	number: number;
-	/** One line the agent wrote when it saved the version. */
-	summary: string;
-	/** ISO 8601 date-time string, as the API sends it. */
-	createdAt: string;
-	isLive: boolean;
-};

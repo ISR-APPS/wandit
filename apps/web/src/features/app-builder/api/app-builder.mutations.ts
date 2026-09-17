@@ -1,15 +1,18 @@
 /**
  * Mutations of the app builder. Each one calls a service and writes the
  * result into the query cache, so the panel that reads the query updates at
- * once. Called by the Settings panel, the Sign-in panel, and the Payments
- * panel.
+ * once. Called by the Settings panel, the Sign-in panel, the Payments
+ * panel, and the versions popover.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
+import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
 	type AppProjectPatch,
+	restoreVersion,
 	setCollaboratorRole,
 	setPaymentsMode,
 	setSignInMethod,
@@ -66,6 +69,55 @@ export function useSetCollaboratorRole(projectId: string) {
 			setCollaboratorRole(projectId, input),
 		onSuccess: (settings) => {
 			queryClient.setQueryData(appBuilderKeys.settings(projectId), settings);
+		},
+	});
+}
+
+/** Inputs of `useRestoreVersion` beyond the project id. `deps` is the spec seam; production omits `restoreVersion`. */
+export type RestoreVersionDeps = {
+	/** The restore POST. The spec injects a fake through it. */
+	restoreVersion?: typeof restoreVersion;
+	/** Runs after a restore succeeds, also when the popover already closed. The page reloads the preview with it. */
+	onRestored?: () => void;
+};
+
+/**
+ * Restores one version as a new copy-forward commit. `expectedHeadSha` is
+ * the head the user saw; the API compares and swaps on it. Success
+ * invalidates the versions list and the project row.
+ */
+export function useRestoreVersion(
+	projectId: string,
+	deps: RestoreVersionDeps = {},
+) {
+	const queryClient = useQueryClient();
+	const doRestore = deps.restoreVersion ?? restoreVersion;
+	return useMutation({
+		mutationKey: [...appBuilderKeys.versions(projectId), "restore"],
+		mutationFn: ({
+			sha,
+			expectedHeadSha,
+		}: {
+			sha: string;
+			expectedHeadSha: string;
+		}) => doRestore(projectId, sha, { expectedHeadSha }),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.versions(projectId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.project(projectId),
+			});
+			deps.onRestored?.();
+		},
+		onError: (error) => {
+			if (isApiClientError(error) && error.code === "VERSION_CONFLICT") {
+				// The head moved, so the list the user saw is stale.
+				void queryClient.invalidateQueries({
+					queryKey: appBuilderKeys.versions(projectId),
+				});
+			}
+			toast.error(getApiErrorMessage(error));
 		},
 	});
 }

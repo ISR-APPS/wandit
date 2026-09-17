@@ -21,6 +21,12 @@ describe("appBuilderSearchSchema", () => {
 		});
 	});
 
+	it("parses the tablet viewport", () => {
+		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({
+			viewport: "tablet",
+		});
+	});
+
 	it("drops unknown values instead of throwing", () => {
 		const result = appBuilderSearchSchema.parse({
 			view: "settings",

@@ -45,8 +45,8 @@ export type MorePanel = (typeof MORE_PANELS)[number];
 export const PHONE_DEVICES = ["ios", "android"] as const;
 export type PhoneDevice = (typeof PHONE_DEVICES)[number];
 
-/** Frame widths of the web preview. */
-export const WEB_VIEWPORTS = ["desktop", "mobile"] as const;
+/** Frame widths of the web preview. `tablet` sits between `desktop` and `mobile`. */
+export const WEB_VIEWPORTS = ["desktop", "tablet", "mobile"] as const;
 export type WebViewport = (typeof WEB_VIEWPORTS)[number];
 
 /** `build` changes the code. `plan` only answers in the chat. */
@@ -138,6 +138,9 @@ export const CHAT_PANEL_DEFAULT_WIDTH = "400px";
 
 /** Narrowest chat card. The composer row (add, credits, mode, mic, send) needs about 300 px. */
 export const CHAT_PANEL_MIN_WIDTH = "320px";
+
+/** Width of the web preview iframe in the tablet viewport, CSS px. The iPad portrait logical width. */
+export const TABLET_VIEWPORT_WIDTH_PX = 768;
 
 /** Width of the web preview iframe in the mobile viewport, CSS px. The logical width of an iPhone 15. */
 export const MOBILE_VIEWPORT_WIDTH_PX = 393;

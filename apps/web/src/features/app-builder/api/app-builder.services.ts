@@ -4,7 +4,7 @@
  * until a reload. The functions under `// ---- Real API ----` call the V2
  * routes through `@/lib/api-client` and parse the response with contracts.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
- * lib/use-builder-chat.ts, and the route loader.
+ * lib/use-builder-chat.ts, lib/use-preview-token.ts, and the route loader.
  */
 
 import {
@@ -13,6 +13,15 @@ import {
 	appProjectSchema,
 	type CancelTurnResponse,
 	cancelTurnResponseSchema,
+	type ListVersionsResponse,
+	listVersionsResponseSchema,
+	type PreviewTokenResponse,
+	previewTokenResponseSchema,
+	type RestoreVersionBody,
+	type RestoreVersionResponse,
+	restoreVersionResponseSchema,
+	type VersionDiffResponse,
+	versionDiffResponseSchema,
 } from "@wandit/contracts";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
@@ -27,13 +36,12 @@ import {
 	MOCK_SETTINGS,
 	MOCK_SIGN_IN,
 } from "../lib/mock-panels";
-import { MOCK_APP_PROJECTS, MOCK_APP_VERSIONS } from "../lib/mock-projects";
+import { MOCK_APP_PROJECTS } from "../lib/mock-projects";
 import { MOCK_BUILDER_THREAD } from "../lib/mock-thread";
 import type {
 	AppProject,
 	AppProjectKind,
 	AppStoresSummary,
-	AppVersion,
 	BackendSummary,
 	BuilderThread,
 	CodeFile,
@@ -67,7 +75,6 @@ type MockStore = {
 	signIn: Map<string, SignInSummary>;
 	payments: Map<string, PaymentsSummary>;
 	settings: Map<string, ProjectSettings>;
-	versions: Map<string, AppVersion[]>;
 };
 
 let store: MockStore | null = null;
@@ -79,7 +86,6 @@ function createStore(): MockStore {
 		signIn: new Map(),
 		payments: new Map(),
 		settings: new Map(),
-		versions: new Map(),
 	};
 	for (const project of MOCK_APP_PROJECTS) {
 		seedProject(next, project.id, project.kind);
@@ -121,7 +127,6 @@ function seedProject(
 		),
 	);
 	store.settings.set(projectId, structuredClone(MOCK_SETTINGS));
-	store.versions.set(projectId, structuredClone(MOCK_APP_VERSIONS));
 }
 
 function getStore(): MockStore {
@@ -313,14 +318,6 @@ export async function setCollaboratorRole(
 	return structuredClone(settings);
 }
 
-/** Versions newest first. */
-export async function listAppVersions(
-	projectId: string,
-): Promise<AppVersion[]> {
-	await delay();
-	return structuredClone(required(getStore().versions, projectId));
-}
-
 // ---- Real API ----
 
 /**
@@ -357,7 +354,7 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
 		// LIMIT: the V2 API has no publish state yet, so the slug, the version
 		// number, and the unpublished count keep their empty values.
-		// Upgrade: the versions list of WANDIT-173.
+		// Upgrade: the publish state of WANDIT-178.
 		slug: project.publishedSlug ?? "",
 		versionNumber: 0,
 		unpublishedChanges: 0,
@@ -376,4 +373,66 @@ export async function cancelTurn(
 		appBuilderRoutes.cancelTurn(projectId, turnId),
 	);
 	return cancelTurnResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/preview-token` mints a signed 15-minute
+ * preview URL of the running sandbox. A 409 with code
+ * `SANDBOX_NOT_RUNNING` answers while no sandbox runs; the caller polls
+ * through it. The route is rate limited at 30 requests per user per
+ * minute.
+ */
+export async function getPreviewToken(
+	projectId: string,
+): Promise<PreviewTokenResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.previewToken(projectId),
+	);
+	return previewTokenResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/versions` answers the version list, newest
+ * first. The items are git commits of the project's repository.
+ */
+// LIMIT: only the first page of 50 loads; there is no cursor paging yet. Upgrade: follow `nextCursor`.
+export async function listVersions(
+	projectId: string,
+): Promise<ListVersionsResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.versions(projectId),
+	);
+	return listVersionsResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/versions/:sha/diff` answers the stored `git
+ * show` patch and the numstat of one commit.
+ */
+export async function getVersionDiff(
+	projectId: string,
+	sha: string,
+): Promise<VersionDiffResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.versionDiff(projectId, sha),
+	);
+	return versionDiffResponseSchema.parse(data);
+}
+
+/**
+ * `POST /api/v2/projects/:id/versions/:sha/restore` copies the version
+ * forward as a new commit. `body.expectedHeadSha` is the compare-and-swap
+ * input: a stale head answers 409 VERSION_CONFLICT, and a running turn
+ * answers 409 BUILDER_TURN_ACTIVE.
+ */
+export async function restoreVersion(
+	projectId: string,
+	sha: string,
+	body: RestoreVersionBody,
+): Promise<RestoreVersionResponse> {
+	const data = await apiClient.post<unknown>(
+		appBuilderRoutes.restoreVersion(projectId, sha),
+		body,
+	);
+	return restoreVersionResponseSchema.parse(data);
 }
