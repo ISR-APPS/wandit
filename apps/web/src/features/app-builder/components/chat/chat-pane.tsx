@@ -1,10 +1,10 @@
 /**
  * The chat card of the app builder. The header shows the project name, the
- * pulsing turn dot, and the collapse button. Below it sit the scrolling
- * message list and the composer pinned at the bottom.
- * Rendered by pages/app-builder-page.tsx, which owns the thread data, the
- * send mutation, and the card chrome. Renders chat-message.tsx and
- * composer.tsx.
+ * pulsing turn dot with a Stop button while a turn runs, and the collapse
+ * button. Below it sit the scrolling message list, an alert row for a
+ * refused send (`errorText`), and the composer pinned at the bottom.
+ * Rendered by pages/app-builder-page.tsx, which owns the thread hook and
+ * the card chrome. Renders chat-message.tsx and composer.tsx.
  */
 
 import { Button } from "@wandit/ui/components/button";
@@ -14,7 +14,7 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { PanelLeftClose } from "lucide-react";
+import { PanelLeftClose, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -32,9 +32,17 @@ export type ChatPaneProps = {
 	focusLabel: string | null;
 	/** True while a turn runs. Locks the composer and shows the working indicator. */
 	isSending: boolean;
+	/** False until the project chat id resolves. Locks the composer together with `isSending`. */
+	isReady: boolean;
 	/** Name of the open project. Shown after "Chat" in the card header. */
 	projectName: string;
 	onSend: (input: SendBuilderMessageInput) => void;
+	/** Sends an approval card decision; the pane drops it while a turn runs. */
+	onDecideApproval: (approvalId: string, approved: boolean) => void;
+	/** Stops the running turn. The Stop button shows only while `isSending`. */
+	onCancel: () => void;
+	/** Sentence of the last rejected send, or null. Shown as an alert under the list. */
+	errorText: string | null;
 	/** Hides the chat. The header button calls it; the page stores the choice. */
 	onCollapse: () => void;
 	/** Opens the preview on a saved version. The change card calls it. */
@@ -47,8 +55,12 @@ export function ChatPane({
 	turnEstimateCredits,
 	focusLabel,
 	isSending,
+	isReady,
 	projectName,
 	onSend,
+	onDecideApproval,
+	onCancel,
+	errorText,
 	onCollapse,
 	onPreviewVersion,
 	className,
@@ -74,11 +86,28 @@ export function ChatPane({
 				</span>
 				<span className="ms-auto flex items-center gap-0.5">
 					{isSending ? (
-						// Decorative only: the working row in the list already carries role="status".
-						<span
-							aria-hidden
-							className="me-1.5 size-[7px] animate-pulse-soft rounded-full bg-primary"
-						/>
+						<>
+							{/* Decorative only: the working row in the list already carries role="status". */}
+							<span
+								aria-hidden
+								className="me-1.5 size-[7px] animate-pulse-soft rounded-full bg-primary"
+							/>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label={t("appBuilder.chat.stop")}
+										onClick={onCancel}
+									>
+										<Square className="size-4" />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side="bottom">
+									{t("appBuilder.chat.stop")}
+								</TooltipContent>
+							</Tooltip>
+						</>
 					) : null}
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -112,17 +141,32 @@ export function ChatPane({
 						onSendText={(text) => {
 							if (!isSending) onSend({ text, mode: "build" });
 						}}
+						// Same drop rule as onSendText: one active turn per project.
+						onDecideApproval={(approvalId, approved) => {
+							if (!isSending) onDecideApproval(approvalId, approved);
+						}}
 					/>
 				))}
 				{isSending ? (
 					<WorkingIndicator label={t("appBuilder.chat.working")} />
 				) : null}
 			</div>
+			{errorText !== null ? (
+				<p
+					role="alert"
+					dir="auto"
+					className="shrink-0 px-4 pb-2 text-destructive text-sm"
+				>
+					{errorText}
+				</p>
+			) : null}
 			<div className="shrink-0 px-4 pt-2 pb-4">
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
 					focusLabel={focusLabel}
-					isSending={isSending}
+					// The composer also locks while the chat id resolves: a send
+					// without it would clear the draft and drop the turn.
+					isSending={isSending || !isReady}
 					onSend={onSend}
 				/>
 			</div>

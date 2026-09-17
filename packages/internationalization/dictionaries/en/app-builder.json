@@ -263,6 +263,7 @@
 			"plan": "Plan"
 		},
 		"send": "Send",
+		"stop": "Stop",
 		"focusChip": "Working on {label}",
 		"removeFocus": "Remove",
 		"working": "Wandit is working…",
@@ -270,9 +271,30 @@
 			"one": "{count} tool call",
 			"other": "{count} tool calls"
 		},
+		"phases": {
+			"sandbox_waking": "Waking the sandbox",
+			"session_starting": "Starting the session",
+			"running": "Working",
+			"checkpoint": "Saving a checkpoint",
+			"committing": "Saving the version"
+		},
+		"tools": {
+			"think": "Thinking",
+			"read": "Read",
+			"write": "Write",
+			"run": "Run"
+		},
 		"question": {
 			"other": "Something else…",
 			"continue": "Continue"
+		},
+		"approval": {
+			"title": "Wandit asks permission to run {tool}",
+			"approve": "Approve",
+			"deny": "Deny",
+			"approved": "Approved",
+			"denied": "Denied",
+			"answered": "Answered"
 		},
 		"suggestion": {
 			"accept": "Accept",
@@ -288,7 +310,18 @@
 		"addContext": "Add context",
 		"attachImage": "Add an image",
 		"attachScreen": "Reference a screen",
-		"dictate": "Dictate"
+		"dictate": "Dictate",
+		"turnError": "The turn stopped: {message}",
+		"turnErrorRetry": "You can send the message again.",
+		"receipt": "{credits} · {tokens} tokens",
+		"errors": {
+			"noCredits": "You have no credits left for this turn.",
+			"projectCap": "This project reached its credit cap.",
+			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
+			"approvalPending": "Answer the open approval card first.",
+			"modelDenied": "Your plan does not include this model.",
+			"modelUnpriced": "This model has no price yet. Try again later."
+		}
 	},
 	"publish": {
 		"cta": "Publish",

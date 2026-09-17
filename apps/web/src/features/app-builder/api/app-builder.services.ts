@@ -1,11 +1,21 @@
 /**
- * Mock data layer of the app builder. Each function waits a short delay and
- * returns a copy, like a fetch. State lives in this module until a reload.
- * Called by app-builder.queries.ts, app-builder.mutations.ts, and the route
- * loader. The backend session replaces the bodies with HTTP calls through
- * `@/lib/api-client`; the signatures and the return types stay.
+ * Data layer of the app builder. Most functions are a mock store: each waits
+ * a short delay and returns a copy, like a fetch. State lives in this module
+ * until a reload. The functions under `// ---- Real API ----` call the V2
+ * routes through `@/lib/api-client` and parse the response with contracts.
+ * Called by app-builder.queries.ts, app-builder.mutations.ts,
+ * lib/use-builder-chat.ts, and the route loader.
  */
 
+import {
+	type AppProject as ApiAppProject,
+	appBuilderRoutes,
+	appProjectSchema,
+	type CancelTurnResponse,
+	cancelTurnResponseSchema,
+} from "@wandit/contracts";
+
+import { apiClient, isApiClientError } from "@/lib/api-client";
 import { type ComposerMode, MOCK_LATENCY_MS } from "../lib/constants";
 import { MOCK_CODE_FILES, MOCK_CODE_SNAPSHOT } from "../lib/mock-code";
 import {
@@ -18,7 +28,7 @@ import {
 	MOCK_SIGN_IN,
 } from "../lib/mock-panels";
 import { MOCK_APP_PROJECTS, MOCK_APP_VERSIONS } from "../lib/mock-projects";
-import { buildMockReply, MOCK_BUILDER_THREAD } from "../lib/mock-thread";
+import { MOCK_BUILDER_THREAD } from "../lib/mock-thread";
 import type {
 	AppProject,
 	AppProjectKind,
@@ -47,7 +57,7 @@ export type AppProjectPatch = {
 export type SendBuilderMessageInput = {
 	/** The trimmed draft, or the text of a card action. Never empty. */
 	text: string;
-	/** `build` saves a version. `plan` only replies. */
+	/** The composer choice. The page sends every mode as a build turn until the turn body has a mode field. */
 	mode: ComposerMode;
 };
 
@@ -72,23 +82,46 @@ function createStore(): MockStore {
 		versions: new Map(),
 	};
 	for (const project of MOCK_APP_PROJECTS) {
-		next.projects.set(project.id, structuredClone(project));
-		next.threads.set(project.id, {
-			...structuredClone(MOCK_BUILDER_THREAD),
-			projectId: project.id,
-		});
-		next.signIn.set(project.id, structuredClone(MOCK_SIGN_IN));
-		// The mobile project shows the not-connected state of the Payments panel.
-		next.payments.set(
-			project.id,
-			structuredClone(
-				project.kind === "web" ? MOCK_PAYMENTS : MOCK_PAYMENTS_NOT_CONNECTED,
-			),
-		);
-		next.settings.set(project.id, structuredClone(MOCK_SETTINGS));
-		next.versions.set(project.id, structuredClone(MOCK_APP_VERSIONS));
+		seedProject(next, project.id, project.kind);
 	}
 	return next;
+}
+
+/**
+ * Fills every map of `store` with the fixtures of one project. A mock id
+ * copies its own project row; any other id is a real project that borrows
+ * the first fixture row, so the panels that still read mocks work for it.
+ */
+function seedProject(
+	store: MockStore,
+	projectId: string,
+	kind: AppProjectKind,
+): void {
+	const template =
+		MOCK_APP_PROJECTS.find((project) => project.id === projectId) ??
+		MOCK_APP_PROJECTS[0];
+	// A real row that fetchAppProject stored stays. The placeholder is only
+	// for an id the store has never seen.
+	if (!store.projects.has(projectId)) {
+		store.projects.set(
+			projectId,
+			structuredClone({ ...template, id: projectId, kind }),
+		);
+	}
+	store.threads.set(projectId, {
+		...structuredClone(MOCK_BUILDER_THREAD),
+		projectId,
+	});
+	store.signIn.set(projectId, structuredClone(MOCK_SIGN_IN));
+	// The mobile kind shows the not-connected state of the Payments panel.
+	store.payments.set(
+		projectId,
+		structuredClone(
+			kind === "web" ? MOCK_PAYMENTS : MOCK_PAYMENTS_NOT_CONNECTED,
+		),
+	);
+	store.settings.set(projectId, structuredClone(MOCK_SETTINGS));
+	store.versions.set(projectId, structuredClone(MOCK_APP_VERSIONS));
 }
 
 function getStore(): MockStore {
@@ -105,8 +138,23 @@ function delay(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, MOCK_LATENCY_MS));
 }
 
-/** Reads a value the store must hold for a known project. */
+/**
+ * Reads a value of the store. A project id the store does not hold yet — a
+ * real id — gets the mock fixtures seeded first, so the panels that still
+ * read mocks answer for it.
+ */
 function required<T>(map: Map<string, T>, projectId: string): T {
+	const current = getStore();
+	if (!map.has(projectId)) {
+		// A real project id gets the mock fixtures until each panel lands on
+		// its route. The kind comes from the real row when fetchAppProject
+		// stored it; before that, `web` stands in.
+		seedProject(
+			current,
+			projectId,
+			current.projects.get(projectId)?.kind ?? "web",
+		);
+	}
 	const value = map.get(projectId);
 	if (value === undefined) {
 		throw new Error(`Unknown app project: ${projectId}`);
@@ -114,15 +162,32 @@ function required<T>(map: Map<string, T>, projectId: string): T {
 	return value;
 }
 
+/** The seed rows only. A placeholder row seeded for a real id must not reach the project menu. */
 export async function listAppProjects(): Promise<AppProject[]> {
 	await delay();
-	return structuredClone([...getStore().projects.values()]);
+	const projects = getStore().projects;
+	return structuredClone(
+		MOCK_APP_PROJECTS.flatMap((seed) => {
+			const row = projects.get(seed.id);
+			return row ? [row] : [];
+		}),
+	);
 }
 
-/** null when no project has this id, so the route can show its not-found screen. */
+/**
+ * null when no project has this id, so the route can show its not-found
+ * screen. `get` is the test seam of the real API call; production gets
+ * the shared client.
+ */
 export async function getAppProject(
 	projectId: string,
+	get: typeof apiClient.get = apiClient.get,
 ): Promise<AppProject | null> {
+	// Only the seed ids answer the mock. A real id goes to the API even after
+	// a panel guard seeded a placeholder row for it into the store.
+	if (!MOCK_APP_PROJECTS.some((project) => project.id === projectId)) {
+		return fetchAppProject(projectId, get);
+	}
 	await delay();
 	const project = getStore().projects.get(projectId);
 	return project ? structuredClone(project) : null;
@@ -143,48 +208,6 @@ export async function getBuilderThread(
 ): Promise<BuilderThread> {
 	await delay();
 	return structuredClone(required(getStore().threads, projectId));
-}
-
-/**
- * Appends the user message and a canned assistant reply. The text also
- * answers an open question. A `build` turn also saves a new version.
- */
-export async function sendBuilderMessage(
-	projectId: string,
-	input: SendBuilderMessageInput,
-): Promise<BuilderThread> {
-	await delay();
-	const current = getStore();
-	const thread = required(current.threads, projectId);
-	const project = required(current.projects, projectId);
-	// A reply closes the open question of the last assistant message, as the backend will.
-	const last = thread.messages.at(-1);
-	if (last?.role === "assistant") {
-		for (const part of last.parts) {
-			if (part.type === "data-question" && part.data.answer === null) {
-				part.data.answer = input.text;
-			}
-		}
-	}
-	thread.messages.push({
-		id: crypto.randomUUID(),
-		role: "user",
-		parts: [{ type: "text", text: input.text }],
-	});
-	if (input.mode === "build") {
-		project.versionNumber += 1;
-		project.unpublishedChanges += 1;
-		required(current.versions, projectId).unshift({
-			number: project.versionNumber,
-			summary: input.text,
-			createdAt: new Date().toISOString(),
-			isLive: false,
-		});
-	}
-	thread.messages.push(
-		buildMockReply(input.text, input.mode, project.versionNumber),
-	);
-	return structuredClone(thread);
 }
 
 export async function getCodeSnapshot(
@@ -296,4 +319,61 @@ export async function listAppVersions(
 ): Promise<AppVersion[]> {
 	await delay();
 	return structuredClone(required(getStore().versions, projectId));
+}
+
+// ---- Real API ----
+
+/**
+ * `GET /api/v2/projects/:id`. A 404 answers null like a missing mock id;
+ * every other failure propagates so the query enters its error state.
+ * `get` comes from the caller so a spec can inject a fake client. The
+ * store keeps the real row, so a later mock guard (updateAppProject, the
+ * panels) patches the real project and not a fixture.
+ */
+async function fetchAppProject(
+	projectId: string,
+	get: typeof apiClient.get,
+): Promise<AppProject | null> {
+	try {
+		const data = await get<unknown>(appBuilderRoutes.project(projectId));
+		const project = toUiAppProject(appProjectSchema.parse(data));
+		getStore().projects.set(project.id, structuredClone(project));
+		return project;
+	} catch (error) {
+		if (isApiClientError(error) && error.statusCode === 404) return null;
+		throw error;
+	}
+}
+
+/**
+ * Maps the V2 project answer to the UI project. The app kind comes from
+ * `targetPlatform`; a null platform counts as web.
+ */
+export function toUiAppProject(project: ApiAppProject): AppProject {
+	return {
+		id: project.id,
+		name: project.name,
+		description: project.prompt,
+		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		// LIMIT: the V2 API has no publish state yet, so the slug, the version
+		// number, and the unpublished count keep their empty values.
+		// Upgrade: the versions list of WANDIT-173.
+		slug: project.publishedSlug ?? "",
+		versionNumber: 0,
+		unpublishedChanges: 0,
+	};
+}
+
+/**
+ * Cancels a running builder turn. `POST /api/v2/projects/:id/turns/:turnId/cancel`
+ * sends no body; apiClient adds the cookies and the workspace header.
+ */
+export async function cancelTurn(
+	projectId: string,
+	turnId: string,
+): Promise<CancelTurnResponse> {
+	const data = await apiClient.post<unknown>(
+		appBuilderRoutes.cancelTurn(projectId, turnId),
+	);
+	return cancelTurnResponseSchema.parse(data);
 }

@@ -20,6 +20,7 @@ import { ChatMessageView } from "./chat-message";
 function renderMessage(message: BuilderMessage) {
 	const onPreviewVersion = vi.fn();
 	const onSendText = vi.fn();
+	const onDecideApproval = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
 		locale: "en",
@@ -32,11 +33,12 @@ function renderMessage(message: BuilderMessage) {
 				message,
 				onPreviewVersion,
 				onSendText,
+				onDecideApproval,
 			}),
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
-	return { onPreviewVersion, onSendText };
+	return { onPreviewVersion, onSendText, onDecideApproval };
 }
 
 const CHANGE_MESSAGE: BuilderMessage = {
@@ -198,6 +200,73 @@ describe("ChatMessageView", () => {
 		await waitFor(() => expect(hasToastAfter(seenToasts, "Copied")).toBe(true));
 		expect(writeText).toHaveBeenCalledWith("Done.");
 		Reflect.deleteProperty(navigator, "clipboard");
+	});
+
+	it("sends an approval decision through onDecideApproval", () => {
+		const { onDecideApproval } = renderMessage({
+			id: "a7",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-approval",
+					id: "ap-1",
+					data: {
+						approvalId: "ap-1",
+						toolName: "Bash",
+						input: '{"command":"pnpm db:push"}',
+						decision: null,
+						isOpen: true,
+					},
+				},
+			],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+		expect(onDecideApproval).toHaveBeenCalledWith("ap-1", true);
+	});
+
+	it("renders the turn error as an alert with the retry line", () => {
+		renderMessage({
+			id: "a8",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-error",
+					id: "e1",
+					data: {
+						code: "SANDBOX_LOST",
+						message: "The sandbox stopped.",
+						retryable: true,
+					},
+				},
+			],
+		});
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toContain(
+			"The turn stopped: The sandbox stopped.",
+		);
+		expect(alert.textContent).toContain("You can send the message again.");
+	});
+
+	it("renders the receipt line with credits, tokens, and the model label", () => {
+		renderMessage({
+			id: "a9",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-receipt",
+					id: "r1",
+					data: {
+						credits: 2,
+						modelId: "anthropic/claude-sonnet-5",
+						inputTokens: 1000,
+						outputTokens: 500,
+					},
+				},
+			],
+		});
+		expect(
+			screen.getByText("2 credits · 1,500 tokens · Claude Sonnet 5"),
+		).toBeTruthy();
 	});
 
 	it("renders a progress card and no action row without a change", () => {

@@ -291,6 +291,7 @@
 			"plan": "تخطيط"
 		},
 		"send": "إرسال",
+		"stop": "إيقاف",
 		"focusChip": "العمل على {label}",
 		"removeFocus": "إزالة",
 		"working": "Wandit يعمل…",
@@ -302,9 +303,30 @@
 			"many": "{count} استدعاءً للأدوات",
 			"other": "{count} استدعاء أدوات"
 		},
+		"phases": {
+			"sandbox_waking": "إيقاظ البيئة المعزولة",
+			"session_starting": "بدء الجلسة",
+			"running": "جارٍ العمل",
+			"checkpoint": "حفظ نقطة استعادة",
+			"committing": "حفظ الإصدار"
+		},
+		"tools": {
+			"think": "تفكير",
+			"read": "قراءة",
+			"write": "كتابة",
+			"run": "تشغيل"
+		},
 		"question": {
 			"other": "شيء آخر…",
 			"continue": "متابعة"
+		},
+		"approval": {
+			"title": "يطلب Wandit الإذن لتشغيل {tool}",
+			"approve": "موافقة",
+			"deny": "رفض",
+			"approved": "تمت الموافقة",
+			"denied": "مرفوض",
+			"answered": "تمت الإجابة"
 		},
 		"suggestion": {
 			"accept": "قبول",
@@ -320,7 +342,18 @@
 		"addContext": "إضافة سياق",
 		"attachImage": "إضافة صورة",
 		"attachScreen": "الإشارة إلى شاشة",
-		"dictate": "إملاء"
+		"dictate": "إملاء",
+		"turnError": "توقفت العملية: {message}",
+		"turnErrorRetry": "يمكنك إرسال الرسالة مرة أخرى.",
+		"receipt": "{credits} · {tokens} رمزًا",
+		"errors": {
+			"noCredits": "لم يتبقَّ لديك رصيد لهذه العملية.",
+			"projectCap": "بلغ هذا المشروع سقف الرصيد الخاص به.",
+			"tooManyTurns": "تعمل عمليات كثيرة في الوقت نفسه. انتظر حتى تنتهي إحداها.",
+			"approvalPending": "أجب أولاً على بطاقة الموافقة المفتوحة.",
+			"modelDenied": "باقتك لا تشمل هذا النموذج.",
+			"modelUnpriced": "ليس لهذا النموذج سعر بعد. حاول مرة أخرى لاحقًا."
+		}
 	},
 	"publish": {
 		"cta": "نشر",

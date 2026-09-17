@@ -1,4 +1,7 @@
+import type { AppProject as ApiAppProject } from "@wandit/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
+
+import { ApiClientError, type apiClient } from "@/lib/api-client";
 import {
 	getAppProject,
 	getBuilderThread,
@@ -6,12 +9,12 @@ import {
 	getPaymentsSummary,
 	getProjectSettings,
 	getSignInSummary,
-	listAppVersions,
+	listAppProjects,
 	resetMockStore,
-	sendBuilderMessage,
 	setCollaboratorRole,
 	setPaymentsMode,
 	setSignInMethod,
+	toUiAppProject,
 	updateAppProject,
 } from "./app-builder.services";
 
@@ -23,10 +26,6 @@ beforeEach(() => {
 });
 
 describe("getAppProject", () => {
-	it("returns null for an unknown id", async () => {
-		expect(await getAppProject("missing")).toBeNull();
-	});
-
 	it("returns a copy, so a caller cannot change the store", async () => {
 		const first = await getAppProject(WEB_ID);
 		if (!first) throw new Error("fixture missing");
@@ -34,50 +33,45 @@ describe("getAppProject", () => {
 		const second = await getAppProject(WEB_ID);
 		expect(second?.name).toBe("Nadi Fitness");
 	});
+
+	it("answers null on a 404 and rethrows every other API error", async () => {
+		const realId = crypto.randomUUID();
+		const getFails =
+			(statusCode: number): typeof apiClient.get =>
+			async () => {
+				throw new ApiClientError({
+					code: `HTTP_${statusCode}`,
+					message: "The request failed.",
+					path: `/api/v2/projects/${realId}`,
+					requestId: "req-1",
+					statusCode,
+					timestamp: "2026-09-17T00:00:00.000Z",
+				});
+			};
+
+		expect(await getAppProject(realId, getFails(404))).toBeNull();
+		await expect(getAppProject(realId, getFails(500))).rejects.toMatchObject({
+			statusCode: 500,
+		});
+	});
 });
 
-describe("sendBuilderMessage", () => {
-	it("appends the user message and a reply, and saves a version in build mode", async () => {
-		const before = await getBuilderThread(WEB_ID);
-		const after = await sendBuilderMessage(WEB_ID, {
-			text: "Add a classes screen",
-			mode: "build",
-		});
-		expect(after.messages).toHaveLength(before.messages.length + 2);
-		expect(after.messages.at(-2)?.role).toBe("user");
-		expect(after.messages.at(-1)?.role).toBe("assistant");
-		const project = await getAppProject(WEB_ID);
-		expect(project?.versionNumber).toBe(5);
-		expect(project?.unpublishedChanges).toBe(4);
-		expect((await listAppVersions(WEB_ID))[0]?.number).toBe(5);
+describe("listAppProjects", () => {
+	it("returns only the seed rows after a real id seeded a placeholder", async () => {
+		// The thread guard seeds every map of the store for the unknown id.
+		await getBuilderThread(crypto.randomUUID());
+		const projects = await listAppProjects();
+		expect(projects.map((project) => project.id)).toEqual([
+			"nadi-fitness",
+			"nadi-fitness-mobile",
+		]);
 	});
+});
 
-	it("closes the open question of the last reply with the sent text", async () => {
-		const after = await sendBuilderMessage(MOBILE_ID, {
-			text: "Both",
-			mode: "plan",
-		});
-		// The mock thread ends with one open question; the reply and the user message follow it.
-		const asked = after.messages.at(-3);
-		const question = asked?.parts.find((part) => part.type === "data-question");
-		expect(question?.type === "data-question" && question.data.answer).toBe(
-			"Both",
-		);
-	});
-
-	it("does not save a version in plan mode", async () => {
-		await sendBuilderMessage(WEB_ID, {
-			text: "How would you do it?",
-			mode: "plan",
-		});
-		const project = await getAppProject(WEB_ID);
-		expect(project?.versionNumber).toBe(4);
-	});
-
-	it("throws for an unknown project", async () => {
-		await expect(
-			sendBuilderMessage("missing", { text: "x", mode: "build" }),
-		).rejects.toThrow("Unknown app project");
+describe("getBuilderThread", () => {
+	it("seeds the mock fixtures for a real project id instead of throwing", async () => {
+		const thread = await getBuilderThread(crypto.randomUUID());
+		expect(thread.focusLabel).toBe("Pass screen");
 	});
 });
 
@@ -86,6 +80,27 @@ describe("updateAppProject", () => {
 		const project = await updateAppProject(WEB_ID, { kind: "mobile" });
 		expect(project.kind).toBe("mobile");
 		expect((await getAppProject(WEB_ID))?.kind).toBe("mobile");
+	});
+
+	it("patches the real row of a fetched project, not a fixture", async () => {
+		const realId = crypto.randomUUID();
+		// SAFETY: the fake answers the one GET this case makes, and
+		// getAppProject parses the answer with appProjectSchema.
+		const getReal = (async () => ({
+			...API_PROJECT,
+			id: realId,
+			targetPlatform: "mobile",
+		})) as typeof apiClient.get;
+		await getAppProject(realId, getReal);
+
+		const project = await updateAppProject(realId, { name: "Atlas Two" });
+
+		expect(project).toMatchObject({
+			id: realId,
+			name: "Atlas Two",
+			slug: "atlas",
+			kind: "mobile",
+		});
 	});
 });
 
@@ -145,5 +160,53 @@ describe("setPaymentsMode", () => {
 describe("getCodeFile", () => {
 	it("returns null for a path outside the repository", async () => {
 		expect(await getCodeFile(WEB_ID, "nope.ts")).toBeNull();
+	});
+});
+
+// A V2 project answer as `GET /api/v2/projects/:id` sends it, per appProjectSchema.
+const API_PROJECT = {
+	id: crypto.randomUUID(),
+	name: "Atlas Shop",
+	engine: "v2_app",
+	prompt: "A storefront for crafts",
+	status: "draft",
+	leadCount: 0,
+	createdAt: "2026-09-10T10:00:00.000Z",
+	updatedAt: "2026-09-10T10:00:00.000Z",
+	thumbnailSeed: 7,
+	previewImageUrl: null,
+	logoUrl: null,
+	publishedSlug: "atlas",
+	metaPixelId: null,
+	tiktokPixelId: null,
+	hideWanditBadge: false,
+	targetPlatform: "web",
+	framework: "tanstack-start",
+	templateVersion: "1",
+	languages: ["ar", "fr", "en"],
+} satisfies ApiAppProject;
+
+describe("toUiAppProject", () => {
+	it("maps a web project to the UI shape", () => {
+		expect(toUiAppProject(API_PROJECT)).toEqual({
+			id: API_PROJECT.id,
+			name: "Atlas Shop",
+			slug: "atlas",
+			description: "A storefront for crafts",
+			kind: "web",
+			versionNumber: 0,
+			unpublishedChanges: 0,
+		});
+	});
+
+	it("maps a mobile target and a missing published slug", () => {
+		const mobile = {
+			...API_PROJECT,
+			targetPlatform: "mobile",
+			publishedSlug: undefined,
+		} satisfies ApiAppProject;
+		const ui = toUiAppProject(mobile);
+		expect(ui.kind).toBe("mobile");
+		expect(ui.slug).toBe("");
 	});
 });
