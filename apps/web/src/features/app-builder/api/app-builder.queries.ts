@@ -18,8 +18,9 @@ import {
 	getProjectDomains,
 	getProjectSettings,
 	getSignInSummary,
+	getVersionDiff,
 	listAppProjects,
-	listAppVersions,
+	listVersions,
 } from "./app-builder.services";
 
 export const appBuilderKeys = {
@@ -47,6 +48,9 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "settings", projectId] as const,
 	versions: (projectId: string) =>
 		[...appBuilderKeys.all, "versions", projectId] as const,
+	// A sibling of `versions`, not a child: a list refresh must not refetch the immutable diffs.
+	versionDiff: (projectId: string, sha: string) =>
+		[...appBuilderKeys.all, "version-diff", projectId, sha] as const,
 };
 
 /** Every project the user can open from the project menu. */
@@ -120,9 +124,18 @@ export const projectSettingsQuery = (projectId: string) =>
 		queryFn: () => getProjectSettings(projectId),
 	});
 
-/** Versions newest first. */
+/** The version list of a project: `items` newest first. */
 export const appVersionsQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.versions(projectId),
-		queryFn: () => listAppVersions(projectId),
+		queryFn: () => listVersions(projectId),
+	});
+
+/** The stored `git show` patch of one commit. */
+export const versionDiffQuery = (projectId: string, sha: string) =>
+	queryOptions({
+		queryKey: appBuilderKeys.versionDiff(projectId, sha),
+		queryFn: () => getVersionDiff(projectId, sha),
+		// A commit's patch never changes, so the answer stays fresh forever.
+		staleTime: Number.POSITIVE_INFINITY,
 	});

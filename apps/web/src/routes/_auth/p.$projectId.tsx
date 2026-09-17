@@ -10,7 +10,8 @@
  * Gotcha: this file only gates routing and code loading. It does not fetch chat
  * data itself; the `/_auth` parent route has already checked auth, and the
  * workspace provider/hooks do the project/chat fetching after this component
- * renders.
+ * renders. The loader reads the project once: a V2 project (`engine`
+ * `v2_app`) goes to `/app/$projectId` before the workspace chunk renders.
  */
 // TanStack Router turns file routes into typed route objects. `createFileRoute`
 // connects this module to the path segment declared in the generated route tree.
@@ -20,6 +21,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 
 import Loader from "@/components/loader";
+import { redirectV2Project } from "@/features/app-builder";
 import { isWorkspaceTab, type WorkspaceTab } from "@/features/workspace";
 import { pageTitle } from "@/lib/i18n";
 
@@ -39,6 +41,8 @@ type WorkspaceSearch = { tab?: WorkspaceTab };
 export const Route = createFileRoute("/_auth/p/$projectId")({
 	validateSearch: (search: Record<string, unknown>): WorkspaceSearch =>
 		isWorkspaceTab(search.tab) ? { tab: search.tab } : {},
+	// A V2 project lives on /app/$projectId; V1 keeps this workspace.
+	loader: ({ params }) => redirectV2Project(params.projectId),
 	head: () => ({ meta: [{ title: pageTitle("workspace.meta.title") }] }),
 	component: RouteComponent,
 });

@@ -25,6 +25,7 @@
 	"viewport": {
 		"ariaLabel": "Preview width",
 		"desktop": "Desktop",
+		"tablet": "Tablet",
 		"mobile": "Mobile"
 	},
 	"device": {
@@ -38,7 +39,9 @@
 		"liveReload": "Live reload",
 		"back": "Back",
 		"forward": "Forward",
-		"frameTitle": "Preview of {name}"
+		"frameTitle": "Preview of {name}",
+		"waking": "Waking up the sandbox…",
+		"retry": "Try again"
 	},
 	"code": {
 		"searchFiles": "Search files",
@@ -351,10 +354,21 @@
 	},
 	"versions": {
 		"title": "Version history",
-		"version": "v{number}",
-		"live": "Live",
 		"current": "Current",
-		"restore": "Restore"
+		"restore": "Restore",
+		"source": {
+			"agent": "Turn",
+			"restore": "Restore",
+			"wip": "Work in progress",
+			"merge": "Merge"
+		},
+		"diff": "Diff",
+		"numstat": "+{added} −{removed}",
+		"emptyDiff": "This version changed no file.",
+		"empty": "No version yet. The first turn creates one.",
+		"restoreTitle": "Restore this version?",
+		"restoreBody": "Wandit creates a new version with the code of this one. Nothing is deleted.",
+		"cancel": "Cancel"
 	},
 	"mock": {
 		"notWired": "This action is not connected yet."

@@ -39,6 +39,7 @@ export {
 	getApiErrorMessage,
 	getApiFieldError,
 	getApiValidationErrors,
+	getGenericApiErrorMessage,
 	isApiClientError,
 	isConnectivityApiError,
 	isUnauthorizedApiError,

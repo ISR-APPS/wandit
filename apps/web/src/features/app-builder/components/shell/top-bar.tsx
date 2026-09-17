@@ -24,6 +24,7 @@ import {
 	PanelLeftOpen,
 	RefreshCw,
 	Smartphone,
+	Tablet,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -49,6 +50,8 @@ export type ProjectBarProps = {
 	chatOpen: boolean;
 	/** Opens the chat card. The collapse button lives in the card header. */
 	onExpandChat: () => void;
+	/** Runs after a restore succeeds. The page mints a new preview token with it. */
+	onRestored: () => void;
 };
 
 /** On desktop this half sits over the chat card. While the chat is closed it moves to the main card. */
@@ -56,6 +59,7 @@ export function ProjectBar({
 	project,
 	chatOpen,
 	onExpandChat,
+	onRestored,
 }: ProjectBarProps) {
 	const { t } = useTranslation();
 
@@ -85,7 +89,7 @@ export function ProjectBar({
 			<ProjectMenu project={project} />
 			<span className="flex items-center gap-1">
 				<span className="hidden md:block">
-					<VersionsPopover projectId={project.id} />
+					<VersionsPopover projectId={project.id} onRestored={onRestored} />
 				</span>
 				{chatOpen ? null : (
 					<IconAction label={t("appBuilder.topBar.expandChat")}>
@@ -113,7 +117,7 @@ export type WorkBarProps = {
 	onChangeView: (view: BuilderView) => void;
 	onChangeDevice: (device: PhoneDevice) => void;
 	onChangeViewport: (viewport: WebViewport) => void;
-	/** Remounts the preview iframe. */
+	/** Bumps `reloadKey`; the panel mints a new token and the new src reloads the frame. */
 	onReload: () => void;
 	/** Opens the published app in a new tab. */
 	onOpenExternal: () => void;
@@ -179,6 +183,12 @@ export function WorkBar({
 										value: "desktop",
 										label: t("appBuilder.viewport.desktop"),
 										icon: Monitor,
+										iconOnly: true,
+									},
+									{
+										value: "tablet",
+										label: t("appBuilder.viewport.tablet"),
+										icon: Tablet,
 										iconOnly: true,
 									},
 									{

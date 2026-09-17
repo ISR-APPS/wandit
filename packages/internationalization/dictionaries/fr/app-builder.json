@@ -25,6 +25,7 @@
 	"viewport": {
 		"ariaLabel": "Largeur de l'aperçu",
 		"desktop": "Ordinateur",
+		"tablet": "Tablette",
 		"mobile": "Mobile"
 	},
 	"device": {
@@ -38,7 +39,9 @@
 		"liveReload": "Rechargement auto",
 		"back": "Retour",
 		"forward": "Suivant",
-		"frameTitle": "Aperçu de {name}"
+		"frameTitle": "Aperçu de {name}",
+		"waking": "Réveil du sandbox…",
+		"retry": "Réessayer"
 	},
 	"code": {
 		"searchFiles": "Chercher un fichier",
@@ -351,10 +354,21 @@
 	},
 	"versions": {
 		"title": "Historique des versions",
-		"version": "v{number}",
-		"live": "En ligne",
 		"current": "Actuelle",
-		"restore": "Restaurer"
+		"restore": "Restaurer",
+		"source": {
+			"agent": "Opération",
+			"restore": "Restauration",
+			"wip": "Travail en cours",
+			"merge": "Fusion"
+		},
+		"diff": "Diff",
+		"numstat": "+{added} −{removed}",
+		"emptyDiff": "Cette version n'a modifié aucun fichier.",
+		"empty": "Aucune version pour le moment. La première opération en crée une.",
+		"restoreTitle": "Restaurer cette version ?",
+		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé.",
+		"cancel": "Annuler"
 	},
 	"mock": {
 		"notWired": "Cette action n'est pas encore connectée."

@@ -86,6 +86,19 @@ function persist(userId: string | undefined, value: ActiveWorkspaceId): void {
 	}
 }
 
+/**
+ * Sets the persisted workspace of one user into the scope store before the
+ * provider mounts. The `/_auth` route calls it in `beforeLoad`.
+ */
+export function hydrateWorkspaceScope(userId: string): void {
+	// beforeLoad runs on every navigation, so a stale or throwing storage
+	// read must not overwrite a `switchWorkspace` choice.
+	if (getActiveWorkspaceId() !== PERSONAL_WORKSPACE) {
+		return;
+	}
+	setActiveWorkspaceId(readPersisted(userId));
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
 	const { data: session } = useSession();
 	const userId = session?.user.id;

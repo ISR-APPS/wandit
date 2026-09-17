@@ -1,23 +1,27 @@
 /**
  * Mobile preview: the device label row, a dotted canvas, and the phone frame
  * with the app iframe inside. Rendered by pages/app-builder-page.tsx for
- * mobile projects. Shows MOCK_MOBILE_PREVIEW_HTML until the sandbox preview URL lands.
+ * mobile projects. PreviewPanel loads the real preview URL through the
+ * preview-token route.
  */
 
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import type { PhoneDevice } from "../../lib/constants";
-import { MOCK_MOBILE_PREVIEW_HTML } from "../../lib/mock-preview";
+import type { PreviewTokenDeps } from "../../lib/use-preview-token";
 import { PhoneFrame } from "./phone-frame";
+import { PreviewPanel } from "./preview-panel";
 
 /** Props of the mobile preview. The page reads them from the URL and the project query. */
 export type PhonePreviewProps = {
-	/** The open project. Only `name` is read, for the iframe title. */
+	/** The open project. `name` fills the iframe title, `id` mints the preview token. */
 	project: AppProject;
 	/** `ios` or `android`, from the device toggle of the top bar. It selects the label and the phone chrome. */
 	device: PhoneDevice;
-	/** Changes when the user presses reload. A new value remounts the iframe. */
+	/** Changes when the user presses reload. The panel mints a new token for it. */
 	reloadKey: number;
+	/** Spec seam: a fake getPreviewToken passed to the panel. Production callers leave it out. */
+	deps?: PreviewTokenDeps;
 };
 
 /** The device switch changes the frame chrome only; the app document is the same. */
@@ -25,6 +29,7 @@ export function PhonePreview({
 	project,
 	device,
 	reloadKey,
+	deps,
 }: PhonePreviewProps) {
 	const { t } = useTranslation();
 
@@ -50,13 +55,14 @@ export function PhonePreview({
 					className="pointer-events-none absolute inset-0 bg-dots"
 				/>
 				<PhoneFrame device={device}>
-					<iframe
-						key={reloadKey}
-						srcDoc={MOCK_MOBILE_PREVIEW_HTML}
-						title={t("appBuilder.preview.frameTitle", { name: project.name })}
-						// An empty sandbox blocks scripts and navigation. The mock document needs neither.
-						sandbox=""
+					<PreviewPanel
+						projectId={project.id}
+						title={t("appBuilder.preview.frameTitle", {
+							name: project.name,
+						})}
+						reloadKey={reloadKey}
 						className="h-full w-full border-0"
+						deps={deps}
 					/>
 				</PhoneFrame>
 			</div>

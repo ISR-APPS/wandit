@@ -25,6 +25,7 @@
 	"viewport": {
 		"ariaLabel": "عرض المعاينة",
 		"desktop": "حاسوب",
+		"tablet": "لوحي",
 		"mobile": "جوال"
 	},
 	"device": {
@@ -38,7 +39,9 @@
 		"liveReload": "تحديث مباشر",
 		"back": "رجوع",
 		"forward": "تقدم",
-		"frameTitle": "معاينة {name}"
+		"frameTitle": "معاينة {name}",
+		"waking": "جارٍ إيقاظ البيئة المعزولة…",
+		"retry": "حاول مرة أخرى"
 	},
 	"code": {
 		"searchFiles": "ابحث في الملفات",
@@ -387,10 +390,21 @@
 	},
 	"versions": {
 		"title": "سجل الإصدارات",
-		"version": "v{number}",
-		"live": "مباشر",
 		"current": "الحالي",
-		"restore": "استعادة"
+		"restore": "استعادة",
+		"source": {
+			"agent": "عملية",
+			"restore": "استعادة",
+			"wip": "عمل قيد التقدم",
+			"merge": "دمج"
+		},
+		"diff": "الفرق",
+		"numstat": "+{added} −{removed}",
+		"emptyDiff": "لم تغيّر هذه النسخة أي ملف.",
+		"empty": "لا توجد نسخة بعد. تنشئ العملية الأولى نسخة.",
+		"restoreTitle": "استعادة هذه النسخة؟",
+		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء.",
+		"cancel": "إلغاء"
 	},
 	"mock": {
 		"notWired": "هذا الإجراء غير متصل بعد."

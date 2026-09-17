@@ -50,7 +50,12 @@ function renderBar(chatOpen: boolean) {
 		children: createElement(
 			TooltipProvider,
 			null,
-			createElement(ProjectBar, { project: PROJECT, chatOpen, onExpandChat }),
+			createElement(ProjectBar, {
+				project: PROJECT,
+				chatOpen,
+				onExpandChat,
+				onRestored: vi.fn(),
+			}),
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
