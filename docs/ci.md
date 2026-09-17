@@ -29,7 +29,7 @@ Three env stubs make the checks run without secrets:
 - `SKIP_ENV_VALIDATION=true` stops `packages/env` from demanding real secrets. Turbo drops it before a task runs, so it guards only commands outside turbo, like `pnpm --filter`.
 - `VITE_SERVER_URL=http://localhost:3000` is a placeholder. `packages/env/src/web.ts` requires it for the web and admin `vite build` steps. It is not a secret.
 
-The server suite sets its own env values in `apps/server/vitest.config.ts`.
+The server suite sets its own env values in `apps/server/vitest.config.ts`. That file also holds placeholders for the values CI has no `.env` for.
 
 ## Why `test` depends on `topo`
 
