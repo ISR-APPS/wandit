@@ -16,6 +16,7 @@ import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { BackendsService } from "./application/services/backends.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -30,6 +31,7 @@ import {
 } from "./application/services/versions.service";
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
 import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
+import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
@@ -37,6 +39,7 @@ import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
 import { V2_ENV } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
+import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
@@ -53,6 +56,7 @@ import {
 } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
@@ -92,9 +96,11 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		SettingsModule,
 	],
 	providers: [
+		AppBackendsRepository,
 		AppCommitsRepository,
 		AppProjectsService,
 		AuditEventsRepository,
+		BackendsService,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
 		LlmProxyRequestsRepository,
@@ -117,6 +123,10 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		{ provide: LLM_PROXY_ENV, useValue: env },
 		// The long-timeout undici dispatcher the chat gateway already uses.
 		{ provide: LLM_PROXY_FETCH, useValue: chatGatewayFetch },
+		{
+			provide: PROVISION_BACKEND_TASK_STARTER,
+			useClass: TriggerProvisionBackendTaskStarter,
+		},
 		{ provide: RATE_LIMIT_STORE, useClass: RedisRateLimitStore },
 		// WANDIT-171: the code.storage restorer replaces the logging placeholder.
 		{ provide: REPO_RESTORER, useClass: CodeStorageRepoRestorer },

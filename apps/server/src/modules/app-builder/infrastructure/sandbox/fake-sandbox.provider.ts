@@ -132,6 +132,8 @@ export class FakeSandboxProvider implements SandboxProvider {
 	readonly networkPolicies: SandboxNetworkPolicy[] = [];
 	/** Every host `handle.allowHost` received, across all handles, in order. */
 	readonly allowedHosts: string[] = [];
+	/** Every options object `getOrCreate` and `resume` received, in order; specs read `env` from it. */
+	readonly createOptions: SandboxCreateOptions[] = [];
 	readonly scriptedExec = new Map<string, SandboxExecResult[]>();
 	private readonly projects = new Map<string, FakeProjectState>();
 
@@ -144,9 +146,10 @@ export class FakeSandboxProvider implements SandboxProvider {
 
 	async getOrCreate(
 		projectId: string,
-		_options: SandboxCreateOptions,
+		options: SandboxCreateOptions,
 	): Promise<SandboxHandle> {
 		this.calls.push({ detail: projectId, method: "getOrCreate" });
+		this.createOptions.push(options);
 		const existing = this.projects.get(projectId);
 		if (existing) {
 			existing.stopped = false;
@@ -161,9 +164,10 @@ export class FakeSandboxProvider implements SandboxProvider {
 
 	async resume(
 		projectId: string,
-		_options: SandboxCreateOptions,
+		options: SandboxCreateOptions,
 	): Promise<SandboxHandle> {
 		this.calls.push({ detail: projectId, method: "resume" });
+		this.createOptions.push(options);
 		const state = this.projects.get(projectId);
 		if (!state) {
 			throw new Error(`FakeSandboxProvider: no sandbox for ${projectId}`);

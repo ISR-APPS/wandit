@@ -16,6 +16,7 @@ import type {
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
+import type { AppBackendRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { BuilderSessionRow } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -363,6 +364,26 @@ function fakeProjectRow(over?: Partial<TurnProjectRow>): TurnProjectRow {
 	};
 }
 
+/** An `active` `app_backends` row, the shape a healthy provision leaves. */
+function fakeBackendRow(over?: Partial<AppBackendRow>): AppBackendRow {
+	return {
+		anonKey: "anon-key-test",
+		dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+		failureCode: null,
+		id: "backend-1",
+		orgId: "org-test",
+		organizationId: null,
+		projectId: PROJECT_ID,
+		ref: "abcdefghijklmnopqrst",
+		region: "eu-west-3",
+		requestKey: "req-backend-1",
+		status: "active",
+		triggerRunId: "run-provision-1",
+		userId: "user_1",
+		...over,
+	};
+}
+
 function fakeCapsRow(
 	perTurnCapCredits: number | null,
 	monthlyCapCredits: number | null = null,
@@ -454,6 +475,8 @@ function textChunks(text: string): UIMessageChunk[] {
 }
 
 function makeWorld(over?: {
+	/** The `app_backends` row `findByProjectId` answers; absent or null means no row. */
+	backend?: AppBackendRow | null;
 	/** `readBalance` answers, in cc; drained scripts repeat the last. */
 	balances?: number[];
 	billingDisabled?: boolean;
@@ -516,6 +539,9 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		backends: {
+			findByProjectId: async () => over?.backend ?? null,
+		},
 		billingDisabled: over?.billingDisabled ?? false,
 		caps: {
 			findByProjectId: async () =>
@@ -2123,5 +2149,83 @@ describe("runBuilderTurn", () => {
 			PENDING_QUESTION,
 		]);
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
+	});
+
+	describe("sandbox env from app_backends", () => {
+		it("passes the active row's URL and anon key into the sandbox env", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.sandboxes.createOptions).toHaveLength(1);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			const sessionStarting = world.stream
+				.eventsOf(TURN_ID)
+				.find(
+					(e) => e.type === "status" && e.data.phase === "session_starting",
+				);
+			expect(
+				sessionStarting?.type === "status" && sessionStarting.data,
+			).toEqual({ phase: "session_starting" });
+		});
+
+		it("sends no VITE_SUPABASE_* names and keeps the note without a row", async () => {
+			const world = makeWorld();
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.sandboxes.createOptions).toHaveLength(1);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
+			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+			const sessionStarting = world.stream
+				.eventsOf(TURN_ID)
+				.find(
+					(e) => e.type === "status" && e.data.phase === "session_starting",
+				);
+			expect(
+				sessionStarting?.type === "status" && sessionStarting.data,
+			).toEqual({
+				message: "Backend not ready yet",
+				phase: "session_starting",
+			});
+		});
+
+		it("sends no VITE_SUPABASE_* names and keeps the note on an error row", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "error" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.sandboxes.createOptions).toHaveLength(1);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
+			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+			const sessionStarting = world.stream
+				.eventsOf(TURN_ID)
+				.find(
+					(e) => e.type === "status" && e.data.phase === "session_starting",
+				);
+			expect(
+				sessionStarting?.type === "status" && sessionStarting.data,
+			).toEqual({
+				message: "Backend not ready yet",
+				phase: "session_starting",
+			});
+		});
 	});
 });

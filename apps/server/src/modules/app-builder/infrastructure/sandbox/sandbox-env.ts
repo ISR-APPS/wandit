@@ -35,7 +35,6 @@ export type SandboxEnvInput = {
 	proxyToken: string;
 	/** The builder-turn run id; lands in `ANTHROPIC_CUSTOM_HEADERS` so the proxy can attribute spend. */
 	runId: string;
-	// Null until WANDIT-183 writes the app_backends row.
 	/** Public Supabase URL of the project's backend, from `app_backends`. */
 	supabaseUrl: string | null;
 	/** Public anon key of the project's backend, from `app_backends`. */
