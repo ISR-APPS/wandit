@@ -457,6 +457,7 @@ export class LlmProxyService {
 				upstream,
 				modelId,
 				startedAt,
+				usageFromAnthropicJson(safeJsonParse(body)),
 				upstreamRequestId,
 			);
 			return;
@@ -550,11 +551,11 @@ export class LlmProxyService {
 		});
 	}
 
-	// Shared end for a call that got no usable upstream answer: the fetch
-	// itself or a buffered body read. A client abort writes the
-	// client_aborted row and closes the reply. Any other failure logs,
-	// reports to Sentry, writes the upstream_error row, and answers 502.
-	/** Ends the reply and writes the `client_aborted` row with zero usage. */
+	/**
+	 * Ends the reply and writes the `client_aborted` row. `usage` is what
+	 * the upstream reported before the abort: a parsed buffered body, or
+	 * zero when no answer arrived.
+	 */
 	private async endClientAborted(
 		input: LlmProxyInboundRequest,
 		reply: LlmProxyReply,
@@ -562,18 +563,24 @@ export class LlmProxyService {
 		upstream: LlmUpstream,
 		modelId: string,
 		startedAt: number,
+		usage: LlmTokenUsage,
 		upstreamRequestId?: string,
 	): Promise<void> {
 		reply.end();
 		await this.finish(input, claims, upstream, modelId, {
 			status: "client_aborted",
 			reason: "client_aborted",
-			usage: zeroUsage(),
+			usage,
 			upstreamRequestId,
 			latencyMs: Date.now() - startedAt,
 		});
 	}
 
+	// Shared end for a call whose answer the client never saw: the fetch
+	// itself failed, a buffered body read failed, or the client aborted.
+	// A client abort writes the client_aborted row and closes the reply.
+	// Any other failure logs, reports to Sentry, writes the upstream_error
+	// row, and answers 502.
 	private async failBeforeReply(
 		input: LlmProxyInboundRequest,
 		reply: LlmProxyReply,
@@ -585,6 +592,9 @@ export class LlmProxyService {
 		upstreamRequestId?: string,
 	): Promise<void> {
 		if (input.abortSignal.aborted) {
+			// LIMIT: the upstream may have billed a call whose answer never
+			// arrived; the proxy cannot know that usage. Upgrade: reconcile
+			// against the provider usage report.
 			await this.endClientAborted(
 				input,
 				reply,
@@ -592,6 +602,7 @@ export class LlmProxyService {
 				upstream,
 				modelId,
 				startedAt,
+				zeroUsage(),
 				upstreamRequestId,
 			);
 			return;

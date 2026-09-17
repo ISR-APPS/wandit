@@ -31,7 +31,11 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`,
 
 Each forwarded request also writes `preview:last-seen:<pid>` to `PREVIEW_KV`
 (at most once per 60 s per isolate; the idle sweep reads it) and one data
-point to the `wandit_preview_proxy` Analytics Engine dataset.
+point to the `wandit_preview_proxy` Analytics Engine dataset. The outcome
+blob is one of: `forwarded` (preview served), `redirect` (token exchange),
+`unauthorized` (token rejected), `forbidden` (claims mismatch),
+`not_running` (sandbox down), `rate_limited` (over budget), `not_found`
+(host unknown), `error` (proxy bug).
 
 ## Configs
 

@@ -87,8 +87,8 @@ export async function runReconcileAgentSessions(
 		try {
 			const rows = await deps.proxyRows.sumByTurn(turnId);
 			if (rows.byModel.length === 0) {
-				// No `ok` proxy row, for example a deleted turn. A reprice to
-				// zero would refund a turn that ran.
+				// No priced proxy row (`ok` or `client_aborted`), for example
+				// a deleted turn. A reprice to zero would refund a turn that ran.
 				// LIMIT: a skipped event stays settled and is re-read every 15 minutes for 48 hours. Upgrade: mark it reconcile_failed for admin review.
 				deps.logger.warn("reconcile.agent-session.no-rows", {
 					eventId: event.id,

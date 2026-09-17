@@ -56,8 +56,6 @@ type ParentChildRules = {
 
 export type TokenOperationPricing = ParentChildRules & {
 	mode: "token";
-	/** Largest estimate the API may reserve, in cc. Absent means no ceiling. */
-	reserveCeilingCredits?: number;
 	reserveFloorCredits: number;
 };
 
@@ -115,7 +113,6 @@ export const OPERATION_REGISTRY = {
 		allowedChildOperations: ["image", "connector", "sandbox"],
 		allowedParentOperations: NO_PARENTS,
 		mode: "token",
-		reserveCeilingCredits: AGENT_SESSION_RESERVE_CEILING_CREDITS,
 		reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 	},

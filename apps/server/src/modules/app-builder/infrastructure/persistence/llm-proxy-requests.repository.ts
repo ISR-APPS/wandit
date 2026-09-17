@@ -87,9 +87,10 @@ export class LlmProxyRequestsRepository {
 	}
 
 	/**
-	 * Spend and token sums of one turn, grouped by model. Only
-	 * `status = 'ok'` rows count: rejected and failed rows carry no
-	 * billable usage. All zeros when the turn has no rows.
+	 * Spend and token sums of one turn, grouped by model. Only `ok` and
+	 * `client_aborted` rows count: a client_aborted row carries the usage
+	 * the upstream streamed or buffered before the abort; rejected and
+	 * failed rows carry none. All zeros when the turn has no rows.
 	 */
 	async sumByTurn(turnId: string): Promise<LlmProxyTurnSum> {
 		const result = await this.db.execute<LlmProxyModelSumDbRow>(sql`
@@ -103,7 +104,7 @@ export class LlmProxyRequestsRepository {
 			from ${llmProxyRequests}
 			where
 				${llmProxyRequests.turnId} = ${turnId}
-				and ${llmProxyRequests.status} = 'ok'
+				and ${llmProxyRequests.status} in ('ok', 'client_aborted')
 			group by ${llmProxyRequests.model}
 			order by ${llmProxyRequests.model}
 		`);
@@ -117,8 +118,8 @@ export class LlmProxyRequestsRepository {
 			byModel: [],
 		};
 		for (const row of result.rows) {
-			// `model` is nullable (rejected rows store null); an `ok` row always
-			// carries one, so a null group cannot carry billable usage.
+			// `model` is nullable (rejected rows store null); a counted row
+			// always carries one, so a null group cannot carry billable usage.
 			if (row.model === null) {
 				continue;
 			}

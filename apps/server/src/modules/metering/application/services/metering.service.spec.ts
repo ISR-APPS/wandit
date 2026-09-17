@@ -4681,6 +4681,19 @@ describe("MeteringService guards and reconciliation durability", () => {
 		// maps to 500 micros: micros = cc * 500.
 		const microsOf = (centiCredits: number) => centiCredits * 500;
 
+		// One per-model row as `sumByTurn` returns it; reconcile stores it
+		// as the event's `rawUsage` JSON.
+		const PROXY_ROWS = [
+			{
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				inputTokens: 60_000,
+				model: MODEL_ID,
+				outputTokens: 12_000,
+				usdMicros: microsOf(3_100),
+			},
+		];
+
 		async function reserveAgentSession(
 			service: MeteringService,
 			credits = 1_400,
@@ -4874,7 +4887,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 
 			const result = await service.reconcileAgentSession(AGENT_EVENT_ID, {
 				costUsdMicros: microsOf(3_410),
-				rawUsage: { proxy: "rows" },
+				rawUsage: PROXY_ROWS,
 			});
 
 			expect(result.deltaCredits).toBe(310);
@@ -4918,7 +4931,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 
 			const result = await service.reconcileAgentSession(AGENT_EVENT_ID, {
 				costUsdMicros: microsOf(2_790),
-				rawUsage: { proxy: "rows" },
+				rawUsage: PROXY_ROWS,
 			});
 
 			expect(result.deltaCredits).toBe(-310);
@@ -4949,7 +4962,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 
 			const replay = await service.reconcileAgentSession(AGENT_EVENT_ID, {
 				costUsdMicros: microsOf(2_790),
-				rawUsage: { proxy: "rows" },
+				rawUsage: PROXY_ROWS,
 			});
 			expect(replay.deltaCredits).toBe(0);
 			expect(credits.refundCalls).toHaveLength(refundsBefore + 2);
@@ -5087,7 +5100,7 @@ describe("MeteringService guards and reconciliation durability", () => {
 
 			const reconciled = await service.reconcileAgentSession(AGENT_EVENT_ID, {
 				costUsdMicros: microsOf(800),
-				rawUsage: { proxy: "rows" },
+				rawUsage: PROXY_ROWS,
 			});
 
 			// The settle refund already drained the reserve and checkpoint 1 and
