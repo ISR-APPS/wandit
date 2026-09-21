@@ -9,6 +9,7 @@
  */
 
 import { Inject, Injectable } from "@nestjs/common";
+import { LEAD_SCRAPE_FAILED_REFUNDED_TEXT } from "@wandit/contracts";
 import { and, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
 import { projects } from "@wandit/db/schema/projects";
@@ -23,14 +24,12 @@ import {
 import type { LeadScrapeSpec } from "../../domain/lead-scrape-spec";
 
 const PROJECT_LIST_LIMIT = 20;
-// Trigger admission is bounded to five minutes and the task itself to 30.
-// Leave settlement/CAS grace after that 35-minute live-work ceiling, while
-// still closing the UI row before metering recovers the hold at minute 40.
+// Fallback for rows that never got a run id: Trigger admission is bounded
+// to five minutes and the task itself to 30. Leave settlement/CAS grace
+// after that 35-minute live-work ceiling, while still closing the UI row
+// before metering recovers the hold at minute 40. Rows with a run id are
+// settled sooner by the service's dead-run check.
 const STALE_ATTEMPT_AFTER_MS = 38 * 60 * 1000;
-const STALE_ATTEMPT_ERROR =
-	"The scrape never finished — most likely no Trigger.dev dev worker " +
-	"was running (`npx trigger.dev@latest dev`). Start it and ask for " +
-	"the leads again.";
 
 // Small explicit shape; the service maps it to the contract type.
 export type LeadScrapeAttemptRow = {
@@ -48,6 +47,7 @@ export type LeadScrapeAttemptRow = {
 	r2Key: string | null;
 	previewRows: unknown;
 	error: string | null;
+	triggerRunId: string | null;
 	createdAt: Date;
 	completedAt: Date | null;
 };
@@ -70,6 +70,7 @@ const ATTEMPT_COLUMNS = {
 	spec: leadScrapeAttempts.spec,
 	stage: leadScrapeAttempts.stage,
 	status: leadScrapeAttempts.status,
+	triggerRunId: leadScrapeAttempts.triggerRunId,
 } as const;
 
 @Injectable()
@@ -164,6 +165,31 @@ export class LeadScrapesRepository {
 		return failed !== undefined;
 	}
 
+	/**
+	 * Fail an attempt whose Trigger.dev run died without writing terminal
+	 * state (OOM kill, cancel). The CAS on status + run id makes a repeated
+	 * settle a no-op, so concurrent readers cannot refund twice.
+	 */
+	async settleDeadRun(
+		attemptId: string,
+		runId: string,
+		error: string,
+	): Promise<boolean> {
+		const [failed] = await this.db
+			.update(leadScrapeAttempts)
+			.set({ completedAt: new Date(), error, status: "failed" })
+			.where(
+				and(
+					eq(leadScrapeAttempts.id, attemptId),
+					inArray(leadScrapeAttempts.status, ["queued", "running"]),
+					eq(leadScrapeAttempts.triggerRunId, runId),
+				),
+			)
+			.returning({ id: leadScrapeAttempts.id });
+
+		return failed !== undefined;
+	}
+
 	// The chat card's polled read, or null when the attempt's project is not
 	// owned by this user (the service turns that into a 404). The join proves
 	// ownership, same pattern as PagesRepository.findOwnedVersionById.
@@ -251,7 +277,7 @@ export class LeadScrapesRepository {
 			.update(leadScrapeAttempts)
 			.set({
 				completedAt: new Date(),
-				error: STALE_ATTEMPT_ERROR,
+				error: LEAD_SCRAPE_FAILED_REFUNDED_TEXT,
 				status: "failed",
 			})
 			.where(

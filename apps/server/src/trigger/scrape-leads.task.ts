@@ -2,9 +2,9 @@
  * Background lead scrape — runs on Trigger.dev, NOT inside the Nest app.
  *
  * The whole job in one sentence: read the attempt row the scrape_leads tool
- * queued, discover businesses on Google Maps, harvest + MX-verify contact
- * emails from their websites, export everything to a styled .xlsx in R2, and
- * flip the attempt to succeeded/failed so the chat card's polling sees it.
+ * queued, discover businesses on Google Maps, export them to a styled .xlsx
+ * in R2, and flip the attempt to succeeded/failed so the chat card's
+ * polling sees it.
  *
  * Progress model: the row's stage/progress/foundCount columns ARE the UI —
  * the chat card polls the attempt endpoint, so every meaningful step writes
@@ -33,12 +33,10 @@ import {
 	settleLeadScrapeUsage,
 } from "../modules/lead-scrapes/application/services/lead-scrape-billing";
 import {
-	type LeadRecord,
+	dedupeRecords,
 	leadScrapeSpecSchema,
 	toPreviewRows,
 } from "../modules/lead-scrapes/domain/lead-scrape-spec";
-import { discoverBusinessEmail } from "../modules/lead-scrapes/scraper/email-discovery";
-import { verifyEmailsByMx } from "../modules/lead-scrapes/scraper/email-verify";
 import { searchGoogleMapsBusinesses } from "../modules/lead-scrapes/scraper/google-maps-search";
 import {
 	buildLeadsWorkbook,
@@ -49,17 +47,13 @@ import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { createTriggerMetering } from "./metering.runtime";
 import { recoverSettledLeadScrapeCompletion } from "./settled-completion-recovery";
 
-// How many business websites are crawled at once for emails. Modest on
-// purpose: these are other people's small servers.
-const EMAIL_DISCOVERY_CONCURRENCY = 6;
-
-type Stage = "searching" | "extracting" | "verifying" | "exporting";
+type Stage = "searching" | "exporting";
 
 export const scrapeLeadsTask = task({
 	id: "scrape-leads",
-	// A 200-record scrape is minutes of work (search pages + site crawls);
-	// the ceiling is a safety net. The repository's stale-row self-heal
-	// (38 min) must stay above the five-minute admission TTL plus this.
+	// A 200-record scrape is seconds of Serper pages; the ceiling stays as a
+	// safety net. The repository's stale-row self-heal (38 min) must stay
+	// above the five-minute admission TTL plus this.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
 	run: async (
@@ -222,7 +216,7 @@ export const scrapeLeadsTask = task({
 				);
 
 				// Stage 1 — discover businesses on Google Maps. Search fills
-				// 5% → 45% proportionally to how much of the limit it found.
+				// 5% → 90% proportionally to how much of the limit it found.
 				const { records } = await searchGoogleMapsBusinesses({
 					countryCode: spec.countryCode,
 					limit: spec.limit,
@@ -230,7 +224,7 @@ export const scrapeLeadsTask = task({
 					onProgress: (found) =>
 						setProgress({
 							foundCount: found,
-							progress: 5 + Math.min(40, (40 * found) / spec.limit),
+							progress: 5 + Math.min(85, (85 * found) / spec.limit),
 						}),
 					onSearchRequest: (pages) => {
 						serperPages = pages;
@@ -250,88 +244,16 @@ export const scrapeLeadsTask = task({
 					);
 				}
 
-				// Stage 2 — crawl each business's website for a contact email.
-				signal.throwIfAborted();
-				await setProgress({
-					foundCount: records.length,
-					progress: 45,
-					stage: "extracting",
-				});
-
-				const withWebsites = records.filter((record) => record.website);
-				let crawled = 0;
-
-				await mapWithConcurrency(
-					withWebsites,
-					EMAIL_DISCOVERY_CONCURRENCY,
-					async (record) => {
-						if (signal.aborted) {
-							return;
-						}
-
-						// biome-ignore lint/style/noNonNullAssertion: filtered on website above
-						record.email = await discoverBusinessEmail(record.website!, signal);
-						crawled += 1;
-
-						// One DB write per handful of sites keeps the card lively
-						// without hammering Postgres.
-						if (crawled % 5 === 0 || crawled === withWebsites.length) {
-							await setProgress({
-								progress:
-									45 +
-									(withWebsites.length > 0
-										? (27 * crawled) / withWebsites.length
-										: 27),
-							});
-						}
-					},
-				);
-
-				const emailsFound = records.filter((record) => record.email).length;
-
-				logger.info(
-					`✉️ Found emails for ${emailsFound}/${withWebsites.length} sites with websites`,
-				);
-
-				// Stage 3 — verify email domains (MX) + final de-duplication.
-				signal.throwIfAborted();
-				await setProgress({ progress: 75, stage: "verifying" });
-
-				const verified = await verifyEmailsByMx(
-					records.flatMap((record) => (record.email ? [record.email] : [])),
-				);
-
-				for (const record of records) {
-					if (!record.email) {
-						continue;
-					}
-
-					record.emailVerified = verified.get(record.email) ?? false;
-
-					// A dead domain means the address is unusable for outreach —
-					// drop it rather than exporting a bouncing contact.
-					if (!record.emailVerified) {
-						record.email = null;
-					}
-				}
-
 				const finalRecords = dedupeRecords(records);
 
-				// Contactable rows first: this is an outreach list, so leads
-				// with a working email lead the sheet (and the card preview).
-				finalRecords.sort(
-					(a, b) => Number(Boolean(b.email)) - Number(Boolean(a.email)),
-				);
-
-				await setProgress({
-					foundCount: finalRecords.length,
-					progress: 88,
-				});
-
-				// Stage 4 — build the workbook and upload it BEFORE the terminal
+				// Stage 2 — build the workbook and upload it BEFORE the terminal
 				// DB write: a succeeded row must never point at a missing object.
 				signal.throwIfAborted();
-				await setProgress({ progress: 92, stage: "exporting" });
+				await setProgress({
+					foundCount: finalRecords.length,
+					progress: 92,
+					stage: "exporting",
+				});
 
 				const workbook = await buildLeadsWorkbook(finalRecords);
 				const fileName = leadsWorkbookFilename(spec.query, spec.location);
@@ -400,13 +322,11 @@ export const scrapeLeadsTask = task({
 				}
 
 				logger.info(
-					`🎉 Lead list ready — ${workbook.rowCount} rows, ` +
-						`${emailsFound} emails found, ${fileName}`,
+					`🎉 Lead list ready — ${workbook.rowCount} rows, ${fileName}`,
 				);
 
 				// Returned for Trigger dashboard visibility only.
 				return {
-					emailsFound,
 					fileName,
 					rowCount: workbook.rowCount,
 					skipped: false,
@@ -462,66 +382,3 @@ export const scrapeLeadsTask = task({
 		}
 	},
 });
-
-// Small inline worker pool — enough concurrency control that a p-limit
-// dependency is not warranted.
-async function mapWithConcurrency<T>(
-	items: readonly T[],
-	concurrency: number,
-	worker: (item: T) => Promise<void>,
-): Promise<void> {
-	let nextIndex = 0;
-
-	const runners = Array.from(
-		{ length: Math.min(concurrency, items.length) },
-		async () => {
-			while (nextIndex < items.length) {
-				const item = items[nextIndex];
-
-				nextIndex += 1;
-
-				if (item !== undefined) {
-					await worker(item);
-				}
-			}
-		},
-	);
-
-	await Promise.all(runners);
-}
-
-/**
- * Search-stage dedupe works on Google place ids; this last pass catches the
- * remaining real-world duplicates — the same business listed twice with the
- * same phone number or the same verified email.
- */
-function dedupeRecords(records: readonly LeadRecord[]): LeadRecord[] {
-	const seenPhones = new Set<string>();
-	const seenEmails = new Set<string>();
-	const result: LeadRecord[] = [];
-
-	for (const record of records) {
-		const phoneKey = record.phone?.replace(/\D/g, "") ?? "";
-		const emailKey = record.email ?? "";
-
-		if (phoneKey.length > 5 && seenPhones.has(phoneKey)) {
-			continue;
-		}
-
-		if (emailKey && seenEmails.has(emailKey)) {
-			continue;
-		}
-
-		if (phoneKey.length > 5) {
-			seenPhones.add(phoneKey);
-		}
-
-		if (emailKey) {
-			seenEmails.add(emailKey);
-		}
-
-		result.push(record);
-	}
-
-	return result;
-}

@@ -904,14 +904,11 @@
 			"loadError": "Impossible de charger l'état de la recherche.",
 			"failedTitle": "Échec de la recherche de prospects",
 			"failedDetail": "La recherche s'est arrêtée avant la fin.",
+			"failedRefunded": "La recherche a échoué. Vos crédits sont de retour. Veuillez réessayer.",
 			"steps": {
 				"brief": "Brief analysé",
 				"searchingActive": "Recherche sur Google Maps…",
 				"searchingDone": "Google Maps parcouru",
-				"extractingActive": "Extraction des contacts…",
-				"extractingDone": "Contacts extraits",
-				"verifyingActive": "Vérification des e-mails et dédoublonnage…",
-				"verifyingDone": "E-mails vérifiés et dédoublonnés",
 				"exportingActive": "Export en .xlsx…",
 				"exportingDone": "Exporté en .xlsx"
 			},
@@ -930,7 +927,6 @@
 			},
 			"columnBusiness": "Entreprise",
 			"columnPhone": "Téléphone",
-			"columnEmail": "E-mail",
 			"moreRows": {
 				"one": "+{count} autre ligne",
 				"other": "+{count} autres lignes"

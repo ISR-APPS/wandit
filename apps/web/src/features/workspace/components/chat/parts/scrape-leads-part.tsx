@@ -13,6 +13,7 @@ import type {
 	LeadScrapeStage,
 	TriggerRealtimeHandle,
 } from "@wandit/contracts";
+import { LEAD_SCRAPE_FAILED_REFUNDED_TEXT } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Check, Download, FileSpreadsheet } from "lucide-react";
@@ -200,7 +201,9 @@ function LeadScrapeCard({
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{attempt.error ?? "The scrape stopped before finishing."}
+					{attempt.error === LEAD_SCRAPE_FAILED_REFUNDED_TEXT
+						? t("workspace.chat.leadScrape.failedRefunded")
+						: (attempt.error ?? t("workspace.chat.leadScrape.failedDetail"))}
 				</p>
 			</div>
 		);
@@ -250,7 +253,7 @@ function LeadScrapeFailure({
 
 /* ---------- progress card ---------- */
 
-// Checklist rows 2..5 map onto the pipeline stages in order; row 1 (the
+// Checklist rows 2 and 3 map onto the pipeline stages in order; row 1 (the
 // parsed brief) is done the moment the attempt exists.
 const STAGE_ROWS: Array<{
 	stage: LeadScrapeStage;
@@ -263,29 +266,22 @@ const STAGE_ROWS: Array<{
 		stage: "searching",
 	},
 	{
-		active: "Extracting contacts",
-		done: "Extracted contacts",
-		stage: "extracting",
-	},
-	{
-		active: "Verifying emails & de-duplicating",
-		done: "Verified emails & de-duplicated",
-		stage: "verifying",
-	},
-	{
 		active: "Exporting to .xlsx",
 		done: "Exported to .xlsx",
 		stage: "exporting",
 	},
 ];
 
-const STAGE_ORDER: LeadScrapeStage[] = [
-	"queued",
-	"searching",
-	"extracting",
-	"verifying",
-	"exporting",
-];
+const STAGE_ORDER: LeadScrapeStage[] = ["queued", "searching", "exporting"];
+
+// Rows written before 21 Sept 2026 can still hold the removed email stages;
+// the Maps search had already finished by then, so they render at the
+// exporting position (searching done).
+function stageOrderIndex(stage: LeadScrapeStage): number {
+	return stage === "extracting" || stage === "verifying"
+		? STAGE_ORDER.indexOf("exporting")
+		: STAGE_ORDER.indexOf(stage);
+}
 
 function LeadScrapeProgressCard({
 	attempt,
@@ -316,7 +312,7 @@ function LeadScrapeProgressCard({
 	// its row as active rather than an all-pending dead card.
 	const stageIndex = Math.max(
 		1,
-		STAGE_ORDER.indexOf(liveStage ?? attempt?.stage ?? "queued"),
+		stageOrderIndex(liveStage ?? attempt?.stage ?? "queued"),
 	);
 	const foundCount = liveFound ?? attempt?.foundCount ?? 0;
 
@@ -371,7 +367,7 @@ function LeadScrapeProgressCard({
 							key={row.stage}
 							state={state}
 							badge={
-								row.stage === "extracting" && foundCount > 0 ? (
+								row.stage === "searching" && foundCount > 0 ? (
 									<span className="ms-auto shrink-0 rounded-full border border-primary/35 bg-primary/5 px-2 py-0.5 font-mono text-[11px] text-ember-text">
 										{foundCount} found
 									</span>
@@ -486,7 +482,6 @@ function LeadScrapeResultCard({ attempt }: { attempt: LeadScrapeAttempt }) {
 								<th className="w-[92px] px-2.5 py-1.5 text-start font-normal">
 									Phone
 								</th>
-								<th className="px-2.5 py-1.5 text-start font-normal">Email</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -510,12 +505,6 @@ function LeadScrapeResultCard({ attempt }: { attempt: LeadScrapeAttempt }) {
 										className="truncate px-2.5 py-1.5 font-mono text-[11.5px] text-muted-foreground"
 									>
 										{row.phone}
-									</td>
-									<td
-										dir="ltr"
-										className="truncate px-2.5 py-1.5 text-muted-foreground"
-									>
-										{row.email}
 									</td>
 								</tr>
 							))}
