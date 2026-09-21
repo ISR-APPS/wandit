@@ -226,7 +226,7 @@ export async function ensureLeadScrapeUsageSettled(
 }
 
 /** Pages the attempt's durable Serper receipt recorded, else 0. */
-async function recordedSerperPages(
+export async function recordedSerperPages(
 	meteringService: Pick<LeadScrapeMeteringService, "listProviderCallEvidence">,
 	input: { attemptId: string; eventId: string },
 ): Promise<number> {

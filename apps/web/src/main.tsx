@@ -5,8 +5,10 @@ import {
 } from "@tanstack/react-router";
 import {
 	analyticsSentryIntegration,
+	getAnalytics,
 	initBrowserAnalytics,
 } from "@wandit/analytics/browser";
+import { PostHogProvider } from "@wandit/analytics/react";
 import { env } from "@wandit/env/web";
 import { defaultLocale, getDictionary } from "@wandit/internationalization";
 import {
@@ -95,11 +97,20 @@ if (initialLocale !== defaultLocale) {
 if (!rootElement.innerHTML) {
 	// React 19 reports render errors only through these root callbacks.
 	const root = ReactDOM.createRoot(rootElement, sentryCreateRootOptions());
+	// The provider needs a real client; without VITE_POSTHOG_KEY the router
+	// renders alone and the flag hooks simply answer undefined.
+	const analyticsClient = getAnalytics();
 	root.render(
 		// Catches errors thrown by the provider stack in __root.tsx, which sits
 		// outside the router's own error boundaries.
 		<Sentry.ErrorBoundary fallback={<ErrorScreen />}>
-			<RouterProvider router={router} />
+			{analyticsClient ? (
+				<PostHogProvider client={analyticsClient}>
+					<RouterProvider router={router} />
+				</PostHogProvider>
+			) : (
+				<RouterProvider router={router} />
+			)}
 		</Sentry.ErrorBoundary>,
 	);
 }

@@ -3,8 +3,8 @@
  *
  * NOT the same thing as v1/leads.ts: that file is INBOUND leads captured by
  * deployed landing pages. This one is the background job that finds real
- * businesses (Google Maps + their websites) so the user can prospect them,
- * and exports the result as a downloadable .xlsx.
+ * businesses on Google Maps so the user can prospect them, and exports the
+ * result as a downloadable .xlsx.
  *
  * Same architecture as page generation: the chat tool queues a background
  * task and answers immediately; the chat card polls the attempt endpoint
@@ -31,19 +31,27 @@ export type LeadScrapeStatus = z.infer<typeof leadScrapeStatusSchema>;
 export const leadScrapeStageSchema = z.enum([
 	"queued",
 	"searching",
+	// Legacy stage. Rows written before 21 Sept 2026 can still hold it.
 	"extracting",
+	// Legacy stage. Rows written before 21 Sept 2026 can still hold it.
 	"verifying",
 	"exporting",
 ]);
 
 export type LeadScrapeStage = z.infer<typeof leadScrapeStageSchema>;
 
+/**
+ * The server writes this sentence when a run dies or goes stale and the
+ * hold is refunded. The web card maps it to a translated key.
+ */
+export const LEAD_SCRAPE_FAILED_REFUNDED_TEXT =
+	"The search failed. Your credits are back. Please try again.";
+
 // Three sample rows for the result card's mini table. Empty strings mean the
 // field was not found for that business (never invented).
 export const leadScrapePreviewRowSchema = z.object({
 	business: z.string(),
 	phone: z.string(),
-	email: z.string(),
 });
 
 export type LeadScrapePreviewRow = z.infer<typeof leadScrapePreviewRowSchema>;

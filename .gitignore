@@ -71,3 +71,6 @@ references/
 # Expo prebuild output (native projects are generated, not authored)
 apps/native/ios/
 apps/native/android/
+
+# Packed V2 templates are built on demand by templates/web-app/scripts/pack.mjs
+templates/*.tar.gz

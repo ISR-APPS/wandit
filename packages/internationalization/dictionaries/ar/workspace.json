@@ -916,14 +916,11 @@
 			"loadError": "تعذّر تحميل حالة البحث.",
 			"failedTitle": "فشل البحث عن العملاء المحتملين",
 			"failedDetail": "توقّف البحث قبل الانتهاء.",
+			"failedRefunded": "فشل البحث. تم استرجاع رصيدك. يرجى المحاولة مرة أخرى.",
 			"steps": {
 				"brief": "تم تحليل الطلب",
 				"searchingActive": "جارٍ البحث في خرائط Google…",
 				"searchingDone": "تم البحث في خرائط Google",
-				"extractingActive": "جارٍ استخراج جهات الاتصال…",
-				"extractingDone": "تم استخراج جهات الاتصال",
-				"verifyingActive": "جارٍ التحقق من البريد الإلكتروني وإزالة التكرارات…",
-				"verifyingDone": "تم التحقق من البريد الإلكتروني وإزالة التكرارات",
 				"exportingActive": "جارٍ التصدير إلى ‎.xlsx…",
 				"exportingDone": "تم التصدير إلى ‎.xlsx"
 			},
@@ -954,7 +951,6 @@
 			},
 			"columnBusiness": "النشاط التجاري",
 			"columnPhone": "الهاتف",
-			"columnEmail": "البريد الإلكتروني",
 			"moreRows": {
 				"zero": "لا صفوف إضافية",
 				"one": "+صف إضافي واحد",

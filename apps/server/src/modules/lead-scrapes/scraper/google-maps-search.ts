@@ -245,8 +245,6 @@ function toLeadRecord(place: SerperPlace): LeadRecord | null {
 
 	return {
 		address: asTrimmedString(place.address),
-		email: null,
-		emailVerified: false,
 		name,
 		phone: asTrimmedString(place.phoneNumber),
 		source: "google-maps",

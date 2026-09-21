@@ -36,6 +36,7 @@ export {
 // Query keys and query hooks for reading project list/detail data.
 export {
 	projectKeys,
+	projectQuery,
 	useProjectQuery,
 	useProjectsQuery,
 } from "./api/projects.queries";

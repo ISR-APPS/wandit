@@ -51,7 +51,10 @@ export const BUILDER_MODELS: readonly BuilderModelOption[] = [
 	builderModelOption("gpt-5-6-luna", "openai/gpt-5.6-luna"),
 	builderModelOption("sonnet-5", "anthropic/claude-sonnet-5"),
 	builderModelOption("muse-spark-1-1", "meta/muse-spark-1.1"),
-	builderModelOption("muse-spark-1-2-contributor", "meta/muse-spark-1.2-contributor"),
+	builderModelOption(
+		"muse-spark-1-2-contributor",
+		"meta/muse-spark-1.2-contributor",
+	),
 ];
 
 export const BUILDER_MODEL_STORAGE_KEY = "wandit:dev-builder-model";

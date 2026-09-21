@@ -4,7 +4,10 @@ import { aiUsageOperation } from "@wandit/db/schema/credits";
 import { describe, expect, it } from "vitest";
 
 import {
+	AGENT_SESSION_RESERVE_CEILING_CREDITS,
+	AGENT_SESSION_RESERVE_FLOOR_CREDITS,
 	AI_INVOCATION_COVERAGE,
+	assertOperationParentAllowed,
 	assertTranscriptionDurationAllowed,
 	CONNECTOR_RESERVE_FLOOR_CREDITS,
 	canNestOperation,
@@ -12,6 +15,7 @@ import {
 	LEAD_SCRAPE_CREDITS_PER_LEAD,
 	LEAD_SCRAPE_MINIMUM_CREDITS,
 	leadScrapeCredits,
+	maxFinalCreditsCeiling,
 	OPERATION_REGISTRY,
 	TRANSCRIPTION_MAX_DURATION_SECONDS,
 	TRANSCRIPTION_RESERVE_FLOOR_CREDITS,
@@ -23,6 +27,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"site-builder-steps",
 	"site-builder-image-child",
 	"standalone-image",
+	"builder-host-tool-image",
 	"marketing",
 	"connector-inline",
 	"connector-background",
@@ -83,10 +88,16 @@ const EXPECTED_PROVIDER_CALLS = [
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
 	},
 	{
-		count: 1,
+		count: 2,
 		name: "generateImage",
 		source:
 			"apps/server/src/modules/image-generations/application/services/image-generator.ts",
+	},
+	{
+		count: 1,
+		name: "generateImage",
+		source:
+			"apps/server/src/modules/app-builder/application/host-tools/generate-image.host-tool.ts",
 	},
 	{
 		count: 2,
@@ -205,6 +216,37 @@ describe("operation registry", () => {
 		expect(canNestOperation("connector", "video")).toBe(true);
 		expect(canNestOperation("chat", "video")).toBe(false);
 		expect(canNestOperation("image", "page_build")).toBe(false);
+	});
+
+	it("prices agent sessions as a token operation with a reserve ceiling", () => {
+		expect(OPERATION_REGISTRY.agent_session).toMatchObject({
+			allowedChildOperations: ["image", "connector", "sandbox"],
+			allowedParentOperations: [],
+			mode: "token",
+			reserveFloorCredits: AGENT_SESSION_RESERVE_FLOOR_CREDITS,
+			rootAllowed: true,
+		});
+		expect(AGENT_SESSION_RESERVE_FLOOR_CREDITS).toBe(500);
+		expect(AGENT_SESSION_RESERVE_CEILING_CREDITS).toBe(250_000);
+		expect(canNestOperation("agent_session", "image")).toBe(true);
+		expect(maxFinalCreditsCeiling("agent_session", 500)).toBe(250_000);
+	});
+
+	it("measures sandbox minutes without billing the customer", () => {
+		expect(OPERATION_REGISTRY.sandbox).toMatchObject({
+			allowedParentOperations: ["agent_session"],
+			customerBillable: false,
+			mode: "measured",
+			reserveFloorCredits: 0,
+			rootAllowed: false,
+			unit: "minute",
+		});
+		expect(() => assertOperationParentAllowed("sandbox")).toThrow(
+			"must have a parent",
+		);
+		expect(canNestOperation("agent_session", "sandbox")).toBe(true);
+		expect(canNestOperation("chat", "sandbox")).toBe(false);
+		expect(canNestOperation("sandbox", "image")).toBe(false);
 	});
 
 	it("keeps every §5.6 workflow marker mapped to registered pricing", async () => {

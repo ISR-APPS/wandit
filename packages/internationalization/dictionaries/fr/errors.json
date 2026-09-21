@@ -69,6 +69,8 @@
 		"AI_CONTENT_MODERATED": "Le fournisseur d’IA a refusé cette requête en raison de ses règles de contenu. Modifie le prompt, puis réessaie.",
 		"AI_INVALID_REQUEST": "Le fournisseur d’IA n’a pas accepté cette requête. Essaie avec un prompt plus court ou un autre fichier.",
 		"AI_INTERNAL": "Un problème est survenu de notre côté. Réessaie.",
-		"AI_UNKNOWN": "Un problème est survenu. Réessaie."
+		"AI_UNKNOWN": "Un problème est survenu. Réessaie.",
+		"VERSION_CONFLICT": "Les versions ont changé. Rouvrez la liste et réessayez.",
+		"BUILDER_TURN_ACTIVE": "Attendez la fin de l'opération en cours, puis réessayez."
 	}
 }

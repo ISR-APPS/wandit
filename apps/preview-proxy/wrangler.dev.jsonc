@@ -1,0 +1,28 @@
+{
+	// Local-dev twin of wrangler.jsonc. ONLY intended delta: no "routes",
+	// no "env" block, and no "account_id" (local dev needs no account). A
+	// zone route makes `wrangler dev` (4.114) fail every local request with
+	// an opaque internal error. Keep every other field in lockstep with
+	// wrangler.jsonc.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wandit-preview-proxy",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-10-11",
+	"vars": {
+		"PREVIEW_DOMAIN": "wanditpreview.app",
+		"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev http://localhost:*"
+	},
+	// The secret comes from `.dev.vars` locally: PREVIEW_TOKEN_SIGNING_KEY=<key>.
+	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+	"ratelimits": [
+		{
+			"name": "PREVIEW_RATE",
+			"namespace_id": "1001",
+			"simple": { "limit": 600, "period": 60 }
+		}
+	],
+	"analytics_engine_datasets": [
+		{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
+	],
+	"observability": { "enabled": true }
+}

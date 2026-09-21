@@ -330,6 +330,7 @@ function productSettings(
 		topupsEnabled: false,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
+		v2BuilderEnabled: false,
 		version: 1,
 	};
 }

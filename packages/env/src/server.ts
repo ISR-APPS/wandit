@@ -13,6 +13,7 @@ import { config } from "dotenv";
 import { z } from "zod";
 import { corsExtraOriginsSchema, httpOriginSchema } from "./cors-origins";
 import { parseLlmProviderOverrides } from "./llm-routing";
+import { v2HarnessSchema } from "./v2-harness";
 
 // Build paths from this file location so loading works from different cwd values.
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -289,6 +290,56 @@ export const env = createEnv({
 		// 503 while the rest of the API boots normally.
 		LINEAR_API_KEY: z.string().min(1).optional(),
 		LINEAR_FEEDBACK_TEAM_ID: z.string().min(1).optional(),
+		// V2 app builder (docs/v2). All optional at boot; requireV2Env() checks at call time.
+		// The V2 app builder switch. The API loads the app-builder module only
+		// when true.
+		V2_BUILDER_ENABLED: z
+			.enum(["true", "false"])
+			.default("false")
+			.transform((value) => value === "true"),
+		// D17: Claude Code first, OpenCode later; the value changes without a
+		// code change.
+		V2_HARNESS: v2HarnessSchema,
+		// Model id of the default builder model (D10: a cheaper model, not from
+		// Anthropic, picked by WANDIT-151).
+		V2_DEFAULT_MODEL: z.string().min(1).optional(),
+		// Public base URL of this API as the sandbox reaches it; the run token
+		// and the LLM proxy live there. Unset means BETTER_AUTH_URL. Local dev
+		// sets a tunnel URL because the sandbox runs in the vendor cloud.
+		V2_LLM_PROXY_PUBLIC_URL: z.url().optional(),
+		// The Anthropic-compatible endpoint the LLM proxy forwards to.
+		// Unset means https://api.anthropic.com.
+		V2_LLM_UPSTREAM_BASE_URL: z.url().optional(),
+		// Egress mode of the V2 sandbox. "open" is the fallback when the allow
+		// list breaks a turn; it keeps the deny ranges.
+		V2_SANDBOX_EGRESS_MODE: z.enum(["strict", "open"]).default("strict"),
+		VERCEL_SANDBOX_TOKEN: z.string().min(1).optional(),
+		VERCEL_TEAM_ID: z.string().min(1).optional(),
+		VERCEL_PROJECT_ID: z.string().min(1).optional(),
+		VERCEL_SANDBOX_IMAGE: z.string().min(1).optional(),
+		// Folder with the `web-app-<version>.tar.gz` template archives. Unset
+		// in dev: the code finds the repo `templates/` folder from the cwd.
+		TEMPLATE_ARCHIVE_DIR: z.string().min(1).optional(),
+		ANTHROPIC_API_KEY: z.string().min(1).optional(),
+		// Comma-separated list: the first key signs, any key verifies.
+		LLM_PROXY_SIGNING_KEY: z.string().min(1).optional(),
+		SUPABASE_PLATFORM_TOKEN: z.string().min(1).optional(),
+		SUPABASE_PLATFORM_ORG_ID: z.string().min(1).optional(),
+		SUPABASE_PLATFORM_REGION: z.string().min(1).optional(),
+		SUPABASE_PLATFORM_INSTANCE_SIZE: z.string().min(1).optional(),
+		// code.storage org slug: used in the API base URL, the git host, and
+		// the JWT `iss` claim (D21).
+		CODE_STORAGE_ORG: z.string().min(1).optional(),
+		// PKCS8 PEM of the org's ECDSA P-256 key; the API signs per-repository
+		// JWTs with it. Multi-line value, `\n` escapes accepted.
+		CODE_STORAGE_PRIVATE_KEY: z.string().min(1).optional(),
+		APP_SECRETS_ENCRYPTION_KEY: z.string().min(1).optional(),
+		PREVIEW_DOMAIN: z.string().min(1).optional(),
+		PREVIEW_TOKEN_SIGNING_KEY: z.string().min(1).optional(),
+		CLOUDFLARE_V2_DEPLOY_TOKEN: z.string().min(1).optional(),
+		EXPO_TOKEN: z.string().min(1).optional(),
+		APPETIZE_API_TOKEN: z.string().min(1).optional(),
+		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

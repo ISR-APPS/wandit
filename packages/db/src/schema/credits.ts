@@ -40,6 +40,10 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"connector",
 	"lead_scrape",
 	"transcription",
+	// One V2 builder turn, billed from the llm_proxy_requests rows.
+	"agent_session",
+	// Sandbox minutes at a zero rate; not billed to the customer before WANDIT-196.
+	"sandbox",
 	"topup_adjust",
 ]);
 
@@ -291,6 +295,9 @@ export const aiUsageEvents = pgTable(
 		chatId: uuid("chat_id"),
 		messageId: text("message_id"),
 		attemptRef: text("attempt_ref"),
+		// V2 project the usage belongs to. No FK: metering writes must never
+		// block on a projects row. Null on V1 operations.
+		projectId: uuid("project_id"),
 		idempotencyKey: text("idempotency_key").notNull(),
 		// Cross-replica execution lease (chat streams): while unexpired, the
 		// stream owning this token is provably live somewhere, so sweeps and
@@ -327,6 +334,10 @@ export const aiUsageEvents = pgTable(
 		index("ai_usage_events_attemptRef_operation_createdAt_idx")
 			.on(table.attemptRef, table.operation, table.createdAt)
 			.where(sql`${table.attemptRef} IS NOT NULL`),
+		// Per-project spend for V2 cost caps and the receipt.
+		index("ai_usage_events_projectId_createdAt_idx")
+			.on(table.projectId, table.createdAt)
+			.where(sql`${table.projectId} IS NOT NULL`),
 		// getFunnelSnapshot resolves the acting user of the latest usage event per
 		// generation attempt (DISTINCT ON (operation, attempt_ref) ... ORDER BY
 		// operation, attempt_ref, created_at DESC). This ordered partial index feeds

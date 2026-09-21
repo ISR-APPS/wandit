@@ -1,7 +1,24 @@
+/**
+ * Drizzle reads and writes on `ai_usage_events` and its generation refs.
+ * Called by `MeteringService`; holds the CAS updates and the sweep
+ * selections behind the metering state machine.
+ */
 import { isDeepStrictEqual } from "node:util";
 
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	ne,
+	or,
+	sql,
+} from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 import {
 	aiProviderCallEvidence,
@@ -37,6 +54,10 @@ export type InsertAiUsageGenerationRef = Pick<
 	"gatewayGenerationId" | "providerSource" | "stepUsage" | "usageEventId"
 >;
 
+/**
+ * The columns a state transition may write. `reservedCredits` grows only
+ * through a checkpoint.
+ */
 export type AiUsageEventPatch = Partial<
 	Pick<
 		AiUsageEventRow,
@@ -55,6 +76,7 @@ export type AiUsageEventPatch = Partial<
 		| "reconcileAttempts"
 		| "reconciledAt"
 		| "reconciledCostUsdMicros"
+		| "reservedCredits"
 		| "settledAt"
 		| "status"
 	>
@@ -510,10 +532,15 @@ export class MeteringRepository {
 			);
 	}
 
+	/**
+	 * `reserved` rows older than `createdBefore`; `agent_session` rows use
+	 * `agentSessionCreatedBefore` when the caller passes one.
+	 */
 	listStaleReserved(
 		createdBefore: Date,
 		limit: number,
 		client: MeteringDbClient = this.db,
+		agentSessionCreatedBefore?: Date,
 	): Promise<AiUsageEventRow[]> {
 		const personalClipperCreatedBefore = new Date(
 			createdBefore.getTime() - PERSONAL_CLIPPER_RESERVATION_STALE_EXTENSION_MS,
@@ -525,7 +552,20 @@ export class MeteringRepository {
 			.where(
 				and(
 					eq(aiUsageEvents.status, "reserved"),
-					lt(aiUsageEvents.createdAt, createdBefore),
+					// A live builder turn keeps the longer agent-session window; every
+					// other operation keeps the caller's cutoff.
+					agentSessionCreatedBefore === undefined
+						? lt(aiUsageEvents.createdAt, createdBefore)
+						: or(
+								and(
+									eq(aiUsageEvents.operation, "agent_session"),
+									lt(aiUsageEvents.createdAt, agentSessionCreatedBefore),
+								),
+								and(
+									ne(aiUsageEvents.operation, "agent_session"),
+									lt(aiUsageEvents.createdAt, createdBefore),
+								),
+							),
 					// The scheduled sweep passes the normal 40-minute cutoff. Only a
 					// reservation tied to a still-running Personal Clipper attempt gets
 					// the additional 30 minutes; all other rows remain selectable.
@@ -548,6 +588,112 @@ export class MeteringRepository {
 				),
 			)
 			.orderBy(asc(aiUsageEvents.createdAt), asc(aiUsageEvents.id))
+			.limit(limit);
+	}
+
+	/**
+	 * Median final charge of a project's recent events of one operation, in cc.
+	 * `percentile_cont` is the Postgres median aggregate: one statement over the
+	 * newest `limit` rows, no client-side pass. Null when no row qualifies.
+	 */
+	async medianSettledCredits(
+		projectId: string,
+		operation: AiUsageEventRow["operation"],
+		limit = 10,
+		client: MeteringDbClient = this.db,
+	): Promise<number | null> {
+		const result = await client.execute<{
+			median: number | string | null;
+		}>(sql`
+			select percentile_cont(0.5) within group (order by t.final_credits) as median
+			from (
+				select final_credits
+				from ai_usage_events
+				where project_id = ${projectId}
+					and operation = ${operation}
+					and status in ('settled', 'reconciled')
+					and final_credits is not null
+				order by settled_at desc nulls last, created_at desc
+				limit ${limit}
+			) t
+		`);
+
+		const median = result.rows[0]?.median;
+
+		return median === null || median === undefined
+			? null
+			: Math.round(Number(median));
+	}
+
+	/**
+	 * The project's agent-session spend since `monthStartUtc`, in cc. A reserved
+	 * hold counts at its reserve so a running turn cannot sneak under the cap.
+	 */
+	async monthlySpendCredits(
+		projectId: string,
+		monthStartUtc: Date,
+		client: MeteringDbClient = this.db,
+	): Promise<number> {
+		const result = await client.execute<{
+			total: number | string | null;
+		}>(sql`
+			select coalesce(sum(coalesce(final_credits, reserved_credits)), 0) as total
+			from ai_usage_events
+			where project_id = ${projectId}
+				and operation = ${"agent_session"}
+				and created_at >= ${monthStartUtc}
+				and status <> ${"refunded"}
+		`);
+
+		const total = result.rows[0]?.total;
+
+		return total === null || total === undefined
+			? 0
+			: Math.round(Number(total));
+	}
+
+	/** Reserved (still-open) holds of one operation owned by one acting user. */
+	async countReservedByActor(
+		operation: AiUsageEventRow["operation"],
+		actorUserId: string,
+		client: MeteringDbClient = this.db,
+	): Promise<number> {
+		const [row] = await client
+			.select({ count: sql<number>`count(*)::int` })
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.operation, operation),
+					eq(aiUsageEvents.status, "reserved"),
+					eq(aiUsageEvents.userId, actorUserId),
+				),
+			);
+
+		return row?.count ?? 0;
+	}
+
+	/**
+	 * Settled agent-session rows with `youngerThan` < settled_at < `olderThan`,
+	 * oldest first. The reconcile sweep reads one page per call.
+	 */
+	listSettledAgentSessions(
+		olderThan: Date,
+		youngerThan: Date,
+		limit = 200,
+		client: MeteringDbClient = this.db,
+	): Promise<AiUsageEventRow[]> {
+		return client
+			.select()
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.operation, "agent_session"),
+					eq(aiUsageEvents.status, "settled"),
+					lt(aiUsageEvents.settledAt, olderThan),
+					gt(aiUsageEvents.settledAt, youngerThan),
+				),
+			)
+			.orderBy(asc(aiUsageEvents.settledAt))
 			.limit(limit);
 	}
 

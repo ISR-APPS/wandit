@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
+import { env } from "@wandit/env/server";
 import { SentryModule } from "@wandit/observability/nestjs-setup";
 
 import { appConfig } from "./config/app.config";
@@ -14,6 +15,7 @@ import { AcademyModule } from "./modules/academy/academy.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
+import { AppBuilderModule } from "./modules/app-builder/app-builder.module";
 import { AttributionModule } from "./modules/attribution/attribution.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
@@ -65,6 +67,8 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
 		// request.user, and Nest runs global guards in registration order.
 		WorkspacesModule,
+		// The V2 app builder mounts its routes only when the env switch is on.
+		...(env.V2_BUILDER_ENABLED ? [AppBuilderModule] : []),
 		AdminModule,
 		AiChatModule,
 		HealthModule,

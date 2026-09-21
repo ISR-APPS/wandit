@@ -126,6 +126,7 @@ function productSettings(
 		topupsEnabled: true,
 		updatedAt: NOW.toISOString(),
 		updatedByUserId: null,
+		v2BuilderEnabled: false,
 		version: 1,
 		...overrides,
 	};

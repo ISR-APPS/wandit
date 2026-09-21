@@ -1,11 +1,11 @@
 // In-thread card for a scrape_leads call — the native port of the web's
 // scrape-leads part. Live progress arrives over Trigger Realtime (the
 // Electric long-poll in use-live-run — zero interval polling): the checklist
-// walks searching → extracting → verifying → exporting with a found-count
-// badge, and on settle ONE refetch of the durable attempt row swaps in the
-// result card (file header, 3-row preview table, Download .xlsx). Messages
-// without a realtime handle (old history) keep the legacy poll — the durable
-// row is their only transport.
+// walks searching → exporting with a found-count badge, and on settle ONE
+// refetch of the durable attempt row swaps in the result card (file header,
+// 3-row preview table, Download .xlsx). Messages without a realtime handle
+// (old history) keep the legacy poll — the durable row is their only
+// transport.
 
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -13,7 +13,10 @@ import type {
 	LeadScrapeStage,
 	TriggerRealtimeHandle,
 } from "@wandit/contracts";
-import { leadScrapesRoutes } from "@wandit/contracts";
+import {
+	LEAD_SCRAPE_FAILED_REFUNDED_TEXT,
+	leadScrapesRoutes,
+} from "@wandit/contracts";
 import { useTranslation } from "@wandit/internationalization/react";
 import { Directory, File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -122,8 +125,9 @@ export function LeadScrapeCard({
 					style={{ writingDirection: "auto" }}
 				>
 					{presentation?.body ??
-						attempt.error ??
-						t("workspace.chat.leadScrape.failedDetail")}
+						(attempt.error === LEAD_SCRAPE_FAILED_REFUNDED_TEXT
+							? t("workspace.chat.leadScrape.failedRefunded")
+							: (attempt.error ?? t("workspace.chat.leadScrape.failedDetail")))}
 				</Text>
 				{presentation?.attribution ? (
 					<Text
@@ -156,22 +160,20 @@ export function LeadScrapeCard({
 
 /* ---------- progress card ---------- */
 
-// Checklist rows 2..5 map onto the pipeline stages in order; row 1 (the
+// Checklist rows 2 and 3 map onto the pipeline stages in order; row 1 (the
 // parsed brief) is done the moment the attempt exists.
-const STAGE_ORDER: LeadScrapeStage[] = [
-	"queued",
-	"searching",
-	"extracting",
-	"verifying",
-	"exporting",
-];
+const STAGE_ORDER: LeadScrapeStage[] = ["queued", "searching", "exporting"];
 
-const STAGE_KEYS = [
-	"searching",
-	"extracting",
-	"verifying",
-	"exporting",
-] as const;
+const STAGE_KEYS = ["searching", "exporting"] as const;
+
+// Rows written before 21 Sept 2026 can still hold the removed email stages;
+// the Maps search had already finished by then, so they render at the
+// exporting position (searching done).
+function stageOrderIndex(stage: LeadScrapeStage): number {
+	return stage === "extracting" || stage === "verifying"
+		? STAGE_ORDER.indexOf("exporting")
+		: STAGE_ORDER.indexOf(stage);
+}
 
 function LeadScrapeProgressCard({
 	attempt,
@@ -207,7 +209,7 @@ function LeadScrapeProgressCard({
 	// its row as active rather than an all-pending dead card.
 	const stageIndex = Math.max(
 		1,
-		STAGE_ORDER.indexOf(liveStage ?? attempt?.stage ?? "queued"),
+		stageOrderIndex(liveStage ?? attempt?.stage ?? "queued"),
 	);
 	const foundCount = liveFound ?? attempt?.foundCount ?? 0;
 
@@ -265,7 +267,7 @@ function LeadScrapeProgressCard({
 							state={state}
 							live={animationLive}
 							badge={
-								stage === "extracting" && foundCount > 0
+								stage === "searching" && foundCount > 0
 									? t("workspace.chat.leadScrape.foundBadge", {
 											count: foundCount,
 										})
@@ -337,9 +339,6 @@ function LeadScrapeResultCard({ attempt }: { attempt: LeadScrapeAttempt }) {
 						<Text className="w-[88px] ps-2 font-mono text-[10px] text-muted uppercase tracking-[1px]">
 							{t("workspace.chat.leadScrape.columnPhone")}
 						</Text>
-						<Text className="flex-1 ps-2 font-mono text-[10px] text-muted uppercase tracking-[1px]">
-							{t("workspace.chat.leadScrape.columnEmail")}
-						</Text>
 					</View>
 					{attempt.previewRows.map((row, index) => (
 						<View
@@ -363,13 +362,6 @@ function LeadScrapeResultCard({ attempt }: { attempt: LeadScrapeAttempt }) {
 								style={{ writingDirection: "ltr" }}
 							>
 								{row.phone}
-							</Text>
-							<Text
-								numberOfLines={1}
-								className="flex-1 ps-2 text-[11.5px] text-muted"
-								style={{ writingDirection: "ltr" }}
-							>
-								{row.email}
 							</Text>
 						</View>
 					))}

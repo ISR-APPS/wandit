@@ -15,10 +15,12 @@ import {
 	Injectable,
 	Logger,
 	NotFoundException,
+	Optional,
 } from "@nestjs/common";
 import type {
 	CreateProjectBody,
 	CreateProjectResponse,
+	FileRef,
 	ListProjectsPageResponse,
 	ListProjectsQuery,
 	ListProjectsResponse,
@@ -33,6 +35,10 @@ import {
 	projectCreationMeteringKey,
 	projectCreationReservationAttemptRef,
 } from "../../../ai-chat/agent/chat-metering";
+import {
+	DELETE_APP_PROJECT_TASK_STARTER,
+	type DeleteAppProjectTaskStarter,
+} from "../../../app-builder/domain/ports/delete-app-project-task-starter";
 import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { lifecycleEventIdempotencyKey } from "../../../lifecycle-events/domain/lifecycle-event";
 import { MeteringService } from "../../../metering/application/services/metering.service";
@@ -64,6 +70,10 @@ export class ProjectsService {
 		private readonly projectTitleService: ProjectTitleService,
 		@Inject(LifecycleEventsService)
 		private readonly lifecycleEvents: LifecycleEventsService,
+		// Absent on a V1 deploy: the module binds null when V2 is off.
+		@Optional()
+		@Inject(DELETE_APP_PROJECT_TASK_STARTER)
+		private readonly deleteAppProjectStarter: DeleteAppProjectTaskStarter | null = null,
 	) {}
 
 	// List the workspace's projects for the dashboard.
@@ -112,7 +122,7 @@ export class ProjectsService {
 		// Attachment URLs must be Wandit-hosted assets (contract §10.4) — the
 		// composer uploads through /api/v1/attachments first, so anything else
 		// is a forged reference. Uploads are actor-owned even in org scope.
-		this.assertWanditHostedAttachments(scope.userId, body.attachments);
+		assertWanditHostedAttachments(scope.userId, body.attachments);
 
 		const derivedName = deriveProjectName(body.prompt);
 		const projectId = randomUUID();
@@ -184,7 +194,7 @@ export class ProjectsService {
 
 		// The transaction has committed. Title generation is best-effort and must
 		// never add latency or failure to the create response.
-		void this.generateAndPersistTitle({
+		void this.startBackgroundTitle({
 			attachments: body.attachments,
 			derivedName,
 			projectId: created.projectId,
@@ -279,7 +289,13 @@ export class ProjectsService {
 		}
 	}
 
-	private async generateAndPersistTitle(input: {
+	/**
+	 * Best-effort background rename: generates a title and writes it while the
+	 * row still carries `derivedName`. A title failure falls back to
+	 * `derivedName`; only a database error rejects, so every caller attaches
+	 * `.catch`. The `expectedName` guard makes a manual rename win.
+	 */
+	async startBackgroundTitle(input: {
 		attachments: CreateProjectBody["attachments"];
 		derivedName: string;
 		projectId: string;
@@ -358,22 +374,6 @@ export class ProjectsService {
 		}
 	}
 
-	// Reject any attachment reference that is not one of our own R2 objects.
-	// Parsed origin + path boundary, never a raw prefix check.
-	private assertWanditHostedAttachments(
-		userId: string,
-		attachments: CreateProjectBody["attachments"],
-	): void {
-		for (const attachment of attachments ?? []) {
-			if (!isUserUploadUrl(attachment.url, userId)) {
-				throw new BadRequestException({
-					code: "INVALID_FILE_PART",
-					message: "Attachments must be uploaded through Wandit",
-				});
-			}
-		}
-	}
-
 	// Soft-delete: mark as deleted, do not physically remove the row.
 	async delete(scope: ProjectScope, projectId: string): Promise<void> {
 		const deleted = await this.projectsRepository.softDeleteByIdForScope(
@@ -384,6 +384,43 @@ export class ProjectsService {
 		// Controller returns 204 when this succeeds.
 		if (!deleted) {
 			throw new NotFoundException();
+		}
+
+		if (deleted.engine === "v2_app" && this.deleteAppProjectStarter !== null) {
+			try {
+				await this.deleteAppProjectStarter.start({
+					actorUserId: scope.userId,
+					organizationId: scope.kind === "org" ? scope.organizationId : null,
+					projectId,
+				});
+			} catch (error) {
+				// The soft delete is the user's truth; the cleanup task is
+				// best-effort and idempotent on projectId.
+				this.logger.error(
+					`App-project cleanup start failed for ${projectId}: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+			// LIMIT: a failed task start leaves the sandbox and the repository
+			// alive until someone re-runs the delete. Upgrade: WANDIT-184 sweep.
+		}
+	}
+}
+
+// Reject any attachment reference that is not one of our own R2 objects.
+// The origin-and-path check lives in `isUserUploadUrl`; a prefix check
+// cannot prove ownership.
+export function assertWanditHostedAttachments(
+	userId: string,
+	attachments: FileRef[] | undefined,
+): void {
+	for (const attachment of attachments ?? []) {
+		if (!isUserUploadUrl(attachment.url, userId)) {
+			throw new BadRequestException({
+				code: "INVALID_FILE_PART",
+				message: "Attachments must be uploaded through Wandit",
+			});
 		}
 	}
 }

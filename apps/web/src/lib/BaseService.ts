@@ -325,8 +325,9 @@ function getApiErrorCodeMessage(code: string) {
 	return typeof message === "string" ? message : undefined;
 }
 
-// Generic fallback used when we cannot safely show a more specific API message.
-function getGenericApiErrorMessage() {
+// Generic fallback used when we cannot safely show a more specific API
+// message, for example a failure that never reached the API.
+export function getGenericApiErrorMessage() {
 	return getCurrentDictionary().errors.generic;
 }
 

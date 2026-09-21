@@ -5,6 +5,7 @@ import type {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 import {
+	Bot,
 	CircleMinus,
 	CreditCard,
 	FileText,
@@ -17,6 +18,7 @@ import {
 	Mic,
 	Plug,
 	Scale,
+	Server,
 	Users,
 	Video,
 	Zap,
@@ -35,6 +37,8 @@ const OPERATION_ICONS: Record<CreditActivityOperation, LucideIcon> = {
 	connector: Plug,
 	lead_scrape: Users,
 	transcription: Mic,
+	agent_session: Bot,
+	sandbox: Server,
 	topup_adjust: Scale,
 };
 

@@ -1,4 +1,3 @@
-// @ts-expect-error Vitest is provided by the workspace server test runner.
 import { describe, expect, it } from "vitest";
 
 import { scrubEvent } from "./shared";

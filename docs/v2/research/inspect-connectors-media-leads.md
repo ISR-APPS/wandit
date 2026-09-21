@@ -246,7 +246,7 @@ All key builders live in `apps/server/src/infrastructure/storage/r2.ts` (`pageHt
 
 | Module | What it is | Page-facing? |
 |---|---|---|
-| `lead-scrapes` | Chat tool `scrape_leads`: Google Maps prospecting + email discovery → XLSX in R2 (`lead-scrapes/domain/lead-scrape-spec.ts:12-26`; controller `lead-scrapes.controller.ts:20-67`). Runs on Trigger.dev `scrape-leads.task.ts`. | No. Prospecting for the merchant. |
+| `lead-scrapes` | Chat tool `scrape_leads`: Google Maps prospecting → XLSX in R2 (`lead-scrapes/domain/lead-scrape-spec.ts:12-26`; controller `lead-scrapes.controller.ts:20-67`). Runs on Trigger.dev `scrape-leads.task.ts`. | No. Prospecting for the merchant. |
 | `story-links` | Admin short links `GET /api/v1/s/:slug` that set a UTM attribution cookie and redirect into the Wandit app (`story-link-redirect.controller.ts:17-64`; schema `story-links.ts:10-31`). | No. Wandit's own marketing. |
 | `email` | Resend client. Transactional: magic link, OTP, invitation, domain reminder, offline request (`email.service.ts:52-100`). Lifecycle: `resend.events.send` (lines 102-116); outbox + Trigger sweep every 5 min (`docs/features/lifecycle-emails.md:150-185`). `EMAIL_FROM`, `RESEND_API_KEY`. | No. Emails go to Wandit users, never to leads. |
 | `push-notifications` | Section 3.5. | Yes, indirectly (new lead → owner phone). |

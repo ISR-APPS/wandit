@@ -62,6 +62,7 @@ export class ProductSettingsService {
 			signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,
+			v2BuilderEnabled: settings.v2BuilderEnabled,
 		};
 	}
 

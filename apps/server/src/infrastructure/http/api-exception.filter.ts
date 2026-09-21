@@ -1,3 +1,9 @@
+/**
+ * Turns every thrown exception into the API error envelope. Registered
+ * globally in `app.module.ts`. Reads `code` and `details` off the
+ * HttpException body and forwards them to the client. Sends 5xx failures
+ * to Sentry and the log.
+ */
 import {
 	type ArgumentsHost,
 	Catch,
@@ -8,7 +14,9 @@ import {
 } from "@nestjs/common";
 import {
 	type PaymentRequiredDetails,
+	type ProjectCreditCapDetails,
 	paymentRequiredDetailsSchema,
+	projectCreditCapDetailsSchema,
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/nestjs";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -22,7 +30,10 @@ type ValidationErrorDetail = {
 
 type NormalizedError = {
 	code: string;
-	details?: PaymentRequiredDetails | ValidationErrorDetail[];
+	details?:
+		| PaymentRequiredDetails
+		| ProjectCreditCapDetails
+		| ValidationErrorDetail[];
 	message: string;
 	statusCode: number;
 };
@@ -95,7 +106,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
 			statusCode === HttpStatus.PAYMENT_REQUIRED
 				? this.extractPaymentRequiredDetails(response)
 				: undefined;
-		const details = paymentRequiredDetails ?? validationDetails;
+		const projectCreditCapDetails =
+			statusCode === HttpStatus.FORBIDDEN
+				? this.extractProjectCreditCapDetails(response)
+				: undefined;
+		const details =
+			paymentRequiredDetails ?? projectCreditCapDetails ?? validationDetails;
 
 		return {
 			code: validationDetails
@@ -129,6 +145,21 @@ export class ApiExceptionFilter implements ExceptionFilter {
 		});
 
 		return legacy.success ? legacy.data : undefined;
+	}
+
+	private extractProjectCreditCapDetails(
+		response: string | object,
+	): ProjectCreditCapDetails | undefined {
+		if (typeof response === "string") {
+			return undefined;
+		}
+
+		// SAFETY: HttpExceptionResponse only marks optional unknown fields on
+		// the response object; the schema parse does the real check.
+		const body = response as HttpExceptionResponse;
+		const parsed = projectCreditCapDetailsSchema.safeParse(body.details);
+
+		return parsed.success ? parsed.data : undefined;
 	}
 
 	private codeForExceptionResponse(
