@@ -66,10 +66,9 @@ export function createScrapeLeadsTool(
 	return tool({
 		description:
 			"Queue a real background scrape that finds local businesses " +
-			"(name, phone, email when their website reveals one, website, " +
-			"address) matching a niche + location, and exports them to an " +
-			"Excel file the user downloads from the chat. Call it ONCE per " +
-			"request; progress appears live in the conversation.",
+			"(name, phone, website, address) matching a niche + location, and " +
+			"exports them to an Excel file the user downloads from the chat. " +
+			"Call it ONCE per request; progress appears live in the conversation.",
 		inputSchema: scrapeLeadsInputSchema,
 		outputSchema: scrapeLeadsOutputSchema,
 		execute: async (

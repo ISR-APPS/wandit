@@ -1,3 +1,5 @@
+import { LEAD_SCRAPE_FAILED_REFUNDED_TEXT } from "@wandit/contracts";
+import { sql } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
@@ -5,10 +7,21 @@ import { LeadScrapesRepository } from "./lead-scrapes.repository";
 
 function setup(returned: Array<{ id: string }>) {
 	const returning = vi.fn().mockResolvedValue(returned);
+	const limit = vi.fn().mockResolvedValue([]);
 	const set = vi.fn(() => ({
 		where: vi.fn(() => ({ returning })),
 	}));
 	const db = {
+		select: vi.fn(() => ({
+			from: vi.fn(() => ({
+				innerJoin: vi.fn(() => ({
+					where: vi.fn(() => ({ limit })),
+				})),
+				// The stale sweep's owned-projects subquery is never executed;
+				// a SQL fragment is all inArray() needs to build the update.
+				where: vi.fn(() => sql`"projects"."id"`),
+			})),
+		})),
 		update: vi.fn(() => ({ set })),
 	};
 	const repository = new LeadScrapesRepository(db as unknown as Database);
@@ -54,6 +67,47 @@ describe("LeadScrapesRepository queue handoff transitions", () => {
 		await expect(
 			repository.markAttemptFailed("attempt-1", "Trigger rejected request"),
 		).resolves.toBe(false);
+	});
+
+	it("settles a dead run with a failed CAS write", async () => {
+		const { repository, set } = setup([{ id: "attempt-1" }]);
+
+		await expect(
+			repository.settleDeadRun("attempt-1", "run-1", "run died"),
+		).resolves.toBe(true);
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				error: "run died",
+				status: "failed",
+			}),
+		);
+	});
+
+	it("reports a lost dead-run CAS", async () => {
+		const { repository } = setup([]);
+
+		await expect(
+			repository.settleDeadRun("attempt-1", "run-1", "run died"),
+		).resolves.toBe(false);
+	});
+});
+
+describe("LeadScrapesRepository stale-read self-heal", () => {
+	it("fails stale attempts with the refunded sentence", async () => {
+		const { repository, set } = setup([]);
+
+		await expect(
+			repository.findAccessibleAttempt(
+				{ kind: "personal", userId: "user-1" },
+				"attempt-1",
+			),
+		).resolves.toBeNull();
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({
+				error: LEAD_SCRAPE_FAILED_REFUNDED_TEXT,
+				status: "failed",
+			}),
+		);
 	});
 });
 
