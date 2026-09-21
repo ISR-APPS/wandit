@@ -1,7 +1,15 @@
+/**
+ * Pathless `_auth` layout: the session gate and workspace hydrate of
+ * every signed-in route. The router runs `beforeLoad` on each
+ * navigation into it. The gate calls `getSession` and
+ * `hydrateWorkspaceScope`. The layout renders the outlet and the
+ * Chatwoot widget.
+ */
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
 import { getSession } from "@/features/auth";
 import { ChatwootWidget } from "@/features/support";
+import { hydrateWorkspaceScope } from "@/features/workspaces";
 import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
 
 export const Route = createFileRoute("/_auth")({
@@ -35,6 +43,10 @@ export const Route = createFileRoute("/_auth")({
 				},
 			});
 		}
+		// Route loaders fetch before WorkspaceProvider mounts. The persisted
+		// workspace must scope those requests, or a project of an organization
+		// workspace answers 404.
+		hydrateWorkspaceScope(session.user.id);
 		return { session };
 	},
 });

@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "wrangler dev --config wrangler.dev.jsonc --port 8799 --persist-to .wrangler/state",
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy --env production",
 		"typegen": "wrangler types",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"

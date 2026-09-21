@@ -29,6 +29,13 @@
 		"check-types": {
 			"dependsOn": ["^check-types"]
 		},
+		"topo": {
+			"dependsOn": ["^topo"]
+		},
+		"test": {
+			"dependsOn": ["topo"],
+			"outputs": []
+		},
 		"deploy": {
 			"cache": false
 		},

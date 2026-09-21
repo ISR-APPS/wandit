@@ -1,0 +1,128 @@
+# Runs the repo checks on every pull request and on each push to dev, staging, and main.
+# The checks are biome, the TypeScript checks, and the vitest suites.
+# The three env values are stubs, not secrets. CI keeps the runners in CI
+# mode. Turbo framework inference passes VITE_* values to the web and
+# admin builds. Turbo strict env mode drops undeclared values like
+# SKIP_ENV_VALIDATION before tasks run.
+# The biome job checks a scoped path list. docs/ci.md lists the files that
+# still block `biome ci .` at the root.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, staging, main]
+  workflow_dispatch: {}
+
+# One run per ref at a time; a new push stops the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    # 15 min is ten times the slowest local run (tests take about 1.5 min).
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      SKIP_ENV_VALIDATION: "true"
+      VITE_SERVER_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22 matches trigger-deploy.yml and runtime "node-22" in apps/server/trigger.config.ts.
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Local Turbo cache only; no remote cache.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Check types
+        run: pnpm turbo run check-types
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      SKIP_ENV_VALIDATION: "true"
+      VITE_SERVER_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Local Turbo cache only; no remote cache.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
+      - name: Test
+        run: pnpm turbo run test
+
+  biome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      SKIP_ENV_VALIDATION: "true"
+      VITE_SERVER_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Scoped paths only: docs/ci.md lists the files that block
+      # `biome ci .` at the root. Widen the scope when they are fixed.
+      - name: Biome
+        run: >-
+          npx biome ci --error-on-warnings
+          apps/edge
+          apps/preview-proxy
+          apps/server/src/infrastructure
+          apps/server/src/modules/app-builder
+          apps/server/src/modules/metering
+          apps/server/src/trigger
+          apps/web
+          apps/worker
+          packages/analytics
+          packages/auth
+          packages/config
+          packages/contracts
+          packages/db
+          packages/internationalization
+          packages/jobs
+          packages/observability
+          packages/preview-editor
+          packages/ui
+          tooling

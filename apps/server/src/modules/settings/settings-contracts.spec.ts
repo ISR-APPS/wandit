@@ -45,6 +45,7 @@ describe("workstream 5 contract round-trips", () => {
 			topupsEnabled: true,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: "admin_1",
+			v2BuilderEnabled: false,
 			version: 4,
 		};
 
@@ -57,6 +58,15 @@ describe("workstream 5 contract round-trips", () => {
 				signupGrantSkippedCount: 12,
 			}).signupGrantSkippedCount,
 		).toBe(12);
+	});
+
+	it("accepts a patch that only flips the V2 builder switch", () => {
+		expect(
+			patchProductSettingsBodySchema.parse({
+				v2BuilderEnabled: true,
+				version: 4,
+			}),
+		).toEqual({ v2BuilderEnabled: true, version: 4 });
 	});
 
 	it("keeps the lifecycle email switch writable by admins but out of public settings", () => {
@@ -84,6 +94,7 @@ describe("workstream 5 contract round-trips", () => {
 				signupGrantCredits,
 				signupGrantEnabled: true,
 				topupsEnabled: false,
+				v2BuilderEnabled: false,
 			}),
 		).toMatchObject({ signupGrantCredits });
 	});
@@ -103,6 +114,7 @@ describe("workstream 5 contract round-trips", () => {
 			topupsEnabled: false,
 			updatedAt: "2026-08-22T10:00:00.000Z",
 			updatedByUserId: null,
+			v2BuilderEnabled: false,
 			version: 1,
 		};
 

@@ -18,6 +18,7 @@ import {
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
 // Shared request/response types used by both the API and frontend.
 import type {
 	ChatByProjectResponse,
@@ -27,6 +28,9 @@ import type {
 	SendChatMessageResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+// Resolved lazily through ModuleRef: the app-builder module only loads
+// under `V2_BUILDER_ENABLED`, so a static import edge would be wrong.
+import { BuilderTurnsRepository } from "../../../app-builder/infrastructure/persistence/builder-turns.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { operationPricing } from "../../../metering/domain/operation-registry";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
@@ -56,6 +60,9 @@ export class ChatService {
 		private readonly generationQueueService: GenerationQueueService,
 		@Inject(MeteringService)
 		private readonly meteringService: MeteringService,
+		// ModuleRef resolves the optional V2 turns repository at runtime.
+		@Inject(ModuleRef)
+		private readonly moduleRef: ModuleRef,
 	) {}
 
 	// The workspace knows `projectId`; chat endpoints need `chatId`.
@@ -88,14 +95,26 @@ export class ChatService {
 	): Promise<ChatMessagesResponse> {
 		const chat = await this.requireAccessibleChat(scope, chatId);
 		// Postgres stores history. Redis stores temporary "busy" state.
-		const [messages, activeJobId] = await Promise.all([
+		const builderTurns = this.builderTurns();
+		const [messages, activeJobId, activeTurns] = await Promise.all([
 			this.chatsRepository.listMessages(chat.id),
 			this.generationActivityService.getActiveJobId(chat.id),
+			builderTurns?.findActiveForChat(chat.id) ?? Promise.resolve([]),
 		]);
+
+		// A V2 turn relays its answer over SSE while it runs. The persisted
+		// assistant row must not double-display until the turn is terminal.
+		const activeTurnIds = new Set(activeTurns.map((turn) => turn.id));
+		const visible = messages.filter(
+			(message) =>
+				message.role !== "assistant" ||
+				message.turnId === null ||
+				!activeTurnIds.has(message.turnId),
+		);
 
 		return {
 			generationActive: activeJobId !== null,
-			messages: messages.map(mapMessageRow),
+			messages: visible.map(mapMessageRow),
 		};
 	}
 
@@ -262,6 +281,19 @@ export class ChatService {
 				);
 			}
 		}
+	}
+
+	/**
+	 * The V2 turns repository, or null when `V2_BUILDER_ENABLED` is false.
+	 * `moduleRef.get` throws for an unregistered token, so the env gate
+	 * (same shape as `GenerationQueueService.getQueue`) runs first.
+	 */
+	private builderTurns(): BuilderTurnsRepository | null {
+		if (!env.V2_BUILDER_ENABLED) {
+			return null;
+		}
+
+		return this.moduleRef.get(BuilderTurnsRepository, { strict: false });
 	}
 
 	// Convert queue errors into a clear HTTP 503.

@@ -1,7 +1,7 @@
 // TanStack Query queries + query keys for projects. queryFn delegates to
 // projects.services.ts; mutations invalidate through the keys defined here.
 
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
 
@@ -25,9 +25,15 @@ export function useProjectsQuery() {
 	});
 }
 
-export function useProjectQuery(id: string) {
-	return useQuery({
+/** Query options of one project. `useProjectQuery` and the `/p/$projectId` route loader share the cached row. */
+export function projectQuery(id: string) {
+	return queryOptions({
 		queryKey: projectKeys.detail(id),
 		queryFn: () => getProject(id),
 	});
+}
+
+/** Reads one project for a component; `features/workspace/lib/store.tsx` calls it. It shares its cache row with the `/p/$projectId` loader. */
+export function useProjectQuery(id: string) {
+	return useQuery(projectQuery(id));
 }

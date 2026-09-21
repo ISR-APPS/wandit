@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "network_allowed_hosts" jsonb DEFAULT '[]'::jsonb NOT NULL;

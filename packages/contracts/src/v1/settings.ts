@@ -28,6 +28,9 @@ export const productSettingsSchema = z.object({
 	manualGraceDays: z.int().min(0).max(30),
 	// Admin-only DZD charged per 1 USD of catalog price for offline receipts.
 	dzdPerUsdRate: dzdPerUsdRateSchema,
+	// Opens the V2 app builder to users who also carry the PostHog flag
+	// `v2-builder`.
+	v2BuilderEnabled: z.boolean(),
 	version: z.int().positive(),
 	updatedByUserId: z.string().nullable(),
 	updatedAt: isoDateTimeSchema,
@@ -49,6 +52,9 @@ export const publicSettingsSchema = productSettingsSchema
 		manualPaymentsEnabled: true,
 		// Public: the web computes the effective access-end date for manual plans.
 		manualGraceDays: true,
+		// Public: the web resolves the V2 builder switch together with the
+		// PostHog flag `v2-builder`.
+		v2BuilderEnabled: true,
 	})
 	.extend({
 		// The public value mirrors storage after exact centi-credit conversion, so
@@ -70,6 +76,7 @@ export const patchProductSettingsBodySchema = z
 		manualPaymentsEnabled: z.boolean().optional(),
 		manualGraceDays: z.int().min(0).max(30).optional(),
 		dzdPerUsdRate: dzdPerUsdRateSchema.optional(),
+		v2BuilderEnabled: z.boolean().optional(),
 		version: z.int().positive(),
 	})
 	.refine(
@@ -83,7 +90,8 @@ export const patchProductSettingsBodySchema = z
 			settings.lifecycleEmailsEnabled !== undefined ||
 			settings.manualPaymentsEnabled !== undefined ||
 			settings.manualGraceDays !== undefined ||
-			settings.dzdPerUsdRate !== undefined,
+			settings.dzdPerUsdRate !== undefined ||
+			settings.v2BuilderEnabled !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

@@ -88,6 +88,8 @@ export * from "./v1/push-tokens";
 export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Shared project-engine enum (V1 and V2 schemas both read it).
+export * from "./v1/shared/project-engine";
 // Story-link campaign and analytics contracts.
 export * from "./v1/story-links";
 // Support (live chat identity) contracts.
@@ -96,3 +98,27 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 project cost-cap contracts.
+export * from "./v2/cost-caps";
+// V2 builder harness lifecycle contracts.
+export * from "./v2/harness";
+// V2 app-builder health contract.
+export * from "./v2/health";
+// V2 builder host-tool input/output contracts.
+export * from "./v2/host-tools";
+// V2 LLM proxy token, model, and status contracts.
+export * from "./v2/llm-proxy";
+// V2 app-builder preview token contract.
+export * from "./v2/preview";
+// V2 preview token sign and verify helpers.
+export * from "./v2/preview-token";
+// V2 app project contracts.
+export * from "./v2/projects";
+// V2 app-builder route paths.
+export * from "./v2/routes";
+// V2 Supabase Management API contracts.
+export * from "./v2/supabase-management";
+// V2 builder turn and stream contracts.
+export * from "./v2/turns";
+// V2 app version history contracts.
+export * from "./v2/versions";

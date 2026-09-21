@@ -14,7 +14,8 @@
 		"./error": "./src/error.ts"
 	},
 	"scripts": {
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@sentry/cloudflare": "catalog:",
@@ -41,6 +42,7 @@
 		"@types/node": "^22.13.14",
 		"@types/react": "^19.2.0",
 		"@wandit/config": "workspace:*",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"vitest": "^4.1.9"
 	}
 }

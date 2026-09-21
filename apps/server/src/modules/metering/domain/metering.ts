@@ -1,3 +1,8 @@
+/**
+ * Domain types and pure helpers for AI-usage metering: event shapes, the
+ * reserve/settle/reconcile vocabulary, and bundled-step markers.
+ * `MeteringService` and the metering repository read from here.
+ */
 import type { GatewayGenerationInfo } from "@ai-sdk/gateway";
 import type {
 	aiUsageEvents,
@@ -119,6 +124,11 @@ export type MeteringReserveEstimate = {
 	messageId?: string | null;
 	model?: string | null;
 	parentEventId?: string | null;
+	/**
+	 * V2 project the event belongs to. Every `agent_session` reserve sets it;
+	 * V1 operations leave it null.
+	 */
+	projectId?: string | null;
 	provider?: string | null;
 };
 

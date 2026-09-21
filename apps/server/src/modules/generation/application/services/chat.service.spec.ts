@@ -5,8 +5,9 @@
  * check owner -> reserve Redis -> save user message -> atomically reserve usage -> queue job.
  */
 import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import type { ModuleRef } from "@nestjs/core";
 import { env } from "@wandit/env/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
@@ -17,6 +18,20 @@ import {
 	GenerationQueueOutcomeUnknownError,
 	type GenerationQueueService,
 } from "./generation-queue.service";
+
+const INITIAL_V2_BUILDER_ENABLED = env.V2_BUILDER_ENABLED;
+
+afterEach(() => {
+	// The env object can be process.env; restore so the V2 flag does not
+	// leak into other spec files on the same worker.
+	if (INITIAL_V2_BUILDER_ENABLED === undefined) {
+		Reflect.deleteProperty(env, "V2_BUILDER_ENABLED");
+	} else {
+		// SAFETY: restores the value the process had before the suite ran.
+		(env as { V2_BUILDER_ENABLED?: boolean }).V2_BUILDER_ENABLED =
+			INITIAL_V2_BUILDER_ENABLED;
+	}
+});
 
 // In real Nest code, dependencies are injected. In tests we pass fake objects.
 function setup() {
@@ -45,15 +60,18 @@ function setup() {
 		refund: vi.fn(),
 		reserve: vi.fn(async () => ({ id: "usage_event_1" })),
 	};
+	// The V2 turns repository is resolved lazily through ModuleRef.
+	const moduleRef = { get: vi.fn() };
 	// Casts keep the fake objects small.
 	const service = new ChatService(
 		chatsRepository as unknown as ChatsRepository,
 		activity as unknown as GenerationActivityService,
 		queue as unknown as GenerationQueueService,
 		metering as unknown as MeteringService,
+		moduleRef as unknown as ModuleRef,
 	);
 
-	return { activity, chatsRepository, metering, queue, service };
+	return { activity, chatsRepository, metering, moduleRef, queue, service };
 }
 
 // Test the send-message orchestration.
@@ -282,5 +300,55 @@ describe("ChatService", () => {
 		expect(metering.refund).not.toHaveBeenCalled();
 		expect(chatsRepository.deleteMessageById).not.toHaveBeenCalled();
 		expect(activity.releaseActive).not.toHaveBeenCalled();
+	});
+
+	// V2 only: the turn stream shows the answer live, so its persisted
+	// assistant row must stay hidden until the turn goes terminal.
+	it("hides the assistant message of an active builder turn", async () => {
+		(env as { V2_BUILDER_ENABLED?: boolean }).V2_BUILDER_ENABLED = true;
+		const { activity, chatsRepository, moduleRef, service } = setup();
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
+			id: "chat_1",
+			projectId: "project_1",
+			userId: "user_1",
+		});
+		const row = (id: string, role: string, turnId: string | null) => ({
+			chatId: "chat_1",
+			createdAt: new Date(0),
+			failureKind: null,
+			failureProvider: null,
+			failureProviderMessage: null,
+			failureRequestId: null,
+			failureSource: null,
+			id,
+			metadata: null,
+			parts: [{ text: id, type: "text" }],
+			role,
+			sentryEventId: null,
+			seq: 1,
+			turnId,
+		});
+		chatsRepository.listMessages.mockResolvedValue([
+			// The user's own turn message stays visible even while active.
+			row("m-user", "user", "turn-1"),
+			row("m-assistant-active", "assistant", "turn-1"),
+			row("m-assistant-done", "assistant", "turn-0"),
+			row("m-assistant-v1", "assistant", null),
+		]);
+		activity.getActiveJobId.mockResolvedValue(null);
+		moduleRef.get.mockReturnValue({
+			findActiveForChat: vi.fn(async () => [{ id: "turn-1" }]),
+		});
+
+		const result = await service.listMessages(
+			{ kind: "personal", userId: "user_1" },
+			"chat_1",
+		);
+
+		expect(result.messages.map((message) => message.id)).toEqual([
+			"m-user",
+			"m-assistant-done",
+			"m-assistant-v1",
+		]);
 	});
 });

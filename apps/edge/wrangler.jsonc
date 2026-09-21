@@ -12,16 +12,10 @@
 	// Sentry needs its own artifact upload (sentry-cli) — a later increment;
 	// until then wandit-edge stacks in Sentry show bundled positions.
 	"upload_source_maps": true,
-	// SENTRY_DSN is intentionally NOT here — set it as a secret/dashboard var
-	// (`wrangler secret put SENTRY_DSN`). Unset = Sentry disabled.
+	// SENTRY_DSN is intentionally NOT here — set it as a Worker secret per
+	// environment (`wrangler secret put SENTRY_DSN --env <env>`). Unset =
+	// Sentry disabled.
 	"vars": { "SENTRY_ENVIRONMENT": "production" },
-	// One route catches every request entering the wandit.app zone — including
-	// Cloudflare-for-SaaS custom hostnames (their Host header is the customer
-	// domain, so a *.wandit.app pattern would MISS them). The app hostnames
-	// (wandit.app, www, api) must additionally get dashboard route exclusions
-	// (more-specific routes assigned to Worker "None") — see
-	// docs/features/edge-serving.md.
-	"routes": [{ "pattern": "*/*", "zone_name": "wandit.app" }],
 	// Pointer namespace. Key: `domain:{host}` (see
 	// apps/server/src/modules/domains/infrastructure/cloudflare/domain-routing.service.ts).
 	// Fill the real namespace id (CLOUDFLARE_KV_NAMESPACE_ID) at deploy time;
@@ -38,5 +32,40 @@
 	// the legacy caches.default API instead — it keys on the full URL
 	// including host. Do not flip this on without the ctx.props two-entrypoint
 	// design described in docs/features/edge-serving.md.
-	"observability": { "enabled": true }
+	"observability": { "enabled": true },
+	// vars, kv_namespaces, r2_buckets, and version_metadata are NOT inherited
+	// by an environment block; repeat each one in every env. routes IS
+	// inherited, so it lives in env.production only — the staging Worker must
+	// never take the */* route on wandit.app.
+	"env": {
+		"production": {
+			// Without name, wrangler names the Worker wandit-edge-production.
+			"name": "wandit-edge",
+			// One route catches every request entering the wandit.app zone —
+			// including Cloudflare-for-SaaS custom hostnames (their Host
+			// header is the customer domain, so a *.wandit.app pattern would
+			// MISS them). The app hostnames (wandit.app, www, api) must
+			// additionally get dashboard route exclusions (more-specific
+			// routes assigned to Worker "None") — see
+			// docs/features/edge-serving.md.
+			"routes": [{ "pattern": "*/*", "zone_name": "wandit.app" }],
+			"vars": { "SENTRY_ENVIRONMENT": "production" },
+			"version_metadata": { "binding": "CF_VERSION_METADATA" },
+			// The production pointer namespace (CLOUDFLARE_KV_NAMESPACE_ID).
+			"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
+			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-production" }]
+		},
+		"staging": {
+			"name": "wandit-edge-staging",
+			// Test host on workers.dev, no route: a staging zone and slug host
+			// are an open point for WANDIT-177.
+			"workers_dev": true,
+			"vars": { "SENTRY_ENVIRONMENT": "preview" },
+			"version_metadata": { "binding": "CF_VERSION_METADATA" },
+			// UNVERIFIED: staging may need its own namespace; replace with the
+			// Railway staging CLOUDFLARE_KV_NAMESPACE_ID.
+			"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
+			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-staging" }]
+		}
+	}
 }

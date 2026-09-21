@@ -44,6 +44,8 @@
 		"connector": "أداة موصل",
 		"lead_scrape": "استخراج عملاء محتملين",
 		"transcription": "تفريغ صوتي",
+		"agent_session": "جولة المُنشئ",
+		"sandbox": "وقت الصندوق الرملي",
 		"topup_adjust": "تعديل الرصيد"
 	},
 	"activityStatus": {

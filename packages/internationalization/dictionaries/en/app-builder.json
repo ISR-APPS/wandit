@@ -1,0 +1,381 @@
+{
+	"meta": {
+		"title": "App builder — Wandit"
+	},
+	"kind": {
+		"web": "Web app",
+		"mobile": "Mobile app"
+	},
+	"topBar": {
+		"backToDashboard": "Back to dashboard",
+		"projectMenu": "Switch project",
+		"allProjects": "All projects",
+		"history": "Version history",
+		"collapseChat": "Hide the chat",
+		"expandChat": "Show the chat",
+		"reload": "Reload the preview",
+		"openExternal": "Open in a new tab",
+		"viewsAriaLabel": "Workspace views"
+	},
+	"views": {
+		"preview": "Preview",
+		"code": "Code",
+		"more": "More"
+	},
+	"viewport": {
+		"ariaLabel": "Preview width",
+		"desktop": "Desktop",
+		"tablet": "Tablet",
+		"mobile": "Mobile"
+	},
+	"device": {
+		"ariaLabel": "Preview device",
+		"ios": "iOS",
+		"android": "Android",
+		"iosLabel": "iPhone 15 · iOS 17",
+		"androidLabel": "Pixel 8 · Android 14"
+	},
+	"preview": {
+		"liveReload": "Live reload",
+		"back": "Back",
+		"forward": "Forward",
+		"frameTitle": "Preview of {name}",
+		"waking": "Waking up the sandbox…",
+		"retry": "Try again"
+	},
+	"code": {
+		"searchFiles": "Search files",
+		"treeAriaLabel": "Project files",
+		"expand": "Expand {name}",
+		"collapse": "Collapse {name}",
+		"noMatch": "No file matches.",
+		"synced": "Synced · {branch}",
+		"github": "GitHub",
+		"editCode": "Edit code",
+		"readOnly": "The code is read-only in this preview build.",
+		"fileMissing": "This file is not in the repository."
+	},
+	"moreNavAriaLabel": "App sections",
+	"panels": {
+		"analytics": {
+			"title": "Analytics",
+			"description": "Visits, sign-ups and conversion.",
+			"cta": "Turn on analytics"
+		},
+		"backend": {
+			"title": "Backend",
+			"description": "Database tables, storage and server functions Wandit created for this app."
+		},
+		"signIn": {
+			"title": "Sign-in",
+			"description": "How your users sign in. Turn methods on or off; Wandit updates the app."
+		},
+		"ai": {
+			"title": "AI",
+			"description": "Give your app its own AI features, billed to your credits.",
+			"cta": "Add an AI feature"
+		},
+		"payments": {
+			"title": "Payments",
+			"description": "Accept CIB and Edahabia cards through Chargily Pay, and manage what you sell."
+		},
+		"integrations": {
+			"title": "Integrations",
+			"description": "Google Sheets, WhatsApp, email and other services your app talks to.",
+			"cta": "Add an integration"
+		},
+		"domains": {
+			"title": "Domains",
+			"description": "Where your web app lives. The Wandit domain is free; connect or buy your own."
+		},
+		"appStores": {
+			"title": "App stores",
+			"description": "Signing, builds and the listing for the App Store and Google Play."
+		},
+		"security": {
+			"title": "Security",
+			"description": "Access rules, secrets and what your users can see.",
+			"cta": "Review access rules"
+		},
+		"settings": {
+			"title": "Settings",
+			"description": "Name, project type, collaborators and environment variables."
+		}
+	},
+	"empty": {
+		"title": "Nothing set up yet",
+		"description": "Ask Wandit in the chat, or set it up here."
+	},
+	"backend": {
+		"database": "Database",
+		"tableCount": {
+			"one": "{count} table",
+			"other": "{count} tables"
+		},
+		"databaseNote": "{rows} rows · {size} MB",
+		"storage": "Storage",
+		"storageSize": "{size} GB",
+		"functions": "Functions",
+		"callsToday": "{count} calls today",
+		"tablesTitle": "Tables",
+		"openSql": "Open SQL editor",
+		"rowCount": {
+			"one": "{count} row",
+			"other": "{count} rows"
+		},
+		"functionsTitle": "Server functions",
+		"today": "{count} today"
+	},
+	"signIn": {
+		"methodsTitle": "Sign-in methods",
+		"userCount": {
+			"one": "{count} user",
+			"other": "{count} users"
+		},
+		"methods": {
+			"phoneOtp": {
+				"title": "Phone number (OTP)",
+				"description": "Six-digit code by SMS · +213 numbers"
+			},
+			"emailPassword": {
+				"title": "Email and password",
+				"description": "Classic sign-in with reset link"
+			},
+			"google": {
+				"title": "Google",
+				"description": "One-tap on Android and web"
+			},
+			"magicLink": {
+				"title": "Magic link",
+				"description": "Passwordless link by email"
+			}
+		},
+		"otpNote": "OTP codes are sent by SMS to Algerian numbers (+213). Each code costs 1 credit."
+	},
+	"payments": {
+		"connectedAs": "Connected as {account} · {cards}",
+		"live": "Live",
+		"test": "Test",
+		"modeAriaLabel": "Provider keys",
+		"products": "Products",
+		"addProduct": "+ Add product",
+		"recurring": "recurring · {days} days",
+		"oneTime": "one-time",
+		"collected": "Collected · {month}",
+		"paymentCount": {
+			"one": "{count} payment",
+			"other": "{count} payments"
+		},
+		"refundCount": {
+			"one": "{count} refund",
+			"other": "{count} refunds"
+		},
+		"webhook": "Webhook",
+		"receiving": "Receiving events",
+		"notReceiving": "No events yet",
+		"noProvider": "No payment provider yet",
+		"connectProvider": "Connect Chargily Pay"
+	},
+	"domains": {
+		"freePrimary": "Free Wandit domain · primary",
+		"waitingDns": "Waiting for DNS · point CNAME to {target}",
+		"live": "Live",
+		"verifying": "Verifying",
+		"inputLabel": "Domain to connect",
+		"placeholder": "yourdomain.dz",
+		"connect": "Connect",
+		"buy": "Buy a domain"
+	},
+	"appStores": {
+		"appStore": "App Store",
+		"googlePlay": "Google Play",
+		"readyToSubmit": "Ready to submit",
+		"notSetUp": "Not set up",
+		"bundleId": "Bundle ID",
+		"latestBuild": "Latest build",
+		"buildValue": "{build} · v{version}",
+		"testflight": "TestFlight",
+		"testers": {
+			"one": "{count} tester",
+			"other": "{count} testers"
+		},
+		"submitForReview": "Submit for review",
+		"googlePlayHelp": "Connect a Google Play developer account and Wandit signs and uploads the build for you.",
+		"connectGooglePlay": "Connect Google Play",
+		"listingTitle": "Store listing",
+		"listingProgress": "{done} of {total} done",
+		"listing": {
+			"appIcon": "App icon",
+			"appName": "App name and subtitle",
+			"description": "Description",
+			"screenshots": "Screenshots",
+			"privacyUrl": "Privacy policy URL",
+			"ageRating": "Age rating and category"
+		},
+		"neededForReview": "Needed for review"
+	},
+	"settings": {
+		"project": "Project",
+		"name": "Name",
+		"projectUrl": "Project URL",
+		"projectUrlPrefix": "wandit.dev/app/",
+		"descriptionLabel": "Description",
+		"projectType": "Project type",
+		"projectTypeHelp": "Changes what Wandit builds and where you can publish.",
+		"collaborators": "Collaborators",
+		"seats": "{count} of {max}",
+		"invite": "Invite",
+		"roles": {
+			"owner": "Owner",
+			"editor": "Editor",
+			"viewer": "Viewer"
+		},
+		"roleLabel": "Role of {name}",
+		"pending": "Invited · pending",
+		"envTitle": "Environment variables",
+		"envHelp": "Secrets your backend can read",
+		"addVariable": "+ Add variable",
+		"setBy": "Set by {panel}",
+		"public": "Public",
+		"deleteTitle": "Delete this project",
+		"deleteHelp": "Takes the app offline and removes the database, versions and chat. This cannot be undone.",
+		"delete": "Delete",
+		"deleteConfirmTitle": "Delete {name}?",
+		"deleteConfirmBody": "The app goes offline and the database, versions and chat are removed.",
+		"cancel": "Cancel"
+	},
+	"chat": {
+		"title": "Chat",
+		"thoughtFor": "Thought for {seconds}s",
+		"details": "Details",
+		"preview": "Preview",
+		"bookmark": "Save as checkpoint",
+		"revert": "Revert to this version",
+		"like": "Good response",
+		"copy": "Copy",
+		"copied": "Copied",
+		"placeholder": "Ask Wandit…",
+		"attach": "Attach a file",
+		"estimate": {
+			"one": "{count} credit",
+			"other": "{count} credits"
+		},
+		"modeLabel": "Composer mode",
+		"modes": {
+			"build": "Build",
+			"plan": "Plan"
+		},
+		"send": "Send",
+		"stop": "Stop",
+		"focusChip": "Working on {label}",
+		"removeFocus": "Remove",
+		"working": "Wandit is working…",
+		"toolCalls": {
+			"one": "{count} tool call",
+			"other": "{count} tool calls"
+		},
+		"phases": {
+			"sandbox_waking": "Waking the sandbox",
+			"session_starting": "Starting the session",
+			"running": "Working",
+			"checkpoint": "Saving a checkpoint",
+			"committing": "Saving the version"
+		},
+		"tools": {
+			"think": "Thinking",
+			"read": "Read",
+			"write": "Write",
+			"run": "Run"
+		},
+		"question": {
+			"other": "Something else…",
+			"continue": "Continue"
+		},
+		"approval": {
+			"title": "Wandit asks permission to run {tool}",
+			"approve": "Approve",
+			"deny": "Deny",
+			"approved": "Approved",
+			"denied": "Denied",
+			"answered": "Answered"
+		},
+		"suggestion": {
+			"accept": "Accept",
+			"alternatives": "Alternatives",
+			"confidence": {
+				"high": "High confidence",
+				"medium": "Medium confidence",
+				"low": "Low confidence"
+			}
+		},
+		"followUps": "Follow-ups",
+		"elapsed": "{seconds}s",
+		"addContext": "Add context",
+		"attachImage": "Add an image",
+		"attachScreen": "Reference a screen",
+		"dictate": "Dictate",
+		"turnError": "The turn stopped: {message}",
+		"turnErrorRetry": "You can send the message again.",
+		"receipt": "{credits} · {tokens} tokens",
+		"errors": {
+			"noCredits": "You have no credits left for this turn.",
+			"projectCap": "This project reached its credit cap.",
+			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
+			"approvalPending": "Answer the open approval card first.",
+			"modelDenied": "Your plan does not include this model.",
+			"modelUnpriced": "This model has no price yet. Try again later."
+		}
+	},
+	"publish": {
+		"cta": "Publish",
+		"title": "Publish {name}",
+		"version": "v{version}",
+		"changes": {
+			"one": "{count} change",
+			"other": "{count} changes"
+		},
+		"web": "Web",
+		"live": "Live",
+		"notLive": "Not published yet",
+		"update": "Update",
+		"publishNow": "Publish",
+		"customDomain": "Custom domain",
+		"connectOne": "Connect one",
+		"ios": "iOS · App Store",
+		"android": "Android · Google Play",
+		"buildReady": "Build {build} ready · TestFlight {testers} testers",
+		"notSetUp": "Not set up",
+		"submit": "Submit",
+		"setUp": "Set up",
+		"testOnPhone": "Test on your phone",
+		"scanQr": "Scan a QR code · updates instantly",
+		"showQr": "Show QR",
+		"backendNote": "Backend deploys with every publish"
+	},
+	"versions": {
+		"title": "Version history",
+		"current": "Current",
+		"restore": "Restore",
+		"source": {
+			"agent": "Turn",
+			"restore": "Restore",
+			"wip": "Work in progress",
+			"merge": "Merge"
+		},
+		"diff": "Diff",
+		"numstat": "+{added} −{removed}",
+		"emptyDiff": "This version changed no file.",
+		"empty": "No version yet. The first turn creates one.",
+		"restoreTitle": "Restore this version?",
+		"restoreBody": "Wandit creates a new version with the code of this one. Nothing is deleted.",
+		"cancel": "Cancel"
+	},
+	"mock": {
+		"notWired": "This action is not connected yet."
+	},
+	"notFound": {
+		"title": "App not found",
+		"body": "It may have been deleted, or the link is wrong.",
+		"cta": "Back to dashboard"
+	}
+}

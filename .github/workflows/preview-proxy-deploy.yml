@@ -1,0 +1,56 @@
+name: Preview proxy
+
+# The preview proxy gates every generated-app preview origin; a broken
+# deploy opens sandbox ports to the public. PRs run the Worker checks and a
+# deploy dry run; pushes to staging and main deploy the matching Worker
+# environment. The steps live in the reusable worker-deploy.yml.
+on:
+  pull_request:
+    paths:
+      - apps/preview-proxy/**
+      - packages/contracts/**
+      - .github/workflows/preview-proxy-deploy.yml
+      - .github/workflows/worker-deploy.yml
+  push:
+    branches: [main, staging]
+    # A push that does not touch the proxy must not redeploy it.
+    paths:
+      - apps/preview-proxy/**
+      - packages/contracts/**
+      - .github/workflows/preview-proxy-deploy.yml
+      - .github/workflows/worker-deploy.yml
+
+# One deploy per branch at a time; a queued run waits, nothing overlaps.
+concurrency:
+  group: preview-proxy-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # `--env ""` names the top-level config, the one a main push deploys.
+  # The contracts spec pins the token vector the Worker and the API share;
+  # no other workflow runs it.
+  check:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/worker-deploy.yml
+    with:
+      working-directory: apps/preview-proxy
+      package-filter: preview-proxy
+      wrangler-env: ""
+      dry-run: true
+      also-test-filter: "@wandit/contracts"
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_V2_DEPLOY_TOKEN }}
+
+  # The staging branch deploys env staging, main deploys env "" (the
+  # top-level config).
+  deploy:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/worker-deploy.yml
+    with:
+      working-directory: apps/preview-proxy
+      package-filter: preview-proxy
+      wrangler-env: ${{ github.ref_name == 'staging' && 'staging' || '' }}
+      dry-run: false
+      also-test-filter: "@wandit/contracts"
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_V2_DEPLOY_TOKEN }}

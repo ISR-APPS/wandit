@@ -12,7 +12,7 @@
 		"web": "expo start --web"
 	},
 	"dependencies": {
-		"@ai-sdk/react": "^4.0.17",
+		"@ai-sdk/react": "4.0.102",
 		"@better-auth/expo": "catalog:",
 		"@electric-sql/client": "1.0.14",
 		"@expo-google-fonts/bricolage-grotesque": "^0.4.1",
@@ -28,7 +28,7 @@
 		"@wandit/env": "workspace:*",
 		"@wandit/internationalization": "workspace:*",
 		"@wandit/preview-editor": "workspace:*",
-		"ai": "^7.0.14",
+		"ai": "7.0.99",
 		"axios": "^1.18.1",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",

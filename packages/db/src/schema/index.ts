@@ -12,12 +12,22 @@ export * from "./admin-funnel-contacts";
 export * from "./admin-view-grants";
 // Affiliate programs, attribution, commissions, and payouts.
 export * from "./affiliates";
+// The hidden Supabase backend of a V2 user app.
+export * from "./app-backends";
+// V2 project git history: commits and branches.
+export * from "./app-versions";
 // Generated page/artifact tables.
 export * from "./artifacts";
+// V2 append-only audit trail.
+export * from "./audit-events";
 // Auth/user tables.
 export * from "./auth";
 // Billing tables.
 export * from "./billing";
+// V2 coding-agent session resume state.
+export * from "./builder-sessions";
+// V2 builder turn attempts.
+export * from "./builder-turns";
 // Subscription cancellation survey tables.
 export * from "./cancellation-reasons";
 // Chat and message tables.
@@ -45,6 +55,8 @@ export * from "./lead-sheet-syncs";
 export * from "./leads";
 // Lifecycle email automation outbox.
 export * from "./lifecycle-events";
+// V2 LLM proxy request and usage rows.
+export * from "./llm-proxy-requests";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";
@@ -61,10 +73,14 @@ export * from "./organizations";
 export * from "./page-attempts";
 // Authenticated product intent event tables.
 export * from "./product-events";
+// Per-project V2 spend limits.
+export * from "./project-cost-caps";
 // Project tables.
 export * from "./projects";
 export * from "./push-tokens";
 // Mobile push-notification device tokens.
+// V2 provider sandbox lifecycle.
+export * from "./sandbox-sessions";
 // Story-link campaign and click analytics tables.
 export * from "./story-links";
 // Authenticated-user daily activity analytics.

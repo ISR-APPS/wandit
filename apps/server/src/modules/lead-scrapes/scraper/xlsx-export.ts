@@ -9,11 +9,10 @@ import ExcelJS from "exceljs";
 
 import type { LeadRecord } from "../domain/lead-scrape-spec";
 
-// Column order is the product contract ("6 columns" on the result card).
+// Column order is the product contract ("5 columns" on the result card).
 const LEAD_EXPORT_COLUMNS = [
 	{ header: "Business", key: "name", width: 32 },
 	{ header: "Phone", key: "phone", width: 18 },
-	{ header: "Email", key: "email", width: 30 },
 	{ header: "Website", key: "website", width: 34 },
 	{ header: "Address", key: "address", width: 44 },
 	{ header: "Source", key: "source", width: 14 },
@@ -40,7 +39,6 @@ export async function buildLeadsWorkbook(
 	for (const record of records) {
 		sheet.addRow({
 			address: record.address ?? "",
-			email: record.email ?? "",
 			name: record.name,
 			phone: record.phone ?? "",
 			source: sourceLabel(record.source),

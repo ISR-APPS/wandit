@@ -32,19 +32,42 @@ export type LeadScrapeSpec = z.infer<typeof leadScrapeSpecSchema>;
 export type LeadRecord = {
 	name: string;
 	phone: string | null;
-	email: string | null;
-	// True once the email's domain answered an MX lookup.
-	emailVerified: boolean;
 	website: string | null;
 	address: string | null;
 	source: (typeof LEAD_SCRAPE_SOURCES)[number];
 };
 
+/**
+ * Last-pass dedupe before the export. Search-time dedupe works on Google
+ * place ids; this catches the remaining real-world duplicates — the same
+ * business listed twice with the same phone number.
+ */
+export function dedupeRecords(records: readonly LeadRecord[]): LeadRecord[] {
+	const seenPhones = new Set<string>();
+	const result: LeadRecord[] = [];
+
+	for (const record of records) {
+		const phoneKey = record.phone?.replace(/\D/g, "") ?? "";
+
+		// A key of 5 digits or less is a short code, not a unique phone number.
+		if (phoneKey.length > 5 && seenPhones.has(phoneKey)) {
+			continue;
+		}
+
+		if (phoneKey.length > 5) {
+			seenPhones.add(phoneKey);
+		}
+
+		result.push(record);
+	}
+
+	return result;
+}
+
 // Shape of the jsonb preview_rows column (first rows of the export).
 export type LeadScrapePreviewRows = Array<{
 	business: string;
 	phone: string;
-	email: string;
 }>;
 
 export function toPreviewRows(
@@ -54,6 +77,5 @@ export function toPreviewRows(
 	return records.slice(0, count).map((record) => ({
 		business: record.name,
 		phone: record.phone ?? "",
-		email: record.email ?? "",
 	}));
 }

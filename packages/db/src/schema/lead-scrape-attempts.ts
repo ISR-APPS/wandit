@@ -75,7 +75,7 @@ export const leadScrapeAttempts = pgTable(
 		// R2 object key of the exported workbook — persisted as a key (not a
 		// URL) because downloads go through an ownership-checked endpoint.
 		r2Key: text("r2_key"),
-		// First rows of the export ({business, phone, email}) for the card's
+		// First rows of the export ({business, phone}) for the card's
 		// mini preview table.
 		previewRows: jsonb("preview_rows"),
 		// Human-readable failure reason, shown in the chat card error state.
