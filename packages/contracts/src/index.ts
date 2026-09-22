@@ -114,6 +114,8 @@ export * from "./v2/preview";
 export * from "./v2/preview-token";
 // V2 app project contracts.
 export * from "./v2/projects";
+// V2 publish contracts: the user Worker name, the KV host pointer, and the suspend codes.
+export * from "./v2/publish";
 // V2 app-builder route paths.
 export * from "./v2/routes";
 // V2 Supabase Management API contracts.
