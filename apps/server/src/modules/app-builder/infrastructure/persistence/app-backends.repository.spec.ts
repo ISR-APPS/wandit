@@ -167,6 +167,39 @@ describe("AppBackendsRepository.markActive", () => {
 	});
 });
 
+describe("AppBackendsRepository.markRestoring", () => {
+	function setupCasUpdate(returned: { id: string }[]) {
+		const returning = vi.fn(async () => returned);
+		const where = vi.fn((_predicate: SQL | undefined) => ({ returning }));
+		const set = vi.fn((_input: Partial<typeof appBackends.$inferInsert>) => ({
+			where,
+		}));
+		const update = vi.fn(() => ({ set }));
+		// SAFETY: `Object.create` yields `any`; the stub exposes only the
+		// update chain the repository method under test calls.
+		const db = Object.assign(Object.create(null), { update }) as Database;
+		return { repository: new AppBackendsRepository(db), set, where };
+	}
+
+	it("sets restoring only where the row is paused and answers true", async () => {
+		const { repository, set, where } = setupCasUpdate([{ id: "backend-1" }]);
+
+		await expect(repository.markRestoring("project-1")).resolves.toBe(true);
+
+		expect(set).toHaveBeenCalledWith({ status: "restoring" });
+		const compiled = compile(where.mock.calls[0]?.[0]);
+		expect(compiled.sql).toContain('"project_id" = $1');
+		expect(compiled.sql).toContain('"status" = $2');
+		expect(compiled.params).toEqual(["project-1", "paused"]);
+	});
+
+	it("answers false when no paused row matched", async () => {
+		const { repository } = setupCasUpdate([]);
+
+		await expect(repository.markRestoring("project-1")).resolves.toBe(false);
+	});
+});
+
 describe("AppBackendsRepository.markError", () => {
 	it("writes the failure code and the failure columns", async () => {
 		const { repository, set, where } = setupUpdate();

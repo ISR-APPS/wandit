@@ -1,22 +1,34 @@
 /**
- * Typed client for the Supabase Management API (the small form of
- * WANDIT-183). The `provision-backend` runtime calls it through
- * `provision-backend.task.ts`. It calls the Management API
- * over `fetch`, waits on the `SupabaseRateLimiter`, and checks `ownsRef`
- * before every project-level call.
+ * Typed client for the Supabase Management API and the project Storage
+ * API (WANDIT-183, WANDIT-187). The `provision-backend` runtime composes
+ * it by hand; `app-builder.module.ts` composes the interactive form for
+ * `CloudService`. It calls the APIs over `fetch`, waits on the
+ * `SupabaseRateLimiter`, and checks `ownsRef` before every project call.
  */
 import {
+	type SupabaseApiKeysResponse,
+	type SupabaseBucket,
+	type SupabaseFunction,
 	type SupabaseInstanceSize,
 	type SupabaseProjectStatus,
 	type SupabaseRegion,
+	type SupabaseStorageObject,
 	supabaseApiKeysResponseSchema,
 	supabaseAuthConfigResponseSchema,
+	supabaseBucketsResponseSchema,
 	supabaseCreateProjectResponseSchema,
+	supabaseDeletedObjectsResponseSchema,
 	supabaseErrorBodySchema,
+	supabaseFunctionsResponseSchema,
+	supabaseLogsResponseSchema,
 	supabaseProjectResponseSchema,
+	supabaseSignedUrlsResponseSchema,
+	supabaseStorageObjectsResponseSchema,
+	supabaseStorageUrl,
+	supabaseUploadUrlResponseSchema,
 } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
-import type { z } from "zod";
+import { z } from "zod";
 
 import type { SandboxLogger } from "../../domain/ports/sandbox-provider";
 import {
@@ -27,11 +39,26 @@ import {
 /** Includes the `/v1` prefix; every `RequestPlan.path` is relative to it. `deps.baseUrl` replaces it in specs. */
 export const SUPABASE_MANAGEMENT_BASE_URL = "https://api.supabase.com/v1";
 
+/**
+ * Nest token of the interactive client the Cloud routes use. The module
+ * factory answers null when `SUPABASE_PLATFORM_TOKEN` is unset.
+ */
+export const SUPABASE_MANAGEMENT_CLIENT = Symbol.for(
+	"app-builder.supabase-management-client",
+);
+
 // 120 requests per minute per bucket: the documented limit of the
 // per-project and the per-org buckets (research 3.1).
 const SUPABASE_REQUESTS_PER_MINUTE = 120;
+// The analytics logs endpoint allows 30 per minute per project (WANDIT-187).
+const SUPABASE_LOGS_PER_MINUTE = 30;
 // At most 5 fetch attempts per call: one try plus four retries.
 const MAX_ATTEMPTS = 5;
+// One retry only when a user waits on the answer.
+const INTERACTIVE_MAX_ATTEMPTS = 2;
+// A Cloud tab SQL statement gets 15 s (ESTIMATE); the provisioning
+// migration keeps the 30 s round trip.
+const QUERY_TIMEOUT_MS = 15_000;
 // At most 5 limiter waits per call; a bucket that stays full fails it.
 const MAX_RATE_LIMIT_WAITS = 5;
 // One rate-limit answer never stalls a call for more than 60 s.
@@ -63,12 +90,34 @@ export class SupabaseManagementError extends Error {
 	}
 }
 
+/**
+ * A call the rate limit stopped in interactive mode: the bucket was full
+ * or the upstream answered 429. `CloudService` turns it into 429
+ * `RATE_LIMITED` with a `Retry-After` header.
+ */
+export class SupabaseRateLimitedError extends SupabaseManagementError {
+	constructor(
+		message: string,
+		/** Milliseconds until the bucket or the upstream accepts a call again. */
+		readonly retryAfterMs: number,
+	) {
+		super(message, 429, null, "rate limited");
+		this.name = "SupabaseRateLimitedError";
+	}
+}
+
 /** The scope of a project-level call. */
 export type BackendRef = {
 	/** `projects.id` of the wandit project the call runs for. */
 	projectId: string;
 	/** The 20-letter Supabase project ref stored on the `app_backends` row. */
 	ref: string;
+};
+
+/** The scope of a project Storage API call. */
+export type StorageRef = BackendRef & {
+	/** Service-role key of the project; sent as the bearer and as `apikey`. Never logged. */
+	serviceRoleKey: string;
 };
 
 /** Dependencies of `SupabaseManagementClient`; the worker composes them. */
@@ -92,28 +141,41 @@ export type SupabaseManagementClientDeps = {
 	logger: SandboxLogger;
 	/** Base URL override. Default `SUPABASE_MANAGEMENT_BASE_URL`. */
 	baseUrl?: string;
+	/**
+	 * True for the HTTP routes: no wait on a full bucket, one retry, and a
+	 * 429 throws `SupabaseRateLimitedError` at once. The worker keeps the
+	 * default false and waits.
+	 */
+	interactive?: boolean;
 };
 
-/** One Management API call that `request` sends. */
+/** One API call that `request` sends. */
 type RequestPlan<T> = {
 	/** HTTP method of the call. */
-	method: "GET" | "POST" | "PATCH";
-	/** Path under the base URL, for example `/projects/{ref}/api-keys`. */
+	method: "GET" | "POST" | "PATCH" | "DELETE";
+	/** Path under the base URL, for example `/projects/{ref}/api-keys`. Also names the call in errors. */
 	path: string;
+	/** Absolute URL of a project Storage API call; absent means base URL plus `path`. */
+	url?: string;
+	/** Bearer of a project Storage API call: the service-role key. Absent means the platform token. */
+	bearer?: string;
 	/** Rate-limit bucket key from `supabaseRateLimitKeys`. */
 	bucket: string;
-	/** Bucket ceiling in calls per minute; 120 for every bucket tonight. */
+	/** Bucket ceiling in calls per minute; 120, or 30 for the logs bucket. */
 	limitPerMinute: number;
 	/** JSON body; absent on GET. Passed to `JSON.stringify` unread. */
 	body?: Record<string, unknown>;
 	/** Response schema; absent means the response body is not read. */
 	schema?: z.ZodType<T>;
+	/** Fetch timeout in milliseconds; default `REQUEST_TIMEOUT_MS`. */
+	timeoutMs?: number;
 };
 
 /**
  * The small-form Management API client. It is composed by hand in the
- * Trigger worker, like `createDeleteAppProjectRuntime`, so it carries no
- * Nest decorators.
+ * Trigger worker, like `createDeleteAppProjectRuntime`, and by the
+ * `SUPABASE_MANAGEMENT_CLIENT` factory of the API module, so it carries
+ * no Nest decorators.
  */
 export class SupabaseManagementClient {
 	// Security check and cache in one: a verified `projectId:ref` pair
@@ -173,14 +235,7 @@ export class SupabaseManagementClient {
 	 * or `publishable` entry carries a key. The key is never logged.
 	 */
 	async getApiKeys(scope: BackendRef): Promise<{ anonKey: string }> {
-		await this.requireOwnedRef(scope);
-		const keys = await this.request({
-			method: "GET",
-			path: `/projects/${scope.ref}/api-keys?reveal=true`,
-			bucket: supabaseRateLimitKeys.project(scope.ref),
-			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
-			schema: supabaseApiKeysResponseSchema,
-		});
+		const keys = await this.readApiKeys(scope);
 		// Legacy projects name the public key "anon"; newer keys carry the
 		// "publishable" type instead.
 		const entry =
@@ -198,6 +253,28 @@ export class SupabaseManagementClient {
 		return { anonKey };
 	}
 
+	/**
+	 * Reads the service-role key with `reveal=true`: the legacy
+	 * `service_role` entry, else the first `secret` key. Throws when none
+	 * carries a key. The key never leaves the API process and is never logged.
+	 */
+	async getServiceRoleKey(scope: BackendRef): Promise<string> {
+		const keys = await this.readApiKeys(scope);
+		const entry =
+			keys.find((key) => key.name === "service_role") ??
+			keys.find((key) => key.type === "secret");
+		const serviceRoleKey = entry?.api_key;
+		if (serviceRoleKey === undefined || serviceRoleKey === null) {
+			throw new SupabaseManagementError(
+				`supabase GET /projects/${scope.ref}/api-keys carries no service-role key`,
+				200,
+				null,
+				"no service-role key in the api-keys answer",
+			);
+		}
+		return serviceRoleKey;
+	}
+
 	/** Runs one SQL statement; a 2xx answer is success, the body stays unread. */
 	async runSql(scope: BackendRef, sql: string): Promise<void> {
 		await this.requireOwnedRef(scope);
@@ -207,6 +284,222 @@ export class SupabaseManagementClient {
 			bucket: supabaseRateLimitKeys.project(scope.ref),
 			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
 			body: { query: sql },
+		});
+	}
+
+	/**
+	 * Runs one statement and parses the answered rows with `rowSchema`.
+	 * `readOnly` makes the upstream run it in a read-only transaction. The
+	 * fetch gets `QUERY_TIMEOUT_MS`; a longer statement fails the call.
+	 * UNVERIFIED: the endpoint is Beta and answers a bare row array.
+	 */
+	async runQuery<TRow>(
+		scope: BackendRef,
+		input: {
+			sql: string;
+			readOnly: boolean;
+			/** Shape of one answered row; the call fails on a row that does not fit. */
+			rowSchema: z.ZodType<TRow>;
+		},
+	): Promise<TRow[]> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			method: "POST",
+			path: `/projects/${scope.ref}/database/query`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			body: { query: input.sql, read_only: input.readOnly },
+			schema: z.array(input.rowSchema),
+			timeoutMs: QUERY_TIMEOUT_MS,
+		});
+	}
+
+	/** Wakes a paused project: `POST /projects/{ref}/restore`. The body stays unread. */
+	async restoreProject(scope: BackendRef): Promise<void> {
+		await this.requireOwnedRef(scope);
+		await this.request<void>({
+			method: "POST",
+			path: `/projects/${scope.ref}/restore`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+		});
+	}
+
+	/** Lists the Storage buckets of the project. */
+	async listBuckets(scope: BackendRef): Promise<SupabaseBucket[]> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			method: "GET",
+			path: `/projects/${scope.ref}/storage/buckets`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseBucketsResponseSchema,
+		});
+	}
+
+	/** Lists the Edge Functions of the project. */
+	async listFunctions(scope: BackendRef): Promise<SupabaseFunction[]> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			method: "GET",
+			path: `/projects/${scope.ref}/functions`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseFunctionsResponseSchema,
+		});
+	}
+
+	/**
+	 * Runs one logs SQL text on the analytics endpoint inside the ISO
+	 * window and parses the rows with `rowSchema`. Own bucket: 30 calls
+	 * per minute. An `error` field in a 200 answer fails the call.
+	 */
+	async queryLogs<TRow>(
+		scope: BackendRef,
+		input: {
+			/** Logs SQL over `edge_logs`, `postgres_logs`, or `function_edge_logs`. */
+			sql: string;
+			/** Start of the window, ISO 8601. */
+			startIso: string;
+			/** End of the window, ISO 8601. */
+			endIso: string;
+			/** Shape of one answered row; the call fails on a row that does not fit. */
+			rowSchema: z.ZodType<TRow>;
+		},
+	): Promise<TRow[]> {
+		await this.requireOwnedRef(scope);
+		const params = new URLSearchParams({
+			sql: input.sql,
+			iso_timestamp_start: input.startIso,
+			iso_timestamp_end: input.endIso,
+		});
+		const path = `/projects/${scope.ref}/analytics/endpoints/logs.all`;
+		const answer = await this.request({
+			method: "GET",
+			path: `${path}?${params.toString()}`,
+			bucket: supabaseRateLimitKeys.logs(scope.ref),
+			limitPerMinute: SUPABASE_LOGS_PER_MINUTE,
+			schema: supabaseLogsResponseSchema(input.rowSchema),
+		});
+		if (answer.error !== undefined && answer.error !== null) {
+			throw new SupabaseManagementError(
+				`supabase GET ${path} refused the logs query`,
+				200,
+				null,
+				answer.error,
+			);
+		}
+		return answer.result ?? [];
+	}
+
+	/**
+	 * Lists one page of objects under `prefix`, sorted by name. A folder
+	 * comes back with a null `id`.
+	 */
+	async listObjects(
+		scope: StorageRef,
+		input: {
+			bucket: string;
+			/** Folder path without a trailing slash; empty for the bucket root. */
+			prefix: string;
+			offset: number;
+			limit: number;
+		},
+	): Promise<SupabaseStorageObject[]> {
+		return this.storageRequest(scope, {
+			method: "POST",
+			path: `/object/list/${encodeURIComponent(input.bucket)}`,
+			body: {
+				prefix: input.prefix,
+				limit: input.limit,
+				offset: input.offset,
+				sortBy: { column: "name", order: "asc" },
+			},
+			schema: supabaseStorageObjectsResponseSchema,
+		});
+	}
+
+	/**
+	 * Signs download URLs for `paths` in one call. Answers path to absolute
+	 * URL; a path Supabase refused (missing object) is absent from the map.
+	 */
+	async signDownloadUrls(
+		scope: StorageRef,
+		input: { bucket: string; paths: string[]; expiresInSeconds: number },
+	): Promise<Map<string, string>> {
+		const entries = await this.storageRequest(scope, {
+			method: "POST",
+			path: `/object/sign/${encodeURIComponent(input.bucket)}`,
+			body: { expiresIn: input.expiresInSeconds, paths: input.paths },
+			schema: supabaseSignedUrlsResponseSchema,
+		});
+		const urls = new Map<string, string>();
+		for (const entry of entries) {
+			if (entry.path !== null && entry.signedURL !== null) {
+				urls.set(
+					entry.path,
+					`${supabaseStorageUrl(scope.ref)}${entry.signedURL}`,
+				);
+			}
+		}
+		return urls;
+	}
+
+	/** Signs one upload URL for `path`; Supabase keeps it valid for two hours. */
+	async createUploadUrl(
+		scope: StorageRef,
+		input: { bucket: string; path: string },
+	): Promise<string> {
+		const answer = await this.storageRequest(scope, {
+			method: "POST",
+			path: `/object/upload/sign/${encodeURIComponent(input.bucket)}/${encodeObjectPath(input.path)}`,
+			schema: supabaseUploadUrlResponseSchema,
+		});
+		return `${supabaseStorageUrl(scope.ref)}${answer.url}`;
+	}
+
+	/** Deletes the listed objects; answers how many Supabase removed. */
+	async deleteObjects(
+		scope: StorageRef,
+		input: { bucket: string; paths: string[] },
+	): Promise<number> {
+		const removed = await this.storageRequest(scope, {
+			method: "DELETE",
+			path: `/object/${encodeURIComponent(input.bucket)}`,
+			body: { prefixes: input.paths },
+			schema: supabaseDeletedObjectsResponseSchema,
+		});
+		return removed.length;
+	}
+
+	// One `reveal=true` read of every key of the project; the callers pick
+	// the anon key or the service-role key and drop the rest.
+	private async readApiKeys(
+		scope: BackendRef,
+	): Promise<SupabaseApiKeysResponse> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			method: "GET",
+			path: `/projects/${scope.ref}/api-keys?reveal=true`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseApiKeysResponseSchema,
+		});
+	}
+
+	// Storage calls share the project bucket and the retry loop of
+	// `request`; only the URL and the bearer differ.
+	private async storageRequest<T>(
+		scope: StorageRef,
+		plan: Pick<RequestPlan<T>, "method" | "path" | "body" | "schema">,
+	): Promise<T> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			...plan,
+			url: `${supabaseStorageUrl(scope.ref)}${plan.path}`,
+			bearer: scope.serviceRoleKey,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
 		});
 	}
 
@@ -258,9 +551,12 @@ export class SupabaseManagementClient {
 	/**
 	 * One API call: wait on the bucket, then at most MAX_ATTEMPTS fetches.
 	 * A 429 waits `X-RateLimit-Reset` (5 s when absent); a 5xx or a thrown
-	 * fetch backs off 1 s, 2 s, 4 s, 8 s. Another 4xx throws at once.
+	 * fetch backs off 1 s, 2 s, 4 s, 8 s. Another 4xx throws at once. The
+	 * interactive form never waits on a bucket and retries once.
 	 */
 	private async request<T>(plan: RequestPlan<T>): Promise<T> {
+		const interactive = this.deps.interactive === true;
+		const maxAttempts = interactive ? INTERACTIVE_MAX_ATTEMPTS : MAX_ATTEMPTS;
 		// The limiter answers the wait until the bucket's window ends; at
 		// most MAX_RATE_LIMIT_WAITS sleeps, then the call fails.
 		let waitsDone = 0;
@@ -271,6 +567,13 @@ export class SupabaseManagementClient {
 			);
 			if (waitMs <= 0) {
 				break;
+			}
+			// A user waits on the answer: the route answers 429 with the wait.
+			if (interactive) {
+				throw new SupabaseRateLimitedError(
+					`supabase ${plan.method} ${plan.path} hit the ${plan.bucket} bucket`,
+					waitMs,
+				);
 			}
 			if (waitsDone >= MAX_RATE_LIMIT_WAITS) {
 				throw new SupabaseManagementError(
@@ -284,19 +587,23 @@ export class SupabaseManagementClient {
 			waitsDone += 1;
 		}
 
-		const url = `${this.deps.baseUrl ?? SUPABASE_MANAGEMENT_BASE_URL}${plan.path}`;
+		const url =
+			plan.url ??
+			`${this.deps.baseUrl ?? SUPABASE_MANAGEMENT_BASE_URL}${plan.path}`;
 
-		for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+		for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
 			try {
 				const response = await this.deps.fetch(url, {
 					method: plan.method,
 					headers: {
-						authorization: `Bearer ${this.deps.token}`,
+						authorization: `Bearer ${plan.bearer ?? this.deps.token}`,
+						// The project gateway also wants the key in `apikey`.
+						...(plan.bearer === undefined ? {} : { apikey: plan.bearer }),
 						"content-type": "application/json",
 						accept: "application/json",
 					},
 					body: plan.body === undefined ? undefined : JSON.stringify(plan.body),
-					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+					signal: AbortSignal.timeout(plan.timeoutMs ?? REQUEST_TIMEOUT_MS),
 				});
 				if (response.ok) {
 					const schema = plan.schema;
@@ -313,10 +620,17 @@ export class SupabaseManagementClient {
 					requestIdOf(response),
 					await readErrorDetail(response),
 				);
+				// An upstream 429 in interactive mode answers the user at once.
+				if (response.status === 429 && interactive) {
+					throw new SupabaseRateLimitedError(
+						failure.message,
+						rateLimitResetMs(response) ?? RATE_LIMIT_FALLBACK_WAIT_MS,
+					);
+				}
 				// A 429 and a 5xx are retryable; another 4xx is a final answer.
 				if (
 					(response.status !== 429 && response.status < 500) ||
-					attempt === MAX_ATTEMPTS - 1
+					attempt === maxAttempts - 1
 				) {
 					throw failure;
 				}
@@ -337,7 +651,7 @@ export class SupabaseManagementClient {
 					null,
 					null,
 				);
-				if (attempt === MAX_ATTEMPTS - 1) {
+				if (attempt === maxAttempts - 1) {
 					throw failure;
 				}
 				this.logRetry(null, attempt, plan.path);
@@ -347,7 +661,7 @@ export class SupabaseManagementClient {
 
 		// TypeScript needs an exit here; each branch throws on the last attempt.
 		throw new SupabaseManagementError(
-			`supabase ${plan.method} ${plan.path} exhausted ${MAX_ATTEMPTS} attempts`,
+			`supabase ${plan.method} ${plan.path} exhausted ${maxAttempts} attempts`,
 			null,
 			null,
 			null,
@@ -385,6 +699,11 @@ export class SupabaseManagementClient {
 			path,
 		});
 	}
+}
+
+// Each path segment is encoded on its own so the `/` separators survive.
+function encodeObjectPath(path: string): string {
+	return path.split("/").map(encodeURIComponent).join("/");
 }
 
 // The error body is `{ "message": "..." }` on the documented 4xx paths.
