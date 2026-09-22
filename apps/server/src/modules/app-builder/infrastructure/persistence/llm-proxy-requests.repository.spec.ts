@@ -187,4 +187,27 @@ describe("LlmProxyRequestsRepository", () => {
 			byModel: [],
 		});
 	});
+
+	it("reads the start of the turn's first request as epoch ms", async () => {
+		const { execute, repository } = setup();
+		execute.mockResolvedValue({ rows: [{ started_at_ms: "1789686703898" }] });
+
+		expect(await repository.firstRequestStartedAtMs("turn_1")).toBe(
+			1_789_686_703_898,
+		);
+
+		const compiled = compile(execute.mock.calls[0]?.[0]);
+		expect(compiled.sql).toContain("min(");
+		expect(compiled.sql).toContain('"llm_proxy_requests"."latency_ms"');
+		expect(compiled.sql).toContain('"llm_proxy_requests"."turn_id" = $1');
+		expect(compiled.params).toEqual(["turn_1"]);
+	});
+
+	it("reads null for the first request when the turn has no rows", async () => {
+		const { execute, repository } = setup();
+		// `min()` over no rows answers one row with a null column.
+		execute.mockResolvedValue({ rows: [{ started_at_ms: null }] });
+
+		expect(await repository.firstRequestStartedAtMs("turn_none")).toBeNull();
+	});
 });

@@ -99,8 +99,18 @@ partial unique index guarantees at most one live row per project.
   `sandbox.network-policy.applied` with mode, host count, and rejected
   names (warn in `open`).
 - `handle.setNetworkPolicy` replaces the whole vendor policy on the live
-  sandbox without a restart; a resume or reuse re-pushes it through the
-  same call so a changed list reaches a running VM.
+  sandbox without a restart. A resume always re-pushes the policy, because
+  the snapshot may hold an old one. A plain reuse of a running sandbox
+  compares the SHA-256 of the built policy with
+  `sandbox_sessions.networkPolicyHash` and pushes only when they differ
+  (WANDIT-253); the row keeps the hash of the last push. A vendor answer
+  that carries no policy also gets the push: the harness session reads a
+  missing policy as allow-all. The log line is
+  `sandbox.network-policy.applied` or `sandbox.network-policy.unchanged`.
+- `SandboxCreateOptions.onWake` fires once, before the slow work, when the
+  sandbox really boots: a create, a resume, or a rebuild. A new or stopped
+  row fires it before the vendor call; a running row fires it only after
+  the vendor reports a create or a resume. A plain reuse never fires it.
 - `handle.allowHost(host)` adds one host to the live allow list, for the
   `request_network_host` tool. It merges the host into the applied
   policy and routes through the live harness session, so the proxy
@@ -417,13 +427,20 @@ One run does this, in order:
    `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
    an empty string. An `active` `app_backends` row adds `VITE_SUPABASE_URL`
    and `VITE_SUPABASE_ANON_KEY`; any other row, or no row, adds the note
-   `Backend not ready yet` to the `session_starting` status.
+   `Backend not ready yet` to the first status of the turn
+   (`session_starting` on a cold session, `running` on a warm turn).
 5. Wakes or creates the sandbox (`sandboxes.getOrCreate`) and touches
-   `sandbox_sessions` activity so the idle sweep leaves it alone.
+   `sandbox_sessions` activity so the idle sweep leaves it alone. The
+   `sandbox_waking` status is written from `onWake`, so a running sandbox
+   (a warm turn) shows no waking step on the card.
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
-   harness mismatch is a failure. A `waiting_for_*` row of the project
+   harness mismatch is a failure. The `session_starting` status is
+   written only for a cold session: no stored state, or a resume that
+   failed (`Starting a fresh session`). A warm turn goes to `running`
+   directly, and that status carries the `Backend not ready yet` note
+   when it applies. A `waiting_for_*` row of the project
    moves to `succeeded` first — this run is its answer. When the stored
    state holds pending cards, the turn streams a `continue` input: the
    message text answers the first question (a matching option label
@@ -492,9 +509,29 @@ One run does this, in order:
 11. Each terminal path ends with `finishTurn`: `counters.revokeRun` kills
     the token, the lock releases, `promoteNext` hands the slot to the
     oldest `waiting` turn, and `touchActivity` runs once more. The
-    runtime `finally` only stops the timers and closes the host tools;
-    the task `finally` closes the event writer, the two Redis clients,
-    and the pool.
+    runtime `finally` stops the timers, closes the host tools, and writes
+    the `builder-turn.timing` line; the task `finally` closes the event
+    writer, the two Redis clients, and the pool.
+12. `builder-turn.timing` (WANDIT-253) is one log line per run that
+    passes the claim and the chat check, failures included, with the ms of
+    each step: `queueMs` (row create → run
+    start), `prestartMs` (row reads, money checks, token mint),
+    `sandboxMs`, `hostToolsMs`, `sessionMs`, `firstPartMs` (stream start
+    → first harness part), `firstModelCallMs` (run start → the first
+    `llm_proxy_requests` row's start, from `firstRequestStartedAtMs`),
+    `streamMs`, `commitMs`, `settleMs`, `totalMs`. `sandbox` is `woke` or
+    `warm`, `session` is `resumed` or `created`; a step that did not run
+    is null.
+
+Warm turns (WANDIT-253): the SDK keeps the bridge alive between turns.
+`detach` only suspends the socket (`channel.suspend()`), and
+`createSession({ resumeFrom })` first tries to attach to the running
+bridge through its stored port and token; it spawns a new bridge only
+when the attach fails. The Claude Code process inside the bridge still
+starts one `query()` per turn, so the model call waits for its startup on
+every turn; that cost sits inside the SDK. The runtime never caches a
+session object across runs: the proxy run token rotates per run and lives
+in the vendor request transformation the SDK installs at session start.
 
 ## Host tools (WANDIT-169)
 

@@ -95,6 +95,26 @@ describe("SandboxSessionsRepository.markRunning", () => {
 	});
 });
 
+describe("SandboxSessionsRepository.markNetworkPolicyHash", () => {
+	it("writes the hash on the row while it is live", async () => {
+		const { repository, set, where } = setupUpdate();
+
+		await repository.markNetworkPolicyHash("row-1", "abc123");
+
+		expect(set.mock.calls[0]?.[0]).toEqual({ networkPolicyHash: "abc123" });
+
+		const predicate = compile(where.mock.calls[0]?.[0]);
+		expect(predicate.params).toEqual([
+			"row-1",
+			"creating",
+			"running",
+			"stopped",
+		]);
+		expect(predicate.sql).toContain('"sandbox_sessions"."id" = $1');
+		expect(predicate.sql).toContain('"sandbox_sessions"."status" in');
+	});
+});
+
 describe("SandboxSessionsRepository.touchActivity", () => {
 	it("stamps lastActiveAt on the live row of the project", async () => {
 		const { repository, set, where } = setupUpdate();

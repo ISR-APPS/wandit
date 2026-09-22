@@ -60,6 +60,9 @@ export const sandboxSessions = pgTable(
 		lastSnapshotAt: timestamp("last_snapshot_at", { withTimezone: true }),
 		// Last turn activity. The idle sweep reads it to suspend the sandbox.
 		lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+		// SHA-256 of the egress policy last pushed to the vendor. A turn on a
+		// running sandbox skips the vendor update when its policy hashes equal.
+		networkPolicyHash: text("network_policy_hash"),
 		// Last lifecycle error, for the admin console.
 		error: text("error"),
 		createdAt: timestamp("created_at", { withTimezone: true })

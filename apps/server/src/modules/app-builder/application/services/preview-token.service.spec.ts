@@ -49,6 +49,7 @@ function sessionRow(overrides?: Partial<SandboxSessionRow>): SandboxSessionRow {
 		image: "vercel/sandbox/node:22",
 		lastActiveAt: new Date("2026-09-16T10:00:00.000Z"),
 		lastSnapshotAt: null,
+		networkPolicyHash: null,
 		organizationId: null,
 		previewHost: PREVIEW_HOST,
 		projectId: PROJECT_ID,

@@ -11,6 +11,7 @@ import type {
 	HarnessResumeState,
 	HarnessStreamEvent,
 } from "../modules/app-builder/domain/ports/builder-harness";
+import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
 import type {
 	CommitTurnDeps,
 	CommitTurnInput,
@@ -42,6 +43,7 @@ import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricin
 import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
+	type BuilderTurnTiming,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
 
@@ -64,6 +66,8 @@ const CHAT_ID = "33333333-3333-4333-8333-333333333333";
 const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
+/** `createdAt` of the fake turn row; the timing line measures the queue from it. */
+const TURN_CREATED_AT = new Date("2026-09-17T10:00:00.000Z");
 const PROXY_BASE_URL = "https://api.test/api/v2/llm";
 /** Micros per whole credit; the AI_USD_PER_CREDIT anchor ($0.032). */
 const USD_MICROS_PER_CREDIT = 32_000;
@@ -340,9 +344,10 @@ class FakeMetering {
 }
 
 function fakeTurnRow(over: Partial<BuilderTurnRow>): BuilderTurnRow {
-	// SAFETY: the runtime reads only chatId, model, turnNumber, and spec off the row.
+	// SAFETY: the runtime reads only chatId, createdAt, model, turnNumber, and spec off the row.
 	return {
 		chatId: CHAT_ID,
+		createdAt: TURN_CREATED_AT,
 		id: TURN_ID,
 		projectId: PROJECT_ID,
 		spec: { attachments: [], composer: null, message: "Build a form" },
@@ -481,6 +486,8 @@ function makeWorld(over?: {
 	balances?: number[];
 	billingDisabled?: boolean;
 	caps?: ProjectCostCapsRow | null;
+	/** `firstRequestStartedAtMs` answers, epoch ms; absent means no proxy row. */
+	firstRequestStartedAtMs?: number;
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
@@ -506,6 +513,8 @@ function makeWorld(over?: {
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
+	/** The fields of every `builder-turn.timing` line, in order. */
+	const timings: BuilderTurnTiming[] = [];
 	const nextSpend = scripted(over?.runSpend ?? [0], 0);
 	// 50_000 cc = 500 credits: enough that no default stop rule fires.
 	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
@@ -566,8 +575,13 @@ function makeWorld(over?: {
 		lock,
 		logger: {
 			error: () => {},
-			info: (message) => {
+			// Only the timing line's fields are kept; the other lines carry
+			// other shapes, and the specs read only their messages.
+			info: (message: string, fields?: BuilderTurnTiming) => {
 				infos.push(message);
+				if (message === "builder-turn.timing" && fields !== undefined) {
+					timings.push(fields);
+				}
 			},
 			warn: (message) => {
 				warnings.push(message);
@@ -589,6 +603,8 @@ function makeWorld(over?: {
 		},
 		proxyBaseUrl: PROXY_BASE_URL,
 		proxyRows: {
+			firstRequestStartedAtMs: async () =>
+				over?.firstRequestStartedAtMs ?? null,
 			sumByTurn: async () => proxySum,
 		},
 		readBalance: async () => {
@@ -626,11 +642,23 @@ function makeWorld(over?: {
 		sandboxes,
 		sessions,
 		stream,
+		timings,
 		touched,
 		turns,
 		warnings,
 	};
 }
+
+/** The options a spec passes to warm the fake sandbox before the run. */
+const WARM_SANDBOX_OPTIONS: SandboxCreateOptions = {
+	devCommand: "pnpm run dev",
+	devPort: 5173,
+	env: {},
+	framework: "web-app",
+	organizationId: null,
+	ownerUserId: "user_1",
+	templateVersion: "web-app@1.0.0",
+};
 
 function makeInput(): {
 	controller: AbortController;
@@ -1699,6 +1727,155 @@ describe("runBuilderTurn", () => {
 			payload: "{}",
 			pending: [],
 		});
+	});
+
+	it("writes neither the waking nor the session status on a warm turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The sandbox already runs and the chat has a stored session.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		// The first status is `running`; it carries the backend note the
+		// skipped session status would have carried.
+		expect(statuses).toEqual([
+			{ message: "Backend not ready yet", phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.timings[0]?.sandbox).toBe("warm");
+		expect(world.timings[0]?.session).toBe("resumed");
+	});
+
+	it("writes the waking status when a stopped sandbox resumes", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const phases = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data.phase] : []));
+		expect(phases).toEqual([
+			"sandbox_waking",
+			"session_starting",
+			"running",
+			"committing",
+		]);
+		expect(world.timings[0]?.sandbox).toBe("woke");
+	});
+
+	it("writes only the fresh-session status when a warm resume fails", async () => {
+		const world = makeWorld({ backend: fakeBackendRow() });
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("bridge gone");
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		expect(statuses).toEqual([
+			{ message: "Starting a fresh session", phase: "session_starting" },
+			{ phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.timings[0]?.session).toBe("created");
+	});
+
+	it("logs one timing line with the step durations", async () => {
+		// A frozen clock makes every duration 0 and the offsets exact.
+		vi.useFakeTimers({ now: TURN_CREATED_AT.getTime() + 2_100 });
+		const world = makeWorld({
+			firstRequestStartedAtMs: TURN_CREATED_AT.getTime() + 2_100 + 800,
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toEqual([
+			{
+				commitMs: 0,
+				firstModelCallMs: 800,
+				firstPartMs: 0,
+				hostToolsMs: 0,
+				prestartMs: 0,
+				queueMs: 2_100,
+				runId: RUN_ID,
+				sandbox: "woke",
+				sandboxMs: 0,
+				session: "created",
+				sessionMs: 0,
+				settleMs: 0,
+				streamMs: 0,
+				totalMs: 0,
+				turnId: TURN_ID,
+			},
+		]);
+	});
+
+	it("logs the timing line with null steps when the turn fails before the sandbox", async () => {
+		const world = makeWorld();
+		world.deps.model = null;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toHaveLength(1);
+		expect(world.timings[0]).toMatchObject({
+			firstModelCallMs: null,
+			firstPartMs: null,
+			sandbox: null,
+			sandboxMs: null,
+			session: null,
+			sessionMs: null,
+			streamMs: null,
+		});
+	});
+
+	it("keeps the timing line when the first proxy request lookup fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.deps.proxyRows = {
+			...world.deps.proxyRows,
+			firstRequestStartedAtMs: async () => {
+				throw new Error("proxy rows unavailable");
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The lookup only feeds the log line; the turn still succeeds.
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.warnings).toContain(
+			`First proxy request lookup failed for turn ${TURN_ID}: proxy rows unavailable`,
+		);
+		expect(world.timings[0]?.firstModelCallMs).toBeNull();
 	});
 
 	it("starts a fresh session when the stored one cannot resume", async () => {

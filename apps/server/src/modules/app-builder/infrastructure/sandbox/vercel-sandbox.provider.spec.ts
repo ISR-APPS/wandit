@@ -65,9 +65,14 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	readonly fs = {
 		readdir: async (_path: string): Promise<string[]> => [],
 	};
+	/** The policy the vendor reads back with the session; the create policy, then each update. */
+	sessionPolicy: NetworkPolicy | undefined;
 
-	currentSession(): { readonly cwd: string } {
-		return { cwd: "/vercel" };
+	currentSession(): {
+		readonly cwd: string;
+		readonly networkPolicy: NetworkPolicy | undefined;
+	} {
+		return { cwd: "/vercel", networkPolicy: this.sessionPolicy };
 	}
 	private readonly scripted = new Map<string, FakeFinished[]>();
 
@@ -75,9 +80,11 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 		readonly name: string,
 		timeout: number,
 		ports: readonly number[],
+		networkPolicy: NetworkPolicy | undefined,
 	) {
 		this.expiresAt = new Date(Date.now() + timeout);
 		this.routes = ports.map((port) => ({ port }));
+		this.sessionPolicy = networkPolicy;
 	}
 
 	respondTo(cmd: string, result: FakeFinished): void {
@@ -147,6 +154,7 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 		}
 		this.networkPolicies.push(policy);
 		this.events.push("updateNetworkPolicy");
+		this.sessionPolicy = policy;
 		return Promise.resolve(policy);
 	}
 
@@ -200,6 +208,7 @@ class FakeVercelSdk implements VercelSandboxSdk {
 			name ?? `anon-${this.instances.size}`,
 			params.timeout ?? 0,
 			params.ports ?? [],
+			params.networkPolicy,
 		);
 		if (name) {
 			this.instances.set(name, created);
@@ -344,11 +353,63 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 
 		expect(logger.info).toHaveBeenCalledTimes(1);
 		expect(logger.info).toHaveBeenCalledWith(
-			"sandbox.network-policy.applied",
+			"sandbox.network-policy.unchanged",
 			expect.objectContaining({ projectId: "p1" }),
 		);
 		expect(logger.warn).not.toHaveBeenCalled();
 		expect(logger.error).not.toHaveBeenCalled();
+	});
+
+	it("calls onWake before the vendor call when the row is stopped", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		await provider.stop("p1");
+		/** `sdk.getOrCreateCalls.length` at each `onWake` call. */
+		const vendorCallsAtWake: number[] = [];
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			onWake: async () => {
+				vendorCallsAtWake.push(sdk.getOrCreateCalls.length);
+			},
+		});
+
+		// One call: the first getOrCreate. The resume call comes after.
+		expect(vendorCallsAtWake).toEqual([1]);
+	});
+
+	it("does not call onWake on a plain reuse of a running sandbox", async () => {
+		const { provider } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		let wakes = 0;
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			onWake: async () => {
+				wakes += 1;
+			},
+		});
+
+		expect(wakes).toBe(0);
+	});
+
+	it("calls onWake once on a rebuild of a running row", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		sdk.expire("p1");
+		/** `sdk.getOrCreateCalls.length` at each `onWake` call. */
+		const vendorCallsAtWake: number[] = [];
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			onWake: async () => {
+				vendorCallsAtWake.push(sdk.getOrCreateCalls.length);
+			},
+		});
+
+		// The row said running, so the wake is known only after the vendor
+		// created a fresh sandbox: two calls are recorded by then.
+		expect(vendorCallsAtWake).toEqual([2]);
 	});
 
 	it("keeps platform secrets out of the vendor env", async () => {
@@ -627,15 +688,56 @@ describe("VercelSandboxProvider egress policy", () => {
 		expect(events).toContain("runCommand");
 	});
 
-	it("pushes the policy again on a plain reuse of a live sandbox", async () => {
+	it("skips the policy update on a plain reuse with the same allow list", async () => {
+		const { provider, sdk, sessions } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		const hashAfterCreate = sessions.rows.get("row-1")?.networkPolicyHash;
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		// The create call carried the policy; the reuse needs no vendor update.
+		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([]);
+		expect(typeof hashAfterCreate).toBe("string");
+		expect(sessions.rows.get("row-1")?.networkPolicyHash).toBe(hashAfterCreate);
+	});
+
+	it("pushes the policy on a reuse when the vendor read back no policy", async () => {
 		const { provider, sdk } = setup();
 		await provider.getOrCreate("p1", OPTIONS);
+		const sandbox = sdk.instances.get("p1");
+		if (!sandbox) {
+			throw new Error("the first getOrCreate created no sandbox");
+		}
+		// The harness session would read a missing policy as allow-all.
+		sandbox.sessionPolicy = undefined;
 
 		await provider.getOrCreate("p1", OPTIONS);
 
-		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([
+		expect(sandbox.networkPolicies).toEqual([
 			sdk.getOrCreateCalls[0]?.networkPolicy,
 		]);
+	});
+
+	it("pushes the policy on a reuse when the project hosts changed", async () => {
+		const { provider, sdk, sessions } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		const hashAfterCreate = sessions.rows.get("row-1")?.networkPolicyHash;
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			networkAllowedHosts: ["api.example.com"],
+		});
+
+		const pushed = sdk.instances.get("p1")?.networkPolicies ?? [];
+		expect(pushed).toHaveLength(1);
+		expect(pushed[0]).toEqual(
+			expect.objectContaining({
+				allow: expect.arrayContaining(["api.example.com"]),
+			}),
+		);
+		expect(sessions.rows.get("row-1")?.networkPolicyHash).not.toBe(
+			hashAfterCreate,
+		);
 	});
 
 	it("stops the sandbox and marks the row error when the policy update fails on reuse", async () => {
@@ -648,7 +750,13 @@ describe("VercelSandboxProvider egress policy", () => {
 		const failure = new Error("policy update failed");
 		sandbox.failWith = failure;
 
-		await expect(provider.getOrCreate("p1", OPTIONS)).rejects.toBe(failure);
+		// A new host forces the update; an unchanged list would skip it.
+		await expect(
+			provider.getOrCreate("p1", {
+				...OPTIONS,
+				networkAllowedHosts: ["api.example.com"],
+			}),
+		).rejects.toBe(failure);
 
 		// The policy update fails closed: a reuse that cannot apply the
 		// policy must not leave the sandbox running under the stored one.
