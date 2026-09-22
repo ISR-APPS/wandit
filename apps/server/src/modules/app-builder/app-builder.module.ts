@@ -6,6 +6,7 @@
  */
 import { Module } from "@nestjs/common";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
@@ -17,6 +18,7 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { BackendsService } from "./application/services/backends.service";
+import { CloudService } from "./application/services/cloud.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -37,7 +39,7 @@ import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
-import { V2_ENV } from "./infrastructure/env/v2-env";
+import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
 import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
@@ -57,11 +59,20 @@ import {
 	TEMPLATE_INIT,
 } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
+import {
+	SUPABASE_MANAGEMENT_CLIENT,
+	SupabaseManagementClient,
+} from "./infrastructure/supabase/supabase-management.client";
+import {
+	RedisSupabaseRateLimiter,
+	type SupabaseRateLimiter,
+} from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
@@ -76,9 +87,41 @@ import {
 } from "./presentation/http/guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-enabled.guard";
 
+/**
+ * The interactive Management API client of the Cloud routes, composed
+ * like the worker does in `createProvisionBackendRuntime`. Null without
+ * the platform token: `CloudService` then answers 503 `V2_ENV_MISSING`.
+ */
+export function createCloudSupabaseClient(
+	backends: Pick<AppBackendsRepository, "findByProjectId">,
+	rateLimiter: SupabaseRateLimiter,
+	/** The validated `env` in production; specs pass a plain object. */
+	v2Env: V2EnvSource,
+): SupabaseManagementClient | null {
+	const token = v2Env.SUPABASE_PLATFORM_TOKEN;
+	const organizationSlug = v2Env.SUPABASE_PLATFORM_ORG_ID;
+	if (token === undefined || organizationSlug === undefined) {
+		return null;
+	}
+	return new SupabaseManagementClient({
+		fetch: globalThis.fetch,
+		interactive: true,
+		logger: Sentry.logger,
+		organizationSlug,
+		// The ownership check reads the same row the Cloud routes read.
+		ownsRef: async (projectId, ref) =>
+			(await backends.findByProjectId(projectId))?.ref === ref,
+		rateLimiter,
+		sleep: (ms) =>
+			new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
+		token,
+	});
+}
+
 @Module({
 	controllers: [
 		AppProjectsController,
+		CloudController,
 		CostCapsController,
 		LlmProxyController,
 		PreviewTokenController,
@@ -107,6 +150,7 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		BackendsService,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
+		CloudService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
@@ -115,6 +159,7 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		ProjectSecretsRepository,
 		ProjectSecretsService,
 		RedisRateLimitGuard,
+		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
 		// all it needs (the turn model allow-list reads the plan).
@@ -137,6 +182,11 @@ import { V2BuilderEnabledGuard } from "./presentation/http/guards/v2-builder-ena
 		// WANDIT-171: the code.storage restorer replaces the logging placeholder.
 		{ provide: REPO_RESTORER, useClass: CodeStorageRepoRestorer },
 		{ provide: SANDBOX_PROVIDER, useClass: VercelSandboxProvider },
+		{
+			provide: SUPABASE_MANAGEMENT_CLIENT,
+			useFactory: createCloudSupabaseClient,
+			inject: [AppBackendsRepository, RedisSupabaseRateLimiter, V2_ENV],
+		},
 		{
 			provide: TEMPLATE_INIT,
 			// The constructor takes a directory path, not an injectable.

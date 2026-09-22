@@ -6,7 +6,7 @@
  * `app_backends_projectId_uq` backs the rule.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "@wandit/db";
+import { and, eq } from "@wandit/db";
 import {
 	type appBackendStatus,
 	appBackends,
@@ -181,6 +181,26 @@ export class AppBackendsRepository {
 				status: "active",
 			})
 			.where(eq(appBackends.projectId, projectId));
+	}
+
+	/**
+	 * Moves a `paused` row to `restoring` with a compare-and-set. Answers
+	 * false when the row is not `paused`, so a second restore click starts
+	 * nothing. `CloudService.restoreBackend` is the caller.
+	 */
+	async markRestoring(projectId: string): Promise<boolean> {
+		const rows = await this.db
+			.update(appBackends)
+			.set({ status: "restoring" })
+			.where(
+				and(
+					eq(appBackends.projectId, projectId),
+					eq(appBackends.status, "paused"),
+				),
+			)
+			.returning({ id: appBackends.id });
+
+		return rows.length > 0;
 	}
 
 	/** Marks the backend failed and stores the eight failure columns. */

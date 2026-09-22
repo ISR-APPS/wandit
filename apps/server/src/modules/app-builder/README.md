@@ -33,11 +33,11 @@ PostHog flag `v2-builder`).
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository |
-| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter |
+| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService` |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService` |
 
 ## Ports (`domain/ports/`)
 
@@ -296,6 +296,95 @@ name in `metadata`; never the value. The API request log carries no
 body. The Sentry `beforeSend` (`scrubEvent`) masks the `value` field of
 a captured body and replaces every string that holds `sk_live_`,
 `rk_live_`, `sb_secret_`, `service_role`, or `whsec_`.
+
+## Cloud tab API (WANDIT-187)
+
+Routes under `/api/v2/projects/:projectId/cloud/*` answer the panels of
+the Cloud tab. `CloudController` parses and delegates; `CloudService`
+holds the rules. Every route sits behind the global AuthGuard,
+`V2BuilderEnabledGuard`, `RedisRateLimitGuard`, and the workspace
+permission `project:update` on the whole controller (owner, admin, and
+member all hold it). A project outside the scope, or a V1 project,
+answers 404. The contracts live in `packages/contracts/src/v2/cloud.ts`,
+with `cloudRoutes` and the SQL classifier `classifySql`.
+
+The API holds the keys. The browser never sees the platform token or the
+service-role key. The module factory `createCloudSupabaseClient`
+composes the interactive `SupabaseManagementClient` (token
+`SUPABASE_MANAGEMENT_CLIENT`): no wait on a full bucket, one retry, and
+a 429 at once. Without `SUPABASE_PLATFORM_TOKEN` the factory answers
+null and every route answers 503 `V2_ENV_MISSING`. The service-role key
+comes from `GET /projects/{ref}/api-keys?reveal=true` on each storage
+call and never leaves the process. A follow-up swaps that read for the
+`project_secrets` store of WANDIT-185.
+
+Backend state:
+
+- `GET backend` answers `status`, `ref`, `region`, and `failureCode`;
+  `status: "none"` without a row.
+- `POST backend` calls `BackendsService.provisionBackend` (idempotent)
+  and answers the row. Unconfigured provisioning answers 503
+  `V2_ENV_MISSING`.
+- `POST backend/restore` calls `POST /projects/{ref}/restore`, then moves
+  the row `paused` → `restoring` with the CAS `markRestoring`. A row in
+  another state answers as it is. A failed upstream call leaves the row
+  `paused`.
+- Every other route needs an `active` row with a ref: `paused` answers
+  409 `BACKEND_PAUSED`, every other state 409 `BACKEND_NOT_READY`.
+
+Every SQL call goes through `SupabaseManagementClient.runQuery`
+(`POST /projects/{ref}/database/query`, Beta) with `read_only: true`,
+except the confirmed console write. The rows come back as ISO text
+through `to_char` so the answers parse with `isoDateTimeSchema`.
+
+- `GET tables[?exact=<table>]`: the `public` base tables with their
+  columns from `information_schema.columns` and the live-row estimate
+  from `pg_stat_user_tables.n_live_tup`; `exact` runs one `count(*)` on
+  that table. The list is cached 30 s per ref.
+- `GET tables/:table/rows?page&pageSize&sort&dir`: `table` and `sort`
+  must be names in the cached list (else 400 `INVALID_IDENTIFIER`) and
+  enter the SQL quoted. `pageSize` caps at 100. `total` is an exact
+  `count(*)` in the same statement.
+- `POST sql { query, confirmWrite }`: `classifySql` sorts the text. A
+  read runs at once; a write without `confirmWrite: true` answers 409
+  `WRITE_NEEDS_CONFIRM`. The answer keeps the first 500 rows and sets
+  `truncated`. The fetch times out after 15 s. A refused statement
+  answers 400 `QUERY_FAILED` with the Postgres message. A write leaves an
+  `audit_events` row `cloud.sql_write` with the SHA-256 of the text and
+  the row count, never the text.
+- `GET auth/users?page&pageSize`: `auth.users` newest first with the
+  provider from `raw_app_meta_data`. `GET auth/signups`: one count per
+  UTC day for the last 30 days, cached 30 s.
+- `GET storage/buckets`: `GET /projects/{ref}/storage/buckets`.
+  `GET storage/buckets/:bucket/objects?prefix&cursor`: the project
+  Storage API `POST /object/list/{bucket}` with the service-role key,
+  100 per page, the cursor is the next offset; each file carries a signed
+  download URL valid 10 minutes from one batch `POST /object/sign/{bucket}`
+  call. `POST .../objects/upload-url { path }` answers a signed upload
+  URL (Supabase keeps it valid two hours). `DELETE .../objects { paths }`
+  removes up to 100 paths and leaves an `audit_events` row
+  `cloud.objects_deleted` with the bucket and the counts.
+- `GET logs?source&start&end&level&search`: the analytics endpoint
+  `GET /projects/{ref}/analytics/endpoints/logs.all` with the window as
+  `iso_timestamp_start` and `iso_timestamp_end`. Sources map to
+  `edge_logs`, `postgres_logs`, and `function_edge_logs`; the level
+  reads the HTTP status class or the Postgres severity. A window above
+  24 hours answers 400 `WINDOW_TOO_LARGE`. At most 100 lines, newest
+  first. The metadata field names are UNVERIFIED against the live API.
+- `GET functions`: `GET /projects/{ref}/functions` plus one logs query
+  over the last 24 hours for the call counts; cached 30 s.
+- `GET jobs`: `to_regclass('cron.job')` first (`installed: false`
+  without pg_cron), then `cron.job` with the last 20 rows of
+  `cron.job_run_details` per job.
+
+Rate limits: every upstream call takes the `SupabaseRateLimiter` bucket
+of its ref (120 per minute; the logs endpoint has its own bucket
+`supabase:rl:logs:<ref>` at 30). A full bucket or an upstream 429
+answers 429 `RATE_LIMITED`; `RetryAfterInterceptor` sets `Retry-After`
+from the bucket wait. `POST sql` adds the per-user `@RateLimit` bucket
+`cloud-sql` at 30 per minute. Any other upstream failure answers 503
+`UPSTREAM_UNAVAILABLE`. The caches (tables, functions, sign-ups) live in
+the API process; two processes may differ for 30 s.
 
 ## Builder turn
 

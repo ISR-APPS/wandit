@@ -13,6 +13,7 @@ import { SettingsModule } from "../settings";
 import { AppBuilderModule } from "./app-builder.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { BackendsService } from "./application/services/backends.service";
+import { CloudService } from "./application/services/cloud.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -49,11 +50,14 @@ import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import { TEMPLATE_INIT } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
+import { SUPABASE_MANAGEMENT_CLIENT } from "./infrastructure/supabase/supabase-management.client";
+import { RedisSupabaseRateLimiter } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
@@ -74,6 +78,7 @@ describe("AppBuilderModule", () => {
 			Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AppBuilderModule),
 		).toEqual([
 			AppProjectsController,
+			CloudController,
 			CostCapsController,
 			LlmProxyController,
 			PreviewTokenController,
@@ -102,6 +107,7 @@ describe("AppBuilderModule", () => {
 			BackendsService,
 			BuilderSessionsRepository,
 			BuilderTurnsRepository,
+			CloudService,
 			LlmProxyRequestsRepository,
 			LlmProxyService,
 			LlmSpendCounters,
@@ -110,6 +116,7 @@ describe("AppBuilderModule", () => {
 			ProjectSecretsRepository,
 			ProjectSecretsService,
 			RedisRateLimitGuard,
+			RedisSupabaseRateLimiter,
 			SandboxSessionsRepository,
 			SubscriptionsRepository,
 			TemplateVersionService,
@@ -127,6 +134,7 @@ describe("AppBuilderModule", () => {
 			{ provide: RATE_LIMIT_STORE, useClass: RedisRateLimitStore },
 			{ provide: REPO_RESTORER, useClass: CodeStorageRepoRestorer },
 			{ provide: SANDBOX_PROVIDER, useClass: VercelSandboxProvider },
+			expect.objectContaining({ provide: SUPABASE_MANAGEMENT_CLIENT }),
 			// The factory identity is not stable; match the token only.
 			expect.objectContaining({ provide: TEMPLATE_INIT }),
 			{ provide: TURN_EVENT_READER, useClass: TriggerTurnEventReader },

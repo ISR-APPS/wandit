@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { SandboxLogger } from "../../domain/ports/sandbox-provider";
+import {
+	jsonResponse,
+	type RecordedRequest,
+	scriptedFetch,
+} from "./fake-supabase-fetch";
 import { FakeSupabaseRateLimiter } from "./fake-supabase-rate-limiter";
 import {
 	type BackendRef,
 	SupabaseManagementClient,
 	SupabaseManagementError,
+	SupabaseRateLimitedError,
 } from "./supabase-management.client";
 
 const TOKEN = "sbp_test_token";
@@ -38,60 +45,18 @@ const PROJECT_WITH_DB = {
 	},
 };
 
-type RecordedRequest = {
-	url: string;
-	method: string;
-	headers: Record<string, string>;
-	body: string | null;
-};
-
 type RecordedWarning = {
 	message: string;
 	fields: Record<string, string>;
 };
-
-// Builds a JSON `Response` for the scripted answer queue. `body` is the
-// serialized JSON text.
-function jsonResponse(
-	status: number,
-	body: string,
-	headers?: Record<string, string>,
-): Response {
-	return new Response(body, {
-		status,
-		headers: { "content-type": "application/json", ...headers },
-	});
-}
-
-// A fetch that records each call and answers the scripted queue in order.
-// An `Error` entry rejects the promise, like a network failure.
-function scriptedFetch(
-	answers: (Response | Error)[],
-	requests: RecordedRequest[],
-): typeof globalThis.fetch {
-	return (input, init) => {
-		requests.push({
-			url: String(input),
-			method: init?.method ?? "GET",
-			headers: Object.fromEntries(new Headers(init?.headers)),
-			body: typeof init?.body === "string" ? init.body : null,
-		});
-		const answer = answers.shift();
-		if (answer === undefined) {
-			return Promise.reject(new Error("scripted answers exhausted"));
-		}
-		if (answer instanceof Error) {
-			return Promise.reject(answer);
-		}
-		return Promise.resolve(answer);
-	};
-}
 
 function makeClient(
 	answers: (Response | Error)[],
 	options?: {
 		rateLimiter?: FakeSupabaseRateLimiter;
 		ownsRef?: (projectId: string, ref: string) => Promise<boolean>;
+		/** Composes the client the way the API does; default false (the worker). */
+		interactive?: boolean;
 	},
 ) {
 	const requests: RecordedRequest[] = [];
@@ -122,6 +87,7 @@ function makeClient(
 			return Promise.resolve();
 		},
 		logger,
+		interactive: options?.interactive,
 	});
 	return { client, requests, sleeps, warnings, rateLimiter, ownsRefCalls };
 }
@@ -470,6 +436,375 @@ describe("SupabaseManagementClient.runSql", () => {
 		);
 		expect(JSON.parse(fixture.requests[0]?.body ?? "null")).toEqual({
 			query: "select 1",
+		});
+	});
+});
+
+// The Cloud routes (WANDIT-187) compose the client with `interactive: true`.
+describe("SupabaseManagementClient in interactive mode", () => {
+	it("throws SupabaseRateLimitedError at once when the bucket is full", async () => {
+		const fixture = makeClient([], {
+			interactive: true,
+			rateLimiter: new FakeSupabaseRateLimiter([15_000]),
+		});
+
+		const failure = await fixture.client.listBuckets(SCOPE).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		expect(failure).toBeInstanceOf(SupabaseRateLimitedError);
+		// SAFETY: the line above checks the instance.
+		expect((failure as SupabaseRateLimitedError).retryAfterMs).toBe(15_000);
+		expect(fixture.requests).toHaveLength(0);
+		expect(fixture.sleeps).toEqual([]);
+	});
+
+	it("turns an upstream 429 into SupabaseRateLimitedError with the reset wait", async () => {
+		const fixture = makeClient(
+			[jsonResponse(429, "{}", { "x-ratelimit-reset": "12" })],
+			{ interactive: true },
+		);
+
+		const failure = await fixture.client.listBuckets(SCOPE).then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		expect(failure).toBeInstanceOf(SupabaseRateLimitedError);
+		// SAFETY: the line above checks the instance.
+		expect((failure as SupabaseRateLimitedError).retryAfterMs).toBe(12_000);
+		expect(fixture.requests).toHaveLength(1);
+	});
+
+	it("retries a 5xx once, then fails", async () => {
+		const fixture = makeClient(
+			[jsonResponse(502, "{}"), jsonResponse(503, "{}")],
+			{ interactive: true },
+		);
+
+		await expect(fixture.client.listBuckets(SCOPE)).rejects.toMatchObject({
+			status: 503,
+		});
+		expect(fixture.requests).toHaveLength(2);
+		expect(fixture.sleeps).toEqual([1_000]);
+	});
+});
+
+describe("SupabaseManagementClient.runQuery", () => {
+	it("posts the query with read_only and parses the rows with the schema", async () => {
+		const fixture = makeClient([
+			jsonResponse(201, JSON.stringify([{ count: 3 }])),
+		]);
+
+		const rows = await fixture.client.runQuery(SCOPE, {
+			readOnly: true,
+			rowSchema: z.object({ count: z.number() }),
+			sql: "select count(*)::float8 as count from t",
+		});
+
+		expect(rows).toEqual([{ count: 3 }]);
+		expect(fixture.requests[0]).toMatchObject({
+			body: JSON.stringify({
+				query: "select count(*)::float8 as count from t",
+				read_only: true,
+			}),
+			method: "POST",
+			url: `https://api.supabase.com/v1/projects/${REF}/database/query`,
+		});
+	});
+
+	it("fails when a row does not fit the schema", async () => {
+		const fixture = makeClient([
+			jsonResponse(201, JSON.stringify([{ count: "three" }])),
+		]);
+
+		await expect(
+			fixture.client.runQuery(SCOPE, {
+				readOnly: true,
+				rowSchema: z.object({ count: z.number() }),
+				sql: "select 1",
+			}),
+		).rejects.toMatchObject({ detail: "unexpected response body" });
+	});
+});
+
+describe("SupabaseManagementClient.getServiceRoleKey", () => {
+	it("picks the legacy service_role entry, else the first secret key", async () => {
+		const legacy = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{ name: "anon", api_key: "anon-1" },
+					{ name: "service_role", api_key: "service-1" },
+				]),
+			),
+		]);
+		await expect(legacy.client.getServiceRoleKey(SCOPE)).resolves.toBe(
+			"service-1",
+		);
+		expect(legacy.requests[0]?.url).toBe(
+			`https://api.supabase.com/v1/projects/${REF}/api-keys?reveal=true`,
+		);
+
+		const modern = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{ name: "default", api_key: "sb_publishable_1", type: "publishable" },
+					{ name: "default", api_key: "sb_secret_1", type: "secret" },
+				]),
+			),
+		]);
+		await expect(modern.client.getServiceRoleKey(SCOPE)).resolves.toBe(
+			"sb_secret_1",
+		);
+	});
+
+	it("throws when no entry carries a secret key", async () => {
+		const fixture = makeClient([
+			jsonResponse(200, JSON.stringify([{ name: "anon", api_key: "anon-1" }])),
+		]);
+
+		await expect(fixture.client.getServiceRoleKey(SCOPE)).rejects.toMatchObject(
+			{ detail: "no service-role key in the api-keys answer" },
+		);
+	});
+});
+
+describe("SupabaseManagementClient project reads", () => {
+	it("restores, lists buckets, and lists functions on the project bucket", async () => {
+		const fixture = makeClient([
+			jsonResponse(200, "{}"),
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{
+						id: "avatars",
+						name: "avatars",
+						public: true,
+						created_at: "2026-09-17T10:00:00.000Z",
+						updated_at: "2026-09-17T10:00:00.000Z",
+						owner: "",
+					},
+				]),
+			),
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{
+						id: "fn-1",
+						slug: "hello",
+						name: "hello",
+						status: "ACTIVE",
+						version: 3,
+						created_at: 1_700_000_000_000,
+						updated_at: 1_700_000_100_000,
+						verify_jwt: true,
+					},
+				]),
+			),
+		]);
+
+		await fixture.client.restoreProject(SCOPE);
+		const buckets = await fixture.client.listBuckets(SCOPE);
+		const functions = await fixture.client.listFunctions(SCOPE);
+
+		expect(buckets).toEqual([
+			{
+				created_at: "2026-09-17T10:00:00.000Z",
+				id: "avatars",
+				name: "avatars",
+				public: true,
+				updated_at: "2026-09-17T10:00:00.000Z",
+			},
+		]);
+		expect(functions[0]).toMatchObject({ id: "fn-1", version: 3 });
+		expect(fixture.requests.map((request) => request.url)).toEqual([
+			`https://api.supabase.com/v1/projects/${REF}/restore`,
+			`https://api.supabase.com/v1/projects/${REF}/storage/buckets`,
+			`https://api.supabase.com/v1/projects/${REF}/functions`,
+		]);
+		expect(fixture.requests[0]?.method).toBe("POST");
+		expect(
+			fixture.rateLimiter.calls.every(
+				(call) =>
+					call.bucket === `supabase:rl:project:${REF}` &&
+					call.limitPerMinute === 120,
+			),
+		).toBe(true);
+	});
+});
+
+describe("SupabaseManagementClient.queryLogs", () => {
+	it("sends the sql and the window as query params on the 30-per-minute logs bucket", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({ result: [{ id: "log-1", count: 2 }] }),
+			),
+		]);
+
+		const rows = await fixture.client.queryLogs(SCOPE, {
+			endIso: "2026-09-17T01:00:00.000Z",
+			rowSchema: z.object({ id: z.string(), count: z.number() }),
+			sql: "select id, count(*) as count from edge_logs group by id",
+			startIso: "2026-09-17T00:00:00.000Z",
+		});
+
+		expect(rows).toEqual([{ count: 2, id: "log-1" }]);
+		const url = new URL(fixture.requests[0]?.url ?? "");
+		expect(url.pathname).toBe(
+			`/v1/projects/${REF}/analytics/endpoints/logs.all`,
+		);
+		expect(url.searchParams.get("sql")).toBe(
+			"select id, count(*) as count from edge_logs group by id",
+		);
+		expect(url.searchParams.get("iso_timestamp_start")).toBe(
+			"2026-09-17T00:00:00.000Z",
+		);
+		expect(url.searchParams.get("iso_timestamp_end")).toBe(
+			"2026-09-17T01:00:00.000Z",
+		);
+		expect(fixture.rateLimiter.calls).toEqual([
+			{ bucket: `supabase:rl:logs:${REF}`, limitPerMinute: 30 },
+		]);
+	});
+
+	it("fails on an error field in a 200 answer", async () => {
+		const fixture = makeClient([
+			jsonResponse(200, JSON.stringify({ error: "syntax error near from" })),
+		]);
+
+		await expect(
+			fixture.client.queryLogs(SCOPE, {
+				endIso: "2026-09-17T01:00:00.000Z",
+				rowSchema: z.object({ id: z.string() }),
+				sql: "select from",
+				startIso: "2026-09-17T00:00:00.000Z",
+			}),
+		).rejects.toMatchObject({ detail: "syntax error near from", status: 200 });
+	});
+});
+
+describe("SupabaseManagementClient storage calls", () => {
+	const STORAGE = { ...SCOPE, serviceRoleKey: "service-role-1" };
+	const STORAGE_BASE = `https://${REF}.supabase.co/storage/v1`;
+
+	it("lists objects on the project Storage API with the service-role key", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{ name: "folder", id: null, updated_at: null, metadata: null },
+					{
+						name: "a.png",
+						id: "obj-1",
+						updated_at: "2026-09-17T10:00:00.000Z",
+						metadata: { size: 12, mimetype: "image/png" },
+					},
+				]),
+			),
+		]);
+
+		const objects = await fixture.client.listObjects(STORAGE, {
+			bucket: "avatars",
+			limit: 100,
+			offset: 0,
+			prefix: "users",
+		});
+
+		expect(objects).toHaveLength(2);
+		expect(fixture.requests[0]).toMatchObject({
+			body: JSON.stringify({
+				prefix: "users",
+				limit: 100,
+				offset: 0,
+				sortBy: { column: "name", order: "asc" },
+			}),
+			headers: {
+				apikey: "service-role-1",
+				authorization: "Bearer service-role-1",
+			},
+			method: "POST",
+			url: `${STORAGE_BASE}/object/list/avatars`,
+		});
+	});
+
+	it("signs download URLs and answers absolute URLs per path", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify([
+					{
+						path: "users/a.png",
+						signedURL: "/object/sign/avatars/users/a.png?token=t1",
+						error: null,
+					},
+					{ path: "users/missing.png", signedURL: null, error: "not found" },
+				]),
+			),
+		]);
+
+		const urls = await fixture.client.signDownloadUrls(STORAGE, {
+			bucket: "avatars",
+			expiresInSeconds: 600,
+			paths: ["users/a.png", "users/missing.png"],
+		});
+
+		expect([...urls.entries()]).toEqual([
+			[
+				"users/a.png",
+				`${STORAGE_BASE}/object/sign/avatars/users/a.png?token=t1`,
+			],
+		]);
+		expect(fixture.requests[0]).toMatchObject({
+			body: JSON.stringify({
+				expiresIn: 600,
+				paths: ["users/a.png", "users/missing.png"],
+			}),
+			url: `${STORAGE_BASE}/object/sign/avatars`,
+		});
+	});
+
+	it("signs an upload URL with each path segment encoded", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({
+					url: "/object/upload/sign/avatars/users/new%20file.png?token=t2",
+				}),
+			),
+		]);
+
+		const uploadUrl = await fixture.client.createUploadUrl(STORAGE, {
+			bucket: "avatars",
+			path: "users/new file.png",
+		});
+
+		expect(uploadUrl).toBe(
+			`${STORAGE_BASE}/object/upload/sign/avatars/users/new%20file.png?token=t2`,
+		);
+		expect(fixture.requests[0]?.url).toBe(
+			`${STORAGE_BASE}/object/upload/sign/avatars/users/new%20file.png`,
+		);
+	});
+
+	it("deletes objects and counts the removed entries", async () => {
+		const fixture = makeClient([
+			jsonResponse(200, JSON.stringify([{ name: "users/a.png" }])),
+		]);
+
+		const deleted = await fixture.client.deleteObjects(STORAGE, {
+			bucket: "avatars",
+			paths: ["users/a.png", "users/b.png"],
+		});
+
+		expect(deleted).toBe(1);
+		expect(fixture.requests[0]).toMatchObject({
+			body: JSON.stringify({ prefixes: ["users/a.png", "users/b.png"] }),
+			method: "DELETE",
+			url: `${STORAGE_BASE}/object/avatars`,
 		});
 	});
 });
