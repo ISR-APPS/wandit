@@ -18,6 +18,7 @@ import {
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
+import { ProjectSecretsService } from "./application/services/project-secrets.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -42,6 +43,7 @@ import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
+import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
@@ -55,6 +57,7 @@ import { AppProjectsController } from "./presentation/http/controllers/app-proje
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
+import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -74,6 +77,7 @@ describe("AppBuilderModule", () => {
 			CostCapsController,
 			LlmProxyController,
 			PreviewTokenController,
+			ProjectSecretsController,
 			TurnsController,
 			V2HealthController,
 			VersionsController,
@@ -103,6 +107,8 @@ describe("AppBuilderModule", () => {
 			LlmSpendCounters,
 			PreviewTokenService,
 			ProjectCostCapsRepository,
+			ProjectSecretsRepository,
+			ProjectSecretsService,
 			RedisRateLimitGuard,
 			SandboxSessionsRepository,
 			SubscriptionsRepository,

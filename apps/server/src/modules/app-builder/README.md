@@ -32,11 +32,12 @@ PostHog flag `v2-builder`).
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects` |
+| `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService` |
 
 ## Ports (`domain/ports/`)
 
@@ -245,6 +246,56 @@ It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<doma
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
 The builder turn reads the row at turn start; a running sandbox gets the env values at its next resume.
+
+## Project secrets (WANDIT-185)
+
+`project_secrets` holds the secret values of a V2 app: the Supabase keys
+(`system` rows, written by server code) and the user's own keys (`user`
+rows, written from the Cloud tab). Each value is AES-256-GCM ciphertext:
+a random 12-byte IV, the 16-byte auth tag, and the data, base64 in one
+column. The additional authenticated data is `projectId:name`, so a
+ciphertext copied to another row fails to decrypt. The unique index
+`project_secrets_projectId_name_uq` gives one name per project; the
+check `project_secrets_name_ck` pins the name pattern
+`^[A-Z][A-Z0-9_]{0,63}$`.
+
+The key ring is `APP_SECRETS_ENCRYPTION_KEY`, in the form
+`v1:<base64 32 bytes>,v2:<base64 32 bytes>`. The highest version
+encrypts every new write; every listed version decrypts. The row stores
+its version in `key_version`. `ProjectSecretsService` parses the value
+at call time through `requireV2Env`, so an unset key is a 503
+`V2_ENV_MISSING` on the first write, not a boot failure.
+`pnpm secrets:rotate` re-encrypts the rows below the current version in
+pages of 100 with a compare-and-set on `key_version`; a user write during
+the run wins. The operator steps are in `docs/v2/runbook.md`.
+
+Three routes under `/api/v2/projects/:projectId/secrets`, behind
+`V2BuilderEnabledGuard` and the workspace `project:update` permission
+(an owner, an admin, or a member). The service answers 404 for a
+missing, out-of-scope, or V1 project, like the turn routes.
+
+- `GET /` answers `{ secrets: [{ name, kind, createdAt, updatedAt }] }`,
+  sorted by name. Never a value.
+- `PUT /:name` with `{ value }` (at most 8 KB of UTF-8) sets or replaces
+  a `user` row and answers 204. A `user` write over a `system` row
+  answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
+  upsert, so no read races the write.
+- `DELETE /:name` removes a `user` row and answers 204. A `system` row
+  answers 409; a missing row answers 404.
+
+`ProjectSecretsService.readValue(projectId, name)` decrypts one row for
+server code only; no controller calls it. Its callers land in
+WANDIT-183 (the provisioning task), WANDIT-186 (`set_secret`), and
+WANDIT-189 (the connectors). `set(projectId, name, value, kind, actor)`
+takes `kind: "system"` for those callers; the actor scope comes from the
+`projects` row.
+
+Every set and delete writes one `audit_events` row (`secret.set`,
+`secret.deleted`) with the actor, the client IP, the project, and the
+name in `metadata`; never the value. The API request log carries no
+body. The Sentry `beforeSend` (`scrubEvent`) masks the `value` field of
+a captured body and replaces every string that holds `sk_live_`,
+`rk_live_`, `sb_secret_`, `service_role`, or `whsec_`.
 
 ## Builder turn
 

@@ -533,6 +533,13 @@
       "when": 1789558648463,
       "tag": "0075_agent-session-operation",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1789686587439,
+      "tag": "0076_project-secrets",
+      "breakpoints": true
     }
   ]
 }

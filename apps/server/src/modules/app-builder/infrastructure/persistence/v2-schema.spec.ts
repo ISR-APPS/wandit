@@ -10,6 +10,10 @@ import {
 	builderTurns,
 } from "@wandit/db/schema/builder-turns";
 import {
+	projectSecretKind,
+	projectSecrets,
+} from "@wandit/db/schema/project-secrets";
+import {
 	projectEngine,
 	projects,
 	projectTargetPlatform,
@@ -98,6 +102,18 @@ describe("v2 core schema", () => {
 		);
 		expect(index).toBeDefined();
 		expect(index?.config.unique).toBe(true);
+	});
+
+	it("keeps project_secret_kind values and one name per project", () => {
+		expect(projectSecretKind.enumValues).toEqual(["user", "system"]);
+		const index = getTableConfig(projectSecrets).indexes.find(
+			(candidate) =>
+				candidate.config.name === "project_secrets_projectId_name_uq",
+		);
+		expect(index?.config.unique).toBe(true);
+		expect(
+			getTableConfig(projectSecrets).checks.map((check) => check.name),
+		).toContain("project_secrets_name_ck");
 	});
 
 	it("keeps projects.network_allowed_hosts as a not-null jsonb column", () => {

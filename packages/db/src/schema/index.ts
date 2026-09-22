@@ -75,6 +75,8 @@ export * from "./page-attempts";
 export * from "./product-events";
 // Per-project V2 spend limits.
 export * from "./project-cost-caps";
+// Encrypted per-project V2 secret values.
+export * from "./project-secrets";
 // Project tables.
 export * from "./projects";
 export * from "./push-tokens";
