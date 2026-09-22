@@ -79,6 +79,13 @@ export type SandboxCreateOptions = {
 	 * ones. Absent means none; a restore passes none.
 	 */
 	networkAllowedHosts?: string[];
+	/**
+	 * Called once, before the slow work, when the sandbox really boots:
+	 * a create, a resume from the snapshot, or a rebuild. Never called on
+	 * a plain reuse of a running sandbox. The builder-turn runtime writes
+	 * the `sandbox_waking` status from it.
+	 */
+	onWake?: () => Promise<void>;
 };
 
 /** How one `exec` runs inside the sandbox. */

@@ -152,9 +152,14 @@ export class FakeSandboxProvider implements SandboxProvider {
 		this.createOptions.push(options);
 		const existing = this.projects.get(projectId);
 		if (existing) {
-			existing.stopped = false;
+			// Like the real provider: only a stopped sandbox wakes.
+			if (existing.stopped) {
+				existing.stopped = false;
+				await options.onWake?.();
+			}
 			return existing.handle;
 		}
+		await options.onWake?.();
 		const files = new Map<string, Uint8Array>();
 		const handle = new FakeSandboxHandle(projectId, this, files);
 		this.projects.set(projectId, { handle, stopped: false });
@@ -172,7 +177,10 @@ export class FakeSandboxProvider implements SandboxProvider {
 		if (!state) {
 			throw new Error(`FakeSandboxProvider: no sandbox for ${projectId}`);
 		}
-		state.stopped = false;
+		if (state.stopped) {
+			state.stopped = false;
+			await options.onWake?.();
+		}
 		return state.handle;
 	}
 

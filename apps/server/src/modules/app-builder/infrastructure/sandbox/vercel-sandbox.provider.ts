@@ -5,6 +5,7 @@
  * sweep call it. All `@vercel/sandbox` / `@ai-sdk/sandbox-vercel` imports
  * in the codebase live in this folder — vendor isolation is a rule.
  */
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import type { HarnessV1NetworkPolicy } from "@ai-sdk/harness";
 import { createVercelSandbox } from "@ai-sdk/sandbox-vercel";
@@ -73,8 +74,15 @@ const DEFAULT_IMAGE = "vercel/sandbox/node:22";
  */
 export type VercelSandboxInstance = {
 	readonly name: string;
-	/** The vendor session; `cwd` is the default working directory of the image. */
-	currentSession(): { readonly cwd: string };
+	/**
+	 * The vendor session; `cwd` is the default working directory of the
+	 * image. `networkPolicy` is the policy the vendor read back with the
+	 * session, or undefined when the answer carried none.
+	 */
+	currentSession(): {
+		readonly cwd: string;
+		readonly networkPolicy: NetworkPolicy | undefined;
+	};
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
 	readonly fs: {
@@ -505,6 +513,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 					proxyBaseUrl: options.env.ANTHROPIC_BASE_URL ?? "",
 				});
 		const vendorPolicy = toVendorNetworkPolicy(built.policy);
+		const policyHash = hashNetworkPolicy(built.policy);
+		// A new or stopped row boots for sure: report it before the vendor
+		// call, so the progress card moves at once. A running row reports
+		// only when the vendor created or resumed anyway (below).
+		let wakeReported = false;
+		const reportWake = async () => {
+			if (!wakeReported) {
+				wakeReported = true;
+				await options.onWake?.();
+			}
+		};
+		if (row.status !== "running") {
+			await reportWake();
+		}
 		let created = false;
 		let resumed = false;
 		const sandbox = await this.sdk.getOrCreate({
@@ -531,8 +553,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 		});
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
+		// The row keeps the digest of the policy last pushed to the vendor. A
+		// plain reuse with the same digest skips the update: one vendor round
+		// trip less per warm turn. A resume always pushes, because the vendor
+		// may keep the policy of the snapshot. The harness session composes
+		// its policy from the vendor read-back and reads a missing one as
+		// allow-all, so a read-back without a policy also gets the push.
+		const policyApplied =
+			created ||
+			resumed ||
+			row.networkPolicyHash !== policyHash ||
+			sandbox.currentSession().networkPolicy === undefined;
 		try {
 			if (created) {
+				await reportWake();
 				// A live row means the vendor lost the sandbox — this is a rebuild.
 				this.logLifecycle(
 					context.hadLiveRow ? "rebuild" : "create",
@@ -547,26 +581,36 @@ export class VercelSandboxProvider implements SandboxProvider {
 				await this.repoRestorer.restore(projectId, handle);
 				await this.bootServices(sandbox, options);
 			} else {
-				// The vendor may keep the network policy of the stored sandbox;
-				// a changed allow list reaches a live sandbox only through an
-				// update call, and it needs no restart. It runs before
-				// bootServices, or the dev command starts under the stored
-				// policy.
-				await sandbox.updateNetworkPolicy(vendorPolicy);
+				if (policyApplied) {
+					// A changed allow list reaches a live sandbox only through an
+					// update call, and it needs no restart. It runs before
+					// bootServices, or the dev command starts under the stored
+					// policy.
+					await sandbox.updateNetworkPolicy(vendorPolicy);
+				}
 				if (resumed) {
+					await reportWake();
 					this.logLifecycle("resume", projectId, sandbox.name);
 					await this.bootServices(sandbox, options);
 				}
 			}
 			this.logger[
 				options.networkPolicy === undefined && mode === "open" ? "warn" : "info"
-			]("sandbox.network-policy.applied", {
-				projectId,
-				sandboxId: sandbox.name,
-				mode: options.networkPolicy === undefined ? mode : "override",
-				allowedHosts: String(built.policy.allowedHosts.length),
-				rejected: built.rejected.join(","),
-			});
+			](
+				policyApplied
+					? "sandbox.network-policy.applied"
+					: "sandbox.network-policy.unchanged",
+				{
+					projectId,
+					sandboxId: sandbox.name,
+					mode: options.networkPolicy === undefined ? mode : "override",
+					allowedHosts: String(built.policy.allowedHosts.length),
+					rejected: built.rejected.join(","),
+				},
+			);
+			if (policyApplied) {
+				await this.sessions.markNetworkPolicyHash(row.id, policyHash);
+			}
 			// A plain reuse reports neither hook: the row already carries the
 			// vendor fields, so writing again would only add log noise.
 			if (created || resumed) {
@@ -734,6 +778,18 @@ export class VercelSandboxProvider implements SandboxProvider {
 			token: requireV2Env("VERCEL_SANDBOX_TOKEN", this.envSource),
 		};
 	}
+}
+
+/**
+ * SHA-256 hex digest of a policy, stored in `sandbox_sessions.networkPolicyHash`.
+ * `buildNetworkPolicy` sorts the hosts, so the same allow list always hashes
+ * the same; a different host order counts as a change and only costs one
+ * extra vendor update.
+ */
+function hashNetworkPolicy(policy: SandboxNetworkPolicy): string {
+	return createHash("sha256")
+		.update(JSON.stringify([policy.allowedHosts, policy.deniedRanges]))
+		.digest("hex");
 }
 
 /**

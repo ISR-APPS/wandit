@@ -44,6 +44,7 @@ const RUNNING_ROW: SandboxSessionRow = {
 	image: "vercel/sandbox/node:22",
 	lastActiveAt: new Date("2026-09-16T10:00:00.000Z"),
 	lastSnapshotAt: null,
+	networkPolicyHash: null,
 	organizationId: null,
 	// Stands in for the vendor host of the dev port; the vendor-isolation
 	// spec forbids a real vendor hostname outside `infrastructure/sandbox/`.

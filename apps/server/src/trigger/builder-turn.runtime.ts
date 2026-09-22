@@ -148,6 +148,41 @@ const stoppedTurnError = (code: keyof typeof STOP_STATUS) =>
 /** The narrow log the runtime writes to; the task passes `logger`. */
 export type BuilderTurnLogger = Pick<Console, "error" | "info" | "warn">;
 
+/**
+ * Fields of the `builder-turn.timing` log line: one per run that passes
+ * the claim and the chat check, failures included. Every duration is in
+ * ms from the worker clock; null means the step did not run. WANDIT-253
+ * reads ten warm turns from it.
+ */
+export type BuilderTurnTiming = {
+	turnId: string;
+	runId: string;
+	/** Row create → run start. Long for a `waiting` turn the promoter requeued. */
+	queueMs: number;
+	/** Run start → sandbox call: the row reads, the money checks, the token mint. */
+	prestartMs: number | null;
+	/** `sandboxes.getOrCreate` plus the activity stamp. */
+	sandboxMs: number | null;
+	/** `woke` when the sandbox booted or resumed, `warm` when it already ran. */
+	sandbox: "woke" | "warm" | null;
+	hostToolsMs: number | null;
+	/** The session resume or create, the fresh-session fallback included. */
+	sessionMs: number | null;
+	/** `resumed` when the stored session came back, `created` for a fresh one. */
+	session: "resumed" | "created" | null;
+	/** Stream start → first harness part. */
+	firstPartMs: number | null;
+	/** Run start → the first proxy request leaves the sandbox, from the rows. */
+	firstModelCallMs: number | null;
+	streamMs: number | null;
+	/** Stream end → commit done: the pause check, the commit, the files event. */
+	commitMs: number | null;
+	/** Commit done → cleanup done: message row, usage, CAS, settle, done event. */
+	settleMs: number | null;
+	/** Run start → this line. */
+	totalMs: number;
+};
+
 /** Parsed task payload plus the Trigger.dev run id. */
 export type BuilderTurnInput = {
 	turnId: string;
@@ -197,8 +232,14 @@ export type BuilderTurnDeps = {
 		| "refund"
 		| "settle"
 	>;
-	/** `llm_proxy_requests` sums: the turn's real spend and token counts. */
-	proxyRows: Pick<LlmProxyRequestsRepository, "sumByTurn">;
+	/**
+	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
+	 * token counts; the first request time only feeds the timing line.
+	 */
+	proxyRows: Pick<
+		LlmProxyRequestsRepository,
+		"firstRequestStartedAtMs" | "sumByTurn"
+	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
 	mintToken: (claims: LlmProxyTokenClaimsInput) => string;
@@ -272,6 +313,7 @@ export async function runBuilderTurn(
 	input: BuilderTurnInput,
 	signal: AbortSignal,
 ): Promise<void> {
+	const runStartedAt = deps.now();
 	const logger = deps.logger;
 	const { projectId, runId, turnId } = input;
 	// The hold's lease column is a uuid; the Trigger run id (`run_…`) is not
@@ -525,6 +567,25 @@ export async function runBuilderTurn(
 	let monthlySpendAtStart = 0;
 	/** Set when `billing.off` was logged; keeps it to once per turn. */
 	let billingOffLogged = false;
+	/** `deps.now()` stamps of the run steps for the timing line; absent until the step ran. */
+	const stamps: Partial<
+		Record<
+			| "sandboxStart"
+			| "sandboxEnd"
+			| "hostToolsEnd"
+			| "sessionEnd"
+			| "streamStart"
+			| "firstPart"
+			| "streamEnd"
+			| "commitEnd"
+			| "settleEnd",
+			number
+		>
+	> = {};
+	/** Set by the sandbox `onWake` callback: the sandbox really booted. */
+	let sandboxWoke = false;
+	/** How the harness session started; null until it did. */
+	let sessionStart: BuilderTurnTiming["session"] = null;
 
 	/** Best-effort resume save for the failure paths: the suspend state, else a detach. */
 	const detachSession = async () => {
@@ -1147,7 +1208,7 @@ export async function runBuilderTurn(
 			supabaseUrl: supabase?.url ?? null,
 		});
 
-		await writeStatus("sandbox_waking");
+		stamps.sandboxStart = deps.now();
 		sandbox = await deps.sandboxes.getOrCreate(projectId, {
 			devCommand: DEV_COMMAND,
 			devPort: DEV_PORT,
@@ -1155,17 +1216,27 @@ export async function runBuilderTurn(
 			framework: project.framework,
 			// Layer 3 egress hosts the `request_network_host` tool approved.
 			networkAllowedHosts: project.networkAllowedHosts,
+			// The card says "Waking the sandbox" only when the sandbox really
+			// boots; a running sandbox answers with no status.
+			onWake: async () => {
+				sandboxWoke = true;
+				await writeStatus("sandbox_waking");
+			},
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
 			templateVersion: project.templateVersion,
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
+		stamps.sandboxEnd = deps.now();
 
 		// The note applies only when no active backend row exists.
-		await writeStatus(
-			"session_starting",
-			supabase === null ? "Backend not ready yet" : undefined,
-		);
+		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
+		// The card says "Starting the session" only for a cold session. A
+		// stored session resumes with no status; `startSession` writes one
+		// when the resume fails and a fresh session starts instead.
+		if (resumeState === null) {
+			await writeStatus("session_starting", backendNote);
+		}
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
@@ -1176,6 +1247,7 @@ export async function runBuilderTurn(
 			subject,
 			turnId,
 		});
+		stamps.hostToolsEnd = deps.now();
 		// A stored session can be dead: the sandbox was rebuilt, or the proxy
 		// host changed and the SDK rejects the old egress rules. A fresh
 		// session loses the agent memory but keeps the project alive.
@@ -1224,10 +1296,18 @@ export async function runBuilderTurn(
 		};
 		const started = await startSession(resumeState);
 		session = started.session;
+		sessionStart = started.resumed ? "resumed" : "created";
+		stamps.sessionEnd = deps.now();
 		const providerSessionId = session.sessionId;
 
-		await writeStatus("running");
+		// A warm turn wrote no session status, so its first status carries
+		// the backend note instead.
+		await writeStatus(
+			"running",
+			resumeState === null ? undefined : backendNote,
+		);
 		startTimers(model);
+		stamps.streamStart = deps.now();
 		// A continued suspended turn gets the user's answers as tool
 		// results; a lost session still hears them as plain text.
 		let turnInput: HarnessTurnInput;
@@ -1249,6 +1329,7 @@ export async function runBuilderTurn(
 		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
+				stamps.firstPart ??= lastPartAt;
 				await chunkWriter.write(event.chunk);
 				await writeEvent({ data: event.chunk, type: "part" });
 				continue;
@@ -1266,6 +1347,7 @@ export async function runBuilderTurn(
 			// the one `error` event from the `code` this error carries.
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
+		stamps.streamEnd = deps.now();
 
 		// The harness counts stay informational; money comes from the proxy rows.
 		logger.info("builder-turn.harness-usage", {
@@ -1327,6 +1409,7 @@ export async function runBuilderTurn(
 				// A failed commit must not lose the turn's text and usage.
 				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
 			}
+			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
 
 			// The files event is a stream-only part; the message row keeps the
@@ -1459,6 +1542,7 @@ export async function runBuilderTurn(
 				});
 			}
 			await finishTurn();
+			stamps.settleEnd = deps.now();
 		};
 
 		await settleTurn(
@@ -1519,10 +1603,54 @@ export async function runBuilderTurn(
 				);
 			}
 		}
+		// One timing line per run, failures included (WANDIT-253). It runs
+		// before the finalizer is removed, so the pool is still open.
+		let firstModelCallMs: number | null = null;
+		try {
+			const firstRequestAtMs =
+				await deps.proxyRows.firstRequestStartedAtMs(turnId);
+			// LIMIT: the row time is the database clock, the run start the
+			// worker clock; the difference carries their skew. Upgrade: let
+			// `claimRunning` write `started_at` with the database `now()` and
+			// diff the two columns in SQL.
+			firstModelCallMs =
+				firstRequestAtMs === null ? null : firstRequestAtMs - runStartedAt;
+		} catch (error) {
+			logger.warn(
+				`First proxy request lookup failed for turn ${turnId}: ${messageOf(error)}`,
+			);
+		}
+		const timing: BuilderTurnTiming = {
+			commitMs: msBetween(stamps.streamEnd, stamps.commitEnd),
+			firstModelCallMs,
+			firstPartMs: msBetween(stamps.streamStart, stamps.firstPart),
+			hostToolsMs: msBetween(stamps.sandboxEnd, stamps.hostToolsEnd),
+			prestartMs: msBetween(runStartedAt, stamps.sandboxStart),
+			queueMs: runStartedAt - turn.createdAt.getTime(),
+			runId,
+			sandbox:
+				stamps.sandboxEnd === undefined ? null : sandboxWoke ? "woke" : "warm",
+			sandboxMs: msBetween(stamps.sandboxStart, stamps.sandboxEnd),
+			session: sessionStart,
+			sessionMs: msBetween(stamps.hostToolsEnd, stamps.sessionEnd),
+			settleMs: msBetween(stamps.commitEnd, stamps.settleEnd),
+			streamMs: msBetween(stamps.streamStart, stamps.streamEnd),
+			totalMs: deps.now() - runStartedAt,
+			turnId,
+		};
+		logger.info("builder-turn.timing", timing);
 		// Remove BEFORE the task ends its pool: a late onCancel must not
 		// write against a closed database.
 		builderTurnCancelFinalizers.delete(runId);
 	}
+}
+
+/** `to - from` in ms, or null while either stamp is missing. */
+function msBetween(
+	from: number | undefined,
+	to: number | undefined,
+): number | null {
+	return from === undefined || to === undefined ? null : to - from;
 }
 
 function messageOf(error: unknown): string {
