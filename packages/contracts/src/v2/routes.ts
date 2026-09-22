@@ -41,4 +41,9 @@ export const appBuilderRoutes = {
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
+	// GET the secret names, kinds, and dates of a project; never a value.
+	secrets: (projectId: string) => `/api/v2/projects/${projectId}/secrets`,
+	// PUT sets or replaces one secret value; DELETE removes it.
+	secret: (projectId: string, name: string) =>
+		`/api/v2/projects/${projectId}/secrets/${name}`,
 } as const;

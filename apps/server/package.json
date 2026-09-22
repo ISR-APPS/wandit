@@ -13,6 +13,7 @@
 		"domains:backfill-apex": "tsx scripts/backfill-apex-zones.ts",
 		"images:backfill-variants": "tsx scripts/backfill-image-variants.ts",
 		"mcp:seed": "tsx scripts/seed-mcp-connectors.ts",
+		"secrets:rotate": "tsx scripts/rotate-project-secrets.ts",
 		"sites:republish-active": "tsx scripts/republish-active-sites.ts",
 		"start": "node --enable-source-maps --import ./dist/instrument.mjs dist/main.mjs",
 		"test": "vitest run",

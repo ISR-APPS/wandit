@@ -23,6 +23,23 @@ const SENSITIVE_HEADERS = [
 ];
 
 /**
+ * Prefixes of live keys (docs/v2/research/security.md 6.3): Stripe secret
+ * and restricted keys, Supabase secret keys, the service-role key, and
+ * Stripe webhook secrets. A string that holds one is replaced whole.
+ */
+const SECRET_STRING_PATTERN =
+	/sk_live_|rk_live_|sb_secret_|service_role|whsec_/;
+
+/** Replacement text; the same marker Sentry's own filters use. */
+const FILTERED = "[Filtered]";
+
+/**
+ * Matches a `"value": "..."` field in a JSON body string, escapes included.
+ * The V2 secrets routes send `{ value }`; the value must never reach Sentry.
+ */
+const JSON_VALUE_FIELD_PATTERN = /"value"\s*:\s*"(?:[^"\\]|\\.)*"/g;
+
+/**
  * Structural subset of Sentry's event shape — keeps this file free of SDK
  * imports so each entry point only pulls in its own runtime's SDK.
  */
@@ -37,6 +54,8 @@ interface ScrubbableEvent {
 	request?: {
 		cookies?: unknown;
 		headers?: Record<string, string>;
+		/** The captured body, `unknown` as in the SDK: a JSON string in Node, or the parsed object. */
+		data?: unknown;
 	};
 }
 
@@ -52,8 +71,10 @@ const wasCapturedByWandit = (error: unknown): boolean =>
 	(error as Record<PropertyKey, unknown>)[WANDIT_CAPTURED] === true;
 
 /**
- * `beforeSend` used by every runtime: strips session credentials and drops
- * duplicate Vercel AI events after the same error was captured explicitly.
+ * `beforeSend` used by every runtime: strips session credentials, the
+ * `value` body field of the secrets routes, and every string that looks
+ * like a live key; drops duplicate Vercel AI events after the same error
+ * was captured explicitly.
  */
 export const scrubEvent = <E extends ScrubbableEvent>(
 	event: E,
@@ -78,8 +99,46 @@ export const scrubEvent = <E extends ScrubbableEvent>(
 				}
 			}
 		}
+		event.request.data = dropValueField(event.request.data);
 	}
+	scrubSecretStrings(event, new WeakSet());
 	return event;
+};
+
+/**
+ * Masks the `value` field of a request body. The SDK types the body as
+ * `unknown`; the two guards cover the JSON string and the parsed object.
+ */
+const dropValueField = (body: unknown): unknown => {
+	if (typeof body === "string") {
+		return body.replace(JSON_VALUE_FIELD_PATTERN, `"value":"${FILTERED}"`);
+	}
+	if (typeof body === "object" && body !== null && "value" in body) {
+		body.value = FILTERED;
+	}
+	return body;
+};
+
+/**
+ * Walks the event in place and replaces every string that holds a live-key
+ * prefix. The event is SDK data of no fixed shape, so each node is
+ * narrowed with type guards. `seen` stops the walk on a cycle.
+ */
+const scrubSecretStrings = (node: unknown, seen: WeakSet<object>): void => {
+	if (typeof node !== "object" || node === null || seen.has(node)) {
+		return;
+	}
+	seen.add(node);
+	for (const key of Object.keys(node)) {
+		const child: unknown = Reflect.get(node, key);
+		if (typeof child === "string") {
+			if (SECRET_STRING_PATTERN.test(child)) {
+				Reflect.set(node, key, FILTERED);
+			}
+		} else {
+			scrubSecretStrings(child, seen);
+		}
+	}
 };
 
 /**
