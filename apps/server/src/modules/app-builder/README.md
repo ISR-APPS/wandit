@@ -681,7 +681,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `apply_migration` | not-applicable | Applies an additive migration. A destructive one (`isDestructiveMigration`) answers `needs_approval`. | `backend.migration_applied` (`name`, `sha256`, `destructive`) |
 | `apply_destructive_migration` | user-approval | Applies any migration. | `backend.migration_applied` with `destructive: true` |
 | `run_sql` | not-applicable | A read (`classifySql`) with `read_only: true`, first 200 rows. A write answers `needs_approval`. | none |
-| `run_sql_write` | user-approval | Runs the statement with `read_only: false`. | `backend.sql_written` (`queryHash`, `rowCount`), never the text |
+| `run_sql_write` | user-approval | Runs the statement with `read_only: false`. | `backend.sql_written` (`queryHash`, `returnedRows`: the rows the endpoint answered), never the text |
 | `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |

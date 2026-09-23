@@ -104,6 +104,43 @@ describe("deploy_function", () => {
 		expect(fixture.requests).toEqual([]);
 	});
 
+	it("answers failed when a file read answers null and sends nothing", async () => {
+		const fixture = await createBackendToolFixture();
+		await fixture.sandbox.writeFiles([
+			{
+				content: "Deno.serve(() => new Response('hi'));",
+				path: `${FUNCTION_DIR}/index.ts`,
+			},
+		]);
+		// The Vercel read of a folder entry fails; the fake answers null.
+		fixture.sandbox.readFile = async () => null;
+		const tool = createDeployFunctionTool(fixture.deps, fixture.context);
+
+		expect(await executeTool(tool, { slug: "hello-world" })).toEqual({
+			reason:
+				"Could not read supabase/functions/hello-world/index.ts. Keep the function files in one flat folder",
+			status: "failed",
+		});
+		expect(fixture.requests).toEqual([]);
+	});
+
+	it("answers failed and warns when the folder list throws", async () => {
+		const fixture = await createBackendToolFixture();
+		fixture.sandbox.listFiles = async () => {
+			throw new Error("ENOENT");
+		};
+		const tool = createDeployFunctionTool(fixture.deps, fixture.context);
+
+		expect(await executeTool(tool, { slug: "hello-world" })).toEqual({
+			reason: "supabase/functions/hello-world/ has no files",
+			status: "failed",
+		});
+		expect(fixture.requests).toEqual([]);
+		expect(fixture.warnings.map((line) => line.message)).toEqual([
+			"host-tool.deploy_function.list-failed",
+		]);
+	});
+
 	it("answers failed for a function folder with no files", async () => {
 		const fixture = await createBackendToolFixture();
 		const tool = createDeployFunctionTool(fixture.deps, fixture.context);

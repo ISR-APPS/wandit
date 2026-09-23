@@ -231,12 +231,40 @@ const SAFE_DROP_TARGETS = new Set([
 // `type` comes at most 5 words after the inner `alter`.
 const TYPE_CHANGE_WINDOW = 5;
 
+// Words that open a statement that runs code: a `do` block, a `call`, and
+// every query form (`select`, `with`, `explain`, `values`) that can invoke a
+// function whose body the noise strip hides.
+const CODE_RUNNING_OPENERS = new Set([
+	"do",
+	"call",
+	"select",
+	"with",
+	"explain",
+	"values",
+]);
+
+// Words that control a transaction. A migration runs as one implicit
+// transaction; a `commit` inside it splits the ledger row from the rest.
+const TRANSACTION_CONTROL_WORDS = new Set([
+	"begin",
+	"start",
+	"commit",
+	"end",
+	"rollback",
+	"abort",
+	"savepoint",
+	"release",
+	"prepare",
+]);
+
 /**
  * True when one statement of the migration can destroy data. It catches
  * truncate, `delete from`, `update ... set`, `merge into`, a drop of a data
- * object, a drop with cascade, a column type change, and a `do`, `call`, or
- * `select` statement. It is not a parser, and a function body stays hidden.
- * Every doubt answers true, so the user approves once.
+ * object, a drop with cascade, a column type change, a statement that opens
+ * with `do`, `call`, `select`, `with`, `explain`, or `values`, an
+ * `insert ... select`, and a `create table ... as select`. It is not a
+ * parser, and a function body stays hidden. Every doubt answers true, so the
+ * user approves once.
  */
 export function isDestructiveMigration(sql: string): boolean {
 	return (
@@ -250,14 +278,50 @@ export function isDestructiveMigration(sql: string): boolean {
 	);
 }
 
+/**
+ * True when the migration holds a transaction control statement. The tools
+ * refuse such a text before any SQL runs: a `commit` in the middle would
+ * record the migration as applied while its tail can still fail.
+ */
+export function hasTransactionControl(sql: string): boolean {
+	return stripSqlNoise(sql)
+		.toLowerCase()
+		.split(";")
+		.some((statement) => {
+			const first = statement.match(/[a-z_][a-z0-9_$]*/)?.[0];
+			return first !== undefined && TRANSACTION_CONTROL_WORDS.has(first);
+		});
+}
+
 function isDestructiveStatement(words: string[] | null): boolean {
 	if (words === null) {
 		return false;
 	}
-	// A `do` block, a `call`, or a `select` of a function runs code the noise
-	// strip hides, for example `select cron.schedule(...)` with a delete.
-	if (words[0] === "do" || words[0] === "call" || words[0] === "select") {
+	const first = words[0];
+	if (first === undefined) {
+		return false;
+	}
+	// A query form can run a function the noise strip hides, for example
+	// `select cron.schedule(...)` or `with x as (select purge())` with a delete.
+	if (CODE_RUNNING_OPENERS.has(first)) {
 		return true;
+	}
+	// `insert ... select f()`, `create table ... as select f()`, and
+	// `create materialized view ... as select f()` run the same hidden code
+	// from a later position. A `create policy ... for select` holds the
+	// word too and runs nothing, so a plain `create` stays additive.
+	// LIMIT: a function inside a column default, an index expression, or a
+	// check constraint stays hidden. Upgrade: a real SQL parser.
+	if (words.includes("select")) {
+		if (first === "insert") {
+			return true;
+		}
+		if (
+			first === "create" &&
+			(words.slice(1, 4).includes("table") || words.includes("materialized"))
+		) {
+			return true;
+		}
 	}
 	if (words.includes("truncate")) {
 		return true;

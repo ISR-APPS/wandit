@@ -9,6 +9,7 @@ import {
 	gateFindingSchema,
 	getAdvisorsToolInputSchema,
 	getAdvisorsToolOutputSchema,
+	hasTransactionControl,
 	isDestructiveMigration,
 	runSqlToolInputSchema,
 	runSqlToolOutputSchema,
@@ -255,6 +256,35 @@ alter table public.notes add constraint notes_owner_fk foreign key (owner_id) re
 		).toBe(true);
 	});
 
+	it("answers true for with, explain, values, insert select, and create table as select", () => {
+		expect(
+			isDestructiveMigration(
+				"with x as (select 1) select purge_notes() from x;",
+			),
+		).toBe(true);
+		expect(
+			isDestructiveMigration("explain analyze select purge_notes();"),
+		).toBe(true);
+		expect(isDestructiveMigration("values (purge_notes());")).toBe(true);
+		expect(
+			isDestructiveMigration("insert into log (v) select purge_notes();"),
+		).toBe(true);
+		expect(
+			isDestructiveMigration("create table t as select purge_notes();"),
+		).toBe(true);
+		expect(
+			isDestructiveMigration(
+				"create materialized view v as select purge_notes();",
+			),
+		).toBe(true);
+		// A policy for select, a view, and a plain values insert stay additive.
+		expect(
+			isDestructiveMigration(
+				"create table t (id int); create policy p on t for select using (true); create view v as select id from t; insert into t (id) values (1);",
+			),
+		).toBe(false);
+	});
+
 	it("keeps a name with digits as one word", () => {
 		expect(
 			isDestructiveMigration(
@@ -307,6 +337,31 @@ alter table public.notes add constraint notes_owner_fk foreign key (owner_id) re
 		expect(
 			isDestructiveMigration(
 				"-- drop table notes\ncomment on table notes is 'truncate me later';",
+			),
+		).toBe(false);
+	});
+});
+
+describe("hasTransactionControl", () => {
+	it("finds begin, commit, rollback, and savepoint at a statement start", () => {
+		expect(
+			hasTransactionControl(
+				"create table a (id int); commit; create table b (id int);",
+			),
+		).toBe(true);
+		expect(hasTransactionControl("begin; create table a (id int);")).toBe(true);
+		expect(hasTransactionControl("savepoint s1; rollback to s1;")).toBe(true);
+	});
+
+	it("ignores the words inside a function body, a string, or a case", () => {
+		expect(
+			hasTransactionControl(
+				"create function f() returns void language plpgsql as $$ begin null; end $$;",
+			),
+		).toBe(false);
+		expect(
+			hasTransactionControl(
+				"create table a (id int, label text default 'commit'); select case when true then 1 end;",
 			),
 		).toBe(false);
 	});

@@ -87,10 +87,11 @@ describe("run_sql_write", () => {
 			{
 				action: "backend.sql_written",
 				actorUserId: "user-1",
-				// The audit counts every row the write touched, not the kept rows.
+				// returnedRows holds the rows the endpoint answered, not the kept rows;
+				// an UPDATE without RETURNING answers none.
 				metadata: {
 					queryHash: createHash("sha256").update(UPDATE).digest("hex"),
-					rowCount: 250,
+					returnedRows: 250,
 				},
 				organizationId: "org-1",
 				projectId: "project-1",

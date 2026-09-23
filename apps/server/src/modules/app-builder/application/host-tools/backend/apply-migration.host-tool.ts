@@ -13,6 +13,7 @@ import {
 	type ApplyMigrationToolInput,
 	type ApplyMigrationToolOutput,
 	applyMigrationToolInputSchema,
+	hasTransactionControl,
 	isDestructiveMigration,
 } from "@wandit/contracts";
 import { type Tool, tool } from "ai";
@@ -60,14 +61,15 @@ export function createApplyMigrationTool(
 			"indexes, RLS policies, functions, triggers. Enable row level security " +
 			"and add policies for every new table in the same migration. The same " +
 			"SQL twice is skipped. `name` uses a-z, 0-9, and _, starts with a " +
-			"letter, and has at most 64 characters. A statement that can destroy " +
-			"data (drop table or column, truncate, delete from, update, merge, a " +
-			"column type change, a do, call, or select statement) answers " +
-			"`needs_approval`: " +
-			"then call `apply_destructive_migration` " +
-			"with the same input. Never write migration files yourself. Do not use " +
-			"begin, commit, or `concurrently`: the whole migration runs in one " +
-			"transaction. Call `get_advisors` after each migration.",
+			"letter, and has at most 64 characters. `name` is new for each " +
+			"migration: the ledger keeps one row per name. A statement that can " +
+			"destroy data (drop table or column, truncate, delete from, update, " +
+			"merge, a column type change, or a do, call, select, with, explain, or " +
+			"values statement) answers `needs_approval`: then call " +
+			"`apply_destructive_migration` with the same input. Never write " +
+			"migration files yourself. The whole migration runs in one " +
+			"transaction: the tool refuses begin, commit, rollback, and savepoint; " +
+			"do not use `concurrently`. Call `get_advisors` after each migration.",
 		inputSchema: applyMigrationToolInputSchema,
 		execute: (input) =>
 			runBackendTool(
@@ -130,6 +132,15 @@ async function applyMigration(
 	{ name, sql }: ApplyMigrationToolInput,
 	destructive: boolean,
 ): Promise<ApplyMigrationToolOutput> {
+	// A `commit` inside the text would record the migration as applied while
+	// its tail can still fail. Refuse before any SQL runs.
+	if (hasTransactionControl(sql)) {
+		return {
+			reason:
+				"A migration runs in one transaction. Remove begin, commit, rollback, and savepoint.",
+			status: "failed",
+		};
+	}
 	const sha256 = createHash("sha256").update(sql).digest("hex");
 	await client.runSql(backend, ENSURE_LEDGER_SQL);
 	// The sha is 64 hex characters, so it is safe inside the SQL text.

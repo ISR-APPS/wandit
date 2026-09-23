@@ -90,7 +90,9 @@ export function createRunSqlWriteTool(
 						actorUserId: context.actorUserId,
 						metadata: {
 							queryHash: createHash("sha256").update(query).digest("hex"),
-							rowCount: rows.length,
+							// The rows the endpoint answered. An UPDATE without RETURNING
+							// answers none, so this is not the count of changed rows.
+							returnedRows: rows.length,
 						},
 						organizationId: context.organizationId,
 						projectId: context.projectId,

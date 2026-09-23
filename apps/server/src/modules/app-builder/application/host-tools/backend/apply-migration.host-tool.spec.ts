@@ -126,6 +126,24 @@ describe("apply_migration", () => {
 		expect(fixture.requests).toEqual([]);
 	});
 
+	it("refuses a commit inside the migration before any SQL runs", async () => {
+		const fixture = await createBackendToolFixture();
+		const tool = createApplyMigrationTool(fixture.deps, fixture.context);
+
+		const output = await executeTool(tool, {
+			name: "split_notes",
+			sql: "create table a (id int); commit; create table b (id int);",
+		});
+
+		expect(output).toEqual({
+			reason:
+				"A migration runs in one transaction. Remove begin, commit, rollback, and savepoint.",
+			status: "failed",
+		});
+		expect(fixture.requests).toEqual([]);
+		expect(fixture.audits).toEqual([]);
+	});
+
 	it("answers a paused or a missing backend at once and calls no upstream", async () => {
 		for (const [backend, status] of [
 			[{ ...ACTIVE_BACKEND_ROW, status: "paused" as const }, "backend_paused"],

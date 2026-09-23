@@ -160,12 +160,15 @@ The host machine runs the session. You write code; the host runs it.
 - Apply each migration with one `apply_migration` call. Never write the file yourself.
 - The tool writes `supabase/migrations/<timestamp>_<name>.sql` after `0000_base.sql`.
 - `name` uses `a-z`, `0-9`, and `_`, for example `create_notes`.
-- One migration runs in one transaction. Do not use `begin`, `commit`, or `concurrently`.
-- The same SQL twice is skipped. A new change needs a new migration.
+- Each migration gets a new `name`. The ledger keeps one row per name.
+- One migration runs in one transaction. The tool refuses `begin`, `commit`,
+  `rollback`, and `savepoint`. Do not use `concurrently`.
+- The same SQL twice is skipped. A new change needs a new migration with a new name.
 - Every new table gets `enable row level security` and its policies in the same migration.
 - Never give `anon` a `using (true)` policy, except on a table of public content.
 - A migration that can destroy data answers `needs_approval`: drop, truncate,
-  delete, update, merge, a column type change, `do`, `call`, or `select`.
+  delete, update, merge, a column type change, or a statement that opens with
+  `do`, `call`, `select`, `with`, `explain`, or `values`.
 - Then call `apply_destructive_migration` with the same input, only when the brief needs it.
 - After each migration, call `get_advisors`.
 - Fix every `error` finding with a new migration before the turn ends.
