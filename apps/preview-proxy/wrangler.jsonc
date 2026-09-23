@@ -15,7 +15,7 @@
 	// PREVIEW_TOKEN_SIGNING_KEY is a secret: `wrangler secret put
 	// PREVIEW_TOKEN_SIGNING_KEY`. It must equal the API env of the same name.
 	// Keys `preview:last-seen:{projectId}` feed the idle sweep heartbeat.
-	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "28db1b4d50af412399277764c3b4fea1" }],
 	// 600 requests per token id (jti) per minute.
 	"ratelimits": [{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }],
 	"analytics_engine_datasets": [
@@ -32,7 +32,7 @@
 				// Staging also frames previews from Vercel preview deploys.
 				"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev https://*.vercel.app http://localhost:*"
 			},
-			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],
+			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "c47f46ef7fa7451388c0ff3c329daea0" }],
 			"ratelimits": [
 				{ "name": "PREVIEW_RATE", "namespace_id": "1001", "simple": { "limit": 600, "period": 60 } }
 			],
