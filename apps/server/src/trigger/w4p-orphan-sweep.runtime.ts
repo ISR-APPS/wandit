@@ -32,9 +32,14 @@ type TriggerDatabase = ReturnType<typeof createDb>;
  */
 export const W4P_ORPHAN_SWEEP_MAX_DELETES = 50;
 
-// Only these Trigger environments own a namespace and its database. A dev
-// run reads a local database, so every staging Worker would look orphaned.
-const SWEEP_ENVIRONMENT_TYPES = new Set(["PRODUCTION", "STAGING"]);
+// Only these Trigger environments own a namespace and its database, and
+// each one owns exactly this namespace. A dev run reads a local database,
+// so every staging Worker would look orphaned; a staging run on the
+// production namespace would delete every live production Worker.
+const NAMESPACE_OF_ENVIRONMENT: Record<string, string> = {
+	PRODUCTION: "production",
+	STAGING: "staging",
+};
 
 /** The slice of the sweep the spec fakes. */
 export type W4pOrphanSweepDeps = {
@@ -46,12 +51,15 @@ export type W4pOrphanSweepDeps = {
 	logger: SandboxLogger;
 	/** `ctx.environment.type` of the run: PRODUCTION, STAGING, PREVIEW, or DEVELOPMENT. */
 	environmentType: string;
+	/** `CLOUDFLARE_W4P_NAMESPACE` of the run; undefined when unset. */
+	namespace: string | undefined;
 };
 
 /** Outcome of one sweep run. */
 export type W4pOrphanSweepResult = {
 	/**
 	 * Why the run did nothing: "environment" outside PRODUCTION and STAGING,
+	 * or when the namespace is not the one of that environment;
 	 * "unconfigured" without the Cloudflare env values. Null when it ran.
 	 */
 	skipped: "environment" | "unconfigured" | null;
@@ -72,7 +80,8 @@ export type W4pOrphanSweepResult = {
 /**
  * Lists the namespace, keeps the scripts tied to one project, and deletes
  * at most `W4P_ORPHAN_SWEEP_MAX_DELETES` orphans. It runs only in the
- * PRODUCTION and STAGING environments. A failed list or a
+ * PRODUCTION and STAGING environments, and only on the namespace of that
+ * environment. A failed list or a
  * failed liveness read rejects the run before any delete. A failed delete
  * logs and the loop continues.
  */
@@ -88,9 +97,19 @@ export async function runW4pOrphanSweep(
 		scanned: 0,
 		skipped: null,
 	};
-	if (!SWEEP_ENVIRONMENT_TYPES.has(deps.environmentType)) {
+	const expectedNamespace = NAMESPACE_OF_ENVIRONMENT[deps.environmentType];
+	if (expectedNamespace === undefined) {
 		deps.logger.info("w4p.orphan-sweep.environment-skipped", {
 			environmentType: deps.environmentType,
+		});
+		return { ...result, skipped: "environment" };
+	}
+	// Security check: the token and the account are the same in both
+	// environments, so the namespace name is the only wall between them.
+	if (deps.namespace !== undefined && deps.namespace !== expectedNamespace) {
+		deps.logger.warn("w4p.orphan-sweep.namespace-mismatch", {
+			environmentType: deps.environmentType,
+			namespace: deps.namespace,
 		});
 		return { ...result, skipped: "environment" };
 	}
@@ -168,6 +187,7 @@ export function createW4pOrphanSweepRuntime(
 			runW4pOrphanSweep({
 				environmentType,
 				logger: Sentry.logger,
+				namespace: env.CLOUDFLARE_W4P_NAMESPACE,
 				projects: new ProjectLivenessRepository(db),
 				workers: workersForPlatformsClientFromEnv(env, Sentry.logger),
 			}),
