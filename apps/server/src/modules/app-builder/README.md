@@ -32,8 +32,9 @@ PostHog flag `v2-builder`).
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch |
+| `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
@@ -224,9 +225,9 @@ Deletion rides the V1 route: a `v2_app` soft-delete queues the
 `delete-app-project` task. The task is idempotent on `projectId` and
 runs one attempt. It uses its own `app-project-cleanup` queue at
 concurrency 2, so a delete never waits behind a sweep. The runtime runs
-seven steps, each in its own try/catch. It cancels the active turn's
-run, destroys the vendor sandbox, and holds the WANDIT-183/184 backend
-seam. Then it drains the two `v2ProjectPrefixes` and deletes the
+eight steps, each in its own try/catch. It cancels the active turn's
+run, destroys the vendor sandbox, deletes the user Worker (WANDIT-200),
+and holds the WANDIT-183/184 backend seam. Then it drains the two `v2ProjectPrefixes` and deletes the
 code.storage repository. The prefixes are `git/<id>/` and
 `sites/<id>/assets/`, never `published/` — WANDIT-178 owns that root.
 It writes one `audit_events` row with each step's outcome and sends
@@ -395,6 +396,69 @@ from the bucket wait. `POST sql` adds the per-user `@RateLimit` bucket
 `cloud-sql` at 30 per minute. Any other upstream failure answers 503
 `UPSTREAM_UNAVAILABLE`. The caches (tables, functions, sign-ups) live in
 the API process; two processes may differ for 30 s.
+
+## Workers for Platforms (WANDIT-200)
+
+A published V2 app runs as one Cloudflare Worker in a Workers for
+Platforms dispatch namespace (D15). The edge Worker dispatches to it with
+the `DISPATCHER` binding (`apps/edge/README.md`, "V2 apps"). The API talks
+to the namespace through `WorkersForPlatformsClient` in
+`infrastructure/cloudflare/`. The publish task (WANDIT-178) is its first
+real caller.
+
+- **Namespace:** `production` for production, `staging` for staging. The
+  API reads the name from `CLOUDFLARE_W4P_NAMESPACE`. The edge binds the
+  same name in `wrangler.jsonc`.
+- **Worker name:** `app-<projectId>` (`appWorkerName` in
+  `packages/contracts/src/v2/publish.ts`). The name never changes, so a
+  domain pointer keeps its target. Every project call takes
+  `{ projectId, scriptName }` and checks `isAppWorkerOf` before any fetch:
+  a project touches only its own Worker.
+- **Tags:** `project:<projectId>` and `customer:<workspaceId>`
+  (`appWorkerTags`). The client builds them from `WorkerDeployInput`, so
+  no caller can drop the project tag. Cloudflare allows 8 tags per script.
+- **Assets:** `assetManifest(projectId, files)` hashes each file as the
+  first 32 hex characters of
+  `sha256(projectId + "\0" + contentType + "\0" + bytes)`. Cloudflare
+  shares an asset between all scripts of a namespace by hash, so the
+  project id keeps two projects apart. One asset has one content type, so
+  equal bytes under two types (an empty `.js` and an empty `.css`) get two
+  hashes. Paths start with `/`; a
+  `..` segment, a backslash, or a duplicate path throws. The upload runs in
+  three calls: `createAssetUploadSession` (manifest in, jwt and buckets
+  out), `uploadAssets` (one request per bucket with the session jwt, base64
+  bodies, split only past 50 MiB; answers the completion jwt), then
+  `deployScript`.
+- **Bindings:** `deployScript` sends the env values of the app as
+  `plain_text` bindings and the app secrets as `secret_text` bindings. A
+  secret never goes into a file of the build, a log line, or an error
+  message.
+- **Limits:** `WorkerDeployInput.limits` (`AppWorkerLimits`) goes out as
+  `limits: { cpu_ms, subrequests }`. The edge applies the same values per
+  request from the host pointer.
+- **Retries:** at most 5 attempts. A 429 waits `Retry-After` (at most
+  60 s); a 5xx or a network failure backs off 1, 2, 4, 8 s. Another 4xx
+  throws `WorkersForPlatformsError` at once, with the status, the `cf-ray`
+  id, and the Cloudflare errors.
+- **Versions:** the namespace API has no versions endpoints. Each PUT
+  replaces the one script of a project, so nothing needs pruning. A
+  rollback in WANDIT-178 uploads the old build again. `deployScript`
+  answers the `etag` (the content hash), not a version id.
+- **Cleanup:** `delete-app-project` deletes `app-<projectId>` with
+  `force=true`; a 404 with the code 10007 (script not found) counts as
+  done, any other 404 is a failure. The daily `w4p-orphan-sweep` task
+  (04:00 UTC) runs only in the Trigger.dev PRODUCTION and STAGING
+  environments: a dev run reads a local database and would see every
+  Worker as an orphan. It lists the namespace, keeps the scripts whose
+  uuid project tag matches their name, and deletes at most 50 whose
+  project row is gone or soft-deleted (`deletedAt`). The list call has no
+  pagination; one call answers every script.
+- **Env values:** `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_W4P_NAMESPACE`, and
+  `CLOUDFLARE_V2_DEPLOY_TOKEN` (scope "Account: Workers Scripts: Edit"
+  only), on the API service and in the Trigger.dev environment. Without
+  all three, `WORKERS_FOR_PLATFORMS_CLIENT` is null, the delete step
+  answers `skipped`, and the sweep does nothing. The operator steps are in
+  `docs/v2/runbook.md`.
 
 ## Builder turn
 

@@ -105,9 +105,16 @@ app's Worker and hands the request to it.
   `suspendedAppPage(reasonCode)`: 451 for a code that starts with `abuse_`
   or `legal_`, 410 for every other code or no code. Both are `no-store`. A
   V1 pointer with `status: "suspended"` still answers 403.
-- **Binding:** `DISPATCHER` in `Env` is the dispatch namespace. The
-  `dispatch_namespaces` entry in `wrangler.jsonc` comes from WANDIT-200.
-  Until then a `kind: "app"` pointer answers the 500 page.
+- **Binding (WANDIT-200):** `DISPATCHER` in `Env` is the dispatch
+  namespace. `wrangler.jsonc` binds it to the namespace `production` at the
+  top level and in env `production`, and to the namespace `staging` in env
+  `staging`. The API writes into the same namespace through
+  `CLOUDFLARE_W4P_NAMESPACE`. A real deploy fails when the namespace does
+  not exist in the account; the pull request dry run does not check it. So
+  create both namespaces before the first deploy with this config (steps in
+  `docs/v2/runbook.md`). `wrangler.dev.jsonc` has no binding: no user
+  Worker runs locally, so `wrangler dev` answers the 500 page for a
+  `kind: "app"` pointer.
 
 ## Invariants
 

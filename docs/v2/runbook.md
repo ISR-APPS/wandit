@@ -35,3 +35,47 @@ change the stored values: a person who read the database with the old
 key knows them. After step 4, ask the affected users to replace their
 secrets in the Secrets panel, and re-create the `system` rows of their
 Supabase backends.
+
+## Workers for Platforms (WANDIT-200)
+
+A published V2 app runs as one Worker, `app-<projectId>`, in a Workers for
+Platforms dispatch namespace. The edge Worker binds the namespace as
+`DISPATCHER`. The API and the Trigger worker upload and delete the app
+Workers through the W4P REST API. Do these steps in this order.
+
+1. Enable the Workers for Platforms subscription on the Cloudflare account
+   `6b421048e434497bce142970530e4eb1`: Dashboard > Workers & Pages >
+   Workers for Platforms. The plan costs $25 per month.
+2. Create the two namespaces from `apps/edge`, logged in to that account:
+   `npx wrangler dispatch-namespace create production` and
+   `npx wrangler dispatch-namespace create staging`. Check them with
+   `npx wrangler dispatch-namespace list`.
+3. Create the API deploy token: Dashboard > My Profile > API Tokens >
+   Create Token > Custom token. Give it one permission, "Account: Workers
+   Scripts: Edit", on this account only. Give it no zone permission and no
+   other permission. Do not reuse `CLOUDFLARE_API_TOKEN`.
+4. Set three values on the API service in Railway and in the Trigger.dev
+   environment, for staging and for production:
+   - `CLOUDFLARE_ACCOUNT_ID`: the account id of step 1. It can already be
+     set for the domain tasks; keep the same value.
+   - `CLOUDFLARE_W4P_NAMESPACE`: `staging` on staging, `production` on
+     production.
+   - `CLOUDFLARE_V2_DEPLOY_TOKEN`: the token of step 3.
+   `GET /api/v2/health` then reports `CLOUDFLARE_W4P_NAMESPACE` and
+   `CLOUDFLARE_V2_DEPLOY_TOKEN` as `true`. Without all three values the
+   publish is off, a project delete records the Worker step as `skipped`,
+   and the daily `w4p-orphan-sweep` task does nothing. The sweep also runs
+   only in the Trigger.dev PRODUCTION and STAGING environments; in a
+   PREVIEW or DEVELOPMENT environment it logs
+   `w4p.orphan-sweep.environment-skipped` and deletes nothing.
+5. Merge order: the namespaces of step 2 must exist before the edge Worker
+   deploys with the `dispatch_namespaces` entry. A push to `staging` or to
+   `main` that touches `apps/edge` deploys it, and the deploy fails when the
+   namespace is missing. The pull request dry run does not check the
+   namespace, so a green pull request does not prove step 2.
+
+The GitHub repository secret with the same name, `CLOUDFLARE_V2_DEPLOY_TOKEN`,
+is a different token: the CI deploy of the edge Worker uses it, and it
+keeps its wider scopes (Workers Scripts and Workers Routes). Do not put the
+narrow token of step 3 into GitHub, and do not put the CI token into
+Railway or Trigger.dev.
