@@ -206,10 +206,22 @@ const WRITE_WORDS = new Set([
 	"nextval",
 ]);
 
-// Comments, string literals, dollar-quoted strings, and quoted identifiers.
-// Their text must not count as keywords.
+// Comments, escape strings (`E'it\'s'`), string literals, quoted
+// identifiers, and dollar-quoted strings (`$$`, `$fn1$`). Their text must not
+// count as keywords. A missed form would hide the SQL after it. A `$` or an
+// `E` inside a name (`x$a$y`, `type'`) opens no string: Postgres wants a
+// space or a symbol before a dollar quote.
 const SQL_NOISE =
-	/--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'|"(?:[^"]|"")*"|\$([a-zA-Z_]*)\$[\s\S]*?\$\1\$/g;
+	/--[^\n]*|\/\*[\s\S]*?\*\/|(?<![\w$])[eE]'(?:[^'\\]|\\[\s\S]|'')*'|'(?:[^']|'')*'|"(?:[^"]|"")*"|(?<![\w$])\$([a-zA-Z_][a-zA-Z0-9_]*)?\$[\s\S]*?\$\1\$/g;
+
+/**
+ * Replaces comments, string literals, quoted identifiers, and
+ * dollar-quoted bodies with a space. `classifySql` and the migration check
+ * `isDestructiveMigration` read keywords from the rest only.
+ */
+export function stripSqlNoise(query: string): string {
+	return query.replace(SQL_NOISE, " ");
+}
 
 /**
  * Sorts one SQL text as `read` or `write`. A read starts with a read word
@@ -218,8 +230,7 @@ const SQL_NOISE =
  * `read_only` flag is the real guard.
  */
 export function classifySql(query: string): SqlKind {
-	const words = query
-		.replace(SQL_NOISE, " ")
+	const words = stripSqlNoise(query)
 		.toLowerCase()
 		.match(/[a-z_]+/g);
 	if (words === null || words.length === 0) {

@@ -547,6 +547,13 @@
       "when": 1790100774715,
       "tag": "0077_sandbox-sessions-network-policy-hash",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1790156931052,
+      "tag": "0078_project-secrets-synced-to-backend",
+      "breakpoints": true
     }
   ]
 }

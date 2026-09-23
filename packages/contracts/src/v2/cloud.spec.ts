@@ -59,6 +59,20 @@ describe("classifySql", () => {
 		expect(classifySql("select * into new_table from users")).toBe("write");
 	});
 
+	it("reads the SQL after a name that holds a dollar sign", () => {
+		expect(
+			classifySql(
+				"select x$a$y from t; delete from notes; select z$a$w from t",
+			),
+		).toBe("write");
+	});
+
+	it("reads the SQL after an escape string", () => {
+		expect(classifySql("select E'it\\'s'; delete from t; select ''")).toBe(
+			"write",
+		);
+	});
+
 	it("marks sequence writes hidden in a select as writes", () => {
 		expect(classifySql("select setval('users_id_seq', 1)")).toBe("write");
 		expect(classifySql("select nextval('users_id_seq')")).toBe("write");

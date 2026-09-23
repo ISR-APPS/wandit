@@ -33,11 +33,11 @@ PostHog flag `v2-builder`).
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository |
-| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch |
+| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService` |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService` |
 
 ## Ports (`domain/ports/`)
 
@@ -321,7 +321,8 @@ with `cloudRoutes` and the SQL classifier `classifySql`.
 The API holds the keys. The browser never sees the platform token or the
 service-role key. The module factory `createCloudSupabaseClient`
 composes the interactive `SupabaseManagementClient` (token
-`SUPABASE_MANAGEMENT_CLIENT`): no wait on a full bucket, one retry, and
+`SUPABASE_MANAGEMENT_CLIENT`): no wait on a full bucket, one retry (none
+for a SQL write), and
 a 429 at once. Without `SUPABASE_PLATFORM_TOKEN` the factory answers
 null and every route answers 503 `V2_ENV_MISSING`. The service-role key
 comes from `GET /projects/{ref}/api-keys?reveal=true` on each storage
@@ -582,6 +583,80 @@ Switch `V2_HARNESS`: `claude-code` is the default and only built harness
 value throws `HarnessNotBuiltError` before the sandbox starts. OpenCode
 joins the same enum later; the runtime only sees the `BuilderHarness`
 port.
+
+## Backend tools (WANDIT-186)
+
+Seven host tools act on the hidden Supabase project of the app. They live
+in `application/host-tools/backend/` and run in the `builder-turn` task.
+They call the interactive `SupabaseManagementClient`: a full rate-limit
+bucket answers `rate_limited` with `retryAfterSeconds` at once. A
+`run_sql_write` query gets one fetch and no retry. The migration text can
+retry once, and the unique sha stops a second run. The schemas and
+`backendToolNames` live in
+`packages/contracts/src/v2/backend-tools.ts`. The worker needs
+`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID`; `set_secret` also
+needs `APP_SECRETS_ENCRYPTION_KEY`.
+
+- No tool creates or wakes a backend. `resolveActiveBackend` answers
+  `backend_paused` for a paused row and `backend_not_ready` for every other
+  row that is not `active` with a ref, before any upstream call. Without
+  `SUPABASE_PLATFORM_TOKEN` every tool answers `failed`.
+- `runBackendTool` is the body of every `execute`. It parses the input
+  with the tool schema first: the harness passes the raw model JSON to
+  `execute` and does not parse it. It turns each error into a typed
+  failure (`mapClientError`), so a tool never throws to the agent. It
+  writes one `host-tool.backend` log line per call with the tool, the ref,
+  the status, and `durationMs`.
+- Approval: the harness reads `toolApproval` per tool name; the AI SDK
+  `needsApproval` option of a custom tool is not read
+  (`resolveCustomToolApproval` in `@ai-sdk/harness`). So each write the
+  user approves is its own tool with `"user-approval"`.
+
+| Tool | Approval | Does | Audit action |
+| --- | --- | --- | --- |
+| `apply_migration` | not-applicable | Applies an additive migration. A destructive one (`isDestructiveMigration`) answers `needs_approval`. | `backend.migration_applied` (`name`, `sha256`, `destructive`) |
+| `apply_destructive_migration` | user-approval | Applies any migration. | `backend.migration_applied` with `destructive: true` |
+| `run_sql` | not-applicable | A read (`classifySql`) with `read_only: true`, first 200 rows. A write answers `needs_approval`. | none |
+| `run_sql_write` | user-approval | Runs the statement with `read_only: false`. | `backend.sql_written` (`queryHash`, `rowCount`), never the text |
+| `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the function URL. | `backend.function_deployed` (`slug`, `version`) |
+| `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
+| `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
+
+Migration ledger: `wandit.migrations (name primary key, sha256 unique,
+applied_at)`, created on the first call. `apply_migration` sends the ledger
+insert first and the migration SQL after it in one text. The Management
+API runs one text as one implicit transaction (UNVERIFIED for the Beta
+endpoint). So the row and the migration commit together. A retry after a
+commit fails on the unique sha. The audit row follows the commit, before
+the file write. A known sha answers `skipped` and writes the file again
+from the stored name and `applied_at`. The file is
+`supabase/migrations/<yyyymmddHHMMSS>_<name>.sql` in the sandbox; the turn
+commit takes it. The RLS check reads `public` only, so the `wandit` schema
+never counts.
+
+Secrets: `set_secret` reads the value with `ProjectSecretsService.readValue`;
+no row answers `missing`, and the web app shows the Cloud tab secret input.
+`generate` stores 32 random bytes (base64url) as a `user` row only when no
+value exists, so a repeated call never rotates a key. After the push,
+`project_secrets.synced_to_backend_at` holds the time of the read; a value
+written after the read keeps no stamp. A new value through `upsert` sets
+the stamp back to null. The value never reaches an output, a log line, an
+audit row, or an error. A refused `bulkCreateSecrets` call carries a fixed
+detail, because the upstream message can echo the value. An Edge Function
+reads a secret with `Deno.env.get`; TanStack server functions do not get it.
+
+Two services serve later callers. Both take the resolved `BackendRef`, so
+the caller runs `resolveActiveBackend` first.
+
+- `AdvisorsService.run(backend)` answers `GateFinding[]`. It holds the
+  Supabase security and performance lints, without `INFO`. It adds one
+  `wandit_rls_missing` error for each `public` table with RLS off or
+  without a policy. The publish gate of WANDIT-190 calls it.
+- `BackendSecretsService.push(backend, name)`: one push and the sync
+  stamp. The connectors of WANDIT-189 call it.
+
+The tool cards in `apps/web` are a follow-up (UI); they read the same
+contracts.
 
 
 ## Versions and the git store

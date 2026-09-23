@@ -1,23 +1,29 @@
 /**
  * Typed client for the Supabase Management API and the project Storage
- * API (WANDIT-183, WANDIT-187). The `provision-backend` runtime composes
- * it by hand; `app-builder.module.ts` composes the interactive form for
- * `CloudService`. It calls the APIs over `fetch`, waits on the
+ * API (WANDIT-183, WANDIT-186, WANDIT-187). The `provision-backend` runtime
+ * composes it by hand; `app-builder.module.ts` composes the interactive form
+ * for `CloudService`, and the `builder-turn` task for the agent backend
+ * tools. It calls the APIs over `fetch`, waits on the
  * `SupabaseRateLimiter`, and checks `ownsRef` before every project call.
  */
 import {
+	type SupabaseAdvisorKind,
+	type SupabaseAdvisorLint,
 	type SupabaseApiKeysResponse,
 	type SupabaseBucket,
+	type SupabaseDeployedFunction,
 	type SupabaseFunction,
 	type SupabaseInstanceSize,
 	type SupabaseProjectStatus,
 	type SupabaseRegion,
 	type SupabaseStorageObject,
+	supabaseAdvisorsResponseSchema,
 	supabaseApiKeysResponseSchema,
 	supabaseAuthConfigResponseSchema,
 	supabaseBucketsResponseSchema,
 	supabaseCreateProjectResponseSchema,
 	supabaseDeletedObjectsResponseSchema,
+	supabaseDeployFunctionResponseSchema,
 	supabaseErrorBodySchema,
 	supabaseFunctionsResponseSchema,
 	supabaseLogsResponseSchema,
@@ -142,9 +148,10 @@ export type SupabaseManagementClientDeps = {
 	/** Base URL override. Default `SUPABASE_MANAGEMENT_BASE_URL`. */
 	baseUrl?: string;
 	/**
-	 * True for the HTTP routes: no wait on a full bucket, one retry, and a
-	 * 429 throws `SupabaseRateLimitedError` at once. The worker keeps the
-	 * default false and waits.
+	 * True when a user or an agent waits on the answer (the HTTP routes and
+	 * the builder-turn backend tools): no wait on a full bucket, one retry
+	 * (none for a SQL write), and a 429 throws `SupabaseRateLimitedError` at
+	 * once. The provisioning worker keeps the default false and waits.
 	 */
 	interactive?: boolean;
 };
@@ -163,12 +170,22 @@ type RequestPlan<T> = {
 	bucket: string;
 	/** Bucket ceiling in calls per minute; 120, or 30 for the logs bucket. */
 	limitPerMinute: number;
-	/** JSON body; absent on GET. Passed to `JSON.stringify` unread. */
-	body?: Record<string, unknown>;
+	/**
+	 * JSON body: an object, or an array for the bulk secrets call. Absent on
+	 * GET. Passed to `JSON.stringify` unread.
+	 */
+	body?: Record<string, unknown> | Record<string, unknown>[];
+	/** Multipart body of the function deploy call; sent instead of `body`. */
+	form?: FormData;
 	/** Response schema; absent means the response body is not read. */
 	schema?: z.ZodType<T>;
 	/** Fetch timeout in milliseconds; default `REQUEST_TIMEOUT_MS`. */
 	timeoutMs?: number;
+	/**
+	 * True for a SQL write: one fetch only. After a timeout or a 5xx the
+	 * upstream can already hold the commit, and a retry would write twice.
+	 */
+	singleAttempt?: boolean;
 };
 
 /**
@@ -289,8 +306,9 @@ export class SupabaseManagementClient {
 
 	/**
 	 * Runs one statement and parses the answered rows with `rowSchema`.
-	 * `readOnly` makes the upstream run it in a read-only transaction. The
-	 * fetch gets `QUERY_TIMEOUT_MS`; a longer statement fails the call.
+	 * `readOnly` makes the upstream run it in a read-only transaction; a
+	 * write gets one fetch, never a retry. The fetch gets `QUERY_TIMEOUT_MS`;
+	 * a longer statement fails the call.
 	 * UNVERIFIED: the endpoint is Beta and answers a bare row array.
 	 */
 	async runQuery<TRow>(
@@ -311,6 +329,7 @@ export class SupabaseManagementClient {
 			body: { query: input.sql, read_only: input.readOnly },
 			schema: z.array(input.rowSchema),
 			timeoutMs: QUERY_TIMEOUT_MS,
+			singleAttempt: !input.readOnly,
 		});
 	}
 
@@ -347,6 +366,99 @@ export class SupabaseManagementClient {
 			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
 			schema: supabaseFunctionsResponseSchema,
 		});
+	}
+
+	/**
+	 * Deploys one Edge Function from its source files: a multipart form with
+	 * one `file` part per file and a `metadata` JSON field. Supabase creates
+	 * the function when the slug is new and adds a version otherwise.
+	 */
+	async deployFunction(
+		scope: BackendRef,
+		input: {
+			/** Function slug; also the last segment of the function URL. */
+			slug: string;
+			/** Source files; `path` is relative to the function folder, for example `index.ts`. */
+			files: { path: string; content: Uint8Array }[];
+			/** The entrypoint, relative like `path`, for example `index.ts`. */
+			entrypointPath: string;
+		},
+	): Promise<SupabaseDeployedFunction> {
+		await this.requireOwnedRef(scope);
+		const form = new FormData();
+		form.append(
+			"metadata",
+			JSON.stringify({
+				entrypoint_path: input.entrypointPath,
+				name: input.slug,
+			}),
+		);
+		for (const file of input.files) {
+			// The copy gives `Blob` a plain `ArrayBuffer` view, the type it accepts.
+			form.append("file", new Blob([new Uint8Array(file.content)]), file.path);
+		}
+		return this.request({
+			method: "POST",
+			path: `/projects/${scope.ref}/functions/deploy?slug=${encodeURIComponent(input.slug)}`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			form,
+			schema: supabaseDeployFunctionResponseSchema,
+		});
+	}
+
+	/**
+	 * Creates or replaces Edge Function secrets in one call. The answer
+	 * stays unread. No value reaches an error text or a log line: a refusal
+	 * carries a fixed detail instead of the upstream message.
+	 */
+	async bulkCreateSecrets(
+		scope: BackendRef,
+		secrets: { name: string; value: string }[],
+	): Promise<void> {
+		await this.requireOwnedRef(scope);
+		try {
+			await this.request<void>({
+				method: "POST",
+				path: `/projects/${scope.ref}/secrets`,
+				bucket: supabaseRateLimitKeys.project(scope.ref),
+				limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+				body: secrets,
+			});
+		} catch (error) {
+			if (
+				error instanceof SupabaseRateLimitedError ||
+				!(error instanceof SupabaseManagementError)
+			) {
+				throw error;
+			}
+			// Security check: the upstream message can echo the body, also in an
+			// escaped or cut form. So the error travels on with a fixed detail.
+			throw new SupabaseManagementError(
+				error.message,
+				error.status,
+				error.requestId,
+				error.status === null
+					? "Supabase did not answer the secrets call"
+					: `Supabase refused the secrets call with HTTP ${error.status}`,
+			);
+		}
+	}
+
+	/** Reads one advisor list: the security or the performance lints. */
+	async getAdvisors(
+		scope: BackendRef,
+		kind: SupabaseAdvisorKind,
+	): Promise<SupabaseAdvisorLint[]> {
+		await this.requireOwnedRef(scope);
+		const answer = await this.request({
+			method: "GET",
+			path: `/projects/${scope.ref}/advisors/${kind}`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseAdvisorsResponseSchema,
+		});
+		return answer.lints;
 	}
 
 	/**
@@ -552,11 +664,15 @@ export class SupabaseManagementClient {
 	 * One API call: wait on the bucket, then at most MAX_ATTEMPTS fetches.
 	 * A 429 waits `X-RateLimit-Reset` (5 s when absent); a 5xx or a thrown
 	 * fetch backs off 1 s, 2 s, 4 s, 8 s. Another 4xx throws at once. The
-	 * interactive form never waits on a bucket and retries once.
+	 * interactive form never waits on a bucket and retries once. A
+	 * `singleAttempt` plan gets one fetch.
 	 */
 	private async request<T>(plan: RequestPlan<T>): Promise<T> {
 		const interactive = this.deps.interactive === true;
-		const maxAttempts = interactive ? INTERACTIVE_MAX_ATTEMPTS : MAX_ATTEMPTS;
+		let maxAttempts = interactive ? INTERACTIVE_MAX_ATTEMPTS : MAX_ATTEMPTS;
+		if (plan.singleAttempt === true) {
+			maxAttempts = 1;
+		}
 		// The limiter answers the wait until the bucket's window ends; at
 		// most MAX_RATE_LIMIT_WAITS sleeps, then the call fails.
 		let waitsDone = 0;
@@ -599,10 +715,16 @@ export class SupabaseManagementClient {
 						authorization: `Bearer ${plan.bearer ?? this.deps.token}`,
 						// The project gateway also wants the key in `apikey`.
 						...(plan.bearer === undefined ? {} : { apikey: plan.bearer }),
-						"content-type": "application/json",
+						// A multipart body gets no content type here: `fetch` writes
+						// it with the boundary.
+						...(plan.form === undefined
+							? { "content-type": "application/json" }
+							: {}),
 						accept: "application/json",
 					},
-					body: plan.body === undefined ? undefined : JSON.stringify(plan.body),
+					body:
+						plan.form ??
+						(plan.body === undefined ? undefined : JSON.stringify(plan.body)),
 					signal: AbortSignal.timeout(plan.timeoutMs ?? REQUEST_TIMEOUT_MS),
 				});
 				if (response.ok) {

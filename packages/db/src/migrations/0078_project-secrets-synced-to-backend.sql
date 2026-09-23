@@ -1,0 +1,1 @@
+ALTER TABLE "project_secrets" ADD COLUMN "synced_to_backend_at" timestamp with time zone;

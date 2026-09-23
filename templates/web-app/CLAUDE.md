@@ -107,12 +107,39 @@ The host machine runs the session. You write code; the host runs it.
 
 ## Supabase rule
 
-- A Supabase project exists from the first turn. It is already provisioned.
+- A Supabase project exists from project creation. It is already provisioned.
 - Browser code uses `getSupabase()`. Server functions use `getSupabaseServer()`.
 - Both read `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- The sandbox env already holds both values. Never write them into a file.
 - A missing value throws a clear error at start. Never catch it away.
 - Never write a fallback for a missing backend. No "no backend yet" path.
 - Data access stays behind the RLS policies in `supabase/migrations/`.
+
+## Backend tools
+
+- The host runs the backend tools. They reach you as `mcp__harness-tools__<name>`.
+- `apply_migration`: applies one schema change. See Migrations.
+- `get_advisors`: answers the security and performance findings of the database.
+- `run_sql`: runs one read-only query, for checks. It answers at most 200 rows.
+- `run_sql_write`: writes data. The user approves each call first.
+- `deploy_function`: deploys the Edge Function in `supabase/functions/<slug>/`.
+- `set_secret`: gives one secret to the Edge Functions as an env variable.
+- Change the database and the functions only with these tools.
+- Keep each Edge Function in one flat folder. `index.ts` is the entrypoint.
+- A function imports no file from another folder, for example `_shared/`.
+- `backend_paused` or `backend_not_ready`: tell the user. Stop the backend work.
+- `rate_limited`: wait `retryAfterSeconds`, then call the tool again once.
+
+## Secrets
+
+- Never write a secret value in the chat, the code, or a tool input.
+- Code that reads a secret runs in an Edge Function, with `Deno.env.get("NAME")`.
+- Server functions do not get the secret. Call the Edge Function from them.
+- A key of the user, for example a Stripe key: `set_secret` with `source: "project_secret"`.
+- On `missing`, tell the user the secret name. The user adds it in the Cloud tab.
+- A key the app makes, for example a signing key: `set_secret` with `source: "generate"`.
+- `generate` keeps an existing value. It never replaces a key the app uses.
+- Names that start with `SUPABASE_` are reserved. Edge Functions get them already.
 
 ## COD lead form contract
 
@@ -129,7 +156,21 @@ The host machine runs the session. You write code; the host runs it.
 ## Migrations
 
 - Migrations are forward-only. A migration never runs backwards.
-- Number them `0001_*.sql`, `0002_*.sql`, ... after `0000_base.sql`.
+- Migrations are additive: add tables, columns, indexes, and policies.
+- Apply each migration with one `apply_migration` call. Never write the file yourself.
+- The tool writes `supabase/migrations/<timestamp>_<name>.sql` after `0000_base.sql`.
+- `name` uses `a-z`, `0-9`, and `_`, for example `create_notes`.
+- One migration runs in one transaction. Do not use `begin`, `commit`, or `concurrently`.
+- The same SQL twice is skipped. A new change needs a new migration.
+- Every new table gets `enable row level security` and its policies in the same migration.
+- Never give `anon` a `using (true)` policy, except on a table of public content.
+- A migration that can destroy data answers `needs_approval`: drop, truncate,
+  delete, update, merge, a column type change, `do`, `call`, or `select`.
+- Then call `apply_destructive_migration` with the same input, only when the brief needs it.
+- After each migration, call `get_advisors`.
+- Fix every `error` finding with a new migration before the turn ends.
+- Then call `get_advisors` again. Report the `warn` findings to the user in one line.
+- Use `run_sql` to check the result. Never use it to change the schema.
 - A restore is code only: new migrations that recreate state. No rollback files.
 
 ## Third-party scripts (pixels)
