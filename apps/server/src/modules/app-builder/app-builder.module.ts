@@ -39,6 +39,10 @@ import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
+import {
+	WORKERS_FOR_PLATFORMS_CLIENT,
+	workersForPlatformsClientFromEnv,
+} from "./infrastructure/cloudflare/workers-for-platforms.client";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
@@ -197,6 +201,14 @@ export function createCloudSupabaseClient(
 		{ provide: TURN_TASK_STARTER, useClass: TriggerTurnTaskStarter },
 		{ provide: V2_ENV, useValue: env },
 		{ provide: VERSION_OBJECTS, useValue: r2VersionObjects },
+		// The W4P client of the API process. Null without the three Cloudflare
+		// env values. No class injects it yet; the publish task (WANDIT-178) will.
+		{
+			provide: WORKERS_FOR_PLATFORMS_CLIENT,
+			useFactory: (v2Env: V2EnvSource) =>
+				workersForPlatformsClientFromEnv(v2Env, Sentry.logger),
+			inject: [V2_ENV],
+		},
 	],
 	// The generation chat history filter resolves BuilderTurnsRepository
 	// lazily through ModuleRef. WANDIT-166/175 take the store, the restorer,

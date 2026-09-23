@@ -1,8 +1,9 @@
 {
-	// Local-dev twin of wrangler.jsonc. ONLY intended delta: no "routes" —
+	// Local-dev twin of wrangler.jsonc. Two intended deltas. No "routes":
 	// with a zone route configured, `wrangler dev` (4.114) fails every local
-	// request with an opaque internal error. Keep every other field in
-	// lockstep with wrangler.jsonc.
+	// request with an opaque internal error. No "dispatch_namespaces": no
+	// user Worker runs locally, so a `kind: "app"` pointer answers the 500
+	// page. Keep every other field in lockstep with wrangler.jsonc.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "wandit-edge",
 	"main": "src/index.ts",

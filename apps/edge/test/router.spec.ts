@@ -58,8 +58,8 @@ type DispatchCall = {
 	options: DynamicDispatchOptions | undefined;
 };
 
-// The wrangler config has no dispatch namespace until WANDIT-200 lands, and
-// Miniflare cannot run one, so the tests hand the router a fake binding.
+// The wrangler config declares DISPATCHER, but no user Worker runs in a
+// test, so the tests hand the router a fake binding.
 function fakeDispatcher(answer: (request: Request) => Promise<Response>): {
 	env: Env;
 	calls: DispatchCall[];

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DeleteAppProjectInput } from "../modules/app-builder/domain/ports/delete-app-project-task-starter";
+import { FakeWorkersForPlatformsClient } from "../modules/app-builder/infrastructure/cloudflare/fake-workers-for-platforms.client";
+import type { AppWorkerScope } from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import type { BuilderTurnRow } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import {
 	type DeleteAppProjectDeps,
@@ -53,7 +55,10 @@ function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 	};
 }
 
-function setup(active: BuilderTurnRow | null = null) {
+function setup(
+	active: BuilderTurnRow | null = null,
+	workers: FakeWorkersForPlatformsClient | null = new FakeWorkersForPlatformsClient(),
+) {
 	const order: string[] = [];
 	const deps = {
 		auditEvents: {
@@ -83,13 +88,22 @@ function setup(active: BuilderTurnRow | null = null) {
 			}),
 		},
 		turns: { findActiveForProject: vi.fn(async () => active) },
+		workers:
+			workers === null
+				? null
+				: {
+						deleteScript: async (scope: AppWorkerScope) => {
+							order.push("worker");
+							return workers.deleteScript(scope);
+						},
+					},
 	} satisfies DeleteAppProjectDeps;
 
 	return { deps, order };
 }
 
 describe("runDeleteAppProject", () => {
-	it("runs the seven steps in order and sums both prefixes", async () => {
+	it("runs the eight steps in order and sums both prefixes", async () => {
 		const { deps, order } = setup(
 			turnRow({ status: "running", triggerRunId: "run-9" }),
 		);
@@ -99,6 +113,7 @@ describe("runDeleteAppProject", () => {
 		expect(order).toEqual([
 			"cancel",
 			"sandbox",
+			"worker",
 			"objects:git/project-1/",
 			"objects:sites/project-1/assets/",
 			"repository",
@@ -111,6 +126,8 @@ describe("runDeleteAppProject", () => {
 			repository: "deleted",
 			sandbox: "destroyed",
 			turnCanceled: true,
+			// The fake holds no Worker: a project that never published.
+			worker: "missing",
 		});
 		expect(deps.cancelRun).toHaveBeenCalledWith("run-9");
 	});
@@ -157,6 +174,7 @@ describe("runDeleteAppProject", () => {
 					repository: "deleted",
 					sandbox: "error",
 					turnCanceled: false,
+					worker: "missing",
 				},
 			}),
 		);
@@ -202,6 +220,7 @@ describe("runDeleteAppProject", () => {
 				repository: "deleted",
 				sandbox: "destroyed",
 				turnCanceled: false,
+				worker: "missing",
 			},
 			organizationId: "org-1",
 			projectId: "project-1",
@@ -214,7 +233,66 @@ describe("runDeleteAppProject", () => {
 			projectId: "project-1",
 			repository: "deleted",
 			sandbox: "destroyed",
+			worker: "missing",
 		});
+	});
+
+	it("deletes the published user Worker of the project", async () => {
+		const workers = new FakeWorkersForPlatformsClient();
+		workers.seed("app-project-1", ["project:project-1", "customer:org-1"]);
+		const { deps } = setup(null, workers);
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.worker).toBe("deleted");
+		expect(workers.scripts.has("app-project-1")).toBe(false);
+		expect(workers.calls).toEqual([
+			{ method: "deleteScript", scriptName: "app-project-1" },
+		]);
+		expect(deps.auditEvents.insert).toHaveBeenCalledWith(
+			expect.objectContaining({
+				metadata: expect.objectContaining({ worker: "deleted" }),
+			}),
+		);
+	});
+
+	it("answers worker error and continues when the Worker delete throws", async () => {
+		const workers = new FakeWorkersForPlatformsClient();
+		workers.failNext("deleteScript", new Error("cloudflare down"));
+		const { deps } = setup(null, workers);
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.worker).toBe("error");
+		expect(result.objectsDeleted).toBe(5);
+		expect(result.repository).toBe("deleted");
+		expect(result.auditWritten).toBe(true);
+		expect(deps.logger.error).toHaveBeenCalledWith(
+			"app-project.delete.worker-failed",
+			{
+				error: "cloudflare down",
+				projectId: "project-1",
+				scriptName: "app-project-1",
+			},
+		);
+	});
+
+	it("skips the Worker delete without the Cloudflare env values", async () => {
+		const { deps, order } = setup(null, null);
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.worker).toBe("skipped");
+		expect(order).not.toContain("worker");
+		expect(deps.logger.warn).toHaveBeenCalledWith(
+			"app-project.delete.worker-unconfigured",
+			{ projectId: "project-1" },
+		);
+		expect(deps.auditEvents.insert).toHaveBeenCalledWith(
+			expect.objectContaining({
+				metadata: expect.objectContaining({ worker: "skipped" }),
+			}),
+		);
 	});
 
 	it("logs a prefix failure and drains the other prefix", async () => {

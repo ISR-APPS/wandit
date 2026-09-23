@@ -336,7 +336,10 @@ export const env = createEnv({
 		APP_SECRETS_ENCRYPTION_KEY: z.string().min(1).optional(),
 		PREVIEW_DOMAIN: z.string().min(1).optional(),
 		PREVIEW_TOKEN_SIGNING_KEY: z.string().min(1).optional(),
+		// Token with the scope "Account: Workers Scripts: Edit" only, separate from CLOUDFLARE_API_TOKEN.
 		CLOUDFLARE_V2_DEPLOY_TOKEN: z.string().min(1).optional(),
+		// Dispatch namespace of the published V2 app Workers: "production" or "staging".
+		CLOUDFLARE_W4P_NAMESPACE: z.string().min(1).optional(),
 		EXPO_TOKEN: z.string().min(1).optional(),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),

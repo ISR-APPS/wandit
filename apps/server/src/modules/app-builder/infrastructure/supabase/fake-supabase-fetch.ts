@@ -1,8 +1,8 @@
 /**
  * In-memory `fetch` for the specs of `SupabaseManagementClient`,
- * `CloudService`, and the agent backend tools. `scriptedFetch` records each
- * call and answers a queue of responses in order; `jsonResponse` builds one
- * JSON answer.
+ * `CloudService`, the agent backend tools, and `WorkersForPlatformsClient`.
+ * `scriptedFetch` records each call and answers a queue of responses in
+ * order; `jsonResponse` builds one JSON answer.
  */
 
 /** One call the fake fetch recorded; specs assert on it. */
@@ -10,9 +10,9 @@ export type RecordedRequest = {
 	url: string;
 	method: string;
 	headers: Record<string, string>;
-	/** The request body text; null when the call sent none or a form. */
+	/** The request body text; null when the call sent none or sent a form. */
 	body: string | null;
-	/** The multipart body of a function deploy; null for every other call. */
+	/** The multipart body; specs read a part with `form.get(name)`. Null for other bodies. */
 	form: FormData | null;
 };
 
