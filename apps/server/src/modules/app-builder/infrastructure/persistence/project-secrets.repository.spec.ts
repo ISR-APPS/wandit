@@ -47,6 +47,7 @@ type ConflictInput = {
 		keyVersion: number;
 		kind: string;
 		updatedAt: Date;
+		syncedToBackendAt: null;
 	};
 	setWhere?: SQL;
 	target: (typeof projectSecrets.projectId | typeof projectSecrets.name)[];
@@ -98,6 +99,7 @@ describe("ProjectSecretsRepository.upsert", () => {
 			ciphertext: "cipher-1",
 			keyVersion: 2,
 			kind: "user",
+			syncedToBackendAt: null,
 			updatedAt: expect.any(Date),
 		});
 		const guard = compile(conflict?.setWhere);
@@ -259,7 +261,10 @@ describe("ProjectSecretsRepository reads", () => {
 function setupUpdate(returned: { id: string }[]) {
 	const returning = vi.fn(async () => returned);
 	const where = vi.fn((_predicate: SQL | undefined) => ({ returning }));
-	const set = vi.fn(() => ({ where }));
+	// The values object of `set`; `markSynced` passes a SQL chunk for `updatedAt`.
+	const set = vi.fn(
+		(_values: { syncedToBackendAt?: Date; updatedAt?: SQL }) => ({ where }),
+	);
 	const update = vi.fn(() => ({ set }));
 	// SAFETY: `Object.create` yields `any`; the stub exposes only the
 	// update chain the repository method under test calls.
@@ -293,5 +298,30 @@ describe("ProjectSecretsRepository.replaceCipher", () => {
 				keyVersion: 2,
 			}),
 		).toBe(false);
+	});
+});
+
+describe("ProjectSecretsRepository.markSynced", () => {
+	it("stamps the push on one unchanged name of one project and keeps updatedAt", async () => {
+		const { repository, set, where } = setupUpdate([]);
+		const at = new Date("2026-09-23T10:00:00.000Z");
+
+		await repository.markSynced("project-1", "STRIPE_SECRET_KEY", at);
+
+		const values = set.mock.calls[0]?.[0];
+		expect(values?.syncedToBackendAt).toBe(at);
+		expect(compile(values?.updatedAt).sql).toBe(
+			'"project_secrets"."updated_at"',
+		);
+		const predicate = compile(where.mock.calls[0]?.[0]);
+		expect(predicate.params).toEqual([
+			"project-1",
+			"STRIPE_SECRET_KEY",
+			at.toISOString(),
+		]);
+		expect(predicate.sql).toContain('"project_secrets"."project_id" = $1');
+		expect(predicate.sql).toContain('"project_secrets"."name" = $2');
+		// A value written after `at` is not the pushed one; it keeps no stamp.
+		expect(predicate.sql).toContain('"project_secrets"."updated_at" <= $3');
 	});
 });

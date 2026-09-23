@@ -1,8 +1,8 @@
 /**
  * In-memory `fetch` for the specs of `SupabaseManagementClient`,
- * `CloudService`, and `WorkersForPlatformsClient`. `scriptedFetch` records
- * each call and answers a queue of responses in order; `jsonResponse`
- * builds one JSON answer.
+ * `CloudService`, the agent backend tools, and `WorkersForPlatformsClient`.
+ * `scriptedFetch` records each call and answers a queue of responses in
+ * order; `jsonResponse` builds one JSON answer.
  */
 
 /** One call the fake fetch recorded; specs assert on it. */

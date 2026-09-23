@@ -66,6 +66,11 @@ export const projectSecrets = pgTable(
 			.defaultNow()
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
+		// When the current value last reached the Supabase function secrets
+		// (WANDIT-186 `set_secret`). Null: never, or the value changed since.
+		syncedToBackendAt: timestamp("synced_to_backend_at", {
+			withTimezone: true,
+		}),
 	},
 	(table) => [
 		// One name per project; the upsert of the set route targets it.

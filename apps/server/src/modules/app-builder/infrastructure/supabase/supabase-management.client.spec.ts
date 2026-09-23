@@ -514,6 +514,23 @@ describe("SupabaseManagementClient.runQuery", () => {
 		});
 	});
 
+	it("sends a write once: a 502 after a possible commit gets no retry", async () => {
+		const fixture = makeClient([
+			jsonResponse(502, JSON.stringify({ message: "bad gateway" })),
+			jsonResponse(201, "[]"),
+		]);
+
+		await expect(
+			fixture.client.runQuery(SCOPE, {
+				readOnly: false,
+				rowSchema: z.object({ id: z.number() }),
+				sql: "insert into t (id) values (1)",
+			}),
+		).rejects.toMatchObject({ status: 502 });
+		expect(fixture.requests).toHaveLength(1);
+		expect(fixture.sleeps).toEqual([]);
+	});
+
 	it("fails when a row does not fit the schema", async () => {
 		const fixture = makeClient([
 			jsonResponse(201, JSON.stringify([{ count: "three" }])),
@@ -805,6 +822,193 @@ describe("SupabaseManagementClient storage calls", () => {
 			body: JSON.stringify({ prefixes: ["users/a.png", "users/b.png"] }),
 			method: "DELETE",
 			url: `${STORAGE_BASE}/object/avatars`,
+		});
+	});
+});
+
+describe("SupabaseManagementClient.deployFunction", () => {
+	it("posts one multipart file part per file and the metadata field", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				201,
+				JSON.stringify({
+					id: "fn-1",
+					slug: "hello-world",
+					name: "hello-world",
+					status: "ACTIVE",
+					version: 2,
+					entrypoint_path: "index.ts",
+				}),
+			),
+		]);
+		const encoder = new TextEncoder();
+
+		const deployed = await fixture.client.deployFunction(SCOPE, {
+			entrypointPath: "index.ts",
+			files: [
+				{
+					content: encoder.encode("Deno.serve(() => new Response('hi'));"),
+					path: "index.ts",
+				},
+				{ content: encoder.encode("export const cors = {};"), path: "cors.ts" },
+			],
+			slug: "hello-world",
+		});
+
+		expect(deployed).toEqual({
+			id: "fn-1",
+			name: "hello-world",
+			slug: "hello-world",
+			status: "ACTIVE",
+			version: 2,
+		});
+		const request = fixture.requests[0];
+		expect(request?.url).toBe(
+			`https://api.supabase.com/v1/projects/${REF}/functions/deploy?slug=hello-world`,
+		);
+		expect(request?.method).toBe("POST");
+		expect(request?.headers["content-type"]).toBeUndefined();
+		const form = request?.form;
+		expect(JSON.parse(String(form?.get("metadata")))).toEqual({
+			entrypoint_path: "index.ts",
+			name: "hello-world",
+		});
+		const files = form?.getAll("file") ?? [];
+		expect(
+			files.map((file) => (file instanceof File ? file.name : null)),
+		).toEqual(["index.ts", "cors.ts"]);
+		const first = files[0];
+		expect(first instanceof File ? await first.text() : null).toBe(
+			"Deno.serve(() => new Response('hi'));",
+		);
+		expect(fixture.rateLimiter.calls).toEqual([
+			{ bucket: `supabase:rl:project:${REF}`, limitPerMinute: 120 },
+		]);
+	});
+});
+
+describe("SupabaseManagementClient.bulkCreateSecrets", () => {
+	it("sends the names and the values as one array and leaves the answer unread", async () => {
+		const fixture = makeClient([jsonResponse(201, "")]);
+
+		await fixture.client.bulkCreateSecrets(SCOPE, [
+			{ name: "STRIPE_SECRET_KEY", value: "sk_test_value_1" },
+		]);
+
+		expect(fixture.requests[0]).toMatchObject({
+			method: "POST",
+			url: `https://api.supabase.com/v1/projects/${REF}/secrets`,
+		});
+		expect(JSON.parse(fixture.requests[0]?.body ?? "null")).toEqual([
+			{ name: "STRIPE_SECRET_KEY", value: "sk_test_value_1" },
+		]);
+	});
+
+	it("keeps the value out of the error when the upstream echoes it", async () => {
+		const value = "sk_test_value_echoed";
+		const fixture = makeClient([
+			jsonResponse(
+				400,
+				JSON.stringify({ message: `invalid secret value ${value}` }),
+			),
+		]);
+
+		const failure = await fixture.client
+			.bulkCreateSecrets(SCOPE, [{ name: "API_KEY", value }])
+			.then(
+				() => null,
+				(error: unknown) => error,
+			);
+
+		expect(failure).toBeInstanceOf(SupabaseManagementError);
+		if (!(failure instanceof SupabaseManagementError)) {
+			throw new Error("expected a SupabaseManagementError");
+		}
+		expect(failure.status).toBe(400);
+		expect(failure.detail).toBe(
+			"Supabase refused the secrets call with HTTP 400",
+		);
+		expect(failure.message).not.toContain(value);
+		expect(JSON.stringify(fixture.warnings)).not.toContain(value);
+		// The recorded request is the only place the value appears.
+		expect(fixture.requests[0]?.body).toContain(value);
+	});
+});
+
+describe("SupabaseManagementClient.bulkCreateSecrets rate limit", () => {
+	it("keeps the rate-limit error, so the tool answers rate_limited", async () => {
+		const fixture = makeClient([jsonResponse(429, "{}")], {
+			interactive: true,
+		});
+
+		await expect(
+			fixture.client.bulkCreateSecrets(SCOPE, [
+				{ name: "API_KEY", value: "sk_test_value_2" },
+			]),
+		).rejects.toBeInstanceOf(SupabaseRateLimitedError);
+	});
+});
+
+describe("SupabaseManagementClient.getAdvisors", () => {
+	it("parses the documented lints answer", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({
+					lints: [
+						{
+							name: "rls_disabled_in_public",
+							title: "RLS Disabled in Public",
+							level: "ERROR",
+							facing: "EXTERNAL",
+							categories: ["SECURITY"],
+							description: "Detects tables in public without RLS.",
+							detail: "Table `public.notes` is public, but RLS is not enabled.",
+							remediation:
+								"https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public",
+							metadata: { schema: "public", name: "notes", type: "table" },
+							cache_key: "rls_disabled_in_public_public_notes",
+						},
+						{
+							name: "auth_leaked_password_protection",
+							title: "Leaked Password Protection Disabled",
+							level: "INFO",
+							facing: "EXTERNAL",
+							categories: ["SECURITY"],
+							description: "Leaked password protection is off.",
+							detail: "Enable leaked password protection.",
+							remediation:
+								"https://supabase.com/docs/guides/auth/password-security",
+							cache_key: "auth_leaked_password_protection",
+						},
+					],
+				}),
+			),
+		]);
+
+		const lints = await fixture.client.getAdvisors(SCOPE, "security");
+
+		expect(lints).toHaveLength(2);
+		expect(lints[0]).toMatchObject({
+			level: "ERROR",
+			metadata: { name: "notes", schema: "public", type: "table" },
+			name: "rls_disabled_in_public",
+		});
+		expect(fixture.requests[0]?.url).toBe(
+			`https://api.supabase.com/v1/projects/${REF}/advisors/security`,
+		);
+	});
+
+	it("rejects an answer without the lints list", async () => {
+		const fixture = makeClient([
+			jsonResponse(200, JSON.stringify({ result: [] })),
+		]);
+
+		await expect(
+			fixture.client.getAdvisors(SCOPE, "performance"),
+		).rejects.toMatchObject({
+			detail: "unexpected response body",
+			name: "SupabaseManagementError",
 		});
 	});
 });

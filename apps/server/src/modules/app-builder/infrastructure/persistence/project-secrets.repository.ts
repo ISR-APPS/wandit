@@ -1,12 +1,13 @@
 /**
  * Read and write of the `project_secrets` rows of one project (WANDIT-185).
  * `ProjectSecretsService` calls it for the set, remove, list, and read
- * paths; `rotateProjectSecrets` calls the two rotation methods. Every
- * method moves ciphertext only; the crypto lives in `secret-crypto.ts`.
+ * paths; `rotateProjectSecrets` calls the two rotation methods;
+ * `BackendSecretsService` (WANDIT-186) stamps a push with `markSynced`.
+ * Every method moves ciphertext only; the crypto lives in `secret-crypto.ts`.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProjectSecretKind } from "@wandit/contracts";
-import { and, asc, eq, gt, lt } from "@wandit/db";
+import { and, asc, eq, gt, lt, lte, sql } from "@wandit/db";
 import { projectSecrets } from "@wandit/db/schema/project-secrets";
 
 import {
@@ -93,6 +94,8 @@ export class ProjectSecretsRepository {
 					keyVersion: input.keyVersion,
 					kind: input.kind,
 					updatedAt: new Date(),
+					// A replaced value is not on the backend yet; the next push must run.
+					syncedToBackendAt: null,
 				},
 				// A user never replaces a system row; server code replaces any row.
 				...(input.kind === "user"
@@ -175,6 +178,34 @@ export class ProjectSecretsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	/**
+	 * Stamps the push of a value to the Supabase function secrets.
+	 * `BackendSecretsService.push` calls it after the bulk-create call, with
+	 * `at` taken before it read the value. A row that changed after `at`, or
+	 * a deleted row, gets no stamp; that is no error.
+	 */
+	async markSynced(projectId: string, name: string, at: Date): Promise<void> {
+		await this.db
+			.update(projectSecrets)
+			.set({
+				syncedToBackendAt: at,
+				// `updatedAt` dates the last value change, which the Secrets panel
+				// shows. A push changes no value, so it keeps the column as it is.
+				updatedAt: sql`${projectSecrets.updatedAt}`,
+			})
+			.where(
+				and(
+					eq(projectSecrets.projectId, projectId),
+					eq(projectSecrets.name, name),
+					// A value written after the read is not on the backend yet.
+					// LIMIT: the guard compares the task clock with the clock that
+					// wrote `updatedAt`; a skew above the push time can hide a stamp.
+					// Upgrade: `readValue` answers the row version, and the guard reads it.
+					lte(projectSecrets.updatedAt, at),
+				),
+			);
 	}
 
 	/**

@@ -98,6 +98,8 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 agent backend tool contracts and the destructive migration check.
+export * from "./v2/backend-tools";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
 // V2 project cost-cap contracts.

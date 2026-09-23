@@ -12,6 +12,9 @@
  * - PATCH /projects/{ref}/config/auth
  * - GET   /projects/{ref}/storage/buckets
  * - GET   /projects/{ref}/functions
+ * - POST  /projects/{ref}/functions/deploy (multipart, WANDIT-186)
+ * - POST  /projects/{ref}/secrets (WANDIT-186)
+ * - GET   /projects/{ref}/advisors/{security|performance} (WANDIT-186)
  * - GET   /projects/{ref}/analytics/endpoints/logs.all
  *
  * Covered paths of the project Storage API, base
@@ -227,6 +230,70 @@ export type SupabaseFunction = z.infer<typeof supabaseFunctionSchema>;
 
 /** The functions answer is a bare array. */
 export const supabaseFunctionsResponseSchema = z.array(supabaseFunctionSchema);
+
+/**
+ * Answer of `POST /projects/{ref}/functions/deploy` (OpenAPI operation
+ * `v1-deploy-a-function`, 201). Zod strips the optional fields.
+ */
+export const supabaseDeployFunctionResponseSchema = z.object({
+	id: z.string(),
+	slug: z.string(),
+	name: z.string(),
+	// `ACTIVE`, `REMOVED`, or `THROTTLED` upstream; a string, like the list answer.
+	status: z.string(),
+	version: z.int().nonnegative(),
+});
+
+/** The deployed function `SupabaseManagementClient.deployFunction` answers. */
+export type SupabaseDeployedFunction = z.infer<
+	typeof supabaseDeployFunctionResponseSchema
+>;
+
+/** The two advisor lists of `GET /projects/{ref}/advisors/{kind}`. */
+export const supabaseAdvisorKinds = ["security", "performance"] as const;
+
+/** One advisor list; `AdvisorsService` reads both. */
+export type SupabaseAdvisorKind = (typeof supabaseAdvisorKinds)[number];
+
+/**
+ * One lint of the advisors answer (OpenAPI `V1ProjectAdvisorsResponse`,
+ * operations `v1-get-security-advisors` and `v1-get-performance-advisors`).
+ * `name` stays a string: a new upstream lint must not fail the call.
+ * The spec marks `facing`, `categories`, and `cache_key` required; the code
+ * does not read them, so they are optional here.
+ */
+export const supabaseAdvisorLintSchema = z.object({
+	// The lint id, for example `rls_disabled_in_public`.
+	name: z.string(),
+	title: z.string(),
+	level: z.enum(["ERROR", "WARN", "INFO"]),
+	facing: z.string().optional(),
+	categories: z.array(z.string()).optional(),
+	description: z.string(),
+	detail: z.string(),
+	// A docs URL in practice; the spec types it as a plain string.
+	remediation: z.string(),
+	metadata: z
+		.object({
+			schema: z.string().optional(),
+			name: z.string().optional(),
+			entity: z.string().optional(),
+			// `table`, `view`, `materialized view`, `foreign table`, `function`, ...
+			type: z.string().optional(),
+			fkey_name: z.string().optional(),
+			fkey_columns: z.array(z.number()).optional(),
+		})
+		.optional(),
+	cache_key: z.string().optional(),
+});
+
+/** One lint `SupabaseManagementClient.getAdvisors` answers. */
+export type SupabaseAdvisorLint = z.infer<typeof supabaseAdvisorLintSchema>;
+
+/** The advisors answer: the lints under `lints`. */
+export const supabaseAdvisorsResponseSchema = z.object({
+	lints: z.array(supabaseAdvisorLintSchema),
+});
 
 /**
  * Answer of `GET /projects/{ref}/analytics/endpoints/logs.all`: the rows in
