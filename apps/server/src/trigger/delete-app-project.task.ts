@@ -31,7 +31,9 @@ const deleteAppProjectPayloadSchema = z.object({
 export const deleteAppProjectTask = schemaTask({
 	id: "delete-app-project",
 	// 600 s: two R2 drains, two vendor deletes, one code.storage call. The
-	// Worker delete takes at most 165 s (5 timeouts of 30 s plus the backoff).
+	// Worker delete takes 165 s on a 5xx outage (5 timeouts of 30 s plus the
+	// backoff) and 390 s in a 429 storm (four Retry-After waits of 60 s); the
+	// budget covers the 5xx case, a 429 storm can end the run early.
 	maxDuration: 600,
 	queue: appProjectCleanupQueue,
 	// One attempt, like the idle sweep: every step reports its own outcome;

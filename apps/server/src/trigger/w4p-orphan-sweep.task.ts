@@ -17,7 +17,8 @@ export const w4pOrphanSweepTask = schedules.task({
 	cron: { pattern: "0 4 * * *", timezone: "UTC" },
 	// 900 s: 50 deletes take about a minute at normal speed. In a Cloudflare
 	// outage one delete can take 165 s (5 timeouts of 30 s plus the backoff),
-	// so the run stops at 900 s and the next day continues.
+	// or 390 s in a 429 storm (four Retry-After waits of 60 s), so the run
+	// stops at 900 s and the next day continues.
 	maxDuration: 900,
 	// Its own queue at 1: a slow run never takes a slot of the idle sweep
 	// or of the project-delete queue, and two runs never overlap.

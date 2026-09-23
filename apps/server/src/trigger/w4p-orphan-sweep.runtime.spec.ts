@@ -69,6 +69,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "PRODUCTION",
+			namespace: "production",
 			logger,
 			projects,
 			workers,
@@ -118,6 +119,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "PRODUCTION",
+			namespace: "production",
 			logger,
 			projects,
 			workers,
@@ -140,6 +142,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "PRODUCTION",
+			namespace: "production",
 			logger,
 			projects,
 			workers,
@@ -169,6 +172,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "PRODUCTION",
+			namespace: "production",
 			logger,
 			projects,
 			workers,
@@ -194,6 +198,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "STAGING",
+			namespace: "staging",
 			logger,
 			projects,
 			workers: null,
@@ -214,6 +219,7 @@ describe("runW4pOrphanSweep", () => {
 
 		const result = await runW4pOrphanSweep({
 			environmentType: "DEVELOPMENT",
+			namespace: "staging",
 			logger,
 			projects,
 			workers,
@@ -231,6 +237,32 @@ describe("runW4pOrphanSweep", () => {
 		]);
 	});
 
+	it("does nothing when the namespace is not the one of the environment", async () => {
+		const workers = new FakeWorkersForPlatformsClient();
+		seedAppWorker(workers, GONE);
+		const { asked, projects } = fakeProjects([]);
+		const { lines, logger } = makeLogger();
+
+		const result = await runW4pOrphanSweep({
+			environmentType: "STAGING",
+			logger,
+			namespace: "production",
+			projects,
+			workers,
+		});
+
+		expect(result.skipped).toBe("environment");
+		expect(workers.calls).toEqual([]);
+		expect(asked).toEqual([]);
+		expect(lines).toEqual([
+			{
+				fields: { environmentType: "STAGING", namespace: "production" },
+				level: "warn",
+				message: "w4p.orphan-sweep.namespace-mismatch",
+			},
+		]);
+	});
+
 	it("rejects the run and deletes nothing when the liveness read fails", async () => {
 		const workers = new FakeWorkersForPlatformsClient();
 		seedAppWorker(workers, GONE);
@@ -239,6 +271,7 @@ describe("runW4pOrphanSweep", () => {
 		await expect(
 			runW4pOrphanSweep({
 				environmentType: "PRODUCTION",
+				namespace: "production",
 				logger,
 				projects: {
 					listLiveIds: async () => {

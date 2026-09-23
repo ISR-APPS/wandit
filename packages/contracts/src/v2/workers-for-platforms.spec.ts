@@ -95,6 +95,13 @@ describe("namespaceScriptSchema", () => {
 });
 
 describe("assetManifestEntrySchema", () => {
+	it("parses a 32-hex hash with a zero size", () => {
+		expect(assetManifestEntrySchema.parse({ hash: HASH, size: 0 })).toEqual({
+			hash: HASH,
+			size: 0,
+		});
+	});
+
 	it("refuses a 64-character hash", () => {
 		const parsed = assetManifestEntrySchema.safeParse({
 			hash: HASH.repeat(2),
