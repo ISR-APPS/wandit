@@ -128,3 +128,5 @@ export * from "./v2/supabase-management";
 export * from "./v2/turns";
 // V2 app version history contracts.
 export * from "./v2/versions";
+// V2 Workers for Platforms REST answers, deploy input, and Worker tags.
+export * from "./v2/workers-for-platforms";

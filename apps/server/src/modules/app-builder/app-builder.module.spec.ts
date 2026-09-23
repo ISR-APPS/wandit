@@ -34,6 +34,7 @@ import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
+import { WORKERS_FOR_PLATFORMS_CLIENT } from "./infrastructure/cloudflare/workers-for-platforms.client";
 import { V2_ENV } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
@@ -142,6 +143,7 @@ describe("AppBuilderModule", () => {
 			{ provide: TURN_TASK_STARTER, useClass: TriggerTurnTaskStarter },
 			{ provide: V2_ENV, useValue: env },
 			{ provide: VERSION_OBJECTS, useValue: r2VersionObjects },
+			expect.objectContaining({ provide: WORKERS_FOR_PLATFORMS_CLIENT }),
 		]);
 		expect(
 			Reflect.getMetadata(MODULE_METADATA.EXPORTS, AppBuilderModule),

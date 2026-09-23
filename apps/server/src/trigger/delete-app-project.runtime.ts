@@ -1,8 +1,9 @@
 /**
  * Delete-app-project runtime: removes the external resources of one
  * soft-deleted `v2_app` project.
- * Seven steps run in order: turn-run cancel, sandbox destroy, backend
- * seam, R2 drain, repository delete, audit row, analytics event.
+ * Eight steps run in order: turn-run cancel, sandbox destroy, user Worker
+ * delete, backend seam, R2 drain, repository delete, audit row, analytics
+ * event.
  * Every step runs in its own try/catch, so one failed vendor call never
  * blocks the audit row.
  * `delete-app-project.task.ts` calls it through
@@ -11,6 +12,7 @@
  * hand.
  */
 import { runs } from "@trigger.dev/sdk";
+import { appWorkerName } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -26,6 +28,10 @@ import type {
 	SandboxLogger,
 	SandboxProvider,
 } from "../modules/app-builder/domain/ports/sandbox-provider";
+import {
+	type WorkersForPlatformsApi,
+	workersForPlatformsClientFromEnv,
+} from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
@@ -47,6 +53,11 @@ export type DeleteAppProjectDeps = {
 	cancelRun: (runId: string) => Promise<void>;
 	/** Vendor sandbox destroy; it marks the `sandbox_sessions` row itself. */
 	sandboxes: Pick<SandboxProvider, "destroy">;
+	/**
+	 * Deletes the published user Worker. Null when a Cloudflare env value is
+	 * unset; `workersForPlatformsClientFromEnv` builds it.
+	 */
+	workers: Pick<WorkersForPlatformsApi, "deleteScript"> | null;
 	/** code.storage repository delete; a 404 or a 409 counts as done. */
 	gitStore: Pick<GitStore, "deleteRepository">;
 	/** Drains one R2 prefix and answers the number of deleted keys. */
@@ -69,6 +80,11 @@ export type DeleteAppProjectResult = {
 	turnCanceled: boolean;
 	/** "destroyed" when the vendor call resolved; "error" when it threw. */
 	sandbox: "destroyed" | "error";
+	/**
+	 * "deleted" or "missing" (never published) when Cloudflare answered;
+	 * "skipped" without the Cloudflare env values; "error" when the call threw.
+	 */
+	worker: "deleted" | "missing" | "skipped" | "error";
 	/** "deleted" when code.storage answered; "error" when the call threw. */
 	repository: "deleted" | "error";
 	/** Keys removed under the two `v2ProjectPrefixes`. */
@@ -78,7 +94,7 @@ export type DeleteAppProjectResult = {
 };
 
 /**
- * Runs the seven cleanup steps for one soft-deleted `v2_app` project.
+ * Runs the eight cleanup steps for one soft-deleted `v2_app` project.
  * It never throws: each step logs its own failure and the result reports every outcome.
  * The audit row carries the same outcomes, so a failed vendor call stays visible after the run.
  */
@@ -118,6 +134,25 @@ export async function runDeleteAppProject(
 		});
 	}
 
+	// A live user Worker keeps serving a deleted app, so its delete comes
+	// first after the sandbox (WANDIT-178 names it step one of a delete).
+	let worker: DeleteAppProjectResult["worker"] = "skipped";
+	const scriptName = appWorkerName(projectId);
+	if (deps.workers === null) {
+		deps.logger.warn("app-project.delete.worker-unconfigured", fields);
+	} else {
+		try {
+			worker = await deps.workers.deleteScript({ projectId, scriptName });
+		} catch (error) {
+			worker = "error";
+			deps.logger.error("app-project.delete.worker-failed", {
+				...fields,
+				error: getErrorMessage(error),
+				scriptName,
+			});
+		}
+	}
+
 	// WANDIT-183/184 add here: backendsService.markDeleting(projectId) (pause the Supabase project, status = deleting; skip a claimed backend).
 
 	let objectsDeleted = 0;
@@ -149,7 +184,7 @@ export async function runDeleteAppProject(
 		await deps.auditEvents.insert({
 			action: "project.deleted",
 			actorUserId: input.actorUserId,
-			metadata: { objectsDeleted, repository, sandbox, turnCanceled },
+			metadata: { objectsDeleted, repository, sandbox, turnCanceled, worker },
 			organizationId: input.organizationId,
 			projectId,
 			targetId: projectId,
@@ -170,6 +205,7 @@ export async function runDeleteAppProject(
 		projectId,
 		repository,
 		sandbox,
+		worker,
 	});
 
 	deps.logger.info("app-project.delete.completed", {
@@ -177,14 +213,23 @@ export async function runDeleteAppProject(
 		objectsDeleted: String(objectsDeleted),
 		repository,
 		sandbox,
+		worker,
 	});
 
-	return { auditWritten, objectsDeleted, repository, sandbox, turnCanceled };
+	return {
+		auditWritten,
+		objectsDeleted,
+		repository,
+		sandbox,
+		turnCanceled,
+		worker,
+	};
 }
 
 /**
- * Composes the real repositories, the provider, the git store, the R2
- * drain, the run cancel, and the PostHog capture for the Trigger worker.
+ * Composes the real repositories, the provider, the W4P client, the git
+ * store, the R2 drain, the run cancel, and the PostHog capture for the
+ * Trigger worker.
  * The provider's template-init and repo-restorer arguments exist because
  * `destroy` shares the provider with the start path; the run closes `db`
  * itself in its `finally`.
@@ -212,6 +257,7 @@ export function createDeleteAppProjectRuntime(
 						new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 					),
 					turns: new BuilderTurnsRepository(db),
+					workers: workersForPlatformsClientFromEnv(env, Sentry.logger),
 				},
 				input,
 			),
