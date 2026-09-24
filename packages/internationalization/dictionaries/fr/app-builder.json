@@ -46,8 +46,6 @@
 	"code": {
 		"searchFiles": "Chercher un fichier",
 		"treeAriaLabel": "Fichiers du projet",
-		"expand": "Déplier {name}",
-		"collapse": "Replier {name}",
 		"noMatch": "Aucun fichier ne correspond.",
 		"synced": "Synchronisé · {branch}",
 		"github": "GitHub",
@@ -59,7 +57,30 @@
 		"binaryFile": "Ce fichier est binaire. La vue Code affiche uniquement les fichiers texte.",
 		"fileTooLarge": "Ce fichier dépasse {limit}. La vue Code affiche uniquement les fichiers jusqu'à {limit}.",
 		"loadFailed": "Le code n'a pas pu être chargé.",
-		"retry": "Réessayer"
+		"retry": "Réessayer",
+		"copyFile": "Copier le fichier",
+		"lineCount": {
+			"one": "{count} ligne",
+			"other": "{count} lignes"
+		},
+		"plainText": "Texte brut",
+		"readOnlyLabel": "Lecture seule",
+		"showFiles": "Afficher les fichiers",
+		"hideFiles": "Masquer les fichiers",
+		"search": {
+			"find": "Rechercher",
+			"next": "suivant",
+			"previous": "précédent",
+			"all": "tout",
+			"matchCase": "respecter la casse",
+			"regexp": "expression régulière",
+			"byWord": "mot entier",
+			"close": "fermer",
+			"currentMatch": "résultat actuel",
+			"onLine": "à la ligne",
+			"goToLine": "Aller à la ligne",
+			"go": "aller"
+		}
 	},
 	"moreNavAriaLabel": "Sections de l'app",
 	"panels": {

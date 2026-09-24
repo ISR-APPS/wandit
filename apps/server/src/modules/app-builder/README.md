@@ -257,6 +257,19 @@ deploy never builds it.
   missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
   `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
   never holds more than 512 KB of one file. Reads never take the turn lock.
+- One file read is one sandbox command. The script opens the file, reads
+  the real path of the open descriptor from `/proc/self/fd`, and prints
+  bytes only for a file inside the worktree that is not `.git` or `.env*`.
+  TS checks the same rule again. A file that the sandbox user cannot open
+  answers 404.
+- `GET .../code` also answers `files`: the small files that one more
+  command reads with the tree, so the web shows them with no request.
+  `pickPrefetchPaths` picks the default file first, then `src/`, then the
+  rest, never `.claude/`, at most 300 paths. The script reads at most 64 KB
+  per file and 512 KB in total, with the same path rule as a file read. A
+  failed prefetch logs a warning and answers `files: []`; the tree answer
+  never fails because of it. `code-scripts.linux.spec.ts` runs both scripts
+  on a real worktree in CI (Linux only).
 
 ## Backend provisioning (WANDIT-183)
 

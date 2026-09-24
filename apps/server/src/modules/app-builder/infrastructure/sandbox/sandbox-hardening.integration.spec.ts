@@ -1,12 +1,15 @@
 /**
  * Live proof of the sandbox egress policy: deny-by-default, a live policy
- * update, an env without secrets, and no secret on disk. Runs only with
+ * update, an env without secrets, no secret on disk, and no secret through
+ * a Code view symlink. Runs only with
  * V2_SANDBOX_INTEGRATION_TEST=true; it creates one real sandbox on Vercel
  * (cost: cents) and destroys it in `finally`.
  */
+import { BadRequestException } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { describe, expect, it } from "vitest";
 
+import { CodeService } from "../../application/services/code.service";
 import type { SandboxCreateOptions } from "../../domain/ports/sandbox-provider";
 import { LoggingRepoRestorer } from "../git/logging-repo-restorer";
 import { FakeSandboxSessionsRepository } from "../persistence/fake-sandbox-sessions.repository";
@@ -202,6 +205,52 @@ describe.skipIf(!RUN)("sandbox hardening integration", () => {
 			const sandboxUser = whoami.stdout.trim();
 			console.log(`sandbox user: ${sandboxUser}`);
 			expect(sandboxUser).not.toBe("root");
+
+			// The Code view scripts on the real image: a symlink to the process
+			// env or to a `.env` file gives no bytes, a plain file gives its
+			// bytes, and a file above 64 KB stays out of the tree answer. The
+			// link targets the reader's own env: PID 1 runs as root, so its
+			// env would fail at the open, before the worktree rule.
+			const links = await handle.exec(
+				"bash",
+				[
+					"-c",
+					"printf 'hi\\n' > code-view-a.txt && head -c 70000 /dev/zero | tr '\\0' x > code-view-big.txt && printf 'T=1\\n' > .env.code-view && ln -sf /proc/self/environ code-view-leak && ln -sf .env.code-view code-view-env",
+				],
+				{ cwd: handle.workspaceDir },
+			);
+			expect(links.exitCode).toBe(0);
+			const code = new CodeService(
+				{
+					findScopedProject: async () => ({
+						engine: "v2_app",
+						framework: "web-app",
+						id: projectId,
+						organizationId: null,
+						templateVersion: "web-app@1.0.0",
+						userId: "integration-user",
+					}),
+				},
+				{ findRunning: async () => handle },
+			);
+			const scope = { kind: "personal", userId: "integration-user" } as const;
+			expect(await code.file(scope, projectId, "code-view-a.txt")).toEqual({
+				binary: false,
+				content: "hi\n",
+				path: "code-view-a.txt",
+				size: 3,
+			});
+			for (const link of ["code-view-leak", "code-view-env"]) {
+				await expect(code.file(scope, projectId, link)).rejects.toBeInstanceOf(
+					BadRequestException,
+				);
+			}
+			const snapshot = await code.snapshot(scope, projectId);
+			const prefetched = snapshot.files.map((file) => file.path);
+			expect(prefetched).toContain("code-view-a.txt");
+			expect(prefetched).not.toContain("code-view-big.txt");
+			expect(prefetched).not.toContain("code-view-leak");
+			expect(prefetched).not.toContain("code-view-env");
 		} finally {
 			await provider.destroy(projectId);
 		}

@@ -1,7 +1,8 @@
 /**
  * Pure helpers of the Code view (WANDIT-271): the path rule, the file tree,
- * and the file the view opens first. `CodeService` calls them with the
- * `git ls-files` paths of the sandbox worktree. This file does no I/O.
+ * the file the view opens first, and the files the tree answer carries.
+ * `CodeService` calls them with the `git ls-files` paths of the sandbox
+ * worktree. This file does no I/O.
  */
 import type { CodeTreeNode } from "@wandit/contracts";
 
@@ -11,6 +12,16 @@ import type { CodeTreeNode } from "@wandit/contracts";
  * first file of the tree.
  */
 const DEFAULT_FILE_PATHS = ["src/routes/index.tsx", "src/app.tsx"];
+
+/**
+ * Most paths that one prefetch command reads. The paths travel as command
+ * arguments: 300 paths of at most 4096 bytes stay under the Linux
+ * ARG_MAX of about 2 MB.
+ */
+const PREFETCH_MAX_PATHS = 300;
+
+/** 4096 bytes, the Linux PATH_MAX. A longer path cannot name a file. */
+const PREFETCH_MAX_PATH_BYTES = 4_096;
 
 /**
  * True when the Code view may list and read `path`, a path relative to the
@@ -100,6 +111,34 @@ export function pickDefaultFilePath(tree: CodeTreeNode[]): string | null {
 		filePaths[0] ??
 		null
 	);
+}
+
+/**
+ * The files that `GET /code` reads with the tree, so a click on them needs
+ * no request: the default file first, then `src/`, then the others, in
+ * display order. A skipped file still loads on a click through
+ * `GET /code/file`.
+ */
+export function pickPrefetchPaths(tree: CodeTreeNode[]): string[] {
+	const picked = listFilePaths(tree).filter(
+		(path) =>
+			// `.claude/` holds the agent skills: about 140 Markdown files and
+			// 3.5 MB in the web-app template, not app code.
+			!path.startsWith(".claude/") &&
+			Buffer.byteLength(path) <= PREFETCH_MAX_PATH_BYTES,
+	);
+	// The Code view opens the default file first, so the path cap and the
+	// byte budget must not drop it.
+	const defaultPath = pickDefaultFilePath(tree);
+	const isFirst = (path: string) => path === defaultPath;
+	const first = picked.filter(isFirst);
+	const source = picked.filter(
+		(path) => !isFirst(path) && path.startsWith("src/"),
+	);
+	const others = picked.filter(
+		(path) => !isFirst(path) && !path.startsWith("src/"),
+	);
+	return [...first, ...source, ...others].slice(0, PREFETCH_MAX_PATHS);
 }
 
 // Depth first, in display order: the folders of a level before its files.

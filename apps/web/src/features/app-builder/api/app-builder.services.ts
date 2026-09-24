@@ -13,6 +13,7 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type CancelTurnResponse,
+	type CodeFileResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
@@ -390,18 +391,31 @@ export async function getPreviewToken(
 	return previewTokenResponseSchema.parse(data);
 }
 
+/** Maps one file answer of the API to what the Code view shows: text, or binary with no content. */
+function toCodeFile(file: CodeFileResponse): CodeFile {
+	return file.binary
+		? { kind: "binary", path: file.path, size: file.size }
+		: { kind: "text", path: file.path, content: file.content, size: file.size };
+}
+
 /**
  * `GET /api/v2/projects/:id/code` answers the file tree of the running
- * sandbox. A 409 `SANDBOX_NOT_RUNNING` answers null: the server never wakes
- * a sandbox for a read, only the next turn does. `get` is the test seam.
+ * sandbox and the small files the server read with it. A 409
+ * `SANDBOX_NOT_RUNNING` answers null: the server never wakes a sandbox for
+ * a read, only the next turn does. `signal` stops a request that a newer
+ * fetch replaced. `get` is the test seam.
  */
 export async function getCodeSnapshot(
 	projectId: string,
+	signal?: AbortSignal,
 	get: typeof apiClient.get = apiClient.get,
-): Promise<CodeSnapshot | null> {
+): Promise<{ snapshot: CodeSnapshot; files: CodeFile[] } | null> {
 	try {
-		const data = await get<unknown>(appBuilderRoutes.codeSnapshot(projectId));
-		return codeSnapshotResponseSchema.parse(data);
+		const data = await get<unknown>(appBuilderRoutes.codeSnapshot(projectId), {
+			signal,
+		});
+		const { files, ...snapshot } = codeSnapshotResponseSchema.parse(data);
+		return { snapshot, files: files.map(toCodeFile) };
 	} catch (error) {
 		if (isApiClientError(error) && error.code === "SANDBOX_NOT_RUNNING") {
 			return null;
@@ -413,21 +427,21 @@ export async function getCodeSnapshot(
 /**
  * `GET /api/v2/projects/:id/code/file?path=` answers one file. The three
  * file errors map to a `CodeFile` kind the viewer shows; every other
- * failure, a 409 included, propagates. `get` is the test seam.
+ * failure, a 409 included, propagates. `signal` stops the request when the
+ * user leaves the file. `get` is the test seam.
  */
 export async function getCodeFile(
 	projectId: string,
 	path: string,
+	signal?: AbortSignal,
 	get: typeof apiClient.get = apiClient.get,
 ): Promise<CodeFile> {
 	try {
 		const data = await get<unknown>(appBuilderRoutes.codeFile(projectId), {
 			query: { path },
+			signal,
 		});
-		const file = codeFileResponseSchema.parse(data);
-		return file.binary
-			? { kind: "binary", path: file.path }
-			: { kind: "text", path: file.path, content: file.content };
+		return toCodeFile(codeFileResponseSchema.parse(data));
 	} catch (error) {
 		// A hand-typed URL can name a path the API refuses, like `.env`. For
 		// the user it is a file the Code view cannot show.
