@@ -232,6 +232,39 @@ describe("useBuilderThread", () => {
 		});
 	});
 
+	it("posts the tray answers with the summary as the message", async () => {
+		const fake = createDeps();
+		const { result } = renderThread(fake.deps);
+		await waitForResume(fake, result);
+		const answers = [
+			{
+				toolCallId: "call-1",
+				questionId: "question-0",
+				action: "delegated" as const,
+				optionIds: [],
+				text: "",
+				files: [],
+			},
+		];
+
+		act(() => {
+			result.current.answerQuestions({ message: "Decide for me", answers });
+		});
+
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "POST"),
+			).toBe(true),
+		);
+		const post = fake.requests.find(
+			(request) => request.init?.method === "POST",
+		);
+		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
+			message: "Decide for me",
+			answers,
+		});
+	});
+
 	it("shows the no-credits sentence when the turn POST answers 402", async () => {
 		const fake = createDeps({ postResponds402: true });
 		const { result } = renderThread(fake.deps);

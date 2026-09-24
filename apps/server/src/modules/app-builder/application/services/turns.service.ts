@@ -195,9 +195,15 @@ export class TurnsService {
 		}
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
+		// Security check: an answer file reaches the sandbox copy, so it
+		// passes the same owner check as an attachment.
+		assertWanditHostedAttachments(
+			scope.userId,
+			body.answers?.flatMap((answer) => answer.files),
+		);
 
 		// A paused approval card must be answered before a new turn starts;
-		// a paused question is answered by the message text itself.
+		// a paused question is answered by `answers` or by the message text.
 		const waitingTurn = await this.turns.findWaitingForUser(projectId);
 		if (
 			waitingTurn?.status === "waiting_for_approval" &&
@@ -305,6 +311,7 @@ export class TurnsService {
 				model,
 			);
 			const spec: BuilderTurnSpec = {
+				answers: body.answers ?? [],
 				approval: body.approval,
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,

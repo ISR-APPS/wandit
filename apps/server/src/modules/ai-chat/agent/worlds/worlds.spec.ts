@@ -2,7 +2,12 @@ import { readdirSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { designWorlds, formatWorldCandidates, getWorld } from "./index";
+import {
+	designWorlds,
+	formatWorldCandidates,
+	getWorld,
+	worldCardOf,
+} from "./index";
 
 const PREVIEW_KEYS = ["accent", "fontFamily", "ground", "ink", "sampleWord"];
 
@@ -68,6 +73,18 @@ describe("design worlds library", () => {
 		if (!first) throw new Error("worlds library is empty");
 		expect(getWorld(` ${first.id.toUpperCase()} `)).toBe(first);
 		expect(getWorld("no-such-world")).toBeUndefined();
+	});
+
+	it("worldCardOf gives the card face of a known world and nothing else", () => {
+		const zellige = getWorld("zellige");
+		if (!zellige?.preview) throw new Error("zellige has no preview");
+		expect(worldCardOf("zellige")).toEqual({
+			id: "zellige",
+			name: zellige.name,
+			preview: zellige.preview,
+			tagline: zellige.tagline,
+		});
+		expect(worldCardOf("no-such-world")).toBeUndefined();
 	});
 
 	it("does not call the primary hue accent when --accent is a ground token", () => {

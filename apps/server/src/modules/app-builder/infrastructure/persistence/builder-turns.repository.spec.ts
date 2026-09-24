@@ -227,7 +227,7 @@ describe("BuilderTurnsRepository active-status reads", () => {
 		expect(params).toEqual(["project-1", "queued", "running", "cancelling"]);
 	});
 
-	it("findActiveForChat adds waiting and the user-blocked statuses", async () => {
+	it("findActiveForChat adds waiting but not the paused statuses", async () => {
 		const { captured, repository } = selectClient([]);
 
 		await repository.findActiveForChat("chat-1");
@@ -239,8 +239,6 @@ describe("BuilderTurnsRepository active-status reads", () => {
 			"waiting",
 			"running",
 			"cancelling",
-			"waiting_for_answer",
-			"waiting_for_approval",
 		]);
 	});
 
@@ -413,7 +411,7 @@ describe("BuilderTurnsRepository.create", () => {
 			projectId: "project-1",
 			requestKey: "turn-1",
 			sessionId: "session-1",
-			spec: { attachments: [], composer: null, message: "hi" },
+			spec: { answers: [], attachments: [], composer: null, message: "hi" },
 			status: "queued",
 			userId: "user-1",
 		});
@@ -439,7 +437,7 @@ describe("BuilderTurnsRepository.create", () => {
 			projectId: "project-1",
 			requestKey: "turn-1",
 			sessionId: "session-1",
-			spec: { attachments: [], composer: null, message: "hi" },
+			spec: { answers: [], attachments: [], composer: null, message: "hi" },
 			status: "queued",
 			userId: "user-1",
 		});
@@ -463,7 +461,7 @@ describe("BuilderTurnsRepository.create", () => {
 				projectId: "project-1",
 				requestKey: "turn-2",
 				sessionId: "session-1",
-				spec: { attachments: [], composer: null, message: "hi" },
+				spec: { answers: [], attachments: [], composer: null, message: "hi" },
 				status: "queued",
 				userId: "user-1",
 			}),

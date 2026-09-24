@@ -12,6 +12,7 @@ import {
 	type CreateTurnResponse,
 	createTurnResponseSchema,
 	type TurnApprovalAnswer,
+	type TurnQuestionAnswer,
 } from "@wandit/contracts";
 import type { ChatStatus } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,12 +29,14 @@ export type TurnEstimate = NonNullable<CreateTurnResponse["estimate"]>;
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
 	/**
-	 * Message text for a plain turn, the option label for a `data-question`
-	 * answer, or "" for a `data-approval` answer.
+	 * Message text for a plain turn, a short summary of the answers for a
+	 * `data-question` round, or "" for a `data-approval` answer.
 	 */
 	text: string;
 	/** Decision answering a pending `data-approval` card. */
 	approval?: TurnApprovalAnswer;
+	/** One answer per open `data-question` card, from the request tray. */
+	answers?: TurnQuestionAnswer[];
 	/** Paid model id the user picked for this turn; absent uses the deploy default. */
 	model?: string;
 };
@@ -191,6 +194,7 @@ export function useBuilderChat(
 				{
 					body: {
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),
+						...(sendInput.answers ? { answers: sendInput.answers } : {}),
 						...(sendInput.model ? { model: sendInput.model } : {}),
 					},
 				},

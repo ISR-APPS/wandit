@@ -11,6 +11,7 @@ import type {
 	BuilderTurnStatus,
 	ComposerMetadata,
 	FileRef,
+	TurnQuestionAnswer,
 } from "@wandit/contracts";
 import { and, asc, eq, inArray, notInArray, sql } from "@wandit/db";
 import { builderTurns } from "@wandit/db/schema/builder-turns";
@@ -36,8 +37,13 @@ export type BuilderTurnRow = typeof builderTurns.$inferSelect;
  * reads it back; later edits of the chat never change what a turn meant.
  */
 export type BuilderTurnSpec = {
-	/** The answer to a `data-approval` card; `message` answers a question card. */
+	/** The answer to a `data-approval` card. */
 	approval?: { approvalId: string; approved: boolean };
+	/**
+	 * The answers to the `data-question` cards, one per question. Empty when
+	 * the user sent a plain message; the message then answers the cards.
+	 */
+	answers: TurnQuestionAnswer[];
 	/** Attachment refs the user sent with the prompt, in composer order. */
 	attachments: FileRef[];
 	/** Composer metadata (mode, skills); null when the user sent none. */
@@ -254,8 +260,8 @@ export class BuilderTurnsRepository {
 	}
 
 	/**
-	 * All non-terminal rows of one chat, including parked `waiting` rows.
-	 * The history filter uses it to hide in-flight assistant messages.
+	 * The rows of one chat whose answer still streams: the active slot plus
+	 * parked `waiting` rows. The history filter hides their assistant rows.
 	 */
 	async findActiveForChat(chatId: string): Promise<BuilderTurnRow[]> {
 		return this.db

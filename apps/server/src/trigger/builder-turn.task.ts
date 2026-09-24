@@ -13,7 +13,12 @@ import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 import { z } from "zod";
 
-import { contentTypeFor, putSiteFile } from "../infrastructure/storage/r2";
+import {
+	contentTypeFor,
+	getObjectBytes,
+	publicAssetKeyFromUrl,
+	putSiteFile,
+} from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
 import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
@@ -203,6 +208,12 @@ export const builderTurnTask = schemaTask({
 							.settledBalance,
 					// `ProductSettingsService.get` caches 30 s; the tick reads it.
 					readV2Enabled: async () => (await settings.get()).v2BuilderEnabled,
+					// Any URL under R2_PUBLIC_BASE_URL gives a key. TurnsService.create
+					// checks the upload owner first.
+					readUpload: async (url) => {
+						const key = publicAssetKeyFromUrl(url);
+						return key === null ? null : getObjectBytes(key);
+					},
 					resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 					sandboxSessions,
 					sandboxes,

@@ -34,10 +34,16 @@ describe("BuilderHostToolRegistry.build", () => {
 		const toolSet = await registry.build(fixture.context);
 
 		expect(Object.keys(toolSet.tools).sort()).toEqual(
-			[...backendToolNames, "generate_image", "request_network_host"].sort(),
+			[
+				...backendToolNames,
+				"ask_user",
+				"generate_image",
+				"request_network_host",
+			].sort(),
 		);
 		expect(toolSet.toolApproval).toEqual({
 			apply_destructive_migration: "user-approval",
+			ask_user: "not-applicable",
 			apply_migration: "not-applicable",
 			deploy_function: "not-applicable",
 			generate_image: "not-applicable",

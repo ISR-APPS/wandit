@@ -270,6 +270,16 @@ function toWorldCard(world: DesignWorld): WorldCard | undefined {
 	};
 }
 
+/**
+ * The card face of one world id, or undefined for an unknown id or a world
+ * without a preview. The V2 builder turn calls it for `ask_user` options
+ * that carry a `worldId`.
+ */
+export function worldCardOf(id: string): WorldCard | undefined {
+	const world = getWorld(id);
+	return world === undefined ? undefined : toWorldCard(world);
+}
+
 function toWorldCards(worlds: DesignWorld[]): WorldCard[] {
 	// Dedupe by id: a kind "both" world can be sampled into two sections.
 	const cards = new Map<string, WorldCard>();

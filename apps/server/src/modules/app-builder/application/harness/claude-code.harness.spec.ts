@@ -5,6 +5,7 @@ import type {
 	HarnessAgentSettings,
 } from "@ai-sdk/harness/agent";
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code";
+import type { HarnessPendingInteraction } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
 	ToolApprovalResponse,
@@ -72,6 +73,24 @@ const CONTINUE_STATE: HarnessAgentContinueTurnState = {
 	specificationVersion: "harness-v1",
 	turnSettings: { skills: [], tools: [] },
 	type: "continue-turn",
+};
+
+/** The question card `CONTINUE_STATE` waits on, as the envelope stores it. */
+const PENDING_COLOR_QUESTION: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			id: "question-1",
+			kind: "single-choice",
+			options: [
+				{ id: "option-1", label: "Blue" },
+				{ id: "option-2", label: "Green" },
+			],
+			question: "Which color?",
+		},
+	],
+	tool: "askUserQuestions",
+	toolCallId: "call-1",
 };
 
 function usage(
@@ -214,6 +233,8 @@ describe("ClaudeCodeHarness.createSession", () => {
 			HARNESS_WORK_DIR,
 		);
 		expect(captured.agentSettings?.permissionMode).toBe("allow-all");
+		// The model asks through ask_user only; the built-in tool is off.
+		expect(captured.agentSettings?.inactiveTools).toEqual(["askUserQuestions"]);
 		expect(captured.agentSettings?.model).toBe("anthropic/claude-sonnet-5");
 		expect(captured.agentSettings?.instructions).toBe(
 			"Build the app in these languages only: ar, fr.",
@@ -263,11 +284,15 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 	it("parses the stored payload and passes resumeFrom", async () => {
 		const { captured, harness } = setup();
 
-		await harness.resumeSession(sessionInput(), {
-			harness: "claude_code",
-			payload: JSON.stringify(RESUME_STATE),
-			pending: [],
-		});
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(RESUME_STATE),
+				pending: [],
+			},
+			{ dropPausedTurn: false },
+		);
 
 		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 		expect(captured.createOptions?.sessionId).toBe("chat-1");
@@ -276,40 +301,52 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 	it("resumes a suspended turn through continueFrom, not resumeFrom", async () => {
 		const { captured, harness } = setup();
 
-		await harness.resumeSession(sessionInput(), {
-			harness: "claude_code",
-			payload: JSON.stringify(CONTINUE_STATE),
-			pending: [
-				{
-					kind: "question",
-					questions: [
-						{
-							id: "question-1",
-							options: [
-								{ id: "option-1", label: "Blue" },
-								{ id: "option-2", label: "Green" },
-							],
-							question: "Which color?",
-						},
-					],
-					toolCallId: "call-1",
-				},
-			],
-		});
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(CONTINUE_STATE),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ dropPausedTurn: false },
+		);
 
 		expect(captured.createOptions?.continueFrom).toEqual(CONTINUE_STATE);
 		expect(captured.createOptions?.resumeFrom).toBeUndefined();
+	});
+
+	it("resumes the thread between turns when the bridge of a suspended turn is lost", async () => {
+		const { captured, harness } = setup();
+
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(CONTINUE_STATE),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ dropPausedTurn: true },
+		);
+
+		// Same Claude conversation (`data`), no pending lists, no continueFrom.
+		expect(captured.createOptions?.resumeFrom).toEqual({
+			data: CONTINUE_STATE.data,
+			harnessId: "claude-code",
+			specificationVersion: "harness-v1",
+			type: "resume-session",
+		});
+		expect(captured.createOptions?.continueFrom).toBeUndefined();
 	});
 
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
 		const { harness } = setup();
 
 		await expect(
-			harness.resumeSession(sessionInput(), {
-				harness: "opencode",
-				payload: "{}",
-				pending: [],
-			}),
+			harness.resumeSession(
+				sessionInput(),
+				{ harness: "opencode", payload: "{}", pending: [] },
+				{ dropPausedTurn: false },
+			),
 		).rejects.toBeInstanceOf(HarnessResumeMismatchError);
 	});
 });
@@ -424,6 +461,7 @@ describe("ClaudeCodeHarness.stream", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -471,6 +509,7 @@ describe("ClaudeCodeHarness.stream", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: true,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -487,6 +526,48 @@ describe("ClaudeCodeHarness.stream", () => {
 				answers: { "question-1": { optionIds: ["option-2"] } },
 			},
 		});
+	});
+
+	it("maps an ask_user answer to its JSON tool result", async () => {
+		const { captured, harness } = setup();
+		const session = await harness.createSession(sessionInput());
+		const output = {
+			answers: [
+				{
+					action: "answered" as const,
+					files: [
+						{
+							filename: "logo.png",
+							mediaType: "image/png",
+							path: "public/uploads/0d1f2a3b-logo.png",
+							url: "https://assets.test/uploads/u/0d1f2a3b-9c/logo.png",
+						},
+					],
+					question: "Which style?",
+					questionId: "question-0",
+					selected: [{ id: "zellige", label: "Warm and crafted" }],
+					text: "",
+				},
+			],
+		};
+
+		for await (const _event of harness.stream(session, {
+			approvals: [],
+			kind: "continue",
+			signal: new AbortController().signal,
+			toolResults: [{ output, tool: "ask_user", toolCallId: "call-7" }],
+		})) {
+			// Drain the stream; only the continue options are under test.
+		}
+
+		expect(captured.continueOptions?.toolResultContinuations).toEqual([
+			{
+				output: { type: "json", value: output },
+				toolCallId: "call-7",
+				toolName: "ask_user",
+				type: "tool-result",
+			},
+		]);
 	});
 });
 
@@ -505,6 +586,7 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 				questions: [
 					{
 						id: "question-1",
+						kind: "single-choice",
 						options: [
 							{ id: "option-1", label: "Blue" },
 							{ id: "option-2", label: "Green" },
@@ -512,6 +594,7 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 						question: "Which color?",
 					},
 				],
+				tool: "askUserQuestions",
 				toolCallId: "call-1",
 			},
 		]);
@@ -540,10 +623,128 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 		expect(state.pending).toEqual([
 			{
 				kind: "question",
-				questions: [{ id: "question-2", options: [], question: "Any notes?" }],
+				questions: [
+					{
+						id: "question-2",
+						kind: "single-choice",
+						options: [],
+						question: "Any notes?",
+					},
+				],
+				tool: "askUserQuestions",
 				toolCallId: "call-2",
 			},
 		]);
+	});
+
+	it("maps a pending ask_user call and cuts it to the card limits", async () => {
+		const { harness, session: innerSession } = setup();
+		const longLabel = "L".repeat(150);
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: [
+				{
+					input: JSON.stringify({
+						questions: [
+							{
+								helper: "  ",
+								kind: "single-choice",
+								options: [
+									{ id: "zellige", label: longLabel, worldId: "zellige" },
+									{ id: "zellige", label: "Twin id" },
+									{ id: "", description: "No id", label: "Empty id" },
+									{ id: "d", label: "D" },
+									{ id: "e", label: "E" },
+									{ id: "f", label: "F" },
+									{ id: "g", label: "Seventh" },
+								],
+								question: "Which style?",
+							},
+							{ maxFiles: 9, question: "Your logo?", kind: "attachments" },
+							{ question: "   " },
+							{ kind: "multi-select", question: "Which pages?" },
+						],
+					}),
+					toolCallId: "call-7",
+					toolName: "ask_user",
+				},
+			],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.pending).toEqual([
+			{
+				kind: "question",
+				questions: [
+					{
+						id: "question-0",
+						kind: "single-choice",
+						options: [
+							{ id: "zellige", label: "L".repeat(120), worldId: "zellige" },
+							{ id: "option-1", label: "Twin id" },
+							{ description: "No id", id: "option-2", label: "Empty id" },
+							{ id: "d", label: "D" },
+							{ id: "e", label: "E" },
+							{ id: "f", label: "F" },
+						],
+						question: "Which style?",
+					},
+					{
+						id: "question-1",
+						kind: "attachments",
+						maxFiles: 6,
+						options: [],
+						question: "Your logo?",
+					},
+					// A choice without options becomes a typed answer.
+					{
+						id: "question-3",
+						kind: "free-text",
+						options: [],
+						question: "Which pages?",
+					},
+				],
+				tool: "ask_user",
+				toolCallId: "call-7",
+			},
+		]);
+	});
+
+	it("gives an ask_user call without a valid question one empty free-text card", async () => {
+		const warn = vi.fn();
+		const { harness, session: innerSession } = setup(undefined, { warn });
+		const inputs = [
+			JSON.stringify({ questions: "not a list" }),
+			"{not json",
+			JSON.stringify({ questions: [] }),
+			JSON.stringify({ questions: [{ question: "   " }] }),
+		];
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: inputs.map((input, index) => ({
+				input,
+				toolCallId: `call-${index}`,
+				toolName: "ask_user",
+			})),
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		// The paused calls still need a tool result, so each gets a card.
+		expect(state.pending).toEqual(
+			inputs.map((_input, index) => ({
+				kind: "question",
+				questions: [
+					{ id: "question-0", kind: "free-text", options: [], question: "" },
+				],
+				tool: "ask_user",
+				toolCallId: `call-${index}`,
+			})),
+		);
+		expect(warn).toHaveBeenCalledTimes(4);
 	});
 
 	it("maps a pending host-tool call to an approval interaction", async () => {
@@ -627,6 +828,7 @@ describe("ClaudeCodeHarness.detach", () => {
 				questions: [
 					{
 						id: "question-1",
+						kind: "single-choice",
 						options: [
 							{ id: "option-1", label: "Blue" },
 							{ id: "option-2", label: "Green" },
@@ -634,6 +836,7 @@ describe("ClaudeCodeHarness.detach", () => {
 						question: "Which color?",
 					},
 				],
+				tool: "askUserQuestions",
 				toolCallId: "call-1",
 			},
 		]);

@@ -49,25 +49,32 @@ The host machine runs the session. You write code; the host runs it.
 
 - The brief names a page, a section, a style, or a fix: build it.
 - A design world is already picked: load its skill and apply it.
-- No world is picked: ask the user, or pick the closest world and say so.
+- No world is picked: ask the user with 2-4 world options, or pick the closest world and say so.
 
 ## When to ask the user
 
 - A fact is missing: price, phone, address, text content, image.
 - A business decision is open: which language, which product, which offer.
 - Do not ask for things the brief already answers.
-- Batch related questions in one ask_user call.
+- Put every question of one step in one ask_user call.
 
 ## ask_user contract
 
 - The tool name is `mcp__harness-tools__ask_user`.
-- Input shape: `{ question, options?, kind?, helper? }`.
+- Input shape: `{ questions: [{ question, kind?, options?, helper?, maxFiles? }] }`.
+- One call holds every question of one step, at most 4. Never call it twice in one reply.
 - `kind` is one of `single-choice`, `multi-select`, `free-text`, `attachments`.
-- `question` is one clear sentence in the user's language.
-- `options` is a list of `{ id, label, description? }`, at most 6.
+- `question` is one clear sentence in the user's language, at most 300 characters.
+- `options` is a list of `{ id, label, description?, worldId? }`, at most 6.
 - Zero options means a free-text question. The user can always type an answer.
 - `helper` is one short line shown under the question.
-- Ask at most when blocked. Batch related questions in one call.
+- Design world choice: `single-choice` with 2-4 options. Each `worldId` is a world skill id.
+- Images, logos, photos: `kind: "attachments"` with `maxFiles` (1 to 6).
+- The result is `{ answers: [{ questionId, question, action, selected, text, files }] }`.
+- `action` is `answered`, `delegated` (you decide), or `dismissed` (skipped; follow `text`).
+- `files[].path` is the copy in `public/uploads/<name>`. Read that file to see it.
+- In app code, use the URL `/uploads/<name>`: Vite serves `public/` at the site root.
+- Ask only when blocked.
 
 ## File layout
 

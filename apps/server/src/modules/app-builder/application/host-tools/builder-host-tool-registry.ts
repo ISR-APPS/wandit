@@ -1,10 +1,10 @@
 /**
  * The real `HostToolRegistry` of the builder turn (WANDIT-169).
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
- * the per-turn tool set the harness hands to the agent: `generate_image`,
- * `request_network_host`, and the seven backend tools of WANDIT-186. The
- * tools run in the task process, so platform and partner secrets stay out
- * of the sandbox.
+ * the per-turn tool set the harness hands to the agent: `ask_user`,
+ * `generate_image`, `request_network_host`, and the seven backend tools of
+ * WANDIT-186. The tools run in the task process, so platform and partner
+ * secrets stay out of the sandbox.
  */
 import type {
 	HostToolContext,
@@ -12,6 +12,7 @@ import type {
 	HostToolSet,
 } from "../../domain/ports/host-tools";
 import type { ProjectNetworkHostsRepository } from "../../infrastructure/persistence/project-network-hosts.repository";
+import { ASK_USER_TOOL_NAME, createAskUserTool } from "./ask-user.host-tool";
 import {
 	createApplyDestructiveMigrationTool,
 	createApplyMigrationTool,
@@ -56,6 +57,8 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 			// The harness reads approval per tool name, so each write the user
 			// must approve is its own tool with "user-approval".
 			toolApproval: {
+				// The questions themselves are the user's turn; no approval first.
+				[ASK_USER_TOOL_NAME]: "not-applicable",
 				apply_destructive_migration: "user-approval",
 				apply_migration: "not-applicable",
 				deploy_function: "not-applicable",
@@ -68,6 +71,7 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 				set_secret: "not-applicable",
 			},
 			tools: {
+				[ASK_USER_TOOL_NAME]: createAskUserTool(),
 				apply_destructive_migration: createApplyDestructiveMigrationTool(
 					this.deps,
 					context,

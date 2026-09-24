@@ -101,4 +101,54 @@ describe("Composer", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 		expect(screen.queryByText("Working on Pass screen")).toBeNull();
 	});
+
+	it("renders the top slot above the textarea and reports each draft change", () => {
+		const onDraftChange = vi.fn();
+		const { textarea } = renderComposer({
+			topSlot: createElement("p", null, "Which style?"),
+			onDraftChange,
+		});
+		expect(screen.getByText("Which style?")).toBeTruthy();
+		fireEvent.change(textarea, { target: { value: "Green" } });
+		expect(onDraftChange).toHaveBeenLastCalledWith("Green");
+	});
+
+	it("answers the tray with an empty draft when the override allows it", () => {
+		const onSubmit = vi.fn();
+		const { onSend } = renderComposer({
+			submitOverride: {
+				label: "Choose this option",
+				disabled: false,
+				onSubmit,
+			},
+		});
+		expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Choose this option" }));
+		expect(onSubmit).toHaveBeenCalledWith("");
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
+	it("sends the typed draft to the override on Enter and clears it", () => {
+		const onSubmit = vi.fn();
+		const { textarea } = renderComposer({
+			submitOverride: { label: "Answer", disabled: false, onSubmit },
+		});
+		typeAndEnter(textarea, "  Use green  ");
+		expect(onSubmit).toHaveBeenCalledWith("Use green");
+		expect(textarea.value).toBe("");
+	});
+
+	it("locks the answer button while the override is incomplete", () => {
+		const onSubmit = vi.fn();
+		const { textarea } = renderComposer({
+			submitOverride: { label: "Choose an option", disabled: true, onSubmit },
+		});
+		typeAndEnter(textarea, "text");
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByRole("button", { name: "Choose an option" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+	});
 });

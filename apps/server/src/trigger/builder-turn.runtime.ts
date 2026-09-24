@@ -5,7 +5,9 @@
  * stream → commit → settle → promote.
  */
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import type {
+	AskUserHostToolOutput,
 	BillingPlanId,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
@@ -13,6 +15,7 @@ import type {
 	TurnAssistantMessageMetadata,
 	TurnQuestionData,
 	TurnStreamPhase,
+	TurnThoughtData,
 } from "@wandit/contracts";
 import {
 	builderTurnSpecSchema,
@@ -20,6 +23,7 @@ import {
 	supabaseProjectUrl,
 } from "@wandit/contracts";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import { worldCardOf } from "../modules/ai-chat/agent/worlds";
 import {
 	captureAiError,
 	classifyAiError,
@@ -50,6 +54,12 @@ import type {
 	TurnStreamEventInput,
 } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
+import {
+	askUserOutputOf,
+	builtinQuestionResultOf,
+	fallbackPromptOf,
+	uploadCopyPath,
+} from "../modules/app-builder/domain/question-answers";
 import {
 	DEFAULT_PER_TURN_CAP_CREDITS,
 	monthStartUtc,
@@ -102,6 +112,9 @@ const DEV_COMMAND = "pnpm run dev";
 const DEV_PORT = 5173;
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
+// 15 MB, the image upload limit. A bigger answer file is a video or an
+// audio file, and a copy in public/ grows every commit of the app repo.
+const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
 
 /** Why the turn stopped on its own. */
 type AbortCode =
@@ -266,6 +279,11 @@ export type BuilderTurnDeps = {
 	) => Promise<CommitTurnResult>;
 	/** `gitStore`, `appCommits`, `putPatch` the task builds once. */
 	commitDeps: CommitTurnDeps;
+	/**
+	 * The bytes of one Wandit upload URL, or null when the URL names no
+	 * upload object. The task binds `publicAssetKeyFromUrl` + `getObjectBytes`.
+	 */
+	readUpload: (url: string) => Promise<Uint8Array | null>;
 	/** `ChatsRepository.insertTurnAssistantMessage` bound to the repo. */
 	insertAssistantMessage: (input: {
 		chatId: string;
@@ -1041,46 +1059,57 @@ export async function runBuilderTurn(
 			parsedResume?.success === true ? parsedResume.data : null;
 
 		// The user's words, or the attachment URLs when the message is empty.
+		// Answer files count as attachments here too.
+		const sentFiles = [
+			...spec.attachments,
+			...spec.answers.flatMap((answer) => answer.files),
+		];
 		const prompt =
 			spec.message.trim().length > 0
 				? spec.message
-				: `See the attached files.\n${spec.attachments
-						.map((attachment) => attachment.url)
-						.join("\n")}`;
+				: sentFiles.length > 0
+					? `See the attached files.\n${sentFiles
+							.map((attachment) => attachment.url)
+							.join("\n")}`
+					: // An approval or answers alone have no text: the cards carry them.
+						"Continue.";
 		// The pending cards of a suspended turn make a `continue` input.
-		// The message text and `spec.approval` carry the answers.
-		let continuation: HarnessTurnInput | null = null;
+		// `spec.answers`, the message text, and `spec.approval` carry the
+		// answers.
+		let continuation: Extract<HarnessTurnInput, { kind: "continue" }> | null =
+			null;
 		// The prompt a fresh session gets when the suspended one cannot
-		// resume: the answer still reaches the agent.
+		// resume: the answers still reach the agent. Set after the answer
+		// files are in the sandbox, so it can name their paths.
 		let continuationFallbackPrompt: string | null = null;
 		if (resumeState !== null && resumeState.pending.length > 0) {
 			const text = prompt.trim();
 			const toolResults: HarnessQuestionResult[] = [];
 			const approvals: { approvalId: string; approved: boolean }[] = [];
 			for (const interaction of resumeState.pending) {
-				if (interaction.kind === "question") {
-					// LIMIT: one answer per turn; a call with several questions
-					// gets the first answered and the rest re-asked by the agent.
-					// Upgrade: one card per question with its own answer.
-					const question = interaction.questions[0];
-					if (question === undefined) {
-						continue;
-					}
-					const option = question.options.find(
-						(candidate) =>
-							candidate.label.trim().toLowerCase() === text.toLowerCase(),
-					);
+				if (
+					interaction.kind === "question" &&
+					interaction.tool === "ask_user"
+				) {
 					toolResults.push({
-						answers: {
-							[question.id]:
-								option === undefined
-									? { freeform: text, optionIds: [] }
-									: { optionIds: [option.id] },
-						},
-						partial: interaction.questions.length > 1,
+						output: askUserOutputOf(interaction, spec.answers, {
+							attachments: spec.attachments,
+							message: spec.message,
+						}),
+						tool: "ask_user",
 						toolCallId: interaction.toolCallId,
 					});
-					continuationFallbackPrompt ??= `Answer to your question "${question.question}": ${text}`;
+				} else if (interaction.kind === "question") {
+					// A chat paused on the built-in tool before `ask_user` existed:
+					// the tray answers each card, a plain message the first one.
+					const result = builtinQuestionResultOf(
+						interaction,
+						spec.answers,
+						text,
+					);
+					if (result !== null) {
+						toolResults.push(result);
+					}
 				} else {
 					// An approval the body does not name counts as denied.
 					const approved =
@@ -1091,9 +1120,6 @@ export async function runBuilderTurn(
 						approvalId: interaction.approvalId,
 						approved,
 					});
-					continuationFallbackPrompt ??= `The user ${
-						approved ? "approved" : "denied"
-					} the ${interaction.toolName} call. Continue.`;
 				}
 			}
 			continuation = {
@@ -1228,6 +1254,42 @@ export async function runBuilderTurn(
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
 		stamps.sandboxEnd = deps.now();
+		// The answer files enter the sandbox before the agent reads the
+		// answers, so the tool result and the fallback text name their paths.
+		if (continuation !== null && resumeState !== null) {
+			const toolResults: HarnessQuestionResult[] = [];
+			for (const result of continuation.toolResults) {
+				toolResults.push(
+					result.tool === "ask_user"
+						? {
+								...result,
+								output: await copyAnswerFiles(
+									{ logger, readUpload: deps.readUpload, sandbox, turnId },
+									result.output,
+								),
+							}
+						: result,
+				);
+			}
+			continuation = { ...continuation, toolResults };
+			const fallback = fallbackPromptOf({
+				approvals: continuation.approvals,
+				messageText: prompt.trim(),
+				pending: resumeState.pending,
+				results: toolResults,
+			});
+			// No answer line: a fresh session gets the plain prompt instead.
+			continuationFallbackPrompt = fallback === "" ? null : fallback;
+		}
+		// After a sandbox stop, the rerun bridge matches a host-tool result
+		// only by the old call id, so an ask_user answer goes as text on the
+		// same thread. An approval keeps the continue path: a text would make
+		// the agent call the tool again and ask for a new approval.
+		const answersAsText =
+			sandboxWoke &&
+			continuationFallbackPrompt !== null &&
+			continuation?.toolResults.some((result) => result.tool === "ask_user") ===
+				true;
 
 		// The note applies only when no active backend row exists.
 		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
@@ -1259,6 +1321,7 @@ export async function runBuilderTurn(
 					const resumed = await deps.harness.resumeSession(
 						sessionInput,
 						stored,
+						{ dropPausedTurn: answersAsText },
 					);
 					// A resumed session can hold an unfinished turn with no card to
 					// answer. Causes: a detach mid-generation, or a row from before
@@ -1287,10 +1350,11 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Two sentences; the template knows every other rule.
+			// Three sentences; the template knows every other rule.
 			instructions:
 				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
-				"Ask the user with the AskUserQuestion tool: one question per call, at most 4 options, only when you cannot decide yourself.",
+				"Ask the user with the ask_user tool only when you cannot decide yourself: put every question of one step in ONE call. " +
+				"Write the Bash and Agent description in the user's language: the chat shows it to the user.",
 			model,
 			sandbox,
 		};
@@ -1309,13 +1373,17 @@ export async function runBuilderTurn(
 		startTimers(model);
 		stamps.streamStart = deps.now();
 		// A continued suspended turn gets the user's answers as tool
-		// results; a lost session still hears them as plain text.
+		// results; a lost session or a lost bridge still hears them as text.
 		let turnInput: HarnessTurnInput;
-		if (continuation !== null && started.resumed) {
+		if (continuation !== null && started.resumed && !answersAsText) {
 			turnInput = continuation;
 		} else if (continuation !== null && continuationFallbackPrompt !== null) {
 			logger.warn(
-				`builder-turn.continuation-fallback turnId=${turnId}: suspended session lost`,
+				`builder-turn.continuation-fallback turnId=${turnId}: ${
+					started.resumed
+						? "bridge lost in a sandbox stop"
+						: "suspended session lost"
+				}`,
 			);
 			turnInput = {
 				kind: "prompt",
@@ -1326,12 +1394,37 @@ export async function runBuilderTurn(
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
 		}
 
+		// reasoning chunk id → the ms clock at its `reasoning-start`.
+		const reasoningStartedAt = new Map<string, number>();
 		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
 				stamps.firstPart ??= lastPartAt;
 				await chunkWriter.write(event.chunk);
 				await writeEvent({ data: event.chunk, type: "part" });
+				if (event.chunk.type === "reasoning-start") {
+					reasoningStartedAt.set(event.chunk.id, lastPartAt);
+				}
+				const startedAt =
+					event.chunk.type === "reasoning-end"
+						? reasoningStartedAt.get(event.chunk.id)
+						: undefined;
+				// The UI shows "Thought for Ns" on the block. No chunk carries a
+				// time, so the task stamps the duration as its own part. The
+				// chunk writer keeps it in the stored message too.
+				if (event.chunk.type === "reasoning-end" && startedAt !== undefined) {
+					const thought: UIMessageChunk = {
+						data: {
+							reasoningId: event.chunk.id,
+							// ms → whole seconds; a block under 0.5 s still shows 1 s.
+							seconds: Math.max(1, Math.round((lastPartAt - startedAt) / 1000)),
+						} satisfies TurnThoughtData,
+						id: `thought-${event.chunk.id}`,
+						type: "data-thought",
+					};
+					await chunkWriter.write(thought);
+					await writeEvent({ data: thought, type: "part" });
+				}
 				continue;
 			}
 			if (event.type === "usage") {
@@ -1432,10 +1525,31 @@ export async function runBuilderTurn(
 						const part: UIMessage["parts"][number] = {
 							data: {
 								answer: null,
-								options: question.options.map((option) => option.label),
+								kind: question.kind,
+								options: question.options.map((option) => {
+									// A design world option shows the world's preview card.
+									const card =
+										option.worldId === undefined
+											? undefined
+											: worldCardOf(option.worldId);
+									return {
+										id: option.id,
+										label: option.label,
+										...(option.description === undefined
+											? {}
+											: { description: option.description }),
+										...(card === undefined ? {} : { card }),
+									};
+								}),
 								question: question.question,
 								questionId: question.id,
 								toolCallId: interaction.toolCallId,
+								...(question.helper === undefined
+									? {}
+									: { helper: question.helper }),
+								...(question.maxFiles === undefined
+									? {}
+									: { maxFiles: question.maxFiles }),
 							} satisfies TurnQuestionData,
 							id: `${interaction.toolCallId}:${question.id}`,
 							type: "data-question",
@@ -1642,6 +1756,78 @@ export async function runBuilderTurn(
 		// Remove BEFORE the task ends its pool: a late onCancel must not
 		// write against a closed database.
 		builderTurnCancelFinalizers.delete(runId);
+	}
+}
+
+/** What the answer file copy needs from the run. */
+type AnswerCopyContext = {
+	logger: BuilderTurnLogger;
+	readUpload: BuilderTurnDeps["readUpload"];
+	/** The live project sandbox; the copy goes under its `workspaceDir`. */
+	sandbox: SandboxHandle;
+	turnId: string;
+};
+
+/**
+ * Copies the answer files of one `ask_user` result into the sandbox, one
+ * by one, and sets each `path`. A file that cannot be read, is too big, or
+ * fails the write keeps `path: null`; the agent still gets its URL.
+ */
+async function copyAnswerFiles(
+	context: AnswerCopyContext,
+	output: AskUserHostToolOutput,
+): Promise<AskUserHostToolOutput> {
+	const answers: AskUserHostToolOutput["answers"] = [];
+	for (const answer of output.answers) {
+		const files: AskUserHostToolOutput["answers"][number]["files"] = [];
+		for (const file of answer.files) {
+			files.push({ ...file, path: await copyAnswerFile(context, file.url) });
+		}
+		answers.push({ ...answer, files });
+	}
+	return { answers };
+}
+
+/** One answer file into `public/uploads/`; the project-relative path, or null. */
+async function copyAnswerFile(
+	context: AnswerCopyContext,
+	url: string,
+): Promise<string | null> {
+	const { logger, turnId } = context;
+	const path = uploadCopyPath(url);
+	if (path === null) {
+		logger.warn("builder-turn.answer-file-skipped", {
+			reason: "not an upload url",
+			turnId,
+			url,
+		});
+		return null;
+	}
+	try {
+		const bytes = await context.readUpload(url);
+		if (bytes === null || bytes.byteLength > ANSWER_FILE_MAX_BYTES) {
+			logger.warn("builder-turn.answer-file-skipped", {
+				reason: bytes === null ? "no upload object" : "file too big",
+				turnId,
+				url,
+			});
+			return null;
+		}
+		await context.sandbox.writeFiles([
+			{
+				content: bytes,
+				path: posix.join(context.sandbox.workspaceDir, path),
+			},
+		]);
+		return path;
+	} catch (error) {
+		// The answer still reaches the agent with the URL; only the copy fails.
+		logger.warn("builder-turn.answer-file-copy-failed", {
+			message: messageOf(error),
+			turnId,
+			url,
+		});
+		return null;
 	}
 }
 

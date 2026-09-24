@@ -333,6 +333,37 @@ describe("TurnsService.create", () => {
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
+	it("rejects answer files the user did not upload through Wandit", async () => {
+		// SAFETY: env is a mutable object at runtime; the afterEach hook at the
+		// top of the file restores this value.
+		(env as { R2_PUBLIC_BASE_URL?: string }).R2_PUBLIC_BASE_URL =
+			"https://assets.example.com/public";
+		const { metering, service, turns } = setup();
+
+		await expect(
+			service.create(SCOPE, "project-1", {
+				...BODY,
+				answers: [
+					{
+						action: "answered",
+						files: [
+							{
+								mediaType: "image/png",
+								url: "https://assets.example.com/public/uploads/other-user/u/logo.png",
+							},
+						],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+			}),
+		).rejects.toThrow(BadRequestException);
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
 	it("reserves the agent_session hold, locks, queues, and starts the task", async () => {
 		const { chats, lock, metering, service, starter, turns } = setup();
 
@@ -787,6 +818,32 @@ describe("TurnsService.create", () => {
 
 		expect(turns.create).toHaveBeenCalledTimes(1);
 		expect(turns.create.mock.calls[0]?.[0]?.spec.approval).toBeUndefined();
+		expect(turns.create.mock.calls[0]?.[0]?.spec.answers).toEqual([]);
+	});
+
+	it("stores the question answers in the turn spec", async () => {
+		const { service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_answer" }),
+		);
+		const answers = [
+			{
+				action: "answered" as const,
+				files: [],
+				optionIds: ["zellige"],
+				questionId: "question-0",
+				text: "",
+				toolCallId: "call-7",
+			},
+		];
+
+		await service.create(SCOPE, "project-1", { ...BODY, answers });
+
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({ answers }),
+			}),
+		);
 	});
 
 	it("adopts the existing first message instead of inserting a new one", async () => {

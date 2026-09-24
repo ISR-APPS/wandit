@@ -25,8 +25,12 @@ import {
 	createClaudeCode,
 } from "@ai-sdk/harness-claude-code";
 import {
+	type AskUserHostToolInput,
+	askUserHostToolInputSchema,
+	askUserHostToolOutputSchema,
 	type HarnessPendingInteraction,
 	harnessResumeStateSchema,
+	resolveAskUserKind,
 } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
@@ -49,12 +53,25 @@ import {
 	HARNESS_WORK_DIR,
 	type HarnessSandboxSession,
 } from "../../domain/ports/sandbox-provider";
+import type { QuestionInteraction } from "../../domain/question-answers";
+import { ASK_USER_TOOL_NAME } from "../host-tools/ask-user.host-tool";
 
 /**
  * The built-in tool the adapter pauses on for a user question. The name
  * is the tool's registered name inside `HarnessAgent`, not our choice.
  */
 const ASK_USER_QUESTIONS_TOOL_NAME = "askUserQuestions";
+
+// The card limits of one `ask_user` call. The tool description tells the
+// model; Claude Code does not enforce MCP schema lengths, so `pendingOf`
+// cuts every value here instead of failing the paused turn.
+const ASK_USER_MAX_QUESTIONS = 4;
+const ASK_USER_MAX_OPTIONS = 6;
+const ASK_USER_MAX_QUESTION_CHARS = 300;
+const ASK_USER_MAX_LABEL_CHARS = 120;
+const ASK_USER_MAX_NOTE_CHARS = 200;
+const ASK_USER_MAX_ID_CHARS = 64;
+const ASK_USER_MAX_FILES = 6;
 
 /** The `HarnessAgentSession` fields the adapter uses; specs fake this. */
 export type ClaudeCodeSessionHandle = Pick<
@@ -189,6 +206,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	async resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
+		options: { dropPausedTurn: boolean },
 	): Promise<HarnessSession> {
 		if (resumeState.harness !== this.kind) {
 			throw new HarnessResumeMismatchError(resumeState.harness, this.kind);
@@ -201,24 +219,41 @@ export class ClaudeCodeHarness implements BuilderHarness {
 
 		const agent = this.buildAgent(input);
 		const sandboxSession = await input.sandbox.harnessSession();
-		const session =
-			parsed.type === "continue-turn"
+		let session: ClaudeCodeSessionHandle;
+		if (parsed.type === "continue-turn") {
+			// SAFETY: zod checked type, harnessId, and specificationVersion
+			// above; the rest is the adapter's own suspendTurn() output.
+			const continueFrom = parsed as HarnessAgentContinueTurnState;
+			session = options.dropPausedTurn
 				? await agent.createSession({
-						// SAFETY: zod checked type, harnessId, and
-						// specificationVersion above; the rest is the adapter's
-						// own suspendTurn() output.
-						continueFrom: parsed as HarnessAgentContinueTurnState,
+						// A stopped sandbox killed the bridge. A rerun cannot deliver
+						// the old host-tool result by id, so the thread resumes between
+						// turns: same Claude conversation, no paused turn. Both state
+						// types share the adapter `data` schema; the pending lists stay
+						// out, and the caller's next prompt carries the answers.
+						resumeFrom: {
+							data: continueFrom.data,
+							harnessId: continueFrom.harnessId,
+							specificationVersion: continueFrom.specificationVersion,
+							type: "resume-session",
+						},
 						sandboxSession,
 						sessionId: input.chatId,
 					})
 				: await agent.createSession({
-						// SAFETY: zod checked type, harnessId, and
-						// specificationVersion above; the rest is the adapter's
-						// own detach() output.
-						resumeFrom: parsed as HarnessAgentResumeSessionState,
+						continueFrom,
 						sandboxSession,
 						sessionId: input.chatId,
 					});
+		} else {
+			session = await agent.createSession({
+				// SAFETY: zod checked type, harnessId, and specificationVersion
+				// above; the rest is the adapter's own detach() output.
+				resumeFrom: parsed as HarnessAgentResumeSessionState,
+				sandboxSession,
+				sessionId: input.chatId,
+			});
+		}
 		this.sessions.set(session.sessionId, { agent, session });
 		return { sessionId: session.sessionId };
 	}
@@ -241,20 +276,35 @@ export class ClaudeCodeHarness implements BuilderHarness {
 							}),
 						),
 						toolResultContinuations: input.toolResults.map(
-							(result): ToolResultPart => ({
-								output: {
-									type: "json",
-									// The parse keeps a malformed caller answer out of
-									// the resumed turn; a bad value throws here.
-									value: harnessV1QuestionsToolOutputSchema.parse({
-										action: result.partial ? "partially-answered" : "answered",
-										answers: result.answers,
-									}),
-								},
-								toolCallId: result.toolCallId,
-								toolName: ASK_USER_QUESTIONS_TOOL_NAME,
-								type: "tool-result",
-							}),
+							(result): ToolResultPart =>
+								result.tool === "ask_user"
+									? {
+											output: {
+												type: "json",
+												// The parse keeps a malformed answer out of the
+												// resumed turn; a bad value throws here.
+												value: askUserHostToolOutputSchema.parse(result.output),
+											},
+											toolCallId: result.toolCallId,
+											toolName: ASK_USER_TOOL_NAME,
+											type: "tool-result",
+										}
+									: {
+											output: {
+												type: "json",
+												// The parse keeps a malformed caller answer out of
+												// the resumed turn; a bad value throws here.
+												value: harnessV1QuestionsToolOutputSchema.parse({
+													action: result.partial
+														? "partially-answered"
+														: "answered",
+													answers: result.answers,
+												}),
+											},
+											toolCallId: result.toolCallId,
+											toolName: ASK_USER_QUESTIONS_TOOL_NAME,
+											type: "tool-result",
+										},
 						),
 					})
 				: await entry.agent.stream({
@@ -296,8 +346,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 
 	/**
 	 * The cards of an unfinished turn: one question card per pending
-	 * `askUserQuestions` call, one approval card per pending host tool.
-	 * Shared by `detach` and `suspendTurn`; an undefined state has no cards.
+	 * `ask_user` or `askUserQuestions` call, one approval card per pending
+	 * host tool. Shared by `detach` and `suspendTurn`; an undefined state
+	 * has no cards.
 	 */
 	private pendingOf(
 		state: HarnessAgentContinueTurnState | undefined,
@@ -308,8 +359,43 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		}
 
 		for (const result of state.pendingToolResults ?? []) {
-			// Only the built-in question tool pauses for a user answer; a
-			// client-side result of another tool is not a card the user sees.
+			if (result.toolName === ASK_USER_TOOL_NAME) {
+				// `input` is the JSON text of the tool call arguments. The model
+				// wrote it, so the schema decides which questions are valid.
+				const parsed = askUserHostToolInputSchema.safeParse(
+					parseJsonText(result.input),
+				);
+				const questions = parsed.success
+					? this.askUserQuestionsOf(parsed.data)
+					: [];
+				if (questions.length === 0) {
+					this.logger.warn(
+						`builder-turn.pending-cards: an ask_user call has no valid question, toolCallId=${result.toolCallId}`,
+					);
+				}
+				pending.push({
+					kind: "question",
+					// The paused call still needs a tool result, or the next turn
+					// drops the session. A free-text card with no text lets the
+					// user type the answer; the reply above it gives the context.
+					questions:
+						questions.length > 0
+							? questions
+							: [
+									{
+										id: "question-0",
+										kind: "free-text",
+										options: [],
+										question: "",
+									},
+								],
+					tool: "ask_user",
+					toolCallId: result.toolCallId,
+				});
+				continue;
+			}
+			// Only the question tools pause for a user answer; a client-side
+			// result of another tool is not a card the user sees.
 			if (result.toolName !== ASK_USER_QUESTIONS_TOOL_NAME) {
 				this.logger.warn(
 					`builder-turn.pending-cards: skipped pending result for ${result.toolName}`,
@@ -325,12 +411,14 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				kind: "question",
 				questions: toolInput.questions.map((question) => ({
 					id: question.id,
+					kind: question.allowMultiple ? "multi-select" : "single-choice",
 					options: (question.options ?? []).map((option) => ({
 						id: option.id,
 						label: option.label,
 					})),
 					question: question.question,
 				})),
+				tool: "askUserQuestions",
 				toolCallId: result.toolCallId,
 			});
 		}
@@ -345,6 +433,74 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			});
 		}
 		return pending;
+	}
+
+	/**
+	 * The questions of one `ask_user` call, cut to the card limits. A
+	 * question without text drops. The ids are `question-N`, the ids the
+	 * answers of the next turn name.
+	 */
+	private askUserQuestionsOf(
+		input: AskUserHostToolInput,
+	): QuestionInteraction["questions"] {
+		return input.questions
+			.slice(0, ASK_USER_MAX_QUESTIONS)
+			.flatMap((question, index): QuestionInteraction["questions"] => {
+				const text = cutText(question.question, ASK_USER_MAX_QUESTION_CHARS);
+				if (text === undefined) {
+					return [];
+				}
+				const seenIds = new Set<string>();
+				const options = question.options
+					.slice(0, ASK_USER_MAX_OPTIONS)
+					.map((option, optionIndex) => {
+						let id = option.id.trim().slice(0, ASK_USER_MAX_ID_CHARS);
+						// The answer names the picked options by id, so an empty or
+						// repeated id gets a position id that no other option holds.
+						for (let n = 0; id === "" || seenIds.has(id); n++) {
+							id =
+								n === 0
+									? `option-${optionIndex}`
+									: `option-${optionIndex}-${n}`;
+						}
+						seenIds.add(id);
+						const description = cutText(
+							option.description,
+							ASK_USER_MAX_NOTE_CHARS,
+						);
+						const worldId = cutText(option.worldId, ASK_USER_MAX_ID_CHARS);
+						return {
+							id,
+							label: option.label.trim().slice(0, ASK_USER_MAX_LABEL_CHARS),
+							...(description === undefined ? {} : { description }),
+							...(worldId === undefined ? {} : { worldId }),
+						};
+					});
+				const helper = cutText(question.helper, ASK_USER_MAX_NOTE_CHARS);
+				const kind = resolveAskUserKind(question);
+				return [
+					{
+						id: `question-${index}`,
+						// A choice without options has nothing to pick; the user types.
+						kind:
+							options.length === 0 &&
+							(kind === "single-choice" || kind === "multi-select")
+								? "free-text"
+								: kind,
+						options,
+						question: text,
+						...(helper === undefined ? {} : { helper }),
+						...(question.maxFiles === undefined
+							? {}
+							: {
+									maxFiles: Math.min(
+										ASK_USER_MAX_FILES,
+										Math.max(1, question.maxFiles),
+									),
+								}),
+					},
+				];
+			});
 	}
 
 	/**
@@ -416,6 +572,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			}),
 			instructions: input.instructions,
 			model: input.model,
+			// The model asks through the `ask_user` host tool only. It carries
+			// the kinds and the world cards; the built-in question tool has none.
+			inactiveTools: [ASK_USER_QUESTIONS_TOOL_NAME],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the
@@ -433,5 +592,30 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			throw new Error(`Unknown harness session ${sessionId}`);
 		}
 		return entry;
+	}
+}
+
+/**
+ * `text` trimmed and cut to `maxChars`, or undefined when it is absent or
+ * empty. The `ask_user` card fields go through it.
+ */
+function cutText(
+	text: string | undefined,
+	maxChars: number,
+): string | undefined {
+	const cut = text?.trim().slice(0, maxChars);
+	return cut === undefined || cut === "" ? undefined : cut;
+}
+
+/**
+ * The value of a JSON text, or undefined when the text is not JSON. The
+ * schema parse after it then refuses the call; the paused turn does not fail.
+ */
+function parseJsonText(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		// A text that is not JSON is the same as a wrong shape: no card.
+		return undefined;
 	}
 }

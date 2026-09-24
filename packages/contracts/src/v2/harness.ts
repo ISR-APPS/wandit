@@ -5,9 +5,14 @@
  */
 import { z } from "zod";
 
+import { askUserKindSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
-import { turnApprovalAnswerSchema, turnUsageDataSchema } from "./turns";
+import {
+	turnApprovalAnswerSchema,
+	turnQuestionAnswerSchema,
+	turnUsageDataSchema,
+} from "./turns";
 
 /** The `builder_harness` db enum values, for JSON fields that carry one. */
 export const harnessKindSchema = z.enum(["claude_code", "opencode"]);
@@ -17,21 +22,35 @@ export type HarnessKindContract = z.infer<typeof harnessKindSchema>;
 
 /**
  * One paused harness interaction the user must answer before the turn
- * can continue. `question` mirrors a pending `askUserQuestions` call;
- * `approval` mirrors a pending host-tool approval. `suspendTurn` writes
- * them into the resume envelope so a later turn can answer each by id.
+ * can continue. `question` mirrors a pending `ask_user` call (or a
+ * built-in `askUserQuestions` call); `approval` mirrors a pending
+ * host-tool approval. `suspendTurn` writes them into the resume envelope
+ * so a later turn can answer each by id.
  */
 export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("question"),
-		// Harness call id of the pending `askUserQuestions` tool call.
+		// The tool that asked. Envelopes saved before `ask_user` existed have
+		// no value; only the built-in tool asked then.
+		tool: z.enum(["ask_user", "askUserQuestions"]).default("askUserQuestions"),
+		// Harness call id of the pending tool call.
 		toolCallId: z.string().min(1),
 		questions: z.array(
 			z.object({
 				id: z.string().min(1),
 				question: z.string(),
+				// Old envelopes have no kind; their questions were single choices.
+				kind: askUserKindSchema.default("single-choice"),
+				helper: z.string().optional(),
+				maxFiles: z.int().min(1).max(6).optional(),
 				options: z.array(
-					z.object({ id: z.string().min(1), label: z.string() }),
+					z.object({
+						id: z.string().min(1),
+						label: z.string(),
+						description: z.string().optional(),
+						// Design world skill id; the task adds the world card.
+						worldId: z.string().optional(),
+					}),
 				),
 			}),
 		),
@@ -123,8 +142,11 @@ export const builderTurnSpecSchema = z.object({
 	message: z.string(),
 	attachments: z.array(fileRefSchema),
 	composer: composerMetadataSchema.nullable(),
-	// The answer to a `data-approval` card; `message` answers a question card.
+	// The answer to a `data-approval` card.
 	approval: turnApprovalAnswerSchema.optional(),
+	// The answers to the `data-question` cards. Specs saved before the
+	// answers existed have none; `message` then answers the cards.
+	answers: z.array(turnQuestionAnswerSchema).default([]),
 });
 
 /** Parsed `builder_turns.spec`; `message` may be empty when attachments carry the turn. */
