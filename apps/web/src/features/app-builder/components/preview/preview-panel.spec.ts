@@ -13,6 +13,7 @@ import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "@/lib/api-client";
+import type { BootContext } from "../../lib/boot-state";
 import type { PreviewTokenDeps } from "../../lib/use-preview-token";
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
 
@@ -21,6 +22,29 @@ const PREVIEW_URL = `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?
 const PREVIEW_URL_2 = `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=t2`;
 const PREVIEW_ORIGIN = new URL(PREVIEW_URL).origin;
 const TITLE = "Preview of Nadi Fitness";
+
+// No turn runs and the backend is unknown.
+const IDLE_BOOT: BootContext = {
+	isTurnRunning: false,
+	turnPhase: null,
+	lastTurnFailed: false,
+	isFirstTurn: false,
+	backend: undefined,
+};
+
+/** A mint that answers `SANDBOX_NOT_RUNNING`, like the API while no sandbox runs. */
+const wakingDeps: PreviewTokenDeps = {
+	getPreviewToken: async () => {
+		throw new ApiClientError({
+			code: "SANDBOX_NOT_RUNNING",
+			message: "No sandbox runs for this project.",
+			path: `/api/v2/projects/${PROJECT_ID}/preview-token`,
+			requestId: "req-1",
+			statusCode: 409,
+			timestamp: "2026-01-01T12:00:00.000Z",
+		});
+	},
+};
 
 function readyDeps(): PreviewTokenDeps {
 	return {
@@ -46,6 +70,7 @@ function panelElement(
 			title: TITLE,
 			reloadKey: 0,
 			className: "h-full w-full",
+			bootContext: IDLE_BOOT,
 			...props,
 		}),
 	} satisfies ComponentProps<typeof I18nProvider>);
@@ -73,35 +98,93 @@ describe("PreviewPanel", () => {
 		);
 	});
 
-	it("shows the spinner without text while the first mint runs", async () => {
+	it("shows the loading status while the first mint runs", async () => {
 		// A mint that never resolves keeps the panel in the loading state.
 		const deps: PreviewTokenDeps = {
 			getPreviewToken: () => new Promise<never>(() => undefined),
 		};
 		renderPanel({ deps });
 
-		const status = await screen.findByRole("status");
-		expect(status.textContent).toBe("");
+		expect((await screen.findByRole("status")).textContent).toBe(
+			"Loading the preview",
+		);
 	});
 
-	it("shows the waking text while no sandbox runs", async () => {
-		const deps: PreviewTokenDeps = {
-			getPreviewToken: async () => {
-				throw new ApiClientError({
-					code: "SANDBOX_NOT_RUNNING",
-					message: "No sandbox runs for this project.",
-					path: `/api/v2/projects/${PROJECT_ID}/preview-token`,
-					requestId: "req-1",
-					statusCode: 409,
-					timestamp: "2026-01-01T12:00:00.000Z",
-				});
-			},
-		};
-		renderPanel({ deps });
+	it("shows the asleep note 1.2 s after a waking answer while no turn runs", async () => {
+		const getPreviewToken = vi.fn(wakingDeps.getPreviewToken);
+		renderPanel({ deps: { getPreviewToken } });
 
-		expect((await screen.findByRole("status")).textContent).toContain(
-			"Waking up the sandbox…",
+		await waitFor(() => expect(getPreviewToken).toHaveBeenCalledTimes(1));
+		// Flush the rejected mint, so the panel holds the waking status.
+		await act(async () => {});
+		// The first waking answer waits: a new project's turn often connects in that time.
+		expect(screen.getByRole("status").textContent).toBe("Loading the preview");
+		await waitFor(
+			() =>
+				expect(screen.getByRole("status").textContent).toContain(
+					"Your app is asleep",
+				),
+			{ timeout: 2_500 },
 		);
+	});
+
+	it("shows the machine step while the first turn boots the sandbox", async () => {
+		renderPanel({
+			deps: wakingDeps,
+			bootContext: {
+				...IDLE_BOOT,
+				isTurnRunning: true,
+				turnPhase: "sandbox_waking",
+				isFirstTurn: true,
+			},
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toBe(
+				"Getting your app ready. Starting a cloud machine",
+			),
+		);
+		expect(screen.getByText("Copying the starter files")).toBeTruthy();
+		expect(screen.getByText("Opening your app")).toBeTruthy();
+	});
+
+	it("starts the comet hidden, so it fades in after the drawing", async () => {
+		const { container } = renderPanel({
+			deps: wakingDeps,
+			bootContext: {
+				...IDLE_BOOT,
+				isTurnRunning: true,
+				turnPhase: "sandbox_waking",
+				isFirstTurn: true,
+			},
+		});
+
+		await screen.findByText("Starting a cloud machine");
+		// The comet groups are the only elements that reduced motion hides.
+		const comets = container.querySelectorAll("g.motion-reduce\\:hidden");
+		expect(comets.length).toBe(2);
+		for (const comet of comets) {
+			expect(comet.getAttribute("opacity")).toBe("0");
+		}
+	});
+
+	it("keeps the boot screen over the iframe until the frame loads", async () => {
+		renderPanel({ deps: readyDeps() });
+
+		const iframe = await screen.findByTitle(TITLE);
+		expect(screen.getByRole("status").textContent).toBe(
+			"Getting your app ready. Opening your app",
+		);
+
+		// The covered frame is out of the tab order until it loads.
+		expect(iframe.hasAttribute("inert")).toBe(true);
+
+		// jsdom loads no external src, so the spec fires the load event itself.
+		fireEvent.load(iframe);
+
+		await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+		expect(screen.getByTitle(TITLE)).toBe(iframe);
+		expect(iframe.hasAttribute("inert")).toBe(false);
 	});
 
 	it("keeps the same iframe element and src when only the width changes", async () => {
@@ -168,10 +251,12 @@ describe("PreviewPanel", () => {
 		);
 	});
 
-	it("drops the iframe and shows the waking state on a not-running message", async () => {
+	it("drops the iframe and shows the asleep note on a not-running message", async () => {
 		renderPanel({ deps: readyDeps() });
 
 		await screen.findByTitle(TITLE);
+		// The message listener registers in an effect; flush it before the dispatch.
+		await act(async () => {});
 
 		// The proxy error page reports the stopped sandbox from the preview origin.
 		act(() => {
@@ -184,8 +269,34 @@ describe("PreviewPanel", () => {
 		});
 
 		expect(screen.queryByTitle(TITLE)).toBeNull();
+		// The boot screen already showed the step list, so the asleep note needs no wait.
 		expect((await screen.findByRole("status")).textContent).toContain(
-			"Waking up the sandbox…",
+			"Your app is asleep",
+		);
+	});
+
+	it("shows the boot screen again when a loaded frame reports not-running", async () => {
+		renderPanel({ deps: readyDeps() });
+
+		fireEvent.load(await screen.findByTitle(TITLE));
+		await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+
+		act(() => {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					origin: PREVIEW_ORIGIN,
+					data: { type: "wandit:preview", event: "not-running" },
+				}),
+			);
+		});
+
+		expect(screen.queryByTitle(TITLE)).toBeNull();
+		await waitFor(
+			() =>
+				expect(screen.getByRole("status").textContent).toContain(
+					"Your app is asleep",
+				),
+			{ timeout: 2_500 },
 		);
 	});
 });

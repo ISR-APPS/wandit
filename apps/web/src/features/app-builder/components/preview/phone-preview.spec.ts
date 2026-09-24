@@ -6,6 +6,7 @@ import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AppProject } from "../../api/dto";
+import type { BootContext } from "../../lib/boot-state";
 import type { PhoneDevice } from "../../lib/constants";
 import type { PreviewTokenDeps } from "../../lib/use-preview-token";
 import { PhonePreview, type PhonePreviewProps } from "./phone-preview";
@@ -31,11 +32,21 @@ const readyDeps: PreviewTokenDeps = {
 	}),
 };
 
+// No turn runs and the backend is unknown: the boot screen has nothing to show over the frame.
+const idleBoot: BootContext = {
+	isTurnRunning: false,
+	turnPhase: null,
+	lastTurnFailed: false,
+	isFirstTurn: false,
+	backend: undefined,
+};
+
 async function renderPreview(device: PhoneDevice) {
 	const props: PhonePreviewProps = {
 		project,
 		device,
 		reloadKey: 0,
+		bootContext: idleBoot,
 		deps: readyDeps,
 	};
 	// I18nProvider requires children in its props type for createElement calls.

@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { CreateTurnResponse } from "@wandit/contracts";
+import type { ChatMessage, CreateTurnResponse } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -137,6 +137,8 @@ function renderThread(
 	options: {
 		byProjectError?: ApiClientError;
 		messagesError?: ApiClientError;
+		/** Stored rows of the chat history; empty when left out. */
+		history?: ChatMessage[];
 	} = {},
 ) {
 	const queryClient = new QueryClient({
@@ -172,7 +174,7 @@ function renderThread(
 		} else {
 			queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
 				generationActive: false,
-				messages: [],
+				messages: options.history ?? [],
 			});
 		}
 	}
@@ -306,6 +308,127 @@ describe("useBuilderThread", () => {
 		);
 		await waitFor(() => expect(result.current.isSending).toBe(false));
 		expect(result.current.errorText).toBeNull();
+		// The preview reads the same card to say that the app did not start.
+		expect(result.current.lastTurnFailed).toBe(true);
+	});
+
+	it("reports the phase of the running turn and the first turn", async () => {
+		const fake = createDeps();
+		const encoder = new TextEncoder();
+		const statusFrame = {
+			type: "data-turn-status",
+			id: "turn-status",
+			data: { phase: "sandbox_waking" },
+		};
+		let endStream = () => {};
+		// The turn stream stays open after the status frame, like a sandbox that boots.
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: async (input, init) => {
+				if (init?.method !== "POST") return fake.deps.fetch(input, init);
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							for (const frame of [createdFrame, statusFrame]) {
+								controller.enqueue(
+									encoder.encode(`data: ${JSON.stringify(frame)}\n\n`),
+								);
+							}
+							endStream = () => {
+								controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+								controller.close();
+							};
+						},
+					}),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				);
+			},
+		};
+		const { result } = renderThread(deps);
+		await waitForResume(fake, result);
+		expect(result.current.phase).toBeNull();
+
+		act(() => {
+			result.current.send("Build the dashboard");
+		});
+
+		await waitFor(() => expect(result.current.phase).toBe("sandbox_waking"));
+		expect(result.current.isTurnRunning).toBe(true);
+		// The chat holds one user message, so this turn creates the sandbox.
+		expect(result.current.isFirstTurn).toBe(true);
+
+		act(() => endStream());
+
+		await waitFor(() => expect(result.current.isSending).toBe(false));
+		expect(result.current.phase).toBeNull();
+	});
+
+	it("does not count a send that the API refuses as a running turn", async () => {
+		const fake = createDeps({ postResponds402: true });
+		let answerPost = () => {};
+		// The POST waits until the spec answers it, so the in-flight state holds still.
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>((resolve) => {
+							answerPost = () => resolve(fake.deps.fetch(input, init));
+						})
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderThread(deps);
+		await waitForResume(fake, result);
+
+		act(() => {
+			result.current.send("Build the dashboard");
+		});
+
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(result.current.isTurnRunning).toBe(false);
+
+		act(() => answerPost());
+
+		await waitFor(() => expect(result.current.errorText).not.toBeNull());
+		expect(result.current.isTurnRunning).toBe(false);
+	});
+
+	it("knows the first turn only from a loaded or failed history", async () => {
+		const userRow = (id: string, seq: number): ChatMessage => ({
+			id,
+			chatId: CHAT_ID,
+			role: "user",
+			parts: [{ type: "text", text: `prompt ${seq}` }],
+			metadata: null,
+			seq,
+			createdAt: "2026-09-24T10:00:00.000Z",
+		});
+		const lookupFailed = new ApiClientError({
+			code: "BAD_REQUEST",
+			message: "Not a V2 project.",
+			path: "/api/v1/chats/by-project",
+			requestId: "req-1",
+			statusCode: 400,
+			timestamp: "2026-09-24T00:00:00.000Z",
+		});
+
+		// No chat id means no history yet: the value is unknown.
+		const unknown = renderThread(createDeps().deps, {
+			byProjectError: lookupFailed,
+		});
+		expect(unknown.result.current.isFirstTurn).toBeNull();
+		unknown.unmount();
+
+		// A failed history load must not hold the boot screen on its mark.
+		const failed = renderThread(createDeps().deps, {
+			messagesError: lookupFailed,
+		});
+		expect(failed.result.current.isFirstTurn).toBe(true);
+		failed.unmount();
+
+		const later = renderThread(createDeps().deps, {
+			history: [userRow("u1", 0), userRow("u2", 1)],
+		});
+		expect(later.result.current.isFirstTurn).toBe(false);
 	});
 });
 
