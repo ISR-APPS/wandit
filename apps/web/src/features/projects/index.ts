@@ -47,6 +47,8 @@ export { PromptBox } from "./components/prompt-box";
 export { chatAutostart } from "./lib/chat-autostart";
 // Public name-length cap used by forms that edit project names.
 export { PROJECT_NAME_MAX_LENGTH } from "./lib/constants";
+// The 402 check of a create call; the V2 dashboard flow in app-builder shares it.
+export { isInsufficientCreditsApiError } from "./lib/create-precheck";
 // Deterministic thumbnail helper for project cards.
 export { thumbGradient } from "./lib/helpers";
 // High-level create-with-prompt hook that handles auth, credits, creation, and navigation.

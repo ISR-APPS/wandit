@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ApiClientError, type apiClient } from "@/lib/api-client";
 import {
+	createAppProject,
 	getAppProject,
 	getBuilderThread,
 	getCodeFile,
@@ -23,6 +24,39 @@ const MOBILE_ID = "nadi-fitness-mobile";
 
 beforeEach(() => {
 	resetMockStore();
+});
+
+describe("createAppProject", () => {
+	const body = {
+		prompt: "A shop",
+		targetPlatform: "web" as const,
+		languages: ["fr" as const],
+	};
+
+	it("posts the body to the create route and parses the ids", async () => {
+		const projectId = crypto.randomUUID();
+		const chatId = crypto.randomUUID();
+		const calls: { path: string; body: unknown }[] = [];
+		// SAFETY: createAppProject passes only the path and the body to post.
+		const post = (async (path: string, sent: unknown) => {
+			calls.push({ path, body: sent });
+			return { projectId, chatId, turnId: null };
+		}) as typeof apiClient.post;
+
+		const created = await createAppProject(body, post);
+
+		expect(calls).toEqual([{ path: "/api/v2/projects", body }]);
+		expect(created).toEqual({ projectId, chatId, turnId: null });
+	});
+
+	it("rejects an answer without the project id", async () => {
+		// SAFETY: the fake ignores its arguments and answers a partial body.
+		const post = (async () => ({
+			chatId: crypto.randomUUID(),
+		})) as typeof apiClient.post;
+
+		await expect(createAppProject(body, post)).rejects.toThrow();
+	});
 });
 
 describe("getAppProject", () => {

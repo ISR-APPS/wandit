@@ -1,6 +1,15 @@
+/**
+ * The prompt composer shared by the landing hero, the dashboard, and the
+ * workspace chat pane. Uploads attachments, picks the mode, the output, and
+ * the app type, then reports the prompt through `onSubmit`.
+ * Calls the attachments upload service and the voice dictation hook.
+ */
 import {
 	type ComposerMetadata,
 	projectPromptMaxLength,
+	type TargetPlatform,
+	targetPlatformSchema,
+	targetPlatforms,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -46,6 +55,7 @@ import {
 	ChevronRight,
 	FileText,
 	Gauge,
+	Globe,
 	ImageIcon,
 	Layers,
 	LayoutTemplate,
@@ -59,6 +69,7 @@ import {
 	Plus,
 	RefreshCw,
 	SlidersHorizontal,
+	Smartphone,
 	Sparkles,
 	Stethoscope,
 	Target,
@@ -1040,6 +1051,125 @@ function ModePicker({
 	);
 }
 
+/** Icon of each app type row; the rows follow the contract order. */
+const PLATFORM_ICONS: Record<TargetPlatform, LucideIcon> = {
+	web: Globe,
+	mobile: Smartphone,
+};
+
+/**
+ * Product rule: only the web app can be built today. The mobile row stays
+ * visible but disabled until WANDIT-192 ships the mobile composer.
+ */
+export function isPlatformAvailable(platform: TargetPlatform): boolean {
+	return platform === "web";
+}
+
+// The app type chip of the V2 dashboard: web app or mobile app. Same pill as
+// the mode chip. The mobile row is disabled and carries a "coming soon" tag.
+function PlatformPicker({
+	value,
+	onValueChange,
+	isHero,
+}: {
+	value: TargetPlatform;
+	onValueChange: (platform: TargetPlatform) => void;
+	isHero: boolean;
+}) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
+	const SelectedIcon = PLATFORM_ICONS[value];
+	const selectedCopy = pb.platforms[value];
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={`${t("projects.promptBox.platformLabel")}: ${selectedCopy.label}`}
+					className={cn(
+						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+						"hover:border-primary/35 hover:text-foreground hover:shadow-[0_2px_10px_-4px_rgb(0_0_0_/_0.2)]",
+						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10",
+						isHero
+							? "h-9 gap-2 ps-[5px] pe-3 text-muted-foreground"
+							: "h-[30px] gap-1.5 ps-1 pe-2.5 text-[13px] text-foreground",
+					)}
+				>
+					<span
+						aria-hidden
+						className={cn(
+							"grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary transition-colors duration-200 group-hover/trigger:bg-primary/15 group-data-[state=open]/trigger:bg-primary/15",
+							isHero ? "size-[26px]" : "size-[22px]",
+						)}
+					>
+						<SelectedIcon className={isHero ? "size-3.5" : "size-3"} />
+					</span>
+					<span className="max-w-28 truncate">{selectedCopy.label}</span>
+					<ChevronDown
+						className={cn(
+							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
+							isHero ? "size-3.5" : "size-[11px] opacity-50",
+						)}
+					/>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+			>
+				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+					{t("projects.promptBox.platformLabel")}
+				</DropdownMenuLabel>
+				<DropdownMenuRadioGroup
+					value={value}
+					// The menu hands back a string; the rows only carry contract ids.
+					onValueChange={(next) =>
+						onValueChange(targetPlatformSchema.parse(next))
+					}
+				>
+					{targetPlatforms.map((platform) => {
+						const copy = pb.platforms[platform];
+						const available = isPlatformAvailable(platform);
+						return (
+							<DropdownMenuRadioItemBare
+								key={platform}
+								value={platform}
+								disabled={!available}
+								className="data-[state=checked]:bg-primary/10"
+							>
+								<IconTile
+									icon={PLATFORM_ICONS[platform]}
+									active={value === platform}
+								/>
+								<span className="min-w-0">
+									<span className="block font-medium text-sm leading-tight">
+										{copy.label}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+										{copy.description}
+									</span>
+								</span>
+								{available ? (
+									<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+								) : (
+									<span className="ms-auto shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.12em]">
+										{pb.platforms.mobile.soon}
+									</span>
+								)}
+							</DropdownMenuRadioItemBare>
+						);
+					})}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 // Dev-only chip next to the mode picker: overrides the page-builder model per
 // message (composer options.builderModel). Hidden outside local dev builds.
 function BuilderModelPicker({
@@ -1580,6 +1710,12 @@ export type PromptBoxProps = {
 	/** Reports the dev builder pick as a gateway model id (or "default") so
 	 * chat chrome can use it only when the transcript has no build truth yet. */
 	onBuilderModelChange?: (modelId: string) => void;
+	/** Shows the app type chip (web app or mobile app) and reports the pick.
+	 * The V2 dashboard passes it; every other surface leaves it out. */
+	platformPicker?: {
+		value: TargetPlatform;
+		onValueChange: (platform: TargetPlatform) => void;
+	};
 	className?: string;
 };
 
@@ -1598,6 +1734,7 @@ export function PromptBox({
 	submitOverride,
 	onValueChange,
 	onBuilderModelChange,
+	platformPicker,
 	className,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
@@ -2139,6 +2276,13 @@ export function PromptBox({
 							onConnectApps={() => setConnectorsOpen(true)}
 							isHero={isHero}
 						/>
+						{platformPicker ? (
+							<PlatformPicker
+								value={platformPicker.value}
+								onValueChange={platformPicker.onValueChange}
+								isHero={isHero}
+							/>
+						) : null}
 						<ModePicker
 							value={routeMode}
 							onValueChange={handleModeChange}
