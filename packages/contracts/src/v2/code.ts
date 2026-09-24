@@ -1,7 +1,8 @@
 /**
  * Shared contract of the V2 Code view (WANDIT-271).
  * `GET /api/v2/projects/:id/code` answers the file tree of the running
- * project sandbox. `GET .../code/file?path=` answers one file. The server
+ * project sandbox and the small files that the server reads with it.
+ * `GET .../code/file?path=` answers one file. The server
  * `CodeService` builds both answers; the web Code view parses them.
  */
 import { z } from "zod";
@@ -39,6 +40,22 @@ export const codeTreeNodeSchema: z.ZodType<CodeTreeNode> = z.lazy(() =>
 );
 
 /**
+ * Answer of `GET /api/v2/projects/:id/code/file`. `content` is the UTF-8
+ * text, and it is empty when `binary` is true.
+ */
+export const codeFileResponseSchema = z.object({
+	path: z.string(),
+	content: z.string(),
+	/** File size in bytes, at most `CODE_FILE_MAX_BYTES`. */
+	size: z.int().nonnegative(),
+	/** True when the first 8 KB of the file hold a NUL byte. */
+	binary: z.boolean(),
+});
+
+/** The file answer; the web maps it to a text or a binary `CodeFile`. */
+export type CodeFileResponse = z.infer<typeof codeFileResponseSchema>;
+
+/**
  * Answer of `GET /api/v2/projects/:id/code`. `defaultFilePath` is the file
  * the Code view opens first; null only when the tree holds no file.
  */
@@ -47,6 +64,12 @@ export const codeSnapshotResponseSchema = z.object({
 	branch: z.string(),
 	defaultFilePath: z.string().nullable(),
 	tree: z.array(codeTreeNodeSchema),
+	/**
+	 * Files of at most 64 KB each, 512 KB in total, that the server reads
+	 * with the tree, so a click on them needs no request. A binary file has
+	 * an empty content. Other paths load through `/code/file`.
+	 */
+	files: z.array(codeFileResponseSchema),
 });
 
 /** The tree answer; `CodeService.snapshot` builds it, the web Code view reads it. */
@@ -66,19 +89,3 @@ export const codeFileQuerySchema = z.object({
 
 /** The parsed `?path=` query that `CodeController.file` passes on. */
 export type CodeFileQuery = z.infer<typeof codeFileQuerySchema>;
-
-/**
- * Answer of `GET /api/v2/projects/:id/code/file`. `content` is the UTF-8
- * text, and it is empty when `binary` is true.
- */
-export const codeFileResponseSchema = z.object({
-	path: z.string(),
-	content: z.string(),
-	/** File size in bytes, at most `CODE_FILE_MAX_BYTES`. */
-	size: z.int().nonnegative(),
-	/** True when the first 8 KB of the file hold a NUL byte. */
-	binary: z.boolean(),
-});
-
-/** The file answer; the web maps it to a text or a binary `CodeFile`. */
-export type CodeFileResponse = z.infer<typeof codeFileResponseSchema>;

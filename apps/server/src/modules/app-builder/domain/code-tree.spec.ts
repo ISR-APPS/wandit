@@ -4,6 +4,7 @@ import {
 	buildCodeTree,
 	isReadableCodePath,
 	pickDefaultFilePath,
+	pickPrefetchPaths,
 } from "./code-tree";
 
 describe("isReadableCodePath", () => {
@@ -129,5 +130,68 @@ describe("pickDefaultFilePath", () => {
 
 	it("answers null for a tree without files", () => {
 		expect(pickDefaultFilePath([])).toBeNull();
+	});
+});
+
+describe("pickPrefetchPaths", () => {
+	it("puts src/ first, then the other files, both in display order", () => {
+		const tree = buildCodeTree([
+			"package.json",
+			"public/favicon.svg",
+			"src/routes/index.tsx",
+			"src/app.tsx",
+		]);
+
+		expect(pickPrefetchPaths(tree)).toEqual([
+			"src/routes/index.tsx",
+			"src/app.tsx",
+			"public/favicon.svg",
+			"package.json",
+		]);
+	});
+
+	it("skips the top-level .claude/ folder only", () => {
+		const tree = buildCodeTree([
+			".claude/skills/forge/SKILL.md",
+			"docs/.claude-notes.md",
+			"README.md",
+		]);
+
+		expect(pickPrefetchPaths(tree)).toEqual([
+			"docs/.claude-notes.md",
+			"README.md",
+		]);
+	});
+
+	it("puts the default file first, so the path cap never drops it", () => {
+		const components = Array.from(
+			{ length: 300 },
+			(_, index) => `src/components/c${String(index).padStart(3, "0")}.tsx`,
+		);
+		const picked = pickPrefetchPaths(
+			buildCodeTree([...components, "src/routes/index.tsx"]),
+		);
+
+		expect(picked[0]).toBe("src/routes/index.tsx");
+		expect(picked).toHaveLength(300);
+	});
+
+	it("skips a path longer than 4096 bytes", () => {
+		const longPath = `src/${"a".repeat(4_093)}.ts`;
+		const tree = buildCodeTree([longPath, "src/app.tsx"]);
+
+		expect(pickPrefetchPaths(tree)).toEqual(["src/app.tsx"]);
+	});
+
+	it("keeps at most 300 paths", () => {
+		const paths = Array.from(
+			{ length: 301 },
+			(_, index) => `src/f${String(index).padStart(3, "0")}.ts`,
+		);
+
+		const picked = pickPrefetchPaths(buildCodeTree(paths));
+
+		expect(picked).toHaveLength(300);
+		expect(picked.at(-1)).toBe("src/f299.ts");
 	});
 });

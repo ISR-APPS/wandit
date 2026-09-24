@@ -78,8 +78,6 @@
 	"code": {
 		"searchFiles": "Search files",
 		"treeAriaLabel": "Project files",
-		"expand": "Expand {name}",
-		"collapse": "Collapse {name}",
 		"noMatch": "No file matches.",
 		"synced": "Synced · {branch}",
 		"github": "GitHub",
@@ -91,7 +89,30 @@
 		"binaryFile": "This file is binary. The Code view shows text files only.",
 		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
 		"loadFailed": "The code did not load.",
-		"retry": "Try again"
+		"retry": "Try again",
+		"copyFile": "Copy file",
+		"lineCount": {
+			"one": "{count} line",
+			"other": "{count} lines"
+		},
+		"plainText": "Plain text",
+		"readOnlyLabel": "Read-only",
+		"showFiles": "Show files",
+		"hideFiles": "Hide files",
+		"search": {
+			"find": "Find",
+			"next": "next",
+			"previous": "previous",
+			"all": "all",
+			"matchCase": "match case",
+			"regexp": "regexp",
+			"byWord": "by word",
+			"close": "close",
+			"currentMatch": "current match",
+			"onLine": "on line",
+			"goToLine": "Go to line",
+			"go": "go"
+		}
 	},
 	"moreNavAriaLabel": "App sections",
 	"panels": {

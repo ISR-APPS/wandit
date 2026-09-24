@@ -69,16 +69,44 @@ async function setup(options?: {
 	return { sandboxes, service };
 }
 
-// Scripts the two commands of one file read: `realpath` answers the real
-// worktree and the real file path, and the capped read answers the bytes
-// as base64.
+// Scripts the one command of a file read: the real worktree, the real
+// path of the open file, then the bytes as base64.
 function scriptFile(
 	sandboxes: FakeSandboxProvider,
 	realPath: string,
 	content: string | Uint8Array,
 ): void {
-	sandboxes.respondTo("realpath", ok(`${WORKTREE}\0${realPath}\0`));
-	sandboxes.respondTo("bash", ok(Buffer.from(content).toString("base64")));
+	sandboxes.respondTo(
+		"bash",
+		ok(`${WORKTREE}\0${realPath}\0${Buffer.from(content).toString("base64")}`),
+	);
+}
+
+/** One path of the prefetch output: read with its real path, or not read. */
+type PrefetchRecord =
+	| { realPath: string; content: string; size?: number }
+	| { notRead: true };
+
+// The prefetch command prints the real worktree, then one record per path.
+// `size` defaults to the byte length of `content`.
+function prefetchOutput(records: PrefetchRecord[]): string {
+	const body = records
+		.map((record) => {
+			if ("notRead" in record) return "\0\0\0";
+			const size = record.size ?? Buffer.byteLength(record.content);
+			const base64 = Buffer.from(record.content).toString("base64");
+			return `${record.realPath}\0${size}\0${base64}\0`;
+		})
+		.join("");
+	return `${WORKTREE}\0${body}`;
+}
+
+// Scripts the listing commands of a snapshot for `paths`, with no deleted
+// path and the branch `main`.
+function scriptListing(sandboxes: FakeSandboxProvider, paths: string[]): void {
+	sandboxes.respondTo("bash", ok(paths.map((path) => `${path}\0`).join("")));
+	sandboxes.respondTo("bash", ok(""));
+	sandboxes.respondTo("git", ok("main\n"));
 }
 
 async function failureOf<T extends CodeFileResponse | CodeSnapshotResponse>(
@@ -111,12 +139,35 @@ describe("CodeService.snapshot", () => {
 		);
 		sandboxes.respondTo("bash", ok("src/old.ts\0"));
 		sandboxes.respondTo("git", ok("main\n"));
+		sandboxes.respondTo(
+			"bash",
+			ok(
+				prefetchOutput([
+					{
+						content: "export default 1;\n",
+						realPath: `${WORKTREE}/src/routes/index.tsx`,
+					},
+					{ content: "app", realPath: `${WORKTREE}/src/app.tsx` },
+					{ content: "{}", realPath: `${WORKTREE}/package.json` },
+				]),
+			),
+		);
 
 		const snapshot = await service.snapshot(SCOPE, "p-1");
 
 		expect(codeSnapshotResponseSchema.parse(snapshot)).toEqual({
 			branch: "main",
 			defaultFilePath: "src/routes/index.tsx",
+			files: [
+				{
+					binary: false,
+					content: "export default 1;\n",
+					path: "src/routes/index.tsx",
+					size: 18,
+				},
+				{ binary: false, content: "app", path: "src/app.tsx", size: 3 },
+				{ binary: false, content: "{}", path: "package.json", size: 2 },
+			],
 			tree: [
 				{
 					children: [
@@ -142,12 +193,16 @@ describe("CodeService.snapshot", () => {
 			],
 		});
 		// Both listings stop at 5000 paths and 2 MB, so the stdout stays small.
+		// The prefetch reads at most 64 KB per file and 512 KB in total.
 		expect(execCalls(sandboxes)).toEqual([
 			expect.stringMatching(
 				/ bash 5000 2097152 ls-files -z --cached --others --exclude-standard$/,
 			),
 			expect.stringMatching(/ bash 5000 2097152 ls-files -z --deleted$/),
 			"git rev-parse --abbrev-ref HEAD",
+			expect.stringMatching(
+				/ bash 65536 524288 src\/routes\/index\.tsx src\/app\.tsx package\.json$/,
+			),
 		]);
 	});
 
@@ -156,12 +211,103 @@ describe("CodeService.snapshot", () => {
 		sandboxes.respondTo("bash", ok("a.ts\0b.t"));
 		sandboxes.respondTo("bash", ok(""));
 		sandboxes.respondTo("git", ok("main\n"));
+		sandboxes.respondTo(
+			"bash",
+			ok(prefetchOutput([{ content: "a", realPath: `${WORKTREE}/a.ts` }])),
+		);
 
 		const snapshot = await service.snapshot(SCOPE, "p-1");
 
 		expect(snapshot.tree).toEqual([
 			{ kind: "file", name: "a.ts", path: "a.ts" },
 		]);
+	});
+
+	it("answers binary files of the prefetch with an empty content", async () => {
+		const { sandboxes, service } = await setup();
+		scriptListing(sandboxes, ["logo.png"]);
+		sandboxes.respondTo(
+			"bash",
+			ok(
+				prefetchOutput([
+					{ content: "PNG\0\0", realPath: `${WORKTREE}/logo.png` },
+				]),
+			),
+		);
+
+		const snapshot = await service.snapshot(SCOPE, "p-1");
+
+		expect(snapshot.files).toEqual([
+			{ binary: true, content: "", path: "logo.png", size: 5 },
+		]);
+	});
+
+	it("drops prefetch records that are not read, outside the worktree, hidden, or torn", async () => {
+		const { sandboxes, service } = await setup();
+		scriptListing(sandboxes, ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"]);
+		sandboxes.respondTo(
+			"bash",
+			ok(
+				prefetchOutput([
+					{ notRead: true },
+					{ content: "secret", realPath: "/proc/1/environ" },
+					{ content: "TOKEN=1", realPath: `${WORKTREE}/.env` },
+					{ content: "[core]", realPath: `${WORKTREE}/.git/config` },
+					// The file shrank after `stat`: the size and the bytes differ.
+					{ content: "abc", realPath: `${WORKTREE}/e.ts`, size: 2 },
+					{ content: "kept", realPath: `${WORKTREE}/f.ts` },
+				]),
+			),
+		);
+
+		const snapshot = await service.snapshot(SCOPE, "p-1");
+
+		expect(snapshot.files).toEqual([
+			{ binary: false, content: "kept", path: "f.ts", size: 4 },
+		]);
+	});
+
+	it("answers the tree with no files when the prefetch command fails", async () => {
+		const { sandboxes, service } = await setup();
+		scriptListing(sandboxes, ["a.ts"]);
+		sandboxes.respondTo("bash", {
+			exitCode: 124,
+			stderr: "timeout",
+			stdout: "",
+		});
+
+		const snapshot = await service.snapshot(SCOPE, "p-1");
+
+		expect(snapshot.tree).toEqual([
+			{ kind: "file", name: "a.ts", path: "a.ts" },
+		]);
+		expect(snapshot.files).toEqual([]);
+	});
+
+	it("answers no files when the prefetch prints a wrong number of parts", async () => {
+		const { sandboxes, service } = await setup();
+		scriptListing(sandboxes, ["a.ts", "b.ts"]);
+		sandboxes.respondTo(
+			"bash",
+			ok(prefetchOutput([{ content: "a", realPath: `${WORKTREE}/a.ts` }])),
+		);
+
+		const snapshot = await service.snapshot(SCOPE, "p-1");
+
+		expect(snapshot.files).toEqual([]);
+	});
+
+	it("runs no prefetch when the tree has only skipped files", async () => {
+		const { sandboxes, service } = await setup();
+		scriptListing(sandboxes, [
+			".claude/skills/a/SKILL.md",
+			".claude/settings.json",
+		]);
+
+		const snapshot = await service.snapshot(SCOPE, "p-1");
+
+		expect(snapshot.files).toEqual([]);
+		expect(execCalls(sandboxes)).toHaveLength(3);
 	});
 
 	it("throws when git fails", async () => {
@@ -229,12 +375,13 @@ describe("CodeService.file", () => {
 			path: "src/routes/index.tsx",
 			size: 5,
 		});
-		// The read asks for one byte over the 512 KB cap, never more.
+		// One command checks and reads, and asks for one byte over the
+		// 512 KB cap, never more.
 		expect(execCalls(sandboxes)).toEqual([
-			`realpath -e -z -- ${WORKTREE} ${WORKTREE}/src/routes/index.tsx`,
 			expect.stringMatching(
 				new RegExp(
-					`^bash -c .+ bash ${WORKTREE}/src/routes/index.tsx ${CODE_FILE_MAX_BYTES + 1}$`,
+					`^bash -c .+ bash ${WORKTREE} ${WORKTREE}/src/routes/index.tsx ${CODE_FILE_MAX_BYTES + 1}$`,
+					"s",
 				),
 			),
 		]);
@@ -286,13 +433,9 @@ describe("CodeService.file", () => {
 		});
 	});
 
-	it("answers 404 CODE_FILE_NOT_FOUND for a missing path", async () => {
+	it("answers 404 CODE_FILE_NOT_FOUND when the script finds no regular file to open", async () => {
 		const { sandboxes, service } = await setup();
-		sandboxes.respondTo("realpath", {
-			exitCode: 1,
-			stderr: "realpath: missing.ts: No such file or directory",
-			stdout: `${WORKTREE}\0`,
-		});
+		sandboxes.respondTo("bash", { exitCode: 44, stderr: "", stdout: "" });
 
 		const failure = await failureOf(service.file(SCOPE, "p-1", "missing.ts"));
 
@@ -302,19 +445,8 @@ describe("CodeService.file", () => {
 		});
 	});
 
-	it("answers 404 for a path that is not a regular file, like a folder", async () => {
-		const { sandboxes, service } = await setup();
-		sandboxes.respondTo("realpath", ok(`${WORKTREE}\0${WORKTREE}/src\0`));
-		sandboxes.respondTo("bash", { exitCode: 44, stderr: "", stdout: "" });
-
-		await expect(service.file(SCOPE, "p-1", "src")).rejects.toBeInstanceOf(
-			NotFoundException,
-		);
-	});
-
 	it("throws when the read fails for another reason", async () => {
 		const { sandboxes, service } = await setup();
-		sandboxes.respondTo("realpath", ok(`${WORKTREE}\0${WORKTREE}/a.ts\0`));
 		sandboxes.respondTo("bash", {
 			exitCode: 137,
 			stderr: "Killed",
@@ -346,12 +478,26 @@ describe("CodeService.file", () => {
 		["into .git", `${WORKTREE}/.git/config`],
 	])("answers 400 for a symlink %s and reads nothing", async (_label, realPath) => {
 		const { sandboxes, service } = await setup();
-		sandboxes.respondTo("realpath", ok(`${WORKTREE}\0${realPath}\0`));
+		// The script prints no bytes for a file outside the worktree.
+		sandboxes.respondTo("bash", ok(`${WORKTREE}\0${realPath}\0`));
 
 		const failure = await failureOf(service.file(SCOPE, "p-1", "link.txt"));
 
 		expect(failure).toBeInstanceOf(BadRequestException);
 		expect(execCalls(sandboxes)).toHaveLength(1);
+	});
+
+	it("answers 400 when the script prints an empty worktree root", async () => {
+		const { sandboxes, service } = await setup();
+		// An empty root must not turn into the prefix "/".
+		sandboxes.respondTo(
+			"bash",
+			ok(`\0/proc/1/environ\0${Buffer.from("secret").toString("base64")}`),
+		);
+
+		const failure = await failureOf(service.file(SCOPE, "p-1", "a.ts"));
+
+		expect(failure).toBeInstanceOf(BadRequestException);
 	});
 
 	it("answers 404 for a project out of scope before any path check", async () => {
