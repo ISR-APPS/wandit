@@ -1,6 +1,7 @@
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
 import { esbuildPlugin } from "@trigger.dev/build/extensions";
+import { additionalFiles } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 
 /**
@@ -64,6 +65,17 @@ export default defineConfig({
 	build: {
 		extensions: [
 			playwrightChromium(),
+			// The deployed worker has no repo checkout. This copies the packed
+			// template archive and the base schema next to the bundle. The
+			// leading "../.." is dropped, so both land under `<build>/templates/`,
+			// the first folder `resolveTemplateArchiveDir` tries. The deploy
+			// workflow packs the archive first; it is not in git.
+			additionalFiles({
+				files: [
+					"../../templates/web-app-*.tar.gz",
+					"../../templates/web-app/supabase/migrations/*.sql",
+				],
+			}),
 			// Uploads source maps to Sentry on `trigger.dev deploy` so task
 			// stack traces map to TS sources. No-op without SENTRY_AUTH_TOKEN
 			// (set it in the Trigger.dev dashboard env vars, not just Railway).

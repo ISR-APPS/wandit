@@ -30,6 +30,11 @@ jobs:
       - name: Install dependencies
         run: npx -y pnpm@11.7.0 install --frozen-lockfile --filter server...
 
+      # The worker image carries templates/web-app-<version>.tar.gz through
+      # additionalFiles in trigger.config.ts. The archive is not in git.
+      - name: Pack the web-app template
+        run: node templates/web-app/scripts/pack.mjs
+
       # CLI version stays in lockstep with the @trigger.dev/sdk dependency.
       # SENTRY_* vars are optional: without them the source-map upload in
       # trigger.config.ts disables itself.

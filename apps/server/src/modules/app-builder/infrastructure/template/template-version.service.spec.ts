@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
 import {
 	TEMPLATE_VERSION_FILE_PATH,
 	TemplateVersionService,
@@ -27,8 +28,8 @@ describe("TemplateVersionService", () => {
 
 	it("reads the real repo file by default", () => {
 		expect(new TemplateVersionService().current).toBe("web-app@1.0.0");
-		expect(TEMPLATE_VERSION_FILE_PATH).toContain(
-			"templates/web-app/template_version",
+		expect(TEMPLATE_VERSION_FILE_PATH).toBe(
+			join(TEMPLATE_ARCHIVE_DIR, "web-app/template_version"),
 		);
 	});
 });
