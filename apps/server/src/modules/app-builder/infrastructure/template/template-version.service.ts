@@ -5,18 +5,19 @@
  * line 1 is the version, line 2 is the release date).
  */
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 
+import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
+
 /**
- * The version file, resolved against the repo root like
- * `TEMPLATE_ARCHIVE_DIR` does. Bundled worker layouts can move it —
- * WANDIT-168 verifies the path where the tasks actually run.
+ * The version file inside the `templates/` folder that `TEMPLATE_ARCHIVE_DIR`
+ * finds from the working directory. A path built from this source file
+ * breaks in the Railway bundle: `dist/main.mjs` sits 5 folders nearer the root.
  */
 export const TEMPLATE_VERSION_FILE_PATH = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../../../../../../templates/web-app/template_version",
+	TEMPLATE_ARCHIVE_DIR,
+	"web-app/template_version",
 );
 
 /** Nest token carrying a spec-provided file path; production gets the real one. */

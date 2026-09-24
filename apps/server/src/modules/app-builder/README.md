@@ -79,6 +79,13 @@ partial unique index guarantees at most one live row per project.
   archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
   `rebuild` warning. `LoggingRepoRestorer` is the placeholder until
   WANDIT-171.
+- Template files in a deploy: `templates/web-app-<version>.tar.gz` is not
+  in git. The server `build` script packs it before `tsdown`, so the
+  Railway image has it under `/app/templates`. The Trigger deploy workflow
+  packs it too, and `additionalFiles` in `trigger.config.ts` copies the
+  archive and `web-app/supabase/migrations/*.sql` under `<build>/templates`.
+  `TEMPLATE_VERSION_FILE_PATH` and `TEMPLATE_ARCHIVE_DIR` both resolve from
+  the working directory, never from the bundled file.
 - Env allow-list: `buildSandboxEnv` emits only `SANDBOX_ENV_ALLOW_LIST`
   names — the per-run proxy values, `VITE_SUPABASE_URL`,
   `VITE_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
