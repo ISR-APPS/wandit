@@ -17,7 +17,10 @@ import type { BuilderMessage } from "../../api/dto";
 import { ChatMessageView } from "./chat-message";
 
 // The page mounts one TooltipProvider; the message actions need it too.
-function renderMessage(message: BuilderMessage) {
+function renderMessage(
+	message: BuilderMessage,
+	trayQuestionKey: string | null = null,
+) {
 	const onPreviewVersion = vi.fn();
 	const onSendText = vi.fn();
 	const onDecideApproval = vi.fn();
@@ -34,6 +37,7 @@ function renderMessage(message: BuilderMessage) {
 				onPreviewVersion,
 				onSendText,
 				onDecideApproval,
+				trayQuestionKey,
 			}),
 		),
 	};
@@ -76,33 +80,39 @@ describe("ChatMessageView", () => {
 		);
 	});
 
-	it("renders the byline, the trace, the tools, the question, the suggestion, and the diff", () => {
+	it("renders the byline, the feed rows, the question, the suggestion, and the diff", () => {
 		renderMessage({
 			id: "a1",
 			role: "assistant",
 			parts: [
 				{
-					type: "data-trace",
-					id: "t1",
-					data: {
-						seconds: 4,
-						steps: [{ label: "Read the brief", detail: "2 files" }],
-					},
+					type: "data-thought",
+					data: { text: "Plan the page.", seconds: 4, isStreaming: false },
 				},
 				{
-					type: "data-tools",
-					id: "k1",
+					type: "data-step",
 					data: {
-						calls: [
-							{ kind: "run", label: "Run migration", target: "pnpm db:push" },
-						],
-						files: [{ path: "src/db.ts", added: 3, removed: 1 }],
+						kind: "edit",
+						state: "done",
+						target: "styles.css",
+						description: null,
+						detail: [],
 					},
 				},
 				{
 					type: "data-question",
 					id: "q1",
-					data: { question: "Who scans?", options: ["Desk"], answer: "Desk" },
+					data: {
+						toolCallId: "call-1",
+						questionId: "question-0",
+						question: "Who scans?",
+						kind: "single-choice",
+						helper: null,
+						maxFiles: null,
+						options: [{ id: "desk", label: "Desk" }],
+						isOpen: false,
+						isAnswered: true,
+					},
 				},
 				{
 					type: "data-suggestion",
@@ -122,10 +132,104 @@ describe("ChatMessageView", () => {
 		});
 		expect(screen.getByText("Wandit")).toBeTruthy();
 		expect(screen.getByText("Thought for 4s")).toBeTruthy();
-		expect(screen.getByText("1 tool call")).toBeTruthy();
+		expect(screen.getByText("Edited")).toBeTruthy();
+		expect(screen.getByText("styles.css")).toBeTruthy();
 		expect(screen.getByText("Who scans?")).toBeTruthy();
+		expect(screen.getByText("Answered")).toBeTruthy();
 		expect(screen.getByText("Add a reminder?")).toBeTruthy();
 		expect(screen.getByText("app/pass.tsx")).toBeTruthy();
+	});
+
+	it("groups the thought and step rows that follow each other in one block", () => {
+		renderMessage({
+			id: "a2",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-thought",
+					data: { text: "", seconds: 2, isStreaming: false },
+				},
+				{
+					type: "data-step",
+					data: {
+						kind: "run",
+						state: "done",
+						target: null,
+						description: "Check the app",
+						detail: [],
+					},
+				},
+				{ type: "text", text: "Done." },
+			],
+		});
+		// The thought row is a Collapsible root; the step row is a plain row div.
+		const thoughtRow = screen
+			.getByText("Thought for 2s")
+			.closest("[data-slot='collapsible']");
+		const stepRow = screen.getByText("Check the app").parentElement;
+		expect(thoughtRow?.parentElement).toBe(stepRow?.parentElement);
+		// The text after the rows keeps the message gap: it is outside the feed block.
+		expect(thoughtRow?.parentElement?.contains(screen.getByText("Done."))).toBe(
+			false,
+		);
+	});
+
+	it("points an open question at the tray only while the tray shows it", () => {
+		const message: BuilderMessage = {
+			id: "a3",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-question",
+					id: "call-1:question-0",
+					data: {
+						toolCallId: "call-1",
+						questionId: "question-0",
+						question: "Which style?",
+						kind: "single-choice",
+						helper: null,
+						maxFiles: null,
+						options: [{ id: "warm", label: "Warm" }],
+						isOpen: true,
+						isAnswered: false,
+					},
+				},
+			],
+		};
+		renderMessage(message, "call-1:question-0");
+		expect(screen.getByText("Answer below")).toBeTruthy();
+		expect(screen.queryByText("Answered")).toBeNull();
+		cleanup();
+		// After the skip X the tray hides, so no chip points at it.
+		renderMessage(message, null);
+		expect(screen.getByText("Which style?")).toBeTruthy();
+		expect(screen.queryByText("Answer below")).toBeNull();
+		expect(screen.queryByText("Answered")).toBeNull();
+	});
+
+	it("names a question the harness could not read", () => {
+		renderMessage({
+			id: "a4",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-question",
+					id: "call-1:question-0",
+					data: {
+						toolCallId: "call-1",
+						questionId: "question-0",
+						question: "",
+						kind: "free-text",
+						helper: null,
+						maxFiles: null,
+						options: [],
+						isOpen: false,
+						isAnswered: true,
+					},
+				},
+			],
+		});
+		expect(screen.getByText("Wandit needs your answer")).toBeTruthy();
 	});
 
 	it("sends an accepted suggestion body as text", () => {
@@ -212,8 +316,8 @@ describe("ChatMessageView", () => {
 					id: "ap-1",
 					data: {
 						approvalId: "ap-1",
-						toolName: "Bash",
-						input: '{"command":"pnpm db:push"}',
+						toolName: "run_sql_write",
+						input: '{"query":"delete from notes"}',
 						decision: null,
 						isOpen: true,
 					},
@@ -269,23 +373,13 @@ describe("ChatMessageView", () => {
 		).toBeTruthy();
 	});
 
-	it("renders a progress card and no action row without a change", () => {
+	it("renders no action row without a change", () => {
 		renderMessage({
 			id: "a4",
 			role: "assistant",
-			parts: [
-				{
-					type: "data-progress",
-					id: "p4",
-					data: {
-						title: "Building QR pass",
-						percent: 64,
-						steps: [{ id: "s1", label: "Pass screen", state: "done" }],
-					},
-				},
-			],
+			parts: [{ type: "text", text: "Building the pass screen." }],
 		});
-		expect(screen.getByText("Building QR pass")).toBeTruthy();
+		expect(screen.getByText("Building the pass screen.")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
 	});
 });

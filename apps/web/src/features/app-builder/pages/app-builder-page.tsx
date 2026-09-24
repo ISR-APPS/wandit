@@ -140,12 +140,14 @@ export default function AppBuilderPage({
 			}
 			focusLabel={mockThread.focusLabel}
 			isSending={thread.isSending}
+			phase={thread.phase}
 			isReady={thread.isReady}
 			projectName={project.name}
 			// LIMIT: plan mode sends a build turn; the turn body has no mode
 			// field. Upgrade: a builder mode on composerMetadataSchema.
 			onSend={(input) => thread.send(input.text)}
 			onDecideApproval={thread.decideApproval}
+			onAnswerQuestions={thread.answerQuestions}
 			onCancel={() =>
 				void thread
 					.cancel()

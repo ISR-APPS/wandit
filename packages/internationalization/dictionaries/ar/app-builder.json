@@ -334,6 +334,66 @@
 	"chat": {
 		"title": "الدردشة",
 		"thoughtFor": "فكّر لمدة {seconds} ث",
+		"thinking": "يفكّر",
+		"thought": "فكّر",
+		"stepFailed": "فشل",
+		"stepSkipped": "تم التخطي",
+		"steps": {
+			"edit": {
+				"done": "عدّل",
+				"running": "يعدّل"
+			},
+			"explore": {
+				"one": "قرأ",
+				"many": "استكشف المشروع",
+				"running": "يستكشف المشروع"
+			},
+			"run": {
+				"done": "شغّل أمرًا",
+				"running": "يشغّل أمرًا"
+			},
+			"web": {
+				"search": "بحث في الويب",
+				"fetch": "فتح",
+				"running": "يتصفح الويب"
+			},
+			"image": {
+				"done": "أنشأ صورة",
+				"running": "ينشئ صورة"
+			},
+			"database": {
+				"done": "حدّث قاعدة البيانات",
+				"running": "يحدّث قاعدة البيانات"
+			},
+			"databaseCheck": {
+				"done": "فحص قاعدة البيانات",
+				"running": "يفحص قاعدة البيانات"
+			},
+			"deploy": {
+				"done": "نشر دالة خادم",
+				"running": "ينشر دالة خادم"
+			},
+			"secret": {
+				"done": "حفظ سرًّا",
+				"running": "يحفظ سرًّا"
+			},
+			"network": {
+				"done": "سمح بالوصول إلى",
+				"running": "يطلب الوصول إلى"
+			},
+			"guide": {
+				"done": "قرأ الدليل",
+				"running": "يقرأ الدليل"
+			},
+			"task": {
+				"done": "أنهى مهمة فرعية",
+				"running": "يعمل على مهمة فرعية"
+			},
+			"other": {
+				"done": "استخدم أداة",
+				"running": "يستخدم أداة"
+			}
+		},
 		"details": "التفاصيل",
 		"preview": "معاينة",
 		"bookmark": "حفظ كنقطة استعادة",
@@ -361,38 +421,74 @@
 		"focusChip": "العمل على {label}",
 		"removeFocus": "إزالة",
 		"working": "Wandit يعمل…",
-		"toolCalls": {
-			"zero": "بلا استدعاء أدوات",
-			"one": "استدعاء أداة واحد",
-			"two": "استدعاءا أداة",
-			"few": "{count} استدعاءات أدوات",
-			"many": "{count} استدعاءً للأدوات",
-			"other": "{count} استدعاء أدوات"
+		"tray": {
+			"needsDetail": "نحتاج توضيحًا",
+			"needsFiles": "صور مطلوبة",
+			"step": "{current} من {total}",
+			"decideForMe": "قرّر بدلًا مني",
+			"dismiss": "تخطَّ السؤال",
+			"typingOverride": "تجيب بكلماتك الخاصة ↓",
+			"scrollBack": "البطاقات السابقة",
+			"scrollForward": "المزيد من البطاقات",
+			"next": "التالي",
+			"answer": "أجب",
+			"chooseAnOption": "اختر خيارًا",
+			"chooseOptions": "اختر خيارات",
+			"chooseSelected": {
+				"zero": "اختر الخيارات",
+				"one": "اختر هذا الخيار",
+				"two": "اختر هذين الخيارين",
+				"few": "اختر هذه الخيارات الـ{count}",
+				"many": "اختر هذه الخيارات الـ{count}",
+				"other": "اختر هذه الخيارات الـ{count}"
+			},
+			"sendFiles": {
+				"zero": "أرسل الصور",
+				"one": "أرسل صورة واحدة",
+				"two": "أرسل صورتين",
+				"few": "أرسل {count} صور",
+				"many": "أرسل {count} صورة",
+				"other": "أرسل {count} صورة"
+			},
+			"filesSent": {
+				"zero": "لم تُرسل أي صورة",
+				"one": "تم إرسال صورة واحدة",
+				"two": "تم إرسال صورتين",
+				"few": "تم إرسال {count} صور",
+				"many": "تم إرسال {count} صورة",
+				"other": "تم إرسال {count} صورة"
+			},
+			"dropTitle": "اسحب صورك هنا",
+			"browse": "استعرض",
+			"imagesHint": "PNG أو JPG أو WebP أو GIF أو AVIF",
+			"addMore": "أضف المزيد من الصور",
+			"removeFile": "أزل {name}",
+			"fileFailed": "فشل الرفع. استخدم صورة PNG أو JPG أو WebP أو GIF أو AVIF أصغر من 15 ميغابايت."
+		},
+		"askUser": {
+			"answerBelow": "أجب أدناه",
+			"answered": "تمت الإجابة",
+			"untitled": "يحتاج Wandit إلى إجابتك"
 		},
 		"phases": {
-			"sandbox_waking": "إيقاظ البيئة المعزولة",
-			"session_starting": "بدء الجلسة",
+			"sandbox_waking": "إيقاظ مساحة عملك",
+			"session_starting": "جارٍ التحضير",
 			"running": "جارٍ العمل",
-			"checkpoint": "حفظ نقطة استعادة",
-			"committing": "حفظ الإصدار"
-		},
-		"tools": {
-			"think": "تفكير",
-			"read": "قراءة",
-			"write": "كتابة",
-			"run": "تشغيل"
-		},
-		"question": {
-			"other": "شيء آخر…",
-			"continue": "متابعة"
+			"checkpoint": "حفظ تغييراتك",
+			"committing": "حفظ تغييراتك"
 		},
 		"approval": {
-			"title": "يطلب Wandit الإذن لتشغيل {tool}",
 			"approve": "موافقة",
 			"deny": "رفض",
 			"approved": "تمت الموافقة",
 			"denied": "مرفوض",
 			"answered": "تمت الإجابة"
+		},
+		"approvalTitles": {
+			"request_network_host": "هل تسمح للتطبيق بالوصول إلى {host}؟",
+			"run_sql_write": "هل تريد تعديل بيانات في قاعدة بياناتك؟",
+			"apply_destructive_migration": "هل تريد تغيير بنية قاعدة بياناتك؟ قد تُفقد بعض البيانات.",
+			"other": "هل تسمح لـ Wandit بتنفيذ هذا الإجراء؟"
 		},
 		"suggestion": {
 			"accept": "قبول",

@@ -80,6 +80,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 	questions: [
 		{
 			id: "question-1",
+			kind: "single-choice",
 			options: [
 				{ id: "option-1", label: "Blue" },
 				{ id: "option-2", label: "Green" },
@@ -87,6 +88,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 			question: "Which color?",
 		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
 };
 
@@ -95,9 +97,45 @@ const PENDING_TWO_QUESTIONS: HarnessPendingInteraction = {
 	kind: "question",
 	questions: [
 		...(PENDING_QUESTION.kind === "question" ? PENDING_QUESTION.questions : []),
-		{ id: "question-2", options: [], question: "Which font?" },
+		{
+			id: "question-2",
+			kind: "single-choice",
+			options: [],
+			question: "Which font?",
+		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
+};
+
+/** A Wandit upload URL of the fake user; its key ends in `<uuid>/<name>`. */
+const UPLOAD_URL =
+	"https://assets.test/uploads/user_1/0d1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b/logo.png";
+
+/** A paused `ask_user` call: a design world choice, then a logo upload. */
+const PENDING_ASK_USER: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			helper: "You can change it later.",
+			id: "question-0",
+			kind: "single-choice",
+			options: [
+				{ id: "zellige", label: "Warm and crafted", worldId: "zellige" },
+				{ description: "No world card", id: "plain", label: "Plain" },
+			],
+			question: "Which style?",
+		},
+		{
+			id: "question-1",
+			kind: "attachments",
+			maxFiles: 2,
+			options: [],
+			question: "Your logo?",
+		},
+	],
+	tool: "ask_user",
+	toolCallId: "call-7",
 };
 
 /** The approval card a suspended turn waits on. */
@@ -521,6 +559,8 @@ function makeWorld(over?: {
 	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
 	const balanceReads: number[] = [];
 	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
+	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
+	const uploads = new Map<string, Uint8Array>();
 	const proxySum = over?.proxyRows ?? fakeProxySum();
 	metering.monthlySpend = over?.monthlySpend ?? 0;
 
@@ -612,6 +652,7 @@ function makeWorld(over?: {
 			balanceReads.push(balance);
 			return balance;
 		},
+		readUpload: async (url) => uploads.get(url) ?? null,
 		readV2Enabled: async () => nextV2(),
 		resolvePlan: async () => "pro",
 		sandboxSessions: {
@@ -645,6 +686,7 @@ function makeWorld(over?: {
 		timings,
 		touched,
 		turns,
+		uploads,
 		warnings,
 	};
 }
@@ -2002,7 +2044,7 @@ describe("runBuilderTurn", () => {
 
 		// The card goes out as a stream part and into the assistant message.
 		type CardChunk = {
-			data?: { answer?: string | null; options?: string[] };
+			data?: { answer?: string | null };
 			id?: string;
 			type?: string;
 		};
@@ -2015,7 +2057,11 @@ describe("runBuilderTurn", () => {
 		expect(card).toEqual({
 			data: {
 				answer: null,
-				options: ["Blue", "Green"],
+				kind: "single-choice",
+				options: [
+					{ id: "option-1", label: "Blue" },
+					{ id: "option-2", label: "Green" },
+				],
 				question: "Which color?",
 				questionId: "question-1",
 				toolCallId: "call-1",
@@ -2137,6 +2183,7 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2174,6 +2221,58 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: true,
+					tool: "askUserQuestions",
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("answers every built-in question from the typed answers of the tray", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_TWO_QUESTIONS]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						// An old card stores plain labels, so the tray sends the label.
+						optionIds: ["Green"],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-1",
+					},
+					{
+						action: "answered",
+						files: [],
+						optionIds: [],
+						questionId: "question-2",
+						text: "Serif",
+						toolCallId: "call-1",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Green\n\nSerif",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: {
+						"question-1": { optionIds: ["option-2"] },
+						"question-2": { freeform: "Serif", optionIds: [] },
+					},
+					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2221,6 +2320,7 @@ describe("runBuilderTurn", () => {
 						"question-1": { freeform: "chartreuse", optionIds: [] },
 					},
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2283,6 +2383,10 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
+		// The new sandbox woke, but an approval keeps the paused turn.
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			dropPausedTurn: false,
+		});
 		expect(world.harness.streamCalls[0]?.input).toEqual({
 			approvals: [{ approvalId: "appr-1", approved: true }],
 			kind: "continue",
@@ -2375,6 +2479,370 @@ describe("runBuilderTurn", () => {
 			PENDING_QUESTION,
 		]);
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
+	});
+
+	it("writes the ask_user card with its kind, helper, file limit, and world card", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_ASK_USER];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		type CardChunk = {
+			data?: {
+				helper?: string;
+				kind?: string;
+				maxFiles?: number;
+				options?: {
+					card?: { id: string; preview: { fontFamily: string } };
+					description?: string;
+					id: string;
+				}[];
+			};
+			id?: string;
+			type?: string;
+		};
+		// SAFETY: the spec wrote the chunks; the cards are the only data-question parts.
+		const cards = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const style = cards.find((chunk) => chunk.id === "call-7:question-0");
+		const logo = cards.find((chunk) => chunk.id === "call-7:question-1");
+		expect(style?.data?.kind).toBe("single-choice");
+		expect(style?.data?.helper).toBe("You can change it later.");
+		expect(style?.data?.options?.[0]?.card?.id).toBe("zellige");
+		expect(style?.data?.options?.[0]?.card?.preview.fontFamily).toEqual(
+			expect.any(String),
+		);
+		// An option without a worldId keeps its description and gets no card.
+		expect(style?.data?.options?.[1]).toEqual({
+			description: "No world card",
+			id: "plain",
+			label: "Plain",
+		});
+		expect(logo?.data).toMatchObject({ kind: "attachments", maxFiles: 2 });
+		expect(world.inserted[0]?.input.parts).toContainEqual(style);
+	});
+
+	it("continues an ask_user call with the typed answers and copies the file", async () => {
+		const world = makeWorld();
+		// A warm sandbox keeps the bridge, so the answer goes as a tool result.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const logoBytes = new Uint8Array([137, 80, 78, 71]);
+		world.uploads.set(UPLOAD_URL, logoBytes);
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					output: {
+						answers: [
+							{
+								action: "answered",
+								files: [],
+								question: "Which style?",
+								questionId: "question-0",
+								selected: [{ id: "zellige", label: "Warm and crafted" }],
+								text: "",
+							},
+							{
+								action: "answered",
+								files: [
+									{
+										filename: "logo.png",
+										mediaType: "image/png",
+										path: "public/uploads/0d1f2a3b-logo.png",
+										url: UPLOAD_URL,
+									},
+								],
+								question: "Your logo?",
+								questionId: "question-1",
+								selected: [],
+								text: "",
+							},
+						],
+					},
+					tool: "ask_user",
+					toolCallId: "call-7",
+				},
+			],
+		});
+		const sandbox = await world.sandboxes.getOrCreate(
+			PROJECT_ID,
+			WARM_SANDBOX_OPTIONS,
+		);
+		expect(
+			await sandbox.readFile(
+				"/vercel/workspace/public/uploads/0d1f2a3b-logo.png",
+			),
+		).toEqual(logoBytes);
+	});
+
+	it("keeps a null path and warns when an answer file cannot be copied", async () => {
+		const world = makeWorld();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const bigUrl = UPLOAD_URL.replace("logo.png", "big.png");
+		const brokenUrl = UPLOAD_URL.replace("logo.png", "broken.png");
+		const missingUrl = UPLOAD_URL.replace("logo.png", "missing.png");
+		// A name that fails the upload-name pattern never reaches the sandbox.
+		const unsafeUrl = UPLOAD_URL.replace("logo.png", ".env");
+		// One byte over the 15 MB copy limit.
+		world.uploads.set(bigUrl, new Uint8Array(15 * 1024 * 1024 + 1));
+		world.deps.readUpload = async (url) => {
+			if (url === brokenUrl) throw new Error("R2 timeout");
+			return world.uploads.get(url) ?? null;
+		};
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [bigUrl, brokenUrl, missingUrl, unsafeUrl].map((url) => ({
+							mediaType: "image/png",
+							url,
+						})),
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const turnInput = world.harness.streamCalls[0]?.input;
+		const logoAnswer =
+			turnInput?.kind === "continue" &&
+			turnInput.toolResults[0]?.tool === "ask_user"
+				? turnInput.toolResults[0].output.answers[1]
+				: undefined;
+		expect(logoAnswer?.files.map((file) => file.path)).toEqual([
+			null,
+			null,
+			null,
+			null,
+		]);
+		expect(
+			world.warnings.filter(
+				(message) => message === "builder-turn.answer-file-skipped",
+			),
+		).toHaveLength(3);
+		expect(world.warnings).toContain("builder-turn.answer-file-copy-failed");
+	});
+
+	it("tells a lost session every answer of the ask_user call", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Decide for me",
+			},
+		});
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": the user lets you decide.\n' +
+				'Answer to your question "Your logo?": skipped.',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("sends the ask_user answers as text on the same thread after a sandbox stop", async () => {
+		const world = makeWorld();
+		// The idle sweep stopped the sandbox while the turn waited.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		world.uploads.set(UPLOAD_URL, new Uint8Array([137, 80, 78, 71]));
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			dropPausedTurn: true,
+		});
+		expect(world.harness.createCalls).toHaveLength(0);
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": Warm and crafted\n' +
+				'Answer to your question "Your logo?": public/uploads/0d1f2a3b-logo.png',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("sends Continue. for an answers-only turn with no card left to answer", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-gone",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "Continue.",
+		});
+	});
+
+	it("tells the agent to ask through ask_user and to describe commands in the user's language", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain("ask_user tool");
+		expect(instructions).toContain("Bash and Agent description");
+	});
+
+	it("writes a data-thought part with the duration after each reasoning block", async () => {
+		const world = makeWorld();
+		world.harness.events = [
+			...(
+				[
+					{ id: "r1", type: "reasoning-start" },
+					{ delta: "Plan the page", id: "r1", type: "reasoning-delta" },
+					{ id: "r1", type: "reasoning-end" },
+				] satisfies UIMessageChunk[]
+			).map((chunk) => ({ chunk, type: "part" as const })),
+			...happyEvents(),
+		];
+		// The clock moves 4.2 s while the reasoning block streams.
+		let clock = 1_000_000;
+		world.deps.now = () => clock;
+		const stream = world.stream;
+		world.deps.writer = {
+			write: async (turnId, event) => {
+				await stream.write(turnId, event);
+				if (event.type === "part") {
+					// SAFETY: the runtime writes AI SDK chunks as part data.
+					const chunk = event.data as UIMessageChunk;
+					if (chunk.type === "reasoning-start") clock += 4200;
+				}
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// SAFETY: the runtime writes AI SDK chunks as part data.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as UIMessageChunk[];
+		const endIndex = chunks.findIndex(
+			(chunk) => chunk.type === "reasoning-end",
+		);
+		const thought = {
+			data: { reasoningId: "r1", seconds: 4 },
+			id: "thought-r1",
+			type: "data-thought",
+		};
+		expect(chunks[endIndex + 1]).toEqual(thought);
+		expect(world.inserted[0]?.input.parts).toContainEqual(thought);
 	});
 
 	describe("sandbox env from app_backends", () => {

@@ -169,8 +169,10 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
   `TOO_MANY_ACTIVE_TURNS`. A parked `waiting` row streams as soon as
   promotion gives it a run. A turn paused on a `data-approval` card
   answers 409 `BUILDER_APPROVAL_PENDING` until the body carries
-  `approval`; a turn paused on a question takes the message text as the
-  answer.
+  `approval`. A turn paused on a question takes `answers` as the answer:
+  one entry per `data-question` card, with `optionIds`, `text`, and
+  `files`. Without `answers`, the message text answers the first
+  question. Answer files pass the same owner check as attachments.
 - `GET /:turnId/stream` relays one turn's stream; `204` while the row has
   no run id.
 - `GET /active/stream` is the `useChat` reconnect route: the active
@@ -544,12 +546,20 @@ One run does this, in order:
    directly, and that status carries the `Backend not ready yet` note
    when it applies. A `waiting_for_*` row of the project
    moves to `succeeded` first — this run is its answer. When the stored
-   state holds pending cards, the turn streams a `continue` input: the
-   message text answers the first question (a matching option label
-   becomes its id, other text becomes a freeform answer), `spec.approval`
-   answers the approval card (an unnamed approval counts as denied). A
-   session that cannot resume starts fresh and hears the answer as plain
-   text.
+   state holds pending cards, the turn streams a `continue` input. For an
+   `ask_user` card, `askUserOutputOf` builds the tool result: a
+   `spec.answers` entry wins. Without one, the message text answers the
+   first question (an exact option label picks that option). A built-in
+   `askUserQuestions` card from an older pause reads the same typed
+   answers (`builtinQuestionResultOf`). After the sandbox is ready, each answer file is copied to `public/uploads/` (at
+   most 15 MB, `ANSWER_FILE_MAX_BYTES`). A failed copy keeps
+   `path: null`, and the agent gets the URL. `spec.approval` answers the
+   approval card (an unnamed approval counts as denied). A session that
+   cannot resume starts fresh and hears the answers as plain text. After
+   a sandbox stop, the bridge and its open tool calls are gone: an
+   `ask_user` answer then resumes the same thread between turns
+   (`dropPausedTurn`) and goes as the same plain text. An approval keeps
+   the `continue` input.
 7. Starts the timers: a 60 s keep-alive (`TURN_KEEPALIVE_MS`: lock
    refresh, `sandbox.keepAlive`, `touchActivity`) and the 30 s pulse
    (`STREAM_HEARTBEAT_MS`). The pulse runs the 4 min stall watchdog
@@ -573,7 +583,9 @@ One run does this, in order:
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
    reconstruction. Harness `usage` events only feed the
    `builder-turn.harness-usage` log line; the money path never reads
-   them.
+   them. After each `reasoning-end`, the task writes a `data-thought`
+   part (`reasoningId`, `seconds`, at least 1) to both streams. The UI
+   shows it as "Thought for Ns".
 9. On stream end `hasUnfinishedTurn` picks the path. A paused turn runs
    `suspendTurn` instead of `detach`: one `data-question` or
    `data-approval` stream part and message part per pending card, the row
@@ -654,6 +666,10 @@ releases per-turn clients (none today — connectors land in a follow-up).
   refunds, and a `failed`/`unavailable` result returns to the agent
   instead of throwing. `null` `holdEventId` answers `failed` — a paid
   tool never runs unbilled.
+- `ask_user` asks the user 1 to 4 questions in one call. It is
+  `"not-applicable"`, has no execute, and pauses the turn. The harness
+  cuts the input to the card limits (`askUserQuestionsOf`). The built-in
+  `askUserQuestions` is inactive.
 - `request_network_host` (WANDIT-180) asks to reach one extra egress
   host. It is `"user-approval"`, so the user approves first; the body
   runs only on approval. It checks the host with `isValidNetworkHost`,
@@ -665,7 +681,7 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `denied` and writes no audit row. See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
-  way `askUserQuestions` pauses for an answer. `generate_image` is
+  way `ask_user` pauses for an answer. `generate_image` is
   `"not-applicable"` — it never asks.
 - MCP connector tools are out of scope here: they need the Nest
   container, and the task has none (follow-up issue).

@@ -306,6 +306,66 @@
 	"chat": {
 		"title": "Chat",
 		"thoughtFor": "A réfléchi {seconds}s",
+		"thinking": "Réflexion",
+		"thought": "A réfléchi",
+		"stepFailed": "Échec",
+		"stepSkipped": "Ignoré",
+		"steps": {
+			"edit": {
+				"done": "A modifié",
+				"running": "Modifie"
+			},
+			"explore": {
+				"one": "A lu",
+				"many": "A exploré le projet",
+				"running": "Explore le projet"
+			},
+			"run": {
+				"done": "A lancé une commande",
+				"running": "Lance une commande"
+			},
+			"web": {
+				"search": "A cherché sur le web",
+				"fetch": "A ouvert",
+				"running": "Parcourt le web"
+			},
+			"image": {
+				"done": "A généré une image",
+				"running": "Génère une image"
+			},
+			"database": {
+				"done": "A mis à jour la base de données",
+				"running": "Met à jour la base de données"
+			},
+			"databaseCheck": {
+				"done": "A vérifié la base de données",
+				"running": "Vérifie la base de données"
+			},
+			"deploy": {
+				"done": "A déployé une fonction serveur",
+				"running": "Déploie une fonction serveur"
+			},
+			"secret": {
+				"done": "A enregistré un secret",
+				"running": "Enregistre un secret"
+			},
+			"network": {
+				"done": "A autorisé l'accès à",
+				"running": "Demande l'accès à"
+			},
+			"guide": {
+				"done": "A lu le guide",
+				"running": "Lit le guide"
+			},
+			"task": {
+				"done": "A terminé une sous-tâche",
+				"running": "Travaille sur une sous-tâche"
+			},
+			"other": {
+				"done": "A utilisé un outil",
+				"running": "Utilise un outil"
+			}
+		},
 		"details": "Détails",
 		"preview": "Aperçu",
 		"bookmark": "Enregistrer comme point de reprise",
@@ -329,34 +389,62 @@
 		"focusChip": "En cours sur {label}",
 		"removeFocus": "Retirer",
 		"working": "Wandit travaille…",
-		"toolCalls": {
-			"one": "{count} appel d'outil",
-			"other": "{count} appels d'outils"
+		"tray": {
+			"needsDetail": "Détail à préciser",
+			"needsFiles": "Images demandées",
+			"step": "{current} sur {total}",
+			"decideForMe": "Choisis pour moi",
+			"dismiss": "Passer la question",
+			"typingOverride": "tu réponds avec tes mots ↓",
+			"scrollBack": "Cartes précédentes",
+			"scrollForward": "Plus de cartes",
+			"next": "Suivant",
+			"answer": "Répondre",
+			"chooseAnOption": "Choisis une option",
+			"chooseOptions": "Choisis des options",
+			"chooseSelected": {
+				"one": "Choisis cette option",
+				"other": "Choisis ces {count} options"
+			},
+			"sendFiles": {
+				"one": "Envoyer 1 image",
+				"other": "Envoyer {count} images"
+			},
+			"filesSent": {
+				"one": "1 image envoyée",
+				"other": "{count} images envoyées"
+			},
+			"dropTitle": "Glisse tes images ici",
+			"browse": "Parcourir",
+			"imagesHint": "PNG, JPG, WebP, GIF ou AVIF",
+			"addMore": "Ajouter des images",
+			"removeFile": "Retirer {name}",
+			"fileFailed": "Échec de l'envoi. Utilise une image PNG, JPG, WebP, GIF ou AVIF de moins de 15 Mo."
+		},
+		"askUser": {
+			"answerBelow": "Réponds ci-dessous",
+			"answered": "Répondu",
+			"untitled": "Wandit a besoin de ta réponse"
 		},
 		"phases": {
-			"sandbox_waking": "Réveil du sandbox",
-			"session_starting": "Démarrage de la session",
+			"sandbox_waking": "Réveil de ton espace de travail",
+			"session_starting": "Préparation",
 			"running": "Travail en cours",
-			"checkpoint": "Enregistrement d'un point de reprise",
-			"committing": "Enregistrement de la version"
-		},
-		"tools": {
-			"think": "Réflexion",
-			"read": "Lecture",
-			"write": "Écriture",
-			"run": "Exécution"
-		},
-		"question": {
-			"other": "Autre chose…",
-			"continue": "Continuer"
+			"checkpoint": "Enregistrement de tes changements",
+			"committing": "Enregistrement de tes changements"
 		},
 		"approval": {
-			"title": "Wandit demande l'autorisation d'exécuter {tool}",
 			"approve": "Approuver",
 			"deny": "Refuser",
 			"approved": "Approuvé",
 			"denied": "Refusé",
 			"answered": "Répondu"
+		},
+		"approvalTitles": {
+			"request_network_host": "Autoriser l'app à joindre {host} ?",
+			"run_sql_write": "Modifier des données de ta base ?",
+			"apply_destructive_migration": "Modifier la structure de ta base ? Des données peuvent être perdues.",
+			"other": "Autoriser Wandit à faire cette action ?"
 		},
 		"suggestion": {
 			"accept": "Accepter",

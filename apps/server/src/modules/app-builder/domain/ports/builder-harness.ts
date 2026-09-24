@@ -6,7 +6,10 @@
  * implementation.
  */
 
-import type { HarnessPendingInteraction } from "@wandit/contracts";
+import type {
+	AskUserHostToolOutput,
+	HarnessPendingInteraction,
+} from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 
 import type { HostToolSet } from "./host-tools";
@@ -47,15 +50,23 @@ export type HarnessSessionInput = {
 export type HarnessSession = { readonly sessionId: string };
 
 /**
- * One answered `askUserQuestions` call. `answers` is keyed by question
- * id; `partial` marks a call with more than one question, where the
- * harness re-asks the unanswered ones.
+ * One answered question call, keyed on the tool that asked. For the
+ * built-in `askUserQuestions`, `answers` is keyed by question id and
+ * `partial` marks a call where the harness re-asks the unanswered
+ * questions. For the `ask_user` host tool, `output` is the tool result.
  */
-export type HarnessQuestionResult = {
-	toolCallId: string;
-	answers: Record<string, { optionIds: string[]; freeform?: string }>;
-	partial: boolean;
-};
+export type HarnessQuestionResult =
+	| {
+			tool: "askUserQuestions";
+			toolCallId: string;
+			answers: Record<string, { optionIds: string[]; freeform?: string }>;
+			partial: boolean;
+	  }
+	| {
+			tool: "ask_user";
+			toolCallId: string;
+			output: AskUserHostToolOutput;
+	  };
 
 /**
  * One turn inside a session. `prompt` starts a fresh turn from the user
@@ -99,6 +110,15 @@ export interface BuilderHarness {
 	resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
+		options: {
+			/**
+			 * True resumes the thread between turns and drops a paused turn; the
+			 * caller then sends the answers as a text prompt. The runtime sets it
+			 * when the sandbox woke from a stop: the bridge and its open tool
+			 * calls are gone.
+			 */
+			dropPausedTurn: boolean;
+		},
 	): Promise<HarnessSession>;
 	stream(
 		session: HarnessSession,

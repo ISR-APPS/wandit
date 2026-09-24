@@ -62,8 +62,40 @@ describe("createBuilderChatTransport", () => {
 		);
 		expect(call?.init?.method).toBe("POST");
 		expect(call?.init?.credentials).toBe("include");
-		// A question answer is the same shape with the option label as message.
 		expect(sentBody(call)).toEqual({ chatId: CHAT_ID, message: "hello" });
+	});
+
+	it("sends the tray answers with the summary message", async () => {
+		const fake = createRecordingFetch();
+		const transport = createBuilderChatTransport({
+			projectId: PROJECT_ID,
+			fetch: fake.fetchImpl,
+		});
+		const answers = [
+			{
+				toolCallId: "call-1",
+				questionId: "question-0",
+				action: "answered",
+				optionIds: ["warm"],
+				text: "",
+				files: [],
+			},
+		];
+
+		await transport.sendMessages({
+			trigger: "submit-message",
+			chatId: CHAT_ID,
+			messageId: undefined,
+			messages: [userMessage("m1", "Warm and crafted")],
+			abortSignal: undefined,
+			body: { answers },
+		});
+
+		expect(sentBody(fake.calls[0])).toEqual({
+			chatId: CHAT_ID,
+			message: "Warm and crafted",
+			answers,
+		});
 	});
 
 	it("sends an approval body with an empty message", async () => {
@@ -298,5 +330,49 @@ describe("hydrateTurnMessages", () => {
 		const messages = hydrateTurnMessages(rows);
 
 		expect(messages[0]?.parts).toEqual([{ type: "text", text: "answer" }]);
+	});
+
+	it("fills the defaults of a question row stored with plain option labels", () => {
+		const rows: ChatMessage[] = [
+			{
+				id: "a1",
+				chatId: CHAT_ID,
+				role: "assistant",
+				parts: [
+					{
+						type: "data-question",
+						id: "call-1:question-0",
+						data: {
+							toolCallId: "call-1",
+							questionId: "question-0",
+							question: "Which color?",
+							options: ["Blue", "Green"],
+							answer: null,
+						},
+					},
+				],
+				metadata: null,
+				seq: 0,
+				createdAt: "2026-09-16T10:00:00.000Z",
+			},
+		];
+
+		const [part] = hydrateTurnMessages(rows)[0]?.parts ?? [];
+
+		expect(part).toEqual({
+			type: "data-question",
+			id: "call-1:question-0",
+			data: {
+				toolCallId: "call-1",
+				questionId: "question-0",
+				question: "Which color?",
+				kind: "single-choice",
+				options: [
+					{ id: "Blue", label: "Blue" },
+					{ id: "Green", label: "Green" },
+				],
+				answer: null,
+			},
+		});
 	});
 });

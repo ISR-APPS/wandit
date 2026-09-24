@@ -306,6 +306,66 @@
 	"chat": {
 		"title": "Chat",
 		"thoughtFor": "Thought for {seconds}s",
+		"thinking": "Thinking",
+		"thought": "Thought",
+		"stepFailed": "Failed",
+		"stepSkipped": "Skipped",
+		"steps": {
+			"edit": {
+				"done": "Edited",
+				"running": "Editing"
+			},
+			"explore": {
+				"one": "Read",
+				"many": "Explored the project",
+				"running": "Exploring the project"
+			},
+			"run": {
+				"done": "Ran a command",
+				"running": "Running a command"
+			},
+			"web": {
+				"search": "Searched the web",
+				"fetch": "Opened",
+				"running": "Browsing the web"
+			},
+			"image": {
+				"done": "Generated an image",
+				"running": "Generating an image"
+			},
+			"database": {
+				"done": "Updated the database",
+				"running": "Updating the database"
+			},
+			"databaseCheck": {
+				"done": "Checked the database",
+				"running": "Checking the database"
+			},
+			"deploy": {
+				"done": "Deployed a server function",
+				"running": "Deploying a server function"
+			},
+			"secret": {
+				"done": "Saved a secret",
+				"running": "Saving a secret"
+			},
+			"network": {
+				"done": "Allowed access to",
+				"running": "Asking for access to"
+			},
+			"guide": {
+				"done": "Read the guide",
+				"running": "Reading the guide"
+			},
+			"task": {
+				"done": "Finished a sub-task",
+				"running": "Working on a sub-task"
+			},
+			"other": {
+				"done": "Used a tool",
+				"running": "Using a tool"
+			}
+		},
 		"details": "Details",
 		"preview": "Preview",
 		"bookmark": "Save as checkpoint",
@@ -329,34 +389,62 @@
 		"focusChip": "Working on {label}",
 		"removeFocus": "Remove",
 		"working": "Wandit is working…",
-		"toolCalls": {
-			"one": "{count} tool call",
-			"other": "{count} tool calls"
+		"tray": {
+			"needsDetail": "Needs a detail",
+			"needsFiles": "Images requested",
+			"step": "{current} of {total}",
+			"decideForMe": "Decide for me",
+			"dismiss": "Skip the question",
+			"typingOverride": "answering in your own words ↓",
+			"scrollBack": "Previous cards",
+			"scrollForward": "More cards",
+			"next": "Next",
+			"answer": "Answer",
+			"chooseAnOption": "Choose an option",
+			"chooseOptions": "Choose options",
+			"chooseSelected": {
+				"one": "Choose this option",
+				"other": "Choose these {count} options"
+			},
+			"sendFiles": {
+				"one": "Send 1 image",
+				"other": "Send {count} images"
+			},
+			"filesSent": {
+				"one": "1 image sent",
+				"other": "{count} images sent"
+			},
+			"dropTitle": "Drop your images here",
+			"browse": "Browse",
+			"imagesHint": "PNG, JPG, WebP, GIF, or AVIF",
+			"addMore": "Add more images",
+			"removeFile": "Remove {name}",
+			"fileFailed": "Upload failed. Use a PNG, JPG, WebP, GIF, or AVIF image under 15 MB."
+		},
+		"askUser": {
+			"answerBelow": "Answer below",
+			"answered": "Answered",
+			"untitled": "Wandit needs your answer"
 		},
 		"phases": {
-			"sandbox_waking": "Waking the sandbox",
-			"session_starting": "Starting the session",
+			"sandbox_waking": "Waking up your workspace",
+			"session_starting": "Getting ready",
 			"running": "Working",
-			"checkpoint": "Saving a checkpoint",
-			"committing": "Saving the version"
-		},
-		"tools": {
-			"think": "Thinking",
-			"read": "Read",
-			"write": "Write",
-			"run": "Run"
-		},
-		"question": {
-			"other": "Something else…",
-			"continue": "Continue"
+			"checkpoint": "Saving your changes",
+			"committing": "Saving your changes"
 		},
 		"approval": {
-			"title": "Wandit asks permission to run {tool}",
 			"approve": "Approve",
 			"deny": "Deny",
 			"approved": "Approved",
 			"denied": "Denied",
 			"answered": "Answered"
+		},
+		"approvalTitles": {
+			"request_network_host": "Allow the app to reach {host}?",
+			"run_sql_write": "Change data in your database?",
+			"apply_destructive_migration": "Change your database structure? Some data can be lost.",
+			"other": "Allow Wandit to run this action?"
 		},
 		"suggestion": {
 			"accept": "Accept",
