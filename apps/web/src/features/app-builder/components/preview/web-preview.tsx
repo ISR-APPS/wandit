@@ -11,6 +11,7 @@ import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
+import type { BootContext } from "../../lib/boot-state";
 import {
 	MOBILE_VIEWPORT_WIDTH_PX,
 	TABLET_VIEWPORT_WIDTH_PX,
@@ -34,6 +35,8 @@ export type WebPreviewProps = {
 	viewport: WebViewport;
 	/** Changes when the user presses reload. The panel mints a new token for it. */
 	reloadKey: number;
+	/** The running turn and the backend state, from the page. The panel shows the start-up steps from them. */
+	bootContext: BootContext;
 	/** Spec seam: a fake getPreviewToken passed to the panel. Production callers leave it out. */
 	deps?: PreviewTokenDeps;
 };
@@ -43,6 +46,7 @@ export function WebPreview({
 	project,
 	viewport,
 	reloadKey,
+	bootContext,
 	deps,
 }: WebPreviewProps) {
 	const { t } = useTranslation();
@@ -85,7 +89,10 @@ export function WebPreview({
 					reloadKey={reloadKey}
 					className={cn(
 						"h-full w-full bg-transparent",
-						frameWidth === null ? "border-0" : "border-x border-y-0",
+						// The side borders sit on the void, so they are a faint white line in both themes.
+						frameWidth === null
+							? "border-0"
+							: "border-white/10 border-x border-y-0",
 					)}
 					// The inline width wins over `w-full`; the max keeps it inside a narrow card.
 					style={
@@ -93,6 +100,7 @@ export function WebPreview({
 							? undefined
 							: { width: frameWidth, maxWidth: "100%" }
 					}
+					bootContext={bootContext}
 					deps={deps}
 				/>
 			</div>

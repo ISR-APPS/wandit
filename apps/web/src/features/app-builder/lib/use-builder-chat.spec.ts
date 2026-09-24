@@ -171,6 +171,49 @@ describe("useBuilderChat", () => {
 		expect(postCount(fake)).toBe(1);
 	});
 
+	it("waits for data-turn-created after a local send, and never after a resume", async () => {
+		const fake = createDeps();
+		let answerPost = () => {};
+		// The POST waits until the spec answers it, so the in-flight state holds still.
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>((resolve) => {
+							answerPost = () => resolve(fake.deps.fetch(input, init));
+						})
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderBuilderChat(
+			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			deps,
+		);
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(result.current.isAwaitingTurn).toBe(true);
+
+		act(() => answerPost());
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+		expect(result.current.isAwaitingTurn).toBe(false);
+
+		// A resumed turn sends no data-turn-created, so it must not wait for one.
+		const resumed = createDeps({ resumeReply: true });
+		const { result: resumedResult } = renderBuilderChat(
+			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			resumed.deps,
+		);
+		await waitFor(() => expect(resumedResult.current.isSending).toBe(true));
+		expect(resumedResult.current.isAwaitingTurn).toBe(false);
+	});
+
 	it("aborts the stream and then posts the turn cancel", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(

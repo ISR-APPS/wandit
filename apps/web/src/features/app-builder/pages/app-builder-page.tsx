@@ -6,7 +6,7 @@
  * project and thread queries. The URL search params hold the view state.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	ResizableHandle,
@@ -25,6 +25,7 @@ import { useTranslation } from "@/lib/i18n";
 import {
 	appProjectQuery,
 	builderThreadQuery,
+	cloudBackendQuery,
 } from "../api/app-builder.queries";
 import { ChatPane } from "../components/chat/chat-pane";
 import { CodeView } from "../components/code/code-view";
@@ -33,6 +34,7 @@ import { PhonePreview } from "../components/preview/phone-preview";
 import { WebPreview } from "../components/preview/web-preview";
 import { AppNotFound } from "../components/shell/app-not-found";
 import { ProjectBar, WorkBar } from "../components/shell/top-bar";
+import type { BootContext } from "../lib/boot-state";
 import {
 	CHAT_PANEL_DEFAULT_WIDTH,
 	CHAT_PANEL_MIN_WIDTH,
@@ -64,6 +66,8 @@ export default function AppBuilderPage({
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
 	const thread = useBuilderThread(projectId);
+	// The preview boot screen shows the database step. The query polls while Supabase creates the project.
+	const { data: backend } = useQuery(cloudBackendQuery(projectId));
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
@@ -92,6 +96,14 @@ export default function AppBuilderPage({
 	}, [chatOpen, isMobile]);
 
 	if (!project) return <AppNotFound />;
+
+	const bootContext: BootContext = {
+		isTurnRunning: thread.isTurnRunning,
+		turnPhase: thread.phase,
+		lastTurnFailed: thread.lastTurnFailed,
+		isFirstTurn: thread.isFirstTurn,
+		backend,
+	};
 
 	const view = search.view ?? "preview";
 	const panel = resolveMorePanel(project.kind, search.panel);
@@ -162,6 +174,7 @@ export default function AppBuilderPage({
 						project={project}
 						viewport={viewport}
 						reloadKey={reloadKey}
+						bootContext={bootContext}
 					/>
 				) : (
 					<PhonePreview
@@ -169,6 +182,7 @@ export default function AppBuilderPage({
 						project={project}
 						device={device}
 						reloadKey={reloadKey}
+						bootContext={bootContext}
 					/>
 				)}
 			</div>

@@ -7,7 +7,7 @@
  * builder-chat-transport.ts, and turn-parts.ts.
  */
 
-import type { ChatMessage } from "@wandit/contracts";
+import type { ChatMessage, TurnStreamPhase } from "@wandit/contracts";
 import { useMemo } from "react";
 
 import {
@@ -16,7 +16,7 @@ import {
 } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
-import type { BuilderMessage } from "../api/dto";
+import type { BuilderMessage, TurnMessagePart } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
 import { type TurnPartLabels, toBuilderMessages } from "./turn-parts";
 import {
@@ -47,6 +47,22 @@ export type BuilderThreadState = {
 	cancel: () => Promise<void>;
 	/** False while the project id resolves to a chat id, and after that lookup failed. */
 	isReady: boolean;
+	/**
+	 * True while a turn the API accepted streams, or while a resumed turn
+	 * replays. False while a send waits for the API, so a refused send never
+	 * counts as a turn.
+	 */
+	isTurnRunning: boolean;
+	/** Last `data-turn-status` phase of the running turn. Null before its first status part and while no turn runs. */
+	phase: TurnStreamPhase | null;
+	/** True when the last reply holds an error card. The preview then says that the app did not start. */
+	lastTurnFailed: boolean;
+	/**
+	 * True while the chat holds at most one user message. The first turn
+	 * creates the sandbox from the template. Null while the history loads:
+	 * a resumed turn can stream before it lands.
+	 */
+	isFirstTurn: boolean | null;
 };
 
 // A shared empty list keeps the useMemo deps stable while the history
@@ -152,6 +168,18 @@ export function useBuilderThread(
 		lastMessage?.role === "assistant" &&
 		lastMessage.parts.some((part) => part.type === "data-error");
 
+	// The phase lives in the reply that streams now, the last message.
+	const phase = chat.isSending
+		? (chat.messages
+				.at(-1)
+				?.parts.findLast(
+					(
+						part,
+					): part is Extract<TurnMessagePart, { type: "data-turn-status" }> =>
+						part.type === "data-turn-status",
+				)?.data.phase ?? null)
+		: null;
+
 	return {
 		messages,
 		isSending: chat.isSending,
@@ -170,5 +198,14 @@ export function useBuilderThread(
 			chat.send({ text: "", approval: { approvalId, approved } }),
 		cancel: chat.cancel,
 		isReady: chatId !== undefined,
+		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
+		phase,
+		lastTurnFailed: replyHoldsError,
+		// LIMIT: a first turn that failed before the sandbox existed makes the
+		// next turn show the resume copy. Upgrade: a sandbox status from the API.
+		isFirstTurn:
+			history === undefined && messagesQuery.error === null
+				? null
+				: messages.filter((message) => message.role === "user").length <= 1,
 	};
 }

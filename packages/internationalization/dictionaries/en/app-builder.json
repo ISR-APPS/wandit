@@ -40,8 +40,40 @@
 		"back": "Back",
 		"forward": "Forward",
 		"frameTitle": "Preview of {name}",
-		"waking": "Waking up the sandbox…",
-		"retry": "Try again"
+		"retry": "Try again",
+		"boot": {
+			"loading": "Loading the preview",
+			"title": "Getting your app ready",
+			"machine": {
+				"starting": "Starting a cloud machine",
+				"waking": "Waking your cloud machine",
+				"done": "Cloud machine ready",
+				"copying": "Copying the starter files",
+				"installing": "Installing packages",
+				"restoring": "Restoring your last version"
+			},
+			"preview": {
+				"label": "Opening your app",
+				"waiting": "Waiting for your app to answer",
+				"loading": "Loading the first page"
+			},
+			"database": {
+				"creating": "Creating your database",
+				"starting": "Starting your database",
+				"done": "Database ready",
+				"failed": "Database setup failed",
+				"wait": "Takes a few minutes. Your app does not wait for it.",
+				"failedDetail": "The preview still opens."
+			},
+			"asleep": {
+				"title": "Your app is asleep",
+				"body": "It sleeps after some time without use. Send a message in the chat to wake it."
+			},
+			"stopped": {
+				"title": "Your app did not start",
+				"body": "The chat shows what went wrong. Send a message to try again."
+			}
+		}
 	},
 	"code": {
 		"searchFiles": "Search files",

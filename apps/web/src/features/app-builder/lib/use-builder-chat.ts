@@ -59,6 +59,8 @@ export type BuilderChat = {
 	error: Error | undefined;
 	/** Id of the running turn, from `data-turn-created`; null before send and after the stream settles. */
 	turnId: string | null;
+	/** True from a local send until `data-turn-created` or the end of the request. The preview boot screen reads it, so a refused send does not count as a turn. */
+	isAwaitingTurn: boolean;
 	/** Server estimate of the running turn; null when the frame carried none. */
 	estimate: TurnEstimate | null;
 	/** Sends one turn. Dropped while a turn runs or while the chat id is unknown. */
@@ -90,6 +92,7 @@ export function useBuilderChat(
 		turnId: string;
 		estimate: TurnEstimate | null;
 	} | null>(null);
+	const [isAwaitingTurn, setIsAwaitingTurn] = useState(false);
 
 	const transport = useMemo(
 		() =>
@@ -133,6 +136,7 @@ export function useBuilderChat(
 				// frame throws and the stream surfaces it as `error`.
 				if (part.type === "data-turn-created") {
 					const created = createTurnResponseSchema.parse(part.data);
+					setIsAwaitingTurn(false);
 					setActiveTurn({
 						turnId: created.turnId,
 						estimate: created.estimate ?? null,
@@ -147,6 +151,7 @@ export function useBuilderChat(
 			// data-turn-done.
 			onFinish: () => {
 				setActiveTurn(null);
+				setIsAwaitingTurn(false);
 				invalidateTurnData();
 			},
 		});
@@ -180,6 +185,7 @@ export function useBuilderChat(
 			// One active turn per project: a second send queues or fails with 429
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
 			if (chatId === undefined || isSending) return;
+			setIsAwaitingTurn(true);
 			void sendMessage(
 				{ text: sendInput.text },
 				{
@@ -212,6 +218,7 @@ export function useBuilderChat(
 		isSending,
 		error,
 		turnId: activeTurn?.turnId ?? null,
+		isAwaitingTurn,
 		estimate: activeTurn?.estimate ?? null,
 		send,
 		cancel,
