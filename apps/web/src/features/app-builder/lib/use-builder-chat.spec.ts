@@ -6,6 +6,7 @@ import type { CreateTurnResponse } from "@wandit/contracts";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { appBuilderKeys } from "../api/app-builder.queries";
 import type { TurnMessage } from "../api/dto";
 import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
 
@@ -112,6 +113,7 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 function renderBuilderChat(
 	input: Parameters<typeof useBuilderChat>[0],
 	deps: BuilderChatDeps,
+	queryClient: QueryClient = new QueryClient(),
 ) {
 	return renderHook(
 		(props: { currentInput: Parameters<typeof useBuilderChat>[0] }) =>
@@ -119,11 +121,7 @@ function renderBuilderChat(
 		{
 			initialProps: { currentInput: input },
 			wrapper: ({ children }: { children: ReactNode }) =>
-				createElement(
-					QueryClientProvider,
-					{ client: new QueryClient() },
-					children,
-				),
+				createElement(QueryClientProvider, { client: queryClient }, children),
 		},
 	);
 }
@@ -213,6 +211,37 @@ describe("useBuilderChat", () => {
 
 		expect(postCount(fake)).toBe(0);
 		expect(result.current.turnId).toBeNull();
+	});
+
+	it("marks the Code view tree and files stale when a turn ends", async () => {
+		const fake = createDeps();
+		const queryClient = new QueryClient();
+		queryClient.setQueryData(appBuilderKeys.code(PROJECT_ID), null);
+		const { result } = renderBuilderChat(
+			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			fake.deps,
+			queryClient,
+		);
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(
+			queryClient.getQueryState(appBuilderKeys.code(PROJECT_ID))?.isInvalidated,
+		).toBe(false);
+
+		fake.endPostStream();
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		// The turn woke the sandbox, so an asleep Code view loads again.
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryState(appBuilderKeys.code(PROJECT_ID))
+					?.isInvalidated,
+			).toBe(true),
+		);
 	});
 
 	it("ignores a history change while streaming and reseeds when ready", async () => {

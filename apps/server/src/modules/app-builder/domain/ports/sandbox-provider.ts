@@ -154,6 +154,16 @@ export interface SandboxHandle {
 }
 
 /**
+ * The command part of a running sandbox. `SandboxProvider.findRunning`
+ * answers it for the Code view routes. It cannot change the network policy
+ * or the ports, and its `exec` fails on a stopped sandbox instead of a wake.
+ */
+export type SandboxReader = Pick<
+	SandboxHandle,
+	"projectId" | "workspaceDir" | "exec"
+>;
+
+/**
  * Lifecycle of the per-project sandbox. `getOrCreate` is idempotent:
  * a second call for a live project returns the same handle.
  */
@@ -172,6 +182,13 @@ export interface SandboxProvider {
 		projectId: string,
 		options: SandboxCreateOptions,
 	): Promise<SandboxHandle>;
+	/**
+	 * The project's sandbox when it runs now, else null. It never creates,
+	 * resumes, or boots a sandbox, never pushes a network policy or an env,
+	 * and never writes the `sandbox_sessions` row. The Code view reads
+	 * through it, so a read never wakes a stopped sandbox.
+	 */
+	findRunning(projectId: string): Promise<SandboxReader | null>;
 	stop(projectId: string): Promise<void>;
 	destroy(projectId: string): Promise<void>;
 	/**

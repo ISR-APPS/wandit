@@ -102,6 +102,8 @@ export * from "./v1/workspaces";
 export * from "./v2/backend-tools";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
+// V2 Code view contracts: the sandbox file tree and one file.
+export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
 // V2 builder harness lifecycle contracts.

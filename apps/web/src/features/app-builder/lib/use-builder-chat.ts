@@ -102,11 +102,15 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can mint a new version, move the project summary, and
-	// settle credits; all three caches refresh at once.
+	// A finished turn can mint a new version, change the code, move the
+	// project summary, and settle credits; all four caches refresh at once.
+	// The code key covers the Code view tree and every open file.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.code(projectId),
 		});
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.project(projectId),

@@ -1,10 +1,12 @@
 /**
  * Read-only file viewer of the Code view: the path breadcrumb, the sync
  * state, the GitHub and Edit code controls, then the file lines with a
- * number gutter and colored tokens from lib/code-highlight.ts.
+ * number gutter and colored tokens from lib/code-highlight.ts. A binary, a
+ * too large, or a missing file shows a message instead of lines.
  * Rendered by components/code/code-view.tsx with the file it loaded.
  */
 
+import { CODE_FILE_MAX_BYTES } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Switch } from "@wandit/ui/components/switch";
 import { useId } from "react";
@@ -15,12 +17,10 @@ import type { CodeFile } from "../../api/dto";
 import { type CodeToken, tokenizeLine } from "../../lib/code-highlight";
 
 export type CodeViewerProps = {
-	/** The open file, or null when the path is not in the repository. */
-	file: CodeFile | null;
+	/** The open file. Its `path` is the breadcrumb; its `kind` picks the body. */
+	file: CodeFile;
 	/** Git branch of the snapshot, shown next to the sync dot. */
 	branch: string;
-	/** Path of the breadcrumb. Also set when the file is null. */
-	selectedPath: string;
 };
 
 /** Text color of each token kind. Plain tokens keep the color of the `pre`. */
@@ -53,10 +53,39 @@ function renderTokens(line: string) {
 	});
 }
 
-export function CodeViewer({ file, branch, selectedPath }: CodeViewerProps) {
+/** The message that replaces the lines of a file the viewer cannot show. */
+function FileMessage({ file }: { file: Exclude<CodeFile, { kind: "text" }> }) {
+	const { t, locale } = useTranslation();
+	let text: string;
+	switch (file.kind) {
+		case "binary":
+			text = t("appBuilder.code.binaryFile");
+			break;
+		case "tooLarge":
+			text = t("appBuilder.code.fileTooLarge", {
+				// The cap is in bytes; the message shows kilobytes.
+				limit: new Intl.NumberFormat(locale, {
+					style: "unit",
+					unit: "kilobyte",
+				}).format(CODE_FILE_MAX_BYTES / 1024),
+			});
+			break;
+		case "missing":
+			text = t("appBuilder.code.fileMissing");
+			break;
+	}
+	return (
+		<p className="flex h-full items-center justify-center p-6 text-center text-muted-foreground text-sm">
+			{text}
+		</p>
+	);
+}
+
+/** Shows the lines of a text file; a binary, too large, or missing file shows a message. */
+export function CodeViewer({ file, branch }: CodeViewerProps) {
 	const { t } = useTranslation();
 	const editSwitchId = useId();
-	const segments = selectedPath.split("/");
+	const segments = file.path.split("/");
 
 	return (
 		<div className="flex min-w-0 flex-1 flex-col">
@@ -106,11 +135,7 @@ export function CodeViewer({ file, branch, selectedPath }: CodeViewerProps) {
 				</label>
 			</header>
 			<div className="min-h-0 flex-1 overflow-auto bg-background/40">
-				{file === null ? (
-					<p className="flex h-full items-center justify-center text-muted-foreground text-sm">
-						{t("appBuilder.code.fileMissing")}
-					</p>
-				) : (
+				{file.kind === "text" ? (
 					<pre dir="ltr" className="m-0 p-4 font-mono text-[13px] leading-6">
 						{fileLines(file.content).map((line) => (
 							<div key={line.number} className="flex">
@@ -121,6 +146,8 @@ export function CodeViewer({ file, branch, selectedPath }: CodeViewerProps) {
 							</div>
 						))}
 					</pre>
+				) : (
+					<FileMessage file={file} />
 				)}
 			</div>
 		</div>

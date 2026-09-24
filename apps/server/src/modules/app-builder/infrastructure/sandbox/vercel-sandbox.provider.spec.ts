@@ -68,11 +68,23 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 	/** The policy the vendor reads back with the session; the create policy, then each update. */
 	sessionPolicy: NetworkPolicy | undefined;
 
-	currentSession(): {
-		readonly cwd: string;
-		readonly networkPolicy: NetworkPolicy | undefined;
-	} {
-		return { cwd: "/vercel", networkPolicy: this.sessionPolicy };
+	get status(): VercelSandboxInstance["status"] {
+		return this.stopped ? "stopped" : "running";
+	}
+
+	currentSession(): ReturnType<VercelSandboxInstance["currentSession"]> {
+		return {
+			cwd: "/vercel",
+			networkPolicy: this.sessionPolicy,
+			// Like the SDK Session: a stopped session fails, it never resumes.
+			runCommand: (params: FakeRunParams) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				this.events.push("sessionRunCommand");
+				return this.runCommand(params);
+			},
+		};
 	}
 	private readonly scripted = new Map<string, FakeFinished[]>();
 
@@ -544,6 +556,115 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 		await provider.destroy("p1");
 
 		expect(row.status).toBe("destroyed");
+	});
+});
+
+describe("VercelSandboxProvider.findRunning", () => {
+	// A running row whose vendor sandbox the provider never cached, like the
+	// API process sees a sandbox the builder-turn task started.
+	async function runningRow(sessions: FakeSandboxSessionsRepository) {
+		const row = await sessions.insertCreating({
+			organizationId: null,
+			projectId: "p1",
+			provider: "vercel",
+			userId: "user-1",
+		});
+		await sessions.markRunning(row.id, {
+			expiresAt: null,
+			image: "img",
+			previewHost: "host",
+			providerSandboxId: "p1",
+		});
+	}
+
+	it("answers a reader that runs commands on the session and changes nothing", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		const sandbox = sdk.instances.get("p1");
+		const policiesBefore = sandbox?.networkPolicies.length;
+
+		const reader = await provider.findRunning("p1");
+		const result = await reader?.exec("git", ["status"], {
+			cwd: reader.workspaceDir,
+		});
+
+		expect(reader?.workspaceDir).toBe("/vercel/workspace");
+		expect(result?.exitCode).toBe(0);
+		expect(sandbox?.events.at(-2)).toBe("sessionRunCommand");
+		expect(sandbox?.commands.at(-1)).toMatchObject({
+			args: ["status"],
+			cmd: "git",
+			cwd: "/vercel/workspace",
+		});
+		expect(sdk.getOrCreateCalls).toHaveLength(1);
+		expect(sandbox?.networkPolicies.length).toBe(policiesBefore);
+		expect(sandbox?.extensions).toEqual([]);
+	});
+
+	it("asks the vendor, not the cache, so an old cached status never counts", async () => {
+		const { provider, sdk } = setup();
+		// The provider caches this instance; its status stays "running".
+		await provider.getOrCreate("p1", OPTIONS);
+		// The vendor timeout stopped the sandbox; a fresh get sees it.
+		const fresh = new FakeVercelSandbox("p1", 0, [], undefined);
+		fresh.stopped = true;
+		sdk.instances.set("p1", fresh);
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(fresh.stopped).toBe(true);
+	});
+
+	it("fails a command after a stop and does not resume the sandbox", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		const reader = await provider.findRunning("p1");
+		const sandbox = sdk.instances.get("p1");
+		if (sandbox) {
+			sandbox.stopped = true;
+		}
+
+		await expect(reader?.exec("git", ["status"])).rejects.toThrow(
+			"sandbox_stopped",
+		);
+		expect(sandbox?.stopped).toBe(true);
+		expect(sdk.getOrCreateCalls).toHaveLength(1);
+	});
+
+	it("answers null without a live row", async () => {
+		const { provider, sdk } = setup();
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(sdk.getOrCreateCalls).toHaveLength(0);
+	});
+
+	it("answers null for a stopped row and does not wake the sandbox", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		await provider.stop("p1");
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(sdk.instances.get("p1")?.stopped).toBe(true);
+		expect(sdk.getOrCreateCalls).toHaveLength(1);
+	});
+
+	it("answers null when the vendor lost the sandbox of a running row", async () => {
+		const { provider, sessions, sdk } = setup();
+		await runningRow(sessions);
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(sdk.getOrCreateCalls).toHaveLength(0);
+	});
+
+	it("answers null when the vendor stopped the sandbox of a running row", async () => {
+		const { provider, sessions, sdk } = setup();
+		await runningRow(sessions);
+		const stopped = new FakeVercelSandbox("p1", 0, [], undefined);
+		stopped.stopped = true;
+		sdk.instances.set("p1", stopped);
+
+		expect(await provider.findRunning("p1")).toBeNull();
+		expect(stopped.stopped).toBe(true);
+		expect(sdk.getOrCreateCalls).toHaveLength(0);
 	});
 });
 

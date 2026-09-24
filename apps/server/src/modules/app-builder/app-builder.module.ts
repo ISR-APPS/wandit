@@ -19,6 +19,7 @@ import { SettingsModule } from "../settings";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { BackendsService } from "./application/services/backends.service";
 import { CloudService } from "./application/services/cloud.service";
+import { CodeService } from "./application/services/code.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -77,6 +78,7 @@ import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-ev
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
+import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
@@ -126,6 +128,7 @@ export function createCloudSupabaseClient(
 	controllers: [
 		AppProjectsController,
 		CloudController,
+		CodeController,
 		CostCapsController,
 		LlmProxyController,
 		PreviewTokenController,
@@ -155,6 +158,7 @@ export function createCloudSupabaseClient(
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
 		CloudService,
+		CodeService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,

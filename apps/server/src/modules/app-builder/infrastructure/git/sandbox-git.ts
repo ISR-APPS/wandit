@@ -1,8 +1,8 @@
 /**
  * Shared sandbox git exec helper for the versions flow (WANDIT-171).
- * `commitTurn`, `CodeStorageRepoRestorer`, and `VersionsService` run git
- * in the project worktree through `SandboxHandle.exec`. Each one needs
- * the same exit-code check and the same credential masking.
+ * `commitTurn`, `CodeStorageRepoRestorer`, `VersionsService`, and
+ * `CodeService` run git in the project worktree through `exec`. Each one
+ * needs the same exit-code check and the same credential masking.
  */
 import type {
 	SandboxExecResult,
@@ -10,13 +10,14 @@ import type {
 } from "../../domain/ports/sandbox-provider";
 
 /**
- * Runs `git <args>` in `sandbox.workspaceDir` and returns the result. A
+ * Runs `git <args>` in `sandbox.workspaceDir` and returns the result. It
+ * reads only `exec` and `workspaceDir`, so a `SandboxReader` also fits. A
  * non-zero exit throws `new errorType("<label> failed (<code>): <stderr>")`.
  * `options.secret` (a git credential) becomes `***` in the message and in a
  * default label because git echoes the remote URL on errors.
  */
 export async function mustRunGit<E extends Error>(
-	sandbox: SandboxHandle,
+	sandbox: Pick<SandboxHandle, "exec" | "workspaceDir">,
 	args: string[],
 	errorType: new (message: string) => E,
 	options?: {

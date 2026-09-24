@@ -13,6 +13,7 @@ import type {
 	SandboxHandle,
 	SandboxNetworkPolicy,
 	SandboxProvider,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 
 /** One recorded call, on the provider or on a handle. */
@@ -182,6 +183,13 @@ export class FakeSandboxProvider implements SandboxProvider {
 			await options.onWake?.();
 		}
 		return state.handle;
+	}
+
+	async findRunning(projectId: string): Promise<SandboxReader | null> {
+		this.calls.push({ detail: projectId, method: "findRunning" });
+		const state = this.projects.get(projectId);
+		// Like the real provider: a stopped sandbox stays stopped.
+		return state && !state.stopped ? state.handle : null;
 	}
 
 	async stop(projectId: string): Promise<void> {

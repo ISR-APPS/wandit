@@ -5,8 +5,65 @@ import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MOCK_CODE_SNAPSHOT } from "../../lib/mock-code";
+import type { CodeTreeNode } from "../../api/dto";
 import { FileTree, type FileTreeProps, filterTree } from "./file-tree";
+
+// A small worktree: a closed branch (db), an open branch (payments), and a root file.
+const TREE: CodeTreeNode[] = [
+	{
+		kind: "folder",
+		path: "src",
+		name: "src",
+		children: [
+			{
+				kind: "folder",
+				path: "src/db",
+				name: "db",
+				children: [
+					{
+						kind: "folder",
+						path: "src/db/migrations",
+						name: "migrations",
+						children: [
+							{
+								kind: "file",
+								path: "src/db/migrations/0001_init.sql",
+								name: "0001_init.sql",
+							},
+						],
+					},
+					{ kind: "file", path: "src/db/schema.ts", name: "schema.ts" },
+				],
+			},
+			{
+				kind: "folder",
+				path: "src/server",
+				name: "server",
+				children: [
+					{
+						kind: "folder",
+						path: "src/server/payments",
+						name: "payments",
+						children: [
+							{
+								kind: "file",
+								path: "src/server/payments/checkout.ts",
+								name: "checkout.ts",
+							},
+							{
+								kind: "file",
+								path: "src/server/payments/webhook.ts",
+								name: "webhook.ts",
+							},
+						],
+					},
+				],
+			},
+		],
+	},
+	{ kind: "file", path: "package.json", name: "package.json" },
+];
+const SELECTED_PATH = "src/server/payments/checkout.ts";
 
 function renderTree(props: Partial<FileTreeProps> = {}) {
 	const onSelect = vi.fn();
@@ -16,8 +73,8 @@ function renderTree(props: Partial<FileTreeProps> = {}) {
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
 		children: createElement(FileTree, {
-			nodes: MOCK_CODE_SNAPSHOT.tree,
-			selectedPath: MOCK_CODE_SNAPSHOT.defaultFilePath,
+			nodes: TREE,
+			selectedPath: SELECTED_PATH,
 			onSelect,
 			query: "",
 			...props,
@@ -38,19 +95,17 @@ afterEach(cleanup);
 
 describe("filterTree", () => {
 	it("keeps a matching file with its ancestors and drops the rest", () => {
-		const kept = filterTree(MOCK_CODE_SNAPSHOT.tree, "check");
+		const kept = filterTree(TREE, "check");
 		expect(filePaths(kept)).toEqual(["src/server/payments/checkout.ts"]);
 		expect(filePaths(kept)).not.toContain("package.json");
 		expect(kept.map((node) => node.path)).toEqual(["src"]);
 	});
 
 	it("matches without regard to case and returns every node for an empty query", () => {
-		expect(filePaths(filterTree(MOCK_CODE_SNAPSHOT.tree, "WEBHOOK"))).toEqual([
+		expect(filePaths(filterTree(TREE, "WEBHOOK"))).toEqual([
 			"src/server/payments/webhook.ts",
 		]);
-		expect(filterTree(MOCK_CODE_SNAPSHOT.tree, "  ")).toBe(
-			MOCK_CODE_SNAPSHOT.tree,
-		);
+		expect(filterTree(TREE, "  ")).toBe(TREE);
 	});
 });
 

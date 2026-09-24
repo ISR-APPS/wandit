@@ -125,6 +125,11 @@ export function useRestoreVersion(
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.project(projectId),
 			});
+			// A restore rewrites the worktree, so the Code view tree and the
+			// open file refetch too.
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.code(projectId),
+			});
 			deps.onRestored?.();
 		},
 		onError: (error) => {

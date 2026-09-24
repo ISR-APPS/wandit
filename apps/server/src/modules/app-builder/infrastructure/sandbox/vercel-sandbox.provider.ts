@@ -33,6 +33,7 @@ import type {
 	SandboxLogger,
 	SandboxNetworkPolicy,
 	SandboxProvider,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 import {
 	HARNESS_BRIDGE_PORT,
@@ -68,6 +69,23 @@ const SANDBOX_VCPUS = 2;
 /** Vendor managed image when `VERCEL_SANDBOX_IMAGE` is unset. */
 const DEFAULT_IMAGE = "vercel/sandbox/node:22";
 
+/** One command the provider runs in the sandbox, as the SDK takes it. */
+type VercelRunCommandParams = {
+	args?: string[];
+	cmd: string;
+	cwd?: string;
+	env?: Record<string, string>;
+	signal?: AbortSignal;
+	timeoutMs?: number;
+};
+
+/** A command that ran to its end, as the SDK answers it. */
+type VercelCommandFinished = {
+	readonly exitCode: number;
+	stderr(): Promise<string>;
+	stdout(): Promise<string>;
+};
+
 /**
  * The slice of `@vercel/sandbox` `Sandbox` this provider calls. Structural
  * so specs can fake it; the real `Sandbox` class satisfies it.
@@ -75,40 +93,30 @@ const DEFAULT_IMAGE = "vercel/sandbox/node:22";
 export type VercelSandboxInstance = {
 	readonly name: string;
 	/**
+	 * The vendor state of the current session, for example "running". The
+	 * SDK stores it at the last vendor call, so a cached instance can be old.
+	 */
+	readonly status: Sandbox["status"];
+	/**
 	 * The vendor session; `cwd` is the default working directory of the
 	 * image. `networkPolicy` is the policy the vendor read back with the
-	 * session, or undefined when the answer carried none.
+	 * session, or undefined when the answer carried none. Its `runCommand`
+	 * fails on a stopped session; `Sandbox.runCommand` resumes it first.
 	 */
 	currentSession(): {
 		readonly cwd: string;
 		readonly networkPolicy: NetworkPolicy | undefined;
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
 	};
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
 	readonly fs: {
 		readdir(path: string): Promise<string[]>;
 	};
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		detached: true;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{ readonly cmdId: string }>;
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{
-		readonly exitCode: number;
-		stderr(): Promise<string>;
-		stdout(): Promise<string>;
-	}>;
+	runCommand(
+		params: VercelRunCommandParams & { detached: true },
+	): Promise<{ readonly cmdId: string }>;
+	runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
 	writeFiles(
 		files: ReadonlyArray<{
 			content: string | Uint8Array;
@@ -203,6 +211,32 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+// One command, run to its end. The handle runs it on the sandbox, which
+// resumes a stopped session; the `findRunning` reader runs it on the
+// session, which does not.
+async function runCommandToEnd(
+	runner: {
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+	},
+	command: string,
+	args: string[],
+	options?: SandboxExecOptions,
+): Promise<SandboxExecResult> {
+	const finished = await runner.runCommand({
+		args,
+		cmd: command,
+		cwd: options?.cwd,
+		env: options?.env,
+		signal: options?.signal,
+		timeoutMs: options?.timeoutMs,
+	});
+	return {
+		exitCode: finished.exitCode,
+		stderr: await finished.stderr(),
+		stdout: await finished.stdout(),
+	};
+}
+
 /** The vendor answers 404 when the named sandbox is gone. */
 function isSandboxNotFound(error: unknown): boolean {
 	return error instanceof APIError && error.response.status === 404;
@@ -261,19 +295,7 @@ class VercelSandboxHandle implements SandboxHandle {
 		options?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		await this.keepAlive();
-		const finished = await this.sandbox.runCommand({
-			args,
-			cmd: command,
-			cwd: options?.cwd,
-			env: options?.env,
-			signal: options?.signal,
-			timeoutMs: options?.timeoutMs,
-		});
-		return {
-			exitCode: finished.exitCode,
-			stderr: await finished.stderr(),
-			stdout: await finished.stdout(),
-		};
+		return runCommandToEnd(this.sandbox, command, args, options);
 	}
 
 	async writeFiles(files: SandboxFile[]): Promise<void> {
@@ -414,6 +436,32 @@ export class VercelSandboxProvider implements SandboxProvider {
 		return this.start(projectId, options, row, credentials, {
 			hadLiveRow: true,
 		});
+	}
+
+	async findRunning(projectId: string): Promise<SandboxReader | null> {
+		const row = await this.sessions.findLiveByProjectId(projectId);
+		// Only a running row can have a live vendor sandbox. A stopped one
+		// stays stopped: this path has no env to boot the dev server with.
+		if (row?.status !== "running") {
+			return null;
+		}
+		// Not the `live` cache: its status can be old. The row can lag the
+		// vendor too, because the vendor timeout stops a sandbox and writes
+		// no row.
+		const sandbox = await this.getVendorSandbox(projectId);
+		if (sandbox?.status !== "running") {
+			return null;
+		}
+		// The session fails on a stop between this check and a command; it
+		// never resumes. No `keepAlive`: turns and the preview own the vendor
+		// deadline, and a read must not keep a sandbox alive.
+		const session = sandbox.currentSession();
+		return {
+			exec: (command, args, options) =>
+				runCommandToEnd(session, command, args, options),
+			projectId,
+			workspaceDir: workspaceDirOf(sandbox),
+		};
 	}
 
 	async stop(projectId: string): Promise<void> {
@@ -735,10 +783,13 @@ export class VercelSandboxProvider implements SandboxProvider {
 	private async findSandbox(
 		projectId: string,
 	): Promise<VercelSandboxInstance | null> {
-		const cached = this.live.get(projectId);
-		if (cached) {
-			return cached;
-		}
+		return this.live.get(projectId) ?? this.getVendorSandbox(projectId);
+	}
+
+	// Always a vendor call, never a resume. Null when the vendor lost it.
+	private async getVendorSandbox(
+		projectId: string,
+	): Promise<VercelSandboxInstance | null> {
 		try {
 			return await this.sdk.get({
 				...this.credentials(),
