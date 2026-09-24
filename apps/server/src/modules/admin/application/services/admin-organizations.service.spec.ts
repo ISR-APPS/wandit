@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import type { CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -16,9 +16,13 @@ import { AdminOrganizationsService } from "./admin-organizations.service";
 type Grant = {
 	amount: number;
 	bucket: CreditBucket;
+	grantedBy: string | undefined;
 	idempotencyKey: string | undefined;
 	owner: CreditOwner;
 };
+
+const ADMIN = { id: "admin_1", role: "admin" };
+const REQUEST_ID = "11111111-1111-4111-8111-111111111111";
 
 const ORG_ID = "org_1";
 
@@ -169,11 +173,16 @@ class FakeCreditsService {
 	async grant(
 		owner: CreditOwner,
 		amount: number,
-		options: { bucket: CreditBucket; idempotencyKey?: string },
+		options: {
+			bucket: CreditBucket;
+			idempotencyKey?: string;
+			meta?: { grantedBy?: string };
+		},
 	) {
 		this.grants.push({
 			amount,
 			bucket: options.bucket,
+			grantedBy: options.meta?.grantedBy,
 			idempotencyKey: options.idempotencyKey,
 			owner,
 		});
@@ -247,9 +256,9 @@ describe("AdminOrganizationsService", () => {
 	it("grants promo credits to the ORG pool under a namespaced idempotency key", async () => {
 		const { credits, service } = build();
 
-		await service.grantCredits("admin_1", ORG_ID, {
+		await service.grantCredits(ADMIN, ORG_ID, {
 			amount: 300,
-			requestId: "11111111-1111-4111-8111-111111111111",
+			requestId: REQUEST_ID,
 		});
 
 		// The API amount (300 decimal credits) reaches the ledger x100.
@@ -257,19 +266,56 @@ describe("AdminOrganizationsService", () => {
 			{
 				amount: 30_000,
 				bucket: "promo",
-				idempotencyKey: `admin-grant:org:${ORG_ID}:11111111-1111-4111-8111-111111111111`,
+				grantedBy: "admin_1",
+				idempotencyKey: `admin-grant:org:${ORG_ID}:${REQUEST_ID}`,
 				owner: { organizationId: ORG_ID, type: "org" },
 			},
 		]);
+	});
+
+	it("rejects a support grant to an org the support account belongs to", async () => {
+		const { credits, service } = build();
+
+		await expect(
+			service.grantCredits({ id: "user_b", role: "user,support" }, ORG_ID, {
+				amount: 300,
+				requestId: REQUEST_ID,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(credits.grants).toEqual([]);
+	});
+
+	it("lets support grant to an org it does not belong to", async () => {
+		const { credits, service } = build();
+
+		await service.grantCredits({ id: "support_1", role: "support" }, ORG_ID, {
+			amount: 5,
+			requestId: REQUEST_ID,
+		});
+
+		expect(credits.grants).toMatchObject([
+			{ amount: 500, grantedBy: "support_1" },
+		]);
+	});
+
+	it("lets an admin grant to an org the admin belongs to", async () => {
+		const { credits, service } = build();
+
+		await service.grantCredits({ id: "user_owner", role: "admin" }, ORG_ID, {
+			amount: 5,
+			requestId: REQUEST_ID,
+		});
+
+		expect(credits.grants).toMatchObject([{ grantedBy: "user_owner" }]);
 	});
 
 	it("404s a grant for an unknown organization without touching credits", async () => {
 		const { credits, service } = build();
 
 		await expect(
-			service.grantCredits("admin_1", "org_missing", {
+			service.grantCredits(ADMIN, "org_missing", {
 				amount: 300,
-				requestId: "11111111-1111-4111-8111-111111111111",
+				requestId: REQUEST_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(credits.grants).toEqual([]);

@@ -1,3 +1,7 @@
+/**
+ * Row menu in the users table: grant credits, change role, and ban.
+ * The users table and the mobile list render it. Each item needs its staff permission.
+ */
 import { Link } from "@tanstack/react-router";
 import { isStaffRole } from "@wandit/contracts";
 import {
@@ -27,7 +31,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAdminPermission } from "@/features/auth/lib/permissions";
+import {
+	canGrantCreditsToTarget,
+	useAdminPermission,
+} from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
@@ -39,10 +46,12 @@ type ActiveDialog = "credits" | "role" | "ban" | null;
 function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
 	const { data: session } = useSession();
-	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
 	const canSetRole = useAdminPermission({ users: ["set-role"] });
 	const canBan = useAdminPermission({ users: ["ban"] });
 	const isSelf = session?.user.id === user.id;
+	const canGrantCredits =
+		useAdminPermission({ credits: ["grant"] }) &&
+		canGrantCreditsToTarget(session?.user.role, isSelf);
 	// The server rejects banning staff (restoring one is still allowed), so a
 	// staff account has to be demoted before it can be banned.
 	const canToggleBanned =

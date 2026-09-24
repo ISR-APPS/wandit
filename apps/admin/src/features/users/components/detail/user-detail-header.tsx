@@ -1,3 +1,7 @@
+/**
+ * Header of the user detail page: identity, badges, and the staff action buttons.
+ * UserDetailPage renders it. Each button shows only when the staff permission map allows it.
+ */
 import { Link } from "@tanstack/react-router";
 import { adminViewValues, isStaffRole } from "@wandit/contracts";
 import {
@@ -31,6 +35,8 @@ type UserDetailHeaderProps = {
 	user: AdminUserDetail;
 	/** False when the signed-in admin is viewing their own account. */
 	canManageAccess: boolean;
+	/** credits:grant, minus a support grant to its own account (the API rejects it). */
+	canGrantCredits: boolean;
 	onGrantCredits: () => void;
 	onGrantOffline?: () => void;
 	onChangeRole: () => void;
@@ -41,13 +47,13 @@ type UserDetailHeaderProps = {
 export function UserDetailHeader({
 	user,
 	canManageAccess,
+	canGrantCredits,
 	onGrantCredits,
 	onGrantOffline,
 	onChangeRole,
 	onEditAdminViews,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
-	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
 	const canSetRole = useAdminPermission({ users: ["set-role"] });
 	const canBan = useAdminPermission({ users: ["ban"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
