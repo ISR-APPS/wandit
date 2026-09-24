@@ -1,7 +1,8 @@
 /**
  * Fixed values of the V2 app builder workspace: views, More panels, devices,
- * and composer modes. Also the storage keys and panel widths of the chat card.
- * Read by the route search schema, the shell, and the More view.
+ * and composer modes. Also the storage keys and panel widths of the chat card,
+ * and the easing of the preview boot screen. Read by the route search schema,
+ * the shell, the More view, and the preview.
  * No logic and no React here.
  */
 
@@ -147,3 +148,6 @@ export const MOBILE_VIEWPORT_WIDTH_PX = 393;
 
 /** Round-trip delay of a mock service call, ms. Long enough to show pending states, short enough to feel local. */
 export const MOCK_LATENCY_MS = 150;
+
+/** Easing of the preview boot screen and its exit, as a motion cubic bezier. It is the `cubic-bezier(0.4, 0, 0.2, 1)` of DESIGN.md. */
+export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;

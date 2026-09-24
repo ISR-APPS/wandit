@@ -40,8 +40,40 @@
 		"back": "Retour",
 		"forward": "Suivant",
 		"frameTitle": "Aperçu de {name}",
-		"waking": "Réveil du sandbox…",
-		"retry": "Réessayer"
+		"retry": "Réessayer",
+		"boot": {
+			"loading": "Chargement de l'aperçu",
+			"title": "Préparation de ton app",
+			"machine": {
+				"starting": "Démarrage d'une machine cloud",
+				"waking": "Réveil de ta machine cloud",
+				"done": "Machine cloud prête",
+				"copying": "Copie des fichiers de départ",
+				"installing": "Installation des paquets",
+				"restoring": "Restauration de ta dernière version"
+			},
+			"preview": {
+				"label": "Ouverture de ton app",
+				"waiting": "En attente de la réponse de ton app",
+				"loading": "Chargement de la première page"
+			},
+			"database": {
+				"creating": "Création de ta base de données",
+				"starting": "Démarrage de ta base de données",
+				"done": "Base de données prête",
+				"failed": "Échec de la création de la base",
+				"wait": "Quelques minutes. Ton app ne l'attend pas.",
+				"failedDetail": "L'aperçu s'ouvre quand même."
+			},
+			"asleep": {
+				"title": "Ton app est en veille",
+				"body": "Elle se met en veille après un moment sans activité. Envoie un message dans le chat pour la réveiller."
+			},
+			"stopped": {
+				"title": "Ton app n'a pas démarré",
+				"body": "Le chat montre le problème. Envoie un message pour réessayer."
+			}
+		}
 	},
 	"code": {
 		"searchFiles": "Chercher un fichier",

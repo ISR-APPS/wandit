@@ -6,12 +6,14 @@
  */
 
 import { queryOptions } from "@tanstack/react-query";
+import type { CloudBackendResponse } from "@wandit/contracts";
 
 import {
 	getAppProject,
 	getAppStoresSummary,
 	getBackendSummary,
 	getBuilderThread,
+	getCloudBackend,
 	getCodeFile,
 	getCodeSnapshot,
 	getPaymentsSummary,
@@ -36,6 +38,9 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "code", projectId, path] as const,
 	backend: (projectId: string) =>
 		[...appBuilderKeys.all, "backend", projectId] as const,
+	// The real Supabase state. `backend` above is the mock of the More panel.
+	cloudBackend: (projectId: string) =>
+		[...appBuilderKeys.all, "cloud-backend", projectId] as const,
 	signIn: (projectId: string) =>
 		[...appBuilderKeys.all, "sign-in", projectId] as const,
 	payments: (projectId: string) =>
@@ -88,6 +93,24 @@ export const codeFileQuery = (projectId: string, path: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.codeFile(projectId, path),
 		queryFn: () => getCodeFile(projectId, path),
+	});
+
+/** Delay between two backend reads while Supabase creates the project, ms. The create takes minutes. */
+const CLOUD_BACKEND_POLL_MS = 5_000;
+
+/** The poll delay for one backend answer: 5 s while Supabase creates the project, no poll for any other status. */
+export function cloudBackendPollMs(
+	backend: CloudBackendResponse | undefined,
+): number | false {
+	return backend?.status === "creating" ? CLOUD_BACKEND_POLL_MS : false;
+}
+
+/** The real Supabase backend state of one project. The page reads it for the preview boot screen. */
+export const cloudBackendQuery = (projectId: string) =>
+	queryOptions({
+		queryKey: appBuilderKeys.cloudBackend(projectId),
+		queryFn: () => getCloudBackend(projectId),
+		refetchInterval: (query) => cloudBackendPollMs(query.state.data),
 	});
 
 export const backendSummaryQuery = (projectId: string) =>

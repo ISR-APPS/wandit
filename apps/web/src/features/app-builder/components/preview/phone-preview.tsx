@@ -7,6 +7,7 @@
 
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
+import type { BootContext } from "../../lib/boot-state";
 import type { PhoneDevice } from "../../lib/constants";
 import type { PreviewTokenDeps } from "../../lib/use-preview-token";
 import { PhoneFrame } from "./phone-frame";
@@ -20,6 +21,8 @@ export type PhonePreviewProps = {
 	device: PhoneDevice;
 	/** Changes when the user presses reload. The panel mints a new token for it. */
 	reloadKey: number;
+	/** The running turn and the backend state, from the page. The panel shows the start-up steps from them. */
+	bootContext: BootContext;
 	/** Spec seam: a fake getPreviewToken passed to the panel. Production callers leave it out. */
 	deps?: PreviewTokenDeps;
 };
@@ -29,6 +32,7 @@ export function PhonePreview({
 	project,
 	device,
 	reloadKey,
+	bootContext,
 	deps,
 }: PhonePreviewProps) {
 	const { t } = useTranslation();
@@ -62,6 +66,7 @@ export function PhonePreview({
 						})}
 						reloadKey={reloadKey}
 						className="h-full w-full border-0"
+						bootContext={bootContext}
 						deps={deps}
 					/>
 				</PhoneFrame>

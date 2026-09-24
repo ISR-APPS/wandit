@@ -1,5 +1,6 @@
 import type {
 	AppProject as ApiAppProject,
+	CloudBackendResponse,
 	CodeFileResponse,
 	CodeSnapshotResponse,
 } from "@wandit/contracts";
@@ -14,6 +15,7 @@ import {
 	createAppProject,
 	getAppProject,
 	getBuilderThread,
+	getCloudBackend,
 	getCodeFile,
 	getCodeSnapshot,
 	getPaymentsSummary,
@@ -200,6 +202,25 @@ describe("setPaymentsMode", () => {
 	});
 });
 
+/**
+ * A GET that answers `body` and records each URL and query it got. The
+ * backend `status` is a plain string, so a case can send a bad one.
+ */
+function getAnswers(
+	body:
+		| CodeSnapshotResponse
+		| CodeFileResponse
+		| (Omit<CloudBackendResponse, "status"> & { status: string }),
+	calls: { url: string; options?: ApiRequestOptions }[] = [],
+): typeof apiClient.get {
+	// SAFETY: the fake answers the one GET of a case, and the service
+	// parses the answer with its contracts schema.
+	return (async (url: string, options?: ApiRequestOptions) => {
+		calls.push({ options, url });
+		return body;
+	}) as typeof apiClient.get;
+}
+
 describe("code view API", () => {
 	const projectId = crypto.randomUUID();
 
@@ -216,19 +237,6 @@ describe("code view API", () => {
 				timestamp: "2026-09-24T00:00:00.000Z",
 			});
 		};
-
-	/** A GET that answers `body` and records each URL and query it got. */
-	function getAnswers(
-		body: CodeSnapshotResponse | CodeFileResponse,
-		calls: { url: string; options?: ApiRequestOptions }[] = [],
-	): typeof apiClient.get {
-		// SAFETY: the fake answers the one GET of a case, and the service
-		// parses the answer with its contracts schema.
-		return (async (url: string, options?: ApiRequestOptions) => {
-			calls.push({ options, url });
-			return body;
-		}) as typeof apiClient.get;
-	}
 
 	const snapshot: CodeSnapshotResponse = {
 		branch: "main",
@@ -306,6 +314,41 @@ describe("code view API", () => {
 				getFails(409, "SANDBOX_NOT_RUNNING"),
 			),
 		).rejects.toMatchObject({ statusCode: 409 });
+	});
+});
+
+describe("getCloudBackend", () => {
+	const projectId = crypto.randomUUID();
+
+	it("reads the backend route and parses the answer", async () => {
+		const calls: { url: string; options?: ApiRequestOptions }[] = [];
+		const backend: CloudBackendResponse = {
+			status: "creating",
+			ref: "abcdefghijklmnopqrst",
+			region: "eu-west-3",
+			failureCode: null,
+		};
+
+		expect(
+			await getCloudBackend(projectId, getAnswers(backend, calls)),
+		).toEqual(backend);
+		expect(calls.map((call) => call.url)).toEqual([
+			`/api/v2/projects/${projectId}/cloud/backend`,
+		]);
+	});
+
+	it("rejects an answer with an unknown status", async () => {
+		await expect(
+			getCloudBackend(
+				projectId,
+				getAnswers({
+					status: "booting",
+					ref: null,
+					region: null,
+					failureCode: null,
+				}),
+			),
+		).rejects.toThrow();
 	});
 });
 
