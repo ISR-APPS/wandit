@@ -53,7 +53,13 @@
 		"github": "GitHub",
 		"editCode": "Edit code",
 		"readOnly": "The code is read-only in this preview build.",
-		"fileMissing": "This file is not in the repository."
+		"fileMissing": "This file is not in the repository.",
+		"asleep": "The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+		"noFiles": "The project has no files yet.",
+		"binaryFile": "This file is binary. The Code view shows text files only.",
+		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
+		"loadFailed": "The code did not load.",
+		"retry": "Try again"
 	},
 	"moreNavAriaLabel": "App sections",
 	"panels": {

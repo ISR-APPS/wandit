@@ -16,6 +16,7 @@ import {
 	useRestoreVersion,
 } from "./app-builder.mutations";
 import { appBuilderKeys } from "./app-builder.queries";
+import type { CodeFile } from "./dto";
 
 const PROJECT_ID = crypto.randomUUID();
 const HEAD_SHA = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
@@ -62,10 +63,15 @@ function renderRestore(deps: RestoreVersionDeps, queryClient: QueryClient) {
 afterEach(cleanup);
 
 describe("useRestoreVersion", () => {
-	it("posts the restore, invalidates the seeded versions list, and runs onRestored", async () => {
+	it("posts the restore, invalidates the seeded versions list and code, and runs onRestored", async () => {
 		const queryClient = new QueryClient();
 		const versions: ListVersionsResponse = { items: [], nextCursor: null };
 		queryClient.setQueryData(appBuilderKeys.versions(PROJECT_ID), versions);
+		const openFile: CodeFile = { kind: "missing", path: "src/app.tsx" };
+		queryClient.setQueryData(
+			appBuilderKeys.codeFile(PROJECT_ID, "src/app.tsx"),
+			openFile,
+		);
 		const restoreVersion = vi.fn<RestoreFn>(async () => RESTORED);
 		const onRestored = vi.fn();
 		const { result } = renderRestore(
@@ -88,6 +94,11 @@ describe("useRestoreVersion", () => {
 					?.isInvalidated,
 			).toBe(true),
 		);
+		expect(
+			queryClient.getQueryState(
+				appBuilderKeys.codeFile(PROJECT_ID, "src/app.tsx"),
+			)?.isInvalidated,
+		).toBe(true);
 		expect(onRestored).toHaveBeenCalledOnce();
 	});
 

@@ -36,9 +36,9 @@ PostHog flag `v2-builder`).
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService` |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService` |
 
 ## Ports (`domain/ports/`)
 
@@ -240,6 +240,23 @@ code.storage repository. The prefixes are `git/<id>/` and
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
+
+## Code view (WANDIT-271)
+
+- `GET /api/v2/projects/:projectId/code` answers the file tree, the branch,
+  and `defaultFilePath`. `GET .../code/file?path=<path>` answers one file
+  as `{ path, content, size, binary }`. Both sit behind
+  `V2BuilderEnabledGuard`; read = any member, like `GET /:projectId`.
+  `CodeService` reads only a running sandbox through
+  `SandboxProvider.findRunning`, which never wakes, boots, or changes it; a
+  stopped sandbox answers 409 `SANDBOX_NOT_RUNNING`. The tree comes from
+  `git ls-files --cached --others --exclude-standard`, so ignored files
+  never show; it holds at most 5000 paths and 2 MB. A `.env*` file and `.git` are
+  never listed or read, also not through a symlink: the real path must stay
+  inside the worktree. A bad path answers 400 `CODE_PATH_INVALID`, a
+  missing file 404 `CODE_FILE_NOT_FOUND`, and a file above 512 KB 413
+  `CODE_FILE_TOO_LARGE`. The read runs `head -c` in the sandbox, so the API
+  never holds more than 512 KB of one file. Reads never take the turn lock.
 
 ## Backend provisioning (WANDIT-183)
 

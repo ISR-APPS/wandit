@@ -17,10 +17,9 @@ import {
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import Loader from "@/components/loader";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -174,13 +173,11 @@ export default function AppBuilderPage({
 				)}
 			</div>
 			{view === "code" ? (
-				<Suspense fallback={<Loader />}>
-					<CodeView
-						projectId={project.id}
-						filePath={search.file}
-						onSelectFile={(path) => setSearch({ file: path }, true)}
-					/>
-				</Suspense>
+				<CodeView
+					projectId={project.id}
+					filePath={search.file}
+					onSelectFile={(path) => setSearch({ file: path }, true)}
+				/>
 			) : null}
 			{view === "more" ? (
 				<MoreView

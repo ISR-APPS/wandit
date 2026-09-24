@@ -53,7 +53,13 @@
 		"github": "GitHub",
 		"editCode": "Modifier le code",
 		"readOnly": "Le code est en lecture seule dans cette version d'aperçu.",
-		"fileMissing": "Ce fichier n'est pas dans le dépôt."
+		"fileMissing": "Ce fichier n'est pas dans le dépôt.",
+		"asleep": "Le sandbox est en veille. Envoyez un message pour le réveiller, puis le code s'affiche ici.",
+		"noFiles": "Le projet n'a pas encore de fichiers.",
+		"binaryFile": "Ce fichier est binaire. La vue Code affiche uniquement les fichiers texte.",
+		"fileTooLarge": "Ce fichier dépasse {limit}. La vue Code affiche uniquement les fichiers jusqu'à {limit}.",
+		"loadFailed": "Le code n'a pas pu être chargé.",
+		"retry": "Réessayer"
 	},
 	"moreNavAriaLabel": "Sections de l'app",
 	"panels": {

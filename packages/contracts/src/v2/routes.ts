@@ -38,6 +38,10 @@ export const appBuilderRoutes = {
 	llmProxyMessages: "/api/v2/llm/v1/messages",
 	// POST Anthropic token counting behind the same proxy checks.
 	llmProxyCountTokens: "/api/v2/llm/v1/messages/count_tokens",
+	// GET the file tree of the running sandbox for the Code view.
+	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
+	// GET one file of the running sandbox; the caller adds `?path=<path>`.
+	codeFile: (projectId: string) => `/api/v2/projects/${projectId}/code/file`,
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,

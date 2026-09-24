@@ -1,12 +1,21 @@
-import type { AppProject as ApiAppProject } from "@wandit/contracts";
+import type {
+	AppProject as ApiAppProject,
+	CodeFileResponse,
+	CodeSnapshotResponse,
+} from "@wandit/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ApiClientError, type apiClient } from "@/lib/api-client";
+import {
+	ApiClientError,
+	type ApiRequestOptions,
+	type apiClient,
+} from "@/lib/api-client";
 import {
 	createAppProject,
 	getAppProject,
 	getBuilderThread,
 	getCodeFile,
+	getCodeSnapshot,
 	getPaymentsSummary,
 	getProjectSettings,
 	getSignInSummary,
@@ -191,9 +200,112 @@ describe("setPaymentsMode", () => {
 	});
 });
 
-describe("getCodeFile", () => {
-	it("returns null for a path outside the repository", async () => {
-		expect(await getCodeFile(WEB_ID, "nope.ts")).toBeNull();
+describe("code view API", () => {
+	const projectId = crypto.randomUUID();
+
+	/** A GET that fails with the API error `code` and `statusCode`. */
+	const getFails =
+		(statusCode: number, code: string): typeof apiClient.get =>
+		async () => {
+			throw new ApiClientError({
+				code,
+				message: "The request failed.",
+				path: `/api/v2/projects/${projectId}/code`,
+				requestId: "req-1",
+				statusCode,
+				timestamp: "2026-09-24T00:00:00.000Z",
+			});
+		};
+
+	/** A GET that answers `body` and records each URL and query it got. */
+	function getAnswers(
+		body: CodeSnapshotResponse | CodeFileResponse,
+		calls: { url: string; options?: ApiRequestOptions }[] = [],
+	): typeof apiClient.get {
+		// SAFETY: the fake answers the one GET of a case, and the service
+		// parses the answer with its contracts schema.
+		return (async (url: string, options?: ApiRequestOptions) => {
+			calls.push({ options, url });
+			return body;
+		}) as typeof apiClient.get;
+	}
+
+	const snapshot: CodeSnapshotResponse = {
+		branch: "main",
+		defaultFilePath: "src/app.tsx",
+		tree: [{ kind: "file", name: "app.tsx", path: "src/app.tsx" }],
+	};
+
+	it("parses the snapshot", async () => {
+		expect(await getCodeSnapshot(projectId, getAnswers(snapshot))).toEqual(
+			snapshot,
+		);
+	});
+
+	it("answers null for an asleep sandbox and rethrows every other error", async () => {
+		expect(
+			await getCodeSnapshot(projectId, getFails(409, "SANDBOX_NOT_RUNNING")),
+		).toBeNull();
+		await expect(
+			getCodeSnapshot(projectId, getFails(500, "INTERNAL_ERROR")),
+		).rejects.toMatchObject({ statusCode: 500 });
+	});
+
+	it("sends the path as a query value and maps a text file", async () => {
+		const calls: { url: string; options?: ApiRequestOptions }[] = [];
+		const file = await getCodeFile(
+			projectId,
+			"src/a b.ts",
+			getAnswers(
+				{ binary: false, content: "x", path: "src/a b.ts", size: 1 },
+				calls,
+			),
+		);
+
+		expect(file).toEqual({ content: "x", kind: "text", path: "src/a b.ts" });
+		expect(calls).toEqual([
+			{
+				options: { query: { path: "src/a b.ts" } },
+				url: `/api/v2/projects/${projectId}/code/file`,
+			},
+		]);
+	});
+
+	it("maps a binary file", async () => {
+		const file = await getCodeFile(
+			projectId,
+			"logo.png",
+			getAnswers({ binary: true, content: "", path: "logo.png", size: 12 }),
+		);
+
+		expect(file).toEqual({ kind: "binary", path: "logo.png" });
+	});
+
+	it("maps the file errors to a kind and rethrows every other error", async () => {
+		expect(
+			await getCodeFile(
+				projectId,
+				"gone.ts",
+				getFails(404, "CODE_FILE_NOT_FOUND"),
+			),
+		).toEqual({ kind: "missing", path: "gone.ts" });
+		expect(
+			await getCodeFile(projectId, ".env", getFails(400, "CODE_PATH_INVALID")),
+		).toEqual({ kind: "missing", path: ".env" });
+		expect(
+			await getCodeFile(
+				projectId,
+				"big.json",
+				getFails(413, "CODE_FILE_TOO_LARGE"),
+			),
+		).toEqual({ kind: "tooLarge", path: "big.json" });
+		await expect(
+			getCodeFile(
+				projectId,
+				"src/app.tsx",
+				getFails(409, "SANDBOX_NOT_RUNNING"),
+			),
+		).rejects.toMatchObject({ statusCode: 409 });
 	});
 });
 

@@ -73,13 +73,17 @@ export const builderThreadQuery = (projectId: string) =>
 		queryFn: () => getBuilderThread(projectId),
 	});
 
+/** null data means the sandbox is asleep; the Code view waits for a turn. */
 export const codeSnapshotQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.code(projectId),
 		queryFn: () => getCodeSnapshot(projectId),
 	});
 
-/** null data means the path is not in the repository. */
+/**
+ * One file of the sandbox. Its key is a child of `code(projectId)`, so one
+ * invalidation of that key refetches the tree and the open file.
+ */
 export const codeFileQuery = (projectId: string, path: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.codeFile(projectId, path),

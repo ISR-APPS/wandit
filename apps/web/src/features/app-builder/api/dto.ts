@@ -1,11 +1,11 @@
 /**
  * Data shapes of the V2 app builder workspace, UI side only.
- * Read by every component under features/app-builder and by the mock services.
- * The backend session moves these shapes into packages/contracts as zod
- * schemas; this file then becomes z.infer re-exports.
+ * Read by every component under features/app-builder and by the services.
+ * A shape moves into packages/contracts as a zod schema when its API route
+ * lands; this file then re-exports it, like the Code view types.
  */
 
-import type { TurnDataParts } from "@wandit/contracts";
+import type { CodeSnapshotResponse, TurnDataParts } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
 import type { MorePanel } from "../lib/constants";
@@ -142,24 +142,25 @@ export type BuilderThread = {
 	focusLabel: string | null;
 };
 
-/** A folder or a file of the project repository, for the Code view tree. */
-export type CodeTreeNode =
-	| { kind: "folder"; path: string; name: string; children: CodeTreeNode[] }
-	| { kind: "file"; path: string; name: string };
+/** A folder or a file of the sandbox worktree, for the Code view tree. */
+export type { CodeTreeNode } from "@wandit/contracts";
 
-export type CodeFile = {
-	/** Path from the repository root, for example `src/server/payments/checkout.ts`. */
-	path: string;
-	content: string;
-};
+/**
+ * The Code view tree, the branch, and the file it opens first, as
+ * `GET /api/v2/projects/:id/code` answers them.
+ */
+export type CodeSnapshot = CodeSnapshotResponse;
 
-export type CodeSnapshot = {
-	/** Git branch the sandbox works on. */
-	branch: string;
-	tree: CodeTreeNode[];
-	/** Path of the file the Code view opens first. */
-	defaultFilePath: string;
-};
+/**
+ * What the Code view shows for one path. `path` is relative to the
+ * worktree root, for example `src/routes/index.tsx`. `missing` also covers
+ * a path the API refuses, like `.env`.
+ */
+export type CodeFile =
+	| { kind: "text"; path: string; content: string }
+	| { kind: "binary"; path: string }
+	| { kind: "tooLarge"; path: string }
+	| { kind: "missing"; path: string };
 
 export type BackendTable = {
 	name: string;

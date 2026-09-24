@@ -2,7 +2,8 @@
  * Data layer of the app builder. Most functions are a mock store: each waits
  * a short delay and returns a copy, like a fetch. State lives in this module
  * until a reload. The functions under `// ---- Real API ----` call the V2
- * routes through `@/lib/api-client` and parse the response with contracts.
+ * routes through `@/lib/api-client` and parse the response with contracts;
+ * the Code view functions are there too.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
  * lib/use-builder-chat.ts, lib/use-preview-token.ts, and the route loader.
  */
@@ -15,6 +16,8 @@ import {
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
+	codeFileResponseSchema,
+	codeSnapshotResponseSchema,
 	createAppProjectResponseSchema,
 	type ListVersionsResponse,
 	listVersionsResponseSchema,
@@ -29,7 +32,6 @@ import {
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
 import { type ComposerMode, MOCK_LATENCY_MS } from "../lib/constants";
-import { MOCK_CODE_FILES, MOCK_CODE_SNAPSHOT } from "../lib/mock-code";
 import {
 	MOCK_APP_STORES,
 	MOCK_BACKEND,
@@ -218,25 +220,6 @@ export async function getBuilderThread(
 	return structuredClone(required(getStore().threads, projectId));
 }
 
-export async function getCodeSnapshot(
-	projectId: string,
-): Promise<CodeSnapshot> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_CODE_SNAPSHOT);
-}
-
-/** null when the repository has no file at this path. */
-export async function getCodeFile(
-	projectId: string,
-	path: string,
-): Promise<CodeFile | null> {
-	await delay();
-	required(getStore().projects, projectId);
-	const file = MOCK_CODE_FILES.find((candidate) => candidate.path === path);
-	return file ? structuredClone(file) : null;
-}
-
 export async function getBackendSummary(
 	projectId: string,
 ): Promise<BackendSummary> {
@@ -405,6 +388,61 @@ export async function getPreviewToken(
 		appBuilderRoutes.previewToken(projectId),
 	);
 	return previewTokenResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/code` answers the file tree of the running
+ * sandbox. A 409 `SANDBOX_NOT_RUNNING` answers null: the server never wakes
+ * a sandbox for a read, only the next turn does. `get` is the test seam.
+ */
+export async function getCodeSnapshot(
+	projectId: string,
+	get: typeof apiClient.get = apiClient.get,
+): Promise<CodeSnapshot | null> {
+	try {
+		const data = await get<unknown>(appBuilderRoutes.codeSnapshot(projectId));
+		return codeSnapshotResponseSchema.parse(data);
+	} catch (error) {
+		if (isApiClientError(error) && error.code === "SANDBOX_NOT_RUNNING") {
+			return null;
+		}
+		throw error;
+	}
+}
+
+/**
+ * `GET /api/v2/projects/:id/code/file?path=` answers one file. The three
+ * file errors map to a `CodeFile` kind the viewer shows; every other
+ * failure, a 409 included, propagates. `get` is the test seam.
+ */
+export async function getCodeFile(
+	projectId: string,
+	path: string,
+	get: typeof apiClient.get = apiClient.get,
+): Promise<CodeFile> {
+	try {
+		const data = await get<unknown>(appBuilderRoutes.codeFile(projectId), {
+			query: { path },
+		});
+		const file = codeFileResponseSchema.parse(data);
+		return file.binary
+			? { kind: "binary", path: file.path }
+			: { kind: "text", path: file.path, content: file.content };
+	} catch (error) {
+		// A hand-typed URL can name a path the API refuses, like `.env`. For
+		// the user it is a file the Code view cannot show.
+		if (
+			isApiClientError(error) &&
+			(error.code === "CODE_FILE_NOT_FOUND" ||
+				error.code === "CODE_PATH_INVALID")
+		) {
+			return { kind: "missing", path };
+		}
+		if (isApiClientError(error) && error.code === "CODE_FILE_TOO_LARGE") {
+			return { kind: "tooLarge", path };
+		}
+		throw error;
+	}
 }
 
 /**
