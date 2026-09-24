@@ -249,8 +249,11 @@ export function WorkBar({
 	);
 }
 
-/** Wraps one icon button with its tooltip. The label is also the accessible name. */
-function IconAction({
+/**
+ * Wraps one icon button with its tooltip. The label is also the accessible
+ * name. The Code view header uses it too.
+ */
+export function IconAction({
 	label,
 	children,
 }: {

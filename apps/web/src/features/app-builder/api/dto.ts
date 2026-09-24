@@ -147,18 +147,19 @@ export type { CodeTreeNode } from "@wandit/contracts";
 
 /**
  * The Code view tree, the branch, and the file it opens first, as
- * `GET /api/v2/projects/:id/code` answers them.
+ * `GET /api/v2/projects/:id/code` answers them. The prefetched `files` of
+ * that answer go into the file query cache instead.
  */
-export type CodeSnapshot = CodeSnapshotResponse;
+export type CodeSnapshot = Omit<CodeSnapshotResponse, "files">;
 
 /**
  * What the Code view shows for one path. `path` is relative to the
- * worktree root, for example `src/routes/index.tsx`. `missing` also covers
- * a path the API refuses, like `.env`.
+ * worktree root, for example `src/routes/index.tsx`. `size` is in bytes.
+ * `missing` also covers a path the API refuses, like `.env`.
  */
 export type CodeFile =
-	| { kind: "text"; path: string; content: string }
-	| { kind: "binary"; path: string }
+	| { kind: "text"; path: string; content: string; size: number }
+	| { kind: "binary"; path: string; size: number }
 	| { kind: "tooLarge"; path: string }
 	| { kind: "missing"; path: string };
 

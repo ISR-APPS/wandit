@@ -241,39 +241,69 @@ describe("code view API", () => {
 	const snapshot: CodeSnapshotResponse = {
 		branch: "main",
 		defaultFilePath: "src/app.tsx",
+		files: [
+			{ binary: false, content: "x", path: "src/app.tsx", size: 1 },
+			{ binary: true, content: "", path: "logo.png", size: 12 },
+		],
 		tree: [{ kind: "file", name: "app.tsx", path: "src/app.tsx" }],
 	};
 
-	it("parses the snapshot", async () => {
-		expect(await getCodeSnapshot(projectId, getAnswers(snapshot))).toEqual(
-			snapshot,
-		);
+	it("parses the snapshot and maps its prefetched files apart from the tree", async () => {
+		const calls: { url: string; options?: ApiRequestOptions }[] = [];
+		const { signal } = new AbortController();
+		expect(
+			await getCodeSnapshot(projectId, signal, getAnswers(snapshot, calls)),
+		).toEqual({
+			files: [
+				{ content: "x", kind: "text", path: "src/app.tsx", size: 1 },
+				{ kind: "binary", path: "logo.png", size: 12 },
+			],
+			snapshot: {
+				branch: "main",
+				defaultFilePath: "src/app.tsx",
+				tree: [{ kind: "file", name: "app.tsx", path: "src/app.tsx" }],
+			},
+		});
+		expect(calls).toEqual([
+			{ options: { signal }, url: `/api/v2/projects/${projectId}/code` },
+		]);
 	});
 
 	it("answers null for an asleep sandbox and rethrows every other error", async () => {
 		expect(
-			await getCodeSnapshot(projectId, getFails(409, "SANDBOX_NOT_RUNNING")),
+			await getCodeSnapshot(
+				projectId,
+				undefined,
+				getFails(409, "SANDBOX_NOT_RUNNING"),
+			),
 		).toBeNull();
 		await expect(
-			getCodeSnapshot(projectId, getFails(500, "INTERNAL_ERROR")),
+			getCodeSnapshot(projectId, undefined, getFails(500, "INTERNAL_ERROR")),
 		).rejects.toMatchObject({ statusCode: 500 });
 	});
 
-	it("sends the path as a query value and maps a text file", async () => {
+	it("sends the path as a query value with the abort signal, and maps a text file", async () => {
 		const calls: { url: string; options?: ApiRequestOptions }[] = [];
+		const { signal } = new AbortController();
 		const file = await getCodeFile(
 			projectId,
 			"src/a b.ts",
+			signal,
 			getAnswers(
 				{ binary: false, content: "x", path: "src/a b.ts", size: 1 },
 				calls,
 			),
 		);
 
-		expect(file).toEqual({ content: "x", kind: "text", path: "src/a b.ts" });
+		expect(file).toEqual({
+			content: "x",
+			kind: "text",
+			path: "src/a b.ts",
+			size: 1,
+		});
 		expect(calls).toEqual([
 			{
-				options: { query: { path: "src/a b.ts" } },
+				options: { query: { path: "src/a b.ts" }, signal },
 				url: `/api/v2/projects/${projectId}/code/file`,
 			},
 		]);
@@ -283,10 +313,11 @@ describe("code view API", () => {
 		const file = await getCodeFile(
 			projectId,
 			"logo.png",
+			undefined,
 			getAnswers({ binary: true, content: "", path: "logo.png", size: 12 }),
 		);
 
-		expect(file).toEqual({ kind: "binary", path: "logo.png" });
+		expect(file).toEqual({ kind: "binary", path: "logo.png", size: 12 });
 	});
 
 	it("maps the file errors to a kind and rethrows every other error", async () => {
@@ -294,16 +325,23 @@ describe("code view API", () => {
 			await getCodeFile(
 				projectId,
 				"gone.ts",
+				undefined,
 				getFails(404, "CODE_FILE_NOT_FOUND"),
 			),
 		).toEqual({ kind: "missing", path: "gone.ts" });
 		expect(
-			await getCodeFile(projectId, ".env", getFails(400, "CODE_PATH_INVALID")),
+			await getCodeFile(
+				projectId,
+				".env",
+				undefined,
+				getFails(400, "CODE_PATH_INVALID"),
+			),
 		).toEqual({ kind: "missing", path: ".env" });
 		expect(
 			await getCodeFile(
 				projectId,
 				"big.json",
+				undefined,
 				getFails(413, "CODE_FILE_TOO_LARGE"),
 			),
 		).toEqual({ kind: "tooLarge", path: "big.json" });
@@ -311,6 +349,7 @@ describe("code view API", () => {
 			getCodeFile(
 				projectId,
 				"src/app.tsx",
+				undefined,
 				getFails(409, "SANDBOX_NOT_RUNNING"),
 			),
 		).rejects.toMatchObject({ statusCode: 409 });

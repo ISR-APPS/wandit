@@ -1,7 +1,7 @@
 /**
  * Application service behind the Code view routes (WANDIT-271).
- * `CodeController` calls `snapshot` for the file tree and `file` for one
- * file. Both read the running project sandbox through
+ * `CodeController` calls `snapshot` for the file tree with the small files,
+ * and `file` for one file. Both read the running project sandbox through
  * `SandboxProvider.findRunning` and run git, bash, and coreutils in its
  * worktree.
  */
@@ -12,6 +12,7 @@ import {
 	ConflictException,
 	Inject,
 	Injectable,
+	Logger,
 	NotFoundException,
 	PayloadTooLargeException,
 } from "@nestjs/common";
@@ -20,12 +21,14 @@ import {
 	type CodeFileResponse,
 	type CodeSnapshotResponse,
 } from "@wandit/contracts";
+import { getErrorMessage } from "@wandit/observability/error";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	buildCodeTree,
 	isReadableCodePath,
 	pickDefaultFilePath,
+	pickPrefetchPaths,
 } from "../../domain/code-tree";
 import {
 	SANDBOX_PROVIDER,
@@ -64,19 +67,88 @@ const CAPPED_GIT_LIST_SCRIPT = [
 	'[ "$status" -eq 0 ] || [ "$status" -eq 141 ] || exit "$status"',
 ].join("\n");
 
-/** The exit code of `CAPPED_READ_SCRIPT` when `$1` is not a regular file. */
+/**
+ * The exit code of `GUARDED_READ_SCRIPT` when `$2` is not a regular file,
+ * or when the sandbox user cannot open it.
+ */
 const NOT_A_FILE_EXIT_CODE = 44;
 
 /**
- * Reads at most `$2` bytes of the regular file `$1` as base64. `head -c`
- * caps the read, so a file that grows after a check never fills the API.
+ * Prints the real worktree `$1`, NUL, the real path of the open file `$2`,
+ * NUL, then at most `$3` bytes of the file as base64. It opens the file
+ * first and asks the kernel for the path of the open file, so a symlink
+ * swap between the check and the read cannot escape. Security: a file
+ * outside the worktree, or a `.git` or `.env*` file, prints both paths and
+ * no bytes, so its bytes never leave the sandbox. `isReadableRealPath`
+ * repeats the rule. `head -c` caps the read, so a file that grows after a
+ * check never fills the API.
  */
-const CAPPED_READ_SCRIPT = `set -o pipefail; [ -f "$1" ] || exit ${NOT_A_FILE_EXIT_CODE}; head -c "$2" -- "$1" | base64 -w 0`;
+const GUARDED_READ_SCRIPT = [
+	"set -o pipefail",
+	'root=$(realpath -e -- "$1") || exit 1',
+	`[ -f "$2" ] || exit ${NOT_A_FILE_EXIT_CODE}`,
+	`exec 3<"$2" || exit ${NOT_A_FILE_EXIT_CODE}`,
+	"real=$(readlink /proc/self/fd/3) || exit 1",
+	'printf \'%s\\0%s\\0\' "$root" "$real"',
+	'case $real in "$root"/*) ;; *) exit 0 ;; esac',
+	"case $real/ in */.git/*) exit 0 ;; esac",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expansion, not a JS template; it spares one process per file
+	"case ${real##*/} in .env*) exit 0 ;; esac",
+	'head -c "$3" <&3 | base64 -w 0',
+].join("\n");
+
+/**
+ * 64 KB, the largest file that the tree answer carries. The template source
+ * files are at most 10 KB; a larger file loads on a click.
+ */
+const PREFETCH_FILE_MAX_BYTES = 64 * 1024;
+
+/**
+ * 512 KB, the most file bytes in one tree answer. The API has no response
+ * compression, and the web-app template source is about 92 KB.
+ */
+const PREFETCH_BUDGET_BYTES = 512 * 1024;
+
+/**
+ * Prints the real worktree and NUL, then one record per path in `$3...`:
+ * "<real path>\0<size>\0<base64>\0", or "\0\0\0" for a path that it does
+ * not read (missing, not a regular file, outside the worktree, a `.git` or
+ * `.env*` file, larger than `$1` bytes, or over the budget of `$2` bytes).
+ * Each file is read through its open descriptor, like `GUARDED_READ_SCRIPT`.
+ * `head -c` reads at most the size that `stat` saw, so the budget holds
+ * when a file grows. A file that shrinks after `stat` gives fewer bytes.
+ */
+const PREFETCH_SCRIPT = [
+	"set -o pipefail",
+	"file_cap=$1; budget=$2; shift 2",
+	"root=$(realpath -e -- .) || exit 1",
+	"printf '%s\\0' \"$root\"",
+	"used=0",
+	"read_open_file() {",
+	"  local real size",
+	"  real=$(readlink /proc/self/fd/3) || return 1",
+	'  case $real in "$root"/*) ;; *) return 1 ;; esac',
+	"  case $real/ in */.git/*) return 1 ;; esac",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expansion, not a JS template; it spares one process per file
+	"  case ${real##*/} in .env*) return 1 ;; esac",
+	"  size=$(stat -L -c %s /proc/self/fd/3) || return 1",
+	"  (( size <= file_cap && used + size <= budget )) || return 1",
+	"  used=$(( used + size ))",
+	'  printf \'%s\\0%s\\0\' "$real" "$size"',
+	'  head -c "$size" <&3 | base64 -w 0',
+	"  printf '\\0'",
+	"}",
+	'for path in "$@"; do',
+	'  if [ -f "$path" ] && read_open_file 3<"$path"; then continue; fi',
+	"  printf '\\0\\0\\0'",
+	"done",
+].join("\n");
 
 /**
  * 10 s. A FIFO blocks the command: a FIFO `.gitignore` blocks git, and a
- * FIFO that replaces a file after the `-f` test blocks `head`. The vendor
- * kills the command at this timeout, and the read fails.
+ * FIFO that replaces a file after the `-f` test blocks the open in bash.
+ * The vendor kills the command at this timeout. A file read then fails;
+ * the tree answer then waits 10 s and holds no prefetched files.
  */
 const COMMAND_TIMEOUT_MS = 10_000;
 
@@ -90,6 +162,8 @@ const BINARY_SNIFF_BYTES = 8 * 1024;
  */
 @Injectable()
 export class CodeService {
+	private readonly logger = new Logger(CodeService.name);
+
 	constructor(
 		// The Pick types keep each seam at the methods the service needs.
 		// A spec passes a plain fake. Nest still injects by the token.
@@ -106,6 +180,8 @@ export class CodeService {
 	 * The worktree tree: tracked and new files, without ignored files,
 	 * `.git`, and `.env*`. Ignored files include `node_modules`, `dist`,
 	 * and `.wrangler`, because the template `.gitignore` lists them.
+	 * `files` holds the small files of `pickPrefetchPaths`, so the web
+	 * shows them with no request.
 	 */
 	async snapshot(
 		scope: ProjectScope,
@@ -132,6 +208,7 @@ export class CodeService {
 		return {
 			branch: head.stdout.trim(),
 			defaultFilePath: pickDefaultFilePath(tree),
+			files: await this.prefetchOrNone(sandbox, pickPrefetchPaths(tree)),
 			tree,
 		};
 	}
@@ -149,21 +226,22 @@ export class CodeService {
 		if (!isReadableCodePath(path)) {
 			throw invalidPath();
 		}
-		const realPath = await resolveInsideWorktree(sandbox, path);
 
 		// One byte over the cap tells a file at the cap from a larger one.
 		const read = await sandbox.exec(
 			"bash",
 			[
 				"-c",
-				CAPPED_READ_SCRIPT,
+				GUARDED_READ_SCRIPT,
 				"bash",
-				realPath,
+				sandbox.workspaceDir,
+				posix.join(sandbox.workspaceDir, path),
 				String(CODE_FILE_MAX_BYTES + 1),
 			],
 			{ cwd: sandbox.workspaceDir, timeoutMs: COMMAND_TIMEOUT_MS },
 		);
-		// A folder, a FIFO, or a file that a turn deleted after `realpath`.
+		// A missing path, a folder, a FIFO, a dangling symlink, or a file
+		// that the sandbox user cannot open.
 		if (read.exitCode === NOT_A_FILE_EXIT_CODE) {
 			throw fileNotFound();
 		}
@@ -172,17 +250,32 @@ export class CodeService {
 				`Code file read failed (${read.exitCode}): ${read.stderr}`,
 			);
 		}
-		const bytes = Buffer.from(read.stdout, "base64");
+		const [realWorktree = "", realPath = "", base64 = ""] =
+			read.stdout.split("\0");
+		if (!isReadableRealPath(realWorktree, realPath)) {
+			throw invalidPath();
+		}
+		const bytes = Buffer.from(base64, "base64");
 		if (bytes.byteLength > CODE_FILE_MAX_BYTES) {
 			throw fileTooLarge();
 		}
-		const binary = bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0);
-		return {
-			binary,
-			content: binary ? "" : new TextDecoder("utf-8").decode(bytes),
-			path,
-			size: bytes.byteLength,
-		};
+		return fileAnswer(path, bytes);
+	}
+
+	// The files are a speed-up only: a failed read must not fail the tree,
+	// so the web then loads each file on a click.
+	private async prefetchOrNone(
+		sandbox: SandboxReader,
+		paths: string[],
+	): Promise<CodeFileResponse[]> {
+		try {
+			return await prefetchFiles(sandbox, paths);
+		} catch (error: unknown) {
+			this.logger.warn(
+				`code.prefetch.failed project=${sandbox.projectId}: ${getErrorMessage(error)}`,
+			);
+			return [];
+		}
 	}
 
 	// The project must be a scoped V2 app; a V1 project or another
@@ -238,43 +331,86 @@ async function listGitPaths(
 }
 
 /**
- * The real path of `path` inside the worktree. Security: a symlink must not
- * reach a file outside the worktree, for example `/proc/<pid>/environ` with
- * the run token, or a `.env*` or `.git` file inside it.
+ * Reads `paths` (relative to the worktree) through `PREFETCH_SCRIPT` in one
+ * command. A path that the script does not read, or that fails a check
+ * below, is not in the answer. Throws when the command fails.
  */
-async function resolveInsideWorktree(
+async function prefetchFiles(
 	sandbox: SandboxReader,
-	path: string,
-): Promise<string> {
-	// One call resolves both paths; `-z` ends each one with NUL. `-e`
-	// fails when a path does not exist.
-	const resolved = await sandbox.exec("realpath", [
-		"-e",
-		"-z",
-		"--",
-		sandbox.workspaceDir,
-		posix.join(sandbox.workspaceDir, path),
-	]);
-	const [realWorktree, realPath] = splitNul(resolved.stdout);
-	if (
-		resolved.exitCode !== 0 ||
-		realWorktree === undefined ||
-		realPath === undefined
-	) {
-		throw fileNotFound();
+	paths: string[],
+): Promise<CodeFileResponse[]> {
+	if (paths.length === 0) {
+		return [];
 	}
-	const worktreePrefix = `${realWorktree}/`;
-	if (
-		!realPath.startsWith(worktreePrefix) ||
-		!isReadableCodePath(realPath.slice(worktreePrefix.length))
-	) {
-		throw invalidPath();
+	const result = await sandbox.exec(
+		"bash",
+		[
+			"-c",
+			PREFETCH_SCRIPT,
+			"bash",
+			String(PREFETCH_FILE_MAX_BYTES),
+			String(PREFETCH_BUDGET_BYTES),
+			...paths,
+		],
+		{ cwd: sandbox.workspaceDir, timeoutMs: COMMAND_TIMEOUT_MS },
+	);
+	if (result.exitCode !== 0) {
+		throw new Error(
+			`Code prefetch command failed (${result.exitCode}): ${result.stderr}`,
+		);
 	}
-	return realPath;
+	// The root, three parts per path, and the empty part after the last NUL.
+	const parts = result.stdout.split("\0");
+	if (parts.length !== 2 + 3 * paths.length) {
+		throw new Error(
+			`Code prefetch printed ${parts.length} parts for ${paths.length} paths`,
+		);
+	}
+	const [realWorktree = ""] = parts;
+	const files: CodeFileResponse[] = [];
+	for (const [index, path] of paths.entries()) {
+		const [realPath = "", size = "", base64 = ""] = parts.slice(
+			1 + 3 * index,
+			4 + 3 * index,
+		);
+		// An empty real path marks a file that the script did not read.
+		if (realPath === "" || !isReadableRealPath(realWorktree, realPath)) {
+			continue;
+		}
+		const bytes = Buffer.from(base64, "base64");
+		// The file shrank after `stat`, so the bytes are cut.
+		if (String(bytes.byteLength) !== size) {
+			continue;
+		}
+		files.push(fileAnswer(path, bytes));
+	}
+	return files;
 }
 
-function splitNul(stdout: string): string[] {
-	return stdout.split("\0").filter((part) => part !== "");
+/**
+ * True when `realPath` is inside `realWorktree` and is a path that the Code
+ * view may read. Security: a symlink must not reach a file outside the
+ * worktree, for example `/proc/<pid>/environ` with the run token, or a
+ * `.env*` or `.git` file inside it. An empty root never matches.
+ */
+function isReadableRealPath(realWorktree: string, realPath: string): boolean {
+	const worktreePrefix = `${realWorktree}/`;
+	return (
+		realWorktree !== "" &&
+		realPath.startsWith(worktreePrefix) &&
+		isReadableCodePath(realPath.slice(worktreePrefix.length))
+	);
+}
+
+/** The file answer for `bytes`: UTF-8 text, or an empty content when binary. */
+function fileAnswer(path: string, bytes: Buffer): CodeFileResponse {
+	const binary = bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0);
+	return {
+		binary,
+		content: binary ? "" : new TextDecoder("utf-8").decode(bytes),
+		path,
+		size: bytes.byteLength,
+	};
 }
 
 function invalidPath(): BadRequestException {
