@@ -13,4 +13,5 @@ export {
 export { AppNotFound } from "./components/shell/app-not-found";
 export { redirectV2Project } from "./lib/engine-redirect";
 export { appBuilderSearchSchema } from "./lib/schemas";
+export { useCreateAppProjectWithPrompt } from "./lib/use-create-app-project";
 export { useV2BuilderEnabled } from "./lib/use-v2-builder-enabled";

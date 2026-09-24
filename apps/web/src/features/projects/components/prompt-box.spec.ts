@@ -12,7 +12,11 @@ import { ATTACHMENT_MEDIA_TYPES } from "@wandit/contracts";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PromptBox, type PromptBoxProps } from "./prompt-box";
+import {
+	isPlatformAvailable,
+	PromptBox,
+	type PromptBoxProps,
+} from "./prompt-box";
 
 const { uploadAttachmentMock } = vi.hoisted(() => ({
 	uploadAttachmentMock: vi.fn(),
@@ -273,5 +277,32 @@ describe("PromptBox attachments", () => {
 		await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledOnce());
 		expect(uploadAttachmentMock).toHaveBeenCalledWith(acceptedVideo);
 		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+	});
+});
+
+describe("PromptBox app type chip", () => {
+	it("shows no chip without platformPicker", () => {
+		renderPromptBox();
+
+		expect(screen.queryByRole("button", { name: /^App type:/ })).toBeNull();
+	});
+
+	it("offers the web app and disables the mobile app row", async () => {
+		const onValueChange = vi.fn();
+		renderPromptBox({ platformPicker: { value: "web", onValueChange } });
+
+		const trigger = screen.getByRole("button", { name: "App type: Web app" });
+		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+		const menu = within(await screen.findByRole("menu"));
+
+		expect(menu.getByRole("menuitemradio", { name: /Web app/ })).toBeTruthy();
+		const mobile = menu.getByRole("menuitemradio", { name: /Mobile app/ });
+		expect(mobile.getAttribute("aria-disabled")).toBe("true");
+		expect(within(mobile).getByText("Coming soon")).toBeTruthy();
+	});
+
+	it("keeps only the web app available", () => {
+		expect(isPlatformAvailable("web")).toBe(true);
+		expect(isPlatformAvailable("mobile")).toBe(false);
 	});
 });

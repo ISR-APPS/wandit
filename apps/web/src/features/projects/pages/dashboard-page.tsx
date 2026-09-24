@@ -1,3 +1,10 @@
+/**
+ * Dashboard page at `/dashboard`: the prompt box that creates a project and
+ * the project grid with search and status filters. The route file imports
+ * it by path. Calls the projects queries, the V1 and V2 create hooks, and
+ * the credits banners.
+ */
+import type { TargetPlatform } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -6,6 +13,10 @@ import { Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import {
+	useCreateAppProjectWithPrompt,
+	useV2BuilderEnabled,
+} from "@/features/app-builder";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
@@ -96,8 +107,18 @@ function NoResultsState({
 export default function DashboardPage() {
 	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
+	// Product rule: a user in the V2 rollout builds an app with the V2 engine;
+	// every other user builds a V1 page. Both hooks run so the switch is safe.
+	// LIMIT: while the public settings load, the switch answers V1, so a
+	// stashed landing prompt that autostarts in that window makes a V1 page.
+	// Upgrade: expose the loading state from useV2BuilderEnabled and hold
+	// the autostart until it is known.
+	const v2Enabled = useV2BuilderEnabled();
+	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("web");
+	const v1Flow = useCreateProjectWithPrompt();
+	const v2Flow = useCreateAppProjectWithPrompt(targetPlatform);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
-		useCreateProjectWithPrompt();
+		v2Enabled ? v2Flow : v1Flow;
 	// Post-auth handoff: restore the stashed landing prompt and, when the
 	// draft is fresh and eligible, create the project without another click.
 	const { restoreKey, restoredPrompt, restoredComposer, isAutostarting } =
@@ -165,6 +186,14 @@ export default function DashboardPage() {
 									initialComposer={restoredComposer}
 									onSubmit={create}
 									isSubmitting={isCreating || isAutostarting}
+									platformPicker={
+										v2Enabled
+											? {
+													value: targetPlatform,
+													onValueChange: setTargetPlatform,
+												}
+											: undefined
+									}
 								/>
 							</OutOfCreditsBanner>
 						</div>

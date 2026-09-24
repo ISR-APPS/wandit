@@ -12,7 +12,10 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type CancelTurnResponse,
+	type CreateAppProjectRequest,
+	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
+	createAppProjectResponseSchema,
 	type ListVersionsResponse,
 	listVersionsResponseSchema,
 	type PreviewTokenResponse,
@@ -319,6 +322,19 @@ export async function setCollaboratorRole(
 }
 
 // ---- Real API ----
+
+/**
+ * `POST /api/v2/projects`. Creates the project, its first chat, and starts
+ * the first builder turn. `post` comes from the caller so a spec can inject
+ * a fake client. Errors propagate: the hook maps a 402 to the credits dialog.
+ */
+export async function createAppProject(
+	body: CreateAppProjectRequest,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<CreateAppProjectResponse> {
+	const data = await post<unknown>(appBuilderRoutes.createProject, body);
+	return createAppProjectResponseSchema.parse(data);
+}
 
 /**
  * `GET /api/v2/projects/:id`. A 404 answers null like a missing mock id;
