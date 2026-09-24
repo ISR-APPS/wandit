@@ -32,6 +32,7 @@ import { StoryLinkAdminController } from "../../../../story-links/presentation/h
 import { AdminAnalyticsController } from "../controllers/admin-analytics.controller";
 import { AdminConversationsController } from "../controllers/admin-conversations.controller";
 import { AdminCostsController } from "../controllers/admin-costs.controller";
+import { AdminCreditGrantsController } from "../controllers/admin-credit-grants.controller";
 import { AdminMeController } from "../controllers/admin-me.controller";
 import { AdminOrganizationsController } from "../controllers/admin-organizations.controller";
 import { AdminProjectsController } from "../controllers/admin-projects.controller";
@@ -47,6 +48,7 @@ const adminControllers = [
 	AdminAnalyticsController,
 	AdminConversationsController,
 	AdminCostsController,
+	AdminCreditGrantsController,
 	AdminMeController,
 	FeedbackAdminController,
 	AdminManualBillingController,
@@ -65,6 +67,9 @@ const adminControllers = [
 const SUPPORT_ALLOWED_WRITE_HANDLERS = new Set([
 	// Support holds billing:update-request to record call outcomes on offline requests.
 	"AdminManualBillingController.updateRequest",
+	// Support holds credits:grant only when an admin ticks the credits view.
+	"AdminOrganizationsController.grantCredits",
+	"AdminUsersController.grantCredits",
 	"AdminUsersController.setBanned",
 	// Support holds feedback:manage by design (see the permission matrix spec).
 	"FeedbackAdminController.remove",
@@ -198,7 +203,16 @@ describe("AdminOnly", () => {
 				ADMIN_PERMISSION_KEY,
 				AdminUsersController.prototype.grantCredits,
 			),
-		).toEqual({ users: ["grant-credits"] });
+		).toEqual({ users: ["read"], credits: ["grant"] });
+		expect(
+			Reflect.getMetadata(
+				ADMIN_PERMISSION_KEY,
+				AdminOrganizationsController.prototype.grantCredits,
+			),
+		).toEqual({ organizations: ["read"], credits: ["grant"] });
+		expect(
+			Reflect.getMetadata(ADMIN_PERMISSION_KEY, AdminCreditGrantsController),
+		).toEqual({ credits: ["read"] });
 		expect(
 			Reflect.getMetadata(
 				ADMIN_PERMISSION_KEY,

@@ -1,3 +1,8 @@
+/**
+ * Admin API for user accounts: list, detail, credit grants, role, and ban.
+ * The admin app calls these routes under /api/v1/admin/users.
+ * Each handler calls AdminUsersService. AdminGuard checks the permission.
+ */
 import {
 	Body,
 	Controller,
@@ -77,8 +82,9 @@ export class AdminUsersController {
 		return this.adminUsersService.getUserDetail(userId);
 	}
 
+	// Support reaches this route only when an admin ticks the "credits" view.
 	@Post(":userId/credits")
-	@AdminPermission({ users: ["grant-credits"] })
+	@AdminPermission({ users: ["read"], credits: ["grant"] })
 	@HttpCode(200)
 	grantCredits(
 		@Param("userId") userId: string,
@@ -86,7 +92,7 @@ export class AdminUsersController {
 		body: AdminGrantCreditsInput,
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminUserDetail> {
-		return this.adminUsersService.grantCredits(admin.id, userId, body);
+		return this.adminUsersService.grantCredits(admin, userId, body);
 	}
 
 	@Post(":userId/role")

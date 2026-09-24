@@ -1,3 +1,9 @@
+/**
+ * Credit and metering tables: the append-only `credit_ledger`, plan holds,
+ * AI usage events, provider call evidence, and model prices.
+ * CreditsService and MeteringService write them through their repositories.
+ * A balance is the sum of ledger deltas in centi-credits (100 = 1 credit).
+ */
 import { relations, sql } from "drizzle-orm";
 import {
 	type AnyPgColumn,
@@ -100,6 +106,11 @@ export const creditLedger = pgTable(
 			sql`(${table.meta} ->> 'paymentIntentId')`,
 		),
 		index("credit_ledger_chargeId_idx").on(sql`(${table.meta} ->> 'chargeId')`),
+		// Serves the admin credit grant log. Manual grants are a few rows among
+		// many consume rows. The partial index stops a full table scan for the log.
+		index("credit_ledger_adminGrant_createdAt_idx")
+			.on(table.createdAt)
+			.where(sql`(${table.meta} ->> 'reason') = 'admin_grant'`),
 		uniqueIndex("credit_ledger_idempotencyKey_uq")
 			.on(table.idempotencyKey)
 			.where(sql`${table.idempotencyKey} IS NOT NULL`),
