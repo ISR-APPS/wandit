@@ -1,4 +1,3 @@
-import { BadRequestException } from "@nestjs/common";
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -11,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { MobileTemplateUnavailableError } from "../../../domain/errors/mobile-template-unavailable.error";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 import { AppProjectsController } from "./app-projects.controller";
 
@@ -91,11 +91,9 @@ describe("AppProjectsController", () => {
 		);
 	});
 
-	it("propagates the 400 the service throws for mobile", async () => {
+	it("propagates the 503 the service throws without the mobile template", async () => {
 		const { appProjects, controller } = setup();
-		appProjects.create.mockRejectedValue(
-			new BadRequestException({ code: "V2_TARGET_PLATFORM_UNSUPPORTED" }),
-		);
+		appProjects.create.mockRejectedValue(new MobileTemplateUnavailableError());
 
 		await expect(
 			controller.create(
@@ -104,7 +102,7 @@ describe("AppProjectsController", () => {
 				workspace,
 				requestWithHeaders({}),
 			),
-		).rejects.toBeInstanceOf(BadRequestException);
+		).rejects.toBeInstanceOf(MobileTemplateUnavailableError);
 	});
 });
 

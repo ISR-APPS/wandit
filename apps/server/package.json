@@ -3,7 +3,7 @@
 	"type": "module",
 	"main": "src/main.ts",
 	"scripts": {
-		"build": "node ../../templates/web-app/scripts/pack.mjs && tsdown",
+		"build": "node ../../templates/pack-all.mjs && tsdown",
 		"billing:assert-zero-live-subs": "tsx scripts/assert-zero-live-subscriptions.ts",
 		"billing:backfill-history": "tsx scripts/backfill-billing-history.ts",
 		"billing:migrate-v6": "tsx scripts/migrate-subscriptions-v6.ts",

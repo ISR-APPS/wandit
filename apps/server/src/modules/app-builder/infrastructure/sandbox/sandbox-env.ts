@@ -19,6 +19,8 @@ export const SANDBOX_ENV_ALLOW_LIST = [
 	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_CUSTOM_HEADERS",
 	"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+	"EXPO_PUBLIC_SUPABASE_ANON_KEY",
+	"EXPO_PUBLIC_SUPABASE_URL",
 	"VITE_SUPABASE_ANON_KEY",
 	"VITE_SUPABASE_URL",
 	"WANDIT_PREVIEW_HOST",
@@ -64,12 +66,16 @@ export function buildSandboxEnv(
 		ANTHROPIC_API_KEY: "",
 		ANTHROPIC_CUSTOM_HEADERS: `X-Wandit-Run: ${input.runId}`,
 	};
-	// No backend yet means no VITE_* names at all: the template
+	// No backend yet means no Supabase names at all: the template
 	// src/lib/supabase.ts throws at first use, while an empty string would
 	// pass the env check and fail inside the Supabase client.
 	if (input.supabaseUrl !== null && input.supabaseAnonKey !== null) {
+		// Both pairs hold public values (a URL and an anon key). The web-app
+		// template reads VITE_*, the mobile-app template reads EXPO_PUBLIC_*.
 		env.VITE_SUPABASE_ANON_KEY = input.supabaseAnonKey;
 		env.VITE_SUPABASE_URL = input.supabaseUrl;
+		env.EXPO_PUBLIC_SUPABASE_ANON_KEY = input.supabaseAnonKey;
+		env.EXPO_PUBLIC_SUPABASE_URL = input.supabaseUrl;
 	}
 	if (input.previewHost !== null) {
 		env.WANDIT_PREVIEW_HOST = input.previewHost;

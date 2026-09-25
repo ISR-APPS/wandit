@@ -72,5 +72,5 @@ references/
 apps/native/ios/
 apps/native/android/
 
-# Packed V2 templates are built on demand by templates/web-app/scripts/pack.mjs
+# Packed V2 templates are built on demand by templates/pack-all.mjs
 templates/*.tar.gz

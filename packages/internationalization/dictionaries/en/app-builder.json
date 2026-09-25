@@ -507,7 +507,8 @@
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",
 		"showQr": "Show QR",
-		"backendNote": "Backend deploys with every publish"
+		"backendNote": "Backend deploys with every publish",
+		"mobileSoon": "Publishing a mobile app is coming soon. Test your app in the preview for now."
 	},
 	"versions": {
 		"title": "Version history",

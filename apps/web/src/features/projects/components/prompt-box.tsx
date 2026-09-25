@@ -1057,16 +1057,8 @@ const PLATFORM_ICONS: Record<TargetPlatform, LucideIcon> = {
 	mobile: Smartphone,
 };
 
-/**
- * Product rule: only the web app can be built today. The mobile row stays
- * visible but disabled until WANDIT-192 ships the mobile composer.
- */
-export function isPlatformAvailable(platform: TargetPlatform): boolean {
-	return platform === "web";
-}
-
 // The app type chip of the V2 dashboard: web app or mobile app. Same pill as
-// the mode chip. The mobile row is disabled and carries a "coming soon" tag.
+// the mode chip. The user can pick every platform of the contract.
 function PlatformPicker({
 	value,
 	onValueChange,
@@ -1134,12 +1126,10 @@ function PlatformPicker({
 				>
 					{targetPlatforms.map((platform) => {
 						const copy = pb.platforms[platform];
-						const available = isPlatformAvailable(platform);
 						return (
 							<DropdownMenuRadioItemBare
 								key={platform}
 								value={platform}
-								disabled={!available}
 								className="data-[state=checked]:bg-primary/10"
 							>
 								<IconTile
@@ -1154,13 +1144,7 @@ function PlatformPicker({
 										{copy.description}
 									</span>
 								</span>
-								{available ? (
-									<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-								) : (
-									<span className="ms-auto shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground uppercase tracking-[0.12em]">
-										{pb.platforms.mobile.soon}
-									</span>
-								)}
+								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
 							</DropdownMenuRadioItemBare>
 						);
 					})}

@@ -1,5 +1,6 @@
-// Dashboard grid card: hero/gradient thumbnail, name, status badge, lead count,
-// updated-at, hover actions (open / view live / rename / delete).
+// Dashboard grid card: thumbnail, name, platform badge, status badge, lead
+// count, and updated-at. The hover actions open, view live, rename, or delete
+// the project.
 
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -79,6 +80,30 @@ function StatusBadge({ status }: { status: Project["status"] }) {
 	return (
 		<Badge variant="secondary" className="font-mono text-[10px]">
 			{t("projects.statusDraft")}
+		</Badge>
+	);
+}
+
+/**
+ * The "Web app" or "Mobile app" pill of a V2 project, with the look of the
+ * builder shell badge. A V1 page project has no platform, so no pill.
+ */
+export function PlatformBadge({
+	platform,
+}: {
+	/** `Project.targetPlatform` from the list answer; null on a V1 page project. */
+	platform: Project["targetPlatform"];
+}) {
+	const { t } = useTranslation();
+	if (platform === null) {
+		return null;
+	}
+	return (
+		<Badge
+			variant="outline"
+			className="shrink-0 font-normal text-[11px] text-muted-foreground"
+		>
+			{t(`projects.promptBox.platforms.${platform}.label`)}
 		</Badge>
 	);
 }
@@ -218,9 +243,12 @@ export function ProjectCard({ project }: { project: Project }) {
 					</div>
 				</div>
 				<div className="p-3.5">
-					<h3 className="truncate font-display font-semibold text-sm">
-						{project.name}
-					</h3>
+					<div className="flex items-center gap-2">
+						<h3 className="min-w-0 truncate font-display font-semibold text-sm">
+							{project.name}
+						</h3>
+						<PlatformBadge platform={project.targetPlatform} />
+					</div>
 					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
 						<Users aria-hidden className="size-3 shrink-0" />
 						<span>{t("projects.leadCount", { count: project.leadCount })}</span>

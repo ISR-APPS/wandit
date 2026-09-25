@@ -6,9 +6,17 @@ import { I18nProvider } from "@wandit/internationalization/react";
 import { type ComponentProps, createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AppStoresSummary, ProjectDomain } from "../../api/dto";
+import type {
+	AppProject,
+	AppStoresSummary,
+	ProjectDomain,
+} from "../../api/dto";
 import { MOCK_APP_STORES, MOCK_DOMAINS } from "../../lib/mock-panels";
-import { PublishMobileTargets, PublishWebTargets } from "./publish-popover";
+import {
+	PublishMobileTargets,
+	PublishPopover,
+	PublishWebTargets,
+} from "./publish-popover";
 
 function renderWithI18n(children: ReactNode) {
 	const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -83,6 +91,31 @@ describe("PublishWebTargets", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Connect one" }));
 		expect(onConnectDomain).toHaveBeenCalledOnce();
+	});
+});
+
+describe("PublishPopover", () => {
+	it("shows the coming soon line for a mobile project", async () => {
+		const project: AppProject = {
+			id: "project-1",
+			name: "Nadi Fitness",
+			slug: "",
+			description: "Membership app for a gym.",
+			kind: "mobile",
+			engine: "v2_app",
+			versionNumber: 0,
+			unpublishedChanges: 0,
+		};
+		renderWithI18n(createElement(PublishPopover, { project }));
+
+		fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+		expect(
+			await screen.findByText(
+				"Publishing a mobile app is coming soon. Test your app in the preview for now.",
+			),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
 	});
 });
 

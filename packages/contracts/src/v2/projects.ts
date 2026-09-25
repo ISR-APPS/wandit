@@ -11,6 +11,7 @@ import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength, projectSchema } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { projectEngineSchema } from "../v1/shared/project-engine";
+import { targetPlatformSchema } from "../v1/shared/target-platform";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
 // `projectSchema` carries it now. This line keeps earlier V2 imports working.
@@ -20,14 +21,13 @@ export {
 	projectEngines,
 } from "../v1/shared/project-engine";
 
-/** Device family a V2 app targets. Matches `project_target_platform`. */
-export const targetPlatforms = ["web", "mobile"] as const;
-
-/** Runtime validator for a target platform. */
-export const targetPlatformSchema = z.enum(targetPlatforms);
-
-/** TypeScript target platform type. */
-export type TargetPlatform = z.infer<typeof targetPlatformSchema>;
+// The target platform enum moved to the V1 shared folder (WANDIT-192): the
+// V1 `projectSchema` carries it now. This line keeps V2 imports working.
+export {
+	type TargetPlatform,
+	targetPlatformSchema,
+	targetPlatforms,
+} from "../v1/shared/target-platform";
 
 /** Languages the agent must build in (D7: Arabic, French, English). */
 export const appLanguages = ["ar", "fr", "en"] as const;
@@ -90,7 +90,8 @@ export type CreateAppProjectResponse = z.infer<
 export const appProjectSchema = projectSchema.extend({
 	engine: projectEngineSchema,
 	targetPlatform: targetPlatformSchema.nullable(),
-	// Template stack id, for example "tanstack-start" (D15).
+	// Template archive prefix: "web-app" or "mobile-app". The sandbox boots
+	// from `templates/<framework>-<semver>.tar.gz`.
 	framework: z.string().nullable(),
 	// Version of the template the project was created from.
 	templateVersion: z.string().nullable(),

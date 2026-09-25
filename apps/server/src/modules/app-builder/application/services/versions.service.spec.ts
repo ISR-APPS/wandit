@@ -341,6 +341,26 @@ describe("VersionsService.restore", () => {
 		expect(await turnLock.holder("p-1")).toBeNull();
 	});
 
+	it("boots a mobile project with the Metro command and port", async () => {
+		const { sandboxes, service } = fixture({
+			project: {
+				...PROJECT,
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			},
+		});
+		scriptRestore(sandboxes);
+
+		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD });
+
+		expect(sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+	});
+
 	it("releases the lock when the restore commit fails", async () => {
 		const { sandboxes, service, turnLock } = fixture({ upsertOk: false });
 		// The head CAS loses; the stored head (HEAD) is not an ancestor of the

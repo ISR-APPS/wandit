@@ -34,6 +34,7 @@
 		"EXTERNAL_DOMAIN_UNREGISTERED": "This domain is not registered. Buy it first, or check the spelling.",
 		"FORBIDDEN": "You do not have permission to do that.",
 		"INSUFFICIENT_CREDITS": "Not enough credits for this action.",
+		"MOBILE_TEMPLATE_UNAVAILABLE": "Mobile apps are not available right now. Try again later.",
 		"GENERATION_PAYMENT_REQUIRED": "More credits are required to finish this generation.",
 		"PAYMENT_PAST_DUE": "Your subscription payment needs attention. Update it in the billing portal.",
 		"SUBSCRIPTIONS_DISABLED": "New subscriptions and plan changes are currently paused.",

@@ -12,11 +12,7 @@ import { ATTACHMENT_MEDIA_TYPES } from "@wandit/contracts";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-	isPlatformAvailable,
-	PromptBox,
-	type PromptBoxProps,
-} from "./prompt-box";
+import { PromptBox, type PromptBoxProps } from "./prompt-box";
 
 const { uploadAttachmentMock } = vi.hoisted(() => ({
 	uploadAttachmentMock: vi.fn(),
@@ -287,7 +283,7 @@ describe("PromptBox app type chip", () => {
 		expect(screen.queryByRole("button", { name: /^App type:/ })).toBeNull();
 	});
 
-	it("offers the web app and disables the mobile app row", async () => {
+	it("offers the web app and the mobile app as enabled rows", async () => {
 		const onValueChange = vi.fn();
 		renderPromptBox({ platformPicker: { value: "web", onValueChange } });
 
@@ -295,14 +291,21 @@ describe("PromptBox app type chip", () => {
 		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
 		const menu = within(await screen.findByRole("menu"));
 
-		expect(menu.getByRole("menuitemradio", { name: /Web app/ })).toBeTruthy();
+		const web = menu.getByRole("menuitemradio", { name: /Web app/ });
 		const mobile = menu.getByRole("menuitemradio", { name: /Mobile app/ });
-		expect(mobile.getAttribute("aria-disabled")).toBe("true");
-		expect(within(mobile).getByText("Coming soon")).toBeTruthy();
+		expect(web.getAttribute("aria-disabled")).toBeNull();
+		expect(mobile.getAttribute("aria-disabled")).toBeNull();
 	});
 
-	it("keeps only the web app available", () => {
-		expect(isPlatformAvailable("web")).toBe(true);
-		expect(isPlatformAvailable("mobile")).toBe(false);
+	it("picks the mobile app", async () => {
+		const onValueChange = vi.fn();
+		renderPromptBox({ platformPicker: { value: "web", onValueChange } });
+
+		const trigger = screen.getByRole("button", { name: "App type: Web app" });
+		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+		const menu = within(await screen.findByRole("menu"));
+		fireEvent.click(menu.getByRole("menuitemradio", { name: /Mobile app/ }));
+
+		expect(onValueChange).toHaveBeenCalledWith("mobile");
 	});
 });

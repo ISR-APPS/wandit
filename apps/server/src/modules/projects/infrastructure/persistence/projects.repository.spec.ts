@@ -230,6 +230,32 @@ describe("ProjectsRepository.createWithChatAndFirstMessage", () => {
 		});
 	});
 
+	it("writes a mobile app block to the project row and the session", async () => {
+		const { inserts, repository } = transactionClient();
+
+		await repository.createWithChatAndFirstMessage({
+			...CREATE_INPUT,
+			app: {
+				framework: "mobile-app",
+				harness: "claude_code",
+				languages: ["en"],
+				model: null,
+				targetPlatform: "mobile",
+				templateVersion: "mobile-app@1.0.0",
+			},
+		});
+
+		expect(inserts[0]?.values).toMatchObject({
+			engine: "v2_app",
+			framework: "mobile-app",
+			targetPlatform: "mobile",
+			templateVersion: "mobile-app@1.0.0",
+		});
+		expect(inserts[3]?.values).toMatchObject({
+			templateVersion: "mobile-app@1.0.0",
+		});
+	});
+
 	it("keeps the V1 insert shape when app is absent", async () => {
 		const { inserts, repository } = transactionClient();
 
