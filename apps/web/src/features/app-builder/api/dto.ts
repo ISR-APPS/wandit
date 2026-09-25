@@ -8,6 +8,7 @@
 import type {
 	AskUserKind,
 	CodeSnapshotResponse,
+	ProjectEngine,
 	TurnDataParts,
 	TurnQuestionOption,
 } from "@wandit/contracts";
@@ -25,6 +26,8 @@ export type AppProject = {
 	slug: string;
 	description: string;
 	kind: AppProjectKind;
+	/** Builder of the project, from `GET /api/v2/projects/:id`. The Cloud tab shows only for `v2_app`. */
+	engine: ProjectEngine;
 	/** Highest version number so far. The publish popover shows it as "v{n}". */
 	versionNumber: number;
 	/** Builder turns since the last publish. 0 means the live app is current. */

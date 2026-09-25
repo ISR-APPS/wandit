@@ -21,6 +21,12 @@ describe("appBuilderSearchSchema", () => {
 		});
 	});
 
+	it("keeps the Cloud view and its open panel", () => {
+		expect(
+			appBuilderSearchSchema.parse({ view: "cloud", cloudPanel: "logs" }),
+		).toEqual({ view: "cloud", cloudPanel: "logs" });
+	});
+
 	it("parses the tablet viewport", () => {
 		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({
 			viewport: "tablet",
@@ -31,12 +37,14 @@ describe("appBuilderSearchSchema", () => {
 		const result = appBuilderSearchSchema.parse({
 			view: "settings",
 			panel: 42,
+			cloudPanel: "secrets",
 			device: "windows",
 			viewport: "",
 			file: "x".repeat(600),
 		});
 		expect(result.view).toBeUndefined();
 		expect(result.panel).toBeUndefined();
+		expect(result.cloudPanel).toBeUndefined();
 		expect(result.device).toBeUndefined();
 		expect(result.viewport).toBeUndefined();
 		expect(result.file).toBeUndefined();

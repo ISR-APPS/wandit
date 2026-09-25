@@ -35,6 +35,7 @@ const PROJECT: AppProject = {
 	slug: "nadi",
 	description: "Membership app for a gym.",
 	kind: "web",
+	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
 };

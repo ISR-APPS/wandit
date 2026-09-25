@@ -4,6 +4,7 @@
  * work pane controls with the main card. On phones the open chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project and thread queries. The URL search params hold the view state.
+ * The Cloud view shows only behind useCloudTabEnabled.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -25,9 +26,10 @@ import { useTranslation } from "@/lib/i18n";
 import {
 	appProjectQuery,
 	builderThreadQuery,
-	cloudBackendQuery,
 } from "../api/app-builder.queries";
+import { cloudBackendQuery } from "../api/cloud.queries";
 import { ChatPane } from "../components/chat/chat-pane";
+import { CloudTab } from "../components/cloud/cloud-tab";
 import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
@@ -43,16 +45,18 @@ import {
 import {
 	readChatLayout,
 	readChatOpen,
+	resolveBuilderView,
 	resolveMorePanel,
 	writeChatLayout,
 	writeChatOpen,
 } from "../lib/helpers";
 import type { AppBuilderSearch } from "../lib/schemas";
 import { useBuilderThread } from "../lib/use-builder-thread";
+import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
 
 export type AppBuilderPageProps = {
 	projectId: string;
-	/** Validated `?view=&panel=&device=&viewport=&file=` of the URL. */
+	/** Validated `?view=&panel=&cloudPanel=&device=&viewport=&file=` of the URL. */
 	search: AppBuilderSearch;
 };
 
@@ -66,8 +70,10 @@ export default function AppBuilderPage({
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
 	const thread = useBuilderThread(projectId);
-	// The preview boot screen shows the database step. The query polls while Supabase creates the project.
-	const { data: backend } = useQuery(cloudBackendQuery(projectId));
+	// The preview boot screen shows the database step on every view, so this read is always on.
+	// The query polls while Supabase creates or wakes the project.
+	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
+	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
@@ -105,14 +111,17 @@ export default function AppBuilderPage({
 		backend,
 	};
 
-	const view = search.view ?? "preview";
+	const view = resolveBuilderView(search.view, isCloudTabEnabled);
 	const panel = resolveMorePanel(project.kind, search.panel);
 	const device = search.device ?? "ios";
 	const viewport = search.viewport ?? "desktop";
-	const title =
-		view === "more"
-			? t(MORE_PANEL_META[panel].title)
-			: t(`appBuilder.views.${view}`);
+
+	function viewTitle(): string {
+		if (view === "more") return t(MORE_PANEL_META[panel].title);
+		// The Cloud strings live in the workspace dictionary (WANDIT-188).
+		if (view === "cloud") return t("workspace.tabs.cloud");
+		return t(`appBuilder.views.${view}`);
+	}
 
 	// Views and panels make a history entry. Frame toggles and file picks replace it.
 	function setSearch(patch: Partial<AppBuilderSearch>, replace: boolean) {
@@ -202,6 +211,24 @@ export default function AppBuilderPage({
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
 				/>
 			) : null}
+			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its queries wait for isActive. */}
+			{isCloudTabEnabled ? (
+				<div
+					className={cn(
+						"h-full min-h-0 flex-col",
+						view === "cloud" ? "flex" : "hidden",
+					)}
+				>
+					{/* A project switch in place remounts the tab, so no draft or result of the old project stays. */}
+					<CloudTab
+						key={project.id}
+						projectId={project.id}
+						isActive={view === "cloud"}
+						panel={search.cloudPanel ?? "database"}
+						onSelectPanel={(next) => setSearch({ cloudPanel: next }, false)}
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 
@@ -221,7 +248,8 @@ export default function AppBuilderPage({
 		<WorkBar
 			project={project}
 			view={view}
-			title={title}
+			title={viewTitle()}
+			showCloud={isCloudTabEnabled}
 			device={device}
 			viewport={viewport}
 			onChangeView={(next) => setSearch({ view: next }, false)}

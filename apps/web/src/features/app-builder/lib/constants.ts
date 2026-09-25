@@ -1,8 +1,8 @@
 /**
- * Fixed values of the V2 app builder workspace: views, More panels, devices,
- * and composer modes. Also the storage keys and panel widths of the chat card,
- * and the easing of the preview boot screen. Read by the route search schema,
- * the shell, the More view, and the preview.
+ * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
+ * devices, and composer modes. Also the storage keys and panel widths of the
+ * chat card, and the easing of the preview boot screen. Read by the route
+ * search schema, the shell, the More view, the Cloud tab, and the preview.
  * No logic and no React here.
  */
 
@@ -23,8 +23,11 @@ import {
 import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
 
-/** Main views of the workspace. `more` opens the settings-like panels. */
-export const BUILDER_VIEWS = ["preview", "code", "more"] as const;
+/**
+ * Main views of the workspace. `more` opens the settings-like panels.
+ * `cloud` opens the Cloud tab; the page shows it only behind its rollout gate.
+ */
+export const BUILDER_VIEWS = ["preview", "code", "more", "cloud"] as const;
 export type BuilderView = (typeof BUILDER_VIEWS)[number];
 
 /** Panels of the More view, in nav order. `domains` is web only, `appStores` is mobile only. */
@@ -41,6 +44,23 @@ export const MORE_PANELS = [
 	"settings",
 ] as const;
 export type MorePanel = (typeof MORE_PANELS)[number];
+
+/**
+ * Panels of the Cloud tab, in nav order. WANDIT-188 slice 1 builds
+ * `database`; the other panels show a coming-soon state until slices 2 and 3.
+ */
+export const CLOUD_PANELS = [
+	"database",
+	"users",
+	"storage",
+	"logs",
+	"functions",
+	"jobs",
+] as const;
+export type CloudPanel = (typeof CLOUD_PANELS)[number];
+
+/** Rows per page of the Cloud table grid. The rows route accepts at most 100. */
+export const CLOUD_ROWS_PAGE_SIZE = 50;
 
 /** Phone frames of the mobile preview. */
 export const PHONE_DEVICES = ["ios", "android"] as const;

@@ -1,12 +1,13 @@
 /**
- * Pure helpers of the app builder, with no React. One picks the More panels
- * of a project kind. Two pairs store the open state and the split layout of
- * the chat card. One copies text to the clipboard.
+ * Pure helpers of the app builder, with no React. One picks the main view
+ * and one the More panels of a project. Two pairs store the open state and
+ * the split layout of the chat card. One copies text to the clipboard.
  * Called by the page, the More view, the route file, and the chat cards.
  */
 
 import type { AppProjectKind } from "../api/dto";
 import {
+	type BuilderView,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
 	MORE_PANEL_META,
@@ -20,6 +21,19 @@ export function panelsForKind(kind: AppProjectKind): MorePanel[] {
 	return MORE_PANELS.filter((panel) =>
 		MORE_PANEL_META[panel].kinds.includes(kind),
 	);
+}
+
+/**
+ * The main view to show for a URL request; no request opens the preview.
+ * `cloud` opens the preview too while the Cloud gate is closed or still loads.
+ */
+export function resolveBuilderView(
+	requested: BuilderView | undefined,
+	isCloudTabEnabled: boolean,
+): BuilderView {
+	// The Cloud tab is behind a rollout gate. A shared link must not open an empty card.
+	if (requested === "cloud" && !isCloudTabEnabled) return "preview";
+	return requested ?? "preview";
 }
 
 /**
