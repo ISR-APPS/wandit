@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { creditsKeys } from "@/features/credits";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
+import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage } from "../api/dto";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
@@ -109,8 +110,9 @@ export function useBuilderChat(
 	);
 
 	// A finished turn can mint a new version, change the code, move the
-	// project summary, and settle credits; all four caches refresh at once.
-	// The code key covers the Code view tree and every open file.
+	// project summary, run a migration, and settle credits; all five caches
+	// refresh at once. The code key covers the Code view tree and every open
+	// file. The Cloud tables key covers the table list and every loaded page.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
@@ -120,6 +122,9 @@ export function useBuilderChat(
 		});
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.project(projectId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: cloudKeys.tables(projectId),
 		});
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 	}, [queryClient, projectId]);

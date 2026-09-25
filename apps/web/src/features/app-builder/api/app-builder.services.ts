@@ -13,13 +13,10 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type CancelTurnResponse,
-	type CloudBackendResponse,
 	type CodeFileResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
-	cloudBackendResponseSchema,
-	cloudRoutes,
 	codeFileResponseSchema,
 	codeSnapshotResponseSchema,
 	createAppProjectResponseSchema,
@@ -355,6 +352,7 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		name: project.name,
 		description: project.prompt,
 		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		engine: project.engine,
 		// LIMIT: the V2 API has no publish state yet, so the slug, the version
 		// number, and the unpublished count keep their empty values.
 		// Upgrade: the publish state of WANDIT-178.
@@ -399,19 +397,6 @@ function toCodeFile(file: CodeFileResponse): CodeFile {
 	return file.binary
 		? { kind: "binary", path: file.path, size: file.size }
 		: { kind: "text", path: file.path, content: file.content, size: file.size };
-}
-
-/**
- * `GET /api/v2/projects/:id/cloud/backend` answers the state of the
- * Supabase backend. The preview boot screen polls it to show the database
- * step. `get` is the test seam.
- */
-export async function getCloudBackend(
-	projectId: string,
-	get: typeof apiClient.get = apiClient.get,
-): Promise<CloudBackendResponse> {
-	const data = await get<unknown>(cloudRoutes.backend(projectId));
-	return cloudBackendResponseSchema.parse(data);
 }
 
 /**

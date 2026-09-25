@@ -15,6 +15,7 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import {
+	Cloud,
 	Code,
 	ExternalLink,
 	Globe,
@@ -110,6 +111,8 @@ export type WorkBarProps = {
 	view: BuilderView;
 	/** Centered over the work pane: the view name, or the title of the open More panel. */
 	title: string;
+	/** True when the view switcher lists Cloud. The page reads it from useCloudTabEnabled. */
+	showCloud: boolean;
 	/** Phone frame of the mobile preview. Read only when the project is a mobile app. */
 	device: PhoneDevice;
 	/** Frame width of the web preview. Read only when the project is a web app. */
@@ -128,6 +131,7 @@ export function WorkBar({
 	project,
 	view,
 	title,
+	showCloud,
 	device,
 	viewport,
 	onChangeView,
@@ -158,6 +162,16 @@ export function WorkBar({
 						icon: Code,
 						iconOnly: view !== "code",
 					},
+					...(showCloud
+						? [
+								{
+									value: "cloud" as const,
+									label: t("workspace.tabs.cloud"),
+									icon: Cloud,
+									iconOnly: view !== "cloud",
+								},
+							]
+						: []),
 					{
 						value: "more",
 						label: t("appBuilder.views.more"),

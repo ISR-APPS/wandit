@@ -8,6 +8,7 @@ import {
 	panelsForKind,
 	readChatLayout,
 	readChatOpen,
+	resolveBuilderView,
 	resolveMorePanel,
 	writeChatLayout,
 	writeChatOpen,
@@ -30,6 +31,18 @@ describe("panelsForKind", () => {
 		expect(panelsForKind("web")[0]).toBe("analytics");
 		expect(panelsForKind("mobile")[0]).toBe("analytics");
 		expect(panelsForKind("web").at(-1)).toBe("settings");
+	});
+});
+
+describe("resolveBuilderView", () => {
+	it("keeps a requested view and opens the preview when nothing is requested", () => {
+		expect(resolveBuilderView("code", false)).toBe("code");
+		expect(resolveBuilderView(undefined, true)).toBe("preview");
+	});
+
+	it("opens the Cloud view only while the Cloud gate is open", () => {
+		expect(resolveBuilderView("cloud", true)).toBe("cloud");
+		expect(resolveBuilderView("cloud", false)).toBe("preview");
 	});
 });
 

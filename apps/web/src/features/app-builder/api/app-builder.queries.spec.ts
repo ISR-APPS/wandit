@@ -1,8 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import type {
-	CloudBackendResponse,
-	CodeSnapshotResponse,
-} from "@wandit/contracts";
+import type { CodeSnapshotResponse } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,11 +7,7 @@ import {
 	type ApiRequestOptions,
 	type apiClient,
 } from "@/lib/api-client";
-import {
-	appBuilderKeys,
-	cloudBackendPollMs,
-	codeSnapshotQuery,
-} from "./app-builder.queries";
+import { appBuilderKeys, codeSnapshotQuery } from "./app-builder.queries";
 
 const PROJECT_ID = crypto.randomUUID();
 
@@ -133,18 +126,5 @@ describe("codeSnapshotQuery", () => {
 				.getQueryCache()
 				.findAll({ queryKey: appBuilderKeys.code(PROJECT_ID) }),
 		).toHaveLength(1);
-	});
-});
-
-function backend(status: CloudBackendResponse["status"]): CloudBackendResponse {
-	return { status, ref: null, region: null, failureCode: null };
-}
-
-describe("cloudBackendPollMs", () => {
-	it("polls every 5 s while Supabase creates the project, and not after", () => {
-		expect(cloudBackendPollMs(backend("creating"))).toBe(5_000);
-		expect(cloudBackendPollMs(backend("active"))).toBe(false);
-		expect(cloudBackendPollMs(backend("error"))).toBe(false);
-		expect(cloudBackendPollMs(undefined)).toBe(false);
 	});
 });

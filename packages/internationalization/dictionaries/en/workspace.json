@@ -16,7 +16,8 @@
 		"assets": "Assets",
 		"marketing": "Marketing",
 		"leads": "Leads",
-		"settings": "Settings"
+		"settings": "Settings",
+		"cloud": "Cloud"
 	},
 	"switcher": {
 		"menuLabel": "Projects",
@@ -1226,5 +1227,86 @@
 		"title": "Project not found",
 		"body": "It may have been deleted, or the link is wrong.",
 		"cta": "Back to dashboard"
+	},
+	"cloud": {
+		"navAriaLabel": "Cloud sections",
+		"panels": {
+			"database": "Database",
+			"users": "Users",
+			"storage": "Storage",
+			"logs": "Logs",
+			"functions": "Functions",
+			"jobs": "Jobs"
+		},
+		"comingSoon": "This section is not ready yet. A later update adds it.",
+		"loadFailed": "The backend state did not load.",
+		"retry": "Try again",
+		"backend": {
+			"none": {
+				"description": "A backend gives your app a database, user accounts, and file storage. Wandit sets it up and runs it for you.",
+				"enable": "Enable backend"
+			},
+			"waiting": "Setting up your backend. This takes about 2 minutes.",
+			"paused": {
+				"description": "The backend sleeps when nobody uses the app for some time. Wake it up to see your data.",
+				"wake": "Wake up"
+			},
+			"deleting": "The backend of this project is being deleted.",
+			"error": {
+				"code": "Error code: {code}",
+				"checkAgain": "Check again",
+				"reasons": {
+					"startFailed": "The backend setup did not start.",
+					"unconfigured": "Backends are not available on this server yet.",
+					"provisionFailed": "The database service could not create the backend.",
+					"timeout": "The backend setup took too long and stopped.",
+					"baseSchemaMissing": "The backend started, but its base tables are missing.",
+					"unknown": "An unexpected error stopped the backend setup."
+				}
+			}
+		},
+		"database": {
+			"sections": {
+				"tables": "Tables",
+				"sql": "SQL editor"
+			},
+			"rowCount": {
+				"one": "{count} row",
+				"other": "{count} rows"
+			},
+			"tables": {
+				"name": "Table",
+				"columns": "Columns",
+				"rows": "Rows",
+				"estimate": "About {count}",
+				"empty": "The database has no tables yet. Ask the agent to add one.",
+				"loadFailed": "The tables did not load.",
+				"back": "All tables"
+			},
+			"rows": {
+				"page": "Page {page} of {pageCount}",
+				"previous": "Previous page",
+				"next": "Next page",
+				"empty": "This table has no rows.",
+				"noColumns": "This table has no columns.",
+				"missing": "This table or one of its columns no longer exists.",
+				"loadFailed": "The rows did not load.",
+				"null": "NULL"
+			},
+			"sql": {
+				"label": "SQL query",
+				"placeholder": "select * from orders limit 10;",
+				"run": "Run",
+				"hint": "Write one SQL statement and select Run. The results show here.",
+				"noRows": "The statement ran. It returned no rows.",
+				"truncated": "The query returned more than {limit} rows. Only the first {limit} rows show.",
+				"confirm": {
+					"title": "Run a query that changes data?",
+					"description": "This query can change or delete data in the database of your app. You cannot undo it.",
+					"cancel": "Cancel",
+					"run": "Run query"
+				}
+			}
+		}
 	}
 }

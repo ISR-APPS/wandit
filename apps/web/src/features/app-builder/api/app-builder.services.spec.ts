@@ -1,6 +1,5 @@
 import type {
 	AppProject as ApiAppProject,
-	CloudBackendResponse,
 	CodeFileResponse,
 	CodeSnapshotResponse,
 } from "@wandit/contracts";
@@ -15,7 +14,6 @@ import {
 	createAppProject,
 	getAppProject,
 	getBuilderThread,
-	getCloudBackend,
 	getCodeFile,
 	getCodeSnapshot,
 	getPaymentsSummary,
@@ -202,15 +200,9 @@ describe("setPaymentsMode", () => {
 	});
 });
 
-/**
- * A GET that answers `body` and records each URL and query it got. The
- * backend `status` is a plain string, so a case can send a bad one.
- */
+/** A GET that answers `body` and records each URL and query it got. */
 function getAnswers(
-	body:
-		| CodeSnapshotResponse
-		| CodeFileResponse
-		| (Omit<CloudBackendResponse, "status"> & { status: string }),
+	body: CodeSnapshotResponse | CodeFileResponse,
 	calls: { url: string; options?: ApiRequestOptions }[] = [],
 ): typeof apiClient.get {
 	// SAFETY: the fake answers the one GET of a case, and the service
@@ -356,41 +348,6 @@ describe("code view API", () => {
 	});
 });
 
-describe("getCloudBackend", () => {
-	const projectId = crypto.randomUUID();
-
-	it("reads the backend route and parses the answer", async () => {
-		const calls: { url: string; options?: ApiRequestOptions }[] = [];
-		const backend: CloudBackendResponse = {
-			status: "creating",
-			ref: "abcdefghijklmnopqrst",
-			region: "eu-west-3",
-			failureCode: null,
-		};
-
-		expect(
-			await getCloudBackend(projectId, getAnswers(backend, calls)),
-		).toEqual(backend);
-		expect(calls.map((call) => call.url)).toEqual([
-			`/api/v2/projects/${projectId}/cloud/backend`,
-		]);
-	});
-
-	it("rejects an answer with an unknown status", async () => {
-		await expect(
-			getCloudBackend(
-				projectId,
-				getAnswers({
-					status: "booting",
-					ref: null,
-					region: null,
-					failureCode: null,
-				}),
-			),
-		).rejects.toThrow();
-	});
-});
-
 // A V2 project answer as `GET /api/v2/projects/:id` sends it, per appProjectSchema.
 const API_PROJECT = {
 	id: crypto.randomUUID(),
@@ -422,6 +379,7 @@ describe("toUiAppProject", () => {
 			slug: "atlas",
 			description: "A storefront for crafts",
 			kind: "web",
+			engine: "v2_app",
 			versionNumber: 0,
 			unpublishedChanges: 0,
 		});

@@ -7,6 +7,7 @@ import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { appBuilderKeys } from "../api/app-builder.queries";
+import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage } from "../api/dto";
 import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
 
@@ -285,6 +286,48 @@ describe("useBuilderChat", () => {
 					?.isInvalidated,
 			).toBe(true),
 		);
+	});
+
+	it("marks the Cloud tables and their pages stale when a turn ends, not the backend state", async () => {
+		const fake = createDeps();
+		const queryClient = new QueryClient();
+		const rowsKey = cloudKeys.rows(PROJECT_ID, "orders", {
+			page: 1,
+			pageSize: 50,
+			dir: "asc",
+		});
+		queryClient.setQueryData(cloudKeys.tables(PROJECT_ID), []);
+		queryClient.setQueryData(rowsKey, null);
+		queryClient.setQueryData(cloudKeys.backend(PROJECT_ID), {
+			status: "active",
+			ref: "abcdefghijklmnopqrst",
+			region: "eu-west-3",
+			failureCode: null,
+		});
+		const { result } = renderBuilderChat(
+			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			fake.deps,
+			queryClient,
+		);
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		act(() => {
+			result.current.send({ text: "add an orders table" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		fake.endPostStream();
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		// The agent can run a migration in any turn.
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryState(cloudKeys.tables(PROJECT_ID))?.isInvalidated,
+			).toBe(true),
+		);
+		expect(queryClient.getQueryState(rowsKey)?.isInvalidated).toBe(true);
+		expect(
+			queryClient.getQueryState(cloudKeys.backend(PROJECT_ID))?.isInvalidated,
+		).toBe(false);
 	});
 
 	it("ignores a history change while streaming and reseeds when ready", async () => {
