@@ -236,6 +236,38 @@ describe("useBuilderChat", () => {
 		expect(result.current.turnId).toBeNull();
 	});
 
+	it("marks the project stale again after the cancel POST answers", async () => {
+		const fake = createDeps();
+		const queryClient = new QueryClient();
+		const projectKey = appBuilderKeys.project(PROJECT_ID);
+		queryClient.setQueryData(projectKey, null);
+		// The refresh at the abort lands before the settle. The fake cancel
+		// waits for it and stores its answer, so the project is fresh again.
+		fake.deps.cancelTurn.mockImplementation(async (_projectId, turnId) => {
+			await vi.waitFor(() =>
+				expect(queryClient.getQueryState(projectKey)?.isInvalidated).toBe(true),
+			);
+			queryClient.setQueryData(projectKey, null);
+			return { turnId, status: "canceled" };
+		});
+		const { result } = renderBuilderChat(
+			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			fake.deps,
+			queryClient,
+		);
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+
+		await act(async () => {
+			await result.current.cancel();
+		});
+
+		// The settle wrote the wip commit, so hasCodeChanges can be true now.
+		expect(queryClient.getQueryState(projectKey)?.isInvalidated).toBe(true);
+	});
+
 	it("refuses to send while the chat id is unknown", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(

@@ -38,6 +38,7 @@ const PROJECT: AppProject = {
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
+	hasCodeChanges: true,
 };
 
 // The bar shows tooltips and translated labels; the page mounts both providers.

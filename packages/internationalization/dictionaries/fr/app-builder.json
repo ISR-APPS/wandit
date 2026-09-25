@@ -47,7 +47,7 @@
 			"machine": {
 				"starting": "Mise en place de ta nouvelle app",
 				"waking": "Réveil de ton app",
-				"done": "Prête à s'ouvrir",
+				"done": "Tout est prêt",
 				"copying": "On réunit les pièces de ton app",
 				"installing": "On assemble le tout",
 				"firstTime": "C'est un peu plus long la première fois",
@@ -57,6 +57,10 @@
 				"label": "Ouverture de ton app",
 				"waiting": "On y est presque",
 				"loading": "On charge la première page"
+			},
+			"build": {
+				"label": "Construction de ta première version",
+				"detail": "Ton app s'affiche ici dès qu'elle est prête"
 			},
 			"database": {
 				"creating": "Création de ta base de données",
@@ -73,6 +77,10 @@
 			"stopped": {
 				"title": "Ton app n'a pas pu démarrer",
 				"body": "Le chat t'explique ce qui s'est passé. Envoie un message pour réessayer."
+			},
+			"waiting": {
+				"title": "En attente de ta prochaine étape…",
+				"body": "Continue dans le chat quand tu es prêt."
 			}
 		}
 	},
@@ -86,6 +94,7 @@
 		"readOnly": "Le code est en lecture seule dans cette version d'aperçu.",
 		"fileMissing": "Ce fichier n'est pas dans le dépôt.",
 		"asleep": "Ton app est en veille. Envoie un message dans le chat pour la réveiller. Ensuite, ton code s'affiche ici.",
+		"settingUp": "Préparation de ton projet. Les fichiers s'affichent ici dès qu'il est prêt.",
 		"noFiles": "Le projet n'a pas encore de fichiers.",
 		"binaryFile": "Ce fichier est binaire. La vue Code affiche uniquement les fichiers texte.",
 		"fileTooLarge": "Ce fichier dépasse {limit}. La vue Code affiche uniquement les fichiers jusqu'à {limit}.",

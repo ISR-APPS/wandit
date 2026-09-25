@@ -1,7 +1,8 @@
 /**
  * The one iframe both previews render. It mints the signed sandbox URL
  * through usePreviewToken. PreviewBootScreen covers the frame until the
- * app page loads; the error state has its own alert. WebPreview and
+ * app page loads, and while the project holds only the template; the
+ * error state has its own alert. WebPreview and
  * PhonePreview wrap it in their chrome. The page keeps it mounted across
  * the views. The Vite HMR WebSocket of the app inside then survives a
  * view switch.
@@ -48,8 +49,9 @@ export type PreviewPanelProps = {
 
 /**
  * Renders the preview iframe once the token mint answers, under the boot
- * screen until its first `load`. No `key={reloadKey}` on the iframe: the
- * reload mints a new token and the new src reloads the frame.
+ * screen until its first `load` and a first version exists. No
+ * `key={reloadKey}` on the iframe: the reload mints a new token and the new
+ * src reloads the frame.
  */
 export function PreviewPanel({
 	projectId,
@@ -67,6 +69,9 @@ export function PreviewPanel({
 	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
 	// A dropped frame (not-running, error) must show the boot screen again when the next frame mounts.
 	if (previewUrl === null && isFrameLoaded) setIsFrameLoaded(false);
+	// The template is not the user's app, so a loaded frame stays covered until a turn changes a file.
+	// The frame still loads under the cover, so the first version shows at once when the flag flips.
+	const isAppShown = isFrameLoaded && bootContext.hasCodeChanges;
 
 	// The proxy error pages report a dead token or a stopped sandbox.
 	usePreviewMessages({
@@ -104,17 +109,17 @@ export function PreviewPanel({
 						title={title}
 						sandbox={PREVIEW_IFRAME_SANDBOX}
 						onLoad={() => setIsFrameLoaded(true)}
-						// The boot screen covers the frame until load, so keyboard focus and screen readers skip it.
-						inert={!isFrameLoaded}
+						// The boot screen covers the frame until the app shows, so keyboard focus and screen readers skip it.
+						inert={!isAppShown}
 						className="block size-full border-0 bg-transparent"
 						initial={false}
-						animate={{ scale: isFrameLoaded ? 1 : 0.985 }}
+						animate={{ scale: isAppShown ? 1 : 0.985 }}
 						transition={{ duration: 0.38, delay: 0.04, ease: BOOT_EASE }}
 					/>
 				) : null}
 				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the ember buttons of the drawing. */}
 				<AnimatePresence>
-					{isFrameLoaded ? null : (
+					{isAppShown ? null : (
 						<motion.div
 							key="boot"
 							className="absolute inset-0"

@@ -31,10 +31,11 @@ function projectRow(overrides: Partial<ProjectQueryRow> = {}): ProjectQueryRow {
 
 describe("mapAppProjectRow", () => {
 	it("maps a v2_app row to the AppProject fields", () => {
-		expect(mapAppProjectRow(projectRow())).toMatchObject({
+		expect(mapAppProjectRow(projectRow(), false)).toMatchObject({
 			createdAt: "2026-08-01T08:00:00.000Z",
 			engine: "v2_app",
 			framework: "web-app",
+			hasCodeChanges: false,
 			id: "project-1",
 			languages: ["fr", "en"],
 			name: "Booking app",
@@ -44,6 +45,8 @@ describe("mapAppProjectRow", () => {
 	});
 
 	it("throws on a language outside ar, fr, en", () => {
-		expect(() => mapAppProjectRow(projectRow({ languages: ["xx"] }))).toThrow();
+		expect(() =>
+			mapAppProjectRow(projectRow({ languages: ["xx"] }), false),
+		).toThrow();
 	});
 });

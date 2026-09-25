@@ -47,7 +47,7 @@
 			"machine": {
 				"starting": "Setting up your new app",
 				"waking": "Waking up your app",
-				"done": "Ready to open",
+				"done": "All set",
 				"copying": "Gathering the pieces of your app",
 				"installing": "Putting it all together",
 				"firstTime": "The first time takes a little longer",
@@ -57,6 +57,10 @@
 				"label": "Opening your app",
 				"waiting": "Almost there",
 				"loading": "Loading the first page"
+			},
+			"build": {
+				"label": "Building your first version",
+				"detail": "Your app shows here when it is ready"
 			},
 			"database": {
 				"creating": "Creating your database",
@@ -73,6 +77,10 @@
 			"stopped": {
 				"title": "Your app could not start",
 				"body": "The chat explains what happened. Send a message to try again."
+			},
+			"waiting": {
+				"title": "Waiting for your next step…",
+				"body": "Continue in the chat when you are ready."
 			}
 		}
 	},
@@ -86,6 +94,7 @@
 		"readOnly": "The code is read-only in this preview build.",
 		"fileMissing": "This file is not in the repository.",
 		"asleep": "Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
+		"settingUp": "Setting up your project. The files show here when it is ready.",
 		"noFiles": "The project has no files yet.",
 		"binaryFile": "This file is binary. The Code view shows text files only.",
 		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",

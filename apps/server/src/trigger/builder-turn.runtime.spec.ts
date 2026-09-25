@@ -559,6 +559,8 @@ function makeWorld(over?: {
 	const revoked: string[] = [];
 	const minted: LlmProxyTokenClaimsInput[] = [];
 	const commits: CommitTurnInput[] = [];
+	// The stream event types that exist when each commit runs, in commit order.
+	const eventTypesAtCommit: string[][] = [];
 	const inserted: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
@@ -655,6 +657,10 @@ function makeWorld(over?: {
 		},
 		commit: async (_sandbox, _deps, input) => {
 			commits.push(input);
+			// Every run in this spec streams under TURN_ID.
+			eventTypesAtCommit.push(
+				stream.eventsOf(TURN_ID).map((event) => event.type),
+			);
 			return fakeCommitResult();
 		},
 		commitDeps,
@@ -730,6 +736,7 @@ function makeWorld(over?: {
 		balanceReads,
 		commits,
 		deps,
+		eventTypesAtCommit,
 		harness,
 		infos,
 		inserted,
@@ -1390,6 +1397,9 @@ describe("runBuilderTurn", () => {
 		expect(world.commits).toHaveLength(1);
 		expect(world.commits[0]?.source).toBe("wip");
 		expect(world.commits[0]?.summary).toBe("Stopped");
+		// The commit runs before `error` and `done`, so the web refetch at the stream end sees it.
+		expect(world.eventTypesAtCommit[0]).not.toContain("error");
+		expect(world.eventTypesAtCommit[0]).not.toContain("done");
 		// The real spend settles direct; the hold is not refunded.
 		expect(world.metering.settleCalls).toHaveLength(1);
 		const settle = world.metering.settleCalls[0];

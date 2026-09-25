@@ -153,10 +153,8 @@ export function useBuilderChat(
 			},
 			// The SDK fires onFinish on success, error, and abort. The turn id
 			// and the estimate are stale from here; a cancel after this point
-			// would post for a finished turn.
-			// LIMIT: after a cancel the caches refresh before the settle.
-			// Upgrade: post the cancel first and keep the stream open until
-			// data-turn-done.
+			// would post for a finished turn. On an abort the caches refresh
+			// before the settle, so `cancel` refreshes them again.
 			onFinish: () => {
 				setActiveTurn(null);
 				setIsAwaitingTurn(false);
@@ -219,7 +217,10 @@ export function useBuilderChat(
 		if (turnId === undefined) return;
 		// The error propagates on purpose: the page maps it to copy.
 		await deps.cancelTurn(projectId, turnId);
-	}, [stop, activeTurn?.turnId, deps, projectId]);
+		// The cancel answers after the settle wrote the wip commit. The refresh
+		// shows its files, for example the first version of a new project.
+		invalidateTurnData();
+	}, [stop, activeTurn?.turnId, deps, projectId, invalidateTurnData]);
 
 	return {
 		messages,

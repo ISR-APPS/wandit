@@ -4,7 +4,8 @@
  * codeFileQuery, which read the running sandbox through the V2 API; the
  * snapshot also fills the file cache, so most clicks need no request. An
  * asleep sandbox, a project without files, and a failed load each show a
- * message inside the view, never an error page.
+ * message inside the view, never an error page. While a turn sets up the
+ * sandbox, the view shows the loading layout with a status line.
  * Rendered by pages/app-builder-page.tsx. The page owns the selected path
  * in the URL and passes onSelectFile.
  */
@@ -41,6 +42,8 @@ export type CodeViewProps = {
 	/** Path from the URL, or undefined to open the default file of the snapshot. */
 	filePath: string | undefined;
 	onSelectFile: (path: string) => void;
+	/** True while a builder turn runs, from useBuilderThread. Only a turn creates or wakes the sandbox. */
+	isTurnRunning: boolean;
 };
 
 /** Tree bar widths (percent) and depths of the first-load skeleton, fixed so each render matches. */
@@ -57,7 +60,12 @@ const TREE_BARS = [
 ];
 
 /** Shows a message, not an error page, for an asleep sandbox, no files, or a failed load. */
-export function CodeView({ projectId, filePath, onSelectFile }: CodeViewProps) {
+export function CodeView({
+	projectId,
+	filePath,
+	onSelectFile,
+	isTurnRunning,
+}: CodeViewProps) {
 	const { t } = useTranslation();
 	const isMobile = useIsMobile();
 	const snapshot = useQuery(codeSnapshotQuery(projectId));
@@ -103,6 +111,12 @@ export function CodeView({ projectId, filePath, onSelectFile }: CodeViewProps) {
 	// The server never wakes a sandbox for a read. The next turn wakes it,
 	// and the turn end refetches the snapshot.
 	if (snapshot.data === null) {
+		// A running turn creates or wakes the sandbox, so the files are on their way.
+		if (isTurnRunning) {
+			return <CodeViewSkeleton status={t("appBuilder.code.settingUp")} />;
+		}
+		// A refetch, for example the one at a turn end, can still find a running sandbox.
+		if (snapshot.isFetching) return <CodeViewSkeleton />;
 		return <CodeMessage icon={MoonStar} text={t("appBuilder.code.asleep")} />;
 	}
 	const selectedPath = pickedPath ?? snapshot.data.defaultFilePath;
@@ -205,8 +219,16 @@ function OpenFile({
 	);
 }
 
-/** The first-load layout: tree bars, a header bar, and code line bars. */
-function CodeViewSkeleton() {
+/**
+ * The first-load layout: tree bars, a header bar, and code line bars. A
+ * `status` line takes the place of the header bar.
+ */
+function CodeViewSkeleton({
+	status,
+}: {
+	/** Why the files are not here yet, for example a sandbox that a turn sets up. Undefined on a plain first load. */
+	status?: string;
+}) {
 	return (
 		<div aria-busy="true" className="flex h-full min-h-0">
 			<div className="hidden w-60 shrink-0 flex-col border-e md:flex">
@@ -229,7 +251,13 @@ function CodeViewSkeleton() {
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<div className="flex h-11 shrink-0 items-center border-b px-4">
-					<Skeleton className="h-3 w-[30%] rounded-full" />
+					{status === undefined ? (
+						<Skeleton className="h-3 w-[30%] rounded-full" />
+					) : (
+						<p role="status" className="truncate text-muted-foreground text-sm">
+							{status}
+						</p>
+					)}
 				</div>
 				<div className="min-h-0 flex-1 bg-background">
 					<CodeLinesSkeleton />

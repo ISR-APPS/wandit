@@ -1,6 +1,6 @@
 /**
- * Pure state of the preview boot screen. The preview token, chat, and
- * Cloud signals go in; the screen content comes out. PreviewBootScreen
+ * Pure state of the preview boot screen. The preview token, chat, project,
+ * and Cloud signals go in; the screen content comes out. PreviewBootScreen
  * calls rememberBoot and bootViewOf on every render. This file calls no
  * API and holds no React state.
  */
@@ -21,6 +21,8 @@ export type BootContext = {
 	isFirstTurn: boolean | null;
 	/** Answer of `GET cloud/backend`. Undefined while it loads, after it failed, and without the `project:update` right. */
 	backend: CloudBackendResponse | undefined;
+	/** False while the project holds only the template. From `project.hasCodeChanges`, refetched at each turn end. */
+	hasCodeChanges: boolean;
 };
 
 /** Everything the mapping reads. PreviewPanel shows its own alert for the token status `error`. */
@@ -29,11 +31,14 @@ export type BootSignals = BootContext & {
 	tokenStatus: "loading" | "waking" | "ready";
 };
 
-/** Facts the screen keeps between renders. They reset when the boot screen unmounts after the frame load. */
+/** Facts the screen keeps between renders. They reset when the boot screen unmounts, which happens when the app shows. */
 export type BootMemory = {
 	/** True from the first `waking` without a turn until a turn starts. A token flip back to `ready` does not end it. */
 	asleep: boolean;
-	/** True after the machine answered in this turn. The machine step then never goes back to active. */
+	/**
+	 * True after the machine answered, until the sandbox sleeps. The machine step then never goes back to active.
+	 * A template-only project keeps the screen on, so the value carries into its next turn.
+	 */
 	machineReady: boolean;
 	/** True after a turn ran while this screen was on. Only then can a failed reply explain a stop. */
 	turnSeen: boolean;
@@ -48,8 +53,11 @@ export const INITIAL_BOOT_MEMORY: BootMemory = {
 
 /** One row of the step list. */
 export type BootStep = {
-	/** `database` runs in parallel with the other two and sits under a divider. */
-	id: "machine" | "preview" | "database";
+	/**
+	 * `database` runs in parallel with the other two and sits under a divider.
+	 * `build` takes the place of `preview` while the project holds only the template.
+	 */
+	id: "machine" | "preview" | "build" | "database";
 	state: "pending" | "active" | "done" | "failed";
 	label: TranslationKey;
 	/** Lines under the label. The screen shows each line for 3.2 s, then keeps the last one. */
@@ -65,13 +73,17 @@ export type BootScene =
 	| "asleep"
 	| "stopped";
 
-/** What the screen shows. `stopped` is true when a turn failed while the user watched. */
+/**
+ * What the screen shows. `stopped` is true when a turn failed while the user
+ * watched. `waiting` is for a project with only the template and no turn.
+ */
 export type BootView =
 	| { variant: "loading" }
 	| { variant: "asleep"; stopped: boolean }
+	| { variant: "waiting" }
 	| {
 			variant: "booting";
-			/** `create`: a new app is set up. `wake`: a saved app wakes. `open`: the app page loads. */
+			/** `create`: a new app is set up. `wake`: a saved app wakes. `open`: the app page loads, or the first version builds. */
 			scene: "create" | "wake" | "open";
 			steps: BootStep[];
 	  };
@@ -116,6 +128,10 @@ export function rememberBoot(
 
 /** The screen content for the signals, and for the memory that rememberBoot returned for them. */
 export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
+	// The template is not the user's app. Only a turn can write the first version, so the chat is the next step.
+	if (!signals.hasCodeChanges && !signals.isTurnRunning) {
+		return { variant: "waiting" };
+	}
 	if (signals.tokenStatus === "loading") return { variant: "loading" };
 	if (memory.asleep) {
 		// A failed reply from an earlier visit must not claim that this boot failed.
@@ -160,8 +176,16 @@ export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
 						label: "appBuilder.preview.boot.machine.waking",
 						details: ["appBuilder.preview.boot.machine.restoring"],
 					};
-	const preview: BootStep =
-		scene === "open"
+	// A template-only project keeps the frame covered for the whole turn, so the build is the last step.
+	const lastStep: BootStep = !signals.hasCodeChanges
+		? {
+				id: "build",
+				state: scene === "open" ? "active" : "pending",
+				label: "appBuilder.preview.boot.build.label",
+				details:
+					scene === "open" ? ["appBuilder.preview.boot.build.detail"] : [],
+			}
+		: scene === "open"
 			? {
 					id: "preview",
 					state: "active",
@@ -184,7 +208,7 @@ export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
 		variant: "booting",
 		scene,
 		steps:
-			database === null ? [machine, preview] : [machine, preview, database],
+			database === null ? [machine, lastStep] : [machine, lastStep, database],
 	};
 }
 
@@ -195,6 +219,9 @@ export function sceneOf(view: BootView): BootScene {
 			return "loading";
 		case "asleep":
 			return view.stopped ? "stopped" : "asleep";
+		// No app exists yet. The dim picture of the asleep note says "nothing runs now".
+		case "waiting":
+			return "asleep";
 		case "booting":
 			return view.scene;
 	}

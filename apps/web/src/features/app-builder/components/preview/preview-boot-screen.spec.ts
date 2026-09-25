@@ -14,6 +14,7 @@ const FIRST_TURN_BOOTING: BootContext = {
 	lastTurnFailed: false,
 	isFirstTurn: true,
 	backend: undefined,
+	hasCodeChanges: true,
 };
 
 const NO_TURN: BootContext = {
@@ -121,7 +122,7 @@ describe("PreviewBootScreen", () => {
 			expect(part.getAttribute("class")).toContain("animate-draw");
 		}
 		await advance(1_000);
-		expect(screen.getByText("Ready to open")).toBeTruthy();
+		expect(screen.getByText("All set")).toBeTruthy();
 	});
 
 	it("keeps the sleeping drawing on screen while the app wakes and opens", async () => {
@@ -194,6 +195,22 @@ describe("PreviewBootScreen", () => {
 		);
 		await advance(13_000);
 		expect(rotation()).toContain("rotate: 360deg");
+	});
+
+	it("holds the waiting note 1.2 s after a template-only turn ends", async () => {
+		const templateOnly = { ...FIRST_TURN_BOOTING, hasCodeChanges: false };
+		const { rerender } = renderScreen(templateOnly);
+		expect(screen.getByText("Building your first version")).toBeTruthy();
+
+		// The turn ended, and the project refetch did not land yet.
+		rerender(screenElement({ ...templateOnly, isTurnRunning: false }));
+		await advance(500);
+		expect(screen.getByRole("status").textContent).toBe("Loading your app");
+
+		await advance(1_000);
+		expect(screen.getByRole("status").textContent).toBe(
+			"Waiting for your next step… Continue in the chat when you are ready.",
+		);
 	});
 
 	it("counts the elapsed time as m:ss", async () => {

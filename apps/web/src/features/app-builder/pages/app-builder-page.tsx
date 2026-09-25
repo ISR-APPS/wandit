@@ -109,6 +109,7 @@ export default function AppBuilderPage({
 		lastTurnFailed: thread.lastTurnFailed,
 		isFirstTurn: thread.isFirstTurn,
 		backend,
+		hasCodeChanges: project.hasCodeChanges,
 	};
 
 	const view = resolveBuilderView(search.view, isCloudTabEnabled);
@@ -202,6 +203,7 @@ export default function AppBuilderPage({
 					projectId={project.id}
 					filePath={search.file}
 					onSelectFile={(path) => setSearch({ file: path }, true)}
+					isTurnRunning={thread.isTurnRunning}
 				/>
 			) : null}
 			{view === "more" ? (

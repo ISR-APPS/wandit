@@ -14,7 +14,10 @@ import type { BootScene } from "../../lib/boot-state";
 import { BOOT_EASE } from "../../lib/constants";
 import { BootSpark } from "./boot-spark";
 
-/** `waking`: a sleeping app wakes and its frame warms. `inked`: the app page opens. `asleep`: the app sleeps or did not start. */
+/**
+ * `waking`: a sleeping app wakes and its frame warms. `inked`: the app page opens or its first version builds.
+ * `asleep`: the app sleeps, did not start, or waits for its first version.
+ */
 type PlanStage = "waking" | "inked" | "asleep";
 
 // Null hides the drawing, because no app shows yet.
