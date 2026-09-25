@@ -42,6 +42,7 @@ import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reac
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
+import { AppCommitsRepository } from "../../infrastructure/persistence/app-commits.repository";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { BackendsService } from "./backends.service";
@@ -85,6 +86,8 @@ export class AppProjectsService {
 		>,
 		@Inject(BackendsService)
 		private readonly backends: Pick<BackendsService, "provisionBackend">,
+		@Inject(AppCommitsRepository)
+		private readonly appCommits: Pick<AppCommitsRepository, "hasFileChanges">,
 	) {}
 
 	/**
@@ -221,14 +224,20 @@ export class AppProjectsService {
 		return { chatId, projectId, turnId };
 	}
 
-	/** `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing. */
+	/**
+	 * `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing.
+	 * `hasCodeChanges` reads the commits only after the scope check.
+	 */
 	async get(scope: ProjectScope, projectId: string): Promise<AppProject> {
 		const row = await this.projects.findByIdForScope(scope, projectId);
 		if (row?.engine !== "v2_app") {
 			throw new NotFoundException();
 		}
 
-		return mapAppProjectRow(row);
+		return mapAppProjectRow(
+			row,
+			await this.appCommits.hasFileChanges(projectId),
+		);
 	}
 
 	/**

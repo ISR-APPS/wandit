@@ -57,6 +57,10 @@
 				"waiting": "Waiting for your app to answer",
 				"loading": "Loading the first page"
 			},
+			"build": {
+				"label": "Building your first version",
+				"detail": "Your app shows here when it is ready"
+			},
 			"database": {
 				"creating": "Creating your database",
 				"starting": "Starting your database",
@@ -72,6 +76,10 @@
 			"stopped": {
 				"title": "Your app did not start",
 				"body": "The chat shows what went wrong. Send a message to try again."
+			},
+			"waiting": {
+				"title": "Waiting for your next step…",
+				"body": "Continue in the chat when you are ready."
 			}
 		}
 	},
@@ -85,6 +93,7 @@
 		"readOnly": "The code is read-only in this preview build.",
 		"fileMissing": "This file is not in the repository.",
 		"asleep": "The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+		"settingUp": "Setting up your project. The files show here when it is ready.",
 		"noFiles": "The project has no files yet.",
 		"binaryFile": "This file is binary. The Code view shows text files only.",
 		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",

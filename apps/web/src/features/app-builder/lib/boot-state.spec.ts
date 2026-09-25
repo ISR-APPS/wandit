@@ -18,6 +18,7 @@ const IDLE: BootSignals = {
 	lastTurnFailed: false,
 	isFirstTurn: true,
 	backend: undefined,
+	hasCodeChanges: true,
 };
 
 const FIRST_TURN_BOOTING: BootSignals = {
@@ -148,6 +149,33 @@ describe("bootViewOf", () => {
 	it("stays asleep when the token flips back to ready without a turn", () => {
 		const { view } = viewAfter(IDLE, { ...IDLE, tokenStatus: "ready" });
 		expect(view).toEqual({ variant: "asleep", stopped: false });
+	});
+
+	it("shows the waiting note for a template-only project while no turn runs", () => {
+		const templateOnly = { ...IDLE, hasCodeChanges: false };
+		expect(viewAfter(templateOnly).view).toEqual({ variant: "waiting" });
+		// The note does not wait for the token or the history.
+		expect(
+			viewAfter({ ...templateOnly, tokenStatus: "loading", isFirstTurn: null })
+				.view,
+		).toEqual({ variant: "waiting" });
+	});
+
+	it("ends a template-only turn on the build step, not on the preview step", () => {
+		const templateOnly = { ...FIRST_TURN_BOOTING, hasCodeChanges: false };
+		expect(stepsOf(viewAfter(templateOnly).view)).toEqual([
+			"machine:active:appBuilder.preview.boot.machine.starting",
+			"build:pending:appBuilder.preview.boot.build.label",
+		]);
+
+		const { view } = viewAfter({ ...templateOnly, tokenStatus: "ready" });
+		expect(stepsOf(view)).toEqual([
+			"machine:done:appBuilder.preview.boot.machine.done",
+			"build:active:appBuilder.preview.boot.build.label",
+		]);
+		expect(view.variant === "booting" && view.steps[1]?.details).toEqual([
+			"appBuilder.preview.boot.build.detail",
+		]);
 	});
 
 	it("ends asleep when a turn starts, with the machine step active again", () => {

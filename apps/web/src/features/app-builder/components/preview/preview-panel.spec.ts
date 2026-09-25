@@ -30,6 +30,7 @@ const IDLE_BOOT: BootContext = {
 	lastTurnFailed: false,
 	isFirstTurn: false,
 	backend: undefined,
+	hasCodeChanges: true,
 };
 
 /** A mint that answers `SANDBOX_NOT_RUNNING`, like the API while no sandbox runs. */
@@ -181,6 +182,32 @@ describe("PreviewPanel", () => {
 
 		// jsdom loads no external src, so the spec fires the load event itself.
 		fireEvent.load(iframe);
+
+		await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+		expect(screen.getByTitle(TITLE)).toBe(iframe);
+		expect(iframe.hasAttribute("inert")).toBe(false);
+	});
+
+	it("keeps a loaded frame covered while the project holds only the template", async () => {
+		const deps = readyDeps();
+		const templateOnly = { ...IDLE_BOOT, hasCodeChanges: false };
+		const { rerender } = render(
+			panelElement({ deps, bootContext: templateOnly }),
+		);
+
+		const iframe = await screen.findByTitle(TITLE);
+		fireEvent.load(iframe);
+		await waitFor(
+			() =>
+				expect(screen.getByRole("status").textContent).toContain(
+					"Waiting for your next step",
+				),
+			{ timeout: 2_500 },
+		);
+		expect(iframe.hasAttribute("inert")).toBe(true);
+
+		// The project refetch at the turn end reports the first version.
+		rerender(panelElement({ deps, bootContext: IDLE_BOOT }));
 
 		await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
 		expect(screen.getByTitle(TITLE)).toBe(iframe);

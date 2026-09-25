@@ -95,6 +95,9 @@ export const appProjectSchema = projectSchema.extend({
 	// Version of the template the project was created from.
 	templateVersion: z.string().nullable(),
 	languages: z.array(appLanguageSchema),
+	// True when one version changed a file. False while the project holds
+	// only the template, so the web preview shows no app yet.
+	hasCodeChanges: z.boolean(),
 });
 
 /** TypeScript V2 app project type. */

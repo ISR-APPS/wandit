@@ -184,6 +184,33 @@ describe("AppCommitsRepository.findBySha", () => {
 	});
 });
 
+describe("AppCommitsRepository.hasFileChanges", () => {
+	it("finds one commit of the project whose numstat is not empty", async () => {
+		const select = selectCapture([{ id: "commit-1" }]);
+		const repository = new AppCommitsRepository(
+			fakeDb({ select: select.select }),
+		);
+
+		expect(await repository.hasFileChanges("p-1")).toBe(true);
+
+		const predicate = compile(select.where.mock.calls[0]?.[0]);
+		expect(predicate.params).toEqual(["p-1"]);
+		expect(predicate.sql).toContain(
+			`"app_commits"."numstat" IS DISTINCT FROM '[]'::jsonb`,
+		);
+		expect(select.limit).toHaveBeenCalledWith(1);
+	});
+
+	it("answers false when only text-only commits exist", async () => {
+		const select = selectCapture([]);
+		const repository = new AppCommitsRepository(
+			fakeDb({ select: select.select }),
+		);
+
+		expect(await repository.hasFileChanges("p-1")).toBe(false);
+	});
+});
+
 describe("AppCommitsRepository.upsertBranchHead", () => {
 	it("updates only when the stored head matches the expected sha or is already applied", async () => {
 		const update = updateCapture([{ id: "b-1" }]);

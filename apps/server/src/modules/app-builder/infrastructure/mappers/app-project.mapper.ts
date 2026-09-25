@@ -8,8 +8,14 @@ import { type AppProject, appLanguageSchema } from "@wandit/contracts";
 import { mapProjectRow } from "../../../projects/infrastructure/mappers/project.mapper";
 import type { ProjectQueryRow } from "../../../projects/infrastructure/persistence/projects.repository";
 
-/** One row → one API object; throws when `languages` holds a bad value. */
-export function mapAppProjectRow(row: ProjectQueryRow): AppProject {
+/**
+ * One row → one API object; throws when `languages` holds a bad value.
+ * `hasCodeChanges` comes from `AppCommitsRepository.hasFileChanges`.
+ */
+export function mapAppProjectRow(
+	row: ProjectQueryRow,
+	hasCodeChanges: boolean,
+): AppProject {
 	return {
 		...mapProjectRow(row),
 		engine: row.engine,
@@ -19,5 +25,6 @@ export function mapAppProjectRow(row: ProjectQueryRow): AppProject {
 		languages: appLanguageSchema.array().parse(row.languages),
 		targetPlatform: row.targetPlatform,
 		templateVersion: row.templateVersion,
+		hasCodeChanges,
 	};
 }

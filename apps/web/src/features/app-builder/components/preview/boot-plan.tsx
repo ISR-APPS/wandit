@@ -12,7 +12,10 @@ import { useId, useState } from "react";
 
 import { BOOT_EASE } from "../../lib/constants";
 
-/** `draft`: the machine starts. `inked`: the machine is ready and the app loads. `asleep`: no sandbox runs. */
+/**
+ * `draft`: the machine starts. `inked`: the machine is ready and the app loads.
+ * `asleep`: no sandbox runs, or the project waits for its first version.
+ */
 export type PlanStage = "draft" | "inked" | "asleep";
 
 /** What a part of the drawing is. The stage colors each role in its own way. */

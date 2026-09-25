@@ -14,6 +14,7 @@ const FIRST_TURN_BOOTING: BootContext = {
 	lastTurnFailed: false,
 	isFirstTurn: true,
 	backend: undefined,
+	hasCodeChanges: true,
 };
 
 const NO_TURN: BootContext = {
@@ -81,6 +82,22 @@ describe("PreviewBootScreen", () => {
 
 		expect(screen.getByText("Starting a cloud machine")).toBeTruthy();
 		expect(screen.queryByText("Your app is asleep")).toBeNull();
+	});
+
+	it("holds the waiting note 1.2 s after a template-only turn ends", async () => {
+		const templateOnly = { ...FIRST_TURN_BOOTING, hasCodeChanges: false };
+		const { rerender } = renderScreen(templateOnly);
+		expect(screen.getByText("Building your first version")).toBeTruthy();
+
+		// The turn ended, and the project refetch did not land yet.
+		rerender(screenElement({ ...templateOnly, isTurnRunning: false }));
+		await advance(500);
+		expect(screen.getByRole("status").textContent).toBe("Loading the preview");
+
+		await advance(1_000);
+		expect(screen.getByRole("status").textContent).toBe(
+			"Waiting for your next step… Continue in the chat when you are ready.",
+		);
 	});
 
 	it("counts the elapsed time as m:ss", async () => {

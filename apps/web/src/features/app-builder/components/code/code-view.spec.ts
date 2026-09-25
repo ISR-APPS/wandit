@@ -97,6 +97,7 @@ function renderView(
 				projectId: PROJECT_ID,
 				filePath: undefined,
 				onSelectFile,
+				isTurnRunning: false,
 				...viewProps,
 			}),
 		};
@@ -322,6 +323,45 @@ describe("CodeView", () => {
 				appBuilderKeys.codeFile(PROJECT_ID, "src/app.tsx"),
 			),
 		).toBeUndefined();
+	});
+
+	it("shows the setup status, not the asleep message, while a turn sets up the sandbox", async () => {
+		const { rerenderWith } = renderView(queryClientWith({ snapshot: null }), {
+			isTurnRunning: true,
+		});
+		expect((await screen.findByRole("status")).textContent).toBe(
+			"Setting up your project. The files show here when it is ready.",
+		);
+
+		// Without a turn and without a refetch, no sandbox runs.
+		rerenderWith({ isTurnRunning: false });
+		expect(
+			await screen.findByText(
+				"The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+			),
+		).toBeTruthy();
+	});
+
+	it("shows the loading layout, not the asleep message, while a null snapshot refetches", async () => {
+		const queryClient = queryClientWith({ snapshot: null });
+		// A refetch that never answers, like the one at a turn end on a slow API.
+		void queryClient.fetchQuery({
+			queryKey: appBuilderKeys.code(PROJECT_ID),
+			queryFn: () => new Promise<CodeSnapshot | null>(() => {}),
+			staleTime: 0,
+		});
+		renderView(queryClient);
+
+		await waitFor(() =>
+			expect(document.querySelector('[aria-busy="true"]')).not.toBeNull(),
+		);
+		// No turn runs, so the layout claims no setup.
+		expect(screen.queryByRole("status")).toBeNull();
+		expect(
+			screen.queryByText(
+				"The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+			),
+		).toBeNull();
 	});
 
 	it("shows the no-files message when the tree holds no file", async () => {
