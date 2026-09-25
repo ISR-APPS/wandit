@@ -23,7 +23,8 @@ PostHog flag `v2-builder`).
 | Folder | Filled by |
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
-| `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError` |
+| `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -32,13 +33,13 @@ PostHog flag `v2-builder`).
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository` |
-| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject` |
+| `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService` |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement |
 
 ## Ports (`domain/ports/`)
 
@@ -235,8 +236,11 @@ Deletion rides the V1 route: a `v2_app` soft-delete queues the
 runs one attempt. It uses its own `app-project-cleanup` queue at
 concurrency 2, so a delete never waits behind a sweep. The runtime runs
 eight steps, each in its own try/catch. It cancels the active turn's
-run, destroys the vendor sandbox, deletes the user Worker (WANDIT-200),
-and holds the WANDIT-183/184 backend seam. Then it drains the two `v2ProjectPrefixes` and deletes the
+run, destroys the vendor sandbox, and deletes the user Worker
+(WANDIT-200). The backend step (WANDIT-184) moves the `app_backends` row
+to `deleting`, pauses a running Supabase project, and deletes the
+`project_secrets` rows; the pause sweep deletes the Supabase project after
+the grace window. Then it drains the two `v2ProjectPrefixes` and deletes the
 code.storage repository. The prefixes are `git/<id>/` and
 `sites/<id>/assets/`, never `published/` — WANDIT-178 owns that root.
 It writes one `audit_events` row with each step's outcome and sends
@@ -296,6 +300,46 @@ It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<doma
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
 The builder turn reads the row at turn start; a running sandbox gets the env values at its next resume.
+Before the insert, the D3 entitlement checks the payer's plan (see "Backend lifecycle").
+
+## Backend lifecycle (WANDIT-184)
+
+Every number here is a provisional D3 default in `BACKEND_DEFAULTS`
+(`domain/backend-lifecycle.ts`); WANDIT-153 replaces them. The full
+description and the operator steps are in `docs/v2/backend-lifecycle.md`.
+
+- Activity: `touchActive` stamps `last_active_at` of an `active` row at
+  every turn end, every Cloud tab panel read, and every agent backend
+  tool call. A failed stamp logs `backend.touch-failed` only.
+- Pause sweep: the Trigger task `backend-pause-sweep` (03:00 UTC, own
+  queue at 1, one attempt, PRODUCTION and STAGING only) pauses at most 50
+  `active` backends idle for 7 days (30 days with a live `deployments`
+  row; env `BACKEND_IDLE_DAYS`, `BACKEND_IDLE_DAYS_PUBLISHED`). It calls
+  `POST /v1/projects/{ref}/pause`, then the CAS `markPaused`, then the
+  audit row `backend.paused`.
+- Delete: the project delete moves the row to `deleting` and pauses the
+  project. The same sweep deletes at most 50 `deleting` backends 7 days
+  later: `DELETE /v1/projects/{ref}` (404 counts as done), `markDeleted`
+  (the row keeps `deleting` and loses its ref: the terminal state), and
+  the audit row `backend.deleted`. The sweep also moves the backend of a
+  project deleted more than a day ago to `deleting` when the delete step
+  missed it, and ends a stale `restoring` row.
+- Wake: the turn start restores a `paused` backend and waits for a
+  `paused` or `restoring` one (a 180 s poll; with the restore call and the
+  last read, about 300 s at most), with the `sandbox_waking` status
+  `Waking up the database`. After the ceiling the turn runs with
+  `Backend not ready yet`. `markRestored` moves `restoring` back to
+  `active`; `GET cloud/backend` and the sweep also call it.
+  `RESTORE_FAILED` or `REMOVED` moves the row to `error`
+  (`backend_restore_failed`).
+- Entitlement: `provisionBackend` counts the payer's `creating`,
+  `active`, `paused`, and `restoring` backends on live projects and
+  refuses at the plan limit (starter 0, pro 1, business 3) with 403
+  `BACKEND_LIMIT_REACHED`. The count and the insert run under one
+  advisory lock per payer. Project creation then goes on without a
+  backend.
+- Billing: no `backend_provision` or `backend_hosting` operation yet; see
+  the doc for what a later issue must do.
 
 ## Project secrets (WANDIT-185)
 
@@ -372,16 +416,19 @@ call and never leaves the process. A follow-up swaps that read for the
 Backend state:
 
 - `GET backend` answers `status`, `ref`, `region`, and `failureCode`;
-  `status: "none"` without a row.
+  `status: "none"` without a row. A `restoring` row reads the Supabase
+  status and moves to `active` at `ACTIVE_HEALTHY` (WANDIT-184).
 - `POST backend` calls `BackendsService.provisionBackend` (idempotent)
   and answers the row. Unconfigured provisioning answers 503
-  `V2_ENV_MISSING`.
+  `V2_ENV_MISSING`; a plan without a free slot answers 403
+  `BACKEND_LIMIT_REACHED`.
 - `POST backend/restore` calls `POST /projects/{ref}/restore`, then moves
   the row `paused` → `restoring` with the CAS `markRestoring`. A row in
   another state answers as it is. A failed upstream call leaves the row
   `paused`.
 - Every other route needs an `active` row with a ref: `paused` answers
-  409 `BACKEND_PAUSED`, every other state 409 `BACKEND_NOT_READY`.
+  409 `BACKEND_PAUSED`, every other state 409 `BACKEND_NOT_READY`. An
+  active row gets the activity stamp (`touchActive`).
 
 Every SQL call goes through `SupabaseManagementClient.runQuery`
 (`POST /projects/{ref}/database/query`, Beta) with `read_only: true`,
@@ -526,7 +573,9 @@ One run does this, in order:
    the monthly cap already reached → `stopped_project_cap`.
 3. Mints the scoped proxy token (`mintLlmProxyToken`) with the run, turn,
    user, project, workspace, and plan claims.
-4. Builds the allow-listed env (`buildSandboxEnv`): the run token becomes
+4. Wakes a `paused` or `restoring` backend first (WANDIT-184, a 180 s
+   poll, see "Backend lifecycle"). Then it builds the allow-listed env
+   (`buildSandboxEnv`): the run token becomes
    `ANTHROPIC_AUTH_TOKEN`, the proxy URL `ANTHROPIC_BASE_URL`, the run id
    `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
    an empty string. An `active` `app_backends` row adds `VITE_SUPABASE_URL`
@@ -622,7 +671,8 @@ One run does this, in order:
     overwrite a newer turn.
 11. Each terminal path ends with `finishTurn`: `counters.revokeRun` kills
     the token, the lock releases, `promoteNext` hands the slot to the
-    oldest `waiting` turn, and `touchActivity` runs once more. The
+    oldest `waiting` turn, `touchActivity` runs once more, and the backend
+    activity stamp (`touchActive`) runs. The
     runtime `finally` stops the timers, closes the host tools, and writes
     the `builder-turn.timing` line; the task `finally` closes the event
     writer, the two Redis clients, and the pool.
@@ -716,8 +766,9 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 
 - No tool creates or wakes a backend. `resolveActiveBackend` answers
   `backend_paused` for a paused row and `backend_not_ready` for every other
-  row that is not `active` with a ref, before any upstream call. Without
-  `SUPABASE_PLATFORM_TOKEN` every tool answers `failed`.
+  row that is not `active` with a ref, before any upstream call. An active
+  row gets the activity stamp. Without `SUPABASE_PLATFORM_TOKEN` every
+  tool answers `failed`.
 - `runBackendTool` is the body of every `execute`. It parses the input
   with the tool schema first: the harness passes the raw model JSON to
   `execute` and does not parse it. It turns each error into a typed

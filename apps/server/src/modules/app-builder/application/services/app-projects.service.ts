@@ -38,6 +38,7 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
@@ -145,9 +146,10 @@ export class AppProjectsService {
 			scope,
 		});
 
-		// D18: every V2 project gets one backend at creation. A failure here
-		// must not lose the project — the `app_backends` row stays `error` or
-		// absent and the first turn still runs.
+		// D18 and D3: a V2 project gets one backend at creation when the
+		// payer's plan has a free slot. A failure here must not lose the
+		// project — the `app_backends` row stays `error` or absent and the
+		// first turn still runs.
 		try {
 			await this.backends.provisionBackend(projectId, {
 				countryCode: request.countryCode,
@@ -155,9 +157,13 @@ export class AppProjectsService {
 				userId: scope.userId,
 			});
 		} catch (error) {
-			this.logger.error(
-				`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
-			);
+			// A plan without a free backend slot is a product rule, not a
+			// failure: `BackendsService` already logged it.
+			if (!(error instanceof BackendLimitReachedError)) {
+				this.logger.error(
+					`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+				);
+			}
 		}
 
 		// WANDIT-166 builder-turn task creates the sandbox on the first turn;

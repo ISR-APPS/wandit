@@ -150,6 +150,8 @@ export const builderTurnTask = schemaTask({
 
 			await runBuilderTurn(
 				{
+					// The wake uses the same interactive client as the backend tools.
+					backendClient: supabase,
 					backends,
 					billingDisabled: env.GENERATION_BILLING_MODE === "off",
 					caps: new ProjectCostCapsRepository(db),

@@ -186,6 +186,27 @@ describe("ProjectSecretsRepository.deleteUserSecret", () => {
 	});
 });
 
+describe("ProjectSecretsRepository.deleteAllForProject", () => {
+	it("deletes every row of the project, any kind, and answers the count", async () => {
+		const { deleteWhere, repository } = setupDelete(
+			[{ id: "row-1" }, { id: "row-2" }],
+			[],
+		);
+
+		expect(await repository.deleteAllForProject("project-1")).toBe(2);
+
+		const predicate = compile(deleteWhere.mock.calls[0]?.[0]);
+		expect(predicate.params).toEqual(["project-1"]);
+		expect(predicate.sql).toBe('"project_secrets"."project_id" = $1');
+	});
+
+	it("answers 0 when the project has no row", async () => {
+		const { repository } = setupDelete([], []);
+
+		expect(await repository.deleteAllForProject("project-1")).toBe(0);
+	});
+});
+
 function setupSelect<Row>(rows: Row[]) {
 	const limit = vi.fn(async (_count: number) => rows);
 	const orderBy = vi.fn(() => Object.assign(Promise.resolve(rows), { limit }));

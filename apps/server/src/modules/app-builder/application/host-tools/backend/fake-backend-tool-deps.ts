@@ -91,6 +91,8 @@ export async function createBackendToolFixture(
 	const warnings: RecordedLogLine[] = [];
 	const secretSets: RecordedSecretSet[] = [];
 	const syncs: RecordedSync[] = [];
+	/** Project ids `backends.touchActive` got, in call order. */
+	const touches: string[] = [];
 	const stored = new Map(options.storedSecrets);
 	const backend =
 		options.backend === undefined ? ACTIVE_BACKEND_ROW : options.backend;
@@ -141,7 +143,12 @@ export async function createBackendToolFixture(
 				audits.push(row);
 			},
 		},
-		backends: { findByProjectId: async () => backend },
+		backends: {
+			findByProjectId: async () => backend,
+			touchActive: async (projectId) => {
+				touches.push(projectId);
+			},
+		},
 		client,
 		logger: {
 			info: (message: string, fields: RecordedLogLine["fields"]) => {
@@ -176,6 +183,7 @@ export async function createBackendToolFixture(
 		sandbox,
 		secretSets,
 		syncs,
+		touches,
 		warnings,
 	};
 }

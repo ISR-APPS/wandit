@@ -32,10 +32,10 @@ import { AppBackendsRepository } from "../modules/app-builder/infrastructure/per
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { TEMPLATE_ARCHIVE_DIR } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import {
-	SupabaseManagementClient,
+	type SupabaseManagementClient,
 	SupabaseManagementError,
+	supabaseWorkerClientFromEnv,
 } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
-import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/supabase-rate-limiter";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -60,7 +60,7 @@ export type ProvisionBackendInput = {
 
 /** The slice of the provisioning the spec fakes. */
 export type ProvisionBackendDeps = {
-	/** Reads and marks the `app_backends` row; the API ran `insertCreating`. */
+	/** Reads and marks the `app_backends` row; the API ran `insertCreatingWithinLimit`. */
 	backends: Pick<
 		AppBackendsRepository,
 		"findByProjectId" | "markCreated" | "markActive" | "markError"
@@ -292,11 +292,20 @@ export async function runProvisionBackend(
 			);
 		}
 
-		await deps.backends.markActive(projectId, {
+		const marked = await deps.backends.markActive(projectId, {
 			anonKey,
 			dbHost,
 			lastActiveAt: new Date(deps.now()),
 		});
+		if (!marked) {
+			// The project was deleted during provisioning: the row stays
+			// `deleting`, and the pause sweep deletes the Supabase project.
+			deps.logger.info("supabase.provisioning.skipped", {
+				projectId,
+				reason: "status-deleting",
+			});
+			return { outcome: "skipped", failureCode: null };
+		}
 		// LIMIT: a sandbox that already runs gets the env values at its next
 		// resume. Upgrade: write the sandbox .env and restart the dev server
 		// (issue step 8, `writeBackendEnvToSandbox`).
@@ -406,25 +415,11 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 	close(): Promise<void>;
 } {
 	const backends = new AppBackendsRepository(db);
-	const token = env.SUPABASE_PLATFORM_TOKEN;
-	const organizationSlug = env.SUPABASE_PLATFORM_ORG_ID;
-	const rateLimiter =
-		token && organizationSlug ? new RedisSupabaseRateLimiter() : null;
-	const client =
-		token && organizationSlug && rateLimiter
-			? new SupabaseManagementClient({
-					token,
-					organizationSlug,
-					fetch: globalThis.fetch,
-					rateLimiter,
-					// The ownership check reads the same row the runtime writes.
-					ownsRef: async (projectId, ref) =>
-						(await backends.findByProjectId(projectId))?.ref === ref,
-					sleep: (ms) =>
-						new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
-					logger: Sentry.logger,
-				})
-			: null;
+	const { client, close } = supabaseWorkerClientFromEnv(
+		env,
+		backends,
+		Sentry.logger,
+	);
 	return {
 		run: (input) =>
 			runProvisionBackend(
@@ -453,8 +448,6 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 				},
 				input,
 			),
-		close: async () => {
-			await rateLimiter?.onModuleDestroy();
-		},
+		close,
 	};
 }

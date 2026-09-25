@@ -93,11 +93,14 @@ function createBackendsFake(row: AppBackendRow | null) {
 				input: { anonKey: string; dbHost: string; lastActiveAt: Date },
 			) => {
 				const stored = rows.get(projectId);
-				if (stored) {
-					stored.status = "active";
-					stored.anonKey = input.anonKey;
-					stored.dbHost = input.dbHost;
+				// Like the repository: a `deleting` row stays and answers false.
+				if (stored === undefined || stored.status === "deleting") {
+					return false;
 				}
+				stored.status = "active";
+				stored.anonKey = input.anonKey;
+				stored.dbHost = input.dbHost;
+				return true;
 			},
 		),
 		markError: vi.fn(async (projectId: string, failure: AppBackendFailure) => {
@@ -306,6 +309,19 @@ describe("runProvisionBackend", () => {
 		expect(result.outcome).toBe("active");
 		expect(client.createProject).not.toHaveBeenCalled();
 		expect(client.getCalls).toEqual([{ projectId: PROJECT_ID, ref: REF }]);
+	});
+
+	it("answers skipped and writes no audit row when the project was deleted during provisioning", async () => {
+		const { audits, backends, deps } = setup(backendRow(), {
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+		backends.markActive.mockResolvedValue(false);
+
+		const result = await runProvisionBackend(deps, INPUT);
+
+		expect(result).toEqual({ outcome: "skipped", failureCode: null });
+		expect(audits).toEqual([]);
+		expect(backends.markError).not.toHaveBeenCalled();
 	});
 
 	it("answers skipped on a row that already left creating", async () => {

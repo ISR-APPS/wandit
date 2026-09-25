@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import type { AppBackendRow } from "../../infrastructure/persistence/app-backends.repository";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
 import type { AuditEventInput } from "../../infrastructure/persistence/audit-events.repository";
@@ -67,6 +68,29 @@ const BACKEND: AppBackendRow = {
 	userId: "user-1",
 };
 const SERVICE_ROLE_KEY = "service-role-secret-1";
+
+// The `GET /projects/{ref}` answer of a project in `status`.
+function projectAnswer(status: string): Response {
+	return jsonResponse(
+		200,
+		JSON.stringify({
+			created_at: "2026-09-16T12:00:00.000Z",
+			database: {
+				host: `db.${REF}.supabase.co`,
+				postgres_engine: "17",
+				release_channel: "ga",
+				version: "17.6",
+			},
+			id: "project-1",
+			name: `wandit-${PROJECT_ID}`,
+			organization_id: "sb-org",
+			organization_slug: "wandit",
+			ref: REF,
+			region: "eu-west-3",
+			status,
+		}),
+	);
+}
 
 // The api-keys answer every storage route reads first.
 const API_KEYS_ANSWER = JSON.stringify([
@@ -123,12 +147,19 @@ function fixture(options?: {
 	rateLimiter?: FakeSupabaseRateLimiter;
 	/** Answer of `provisionBackend`; null means unconfigured. Default: the active row. */
 	provisionAnswer?: AppBackendRow | null;
+	/** An error `provisionBackend` throws instead of answering. */
+	provisionError?: Error;
+	/** True makes `touchActive` throw, like a database outage. */
+	touchFails?: boolean;
 }) {
 	const requests: RecordedRequest[] = [];
 	const audits: AuditEventInput[] = [];
 	const provisionCalls: { projectId: string; countryCode: string | null }[] =
 		[];
 	const markRestoringCalls: string[] = [];
+	const markRestoredCalls: string[] = [];
+	const markRestoreFailedCalls: string[] = [];
+	const touches: string[] = [];
 	const rateLimiter = options?.rateLimiter ?? new FakeSupabaseRateLimiter();
 	const client = options?.noClient
 		? null
@@ -146,7 +177,8 @@ function fixture(options?: {
 				sleep: () => Promise.resolve(),
 				token: "sbp_platform_token",
 			});
-	const backend = options?.backend === undefined ? BACKEND : options.backend;
+	// Mutable like the table: `markRestored` moves it to `active`.
+	let backend = options?.backend === undefined ? BACKEND : options.backend;
 	const service = new CloudService(
 		{
 			findScopedProject: () =>
@@ -156,14 +188,41 @@ function fixture(options?: {
 		},
 		{
 			findByProjectId: () => Promise.resolve(backend),
+			markRestoreFailed: (projectId, providerStatus) => {
+				markRestoreFailedCalls.push(`${projectId}:${providerStatus}`);
+				backend =
+					backend === null
+						? null
+						: {
+								...backend,
+								failureCode: "backend_restore_failed",
+								status: "error",
+							};
+				return Promise.resolve(true);
+			},
+			markRestored: (projectId) => {
+				markRestoredCalls.push(projectId);
+				backend = backend === null ? null : { ...backend, status: "active" };
+				return Promise.resolve(true);
+			},
 			markRestoring: (projectId) => {
 				markRestoringCalls.push(projectId);
 				return Promise.resolve(true);
+			},
+			touchActive: (projectId) => {
+				if (options?.touchFails) {
+					return Promise.reject(new Error("db down"));
+				}
+				touches.push(projectId);
+				return Promise.resolve();
 			},
 		},
 		{
 			provisionBackend: (projectId, input) => {
 				provisionCalls.push({ countryCode: input.countryCode, projectId });
+				if (options?.provisionError !== undefined) {
+					return Promise.reject(options.provisionError);
+				}
 				return Promise.resolve(
 					options?.provisionAnswer === undefined
 						? BACKEND
@@ -181,11 +240,14 @@ function fixture(options?: {
 	);
 	return {
 		audits,
+		markRestoreFailedCalls,
+		markRestoredCalls,
 		markRestoringCalls,
 		provisionCalls,
 		rateLimiter,
 		requests,
 		service,
+		touches,
 	};
 }
 
@@ -261,6 +323,40 @@ describe("CloudService scope and backend gates", () => {
 		expect(requests).toHaveLength(0);
 	});
 
+	it("stamps the activity of an active backend on a panel read", async () => {
+		const { service, touches } = fixture({
+			answers: [jsonResponse(200, TABLE_ROWS_ANSWER)],
+		});
+
+		await service.listTables(SCOPE, PROJECT_ID, {});
+
+		expect(touches).toEqual([PROJECT_ID]);
+	});
+
+	it("answers the panel when the activity stamp fails", async () => {
+		const { service } = fixture({
+			answers: [jsonResponse(200, TABLE_ROWS_ANSWER)],
+			touchFails: true,
+		});
+
+		const answer = await service.listTables(SCOPE, PROJECT_ID, {});
+
+		expect(answer.tables.map((table) => table.name)).toEqual([
+			"posts",
+			"users",
+		]);
+	});
+
+	it("stamps nothing when the backend is paused", async () => {
+		const { service, touches } = fixture({
+			backend: { ...BACKEND, status: "paused" },
+		});
+
+		await rejection(service.listTables(SCOPE, PROJECT_ID, {}));
+
+		expect(touches).toEqual([]);
+	});
+
 	it("answers 409 BACKEND_NOT_READY without an active row", async () => {
 		const creating = fixture({ backend: { ...BACKEND, status: "creating" } });
 		expect(
@@ -309,6 +405,62 @@ describe("CloudService backend routes", () => {
 		});
 	});
 
+	it("getBackend moves a restoring row to active once Supabase is healthy", async () => {
+		const { service, requests, markRestoredCalls } = fixture({
+			answers: [projectAnswer("ACTIVE_HEALTHY")],
+			backend: { ...BACKEND, status: "restoring" },
+		});
+
+		const answer = await service.getBackend(SCOPE, PROJECT_ID);
+
+		expect(answer.status).toBe("active");
+		expect(requests[0]).toMatchObject({
+			method: "GET",
+			url: `${API}/projects/${REF}`,
+		});
+		expect(markRestoredCalls).toEqual([PROJECT_ID]);
+	});
+
+	it("getBackend keeps a restoring row while Supabase still comes up", async () => {
+		const { service, markRestoredCalls } = fixture({
+			answers: [projectAnswer("COMING_UP")],
+			backend: { ...BACKEND, status: "restoring" },
+		});
+
+		const answer = await service.getBackend(SCOPE, PROJECT_ID);
+
+		expect(answer.status).toBe("restoring");
+		expect(markRestoredCalls).toEqual([]);
+	});
+
+	it("getBackend moves a restoring row to error when Supabase reports RESTORE_FAILED", async () => {
+		const { service, markRestoreFailedCalls, markRestoredCalls } = fixture({
+			answers: [projectAnswer("RESTORE_FAILED")],
+			backend: { ...BACKEND, status: "restoring" },
+		});
+
+		const answer = await service.getBackend(SCOPE, PROJECT_ID);
+
+		expect(answer).toMatchObject({
+			failureCode: "backend_restore_failed",
+			status: "error",
+		});
+		expect(markRestoreFailedCalls).toEqual([`${PROJECT_ID}:RESTORE_FAILED`]);
+		expect(markRestoredCalls).toEqual([]);
+	});
+
+	it("getBackend answers the restoring row when the status read fails", async () => {
+		const { service, markRestoredCalls } = fixture({
+			answers: [jsonResponse(403, JSON.stringify({ message: "forbidden" }))],
+			backend: { ...BACKEND, status: "restoring" },
+		});
+
+		const answer = await service.getBackend(SCOPE, PROJECT_ID);
+
+		expect(answer.status).toBe("restoring");
+		expect(markRestoredCalls).toEqual([]);
+	});
+
 	it("ensureBackend calls provisionBackend with the country and answers the row", async () => {
 		const { service, provisionCalls } = fixture();
 
@@ -318,6 +470,16 @@ describe("CloudService backend routes", () => {
 			{ countryCode: "FR", projectId: PROJECT_ID },
 		]);
 		expect(answer.status).toBe("active");
+	});
+
+	it("ensureBackend answers 403 BACKEND_LIMIT_REACHED when the plan has no free slot", async () => {
+		const { service } = fixture({
+			provisionError: new BackendLimitReachedError("pro", 1),
+		});
+
+		expect(
+			await rejection(service.ensureBackend(SCOPE, PROJECT_ID, null)),
+		).toEqual({ code: "BACKEND_LIMIT_REACHED", status: 403 });
 	});
 
 	it("ensureBackend answers 503 V2_ENV_MISSING when provisioning is unconfigured", async () => {
@@ -355,6 +517,21 @@ describe("CloudService backend routes", () => {
 			status: 503,
 		});
 		expect(markRestoringCalls).toEqual([]);
+	});
+
+	it("restoreBackend moves the row to restoring when the call fails but the project comes up", async () => {
+		const { service, markRestoringCalls } = fixture({
+			answers: [
+				jsonResponse(400, JSON.stringify({ message: "not paused" })),
+				projectAnswer("RESTORING"),
+			],
+			backend: { ...BACKEND, status: "paused" },
+		});
+
+		const answer = await service.restoreBackend(SCOPE, PROJECT_ID);
+
+		expect(answer.status).toBe("restoring");
+		expect(markRestoringCalls).toEqual([PROJECT_ID]);
 	});
 
 	it("restoreBackend answers an active row as it is, without a call", async () => {

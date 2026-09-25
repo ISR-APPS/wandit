@@ -1,6 +1,7 @@
 import type {
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	SupabaseProjectStatus,
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -520,6 +521,12 @@ function textChunks(text: string): UIMessageChunk[] {
 function makeWorld(over?: {
 	/** The `app_backends` row `findByProjectId` answers; absent or null means no row. */
 	backend?: AppBackendRow | null;
+	/** Null composes no Management API client, like a worker without the platform env. */
+	backendClient?: null;
+	/** Statuses `getProject` answers during a wake, in order; the last one repeats. */
+	wakeStatuses?: SupabaseProjectStatus[];
+	/** True makes `backends.touchActive` throw, like a database outage. */
+	touchActiveFails?: boolean;
 	/** `readBalance` answers, in cc; drained scripts repeat the last. */
 	balances?: number[];
 	billingDisabled?: boolean;
@@ -542,6 +549,13 @@ function makeWorld(over?: {
 	const sandboxes = new FakeSandboxProvider();
 	const harness = new FakeBuilderHarness();
 	const touched: string[] = [];
+	/** Project ids `backends.touchActive` got, in call order. */
+	const backendTouches: string[] = [];
+	/** Management API calls of the wake, by method name, in call order. */
+	const backendCalls: string[] = [];
+	// Mutable like the table: the wake moves it `paused` → `restoring` → `active`.
+	let backendRow = over?.backend ?? null;
+	const wakeStatuses = [...(over?.wakeStatuses ?? ["ACTIVE_HEALTHY"])];
 	const revoked: string[] = [];
 	const minted: LlmProxyTokenClaimsInput[] = [];
 	const commits: CommitTurnInput[] = [];
@@ -588,8 +602,51 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		backendClient:
+			over?.backendClient === null
+				? null
+				: {
+						getProject: async () => {
+							backendCalls.push("getProject");
+							const status =
+								wakeStatuses.length > 1
+									? (wakeStatuses.shift() ?? "ACTIVE_HEALTHY")
+									: (wakeStatuses[0] ?? "ACTIVE_HEALTHY");
+							return { dbHost: "db.abcdefghijklmnopqrst.supabase.co", status };
+						},
+						restoreProject: async () => {
+							backendCalls.push("restoreProject");
+						},
+					},
 		backends: {
-			findByProjectId: async () => over?.backend ?? null,
+			findByProjectId: async () => backendRow,
+			markRestoreFailed: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "error" };
+				return true;
+			},
+			markRestored: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "active" };
+				return true;
+			},
+			markRestoring: async () => {
+				if (backendRow?.status !== "paused") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "restoring" };
+				return true;
+			},
+			touchActive: async (projectId) => {
+				if (over?.touchActiveFails) {
+					throw new Error("db down");
+				}
+				backendTouches.push(projectId);
+			},
 		},
 		billingDisabled: over?.billingDisabled ?? false,
 		caps: {
@@ -668,6 +725,8 @@ function makeWorld(over?: {
 	};
 
 	return {
+		backendCalls,
+		backendTouches,
 		balanceReads,
 		commits,
 		deps,
@@ -2895,6 +2954,257 @@ describe("runBuilderTurn", () => {
 			});
 		});
 
+		it("wakes a paused backend with one restore, then passes its env", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			const statuses = world.stream
+				.eventsOf(TURN_ID)
+				.flatMap((e) => (e.type === "status" ? [e.data] : []));
+			expect(statuses[0]).toEqual({
+				message: "Waking up the database",
+				phase: "sandbox_waking",
+			});
+			expect(statuses).toContainEqual({ phase: "session_starting" });
+		});
+
+		it("waits for a restoring backend without a second restore", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "restoring" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual(["getProject"]);
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("runs the turn with the note when the wake times out", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(185_000);
+			await run;
+
+			// One read every 5 s for 180 s.
+			expect(
+				world.backendCalls.filter((call) => call === "getProject"),
+			).toHaveLength(36);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
+			const sessionStarting = world.stream
+				.eventsOf(TURN_ID)
+				.find(
+					(e) => e.type === "status" && e.data.phase === "session_starting",
+				);
+			expect(
+				sessionStarting?.type === "status" && sessionStarting.data,
+			).toEqual({
+				message: "Backend not ready yet",
+				phase: "session_starting",
+			});
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("stops the wake at once and marks the row error when Supabase reports RESTORE_FAILED", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["RESTORE_FAILED"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			// One read only: a failed restore does not wait for the ceiling.
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("error");
+			expect(
+				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
+			).toBeUndefined();
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps polling after one failed status read", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			let reads = 0;
+			world.deps.backendClient = {
+				getProject: async () => {
+					reads += 1;
+					if (reads === 1) {
+						throw new Error("rate limited");
+					}
+					return {
+						dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+						status: "ACTIVE_HEALTHY",
+					};
+				},
+				restoreProject: async () => undefined,
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(6_000);
+			await run;
+
+			expect(reads).toBe(2);
+			expect(world.warnings).toContain("backend.wake-poll-failed");
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("boots no sandbox and cancels the turn on a cancel during the wake", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.waitFor(
+				() => {
+					expect(world.backendCalls).toContain("getProject");
+				},
+				{ interval: 1, timeout: 2000 },
+			);
+			controller.abort();
+			await vi.advanceTimersByTimeAsync(5_000);
+			await run;
+
+			expect(world.sandboxes.createOptions).toEqual([]);
+			expect(world.warnings).not.toContain("backend.wake-timeout");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("canceled");
+		});
+
+		it("waits for a project that comes up when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => ({
+					dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+					status: "ACTIVE_HEALTHY",
+				}),
+				restoreProject: async () => {
+					throw new Error("supabase timeout");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("active");
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("runs the turn with the note when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => {
+					throw new Error("unused");
+				},
+				restoreProject: async () => {
+					throw new Error("supabase down");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				undefined,
+			);
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps a paused backend asleep without a Management API client", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				backendClient: null,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+			expect(
+				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
+			).toBeUndefined();
+			// No wake starts, so the card shows no waking line for the database.
+			expect(
+				world.stream
+					.eventsOf(TURN_ID)
+					.some(
+						(e) =>
+							e.type === "status" &&
+							e.data.message === "Waking up the database",
+					),
+			).toBe(false);
+			expect(world.warnings).toContain("backend.wake-unconfigured");
+		});
+
+		it("calls no restore for an active backend", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+		});
+
 		it("sends no VITE_SUPABASE_* names and keeps the note on an error row", async () => {
 			const world = makeWorld({
 				backend: fakeBackendRow({ status: "error" }),
@@ -2920,6 +3230,53 @@ describe("runBuilderTurn", () => {
 				message: "Backend not ready yet",
 				phase: "session_starting",
 			});
+		});
+	});
+
+	describe("backend activity stamp", () => {
+		it("stamps the backend once when the turn succeeds", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("stamps the backend when the turn fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				v2Enabled: [false],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe(
+				"stopped_disabled",
+			);
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("ends the turn normally when the stamp fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				touchActiveFails: true,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.warnings).toContain("backend.touch-failed");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+			expect(world.promoted).toHaveLength(1);
 		});
 	});
 });

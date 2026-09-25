@@ -1,8 +1,9 @@
 /**
  * Provisions the hidden Supabase backend of a new V2 project (D18).
- * `AppProjectsService.create` is the only caller: after the create
- * transaction, before the first turn. Writes the `app_backends` row
- * through `AppBackendsRepository` and hands off to the
+ * `AppProjectsService.create` calls it after the create transaction, and
+ * the Cloud route `POST backend` calls it for a project without a row.
+ * It checks the plan entitlement (D3, WANDIT-184), writes the
+ * `app_backends` row through `AppBackendsRepository`, and hands off to the
  * `provision-backend` task through `ProvisionBackendTaskStarter`.
  * Picks the region with pickSupabaseRegion from the request country code.
  */
@@ -11,6 +12,11 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { type SupabaseRegion, supabaseRegionSchema } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
+import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
+import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { subjectPayer } from "../../../credits/domain/credit-owner";
+import { assertBackendEntitlement } from "../../domain/backend-lifecycle";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import {
 	PROVISION_BACKEND_TASK_STARTER,
 	type ProvisionBackendTaskStarter,
@@ -30,18 +36,28 @@ export class BackendsService {
 		@Inject(AppBackendsRepository)
 		private readonly backends: Pick<
 			AppBackendsRepository,
-			"findByProjectId" | "insertCreating" | "setTriggerRunId" | "markError"
+			| "findByProjectId"
+			| "insertCreatingWithinLimit"
+			| "setTriggerRunId"
+			| "markError"
 		>,
 		@Inject(PROVISION_BACKEND_TASK_STARTER)
 		private readonly starter: ProvisionBackendTaskStarter,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
+		/** The payer's subscription; the plan decides the backend limit. */
+		@Inject(SubscriptionsRepository)
+		private readonly subscriptions: Pick<
+			SubscriptionsRepository,
+			"findActiveByOwner"
+		>,
 	) {}
 
 	/**
-	 * The single entry of backend provisioning, called once per project
-	 * create. Answers the `app_backends` row; null means provisioning is
-	 * not configured and nothing was written.
+	 * The single entry of backend provisioning: project create and the Cloud
+	 * route `POST backend` call it. Answers the `app_backends` row; null means
+	 * provisioning is not configured and nothing was written. Throws
+	 * `BackendLimitReachedError` when the payer's plan has no free slot.
 	 */
 	async provisionBackend(
 		projectId: string,
@@ -71,6 +87,14 @@ export class BackendsService {
 			return existing;
 		}
 
+		// D3 product rule: the payer's plan caps the backends it holds. The
+		// payer is the org of an org project, else the user.
+		const subject = {
+			actorUserId: input.userId,
+			organizationId: input.organizationId,
+		};
+		const plan = await resolveBillingPlan(this.subscriptions, subject);
+
 		let region: SupabaseRegion = pickSupabaseRegion(input.countryCode);
 		const regionOverride = this.v2Env.SUPABASE_PLATFORM_REGION;
 		if (regionOverride !== undefined) {
@@ -86,22 +110,32 @@ export class BackendsService {
 			}
 		}
 
-		const inserted = await this.backends.insertCreating({
-			organizationId: input.organizationId,
-			projectId,
-			region,
-			requestKey: randomUUID(),
-			userId: input.userId,
-		});
-		const row = inserted ?? (await this.backends.findByProjectId(projectId));
-		if (row === null) {
-			throw new Error(
-				`app_backends insert returned no row for project ${projectId}`,
+		// The count and the insert run under one lock per payer, so two
+		// parallel creates cannot both pass the limit.
+		const outcome = await this.backends.insertCreatingWithinLimit(
+			{
+				organizationId: input.organizationId,
+				projectId,
+				region,
+				requestKey: randomUUID(),
+				userId: input.userId,
+			},
+			subjectPayer(subject),
+			(ownedBackends) => assertBackendEntitlement(plan, ownedBackends),
+		);
+		if (outcome.kind === "refused") {
+			this.logger.warn(
+				`supabase.provisioning.limit-reached project=${projectId} plan=${plan} limit=${outcome.refusal.limit}`,
+			);
+			throw new BackendLimitReachedError(
+				outcome.refusal.plan,
+				outcome.refusal.limit,
 			);
 		}
-		if (inserted === null) {
-			// The insert answered null: a concurrent create wrote the row first
-			// and already queued its task, so this call starts nothing.
+		const row = outcome.row;
+		if (outcome.kind === "exists") {
+			// A concurrent create wrote the row first and already queued its
+			// task, so this call starts nothing.
 			return row;
 		}
 

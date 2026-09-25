@@ -1,10 +1,8 @@
 /**
- * Typed client for the Supabase Management API and the project Storage
- * API (WANDIT-183, WANDIT-186, WANDIT-187). The `provision-backend` runtime
- * composes it by hand; `app-builder.module.ts` composes the interactive form
- * for `CloudService`, and the `builder-turn` task for the agent backend
- * tools. It calls the APIs over `fetch`, waits on the
- * `SupabaseRateLimiter`, and checks `ownsRef` before every project call.
+ * Typed client for the Supabase Management and project Storage APIs. The
+ * Trigger runtimes build the worker form with `supabaseWorkerClientFromEnv`;
+ * the API module and the `builder-turn` task build the interactive form.
+ * It calls `fetch`, waits on the rate limiter, and checks `ownsRef` first.
  */
 import {
 	type SupabaseAdvisorKind,
@@ -37,7 +35,10 @@ import { getErrorMessage } from "@wandit/observability/error";
 import { z } from "zod";
 
 import type { SandboxLogger } from "../../domain/ports/sandbox-provider";
+import type { V2EnvSource } from "../env/v2-env";
+import type { AppBackendsRepository } from "../persistence/app-backends.repository";
 import {
+	RedisSupabaseRateLimiter,
 	type SupabaseRateLimiter,
 	supabaseRateLimitKeys,
 } from "./supabase-rate-limiter";
@@ -342,6 +343,44 @@ export class SupabaseManagementClient {
 			bucket: supabaseRateLimitKeys.project(scope.ref),
 			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
 		});
+	}
+
+	/**
+	 * Pauses an idle project: `POST /v1/projects/{ref}/pause`, no body, a 200
+	 * with no schema. Path checked in the Supabase OpenAPI on 2026-09-25.
+	 * The pause sweep and the project delete call it.
+	 */
+	async pauseProject(scope: BackendRef): Promise<void> {
+		await this.requireOwnedRef(scope);
+		await this.request<void>({
+			method: "POST",
+			path: `/projects/${scope.ref}/pause`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+		});
+	}
+
+	/**
+	 * Deletes the project: `DELETE /v1/projects/{ref}`, no body. Path checked
+	 * in the Supabase OpenAPI on 2026-09-25; the `{ id, ref, name }` answer
+	 * stays unread. The pause sweep calls it after the grace window.
+	 */
+	async deleteProject(scope: BackendRef): Promise<void> {
+		await this.requireOwnedRef(scope);
+		try {
+			await this.request<void>({
+				method: "DELETE",
+				path: `/projects/${scope.ref}`,
+				bucket: supabaseRateLimitKeys.project(scope.ref),
+				limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			});
+		} catch (error) {
+			// A project that is already gone is the state the caller wants.
+			if (error instanceof SupabaseManagementError && error.status === 404) {
+				return;
+			}
+			throw error;
+		}
 	}
 
 	/** Lists the Storage buckets of the project. */
@@ -821,6 +860,41 @@ export class SupabaseManagementClient {
 			path,
 		});
 	}
+}
+
+/**
+ * The worker form of the client for a Trigger runtime, or `client: null`
+ * without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`. The
+ * caller runs `close` in its `finally`: it quits the limiter's Redis client.
+ */
+export function supabaseWorkerClientFromEnv(
+	source: V2EnvSource,
+	/** Reads the `app_backends` row; the ownership check compares its ref. */
+	backends: Pick<AppBackendsRepository, "findByProjectId">,
+	logger: SandboxLogger,
+): { client: SupabaseManagementClient | null; close: () => Promise<void> } {
+	const token = source.SUPABASE_PLATFORM_TOKEN;
+	const organizationSlug = source.SUPABASE_PLATFORM_ORG_ID;
+	if (token === undefined || organizationSlug === undefined) {
+		return { client: null, close: async () => undefined };
+	}
+	const rateLimiter = new RedisSupabaseRateLimiter();
+	return {
+		client: new SupabaseManagementClient({
+			fetch: globalThis.fetch,
+			logger,
+			organizationSlug,
+			// Security check: a project call may only touch the ref stored on
+			// the project's own row.
+			ownsRef: async (projectId, ref) =>
+				(await backends.findByProjectId(projectId))?.ref === ref,
+			rateLimiter,
+			sleep: (ms) =>
+				new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
+			token,
+		}),
+		close: () => rateLimiter.onModuleDestroy(),
+	};
 }
 
 // Each path segment is encoded on its own so the `/` separators survive.

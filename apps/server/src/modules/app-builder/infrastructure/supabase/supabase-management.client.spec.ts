@@ -13,6 +13,7 @@ import {
 	SupabaseManagementClient,
 	SupabaseManagementError,
 	SupabaseRateLimitedError,
+	supabaseWorkerClientFromEnv,
 } from "./supabase-management.client";
 
 const TOKEN = "sbp_test_token";
@@ -650,6 +651,168 @@ describe("SupabaseManagementClient project reads", () => {
 					call.limitPerMinute === 120,
 			),
 		).toBe(true);
+	});
+});
+
+describe("SupabaseManagementClient.pauseProject", () => {
+	it("posts /projects/{ref}/pause on the project bucket", async () => {
+		const fixture = makeClient([jsonResponse(200, "{}")]);
+
+		await fixture.client.pauseProject(SCOPE);
+
+		expect(fixture.requests).toHaveLength(1);
+		expect(fixture.requests[0]?.url).toBe(
+			`https://api.supabase.com/v1/projects/${REF}/pause`,
+		);
+		expect(fixture.requests[0]?.method).toBe("POST");
+		expect(fixture.rateLimiter.calls).toEqual([
+			{ bucket: `supabase:rl:project:${REF}`, limitPerMinute: 120 },
+		]);
+		expect(fixture.ownsRefCalls).toEqual([SCOPE]);
+	});
+
+	it("refuses a ref of another project before any fetch", async () => {
+		const fixture = makeClient([], { ownsRef: () => Promise.resolve(false) });
+
+		await expect(fixture.client.pauseProject(SCOPE)).rejects.toThrow(
+			SupabaseManagementError,
+		);
+		expect(fixture.requests).toHaveLength(0);
+	});
+
+	it("retries after a 429", async () => {
+		const fixture = makeClient([
+			jsonResponse(429, "{}", { "x-ratelimit-reset": "2" }),
+			jsonResponse(200, "{}"),
+		]);
+
+		await fixture.client.pauseProject(SCOPE);
+
+		expect(fixture.requests).toHaveLength(2);
+		expect(fixture.sleeps).toEqual([2_000]);
+	});
+
+	it("throws at once on a 403", async () => {
+		const fixture = makeClient([
+			jsonResponse(403, JSON.stringify({ message: "forbidden action" })),
+		]);
+
+		const failure = await fixture.client
+			.pauseProject(SCOPE)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(SupabaseManagementError);
+		// SAFETY: toBeInstanceOf above proves the type.
+		expect((failure as SupabaseManagementError).status).toBe(403);
+		expect(fixture.requests).toHaveLength(1);
+	});
+});
+
+describe("supabaseWorkerClientFromEnv", () => {
+	const logger: SandboxLogger = {
+		error: () => undefined,
+		info: () => undefined,
+		warn: () => undefined,
+	};
+	const complete = {
+		SUPABASE_PLATFORM_ORG_ID: ORG_SLUG,
+		SUPABASE_PLATFORM_TOKEN: TOKEN,
+		V2_HARNESS: "claude-code",
+	} as const;
+	// The row of the project holds another ref, so the ownership check fails.
+	const otherRow = {
+		findByProjectId: async () => null,
+	};
+
+	it.each([
+		"SUPABASE_PLATFORM_TOKEN",
+		"SUPABASE_PLATFORM_ORG_ID",
+	] as const)("answers no client without %s", (name) => {
+		const { client } = supabaseWorkerClientFromEnv(
+			{ ...complete, [name]: undefined },
+			otherRow,
+			logger,
+		);
+
+		expect(client).toBeNull();
+	});
+
+	it("refuses a ref the project's row does not hold, before any request", async () => {
+		const { client } = supabaseWorkerClientFromEnv(complete, otherRow, logger);
+		if (client === null) {
+			throw new Error("the factory answered no client");
+		}
+
+		await expect(client.deleteProject(SCOPE)).rejects.toThrow(
+			`ref ${REF} does not belong to project ${PROJECT_ID}`,
+		);
+	});
+});
+
+describe("SupabaseManagementClient.deleteProject", () => {
+	it("sends DELETE /projects/{ref} on the project bucket", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({ id: 1, name: `wandit-${PROJECT_ID}`, ref: REF }),
+			),
+		]);
+
+		await fixture.client.deleteProject(SCOPE);
+
+		expect(fixture.requests).toHaveLength(1);
+		expect(fixture.requests[0]?.url).toBe(
+			`https://api.supabase.com/v1/projects/${REF}`,
+		);
+		expect(fixture.requests[0]?.method).toBe("DELETE");
+		expect(fixture.rateLimiter.calls).toEqual([
+			{ bucket: `supabase:rl:project:${REF}`, limitPerMinute: 120 },
+		]);
+	});
+
+	it("counts a 404 as done", async () => {
+		const fixture = makeClient([
+			jsonResponse(404, JSON.stringify({ message: "project not found" })),
+		]);
+
+		await expect(fixture.client.deleteProject(SCOPE)).resolves.toBeUndefined();
+		expect(fixture.requests).toHaveLength(1);
+	});
+
+	it("refuses a ref of another project before any fetch", async () => {
+		const fixture = makeClient([], { ownsRef: () => Promise.resolve(false) });
+
+		await expect(fixture.client.deleteProject(SCOPE)).rejects.toThrow(
+			SupabaseManagementError,
+		);
+		expect(fixture.requests).toHaveLength(0);
+	});
+
+	it("retries after a 429", async () => {
+		const fixture = makeClient([
+			jsonResponse(429, "{}", { "x-ratelimit-reset": "2" }),
+			jsonResponse(200, "{}"),
+		]);
+
+		await fixture.client.deleteProject(SCOPE);
+
+		expect(fixture.requests).toHaveLength(2);
+		expect(fixture.sleeps).toEqual([2_000]);
+	});
+
+	it("throws at once on a 403", async () => {
+		const fixture = makeClient([
+			jsonResponse(403, JSON.stringify({ message: "forbidden action" })),
+		]);
+
+		const failure = await fixture.client
+			.deleteProject(SCOPE)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(SupabaseManagementError);
+		// SAFETY: toBeInstanceOf above proves the type.
+		expect((failure as SupabaseManagementError).status).toBe(403);
+		expect(fixture.requests).toHaveLength(1);
 	});
 });
 

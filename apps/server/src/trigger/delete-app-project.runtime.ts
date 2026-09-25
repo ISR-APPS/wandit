@@ -2,8 +2,8 @@
  * Delete-app-project runtime: removes the external resources of one
  * soft-deleted `v2_app` project.
  * Eight steps run in order: turn-run cancel, sandbox destroy, user Worker
- * delete, backend seam, R2 drain, repository delete, audit row, analytics
- * event.
+ * delete, backend pause and secrets delete (WANDIT-184), R2 drain,
+ * repository delete, audit row, analytics event.
  * Every step runs in its own try/catch, so one failed vendor call never
  * blocks the audit row.
  * `delete-app-project.task.ts` calls it through
@@ -34,14 +34,20 @@ import {
 } from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
+import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import {
 	ArchiveTemplateInit,
 	TEMPLATE_ARCHIVE_DIR,
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
+import {
+	type SupabaseManagementClient,
+	supabaseWorkerClientFromEnv,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -58,6 +64,15 @@ export type DeleteAppProjectDeps = {
 	 * unset; `workersForPlatformsClientFromEnv` builds it.
 	 */
 	workers: Pick<WorkersForPlatformsApi, "deleteScript"> | null;
+	/** Reads the `app_backends` row and moves it to `deleting`. */
+	backends: Pick<AppBackendsRepository, "findByProjectId" | "markDeleting">;
+	/**
+	 * Pauses the Supabase project of a running backend. Null when a Supabase
+	 * platform env value is unset; the row still moves to `deleting`.
+	 */
+	supabase: Pick<SupabaseManagementClient, "pauseProject"> | null;
+	/** Deletes the `project_secrets` rows of the project. */
+	projectSecrets: Pick<ProjectSecretsRepository, "deleteAllForProject">;
 	/** code.storage repository delete; a 404 or a 409 counts as done. */
 	gitStore: Pick<GitStore, "deleteRepository">;
 	/** Drains one R2 prefix and answers the number of deleted keys. */
@@ -85,6 +100,15 @@ export type DeleteAppProjectResult = {
 	 * "skipped" without the Cloudflare env values; "error" when the call threw.
 	 */
 	worker: "deleted" | "missing" | "skipped" | "error";
+	/**
+	 * "paused" when the row moved to `deleting` and Supabase paused the
+	 * project; "deleting" when the row moved and no pause ran (the project
+	 * was not running, or no client); "skipped" without a row or on a row
+	 * already `deleting`; "error" when a call threw.
+	 */
+	backend: "paused" | "deleting" | "skipped" | "error";
+	/** `project_secrets` rows removed; 0 when the delete threw. */
+	secretsDeleted: number;
 	/** "deleted" when code.storage answered; "error" when the call threw. */
 	repository: "deleted" | "error";
 	/** Keys removed under the two `v2ProjectPrefixes`. */
@@ -153,7 +177,47 @@ export async function runDeleteAppProject(
 		}
 	}
 
-	// WANDIT-183/184 add here: backendsService.markDeleting(projectId) (pause the Supabase project, status = deleting; skip a claimed backend).
+	// The row moves to `deleting` before the pause: the pause sweep then
+	// deletes the Supabase project after the grace window, also when the
+	// pause fails. WANDIT-199 adds the claim flag; until then no backend is
+	// claimed, so every backend goes.
+	let backend: DeleteAppProjectResult["backend"] = "skipped";
+	try {
+		const row = await deps.backends.findByProjectId(projectId);
+		if (row !== null && (await deps.backends.markDeleting(projectId))) {
+			backend = "deleting";
+			// A running project costs money during the grace window; a paused
+			// one costs nothing.
+			// LIMIT: a `creating` or `restoring` project runs until the grace
+			// delete. Upgrade: the sweep pauses a `deleting` row that runs.
+			if (row.status === "active" && row.ref !== null) {
+				if (deps.supabase === null) {
+					deps.logger.warn("app-project.delete.backend-unconfigured", fields);
+				} else {
+					await deps.supabase.pauseProject({ projectId, ref: row.ref });
+					backend = "paused";
+				}
+			}
+		}
+	} catch (error) {
+		backend = "error";
+		deps.logger.error("app-project.delete.backend-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// A soft delete cascades nothing, so the secret values go here, also for
+	// a project without a backend.
+	let secretsDeleted = 0;
+	try {
+		secretsDeleted = await deps.projectSecrets.deleteAllForProject(projectId);
+	} catch (error) {
+		deps.logger.error("app-project.delete.secrets-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
 
 	let objectsDeleted = 0;
 	for (const prefix of v2ProjectPrefixes(projectId)) {
@@ -184,7 +248,15 @@ export async function runDeleteAppProject(
 		await deps.auditEvents.insert({
 			action: "project.deleted",
 			actorUserId: input.actorUserId,
-			metadata: { objectsDeleted, repository, sandbox, turnCanceled, worker },
+			metadata: {
+				backend,
+				objectsDeleted,
+				repository,
+				sandbox,
+				secretsDeleted,
+				turnCanceled,
+				worker,
+			},
 			organizationId: input.organizationId,
 			projectId,
 			targetId: projectId,
@@ -210,40 +282,51 @@ export async function runDeleteAppProject(
 
 	deps.logger.info("app-project.delete.completed", {
 		...fields,
+		backend,
 		objectsDeleted: String(objectsDeleted),
 		repository,
 		sandbox,
+		secretsDeleted: String(secretsDeleted),
 		worker,
 	});
 
 	return {
 		auditWritten,
+		backend,
 		objectsDeleted,
 		repository,
 		sandbox,
+		secretsDeleted,
 		turnCanceled,
 		worker,
 	};
 }
 
 /**
- * Composes the real repositories, the provider, the W4P client, the git
- * store, the R2 drain, the run cancel, and the PostHog capture for the
- * Trigger worker.
+ * Composes the real repositories, the provider, the W4P client, the
+ * Supabase client, the git store, the R2 drain, the run cancel, and the
+ * PostHog capture for the Trigger worker.
  * The provider's template-init and repo-restorer arguments exist because
- * `destroy` shares the provider with the start path; the run closes `db`
- * itself in its `finally`.
+ * `destroy` shares the provider with the start path. The task closes `db`
+ * and calls `close`, which quits the rate limiter's Redis client.
  */
 export function createDeleteAppProjectRuntime(
 	db: TriggerDatabase,
 	capture: DeleteAppProjectDeps["capture"],
 ) {
 	const sessions = new SandboxSessionsRepository(db);
+	const backends = new AppBackendsRepository(db);
+	const { client: supabase, close } = supabaseWorkerClientFromEnv(
+		env,
+		backends,
+		Sentry.logger,
+	);
 	return {
 		run: (input: DeleteAppProjectInput) =>
 			runDeleteAppProject(
 				{
 					auditEvents: new AuditEventsRepository(db),
+					backends,
 					cancelRun: async (runId) => {
 						await runs.cancel(runId);
 					},
@@ -251,15 +334,18 @@ export function createDeleteAppProjectRuntime(
 					deleteObjectsByPrefix: (prefix) => deleteObjectsByPrefix(prefix),
 					gitStore: new CodeStorageGitStore(env),
 					logger: Sentry.logger,
+					projectSecrets: new ProjectSecretsRepository(db),
 					sandboxes: new VercelSandboxProvider(
 						sessions,
 						new LoggingRepoRestorer(),
 						new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 					),
+					supabase,
 					turns: new BuilderTurnsRepository(db),
 					workers: workersForPlatformsClientFromEnv(env, Sentry.logger),
 				},
 				input,
 			),
+		close,
 	};
 }

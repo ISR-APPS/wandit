@@ -1,8 +1,8 @@
 /**
- * The payer's billing plan for the LLM allow-list.
+ * The payer's billing plan for the LLM allow-list and the backend limit.
  * `turns.service.ts` calls it before accepting `body.model`; the
- * `builder-turn` task calls it to mint the run token.
- * Calls `SubscriptionsRepository.findActiveByOwner`.
+ * `builder-turn` task calls it to mint the run token; `BackendsService`
+ * calls it for the D3 backend limit. Calls `findActiveByOwner`.
  */
 import type { BillingPlanId } from "@wandit/contracts";
 
@@ -13,9 +13,9 @@ import {
 import type { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 
 /**
- * The plan that decides which models `llmProxyAllowedModels` allows for
- * the subject's pool. `subjectPayer` picks the org pool when the subject
- * carries an organization.
+ * The plan of the subject's pool: it decides the models
+ * `llmProxyAllowedModels` allows and the backends the pool may hold.
+ * `subjectPayer` picks the org pool when the subject carries an organization.
  */
 export async function resolveBillingPlan(
 	subscriptions: Pick<SubscriptionsRepository, "findActiveByOwner">,
