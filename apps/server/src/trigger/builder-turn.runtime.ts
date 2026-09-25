@@ -739,7 +739,7 @@ export async function runBuilderTurn(
 			type: "status",
 		});
 
-	/** One terminal failure: row, error+done events, refund or settle, cleanup. */
+	/** One terminal failure: row, the wip commit of a stop, error+done events, refund or settle, cleanup. */
 	const failTurn = async (
 		error: unknown,
 		failureCode: string | null,
@@ -815,6 +815,27 @@ export async function runBuilderTurn(
 			// A false CAS means the row went terminal under us (a cancel won).
 			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
 		}
+		// D3: a stopped turn keeps its file work. The commit lands before the
+		// `done` event: the web refetches the project at the stream end and
+		// must see the change (`hasCodeChanges`).
+		if (stopCode !== null && sandbox !== null) {
+			try {
+				await deps.commit(sandbox, deps.commitDeps, {
+					chatId,
+					messageId: assistantMessageId,
+					organizationId: input.organizationId,
+					projectId,
+					source: "wip",
+					summary: "Stopped",
+					turnId,
+					userId: input.actorUserId,
+				});
+			} catch (commitError) {
+				logger.warn(
+					`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
+				);
+			}
+		}
 		await deps.writer.write(turnId, {
 			data: {
 				code:
@@ -834,26 +855,8 @@ export async function runBuilderTurn(
 			await cleanupStep(() => refundHold("builder_turn_failed"));
 			await detachSession();
 		} else {
-			// D3: a stopped turn keeps its file work and settles the real
-			// spend; the hold is not refunded.
-			if (sandbox !== null) {
-				try {
-					await deps.commit(sandbox, deps.commitDeps, {
-						chatId,
-						messageId: assistantMessageId,
-						organizationId: input.organizationId,
-						projectId,
-						source: "wip",
-						summary: "Stopped",
-						turnId,
-						userId: input.actorUserId,
-					});
-				} catch (commitError) {
-					logger.warn(
-						`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
-					);
-				}
-			}
+			// D3: a stopped turn settles the real spend; the hold is not
+			// refunded. The wip commit ran above, before the `done` event.
 			await detachSession();
 			await cleanupStep(async () => {
 				const rows = await deps.proxyRows.sumByTurn(turnId);

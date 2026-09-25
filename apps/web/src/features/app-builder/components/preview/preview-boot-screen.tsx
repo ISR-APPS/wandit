@@ -1,9 +1,9 @@
 /**
  * The screen over the preview while the app is not on screen yet: the
- * plan drawing, the real start-up steps, and an elapsed timer; or the
- * asleep note when no sandbox runs. PreviewPanel renders it until the
- * iframe loads. It reads its content from lib/boot-state.ts and draws
- * with BootPlan.
+ * plan drawing, the real start-up steps, and an elapsed timer; the asleep
+ * note when no sandbox runs; or the waiting note while the project holds
+ * only the template. PreviewPanel renders it until the app shows. It reads
+ * its content from lib/boot-state.ts and draws with BootPlan.
  */
 
 import { cn } from "@wandit/ui/lib/utils";
@@ -25,8 +25,12 @@ import {
 import { BOOT_EASE } from "../../lib/constants";
 import { BootPlan, type PlanStage } from "./boot-plan";
 
-/** How long a first `waking` answer shows the mark before the asleep note, ms. The chat stream of a new project connects in about a second. */
-const ASLEEP_DELAY_MS = 1200;
+/**
+ * How long the mark shows before the asleep or the waiting note, ms. The chat
+ * stream of a new project connects in about a second. The project refetch at
+ * a turn end is faster.
+ */
+const NOTE_DELAY_MS = 1200;
 /** Time each detail line stays before the next one, ms. The last line then stays. */
 const DETAIL_STEP_MS = 3200;
 /** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
@@ -59,7 +63,8 @@ export type PreviewBootScreenProps = {
 /**
  * Keeps the boot memory and the shown variant, and renders the stage. A
  * first `waking` answer waits 1.2 s before the asleep note: on a new
- * project the running turn often connects in that time.
+ * project the running turn often connects in that time. The waiting note
+ * always waits 1.2 s, so a turn end does not flash it before the app shows.
  */
 export function PreviewBootScreen({
 	tokenStatus,
@@ -75,22 +80,28 @@ export function PreviewBootScreen({
 
 	const [shownVariant, setShownVariant] =
 		useState<BootView["variant"]>("loading");
-	const waitsForAsleep =
-		view.variant === "asleep" && shownVariant === "loading";
-	if (!waitsForAsleep && shownVariant !== view.variant) {
+	// The asleep note waits on first paint for a resumed turn. The waiting note
+	// always waits: at a turn end the project refetch is often still on its way.
+	const heldNote =
+		shownVariant !== view.variant &&
+		((view.variant === "asleep" && shownVariant === "loading") ||
+			view.variant === "waiting")
+			? view.variant
+			: null;
+	if (heldNote === null && shownVariant !== view.variant) {
 		setShownVariant(view.variant);
 	}
 	useEffect(() => {
-		if (!waitsForAsleep) return;
-		const timer = setTimeout(() => setShownVariant("asleep"), ASLEEP_DELAY_MS);
+		if (heldNote === null) return;
+		const timer = setTimeout(() => setShownVariant(heldNote), NOTE_DELAY_MS);
 		return () => clearTimeout(timer);
-	}, [waitsForAsleep]);
-	const shown: BootView = waitsForAsleep ? { variant: "loading" } : view;
+	}, [heldNote]);
+	const shown: BootView = heldNote === null ? view : { variant: "loading" };
 
 	const planStage: PlanStage | null =
 		shown.variant === "loading"
 			? null
-			: shown.variant === "asleep"
+			: shown.variant === "asleep" || shown.variant === "waiting"
 				? "asleep"
 				: nextMemory.machineReady
 					? "inked"
@@ -178,6 +189,9 @@ function announcementOf(
 			return view.stopped
 				? `${t("appBuilder.preview.boot.stopped.title")}. ${t("appBuilder.preview.boot.stopped.body")}`
 				: `${t("appBuilder.preview.boot.asleep.title")}. ${t("appBuilder.preview.boot.asleep.body")}`;
+		case "waiting":
+			// The title ends with an ellipsis, so no period joins the two.
+			return `${t("appBuilder.preview.boot.waiting.title")} ${t("appBuilder.preview.boot.waiting.body")}`;
 		case "booting": {
 			const active = view.steps.find(
 				(step) => step.state === "active" && step.id !== "database",
@@ -195,22 +209,20 @@ function BootCopy({ view }: { view: BootView }) {
 
 	if (view.variant === "loading") return null;
 
-	if (view.variant === "asleep") {
+	if (view.variant === "asleep" || view.variant === "waiting") {
+		const note =
+			view.variant === "waiting"
+				? "waiting"
+				: view.stopped
+					? "stopped"
+					: "asleep";
 		return (
 			<div>
 				<h2 className="text-balance font-medium @max-[560px]:text-[17px] text-[20px] text-white/92 leading-[1.25]">
-					{t(
-						view.stopped
-							? "appBuilder.preview.boot.stopped.title"
-							: "appBuilder.preview.boot.asleep.title",
-					)}
+					{t(`appBuilder.preview.boot.${note}.title`)}
 				</h2>
 				<p className="mt-2 text-pretty @max-[560px]:text-[13.5px] text-[14px] text-white/62 leading-normal">
-					{t(
-						view.stopped
-							? "appBuilder.preview.boot.stopped.body"
-							: "appBuilder.preview.boot.asleep.body",
-					)}
+					{t(`appBuilder.preview.boot.${note}.body`)}
 				</p>
 			</div>
 		);

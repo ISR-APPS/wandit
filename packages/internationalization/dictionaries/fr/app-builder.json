@@ -57,6 +57,10 @@
 				"waiting": "En attente de la réponse de ton app",
 				"loading": "Chargement de la première page"
 			},
+			"build": {
+				"label": "Construction de ta première version",
+				"detail": "Ton app s'affiche ici dès qu'elle est prête"
+			},
 			"database": {
 				"creating": "Création de ta base de données",
 				"starting": "Démarrage de ta base de données",
@@ -72,6 +76,10 @@
 			"stopped": {
 				"title": "Ton app n'a pas démarré",
 				"body": "Le chat montre le problème. Envoie un message pour réessayer."
+			},
+			"waiting": {
+				"title": "En attente de ta prochaine étape…",
+				"body": "Continue dans le chat quand tu es prêt."
 			}
 		}
 	},
@@ -85,6 +93,7 @@
 		"readOnly": "Le code est en lecture seule dans cette version d'aperçu.",
 		"fileMissing": "Ce fichier n'est pas dans le dépôt.",
 		"asleep": "Le sandbox est en veille. Envoyez un message pour le réveiller, puis le code s'affiche ici.",
+		"settingUp": "Préparation de votre projet. Les fichiers s'affichent ici dès qu'il est prêt.",
 		"noFiles": "Le projet n'a pas encore de fichiers.",
 		"binaryFile": "Ce fichier est binaire. La vue Code affiche uniquement les fichiers texte.",
 		"fileTooLarge": "Ce fichier dépasse {limit}. La vue Code affiche uniquement les fichiers jusqu'à {limit}.",

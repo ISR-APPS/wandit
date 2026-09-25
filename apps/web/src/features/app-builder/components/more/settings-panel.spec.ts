@@ -26,6 +26,7 @@ const project: AppProject = {
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
+	hasCodeChanges: true,
 };
 
 function renderPanel(client = new QueryClient()) {

@@ -369,6 +369,7 @@ const API_PROJECT = {
 	framework: "tanstack-start",
 	templateVersion: "1",
 	languages: ["ar", "fr", "en"],
+	hasCodeChanges: true,
 } satisfies ApiAppProject;
 
 describe("toUiAppProject", () => {
@@ -382,6 +383,7 @@ describe("toUiAppProject", () => {
 			engine: "v2_app",
 			versionNumber: 0,
 			unpublishedChanges: 0,
+			hasCodeChanges: true,
 		});
 	});
 

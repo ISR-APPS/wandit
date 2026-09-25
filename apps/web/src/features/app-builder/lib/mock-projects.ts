@@ -17,6 +17,7 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 		engine: "v2_app",
 		versionNumber: 4,
 		unpublishedChanges: 3,
+		hasCodeChanges: true,
 	},
 	{
 		id: "nadi-fitness-mobile",
@@ -28,5 +29,6 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 		engine: "v2_app",
 		versionNumber: 4,
 		unpublishedChanges: 3,
+		hasCodeChanges: true,
 	},
 ];

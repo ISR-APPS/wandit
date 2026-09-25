@@ -868,6 +868,13 @@ repository is the durable copy.
 - Routes: `GET /api/v2/projects/:id/versions` (cursor, max 50),
   `GET .../versions/:sha/diff`, `POST .../versions/:sha/restore` (409
   `BUILDER_TURN_ACTIVE` while a turn runs).
+- `GET /api/v2/projects/:id` answers `hasCodeChanges`: true when one
+  `app_commits` row has a numstat that is not `[]`. A text-only turn
+  commits with `[]`, and the template commit has no row. While the flag
+  is false, the web preview never shows the template app: a running turn
+  shows the build step, and no turn shows the "waiting for your next
+  step" note. A stopped turn writes its wip commit before `done`, so the
+  refetch at the stream end sees it.
 
 ## LLM proxy
 

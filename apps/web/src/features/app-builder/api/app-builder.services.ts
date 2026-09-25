@@ -359,6 +359,7 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		slug: project.publishedSlug ?? "",
 		versionNumber: 0,
 		unpublishedChanges: 0,
+		hasCodeChanges: project.hasCodeChanges,
 	};
 }
 

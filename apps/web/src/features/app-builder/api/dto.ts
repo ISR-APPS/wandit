@@ -32,6 +32,8 @@ export type AppProject = {
 	versionNumber: number;
 	/** Builder turns since the last publish. 0 means the live app is current. */
 	unpublishedChanges: number;
+	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
+	hasCodeChanges: boolean;
 };
 
 /**

@@ -107,6 +107,9 @@ function setup() {
 	const backends = {
 		provisionBackend: vi.fn(async () => null),
 	};
+	const appCommits = {
+		hasFileChanges: vi.fn(async () => false),
+	};
 
 	const service = new AppProjectsService(
 		projects,
@@ -118,10 +121,12 @@ function setup() {
 		v2Env,
 		costCaps,
 		backends,
+		appCommits,
 	);
 
 	return {
 		analytics,
+		appCommits,
 		backends,
 		costCaps,
 		credits,
@@ -355,10 +360,21 @@ describe("AppProjectsService.get", () => {
 		expect(project).toMatchObject({
 			engine: "v2_app",
 			framework: "web-app",
+			hasCodeChanges: false,
 			languages: ["fr", "en"],
 			targetPlatform: "web",
 			templateVersion: "web-app@1.0.0",
 		});
+	});
+
+	it("answers hasCodeChanges from the commits of the project", async () => {
+		const { appCommits, service } = setup();
+		appCommits.hasFileChanges.mockResolvedValue(true);
+
+		const project = await service.get(SCOPE, "project-1");
+
+		expect(project.hasCodeChanges).toBe(true);
+		expect(appCommits.hasFileChanges).toHaveBeenCalledWith("project-1");
 	});
 
 	it("404s on a v1_page row", async () => {
@@ -373,12 +389,14 @@ describe("AppProjectsService.get", () => {
 	});
 
 	it("404s on a missing row", async () => {
-		const { projects, service } = setup();
+		const { appCommits, projects, service } = setup();
 		projects.findByIdForScope.mockResolvedValue(null);
 
 		await expect(service.get(SCOPE, "project-1")).rejects.toBeInstanceOf(
 			NotFoundException,
 		);
+		// The commits of a project out of scope are never read.
+		expect(appCommits.hasFileChanges).not.toHaveBeenCalled();
 	});
 });
 

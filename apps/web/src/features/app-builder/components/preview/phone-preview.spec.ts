@@ -20,6 +20,7 @@ const project: AppProject = {
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
+	hasCodeChanges: true,
 };
 
 // The fake answers one minted URL, so no network call happens.
@@ -40,6 +41,7 @@ const idleBoot: BootContext = {
 	lastTurnFailed: false,
 	isFirstTurn: false,
 	backend: undefined,
+	hasCodeChanges: true,
 };
 
 async function renderPreview(device: PhoneDevice) {
