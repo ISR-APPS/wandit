@@ -1,0 +1,76 @@
+{
+	"permissions": {
+		"deny": [
+			"Edit(.claude/**)",
+			"Write(.claude/**)",
+			"Edit(.mcp.json)",
+			"Write(.mcp.json)",
+			"Edit(opencode.json)",
+			"Write(opencode.json)",
+			"Edit(.git/hooks/**)",
+			"Write(.git/hooks/**)",
+			"Edit(.git/config)",
+			"Write(.git/config)",
+			"Edit(.env)",
+			"Write(.env)",
+			"Edit(.env.*)",
+			"Write(.env.*)",
+			"Edit(.bashrc)",
+			"Write(.bashrc)",
+			"Edit(.bash_profile)",
+			"Write(.bash_profile)",
+			"Edit(.zshrc)",
+			"Write(.zshrc)",
+			"Edit(.zprofile)",
+			"Write(.zprofile)",
+			"Edit(.zshenv)",
+			"Write(.zshenv)",
+			"Edit(.profile)",
+			"Write(.profile)",
+			"Edit(~/.bashrc)",
+			"Write(~/.bashrc)",
+			"Edit(~/.bash_profile)",
+			"Write(~/.bash_profile)",
+			"Edit(~/.zshrc)",
+			"Write(~/.zshrc)",
+			"Edit(~/.zprofile)",
+			"Write(~/.zprofile)",
+			"Edit(~/.zshenv)",
+			"Write(~/.zshenv)",
+			"Edit(~/.profile)",
+			"Write(~/.profile)",
+			"Edit(.npmrc)",
+			"Write(.npmrc)",
+			"Edit(~/.npmrc)",
+			"Write(~/.npmrc)",
+			"Edit(.pnpmfile.cjs)",
+			"Write(.pnpmfile.cjs)",
+			"Bash(git push*)",
+			"Bash(git reset*)",
+			"Bash(git checkout*)",
+			"Bash(git switch*)",
+			"Bash(git rebase*)",
+			"Bash(git tag*)",
+			"Bash(sudo *)",
+			"Bash(git config*)",
+			"Bash(ssh *)",
+			"Bash(nc *)",
+			"Bash(ncat *)",
+			"Bash(docker *)",
+			"Bash(pnpm approve-builds*)"
+		]
+	},
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node .claude/hooks/pre-tool-use.mjs"
+					}
+				]
+			}
+		]
+	}
+}

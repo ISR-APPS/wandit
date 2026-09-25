@@ -1,0 +1,13 @@
+{
+	"extends": "expo/tsconfig.base",
+	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	},
+	"include": ["**/*.ts", "**/*.tsx"],
+	// Edge Functions are Deno code: tsc has no Deno global and no npm: or jsr: imports.
+	"exclude": ["node_modules", "supabase/functions"]
+}
