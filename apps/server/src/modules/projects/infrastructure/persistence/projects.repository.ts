@@ -176,11 +176,11 @@ export class ProjectsRepository {
 			languages: AppLanguage[];
 			/** Default builder model id; null until WANDIT-151 picks one. */
 			model: string | null;
-			/** Device family the app targets; only "web" until WANDIT-192. */
-			targetPlatform: "web";
-			/** Template stack id, the fixed string "web-app" today. */
+			/** Device family the app targets, from the create body. */
+			targetPlatform: TargetPlatform;
+			/** Template archive prefix from `TEMPLATE_PROFILES`: "web-app" or "mobile-app". */
 			framework: string;
-			/** First line of `templates/web-app/template_version`. */
+			/** First line of `templates/<framework>/template_version`, for example "mobile-app@1.0.0". */
 			templateVersion: string;
 		};
 		attachments?: FileRef[];

@@ -20,7 +20,7 @@ export type CreateAppProjectInput = {
 	attachments: UploadAttachmentResponse[] | undefined;
 	/** UI locale of the user. The generated app ships in that language (D7). */
 	locale: AppLanguage;
-	/** The app type chip pick: `web` today, `mobile` after WANDIT-192. */
+	/** The app type chip pick: `web` or `mobile`. The server picks the template from it. */
 	targetPlatform: TargetPlatform;
 };
 

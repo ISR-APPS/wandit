@@ -57,6 +57,7 @@ import {
 	VersionConflictError,
 } from "../../infrastructure/persistence/app-commits.repository";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
+import { profileForFramework } from "../../infrastructure/sandbox/template-profiles";
 
 /** Nest token for the R2 object store the service reads and writes. */
 export const VERSION_OBJECTS = Symbol.for("app-builder.version-objects");
@@ -209,11 +210,12 @@ export class VersionsService {
 				});
 			}
 
+			// A restore boots a stopped or lost sandbox, and that boot starts
+			// the dev server. So the command and port come from the template.
+			const templateProfile = profileForFramework(project.framework);
 			const sandbox = await this.sandboxes.getOrCreate(projectId, {
-				// A restore never starts the dev server; the command and port only
-				// satisfy the sandbox options contract.
-				devCommand: "pnpm dev",
-				devPort: 5173,
+				devCommand: templateProfile.devCommand,
+				devPort: templateProfile.devPort,
 				env: {},
 				framework: project.framework,
 				templateVersion: project.templateVersion,

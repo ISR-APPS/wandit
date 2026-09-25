@@ -497,7 +497,8 @@
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
 		"showQr": "Afficher le QR",
-		"backendNote": "Le backend se déploie à chaque publication"
+		"backendNote": "Le backend se déploie à chaque publication",
+		"mobileSoon": "La publication d’une app mobile arrive bientôt. En attendant, teste ton app dans l’aperçu."
 	},
 	"versions": {
 		"title": "Historique des versions",

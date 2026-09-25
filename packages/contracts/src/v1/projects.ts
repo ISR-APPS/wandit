@@ -18,6 +18,8 @@ import { composerMetadataSchema } from "./chats";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 // The engine enum lives next to primitives: V1 and V2 schemas both read it.
 import { projectEngineSchema } from "./shared/project-engine";
+// The target platform enum lives there too, for the same reason.
+import { targetPlatformSchema } from "./shared/target-platform";
 
 // Shared HTTP agreement for Projects & Dashboard
 // (docs/features/projects-dashboard.md) — the exemplar domain file: new
@@ -41,6 +43,9 @@ export const projectSchema = z.object({
 	// Which builder made the project (D11). V1 rows answer "v1_page"; the web
 	// shows an "App" badge for "v2_app".
 	engine: projectEngineSchema.default("v1_page"),
+	// Device family of a V2 app; null on a V1 page project. The dashboard
+	// card shows it as a badge. The default keeps an older API answer valid.
+	targetPlatform: targetPlatformSchema.nullable().default(null),
 	// First user prompt shown on dashboard.
 	prompt: z.string(),
 	status: projectStatusSchema,

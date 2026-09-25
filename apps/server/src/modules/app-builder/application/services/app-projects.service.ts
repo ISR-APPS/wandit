@@ -1,20 +1,14 @@
 /**
  * Orchestration behind the V2 app-project routes: create, get, and the
  * project cost caps. Called by `app-projects.controller.ts` and
- * `cost-caps.controller.ts`. Create order: platform and attachment
- * checks, the settled-balance gate, one transaction (project, chat,
- * first message, builder session), the backend provision handoff, then
- * the first builder turn — which adopts the already-written message
- * row — the title job, and the `v2_project_created` event.
+ * `cost-caps.controller.ts`. Create order: 1. the template version of the
+ * platform. 2. the attachment check. 3. the settled-balance gate. 4. one
+ * transaction (project, chat, first message, builder session). 5. the
+ * backend provision handoff. 6. the first builder turn, which adopts the
+ * message row. 7. the title job and `v2_project_created`.
  */
 import { randomUUID } from "node:crypto";
-import {
-	BadRequestException,
-	Inject,
-	Injectable,
-	Logger,
-	NotFoundException,
-} from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type {
 	AppProject,
 	CreateAppProjectRequest,
@@ -43,6 +37,7 @@ import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import { mapAppProjectRow } from "../../infrastructure/mappers/app-project.mapper";
 import { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
+import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
 import { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { BackendsService } from "./backends.service";
 import {
@@ -73,7 +68,10 @@ export class AppProjectsService {
 		@Inject(CreditsService)
 		private readonly credits: Pick<CreditsService, "getSettledBalance">,
 		@Inject(TemplateVersionService)
-		private readonly templateVersion: Pick<TemplateVersionService, "current">,
+		private readonly templateVersion: Pick<
+			TemplateVersionService,
+			"versionFor"
+		>,
 		@Inject(AnalyticsService)
 		private readonly analytics: Pick<AnalyticsService, "capture">,
 		@Inject(V2_ENV)
@@ -96,14 +94,12 @@ export class AppProjectsService {
 		body: CreateAppProjectRequest,
 		request: { countryCode: string | null },
 	): Promise<CreateAppProjectResponse> {
-		// WANDIT-192 adds mobile; until then the contract accepts "mobile"
-		// but the create path refuses it.
-		if (body.targetPlatform !== "web") {
-			throw new BadRequestException({
-				code: "V2_TARGET_PLATFORM_UNSUPPORTED",
-				message: "Mobile apps are not available yet",
-			});
-		}
+		// First, before any row: a server without the mobile template answers
+		// 503 MOBILE_TEMPLATE_UNAVAILABLE for a mobile create.
+		const templateVersion = this.templateVersion.versionFor(
+			body.targetPlatform,
+		);
+		const templateProfile = TEMPLATE_PROFILES[body.targetPlatform];
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
 
@@ -124,16 +120,15 @@ export class AppProjectsService {
 		const chatId = randomUUID();
 		const messageId = randomUUID();
 		const derivedName = deriveProjectName(body.prompt);
-		const templateVersion = this.templateVersion.current;
 		const harness = HARNESS_BY_ENV[this.v2Env.V2_HARNESS];
 
 		await this.projects.createWithChatAndFirstMessage({
 			app: {
-				framework: "web-app",
+				framework: templateProfile.framework,
 				harness,
 				languages: body.languages,
 				model: this.v2Env.V2_DEFAULT_MODEL ?? null,
-				targetPlatform: "web",
+				targetPlatform: body.targetPlatform,
 				templateVersion,
 			},
 			attachments: body.attachments,
@@ -209,11 +204,11 @@ export class AppProjectsService {
 
 		this.analytics.capture(scope.userId, "v2_project_created", {
 			countryCode: request.countryCode,
-			framework: "web-app",
+			framework: templateProfile.framework,
 			languages: body.languages,
 			organizationId: scope.kind === "org" ? scope.organizationId : null,
 			projectId,
-			targetPlatform: "web",
+			targetPlatform: body.targetPlatform,
 			templateVersion,
 			turnStarted: turnId !== null,
 		});

@@ -18,6 +18,7 @@ export function mapProjectRow(row: ProjectQueryRow): Project {
 		name: row.name,
 		prompt: row.prompt,
 		previewImageUrl: row.previewImageUrl,
+		targetPlatform: row.targetPlatform,
 		tiktokPixelId: row.tiktokPixelId,
 		...(row.activeSlug ? { publishedSlug: row.activeSlug } : {}),
 		status: row.activeSlug

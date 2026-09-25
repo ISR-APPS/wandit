@@ -30,7 +30,7 @@ export interface TemplateInit {
 }
 
 /**
- * Picks the folder that holds the `web-app-<version>.tar.gz` archives.
+ * Picks the folder that holds the `<framework>-<version>.tar.gz` archives.
  * `explicitDir` is `TEMPLATE_ARCHIVE_DIR` from the env and wins when set: a
  * deployed worker or API carries the archive at a fixed path. Otherwise the
  * first existing candidate wins: `<cwd>/templates`, `<cwd>/../../templates`
@@ -108,6 +108,7 @@ export class ArchiveTemplateInit implements TemplateInit {
 			{ cwd: sandbox.workspaceDir },
 		);
 		if (offline.exitCode !== 0) {
+			// LIMIT: the sandbox image warms only the web-app pnpm store, so a mobile install downloads every package. Upgrade: fetch the mobile-app lockfile in the image too.
 			this.logger.warn("sandbox.template-init.offline-install-miss", {
 				sandboxId: sandbox.providerSandboxId,
 			});

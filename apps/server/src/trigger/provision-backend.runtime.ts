@@ -44,7 +44,8 @@ const POLL_INTERVAL_MS = 5_000;
 // Issue step 4: the poll gives up after 10 minutes.
 const POLL_TIMEOUT_MS = 600_000;
 // The WANDIT-168 base schema under `TEMPLATE_ARCHIVE_DIR`; it enables
-// pg_cron and creates `public.profiles` with RLS.
+// pg_cron and creates `public.profiles` with RLS. It is platform-neutral,
+// so it serves the web-app and the mobile-app backends.
 const BASE_SQL_RELATIVE_PATH = "web-app/supabase/migrations/0000_base.sql";
 
 /** Payload of one `provision-backend` run. */

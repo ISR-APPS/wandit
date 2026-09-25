@@ -94,6 +94,10 @@ import type { TurnProjectRepository } from "../modules/app-builder/infrastructur
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
 import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import {
+	profileForFramework,
+	TEMPLATE_PROFILES,
+} from "../modules/app-builder/infrastructure/sandbox/template-profiles";
 import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import {
@@ -113,9 +117,10 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The dev server command and port of the app template (D15).
-const DEV_COMMAND = "pnpm run dev";
-const DEV_PORT = 5173;
+// The one platform sentence of a mobile app. The mobile-app template
+// CLAUDE.md lists the native modules that Expo Go runs.
+const MOBILE_APP_INSTRUCTION =
+	"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.";
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
 // 15 MB, the image upload limit. A bigger answer file is a video or an
@@ -1075,6 +1080,9 @@ export async function runBuilderTurn(
 				code: "project_template_missing",
 			});
 		}
+		// The dev command and port come from the template. An unknown
+		// framework throws here, before any sandbox work.
+		const templateProfile = profileForFramework(project.framework);
 		const model = turn.model ?? deps.model;
 		if (model === null) {
 			// Checked before the sandbox starts: no model, no spend. When
@@ -1283,7 +1291,7 @@ export async function runBuilderTurn(
 			}
 		}
 		// D18: only an `active` row reaches the VM. A `creating` or `error`
-		// row, or no row, keeps the VITE_* names out of the env.
+		// row, or no row, keeps the Supabase names out of the env.
 		const supabase =
 			backend?.status === "active" &&
 			backend.ref !== null &&
@@ -1304,8 +1312,8 @@ export async function runBuilderTurn(
 
 		stamps.sandboxStart = deps.now();
 		sandbox = await deps.sandboxes.getOrCreate(projectId, {
-			devCommand: DEV_COMMAND,
-			devPort: DEV_PORT,
+			devCommand: templateProfile.devCommand,
+			devPort: templateProfile.devPort,
 			env: sandboxEnv,
 			framework: project.framework,
 			// Layer 3 egress hosts the `request_network_host` tool approved.
@@ -1418,11 +1426,15 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Three sentences; the template knows every other rule.
+			// Three sentences, plus one for a mobile app. The template
+			// CLAUDE.md in the workspace root holds every other rule.
 			instructions:
 				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
 				"Ask the user with the ask_user tool only when you cannot decide yourself: put every question of one step in ONE call. " +
-				"Write the Bash and Agent description in the user's language: the chat shows it to the user.",
+				"Write the Bash and Agent description in the user's language: the chat shows it to the user." +
+				(templateProfile === TEMPLATE_PROFILES.mobile
+					? ` ${MOBILE_APP_INSTRUCTION}`
+					: ""),
 			model,
 			sandbox,
 		};

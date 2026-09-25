@@ -136,8 +136,7 @@
 			},
 			"mobile": {
 				"label": "App mobile",
-				"description": "Une application iOS et Android.",
-				"soon": "Bientôt"
+				"description": "Une application iOS et Android."
 			}
 		},
 		"outputLabel": "Sortie",

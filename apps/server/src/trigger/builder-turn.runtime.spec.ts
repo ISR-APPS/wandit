@@ -1042,6 +1042,55 @@ describe("runBuilderTurn", () => {
 		expect(world.minted).toHaveLength(0);
 	});
 
+	it("fails with project_template_unknown before any sandbox work", async () => {
+		const world = makeWorld({
+			project: { ...fakeProjectRow(), framework: "tanstack-start" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe(
+			"project_template_unknown",
+		);
+		expect(world.sandboxes.createdCount).toBe(0);
+	});
+
+	it("boots a web project on the Vite port and a mobile project on Metro", async () => {
+		const web = makeWorld();
+		web.harness.events = happyEvents();
+		const mobile = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		mobile.harness.events = happyEvents();
+
+		await runBuilderTurn(
+			web.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+		await runBuilderTurn(
+			mobile.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+
+		expect(web.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 5173,
+			framework: "web-app",
+		});
+		expect(mobile.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+	});
+
 	it("fails with project_not_v2 on a V1 project", async () => {
 		const world = makeWorld({
 			project: { ...fakeProjectRow(), engine: "v1_page" },
@@ -2854,6 +2903,27 @@ describe("runBuilderTurn", () => {
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
 		expect(instructions).toContain("ask_user tool");
 		expect(instructions).toContain("Bash and Agent description");
+		// The platform sentence is for a mobile app only.
+		expect(instructions).not.toContain("Expo");
+	});
+
+	it("adds the Expo sentence to the instructions of a mobile project", async () => {
+		const world = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain(
+			"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.",
+		);
+		expect(instructions).toContain("ask_user tool");
 	});
 
 	it("writes a data-thought part with the duration after each reasoning block", async () => {
@@ -2919,6 +2989,10 @@ describe("runBuilderTurn", () => {
 				"https://abcdefghijklmnopqrst.supabase.co",
 			);
 			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			expect(env?.EXPO_PUBLIC_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+			expect(env?.EXPO_PUBLIC_SUPABASE_ANON_KEY).toBe("anon-key-test");
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(

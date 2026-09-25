@@ -280,11 +280,14 @@ cannot re-enable them.
 
 ## 9. No platform secret in the VM
 
-`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the eight env names
+`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the ten env names
 a sandbox may receive: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS`,
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `VITE_SUPABASE_ANON_KEY`,
-`VITE_SUPABASE_URL`, `WANDIT_PREVIEW_HOST`. Every other name — a
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
+`EXPO_PUBLIC_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+`VITE_SUPABASE_URL`, `WANDIT_PREVIEW_HOST`. The two Supabase pairs
+hold the same public values: the web-app template reads `VITE_*`, the
+mobile-app template reads `EXPO_PUBLIC_*`. Every other name — a
 Vercel token, a real Anthropic key, a service-role key, a signing
 key — is a platform secret and stays out. `buildSandboxEnv` throws
 `SandboxEnvRejectedError` on a non-listed `extra` name and writes

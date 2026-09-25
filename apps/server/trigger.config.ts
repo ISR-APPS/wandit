@@ -1,3 +1,9 @@
+/**
+ * Trigger.dev config of the server worker. `trigger.dev dev` and
+ * `trigger.dev deploy` (trigger-deploy.yml) read it. It sets the retries,
+ * installs Chromium, and uploads Sentry source maps. It also copies the
+ * template archives and the base schema into the worker image.
+ */
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
 import { esbuildPlugin } from "@trigger.dev/build/extensions";
@@ -65,14 +71,15 @@ export default defineConfig({
 	build: {
 		extensions: [
 			playwrightChromium(),
-			// The deployed worker has no repo checkout. This copies the packed
-			// template archive and the base schema next to the bundle. The
-			// leading "../.." is dropped, so both land under `<build>/templates/`,
-			// the first folder `resolveTemplateArchiveDir` tries. The deploy
-			// workflow packs the archive first; it is not in git.
+			// The deployed worker has no repo checkout. This copies every packed
+			// template archive (web-app, mobile-app) and the base schema next to
+			// the bundle. The leading "../.." is dropped, so all land under
+			// `<build>/templates/`, the first folder `resolveTemplateArchiveDir`
+			// tries. The deploy workflow runs `templates/pack-all.mjs` first; the
+			// archives are not in git. The base schema serves both templates.
 			additionalFiles({
 				files: [
-					"../../templates/web-app-*.tar.gz",
+					"../../templates/*-*.tar.gz",
 					"../../templates/web-app/supabase/migrations/*.sql",
 				],
 			}),

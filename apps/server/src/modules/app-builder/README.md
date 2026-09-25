@@ -26,12 +26,12 @@ PostHog flag `v2-builder`).
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
 | `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
-| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init |
+| `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
 | `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
-| `infrastructure/template/` | WANDIT-175: `TemplateVersionService` (reads `templates/web-app/template_version`) |
+| `infrastructure/template/` | WANDIT-175: `TemplateVersionService`; WANDIT-192: one version per platform (the web file is required at boot, the mobile file is optional) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
@@ -80,16 +80,27 @@ partial unique index guarantees at most one live row per project.
   archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
   `rebuild` warning. `LoggingRepoRestorer` is the placeholder until
   WANDIT-171.
-- Template files in a deploy: `templates/web-app-<version>.tar.gz` is not
-  in git. The server `build` script packs it before `tsdown`, so the
-  Railway image has it under `/app/templates`. The Trigger deploy workflow
-  packs it too, and `additionalFiles` in `trigger.config.ts` copies the
-  archive and `web-app/supabase/migrations/*.sql` under `<build>/templates`.
-  `TEMPLATE_VERSION_FILE_PATH` and `TEMPLATE_ARCHIVE_DIR` both resolve from
+- Template profiles (WANDIT-192): `TEMPLATE_PROFILES` in
+  `template-profiles.ts` holds one profile per target platform: the
+  `framework` (the archive prefix, `web-app` or `mobile-app`), the dev
+  command, the dev port (5173 for Vite, 8081 for Metro), and the version
+  file. The builder-turn runtime and a restore pick the profile with
+  `profileForFramework(project.framework)` and pass its dev command and
+  port to `getOrCreate`. The dev port decides `previewHost`.
+- Template files in a deploy: the `templates/<framework>-<version>.tar.gz`
+  archives are not in git. The server `build` script runs
+  `templates/pack-all.mjs` before `tsdown`. It runs `scripts/pack.mjs` of
+  every template folder that has one, in name order, and skips a folder
+  without one. So the Railway image has the archives under `/app/templates`.
+  The Trigger deploy workflow runs `pack-all.mjs` too, and `additionalFiles`
+  in `trigger.config.ts` copies `templates/*-*.tar.gz` and
+  `web-app/supabase/migrations/*.sql` under `<build>/templates`.
+  `TEMPLATE_VERSION_FILE_PATHS` and `TEMPLATE_ARCHIVE_DIR` both resolve from
   the working directory, never from the bundled file.
 - Env allow-list: `buildSandboxEnv` emits only `SANDBOX_ENV_ALLOW_LIST`
   names — the per-run proxy values, `VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
+  `VITE_SUPABASE_ANON_KEY`, their Expo copies `EXPO_PUBLIC_SUPABASE_URL`
+  and `EXPO_PUBLIC_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
   is always written empty; `VERCEL_SANDBOX_TOKEN`, signing keys, and
   service-role keys can never enter the sandbox. The builder-turn runtime
   reads `app_backends` and passes the URL and anon key only when the row
@@ -222,8 +233,11 @@ Two routes under `/api/v2/projects`, behind `V2BuilderEnabledGuard` and
 the same workspace permissions V1 uses (`project:create`, read = any
 member):
 
-- `POST /` refuses `mobile` (WANDIT-192), checks attachments and the
-  settled balance, then writes the project row (`engine = 'v2_app'`), the
+- `POST /` first reads the template version of `targetPlatform`
+  (WANDIT-192): when the API booted without
+  `templates/mobile-app/template_version`, a mobile create answers 503
+  `MOBILE_TEMPLATE_UNAVAILABLE` and writes nothing. The service reads the
+  files once, at boot. Then it checks attachments and the settled balance, and writes the project row (`engine = 'v2_app'`), the
   first chat, the first user message, and the `builder_sessions` row in
   one transaction. The first builder turn starts right after the commit
   and adopts that message row — a failed turn still answers 201 with
@@ -295,7 +309,7 @@ The task (`backend-provisioning` queue, concurrency 3, one attempt) claims the r
 It creates the Supabase project when the row has no `ref`; a replay creates no second project.
 It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout.
 It reads the anon key.
-It applies `templates/web-app/supabase/migrations/0000_base.sql`.
+It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral and serves both templates.
 It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
@@ -563,7 +577,8 @@ One run does this, in order:
    CAS under the run id); a lost claim ends the run quietly. Then loads
    the turn row and the project row (`TurnProjectRepository`); a
    non-`v2_app` project or a missing framework/template version fails the
-   turn before any sandbox work. The model is `turn.model ??
+   turn before any sandbox work; a framework without a template profile
+   fails it `project_template_unknown`. The model is `turn.model ??
    V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
 2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
    computes `capUsd` for the token claims from `perTurnCapCredits` — the
@@ -579,17 +594,22 @@ One run does this, in order:
    `ANTHROPIC_AUTH_TOKEN`, the proxy URL `ANTHROPIC_BASE_URL`, the run id
    `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
    an empty string. An `active` `app_backends` row adds `VITE_SUPABASE_URL`
-   and `VITE_SUPABASE_ANON_KEY`; any other row, or no row, adds the note
+   and `VITE_SUPABASE_ANON_KEY`, plus the same two values as
+   `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`; any other row, or no row, adds the note
    `Backend not ready yet` to the first status of the turn
    (`session_starting` on a cold session, `running` on a warm turn).
-5. Wakes or creates the sandbox (`sandboxes.getOrCreate`) and touches
+5. Wakes or creates the sandbox (`sandboxes.getOrCreate`, with the dev
+   command and port of the template profile) and touches
    `sandbox_sessions` activity so the idle sweep leaves it alone. The
    `sandbox_waking` status is written from `onWake`, so a running sandbox
    (a warm turn) shows no waking step on the card.
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
-   harness mismatch is a failure. The `session_starting` status is
+   harness mismatch is a failure. The session instructions name the app
+   languages, the `ask_user` rule, and the description language. A
+   mobile project adds one sentence that points at the template
+   `CLAUDE.md`, which Claude Code loads from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note

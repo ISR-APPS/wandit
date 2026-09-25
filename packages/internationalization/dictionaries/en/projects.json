@@ -136,8 +136,7 @@
 			},
 			"mobile": {
 				"label": "Mobile app",
-				"description": "An iOS and Android app.",
-				"soon": "Coming soon"
+				"description": "An iOS and Android app."
 			}
 		},
 		"outputLabel": "Output",

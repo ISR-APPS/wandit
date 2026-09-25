@@ -136,8 +136,7 @@
 			},
 			"mobile": {
 				"label": "تطبيق موبايل",
-				"description": "تطبيق iOS وأندرويد.",
-				"soon": "قريباً"
+				"description": "تطبيق iOS وأندرويد."
 			}
 		},
 		"outputLabel": "المُخرَج",

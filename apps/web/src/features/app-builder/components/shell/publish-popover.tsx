@@ -1,9 +1,9 @@
 /**
  * Publish button of the top bar and its popover. A web app shows its Wandit
- * domain row; a mobile app shows the App Store, Google Play, and QR test rows.
- * Rendered by components/shell/top-bar.tsx. Reads projectDomainsQuery or
- * appStoresSummaryQuery. Publish, submit, and QR have no backend yet.
+ * domain row; a mobile app shows a "coming soon" line.
+ * Rendered by components/shell/top-bar.tsx. Reads projectDomainsQuery.
  * PublishWebTargets and PublishMobileTargets are pure; the spec renders them.
+ * No screen renders PublishMobileTargets yet: the store builds are WANDIT-194.
  */
 
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -28,10 +28,7 @@ import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
 
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import {
-	appStoresSummaryQuery,
-	projectDomainsQuery,
-} from "../../api/app-builder.queries";
+import { projectDomainsQuery } from "../../api/app-builder.queries";
 import type {
 	AppProject,
 	AppStoresSummary,
@@ -43,7 +40,7 @@ export type PublishPopoverProps = {
 	project: AppProject;
 };
 
-/** The body suspends inside the popover, so the top bar never waits for the domains or the stores. */
+/** The web body suspends inside the popover, so the top bar never waits for the domains. */
 export function PublishPopover({ project }: PublishPopoverProps) {
 	const { t, locale } = useTranslation();
 	// Controlled, so "Connect one" can close the popover when it opens the Domains panel.
@@ -87,7 +84,10 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 							onNavigate={() => setOpen(false)}
 						/>
 					) : (
-						<PublishMobileBody projectId={project.id} />
+						// Product rule: publish is out of the first mobile version.
+						<p className="text-muted-foreground text-sm">
+							{t("appBuilder.publish.mobileSoon")}
+						</p>
 					)}
 				</Suspense>
 			</PopoverContent>
@@ -118,22 +118,6 @@ function PublishWebBody({
 					search: (prev) => ({ ...prev, view: "more", panel: "domains" }),
 				});
 			}}
-		/>
-	);
-}
-
-/** Reads the store summary. Every mobile action is a toast until the backend exists. */
-function PublishMobileBody({ projectId }: { projectId: string }) {
-	const { t } = useTranslation();
-	const { data: stores } = useSuspenseQuery(appStoresSummaryQuery(projectId));
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-
-	return (
-		<PublishMobileTargets
-			stores={stores}
-			onSubmit={notWired}
-			onSetUp={notWired}
-			onShowQr={notWired}
 		/>
 	);
 }

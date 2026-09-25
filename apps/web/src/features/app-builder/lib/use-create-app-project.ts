@@ -37,8 +37,8 @@ export type UseCreateAppProjectWithPromptResult = {
 
 /**
  * `targetPlatform` is the app type chip pick of the prompt box. The server
- * checks the balance and refuses `mobile` until WANDIT-192; both come back
- * as errors here, so the dashboard has no precheck of its own.
+ * checks the balance, and it answers 503 for `mobile` when it has no mobile
+ * template. Both come back as errors here, so the dashboard has no precheck.
  */
 export function useCreateAppProjectWithPrompt(
 	targetPlatform: TargetPlatform,
