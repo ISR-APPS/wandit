@@ -1,0 +1,8 @@
+# This file makes the template its own install root. Without it, pnpm walks
+# up into the monorepo workspace and installs that instead.
+packages: []
+# pnpm 11 reads only auth and network keys from .npmrc, so these two live here.
+engineStrict: true
+saveExact: true
+# No dependency has an install script (checked 2026-09-25), so no allowBuilds
+# entry is needed. pnpm stops the install when a new one appears.
