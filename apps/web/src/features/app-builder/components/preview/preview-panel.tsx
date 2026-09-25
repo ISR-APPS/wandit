@@ -112,7 +112,7 @@ export function PreviewPanel({
 						transition={{ duration: 0.38, delay: 0.04, ease: BOOT_EASE }}
 					/>
 				) : null}
-				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the comet. */}
+				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the ember buttons of the drawing. */}
 				<AnimatePresence>
 					{isFrameLoaded ? null : (
 						<motion.div

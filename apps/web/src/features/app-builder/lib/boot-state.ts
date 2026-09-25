@@ -52,15 +52,29 @@ export type BootStep = {
 	id: "machine" | "preview" | "database";
 	state: "pending" | "active" | "done" | "failed";
 	label: TranslationKey;
-	/** Lines under the label. With two lines, the screen shows the first, then keeps the second. */
+	/** Lines under the label. The screen shows each line for 3.2 s, then keeps the last one. */
 	details: TranslationKey[];
 };
+
+/** The picture of the boot screen. BootPlan draws one scene for each value. `stopped` is a failed start, which is not a sleep. */
+export type BootScene =
+	| "loading"
+	| "create"
+	| "wake"
+	| "open"
+	| "asleep"
+	| "stopped";
 
 /** What the screen shows. `stopped` is true when a turn failed while the user watched. */
 export type BootView =
 	| { variant: "loading" }
 	| { variant: "asleep"; stopped: boolean }
-	| { variant: "booting"; steps: BootStep[] };
+	| {
+			variant: "booting";
+			/** `create`: a new app is set up. `wake`: a saved app wakes. `open`: the app page loads. */
+			scene: "create" | "wake" | "open";
+			steps: BootStep[];
+	  };
 
 // The turn writes these phases after the sandbox runs. `checkpoint` is in the contract, but no code sends it.
 const MACHINE_READY_PHASES: readonly TurnStreamPhase[] = [
@@ -114,15 +128,41 @@ export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
 	if (!memory.machineReady && signals.isFirstTurn === null) {
 		return { variant: "loading" };
 	}
-	const steps: BootStep[] = memory.machineReady
-		? [
-				{
+	// The first turn creates the sandbox from the template. A later turn resumes the saved one.
+	const scene = memory.machineReady
+		? "open"
+		: signals.isFirstTurn
+			? "create"
+			: "wake";
+	const machine: BootStep =
+		scene === "open"
+			? {
 					id: "machine",
 					state: "done",
 					label: "appBuilder.preview.boot.machine.done",
 					details: [],
-				},
-				{
+				}
+			: scene === "create"
+				? {
+						id: "machine",
+						state: "active",
+						label: "appBuilder.preview.boot.machine.starting",
+						// The first turn waits tens of seconds. The last line says that the wait is normal, and it stays.
+						details: [
+							"appBuilder.preview.boot.machine.copying",
+							"appBuilder.preview.boot.machine.installing",
+							"appBuilder.preview.boot.machine.firstTime",
+						],
+					}
+				: {
+						id: "machine",
+						state: "active",
+						label: "appBuilder.preview.boot.machine.waking",
+						details: ["appBuilder.preview.boot.machine.restoring"],
+					};
+	const preview: BootStep =
+		scene === "open"
+			? {
 					id: "preview",
 					state: "active",
 					label: "appBuilder.preview.boot.preview.label",
@@ -132,38 +172,32 @@ export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
 							? "appBuilder.preview.boot.preview.loading"
 							: "appBuilder.preview.boot.preview.waiting",
 					],
-				},
-			]
-		: [
-				// The first turn creates the sandbox from the template. A later turn resumes the saved one.
-				signals.isFirstTurn
-					? {
-							id: "machine",
-							state: "active",
-							label: "appBuilder.preview.boot.machine.starting",
-							details: [
-								"appBuilder.preview.boot.machine.copying",
-								"appBuilder.preview.boot.machine.installing",
-							],
-						}
-					: {
-							id: "machine",
-							state: "active",
-							label: "appBuilder.preview.boot.machine.waking",
-							details: ["appBuilder.preview.boot.machine.restoring"],
-						},
-				{
+				}
+			: {
 					id: "preview",
 					state: "pending",
 					label: "appBuilder.preview.boot.preview.label",
 					details: [],
-				},
-			];
+				};
 	const database = databaseStepOf(signals.backend);
 	return {
 		variant: "booting",
-		steps: database === null ? steps : [...steps, database],
+		scene,
+		steps:
+			database === null ? [machine, preview] : [machine, preview, database],
 	};
+}
+
+/** The scene of a view. A booting view holds its own scene. This function names the scene of the other variants. */
+export function sceneOf(view: BootView): BootScene {
+	switch (view.variant) {
+		case "loading":
+			return "loading";
+		case "asleep":
+			return view.stopped ? "stopped" : "asleep";
+		case "booting":
+			return view.scene;
+	}
 }
 
 /** The database row, or null when the preview has nothing true to say about the database. */

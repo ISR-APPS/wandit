@@ -42,19 +42,20 @@
 		"frameTitle": "Preview of {name}",
 		"retry": "Try again",
 		"boot": {
-			"loading": "Loading the preview",
+			"loading": "Loading your app",
 			"title": "Getting your app ready",
 			"machine": {
-				"starting": "Starting a cloud machine",
-				"waking": "Waking your cloud machine",
-				"done": "Cloud machine ready",
-				"copying": "Copying the starter files",
-				"installing": "Installing packages",
-				"restoring": "Restoring your last version"
+				"starting": "Setting up your new app",
+				"waking": "Waking up your app",
+				"done": "Ready to open",
+				"copying": "Gathering the pieces of your app",
+				"installing": "Putting it all together",
+				"firstTime": "The first time takes a little longer",
+				"restoring": "Bringing back your latest changes"
 			},
 			"preview": {
 				"label": "Opening your app",
-				"waiting": "Waiting for your app to answer",
+				"waiting": "Almost there",
 				"loading": "Loading the first page"
 			},
 			"database": {
@@ -62,16 +63,16 @@
 				"starting": "Starting your database",
 				"done": "Database ready",
 				"failed": "Database setup failed",
-				"wait": "Takes a few minutes. Your app does not wait for it.",
-				"failedDetail": "The preview still opens."
+				"wait": "This takes a few minutes. Your app opens in the meantime.",
+				"failedDetail": "Your app still opens."
 			},
 			"asleep": {
 				"title": "Your app is asleep",
-				"body": "It sleeps after some time without use. Send a message in the chat to wake it."
+				"body": "It goes to sleep after a while without use. Send a message in the chat to wake it up."
 			},
 			"stopped": {
-				"title": "Your app did not start",
-				"body": "The chat shows what went wrong. Send a message to try again."
+				"title": "Your app could not start",
+				"body": "The chat explains what happened. Send a message to try again."
 			}
 		}
 	},
@@ -84,7 +85,7 @@
 		"editCode": "Edit code",
 		"readOnly": "The code is read-only in this preview build.",
 		"fileMissing": "This file is not in the repository.",
-		"asleep": "The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+		"asleep": "Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
 		"noFiles": "The project has no files yet.",
 		"binaryFile": "This file is binary. The Code view shows text files only.",
 		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
@@ -427,7 +428,7 @@
 			"untitled": "Wandit needs your answer"
 		},
 		"phases": {
-			"sandbox_waking": "Waking up your workspace",
+			"sandbox_waking": "Getting your app ready",
 			"session_starting": "Getting ready",
 			"running": "Working",
 			"checkpoint": "Saving your changes",

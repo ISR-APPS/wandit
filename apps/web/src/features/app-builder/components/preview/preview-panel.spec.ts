@@ -106,7 +106,7 @@ describe("PreviewPanel", () => {
 		renderPanel({ deps });
 
 		expect((await screen.findByRole("status")).textContent).toBe(
-			"Loading the preview",
+			"Loading your app",
 		);
 	});
 
@@ -118,7 +118,7 @@ describe("PreviewPanel", () => {
 		// Flush the rejected mint, so the panel holds the waking status.
 		await act(async () => {});
 		// The first waking answer waits: a new project's turn often connects in that time.
-		expect(screen.getByRole("status").textContent).toBe("Loading the preview");
+		expect(screen.getByRole("status").textContent).toBe("Loading your app");
 		await waitFor(
 			() =>
 				expect(screen.getByRole("status").textContent).toContain(
@@ -128,7 +128,7 @@ describe("PreviewPanel", () => {
 		);
 	});
 
-	it("shows the machine step while the first turn boots the sandbox", async () => {
+	it("shows the setup step while the first turn boots the sandbox", async () => {
 		renderPanel({
 			deps: wakingDeps,
 			bootContext: {
@@ -141,31 +141,11 @@ describe("PreviewPanel", () => {
 
 		await waitFor(() =>
 			expect(screen.getByRole("status").textContent).toBe(
-				"Getting your app ready. Starting a cloud machine",
+				"Getting your app ready. Setting up your new app",
 			),
 		);
-		expect(screen.getByText("Copying the starter files")).toBeTruthy();
+		expect(screen.getByText("Gathering the pieces of your app")).toBeTruthy();
 		expect(screen.getByText("Opening your app")).toBeTruthy();
-	});
-
-	it("starts the comet hidden, so it fades in after the drawing", async () => {
-		const { container } = renderPanel({
-			deps: wakingDeps,
-			bootContext: {
-				...IDLE_BOOT,
-				isTurnRunning: true,
-				turnPhase: "sandbox_waking",
-				isFirstTurn: true,
-			},
-		});
-
-		await screen.findByText("Starting a cloud machine");
-		// The comet groups are the only elements that reduced motion hides.
-		const comets = container.querySelectorAll("g.motion-reduce\\:hidden");
-		expect(comets.length).toBe(2);
-		for (const comet of comets) {
-			expect(comet.getAttribute("opacity")).toBe("0");
-		}
 	});
 
 	it("keeps the boot screen over the iframe until the frame loads", async () => {

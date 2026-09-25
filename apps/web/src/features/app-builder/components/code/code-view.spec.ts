@@ -314,7 +314,7 @@ describe("CodeView", () => {
 		renderView(queryClient);
 		expect(
 			await screen.findByText(
-				"The sandbox is asleep. Send a message to wake it. Then the code shows here.",
+				"Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
 			),
 		).toBeTruthy();
 		expect(

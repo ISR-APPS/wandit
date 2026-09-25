@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import {
 	type BootMemory,
+	type BootScene,
 	type BootSignals,
 	type BootView,
 	bootViewOf,
 	formatElapsed,
 	INITIAL_BOOT_MEMORY,
 	rememberBoot,
+	sceneOf,
 } from "./boot-state";
 
 const IDLE: BootSignals = {
@@ -81,6 +83,7 @@ describe("bootViewOf", () => {
 
 	it("shows the create steps on the first turn", () => {
 		const { view } = viewAfter(FIRST_TURN_BOOTING);
+		expect(view.variant === "booting" && view.scene).toBe("create");
 		expect(stepsOf(view)).toEqual([
 			"machine:active:appBuilder.preview.boot.machine.starting",
 			"preview:pending:appBuilder.preview.boot.preview.label",
@@ -88,11 +91,13 @@ describe("bootViewOf", () => {
 		expect(view.variant === "booting" && view.steps[0]?.details).toEqual([
 			"appBuilder.preview.boot.machine.copying",
 			"appBuilder.preview.boot.machine.installing",
+			"appBuilder.preview.boot.machine.firstTime",
 		]);
 	});
 
 	it("shows the resume steps on a later turn", () => {
 		const { view } = viewAfter({ ...FIRST_TURN_BOOTING, isFirstTurn: false });
+		expect(view.variant === "booting" && view.scene).toBe("wake");
 		expect(stepsOf(view)[0]).toBe(
 			"machine:active:appBuilder.preview.boot.machine.waking",
 		);
@@ -115,6 +120,7 @@ describe("bootViewOf", () => {
 			tokenStatus: "ready",
 			isTurnRunning: true,
 		});
+		expect(view.variant === "booting" && view.scene).toBe("open");
 		expect(stepsOf(view)).toEqual([
 			"machine:done:appBuilder.preview.boot.machine.done",
 			"preview:active:appBuilder.preview.boot.preview.label",
@@ -192,6 +198,21 @@ describe("rememberBoot", () => {
 	it("returns the same object when no fact changed", () => {
 		const memory = rememberBoot(INITIAL_BOOT_MEMORY, FIRST_TURN_BOOTING);
 		expect(rememberBoot(memory, FIRST_TURN_BOOTING)).toBe(memory);
+	});
+});
+
+describe("sceneOf", () => {
+	const cases: [BootView, BootScene][] = [
+		[{ variant: "loading" }, "loading"],
+		[{ variant: "asleep", stopped: false }, "asleep"],
+		[{ variant: "asleep", stopped: true }, "stopped"],
+		[{ variant: "booting", scene: "create", steps: [] }, "create"],
+		[{ variant: "booting", scene: "wake", steps: [] }, "wake"],
+		[{ variant: "booting", scene: "open", steps: [] }, "open"],
+	];
+
+	it.each(cases)("maps %o to the scene %s", (view, scene) => {
+		expect(sceneOf(view)).toBe(scene);
 	});
 });
 
