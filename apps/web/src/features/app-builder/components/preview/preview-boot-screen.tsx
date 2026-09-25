@@ -1,9 +1,10 @@
 /**
  * The screen over the preview while the app is not on screen yet: the
- * plan drawing, the real start-up steps, and an elapsed timer; the asleep
- * note when no sandbox runs; or the waiting note while the project holds
- * only the template. PreviewPanel renders it until the app shows. It reads
- * its content from lib/boot-state.ts and draws with BootPlan.
+ * Wandit Spark and the app drawing, the real start-up steps, and an
+ * elapsed timer; the asleep note while the app sleeps; or the waiting note
+ * while the project holds only the template. PreviewPanel renders it until
+ * the app shows. It reads its content from lib/boot-state.ts and draws with
+ * BootPlan.
  */
 
 import { cn } from "@wandit/ui/lib/utils";
@@ -11,19 +12,20 @@ import { Check, CircleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { Spark } from "@/components/logo";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import {
 	type BootContext,
+	type BootScene,
 	type BootStep,
 	type BootView,
 	bootViewOf,
 	formatElapsed,
 	INITIAL_BOOT_MEMORY,
 	rememberBoot,
+	sceneOf,
 } from "../../lib/boot-state";
 import { BOOT_EASE } from "../../lib/constants";
-import { BootPlan, type PlanStage } from "./boot-plan";
+import { BootPlan } from "./boot-plan";
 
 /**
  * How long the mark shows before the asleep or the waiting note, ms. The chat
@@ -36,20 +38,14 @@ const DETAIL_STEP_MS = 3200;
 /** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
 const TIMER_TICK_MS = 250;
 
-/** Opacity of the ember wash behind the drawing, per stage. `loading` is the first token request. */
-const WASH_OPACITY: Record<PlanStage | "loading", string> = {
+/** Opacity of the ember wash behind the picture, per scene. It is brightest when the app opens and lowest when it did not start. */
+const WASH_OPACITY: Record<BootScene, string> = {
 	loading: "opacity-30",
-	draft: "opacity-55",
-	inked: "opacity-100",
+	create: "opacity-55",
+	wake: "opacity-40",
+	open: "opacity-100",
 	asleep: "opacity-22",
-};
-
-/** Opacity of the dot grid, per stage. */
-const DOTS_OPACITY: Record<PlanStage | "loading", string> = {
-	loading: "opacity-0",
-	draft: "opacity-100",
-	inked: "opacity-60",
-	asleep: "opacity-0",
+	stopped: "opacity-12",
 };
 
 /** Props of the boot screen. PreviewPanel passes them. */
@@ -97,16 +93,7 @@ export function PreviewBootScreen({
 		return () => clearTimeout(timer);
 	}, [heldNote]);
 	const shown: BootView = heldNote === null ? view : { variant: "loading" };
-
-	const planStage: PlanStage | null =
-		shown.variant === "loading"
-			? null
-			: shown.variant === "asleep" || shown.variant === "waiting"
-				? "asleep"
-				: nextMemory.machineReady
-					? "inked"
-					: "draft";
-	const backdrop = planStage ?? "loading";
+	const scene = sceneOf(shown);
 
 	return (
 		// The stage is the dark output world in both themes, so the dark tokens apply inside.
@@ -114,41 +101,22 @@ export function PreviewBootScreen({
 			<p role="status" className="sr-only">
 				{announcementOf(shown, t)}
 			</p>
-			<div
-				aria-hidden="true"
-				className={cn(
-					"pointer-events-none absolute inset-0 bg-dots transition-opacity duration-600",
-					DOTS_OPACITY[backdrop],
-				)}
-			/>
 			{/* On wide stages the frame edges and the text edges line up; the width follows the stage height. */}
 			<motion.div
 				variants={{ leave: { scale: 1.04 } }}
 				transition={{ duration: 0.26, ease: BOOT_EASE }}
 				className="relative flex @max-[560px]:w-[min(300px,calc(100cqw_-_48px))] w-[clamp(280px,calc(100cqh_-_300px),420px)] flex-col"
 			>
-				<div className="relative">
+				{/* data-scene names the picture for the specs. */}
+				<div className="relative" data-scene={scene}>
 					<div
 						aria-hidden="true"
 						className={cn(
 							"-translate-1/2 pointer-events-none absolute top-1/2 left-1/2 @max-[560px]:size-[440px] h-[460px] w-[640px] bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--ember-2)_22%,transparent),transparent)] transition-opacity duration-800",
-							WASH_OPACITY[backdrop],
+							WASH_OPACITY[scene],
 						)}
 					/>
-					<div
-						aria-hidden="true"
-						className={cn(
-							"-translate-1/2 pointer-events-none absolute top-1/2 left-1/2 grid place-items-center transition-opacity duration-300",
-							planStage === null ? "opacity-100" : "opacity-0",
-						)}
-					>
-						<span className="absolute size-[132px] animate-pulse-soft rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--ember-2)_34%,transparent),transparent)] [animation-duration:2.4s] motion-reduce:animate-none" />
-						<Spark className="relative size-[26px] text-ember-1" />
-					</div>
-					<BootPlan
-						stage={planStage}
-						stopped={shown.variant === "asleep" && shown.stopped}
-					/>
+					<BootPlan scene={scene} />
 				</div>
 				{/* The reserved height holds the longest step list, so a late row or a variant change never moves the drawing. */}
 				<motion.div
@@ -363,9 +331,9 @@ function StepIcon({
 }
 
 /**
- * The detail under a label. With two lines it shows the first, then the
- * second after 3.2 s, and keeps it: a loop would read as "it started
- * again". A shorter new list shows its last line.
+ * The detail under a label. It shows each line for 3.2 s and keeps the
+ * last one: a loop would read as "it started again". A shorter new list
+ * shows its last line.
  */
 function DetailLine({
 	lines,

@@ -245,7 +245,7 @@ describe("ChatPane", () => {
 	it("names the live phase in the working row", () => {
 		renderPane({ isSending: true, phase: "sandbox_waking" });
 		expect(screen.getByRole("status").textContent).toContain(
-			"Waking up your workspace",
+			"Getting your app ready",
 		);
 	});
 
