@@ -79,3 +79,13 @@ is a different token: the CI deploy of the edge Worker uses it, and it
 keeps its wider scopes (Workers Scripts and Workers Routes). Do not put the
 narrow token of step 3 into GitHub, and do not put the CI token into
 Railway or Trigger.dev.
+
+## Backend lifecycle (WANDIT-184)
+
+The operator steps to pause or wake one backend by hand, and to test the
+daily `backend-pause-sweep` on staging, are in
+`docs/v2/backend-lifecycle.md` ("Operator steps"). The sweep needs
+`SUPABASE_PLATFORM_TOKEN` and `SUPABASE_PLATFORM_ORG_ID` in the Trigger.dev
+environment and runs only in PRODUCTION and STAGING. `BACKEND_IDLE_DAYS`
+and `BACKEND_IDLE_DAYS_PUBLISHED` override the idle windows; leave them
+unset in production until WANDIT-153 settles the numbers.

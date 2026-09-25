@@ -327,6 +327,17 @@ export const env = createEnv({
 		SUPABASE_PLATFORM_ORG_ID: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_REGION: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_INSTANCE_SIZE: z.string().min(1).optional(),
+		// Idle days before the daily sweep pauses an unpublished backend.
+		// Unset means BACKEND_DEFAULTS.idleDays (7). 0 pauses every active
+		// backend at the next run; use it only for a staging test.
+		BACKEND_IDLE_DAYS: z.coerce.number().int().nonnegative().optional(),
+		// Idle days for a backend with a live publish. Unset means
+		// BACKEND_DEFAULTS.publishedIdleDays (30).
+		BACKEND_IDLE_DAYS_PUBLISHED: z.coerce
+			.number()
+			.int()
+			.nonnegative()
+			.optional(),
 		// code.storage org slug: used in the API base URL, the git host, and
 		// the JWT `iss` claim (D21).
 		CODE_STORAGE_ORG: z.string().min(1).optional(),

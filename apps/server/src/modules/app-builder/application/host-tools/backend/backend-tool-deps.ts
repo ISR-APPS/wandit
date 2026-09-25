@@ -3,7 +3,8 @@
  * dependency type, the active-backend check, the Supabase error mapping,
  * and `runBackendTool`, the body of every tool `execute`. The seven tool
  * factories in this folder call them. `BuilderHostToolRegistry` passes the
- * deps. Nothing here starts a provisioning or a restore.
+ * deps. Nothing here starts a provisioning or a restore; a tool call on an
+ * active backend stamps its activity for the pause sweep (WANDIT-184).
  */
 import type { BackendToolFailure, BackendToolName } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -23,8 +24,8 @@ import type { ProjectSecretsService } from "../../services/project-secrets.servi
 
 /** What the registry hands every backend tool factory; the task composes it. */
 export type BackendToolDeps = {
-	/** Reads the `app_backends` row of the project: status and ref. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
+	/** Reads the `app_backends` row of the project, and stamps the activity of an active one. */
+	backends: Pick<AppBackendsRepository, "findByProjectId" | "touchActive">;
 	/**
 	 * The interactive Management API client. Null when
 	 * `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID` is unset.
@@ -53,10 +54,11 @@ export type ActiveBackend = {
 /**
  * Answers the active backend of the project, or the failure a tool
  * answers at once: no client, a paused backend, or no active backend.
- * The rule matches `CloudService.requireActiveBackend`.
+ * The rule matches `CloudService.requireActiveBackend`. An active answer
+ * also stamps `lastActiveAt`; a failed stamp only logs.
  */
 export async function resolveActiveBackend(
-	deps: Pick<BackendToolDeps, "backends" | "client">,
+	deps: Pick<BackendToolDeps, "backends" | "client" | "logger">,
 	projectId: string,
 ): Promise<ActiveBackend | BackendToolFailure> {
 	if (deps.client === null) {
@@ -70,6 +72,16 @@ export async function resolveActiveBackend(
 	}
 	if (row === null || row.status !== "active" || row.ref === null) {
 		return { status: "backend_not_ready" };
+	}
+	// An agent tool call is backend use: the pause sweep must not pause this
+	// backend. The stamp is a hint, so its failure never fails the tool.
+	try {
+		await deps.backends.touchActive(projectId);
+	} catch (error) {
+		deps.logger.warn("backend.touch-failed", {
+			message: getErrorMessage(error),
+			projectId,
+		});
 	}
 	return {
 		backend: { projectId, ref: row.ref },

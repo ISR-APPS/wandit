@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
 import type {
 	CreateAppProjectRequest,
 	UpdateProjectCostCapsRequest,
@@ -11,6 +11,7 @@ import type {
 	ProjectQueryRow,
 	ProjectsRepository,
 } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
 import { AppProjectsService } from "./app-projects.service";
@@ -282,12 +283,31 @@ describe("AppProjectsService.create", () => {
 	it("still answers the ids when backend provisioning throws", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(new Error("db down"));
+		const errorLog = vi.spyOn(Logger.prototype, "error");
 
 		const result = await service.create(SCOPE, BODY, { countryCode: null });
 
 		expect(result.projectId).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(result.chatId).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(result.turnId).toBe("turn-1");
+		expect(errorLog).toHaveBeenCalledWith(
+			expect.stringContaining("Backend provisioning failed"),
+		);
+		errorLog.mockRestore();
+	});
+
+	it("still answers the ids and logs no error when the plan has no backend slot", async () => {
+		const { backends, service } = setup();
+		backends.provisionBackend.mockRejectedValue(
+			new BackendLimitReachedError("starter", 0),
+		);
+		const errorLog = vi.spyOn(Logger.prototype, "error");
+
+		const result = await service.create(SCOPE, BODY, { countryCode: null });
+
+		expect(result.turnId).toBe("turn-1");
+		expect(errorLog).not.toHaveBeenCalled();
+		errorLog.mockRestore();
 	});
 
 	it("still answers with turnId null when the first turn throws", async () => {

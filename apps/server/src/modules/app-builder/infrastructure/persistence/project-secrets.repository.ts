@@ -1,9 +1,9 @@
 /**
  * Read and write of the `project_secrets` rows of one project (WANDIT-185).
- * `ProjectSecretsService` calls it for the set, remove, list, and read
- * paths; `rotateProjectSecrets` calls the two rotation methods;
- * `BackendSecretsService` (WANDIT-186) stamps a push with `markSynced`.
- * Every method moves ciphertext only; the crypto lives in `secret-crypto.ts`.
+ * Callers: `ProjectSecretsService` (set, remove, list, read), the rotation,
+ * `BackendSecretsService.markSynced` (WANDIT-186), and the project delete
+ * and the pause sweep (`deleteAllForProject`, WANDIT-184). Every method
+ * moves ciphertext only; the crypto lives in `secret-crypto.ts`.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type { ProjectSecretKind } from "@wandit/contracts";
@@ -144,6 +144,20 @@ export class ProjectSecretsRepository {
 		return row?.kind === "system"
 			? { outcome: "system" }
 			: { outcome: "missing" };
+	}
+
+	/**
+	 * Deletes every row of one project, `user` and `system` kinds alike, and
+	 * answers the count. The project delete calls it, and the pause sweep
+	 * again before the Supabase delete: a soft delete cascades nothing.
+	 */
+	async deleteAllForProject(projectId: string): Promise<number> {
+		const rows = await this.db
+			.delete(projectSecrets)
+			.where(eq(projectSecrets.projectId, projectId))
+			.returning({ id: projectSecrets.id });
+
+		return rows.length;
 	}
 
 	/** The names, kinds, and dates of one project, sorted by name. */

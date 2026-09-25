@@ -1,11 +1,9 @@
 /**
  * Answers every panel of the Cloud tab (WANDIT-187) behind
- * `/api/v2/projects/:id/cloud/*`. `CloudController` is the only caller.
- * Reads `projects` and `app_backends` through repositories, calls the
- * Supabase Management API and the project Storage API through
- * `SupabaseManagementClient`, and writes `audit_events` rows for SQL
- * writes and object deletes. No platform key or service-role key ever
- * reaches the browser.
+ * `/api/v2/projects/:id/cloud/*`; `CloudController` is the only caller.
+ * Calls Supabase through `SupabaseManagementClient`, writes the backend
+ * activity and restore state (WANDIT-184) and audit rows. No platform key
+ * or service-role key ever reaches the browser.
  */
 import { createHash } from "node:crypto";
 
@@ -64,9 +62,11 @@ import {
 	cloudTableColumnRowSchema,
 	sqlRowSchema,
 } from "@wandit/contracts";
+import { getErrorMessage } from "@wandit/observability/error";
 import type { z } from "zod";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { isProjectComingUp } from "../../domain/backend-lifecycle";
 import {
 	type AppBackendRow,
 	AppBackendsRepository,
@@ -240,7 +240,11 @@ export class CloudService {
 		@Inject(AppBackendsRepository)
 		private readonly backends: Pick<
 			AppBackendsRepository,
-			"findByProjectId" | "markRestoring"
+			| "findByProjectId"
+			| "markRestoreFailed"
+			| "markRestoring"
+			| "markRestored"
+			| "touchActive"
 		>,
 		@Inject(BackendsService)
 		private readonly provisioning: Pick<BackendsService, "provisionBackend">,
@@ -250,18 +254,31 @@ export class CloudService {
 		private readonly client: SupabaseManagementClient | null,
 	) {}
 
-	/** The backend row of the project; `status: "none"` without a row. */
+	/**
+	 * The backend row of the project; `status: "none"` without a row. A
+	 * `restoring` row asks Supabase once: `ACTIVE_HEALTHY` answers `active`,
+	 * `RESTORE_FAILED` or `REMOVED` answers `error`.
+	 */
 	async getBackend(
 		scope: ProjectScope,
 		projectId: string,
 	): Promise<CloudBackendResponse> {
 		await this.requireProject(scope, projectId);
-		return backendAnswer(await this.backends.findByProjectId(projectId));
+		const row = await this.backends.findByProjectId(projectId);
+		if (
+			row?.status === "restoring" &&
+			row.ref !== null &&
+			this.client !== null
+		) {
+			return backendAnswer(await this.finishRestore(row, row.ref, this.client));
+		}
+		return backendAnswer(row);
 	}
 
 	/**
 	 * Creates the backend when the project has none and answers the row.
-	 * `provisionBackend` is idempotent: an existing row starts nothing.
+	 * `provisionBackend` is idempotent: an existing row starts nothing. A
+	 * plan without a free slot answers its 403 `BACKEND_LIMIT_REACHED`.
 	 */
 	async ensureBackend(
 		scope: ProjectScope,
@@ -305,7 +322,22 @@ export class CloudService {
 		const ref = row.ref;
 		// The upstream call goes first: a failed call leaves the row `paused`,
 		// so the user can click again.
-		await this.upstream("api", () => client.restoreProject({ projectId, ref }));
+		try {
+			await this.upstream("api", () =>
+				client.restoreProject({ projectId, ref }),
+			);
+		} catch (error) {
+			// Supabase can apply a restore and still fail the answer; the next
+			// click then fails too. A project that comes up needs only the wait.
+			// A failed status read answers the restore error.
+			const status = await client.getProject({ projectId, ref }).then(
+				(project) => project.status,
+				() => null,
+			);
+			if (status === null || !isProjectComingUp(status)) {
+				throw error;
+			}
+		}
 		const moved = await this.backends.markRestoring(projectId);
 		return backendAnswer(moved ? { ...row, status: "restoring" } : row);
 	}
@@ -762,7 +794,47 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		if (row === null || row.status !== "active" || row.ref === null) {
 			throw backendNotReady();
 		}
+		// A panel read is a person at the backend: the pause sweep must not
+		// pause it. The stamp is a hint, so its failure never fails the route.
+		try {
+			await this.backends.touchActive(projectId);
+		} catch (error) {
+			this.logger.warn(
+				`backend.touch-failed project=${projectId}: ${getErrorMessage(error)}`,
+			);
+		}
 		return { id: row.id, projectId, ref: row.ref };
+	}
+
+	// Each `GET backend` read (a refetch, or a poll of the Cloud tab) ends a
+	// finished restore. A failed read answers the row as it is, and the next
+	// read asks again.
+	private async finishRestore(
+		row: AppBackendRow,
+		ref: string,
+		client: SupabaseManagementClient,
+	): Promise<AppBackendRow> {
+		try {
+			const project = await client.getProject({
+				projectId: row.projectId,
+				ref,
+			});
+			if (project.status === "RESTORE_FAILED" || project.status === "REMOVED") {
+				// Supabase does not bring this project back by itself; `error`
+				// ends the `restoring` state that nothing else would end.
+				await this.backends.markRestoreFailed(row.projectId, project.status);
+			} else if (project.status === "ACTIVE_HEALTHY") {
+				await this.backends.markRestored(row.projectId);
+			} else {
+				return row;
+			}
+			return (await this.backends.findByProjectId(row.projectId)) ?? row;
+		} catch (error) {
+			this.logger.warn(
+				`cloud.restore-check-failed project=${row.projectId}: ${getErrorMessage(error)}`,
+			);
+			return row;
+		}
 	}
 
 	private requireClient(): SupabaseManagementClient {

@@ -1,8 +1,8 @@
 /**
  * `runBuilderTurn`: the `builder-turn` task body (WANDIT-166).
  * `builder-turn.task.ts` calls it with real dependencies; the spec
- * drives it with fakes. One run: claim → fence → sandbox → harness →
- * stream → commit → settle → promote.
+ * drives it with fakes. One run: claim → fence → backend wake → sandbox →
+ * harness → stream → commit → settle → promote.
  */
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
@@ -11,6 +11,7 @@ import type {
 	BillingPlanId,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
 	TurnQuestionData,
@@ -33,6 +34,7 @@ import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
 import type {
 	BuilderHarness,
@@ -73,7 +75,10 @@ import type {
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
-import type { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppBackendRow,
+	AppBackendsRepository,
+} from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -89,6 +94,7 @@ import type { TurnProjectRepository } from "../modules/app-builder/infrastructur
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
 import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
@@ -115,6 +121,13 @@ const SUMMARY_MAX_CHARS = 72;
 // 15 MB, the image upload limit. A bigger answer file is a video or an
 // audio file, and a copy in public/ grows every commit of the app repo.
 const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
+// 5 s between two status reads of a waking backend, like the provision poll.
+const BACKEND_WAKE_POLL_MS = 5_000;
+// LIMIT: the wake waits at most 180 s, then the turn runs without the
+// database. Upgrade: hold the turn until the backend answers.
+// The restore call and the last status read can each add about 60 s:
+// the interactive client makes two tries of 30 s.
+const BACKEND_WAKE_TIMEOUT_MS = 180_000;
 
 /** Why the turn stopped on its own. */
 type AbortCode =
@@ -172,7 +185,7 @@ export type BuilderTurnTiming = {
 	runId: string;
 	/** Row create → run start. Long for a `waiting` turn the promoter requeued. */
 	queueMs: number;
-	/** Run start → sandbox call: the row reads, the money checks, the token mint. */
+	/** Run start → sandbox call: the row reads, the money checks, the token mint, and a backend wake. */
 	prestartMs: number | null;
 	/** `sandboxes.getOrCreate` plus the activity stamp. */
 	sandboxMs: number | null;
@@ -225,8 +238,27 @@ export type BuilderTurnDeps = {
 	>;
 	project: Pick<TurnProjectRepository, "findForTurn">;
 	caps: Pick<ProjectCostCapsRepository, "findByProjectId">;
-	/** The `app_backends` row; its URL and anon key enter the sandbox env when `active`. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
+	/**
+	 * The `app_backends` row: its URL and anon key enter the sandbox env when
+	 * `active`. The wake moves a paused row back; the turn end stamps activity.
+	 */
+	backends: Pick<
+		AppBackendsRepository,
+		| "findByProjectId"
+		| "markRestoreFailed"
+		| "markRestored"
+		| "markRestoring"
+		| "touchActive"
+	>;
+	/**
+	 * The interactive Management API client the task also gives the backend
+	 * tools. The wake calls restore and reads the status. Null without
+	 * `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`.
+	 */
+	backendClient: Pick<
+		SupabaseManagementClient,
+		"getProject" | "restoreProject"
+	> | null;
 	sessions: Pick<BuilderSessionsRepository, "findByChatId" | "saveResumeState">;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
@@ -639,6 +671,16 @@ export async function runBuilderTurn(
 		await cleanupStep(async () => {
 			await deps.sandboxSessions.touchActivity(projectId);
 		});
+		// A turn is backend use, a failed turn too: the pause sweep reads the
+		// stamp. The stamp is a hint, so a failure only logs.
+		try {
+			await deps.backends.touchActive(projectId);
+		} catch (error) {
+			logger.warn("backend.touch-failed", {
+				message: messageOf(error),
+				projectId,
+			});
+		}
 	};
 
 	// Memoized so the aborted-catch and the task onCancel share it.
@@ -1213,7 +1255,33 @@ export async function runBuilderTurn(
 			workspaceId: input.organizationId,
 		});
 
-		const backend = await deps.backends.findByProjectId(projectId);
+		let backend = await deps.backends.findByProjectId(projectId);
+		// A paused backend wakes before the env is built, so the app has its
+		// database in this turn. A Cloud tab restore leaves `restoring`; the
+		// wake waits for that one too.
+		if (
+			backend !== null &&
+			backend.ref !== null &&
+			(backend.status === "paused" || backend.status === "restoring")
+		) {
+			if (deps.backendClient === null) {
+				// Without the platform env no wake can start; the note says so.
+				logger.warn("backend.wake-unconfigured", { projectId });
+			} else {
+				await writeStatus("sandbox_waking", "Waking up the database");
+				backend = await wakeBackend(
+					{ ...deps, client: deps.backendClient },
+					backend,
+					backend.ref,
+					ownAbort.signal,
+				);
+			}
+			// A cancel during the wake must not boot a sandbox: the catch
+			// sees the aborted task signal and runs `finalizeCanceled`.
+			if (signal.aborted) {
+				throw new Error("Turn canceled during the backend wake");
+			}
+		}
 		// D18: only an `active` row reaches the VM. A `creating` or `error`
 		// row, or no row, keeps the VITE_* names out of the env.
 		const supabase =
@@ -1829,6 +1897,101 @@ async function copyAnswerFile(
 		});
 		return null;
 	}
+}
+
+/**
+ * Wakes a `paused` or `restoring` backend: the restore call for a paused
+ * row, then one status read every 5 s until `ACTIVE_HEALTHY`. Answers the
+ * row read after the wake, or the row as it was on a timeout, a cancel, or
+ * a failure. It never throws: a slow database must not fail the turn.
+ */
+async function wakeBackend(
+	deps: Pick<BuilderTurnDeps, "backends" | "logger" | "now"> & {
+		/** `deps.backendClient`, checked not null by the caller. */
+		client: NonNullable<BuilderTurnDeps["backendClient"]>;
+	},
+	row: AppBackendRow,
+	/** The ref of `row`; the caller checked that it is not null. */
+	ref: string,
+	signal: AbortSignal,
+): Promise<AppBackendRow> {
+	// The scope of each Management API call, and the fields of each log line.
+	const backendRef = { projectId: row.projectId, ref };
+	const client = deps.client;
+	const startedAt = deps.now();
+	try {
+		if (row.status === "paused") {
+			try {
+				await client.restoreProject(backendRef);
+			} catch (error) {
+				// Supabase can apply a restore and still fail the answer; the next
+				// restore then fails too. A project that comes up needs only the wait.
+				const { status } = await client.getProject(backendRef);
+				if (!isProjectComingUp(status)) {
+					throw error;
+				}
+			}
+			// False means a Cloud tab restore moved the row first; the poll
+			// below waits for that restore instead.
+			await deps.backends.markRestoring(row.projectId);
+		}
+		// The loop also ends on `ACTIVE_HEALTHY` or a failed restore.
+		while (
+			!signal.aborted &&
+			deps.now() - startedAt < BACKEND_WAKE_TIMEOUT_MS
+		) {
+			let status: SupabaseProjectStatus | null = null;
+			try {
+				status = (await client.getProject(backendRef)).status;
+			} catch (error) {
+				// One failed read (a 429, a timeout) does not end the wake.
+				deps.logger.warn("backend.wake-poll-failed", {
+					...backendRef,
+					message: messageOf(error),
+				});
+			}
+			if (status === "ACTIVE_HEALTHY") {
+				await deps.backends.markRestored(row.projectId);
+				deps.logger.info("backend.wake-done", {
+					...backendRef,
+					elapsedMs: deps.now() - startedAt,
+				});
+				// A re-read: the row can have moved on, for example to `deleting`.
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			if (status === "RESTORE_FAILED" || status === "REMOVED") {
+				// Supabase does not bring this project back by itself; `error`
+				// ends the `restoring` state that nothing else would end.
+				await deps.backends.markRestoreFailed(row.projectId, status);
+				deps.logger.warn("backend.wake-failed", { ...backendRef, status });
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			// A cancel ends the sleep at once, so the turn stops without a wait.
+			await new Promise<void>((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", done);
+					resolve();
+				};
+				const timer = setTimeout(done, BACKEND_WAKE_POLL_MS);
+				signal.addEventListener("abort", done, { once: true });
+			});
+		}
+		if (signal.aborted) {
+			deps.logger.info("backend.wake-canceled", backendRef);
+			return row;
+		}
+		deps.logger.warn("backend.wake-timeout", {
+			...backendRef,
+			elapsedMs: deps.now() - startedAt,
+		});
+	} catch (error) {
+		deps.logger.warn("backend.wake-failed", {
+			...backendRef,
+			message: messageOf(error),
+		});
+	}
+	return row;
 }
 
 /** `to - from` in ms, or null while either stamp is missing. */

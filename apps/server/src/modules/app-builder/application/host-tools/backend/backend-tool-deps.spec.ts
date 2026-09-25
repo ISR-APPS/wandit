@@ -26,8 +26,10 @@ describe("resolveActiveBackend", () => {
 						reads += 1;
 						return ACTIVE_BACKEND_ROW;
 					},
+					touchActive: async () => undefined,
 				},
 				client: null,
+				logger: { info: () => undefined, warn: () => undefined },
 			},
 			"project-1",
 		);
@@ -39,14 +41,15 @@ describe("resolveActiveBackend", () => {
 		expect(reads).toBe(0);
 	});
 
-	it("answers backend_paused for a paused row", async () => {
-		const { deps } = await createBackendToolFixture({
+	it("answers backend_paused for a paused row and stamps nothing", async () => {
+		const { deps, touches } = await createBackendToolFixture({
 			backend: { ...ACTIVE_BACKEND_ROW, status: "paused" },
 		});
 
 		expect(await resolveActiveBackend(deps, "project-1")).toEqual({
 			status: "backend_paused",
 		});
+		expect(touches).toEqual([]);
 	});
 
 	it("answers backend_not_ready without a row, while creating, and without a ref", async () => {
@@ -63,8 +66,8 @@ describe("resolveActiveBackend", () => {
 		}
 	});
 
-	it("answers the ref and the row id of an active row", async () => {
-		const { deps } = await createBackendToolFixture();
+	it("answers the ref and the row id of an active row and stamps its activity", async () => {
+		const { deps, touches } = await createBackendToolFixture();
 
 		const answer = await resolveActiveBackend(deps, "project-1");
 
@@ -72,6 +75,27 @@ describe("resolveActiveBackend", () => {
 			backend: { projectId: "project-1", ref: FAKE_REF },
 			backendId: "backend-1",
 		});
+		expect(touches).toEqual(["project-1"]);
+	});
+
+	it("still answers the active backend when the stamp fails", async () => {
+		const { deps, warnings } = await createBackendToolFixture();
+		deps.backends = {
+			...deps.backends,
+			touchActive: async () => {
+				throw new Error("db down");
+			},
+		};
+
+		const answer = await resolveActiveBackend(deps, "project-1");
+
+		expect(answer).toMatchObject({ backendId: "backend-1" });
+		expect(warnings).toEqual([
+			{
+				fields: { message: "db down", projectId: "project-1" },
+				message: "backend.touch-failed",
+			},
+		]);
 	});
 });
 
