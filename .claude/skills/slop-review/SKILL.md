@@ -1,6 +1,6 @@
 ---
 name: slop-review
-description: Review a diff against the "Code rules" in CLAUDE.md, in both directions. Direction one is slop, code that is too much, over-engineered, or typed with fake evidence. Direction two is cut corners, code that is too little, with a skipped edge case, validation, error path, security check, test, or comment. Use after Codex, a subagent, or a workflow returns code, before a PR, or when the user says "slop review", "review for slop", "is this over-engineered", "did codex cut corners", or "check the comments". Lists findings only. Does not apply fixes unless the user asks.
+description: Review a diff against the "Code rules" in CLAUDE.md, in both directions. Direction one is slop, code that is too much, over-engineered, or typed with fake evidence. Direction two is cut corners, code that is too little, with a skipped edge case, validation, error path, security check, test, or comment. Use after a subagent or a workflow returns code, before a PR, or when the user says "slop review", "review for slop", "is this over-engineered", "did it cut corners", or "check the comments". Lists findings only. Does not apply fixes unless the user asks.
 ---
 
 # Slop review

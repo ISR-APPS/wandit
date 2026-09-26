@@ -15,40 +15,11 @@ Only report to me in ASD-STE100 Simplified Technical English
   6. When Claude needs to read server output itself, capture the pane instead of tailing files: `tmux capture-pane -p -e -t <name> -S -300`.
   7. Also **print the backend auth URLs for Google sign-in** (authorized JavaScript origin + the Google OAuth redirect/callback URL, e.g. `http://localhost:<api-port>/api/auth/callback/google`) so Zack can copy them into the Google Cloud Console and authentication works on that worktree's ports.
 
-## Models: Claude first, GPT-6 Sol for workflow implementation and for research
-
-- Mechanics: GPT models are only reachable through the Codex CLI (`codex exec`).
-- Claude models run through the Agent and Workflow tools. Do not set the `model` parameter.
-  The agent then uses the model that Zack selected at the start of the session.
-
-### Model routing (Zack, 2026-09-23, always follow)
-
-- **Implementation** (writing or editing code, fixes, refactors, features):
-  - Outside a workflow: Claude does it itself. Do not send implementation to Codex.
-  - Inside a workflow: `gpt-6-sol` at `xhigh` effort. Never `gpt-5.6-sol` and never `gpt-6-astra`.
-    `codex exec -m gpt-6-sol -c model_reasoning_effort="xhigh" "<prompt>"`
-- **Research and exploration** (codebase investigation, context gathering, data analysis), inside or outside a workflow:
-  Claude does it itself, or a subagent sends it to `gpt-6-sol` at `high` effort, read-only.
-  `codex exec -s read-only -m gpt-6-sol -c model_reasoning_effort="high" "<prompt>"`
-- **All other work** (plan, review, verify, `/slop-review`, synthesis): Claude with the session model.
-- Do not use other GPT models: no `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-6-astra`, or `gpt-6-luna`.
-  Do not call Devin or any other external model or agent.
-- Only deviate from this routing when Zack explicitly names a different model or effort.
-- Every codex prompt that writes or reviews code carries the block "Contract for delegated code" from the section "Code rules" below. Check the returned diff against it.
-
-### Using GPT models inside workflows and subagents
-
-The Agent/Workflow `model` parameter only takes Claude models, so use a wrapper:
-
-- Spawn a thin Claude wrapper agent with `model: 'sonnet', effort: 'low'` whose prompt instructs it
-  to write a self-contained codex prompt, run `codex exec` via Bash with the model/effort flags from
-  the routing above, and return the result verbatim. This wrapper is the only agent that sets `model`.
-
 ## Code rules
 
-These rules apply to every agent that writes, changes, or reviews code in this repo: Claude in this session, subagents from the Agent tool, workflow agents, and Codex through `codex exec`. They apply to every line you add or change. Do not rewrite lines the task does not touch. An existing line that breaks a rule is not a pattern to copy.
+These rules apply to every agent that writes, changes, or reviews code in this repo: Claude in this session, subagents from the Agent tool, and workflow agents. They apply to every line you add or change. Do not rewrite lines the task does not touch. An existing line that breaks a rule is not a pattern to copy.
 
-When you write a prompt for another agent, paste the block "Contract for delegated code" (below) into it. This includes review prompts: `codex review`, `/code-review`, and a workflow verify agent. A reviewer without the rules asks for wrappers, options, and abstractions. When the work comes back, check the diff against the same block before you accept it. The parent agent owns the result. "Codex did it" is not a reason.
+When you write a prompt for another agent, paste the block "Contract for delegated code" (below) into it. This includes review prompts: `/code-review` and a workflow verify agent. A reviewer without the rules asks for wrappers, options, and abstractions. When the work comes back, check the diff against the same block before you accept it. The parent agent owns the result. "The subagent did it" is not a reason.
 
 ### Who reads the code
 
@@ -182,7 +153,7 @@ Run `/slop-review` on every diff with more than 30 changed lines or more than on
 
 ### Contract for delegated code
 
-Paste this block, unchanged, into every prompt that asks Codex, a subagent, or a workflow agent to write or review code. `AGENTS.md` at the repo root holds the same block for Codex. When you change the block, change it in both files in the same edit.
+Paste this block, unchanged, into every prompt that asks a subagent or a workflow agent to write or review code. `AGENTS.md` at the repo root holds the same block for other agents that read that file. When you change the block, change it in both files in the same edit.
 
 In a workflow, give every implementation agent one verify agent. The verify agent runs the `/slop-review` skill on the diff and returns its findings in that format. A `corner:` or `test:` finding blocks acceptance. The parent sends the diff back with the finding. Reject a review finding that asks for a new abstraction, wrapper, config value, or dependency, unless it names a current caller that needs it.
 
