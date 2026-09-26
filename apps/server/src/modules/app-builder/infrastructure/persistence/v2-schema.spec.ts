@@ -1,4 +1,5 @@
-import { getTableConfig } from "@wandit/db";
+import { liveMobileBuildStatuses } from "@wandit/contracts";
+import { getTableConfig, PgDialect } from "@wandit/db";
 import {
 	appBackendProvider,
 	appBackendStatus,
@@ -9,6 +10,12 @@ import {
 	builderTurnStatus,
 	builderTurns,
 } from "@wandit/db/schema/builder-turns";
+import {
+	mobileBuildKind,
+	mobileBuildPlatform,
+	mobileBuildStatus,
+	mobileBuilds,
+} from "@wandit/db/schema/mobile-builds";
 import {
 	projectSecretKind,
 	projectSecrets,
@@ -114,6 +121,38 @@ describe("v2 core schema", () => {
 		expect(
 			getTableConfig(projectSecrets).checks.map((check) => check.name),
 		).toContain("project_secrets_name_ck");
+	});
+
+	it("keeps the mobile build enums and one live build per project and platform", () => {
+		expect(mobileBuildPlatform.enumValues).toEqual(["android", "ios"]);
+		expect(mobileBuildKind.enumValues).toEqual(["apk", "ios_store"]);
+		expect(mobileBuildStatus.enumValues).toEqual([
+			"queued",
+			"building",
+			"finished",
+			"failed",
+			"canceled",
+		]);
+		const index = getTableConfig(mobileBuilds).indexes.find(
+			(candidate) =>
+				candidate.config.name === "mobile_builds_live_project_platform_uq",
+		);
+		expect(index).toBeDefined();
+		expect(index?.config.unique).toBe(true);
+		// Without the WHERE clause, a finished build blocks every later build of the
+		// platform. The clause must also match the contract list of live statuses.
+		const liveWhere = index?.config.where;
+		if (!liveWhere) {
+			throw new Error(
+				"mobile_builds_live_project_platform_uq has no WHERE clause",
+			);
+		}
+		const liveStatusList = liveMobileBuildStatuses
+			.map((status) => `'${status}'`)
+			.join(", ");
+		expect(new PgDialect().sqlToQuery(liveWhere, "indexes").sql).toBe(
+			`"status" IN (${liveStatusList})`,
+		);
 	});
 
 	it("keeps projects.network_allowed_hosts as a not-null jsonb column", () => {

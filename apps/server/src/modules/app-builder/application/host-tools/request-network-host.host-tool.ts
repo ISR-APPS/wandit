@@ -15,7 +15,10 @@ import { type Tool, tool } from "ai";
 import type { HostToolContext } from "../../domain/ports/host-tools";
 import type { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
 import type { ProjectNetworkHostsRepository } from "../../infrastructure/persistence/project-network-hosts.repository";
-import { isValidNetworkHost } from "../../infrastructure/sandbox/network-policy";
+import {
+	isSupabaseHost,
+	isValidNetworkHost,
+} from "../../infrastructure/sandbox/network-policy";
 
 /** What the registry hands the network-host tool factory. */
 export type RequestNetworkHostHostToolDeps = {
@@ -57,6 +60,16 @@ export function createRequestNetworkHostTool(
 			if (!isValidNetworkHost(normalized)) {
 				return {
 					reason: "host is not a valid public DNS name",
+					status: "denied",
+				};
+			}
+			// Security (WANDIT-283): the sandbox reaches only its own Supabase
+			// host. Another `supabase.co` project or `supabase.com` can receive
+			// stolen data.
+			if (isSupabaseHost(normalized)) {
+				return {
+					reason:
+						"Supabase hosts are not allowed; the sandbox reaches the project's own backend while it is active",
 					status: "denied",
 				};
 			}

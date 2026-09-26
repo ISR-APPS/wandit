@@ -50,6 +50,8 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"agent_session",
 	// Sandbox minutes at a zero rate; not billed to the customer before WANDIT-196.
 	"sandbox",
+	// One V2 mobile app build on EAS, at a fixed price (WANDIT-194).
+	"mobile_build",
 	"topup_adjust",
 ]);
 

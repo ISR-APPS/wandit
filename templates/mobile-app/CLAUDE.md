@@ -38,7 +38,7 @@ These rules are binding. The host machine runs the session. You write code; the 
 - Do not create `ios/` or `android/`. The app runs in Expo Go with no native code.
 - Do not change the `dev` script in `package.json`. The host starts it.
 - Do not edit `CLAUDE.md`, `AGENTS.md`, `template_version`, `native-modules.json`,
-  `pnpm-workspace.yaml`, or `scripts/`.
+  `pnpm-workspace.yaml`, `eas.json`, or `scripts/`.
 - Do not run `pnpm run pack`, `pnpm run smoke`, or `pnpm run allow-list`. They are host tools.
 - When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
   you added. Then tell the user and pick another package. Leave the `allowBuilds` line

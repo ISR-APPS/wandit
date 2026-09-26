@@ -114,6 +114,8 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
+export * from "./v2/mobile-builds";
 // V2 app-builder preview token contract.
 export * from "./v2/preview";
 // V2 preview token sign and verify helpers.

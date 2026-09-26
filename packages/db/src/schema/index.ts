@@ -60,6 +60,8 @@ export * from "./llm-proxy-requests";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";
+// V2 mobile app builds on EAS.
+export * from "./mobile-builds";
 // Monthly cost input tables.
 export * from "./monthly-costs";
 // User onboarding questionnaire answers.

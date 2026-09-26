@@ -499,7 +499,6 @@
 		"customDomain": "Domaine personnalisé",
 		"connectOne": "En connecter un",
 		"ios": "iOS · App Store",
-		"android": "Android · Google Play",
 		"buildReady": "Build {build} prêt · TestFlight {testers} testeurs",
 		"notSetUp": "Non configuré",
 		"submit": "Soumettre",
@@ -507,8 +506,46 @@
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
 		"showQr": "Afficher le QR",
-		"backendNote": "Le backend se déploie à chaque publication",
-		"mobileSoon": "La publication d’une app mobile arrive bientôt. En attendant, teste ton app dans l’aperçu."
+		"backendNote": "Le backend se déploie à chaque publication"
+	},
+	"mobileBuilds": {
+		"title": "Android · APK",
+		"empty": "Installe ton app sur un téléphone Android",
+		"build": {
+			"one": "Générer l’APK · {count} crédit",
+			"other": "Générer l’APK · {count} crédits"
+		},
+		"retry": {
+			"one": "Réessayer · {count} crédit",
+			"other": "Réessayer · {count} crédits"
+		},
+		"cancel": "Annuler",
+		"download": "Télécharger l’APK",
+		"scanHint": "Scanne le code avec un téléphone Android pour installer l’app.",
+		"qrTitle": "QR code du lien de téléchargement de l’APK",
+		"liveHint": "Le build continue quand tu fermes ce panneau.",
+		"history": "Builds précédents",
+		"status": {
+			"queued": "En attente",
+			"building": "Build en cours",
+			"finished": "Prêt",
+			"failed": "Échec",
+			"canceled": "Annulé"
+		},
+		"errors": {
+			"start_failed": "Le build n’a pas démarré. Réessaie.",
+			"unconfigured": "Les builds d’app ne sont pas disponibles pour le moment. Réessaie plus tard.",
+			"clone_failed": "Le build n’a pas pu lire le code de ton app. Réessaie.",
+			"config_invalid": "La configuration de ton app n’est pas valide. Demande à Wandit dans le chat de corriger app.json, puis relance le build.",
+			"plugin_not_allowed": "Ton app utilise un plugin natif que les builds ne prennent pas encore en charge.",
+			"install_failed": "L’installation des paquets de l’app a échoué. Réessaie.",
+			"eas_init_failed": "Le service de build n’a pas pu configurer ton app. Réessaie.",
+			"eas_start_failed": "Le service de build n’a pas accepté le build. Réessaie.",
+			"eas_errored": "Le build a échoué sur le service de build. Réessaie, ou demande à Wandit dans le chat de corriger l’app.",
+			"artifact_missing": "Le build s’est terminé sans fichier APK. Réessaie.",
+			"timeout": "Le build a pris trop de temps et s’est arrêté. Réessaie.",
+			"internal": "Une erreur est survenue pendant le build. Réessaie."
+		}
 	},
 	"versions": {
 		"title": "Historique des versions",

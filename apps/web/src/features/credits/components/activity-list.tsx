@@ -1,3 +1,8 @@
+/**
+ * The credit activity list: one row per credit event, with an icon per
+ * operation (`OPERATION_ICONS`) and a translated label. The billing page and
+ * the credits chip render it and pass the activity items of the credits API.
+ */
 import type {
 	CreditActivityItem,
 	CreditActivityOperation,
@@ -19,6 +24,7 @@ import {
 	Plug,
 	Scale,
 	Server,
+	Smartphone,
 	Users,
 	Video,
 	Zap,
@@ -39,6 +45,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, LucideIcon> = {
 	transcription: Mic,
 	agent_session: Bot,
 	sandbox: Server,
+	mobile_build: Smartphone,
 	topup_adjust: Scale,
 };
 

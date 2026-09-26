@@ -28,6 +28,8 @@ HeroUI Native with Uniwind, Supabase, and i18n (en/fr/ar with right-to-left).
 - Health check: `GET /` on port 8081 answers 200 with the Expo web HTML.
 - A request with the header `expo-platform: ios` or `android` gets the Expo Go manifest.
 - `CLAUDE.md`, `AGENTS.md`, and `.claude/settings.json` sit at the template root.
+- `eas.json` holds the EAS build profiles. The `mobile-build` task replaces the app copy
+  with the trusted template copy.
 
 ## Environment
 

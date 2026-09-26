@@ -548,10 +548,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 				"Sandbox env lacks ANTHROPIC_BASE_URL; the egress policy needs the proxy host",
 			);
 		}
+		// WANDIT-283: the only Supabase host is the project's own. The env
+		// holds VITE_SUPABASE_URL only while the backend is active. So a new
+		// active backend reaches the policy on the next turn. A value that is
+		// not a URL gives no backend host.
+		const supabaseUrl = options.env.VITE_SUPABASE_URL;
+		const backendHost =
+			supabaseUrl !== undefined && URL.canParse(supabaseUrl)
+				? new URL(supabaseUrl).hostname
+				: null;
 		const built: ReturnType<typeof buildNetworkPolicy> = options.networkPolicy
 			? { policy: options.networkPolicy, rejected: [] }
 			: buildNetworkPolicy({
 					assetHost,
+					backendHost,
 					connectorHosts: [],
 					gitHost: org ? `${org}.code.storage` : null,
 					mode,
