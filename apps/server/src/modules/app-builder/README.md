@@ -24,7 +24,7 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -36,6 +36,7 @@ PostHog flag `v2-builder`).
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
+| `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
@@ -57,6 +58,8 @@ PostHog flag `v2-builder`).
 - `BackendProvider` — the hidden Supabase project behind an app (D18).
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
   back into a fresh sandbox (D21).
+- `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
+- `MobileBuildTaskStarter` — queues the `mobile-build` Trigger task.
 
 ## Sandbox
 
@@ -105,12 +108,17 @@ partial unique index guarantees at most one live row per project.
   service-role keys can never enter the sandbox. The builder-turn runtime
   reads `app_backends` and passes the URL and anon key only when the row
   is `active`. A running sandbox gets them at its next resume.
-- Egress is deny-by-default: `buildNetworkPolicy` emits the global allow
-  list (`registry.npmjs.org`, `*.supabase.co`, fonts, `api.stripe.com`,
-  `api.resend.com`, `maps.googleapis.com`, `api.openai.com`) plus the
-  proxy host of `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host,
-  the `R2_PUBLIC_BASE_URL` host, and the per-project hosts from
-  `projects.networkAllowedHosts` (layer 3). `SANDBOX_DENIED_RANGES`
+- Egress is deny-by-default. `buildNetworkPolicy` emits the global allow
+  list: `registry.npmjs.org`, fonts, `api.stripe.com`, `api.resend.com`,
+  `maps.googleapis.com`, and `api.openai.com`. It adds the proxy host of
+  `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host, and the
+  `R2_PUBLIC_BASE_URL` host. It adds the project's own Supabase host, the
+  hostname of `VITE_SUPABASE_URL`, only while the backend is active
+  (WANDIT-283). It adds the per-project hosts of
+  `projects.networkAllowedHosts` (layer 3). The list has no
+  `*.supabase.co`: it also reaches a Supabase project of an attacker.
+  `request_network_host` denies every `supabase.co` and `supabase.com`
+  host. The policy rejects a stored one other than the backend host. `SANDBOX_DENIED_RANGES`
   blocks link-local metadata, private, CGNAT, and loopback CIDRs (IPv4
   only — the vendor API rejects IPv6 CIDRs).
 - `V2_SANDBOX_EGRESS_MODE` selects the mode: `strict` (default) applies
@@ -137,7 +145,11 @@ partial unique index guarantees at most one live row per project.
   run-token transformation the session added stays in place.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
-  command env; the vendor route only reaches a `0.0.0.0` listener.
+  command env; the vendor route only reaches a `0.0.0.0` listener. A
+  `mobile-app` project also gets
+  `EXPO_PACKAGER_PROXY_URL=https://p-<projectId>.<PREVIEW_DOMAIN>`
+  (WANDIT-193): Expo CLI puts this fixed host in every manifest URL, and
+  the preview proxy writes the phone host over it.
 - Port additions in this slice: `SandboxCreateOptions` carries
   `ownerUserId` and `organizationId` (the provider writes them on the
   `sandbox_sessions` row it creates), and `SandboxLogger` is the narrow
@@ -561,6 +573,64 @@ real caller.
   answers `skipped`, and the sweep does nothing. The operator steps are in
   `docs/v2/runbook.md`.
 
+## Mobile builds (WANDIT-194)
+
+The Android card of the publish popover builds an APK of a mobile app on
+EAS. iOS joins with WANDIT-284 (D22). The price is 50 credits
+(`MOBILE_BUILD_ANDROID_CREDITS`, D23).
+
+Routes under `/api/v2/projects/:projectId/mobile-builds`, behind
+`V2BuilderEnabledGuard`, `RedisRateLimitGuard`, and the workspace permission
+`project:update`. A V1 project, a web app, or a project of another workspace
+answers 404.
+
+- `POST /` with `{ platform: "android", requestKey }` answers 201 and the
+  build. A retried `requestKey` answers its first build. Without
+  `EXPO_TOKEN` or `EXPO_ACCOUNT` it answers 503 `V2_ENV_MISSING`; without a
+  saved version (no `app_branches` head) 409 `MOBILE_BUILD_NO_VERSION`; with a
+  live build 409 `MOBILE_BUILD_ACTIVE`. The hold `mobile_build:<buildId>`
+  (`mobileBuildHoldKey`) comes first, so a 402 writes no row. Then the
+  `queued` row, the task start, and the audit row `mobile_build.started`. A
+  task that does not start leaves the row `failed` with `start_failed` and
+  refunds the hold. Rate limit: 10 per 10 minutes per user.
+- `GET /` pages the builds, newest first (cursor, at most 50). `GET /:buildId`
+  answers one build.
+- `POST /:buildId/cancel` moves a live row to `canceled` with a
+  compare-and-set, cancels the EAS build over GraphQL, refunds the hold, and
+  writes `mobile_build.canceled`. A build that already ended answers as it
+  is.
+
+`mobile_builds` holds one row per build. The partial unique index
+`mobile_builds_live_project_platform_uq` allows one `queued` or `building` row
+per project and platform. Every status change is a compare-and-set in
+`MobileBuildsRepository.transition`: only one of the API and the task ends a
+build, and only that side moves the credits.
+
+The `mobile-build` task (queue `mobile-builds`, `concurrencyKey` = project,
+one attempt, idempotency key `mobile-build:<buildId>`):
+
+1. Claims the row (`queued` → `building`). A canceled or replayed run skips.
+2. Leases the hold (`LEASE_TTL_MS`, 40 min), so the stale-hold sweep skips
+   it during the build.
+3. Prepares the workspace in a temp folder (`prepareMobileBuildWorkspace`):
+   a read-only credential, `git fetch` of the commit (fallback: `main`), the
+   app.json checks, the wandit EAS identity, the trusted `eas.json` with the
+   backend env, a fixed `.easignore`, and the trusted template install. See
+   `docs/v2/security.md` section 12.
+4. Runs `eas init --account <EXPO_ACCOUNT>` and `eas build -p android
+   --profile apk --no-wait`, then removes the temp folder before any wait.
+5. Polls the build over GraphQL every 30 s with `wait.for`, for at most 2 h.
+   FINISHED stores `artifactUrl` and settles 5000 cc. ERRORED, a timeout, or
+   any other error fails the row and refunds. A failed DB read or EAS read
+   only waits for the next poll. A row that left `building` ends the run:
+   the API canceled it, and the run asks EAS to cancel once more. A
+   soft-deleted project cancels EAS and the row and refunds. A hold that the
+   stale-hold sweep or a cancel refunded stops the build (like builder-turn).
+
+A run that Trigger stops from outside (OOM, `maxDuration`) leaves the row
+`building`. The user Cancel is the exit, and the sweep refunds the hold when
+the lease expires. The operator steps are in `docs/v2/runbook.md`.
+
 ## Builder turn
 
 The `builder-turn` Trigger task (WANDIT-166) runs one turn end to end.
@@ -747,8 +817,9 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `SandboxHandle.allowHost` to apply it to the live sandbox with no
   restart, and writes a `network.host_allowed` audit row. `allowHost`
   routes through the live harness session, so the proxy run-token
-  transformation survives. A bad host or a failed update answers
-  `denied` and writes no audit row. See `docs/v2/security.md` section 5.
+  transformation survives. A bad host, a `supabase.co` or `supabase.com`
+  host (WANDIT-283), or a failed update answers `denied` and writes no
+  audit row. See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is
@@ -1018,7 +1089,56 @@ A `creating` or `stopped` sandbox row, or a running row without
 `sandbox_sessions.touchActivity`, so an open preview keeps the idle
 sweep away.
 
+`?client=phone` (WANDIT-193) mints the same token for the phone link of
+Expo Go. It takes an optional `expoUsername` (`expoUsernameSchema`:
+letters, digits, `.`, `_`, `-`, at most 64), which becomes the
+`expoUsername` claim. Each phone mint logs `preview.phone-token.minted`
+with `projectId` and `userId`. The web app then POSTs the token as a
+plain-text body to `https://<run host>/__wandit/phone-link`. The Worker
+writes `phone:<id>` to `PREVIEW_KV` for 60 minutes and answers
+`{expoUrl: "exps://m-<id>--p-<projectId>.<PREVIEW_DOMAIN>", expiresAt}`.
+
 Env: `PREVIEW_DOMAIN`, `PREVIEW_TOKEN_SIGNING_KEY`. The same
 `PREVIEW_TOKEN_SIGNING_KEY` is the Worker secret; set it with
 `wrangler secret put`. The two values must match, or every token fails
 the signature check of the Worker.
+
+## Device preview (WANDIT-196)
+
+`POST /api/v2/projects/:projectId/device-sessions {platform}` starts an
+Appetize device that runs the store Expo Go on the project. It sits behind
+`V2BuilderEnabledGuard`, `RedisRateLimitGuard` (10 starts per user per
+minute), and `@RequireWorkspacePermission("project", "update")`.
+`DeviceSessionsService.start` checks, in order:
+
+1. The project is a V2 `mobile-app` project in scope, else 404.
+2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
+   503 `V2_ENV_MISSING`.
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
+   starter 0, pro 60, business 180, ESTIMATE), else 402
+   `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count their billed
+   minutes, or their elapsed minutes before the bill.
+4. The user holds no open session: Redis `SET NX PX` on
+   `mobile_preview:user:{userId}` for 17 minutes, else 409
+   `DEVICE_SESSION_OPEN`.
+5. A phone preview token mints a 60-minute phone link through the Worker,
+   and Metro answers `/status` through it, else 409 `SANDBOX_NOT_RUNNING`
+   or `METRO_NOT_READY`. A failure here frees the lock.
+
+The answer is the Appetize client config: `publicKey`, `device`,
+`osVersion`, `launchUrl` (`exps://<phone host>`), the Expo Go `params`,
+and `timeLimitSeconds` (900). `POST .../device-sessions/:id/end` stores
+the Appetize `session.token` once and frees the lock; a token that another
+row holds answers 409 `APPETIZE_SESSION_TAKEN`.
+
+The `device-minutes` Trigger task runs every 5 minutes on
+`meteringMaintenanceQueue` (concurrency 1). It bills each ended or stale
+row once from the Appetize session log (`closeTime - startTime`, rounded
+up), or from its own clock when the log is missing. It writes one
+`mobile_preview` event through `MeteringService.recordFreeUsage`: zero
+credits, status `reconciled`, and one `appetize` evidence row at $0.06 per
+minute. `pnpm appetize:upload-expo-go` uploads the Expo Go builds. See
+`docs/v2/spikes/P5-02-appetize.md`.
+
+Env: `APPETIZE_API_TOKEN` (server and Trigger.dev),
+`APPETIZE_IOS_PUBLIC_KEY`, `APPETIZE_ANDROID_PUBLIC_KEY`.

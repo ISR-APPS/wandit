@@ -343,6 +343,33 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		).toBe(true);
 	});
 
+	it("gives the dev command of a mobile-app project EXPO_PACKAGER_PROXY_URL on the Metro host", async () => {
+		const { provider, sdk } = setup({
+			...ENV_SOURCE,
+			PREVIEW_DOMAIN: "preview-domain.test",
+		});
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+		await provider.getOrCreate("p2", OPTIONS);
+
+		const devCommandOf = (projectId: string) =>
+			sdk.instances
+				.get(projectId)
+				?.commands.find((command) => command.args?.includes("pnpm dev"));
+		expect(devCommandOf("p1")?.env?.EXPO_PACKAGER_PROXY_URL).toBe(
+			"https://p-p1.preview-domain.test",
+		);
+		// A web-app project runs Vite; the Expo value stays out of its env.
+		expect(devCommandOf("p2")?.env).not.toHaveProperty(
+			"EXPO_PACKAGER_PROXY_URL",
+		);
+	});
+
 	it("reuses the live row and sandbox on a second call", async () => {
 		const { provider, sessions, sdk, templateInit } = setup();
 
@@ -767,7 +794,19 @@ describe("VercelSandboxHandle", () => {
 });
 
 describe("VercelSandboxProvider egress policy", () => {
-	const STRICT_ALLOW = [...GLOBAL_ALLOWED_HOSTS, "llm-proxy.test"].sort();
+	const STRICT_ALLOW = [
+		...GLOBAL_ALLOWED_HOSTS,
+		"llm-proxy.test",
+		"project.supabase.co",
+	].sort();
+	// OPTIONS without VITE_SUPABASE_URL: a project with no active backend.
+	const { VITE_SUPABASE_URL: _backendUrl, ...ENV_WITHOUT_BACKEND } =
+		OPTIONS.env;
+	// The vendor type is a union; the provider always sends `allow` as a list.
+	const supabaseHosts = (policy: NetworkPolicy | undefined): string[] =>
+		typeof policy === "object" && Array.isArray(policy.allow)
+			? policy.allow.filter((host) => host.endsWith("supabase.co"))
+			: [];
 
 	it("creates with a deny-by-default policy built from the env", async () => {
 		const { provider, sdk } = setup();
@@ -837,6 +876,51 @@ describe("VercelSandboxProvider egress policy", () => {
 		expect(sandbox.networkPolicies).toEqual([
 			sdk.getOrCreateCalls[0]?.networkPolicy,
 		]);
+	});
+
+	it("allows exactly the project's own Supabase host with an active backend", async () => {
+		const { provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(supabaseHosts(sdk.getOrCreateCalls[0]?.networkPolicy)).toEqual([
+			"project.supabase.co",
+		]);
+	});
+
+	it("allows no Supabase host without an active backend", async () => {
+		const { provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", { ...OPTIONS, env: ENV_WITHOUT_BACKEND });
+
+		expect(supabaseHosts(sdk.getOrCreateCalls[0]?.networkPolicy)).toEqual([]);
+	});
+
+	it("allows no Supabase host when VITE_SUPABASE_URL is not a URL", async () => {
+		const { provider, sdk } = setup();
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			env: { ...ENV_WITHOUT_BACKEND, VITE_SUPABASE_URL: "not a url" },
+		});
+
+		expect(supabaseHosts(sdk.getOrCreateCalls[0]?.networkPolicy)).toEqual([]);
+	});
+
+	it("pushes the backend host on the next turn when the backend becomes active, with no restart", async () => {
+		const { provider, sdk } = setup();
+		await provider.getOrCreate("p1", { ...OPTIONS, env: ENV_WITHOUT_BACKEND });
+		const sandbox = sdk.instances.get("p1");
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		const pushed = sandbox?.networkPolicies ?? [];
+		expect(pushed).toHaveLength(1);
+		expect(supabaseHosts(pushed[0])).toEqual(["project.supabase.co"]);
+		// The second turn reuses the running sandbox: no second create, no stop.
+		expect(sdk.getOrCreateCalls).toHaveLength(2);
+		expect(sdk.instances.get("p1")).toBe(sandbox);
+		expect(sandbox?.stopped).toBe(false);
 	});
 
 	it("pushes the policy on a reuse when the project hosts changed", async () => {

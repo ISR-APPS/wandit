@@ -2,6 +2,7 @@ import type {
 	AppProject as ApiAppProject,
 	CodeFileResponse,
 	CodeSnapshotResponse,
+	PreviewTokenResponse,
 } from "@wandit/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -12,11 +13,13 @@ import {
 } from "@/lib/api-client";
 import {
 	createAppProject,
+	endDeviceSession,
 	getAppProject,
 	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
 	getPaymentsSummary,
+	getPhonePreviewLink,
 	getProjectSettings,
 	getSignInSummary,
 	listAppProjects,
@@ -24,6 +27,7 @@ import {
 	setCollaboratorRole,
 	setPaymentsMode,
 	setSignInMethod,
+	startDeviceSession,
 	toUiAppProject,
 	updateAppProject,
 } from "./app-builder.services";
@@ -202,7 +206,7 @@ describe("setPaymentsMode", () => {
 
 /** A GET that answers `body` and records each URL and query it got. */
 function getAnswers(
-	body: CodeSnapshotResponse | CodeFileResponse,
+	body: CodeSnapshotResponse | CodeFileResponse | PreviewTokenResponse,
 	calls: { url: string; options?: ApiRequestOptions }[] = [],
 ): typeof apiClient.get {
 	// SAFETY: the fake answers the one GET of a case, and the service
@@ -396,5 +400,149 @@ describe("toUiAppProject", () => {
 		const ui = toUiAppProject(mobile);
 		expect(ui.kind).toBe("mobile");
 		expect(ui.slug).toBe("");
+	});
+});
+
+describe("getPhonePreviewLink", () => {
+	const projectId = crypto.randomUUID();
+	const runHost = `r-abcdef123456--p-${projectId}.wanditpreview.app`;
+	const tokenAnswer: PreviewTokenResponse = {
+		token: "payload.signature",
+		previewUrl: `https://${runHost}/?wt=payload.signature`,
+		expiresAt: "2026-09-26T10:15:00.000Z",
+	};
+	const link = {
+		expoUrl: `exps://m-abcdefghijklmnopqrs27--p-${projectId}.wanditpreview.app`,
+		expiresAt: "2026-09-26T11:00:00.000Z",
+	};
+
+	/** A Worker fetch that answers `response` and records each call. */
+	function postAnswers(
+		response: Response,
+		calls: { url: string; init?: RequestInit }[],
+	): typeof fetch {
+		return async (input, init) => {
+			calls.push({ url: String(input), init });
+			return response;
+		};
+	}
+
+	it("asks the API for a phone token, posts it to the Worker route, and parses the link", async () => {
+		const getCalls: { url: string; options?: ApiRequestOptions }[] = [];
+		const postCalls: { url: string; init?: RequestInit }[] = [];
+
+		const answer = await getPhonePreviewLink(
+			projectId,
+			"zack",
+			getAnswers(tokenAnswer, getCalls),
+			postAnswers(Response.json(link), postCalls),
+		);
+
+		expect(answer).toEqual(link);
+		expect(getCalls).toEqual([
+			{
+				url: `/api/v2/projects/${projectId}/preview-token`,
+				options: { query: { client: "phone", expoUsername: "zack" } },
+			},
+		]);
+		expect(postCalls).toEqual([
+			{
+				url: `https://${runHost}/__wandit/phone-link`,
+				init: {
+					body: "payload.signature",
+					credentials: "omit",
+					method: "POST",
+				},
+			},
+		]);
+	});
+
+	it("sends no username for an empty one", async () => {
+		const getCalls: { url: string; options?: ApiRequestOptions }[] = [];
+
+		await getPhonePreviewLink(
+			projectId,
+			"",
+			getAnswers(tokenAnswer, getCalls),
+			postAnswers(Response.json(link), []),
+		);
+
+		expect(getCalls[0]?.options?.query).toEqual({
+			client: "phone",
+			expoUsername: undefined,
+		});
+	});
+
+	it("throws on a Worker error status instead of parsing its body", async () => {
+		await expect(
+			getPhonePreviewLink(
+				projectId,
+				"",
+				getAnswers(tokenAnswer),
+				postAnswers(new Response("Forbidden", { status: 403 }), []),
+			),
+		).rejects.toThrow("HTTP 403");
+	});
+});
+
+describe("device session API", () => {
+	const projectId = crypto.randomUUID();
+	const deviceSessionId = crypto.randomUUID();
+
+	/** A POST that answers `body` and records each URL and body it got. */
+	function postAnswers(
+		body: unknown,
+		calls: { url: string; body: unknown }[],
+	): typeof apiClient.post {
+		// SAFETY: the fake answers the one POST of a case, and the service
+		// parses the answer with its contracts schema.
+		return (async (url: string, requestBody?: unknown) => {
+			calls.push({ body: requestBody, url });
+			return body;
+		}) as typeof apiClient.post;
+	}
+
+	it("starts a session with the platform and parses the Appetize config", async () => {
+		const calls: { url: string; body: unknown }[] = [];
+		const config = {
+			deviceSessionId,
+			device: "iphone15pro",
+			launchUrl: `exps://m-abcdefghijklmnopqrs27--p-${projectId}.wanditpreview.app`,
+			osVersion: "17.2",
+			params: {
+				EXDevMenuDisableAutoLaunch: true,
+				EXKernelDisableNuxDefaultsKey: true,
+			},
+			publicKey: "pk-ios",
+			timeLimitSeconds: 900,
+		};
+
+		expect(
+			await startDeviceSession(projectId, "ios", postAnswers(config, calls)),
+		).toEqual(config);
+		expect(calls).toEqual([
+			{
+				body: { platform: "ios" },
+				url: `/api/v2/projects/${projectId}/device-sessions`,
+			},
+		]);
+	});
+
+	it("ends a session with its Appetize token", async () => {
+		const calls: { url: string; body: unknown }[] = [];
+
+		await endDeviceSession(
+			projectId,
+			deviceSessionId,
+			"tok_1",
+			postAnswers({ ended: true }, calls),
+		);
+
+		expect(calls).toEqual([
+			{
+				body: { appetizeSessionToken: "tok_1" },
+				url: `/api/v2/projects/${projectId}/device-sessions/${deviceSessionId}/end`,
+			},
+		]);
 	});
 });

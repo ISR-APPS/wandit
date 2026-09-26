@@ -72,6 +72,12 @@
 		"AI_INTERNAL": "Un problème est survenu de notre côté. Réessaie.",
 		"AI_UNKNOWN": "Un problème est survenu. Réessaie.",
 		"VERSION_CONFLICT": "Les versions ont changé. Rouvrez la liste et réessayez.",
-		"BUILDER_TURN_ACTIVE": "Attendez la fin de l'opération en cours, puis réessayez."
+		"BUILDER_TURN_ACTIVE": "Attendez la fin de l'opération en cours, puis réessayez.",
+		"DEVICE_MINUTES_EXHAUSTED": "Tu as utilisé toutes tes minutes d'appareil ce mois-ci.",
+		"DEVICE_SESSION_OPEN": "Un appareil est déjà ouvert. Arrête-le d'abord, ou attends quelques minutes.",
+		"METRO_NOT_READY": "Ton app démarre encore. Réessaie dans un instant.",
+		"MOBILE_BUILD_ACTIVE": "Un build de cette app est déjà en cours. Attends qu’il se termine.",
+		"MOBILE_BUILD_NO_VERSION": "Ton app n’a pas encore de version enregistrée. Crée-la d’abord dans le chat.",
+		"V2_ENV_MISSING": "Cette fonction n’est pas encore configurée sur le serveur. Réessaie plus tard."
 	}
 }

@@ -35,6 +35,47 @@
 		"iosLabel": "iPhone 15 · iOS 17",
 		"androidLabel": "Pixel 8 · Android 14"
 	},
+	"expoGo": {
+		"cta": "Open on phone",
+		"title": "Open on your phone",
+		"scanHint": "Scan the code with the camera on iPhone, or with Expo Go on Android.",
+		"qrLabel": "QR code of the Expo Go link",
+		"copy": "Copy link",
+		"copied": "Link copied",
+		"expired": "This link expired.",
+		"newLink": "New link",
+		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
+		"retry": "Try again",
+		"sdk": "Needs Expo Go for SDK {sdk}.",
+		"getApp": "Get Expo Go:",
+		"usernameLabel": "Expo Go username (iPhone)",
+		"usernameHint": "The account signed in to Expo Go on your iPhone. Android needs no username.",
+		"usernameInvalid": "Use letters, digits, dots, dashes, or underscores.",
+		"usernameSave": "Save",
+		"usernameCurrent": "iPhone account: {name}",
+		"usernameChange": "Change Expo Go username",
+		"mismatchHelp": "Expo Go says the account does not match? Check the username, then scan again.",
+		"fallback": "If Expo Go still does not open the app, use an Android phone.",
+		"oauthNote": "Google sign-in does not work in Expo Go."
+	},
+	"devicePreview": {
+		"open": "Run on a device",
+		"back": "Back to the web preview",
+		"start": "Start the device",
+		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
+		"starting": "Starting the device…",
+		"queue": "All devices are busy. You are number {position} in line.",
+		"timeLeft": "{time} left",
+		"idleWarning": "The device stops in {seconds} s without activity.",
+		"stop": "Stop",
+		"reload": "Reload the app",
+		"devMenu": "Open the dev menu",
+		"ended": "The device session ended.",
+		"again": "Start again",
+		"failed": "The device could not start. Try again.",
+		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
+		"frameTitle": "{device} device with {name}"
+	},
 	"preview": {
 		"liveReload": "Live reload",
 		"back": "Back",
@@ -499,7 +540,6 @@
 		"customDomain": "Custom domain",
 		"connectOne": "Connect one",
 		"ios": "iOS · App Store",
-		"android": "Android · Google Play",
 		"buildReady": "Build {build} ready · TestFlight {testers} testers",
 		"notSetUp": "Not set up",
 		"submit": "Submit",
@@ -507,8 +547,46 @@
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",
 		"showQr": "Show QR",
-		"backendNote": "Backend deploys with every publish",
-		"mobileSoon": "Publishing a mobile app is coming soon. Test your app in the preview for now."
+		"backendNote": "Backend deploys with every publish"
+	},
+	"mobileBuilds": {
+		"title": "Android · APK",
+		"empty": "Install your app on an Android phone",
+		"build": {
+			"one": "Build APK · {count} credit",
+			"other": "Build APK · {count} credits"
+		},
+		"retry": {
+			"one": "Retry · {count} credit",
+			"other": "Retry · {count} credits"
+		},
+		"cancel": "Cancel",
+		"download": "Download APK",
+		"scanHint": "Scan the code with an Android phone to install the app.",
+		"qrTitle": "QR code of the APK download link",
+		"liveHint": "The build continues when you close this panel.",
+		"history": "Earlier builds",
+		"status": {
+			"queued": "Waiting to start",
+			"building": "Building",
+			"finished": "Ready",
+			"failed": "Failed",
+			"canceled": "Canceled"
+		},
+		"errors": {
+			"start_failed": "The build did not start. Try again.",
+			"unconfigured": "App builds are not available now. Try again later.",
+			"clone_failed": "The build could not read the code of your app. Try again.",
+			"config_invalid": "The configuration of your app is not valid. Ask Wandit in the chat to fix app.json, then build again.",
+			"plugin_not_allowed": "Your app uses a native plugin that builds do not support yet.",
+			"install_failed": "The install of the app packages failed. Try again.",
+			"eas_init_failed": "The build service could not set up your app. Try again.",
+			"eas_start_failed": "The build service did not accept the build. Try again.",
+			"eas_errored": "The build failed on the build service. Try again, or ask Wandit in the chat to fix the app.",
+			"artifact_missing": "The build ended without an APK file. Try again.",
+			"timeout": "The build took too long and stopped. Try again.",
+			"internal": "An error occurred during the build. Try again."
+		}
 	},
 	"versions": {
 		"title": "Version history",

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,12 +44,13 @@ const idleBoot: BootContext = {
 	hasCodeChanges: true,
 };
 
-async function renderPreview(device: PhoneDevice) {
+async function renderPreview(device: PhoneDevice, canRunOnDevice = false) {
 	const props: PhonePreviewProps = {
 		project,
 		device,
 		reloadKey: 0,
 		bootContext: idleBoot,
+		canRunOnDevice,
 		deps: readyDeps,
 	};
 	// I18nProvider requires children in its props type for createElement calls.
@@ -73,9 +74,38 @@ describe("PhonePreview", () => {
 		expect(iframe).toBeTruthy();
 	});
 
+	it("lays the app out at the device width and scales it to the 286 px screen", async () => {
+		const iosFrame = await renderPreview("ios");
+		expect(iosFrame.style.width).toBe("393px");
+		cleanup();
+		const androidFrame = await renderPreview("android");
+		expect(androidFrame.style.width).toBe("412px");
+		// 286 / 412 of the box width, so the height fills the box after the scale.
+		expect(androidFrame.style.height).toBe(`${100 / (286 / 412)}%`);
+	});
+
 	it("labels the Pixel on the android device", async () => {
 		await renderPreview("android");
 		expect(screen.getByText("Pixel 8 · Android 14")).toBeTruthy();
 		expect(screen.queryByText("iPhone 15 · iOS 17")).toBeNull();
+	});
+
+	it("shows the device button only behind its flag, and opens the device panel without a start", async () => {
+		await renderPreview("ios");
+		expect(
+			screen.queryByRole("button", { name: "Run on a device" }),
+		).toBeNull();
+		cleanup();
+
+		await renderPreview("ios", true);
+		fireEvent.click(screen.getByRole("button", { name: "Run on a device" }));
+
+		// Each device minute costs money: the panel waits for the start button.
+		expect(
+			screen.getByRole("button", { name: "Start the device" }),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Back to the web preview" }),
+		).toBeTruthy();
 	});
 });

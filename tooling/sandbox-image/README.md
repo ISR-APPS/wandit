@@ -7,14 +7,16 @@ warm pnpm store.
 
 Contents: Node 22, pnpm 11.7.0, git, Claude Code 2.1.245 (the version the
 `@ai-sdk/harness-claude-code` bridge pins in `dist/bridge/pnpm-lock.yaml`),
-Expo CLI 56 (Metro slice, WANDIT-193), Playwright 1.61.1 with Chromium under
-`/ms-playwright`, and a non-root `builder` user with `/workspace` as the
-project root.
+Playwright 1.61.1 with Chromium under `/ms-playwright`, a pnpm store warmed
+from the web-app and mobile-app lockfiles, and a non-root `builder` user
+with `/workspace` as the project root. No global Expo CLI: the mobile-app
+template runs its own `expo` (SDK 57, WANDIT-193).
 
 ## Build
 
 Build from the repo root — the Dockerfile copies
-`templates/web-app/pnpm-lock.yaml` to warm the offline pnpm store:
+`templates/web-app/pnpm-lock.yaml` and `templates/mobile-app/pnpm-lock.yaml`
+to warm the offline pnpm store:
 
 ```sh
 docker build -f tooling/sandbox-image/Dockerfile -t wandit-sandbox:0.1.0 .

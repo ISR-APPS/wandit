@@ -106,6 +106,8 @@ export * from "./v2/cloud";
 export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
+// V2 Appetize device-session routes and the Appetize and Expo answers.
+export * from "./v2/device-sessions";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 app-builder health contract.
@@ -114,6 +116,8 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
+export * from "./v2/mobile-builds";
 // V2 app-builder preview token contract.
 export * from "./v2/preview";
 // V2 preview token sign and verify helpers.

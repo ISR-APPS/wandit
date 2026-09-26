@@ -4,6 +4,7 @@
  * settlement ceilings, and legal parent/child nesting of usage operations.
  * Pure constants and helpers; it calls nothing.
  */
+import { MOBILE_BUILD_ANDROID_CREDITS } from "@wandit/contracts";
 import type { aiUsageOperation } from "@wandit/db/schema/credits";
 
 export type AiUsageOperation = (typeof aiUsageOperation.enumValues)[number];
@@ -47,6 +48,11 @@ export const AGENT_SESSION_RESERVE_CEILING_CREDITS = 250_000;
 // never less than 1 credit per scrape (ruling: not measured from Serper).
 export const LEAD_SCRAPE_CREDITS_PER_LEAD = 5;
 export const LEAD_SCRAPE_MINIMUM_CREDITS = 100;
+/**
+ * One Android APK build on EAS (WANDIT-194), a fixed price. The contract
+ * price is in whole credits; the registry keeps centi-credits.
+ */
+export const MOBILE_BUILD_CREDITS = MOBILE_BUILD_ANDROID_CREDITS * 100;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -65,7 +71,7 @@ export type FixedOperationPricing = ParentChildRules & {
 	minimumCredits?: number;
 	mode: "fixed";
 	reserveFloorCredits: number;
-	unit: "adjustment" | "image" | "lead" | "operation";
+	unit: "adjustment" | "image" | "lead" | "minute" | "operation";
 };
 
 /**
@@ -166,6 +172,28 @@ export const OPERATION_REGISTRY = {
 		mode: "token",
 		reserveFloorCredits: MARKETING_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
+	},
+	// The user starts a build from the publish popover, never from a chat
+	// or a turn, so it has no parent.
+	mobile_build: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		creditsPerUnit: MOBILE_BUILD_CREDITS,
+		mode: "fixed",
+		reserveFloorCredits: MOBILE_BUILD_CREDITS,
+		rootAllowed: true,
+		unit: "operation",
+	},
+	// Appetize device minutes (WANDIT-196): zero credits inside the plan
+	// allowance. The event records the provider cost only.
+	mobile_preview: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		creditsPerUnit: 0,
+		mode: "fixed",
+		reserveFloorCredits: 0,
+		rootAllowed: true,
+		unit: "minute",
 	},
 	page_build: {
 		allowedChildOperations: ["image"],

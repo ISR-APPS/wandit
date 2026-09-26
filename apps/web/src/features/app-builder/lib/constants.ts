@@ -166,6 +166,31 @@ export const TABLET_VIEWPORT_WIDTH_PX = 768;
 /** Width of the web preview iframe in the mobile viewport, CSS px. The logical width of an iPhone 15. */
 export const MOBILE_VIEWPORT_WIDTH_PX = 393;
 
+/**
+ * Layout width of the app in the phone frame, CSS px: the iPhone 15 and the
+ * Pixel 8 logical widths. The frame scales the app down to its screen.
+ */
+export const PHONE_VIEWPORT_WIDTH_PX: Record<PhoneDevice, number> = {
+	ios: MOBILE_VIEWPORT_WIDTH_PX,
+	android: 412,
+};
+
+/** localStorage key of the Expo Go username that the user typed for the iPhone. Sent with each phone link mint. */
+export const EXPO_GO_USERNAME_STORAGE_KEY =
+	"wandit-app-builder-expo-go-username";
+
+/** Expo SDK of the mobile-app template (templates/mobile-app/package.json). The store Expo Go must run the same SDK. */
+export const EXPO_GO_SDK_VERSION = 57;
+
+/** Store pages of Expo Go. The labels are brand names, so they stay out of the dictionaries. */
+export const EXPO_GO_STORE_LINKS = [
+	{ label: "App Store", url: "https://apps.apple.com/app/expo-go/id982107779" },
+	{
+		label: "Google Play",
+		url: "https://play.google.com/store/apps/details?id=host.exp.exponent",
+	},
+] as const;
+
 /** Round-trip delay of a mock service call, ms. Long enough to show pending states, short enough to feel local. */
 export const MOCK_LATENCY_MS = 150;
 

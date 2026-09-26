@@ -54,6 +54,7 @@
 		"lucide-react": "catalog:",
 		"motion": "^12.42.2",
 		"next-themes": "catalog:",
+		"qrcode.react": "^4.2.0",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
 		"react-timer-hook": "^4.0.6",

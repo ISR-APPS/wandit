@@ -35,6 +35,47 @@
 		"iosLabel": "iPhone 15 · iOS 17",
 		"androidLabel": "Pixel 8 · Android 14"
 	},
+	"expoGo": {
+		"cta": "Ouvrir sur le téléphone",
+		"title": "Ouvre l'app sur ton téléphone",
+		"scanHint": "Scanne le code avec l'appareil photo sur iPhone, ou avec Expo Go sur Android.",
+		"qrLabel": "Code QR du lien Expo Go",
+		"copy": "Copier le lien",
+		"copied": "Lien copié",
+		"expired": "Ce lien a expiré.",
+		"newLink": "Nouveau lien",
+		"notRunning": "Ton app ne tourne pas encore. Attends que l'aperçu se charge, puis réessaie.",
+		"retry": "Réessayer",
+		"sdk": "Il faut Expo Go pour le SDK {sdk}.",
+		"getApp": "Télécharger Expo Go :",
+		"usernameLabel": "Nom d'utilisateur Expo Go (iPhone)",
+		"usernameHint": "Le compte connecté à Expo Go sur ton iPhone. Sur Android, pas besoin de nom.",
+		"usernameInvalid": "Utilise des lettres, des chiffres, des points, des tirets ou des tirets bas.",
+		"usernameSave": "Enregistrer",
+		"usernameCurrent": "Compte iPhone : {name}",
+		"usernameChange": "Changer le nom Expo Go",
+		"mismatchHelp": "Expo Go dit que le compte ne correspond pas ? Vérifie le nom, puis scanne à nouveau.",
+		"fallback": "Si Expo Go n'ouvre toujours pas l'app, utilise un téléphone Android.",
+		"oauthNote": "La connexion Google ne marche pas dans Expo Go."
+	},
+	"devicePreview": {
+		"open": "Lancer sur un appareil",
+		"back": "Retour à l'aperçu web",
+		"start": "Démarrer l'appareil",
+		"startHint": "Utilise un vrai téléphone avec Expo Go dans ton navigateur. Cela consomme tes minutes d'appareil.",
+		"starting": "Démarrage de l'appareil…",
+		"queue": "Tous les appareils sont occupés. Tu es numéro {position} dans la file.",
+		"timeLeft": "{time} restantes",
+		"idleWarning": "L'appareil s'arrête dans {seconds} s sans activité.",
+		"stop": "Arrêter",
+		"reload": "Recharger l'app",
+		"devMenu": "Ouvrir le menu de développement",
+		"ended": "La session de l'appareil est terminée.",
+		"again": "Redémarrer",
+		"failed": "L'appareil n'a pas pu démarrer. Réessaie.",
+		"notRunning": "Ton app ne tourne pas encore. Attends que l'aperçu se charge, puis réessaie.",
+		"frameTitle": "Appareil {device} avec {name}"
+	},
 	"preview": {
 		"liveReload": "Rechargement auto",
 		"back": "Retour",
@@ -499,7 +540,6 @@
 		"customDomain": "Domaine personnalisé",
 		"connectOne": "En connecter un",
 		"ios": "iOS · App Store",
-		"android": "Android · Google Play",
 		"buildReady": "Build {build} prêt · TestFlight {testers} testeurs",
 		"notSetUp": "Non configuré",
 		"submit": "Soumettre",
@@ -507,8 +547,46 @@
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
 		"showQr": "Afficher le QR",
-		"backendNote": "Le backend se déploie à chaque publication",
-		"mobileSoon": "La publication d’une app mobile arrive bientôt. En attendant, teste ton app dans l’aperçu."
+		"backendNote": "Le backend se déploie à chaque publication"
+	},
+	"mobileBuilds": {
+		"title": "Android · APK",
+		"empty": "Installe ton app sur un téléphone Android",
+		"build": {
+			"one": "Générer l’APK · {count} crédit",
+			"other": "Générer l’APK · {count} crédits"
+		},
+		"retry": {
+			"one": "Réessayer · {count} crédit",
+			"other": "Réessayer · {count} crédits"
+		},
+		"cancel": "Annuler",
+		"download": "Télécharger l’APK",
+		"scanHint": "Scanne le code avec un téléphone Android pour installer l’app.",
+		"qrTitle": "QR code du lien de téléchargement de l’APK",
+		"liveHint": "Le build continue quand tu fermes ce panneau.",
+		"history": "Builds précédents",
+		"status": {
+			"queued": "En attente",
+			"building": "Build en cours",
+			"finished": "Prêt",
+			"failed": "Échec",
+			"canceled": "Annulé"
+		},
+		"errors": {
+			"start_failed": "Le build n’a pas démarré. Réessaie.",
+			"unconfigured": "Les builds d’app ne sont pas disponibles pour le moment. Réessaie plus tard.",
+			"clone_failed": "Le build n’a pas pu lire le code de ton app. Réessaie.",
+			"config_invalid": "La configuration de ton app n’est pas valide. Demande à Wandit dans le chat de corriger app.json, puis relance le build.",
+			"plugin_not_allowed": "Ton app utilise un plugin natif que les builds ne prennent pas encore en charge.",
+			"install_failed": "L’installation des paquets de l’app a échoué. Réessaie.",
+			"eas_init_failed": "Le service de build n’a pas pu configurer ton app. Réessaie.",
+			"eas_start_failed": "Le service de build n’a pas accepté le build. Réessaie.",
+			"eas_errored": "Le build a échoué sur le service de build. Réessaie, ou demande à Wandit dans le chat de corriger l’app.",
+			"artifact_missing": "Le build s’est terminé sans fichier APK. Réessaie.",
+			"timeout": "Le build a pris trop de temps et s’est arrêté. Réessaie.",
+			"internal": "Une erreur est survenue pendant le build. Réessaie."
+		}
 	},
 	"versions": {
 		"title": "Historique des versions",

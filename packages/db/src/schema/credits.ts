@@ -50,6 +50,10 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"agent_session",
 	// Sandbox minutes at a zero rate; not billed to the customer before WANDIT-196.
 	"sandbox",
+	// One V2 mobile app build on EAS, at a fixed price (WANDIT-194).
+	"mobile_build",
+	// Appetize device minutes (WANDIT-196): zero credits inside the plan allowance.
+	"mobile_preview",
 	"topup_adjust",
 ]);
 
@@ -401,13 +405,15 @@ export const aiUsageGenerationRefs = pgTable(
 
 // Which external provider transport produced a piece of cost evidence.
 // `vercel`/`openrouter` exist for optional mirroring of gateway generations;
-// the evidence writers today emit serper/higgsfield/mcp rows only.
+// the evidence writers today emit serper/higgsfield/mcp/appetize rows only.
 export const aiCostTransport = pgEnum("ai_cost_transport", [
 	"vercel",
 	"openrouter",
 	"serper",
 	"higgsfield",
 	"mcp",
+	// Appetize device minutes of the mobile preview (WANDIT-196).
+	"appetize",
 ]);
 
 export const aiCostStatus = pgEnum("ai_cost_status", [

@@ -39,6 +39,7 @@ import type {
 	PhoneDevice,
 	WebViewport,
 } from "../../lib/constants";
+import { ExpoGoPopover } from "./expo-go-popover";
 import { ProjectMenu } from "./project-menu";
 import { PublishPopover } from "./publish-popover";
 import { SegmentedControl } from "./segmented-control";
@@ -122,7 +123,7 @@ export type WorkBarProps = {
 	onChangeViewport: (viewport: WebViewport) => void;
 	/** Bumps `reloadKey`; the panel mints a new token and the new src reloads the frame. */
 	onReload: () => void;
-	/** Opens the published app in a new tab. */
+	/** Opens the published app in a new tab. Web projects only: a mobile app has no site. */
 	onOpenExternal: () => void;
 };
 
@@ -185,81 +186,130 @@ export function WorkBar({
 			</span>
 			<div className="ms-auto flex shrink-0 items-center gap-2">
 				{view === "preview" ? (
-					<>
-						{project.kind === "web" ? (
-							<SegmentedControl
-								ariaLabel={t("appBuilder.viewport.ariaLabel")}
-								value={viewport}
-								onChange={onChangeViewport}
-								className="hidden md:flex"
-								options={[
-									{
-										value: "desktop",
-										label: t("appBuilder.viewport.desktop"),
-										icon: Monitor,
-										iconOnly: true,
-									},
-									{
-										value: "tablet",
-										label: t("appBuilder.viewport.tablet"),
-										icon: Tablet,
-										iconOnly: true,
-									},
-									{
-										value: "mobile",
-										label: t("appBuilder.viewport.mobile"),
-										icon: Smartphone,
-										iconOnly: true,
-									},
-								]}
-							/>
-						) : (
-							<SegmentedControl
-								ariaLabel={t("appBuilder.device.ariaLabel")}
-								value={device}
-								onChange={onChangeDevice}
-								className="hidden md:flex"
-								options={[
-									{
-										value: "ios",
-										label: t("appBuilder.device.ios"),
-										icon: Smartphone,
-									},
-									{
-										value: "android",
-										label: t("appBuilder.device.android"),
-										icon: Smartphone,
-									},
-								]}
-							/>
-						)}
-						<IconAction label={t("appBuilder.topBar.reload")}>
-							<Button
-								variant="outline"
-								size="icon-sm"
-								className="hidden md:inline-flex"
-								onClick={onReload}
-							>
-								<RefreshCw className="size-3.5" />
-							</Button>
-						</IconAction>
-						<IconAction label={t("appBuilder.topBar.openExternal")}>
-							<Button
-								variant="outline"
-								size="icon-sm"
-								className="hidden md:inline-flex"
-								onClick={onOpenExternal}
-							>
-								<ExternalLink className="size-3.5" />
-							</Button>
-						</IconAction>
-					</>
+					<PreviewActions
+						project={project}
+						device={device}
+						viewport={viewport}
+						onChangeDevice={onChangeDevice}
+						onChangeViewport={onChangeViewport}
+						onReload={onReload}
+						onOpenExternal={onOpenExternal}
+					/>
 				) : null}
 				<CreditsChip className="hidden sm:flex" />
 				<PublishPopover project={project} />
 				<UserMenu />
 			</div>
 		</div>
+	);
+}
+
+export type PreviewActionsProps = Pick<
+	WorkBarProps,
+	| "project"
+	| "device"
+	| "viewport"
+	| "onChangeDevice"
+	| "onChangeViewport"
+	| "onReload"
+	| "onOpenExternal"
+>;
+
+/**
+ * Preview controls of the work bar. A web app gets the viewport switch and
+ * the new-tab button. A mobile app gets the device switch and the Expo Go
+ * popover. Both get the reload button.
+ */
+export function PreviewActions({
+	project,
+	device,
+	viewport,
+	onChangeDevice,
+	onChangeViewport,
+	onReload,
+	onOpenExternal,
+}: PreviewActionsProps) {
+	const { t } = useTranslation();
+	const reload = (
+		<IconAction label={t("appBuilder.topBar.reload")}>
+			<Button
+				variant="outline"
+				size="icon-sm"
+				className="hidden md:inline-flex"
+				onClick={onReload}
+			>
+				<RefreshCw className="size-3.5" />
+			</Button>
+		</IconAction>
+	);
+
+	if (project.kind === "web") {
+		return (
+			<>
+				<SegmentedControl
+					ariaLabel={t("appBuilder.viewport.ariaLabel")}
+					value={viewport}
+					onChange={onChangeViewport}
+					className="hidden md:flex"
+					options={[
+						{
+							value: "desktop",
+							label: t("appBuilder.viewport.desktop"),
+							icon: Monitor,
+							iconOnly: true,
+						},
+						{
+							value: "tablet",
+							label: t("appBuilder.viewport.tablet"),
+							icon: Tablet,
+							iconOnly: true,
+						},
+						{
+							value: "mobile",
+							label: t("appBuilder.viewport.mobile"),
+							icon: Smartphone,
+							iconOnly: true,
+						},
+					]}
+				/>
+				{reload}
+				<IconAction label={t("appBuilder.topBar.openExternal")}>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						className="hidden md:inline-flex"
+						onClick={onOpenExternal}
+					>
+						<ExternalLink className="size-3.5" />
+					</Button>
+				</IconAction>
+			</>
+		);
+	}
+	// A mobile app has no published site yet, so no new-tab button (WANDIT-193).
+	return (
+		<>
+			<SegmentedControl
+				ariaLabel={t("appBuilder.device.ariaLabel")}
+				value={device}
+				onChange={onChangeDevice}
+				className="hidden md:flex"
+				options={[
+					{
+						value: "ios",
+						label: t("appBuilder.device.ios"),
+						icon: Smartphone,
+					},
+					{
+						value: "android",
+						label: t("appBuilder.device.android"),
+						icon: Smartphone,
+					},
+				]}
+			/>
+			<ExpoGoPopover projectId={project.id} />
+			{reload}
+		</>
 	);
 }
 

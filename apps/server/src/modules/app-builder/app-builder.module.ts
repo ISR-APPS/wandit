@@ -20,10 +20,12 @@ import { AppProjectsService } from "./application/services/app-projects.service"
 import { BackendsService } from "./application/services/backends.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
+import { DeviceSessionsService } from "./application/services/device-sessions.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
 } from "./application/services/llm-proxy.service";
+import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
@@ -34,7 +36,10 @@ import {
 	VersionsService,
 } from "./application/services/versions.service";
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
+import { DEVICE_SESSION_LOCK } from "./domain/ports/device-session-lock";
+import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
 import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
+import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
@@ -44,6 +49,7 @@ import {
 	WORKERS_FOR_PLATFORMS_CLIENT,
 	workersForPlatformsClientFromEnv,
 } from "./infrastructure/cloudflare/workers-for-platforms.client";
+import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
@@ -52,11 +58,15 @@ import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.r
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
+import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
+import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
+import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import {
 	ArchiveTemplateInit,
@@ -73,6 +83,7 @@ import {
 	type SupabaseRateLimiter,
 } from "./infrastructure/supabase/supabase-rate-limiter";
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
+import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
@@ -80,7 +91,9 @@ import { AppProjectsController } from "./presentation/http/controllers/app-proje
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
+import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
+import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
@@ -130,7 +143,9 @@ export function createCloudSupabaseClient(
 		CloudController,
 		CodeController,
 		CostCapsController,
+		DeviceSessionsController,
 		LlmProxyController,
+		MobileBuildsController,
 		PreviewTokenController,
 		ProjectSecretsController,
 		TurnsController,
@@ -159,9 +174,14 @@ export function createCloudSupabaseClient(
 		BuilderTurnsRepository,
 		CloudService,
 		CodeService,
+		DeviceSessionsRepository,
+		DeviceSessionsService,
 		LlmProxyRequestsRepository,
 		LlmProxyService,
 		LlmSpendCounters,
+		MobileBuildsRepository,
+		MobileBuildsService,
+		PreviewProxyClient,
 		PreviewTokenService,
 		ProjectCostCapsRepository,
 		ProjectSecretsRepository,
@@ -177,11 +197,22 @@ export function createCloudSupabaseClient(
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,
 		VersionsService,
+		{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
+		// Null without EXPO_TOKEN or EXPO_ACCOUNT: `MobileBuildsService` then answers 503.
+		{
+			provide: EAS_BUILD_RUNNER,
+			useFactory: easBuildRunnerFromEnv,
+			inject: [V2_ENV],
+		},
 		{ provide: GIT_STORE, useClass: CodeStorageGitStore },
 		// The LLM proxy reads a wider env slice than V2_ENV (provider keys).
 		{ provide: LLM_PROXY_ENV, useValue: env },
 		// The long-timeout undici dispatcher the chat gateway already uses.
 		{ provide: LLM_PROXY_FETCH, useValue: chatGatewayFetch },
+		{
+			provide: MOBILE_BUILD_TASK_STARTER,
+			useClass: TriggerMobileBuildTaskStarter,
+		},
 		{
 			provide: PROVISION_BACKEND_TASK_STARTER,
 			useClass: TriggerProvisionBackendTaskStarter,
