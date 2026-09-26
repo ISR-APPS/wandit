@@ -2,9 +2,11 @@
  * Data layer of the app builder. Most functions are a mock store: each waits
  * a short delay and returns a copy, like a fetch. State lives in this module
  * until a reload. The functions under `// ---- Real API ----` call the V2
- * routes through `@/lib/api-client` and parse the response with contracts.
+ * routes through `@/lib/api-client` and parse the response with contracts;
+ * the Code view functions are there too.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
- * lib/use-builder-chat.ts, lib/use-preview-token.ts, and the route loader.
+ * lib/use-builder-chat.ts, lib/use-preview-token.ts, the Expo Go popover,
+ * and the route loader.
  */
 
 import {
@@ -12,21 +14,33 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type CancelTurnResponse,
+	type CodeFileResponse,
+	type CreateAppProjectRequest,
+	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
+	codeFileResponseSchema,
+	codeSnapshotResponseSchema,
+	createAppProjectResponseSchema,
+	type DevicePlatform,
+	endDeviceSessionResponseSchema,
 	type ListVersionsResponse,
 	listVersionsResponseSchema,
+	PHONE_LINK_PATH,
+	type PhonePreviewLinkResponse,
 	type PreviewTokenResponse,
+	phonePreviewLinkResponseSchema,
 	previewTokenResponseSchema,
 	type RestoreVersionBody,
 	type RestoreVersionResponse,
 	restoreVersionResponseSchema,
+	type StartDeviceSessionResponse,
+	startDeviceSessionResponseSchema,
 	type VersionDiffResponse,
 	versionDiffResponseSchema,
 } from "@wandit/contracts";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
 import { type ComposerMode, MOCK_LATENCY_MS } from "../lib/constants";
-import { MOCK_CODE_FILES, MOCK_CODE_SNAPSHOT } from "../lib/mock-code";
 import {
 	MOCK_APP_STORES,
 	MOCK_BACKEND,
@@ -215,25 +229,6 @@ export async function getBuilderThread(
 	return structuredClone(required(getStore().threads, projectId));
 }
 
-export async function getCodeSnapshot(
-	projectId: string,
-): Promise<CodeSnapshot> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_CODE_SNAPSHOT);
-}
-
-/** null when the repository has no file at this path. */
-export async function getCodeFile(
-	projectId: string,
-	path: string,
-): Promise<CodeFile | null> {
-	await delay();
-	required(getStore().projects, projectId);
-	const file = MOCK_CODE_FILES.find((candidate) => candidate.path === path);
-	return file ? structuredClone(file) : null;
-}
-
 export async function getBackendSummary(
 	projectId: string,
 ): Promise<BackendSummary> {
@@ -321,6 +316,19 @@ export async function setCollaboratorRole(
 // ---- Real API ----
 
 /**
+ * `POST /api/v2/projects`. Creates the project, its first chat, and starts
+ * the first builder turn. `post` comes from the caller so a spec can inject
+ * a fake client. Errors propagate: the hook maps a 402 to the credits dialog.
+ */
+export async function createAppProject(
+	body: CreateAppProjectRequest,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<CreateAppProjectResponse> {
+	const data = await post<unknown>(appBuilderRoutes.createProject, body);
+	return createAppProjectResponseSchema.parse(data);
+}
+
+/**
  * `GET /api/v2/projects/:id`. A 404 answers null like a missing mock id;
  * every other failure propagates so the query enters its error state.
  * `get` comes from the caller so a spec can inject a fake client. The
@@ -352,12 +360,14 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		name: project.name,
 		description: project.prompt,
 		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		engine: project.engine,
 		// LIMIT: the V2 API has no publish state yet, so the slug, the version
 		// number, and the unpublished count keep their empty values.
 		// Upgrade: the publish state of WANDIT-178.
 		slug: project.publishedSlug ?? "",
 		versionNumber: 0,
 		unpublishedChanges: 0,
+		hasCodeChanges: project.hasCodeChanges,
 	};
 }
 
@@ -389,6 +399,140 @@ export async function getPreviewToken(
 		appBuilderRoutes.previewToken(projectId),
 	);
 	return previewTokenResponseSchema.parse(data);
+}
+
+/**
+ * Mints a 60-minute phone link for Expo Go (WANDIT-193). The API signs a
+ * phone preview token; the preview Worker turns it into an `exps://` URL.
+ * `expoUsername` is the Expo Go account for the iPhone check, or "" for
+ * none. A 409 `SANDBOX_NOT_RUNNING` propagates. `get` and `post` are the
+ * test seams.
+ */
+export async function getPhonePreviewLink(
+	projectId: string,
+	expoUsername: string,
+	get: typeof apiClient.get = apiClient.get,
+	post: typeof fetch = fetch,
+): Promise<PhonePreviewLinkResponse> {
+	const data = await get<unknown>(appBuilderRoutes.previewToken(projectId), {
+		query: {
+			client: "phone",
+			expoUsername: expoUsername === "" ? undefined : expoUsername,
+		},
+	});
+	const { token, previewUrl } = previewTokenResponseSchema.parse(data);
+	// The mint route sits on the run host of the token. A plain-text body
+	// needs no CORS preflight, and no cookie rides along.
+	const response = await post(new URL(PHONE_LINK_PATH, previewUrl), {
+		body: token,
+		credentials: "omit",
+		method: "POST",
+	});
+	if (!response.ok) {
+		throw new Error(`Phone link mint failed with HTTP ${response.status}`);
+	}
+	return phonePreviewLinkResponseSchema.parse(await response.json());
+}
+
+/**
+ * `POST /api/v2/projects/:id/device-sessions` starts an Appetize device
+ * session (WANDIT-196) and answers its client config. 402, 409, and 404
+ * propagate as API errors. `post` is the test seam.
+ */
+export async function startDeviceSession(
+	projectId: string,
+	platform: DevicePlatform,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<StartDeviceSessionResponse> {
+	const data = await post<unknown>(appBuilderRoutes.deviceSessions(projectId), {
+		platform,
+	});
+	return startDeviceSessionResponseSchema.parse(data);
+}
+
+/**
+ * Ends one device session and sends its Appetize session token, or no
+ * token when the session never started. `post` is the test seam.
+ */
+export async function endDeviceSession(
+	projectId: string,
+	deviceSessionId: string,
+	appetizeSessionToken: string | undefined,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<void> {
+	const data = await post<unknown>(
+		appBuilderRoutes.endDeviceSession(projectId, deviceSessionId),
+		{ appetizeSessionToken },
+	);
+	endDeviceSessionResponseSchema.parse(data);
+}
+
+/** Maps one file answer of the API to what the Code view shows: text, or binary with no content. */
+function toCodeFile(file: CodeFileResponse): CodeFile {
+	return file.binary
+		? { kind: "binary", path: file.path, size: file.size }
+		: { kind: "text", path: file.path, content: file.content, size: file.size };
+}
+
+/**
+ * `GET /api/v2/projects/:id/code` answers the file tree of the running
+ * sandbox and the small files the server read with it. A 409
+ * `SANDBOX_NOT_RUNNING` answers null: the server never wakes a sandbox for
+ * a read, only the next turn does. `signal` stops a request that a newer
+ * fetch replaced. `get` is the test seam.
+ */
+export async function getCodeSnapshot(
+	projectId: string,
+	signal?: AbortSignal,
+	get: typeof apiClient.get = apiClient.get,
+): Promise<{ snapshot: CodeSnapshot; files: CodeFile[] } | null> {
+	try {
+		const data = await get<unknown>(appBuilderRoutes.codeSnapshot(projectId), {
+			signal,
+		});
+		const { files, ...snapshot } = codeSnapshotResponseSchema.parse(data);
+		return { snapshot, files: files.map(toCodeFile) };
+	} catch (error) {
+		if (isApiClientError(error) && error.code === "SANDBOX_NOT_RUNNING") {
+			return null;
+		}
+		throw error;
+	}
+}
+
+/**
+ * `GET /api/v2/projects/:id/code/file?path=` answers one file. The three
+ * file errors map to a `CodeFile` kind the viewer shows; every other
+ * failure, a 409 included, propagates. `signal` stops the request when the
+ * user leaves the file. `get` is the test seam.
+ */
+export async function getCodeFile(
+	projectId: string,
+	path: string,
+	signal?: AbortSignal,
+	get: typeof apiClient.get = apiClient.get,
+): Promise<CodeFile> {
+	try {
+		const data = await get<unknown>(appBuilderRoutes.codeFile(projectId), {
+			query: { path },
+			signal,
+		});
+		return toCodeFile(codeFileResponseSchema.parse(data));
+	} catch (error) {
+		// A hand-typed URL can name a path the API refuses, like `.env`. For
+		// the user it is a file the Code view cannot show.
+		if (
+			isApiClientError(error) &&
+			(error.code === "CODE_FILE_NOT_FOUND" ||
+				error.code === "CODE_PATH_INVALID")
+		) {
+			return { kind: "missing", path };
+		}
+		if (isApiClientError(error) && error.code === "CODE_FILE_TOO_LARGE") {
+			return { kind: "tooLarge", path };
+		}
+		throw error;
+	}
 }
 
 /**

@@ -1,12 +1,15 @@
 /**
  * The chat card of the app builder. The header shows the project name, the
  * pulsing turn dot with a Stop button while a turn runs, and the collapse
- * button. Below it sit the scrolling message list, an alert row for a
- * refused send (`errorText`), and the composer pinned at the bottom.
- * Rendered by pages/app-builder-page.tsx, which owns the thread hook and
- * the card chrome. Renders chat-message.tsx and composer.tsx.
+ * button. Below it sit the scrolling message list with one working row
+ * while a turn runs, an alert row for a refused send (`errorText`), and the
+ * composer pinned at the bottom. When the agent asks the user something,
+ * the request tray opens on top of the composer. Rendered by
+ * pages/app-builder-page.tsx, which owns the thread hook and the card
+ * chrome. Renders chat-message.tsx, composer.tsx, and the request tray.
  */
 
+import type { TurnQuestionAnswer, TurnStreamPhase } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
@@ -15,13 +18,17 @@ import {
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import { PanelLeftClose, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig } from "motion/react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
+import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
+import { RequestTray } from "./request-tray/request-tray";
+import { TrayReveal } from "./request-tray/tray-reveal";
 
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
@@ -32,6 +39,8 @@ export type ChatPaneProps = {
 	focusLabel: string | null;
 	/** True while a turn runs. Locks the composer and shows the working indicator. */
 	isSending: boolean;
+	/** Phase of the running turn; picks the working row label. Null shows "Wandit is working…". */
+	phase: TurnStreamPhase | null;
 	/** False until the project chat id resolves. Locks the composer together with `isSending`. */
 	isReady: boolean;
 	/** Name of the open project. Shown after "Chat" in the card header. */
@@ -39,6 +48,11 @@ export type ChatPaneProps = {
 	onSend: (input: SendBuilderMessageInput) => void;
 	/** Sends an approval card decision; the pane drops it while a turn runs. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
+	/** Sends the answers of the request tray, with the summary for the user bubble. */
+	onAnswerQuestions: (input: {
+		message: string;
+		answers: TurnQuestionAnswer[];
+	}) => void;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
 	/** Sentence of the last rejected send, or null. Shown as an alert under the list. */
@@ -55,10 +69,12 @@ export function ChatPane({
 	turnEstimateCredits,
 	focusLabel,
 	isSending,
+	phase,
 	isReady,
 	projectName,
 	onSend,
 	onDecideApproval,
+	onAnswerQuestions,
 	onCancel,
 	errorText,
 	onCollapse,
@@ -67,13 +83,25 @@ export function ChatPane({
 }: ChatPaneProps) {
 	const { t } = useTranslation();
 	const listRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const [draft, setDraft] = useState("");
 
-	// A new message or the working row appears below the visible area. Keep the end in view.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: both deps are the re-scroll triggers
-	useEffect(() => {
-		const list = listRef.current;
-		if (list) list.scrollTop = list.scrollHeight;
-	}, [messages.length, isSending]);
+	// The tray shows the open questions of the last reply. A rejected answer
+	// leaves its user bubble after that reply, and the questions stay open.
+	const lastReply = messages.findLast(
+		(message) => message.role === "assistant",
+	);
+	const openQuestions: TrayQuestion[] =
+		lastReply?.parts.flatMap((part) =>
+			part.type === "data-question" && part.data.isOpen ? [part.data] : [],
+		) ?? [];
+	const tray = useRequestTray({
+		questions: openQuestions,
+		draft,
+		onSubmit: onAnswerQuestions,
+	});
+
+	useAutoScroll(listRef, contentRef, isSending);
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
@@ -129,27 +157,36 @@ export function ChatPane({
 			</div>
 			<div
 				ref={listRef}
-				className="scroll-warm flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pt-4 pb-3"
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3"
 			>
-				{messages.map((message) => (
-					<ChatMessageView
-						key={message.id}
-						message={message}
-						onPreviewVersion={onPreviewVersion}
-						// A follow-up, an answer, or an accepted suggestion is a normal build turn.
-						// The cards stay clickable while a turn runs, so the pane drops a second send.
-						onSendText={(text) => {
-							if (!isSending) onSend({ text, mode: "build" });
-						}}
-						// Same drop rule as onSendText: one active turn per project.
-						onDecideApproval={(approvalId, approved) => {
-							if (!isSending) onDecideApproval(approvalId, approved);
-						}}
-					/>
-				))}
-				{isSending ? (
-					<WorkingIndicator label={t("appBuilder.chat.working")} />
-				) : null}
+				<div ref={contentRef} className="flex flex-col gap-5">
+					{messages.map((message) => (
+						<ChatMessageView
+							key={message.id}
+							message={message}
+							onPreviewVersion={onPreviewVersion}
+							// A follow-up or an accepted suggestion is a normal build turn.
+							// The cards stay clickable while a turn runs, so the pane drops a second send.
+							onSendText={(text) => {
+								if (!isSending) onSend({ text, mode: "build" });
+							}}
+							// Same drop rule as onSendText: one active turn per project.
+							onDecideApproval={(approvalId, approved) => {
+								if (!isSending) onDecideApproval(approvalId, approved);
+							}}
+							trayQuestionKey={tray.questionKey}
+						/>
+					))}
+					{isSending ? (
+						<WorkingIndicator
+							label={
+								phase === null
+									? t("appBuilder.chat.working")
+									: t(`appBuilder.chat.phases.${phase}`)
+							}
+						/>
+					) : null}
+				</div>
 			</div>
 			{errorText !== null ? (
 				<p
@@ -167,11 +204,94 @@ export function ChatPane({
 					// The composer also locks while the chat id resolves: a send
 					// without it would clear the draft and drop the turn.
 					isSending={isSending || !isReady}
-					onSend={onSend}
+					onSend={(input) => {
+						// A plain message after the skip X also answers the skipped
+						// round, so the paused agent hears it.
+						const answers = tray.dismissedAnswersFor(input.text);
+						if (answers === null) {
+							onSend(input);
+						} else {
+							onAnswerQuestions({ message: input.text, answers });
+						}
+					}}
+					onDraftChange={setDraft}
+					submitOverride={tray.submit}
+					topSlot={
+						<MotionConfig reducedMotion="user">
+							<AnimatePresence initial={false}>
+								{tray.state !== null ? (
+									<TrayReveal key={tray.roundKey}>
+										<RequestTray
+											state={tray.state}
+											onDelegate={tray.delegate}
+											onDismiss={tray.dismiss}
+											bodyCallbacks={tray.bodyCallbacks}
+										/>
+									</TrayReveal>
+								) : null}
+							</AnimatePresence>
+						</MotionConfig>
+					}
 				/>
 			</div>
 		</div>
 	);
+}
+
+/** A list end at most this far below the view still counts as "at the end" (px). */
+const NEAR_BOTTOM_PX = 120;
+
+/**
+ * Keeps the end of the list in view while content grows: new messages,
+ * streamed text, new feed rows, and a tray that shrinks the list. A scroll
+ * up stops the follow, so the user can read. A new send starts it again.
+ */
+function useAutoScroll(
+	listRef: RefObject<HTMLDivElement | null>,
+	contentRef: RefObject<HTMLDivElement | null>,
+	/** True while a turn runs; a new send jumps to the end. */
+	isSending: boolean,
+) {
+	// True while the list follows new content. The scroll handler and the
+	// send effect set it.
+	const isFollowingRef = useRef(true);
+
+	useEffect(() => {
+		const list = listRef.current;
+		const content = contentRef.current;
+		if (!list || !content) return;
+		let lastScrollTop = list.scrollTop;
+		const onScroll = () => {
+			const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
+			// A move up means the user reads, also near the end. A follow jump
+			// moves down, and at most 1 px from the end counts as the end.
+			isFollowingRef.current =
+				distance <= 1 ||
+				(list.scrollTop >= lastScrollTop && distance <= NEAR_BOTTOM_PX);
+			lastScrollTop = list.scrollTop;
+		};
+		const follow = () => {
+			if (isFollowingRef.current) list.scrollTop = list.scrollHeight;
+		};
+		follow();
+		list.addEventListener("scroll", onScroll, { passive: true });
+		// The content grows while text streams; the list shrinks when the tray opens.
+		const observer = new ResizeObserver(follow);
+		observer.observe(content);
+		observer.observe(list);
+		return () => {
+			list.removeEventListener("scroll", onScroll);
+			observer.disconnect();
+		};
+	}, [listRef, contentRef]);
+
+	// A send shows its bubble and the working row, also after a scroll up.
+	useEffect(() => {
+		const list = listRef.current;
+		if (!isSending || !list) return;
+		isFollowingRef.current = true;
+		list.scrollTop = list.scrollHeight;
+	}, [isSending, listRef]);
 }
 
 // A 3 by 3 grid. Each pixel starts later along the diagonal, so the shimmer runs corner to corner.

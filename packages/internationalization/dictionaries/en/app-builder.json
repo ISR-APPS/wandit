@@ -35,25 +35,135 @@
 		"iosLabel": "iPhone 15 · iOS 17",
 		"androidLabel": "Pixel 8 · Android 14"
 	},
+	"expoGo": {
+		"cta": "Open on phone",
+		"title": "Open on your phone",
+		"scanHint": "Scan the code with the camera on iPhone, or with Expo Go on Android.",
+		"qrLabel": "QR code of the Expo Go link",
+		"copy": "Copy link",
+		"copied": "Link copied",
+		"expired": "This link expired.",
+		"newLink": "New link",
+		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
+		"retry": "Try again",
+		"sdk": "Needs Expo Go for SDK {sdk}.",
+		"getApp": "Get Expo Go:",
+		"usernameLabel": "Expo Go username (iPhone)",
+		"usernameHint": "The account signed in to Expo Go on your iPhone. Android needs no username.",
+		"usernameInvalid": "Use letters, digits, dots, dashes, or underscores.",
+		"usernameSave": "Save",
+		"usernameCurrent": "iPhone account: {name}",
+		"usernameChange": "Change Expo Go username",
+		"mismatchHelp": "Expo Go says the account does not match? Check the username, then scan again.",
+		"fallback": "If Expo Go still does not open the app, use an Android phone.",
+		"oauthNote": "Google sign-in does not work in Expo Go."
+	},
+	"devicePreview": {
+		"open": "Run on a device",
+		"back": "Back to the web preview",
+		"start": "Start the device",
+		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
+		"starting": "Starting the device…",
+		"queue": "All devices are busy. You are number {position} in line.",
+		"timeLeft": "{time} left",
+		"idleWarning": "The device stops in {seconds} s without activity.",
+		"stop": "Stop",
+		"reload": "Reload the app",
+		"devMenu": "Open the dev menu",
+		"ended": "The device session ended.",
+		"again": "Start again",
+		"failed": "The device could not start. Try again.",
+		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
+		"frameTitle": "{device} device with {name}"
+	},
 	"preview": {
 		"liveReload": "Live reload",
 		"back": "Back",
 		"forward": "Forward",
 		"frameTitle": "Preview of {name}",
-		"waking": "Waking up the sandbox…",
-		"retry": "Try again"
+		"retry": "Try again",
+		"boot": {
+			"loading": "Loading your app",
+			"title": "Getting your app ready",
+			"machine": {
+				"starting": "Setting up your new app",
+				"waking": "Waking up your app",
+				"done": "All set",
+				"copying": "Gathering the pieces of your app",
+				"installing": "Putting it all together",
+				"firstTime": "The first time takes a little longer",
+				"restoring": "Bringing back your latest changes"
+			},
+			"preview": {
+				"label": "Opening your app",
+				"waiting": "Almost there",
+				"loading": "Loading the first page"
+			},
+			"build": {
+				"label": "Building your first version",
+				"detail": "Your app shows here when it is ready"
+			},
+			"database": {
+				"creating": "Creating your database",
+				"starting": "Starting your database",
+				"done": "Database ready",
+				"failed": "Database setup failed",
+				"wait": "This takes a few minutes. Your app opens in the meantime.",
+				"failedDetail": "Your app still opens."
+			},
+			"asleep": {
+				"title": "Your app is asleep",
+				"body": "It goes to sleep after a while without use. Send a message in the chat to wake it up."
+			},
+			"stopped": {
+				"title": "Your app could not start",
+				"body": "The chat explains what happened. Send a message to try again."
+			},
+			"waiting": {
+				"title": "Waiting for your next step…",
+				"body": "Continue in the chat when you are ready."
+			}
+		}
 	},
 	"code": {
 		"searchFiles": "Search files",
 		"treeAriaLabel": "Project files",
-		"expand": "Expand {name}",
-		"collapse": "Collapse {name}",
 		"noMatch": "No file matches.",
 		"synced": "Synced · {branch}",
 		"github": "GitHub",
 		"editCode": "Edit code",
 		"readOnly": "The code is read-only in this preview build.",
-		"fileMissing": "This file is not in the repository."
+		"fileMissing": "This file is not in the repository.",
+		"asleep": "Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
+		"settingUp": "Setting up your project. The files show here when it is ready.",
+		"noFiles": "The project has no files yet.",
+		"binaryFile": "This file is binary. The Code view shows text files only.",
+		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
+		"loadFailed": "The code did not load.",
+		"retry": "Try again",
+		"copyFile": "Copy file",
+		"lineCount": {
+			"one": "{count} line",
+			"other": "{count} lines"
+		},
+		"plainText": "Plain text",
+		"readOnlyLabel": "Read-only",
+		"showFiles": "Show files",
+		"hideFiles": "Hide files",
+		"search": {
+			"find": "Find",
+			"next": "next",
+			"previous": "previous",
+			"all": "all",
+			"matchCase": "match case",
+			"regexp": "regexp",
+			"byWord": "by word",
+			"close": "close",
+			"currentMatch": "current match",
+			"onLine": "on line",
+			"goToLine": "Go to line",
+			"go": "go"
+		}
 	},
 	"moreNavAriaLabel": "App sections",
 	"panels": {
@@ -247,6 +357,66 @@
 	"chat": {
 		"title": "Chat",
 		"thoughtFor": "Thought for {seconds}s",
+		"thinking": "Thinking",
+		"thought": "Thought",
+		"stepFailed": "Failed",
+		"stepSkipped": "Skipped",
+		"steps": {
+			"edit": {
+				"done": "Edited",
+				"running": "Editing"
+			},
+			"explore": {
+				"one": "Read",
+				"many": "Explored the project",
+				"running": "Exploring the project"
+			},
+			"run": {
+				"done": "Ran a command",
+				"running": "Running a command"
+			},
+			"web": {
+				"search": "Searched the web",
+				"fetch": "Opened",
+				"running": "Browsing the web"
+			},
+			"image": {
+				"done": "Generated an image",
+				"running": "Generating an image"
+			},
+			"database": {
+				"done": "Updated the database",
+				"running": "Updating the database"
+			},
+			"databaseCheck": {
+				"done": "Checked the database",
+				"running": "Checking the database"
+			},
+			"deploy": {
+				"done": "Deployed a server function",
+				"running": "Deploying a server function"
+			},
+			"secret": {
+				"done": "Saved a secret",
+				"running": "Saving a secret"
+			},
+			"network": {
+				"done": "Allowed access to",
+				"running": "Asking for access to"
+			},
+			"guide": {
+				"done": "Read the guide",
+				"running": "Reading the guide"
+			},
+			"task": {
+				"done": "Finished a sub-task",
+				"running": "Working on a sub-task"
+			},
+			"other": {
+				"done": "Used a tool",
+				"running": "Using a tool"
+			}
+		},
 		"details": "Details",
 		"preview": "Preview",
 		"bookmark": "Save as checkpoint",
@@ -270,34 +440,62 @@
 		"focusChip": "Working on {label}",
 		"removeFocus": "Remove",
 		"working": "Wandit is working…",
-		"toolCalls": {
-			"one": "{count} tool call",
-			"other": "{count} tool calls"
+		"tray": {
+			"needsDetail": "Needs a detail",
+			"needsFiles": "Images requested",
+			"step": "{current} of {total}",
+			"decideForMe": "Decide for me",
+			"dismiss": "Skip the question",
+			"typingOverride": "answering in your own words ↓",
+			"scrollBack": "Previous cards",
+			"scrollForward": "More cards",
+			"next": "Next",
+			"answer": "Answer",
+			"chooseAnOption": "Choose an option",
+			"chooseOptions": "Choose options",
+			"chooseSelected": {
+				"one": "Choose this option",
+				"other": "Choose these {count} options"
+			},
+			"sendFiles": {
+				"one": "Send 1 image",
+				"other": "Send {count} images"
+			},
+			"filesSent": {
+				"one": "1 image sent",
+				"other": "{count} images sent"
+			},
+			"dropTitle": "Drop your images here",
+			"browse": "Browse",
+			"imagesHint": "PNG, JPG, WebP, GIF, or AVIF",
+			"addMore": "Add more images",
+			"removeFile": "Remove {name}",
+			"fileFailed": "Upload failed. Use a PNG, JPG, WebP, GIF, or AVIF image under 15 MB."
+		},
+		"askUser": {
+			"answerBelow": "Answer below",
+			"answered": "Answered",
+			"untitled": "Wandit needs your answer"
 		},
 		"phases": {
-			"sandbox_waking": "Waking the sandbox",
-			"session_starting": "Starting the session",
+			"sandbox_waking": "Getting your app ready",
+			"session_starting": "Getting ready",
 			"running": "Working",
-			"checkpoint": "Saving a checkpoint",
-			"committing": "Saving the version"
-		},
-		"tools": {
-			"think": "Thinking",
-			"read": "Read",
-			"write": "Write",
-			"run": "Run"
-		},
-		"question": {
-			"other": "Something else…",
-			"continue": "Continue"
+			"checkpoint": "Saving your changes",
+			"committing": "Saving your changes"
 		},
 		"approval": {
-			"title": "Wandit asks permission to run {tool}",
 			"approve": "Approve",
 			"deny": "Deny",
 			"approved": "Approved",
 			"denied": "Denied",
 			"answered": "Answered"
+		},
+		"approvalTitles": {
+			"request_network_host": "Allow the app to reach {host}?",
+			"run_sql_write": "Change data in your database?",
+			"apply_destructive_migration": "Change your database structure? Some data can be lost.",
+			"other": "Allow Wandit to run this action?"
 		},
 		"suggestion": {
 			"accept": "Accept",
@@ -342,7 +540,6 @@
 		"customDomain": "Custom domain",
 		"connectOne": "Connect one",
 		"ios": "iOS · App Store",
-		"android": "Android · Google Play",
 		"buildReady": "Build {build} ready · TestFlight {testers} testers",
 		"notSetUp": "Not set up",
 		"submit": "Submit",
@@ -351,6 +548,45 @@
 		"scanQr": "Scan a QR code · updates instantly",
 		"showQr": "Show QR",
 		"backendNote": "Backend deploys with every publish"
+	},
+	"mobileBuilds": {
+		"title": "Android · APK",
+		"empty": "Install your app on an Android phone",
+		"build": {
+			"one": "Build APK · {count} credit",
+			"other": "Build APK · {count} credits"
+		},
+		"retry": {
+			"one": "Retry · {count} credit",
+			"other": "Retry · {count} credits"
+		},
+		"cancel": "Cancel",
+		"download": "Download APK",
+		"scanHint": "Scan the code with an Android phone to install the app.",
+		"qrTitle": "QR code of the APK download link",
+		"liveHint": "The build continues when you close this panel.",
+		"history": "Earlier builds",
+		"status": {
+			"queued": "Waiting to start",
+			"building": "Building",
+			"finished": "Ready",
+			"failed": "Failed",
+			"canceled": "Canceled"
+		},
+		"errors": {
+			"start_failed": "The build did not start. Try again.",
+			"unconfigured": "App builds are not available now. Try again later.",
+			"clone_failed": "The build could not read the code of your app. Try again.",
+			"config_invalid": "The configuration of your app is not valid. Ask Wandit in the chat to fix app.json, then build again.",
+			"plugin_not_allowed": "Your app uses a native plugin that builds do not support yet.",
+			"install_failed": "The install of the app packages failed. Try again.",
+			"eas_init_failed": "The build service could not set up your app. Try again.",
+			"eas_start_failed": "The build service did not accept the build. Try again.",
+			"eas_errored": "The build failed on the build service. Try again, or ask Wandit in the chat to fix the app.",
+			"artifact_missing": "The build ended without an APK file. Try again.",
+			"timeout": "The build took too long and stopped. Try again.",
+			"internal": "An error occurred during the build. Try again."
+		}
 	},
 	"versions": {
 		"title": "Version history",

@@ -14,8 +14,10 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 		description:
 			"Membership app for a gym in Oran: phone sign-in, CIB / Edahabia payments, QR door pass and a front-desk dashboard.",
 		kind: "web",
+		engine: "v2_app",
 		versionNumber: 4,
 		unpublishedChanges: 3,
+		hasCodeChanges: true,
 	},
 	{
 		id: "nadi-fitness-mobile",
@@ -24,7 +26,9 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 		description:
 			"Membership app for a gym in Oran: phone sign-in, CIB / Edahabia payments, QR door pass and a front-desk dashboard.",
 		kind: "mobile",
+		engine: "v2_app",
 		versionNumber: 4,
 		unpublishedChanges: 3,
+		hasCodeChanges: true,
 	},
 ];

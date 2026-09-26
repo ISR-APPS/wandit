@@ -23,9 +23,16 @@ export {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-// PgDialect compiles bare SQL in repository specs. getTableConfig reads index
-// metadata in schema specs. Consumers do not depend on drizzle-orm directly.
-export { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+// PgDialect compiles bare SQL in repository specs. QueryBuilder builds a
+// whole select without a database in repository specs. getTableConfig reads
+// index metadata in schema specs. alias joins one table twice in one query.
+// Consumers do not depend on drizzle-orm directly.
+export {
+	alias,
+	getTableConfig,
+	PgDialect,
+	QueryBuilder,
+} from "drizzle-orm/pg-core";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client, Pool, type PoolConfig } from "pg";

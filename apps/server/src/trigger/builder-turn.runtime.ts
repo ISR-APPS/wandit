@@ -1,18 +1,22 @@
 /**
  * `runBuilderTurn`: the `builder-turn` task body (WANDIT-166).
  * `builder-turn.task.ts` calls it with real dependencies; the spec
- * drives it with fakes. One run: claim → fence → sandbox → harness →
- * stream → commit → settle → promote.
+ * drives it with fakes. One run: claim → fence → backend wake → sandbox →
+ * harness → stream → commit → settle → promote.
  */
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import type {
+	AskUserHostToolOutput,
 	BillingPlanId,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
 	TurnQuestionData,
 	TurnStreamPhase,
+	TurnThoughtData,
 } from "@wandit/contracts";
 import {
 	builderTurnSpecSchema,
@@ -20,6 +24,7 @@ import {
 	supabaseProjectUrl,
 } from "@wandit/contracts";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import { worldCardOf } from "../modules/ai-chat/agent/worlds";
 import {
 	captureAiError,
 	classifyAiError,
@@ -29,6 +34,7 @@ import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
 import type {
 	BuilderHarness,
@@ -51,6 +57,12 @@ import type {
 } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
 import {
+	askUserOutputOf,
+	builtinQuestionResultOf,
+	fallbackPromptOf,
+	uploadCopyPath,
+} from "../modules/app-builder/domain/question-answers";
+import {
 	DEFAULT_PER_TURN_CAP_CREDITS,
 	monthStartUtc,
 } from "../modules/app-builder/domain/turn-caps";
@@ -63,7 +75,10 @@ import type {
 	CommitTurnInput,
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
-import type { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppBackendRow,
+	AppBackendsRepository,
+} from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -79,6 +94,11 @@ import type { TurnProjectRepository } from "../modules/app-builder/infrastructur
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
 import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import {
+	profileForFramework,
+	TEMPLATE_PROFILES,
+} from "../modules/app-builder/infrastructure/sandbox/template-profiles";
+import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
@@ -97,11 +117,22 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The dev server command and port of the app template (D15).
-const DEV_COMMAND = "pnpm run dev";
-const DEV_PORT = 5173;
+// The one platform sentence of a mobile app. The mobile-app template
+// CLAUDE.md lists the native modules that Expo Go runs.
+const MOBILE_APP_INSTRUCTION =
+	"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.";
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
+// 15 MB, the image upload limit. A bigger answer file is a video or an
+// audio file, and a copy in public/ grows every commit of the app repo.
+const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
+// 5 s between two status reads of a waking backend, like the provision poll.
+const BACKEND_WAKE_POLL_MS = 5_000;
+// LIMIT: the wake waits at most 180 s, then the turn runs without the
+// database. Upgrade: hold the turn until the backend answers.
+// The restore call and the last status read can each add about 60 s:
+// the interactive client makes two tries of 30 s.
+const BACKEND_WAKE_TIMEOUT_MS = 180_000;
 
 /** Why the turn stopped on its own. */
 type AbortCode =
@@ -148,6 +179,41 @@ const stoppedTurnError = (code: keyof typeof STOP_STATUS) =>
 /** The narrow log the runtime writes to; the task passes `logger`. */
 export type BuilderTurnLogger = Pick<Console, "error" | "info" | "warn">;
 
+/**
+ * Fields of the `builder-turn.timing` log line: one per run that passes
+ * the claim and the chat check, failures included. Every duration is in
+ * ms from the worker clock; null means the step did not run. WANDIT-253
+ * reads ten warm turns from it.
+ */
+export type BuilderTurnTiming = {
+	turnId: string;
+	runId: string;
+	/** Row create → run start. Long for a `waiting` turn the promoter requeued. */
+	queueMs: number;
+	/** Run start → sandbox call: the row reads, the money checks, the token mint, and a backend wake. */
+	prestartMs: number | null;
+	/** `sandboxes.getOrCreate` plus the activity stamp. */
+	sandboxMs: number | null;
+	/** `woke` when the sandbox booted or resumed, `warm` when it already ran. */
+	sandbox: "woke" | "warm" | null;
+	hostToolsMs: number | null;
+	/** The session resume or create, the fresh-session fallback included. */
+	sessionMs: number | null;
+	/** `resumed` when the stored session came back, `created` for a fresh one. */
+	session: "resumed" | "created" | null;
+	/** Stream start → first harness part. */
+	firstPartMs: number | null;
+	/** Run start → the first proxy request leaves the sandbox, from the rows. */
+	firstModelCallMs: number | null;
+	streamMs: number | null;
+	/** Stream end → commit done: the pause check, the commit, the files event. */
+	commitMs: number | null;
+	/** Commit done → cleanup done: message row, usage, CAS, settle, done event. */
+	settleMs: number | null;
+	/** Run start → this line. */
+	totalMs: number;
+};
+
 /** Parsed task payload plus the Trigger.dev run id. */
 export type BuilderTurnInput = {
 	turnId: string;
@@ -177,8 +243,27 @@ export type BuilderTurnDeps = {
 	>;
 	project: Pick<TurnProjectRepository, "findForTurn">;
 	caps: Pick<ProjectCostCapsRepository, "findByProjectId">;
-	/** The `app_backends` row; its URL and anon key enter the sandbox env when `active`. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
+	/**
+	 * The `app_backends` row: its URL and anon key enter the sandbox env when
+	 * `active`. The wake moves a paused row back; the turn end stamps activity.
+	 */
+	backends: Pick<
+		AppBackendsRepository,
+		| "findByProjectId"
+		| "markRestoreFailed"
+		| "markRestored"
+		| "markRestoring"
+		| "touchActive"
+	>;
+	/**
+	 * The interactive Management API client the task also gives the backend
+	 * tools. The wake calls restore and reads the status. Null without
+	 * `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`.
+	 */
+	backendClient: Pick<
+		SupabaseManagementClient,
+		"getProject" | "restoreProject"
+	> | null;
 	sessions: Pick<BuilderSessionsRepository, "findByChatId" | "saveResumeState">;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
@@ -197,8 +282,14 @@ export type BuilderTurnDeps = {
 		| "refund"
 		| "settle"
 	>;
-	/** `llm_proxy_requests` sums: the turn's real spend and token counts. */
-	proxyRows: Pick<LlmProxyRequestsRepository, "sumByTurn">;
+	/**
+	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
+	 * token counts; the first request time only feeds the timing line.
+	 */
+	proxyRows: Pick<
+		LlmProxyRequestsRepository,
+		"firstRequestStartedAtMs" | "sumByTurn"
+	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
 	mintToken: (claims: LlmProxyTokenClaimsInput) => string;
@@ -225,6 +316,11 @@ export type BuilderTurnDeps = {
 	) => Promise<CommitTurnResult>;
 	/** `gitStore`, `appCommits`, `putPatch` the task builds once. */
 	commitDeps: CommitTurnDeps;
+	/**
+	 * The bytes of one Wandit upload URL, or null when the URL names no
+	 * upload object. The task binds `publicAssetKeyFromUrl` + `getObjectBytes`.
+	 */
+	readUpload: (url: string) => Promise<Uint8Array | null>;
 	/** `ChatsRepository.insertTurnAssistantMessage` bound to the repo. */
 	insertAssistantMessage: (input: {
 		chatId: string;
@@ -272,6 +368,7 @@ export async function runBuilderTurn(
 	input: BuilderTurnInput,
 	signal: AbortSignal,
 ): Promise<void> {
+	const runStartedAt = deps.now();
 	const logger = deps.logger;
 	const { projectId, runId, turnId } = input;
 	// The hold's lease column is a uuid; the Trigger run id (`run_…`) is not
@@ -525,6 +622,25 @@ export async function runBuilderTurn(
 	let monthlySpendAtStart = 0;
 	/** Set when `billing.off` was logged; keeps it to once per turn. */
 	let billingOffLogged = false;
+	/** `deps.now()` stamps of the run steps for the timing line; absent until the step ran. */
+	const stamps: Partial<
+		Record<
+			| "sandboxStart"
+			| "sandboxEnd"
+			| "hostToolsEnd"
+			| "sessionEnd"
+			| "streamStart"
+			| "firstPart"
+			| "streamEnd"
+			| "commitEnd"
+			| "settleEnd",
+			number
+		>
+	> = {};
+	/** Set by the sandbox `onWake` callback: the sandbox really booted. */
+	let sandboxWoke = false;
+	/** How the harness session started; null until it did. */
+	let sessionStart: BuilderTurnTiming["session"] = null;
 
 	/** Best-effort resume save for the failure paths: the suspend state, else a detach. */
 	const detachSession = async () => {
@@ -560,6 +676,16 @@ export async function runBuilderTurn(
 		await cleanupStep(async () => {
 			await deps.sandboxSessions.touchActivity(projectId);
 		});
+		// A turn is backend use, a failed turn too: the pause sweep reads the
+		// stamp. The stamp is a hint, so a failure only logs.
+		try {
+			await deps.backends.touchActive(projectId);
+		} catch (error) {
+			logger.warn("backend.touch-failed", {
+				message: messageOf(error),
+				projectId,
+			});
+		}
 	};
 
 	// Memoized so the aborted-catch and the task onCancel share it.
@@ -618,7 +744,7 @@ export async function runBuilderTurn(
 			type: "status",
 		});
 
-	/** One terminal failure: row, error+done events, refund or settle, cleanup. */
+	/** One terminal failure: row, the wip commit of a stop, error+done events, refund or settle, cleanup. */
 	const failTurn = async (
 		error: unknown,
 		failureCode: string | null,
@@ -694,6 +820,27 @@ export async function runBuilderTurn(
 			// A false CAS means the row went terminal under us (a cancel won).
 			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
 		}
+		// D3: a stopped turn keeps its file work. The commit lands before the
+		// `done` event: the web refetches the project at the stream end and
+		// must see the change (`hasCodeChanges`).
+		if (stopCode !== null && sandbox !== null) {
+			try {
+				await deps.commit(sandbox, deps.commitDeps, {
+					chatId,
+					messageId: assistantMessageId,
+					organizationId: input.organizationId,
+					projectId,
+					source: "wip",
+					summary: "Stopped",
+					turnId,
+					userId: input.actorUserId,
+				});
+			} catch (commitError) {
+				logger.warn(
+					`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
+				);
+			}
+		}
 		await deps.writer.write(turnId, {
 			data: {
 				code:
@@ -713,26 +860,8 @@ export async function runBuilderTurn(
 			await cleanupStep(() => refundHold("builder_turn_failed"));
 			await detachSession();
 		} else {
-			// D3: a stopped turn keeps its file work and settles the real
-			// spend; the hold is not refunded.
-			if (sandbox !== null) {
-				try {
-					await deps.commit(sandbox, deps.commitDeps, {
-						chatId,
-						messageId: assistantMessageId,
-						organizationId: input.organizationId,
-						projectId,
-						source: "wip",
-						summary: "Stopped",
-						turnId,
-						userId: input.actorUserId,
-					});
-				} catch (commitError) {
-					logger.warn(
-						`Wip commit failed for turn ${turnId}: ${messageOf(commitError)}`,
-					);
-				}
-			}
+			// D3: a stopped turn settles the real spend; the hold is not
+			// refunded. The wip commit ran above, before the `done` event.
 			await detachSession();
 			await cleanupStep(async () => {
 				const rows = await deps.proxyRows.sumByTurn(turnId);
@@ -954,6 +1083,9 @@ export async function runBuilderTurn(
 				code: "project_template_missing",
 			});
 		}
+		// The dev command and port come from the template. An unknown
+		// framework throws here, before any sandbox work.
+		const templateProfile = profileForFramework(project.framework);
 		const model = turn.model ?? deps.model;
 		if (model === null) {
 			// Checked before the sandbox starts: no model, no spend. When
@@ -980,46 +1112,57 @@ export async function runBuilderTurn(
 			parsedResume?.success === true ? parsedResume.data : null;
 
 		// The user's words, or the attachment URLs when the message is empty.
+		// Answer files count as attachments here too.
+		const sentFiles = [
+			...spec.attachments,
+			...spec.answers.flatMap((answer) => answer.files),
+		];
 		const prompt =
 			spec.message.trim().length > 0
 				? spec.message
-				: `See the attached files.\n${spec.attachments
-						.map((attachment) => attachment.url)
-						.join("\n")}`;
+				: sentFiles.length > 0
+					? `See the attached files.\n${sentFiles
+							.map((attachment) => attachment.url)
+							.join("\n")}`
+					: // An approval or answers alone have no text: the cards carry them.
+						"Continue.";
 		// The pending cards of a suspended turn make a `continue` input.
-		// The message text and `spec.approval` carry the answers.
-		let continuation: HarnessTurnInput | null = null;
+		// `spec.answers`, the message text, and `spec.approval` carry the
+		// answers.
+		let continuation: Extract<HarnessTurnInput, { kind: "continue" }> | null =
+			null;
 		// The prompt a fresh session gets when the suspended one cannot
-		// resume: the answer still reaches the agent.
+		// resume: the answers still reach the agent. Set after the answer
+		// files are in the sandbox, so it can name their paths.
 		let continuationFallbackPrompt: string | null = null;
 		if (resumeState !== null && resumeState.pending.length > 0) {
 			const text = prompt.trim();
 			const toolResults: HarnessQuestionResult[] = [];
 			const approvals: { approvalId: string; approved: boolean }[] = [];
 			for (const interaction of resumeState.pending) {
-				if (interaction.kind === "question") {
-					// LIMIT: one answer per turn; a call with several questions
-					// gets the first answered and the rest re-asked by the agent.
-					// Upgrade: one card per question with its own answer.
-					const question = interaction.questions[0];
-					if (question === undefined) {
-						continue;
-					}
-					const option = question.options.find(
-						(candidate) =>
-							candidate.label.trim().toLowerCase() === text.toLowerCase(),
-					);
+				if (
+					interaction.kind === "question" &&
+					interaction.tool === "ask_user"
+				) {
 					toolResults.push({
-						answers: {
-							[question.id]:
-								option === undefined
-									? { freeform: text, optionIds: [] }
-									: { optionIds: [option.id] },
-						},
-						partial: interaction.questions.length > 1,
+						output: askUserOutputOf(interaction, spec.answers, {
+							attachments: spec.attachments,
+							message: spec.message,
+						}),
+						tool: "ask_user",
 						toolCallId: interaction.toolCallId,
 					});
-					continuationFallbackPrompt ??= `Answer to your question "${question.question}": ${text}`;
+				} else if (interaction.kind === "question") {
+					// A chat paused on the built-in tool before `ask_user` existed:
+					// the tray answers each card, a plain message the first one.
+					const result = builtinQuestionResultOf(
+						interaction,
+						spec.answers,
+						text,
+					);
+					if (result !== null) {
+						toolResults.push(result);
+					}
 				} else {
 					// An approval the body does not name counts as denied.
 					const approved =
@@ -1030,9 +1173,6 @@ export async function runBuilderTurn(
 						approvalId: interaction.approvalId,
 						approved,
 					});
-					continuationFallbackPrompt ??= `The user ${
-						approved ? "approved" : "denied"
-					} the ${interaction.toolName} call. Continue.`;
 				}
 			}
 			continuation = {
@@ -1126,9 +1266,35 @@ export async function runBuilderTurn(
 			workspaceId: input.organizationId,
 		});
 
-		const backend = await deps.backends.findByProjectId(projectId);
+		let backend = await deps.backends.findByProjectId(projectId);
+		// A paused backend wakes before the env is built, so the app has its
+		// database in this turn. A Cloud tab restore leaves `restoring`; the
+		// wake waits for that one too.
+		if (
+			backend !== null &&
+			backend.ref !== null &&
+			(backend.status === "paused" || backend.status === "restoring")
+		) {
+			if (deps.backendClient === null) {
+				// Without the platform env no wake can start; the note says so.
+				logger.warn("backend.wake-unconfigured", { projectId });
+			} else {
+				await writeStatus("sandbox_waking", "Waking up the database");
+				backend = await wakeBackend(
+					{ ...deps, client: deps.backendClient },
+					backend,
+					backend.ref,
+					ownAbort.signal,
+				);
+			}
+			// A cancel during the wake must not boot a sandbox: the catch
+			// sees the aborted task signal and runs `finalizeCanceled`.
+			if (signal.aborted) {
+				throw new Error("Turn canceled during the backend wake");
+			}
+		}
 		// D18: only an `active` row reaches the VM. A `creating` or `error`
-		// row, or no row, keeps the VITE_* names out of the env.
+		// row, or no row, keeps the Supabase names out of the env.
 		const supabase =
 			backend?.status === "active" &&
 			backend.ref !== null &&
@@ -1147,25 +1313,71 @@ export async function runBuilderTurn(
 			supabaseUrl: supabase?.url ?? null,
 		});
 
-		await writeStatus("sandbox_waking");
+		stamps.sandboxStart = deps.now();
 		sandbox = await deps.sandboxes.getOrCreate(projectId, {
-			devCommand: DEV_COMMAND,
-			devPort: DEV_PORT,
+			devCommand: templateProfile.devCommand,
+			devPort: templateProfile.devPort,
 			env: sandboxEnv,
 			framework: project.framework,
 			// Layer 3 egress hosts the `request_network_host` tool approved.
 			networkAllowedHosts: project.networkAllowedHosts,
+			// The card says "Waking the sandbox" only when the sandbox really
+			// boots; a running sandbox answers with no status.
+			onWake: async () => {
+				sandboxWoke = true;
+				await writeStatus("sandbox_waking");
+			},
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
 			templateVersion: project.templateVersion,
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
+		stamps.sandboxEnd = deps.now();
+		// The answer files enter the sandbox before the agent reads the
+		// answers, so the tool result and the fallback text name their paths.
+		if (continuation !== null && resumeState !== null) {
+			const toolResults: HarnessQuestionResult[] = [];
+			for (const result of continuation.toolResults) {
+				toolResults.push(
+					result.tool === "ask_user"
+						? {
+								...result,
+								output: await copyAnswerFiles(
+									{ logger, readUpload: deps.readUpload, sandbox, turnId },
+									result.output,
+								),
+							}
+						: result,
+				);
+			}
+			continuation = { ...continuation, toolResults };
+			const fallback = fallbackPromptOf({
+				approvals: continuation.approvals,
+				messageText: prompt.trim(),
+				pending: resumeState.pending,
+				results: toolResults,
+			});
+			// No answer line: a fresh session gets the plain prompt instead.
+			continuationFallbackPrompt = fallback === "" ? null : fallback;
+		}
+		// After a sandbox stop, the rerun bridge matches a host-tool result
+		// only by the old call id, so an ask_user answer goes as text on the
+		// same thread. An approval keeps the continue path: a text would make
+		// the agent call the tool again and ask for a new approval.
+		const answersAsText =
+			sandboxWoke &&
+			continuationFallbackPrompt !== null &&
+			continuation?.toolResults.some((result) => result.tool === "ask_user") ===
+				true;
 
 		// The note applies only when no active backend row exists.
-		await writeStatus(
-			"session_starting",
-			supabase === null ? "Backend not ready yet" : undefined,
-		);
+		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
+		// The card says "Starting the session" only for a cold session. A
+		// stored session resumes with no status; `startSession` writes one
+		// when the resume fails and a fresh session starts instead.
+		if (resumeState === null) {
+			await writeStatus("session_starting", backendNote);
+		}
 		hostTools = await deps.hostTools.build({
 			actorUserId: input.actorUserId,
 			chatId,
@@ -1176,6 +1388,7 @@ export async function runBuilderTurn(
 			subject,
 			turnId,
 		});
+		stamps.hostToolsEnd = deps.now();
 		// A stored session can be dead: the sandbox was rebuilt, or the proxy
 		// host changed and the SDK rejects the old egress rules. A fresh
 		// session loses the agent memory but keeps the project alive.
@@ -1187,6 +1400,7 @@ export async function runBuilderTurn(
 					const resumed = await deps.harness.resumeSession(
 						sessionInput,
 						stored,
+						{ dropPausedTurn: answersAsText },
 					);
 					// A resumed session can hold an unfinished turn with no card to
 					// answer. Causes: a detach mid-generation, or a row from before
@@ -1215,27 +1429,44 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Two sentences; the template knows every other rule.
+			// Three sentences, plus one for a mobile app. The template
+			// CLAUDE.md in the workspace root holds every other rule.
 			instructions:
 				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
-				"Ask the user with the AskUserQuestion tool: one question per call, at most 4 options, only when you cannot decide yourself.",
+				"Ask the user with the ask_user tool only when you cannot decide yourself: put every question of one step in ONE call. " +
+				"Write the Bash and Agent description in the user's language: the chat shows it to the user." +
+				(templateProfile === TEMPLATE_PROFILES.mobile
+					? ` ${MOBILE_APP_INSTRUCTION}`
+					: ""),
 			model,
 			sandbox,
 		};
 		const started = await startSession(resumeState);
 		session = started.session;
+		sessionStart = started.resumed ? "resumed" : "created";
+		stamps.sessionEnd = deps.now();
 		const providerSessionId = session.sessionId;
 
-		await writeStatus("running");
+		// A warm turn wrote no session status, so its first status carries
+		// the backend note instead.
+		await writeStatus(
+			"running",
+			resumeState === null ? undefined : backendNote,
+		);
 		startTimers(model);
+		stamps.streamStart = deps.now();
 		// A continued suspended turn gets the user's answers as tool
-		// results; a lost session still hears them as plain text.
+		// results; a lost session or a lost bridge still hears them as text.
 		let turnInput: HarnessTurnInput;
-		if (continuation !== null && started.resumed) {
+		if (continuation !== null && started.resumed && !answersAsText) {
 			turnInput = continuation;
 		} else if (continuation !== null && continuationFallbackPrompt !== null) {
 			logger.warn(
-				`builder-turn.continuation-fallback turnId=${turnId}: suspended session lost`,
+				`builder-turn.continuation-fallback turnId=${turnId}: ${
+					started.resumed
+						? "bridge lost in a sandbox stop"
+						: "suspended session lost"
+				}`,
 			);
 			turnInput = {
 				kind: "prompt",
@@ -1246,11 +1477,37 @@ export async function runBuilderTurn(
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
 		}
 
+		// reasoning chunk id → the ms clock at its `reasoning-start`.
+		const reasoningStartedAt = new Map<string, number>();
 		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
+				stamps.firstPart ??= lastPartAt;
 				await chunkWriter.write(event.chunk);
 				await writeEvent({ data: event.chunk, type: "part" });
+				if (event.chunk.type === "reasoning-start") {
+					reasoningStartedAt.set(event.chunk.id, lastPartAt);
+				}
+				const startedAt =
+					event.chunk.type === "reasoning-end"
+						? reasoningStartedAt.get(event.chunk.id)
+						: undefined;
+				// The UI shows "Thought for Ns" on the block. No chunk carries a
+				// time, so the task stamps the duration as its own part. The
+				// chunk writer keeps it in the stored message too.
+				if (event.chunk.type === "reasoning-end" && startedAt !== undefined) {
+					const thought: UIMessageChunk = {
+						data: {
+							reasoningId: event.chunk.id,
+							// ms → whole seconds; a block under 0.5 s still shows 1 s.
+							seconds: Math.max(1, Math.round((lastPartAt - startedAt) / 1000)),
+						} satisfies TurnThoughtData,
+						id: `thought-${event.chunk.id}`,
+						type: "data-thought",
+					};
+					await chunkWriter.write(thought);
+					await writeEvent({ data: thought, type: "part" });
+				}
 				continue;
 			}
 			if (event.type === "usage") {
@@ -1266,6 +1523,7 @@ export async function runBuilderTurn(
 			// the one `error` event from the `code` this error carries.
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
+		stamps.streamEnd = deps.now();
 
 		// The harness counts stay informational; money comes from the proxy rows.
 		logger.info("builder-turn.harness-usage", {
@@ -1327,6 +1585,7 @@ export async function runBuilderTurn(
 				// A failed commit must not lose the turn's text and usage.
 				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
 			}
+			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
 
 			// The files event is a stream-only part; the message row keeps the
@@ -1349,10 +1608,31 @@ export async function runBuilderTurn(
 						const part: UIMessage["parts"][number] = {
 							data: {
 								answer: null,
-								options: question.options.map((option) => option.label),
+								kind: question.kind,
+								options: question.options.map((option) => {
+									// A design world option shows the world's preview card.
+									const card =
+										option.worldId === undefined
+											? undefined
+											: worldCardOf(option.worldId);
+									return {
+										id: option.id,
+										label: option.label,
+										...(option.description === undefined
+											? {}
+											: { description: option.description }),
+										...(card === undefined ? {} : { card }),
+									};
+								}),
 								question: question.question,
 								questionId: question.id,
 								toolCallId: interaction.toolCallId,
+								...(question.helper === undefined
+									? {}
+									: { helper: question.helper }),
+								...(question.maxFiles === undefined
+									? {}
+									: { maxFiles: question.maxFiles }),
 							} satisfies TurnQuestionData,
 							id: `${interaction.toolCallId}:${question.id}`,
 							type: "data-question",
@@ -1459,6 +1739,7 @@ export async function runBuilderTurn(
 				});
 			}
 			await finishTurn();
+			stamps.settleEnd = deps.now();
 		};
 
 		await settleTurn(
@@ -1519,10 +1800,221 @@ export async function runBuilderTurn(
 				);
 			}
 		}
+		// One timing line per run, failures included (WANDIT-253). It runs
+		// before the finalizer is removed, so the pool is still open.
+		let firstModelCallMs: number | null = null;
+		try {
+			const firstRequestAtMs =
+				await deps.proxyRows.firstRequestStartedAtMs(turnId);
+			// LIMIT: the row time is the database clock, the run start the
+			// worker clock; the difference carries their skew. Upgrade: let
+			// `claimRunning` write `started_at` with the database `now()` and
+			// diff the two columns in SQL.
+			firstModelCallMs =
+				firstRequestAtMs === null ? null : firstRequestAtMs - runStartedAt;
+		} catch (error) {
+			logger.warn(
+				`First proxy request lookup failed for turn ${turnId}: ${messageOf(error)}`,
+			);
+		}
+		const timing: BuilderTurnTiming = {
+			commitMs: msBetween(stamps.streamEnd, stamps.commitEnd),
+			firstModelCallMs,
+			firstPartMs: msBetween(stamps.streamStart, stamps.firstPart),
+			hostToolsMs: msBetween(stamps.sandboxEnd, stamps.hostToolsEnd),
+			prestartMs: msBetween(runStartedAt, stamps.sandboxStart),
+			queueMs: runStartedAt - turn.createdAt.getTime(),
+			runId,
+			sandbox:
+				stamps.sandboxEnd === undefined ? null : sandboxWoke ? "woke" : "warm",
+			sandboxMs: msBetween(stamps.sandboxStart, stamps.sandboxEnd),
+			session: sessionStart,
+			sessionMs: msBetween(stamps.hostToolsEnd, stamps.sessionEnd),
+			settleMs: msBetween(stamps.commitEnd, stamps.settleEnd),
+			streamMs: msBetween(stamps.streamStart, stamps.streamEnd),
+			totalMs: deps.now() - runStartedAt,
+			turnId,
+		};
+		logger.info("builder-turn.timing", timing);
 		// Remove BEFORE the task ends its pool: a late onCancel must not
 		// write against a closed database.
 		builderTurnCancelFinalizers.delete(runId);
 	}
+}
+
+/** What the answer file copy needs from the run. */
+type AnswerCopyContext = {
+	logger: BuilderTurnLogger;
+	readUpload: BuilderTurnDeps["readUpload"];
+	/** The live project sandbox; the copy goes under its `workspaceDir`. */
+	sandbox: SandboxHandle;
+	turnId: string;
+};
+
+/**
+ * Copies the answer files of one `ask_user` result into the sandbox, one
+ * by one, and sets each `path`. A file that cannot be read, is too big, or
+ * fails the write keeps `path: null`; the agent still gets its URL.
+ */
+async function copyAnswerFiles(
+	context: AnswerCopyContext,
+	output: AskUserHostToolOutput,
+): Promise<AskUserHostToolOutput> {
+	const answers: AskUserHostToolOutput["answers"] = [];
+	for (const answer of output.answers) {
+		const files: AskUserHostToolOutput["answers"][number]["files"] = [];
+		for (const file of answer.files) {
+			files.push({ ...file, path: await copyAnswerFile(context, file.url) });
+		}
+		answers.push({ ...answer, files });
+	}
+	return { answers };
+}
+
+/** One answer file into `public/uploads/`; the project-relative path, or null. */
+async function copyAnswerFile(
+	context: AnswerCopyContext,
+	url: string,
+): Promise<string | null> {
+	const { logger, turnId } = context;
+	const path = uploadCopyPath(url);
+	if (path === null) {
+		logger.warn("builder-turn.answer-file-skipped", {
+			reason: "not an upload url",
+			turnId,
+			url,
+		});
+		return null;
+	}
+	try {
+		const bytes = await context.readUpload(url);
+		if (bytes === null || bytes.byteLength > ANSWER_FILE_MAX_BYTES) {
+			logger.warn("builder-turn.answer-file-skipped", {
+				reason: bytes === null ? "no upload object" : "file too big",
+				turnId,
+				url,
+			});
+			return null;
+		}
+		await context.sandbox.writeFiles([
+			{
+				content: bytes,
+				path: posix.join(context.sandbox.workspaceDir, path),
+			},
+		]);
+		return path;
+	} catch (error) {
+		// The answer still reaches the agent with the URL; only the copy fails.
+		logger.warn("builder-turn.answer-file-copy-failed", {
+			message: messageOf(error),
+			turnId,
+			url,
+		});
+		return null;
+	}
+}
+
+/**
+ * Wakes a `paused` or `restoring` backend: the restore call for a paused
+ * row, then one status read every 5 s until `ACTIVE_HEALTHY`. Answers the
+ * row read after the wake, or the row as it was on a timeout, a cancel, or
+ * a failure. It never throws: a slow database must not fail the turn.
+ */
+async function wakeBackend(
+	deps: Pick<BuilderTurnDeps, "backends" | "logger" | "now"> & {
+		/** `deps.backendClient`, checked not null by the caller. */
+		client: NonNullable<BuilderTurnDeps["backendClient"]>;
+	},
+	row: AppBackendRow,
+	/** The ref of `row`; the caller checked that it is not null. */
+	ref: string,
+	signal: AbortSignal,
+): Promise<AppBackendRow> {
+	// The scope of each Management API call, and the fields of each log line.
+	const backendRef = { projectId: row.projectId, ref };
+	const client = deps.client;
+	const startedAt = deps.now();
+	try {
+		if (row.status === "paused") {
+			try {
+				await client.restoreProject(backendRef);
+			} catch (error) {
+				// Supabase can apply a restore and still fail the answer; the next
+				// restore then fails too. A project that comes up needs only the wait.
+				const { status } = await client.getProject(backendRef);
+				if (!isProjectComingUp(status)) {
+					throw error;
+				}
+			}
+			// False means a Cloud tab restore moved the row first; the poll
+			// below waits for that restore instead.
+			await deps.backends.markRestoring(row.projectId);
+		}
+		// The loop also ends on `ACTIVE_HEALTHY` or a failed restore.
+		while (
+			!signal.aborted &&
+			deps.now() - startedAt < BACKEND_WAKE_TIMEOUT_MS
+		) {
+			let status: SupabaseProjectStatus | null = null;
+			try {
+				status = (await client.getProject(backendRef)).status;
+			} catch (error) {
+				// One failed read (a 429, a timeout) does not end the wake.
+				deps.logger.warn("backend.wake-poll-failed", {
+					...backendRef,
+					message: messageOf(error),
+				});
+			}
+			if (status === "ACTIVE_HEALTHY") {
+				await deps.backends.markRestored(row.projectId);
+				deps.logger.info("backend.wake-done", {
+					...backendRef,
+					elapsedMs: deps.now() - startedAt,
+				});
+				// A re-read: the row can have moved on, for example to `deleting`.
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			if (status === "RESTORE_FAILED" || status === "REMOVED") {
+				// Supabase does not bring this project back by itself; `error`
+				// ends the `restoring` state that nothing else would end.
+				await deps.backends.markRestoreFailed(row.projectId, status);
+				deps.logger.warn("backend.wake-failed", { ...backendRef, status });
+				return (await deps.backends.findByProjectId(row.projectId)) ?? row;
+			}
+			// A cancel ends the sleep at once, so the turn stops without a wait.
+			await new Promise<void>((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					signal.removeEventListener("abort", done);
+					resolve();
+				};
+				const timer = setTimeout(done, BACKEND_WAKE_POLL_MS);
+				signal.addEventListener("abort", done, { once: true });
+			});
+		}
+		if (signal.aborted) {
+			deps.logger.info("backend.wake-canceled", backendRef);
+			return row;
+		}
+		deps.logger.warn("backend.wake-timeout", {
+			...backendRef,
+			elapsedMs: deps.now() - startedAt,
+		});
+	} catch (error) {
+		deps.logger.warn("backend.wake-failed", {
+			...backendRef,
+			message: messageOf(error),
+		});
+	}
+	return row;
+}
+
+/** `to - from` in ms, or null while either stamp is missing. */
+function msBetween(
+	from: number | undefined,
+	to: number | undefined,
+): number | null {
+	return from === undefined || to === undefined ? null : to - from;
 }
 
 function messageOf(error: unknown): string {

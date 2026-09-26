@@ -1,7 +1,8 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
-import type {
-	CreateAppProjectRequest,
-	UpdateProjectCostCapsRequest,
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
+import {
+	type CreateAppProjectRequest,
+	createAppProjectRequestSchema,
+	type UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,8 +12,11 @@ import type {
 	ProjectQueryRow,
 	ProjectsRepository,
 } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
+import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
 import { DEFAULT_PER_TURN_CAP_CREDITS } from "../../domain/turn-caps";
 import type { ProjectCostCapsRepository } from "../../infrastructure/persistence/project-cost-caps.repository";
+import type { TemplateVersionService } from "../../infrastructure/template/template-version.service";
 import { AppProjectsService } from "./app-projects.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
@@ -89,7 +93,11 @@ function setup() {
 			topup: 0,
 		})),
 	};
-	const templateVersion = { current: "web-app@1.0.0" };
+	const templateVersion = {
+		versionFor: vi.fn<TemplateVersionService["versionFor"]>((platform) =>
+			platform === "web" ? "web-app@1.0.0" : "mobile-app@1.0.0",
+		),
+	};
 	const analytics = { capture: vi.fn() };
 	const v2Env = {
 		V2_DEFAULT_MODEL: "model-1",
@@ -106,6 +114,9 @@ function setup() {
 	const backends = {
 		provisionBackend: vi.fn(async () => null),
 	};
+	const appCommits = {
+		hasFileChanges: vi.fn(async () => false),
+	};
 
 	const service = new AppProjectsService(
 		projects,
@@ -117,10 +128,12 @@ function setup() {
 		v2Env,
 		costCaps,
 		backends,
+		appCommits,
 	);
 
 	return {
 		analytics,
+		appCommits,
 		backends,
 		costCaps,
 		credits,
@@ -133,8 +146,61 @@ function setup() {
 }
 
 describe("AppProjectsService.create", () => {
-	it("rejects a mobile target with 400 before any other work", async () => {
-		const { credits, projects, service, turns } = setup();
+	it("writes the mobile platform, the mobile-app framework, and the mobile version", async () => {
+		const { analytics, projects, service } = setup();
+
+		await service.create(
+			SCOPE,
+			{ ...BODY, targetPlatform: "mobile" },
+			{ countryCode: "MA" },
+		);
+
+		expect(projects.createWithChatAndFirstMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				app: expect.objectContaining({
+					framework: "mobile-app",
+					targetPlatform: "mobile",
+					templateVersion: "mobile-app@1.0.0",
+				}),
+			}),
+		);
+		expect(analytics.capture).toHaveBeenCalledWith(
+			"user-1",
+			"v2_project_created",
+			expect.objectContaining({
+				framework: "mobile-app",
+				targetPlatform: "mobile",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		);
+	});
+
+	it("creates a web project when the body has no targetPlatform", async () => {
+		const { projects, service } = setup();
+		const body = createAppProjectRequestSchema.parse({
+			languages: ["en"],
+			prompt: "Build me a booking app",
+		});
+
+		await service.create(SCOPE, body, { countryCode: null });
+
+		expect(projects.createWithChatAndFirstMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				app: expect.objectContaining({
+					framework: "web-app",
+					targetPlatform: "web",
+					templateVersion: "web-app@1.0.0",
+				}),
+			}),
+		);
+	});
+
+	it("answers 503 MOBILE_TEMPLATE_UNAVAILABLE and writes nothing without the mobile template", async () => {
+		const { backends, credits, projects, service, templateVersion, turns } =
+			setup();
+		templateVersion.versionFor.mockImplementation(() => {
+			throw new MobileTemplateUnavailableError();
+		});
 
 		const failure = await service
 			.create(
@@ -144,13 +210,17 @@ describe("AppProjectsService.create", () => {
 			)
 			.catch((error: unknown) => error);
 
-		expect(failure).toBeInstanceOf(BadRequestException);
+		expect(failure).toBeInstanceOf(MobileTemplateUnavailableError);
 		// SAFETY: toBeInstanceOf proves the type; getResponse carries the body.
-		expect((failure as BadRequestException).getResponse()).toMatchObject({
-			code: "V2_TARGET_PLATFORM_UNSUPPORTED",
+		const unavailable = failure as MobileTemplateUnavailableError;
+		expect(unavailable.getStatus()).toBe(503);
+		expect(unavailable.getResponse()).toMatchObject({
+			code: "MOBILE_TEMPLATE_UNAVAILABLE",
 		});
+		expect(templateVersion.versionFor).toHaveBeenCalledWith("mobile");
 		expect(credits.getSettledBalance).not.toHaveBeenCalled();
 		expect(projects.createWithChatAndFirstMessage).not.toHaveBeenCalled();
+		expect(backends.provisionBackend).not.toHaveBeenCalled();
 		expect(turns.create).not.toHaveBeenCalled();
 	});
 
@@ -282,12 +352,31 @@ describe("AppProjectsService.create", () => {
 	it("still answers the ids when backend provisioning throws", async () => {
 		const { backends, service } = setup();
 		backends.provisionBackend.mockRejectedValue(new Error("db down"));
+		const errorLog = vi.spyOn(Logger.prototype, "error");
 
 		const result = await service.create(SCOPE, BODY, { countryCode: null });
 
 		expect(result.projectId).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(result.chatId).toMatch(/^[0-9a-f-]{36}$/u);
 		expect(result.turnId).toBe("turn-1");
+		expect(errorLog).toHaveBeenCalledWith(
+			expect.stringContaining("Backend provisioning failed"),
+		);
+		errorLog.mockRestore();
+	});
+
+	it("still answers the ids and logs no error when the plan has no backend slot", async () => {
+		const { backends, service } = setup();
+		backends.provisionBackend.mockRejectedValue(
+			new BackendLimitReachedError("starter", 0),
+		);
+		const errorLog = vi.spyOn(Logger.prototype, "error");
+
+		const result = await service.create(SCOPE, BODY, { countryCode: null });
+
+		expect(result.turnId).toBe("turn-1");
+		expect(errorLog).not.toHaveBeenCalled();
+		errorLog.mockRestore();
 	});
 
 	it("still answers with turnId null when the first turn throws", async () => {
@@ -335,10 +424,21 @@ describe("AppProjectsService.get", () => {
 		expect(project).toMatchObject({
 			engine: "v2_app",
 			framework: "web-app",
+			hasCodeChanges: false,
 			languages: ["fr", "en"],
 			targetPlatform: "web",
 			templateVersion: "web-app@1.0.0",
 		});
+	});
+
+	it("answers hasCodeChanges from the commits of the project", async () => {
+		const { appCommits, service } = setup();
+		appCommits.hasFileChanges.mockResolvedValue(true);
+
+		const project = await service.get(SCOPE, "project-1");
+
+		expect(project.hasCodeChanges).toBe(true);
+		expect(appCommits.hasFileChanges).toHaveBeenCalledWith("project-1");
 	});
 
 	it("404s on a v1_page row", async () => {
@@ -353,12 +453,14 @@ describe("AppProjectsService.get", () => {
 	});
 
 	it("404s on a missing row", async () => {
-		const { projects, service } = setup();
+		const { appCommits, projects, service } = setup();
 		projects.findByIdForScope.mockResolvedValue(null);
 
 		await expect(service.get(SCOPE, "project-1")).rejects.toBeInstanceOf(
 			NotFoundException,
 		);
+		// The commits of a project out of scope are never read.
+		expect(appCommits.hasFileChanges).not.toHaveBeenCalled();
 	});
 });
 

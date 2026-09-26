@@ -1,3 +1,7 @@
+/**
+ * The organization detail page: balance, members, ledger, and staff grant actions.
+ * The route /organizations/$organizationId renders it. It reads useOrganizationQuery.
+ */
 import { Link } from "@tanstack/react-router";
 import {
 	AlertCircleIcon,
@@ -27,7 +31,11 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAdminPermission } from "@/features/auth/lib/permissions";
+import {
+	canGrantCreditsToTarget,
+	useAdminPermission,
+} from "@/features/auth/lib/permissions";
+import { useSession } from "@/features/auth/lib/session";
 import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
@@ -56,9 +64,8 @@ export function OrganizationDetailPage({
 	const [grantOpen, setGrantOpen] = useState(false);
 	const [offlineGrantOpen, setOfflineGrantOpen] = useState(false);
 	const organizationQuery = useOrganizationQuery(organizationId);
-	const canManageOrganization = useAdminPermission({
-		organizations: ["manage"],
-	});
+	const { data: session } = useSession();
+	const hasGrantPermission = useAdminPermission({ credits: ["grant"] });
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (organizationQuery.isLoading) {
@@ -121,6 +128,12 @@ export function OrganizationDetailPage({
 	if (!detail) {
 		return null;
 	}
+	const canGrantCredits =
+		hasGrantPermission &&
+		canGrantCreditsToTarget(
+			session?.user.role,
+			detail.members.some((member) => member.userId === session?.user.id),
+		);
 	const attributionMember = detail.attributionUserId
 		? detail.members.find(
 				(member) => member.userId === detail.attributionUserId,
@@ -138,6 +151,7 @@ export function OrganizationDetailPage({
 		<DetailContainer>
 			<DetailHeader
 				detail={detail}
+				canGrantCredits={canGrantCredits}
 				onGrantCredits={() => setGrantOpen(true)}
 				onGrantOffline={() => setOfflineGrantOpen(true)}
 			/>
@@ -164,7 +178,7 @@ export function OrganizationDetailPage({
 
 			<UserCreditLedger entries={detail.creditLedger} />
 
-			{canManageOrganization ? (
+			{canGrantCredits ? (
 				<GrantOrgCreditsDialog
 					organization={detail}
 					open={grantOpen}
@@ -187,16 +201,16 @@ export function OrganizationDetailPage({
 
 function DetailHeader({
 	detail,
+	canGrantCredits,
 	onGrantCredits,
 	onGrantOffline,
 }: {
 	detail: OrganizationDetail;
+	/** credits:grant, minus a support grant to an org where it is a member (the API rejects it). */
+	canGrantCredits: boolean;
 	onGrantCredits: () => void;
 	onGrantOffline: () => void;
 }) {
-	const canManageOrganization = useAdminPermission({
-		organizations: ["manage"],
-	});
 	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	return (
@@ -240,7 +254,7 @@ function DetailHeader({
 						Grant offline subscription
 					</Button>
 				) : null}
-				{canManageOrganization ? (
+				{canGrantCredits ? (
 					<Button type="button" size="sm" onClick={onGrantCredits}>
 						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
 						Grant credits

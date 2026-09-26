@@ -12,6 +12,7 @@ import {
 	type CreateTurnResponse,
 	createTurnResponseSchema,
 	type TurnApprovalAnswer,
+	type TurnQuestionAnswer,
 } from "@wandit/contracts";
 import type { ChatStatus } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { creditsKeys } from "@/features/credits";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
+import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage } from "../api/dto";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
@@ -28,12 +30,14 @@ export type TurnEstimate = NonNullable<CreateTurnResponse["estimate"]>;
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
 	/**
-	 * Message text for a plain turn, the option label for a `data-question`
-	 * answer, or "" for a `data-approval` answer.
+	 * Message text for a plain turn, a short summary of the answers for a
+	 * `data-question` round, or "" for a `data-approval` answer.
 	 */
 	text: string;
 	/** Decision answering a pending `data-approval` card. */
 	approval?: TurnApprovalAnswer;
+	/** One answer per open `data-question` card, from the request tray. */
+	answers?: TurnQuestionAnswer[];
 	/** Paid model id the user picked for this turn; absent uses the deploy default. */
 	model?: string;
 };
@@ -59,6 +63,8 @@ export type BuilderChat = {
 	error: Error | undefined;
 	/** Id of the running turn, from `data-turn-created`; null before send and after the stream settles. */
 	turnId: string | null;
+	/** True from a local send until `data-turn-created` or the end of the request. The preview boot screen reads it, so a refused send does not count as a turn. */
+	isAwaitingTurn: boolean;
 	/** Server estimate of the running turn; null when the frame carried none. */
 	estimate: TurnEstimate | null;
 	/** Sends one turn. Dropped while a turn runs or while the chat id is unknown. */
@@ -90,6 +96,7 @@ export function useBuilderChat(
 		turnId: string;
 		estimate: TurnEstimate | null;
 	} | null>(null);
+	const [isAwaitingTurn, setIsAwaitingTurn] = useState(false);
 
 	const transport = useMemo(
 		() =>
@@ -102,14 +109,22 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can mint a new version, move the project summary, and
-	// settle credits; all three caches refresh at once.
+	// A finished turn can mint a new version, change the code, move the
+	// project summary, run a migration, and settle credits; all five caches
+	// refresh at once. The code key covers the Code view tree and every open
+	// file. The Cloud tables key covers the table list and every loaded page.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
 		});
 		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.code(projectId),
+		});
+		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.project(projectId),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: cloudKeys.tables(projectId),
 		});
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 	}, [queryClient, projectId]);
@@ -129,6 +144,7 @@ export function useBuilderChat(
 				// frame throws and the stream surfaces it as `error`.
 				if (part.type === "data-turn-created") {
 					const created = createTurnResponseSchema.parse(part.data);
+					setIsAwaitingTurn(false);
 					setActiveTurn({
 						turnId: created.turnId,
 						estimate: created.estimate ?? null,
@@ -137,12 +153,11 @@ export function useBuilderChat(
 			},
 			// The SDK fires onFinish on success, error, and abort. The turn id
 			// and the estimate are stale from here; a cancel after this point
-			// would post for a finished turn.
-			// LIMIT: after a cancel the caches refresh before the settle.
-			// Upgrade: post the cancel first and keep the stream open until
-			// data-turn-done.
+			// would post for a finished turn. On an abort the caches refresh
+			// before the settle, so `cancel` refreshes them again.
 			onFinish: () => {
 				setActiveTurn(null);
+				setIsAwaitingTurn(false);
 				invalidateTurnData();
 			},
 		});
@@ -176,11 +191,13 @@ export function useBuilderChat(
 			// One active turn per project: a second send queues or fails with 429
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
 			if (chatId === undefined || isSending) return;
+			setIsAwaitingTurn(true);
 			void sendMessage(
 				{ text: sendInput.text },
 				{
 					body: {
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),
+						...(sendInput.answers ? { answers: sendInput.answers } : {}),
 						...(sendInput.model ? { model: sendInput.model } : {}),
 					},
 				},
@@ -200,7 +217,10 @@ export function useBuilderChat(
 		if (turnId === undefined) return;
 		// The error propagates on purpose: the page maps it to copy.
 		await deps.cancelTurn(projectId, turnId);
-	}, [stop, activeTurn?.turnId, deps, projectId]);
+		// The cancel answers after the settle wrote the wip commit. The refresh
+		// shows its files, for example the first version of a new project.
+		invalidateTurnData();
+	}, [stop, activeTurn?.turnId, deps, projectId, invalidateTurnData]);
 
 	return {
 		messages,
@@ -208,6 +228,7 @@ export function useBuilderChat(
 		isSending,
 		error,
 		turnId: activeTurn?.turnId ?? null,
+		isAwaitingTurn,
 		estimate: activeTurn?.estimate ?? null,
 		send,
 		cancel,

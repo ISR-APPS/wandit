@@ -320,22 +320,32 @@ export function isWanditUploadUrl(url: string): boolean {
 	);
 }
 
+// The V2 asset upload (WANDIT-200) also reads this map: a Vite build emits
+// avif, gif, mjs, wasm, webmanifest, woff, and xml files. The edge sends
+// nosniff, so a module script needs a JavaScript type.
 const CONTENT_TYPES: Record<string, string> = {
+	avif: "image/avif",
 	css: "text/css; charset=utf-8",
+	gif: "image/gif",
 	html: "text/html; charset=utf-8",
 	ico: "image/x-icon",
 	jpeg: "image/jpeg",
 	jpg: "image/jpeg",
 	js: "text/javascript; charset=utf-8",
 	json: "application/json; charset=utf-8",
+	mjs: "text/javascript; charset=utf-8",
 	mp4: "video/mp4",
 	png: "image/png",
 	svg: "image/svg+xml",
 	txt: "text/plain; charset=utf-8",
+	wasm: "application/wasm",
 	webm: "video/webm",
+	webmanifest: "application/manifest+json",
 	webp: "image/webp",
+	woff: "font/woff",
 	woff2: "font/woff2",
 	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	xml: "application/xml; charset=utf-8",
 };
 
 // Best-effort by extension; octet-stream keeps unknown files downloadable

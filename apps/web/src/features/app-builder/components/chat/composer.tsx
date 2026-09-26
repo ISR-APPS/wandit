@@ -1,11 +1,14 @@
 /**
- * Prompt box of the builder chat: focus chip, growing textarea, the add
- * context menu, the Build | Plan mode menu, credit estimate, dictation, and
- * the send button. Rendered by chat-pane.tsx. Calls `onSend` with the
- * trimmed draft; the pane runs the mutation. Local state: the draft, the
- * mode, the chip. Actions with no backend show the notWired toast.
+ * Prompt box of the builder chat: the request tray slot on top, focus chip,
+ * growing textarea, the add context menu, the Build | Plan mode menu,
+ * credit estimate, dictation, and the send button. While the tray shows,
+ * the send button becomes the tray's answer button. Rendered by
+ * chat-pane.tsx. Calls `onSend` with the trimmed draft; the pane runs the
+ * mutation. Local state: the draft, the mode, the chip. Actions with no
+ * backend show the notWired toast.
  */
 
+import { projectPromptMaxLength } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -16,6 +19,7 @@ import {
 import { Textarea } from "@wandit/ui/components/textarea";
 import {
 	ArrowUp,
+	Check,
 	ChevronDown,
 	Crosshair,
 	ImageIcon,
@@ -25,12 +29,25 @@ import {
 	Plus,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import { COMPOSER_MODES, type ComposerMode } from "../../lib/constants";
+
+/**
+ * The answer button that replaces the send circle while the request tray
+ * shows. lib/use-request-tray.ts builds it.
+ */
+export type ComposerSubmitOverride = {
+	/** Pill text, for example "Choose this option". */
+	label: string;
+	/** True while the answer is incomplete; the empty draft does not decide it. */
+	disabled: boolean;
+	/** Takes the current draft; the composer clears the draft after the call. */
+	onSubmit: (text: string) => void;
+};
 
 export type ComposerProps = {
 	/** Credits one turn costs, whole credits. Shown next to the mode menu. */
@@ -40,6 +57,12 @@ export type ComposerProps = {
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
+	/** Content at the top of the card, above the textarea: the request tray. */
+	topSlot?: ReactNode;
+	/** Set while the request tray shows: Enter and the button answer the tray. */
+	submitOverride?: ComposerSubmitOverride | null;
+	/** Gets every draft change; the tray reads the typed answer from it. */
+	onDraftChange?: (text: string) => void;
 };
 
 /** Round pill shared by the add context and mode triggers. Ember on hover, a soft halo while open. */
@@ -51,20 +74,35 @@ export function Composer({
 	focusLabel,
 	isSending,
 	onSend,
+	topSlot,
+	submitOverride,
+	onDraftChange,
 }: ComposerProps) {
 	const { t } = useTranslation();
-	const [draft, setDraft] = useState("");
+	const [draft, setDraftState] = useState("");
+	const setDraft = (text: string) => {
+		setDraftState(text);
+		onDraftChange?.(text);
+	};
 	const [mode, setMode] = useState<ComposerMode>("build");
 	// The label the user removed. A different label from the preview shows the chip again.
 	// LIMIT: the same label picked again stays hidden until a reload. Upgrade: the page clears thread.focusLabel through a mutation.
 	const [clearedLabel, setClearedLabel] = useState<string | null>(null);
 	const trimmed = draft.trim();
-	const canSend = trimmed.length > 0 && !isSending;
+	// The tray decides when its answer is complete: a picked chip answers with
+	// an empty draft.
+	const canSend = submitOverride
+		? !submitOverride.disabled && !isSending
+		: trimmed.length > 0 && !isSending;
 	const notWired = () => toast(t("appBuilder.mock.notWired"));
 
 	function send() {
 		if (!canSend) return;
-		onSend({ text: trimmed, mode });
+		if (submitOverride) {
+			submitOverride.onSubmit(trimmed);
+		} else {
+			onSend({ text: trimmed, mode });
+		}
 		setDraft("");
 	}
 
@@ -88,103 +126,127 @@ export function Composer({
 				aria-hidden
 				className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.12)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
 			/>
-			<div className="relative flex flex-col rounded-3xl bg-background px-4 pt-3.5 pb-3 shadow-composer dark:border dark:bg-card dark:shadow-[0_18px_40px_-20px_rgb(0_0_0_/_0.6)]">
-				{focusLabel !== null && focusLabel !== clearedLabel ? (
-					<span className="mb-2 flex h-6 items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/5 ps-2.5 pe-1 text-primary text-xs">
-						<Crosshair className="size-3 shrink-0" aria-hidden />
-						<span dir="auto">
-							{t("appBuilder.chat.focusChip", { label: focusLabel })}
+			<div className="relative flex flex-col overflow-hidden rounded-3xl bg-background shadow-composer dark:border dark:bg-card dark:shadow-[0_18px_40px_-20px_rgb(0_0_0_/_0.6)]">
+				{topSlot}
+				{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
+				<div className="flex flex-col px-4 pt-3.5 pb-3">
+					{focusLabel !== null && focusLabel !== clearedLabel ? (
+						<span className="mb-2 flex h-6 items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/5 ps-2.5 pe-1 text-primary text-xs">
+							<Crosshair className="size-3 shrink-0" aria-hidden />
+							<span dir="auto">
+								{t("appBuilder.chat.focusChip", { label: focusLabel })}
+							</span>
+							<button
+								type="button"
+								aria-label={t("appBuilder.chat.removeFocus")}
+								onClick={() => setClearedLabel(focusLabel)}
+								className="grid size-4 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
+							>
+								<X className="size-3" />
+							</button>
 						</span>
-						<button
-							type="button"
-							aria-label={t("appBuilder.chat.removeFocus")}
-							onClick={() => setClearedLabel(focusLabel)}
-							className="grid size-4 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-						>
-							<X className="size-3" />
-						</button>
-					</span>
-				) : null}
-				{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
-				<Textarea
-					rows={1}
-					dir="auto"
-					value={draft}
-					placeholder={t("appBuilder.chat.placeholder")}
-					disabled={isSending}
-					onChange={(event) => setDraft(event.target.value)}
-					onKeyDown={onKeyDown}
-					className="max-h-40 min-h-[38px] resize-none border-0 bg-transparent px-0 py-1.5 text-[15px] leading-[1.5] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent"
-				/>
-				<div className="mt-1.5 flex items-center gap-1.5">
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="outline"
-								size="icon-sm"
-								aria-label={t("appBuilder.chat.addContext")}
-								className={PILL_CLASS}
-							>
-								<Plus />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start" className="rounded-2xl p-1.5">
-							<DropdownMenuItem onSelect={notWired}>
-								<Paperclip />
-								{t("appBuilder.chat.attach")}
-							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={notWired}>
-								<ImageIcon />
-								{t("appBuilder.chat.attachImage")}
-							</DropdownMenuItem>
-							<DropdownMenuItem onSelect={notWired}>
-								<LayoutTemplate />
-								{t("appBuilder.chat.attachScreen")}
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-					<span className="ms-auto text-muted-foreground text-xs">
-						{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
-					</span>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="outline"
-								size="sm"
-								aria-label={t("appBuilder.chat.modeLabel")}
-								className={PILL_CLASS}
-							>
-								{t(`appBuilder.chat.modes.${mode}`)}
-								<ChevronDown className="size-3.5 text-muted-foreground" />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="rounded-2xl p-1.5">
-							{COMPOSER_MODES.map((option) => (
-								<DropdownMenuItem key={option} onSelect={() => setMode(option)}>
-									{t(`appBuilder.chat.modes.${option}`)}
+					) : null}
+					{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
+					<Textarea
+						rows={1}
+						// The turn route refuses a longer message or typed answer.
+						maxLength={projectPromptMaxLength}
+						dir="auto"
+						value={draft}
+						placeholder={t("appBuilder.chat.placeholder")}
+						disabled={isSending}
+						onChange={(event) => setDraft(event.target.value)}
+						onKeyDown={onKeyDown}
+						className="max-h-40 min-h-[38px] resize-none border-0 bg-transparent px-0 py-1.5 text-[15px] leading-[1.5] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent"
+					/>
+					<div className="mt-1.5 flex items-center gap-1.5">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="outline"
+									size="icon-sm"
+									aria-label={t("appBuilder.chat.addContext")}
+									className={PILL_CLASS}
+								>
+									<Plus />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="rounded-2xl p-1.5">
+								<DropdownMenuItem onSelect={notWired}>
+									<Paperclip />
+									{t("appBuilder.chat.attach")}
 								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label={t("appBuilder.chat.dictate")}
-						onClick={notWired}
-						className="rounded-full text-muted-foreground hover:text-foreground"
-					>
-						<Mic />
-					</Button>
-					<Button
-						size="icon-sm"
-						aria-label={t("appBuilder.chat.send")}
-						disabled={!canSend}
-						onClick={send}
-						// The send circle is the one control that carries the ember gradient.
-						className="rounded-full bg-gradient-ember text-background shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity hover:opacity-90 disabled:opacity-40"
-					>
-						<ArrowUp strokeWidth={2.2} />
-					</Button>
+								<DropdownMenuItem onSelect={notWired}>
+									<ImageIcon />
+									{t("appBuilder.chat.attachImage")}
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={notWired}>
+									<LayoutTemplate />
+									{t("appBuilder.chat.attachScreen")}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<span className="ms-auto text-muted-foreground text-xs">
+							{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
+						</span>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="outline"
+									size="sm"
+									aria-label={t("appBuilder.chat.modeLabel")}
+									className={PILL_CLASS}
+								>
+									{t(`appBuilder.chat.modes.${mode}`)}
+									<ChevronDown className="size-3.5 text-muted-foreground" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="rounded-2xl p-1.5">
+								{COMPOSER_MODES.map((option) => (
+									<DropdownMenuItem
+										key={option}
+										onSelect={() => setMode(option)}
+									>
+										{t(`appBuilder.chat.modes.${option}`)}
+									</DropdownMenuItem>
+								))}
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							aria-label={t("appBuilder.chat.dictate")}
+							onClick={notWired}
+							className="rounded-full text-muted-foreground hover:text-foreground"
+						>
+							<Mic />
+						</Button>
+						{submitOverride ? (
+							// The V1 answer pill: same ember gradient as the send circle, with a label.
+							<Button
+								size="sm"
+								disabled={!canSend}
+								onClick={send}
+								className="h-8 gap-1.5 rounded-full bg-gradient-ember px-3 text-background shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity hover:opacity-90 disabled:opacity-40"
+							>
+								<Check className="size-3.5" strokeWidth={2.4} aria-hidden />
+								<span className="font-medium text-xs">
+									{submitOverride.label}
+								</span>
+							</Button>
+						) : (
+							<Button
+								size="icon-sm"
+								aria-label={t("appBuilder.chat.send")}
+								disabled={!canSend}
+								onClick={send}
+								// The send circle is the one control that carries the ember gradient.
+								className="rounded-full bg-gradient-ember text-background shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity hover:opacity-90 disabled:opacity-40"
+							>
+								<ArrowUp strokeWidth={2.2} />
+							</Button>
+						)}
+					</div>
 				</div>
 			</div>
 		</div>

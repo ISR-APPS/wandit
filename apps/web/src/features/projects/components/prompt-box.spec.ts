@@ -275,3 +275,37 @@ describe("PromptBox attachments", () => {
 		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 	});
 });
+
+describe("PromptBox app type chip", () => {
+	it("shows no chip without platformPicker", () => {
+		renderPromptBox();
+
+		expect(screen.queryByRole("button", { name: /^App type:/ })).toBeNull();
+	});
+
+	it("offers the web app and the mobile app as enabled rows", async () => {
+		const onValueChange = vi.fn();
+		renderPromptBox({ platformPicker: { value: "web", onValueChange } });
+
+		const trigger = screen.getByRole("button", { name: "App type: Web app" });
+		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+		const menu = within(await screen.findByRole("menu"));
+
+		const web = menu.getByRole("menuitemradio", { name: /Web app/ });
+		const mobile = menu.getByRole("menuitemradio", { name: /Mobile app/ });
+		expect(web.getAttribute("aria-disabled")).toBeNull();
+		expect(mobile.getAttribute("aria-disabled")).toBeNull();
+	});
+
+	it("picks the mobile app", async () => {
+		const onValueChange = vi.fn();
+		renderPromptBox({ platformPicker: { value: "web", onValueChange } });
+
+		const trigger = screen.getByRole("button", { name: "App type: Web app" });
+		fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+		const menu = within(await screen.findByRole("menu"));
+		fireEvent.click(menu.getByRole("menuitemradio", { name: /Mobile app/ }));
+
+		expect(onValueChange).toHaveBeenCalledWith("mobile");
+	});
+});

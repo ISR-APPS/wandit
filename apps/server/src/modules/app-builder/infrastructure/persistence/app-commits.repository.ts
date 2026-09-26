@@ -165,6 +165,26 @@ export class AppCommitsRepository {
 		return rows[0] ?? null;
 	}
 
+	/**
+	 * True when one commit of the project changed a file. A turn that only
+	 * answers in text commits with numstat `[]`, and the template commit has
+	 * no row. `AppProjectsService.get` reads it for `hasCodeChanges`.
+	 */
+	async hasFileChanges(projectId: string): Promise<boolean> {
+		const rows = await this.db
+			.select({ id: appCommits.id })
+			.from(appCommits)
+			.where(
+				and(
+					eq(appCommits.projectId, projectId),
+					// A null numstat counts as a change: the preview then shows the app.
+					sql`${appCommits.numstat} IS DISTINCT FROM '[]'::jsonb`,
+				),
+			)
+			.limit(1);
+		return rows.length > 0;
+	}
+
 	/** The `main` branch head row of a project, or null when no row exists. */
 	async findBranch(
 		projectId: string,

@@ -1,5 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, rmSync } from "node:fs";
+import {
+	closeSync,
+	mkdtempSync,
+	openSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,6 +61,22 @@ const bash = (command: string, cwd?: string) => ({
 const DOLLAR = "$";
 
 describe("pre-tool-use hook", () => {
+	it("keeps the mobile-app hook and deny rules byte-identical to web-app", () => {
+		// Every case here runs the web-app copy. The mobile-app copies must not drift.
+		const mobileRoot = resolve(templateRoot, "..", "mobile-app");
+		for (const file of [
+			".claude/hooks/pre-tool-use.mjs",
+			".claude/settings.json",
+		]) {
+			expect(
+				readFileSync(join(mobileRoot, file)).equals(
+					readFileSync(join(templateRoot, file)),
+				),
+				`mobile-app/${file} differs from web-app/${file}`,
+			).toBe(true);
+		}
+	});
+
 	it("allows a write to src/routes/index.tsx", () => {
 		const result = runHook({
 			tool_name: "Write",

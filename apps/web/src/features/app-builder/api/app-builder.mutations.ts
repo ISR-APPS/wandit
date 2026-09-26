@@ -1,17 +1,21 @@
 /**
- * Mutations of the app builder. Each one calls a service and writes the
- * result into the query cache, so the panel that reads the query updates at
- * once. Called by the Settings panel, the Sign-in panel, the Payments
- * panel, and the versions popover.
+ * Mutations of the app builder. Most call a service and write the result
+ * into the query cache, so the panel that reads the query updates at once.
+ * Called by the dashboard create flow, the Settings panel, the Sign-in
+ * panel, the Payments panel, the versions popover, and the Expo Go popover.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { CreateAppProjectRequest } from "@wandit/contracts";
 import { toast } from "sonner";
 
+import { projectKeys } from "@/features/projects";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
 	type AppProjectPatch,
+	createAppProject,
+	getPhonePreviewLink,
 	restoreVersion,
 	setCollaboratorRole,
 	setPaymentsMode,
@@ -19,6 +23,31 @@ import {
 	updateAppProject,
 } from "./app-builder.services";
 import type { CollaboratorRole, SignInMethodId } from "./dto";
+
+/**
+ * Creates a V2 app project from the dashboard prompt. The V1 project grid
+ * lists V2 projects too, so its list query refreshes and the new card shows.
+ */
+export function useCreateAppProject() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (body: CreateAppProjectRequest) => createAppProject(body),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+		},
+	});
+}
+
+/**
+ * Mints a phone link for Expo Go. No cache write: each popover open mints a
+ * new link, and the popover reads the answer from the mutation.
+ */
+export function useMintPhonePreviewLink(projectId: string) {
+	return useMutation({
+		mutationFn: (expoUsername: string) =>
+			getPhonePreviewLink(projectId, expoUsername),
+	});
+}
 
 /** Name, description, or kind. The project menu list refreshes too, so its badge stays right. */
 export function useUpdateAppProject(projectId: string) {
@@ -107,6 +136,11 @@ export function useRestoreVersion(
 			});
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.project(projectId),
+			});
+			// A restore rewrites the worktree, so the Code view tree and the
+			// open file refetch too.
+			void queryClient.invalidateQueries({
+				queryKey: appBuilderKeys.code(projectId),
 			});
 			deps.onRestored?.();
 		},

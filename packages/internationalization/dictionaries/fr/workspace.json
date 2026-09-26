@@ -16,7 +16,8 @@
 		"assets": "Médias",
 		"marketing": "Marketing",
 		"leads": "Leads",
-		"settings": "Réglages"
+		"settings": "Réglages",
+		"cloud": "Cloud"
 	},
 	"switcher": {
 		"menuLabel": "Projets",
@@ -1226,5 +1227,86 @@
 		"title": "Projet introuvable",
 		"body": "Il a peut-être été supprimé, ou le lien est incorrect.",
 		"cta": "Retour au tableau de bord"
+	},
+	"cloud": {
+		"navAriaLabel": "Sections Cloud",
+		"panels": {
+			"database": "Base de données",
+			"users": "Utilisateurs",
+			"storage": "Stockage",
+			"logs": "Journaux",
+			"functions": "Fonctions",
+			"jobs": "Tâches planifiées"
+		},
+		"comingSoon": "Cette section n'est pas encore prête. Une prochaine mise à jour l'ajoutera.",
+		"loadFailed": "L'état du backend n'a pas pu être chargé.",
+		"retry": "Réessayer",
+		"backend": {
+			"none": {
+				"description": "Un backend donne à ton app une base de données, des comptes utilisateurs et un stockage de fichiers. Wandit l'installe et le gère pour toi.",
+				"enable": "Activer le backend"
+			},
+			"waiting": "Installation de ton backend. Cela prend environ 2 minutes.",
+			"paused": {
+				"description": "Le backend se met en veille quand personne n'utilise l'app pendant un moment. Réveille-le pour voir tes données.",
+				"wake": "Réveiller"
+			},
+			"deleting": "Le backend de ce projet est en cours de suppression.",
+			"error": {
+				"code": "Code d'erreur : {code}",
+				"checkAgain": "Vérifier à nouveau",
+				"reasons": {
+					"startFailed": "L'installation du backend n'a pas démarré.",
+					"unconfigured": "Les backends ne sont pas encore disponibles sur ce serveur.",
+					"provisionFailed": "Le service de base de données n'a pas pu créer le backend.",
+					"timeout": "L'installation du backend a pris trop de temps et s'est arrêtée.",
+					"baseSchemaMissing": "Le backend a démarré, mais ses tables de base sont absentes.",
+					"unknown": "Une erreur inattendue a arrêté l'installation du backend."
+				}
+			}
+		},
+		"database": {
+			"sections": {
+				"tables": "Tables",
+				"sql": "Éditeur SQL"
+			},
+			"rowCount": {
+				"one": "{count} ligne",
+				"other": "{count} lignes"
+			},
+			"tables": {
+				"name": "Table",
+				"columns": "Colonnes",
+				"rows": "Lignes",
+				"estimate": "Environ {count}",
+				"empty": "La base de données n'a pas encore de table. Demande à l'agent d'en ajouter une.",
+				"loadFailed": "Les tables n'ont pas pu être chargées.",
+				"back": "Toutes les tables"
+			},
+			"rows": {
+				"page": "Page {page} sur {pageCount}",
+				"previous": "Page précédente",
+				"next": "Page suivante",
+				"empty": "Cette table n'a aucune ligne.",
+				"noColumns": "Cette table n'a aucune colonne.",
+				"missing": "Cette table ou l'une de ses colonnes n'existe plus.",
+				"loadFailed": "Les lignes n'ont pas pu être chargées.",
+				"null": "NULL"
+			},
+			"sql": {
+				"label": "Requête SQL",
+				"placeholder": "select * from orders limit 10;",
+				"run": "Exécuter",
+				"hint": "Écris une instruction SQL et sélectionne Exécuter. Les résultats s'affichent ici.",
+				"noRows": "L'instruction s'est exécutée. Elle n'a renvoyé aucune ligne.",
+				"truncated": "La requête a renvoyé plus de {limit} lignes. Seules les {limit} premières s'affichent.",
+				"confirm": {
+					"title": "Exécuter une requête qui modifie des données ?",
+					"description": "Cette requête peut modifier ou supprimer des données dans la base de ton app. Tu ne peux pas l'annuler.",
+					"cancel": "Annuler",
+					"run": "Exécuter la requête"
+				}
+			}
+		}
 	}
 }

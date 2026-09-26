@@ -22,12 +22,14 @@ describe("buildSandboxEnv", () => {
 			ANTHROPIC_API_KEY: "",
 			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+			EXPO_PUBLIC_SUPABASE_ANON_KEY: "anon-key-1",
+			EXPO_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
 			VITE_SUPABASE_ANON_KEY: "anon-key-1",
 			VITE_SUPABASE_URL: "https://project.supabase.co",
 		});
 	});
 
-	it("omits the VITE_SUPABASE names when the backend row is missing", () => {
+	it("omits both Supabase pairs when the backend row is missing", () => {
 		const env = buildSandboxEnv({
 			...INPUT,
 			supabaseAnonKey: null,
@@ -36,6 +38,23 @@ describe("buildSandboxEnv", () => {
 
 		expect(env).not.toHaveProperty("VITE_SUPABASE_URL");
 		expect(env).not.toHaveProperty("VITE_SUPABASE_ANON_KEY");
+		expect(env).not.toHaveProperty("EXPO_PUBLIC_SUPABASE_URL");
+		expect(env).not.toHaveProperty("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+	});
+
+	it("accepts the Expo names through extra and still rejects an unknown one", () => {
+		const env = buildSandboxEnv({
+			...INPUT,
+			extra: { EXPO_PUBLIC_SUPABASE_URL: "https://other.supabase.co" },
+		});
+
+		expect(env.EXPO_PUBLIC_SUPABASE_URL).toBe("https://other.supabase.co");
+		expect(() =>
+			buildSandboxEnv({
+				...INPUT,
+				extra: { EXPO_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: "secret" },
+			}),
+		).toThrow(SandboxEnvRejectedError);
 	});
 
 	it("adds WANDIT_PREVIEW_HOST only when the caller passes a host", () => {

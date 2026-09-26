@@ -18,16 +18,16 @@ export const PROJECT_ACTIVE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 ];
 
 /**
- * Statuses that still let a chat look busy: the active slot plus `waiting`
- * and the two user-blocked states. Used for the chat history filter.
+ * Statuses whose answer can still stream: the active slot plus `waiting`.
+ * The chat history filter hides their assistant rows. A turn paused on a
+ * question or an approval is not here: its stream ended and its row holds
+ * the open card, so a reload must show it.
  */
 export const CHAT_ACTIVE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 	"queued",
 	"waiting",
 	"running",
 	"cancelling",
-	"waiting_for_answer",
-	"waiting_for_approval",
 ];
 
 /** Statuses after which no write is legal again. */

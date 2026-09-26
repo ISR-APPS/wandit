@@ -50,4 +50,15 @@ describe("mapProjectRow", () => {
 		expect(mapProjectRow(projectRow(null, logoUrl)).logoUrl).toBe(logoUrl);
 		expect(mapProjectRow(projectRow(null)).logoUrl).toBeNull();
 	});
+
+	it("passes through the target platform for the dashboard badge", () => {
+		const mobileRow: ProjectQueryRow = {
+			...projectRow(null),
+			engine: "v2_app",
+			targetPlatform: "mobile",
+		};
+
+		expect(mapProjectRow(mobileRow).targetPlatform).toBe("mobile");
+		expect(mapProjectRow(projectRow(null)).targetPlatform).toBeNull();
+	});
 });

@@ -1,7 +1,8 @@
 /**
- * Fixed values of the V2 app builder workspace: views, More panels, devices,
- * and composer modes. Also the storage keys and panel widths of the chat card.
- * Read by the route search schema, the shell, and the More view.
+ * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
+ * devices, and composer modes. Also the storage keys and panel widths of the
+ * chat card, and the easing of the preview boot screen. Read by the route
+ * search schema, the shell, the More view, the Cloud tab, and the preview.
  * No logic and no React here.
  */
 
@@ -22,8 +23,11 @@ import {
 import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
 
-/** Main views of the workspace. `more` opens the settings-like panels. */
-export const BUILDER_VIEWS = ["preview", "code", "more"] as const;
+/**
+ * Main views of the workspace. `more` opens the settings-like panels.
+ * `cloud` opens the Cloud tab; the page shows it only behind its rollout gate.
+ */
+export const BUILDER_VIEWS = ["preview", "code", "more", "cloud"] as const;
 export type BuilderView = (typeof BUILDER_VIEWS)[number];
 
 /** Panels of the More view, in nav order. `domains` is web only, `appStores` is mobile only. */
@@ -40,6 +44,23 @@ export const MORE_PANELS = [
 	"settings",
 ] as const;
 export type MorePanel = (typeof MORE_PANELS)[number];
+
+/**
+ * Panels of the Cloud tab, in nav order. WANDIT-188 slice 1 builds
+ * `database`; the other panels show a coming-soon state until slices 2 and 3.
+ */
+export const CLOUD_PANELS = [
+	"database",
+	"users",
+	"storage",
+	"logs",
+	"functions",
+	"jobs",
+] as const;
+export type CloudPanel = (typeof CLOUD_PANELS)[number];
+
+/** Rows per page of the Cloud table grid. The rows route accepts at most 100. */
+export const CLOUD_ROWS_PAGE_SIZE = 50;
 
 /** Phone frames of the mobile preview. */
 export const PHONE_DEVICES = ["ios", "android"] as const;
@@ -145,5 +166,33 @@ export const TABLET_VIEWPORT_WIDTH_PX = 768;
 /** Width of the web preview iframe in the mobile viewport, CSS px. The logical width of an iPhone 15. */
 export const MOBILE_VIEWPORT_WIDTH_PX = 393;
 
+/**
+ * Layout width of the app in the phone frame, CSS px: the iPhone 15 and the
+ * Pixel 8 logical widths. The frame scales the app down to its screen.
+ */
+export const PHONE_VIEWPORT_WIDTH_PX: Record<PhoneDevice, number> = {
+	ios: MOBILE_VIEWPORT_WIDTH_PX,
+	android: 412,
+};
+
+/** localStorage key of the Expo Go username that the user typed for the iPhone. Sent with each phone link mint. */
+export const EXPO_GO_USERNAME_STORAGE_KEY =
+	"wandit-app-builder-expo-go-username";
+
+/** Expo SDK of the mobile-app template (templates/mobile-app/package.json). The store Expo Go must run the same SDK. */
+export const EXPO_GO_SDK_VERSION = 57;
+
+/** Store pages of Expo Go. The labels are brand names, so they stay out of the dictionaries. */
+export const EXPO_GO_STORE_LINKS = [
+	{ label: "App Store", url: "https://apps.apple.com/app/expo-go/id982107779" },
+	{
+		label: "Google Play",
+		url: "https://play.google.com/store/apps/details?id=host.exp.exponent",
+	},
+] as const;
+
 /** Round-trip delay of a mock service call, ms. Long enough to show pending states, short enough to feel local. */
 export const MOCK_LATENCY_MS = 150;
+
+/** Easing of the preview boot screen and its exit, as a motion cubic bezier. It is the `cubic-bezier(0.4, 0, 0.2, 1)` of DESIGN.md. */
+export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;

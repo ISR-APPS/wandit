@@ -10,12 +10,19 @@ import { logger, schemaTask } from "@trigger.dev/sdk";
 import { appBuilderRoutes } from "@wandit/contracts";
 import { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/node";
 import { z } from "zod";
 
-import { contentTypeFor, putSiteFile } from "../infrastructure/storage/r2";
+import {
+	contentTypeFor,
+	getObjectBytes,
+	publicAssetKeyFromUrl,
+	putSiteFile,
+} from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
 import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
@@ -28,6 +35,7 @@ import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/pe
 import { LlmProxyRequestsRepository } from "../modules/app-builder/infrastructure/persistence/llm-proxy-requests.repository";
 import { ProjectCostCapsRepository } from "../modules/app-builder/infrastructure/persistence/project-cost-caps.repository";
 import { ProjectNetworkHostsRepository } from "../modules/app-builder/infrastructure/persistence/project-network-hosts.repository";
+import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { LlmSpendCounters } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
@@ -37,6 +45,8 @@ import {
 	TEMPLATE_ARCHIVE_DIR,
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
+import { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { RedisSupabaseRateLimiter } from "../modules/app-builder/infrastructure/supabase/supabase-rate-limiter";
 import { TriggerTurnEventWriter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-turn-task-starter";
 import { resolveBillingPlan } from "../modules/billing/application/services/resolve-billing-plan";
@@ -45,6 +55,7 @@ import { CreditsService } from "../modules/credits/application/services/credits.
 import { subjectPayer } from "../modules/credits/domain/credit-owner";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import { ChatsRepository } from "../modules/generation/infrastructure/persistence/chats.repository";
+import { ProjectsRepository } from "../modules/projects/infrastructure/persistence/projects.repository";
 import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
 import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
 
@@ -86,6 +97,14 @@ export const builderTurnTask = schemaTask({
 		const writer = new TriggerTurnEventWriter();
 		const turnLock = new RedisTurnLock();
 		const counters = new LlmSpendCounters();
+		const supabaseToken = env.SUPABASE_PLATFORM_TOKEN;
+		const supabaseOrganizationSlug = env.SUPABASE_PLATFORM_ORG_ID;
+		// Without the platform env no client exists, and every backend tool
+		// answers `failed` "SUPABASE_PLATFORM_TOKEN is not set".
+		const supabaseRateLimiter =
+			supabaseToken && supabaseOrganizationSlug
+				? new RedisSupabaseRateLimiter()
+				: null;
 		try {
 			const turns = new BuilderTurnsRepository(db);
 			const sandboxSessions = new SandboxSessionsRepository(db);
@@ -107,10 +126,33 @@ export const builderTurnTask = schemaTask({
 				turnLock,
 				new TriggerTurnTaskStarter(),
 			);
+			const backends = new AppBackendsRepository(db);
+			const audit = new AuditEventsRepository(db);
+			const secretsRepo = new ProjectSecretsRepository(db);
+			const supabase =
+				supabaseToken && supabaseOrganizationSlug && supabaseRateLimiter
+					? new SupabaseManagementClient({
+							fetch: globalThis.fetch,
+							// The agent waits on each tool call: a full bucket answers
+							// `rate_limited` at once instead of a wait of up to 5 minutes.
+							interactive: true,
+							logger: Sentry.logger,
+							organizationSlug: supabaseOrganizationSlug,
+							// The ownership check reads the same row the tools resolve.
+							ownsRef: async (projectId, ref) =>
+								(await backends.findByProjectId(projectId))?.ref === ref,
+							rateLimiter: supabaseRateLimiter,
+							sleep: (ms) =>
+								new Promise((resolvePromise) => setTimeout(resolvePromise, ms)),
+							token: supabaseToken,
+						})
+					: null;
 
 			await runBuilderTurn(
 				{
-					backends: new AppBackendsRepository(db),
+					// The wake uses the same interactive client as the backend tools.
+					backendClient: supabase,
+					backends,
 					billingDisabled: env.GENERATION_BILLING_MODE === "off",
 					caps: new ProjectCostCapsRepository(db),
 					commit: commitTurn,
@@ -123,12 +165,22 @@ export const builderTurnTask = schemaTask({
 					counters,
 					harness: createBuilderHarness(env.V2_HARNESS),
 					hostTools: new BuilderHostToolRegistry({
-						audit: new AuditEventsRepository(db),
+						audit,
+						backends,
+						client: supabase,
 						imageEditModel: env.AI_IMAGE_EDIT_MODEL ?? null,
 						imageModel: env.AI_IMAGE_MODEL ?? null,
 						logger,
 						metering,
 						networkHosts: new ProjectNetworkHostsRepository(db),
+						now: () => new Date(),
+						secrets: new ProjectSecretsService(
+							secretsRepo,
+							new ProjectsRepository(db),
+							audit,
+							env,
+						),
+						secretsRepo,
 					}),
 					insertAssistantMessage: (input) =>
 						chats.insertTurnAssistantMessage(input),
@@ -158,6 +210,12 @@ export const builderTurnTask = schemaTask({
 							.settledBalance,
 					// `ProductSettingsService.get` caches 30 s; the tick reads it.
 					readV2Enabled: async () => (await settings.get()).v2BuilderEnabled,
+					// Any URL under R2_PUBLIC_BASE_URL gives a key. TurnsService.create
+					// checks the upload owner first.
+					readUpload: async (url) => {
+						const key = publicAssetKeyFromUrl(url);
+						return key === null ? null : getObjectBytes(key);
+					},
 					resolvePlan: (subject) => resolveBillingPlan(subscriptions, subject),
 					sandboxSessions,
 					sandboxes,
@@ -182,9 +240,10 @@ export const builderTurnTask = schemaTask({
 		} finally {
 			// After the last `done` event, before the pool ends.
 			await writer.close();
-			// Both hold a Redis client; close them next to the pool (A6).
+			// Each holds a Redis client; close them next to the pool (A6).
 			await counters.onModuleDestroy();
 			await turnLock.onModuleDestroy();
+			await supabaseRateLimiter?.onModuleDestroy();
 			await db.$client.end();
 		}
 	},

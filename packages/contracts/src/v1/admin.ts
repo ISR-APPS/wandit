@@ -131,6 +131,7 @@ export const adminViewValues = [
 	"users",
 	"organizations",
 	"billing",
+	"credits",
 	"publications",
 	"feedback",
 	"affiliates",
@@ -679,6 +680,66 @@ export const adminGrantCreditsInputSchema = z.object({
 
 export type AdminGrantCreditsInput = z.infer<
 	typeof adminGrantCreditsInputSchema
+>;
+
+/**
+ * One manual credit grant in the admin grant log.
+ * Built from a `credit_ledger` row with `meta.reason = "admin_grant"`.
+ */
+export const adminCreditGrantSchema = z.object({
+	/** Id of the `credit_ledger` row. */
+	id: uuidSchema,
+	createdAt: isoDateTimeSchema,
+	/** Decimal credits added to the promo bucket, always above zero. The ledger stores centi-credits. */
+	amount: z.number().positive(),
+	/** The note the staff member typed in the grant dialog. */
+	note: z.string().nullable(),
+	/** The staff account from `meta.grantedBy`. Null when meta.grantedBy is missing or that user row is gone. */
+	grantedBy: z
+		.object({
+			id: z.string(),
+			name: z.string(),
+			// Plain string: the column is unconstrained text (see the publications log).
+			email: z.string(),
+			/** Current role of the account, not the role at grant time. */
+			role: adminUserRoleSchema,
+		})
+		.nullable(),
+	/** The account that received the credits: a personal wallet or an org pool. */
+	recipient: z.discriminatedUnion("kind", [
+		z.object({
+			kind: z.literal("user"),
+			id: z.string(),
+			name: z.string(),
+			email: z.string(),
+		}),
+		z.object({
+			kind: z.literal("organization"),
+			id: z.string(),
+			name: z.string(),
+		}),
+	]),
+});
+
+/** One row of the grant log. `recipient.kind` is "user" for a personal wallet and "organization" for an org pool. */
+export type AdminCreditGrant = z.infer<typeof adminCreditGrantSchema>;
+
+/** Page and page size for `GET /api/v1/admin/credit-grants`, newest grant first. */
+export const adminListCreditGrantsQuerySchema = paginationQuerySchema;
+
+/** Page is 1-based. Page size is 1 to 100, 20 when absent. */
+export type AdminListCreditGrantsQuery = z.infer<
+	typeof adminListCreditGrantsQuerySchema
+>;
+
+/** Response of GET /api/v1/admin/credit-grants. `total` counts every manual grant, not only this page. */
+export const adminListCreditGrantsResponseSchema = paginatedResultSchema(
+	adminCreditGrantSchema,
+);
+
+/** One page of the grant log, parsed by the admin app. */
+export type AdminListCreditGrantsResponse = z.infer<
+	typeof adminListCreditGrantsResponseSchema
 >;
 
 export const adminSetRoleInputSchema = z
@@ -1395,6 +1456,7 @@ export type AdminManualBillingReceiptConfig = z.infer<
 
 export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
+/** The API paths that the admin app calls. The admin controllers serve them. */
 export const adminRoutes = {
 	myPermissions: "/api/v1/admin/me/permissions",
 	feedback: "/api/v1/admin/feedback",
@@ -1415,6 +1477,8 @@ export const adminRoutes = {
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	publications: "/api/v1/admin/publications",
+	/** Manual credit grant log. Needs credits:read. */
+	creditGrants: "/api/v1/admin/credit-grants",
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
 	projectChats: (projectId: string) =>
 		`/api/v1/admin/projects/${projectId}/chats`,

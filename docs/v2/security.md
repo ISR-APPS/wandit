@@ -10,6 +10,8 @@ Covers the network egress policy, the `request_network_host` host tool,
 the sandbox env allow list, the template deny rules, and the PreToolUse
 hook.
 
+It also covers the mobile build worker (section 12).
+
 Does not cover:
 
 - Rate limits, audit events, and the secret scanner: WANDIT-181.
@@ -21,23 +23,48 @@ Does not cover:
 `buildNetworkPolicy` in `infrastructure/sandbox/network-policy.ts`
 merges three allow layers into one sorted, deduped list:
 
-1. `GLOBAL_ALLOWED_HOSTS`, eight hosts for every sandbox:
-   `registry.npmjs.org` (`pnpm install`), `*.supabase.co` (the generated
-   app's backend), `fonts.googleapis.com` and `fonts.gstatic.com` (the
-   template fonts), `api.stripe.com`, `api.resend.com`,
-   `maps.googleapis.com`, `api.openai.com` (the connectors).
+1. `GLOBAL_ALLOWED_HOSTS` holds seven hosts for every sandbox:
+   `registry.npmjs.org` for `pnpm install`; `fonts.googleapis.com` and
+   `fonts.gstatic.com` for the template fonts; `api.stripe.com`,
+   `api.resend.com`, `maps.googleapis.com`, and `api.openai.com` for the
+   connectors. The list has no `*.supabase.co` (WANDIT-283). That
+   wildcard also reaches a Supabase project of an attacker. Bad code can
+   send the project source or the proxy token to that project.
 2. Connector hosts. Empty today; WANDIT-189 feeds the list.
 3. Per-project hosts, from the `projects.networkAllowedHosts` column.
    The `request_network_host` host tool appends one host per approval.
    The runtime reads the column and passes it to `buildNetworkPolicy`.
+   The tool denies every `supabase.co` and `supabase.com` host, and
+   `buildNetworkPolicy` rejects a stored one (`isSupabaseHost`), except the
+   backend host.
 
-`VercelSandboxProvider.start` adds three more hosts before the vendor
+`VercelSandboxProvider.start` adds four more hosts before the vendor
 call:
 
 - The LLM proxy host, parsed from `ANTHROPIC_BASE_URL`. A missing or
   invalid URL throws in strict mode before the vendor call.
 - The git host `<org>.code.storage`, from `CODE_STORAGE_ORG`.
 - The asset host, the hostname of `R2_PUBLIC_BASE_URL`.
+- The backend host `<ref>.supabase.co`, the hostname of
+  `VITE_SUPABASE_URL`. The builder-turn runtime puts that value in the env
+  only while the `app_backends` row is `active`. `start` rebuilds the
+  policy on each turn and pushes it when its hash changes. So a backend
+  that becomes active gets its host on the next turn, with no restart. In
+  strict mode, an invalid or wildcard backend host throws. A
+  `VITE_SUPABASE_URL` that is not a URL gives no backend host.
+
+Two leak paths stay open (WANDIT-283):
+
+- The vendor matches the SNI only. Sandbox code can send the SNI of its
+  own Supabase host with the `Host` header of another project. The shared
+  Supabase edge can then route it there (domain fronting). The upgrade is
+  a Host-pin request transform through the harness session.
+  `createSession` in `claude-code.harness.ts` clears the provider
+  transforms today. Whether the Supabase edge routes by `Host` is
+  UNVERIFIED.
+- `registry.npmjs.org`, `api.resend.com`, `api.stripe.com`, and
+  `api.openai.com` also accept a key that the attacker brings. A
+  per-project list is WANDIT-189 and later work.
 
 `SANDBOX_DENIED_RANGES` holds six IPv4 CIDRs that stay denied in every
 mode:
@@ -117,7 +144,9 @@ On approval the tool does four steps:
 1. It normalizes `host` to lower case and checks it with
    `isValidNetworkHost`. An IP address or a private label returns
    `denied`. A hostname that resolves into a denied range still fails at
-   the firewall, because the deny ranges outrank the allow list.
+   the firewall, because the deny ranges outrank the allow list. A
+   `supabase.co` or `supabase.com` host also returns `denied` (WANDIT-283,
+   section 2).
 2. It appends the host to `projects.networkAllowedHosts` with a deduping
    write, so a repeated grant is a no-op and the next sandbox keeps it.
 3. It calls `SandboxHandle.allowHost`, which merges the host into the
@@ -280,11 +309,14 @@ cannot re-enable them.
 
 ## 9. No platform secret in the VM
 
-`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the eight env names
+`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the ten env names
 a sandbox may receive: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS`,
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `VITE_SUPABASE_ANON_KEY`,
-`VITE_SUPABASE_URL`, `WANDIT_PREVIEW_HOST`. Every other name — a
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
+`EXPO_PUBLIC_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+`VITE_SUPABASE_URL`, `WANDIT_PREVIEW_HOST`. The two Supabase pairs
+hold the same public values: the web-app template reads `VITE_*`, the
+mobile-app template reads `EXPO_PUBLIC_*`. Every other name — a
 Vercel token, a real Anthropic key, a service-role key, a signing
 key — is a platform secret and stays out. `buildSandboxEnv` throws
 `SandboxEnvRejectedError` on a non-listed `extra` name and writes
@@ -333,8 +365,52 @@ Measured on the final run (2026-09-15): sandbox user `ubuntu`, create
 took 24194 ms, the live policy update took 1335 ms, and the case
 passed.
 
-## 12. Open items
+## 12. Mobile builds on the Trigger worker (WANDIT-194)
 
+The `mobile-build` task runs `eas build` on the Trigger.dev worker, never in
+a sandbox: `EXPO_TOKEN` must not enter a VM. The worker holds
+`DATABASE_URL` and every other platform secret in its process env, and a
+child process can read `/proc/<parent pid>/environ`. So no code of the user
+app runs on the worker:
+
+- `eas` runs the local `node_modules/expo/bin/cli config` and loads every
+  config plugin of app.json. That `node_modules` comes from the trusted
+  template files (`templates/mobile-app/package.json` and its lockfile),
+  installed with `--ignore-scripts` in a separate folder. The user lockfile
+  never installs on the worker; EAS installs it on its own build machines.
+- A config plugin must be a template dependency or a module of
+  `native-modules.json` (`checkConfigPlugins` in
+  `app-builder/domain/mobile-build.ts`). A local plugin file is refused.
+- A top-level `app.config` or `app.config.*` file or folder is refused: the
+  expo CLI reads it before app.json. A symbolic link anywhere in the commit
+  is refused, so no tool reads a worker file such as `/proc/<pid>/environ`
+  through it. A `package.json` with an `exports` field is refused: Node
+  would then resolve `expo/bin/cli` to the files of the app.
+- `eas` runs with `EAS_SKIP_AUTO_FINGERPRINT=1`, so it never loads the user
+  `fingerprint.config.js`, and `eas init` runs with `--no-icon`, so no user
+  file leaves the worker as the dashboard icon. The workspace stops when the
+  trusted install shows `metro-config` at the top of `node_modules`,
+  because eas would then load the user `metro.config.js`.
+- wandit writes the EAS identity into app.json: the slug `p` plus the
+  project id without dashes, the owner `EXPO_ACCOUNT`, and the package
+  `app.wandit.<slug>`. A
+  user value can never link the EAS project, and so the keystore, of
+  another app.
+- `eas.json` is the trusted template copy, and `.easignore` is a fixed file.
+  The task removes each path before it writes it, so a user symlink is
+  never followed.
+- Each child process gets an explicit env. Only the `eas` process gets
+  `EXPO_TOKEN`. The code.storage credential is read-only (`git:read`) and
+  never enters `.git/config`.
+
+`view` and `cancel` call the EAS GraphQL API with the token, so the API can
+cancel a build without the eas CLI. The GraphQL API is the one eas-cli
+uses; Expo does not document it as a public contract (UNVERIFIED).
+
+## 13. Open items
+
+- The Host-pin transform for the backend host, and the per-project list
+  for the multi-tenant connector hosts (section 2, WANDIT-189).
 - Connector hosts into `buildNetworkPolicy`: WANDIT-189.
 - The custom image and `VERCEL_SANDBOX_IMAGE`: `tooling/sandbox-image/`
   is built; whether the vendor honors `USER builder` is UNVERIFIED.

@@ -3,7 +3,8 @@
 	"type": "module",
 	"main": "src/main.ts",
 	"scripts": {
-		"build": "tsdown",
+		"build": "node ../../templates/pack-all.mjs && tsdown",
+		"appetize:upload-expo-go": "tsx scripts/upload-expo-go-to-appetize.ts",
 		"billing:assert-zero-live-subs": "tsx scripts/assert-zero-live-subscriptions.ts",
 		"billing:backfill-history": "tsx scripts/backfill-billing-history.ts",
 		"billing:migrate-v6": "tsx scripts/migrate-subscriptions-v6.ts",
@@ -13,6 +14,7 @@
 		"domains:backfill-apex": "tsx scripts/backfill-apex-zones.ts",
 		"images:backfill-variants": "tsx scripts/backfill-image-variants.ts",
 		"mcp:seed": "tsx scripts/seed-mcp-connectors.ts",
+		"secrets:rotate": "tsx scripts/rotate-project-secrets.ts",
 		"sites:republish-active": "tsx scripts/republish-active-sites.ts",
 		"start": "node --enable-source-maps --import ./dist/instrument.mjs dist/main.mjs",
 		"test": "vitest run",

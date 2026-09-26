@@ -1,0 +1,58 @@
+/* biome-ignore-all lint/suspicious/noDuplicateCustomProperties: Biome reads the light and dark @variant blocks as one rule. */
+@import "tailwindcss";
+@import "uniwind";
+@import "heroui-native/styles";
+
+@source "../node_modules/heroui-native/lib";
+
+/*
+ * The app theme. Uniwind picks the variant from the system color scheme.
+ * Uniwind reads theme variables on native only inside :root.
+ * HeroUI Native components read these variables; so do the bg-*, text-*,
+ * and border-* utilities. Change the look of the app here, not in screens.
+ */
+@layer theme {
+	:root {
+		@variant light {
+			--background: oklch(0.985 0 0);
+			--foreground: oklch(0.205 0 0);
+			--surface: oklch(1 0 0);
+			--surface-foreground: oklch(0.205 0 0);
+			--surface-secondary: oklch(0.96 0 0);
+			--surface-tertiary: oklch(0.93 0 0);
+			--overlay: oklch(1 0 0);
+			--muted: oklch(0.556 0 0);
+			--accent: oklch(0.205 0 0);
+			--accent-foreground: oklch(0.985 0 0);
+			--default: oklch(0.94 0 0);
+			--default-foreground: oklch(0.205 0 0);
+			--border: oklch(0.205 0 0 / 10%);
+			--separator: oklch(0.205 0 0 / 8%);
+			--field-background: oklch(1 0 0);
+			--success: oklch(0.65 0.14 155);
+			--warning: oklch(0.75 0.15 80);
+			--danger: oklch(0.6 0.2 27);
+		}
+
+		@variant dark {
+			--background: oklch(0.145 0 0);
+			--foreground: oklch(0.985 0 0);
+			--surface: oklch(0.205 0 0);
+			--surface-foreground: oklch(0.985 0 0);
+			--surface-secondary: oklch(0.235 0 0);
+			--surface-tertiary: oklch(0.27 0 0);
+			--overlay: oklch(0.215 0 0);
+			--muted: oklch(0.708 0 0);
+			--accent: oklch(0.922 0 0);
+			--accent-foreground: oklch(0.205 0 0);
+			--default: oklch(0.27 0 0);
+			--default-foreground: oklch(0.985 0 0);
+			--border: oklch(1 0 0 / 10%);
+			--separator: oklch(1 0 0 / 7%);
+			--field-background: oklch(0.205 0 0);
+			--success: oklch(0.75 0.14 155);
+			--warning: oklch(0.84 0.14 85);
+			--danger: oklch(0.7 0.19 25);
+		}
+	}
+}

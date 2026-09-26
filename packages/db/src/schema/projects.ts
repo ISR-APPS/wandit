@@ -75,7 +75,8 @@ export const projects = pgTable(
 		engine: projectEngine("engine").notNull().default("v1_page"),
 		// Device family the app targets. Null on V1 page projects.
 		targetPlatform: projectTargetPlatform("target_platform"),
-		// App template stack of a V2 project, for example `tanstack-start`.
+		// App template of a V2 project, `web-app` or `mobile-app`: the prefix of
+		// the archive `templates/<framework>-<semver>.tar.gz`.
 		framework: text("framework"),
 		// Version of the app template the project was created from.
 		templateVersion: text("template_version"),

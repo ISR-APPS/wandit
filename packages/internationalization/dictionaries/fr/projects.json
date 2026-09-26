@@ -128,6 +128,17 @@
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
 		"modeLabel": "Mode",
+		"platformLabel": "Type d'app",
+		"platforms": {
+			"web": {
+				"label": "App web",
+				"description": "Un site ou une application web, en ligne sur un lien wandit."
+			},
+			"mobile": {
+				"label": "App mobile",
+				"description": "Une application iOS et Android."
+			}
+		},
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
 		"skillLibraryLabel": "Conçu par Wandit",

@@ -5,6 +5,7 @@
  * sweep call it. All `@vercel/sandbox` / `@ai-sdk/sandbox-vercel` imports
  * in the codebase live in this folder — vendor isolation is a rule.
  */
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import type { HarnessV1NetworkPolicy } from "@ai-sdk/harness";
 import { createVercelSandbox } from "@ai-sdk/sandbox-vercel";
@@ -15,6 +16,7 @@ import {
 	Sandbox,
 	type SandboxRegion,
 } from "@vercel/sandbox";
+import { packagerHostFor } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
@@ -32,6 +34,7 @@ import type {
 	SandboxLogger,
 	SandboxNetworkPolicy,
 	SandboxProvider,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 import {
 	HARNESS_BRIDGE_PORT,
@@ -45,6 +48,7 @@ import {
 } from "../persistence/sandbox-sessions.repository";
 import { buildNetworkPolicy } from "./network-policy";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
+import { TEMPLATE_PROFILES } from "./template-profiles";
 
 /**
  * 30 minutes after the session start. The vendor timeout is absolute,
@@ -67,40 +71,54 @@ const SANDBOX_VCPUS = 2;
 /** Vendor managed image when `VERCEL_SANDBOX_IMAGE` is unset. */
 const DEFAULT_IMAGE = "vercel/sandbox/node:22";
 
+/** One command the provider runs in the sandbox, as the SDK takes it. */
+type VercelRunCommandParams = {
+	args?: string[];
+	cmd: string;
+	cwd?: string;
+	env?: Record<string, string>;
+	signal?: AbortSignal;
+	timeoutMs?: number;
+};
+
+/** A command that ran to its end, as the SDK answers it. */
+type VercelCommandFinished = {
+	readonly exitCode: number;
+	stderr(): Promise<string>;
+	stdout(): Promise<string>;
+};
+
 /**
  * The slice of `@vercel/sandbox` `Sandbox` this provider calls. Structural
  * so specs can fake it; the real `Sandbox` class satisfies it.
  */
 export type VercelSandboxInstance = {
 	readonly name: string;
-	/** The vendor session; `cwd` is the default working directory of the image. */
-	currentSession(): { readonly cwd: string };
+	/**
+	 * The vendor state of the current session, for example "running". The
+	 * SDK stores it at the last vendor call, so a cached instance can be old.
+	 */
+	readonly status: Sandbox["status"];
+	/**
+	 * The vendor session; `cwd` is the default working directory of the
+	 * image. `networkPolicy` is the policy the vendor read back with the
+	 * session, or undefined when the answer carried none. Its `runCommand`
+	 * fails on a stopped session; `Sandbox.runCommand` resumes it first.
+	 */
+	currentSession(): {
+		readonly cwd: string;
+		readonly networkPolicy: NetworkPolicy | undefined;
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+	};
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
 	readonly fs: {
 		readdir(path: string): Promise<string[]>;
 	};
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		detached: true;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{ readonly cmdId: string }>;
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{
-		readonly exitCode: number;
-		stderr(): Promise<string>;
-		stdout(): Promise<string>;
-	}>;
+	runCommand(
+		params: VercelRunCommandParams & { detached: true },
+	): Promise<{ readonly cmdId: string }>;
+	runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
 	writeFiles(
 		files: ReadonlyArray<{
 			content: string | Uint8Array;
@@ -195,6 +213,32 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+// One command, run to its end. The handle runs it on the sandbox, which
+// resumes a stopped session; the `findRunning` reader runs it on the
+// session, which does not.
+async function runCommandToEnd(
+	runner: {
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+	},
+	command: string,
+	args: string[],
+	options?: SandboxExecOptions,
+): Promise<SandboxExecResult> {
+	const finished = await runner.runCommand({
+		args,
+		cmd: command,
+		cwd: options?.cwd,
+		env: options?.env,
+		signal: options?.signal,
+		timeoutMs: options?.timeoutMs,
+	});
+	return {
+		exitCode: finished.exitCode,
+		stderr: await finished.stderr(),
+		stdout: await finished.stdout(),
+	};
+}
+
 /** The vendor answers 404 when the named sandbox is gone. */
 function isSandboxNotFound(error: unknown): boolean {
 	return error instanceof APIError && error.response.status === 404;
@@ -253,19 +297,7 @@ class VercelSandboxHandle implements SandboxHandle {
 		options?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		await this.keepAlive();
-		const finished = await this.sandbox.runCommand({
-			args,
-			cmd: command,
-			cwd: options?.cwd,
-			env: options?.env,
-			signal: options?.signal,
-			timeoutMs: options?.timeoutMs,
-		});
-		return {
-			exitCode: finished.exitCode,
-			stderr: await finished.stderr(),
-			stdout: await finished.stdout(),
-		};
+		return runCommandToEnd(this.sandbox, command, args, options);
 	}
 
 	async writeFiles(files: SandboxFile[]): Promise<void> {
@@ -408,6 +440,32 @@ export class VercelSandboxProvider implements SandboxProvider {
 		});
 	}
 
+	async findRunning(projectId: string): Promise<SandboxReader | null> {
+		const row = await this.sessions.findLiveByProjectId(projectId);
+		// Only a running row can have a live vendor sandbox. A stopped one
+		// stays stopped: this path has no env to boot the dev server with.
+		if (row?.status !== "running") {
+			return null;
+		}
+		// Not the `live` cache: its status can be old. The row can lag the
+		// vendor too, because the vendor timeout stops a sandbox and writes
+		// no row.
+		const sandbox = await this.getVendorSandbox(projectId);
+		if (sandbox?.status !== "running") {
+			return null;
+		}
+		// The session fails on a stop between this check and a command; it
+		// never resumes. No `keepAlive`: turns and the preview own the vendor
+		// deadline, and a read must not keep a sandbox alive.
+		const session = sandbox.currentSession();
+		return {
+			exec: (command, args, options) =>
+				runCommandToEnd(session, command, args, options),
+			projectId,
+			workspaceDir: workspaceDirOf(sandbox),
+		};
+	}
+
 	async stop(projectId: string): Promise<void> {
 		const row = await this.sessions.findLiveByProjectId(projectId);
 		if (!row || row.status === "stopped") {
@@ -492,10 +550,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 				"Sandbox env lacks ANTHROPIC_BASE_URL; the egress policy needs the proxy host",
 			);
 		}
+		// WANDIT-283: the only Supabase host is the project's own. The env
+		// holds VITE_SUPABASE_URL only while the backend is active. So a new
+		// active backend reaches the policy on the next turn. A value that is
+		// not a URL gives no backend host.
+		const supabaseUrl = options.env.VITE_SUPABASE_URL;
+		const backendHost =
+			supabaseUrl !== undefined && URL.canParse(supabaseUrl)
+				? new URL(supabaseUrl).hostname
+				: null;
 		const built: ReturnType<typeof buildNetworkPolicy> = options.networkPolicy
 			? { policy: options.networkPolicy, rejected: [] }
 			: buildNetworkPolicy({
 					assetHost,
+					backendHost,
 					connectorHosts: [],
 					gitHost: org ? `${org}.code.storage` : null,
 					mode,
@@ -505,6 +573,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 					proxyBaseUrl: options.env.ANTHROPIC_BASE_URL ?? "",
 				});
 		const vendorPolicy = toVendorNetworkPolicy(built.policy);
+		const policyHash = hashNetworkPolicy(built.policy);
+		// A new or stopped row boots for sure: report it before the vendor
+		// call, so the progress card moves at once. A running row reports
+		// only when the vendor created or resumed anyway (below).
+		let wakeReported = false;
+		const reportWake = async () => {
+			if (!wakeReported) {
+				wakeReported = true;
+				await options.onWake?.();
+			}
+		};
+		if (row.status !== "running") {
+			await reportWake();
+		}
 		let created = false;
 		let resumed = false;
 		const sandbox = await this.sdk.getOrCreate({
@@ -531,8 +613,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 		});
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
+		// The row keeps the digest of the policy last pushed to the vendor. A
+		// plain reuse with the same digest skips the update: one vendor round
+		// trip less per warm turn. A resume always pushes, because the vendor
+		// may keep the policy of the snapshot. The harness session composes
+		// its policy from the vendor read-back and reads a missing one as
+		// allow-all, so a read-back without a policy also gets the push.
+		const policyApplied =
+			created ||
+			resumed ||
+			row.networkPolicyHash !== policyHash ||
+			sandbox.currentSession().networkPolicy === undefined;
 		try {
 			if (created) {
+				await reportWake();
 				// A live row means the vendor lost the sandbox — this is a rebuild.
 				this.logLifecycle(
 					context.hadLiveRow ? "rebuild" : "create",
@@ -545,28 +639,38 @@ export class VercelSandboxProvider implements SandboxProvider {
 					templateVersion: options.templateVersion,
 				});
 				await this.repoRestorer.restore(projectId, handle);
-				await this.bootServices(sandbox, options);
+				await this.bootServices(projectId, sandbox, options);
 			} else {
-				// The vendor may keep the network policy of the stored sandbox;
-				// a changed allow list reaches a live sandbox only through an
-				// update call, and it needs no restart. It runs before
-				// bootServices, or the dev command starts under the stored
-				// policy.
-				await sandbox.updateNetworkPolicy(vendorPolicy);
+				if (policyApplied) {
+					// A changed allow list reaches a live sandbox only through an
+					// update call, and it needs no restart. It runs before
+					// bootServices, or the dev command starts under the stored
+					// policy.
+					await sandbox.updateNetworkPolicy(vendorPolicy);
+				}
 				if (resumed) {
+					await reportWake();
 					this.logLifecycle("resume", projectId, sandbox.name);
-					await this.bootServices(sandbox, options);
+					await this.bootServices(projectId, sandbox, options);
 				}
 			}
 			this.logger[
 				options.networkPolicy === undefined && mode === "open" ? "warn" : "info"
-			]("sandbox.network-policy.applied", {
-				projectId,
-				sandboxId: sandbox.name,
-				mode: options.networkPolicy === undefined ? mode : "override",
-				allowedHosts: String(built.policy.allowedHosts.length),
-				rejected: built.rejected.join(","),
-			});
+			](
+				policyApplied
+					? "sandbox.network-policy.applied"
+					: "sandbox.network-policy.unchanged",
+				{
+					projectId,
+					sandboxId: sandbox.name,
+					mode: options.networkPolicy === undefined ? mode : "override",
+					allowedHosts: String(built.policy.allowedHosts.length),
+					rejected: built.rejected.join(","),
+				},
+			);
+			if (policyApplied) {
+				await this.sessions.markNetworkPolicyHash(row.id, policyHash);
+			}
 			// A plain reuse reports neither hook: the row already carries the
 			// vendor fields, so writing again would only add log noise.
 			if (created || resumed) {
@@ -619,8 +723,11 @@ export class VercelSandboxProvider implements SandboxProvider {
 	/**
 	 * The onResume steps: the dev server on its fixed port, the Playwright
 	 * service when the image carries one, and the caller env on each command.
+	 * A mobile-app project also gets `EXPO_PACKAGER_PROXY_URL`; it throws a
+	 * 503 when `PREVIEW_DOMAIN` is unset.
 	 */
 	private async bootServices(
+		projectId: string,
 		sandbox: VercelSandboxInstance,
 		options: SandboxCreateOptions,
 	): Promise<void> {
@@ -631,6 +738,14 @@ export class VercelSandboxProvider implements SandboxProvider {
 			...options.env,
 			HOST: "0.0.0.0",
 			WANDIT_PREVIEW_HOST: this.previewHost(sandbox, options.devPort),
+			// Expo CLI reads this before `.env` and puts its host in every
+			// manifest URL. The preview proxy swaps it for the phone host, so
+			// the vendor host never reaches Expo Go (WANDIT-193).
+			...(options.framework === TEMPLATE_PROFILES.mobile.framework
+				? {
+						EXPO_PACKAGER_PROXY_URL: `https://${packagerHostFor(projectId, requireV2Env("PREVIEW_DOMAIN", this.envSource))}`,
+					}
+				: {}),
 		};
 		await sandbox.runCommand({
 			args: ["-c", options.devCommand],
@@ -691,10 +806,13 @@ export class VercelSandboxProvider implements SandboxProvider {
 	private async findSandbox(
 		projectId: string,
 	): Promise<VercelSandboxInstance | null> {
-		const cached = this.live.get(projectId);
-		if (cached) {
-			return cached;
-		}
+		return this.live.get(projectId) ?? this.getVendorSandbox(projectId);
+	}
+
+	// Always a vendor call, never a resume. Null when the vendor lost it.
+	private async getVendorSandbox(
+		projectId: string,
+	): Promise<VercelSandboxInstance | null> {
 		try {
 			return await this.sdk.get({
 				...this.credentials(),
@@ -734,6 +852,18 @@ export class VercelSandboxProvider implements SandboxProvider {
 			token: requireV2Env("VERCEL_SANDBOX_TOKEN", this.envSource),
 		};
 	}
+}
+
+/**
+ * SHA-256 hex digest of a policy, stored in `sandbox_sessions.networkPolicyHash`.
+ * `buildNetworkPolicy` sorts the hosts, so the same allow list always hashes
+ * the same; a different host order counts as a change and only costs one
+ * extra vendor update.
+ */
+function hashNetworkPolicy(policy: SandboxNetworkPolicy): string {
+	return createHash("sha256")
+		.update(JSON.stringify([policy.allowedHosts, policy.deniedRanges]))
+		.digest("hex");
 }
 
 /**

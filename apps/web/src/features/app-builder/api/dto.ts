@@ -1,11 +1,17 @@
 /**
  * Data shapes of the V2 app builder workspace, UI side only.
- * Read by every component under features/app-builder and by the mock services.
- * The backend session moves these shapes into packages/contracts as zod
- * schemas; this file then becomes z.infer re-exports.
+ * Read by every component under features/app-builder and by the services.
+ * A shape moves into packages/contracts as a zod schema when its API route
+ * lands; this file then re-exports it, like the Code view types.
  */
 
-import type { TurnDataParts } from "@wandit/contracts";
+import type {
+	AskUserKind,
+	CodeSnapshotResponse,
+	ProjectEngine,
+	TurnDataParts,
+	TurnQuestionOption,
+} from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
 import type { MorePanel } from "../lib/constants";
@@ -20,42 +26,37 @@ export type AppProject = {
 	slug: string;
 	description: string;
 	kind: AppProjectKind;
+	/** Builder of the project, from `GET /api/v2/projects/:id`. The Cloud tab shows only for `v2_app`. */
+	engine: ProjectEngine;
 	/** Highest version number so far. The publish popover shows it as "v{n}". */
 	versionNumber: number;
 	/** Builder turns since the last publish. 0 means the live app is current. */
 	unpublishedChanges: number;
+	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
+	hasCodeChanges: boolean;
 };
 
-/** One line of a build progress card. */
-export type BuilderProgressStep = {
-	id: string;
-	label: string;
-	state: "done" | "active" | "pending";
-};
+/**
+ * What a step row of the activity feed shows. Picks the icon and the label.
+ * lib/turn-parts.ts maps each harness tool name to one kind.
+ */
+export type BuilderStepKind =
+	| "edit"
+	| "explore"
+	| "run"
+	| "web"
+	| "image"
+	| "database"
+	| "databaseCheck"
+	| "deploy"
+	| "secret"
+	| "network"
+	| "guide"
+	| "task"
+	| "other";
 
-/** One row of a thinking trace: what the agent did before it answered. */
-export type BuilderTraceStep = {
-	label: string;
-	/** Short count at the end of the row, for example "5 tables", or null. */
-	detail: string | null;
-};
-
-/** One tool call of a turn, shown as a row of the tool chips block. */
-export type BuilderToolCall = {
-	/** Picks the row icon: a spark, a pen, a terminal, or a file. */
-	kind: "think" | "write" | "run" | "read";
-	/** What the agent did, for example "Write 184 lines". */
-	label: string;
-	/** File, command, or note the call worked on. Shown in a mono chip. */
-	target: string;
-};
-
-/** A file the turn changed, with its added and removed line counts. */
-export type BuilderFileChange = {
-	path: string;
-	added: number;
-	removed: number;
-};
+/** Life state of a step row: the tool call runs, ended, failed, or did not run. */
+export type BuilderStepState = "running" | "done" | "error" | "skipped";
 
 /** How sure the agent is about a suggestion. Drawn as one, two, or three bars. */
 export type BuilderConfidence = "high" | "medium" | "low";
@@ -68,24 +69,55 @@ export type BuilderDiffLine = {
 
 /**
  * Custom data parts the builder streams inside an assistant message.
- * `change` marks a saved version. `progress` is the live task list of a turn.
- * `trace` is what the agent did before it answered. `tools` lists the tool
- * calls and the changed files of a turn. `question` waits for the user.
- * `approval` waits for the user to allow a tool call. `error` is a turn
- * failure. `receipt` is the settled cost of a turn. `suggestion` is a next
- * step the user can accept. `diff` shows one changed file.
+ * `change` marks a saved version. `thought` is one reasoning block. `step`
+ * is one row of the activity feed (one tool call, or a run of reads).
+ * `question` is one question of the agent. `approval` waits for the user to
+ * allow a tool call. `error` is a turn failure. `receipt` is the settled
+ * cost of a turn. `suggestion` is a next step the user can accept. `diff`
+ * shows one changed file.
  */
 export type BuilderDataParts = {
 	change: { title: string; versionNumber: number };
-	progress: { title: string; percent: number; steps: BuilderProgressStep[] };
-	trace: { seconds: number; steps: BuilderTraceStep[] };
-	tools: { calls: BuilderToolCall[]; files: BuilderFileChange[] };
-	/** `answer` is null while the question is open. The next user message closes it. */
-	question: { question: string; options: string[]; answer: string | null };
+	thought: {
+		/** The reasoning text the model streamed; "" when it sent none. */
+		text: string;
+		/** Whole seconds of the block, from the `data-thought` part; null in rows stored before it. */
+		seconds: number | null;
+		/** True while the block still streams in the running turn. */
+		isStreaming: boolean;
+	};
+	step: {
+		kind: BuilderStepKind;
+		state: BuilderStepState;
+		/** File name, host, or skill name shown in the mono chip; null when the label says enough. */
+		target: string | null;
+		/** The model's own sentence for a command, in the user's language; null when absent. */
+		description: string | null;
+		/** Technical lines behind the chevron: diff lines, the command, the SQL. */
+		detail: BuilderDiffLine[];
+	};
+	question: {
+		/** Harness call id of the paused tool call; the answer sends it back. */
+		toolCallId: string;
+		/** Question id inside that call, for example `question-0`. */
+		questionId: string;
+		question: string;
+		/** Picks the tray body: chips, world cards, an upload zone, or the textarea only. */
+		kind: AskUserKind;
+		/** One short line under the question, or null. */
+		helper: string | null;
+		/** Upload limit of an `attachments` question; null means the tray default. */
+		maxFiles: number | null;
+		options: TurnQuestionOption[];
+		/** True while no reply follows the question and no turn runs. The tray shows it. */
+		isOpen: boolean;
+		/** True once a later reply exists. The thread then shows the question with a check. */
+		isAnswered: boolean;
+	};
 	approval: {
 		/** Id the harness issued for the pending call; the answer sends it back. */
 		approvalId: string;
-		/** Harness name of the tool that waits, for example "Bash". */
+		/** Host tool that waits, for example "request_network_host". */
 		toolName: string;
 		/** JSON text of the tool call input, as the harness reported it. */
 		input: string;
@@ -142,24 +174,26 @@ export type BuilderThread = {
 	focusLabel: string | null;
 };
 
-/** A folder or a file of the project repository, for the Code view tree. */
-export type CodeTreeNode =
-	| { kind: "folder"; path: string; name: string; children: CodeTreeNode[] }
-	| { kind: "file"; path: string; name: string };
+/** A folder or a file of the sandbox worktree, for the Code view tree. */
+export type { CodeTreeNode } from "@wandit/contracts";
 
-export type CodeFile = {
-	/** Path from the repository root, for example `src/server/payments/checkout.ts`. */
-	path: string;
-	content: string;
-};
+/**
+ * The Code view tree, the branch, and the file it opens first, as
+ * `GET /api/v2/projects/:id/code` answers them. The prefetched `files` of
+ * that answer go into the file query cache instead.
+ */
+export type CodeSnapshot = Omit<CodeSnapshotResponse, "files">;
 
-export type CodeSnapshot = {
-	/** Git branch the sandbox works on. */
-	branch: string;
-	tree: CodeTreeNode[];
-	/** Path of the file the Code view opens first. */
-	defaultFilePath: string;
-};
+/**
+ * What the Code view shows for one path. `path` is relative to the
+ * worktree root, for example `src/routes/index.tsx`. `size` is in bytes.
+ * `missing` also covers a path the API refuses, like `.env`.
+ */
+export type CodeFile =
+	| { kind: "text"; path: string; content: string; size: number }
+	| { kind: "binary"; path: string; size: number }
+	| { kind: "tooLarge"; path: string }
+	| { kind: "missing"; path: string };
 
 export type BackendTable = {
 	name: string;

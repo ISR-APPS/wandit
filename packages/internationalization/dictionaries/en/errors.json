@@ -34,6 +34,7 @@
 		"EXTERNAL_DOMAIN_UNREGISTERED": "This domain is not registered. Buy it first, or check the spelling.",
 		"FORBIDDEN": "You do not have permission to do that.",
 		"INSUFFICIENT_CREDITS": "Not enough credits for this action.",
+		"MOBILE_TEMPLATE_UNAVAILABLE": "Mobile apps are not available right now. Try again later.",
 		"GENERATION_PAYMENT_REQUIRED": "More credits are required to finish this generation.",
 		"PAYMENT_PAST_DUE": "Your subscription payment needs attention. Update it in the billing portal.",
 		"SUBSCRIPTIONS_DISABLED": "New subscriptions and plan changes are currently paused.",
@@ -71,6 +72,12 @@
 		"AI_INTERNAL": "Something went wrong on our side. Please try again.",
 		"AI_UNKNOWN": "Something went wrong. Please try again.",
 		"VERSION_CONFLICT": "The versions changed. Open the list again and retry.",
-		"BUILDER_TURN_ACTIVE": "Wait for the running turn to finish, then retry."
+		"BUILDER_TURN_ACTIVE": "Wait for the running turn to finish, then retry.",
+		"DEVICE_MINUTES_EXHAUSTED": "You used all your device minutes this month.",
+		"DEVICE_SESSION_OPEN": "A device is already open. Stop it first, or wait a few minutes.",
+		"METRO_NOT_READY": "Your app is still starting. Try again in a moment.",
+		"MOBILE_BUILD_ACTIVE": "A build of this app is already running. Wait for it to finish.",
+		"MOBILE_BUILD_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
+		"V2_ENV_MISSING": "This feature is not set up on the server yet. Try again later."
 	}
 }

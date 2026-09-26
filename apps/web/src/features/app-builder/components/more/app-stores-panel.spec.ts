@@ -16,8 +16,10 @@ const project: AppProject = {
 	slug: "nadi",
 	description: "Membership app for a gym in Oran.",
 	kind: "mobile",
+	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
+	hasCodeChanges: true,
 };
 
 function renderPanel() {

@@ -12,6 +12,7 @@ import {
 	turnApprovalAnswerSchema,
 	turnAssistantMessageMetadataSchema,
 	turnDataPartSchema,
+	turnQuestionAnswerSchema,
 } from "@wandit/contracts";
 import { DefaultChatTransport, type FileUIPart, type TextUIPart } from "ai";
 import { z } from "zod";
@@ -23,11 +24,13 @@ import type { TurnMessage } from "../api/dto";
 
 /**
  * Extras `sendMessage` passes through `options.body`: an answer to a
- * `data-approval` card, or the paid model this turn runs on. The SDK types
- * the field loosely, so the schema keeps the boundary typed.
+ * `data-approval` card, the answers to the open `data-question` cards, or
+ * the paid model this turn runs on. The SDK types the field loosely, so the
+ * schema keeps the boundary typed.
  */
 const turnSendOptionsSchema = z.object({
 	approval: turnApprovalAnswerSchema.optional(),
+	answers: z.array(turnQuestionAnswerSchema).min(1).max(8).optional(),
 	model: z.string().min(1).optional(),
 });
 
@@ -66,9 +69,9 @@ export function createBuilderChatTransport(input: {
 					...(part.filename ? { filename: part.filename } : {}),
 				}));
 			// The SDK always passes an object here (resolvedBody + options.body).
-			// A malformed approval or model must throw. parse throws, and
-			// useChat surfaces the ZodError as `error`; a plain turn would hide
-			// the bug.
+			// A malformed approval, answer, or model must throw. parse throws,
+			// and useChat surfaces the ZodError as `error`; a plain turn would
+			// hide the bug.
 			const extras = turnSendOptionsSchema.parse(body);
 			return {
 				body: {
@@ -79,6 +82,7 @@ export function createBuilderChatTransport(input: {
 					// (`auto | page | marketing | image`).
 					...(attachments.length > 0 ? { attachments } : {}),
 					...(extras.approval ? { approval: extras.approval } : {}),
+					...(extras.answers ? { answers: extras.answers } : {}),
 					...(extras.model ? { model: extras.model } : {}),
 				} satisfies CreateTurnRequest,
 				headers: { ...headers, ...workspaceScopeHeaders() },
@@ -104,24 +108,23 @@ export function hydrateTurnMessages(
 	return rows.flatMap<TurnMessage>((row) => {
 		if (row.role === "system" || row.parts.length === 0) return [];
 		// The contract types the stored parts loosely (`Record`s). The card
-		// code reads `type` on every part and the `data-*` payloads, so a part
+		// code reads `type` on every part and the `data-*` payloads. A part
 		// with no string `type` and a malformed `data-*` part drop instead of
-		// breaking a card.
-		const provenParts = row.parts.filter(
-			(part) =>
-				typeof part.type === "string" &&
-				(!part.type.startsWith("data-") ||
-					turnDataPartSchema.safeParse(part).success),
-		);
-		// SAFETY: insertTurnAssistantMessage in
-		// apps/server/src/modules/generation/infrastructure/persistence/chats.repository.ts
-		// writes AI SDK UIMessage parts, and the user writer stores file and text
-		// parts of the same shape. The filter above proves the string `type` and
-		// the `data-*` payloads; the text, file, and tool parts keep the
-		// writer's word.
-		const parts: TurnMessage["parts"] = [
-			...(provenParts as TurnMessage["parts"]),
-		];
+		// breaking a card. A `data-*` part keeps the PARSED value: the schema
+		// fills the defaults of rows stored before a field existed.
+		const parts = row.parts.flatMap<TurnMessage["parts"][number]>((part) => {
+			if (typeof part.type !== "string") return [];
+			if (part.type.startsWith("data-")) {
+				const parsed = turnDataPartSchema.safeParse(part);
+				return parsed.success ? [parsed.data] : [];
+			}
+			// SAFETY: insertTurnAssistantMessage in
+			// apps/server/src/modules/generation/infrastructure/persistence/chats.repository.ts
+			// writes AI SDK UIMessage parts, and the user writer stores file and
+			// text parts of the same shape. The check above proves the string
+			// `type`; the text, file, and tool parts keep the writer's word.
+			return [part as TurnMessage["parts"][number]];
+		});
 		if (row.role === "assistant") {
 			const metadata = turnAssistantMessageMetadataSchema.safeParse(
 				row.metadata,

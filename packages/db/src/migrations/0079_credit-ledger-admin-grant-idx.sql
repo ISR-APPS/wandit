@@ -1,0 +1,1 @@
+CREATE INDEX "credit_ledger_adminGrant_createdAt_idx" ON "credit_ledger" USING btree ("created_at") WHERE ("credit_ledger"."meta" ->> 'reason') = 'admin_grant';

@@ -98,8 +98,16 @@ export * from "./v1/support";
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.
 export * from "./v1/workspaces";
+// V2 agent backend tool contracts and the destructive migration check.
+export * from "./v2/backend-tools";
+// V2 Cloud tab route contracts and the SQL classifier.
+export * from "./v2/cloud";
+// V2 Code view contracts: the sandbox file tree and one file.
+export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
+// V2 Appetize device-session routes and the Appetize and Expo answers.
+export * from "./v2/device-sessions";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 app-builder health contract.
@@ -108,17 +116,25 @@ export * from "./v2/health";
 export * from "./v2/host-tools";
 // V2 LLM proxy token, model, and status contracts.
 export * from "./v2/llm-proxy";
+// V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
+export * from "./v2/mobile-builds";
 // V2 app-builder preview token contract.
 export * from "./v2/preview";
 // V2 preview token sign and verify helpers.
 export * from "./v2/preview-token";
 // V2 app project contracts.
 export * from "./v2/projects";
+// V2 publish contracts: the user Worker name, the KV host pointer, and the suspend codes.
+export * from "./v2/publish";
 // V2 app-builder route paths.
 export * from "./v2/routes";
+// V2 write-only project secrets contracts.
+export * from "./v2/secrets";
 // V2 Supabase Management API contracts.
 export * from "./v2/supabase-management";
 // V2 builder turn and stream contracts.
 export * from "./v2/turns";
 // V2 app version history contracts.
 export * from "./v2/versions";
+// V2 Workers for Platforms REST answers, deploy input, and Worker tags.
+export * from "./v2/workers-for-platforms";

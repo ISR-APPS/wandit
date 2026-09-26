@@ -7,13 +7,16 @@ import { createAccessControl } from "better-auth/plugins/access";
 // One resource per dashboard section; "read" opens the section, the other
 // actions gate its mutations. On "billing", "update-request" only changes an
 // offline request; "manage" grants, renews, or ends a paid period and replays
-// billing webhooks. Tweak supportViewActions/defaultSupportViews to
-// change the per-view or default support policy.
+// billing webhooks. On "credits", "read" opens the grant log and "grant" adds
+// promo credits to a user or an organization. Tweak
+// supportViewActions/defaultSupportViews to change the per-view or default
+// support policy.
 export const adminStatement = {
 	overview: ["read"],
-	users: ["read", "grant-credits", "ban", "set-role"],
+	users: ["read", "ban", "set-role"],
 	organizations: ["read", "manage"],
 	billing: ["read", "update-request", "manage"],
+	credits: ["read", "grant"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
@@ -37,9 +40,10 @@ export const adminViews = Object.keys(adminStatement) as AdminView[];
 
 const fullAdminStatements = {
 	overview: ["read"],
-	users: ["read", "grant-credits", "ban", "set-role"],
+	users: ["read", "ban", "set-role"],
 	organizations: ["read", "manage"],
 	billing: ["read", "update-request", "manage"],
+	credits: ["read", "grant"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
@@ -61,6 +65,9 @@ export const supportViewActions = {
 	// Support agents call the customer and record the call outcome. Only an
 	// admin grants, renews, or ends a paid period.
 	billing: ["read", "update-request"],
+	// Not a default view. An admin ticks it for each support account that can
+	// grant credits. Every grant shows in the grant log with its granter.
+	credits: ["read", "grant"],
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read"],

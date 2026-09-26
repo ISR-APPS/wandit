@@ -128,6 +128,17 @@
 			"signInFirst": "Sign in to attach files"
 		},
 		"modeLabel": "Mode",
+		"platformLabel": "App type",
+		"platforms": {
+			"web": {
+				"label": "Web app",
+				"description": "A website or a web app, live on a wandit link."
+			},
+			"mobile": {
+				"label": "Mobile app",
+				"description": "An iOS and Android app."
+			}
+		},
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
 		"skillLibraryLabel": "Built by Wandit",

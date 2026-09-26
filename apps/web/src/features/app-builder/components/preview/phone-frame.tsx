@@ -17,6 +17,15 @@ import type { PhoneDevice } from "../../lib/constants";
 const FRAME_WIDTH_PX = 304;
 const FRAME_HEIGHT_PX = 640;
 
+/** Bezel on each side, CSS px. The `p-[9px]` class of the frame draws it. */
+const BEZEL_PX = 9;
+
+/**
+ * Width of the screen inside the bezel, CSS px. PhonePreview divides it by
+ * the device width to scale the app down to the screen.
+ */
+export const PHONE_SCREEN_WIDTH_PX = FRAME_WIDTH_PX - 2 * BEZEL_PX;
+
 // Mock chrome: the classic marketing clock of each vendor, not the real time.
 const STATUS_BAR_TIME: Record<PhoneDevice, string> = {
 	ios: "9:41",

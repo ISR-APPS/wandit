@@ -1,10 +1,12 @@
 /**
  * One message of the builder thread. A user message is a bubble at the end
  * side. An assistant message starts with the Wandit byline, then renders its
- * parts in order: markdown text, the thinking trace, the tool chips, change,
- * progress, question, approval, suggestion, and diff cards, the error row
- * and the receipt line, then the action row and the follow-ups. Rendered by
- * chat-pane.tsx. Actions with no backend show the notWired toast.
+ * parts in stream order: markdown text, the activity feed (thought rows and
+ * step rows, grouped tight), the change card, one short line per question
+ * (the user answers it in the tray), the approval, suggestion, and diff
+ * cards, the error row and the receipt line, then the action row and the
+ * follow-ups. Rendered by chat-pane.tsx. Actions with no backend show
+ * the notWired toast.
  */
 
 import { CornerDownLeft } from "lucide-react";
@@ -19,20 +21,21 @@ import { ApprovalCard } from "./approval-card";
 import { ChangeCard } from "./change-card";
 import { DiffCard } from "./diff-card";
 import { MessageActions } from "./message-actions";
-import { ProgressCard } from "./progress-card";
-import { QuestionCard } from "./question-card";
+import { QuestionReceipt } from "./question-receipt";
+import { StepRow } from "./step-row";
 import { SuggestionCard } from "./suggestion-card";
-import { ToolChips } from "./tool-chips";
-import { TraceCard } from "./trace-card";
+import { ThoughtRow } from "./thought-row";
 
 export type ChatMessageViewProps = {
 	message: BuilderMessage;
 	/** Opens the preview on the version of a change card. */
 	onPreviewVersion: (versionNumber: number) => void;
-	/** Sends a follow-up, an answer, or an accepted suggestion as a new build turn. */
+	/** Sends a follow-up or an accepted suggestion as a new build turn. */
 	onSendText: (text: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
+	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
+	trayQuestionKey: string | null;
 };
 
 export function ChatMessageView({
@@ -40,6 +43,7 @@ export function ChatMessageView({
 	onPreviewVersion,
 	onSendText,
 	onDecideApproval,
+	trayQuestionKey,
 }: ChatMessageViewProps) {
 	const { t, locale } = useTranslation();
 
@@ -69,9 +73,28 @@ export function ChatMessageView({
 				</span>
 				<span className="font-medium text-sm">Wandit</span>
 			</div>
-			{message.parts.map((part, index) => {
-				// Text parts carry no id. The index is stable inside one message.
-				const key = `${message.id}-${index}`;
+			{blocksOf(message.parts).map((block) => {
+				// Parts carry no stable id. The index is stable inside one message.
+				const key = `${message.id}-${block.index}`;
+				if (block.kind === "feed") {
+					return (
+						<div key={key} className="flex flex-col">
+							{block.rows.map(({ part: row, index }) =>
+								row.type === "data-thought" ? (
+									<ThoughtRow
+										key={`${message.id}-${index}`}
+										text={row.data.text}
+										seconds={row.data.seconds}
+										isStreaming={row.data.isStreaming}
+									/>
+								) : (
+									<StepRow key={`${message.id}-${index}`} {...row.data} />
+								),
+							)}
+						</div>
+					);
+				}
+				const part = block.part;
 				switch (part.type) {
 					case "text":
 						return (
@@ -82,22 +105,6 @@ export function ChatMessageView({
 							>
 								{part.text}
 							</Streamdown>
-						);
-					case "data-trace":
-						return (
-							<TraceCard
-								key={key}
-								seconds={part.data.seconds}
-								steps={part.data.steps}
-							/>
-						);
-					case "data-tools":
-						return (
-							<ToolChips
-								key={key}
-								calls={part.data.calls}
-								files={part.data.files}
-							/>
 						);
 					case "data-change":
 						return (
@@ -110,23 +117,13 @@ export function ChatMessageView({
 								onBookmark={notWired}
 							/>
 						);
-					case "data-progress":
-						return (
-							<ProgressCard
-								key={key}
-								title={part.data.title}
-								percent={part.data.percent}
-								steps={part.data.steps}
-							/>
-						);
 					case "data-question":
 						return (
-							<QuestionCard
+							<QuestionReceipt
 								key={key}
 								question={part.data.question}
-								options={part.data.options}
-								answer={part.data.answer}
-								onAnswer={onSendText}
+								isAnswered={part.data.isAnswered}
+								isInTray={part.id === trayQuestionKey}
 							/>
 						);
 					case "data-approval":
@@ -231,6 +228,42 @@ export function ChatMessageView({
 			) : null}
 		</div>
 	);
+}
+
+/** A row of the activity feed: one thought or one step. */
+type FeedRow = Extract<
+	BuilderMessagePart,
+	{ type: "data-thought" } | { type: "data-step" }
+>;
+
+/**
+ * One render block: a run of feed rows, or any other part alone. Each
+ * `index` is a position in `message.parts`; it keys the rendered element.
+ */
+type MessageBlock =
+	| { kind: "feed"; index: number; rows: { part: FeedRow; index: number }[] }
+	| { kind: "part"; index: number; part: BuilderMessagePart };
+
+/**
+ * Groups the parts for rendering. Thought and step rows that follow each
+ * other form one block: they sit close together like one activity list,
+ * while every other part keeps the message gap.
+ */
+function blocksOf(parts: BuilderMessagePart[]): MessageBlock[] {
+	const blocks: MessageBlock[] = [];
+	parts.forEach((part, index) => {
+		if (part.type !== "data-thought" && part.type !== "data-step") {
+			blocks.push({ kind: "part", index, part });
+			return;
+		}
+		const last = blocks.at(-1);
+		if (last?.kind === "feed") {
+			last.rows.push({ part, index });
+		} else {
+			blocks.push({ kind: "feed", index, rows: [{ part, index }] });
+		}
+	});
+	return blocks;
 }
 
 /** The text parts of a message joined with a blank line. Other parts are skipped. */

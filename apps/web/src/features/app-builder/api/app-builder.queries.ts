@@ -7,6 +7,8 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
+import type { apiClient } from "@/lib/api-client";
+
 import {
 	getAppProject,
 	getAppStoresSummary,
@@ -73,17 +75,50 @@ export const builderThreadQuery = (projectId: string) =>
 		queryFn: () => getBuilderThread(projectId),
 	});
 
-export const codeSnapshotQuery = (projectId: string) =>
+/**
+ * null data means the sandbox is asleep; the Code view waits for a turn.
+ * The answer also puts each prefetched file into its `codeFile` entry, so
+ * a click on that file shows it with no request. `get` is the test seam.
+ */
+export const codeSnapshotQuery = (
+	projectId: string,
+	get?: typeof apiClient.get,
+) =>
 	queryOptions({
 		queryKey: appBuilderKeys.code(projectId),
-		queryFn: () => getCodeSnapshot(projectId),
+		// The signal matters: a turn end cancels a running fetch, and an old
+		// answer that still arrived would write old text over new text.
+		queryFn: async ({ client, signal }) => {
+			const answer = await getCodeSnapshot(projectId, signal, get);
+			if (answer === null) return null;
+			for (const file of answer.files) {
+				const queryKey = appBuilderKeys.codeFile(projectId, file.path);
+				// setQueryData alone builds the entry with the default 5 min
+				// gcTime; an unopened prefetched file must stay for 30 min.
+				client
+					.getQueryCache()
+					.build(client, { queryKey, gcTime: CODE_FILE_GC_TIME_MS });
+				client.setQueryData(queryKey, file);
+			}
+			return answer.snapshot;
+		},
 	});
 
-/** null data means the path is not in the repository. */
+/** 30 min. The prefetched files must stay in the cache for a long session. */
+const CODE_FILE_GC_TIME_MS = 30 * 60 * 1000;
+
+/**
+ * One file of the sandbox. Its key is a child of `code(projectId)`, so one
+ * invalidation of that key refetches the tree and the open file.
+ */
 export const codeFileQuery = (projectId: string, path: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.codeFile(projectId, path),
-		queryFn: () => getCodeFile(projectId, path),
+		queryFn: ({ signal }) => getCodeFile(projectId, path, signal),
+		// Only a turn end or a restore changes a file, and both invalidate
+		// the `code(projectId)` prefix. Until then the cached text is right.
+		staleTime: Number.POSITIVE_INFINITY,
+		gcTime: CODE_FILE_GC_TIME_MS,
 	});
 
 export const backendSummaryQuery = (projectId: string) =>

@@ -1,14 +1,19 @@
 /**
- * Pure helpers of the app builder, with no React. One picks the More panels
- * of a project kind. Two pairs store the open state and the split layout of
- * the chat card. One copies text to the clipboard.
- * Called by the page, the More view, the route file, and the chat cards.
+ * Pure helpers of the app builder, with no React. One picks the main view
+ * and one the More panels of a project. Three pairs store the open state
+ * and the split layout of the chat card, and the Expo Go username. One
+ * copies text to the clipboard. Called by the page, the More view, the
+ * route file, the chat cards, and the Expo Go popover.
  */
+
+import { expoUsernameSchema } from "@wandit/contracts";
 
 import type { AppProjectKind } from "../api/dto";
 import {
+	type BuilderView,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
+	EXPO_GO_USERNAME_STORAGE_KEY,
 	MORE_PANEL_META,
 	MORE_PANELS,
 	type MorePanel,
@@ -20,6 +25,19 @@ export function panelsForKind(kind: AppProjectKind): MorePanel[] {
 	return MORE_PANELS.filter((panel) =>
 		MORE_PANEL_META[panel].kinds.includes(kind),
 	);
+}
+
+/**
+ * The main view to show for a URL request; no request opens the preview.
+ * `cloud` opens the preview too while the Cloud gate is closed or still loads.
+ */
+export function resolveBuilderView(
+	requested: BuilderView | undefined,
+	isCloudTabEnabled: boolean,
+): BuilderView {
+	// The Cloud tab is behind a rollout gate. A shared link must not open an empty card.
+	if (requested === "cloud" && !isCloudTabEnabled) return "preview";
+	return requested ?? "preview";
 }
 
 /**
@@ -78,6 +96,35 @@ export function writeChatLayout(layout: Record<string, number>): void {
 		);
 	} catch {
 		// Private mode or a full quota: the layout only lasts the session.
+	}
+}
+
+/**
+ * Expo Go username of the last visit, or "" when none is stored, the value
+ * is not a valid username, or storage fails. The QR panel sends it at mint.
+ */
+export function readExpoUsername(): string {
+	try {
+		// A user or an extension can put any text in storage; the API accepts only the schema.
+		const stored = expoUsernameSchema.safeParse(
+			window.localStorage.getItem(EXPO_GO_USERNAME_STORAGE_KEY),
+		);
+		return stored.success ? stored.data : "";
+	} catch {
+		return "";
+	}
+}
+
+/** Stores the Expo Go username; "" removes it. A storage failure is not an error for the user. */
+export function writeExpoUsername(expoUsername: string): void {
+	try {
+		if (expoUsername === "") {
+			window.localStorage.removeItem(EXPO_GO_USERNAME_STORAGE_KEY);
+		} else {
+			window.localStorage.setItem(EXPO_GO_USERNAME_STORAGE_KEY, expoUsername);
+		}
+	} catch {
+		// Private mode or a full quota: the username only lasts the session.
 	}
 }
 

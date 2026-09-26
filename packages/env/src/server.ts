@@ -327,6 +327,17 @@ export const env = createEnv({
 		SUPABASE_PLATFORM_ORG_ID: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_REGION: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_INSTANCE_SIZE: z.string().min(1).optional(),
+		// Idle days before the daily sweep pauses an unpublished backend.
+		// Unset means BACKEND_DEFAULTS.idleDays (7). 0 pauses every active
+		// backend at the next run; use it only for a staging test.
+		BACKEND_IDLE_DAYS: z.coerce.number().int().nonnegative().optional(),
+		// Idle days for a backend with a live publish. Unset means
+		// BACKEND_DEFAULTS.publishedIdleDays (30).
+		BACKEND_IDLE_DAYS_PUBLISHED: z.coerce
+			.number()
+			.int()
+			.nonnegative()
+			.optional(),
 		// code.storage org slug: used in the API base URL, the git host, and
 		// the JWT `iss` claim (D21).
 		CODE_STORAGE_ORG: z.string().min(1).optional(),
@@ -336,9 +347,21 @@ export const env = createEnv({
 		APP_SECRETS_ENCRYPTION_KEY: z.string().min(1).optional(),
 		PREVIEW_DOMAIN: z.string().min(1).optional(),
 		PREVIEW_TOKEN_SIGNING_KEY: z.string().min(1).optional(),
+		// Token with the scope "Account: Workers Scripts: Edit" only, separate from CLOUDFLARE_API_TOKEN.
 		CLOUDFLARE_V2_DEPLOY_TOKEN: z.string().min(1).optional(),
+		// Dispatch namespace of the published V2 app Workers: "production" or "staging".
+		CLOUDFLARE_W4P_NAMESPACE: z.string().min(1).optional(),
+		// Robot access token of the wandit Expo organization. Only the API and
+		// the `mobile-build` task read it; it never enters a sandbox.
 		EXPO_TOKEN: z.string().min(1).optional(),
+		// Name of the wandit Expo organization that owns every EAS project of a
+		// user app (WANDIT-194), for example "wandit".
+		EXPO_ACCOUNT: z.string().min(1).optional(),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
+		// Appetize app ids of the store Expo Go builds (WANDIT-196). The upload
+		// script prints them; the device-session route answers them to the browser.
+		APPETIZE_IOS_PUBLIC_KEY: z.string().min(1).optional(),
+		APPETIZE_ANDROID_PUBLIC_KEY: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
 	},
 	// Real data source for validation.

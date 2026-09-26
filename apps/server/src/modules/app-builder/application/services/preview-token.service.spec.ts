@@ -1,5 +1,6 @@
 import {
 	ConflictException,
+	Logger,
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
@@ -49,6 +50,7 @@ function sessionRow(overrides?: Partial<SandboxSessionRow>): SandboxSessionRow {
 		image: "vercel/sandbox/node:22",
 		lastActiveAt: new Date("2026-09-16T10:00:00.000Z"),
 		lastSnapshotAt: null,
+		networkPolicyHash: null,
 		organizationId: null,
 		previewHost: PREVIEW_HOST,
 		projectId: PROJECT_ID,
@@ -119,6 +121,31 @@ describe("PreviewTokenService.mint", () => {
 		expect(ttlMs).toBeLessThanOrEqual(PREVIEW_TOKEN_TTL_SECONDS * 1000);
 		expect(sessions.touchActivity).toHaveBeenCalledTimes(1);
 		expect(sessions.touchActivity).toHaveBeenCalledWith(PROJECT_ID);
+	});
+
+	it("puts the Expo Go username in a phone token and logs the mint with the ids", async () => {
+		const { service } = fixture({ row: sessionRow() });
+		// Nest's Logger is a library class; the spy only records the audit line.
+		const logSpy = vi
+			.spyOn(Logger.prototype, "log")
+			.mockImplementation(() => {});
+
+		const body = await service.mint(SCOPE, PROJECT_ID, {
+			client: "phone",
+			expoUsername: "zack",
+		});
+
+		const verified = await verifyPreviewToken(
+			previewTokenResponseSchema.parse(body).token,
+			SIGNING_KEY,
+			Math.floor(Date.now() / 1000),
+		);
+		expect(verified.ok && verified.claims.expoUsername).toBe("zack");
+		expect(logSpy).toHaveBeenCalledWith("preview.phone-token.minted", {
+			projectId: PROJECT_ID,
+			userId: "user-1",
+		});
+		logSpy.mockRestore();
 	});
 
 	it("lower-cases an upper-case project id in the claims and the host", async () => {

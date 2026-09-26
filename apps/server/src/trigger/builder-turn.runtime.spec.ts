@@ -1,6 +1,7 @@
 import type {
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	SupabaseProjectStatus,
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ import type {
 	HarnessResumeState,
 	HarnessStreamEvent,
 } from "../modules/app-builder/domain/ports/builder-harness";
+import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
 import type {
 	CommitTurnDeps,
 	CommitTurnInput,
@@ -42,6 +44,7 @@ import { usdMicrosToCentiCredits } from "../modules/metering/domain/model-pricin
 import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
+	type BuilderTurnTiming,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
 
@@ -64,6 +67,8 @@ const CHAT_ID = "33333333-3333-4333-8333-333333333333";
 const PAUSED_TURN_ID = "44444444-4444-4444-8444-444444444444";
 const RUN_ID = "run_test_1";
 const MODEL = "anthropic/claude-sonnet-5";
+/** `createdAt` of the fake turn row; the timing line measures the queue from it. */
+const TURN_CREATED_AT = new Date("2026-09-17T10:00:00.000Z");
 const PROXY_BASE_URL = "https://api.test/api/v2/llm";
 /** Micros per whole credit; the AI_USD_PER_CREDIT anchor ($0.032). */
 const USD_MICROS_PER_CREDIT = 32_000;
@@ -76,6 +81,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 	questions: [
 		{
 			id: "question-1",
+			kind: "single-choice",
 			options: [
 				{ id: "option-1", label: "Blue" },
 				{ id: "option-2", label: "Green" },
@@ -83,6 +89,7 @@ const PENDING_QUESTION: HarnessPendingInteraction = {
 			question: "Which color?",
 		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
 };
 
@@ -91,9 +98,45 @@ const PENDING_TWO_QUESTIONS: HarnessPendingInteraction = {
 	kind: "question",
 	questions: [
 		...(PENDING_QUESTION.kind === "question" ? PENDING_QUESTION.questions : []),
-		{ id: "question-2", options: [], question: "Which font?" },
+		{
+			id: "question-2",
+			kind: "single-choice",
+			options: [],
+			question: "Which font?",
+		},
 	],
+	tool: "askUserQuestions",
 	toolCallId: "call-1",
+};
+
+/** A Wandit upload URL of the fake user; its key ends in `<uuid>/<name>`. */
+const UPLOAD_URL =
+	"https://assets.test/uploads/user_1/0d1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b/logo.png";
+
+/** A paused `ask_user` call: a design world choice, then a logo upload. */
+const PENDING_ASK_USER: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			helper: "You can change it later.",
+			id: "question-0",
+			kind: "single-choice",
+			options: [
+				{ id: "zellige", label: "Warm and crafted", worldId: "zellige" },
+				{ description: "No world card", id: "plain", label: "Plain" },
+			],
+			question: "Which style?",
+		},
+		{
+			id: "question-1",
+			kind: "attachments",
+			maxFiles: 2,
+			options: [],
+			question: "Your logo?",
+		},
+	],
+	tool: "ask_user",
+	toolCallId: "call-7",
 };
 
 /** The approval card a suspended turn waits on. */
@@ -340,9 +383,10 @@ class FakeMetering {
 }
 
 function fakeTurnRow(over: Partial<BuilderTurnRow>): BuilderTurnRow {
-	// SAFETY: the runtime reads only chatId, model, turnNumber, and spec off the row.
+	// SAFETY: the runtime reads only chatId, createdAt, model, turnNumber, and spec off the row.
 	return {
 		chatId: CHAT_ID,
+		createdAt: TURN_CREATED_AT,
 		id: TURN_ID,
 		projectId: PROJECT_ID,
 		spec: { attachments: [], composer: null, message: "Build a form" },
@@ -477,10 +521,18 @@ function textChunks(text: string): UIMessageChunk[] {
 function makeWorld(over?: {
 	/** The `app_backends` row `findByProjectId` answers; absent or null means no row. */
 	backend?: AppBackendRow | null;
+	/** Null composes no Management API client, like a worker without the platform env. */
+	backendClient?: null;
+	/** Statuses `getProject` answers during a wake, in order; the last one repeats. */
+	wakeStatuses?: SupabaseProjectStatus[];
+	/** True makes `backends.touchActive` throw, like a database outage. */
+	touchActiveFails?: boolean;
 	/** `readBalance` answers, in cc; drained scripts repeat the last. */
 	balances?: number[];
 	billingDisabled?: boolean;
 	caps?: ProjectCostCapsRow | null;
+	/** `firstRequestStartedAtMs` answers, epoch ms; absent means no proxy row. */
+	firstRequestStartedAtMs?: number;
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
@@ -497,21 +549,34 @@ function makeWorld(over?: {
 	const sandboxes = new FakeSandboxProvider();
 	const harness = new FakeBuilderHarness();
 	const touched: string[] = [];
+	/** Project ids `backends.touchActive` got, in call order. */
+	const backendTouches: string[] = [];
+	/** Management API calls of the wake, by method name, in call order. */
+	const backendCalls: string[] = [];
+	// Mutable like the table: the wake moves it `paused` → `restoring` → `active`.
+	let backendRow = over?.backend ?? null;
+	const wakeStatuses = [...(over?.wakeStatuses ?? ["ACTIVE_HEALTHY"])];
 	const revoked: string[] = [];
 	const minted: LlmProxyTokenClaimsInput[] = [];
 	const commits: CommitTurnInput[] = [];
+	// The stream event types that exist when each commit runs, in commit order.
+	const eventTypesAtCommit: string[][] = [];
 	const inserted: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
+	/** The fields of every `builder-turn.timing` line, in order. */
+	const timings: BuilderTurnTiming[] = [];
 	const nextSpend = scripted(over?.runSpend ?? [0], 0);
 	// 50_000 cc = 500 credits: enough that no default stop rule fires.
 	const nextBalance = scripted(over?.balances ?? [50_000], 50_000);
 	/** Every `readBalance` answer, in call order; counts the stop-rule runs. */
 	const balanceReads: number[] = [];
 	const nextV2 = scripted(over?.v2Enabled ?? [true], true);
+	/** Upload URL → bytes that `readUpload` answers; a missing URL reads null. */
+	const uploads = new Map<string, Uint8Array>();
 	const proxySum = over?.proxyRows ?? fakeProxySum();
 	metering.monthlySpend = over?.monthlySpend ?? 0;
 
@@ -539,8 +604,51 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		backendClient:
+			over?.backendClient === null
+				? null
+				: {
+						getProject: async () => {
+							backendCalls.push("getProject");
+							const status =
+								wakeStatuses.length > 1
+									? (wakeStatuses.shift() ?? "ACTIVE_HEALTHY")
+									: (wakeStatuses[0] ?? "ACTIVE_HEALTHY");
+							return { dbHost: "db.abcdefghijklmnopqrst.supabase.co", status };
+						},
+						restoreProject: async () => {
+							backendCalls.push("restoreProject");
+						},
+					},
 		backends: {
-			findByProjectId: async () => over?.backend ?? null,
+			findByProjectId: async () => backendRow,
+			markRestoreFailed: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "error" };
+				return true;
+			},
+			markRestored: async () => {
+				if (backendRow?.status !== "restoring") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "active" };
+				return true;
+			},
+			markRestoring: async () => {
+				if (backendRow?.status !== "paused") {
+					return false;
+				}
+				backendRow = { ...backendRow, status: "restoring" };
+				return true;
+			},
+			touchActive: async (projectId) => {
+				if (over?.touchActiveFails) {
+					throw new Error("db down");
+				}
+				backendTouches.push(projectId);
+			},
 		},
 		billingDisabled: over?.billingDisabled ?? false,
 		caps: {
@@ -549,6 +657,10 @@ function makeWorld(over?: {
 		},
 		commit: async (_sandbox, _deps, input) => {
 			commits.push(input);
+			// Every run in this spec streams under TURN_ID.
+			eventTypesAtCommit.push(
+				stream.eventsOf(TURN_ID).map((event) => event.type),
+			);
 			return fakeCommitResult();
 		},
 		commitDeps,
@@ -566,8 +678,13 @@ function makeWorld(over?: {
 		lock,
 		logger: {
 			error: () => {},
-			info: (message) => {
+			// Only the timing line's fields are kept; the other lines carry
+			// other shapes, and the specs read only their messages.
+			info: (message: string, fields?: BuilderTurnTiming) => {
 				infos.push(message);
+				if (message === "builder-turn.timing" && fields !== undefined) {
+					timings.push(fields);
+				}
 			},
 			warn: (message) => {
 				warnings.push(message);
@@ -589,6 +706,8 @@ function makeWorld(over?: {
 		},
 		proxyBaseUrl: PROXY_BASE_URL,
 		proxyRows: {
+			firstRequestStartedAtMs: async () =>
+				over?.firstRequestStartedAtMs ?? null,
 			sumByTurn: async () => proxySum,
 		},
 		readBalance: async () => {
@@ -596,6 +715,7 @@ function makeWorld(over?: {
 			balanceReads.push(balance);
 			return balance;
 		},
+		readUpload: async (url) => uploads.get(url) ?? null,
 		readV2Enabled: async () => nextV2(),
 		resolvePlan: async () => "pro",
 		sandboxSessions: {
@@ -611,9 +731,12 @@ function makeWorld(over?: {
 	};
 
 	return {
+		backendCalls,
+		backendTouches,
 		balanceReads,
 		commits,
 		deps,
+		eventTypesAtCommit,
 		harness,
 		infos,
 		inserted,
@@ -626,11 +749,24 @@ function makeWorld(over?: {
 		sandboxes,
 		sessions,
 		stream,
+		timings,
 		touched,
 		turns,
+		uploads,
 		warnings,
 	};
 }
+
+/** The options a spec passes to warm the fake sandbox before the run. */
+const WARM_SANDBOX_OPTIONS: SandboxCreateOptions = {
+	devCommand: "pnpm run dev",
+	devPort: 5173,
+	env: {},
+	framework: "web-app",
+	organizationId: null,
+	ownerUserId: "user_1",
+	templateVersion: "web-app@1.0.0",
+};
 
 function makeInput(): {
 	controller: AbortController;
@@ -911,6 +1047,55 @@ describe("runBuilderTurn", () => {
 		expect(world.turns.failCalls[0]?.failure.failureCode).toBe("model_missing");
 		expect(world.sandboxes.createdCount).toBe(0);
 		expect(world.minted).toHaveLength(0);
+	});
+
+	it("fails with project_template_unknown before any sandbox work", async () => {
+		const world = makeWorld({
+			project: { ...fakeProjectRow(), framework: "tanstack-start" },
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls[0]?.failure.failureCode).toBe(
+			"project_template_unknown",
+		);
+		expect(world.sandboxes.createdCount).toBe(0);
+	});
+
+	it("boots a web project on the Vite port and a mobile project on Metro", async () => {
+		const web = makeWorld();
+		web.harness.events = happyEvents();
+		const mobile = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		mobile.harness.events = happyEvents();
+
+		await runBuilderTurn(
+			web.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+		await runBuilderTurn(
+			mobile.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+
+		expect(web.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 5173,
+			framework: "web-app",
+		});
+		expect(mobile.sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
 	});
 
 	it("fails with project_not_v2 on a V1 project", async () => {
@@ -1261,6 +1446,9 @@ describe("runBuilderTurn", () => {
 		expect(world.commits).toHaveLength(1);
 		expect(world.commits[0]?.source).toBe("wip");
 		expect(world.commits[0]?.summary).toBe("Stopped");
+		// The commit runs before `error` and `done`, so the web refetch at the stream end sees it.
+		expect(world.eventTypesAtCommit[0]).not.toContain("error");
+		expect(world.eventTypesAtCommit[0]).not.toContain("done");
 		// The real spend settles direct; the hold is not refunded.
 		expect(world.metering.settleCalls).toHaveLength(1);
 		const settle = world.metering.settleCalls[0];
@@ -1701,6 +1889,155 @@ describe("runBuilderTurn", () => {
 		});
 	});
 
+	it("writes neither the waking nor the session status on a warm turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The sandbox already runs and the chat has a stored session.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		// The first status is `running`; it carries the backend note the
+		// skipped session status would have carried.
+		expect(statuses).toEqual([
+			{ message: "Backend not ready yet", phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.timings[0]?.sandbox).toBe("warm");
+		expect(world.timings[0]?.session).toBe("resumed");
+	});
+
+	it("writes the waking status when a stopped sandbox resumes", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const phases = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data.phase] : []));
+		expect(phases).toEqual([
+			"sandbox_waking",
+			"session_starting",
+			"running",
+			"committing",
+		]);
+		expect(world.timings[0]?.sandbox).toBe("woke");
+	});
+
+	it("writes only the fresh-session status when a warm resume fails", async () => {
+		const world = makeWorld({ backend: fakeBackendRow() });
+		world.harness.events = happyEvents();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("bridge gone");
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const statuses = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((e) => (e.type === "status" ? [e.data] : []));
+		expect(statuses).toEqual([
+			{ message: "Starting a fresh session", phase: "session_starting" },
+			{ phase: "running" },
+			{ phase: "committing" },
+		]);
+		expect(world.timings[0]?.session).toBe("created");
+	});
+
+	it("logs one timing line with the step durations", async () => {
+		// A frozen clock makes every duration 0 and the offsets exact.
+		vi.useFakeTimers({ now: TURN_CREATED_AT.getTime() + 2_100 });
+		const world = makeWorld({
+			firstRequestStartedAtMs: TURN_CREATED_AT.getTime() + 2_100 + 800,
+		});
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toEqual([
+			{
+				commitMs: 0,
+				firstModelCallMs: 800,
+				firstPartMs: 0,
+				hostToolsMs: 0,
+				prestartMs: 0,
+				queueMs: 2_100,
+				runId: RUN_ID,
+				sandbox: "woke",
+				sandboxMs: 0,
+				session: "created",
+				sessionMs: 0,
+				settleMs: 0,
+				streamMs: 0,
+				totalMs: 0,
+				turnId: TURN_ID,
+			},
+		]);
+	});
+
+	it("logs the timing line with null steps when the turn fails before the sandbox", async () => {
+		const world = makeWorld();
+		world.deps.model = null;
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings).toHaveLength(1);
+		expect(world.timings[0]).toMatchObject({
+			firstModelCallMs: null,
+			firstPartMs: null,
+			sandbox: null,
+			sandboxMs: null,
+			session: null,
+			sessionMs: null,
+			streamMs: null,
+		});
+	});
+
+	it("keeps the timing line when the first proxy request lookup fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.deps.proxyRows = {
+			...world.deps.proxyRows,
+			firstRequestStartedAtMs: async () => {
+				throw new Error("proxy rows unavailable");
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The lookup only feeds the log line; the turn still succeeds.
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
+		expect(world.warnings).toContain(
+			`First proxy request lookup failed for turn ${TURN_ID}: proxy rows unavailable`,
+		);
+		expect(world.timings[0]?.firstModelCallMs).toBeNull();
+	});
+
 	it("starts a fresh session when the stored one cannot resume", async () => {
 		const world = makeWorld();
 		// SAFETY: the runtime reads only resumeState off the session row.
@@ -1825,7 +2162,7 @@ describe("runBuilderTurn", () => {
 
 		// The card goes out as a stream part and into the assistant message.
 		type CardChunk = {
-			data?: { answer?: string | null; options?: string[] };
+			data?: { answer?: string | null };
 			id?: string;
 			type?: string;
 		};
@@ -1838,7 +2175,11 @@ describe("runBuilderTurn", () => {
 		expect(card).toEqual({
 			data: {
 				answer: null,
-				options: ["Blue", "Green"],
+				kind: "single-choice",
+				options: [
+					{ id: "option-1", label: "Blue" },
+					{ id: "option-2", label: "Green" },
+				],
 				question: "Which color?",
 				questionId: "question-1",
 				toolCallId: "call-1",
@@ -1960,6 +2301,7 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -1997,6 +2339,58 @@ describe("runBuilderTurn", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: true,
+					tool: "askUserQuestions",
+					toolCallId: "call-1",
+				},
+			],
+		});
+	});
+
+	it("answers every built-in question from the typed answers of the tray", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_TWO_QUESTIONS]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						// An old card stores plain labels, so the tray sends the label.
+						optionIds: ["Green"],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-1",
+					},
+					{
+						action: "answered",
+						files: [],
+						optionIds: [],
+						questionId: "question-2",
+						text: "Serif",
+						toolCallId: "call-1",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Green\n\nSerif",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					answers: {
+						"question-1": { optionIds: ["option-2"] },
+						"question-2": { freeform: "Serif", optionIds: [] },
+					},
+					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2044,6 +2438,7 @@ describe("runBuilderTurn", () => {
 						"question-1": { freeform: "chartreuse", optionIds: [] },
 					},
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -2106,6 +2501,10 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
+		// The new sandbox woke, but an approval keeps the paused turn.
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			dropPausedTurn: false,
+		});
 		expect(world.harness.streamCalls[0]?.input).toEqual({
 			approvals: [{ approvalId: "appr-1", approved: true }],
 			kind: "continue",
@@ -2200,6 +2599,391 @@ describe("runBuilderTurn", () => {
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 	});
 
+	it("writes the ask_user card with its kind, helper, file limit, and world card", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_ASK_USER];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		type CardChunk = {
+			data?: {
+				helper?: string;
+				kind?: string;
+				maxFiles?: number;
+				options?: {
+					card?: { id: string; preview: { fontFamily: string } };
+					description?: string;
+					id: string;
+				}[];
+			};
+			id?: string;
+			type?: string;
+		};
+		// SAFETY: the spec wrote the chunks; the cards are the only data-question parts.
+		const cards = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as CardChunk[];
+		const style = cards.find((chunk) => chunk.id === "call-7:question-0");
+		const logo = cards.find((chunk) => chunk.id === "call-7:question-1");
+		expect(style?.data?.kind).toBe("single-choice");
+		expect(style?.data?.helper).toBe("You can change it later.");
+		expect(style?.data?.options?.[0]?.card?.id).toBe("zellige");
+		expect(style?.data?.options?.[0]?.card?.preview.fontFamily).toEqual(
+			expect.any(String),
+		);
+		// An option without a worldId keeps its description and gets no card.
+		expect(style?.data?.options?.[1]).toEqual({
+			description: "No world card",
+			id: "plain",
+			label: "Plain",
+		});
+		expect(logo?.data).toMatchObject({ kind: "attachments", maxFiles: 2 });
+		expect(world.inserted[0]?.input.parts).toContainEqual(style);
+	});
+
+	it("continues an ask_user call with the typed answers and copies the file", async () => {
+		const world = makeWorld();
+		// A warm sandbox keeps the bridge, so the answer goes as a tool result.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const logoBytes = new Uint8Array([137, 80, 78, 71]);
+		world.uploads.set(UPLOAD_URL, logoBytes);
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					output: {
+						answers: [
+							{
+								action: "answered",
+								files: [],
+								question: "Which style?",
+								questionId: "question-0",
+								selected: [{ id: "zellige", label: "Warm and crafted" }],
+								text: "",
+							},
+							{
+								action: "answered",
+								files: [
+									{
+										filename: "logo.png",
+										mediaType: "image/png",
+										path: "public/uploads/0d1f2a3b-logo.png",
+										url: UPLOAD_URL,
+									},
+								],
+								question: "Your logo?",
+								questionId: "question-1",
+								selected: [],
+								text: "",
+							},
+						],
+					},
+					tool: "ask_user",
+					toolCallId: "call-7",
+				},
+			],
+		});
+		const sandbox = await world.sandboxes.getOrCreate(
+			PROJECT_ID,
+			WARM_SANDBOX_OPTIONS,
+		);
+		expect(
+			await sandbox.readFile(
+				"/vercel/workspace/public/uploads/0d1f2a3b-logo.png",
+			),
+		).toEqual(logoBytes);
+	});
+
+	it("keeps a null path and warns when an answer file cannot be copied", async () => {
+		const world = makeWorld();
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		const bigUrl = UPLOAD_URL.replace("logo.png", "big.png");
+		const brokenUrl = UPLOAD_URL.replace("logo.png", "broken.png");
+		const missingUrl = UPLOAD_URL.replace("logo.png", "missing.png");
+		// A name that fails the upload-name pattern never reaches the sandbox.
+		const unsafeUrl = UPLOAD_URL.replace("logo.png", ".env");
+		// One byte over the 15 MB copy limit.
+		world.uploads.set(bigUrl, new Uint8Array(15 * 1024 * 1024 + 1));
+		world.deps.readUpload = async (url) => {
+			if (url === brokenUrl) throw new Error("R2 timeout");
+			return world.uploads.get(url) ?? null;
+		};
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [bigUrl, brokenUrl, missingUrl, unsafeUrl].map((url) => ({
+							mediaType: "image/png",
+							url,
+						})),
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const turnInput = world.harness.streamCalls[0]?.input;
+		const logoAnswer =
+			turnInput?.kind === "continue" &&
+			turnInput.toolResults[0]?.tool === "ask_user"
+				? turnInput.toolResults[0].output.answers[1]
+				: undefined;
+		expect(logoAnswer?.files.map((file) => file.path)).toEqual([
+			null,
+			null,
+			null,
+			null,
+		]);
+		expect(
+			world.warnings.filter(
+				(message) => message === "builder-turn.answer-file-skipped",
+			),
+		).toHaveLength(3);
+		expect(world.warnings).toContain("builder-turn.answer-file-copy-failed");
+	});
+
+	it("tells a lost session every answer of the ask_user call", async () => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Decide for me",
+			},
+		});
+		world.harness.resumeError = new Error("policy conflict");
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": the user lets you decide.\n' +
+				'Answer to your question "Your logo?": skipped.',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("sends the ask_user answers as text on the same thread after a sandbox stop", async () => {
+		const world = makeWorld();
+		// The idle sweep stopped the sandbox while the turn waited.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		await world.sandboxes.stop(PROJECT_ID);
+		world.uploads.set(UPLOAD_URL, new Uint8Array([137, 80, 78, 71]));
+		world.sessions.row = pausedSessionRow([PENDING_ASK_USER]);
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "answered",
+						files: [],
+						optionIds: ["zellige"],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+					{
+						action: "answered",
+						files: [{ mediaType: "image/png", url: UPLOAD_URL }],
+						optionIds: [],
+						questionId: "question-1",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "Warm and crafted",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			dropPausedTurn: true,
+		});
+		expect(world.harness.createCalls).toHaveLength(0);
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			kind: "prompt",
+			prompt:
+				'Answer to your question "Which style?": Warm and crafted\n' +
+				'Answer to your question "Your logo?": public/uploads/0d1f2a3b-logo.png',
+			signal: expect.any(AbortSignal),
+		});
+	});
+
+	it("sends Continue. for an answers-only turn with no card left to answer", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				answers: [
+					{
+						action: "delegated",
+						files: [],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-gone",
+					},
+				],
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "Continue.",
+		});
+	});
+
+	it("tells the agent to ask through ask_user and to describe commands in the user's language", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain("ask_user tool");
+		expect(instructions).toContain("Bash and Agent description");
+		// The platform sentence is for a mobile app only.
+		expect(instructions).not.toContain("Expo");
+	});
+
+	it("adds the Expo sentence to the instructions of a mobile project", async () => {
+		const world = makeWorld({
+			project: fakeProjectRow({
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			}),
+		});
+		world.harness.events = happyEvents();
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = world.harness.createCalls[0]?.instructions ?? "";
+		expect(instructions).toContain(
+			"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.",
+		);
+		expect(instructions).toContain("ask_user tool");
+	});
+
+	it("writes a data-thought part with the duration after each reasoning block", async () => {
+		const world = makeWorld();
+		world.harness.events = [
+			...(
+				[
+					{ id: "r1", type: "reasoning-start" },
+					{ delta: "Plan the page", id: "r1", type: "reasoning-delta" },
+					{ id: "r1", type: "reasoning-end" },
+				] satisfies UIMessageChunk[]
+			).map((chunk) => ({ chunk, type: "part" as const })),
+			...happyEvents(),
+		];
+		// The clock moves 4.2 s while the reasoning block streams.
+		let clock = 1_000_000;
+		world.deps.now = () => clock;
+		const stream = world.stream;
+		world.deps.writer = {
+			write: async (turnId, event) => {
+				await stream.write(turnId, event);
+				if (event.type === "part") {
+					// SAFETY: the runtime writes AI SDK chunks as part data.
+					const chunk = event.data as UIMessageChunk;
+					if (chunk.type === "reasoning-start") clock += 4200;
+				}
+			},
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// SAFETY: the runtime writes AI SDK chunks as part data.
+		const chunks = world.stream
+			.eventsOf(TURN_ID)
+			.filter((e) => e.type === "part")
+			.map((e) => e.data) as UIMessageChunk[];
+		const endIndex = chunks.findIndex(
+			(chunk) => chunk.type === "reasoning-end",
+		);
+		const thought = {
+			data: { reasoningId: "r1", seconds: 4 },
+			id: "thought-r1",
+			type: "data-thought",
+		};
+		expect(chunks[endIndex + 1]).toEqual(thought);
+		expect(world.inserted[0]?.input.parts).toContainEqual(thought);
+	});
+
 	describe("sandbox env from app_backends", () => {
 		it("passes the active row's URL and anon key into the sandbox env", async () => {
 			const world = makeWorld({ backend: fakeBackendRow() });
@@ -2215,6 +2999,10 @@ describe("runBuilderTurn", () => {
 				"https://abcdefghijklmnopqrst.supabase.co",
 			);
 			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			expect(env?.EXPO_PUBLIC_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+			expect(env?.EXPO_PUBLIC_SUPABASE_ANON_KEY).toBe("anon-key-test");
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -2250,6 +3038,257 @@ describe("runBuilderTurn", () => {
 			});
 		});
 
+		it("wakes a paused backend with one restore, then passes its env", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			const statuses = world.stream
+				.eventsOf(TURN_ID)
+				.flatMap((e) => (e.type === "status" ? [e.data] : []));
+			expect(statuses[0]).toEqual({
+				message: "Waking up the database",
+				phase: "sandbox_waking",
+			});
+			expect(statuses).toContainEqual({ phase: "session_starting" });
+		});
+
+		it("waits for a restoring backend without a second restore", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "restoring" }),
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual(["getProject"]);
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("runs the turn with the note when the wake times out", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(185_000);
+			await run;
+
+			// One read every 5 s for 180 s.
+			expect(
+				world.backendCalls.filter((call) => call === "getProject"),
+			).toHaveLength(36);
+			const env = world.sandboxes.createOptions[0]?.env;
+			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
+			const sessionStarting = world.stream
+				.eventsOf(TURN_ID)
+				.find(
+					(e) => e.type === "status" && e.data.phase === "session_starting",
+				);
+			expect(
+				sessionStarting?.type === "status" && sessionStarting.data,
+			).toEqual({
+				message: "Backend not ready yet",
+				phase: "session_starting",
+			});
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("stops the wake at once and marks the row error when Supabase reports RESTORE_FAILED", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["RESTORE_FAILED"],
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			// One read only: a failed restore does not wait for the ceiling.
+			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("error");
+			expect(
+				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
+			).toBeUndefined();
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps polling after one failed status read", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			let reads = 0;
+			world.deps.backendClient = {
+				getProject: async () => {
+					reads += 1;
+					if (reads === 1) {
+						throw new Error("rate limited");
+					}
+					return {
+						dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+						status: "ACTIVE_HEALTHY",
+					};
+				},
+				restoreProject: async () => undefined,
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.advanceTimersByTimeAsync(6_000);
+			await run;
+
+			expect(reads).toBe(2);
+			expect(world.warnings).toContain("backend.wake-poll-failed");
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("boots no sandbox and cancels the turn on a cancel during the wake", async () => {
+			vi.useFakeTimers();
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				wakeStatuses: ["COMING_UP"],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await vi.waitFor(
+				() => {
+					expect(world.backendCalls).toContain("getProject");
+				},
+				{ interval: 1, timeout: 2000 },
+			);
+			controller.abort();
+			await vi.advanceTimersByTimeAsync(5_000);
+			await run;
+
+			expect(world.sandboxes.createOptions).toEqual([]);
+			expect(world.warnings).not.toContain("backend.wake-timeout");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("canceled");
+		});
+
+		it("waits for a project that comes up when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => ({
+					dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+					status: "ACTIVE_HEALTHY",
+				}),
+				restoreProject: async () => {
+					throw new Error("supabase timeout");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(
+				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
+			).toBe("active");
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				"https://abcdefghijklmnopqrst.supabase.co",
+			);
+		});
+
+		it("runs the turn with the note when the restore call fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+			});
+			world.deps.backendClient = {
+				getProject: async () => {
+					throw new Error("unused");
+				},
+				restoreProject: async () => {
+					throw new Error("supabase down");
+				},
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
+				undefined,
+			);
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("keeps a paused backend asleep without a Management API client", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ status: "paused" }),
+				backendClient: null,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+			expect(
+				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
+			).toBeUndefined();
+			// No wake starts, so the card shows no waking line for the database.
+			expect(
+				world.stream
+					.eventsOf(TURN_ID)
+					.some(
+						(e) =>
+							e.type === "status" &&
+							e.data.message === "Waking up the database",
+					),
+			).toBe(false);
+			expect(world.warnings).toContain("backend.wake-unconfigured");
+		});
+
+		it("calls no restore for an active backend", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendCalls).toEqual([]);
+		});
+
 		it("sends no VITE_SUPABASE_* names and keeps the note on an error row", async () => {
 			const world = makeWorld({
 				backend: fakeBackendRow({ status: "error" }),
@@ -2275,6 +3314,53 @@ describe("runBuilderTurn", () => {
 				message: "Backend not ready yet",
 				phase: "session_starting",
 			});
+		});
+	});
+
+	describe("backend activity stamp", () => {
+		it("stamps the backend once when the turn succeeds", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("stamps the backend when the turn fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				v2Enabled: [false],
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe(
+				"stopped_disabled",
+			);
+			expect(world.backendTouches).toEqual([PROJECT_ID]);
+		});
+
+		it("ends the turn normally when the stamp fails", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow(),
+				touchActiveFails: true,
+			});
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(world.warnings).toContain("backend.touch-failed");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+			expect(world.promoted).toHaveLength(1);
 		});
 	});
 });

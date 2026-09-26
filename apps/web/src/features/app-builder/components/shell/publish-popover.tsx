@@ -1,12 +1,11 @@
 /**
- * Publish button of the top bar and its popover. A web app shows its Wandit
- * domain row; a mobile app shows the App Store, Google Play, and QR test rows.
- * Rendered by components/shell/top-bar.tsx. Reads projectDomainsQuery or
- * appStoresSummaryQuery. Publish, submit, and QR have no backend yet.
- * PublishWebTargets and PublishMobileTargets are pure; the spec renders them.
+ * Publish button of the top bar and its popover. Rendered by components/shell/top-bar.tsx.
+ * A web app shows its Wandit domain row (projectDomainsQuery). A mobile app shows the
+ * Android APK card of android-build-card.tsx (mobileBuildsQuery, WANDIT-194) and the iOS
+ * row (appStoresSummaryQuery, a mock until WANDIT-284). The spec renders the pure *Targets parts.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
@@ -27,6 +26,7 @@ import {
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
 
+import { getApiErrorMessage } from "@/lib/api-client";
 import { formatNumber, useTranslation } from "@/lib/i18n";
 import {
 	appStoresSummaryQuery,
@@ -37,16 +37,25 @@ import type {
 	AppStoresSummary,
 	ProjectDomain,
 } from "../../api/dto";
+import {
+	useCancelMobileBuild,
+	useCreateMobileBuild,
+} from "../../api/mobile-builds.mutations";
+import { mobileBuildsQuery } from "../../api/mobile-builds.queries";
+import {
+	AndroidBuildCard,
+	type AndroidBuildCardProps,
+} from "./android-build-card";
 
 export type PublishPopoverProps = {
 	/** The open project, from appProjectQuery in the page. Sets the kind, the name, and the version line. */
 	project: AppProject;
 };
 
-/** The body suspends inside the popover, so the top bar never waits for the domains or the stores. */
+/** Each body suspends inside the popover, so the top bar never waits for its data. */
 export function PublishPopover({ project }: PublishPopoverProps) {
 	const { t, locale } = useTranslation();
-	// Controlled, so "Connect one" can close the popover when it opens the Domains panel.
+	// Controlled, so a link to a More panel can close the popover before the view changes.
 	const [open, setOpen] = useState(false);
 
 	return (
@@ -87,7 +96,10 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 							onNavigate={() => setOpen(false)}
 						/>
 					) : (
-						<PublishMobileBody projectId={project.id} />
+						<PublishMobileBody
+							projectId={project.id}
+							onNavigate={() => setOpen(false)}
+						/>
 					)}
 				</Suspense>
 			</PopoverContent>
@@ -118,22 +130,6 @@ function PublishWebBody({
 					search: (prev) => ({ ...prev, view: "more", panel: "domains" }),
 				});
 			}}
-		/>
-	);
-}
-
-/** Reads the store summary. Every mobile action is a toast until the backend exists. */
-function PublishMobileBody({ projectId }: { projectId: string }) {
-	const { t } = useTranslation();
-	const { data: stores } = useSuspenseQuery(appStoresSummaryQuery(projectId));
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-
-	return (
-		<PublishMobileTargets
-			stores={stores}
-			onSubmit={notWired}
-			onSetUp={notWired}
-			onShowQr={notWired}
 		/>
 	);
 }
@@ -195,31 +191,87 @@ export function PublishWebTargets({
 	);
 }
 
+/**
+ * Reads the Android builds and the iOS mock, and wires the mobile actions.
+ * iOS Set up opens the App stores panel. The builds poll only while this body is mounted.
+ */
+function PublishMobileBody({
+	projectId,
+	onNavigate,
+}: {
+	projectId: string;
+	/** Closes the popover before the view changes under it. */
+	onNavigate: () => void;
+}) {
+	const { t } = useTranslation();
+	const navigate = useNavigate({ from: "/app/$projectId" });
+	const { data: stores } = useSuspenseQuery(appStoresSummaryQuery(projectId));
+	const builds = useQuery(mobileBuildsQuery(projectId));
+	const createBuild = useCreateMobileBuild(projectId);
+	const cancelBuild = useCancelMobileBuild(projectId);
+
+	// A failed poll keeps the last list on screen. Only a first load without a list shows the error.
+	if (builds.data === undefined) {
+		return builds.isError ? (
+			<p className="text-muted-foreground text-sm">
+				{getApiErrorMessage(builds.error)}
+			</p>
+		) : (
+			<Skeleton className="h-16" />
+		);
+	}
+
+	return (
+		<PublishMobileTargets
+			ios={stores.ios}
+			onSubmit={() => toast(t("appBuilder.mock.notWired"))}
+			onSetUp={() => {
+				onNavigate();
+				void navigate({
+					search: (prev) => ({ ...prev, view: "more", panel: "appStores" }),
+				});
+			}}
+			onShowQr={() => toast(t("appBuilder.mock.notWired"))}
+			android={{
+				builds: builds.data.items,
+				isStarting: createBuild.isPending,
+				isCanceling: cancelBuild.isPending,
+				// A new key per click. A second click while a build is live gets 409 MOBILE_BUILD_ACTIVE.
+				onBuild: () => createBuild.mutate(crypto.randomUUID()),
+				onCancel: (buildId) => cancelBuild.mutate(buildId),
+			}}
+		/>
+	);
+}
+
+/** What the mobile targets show and do. PublishMobileBody fills it; the spec passes plain values. */
 export type PublishMobileTargetsProps = {
-	/** Store state of the project, from appStoresSummaryQuery. */
-	stores: AppStoresSummary;
-	/** Submits a store-ready build for review. Shared by the iOS and Android rows. */
+	/** iOS store state, from appStoresSummaryQuery. A mock until WANDIT-284. */
+	ios: AppStoresSummary["ios"];
+	/** Submits a store-ready iOS build for review. */
 	onSubmit: () => void;
-	/** Starts the setup of a store that is not set up. Shared by both rows. */
+	/** Starts the iOS store setup. The body opens the App stores panel. */
 	onSetUp: () => void;
 	/** Shows the QR code that opens the app on a phone. */
 	onShowQr: () => void;
+	/** Builds and actions of the Android APK card. */
+	android: AndroidBuildCardProps;
 };
 
-/** The App Store, Google Play, and test-on-phone rows, and the backend footer. */
+/** The Android APK card, the App Store row, the test-on-phone row, and the backend footer. */
 export function PublishMobileTargets({
-	stores,
+	ios,
 	onSubmit,
 	onSetUp,
 	onShowQr,
+	android,
 }: PublishMobileTargetsProps) {
 	const { t, locale } = useTranslation();
-	const { ios, android } = stores;
 	const isIosReady = ios.status === "readyToSubmit";
-	const isAndroidReady = android.status === "readyToSubmit";
 
 	return (
 		<>
+			<AndroidBuildCard {...android} />
 			<TargetRow
 				icon={Smartphone}
 				title={t("appBuilder.publish.ios")}
@@ -233,22 +285,6 @@ export function PublishMobileTargets({
 				}
 			>
 				<StoreAction ready={isIosReady} onSubmit={onSubmit} onSetUp={onSetUp} />
-			</TargetRow>
-			{/* The publish copy has no ready text for Android. The App stores panel key reads the same. */}
-			<TargetRow
-				icon={Smartphone}
-				title={t("appBuilder.publish.android")}
-				note={t(
-					isAndroidReady
-						? "appBuilder.appStores.readyToSubmit"
-						: "appBuilder.publish.notSetUp",
-				)}
-			>
-				<StoreAction
-					ready={isAndroidReady}
-					onSubmit={onSubmit}
-					onSetUp={onSetUp}
-				/>
 			</TargetRow>
 			<TargetRow
 				icon={Zap}
