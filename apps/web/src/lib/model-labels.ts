@@ -1,4 +1,10 @@
+/**
+ * Display names for gateway model ids, and the dev model and reasoning pickers.
+ * The prompt box, the V1 model indicator, and the V2 chat message read it.
+ * The picker choices persist in localStorage.
+ */
 const MODEL_LABEL_BY_ID: Readonly<Record<string, string>> = {
+	"anthropic/claude-opus-5.5": "Claude Opus 5.5",
 	"anthropic/claude-sonnet-5": "Claude Sonnet 5",
 	"google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
 	"google/gemini-3.5-flash": "Gemini 3.5 Flash",
