@@ -105,6 +105,7 @@ describe("PublishPopover", () => {
 			engine: "v2_app",
 			versionNumber: 0,
 			unpublishedChanges: 0,
+			hasCodeChanges: true,
 		};
 		renderWithI18n(createElement(PublishPopover, { project }));
 
