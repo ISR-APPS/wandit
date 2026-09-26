@@ -1,8 +1,10 @@
+import type { HarnessV1Bootstrap } from "@ai-sdk/harness";
 import type {
 	HarnessAgentAdapter,
 	HarnessAgentContinueTurnState,
 	HarnessAgentResumeSessionState,
 	HarnessAgentSettings,
+	prepareSandboxForHarness,
 } from "@ai-sdk/harness/agent";
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code";
 import type { HarnessPendingInteraction } from "@wandit/contracts";
@@ -838,6 +840,69 @@ describe("ClaudeCodeHarness.detach", () => {
 				],
 				tool: "askUserQuestions",
 				toolCallId: "call-1",
+			},
+		]);
+	});
+});
+
+describe("ClaudeCodeHarness template snapshot support", () => {
+	const RECIPE: HarnessV1Bootstrap = {
+		bootstrapDir: ".harness-bootstrap/claude-code",
+		commands: [{ command: "pnpm install --frozen-lockfile" }],
+		files: [
+			{
+				content: '{"@anthropic-ai/claude-code":"2.1.245"}',
+				path: "package.json",
+			},
+		],
+		harnessId: "claude-code",
+	};
+
+	function harnessWith(recipe: HarnessV1Bootstrap) {
+		const prepared: Parameters<typeof prepareSandboxForHarness>[0][] = [];
+		const adapter: HarnessAgentAdapter = {
+			// SAFETY: the harness reads only `getBootstrap` off this adapter, and
+			// the prepare fake below only records it.
+			...({} as HarnessAgentAdapter),
+			getBootstrap: async () => recipe,
+		};
+		const harness = new ClaudeCodeHarness({
+			claudeFactory: () => adapter,
+			prepareFactory: async (options) => {
+				prepared.push(options);
+				return { recipeIdentities: {}, skippedHarnessIds: [] };
+			},
+		});
+		return { adapter, harness, prepared };
+	}
+
+	it("bootstrapKey is stable for one recipe and changes with the pinned version", async () => {
+		const key = await harnessWith(RECIPE).harness.bootstrapKey();
+		const bumped = await harnessWith({
+			...RECIPE,
+			files: [
+				{
+					content: '{"@anthropic-ai/claude-code":"2.1.281"}',
+					path: "package.json",
+				},
+			],
+		}).harness.bootstrapKey();
+
+		expect(await harnessWith(RECIPE).harness.bootstrapKey()).toBe(key);
+		expect(key).toMatch(/^[0-9a-f]{64}$/);
+		expect(bumped).not.toBe(key);
+	});
+
+	it("prepareSandbox installs the adapter in the work dir of the sandbox session", async () => {
+		const { adapter, harness, prepared } = harnessWith(RECIPE);
+
+		await harness.prepareSandbox(fakeSandbox());
+
+		expect(prepared).toEqual([
+			{
+				harnesses: [adapter],
+				sandboxConfig: { workDir: HARNESS_WORK_DIR },
+				session: FAKE_SANDBOX_SESSION,
 			},
 		]);
 	});

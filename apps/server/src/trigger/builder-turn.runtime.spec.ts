@@ -5,7 +5,10 @@ import type {
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeBuilderHarness } from "../modules/app-builder/application/harness/fake.harness";
+import {
+	FAKE_HARNESS_BOOTSTRAP_KEY,
+	FakeBuilderHarness,
+} from "../modules/app-builder/application/harness/fake.harness";
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import type {
@@ -1096,6 +1099,21 @@ describe("runBuilderTurn", () => {
 			framework: "mobile-app",
 			templateVersion: "mobile-app@1.0.0",
 		});
+	});
+
+	it("passes the harness bootstrap key, so a new sandbox boots from the template snapshot", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+
+		await runBuilderTurn(
+			world.deps,
+			makeInput().input,
+			new AbortController().signal,
+		);
+
+		expect(world.sandboxes.createOptions[0]?.harnessKey).toBe(
+			FAKE_HARNESS_BOOTSTRAP_KEY,
+		);
 	});
 
 	it("fails with project_not_v2 on a V1 project", async () => {

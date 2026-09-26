@@ -24,6 +24,7 @@ import {
 	listAppProjects,
 	listVersions,
 } from "./app-builder.services";
+import type { CodeSnapshot } from "./dto";
 
 export const appBuilderKeys = {
 	all: ["app-builder"] as const,
@@ -106,6 +107,21 @@ export const codeSnapshotQuery = (
 
 /** 30 min. The prefetched files must stay in the cache for a long session. */
 const CODE_FILE_GC_TIME_MS = 30 * 60 * 1000;
+
+/** 3 s. A new sandbox boots from the template snapshot in about 4 s. */
+const CODE_SETUP_POLL_MS = 3_000;
+
+/**
+ * The poll delay of the code snapshot. It polls only while a turn runs and
+ * no sandbox answered yet, so the files show before the turn ends.
+ */
+export function codeSnapshotPollMs(
+	snapshot: CodeSnapshot | null | undefined,
+	isTurnRunning: boolean,
+): number | false {
+	// The server pushes no event when the sandbox starts, so the view asks.
+	return isTurnRunning && snapshot === null ? CODE_SETUP_POLL_MS : false;
+}
 
 /**
  * One file of the sandbox. Its key is a child of `code(projectId)`, so one

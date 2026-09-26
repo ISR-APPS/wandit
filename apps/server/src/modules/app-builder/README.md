@@ -83,6 +83,27 @@ partial unique index guarantees at most one live row per project.
   archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
   `rebuild` warning. `LoggingRepoRestorer` is the placeholder until
   WANDIT-171.
+- Template snapshot (first-turn latency): a new or rebuilt sandbox boots
+  from a ready Vercel snapshot that already holds the template, its
+  `node_modules`, the template commit, and the harness install. The boot
+  takes about 4 s instead of about 70 s (template install plus the Claude
+  Code install). The `template-snapshot` Trigger task builds one snapshot
+  per platform every 10 minutes when none is ready; a failed platform
+  fails the run. The name `wandit-template-<framework>-<16 hex>` hashes
+  `TEMPLATE_SNAPSHOT_BUILD_VERSION`, the template files
+  (`hashTemplateArchive`, file times ignored), the image, and
+  `BuilderHarness.bootstrapKey`, so a change of any of them gives a new
+  build. Increase the build version when the build steps change. The
+  builder sandbox is not persistent, holds no env, and reaches only
+  `registry.npmjs.org`. The build checks the template commit and takes the
+  snapshot on its first session, so a lost disk never becomes the
+  snapshot. A snapshot expires 30 days after the last boot from it; a
+  project sandbox made from it still resumes after that (checked on the
+  vendor). The runtime passes `harnessKey` to
+  `getOrCreate`; without it, or when no snapshot is ready, or when the
+  vendor refuses the snapshot, the sandbox boots from the image as before.
+  The template commit has a fixed date, so the same files give the same
+  root commit in every sandbox.
 - Template profiles (WANDIT-192): `TEMPLATE_PROFILES` in
   `template-profiles.ts` holds one profile per target platform: the
   `framework` (the archive prefix, `web-app` or `mobile-app`), the dev

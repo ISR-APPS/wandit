@@ -5,7 +5,8 @@
  * snapshot also fills the file cache, so most clicks need no request. An
  * asleep sandbox, a project without files, and a failed load each show a
  * message inside the view, never an error page. While a turn sets up the
- * sandbox, the view shows the loading layout with a status line.
+ * sandbox, the view shows the loading layout with a status line and polls
+ * until the files show.
  * Rendered by pages/app-builder-page.tsx. The page owns the selected path
  * in the URL and passes onSelectFile.
  */
@@ -26,6 +27,7 @@ import { useTranslation } from "@/lib/i18n";
 import {
 	appBuilderKeys,
 	codeFileQuery,
+	codeSnapshotPollMs,
 	codeSnapshotQuery,
 } from "../../api/app-builder.queries";
 import {
@@ -68,7 +70,11 @@ export function CodeView({
 }: CodeViewProps) {
 	const { t } = useTranslation();
 	const isMobile = useIsMobile();
-	const snapshot = useQuery(codeSnapshotQuery(projectId));
+	const snapshot = useQuery({
+		...codeSnapshotQuery(projectId),
+		refetchInterval: (query) =>
+			codeSnapshotPollMs(query.state.data, isTurnRunning),
+	});
 	// The click shows the file at once. The URL follows when the router
 	// commits; a new URL path (back, forward, a link) wins again.
 	const [pickedPath, setPickedPath] = useState(filePath);
@@ -108,8 +114,8 @@ export function CodeView({
 			</CodeMessage>
 		);
 	}
-	// The server never wakes a sandbox for a read. The next turn wakes it,
-	// and the turn end refetches the snapshot.
+	// The server never wakes a sandbox for a read. The next turn wakes it;
+	// the view polls while the turn runs, and the turn end refetches.
 	if (snapshot.data === null) {
 		// A running turn creates or wakes the sandbox, so the files are on their way.
 		if (isTurnRunning) {

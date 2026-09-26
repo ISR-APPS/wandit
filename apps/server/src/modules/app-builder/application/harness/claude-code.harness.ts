@@ -1,12 +1,14 @@
 /**
  * `BuilderHarness` on the AI SDK `HarnessAgent` with the Claude Code
  * adapter (D17). The `builder-turn` task calls `createSession`,
- * `resumeSession`, `stream`, `detach`, and `suspendTurn`;
+ * `resumeSession`, `stream`, `detach`, `suspendTurn`, and `bootstrapKey`;
+ * the `template-snapshot` task calls `bootstrapKey` and `prepareSandbox`.
  * `builder-harness.factory.ts` builds it. One instance keeps every live
  * session of the run in a Map. `stream`, `hasUnfinishedTurn`, `detach`,
  * and `suspendTurn` find the matching `HarnessAgentSession` there.
  */
 
+import { createHash } from "node:crypto";
 import {
 	harnessV1QuestionsToolInputSchema,
 	harnessV1QuestionsToolOutputSchema,
@@ -19,6 +21,7 @@ import {
 	type HarnessAgentResumeSessionState,
 	type HarnessAgentSession,
 	type HarnessAgentSettings,
+	prepareSandboxForHarness,
 } from "@ai-sdk/harness/agent";
 import {
 	type ClaudeCodeHarnessSettings,
@@ -52,6 +55,7 @@ import {
 	HARNESS_BRIDGE_PORT,
 	HARNESS_WORK_DIR,
 	type HarnessSandboxSession,
+	type SandboxHandle,
 } from "../../domain/ports/sandbox-provider";
 import type { QuestionInteraction } from "../../domain/question-answers";
 import { ASK_USER_TOOL_NAME } from "../host-tools/ask-user.host-tool";
@@ -114,12 +118,13 @@ export interface ClaudeCodeAgentRunner {
 
 /**
  * Test seams: `agentFactory` defaults to the real `HarnessAgent`
- * constructor, `claudeFactory` to `createClaudeCode`. Specs assert the
- * settings each factory received.
+ * constructor, `claudeFactory` to `createClaudeCode`, `prepareFactory` to
+ * `prepareSandboxForHarness`. Specs assert the settings each one received.
  */
 export type ClaudeCodeHarnessDeps = {
 	agentFactory?: (settings: HarnessAgentSettings) => ClaudeCodeAgentRunner;
 	claudeFactory?: (settings: ClaudeCodeHarnessSettings) => HarnessAgentAdapter;
+	prepareFactory?: typeof prepareSandboxForHarness;
 	/** Warn sink for a skipped pending tool result; defaults to console. */
 	logger?: Pick<Console, "warn">;
 };
@@ -146,6 +151,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	>;
 	private readonly claudeFactory: NonNullable<
 		ClaudeCodeHarnessDeps["claudeFactory"]
+	>;
+	private readonly prepareFactory: NonNullable<
+		ClaudeCodeHarnessDeps["prepareFactory"]
 	>;
 	private readonly logger: NonNullable<ClaudeCodeHarnessDeps["logger"]>;
 
@@ -180,7 +188,29 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				};
 			});
 		this.claudeFactory = deps.claudeFactory ?? createClaudeCode;
+		this.prepareFactory = deps.prepareFactory ?? prepareSandboxForHarness;
 		this.logger = deps.logger ?? console;
+	}
+
+	async bootstrapKey(): Promise<string> {
+		// The recipe holds the bridge files and the install commands, which
+		// pin the Claude Code version. It does not read the settings.
+		const recipe = await this.claudeFactory({
+			port: HARNESS_BRIDGE_PORT,
+		}).getBootstrap?.();
+		return createHash("sha256")
+			.update(JSON.stringify(recipe ?? null))
+			.digest("hex");
+	}
+
+	async prepareSandbox(sandbox: SandboxHandle): Promise<void> {
+		// The same adapter and work dir as `buildAgent`: a later session finds
+		// the install marker and skips the install.
+		await this.prepareFactory({
+			harnesses: [this.claudeFactory({ port: HARNESS_BRIDGE_PORT })],
+			sandboxConfig: { workDir: HARNESS_WORK_DIR },
+			session: await sandbox.harnessSession(),
+		});
 	}
 
 	async createSession(input: HarnessSessionInput): Promise<HarnessSession> {

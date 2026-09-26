@@ -2,6 +2,7 @@ import { posix } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { ClaudeCodeHarness } from "../../application/harness/claude-code.harness";
 import type {
 	SandboxCreateOptions,
 	SandboxHandle,
@@ -83,4 +84,63 @@ describe.skipIf(!RUN)("vercel sandbox integration", () => {
 			await provider.destroy(projectId);
 		}
 	}, 600_000);
+
+	// The snapshot stays in the vendor on purpose: it is the real template
+	// snapshot of this template and harness, so a second run answers "exists".
+	it("boots a new project from the template snapshot with the harness installed", async () => {
+		const provider = new VercelSandboxProvider(
+			new FakeSandboxSessionsRepository(),
+			new LoggingRepoRestorer(),
+			new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
+		);
+		const harness = new ClaudeCodeHarness();
+		const harnessKey = await harness.bootstrapKey();
+		const template = {
+			framework: OPTIONS.framework,
+			templateVersion: OPTIONS.templateVersion,
+		};
+		const projectId = `it-snapshot-${Date.now()}`;
+
+		const builtAt = Date.now();
+		const outcome = await provider.ensureTemplateSnapshot(template, {
+			key: harnessKey,
+			prepare: (sandbox) => harness.prepareSandbox(sandbox),
+		});
+		console.log(`template snapshot ${outcome} in ${Date.now() - builtAt}ms`);
+		expect(
+			await provider.ensureTemplateSnapshot(template, {
+				key: harnessKey,
+				prepare: (sandbox) => harness.prepareSandbox(sandbox),
+			}),
+		).toBe("exists");
+
+		try {
+			const startedAt = Date.now();
+			const handle = await provider.getOrCreate(projectId, {
+				...OPTIONS,
+				harnessKey,
+			});
+			console.log(`create from the snapshot took ${Date.now() - startedAt}ms`);
+
+			const commit = await handle.exec("git", ["log", "--format=%s"], {
+				cwd: handle.workspaceDir,
+			});
+			expect(commit.stdout.trim()).toBe(
+				`init: template ${OPTIONS.templateVersion}`,
+			);
+			const packages = await handle.exec("test", ["-d", "node_modules"], {
+				cwd: handle.workspaceDir,
+			});
+			expect(packages.exitCode).toBe(0);
+			// The harness marker: the first session skips the Claude Code install.
+			const marker = await handle.exec(
+				"sh",
+				["-c", "ls .harness-bootstrap/claude-code/.bootstrap-*.ok"],
+				{ cwd: posix.dirname(handle.workspaceDir) },
+			);
+			expect(marker.exitCode).toBe(0);
+		} finally {
+			await provider.destroy(projectId);
+		}
+	}, 900_000);
 });

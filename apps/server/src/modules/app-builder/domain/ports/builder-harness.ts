@@ -136,4 +136,14 @@ export interface BuilderHarness {
 	 * The session handle is unusable after it, same as `detach`.
 	 */
 	suspendTurn(session: HarnessSession): Promise<HarnessResumeState>;
+	/**
+	 * SHA-256 hex of the files and commands the harness installs in a
+	 * sandbox. It changes with the harness version; it keys the template snapshot.
+	 */
+	bootstrapKey(): Promise<string>;
+	/**
+	 * Installs the harness in the sandbox and starts no session. The
+	 * `template-snapshot` task calls it before it takes the snapshot.
+	 */
+	prepareSandbox(sandbox: SandboxHandle): Promise<void>;
 }

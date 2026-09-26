@@ -47,10 +47,11 @@ class FakeSandboxHandle implements SandboxHandle {
 	async exec(
 		command: string,
 		args: string[],
-		_options?: SandboxExecOptions,
+		options?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		const commandLine = [command, ...args].join(" ");
 		this.provider.calls.push({ detail: commandLine, method: "exec" });
+		this.provider.execOptions.push(options);
 		const queue = this.provider.scriptedExec.get(command) ?? [];
 		const result = queue.shift();
 		if (result === undefined) {
@@ -135,6 +136,8 @@ export class FakeSandboxProvider implements SandboxProvider {
 	readonly allowedHosts: string[] = [];
 	/** Every options object `getOrCreate` and `resume` received, in order; specs read `env` from it. */
 	readonly createOptions: SandboxCreateOptions[] = [];
+	/** The options of each `exec`, in the order of the "exec" entries in `calls`. */
+	readonly execOptions: (SandboxExecOptions | undefined)[] = [];
 	readonly scriptedExec = new Map<string, SandboxExecResult[]>();
 	private readonly projects = new Map<string, FakeProjectState>();
 
