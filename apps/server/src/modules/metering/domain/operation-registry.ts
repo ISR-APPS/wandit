@@ -71,7 +71,7 @@ export type FixedOperationPricing = ParentChildRules & {
 	minimumCredits?: number;
 	mode: "fixed";
 	reserveFloorCredits: number;
-	unit: "adjustment" | "image" | "lead" | "operation";
+	unit: "adjustment" | "image" | "lead" | "minute" | "operation";
 };
 
 /**
@@ -183,6 +183,17 @@ export const OPERATION_REGISTRY = {
 		reserveFloorCredits: MOBILE_BUILD_CREDITS,
 		rootAllowed: true,
 		unit: "operation",
+	},
+	// Appetize device minutes (WANDIT-196): zero credits inside the plan
+	// allowance. The event records the provider cost only.
+	mobile_preview: {
+		allowedChildOperations: NO_CHILDREN,
+		allowedParentOperations: NO_PARENTS,
+		creditsPerUnit: 0,
+		mode: "fixed",
+		reserveFloorCredits: 0,
+		rootAllowed: true,
+		unit: "minute",
 	},
 	page_build: {
 		allowedChildOperations: ["image"],

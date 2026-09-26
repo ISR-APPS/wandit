@@ -27,7 +27,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import type { AppProject } from "../../api/dto";
-import { ProjectBar } from "./top-bar";
+import { PreviewActions, ProjectBar } from "./top-bar";
 
 const PROJECT: AppProject = {
 	id: "nadi-fitness",
@@ -77,5 +77,50 @@ describe("ProjectBar", () => {
 		const { onExpandChat } = renderBar(false);
 		fireEvent.click(screen.getByRole("button", { name: "Show the chat" }));
 		expect(onExpandChat).toHaveBeenCalledOnce();
+	});
+});
+
+// Renders the preview controls of one project kind inside the two providers of the page.
+function renderActions(kind: AppProject["kind"]) {
+	const onOpenExternal = vi.fn();
+	const providerProps: ComponentProps<typeof I18nProvider> = {
+		locale: "en",
+		dictionary: fallbackDictionary,
+		setLocale: () => {},
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(PreviewActions, {
+				project: { ...PROJECT, kind },
+				device: "ios",
+				viewport: "desktop",
+				onChangeDevice: vi.fn(),
+				onChangeViewport: vi.fn(),
+				onReload: vi.fn(),
+				onOpenExternal,
+			}),
+		),
+	};
+	render(createElement(I18nProvider, providerProps));
+	return { onOpenExternal };
+}
+
+describe("PreviewActions", () => {
+	it("gives a web app the new-tab button and no Expo Go button", () => {
+		const { onOpenExternal } = renderActions("web");
+		fireEvent.click(screen.getByRole("button", { name: "Open in a new tab" }));
+		expect(onOpenExternal).toHaveBeenCalledOnce();
+		expect(screen.queryByRole("button", { name: "Open on phone" })).toBeNull();
+	});
+
+	it("gives a mobile app the Expo Go button and no new-tab button: it has no site", () => {
+		renderActions("mobile");
+		expect(screen.getByRole("button", { name: "Open on phone" })).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Open in a new tab" }),
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Reload the preview" }),
+		).toBeTruthy();
 	});
 });

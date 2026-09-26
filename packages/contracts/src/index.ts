@@ -106,6 +106,8 @@ export * from "./v2/cloud";
 export * from "./v2/code";
 // V2 project cost-cap contracts.
 export * from "./v2/cost-caps";
+// V2 Appetize device-session routes and the Appetize and Expo answers.
+export * from "./v2/device-sessions";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
 // V2 app-builder health contract.

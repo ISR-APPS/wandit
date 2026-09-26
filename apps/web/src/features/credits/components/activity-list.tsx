@@ -46,6 +46,7 @@ const OPERATION_ICONS: Record<CreditActivityOperation, LucideIcon> = {
 	agent_session: Bot,
 	sandbox: Server,
 	mobile_build: Smartphone,
+	mobile_preview: Smartphone,
 	topup_adjust: Scale,
 };
 

@@ -19,10 +19,8 @@ RUN npm install -g pnpm@11.7.0
 # pins in dist/bridge/pnpm-lock.yaml. A different version desyncs the bridge.
 RUN npm install -g @anthropic-ai/claude-code@2.1.245
 
-# Expo CLI for Metro projects (WANDIT-193). Same major line as apps/native.
-# UNVERIFIED: Metro may run fine from the project-local expo dependency;
-# the global copy is the fallback.
-RUN npm install -g expo@56.0.12
+# No global Expo CLI: `pnpm run dev` of the mobile-app template runs the
+# project-local `expo` (SDK 57). A global copy of another SDK only misleads.
 
 # Playwright CLI + Chromium. PLAYWRIGHT_BROWSERS_PATH is shared so the
 # non-root runtime user finds the browsers that root installed.
@@ -35,14 +33,16 @@ RUN playwright install --with-deps chromium \
 # whether the platform honors USER for runCommand is UNVERIFIED — the
 # image still declares it so a direct docker run is non-root.
 RUN useradd -m -s /bin/bash builder \
-	&& mkdir -p /workspace /opt/template-lock \
+	&& mkdir -p /workspace /opt/template-lock/web-app /opt/template-lock/mobile-app \
 	&& chown -R builder:builder /workspace /opt/template-lock
 
-# The web-app lockfile warms the builder's pnpm store at build time, so
+# The template lockfiles warm the builder's pnpm store at build time, so
 # `pnpm install --frozen-lockfile --offline` in ArchiveTemplateInit hits
-# the store instead of the network.
-COPY --chown=builder:builder templates/web-app/pnpm-lock.yaml /opt/template-lock/pnpm-lock.yaml
+# the store instead of the network, for web and mobile projects.
+COPY --chown=builder:builder templates/web-app/pnpm-lock.yaml /opt/template-lock/web-app/pnpm-lock.yaml
+COPY --chown=builder:builder templates/mobile-app/pnpm-lock.yaml /opt/template-lock/mobile-app/pnpm-lock.yaml
 
 USER builder
 WORKDIR /workspace
-RUN cd /opt/template-lock && pnpm fetch
+RUN cd /opt/template-lock/web-app && pnpm fetch \
+	&& cd /opt/template-lock/mobile-app && pnpm fetch

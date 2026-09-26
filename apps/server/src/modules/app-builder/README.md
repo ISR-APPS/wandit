@@ -145,7 +145,11 @@ partial unique index guarantees at most one live row per project.
   run-token transformation the session added stays in place.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
-  command env; the vendor route only reaches a `0.0.0.0` listener.
+  command env; the vendor route only reaches a `0.0.0.0` listener. A
+  `mobile-app` project also gets
+  `EXPO_PACKAGER_PROXY_URL=https://p-<projectId>.<PREVIEW_DOMAIN>`
+  (WANDIT-193): Expo CLI puts this fixed host in every manifest URL, and
+  the preview proxy writes the phone host over it.
 - Port additions in this slice: `SandboxCreateOptions` carries
   `ownerUserId` and `organizationId` (the provider writes them on the
   `sandbox_sessions` row it creates), and `SandboxLogger` is the narrow
@@ -1085,7 +1089,56 @@ A `creating` or `stopped` sandbox row, or a running row without
 `sandbox_sessions.touchActivity`, so an open preview keeps the idle
 sweep away.
 
+`?client=phone` (WANDIT-193) mints the same token for the phone link of
+Expo Go. It takes an optional `expoUsername` (`expoUsernameSchema`:
+letters, digits, `.`, `_`, `-`, at most 64), which becomes the
+`expoUsername` claim. Each phone mint logs `preview.phone-token.minted`
+with `projectId` and `userId`. The web app then POSTs the token as a
+plain-text body to `https://<run host>/__wandit/phone-link`. The Worker
+writes `phone:<id>` to `PREVIEW_KV` for 60 minutes and answers
+`{expoUrl: "exps://m-<id>--p-<projectId>.<PREVIEW_DOMAIN>", expiresAt}`.
+
 Env: `PREVIEW_DOMAIN`, `PREVIEW_TOKEN_SIGNING_KEY`. The same
 `PREVIEW_TOKEN_SIGNING_KEY` is the Worker secret; set it with
 `wrangler secret put`. The two values must match, or every token fails
 the signature check of the Worker.
+
+## Device preview (WANDIT-196)
+
+`POST /api/v2/projects/:projectId/device-sessions {platform}` starts an
+Appetize device that runs the store Expo Go on the project. It sits behind
+`V2BuilderEnabledGuard`, `RedisRateLimitGuard` (10 starts per user per
+minute), and `@RequireWorkspacePermission("project", "update")`.
+`DeviceSessionsService.start` checks, in order:
+
+1. The project is a V2 `mobile-app` project in scope, else 404.
+2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
+   503 `V2_ENV_MISSING`.
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
+   starter 0, pro 60, business 180, ESTIMATE), else 402
+   `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count their billed
+   minutes, or their elapsed minutes before the bill.
+4. The user holds no open session: Redis `SET NX PX` on
+   `mobile_preview:user:{userId}` for 17 minutes, else 409
+   `DEVICE_SESSION_OPEN`.
+5. A phone preview token mints a 60-minute phone link through the Worker,
+   and Metro answers `/status` through it, else 409 `SANDBOX_NOT_RUNNING`
+   or `METRO_NOT_READY`. A failure here frees the lock.
+
+The answer is the Appetize client config: `publicKey`, `device`,
+`osVersion`, `launchUrl` (`exps://<phone host>`), the Expo Go `params`,
+and `timeLimitSeconds` (900). `POST .../device-sessions/:id/end` stores
+the Appetize `session.token` once and frees the lock; a token that another
+row holds answers 409 `APPETIZE_SESSION_TAKEN`.
+
+The `device-minutes` Trigger task runs every 5 minutes on
+`meteringMaintenanceQueue` (concurrency 1). It bills each ended or stale
+row once from the Appetize session log (`closeTime - startTime`, rounded
+up), or from its own clock when the log is missing. It writes one
+`mobile_preview` event through `MeteringService.recordFreeUsage`: zero
+credits, status `reconciled`, and one `appetize` evidence row at $0.06 per
+minute. `pnpm appetize:upload-expo-go` uploads the Expo Go builds. See
+`docs/v2/spikes/P5-02-appetize.md`.
+
+Env: `APPETIZE_API_TOKEN` (server and Trigger.dev),
+`APPETIZE_IOS_PUBLIC_KEY`, `APPETIZE_ANDROID_PUBLIC_KEY`.

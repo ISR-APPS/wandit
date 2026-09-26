@@ -1,6 +1,7 @@
 /**
  * Mints the signed preview token behind
- * `GET /api/v2/projects/:projectId/preview-token` (WANDIT-170).
+ * `GET /api/v2/projects/:projectId/preview-token` (WANDIT-170), for the
+ * iframe or, with `client=phone`, for the phone link (WANDIT-193).
  * `PreviewTokenController` calls `mint`; the preview-proxy Worker in
  * `apps/preview-proxy` verifies the token. Reads `projects` and
  * `sandbox_sessions` through repositories and signs the claims with the
@@ -12,11 +13,13 @@ import {
 	ConflictException,
 	Inject,
 	Injectable,
+	Logger,
 	NotFoundException,
 } from "@nestjs/common";
 import {
 	PREVIEW_TOKEN_QUERY,
 	PREVIEW_TOKEN_TTL_SECONDS,
+	type PreviewTokenQuery,
 	type PreviewTokenResponse,
 	previewHostFor,
 	signPreviewToken,
@@ -41,6 +44,8 @@ import {
  */
 @Injectable()
 export class PreviewTokenService {
+	private readonly logger = new Logger(PreviewTokenService.name);
+
 	constructor(
 		// The Pick types keep each seam at the methods the service needs.
 		// A spec passes a plain fake. Nest still injects by the class token.
@@ -61,12 +66,14 @@ export class PreviewTokenService {
 	/**
 	 * Signs the preview token of the project's running sandbox and answers
 	 * the `?wt=` URL on the isolated `r-<rid12>--p-<projectId>` host.
-	 * Throws 404 for a missing, out-of-scope, or V1 project and 409
-	 * `SANDBOX_NOT_RUNNING` when no running row has a preview host.
+	 * A phone query adds the Expo Go username claim. Throws 404 for a
+	 * missing, out-of-scope, or V1 project and 409 `SANDBOX_NOT_RUNNING`
+	 * when no running row has a preview host.
 	 */
 	async mint(
 		scope: ProjectScope,
 		projectId: string,
+		query: PreviewTokenQuery = {},
 	): Promise<PreviewTokenResponse> {
 		// `z.uuid()` accepts upper-case hex and Postgres matches it, but the
 		// Worker lower-cases the host, so the claims must be lower-case too.
@@ -93,6 +100,9 @@ export class PreviewTokenService {
 		const token = await signPreviewToken(
 			{
 				exp,
+				// The schema accepts it only with client=phone; the Worker copies
+				// it into the phone link and the Expo manifest.
+				expoUsername: query.expoUsername,
 				jti: randomUUID(),
 				pid,
 				rid: row.id,
@@ -109,6 +119,14 @@ export class PreviewTokenService {
 		// A user who opens the preview counts as activity; the stamp keeps
 		// the idle sweep away while the preview is open.
 		await this.sessions.touchActivity(pid);
+		// A phone link opens the source bundles to any phone that holds it,
+		// so each mint leaves an audit line (WANDIT-193).
+		if (query.client === "phone") {
+			this.logger.log("preview.phone-token.minted", {
+				projectId: pid,
+				userId: scope.userId,
+			});
+		}
 
 		return {
 			expiresAt: new Date(exp * 1000).toISOString(),

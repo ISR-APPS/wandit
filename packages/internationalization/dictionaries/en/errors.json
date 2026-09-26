@@ -73,6 +73,9 @@
 		"AI_UNKNOWN": "Something went wrong. Please try again.",
 		"VERSION_CONFLICT": "The versions changed. Open the list again and retry.",
 		"BUILDER_TURN_ACTIVE": "Wait for the running turn to finish, then retry.",
+		"DEVICE_MINUTES_EXHAUSTED": "You used all your device minutes this month.",
+		"DEVICE_SESSION_OPEN": "A device is already open. Stop it first, or wait a few minutes.",
+		"METRO_NOT_READY": "Your app is still starting. Try again in a moment.",
 		"MOBILE_BUILD_ACTIVE": "A build of this app is already running. Wait for it to finish.",
 		"MOBILE_BUILD_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
 		"V2_ENV_MISSING": "This feature is not set up on the server yet. Try again later."

@@ -4,7 +4,8 @@
  * work pane controls with the main card. On phones the open chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project and thread queries. The URL search params hold the view state.
- * The Cloud view shows only behind useCloudTabEnabled.
+ * The Cloud view shows only behind useCloudTabEnabled; the Appetize device
+ * of a mobile project only behind useDevicePreviewEnabled.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ import {
 import type { AppBuilderSearch } from "../lib/schemas";
 import { useBuilderThread } from "../lib/use-builder-thread";
 import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
+import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
 
 export type AppBuilderPageProps = {
 	projectId: string;
@@ -74,6 +76,7 @@ export default function AppBuilderPage({
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
 	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
+	const isDevicePreviewEnabled = useDevicePreviewEnabled();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
@@ -195,6 +198,7 @@ export default function AppBuilderPage({
 						device={device}
 						reloadKey={reloadKey}
 						bootContext={bootContext}
+						canRunOnDevice={isDevicePreviewEnabled}
 					/>
 				)}
 			</div>

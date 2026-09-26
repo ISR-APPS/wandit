@@ -15,6 +15,7 @@ import { AppProjectsService } from "./application/services/app-projects.service"
 import { BackendsService } from "./application/services/backends.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
+import { DeviceSessionsService } from "./application/services/device-sessions.service";
 import {
 	LLM_PROXY_FETCH,
 	LlmProxyService,
@@ -30,6 +31,7 @@ import {
 	VersionsService,
 } from "./application/services/versions.service";
 import { LLM_PROXY_ENV } from "./domain/llm-upstream";
+import { DEVICE_SESSION_LOCK } from "./domain/ports/device-session-lock";
 import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
 import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
 import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
@@ -48,12 +50,15 @@ import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.r
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
+import { DeviceSessionsRepository } from "./infrastructure/persistence/device-sessions.repository";
 import { LlmProxyRequestsRepository } from "./infrastructure/persistence/llm-proxy-requests.repository";
 import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-builds.repository";
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
+import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import { TEMPLATE_INIT } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
@@ -68,6 +73,7 @@ import { AppProjectsController } from "./presentation/http/controllers/app-proje
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
+import { DeviceSessionsController } from "./presentation/http/controllers/device-sessions.controller";
 import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.controller";
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
@@ -91,6 +97,7 @@ describe("AppBuilderModule", () => {
 			CloudController,
 			CodeController,
 			CostCapsController,
+			DeviceSessionsController,
 			LlmProxyController,
 			MobileBuildsController,
 			PreviewTokenController,
@@ -121,11 +128,14 @@ describe("AppBuilderModule", () => {
 			BuilderTurnsRepository,
 			CloudService,
 			CodeService,
+			DeviceSessionsRepository,
+			DeviceSessionsService,
 			LlmProxyRequestsRepository,
 			LlmProxyService,
 			LlmSpendCounters,
 			MobileBuildsRepository,
 			MobileBuildsService,
+			PreviewProxyClient,
 			PreviewTokenService,
 			ProjectCostCapsRepository,
 			ProjectSecretsRepository,
@@ -139,6 +149,7 @@ describe("AppBuilderModule", () => {
 			TurnStreamRelayService,
 			V2BuilderEnabledGuard,
 			VersionsService,
+			{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
 			{
 				provide: EAS_BUILD_RUNNER,
 				useFactory: easBuildRunnerFromEnv,
