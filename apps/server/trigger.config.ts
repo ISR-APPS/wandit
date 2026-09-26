@@ -104,11 +104,13 @@ export default defineConfig({
 			// `<build>/templates/`, the first folder `resolveTemplateArchiveDir`
 			// tries. The deploy workflow runs `templates/pack-all.mjs` first; the
 			// archives are not in git. The base schema serves both templates.
+			// The `template-snapshot` task reads each `template_version` file.
 			// The six mobile-app files are the trusted install and eas.json of
 			// the `mobile-build` task; it never uses the user copies.
 			additionalFiles({
 				files: [
 					"../../templates/*-*.tar.gz",
+					"../../templates/*/template_version",
 					"../../templates/web-app/supabase/migrations/*.sql",
 					"../../templates/mobile-app/package.json",
 					"../../templates/mobile-app/pnpm-lock.yaml",

@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +13,7 @@ import {
 } from "./fake-sandbox.provider";
 import {
 	ArchiveTemplateInit,
+	hashTemplateArchive,
 	resolveTemplateArchiveDir,
 } from "./template-init";
 
@@ -102,6 +104,11 @@ describe("ArchiveTemplateInit", () => {
 			"git add -A",
 			"git -c user.name=wandit -c user.email=builder@wandit.dev commit -m init: template web-app@1.0.0",
 		]);
+		// A fixed date: the same files give the same root commit in every sandbox.
+		expect(provider.execOptions.at(-1)?.env).toEqual({
+			GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+			GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+		});
 	});
 
 	it("falls back to an online install when the offline install fails", async () => {
@@ -139,5 +146,77 @@ describe("ArchiveTemplateInit", () => {
 		await expect(promise).rejects.toThrow(
 			join(emptyDir, "web-app-1.0.0.tar.gz"),
 		);
+	});
+});
+
+describe("hashTemplateArchive", () => {
+	// Packs `files` with the system tar, like templates/*/scripts/pack.mjs,
+	// with every file time set to `time` (touch -t format). `links` maps a
+	// symlink path to its target.
+	async function pack(
+		files: Record<string, string>,
+		time: string,
+		links: Record<string, string> = {},
+	) {
+		const root = await mkdtemp(join(tmpdir(), "wandit-pack-"));
+		const source = join(root, "source");
+		for (const [path, content] of Object.entries(files)) {
+			await mkdir(dirname(join(source, path)), { recursive: true });
+			await writeFile(join(source, path), content);
+			execFileSync("touch", ["-t", time, join(source, path)]);
+		}
+		for (const [path, target] of Object.entries(links)) {
+			await symlink(target, join(source, path));
+		}
+		const archive = join(root, "template.tar.gz");
+		execFileSync("tar", ["-czf", archive, "-C", source, "."], {
+			env: { ...process.env, COPYFILE_DISABLE: "1" },
+		});
+		return readFile(archive);
+	}
+
+	const FILES = { "package.json": "{}", "src/app.tsx": "export {};" };
+
+	it("gives the same hash for the same files packed at another time", async () => {
+		const first = await pack(FILES, "202601010000");
+		const second = await pack(FILES, "202609260000");
+
+		// The bytes differ (file times), so the hash must read the content.
+		expect(first.equals(second)).toBe(false);
+		expect(hashTemplateArchive(second)).toBe(hashTemplateArchive(first));
+	});
+
+	it("gives a new hash when one file changes", async () => {
+		const first = await pack(FILES, "202601010000");
+		const changed = await pack(
+			{ ...FILES, "src/app.tsx": "export const x = 1;" },
+			"202601010000",
+		);
+
+		expect(hashTemplateArchive(changed)).not.toBe(hashTemplateArchive(first));
+	});
+
+	it("gives a new hash when a symlink gets a new target", async () => {
+		const first = await pack(FILES, "202601010000", {
+			"tsconfig.json": "package.json",
+		});
+		const moved = await pack(FILES, "202601010000", {
+			"tsconfig.json": "src/app.tsx",
+		});
+
+		expect(hashTemplateArchive(moved)).not.toBe(hashTemplateArchive(first));
+	});
+
+	it("contentHash hashes the archive of the template version", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "wandit-tpl-hash-"));
+		const bytes = await pack(FILES, "202601010000");
+		await writeFile(join(dir, "web-app-1.0.0.tar.gz"), bytes);
+
+		const hash = await new ArchiveTemplateInit(dir).contentHash({
+			framework: "web-app",
+			templateVersion: "web-app@1.0.0",
+		});
+
+		expect(hash).toBe(hashTemplateArchive(bytes));
 	});
 });

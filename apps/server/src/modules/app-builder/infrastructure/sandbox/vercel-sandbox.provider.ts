@@ -1,9 +1,10 @@
 /**
  * `SandboxProvider` on Vercel Sandbox (D1): one persistent named sandbox
  * per project in `cdg1`, resumed from its snapshot and rebuilt from the
- * template when the vendor lost it. The builder-turn task and the idle
- * sweep call it. All `@vercel/sandbox` / `@ai-sdk/sandbox-vercel` imports
- * in the codebase live in this folder — vendor isolation is a rule.
+ * template when the vendor lost it. A new sandbox boots from the template
+ * snapshot when one is ready. The builder-turn task, the idle sweep, and
+ * the template-snapshot task call it. All `@vercel/sandbox` /
+ * `@ai-sdk/sandbox-vercel` imports live in this folder (vendor isolation).
  */
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
@@ -15,6 +16,7 @@ import {
 	type NetworkPolicy,
 	Sandbox,
 	type SandboxRegion,
+	Snapshot,
 } from "@vercel/sandbox";
 import { packagerHostFor } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -22,6 +24,7 @@ import { Sentry } from "@wandit/observability/node";
 
 import { SandboxForkNotSupportedError } from "../../domain/errors/sandbox-fork-not-supported.error";
 import { SandboxNotFoundError } from "../../domain/errors/sandbox-not-found.error";
+import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
 import type { RepoRestorer } from "../../domain/ports/git-store";
 import { REPO_RESTORER } from "../../domain/ports/git-store";
 import type {
@@ -46,7 +49,7 @@ import {
 	SandboxSessionsRepository,
 	type SandboxSessionsStore,
 } from "../persistence/sandbox-sessions.repository";
-import { buildNetworkPolicy } from "./network-policy";
+import { buildNetworkPolicy, SANDBOX_DENIED_RANGES } from "./network-policy";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
 import { TEMPLATE_PROFILES } from "./template-profiles";
 
@@ -70,6 +73,23 @@ const SANDBOX_VCPUS = 2;
 
 /** Vendor managed image when `VERCEL_SANDBOX_IMAGE` is unset. */
 const DEFAULT_IMAGE = "vercel/sandbox/node:22";
+
+/** Name start of a template snapshot builder; `listSnapshots` finds the snapshot by that name. */
+const TEMPLATE_SNAPSHOT_NAME_PREFIX = "wandit-template-";
+
+/**
+ * Part of the template snapshot name. Increase it when the build steps
+ * change what the disk holds: `ensureTemplateSnapshot`,
+ * `ArchiveTemplateInit.apply`, or `BuilderHarness.prepareSandbox`.
+ */
+const TEMPLATE_SNAPSHOT_BUILD_VERSION = "1";
+
+/**
+ * 30 days, the vendor default. Each boot from the snapshot resets the
+ * count, so only an unused old snapshot expires. A project sandbox made
+ * from it still resumes after that (checked on the vendor).
+ */
+const TEMPLATE_SNAPSHOT_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** One command the provider runs in the sandbox, as the SDK takes it. */
 type VercelRunCommandParams = {
@@ -103,12 +123,20 @@ export type VercelSandboxInstance = {
 	 * The vendor session; `cwd` is the default working directory of the
 	 * image. `networkPolicy` is the policy the vendor read back with the
 	 * session, or undefined when the answer carried none. Its `runCommand`
-	 * fails on a stopped session; `Sandbox.runCommand` resumes it first.
+	 * and its `snapshot` fail on a stopped session; the `Sandbox` methods
+	 * resume it first.
 	 */
 	currentSession(): {
 		readonly cwd: string;
 		readonly networkPolicy: NetworkPolicy | undefined;
 		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+		/**
+		 * Saves the disk as a snapshot and stops the sandbox. `expiration` is
+		 * in ms; the vendor counts it from the last boot from the snapshot.
+		 */
+		snapshot(opts: { expiration: number }): Promise<{
+			readonly snapshotId: string;
+		}>;
 	};
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
@@ -159,12 +187,12 @@ export type VercelCredentials = {
 /**
  * Parameters the provider passes to `Sandbox.getOrCreate`. Hooks are typed
  * on `VercelSandboxInstance`, not the vendor class, so spec fakes can call
- * them without a cast.
+ * them without a cast. A create boots from `image` or from a snapshot
+ * `source`, never both: the SDK types `image` as `never` next to `source`.
  */
 export type VercelGetOrCreateParams = VercelCredentials & {
 	name?: string;
 	region: SandboxRegion;
-	image?: string;
 	env?: Record<string, string>;
 	persistent?: boolean;
 	ports?: number[];
@@ -181,7 +209,14 @@ export type VercelGetOrCreateParams = VercelCredentials & {
 	onCreate?: (sandbox: VercelSandboxInstance) => Promise<void>;
 	/** Fires when the call resumed a stopped sandbox. */
 	onResume?: (sandbox: VercelSandboxInstance) => Promise<void>;
-};
+} & (
+		| { image?: string; source?: undefined }
+		| {
+				image?: undefined;
+				/** The template snapshot a new sandbox boots from; ignored when the sandbox exists. */
+				source: { type: "snapshot"; snapshotId: string };
+		  }
+	);
 
 /** Parameters the provider passes to `Sandbox.get`. */
 export type VercelGetParams = VercelCredentials & {
@@ -189,19 +224,39 @@ export type VercelGetParams = VercelCredentials & {
 	resume?: boolean;
 };
 
+/** Parameters the provider passes to `Snapshot.list`. */
+export type VercelListSnapshotsParams = VercelCredentials & {
+	/** Name of the sandbox that took the snapshots. */
+	name: string;
+	limit: number;
+	/** "desc" answers the newest snapshot first. */
+	sortOrder: "asc" | "desc";
+};
+
+/** One page of `Snapshot.list`, with the fields the provider reads. */
+export type VercelSnapshotList = {
+	readonly snapshots: ReadonlyArray<{
+		readonly id: string;
+		/** Only a "created" snapshot can boot a sandbox. */
+		readonly status: "created" | "deleted" | "failed";
+	}>;
+};
+
 /**
- * Wraps the two static `Sandbox` entry points the provider uses. The
- * default is the real SDK; specs inject a fake through the constructor.
+ * Wraps the static `Sandbox` and `Snapshot` entry points the provider uses.
+ * The default is the real SDK; specs inject a fake through the constructor.
  */
 export type VercelSandboxSdk = {
 	get(params: VercelGetParams): Promise<VercelSandboxInstance>;
 	getOrCreate(params: VercelGetOrCreateParams): Promise<VercelSandboxInstance>;
+	listSnapshots(params: VercelListSnapshotsParams): Promise<VercelSnapshotList>;
 };
 
 /** The live binding; a spec replaces it through the constructor. */
 const vercelSandboxSdk: VercelSandboxSdk = {
 	get: (params) => Sandbox.get(params),
 	getOrCreate: (params) => Sandbox.getOrCreate(params),
+	listSnapshots: (params) => Snapshot.list(params),
 };
 
 /** The project root: the harness work dir under the vendor default cwd. */
@@ -242,6 +297,18 @@ async function runCommandToEnd(
 /** The vendor answers 404 when the named sandbox is gone. */
 function isSandboxNotFound(error: unknown): boolean {
 	return error instanceof APIError && error.response.status === 404;
+}
+
+/**
+ * A 4xx answer from the vendor. A create from a deleted snapshot gets one;
+ * the vendor does not document which code.
+ */
+function isVendorClientError(error: unknown): boolean {
+	return (
+		error instanceof APIError &&
+		error.response.status >= 400 &&
+		error.response.status < 500
+	);
 }
 
 /** `SandboxHandle` over one live vendor sandbox. */
@@ -522,6 +589,81 @@ export class VercelSandboxProvider implements SandboxProvider {
 	}
 
 	/**
+	 * Builds the template snapshot of this template, image, and harness when
+	 * none is ready. A new project sandbox then boots with the template, its
+	 * packages, and the harness already on disk. The `template-snapshot`
+	 * task calls it; a failure throws and leaves no snapshot.
+	 */
+	async ensureTemplateSnapshot(
+		template: { framework: string; templateVersion: string },
+		harness: {
+			/** `BuilderHarness.bootstrapKey`; part of the snapshot name. */
+			key: string;
+			/** `BuilderHarness.prepareSandbox`; installs the harness. */
+			prepare: (sandbox: SandboxHandle) => Promise<void>;
+		},
+	): Promise<"exists" | "built"> {
+		const image = this.image();
+		const name = await this.templateSnapshotName(template, image, harness.key);
+		if ((await this.readySnapshotId(name)) !== null) {
+			return "exists";
+		}
+		// A crashed build leaves its sandbox with no snapshot. Delete it, so
+		// the new build gets the name.
+		await (await this.getVendorSandbox(name))?.delete();
+		// The build installs npm packages only and holds no secret, so the
+		// npm registry is its only host.
+		const policy: SandboxNetworkPolicy = {
+			allowedHosts: ["registry.npmjs.org"],
+			deniedRanges: [...SANDBOX_DENIED_RANGES],
+		};
+		const sandbox = await this.sdk.getOrCreate({
+			...this.credentials(),
+			image,
+			name,
+			networkPolicy: toVendorNetworkPolicy(policy),
+			// Not persistent: a persistent sandbox takes a snapshot at each stop,
+			// so a crashed build would leave a half-built snapshot.
+			persistent: false,
+			region: "cdg1",
+			resources: { vcpus: SANDBOX_VCPUS },
+			timeout: SANDBOX_TIMEOUT_MS,
+		});
+		// The handle methods resume a stopped session on an empty disk. The
+		// check and the snapshot use this first session, so a lost disk fails
+		// the build and never becomes the shared snapshot.
+		const session = sandbox.currentSession();
+		try {
+			const handle = new VercelSandboxHandle(name, sandbox, policy);
+			await this.templateInit.apply(handle, template);
+			await harness.prepare(handle);
+			const commit = await session.runCommand({
+				args: ["rev-parse", "--verify", "HEAD"],
+				cmd: "git",
+				cwd: handle.workspaceDir,
+			});
+			if (commit.exitCode !== 0) {
+				throw new Error(
+					`Template snapshot ${name}: the workspace has no template commit`,
+				);
+			}
+			// The snapshot stops the sandbox.
+			await session.snapshot({ expiration: TEMPLATE_SNAPSHOT_EXPIRATION_MS });
+		} catch (error) {
+			await sandbox.delete().catch((deleteFailure: unknown) => {
+				this.logger.error("sandbox.template-snapshot.release-failed", {
+					error: errorMessage(deleteFailure),
+					sandboxId: name,
+				});
+			});
+			throw error;
+		}
+		// LIMIT: the stopped builder of each old name stays in the vendor list;
+		// it runs no compute. Upgrade: delete the builders of old names here.
+		return "built";
+	}
+
+	/**
 	 * The shared get/resume flow: the vendor `getOrCreate` resumes a stopped
 	 * sandbox, no-ops on a live one, and creates — firing `onCreate` — when
 	 * the named sandbox is gone (`not_found` or an expired snapshot).
@@ -533,7 +675,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		credentials: VercelCredentials,
 		context: { hadLiveRow: boolean },
 	): Promise<SandboxHandle> {
-		const image = this.envSource.VERCEL_SANDBOX_IMAGE ?? DEFAULT_IMAGE;
+		const image = this.image();
 		// Specs pass a subset of the env; the zod default sets it in production.
 		const mode = this.envSource.V2_SANDBOX_EGRESS_MODE ?? "strict";
 		const org = this.envSource.CODE_STORAGE_ORG ?? null;
@@ -587,12 +729,17 @@ export class VercelSandboxProvider implements SandboxProvider {
 		if (row.status !== "running") {
 			await reportWake();
 		}
+		// The vendor reads a boot source only on a create, so a running row
+		// skips the lookup: a warm turn makes no extra vendor call.
+		let templateSnapshotId =
+			row.status === "running" || options.harnessKey === undefined
+				? null
+				: await this.findTemplateSnapshot(options, image, options.harnessKey);
 		let created = false;
 		let resumed = false;
-		const sandbox = await this.sdk.getOrCreate({
+		const bootParams = {
 			...credentials,
 			env: options.env,
-			image,
 			keepLastSnapshots: { count: 1 },
 			name: projectId,
 			networkPolicy: vendorPolicy,
@@ -610,7 +757,31 @@ export class VercelSandboxProvider implements SandboxProvider {
 			onResume: async () => {
 				resumed = true;
 			},
-		});
+		} satisfies VercelGetOrCreateParams;
+		let sandbox: VercelSandboxInstance;
+		try {
+			sandbox = await this.sdk.getOrCreate(
+				templateSnapshotId === null
+					? { ...bootParams, image }
+					: {
+							...bootParams,
+							source: { snapshotId: templateSnapshotId, type: "snapshot" },
+						},
+			);
+		} catch (error) {
+			if (templateSnapshotId === null || !isVendorClientError(error)) {
+				throw error;
+			}
+			// The snapshot only saves time. When the vendor refuses it, for
+			// example after a delete, the sandbox boots from the image.
+			this.logger.warn("sandbox.template-snapshot.boot-failed", {
+				error: errorMessage(error),
+				projectId,
+				snapshotId: templateSnapshotId,
+			});
+			templateSnapshotId = null;
+			sandbox = await this.sdk.getOrCreate({ ...bootParams, image });
+		}
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
 		// The row keeps the digest of the policy last pushed to the vendor. A
@@ -634,10 +805,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 					sandbox.name,
 					context.hadLiveRow ? "warn" : "info",
 				);
-				await this.templateInit.apply(handle, {
-					framework: options.framework,
-					templateVersion: options.templateVersion,
-				});
+				// The template snapshot already holds the template, its packages,
+				// its commit, and the harness install.
+				if (templateSnapshotId === null) {
+					await this.templateInit.apply(handle, {
+						framework: options.framework,
+						templateVersion: options.templateVersion,
+					});
+				} else {
+					this.logger.info("sandbox.template-snapshot.boot", {
+						projectId,
+						sandboxId: sandbox.name,
+						snapshotId: templateSnapshotId,
+					});
+				}
 				await this.repoRestorer.restore(projectId, handle);
 				await this.bootServices(projectId, sandbox, options);
 			} else {
@@ -851,6 +1032,73 @@ export class VercelSandboxProvider implements SandboxProvider {
 			teamId: requireV2Env("VERCEL_TEAM_ID", this.envSource),
 			token: requireV2Env("VERCEL_SANDBOX_TOKEN", this.envSource),
 		};
+	}
+
+	private image(): string {
+		return this.envSource.VERCEL_SANDBOX_IMAGE ?? DEFAULT_IMAGE;
+	}
+
+	/**
+	 * `wandit-template-<framework>-<16 hex>`. A change of the build steps, the
+	 * template files, the image, or the harness install gives a new name, so
+	 * a new build.
+	 */
+	private async templateSnapshotName(
+		template: { framework: string; templateVersion: string },
+		image: string,
+		harnessKey: string,
+	): Promise<string> {
+		const key = createHash("sha256")
+			.update(
+				[
+					TEMPLATE_SNAPSHOT_BUILD_VERSION,
+					await this.templateInit.contentHash(template),
+					image,
+					harnessKey,
+				].join("\n"),
+			)
+			.digest("hex");
+		// 16 hex chars (64 bits) keep the name short; a clash needs about 2^32 keys.
+		return `${TEMPLATE_SNAPSHOT_NAME_PREFIX}${template.framework}-${key.slice(0, 16)}`;
+	}
+
+	/** The id of the newest ready snapshot of this builder name, or null. */
+	private async readySnapshotId(name: string): Promise<string | null> {
+		const listed = await this.sdk.listSnapshots({
+			...this.credentials(),
+			limit: 1,
+			name,
+			sortOrder: "desc",
+		});
+		const newest = listed.snapshots[0];
+		return newest?.status === "created" ? newest.id : null;
+	}
+
+	/**
+	 * The template snapshot a new project sandbox boots from, or null. A
+	 * failed lookup answers null too: the boot from the image still works.
+	 */
+	private async findTemplateSnapshot(
+		template: { framework: string; templateVersion: string },
+		image: string,
+		harnessKey: string,
+	): Promise<string | null> {
+		try {
+			return await this.readySnapshotId(
+				await this.templateSnapshotName(template, image, harnessKey),
+			);
+		} catch (error) {
+			// The snapshot only saves time, so the boot continues from the image.
+			// A deploy ships only the current archive: an older project that
+			// resumes has no archive and needs none, so that case logs nothing.
+			if (!(error instanceof TemplateArchiveMissingError)) {
+				this.logger.warn("sandbox.template-snapshot.lookup-failed", {
+					error: errorMessage(error),
+					framework: template.framework,
+				});
+			}
+			return null;
+		}
 	}
 }
 

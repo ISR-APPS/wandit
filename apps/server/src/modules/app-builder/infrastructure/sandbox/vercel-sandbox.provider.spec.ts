@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SandboxForkNotSupportedError } from "../../domain/errors/sandbox-fork-not-supported.error";
 import { SandboxNotFoundError } from "../../domain/errors/sandbox-not-found.error";
+import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
 import type { RepoRestorer } from "../../domain/ports/git-store";
 import type {
 	SandboxCreateOptions,
@@ -17,9 +18,11 @@ import type { TemplateInit } from "./template-init";
 import {
 	type VercelGetOrCreateParams,
 	type VercelGetParams,
+	type VercelListSnapshotsParams,
 	type VercelSandboxInstance,
 	VercelSandboxProvider,
 	type VercelSandboxSdk,
+	type VercelSnapshotList,
 } from "./vercel-sandbox.provider";
 
 const harnessMocks = vi.hoisted(() => ({
@@ -83,6 +86,15 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 				}
 				this.events.push("sessionRunCommand");
 				return this.runCommand(params);
+			},
+			snapshot: (opts: { expiration: number }) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				// Like the vendor: the snapshot stops the sandbox.
+				this.stopped = true;
+				this.snapshotExpiration = opts.expiration;
+				return Promise.resolve({ snapshotId: `snap-${this.name}` });
 			},
 		};
 	}
@@ -179,12 +191,35 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 		this.deleted = true;
 		return Promise.resolve();
 	}
+
+	/** The `expiration` of the last session `snapshot` call; null before one. */
+	snapshotExpiration: number | null = null;
 }
 
 class FakeVercelSdk implements VercelSandboxSdk {
 	readonly getOrCreateCalls: VercelGetOrCreateParams[] = [];
 	readonly instances = new Map<string, FakeVercelSandbox>();
 	private readonly gone = new Set<string>();
+	/** The snapshot `listSnapshots` answers for every name; null answers none. */
+	readySnapshot: VercelSnapshotList["snapshots"][number] | null = null;
+	/** Every name `listSnapshots` received, in call order. */
+	readonly listedNames: string[] = [];
+	/** When set, `listSnapshots` rejects with it: the lookup-failed path. */
+	listFailWith: Error | null = null;
+	/** When set, a create from a snapshot `source` answers this HTTP status. 404 is a deleted snapshot. */
+	rejectSnapshotSourceWith: number | null = null;
+
+	listSnapshots(
+		params: VercelListSnapshotsParams,
+	): Promise<VercelSnapshotList> {
+		this.listedNames.push(params.name);
+		if (this.listFailWith) {
+			return Promise.reject(this.listFailWith);
+		}
+		return Promise.resolve({
+			snapshots: this.readySnapshot ? [this.readySnapshot] : [],
+		});
+	}
 
 	/** Simulates the vendor losing the named sandbox. */
 	expire(name: string): void {
@@ -209,12 +244,18 @@ class FakeVercelSdk implements VercelSandboxSdk {
 		this.getOrCreateCalls.push(params);
 		const name = params.name;
 		const existing = name ? this.instances.get(name) : undefined;
-		if (existing && !(name && this.gone.has(name))) {
+		if (existing && !existing.deleted && !(name && this.gone.has(name))) {
 			if (params.resume && existing.stopped) {
 				existing.stopped = false;
 				await params.onResume?.(existing);
 			}
 			return existing;
+		}
+		if (params.source && this.rejectSnapshotSourceWith !== null) {
+			throw new APIError(
+				new Response(null, { status: this.rejectSnapshotSourceWith }),
+				{ message: "snapshot boot refused" },
+			);
 		}
 		const created = new FakeVercelSandbox(
 			name ?? `anon-${this.instances.size}`,
@@ -235,6 +276,16 @@ class FakeTemplateInit implements TemplateInit {
 	readonly applied: { framework: string; templateVersion: string }[] = [];
 	/** When set, `apply` rejects with it: the upload-failed path. */
 	failWith: Error | null = null;
+	/** What `contentHash` answers; a spec changes it to change the template files. */
+	hash = "content-hash-1";
+	/** When set, `contentHash` rejects with it: an archive that is not shipped. */
+	hashFailWith: Error | null = null;
+
+	contentHash(): Promise<string> {
+		return this.hashFailWith
+			? Promise.reject(this.hashFailWith)
+			: Promise.resolve(this.hash);
+	}
 
 	apply(
 		_sandbox: SandboxHandle,
@@ -511,6 +562,267 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 			ServiceUnavailableException,
 		);
 		expect(sessions.rows.size).toBe(0);
+	});
+});
+
+describe("VercelSandboxProvider template snapshot boot", () => {
+	const WITH_KEY: SandboxCreateOptions = {
+		...OPTIONS,
+		harnessKey: "harness-1",
+	};
+	const READY = { id: "snap-ready", status: "created" } as const;
+
+	it("boots a new sandbox from the ready snapshot and skips the template init", async () => {
+		const { logger, provider, restorer, sdk, sessions, templateInit } = setup();
+		sdk.readySnapshot = READY;
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		const params = sdk.getOrCreateCalls[0];
+		expect(params?.source).toEqual({
+			snapshotId: "snap-ready",
+			type: "snapshot",
+		});
+		expect(params?.image).toBeUndefined();
+		// The snapshot boot keeps the project egress policy and env of an image boot.
+		const imageBoot = setup();
+		await imageBoot.provider.getOrCreate("p1", OPTIONS);
+		expect(params?.networkPolicy).toBeDefined();
+		expect(params?.networkPolicy).toEqual(
+			imageBoot.sdk.getOrCreateCalls[0]?.networkPolicy,
+		);
+		expect(params?.env).toEqual(WITH_KEY.env);
+		expect(templateInit.applied).toEqual([]);
+		// The restore and the dev server still run: the snapshot holds no project work.
+		expect(restorer.restored).toEqual(["p1"]);
+		expect(
+			sdk.instances
+				.get("p1")
+				?.commands.some((command) => command.args?.includes("pnpm dev")),
+		).toBe(true);
+		expect((await sessions.findLiveByProjectId("p1"))?.status).toBe("running");
+		expect(logger.info).toHaveBeenCalledWith(
+			"sandbox.template-snapshot.boot",
+			expect.objectContaining({ snapshotId: "snap-ready" }),
+		);
+	});
+
+	it("boots from the image and makes no lookup without a harness key", async () => {
+		const { provider, sdk, templateInit } = setup();
+		sdk.readySnapshot = READY;
+
+		await provider.getOrCreate("p1", OPTIONS);
+
+		expect(sdk.listedNames).toEqual([]);
+		expect(sdk.getOrCreateCalls[0]?.image).toBe(
+			"registry.test/wandit/sandbox:1",
+		);
+		expect(templateInit.applied).toHaveLength(1);
+	});
+
+	it("boots from the image when no snapshot is ready", async () => {
+		const { provider, sdk, templateInit } = setup();
+		sdk.readySnapshot = { id: "snap-old", status: "deleted" };
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		expect(sdk.getOrCreateCalls[0]?.source).toBeUndefined();
+		expect(templateInit.applied).toHaveLength(1);
+	});
+
+	it("boots from the image when the snapshot lookup fails", async () => {
+		const { logger, provider, sdk, templateInit } = setup();
+		sdk.listFailWith = new Error("vendor down");
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		expect(sdk.getOrCreateCalls[0]?.source).toBeUndefined();
+		expect(templateInit.applied).toHaveLength(1);
+		expect(logger.warn).toHaveBeenCalledWith(
+			"sandbox.template-snapshot.lookup-failed",
+			expect.objectContaining({ error: "vendor down" }),
+		);
+	});
+
+	it("boots from the image when the vendor refuses the snapshot", async () => {
+		const { logger, provider, sdk, templateInit } = setup();
+		sdk.readySnapshot = READY;
+		sdk.rejectSnapshotSourceWith = 404;
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		expect(sdk.getOrCreateCalls.map((call) => call.source?.snapshotId)).toEqual(
+			["snap-ready", undefined],
+		);
+		const retry = sdk.getOrCreateCalls[1];
+		expect(retry?.image).toBe("registry.test/wandit/sandbox:1");
+		expect(retry?.networkPolicy).toEqual(
+			sdk.getOrCreateCalls[0]?.networkPolicy,
+		);
+		expect(retry?.env).toEqual(WITH_KEY.env);
+		expect(templateInit.applied).toHaveLength(1);
+		expect(logger.warn).toHaveBeenCalledWith(
+			"sandbox.template-snapshot.boot-failed",
+			expect.objectContaining({ snapshotId: "snap-ready" }),
+		);
+	});
+
+	it("rethrows a vendor 5xx on the snapshot boot and makes no image boot", async () => {
+		const { provider, sdk, templateInit } = setup();
+		sdk.readySnapshot = READY;
+		sdk.rejectSnapshotSourceWith = 500;
+
+		await expect(provider.getOrCreate("p1", WITH_KEY)).rejects.toBeInstanceOf(
+			APIError,
+		);
+
+		expect(sdk.getOrCreateCalls).toHaveLength(1);
+		expect(templateInit.applied).toEqual([]);
+	});
+
+	it("resumes an older project with no shipped archive and logs no warning", async () => {
+		const { logger, provider, templateInit } = setup();
+		await provider.getOrCreate("p1", OPTIONS);
+		await provider.stop("p1");
+		templateInit.hashFailWith = new TemplateArchiveMissingError(
+			"/templates/web-app-0.9.0.tar.gz",
+			new Error("ENOENT"),
+		);
+		logger.warn.mockClear();
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		expect(logger.warn).not.toHaveBeenCalled();
+		expect(templateInit.applied).toHaveLength(1);
+	});
+
+	it("makes no lookup on a plain reuse of a running sandbox", async () => {
+		const { provider, sdk } = setup();
+		sdk.readySnapshot = READY;
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		await provider.getOrCreate("p1", WITH_KEY);
+
+		expect(sdk.listedNames).toHaveLength(1);
+	});
+
+	it("names the snapshot after the template files, the image, and the harness key", async () => {
+		const { provider, sdk, templateInit } = setup();
+		const other = setup({ ...ENV_SOURCE, VERCEL_SANDBOX_IMAGE: "other:2" });
+
+		await provider.getOrCreate("p1", WITH_KEY);
+		await provider.getOrCreate("p2", { ...WITH_KEY, harnessKey: "harness-2" });
+		templateInit.hash = "content-hash-2";
+		await provider.getOrCreate("p3", WITH_KEY);
+		await other.provider.getOrCreate("p1", WITH_KEY);
+
+		const names = [...sdk.listedNames, ...other.sdk.listedNames];
+		expect(names[0]).toMatch(/^wandit-template-web-app-[0-9a-f]{16}$/);
+		expect(new Set(names).size).toBe(4);
+	});
+});
+
+describe("VercelSandboxProvider.ensureTemplateSnapshot", () => {
+	const TEMPLATE = { framework: "web-app", templateVersion: "web-app@1.0.0" };
+
+	function harnessFake() {
+		const prepared: string[] = [];
+		return {
+			harness: {
+				key: "harness-1",
+				prepare: async (sandbox: SandboxHandle) => {
+					prepared.push(sandbox.providerSandboxId);
+				},
+			},
+			prepared,
+		};
+	}
+
+	it("answers exists and builds nothing when a snapshot is ready", async () => {
+		const { provider, sdk } = setup();
+		sdk.readySnapshot = { id: "snap-ready", status: "created" };
+
+		const outcome = await provider.ensureTemplateSnapshot(
+			TEMPLATE,
+			harnessFake().harness,
+		);
+
+		expect(outcome).toBe("exists");
+		expect(sdk.getOrCreateCalls).toEqual([]);
+	});
+
+	it("builds the template and the harness in a sandbox with no secret, then snapshots it", async () => {
+		const { provider, sdk, templateInit } = setup();
+		const { harness, prepared } = harnessFake();
+
+		const outcome = await provider.ensureTemplateSnapshot(TEMPLATE, harness);
+
+		expect(outcome).toBe("built");
+		const params = sdk.getOrCreateCalls[0];
+		const name = sdk.listedNames[0];
+		expect(params?.name).toBe(name);
+		// Not persistent: only the explicit snapshot below may exist.
+		expect(params?.persistent).toBe(false);
+		expect(params?.region).toBe("cdg1");
+		expect(params?.image).toBe("registry.test/wandit/sandbox:1");
+		expect(params?.env).toBeUndefined();
+		expect(params?.networkPolicy).toEqual({
+			allow: ["registry.npmjs.org"],
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+		expect(templateInit.applied).toEqual([TEMPLATE]);
+		expect(prepared).toEqual([name]);
+		// 30 days after the last boot from it: an unused old snapshot expires.
+		expect(sdk.instances.get(name ?? "")?.snapshotExpiration).toBe(
+			30 * 24 * 60 * 60 * 1000,
+		);
+	});
+
+	it("takes no snapshot when the workspace has no template commit", async () => {
+		const { provider, sdk } = setup();
+		const outcome = provider.ensureTemplateSnapshot(TEMPLATE, {
+			key: "harness-1",
+			// A lost disk: the session answers that HEAD does not exist.
+			prepare: async (sandbox) => {
+				sdk.instances.get(sandbox.providerSandboxId)?.respondTo("git", {
+					exitCode: 128,
+					stderr: () => Promise.resolve("fatal: Needed a single revision"),
+					stdout: () => Promise.resolve(""),
+				});
+			},
+		});
+
+		await expect(outcome).rejects.toThrow("no template commit");
+		const sandbox = sdk.instances.get(sdk.listedNames[0] ?? "");
+		expect(sandbox?.snapshotExpiration).toBeNull();
+		expect(sandbox?.deleted).toBe(true);
+	});
+
+	it("deletes the sandbox of a crashed build before a new build", async () => {
+		const { provider, sdk } = setup();
+		const { harness } = harnessFake();
+		await provider.ensureTemplateSnapshot(TEMPLATE, harness);
+		const name = sdk.listedNames[0] ?? "";
+		const crashed = sdk.instances.get(name);
+
+		const outcome = await provider.ensureTemplateSnapshot(TEMPLATE, harness);
+
+		expect(outcome).toBe("built");
+		expect(crashed?.deleted).toBe(true);
+		expect(sdk.instances.get(name)).not.toBe(crashed);
+	});
+
+	it("deletes the sandbox and takes no snapshot when a build step fails", async () => {
+		const { provider, sdk, templateInit } = setup();
+		templateInit.failWith = new Error("install failed");
+
+		await expect(
+			provider.ensureTemplateSnapshot(TEMPLATE, harnessFake().harness),
+		).rejects.toThrow("install failed");
+
+		const sandbox = sdk.instances.get(sdk.listedNames[0] ?? "");
+		expect(sandbox?.deleted).toBe(true);
+		expect(sandbox?.snapshotExpiration).toBeNull();
 	});
 });
 

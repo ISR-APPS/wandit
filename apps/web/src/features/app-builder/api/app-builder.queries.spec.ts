@@ -7,7 +7,11 @@ import {
 	type ApiRequestOptions,
 	type apiClient,
 } from "@/lib/api-client";
-import { appBuilderKeys, codeSnapshotQuery } from "./app-builder.queries";
+import {
+	appBuilderKeys,
+	codeSnapshotPollMs,
+	codeSnapshotQuery,
+} from "./app-builder.queries";
 
 const PROJECT_ID = crypto.randomUUID();
 
@@ -29,6 +33,19 @@ function getAnswers(body: CodeSnapshotResponse): typeof apiClient.get {
 	// parses the answer with its contracts schema.
 	return (async () => body) as typeof apiClient.get;
 }
+
+describe("codeSnapshotPollMs", () => {
+	it("polls every 3 s while a turn runs and no sandbox answered", () => {
+		expect(codeSnapshotPollMs(null, true)).toBe(3_000);
+	});
+
+	it("does not poll with files, with no running turn, or before the first answer", () => {
+		const snapshot = { branch: "main", defaultFilePath: null, tree: [] };
+		expect(codeSnapshotPollMs(snapshot, true)).toBe(false);
+		expect(codeSnapshotPollMs(null, false)).toBe(false);
+		expect(codeSnapshotPollMs(undefined, true)).toBe(false);
+	});
+});
 
 describe("codeSnapshotQuery", () => {
 	it("answers the tree and puts each prefetched file into its file query", async () => {

@@ -86,6 +86,12 @@ export type SandboxCreateOptions = {
 	 * the `sandbox_waking` status from it.
 	 */
 	onWake?: () => Promise<void>;
+	/**
+	 * Hash of the harness install, from `BuilderHarness.bootstrapKey`. With
+	 * it, a new sandbox boots from the template snapshot of the same key
+	 * when one exists. Absent, it boots from the image; a restore passes none.
+	 */
+	harnessKey?: string;
 };
 
 /** How one `exec` runs inside the sandbox. */

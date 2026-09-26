@@ -1330,6 +1330,9 @@ export async function runBuilderTurn(
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
 			templateVersion: project.templateVersion,
+			// A new sandbox boots from the template snapshot of this harness
+			// install: the template and the harness are already on its disk.
+			harnessKey: await deps.harness.bootstrapKey(),
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
 		stamps.sandboxEnd = deps.now();
