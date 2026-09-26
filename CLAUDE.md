@@ -15,6 +15,12 @@ Only report to me in ASD-STE100 Simplified Technical English
   6. When Claude needs to read server output itself, capture the pane instead of tailing files: `tmux capture-pane -p -e -t <name> -S -300`.
   7. Also **print the backend auth URLs for Google sign-in** (authorized JavaScript origin + the Google OAuth redirect/callback URL, e.g. `http://localhost:<api-port>/api/auth/callback/google`) so Zack can copy them into the Google Cloud Console and authentication works on that worktree's ports.
 
+## Dev sign-in
+
+- A local API (`NODE_ENV=development`, `BETTER_AUTH_URL` on localhost) accepts email and password sign-in. Sign-up stays off.
+- The API seeds one account at boot: `dev@wandit.test`, password `wandit-dev-password`. The account is verified and onboarded. It gets the signup credit grant only when `product_settings.signup_grant_enabled` is true.
+- When you test the web app in a browser, open the auth modal and click "Dev sign-in". The form already holds these values. Do not use Google sign-in.
+
 ## Code rules
 
 These rules apply to every agent that writes, changes, or reviews code in this repo: Claude in this session, subagents from the Agent tool, and workflow agents. They apply to every line you add or change. Do not rewrite lines the task does not touch. An existing line that breaks a rule is not a pattern to copy.

@@ -1,3 +1,9 @@
+/**
+ * Wires Better Auth into Nest: the web and admin auth instances, the guards, and the signup side effects.
+ * Its controllers serve /api/auth and /api/admin-auth. Other modules inject AUTH_INSTANCE and AuthGuard.
+ * The signup hook calls the attribution, credits, lifecycle, and analytics services.
+ * Email sign-in and invitations call the email service.
+ */
 import {
 	Global,
 	Inject,
@@ -35,6 +41,7 @@ import {
 } from "../lifecycle-events/domain/lifecycle-event";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
+import { DevUserSeedService } from "./application/services/dev-user-seed.service";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
 import { UserActivityService } from "./application/services/user-activity.service";
@@ -247,6 +254,7 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		BetterAuthRedisSecondaryStorage,
 		authProvider,
 		AuthGuard,
+		DevUserSeedService,
 		SignupGrantOutboxRepository,
 		SignupGrantOutboxService,
 		SignupGrantsService,

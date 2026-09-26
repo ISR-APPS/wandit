@@ -1,3 +1,8 @@
+/**
+ * Origin lists and checks for CORS, Better Auth trusted origins, and dev-only features.
+ * The server env schema, packages/auth, the web app, and the API guards import it.
+ * It uses only zod and the URL class.
+ */
 import { z } from "zod";
 
 export const httpOriginSchema = z
@@ -59,12 +64,18 @@ export function allowedCorsWebOrigin(
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
+ * True when the URL points at this machine. A deployed API never has a
+ * localhost BETTER_AUTH_URL, so dev-only auth features check this value.
+ */
+export function isLocalhostUrl(url: string): boolean {
+	return LOCAL_HOSTNAMES.has(new URL(url).hostname);
+}
+
+/**
  * The Expo web / Metro dev origin, trusted only while the API itself runs on
  * localhost. Better Auth's trustedOrigins and the API's cross-site write
  * guard both use this, so the two lists never drift apart.
  */
 export function expoDevOrigins(apiUrl: string): string[] {
-	return LOCAL_HOSTNAMES.has(new URL(apiUrl).hostname)
-		? ["http://localhost:8081"]
-		: [];
+	return isLocalhostUrl(apiUrl) ? ["http://localhost:8081"] : [];
 }
