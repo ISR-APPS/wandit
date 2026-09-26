@@ -108,6 +108,7 @@ describe("createRequestNetworkHostTool", () => {
 		"*.supabase.co",
 		"otherprojectref.supabase.co",
 		"supabase.co",
+		"api.supabase.com",
 	])("denies the Supabase host %s and changes nothing", async (host) => {
 		const { appendHost, execute, insert, provider } = await setup();
 

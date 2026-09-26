@@ -1,6 +1,6 @@
 /**
  * Application service behind the mobile builds routes (WANDIT-194).
- * `mobile-builds.controller.ts` calls it. `create` holds 25 credits, writes
+ * `mobile-builds.controller.ts` calls it. `create` holds 50 credits, writes
  * the `queued` row, and starts the `mobile-build` Trigger task. `cancel`
  * stops the EAS build and refunds the hold. It calls two repositories,
  * metering, the task starter, the EAS runner, and the audit log.

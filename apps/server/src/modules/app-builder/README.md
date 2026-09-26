@@ -117,8 +117,8 @@ partial unique index guarantees at most one live row per project.
   (WANDIT-283). It adds the per-project hosts of
   `projects.networkAllowedHosts` (layer 3). The list has no
   `*.supabase.co`: it also reaches a Supabase project of an attacker.
-  `request_network_host` denies every `supabase.co` host. The policy
-  rejects a stored one other than the backend host. `SANDBOX_DENIED_RANGES`
+  `request_network_host` denies every `supabase.co` and `supabase.com`
+  host. The policy rejects a stored one other than the backend host. `SANDBOX_DENIED_RANGES`
   blocks link-local metadata, private, CGNAT, and loopback CIDRs (IPv4
   only — the vendor API rejects IPv6 CIDRs).
 - `V2_SANDBOX_EGRESS_MODE` selects the mode: `strict` (default) applies
@@ -572,7 +572,7 @@ real caller.
 ## Mobile builds (WANDIT-194)
 
 The Android card of the publish popover builds an APK of a mobile app on
-EAS. iOS joins with WANDIT-284 (D22). The price is 25 credits
+EAS. iOS joins with WANDIT-284 (D22). The price is 50 credits
 (`MOBILE_BUILD_ANDROID_CREDITS`, D23).
 
 Routes under `/api/v2/projects/:projectId/mobile-builds`, behind
@@ -616,7 +616,7 @@ one attempt, idempotency key `mobile-build:<buildId>`):
 4. Runs `eas init --account <EXPO_ACCOUNT>` and `eas build -p android
    --profile apk --no-wait`, then removes the temp folder before any wait.
 5. Polls the build over GraphQL every 30 s with `wait.for`, for at most 2 h.
-   FINISHED stores `artifactUrl` and settles 2500 cc. ERRORED, a timeout, or
+   FINISHED stores `artifactUrl` and settles 5000 cc. ERRORED, a timeout, or
    any other error fails the row and refunds. A failed DB read or EAS read
    only waits for the next poll. A row that left `building` ends the run:
    the API canceled it, and the run asks EAS to cancel once more. A
@@ -813,9 +813,9 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `SandboxHandle.allowHost` to apply it to the live sandbox with no
   restart, and writes a `network.host_allowed` audit row. `allowHost`
   routes through the live harness session, so the proxy run-token
-  transformation survives. A bad host, a `supabase.co` host (WANDIT-283),
-  or a failed update answers `denied` and writes no audit row. See
-  `docs/v2/security.md` section 5.
+  transformation survives. A bad host, a `supabase.co` or `supabase.com`
+  host (WANDIT-283), or a failed update answers `denied` and writes no
+  audit row. See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is

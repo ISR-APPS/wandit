@@ -96,12 +96,15 @@ export function isValidNetworkHost(host: string): boolean {
 }
 
 /**
- * True for `supabase.co` and every name under it, `*.supabase.co` too.
- * Every such host reaches the shared Supabase edge. Only the exact backend
- * host of the project may pass (WANDIT-283). Callers lower-case first.
+ * True for `supabase.co`, `supabase.com`, and every name under them, a
+ * wildcard too. Each one accepts a key of any Supabase account, so it can
+ * receive stolen data. Only the exact backend host of the project may pass
+ * (WANDIT-283). Callers lower-case first.
  */
 export function isSupabaseHost(host: string): boolean {
-	return host === "supabase.co" || host.endsWith(".supabase.co");
+	return ["supabase.co", "supabase.com"].some(
+		(domain) => host === domain || host.endsWith(`.${domain}`),
+	);
 }
 
 /**

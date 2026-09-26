@@ -90,11 +90,10 @@ export const mobileBuildErrorCodeSchema = z.enum(mobileBuildErrorCodes);
 export type MobileBuildErrorCode = z.infer<typeof mobileBuildErrorCodeSchema>;
 
 /**
- * Price of one Android APK build, in whole credits. D23 default of Zack,
- * ESTIMATE. At $0.032 per credit (D2) it is $0.80; EAS charges $1 to $2
- * per Android build after the 15 free builds of a month.
+ * Price of one Android APK build, in whole credits (D23, Zack). At $0.032
+ * per credit (D2) it is $1.60. The default EAS worker costs about $1.
  */
-export const MOBILE_BUILD_ANDROID_CREDITS = 25;
+export const MOBILE_BUILD_ANDROID_CREDITS = 50;
 
 /** One build as the API answers it. */
 export const mobileBuildSchema = z.object({

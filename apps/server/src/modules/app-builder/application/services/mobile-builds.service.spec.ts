@@ -89,7 +89,7 @@ function mobileProject(
 		framework: "mobile-app",
 		id: PROJECT_ID,
 		organizationId: null,
-		templateVersion: "mobile-app@1.0.0",
+		templateVersion: "mobile-app@1.1.0",
 		userId: "user_1",
 		...overrides,
 	};
@@ -123,7 +123,7 @@ function holdEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		reconcileAttempts: 0,
 		reconciledAt: null,
 		reconciledCostUsdMicros: null,
-		reservedCredits: 2_500,
+		reservedCredits: 5_000,
 		settledAt: null,
 		status: "reserved",
 		userId: "user_1",
@@ -242,7 +242,7 @@ async function rejection(
 }
 
 describe("MobileBuildsService.create", () => {
-	it("holds 25 credits, writes the queued row, starts the task, and audits", async () => {
+	it("holds 50 credits, writes the queued row, starts the task, and audits", async () => {
 		const { audits, builds, metering, service, starter } = setup();
 
 		const result = await service.create(ORG, PROJECT_ID, BODY, IP);
@@ -259,7 +259,7 @@ describe("MobileBuildsService.create", () => {
 		});
 		expect(estimate).toEqual({
 			attemptRef: buildId,
-			credits: 2_500,
+			credits: 5_000,
 			idempotencyKey: `mobile_build:${buildId}`,
 			projectId: PROJECT_ID,
 		});
@@ -364,7 +364,7 @@ describe("MobileBuildsService.create", () => {
 
 	it("passes the 402 through and writes no row when the hold fails", async () => {
 		const { builds, metering, service, starter } = setup();
-		const paymentRequired = new InsufficientCreditsError(2_500, 100);
+		const paymentRequired = new InsufficientCreditsError(5_000, 100);
 		metering.reserveWithReplay.mockRejectedValue(paymentRequired);
 
 		await expect(service.create(PERSONAL, PROJECT_ID, BODY, IP)).rejects.toBe(

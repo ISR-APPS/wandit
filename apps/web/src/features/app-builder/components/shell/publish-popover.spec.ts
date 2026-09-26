@@ -199,7 +199,7 @@ describe("PublishPopover", () => {
 		expect(link.getAttribute("href")).toBe(APK_URL);
 		expect(screen.getByTitle("QR code of the APK download link")).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Build APK · 25 credits" }),
+			screen.getByRole("button", { name: "Build APK · 50 credits" }),
 		).toBeTruthy();
 	});
 
@@ -223,7 +223,7 @@ describe("PublishPopover", () => {
 			),
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Retry · 25 credits" }),
+			screen.getByRole("button", { name: "Retry · 50 credits" }),
 		).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Download APK" })).toBeNull();
 	});
@@ -288,7 +288,7 @@ describe("PublishMobileTargets", () => {
 		expect(screen.getByText("Backend deploys with every publish")).toBeTruthy();
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Build APK · 25 credits" }),
+			screen.getByRole("button", { name: "Build APK · 50 credits" }),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 		fireEvent.click(screen.getByRole("button", { name: "Show QR" }));
@@ -354,7 +354,7 @@ describe("PublishMobileTargets", () => {
 		).toBe(APK_URL);
 		// The latest build is canceled, so the card offers a new build and no QR code.
 		expect(
-			screen.getByRole("button", { name: "Build APK · 25 credits" }),
+			screen.getByRole("button", { name: "Build APK · 50 credits" }),
 		).toBeTruthy();
 		expect(screen.queryByTitle("QR code of the APK download link")).toBeNull();
 	});

@@ -34,8 +34,9 @@ merges three allow layers into one sorted, deduped list:
 3. Per-project hosts, from the `projects.networkAllowedHosts` column.
    The `request_network_host` host tool appends one host per approval.
    The runtime reads the column and passes it to `buildNetworkPolicy`.
-   The tool denies every `supabase.co` host, and `buildNetworkPolicy`
-   rejects a stored one (`isSupabaseHost`), except the backend host.
+   The tool denies every `supabase.co` and `supabase.com` host, and
+   `buildNetworkPolicy` rejects a stored one (`isSupabaseHost`), except the
+   backend host.
 
 `VercelSandboxProvider.start` adds four more hosts before the vendor
 call:
@@ -144,7 +145,8 @@ On approval the tool does four steps:
    `isValidNetworkHost`. An IP address or a private label returns
    `denied`. A hostname that resolves into a denied range still fails at
    the firewall, because the deny ranges outrank the allow list. A
-   `supabase.co` host also returns `denied` (WANDIT-283, section 2).
+   `supabase.co` or `supabase.com` host also returns `denied` (WANDIT-283,
+   section 2).
 2. It appends the host to `projects.networkAllowedHosts` with a deduping
    write, so a repeated grant is a no-op and the next sandbox keeps it.
 3. It calls `SandboxHandle.allowHost`, which merges the host into the

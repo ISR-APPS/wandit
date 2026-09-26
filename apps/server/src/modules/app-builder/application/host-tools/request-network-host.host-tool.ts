@@ -64,7 +64,8 @@ export function createRequestNetworkHostTool(
 				};
 			}
 			// Security (WANDIT-283): the sandbox reaches only its own Supabase
-			// host. Another project on `supabase.co` can receive stolen data.
+			// host. Another `supabase.co` project or `supabase.com` can receive
+			// stolen data.
 			if (isSupabaseHost(normalized)) {
 				return {
 					reason:

@@ -34,7 +34,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D20 | Turn stream transport to the browser | open | 2026-09-14 |
 | D21 | Durable git store for project code | changed | 2026-09-14 |
 | D22 | Apple developer account for iOS builds | confirmed | 2026-09-26 |
-| D23 | Price of a mobile build | default | 2026-09-26 |
+| D23 | Price of a mobile build | changed | 2026-09-26 |
 
 ## D1. Sandbox vendor
 
@@ -304,12 +304,12 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Question: What does one EAS build cost the user?
 - Options: A new operation `mobile_build` near the EAS price: Android $1, iOS $2. A plan entitlement adds free builds per month: 2 on Pro, 10 on Business. Or builds are free inside the plan.
 - Default: `mobile_build` at 25 credits per Android build (ESTIMATE), with a hold at the start, a settle at the end, and a refund on failure or cancel. No plan entitlement yet.
-- Final choice: open.
-- Status: default
+- Final choice: 50 credits per Android build, with the same hold, settle, and refund. No plan entitlement yet.
+- Status: changed
 - Date: 2026-09-26
-- Decided by: open.
+- Decided by: Zack, 2026-09-26.
 - Issues that change: WANDIT-194 (P4-04), WANDIT-284.
-- Notes: EAS gives 15 free Android builds per month, then $1 to $2 each (`research/expo-mobile.md` 2.4). At $0.032 per credit (D2), 25 credits are $0.80, below that EAS price. The issue text used $0.04 per credit. The hold admits any positive balance, like the other operations. Source: Zack, Linear comment on WANDIT-194, 2026-09-26.
+- Notes: EAS gives 15 free Android builds per month, then $1 to $2 each (`research/expo-mobile.md` 2.4). At $0.032 per credit (D2), 50 credits are $1.60. The default EAS worker costs about $1. The issue text used $0.04 per credit. The hold admits any positive balance, like the other operations. Source: Zack, Linear comment on WANDIT-194, 2026-09-26.
 
 ## How to add an entry
 

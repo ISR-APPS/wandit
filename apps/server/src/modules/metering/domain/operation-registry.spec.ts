@@ -192,13 +192,13 @@ describe("operation registry", () => {
 		expect(() => leadScrapeCredits(-1)).toThrow("non-negative integer");
 	});
 
-	it("prices one mobile build at 25 credits with no parent operation", () => {
-		expect(MOBILE_BUILD_CREDITS).toBe(2_500);
+	it("prices one mobile build at 50 credits with no parent operation", () => {
+		expect(MOBILE_BUILD_CREDITS).toBe(5_000);
 		expect(OPERATION_REGISTRY.mobile_build).toMatchObject({
 			allowedParentOperations: [],
-			creditsPerUnit: 2_500,
+			creditsPerUnit: 5_000,
 			mode: "fixed",
-			reserveFloorCredits: 2_500,
+			reserveFloorCredits: 5_000,
 			unit: "operation",
 		});
 		expect(() => assertOperationParentAllowed("mobile_build")).not.toThrow();

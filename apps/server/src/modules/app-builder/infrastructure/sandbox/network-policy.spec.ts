@@ -176,6 +176,8 @@ describe("isSupabaseHost", () => {
 		"supabase.co",
 		"abc.supabase.co",
 		"*.supabase.co",
+		"supabase.com",
+		"api.supabase.com",
 	])("matches %s", (host) => {
 		expect(isSupabaseHost(host)).toBe(true);
 	});
@@ -183,7 +185,7 @@ describe("isSupabaseHost", () => {
 	it.each([
 		"evilsupabase.co",
 		"supabase.co.evil.com",
-		"supabase.com",
+		"evilsupabase.com",
 	])("does not match %s", (host) => {
 		expect(isSupabaseHost(host)).toBe(false);
 	});
