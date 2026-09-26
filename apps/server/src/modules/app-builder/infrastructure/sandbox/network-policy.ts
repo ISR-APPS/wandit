@@ -26,14 +26,14 @@ export const SANDBOX_DENIED_RANGES = [
 /**
  * Hosts every sandbox may reach, independent of the project.
  * `registry.npmjs.org`: `pnpm install` at template init and inside turns.
- * `*.supabase.co`: the generated app's backend database and auth.
  * `fonts.googleapis.com`, `fonts.gstatic.com`: fonts the template loads.
  * `api.stripe.com`, `api.resend.com`, `maps.googleapis.com`,
  * `api.openai.com`: the connectors a generated app can wire up.
+ * No `*.supabase.co` (WANDIT-283): it also reaches a Supabase project of an
+ * attacker. `buildNetworkPolicy` adds only the project's own backend host.
  */
 export const GLOBAL_ALLOWED_HOSTS = [
 	"registry.npmjs.org",
-	"*.supabase.co",
 	"fonts.googleapis.com",
 	"fonts.gstatic.com",
 	"api.stripe.com",
@@ -57,7 +57,7 @@ const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
  * Callers lower-case first: an upper-case letter returns false. At least
  * two labels, at most 253 chars, no scheme, path, port, `@`, or trailing
  * dot, and no IPv4 or IPv6 literal. A wildcard is allowed only as the whole
- * first label (`*.supabase.co`).
+ * first label (`*.example.com`).
  */
 export function isValidNetworkHost(host: string): boolean {
 	// RFC 1035 caps a host name at 253 chars.
@@ -96,17 +96,31 @@ export function isValidNetworkHost(host: string): boolean {
 }
 
 /**
- * Merges the global list, the LLM proxy host, the git host, the asset host,
- * and the valid caller hosts into one deduped, sorted allow list. Throws
- * when the proxy URL is missing or bad — a sandbox with no reachable proxy
- * must not start — and when a configured git or asset host is invalid.
- * `rejected` keeps the caller hosts that fail validation, spelled as given.
+ * True for `supabase.co` and every name under it, `*.supabase.co` too.
+ * Every such host reaches the shared Supabase edge. Only the exact backend
+ * host of the project may pass (WANDIT-283). Callers lower-case first.
+ */
+export function isSupabaseHost(host: string): boolean {
+	return host === "supabase.co" || host.endsWith(".supabase.co");
+}
+
+/**
+ * Merges the global list and the proxy, git, asset, backend, and caller
+ * hosts into one deduped, sorted allow list. It throws when the proxy URL is
+ * missing or bad: a sandbox without a proxy must not start. It also throws
+ * when a git, asset, or backend host is invalid. `rejected` keeps each
+ * refused caller host, spelled as given.
  */
 export function buildNetworkPolicy(input: {
 	mode: SandboxEgressMode;
 	proxyBaseUrl: string;
 	gitHost: string | null;
 	assetHost: string | null;
+	/**
+	 * Host of the project's own Supabase project, `<ref>.supabase.co`, from
+	 * `VITE_SUPABASE_URL`. Null while the project has no active backend.
+	 */
+	backendHost: string | null;
 	projectHosts: string[];
 	connectorHosts: string[];
 }): { policy: SandboxNetworkPolicy; rejected: string[] } {
@@ -129,12 +143,20 @@ export function buildNetworkPolicy(input: {
 	for (const [name, host] of [
 		["gitHost", input.gitHost],
 		["assetHost", input.assetHost],
+		["backendHost", input.backendHost],
 	] as const) {
 		if (host !== null && !isValidNetworkHost(host)) {
 			throw new Error(
 				`Sandbox egress: ${name} "${host}" is not a valid network host`,
 			);
 		}
+	}
+	// Security: a wildcard backend host opens every Supabase project, also a
+	// project of an attacker. The backend is always one exact host.
+	if (input.backendHost?.startsWith("*.")) {
+		throw new Error(
+			`Sandbox egress: backendHost "${input.backendHost}" must not be a wildcard`,
+		);
 	}
 
 	const hosts = new Set<string>([...GLOBAL_ALLOWED_HOSTS, proxyHost]);
@@ -144,6 +166,14 @@ export function buildNetworkPolicy(input: {
 	if (input.assetHost !== null) {
 		hosts.add(input.assetHost);
 	}
+	// LIMIT: the Vercel firewall matches the TLS SNI only. Sandbox code can
+	// send this SNI with the Host header of another project. The shared
+	// Supabase edge can then route it there (domain fronting). Upgrade: a
+	// Host-pin request transform through the harness session; `createSession`
+	// in `claude-code.harness.ts` clears the provider transforms today.
+	if (input.backendHost !== null) {
+		hosts.add(input.backendHost);
+	}
 	const rejected: string[] = [];
 	// LIMIT: callers pass empty lists in round 1. Upgrade: the
 	// projects.networkAllowedHosts column and the connector registry feed
@@ -151,8 +181,12 @@ export function buildNetworkPolicy(input: {
 	for (const host of [...input.projectHosts, ...input.connectorHosts]) {
 		const trimmed = host.trim();
 		// The check sees the given case: an upper-case letter rejects, so a
-		// typo lands in `rejected` instead of a silent fix.
-		if (isValidNetworkHost(trimmed)) {
+		// typo lands in `rejected` instead of a silent fix. Security: a stored
+		// Supabase host other than the backend host reopens WANDIT-283.
+		if (
+			isValidNetworkHost(trimmed) &&
+			(!isSupabaseHost(trimmed) || trimmed === input.backendHost)
+		) {
 			hosts.add(trimmed);
 		} else {
 			rejected.push(host);

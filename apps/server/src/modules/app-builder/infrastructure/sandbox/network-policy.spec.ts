@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
 	buildNetworkPolicy,
 	GLOBAL_ALLOWED_HOSTS,
+	isSupabaseHost,
 	isValidNetworkHost,
 	SANDBOX_DENIED_RANGES,
 } from "./network-policy";
 
 const INPUT: Parameters<typeof buildNetworkPolicy>[0] = {
 	assetHost: null,
+	backendHost: null,
 	connectorHosts: [],
 	gitHost: null,
 	mode: "strict",
@@ -166,6 +168,77 @@ describe("buildNetworkPolicy strict", () => {
 		expect(() =>
 			buildNetworkPolicy({ ...INPUT, assetHost: "10.0.0.1" }),
 		).toThrow(/assetHost "10.0.0.1"/);
+	});
+});
+
+describe("isSupabaseHost", () => {
+	it.each([
+		"supabase.co",
+		"abc.supabase.co",
+		"*.supabase.co",
+	])("matches %s", (host) => {
+		expect(isSupabaseHost(host)).toBe(true);
+	});
+
+	it.each([
+		"evilsupabase.co",
+		"supabase.co.evil.com",
+		"supabase.com",
+	])("does not match %s", (host) => {
+		expect(isSupabaseHost(host)).toBe(false);
+	});
+});
+
+describe("buildNetworkPolicy backend host (WANDIT-283)", () => {
+	const BACKEND_HOST = "abcdefghijklmnopqrst.supabase.co";
+	const supabaseHosts = (hosts: string[]) =>
+		hosts.filter((host) => host.endsWith("supabase.co"));
+
+	it("keeps every Supabase host out of the global list", () => {
+		expect(supabaseHosts([...GLOBAL_ALLOWED_HOSTS])).toEqual([]);
+	});
+
+	it("allows exactly the project's own Supabase host", () => {
+		const built = buildNetworkPolicy({ ...INPUT, backendHost: BACKEND_HOST });
+
+		expect(supabaseHosts(built.policy.allowedHosts)).toEqual([BACKEND_HOST]);
+	});
+
+	it("allows no Supabase host without a backend", () => {
+		const built = buildNetworkPolicy(INPUT);
+
+		expect(supabaseHosts(built.policy.allowedHosts)).toEqual([]);
+	});
+
+	it("throws when the backend host is not a valid host", () => {
+		expect(() =>
+			buildNetworkPolicy({
+				...INPUT,
+				backendHost: "https://abcdefghijklmnopqrst.supabase.co",
+			}),
+		).toThrow(/backendHost "https:\/\/abcdefghijklmnopqrst.supabase.co"/);
+		expect(() =>
+			buildNetworkPolicy({ ...INPUT, backendHost: "localhost" }),
+		).toThrow(/backendHost "localhost" is not a valid network host/);
+	});
+
+	it("rejects a stored Supabase caller host other than the backend host", () => {
+		const built = buildNetworkPolicy({
+			...INPUT,
+			backendHost: BACKEND_HOST,
+			connectorHosts: ["other.supabase.co"],
+			projectHosts: ["*.supabase.co", BACKEND_HOST, "api.example.com"],
+		});
+
+		expect(supabaseHosts(built.policy.allowedHosts)).toEqual([BACKEND_HOST]);
+		expect(built.rejected).toEqual(["*.supabase.co", "other.supabase.co"]);
+		expect(built.policy.allowedHosts).toContain("api.example.com");
+	});
+
+	it("throws when the backend host is a wildcard", () => {
+		expect(() =>
+			buildNetworkPolicy({ ...INPUT, backendHost: "*.supabase.co" }),
+		).toThrow(/backendHost "\*\.supabase\.co" must not be a wildcard/);
 	});
 });
 

@@ -108,12 +108,17 @@ partial unique index guarantees at most one live row per project.
   service-role keys can never enter the sandbox. The builder-turn runtime
   reads `app_backends` and passes the URL and anon key only when the row
   is `active`. A running sandbox gets them at its next resume.
-- Egress is deny-by-default: `buildNetworkPolicy` emits the global allow
-  list (`registry.npmjs.org`, `*.supabase.co`, fonts, `api.stripe.com`,
-  `api.resend.com`, `maps.googleapis.com`, `api.openai.com`) plus the
-  proxy host of `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host,
-  the `R2_PUBLIC_BASE_URL` host, and the per-project hosts from
-  `projects.networkAllowedHosts` (layer 3). `SANDBOX_DENIED_RANGES`
+- Egress is deny-by-default. `buildNetworkPolicy` emits the global allow
+  list: `registry.npmjs.org`, fonts, `api.stripe.com`, `api.resend.com`,
+  `maps.googleapis.com`, and `api.openai.com`. It adds the proxy host of
+  `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host, and the
+  `R2_PUBLIC_BASE_URL` host. It adds the project's own Supabase host, the
+  hostname of `VITE_SUPABASE_URL`, only while the backend is active
+  (WANDIT-283). It adds the per-project hosts of
+  `projects.networkAllowedHosts` (layer 3). The list has no
+  `*.supabase.co`: it also reaches a Supabase project of an attacker.
+  `request_network_host` denies every `supabase.co` host. The policy
+  rejects a stored one other than the backend host. `SANDBOX_DENIED_RANGES`
   blocks link-local metadata, private, CGNAT, and loopback CIDRs (IPv4
   only — the vendor API rejects IPv6 CIDRs).
 - `V2_SANDBOX_EGRESS_MODE` selects the mode: `strict` (default) applies
@@ -808,8 +813,9 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `SandboxHandle.allowHost` to apply it to the live sandbox with no
   restart, and writes a `network.host_allowed` audit row. `allowHost`
   routes through the live harness session, so the proxy run-token
-  transformation survives. A bad host or a failed update answers
-  `denied` and writes no audit row. See `docs/v2/security.md` section 5.
+  transformation survives. A bad host, a `supabase.co` host (WANDIT-283),
+  or a failed update answers `denied` and writes no audit row. See
+  `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is

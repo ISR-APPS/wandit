@@ -23,23 +23,47 @@ Does not cover:
 `buildNetworkPolicy` in `infrastructure/sandbox/network-policy.ts`
 merges three allow layers into one sorted, deduped list:
 
-1. `GLOBAL_ALLOWED_HOSTS`, eight hosts for every sandbox:
-   `registry.npmjs.org` (`pnpm install`), `*.supabase.co` (the generated
-   app's backend), `fonts.googleapis.com` and `fonts.gstatic.com` (the
-   template fonts), `api.stripe.com`, `api.resend.com`,
-   `maps.googleapis.com`, `api.openai.com` (the connectors).
+1. `GLOBAL_ALLOWED_HOSTS` holds seven hosts for every sandbox:
+   `registry.npmjs.org` for `pnpm install`; `fonts.googleapis.com` and
+   `fonts.gstatic.com` for the template fonts; `api.stripe.com`,
+   `api.resend.com`, `maps.googleapis.com`, and `api.openai.com` for the
+   connectors. The list has no `*.supabase.co` (WANDIT-283). That
+   wildcard also reaches a Supabase project of an attacker. Bad code can
+   send the project source or the proxy token to that project.
 2. Connector hosts. Empty today; WANDIT-189 feeds the list.
 3. Per-project hosts, from the `projects.networkAllowedHosts` column.
    The `request_network_host` host tool appends one host per approval.
    The runtime reads the column and passes it to `buildNetworkPolicy`.
+   The tool denies every `supabase.co` host, and `buildNetworkPolicy`
+   rejects a stored one (`isSupabaseHost`), except the backend host.
 
-`VercelSandboxProvider.start` adds three more hosts before the vendor
+`VercelSandboxProvider.start` adds four more hosts before the vendor
 call:
 
 - The LLM proxy host, parsed from `ANTHROPIC_BASE_URL`. A missing or
   invalid URL throws in strict mode before the vendor call.
 - The git host `<org>.code.storage`, from `CODE_STORAGE_ORG`.
 - The asset host, the hostname of `R2_PUBLIC_BASE_URL`.
+- The backend host `<ref>.supabase.co`, the hostname of
+  `VITE_SUPABASE_URL`. The builder-turn runtime puts that value in the env
+  only while the `app_backends` row is `active`. `start` rebuilds the
+  policy on each turn and pushes it when its hash changes. So a backend
+  that becomes active gets its host on the next turn, with no restart. In
+  strict mode, an invalid or wildcard backend host throws. A
+  `VITE_SUPABASE_URL` that is not a URL gives no backend host.
+
+Two leak paths stay open (WANDIT-283):
+
+- The vendor matches the SNI only. Sandbox code can send the SNI of its
+  own Supabase host with the `Host` header of another project. The shared
+  Supabase edge can then route it there (domain fronting). The upgrade is
+  a Host-pin request transform through the harness session.
+  `createSession` in `claude-code.harness.ts` clears the provider
+  transforms today. Whether the Supabase edge routes by `Host` is
+  UNVERIFIED.
+- `registry.npmjs.org`, `api.resend.com`, `api.stripe.com`, and
+  `api.openai.com` also accept a key that the attacker brings. A
+  per-project list is WANDIT-189 and later work.
 
 `SANDBOX_DENIED_RANGES` holds six IPv4 CIDRs that stay denied in every
 mode:
@@ -119,7 +143,8 @@ On approval the tool does four steps:
 1. It normalizes `host` to lower case and checks it with
    `isValidNetworkHost`. An IP address or a private label returns
    `denied`. A hostname that resolves into a denied range still fails at
-   the firewall, because the deny ranges outrank the allow list.
+   the firewall, because the deny ranges outrank the allow list. A
+   `supabase.co` host also returns `denied` (WANDIT-283, section 2).
 2. It appends the host to `projects.networkAllowedHosts` with a deduping
    write, so a repeated grant is a no-op and the next sandbox keeps it.
 3. It calls `SandboxHandle.allowHost`, which merges the host into the
@@ -382,6 +407,8 @@ uses; Expo does not document it as a public contract (UNVERIFIED).
 
 ## 13. Open items
 
+- The Host-pin transform for the backend host, and the per-project list
+  for the multi-tenant connector hosts (section 2, WANDIT-189).
 - Connector hosts into `buildNetworkPolicy`: WANDIT-189.
 - The custom image and `VERCEL_SANDBOX_IMAGE`: `tooling/sandbox-image/`
   is built; whether the vendor honors `USER builder` is UNVERIFIED.

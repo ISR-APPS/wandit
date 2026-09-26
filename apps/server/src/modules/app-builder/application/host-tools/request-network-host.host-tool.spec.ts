@@ -104,6 +104,25 @@ describe("createRequestNetworkHostTool", () => {
 		expect(provider.allowedHosts).toEqual([]);
 	});
 
+	it.each([
+		"*.supabase.co",
+		"otherprojectref.supabase.co",
+		"supabase.co",
+	])("denies the Supabase host %s and changes nothing", async (host) => {
+		const { appendHost, execute, insert, provider } = await setup();
+
+		const result = await execute({ host, reason: "backend" }, OPTIONS);
+
+		expect(result).toEqual({
+			reason:
+				"Supabase hosts are not allowed; the sandbox reaches the project's own backend while it is active",
+			status: "denied",
+		});
+		expect(appendHost).not.toHaveBeenCalled();
+		expect(insert).not.toHaveBeenCalled();
+		expect(provider.allowedHosts).toEqual([]);
+	});
+
 	it("denies a single-label host and changes nothing", async () => {
 		const { appendHost, execute, insert } = await setup();
 
