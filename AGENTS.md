@@ -15,3 +15,9 @@ Code contract (repo ISR-AI). Follow all eight points.
 ```
 
 Report in ASD-STE100 Simplified Technical English.
+
+## Dev sign-in
+
+- A local API (`NODE_ENV=development`, `BETTER_AUTH_URL` on localhost) accepts email and password sign-in. Sign-up stays off.
+- The API seeds one account at boot: `dev@wandit.test`, password `wandit-dev-password`. The account is verified and onboarded. It gets the signup credit grant only when `product_settings.signup_grant_enabled` is true.
+- When you test the web app in a browser, open the auth modal and click "Dev sign-in". The form already holds these values. Do not use Google sign-in.

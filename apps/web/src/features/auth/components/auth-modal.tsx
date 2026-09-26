@@ -1,3 +1,8 @@
+/**
+ * The app-wide sign-in dialog: AuthModalProvider, useAuthModal, and useRequireAuth.
+ * routes/__root.tsx mounts the provider. Pages call requireAuth before an action that needs a session.
+ * Signs in with Google, with email when emailAuthEnabled is on, and with a password under `vite dev`.
+ */
 import {
 	identifyAnalyticsUser,
 	resetAnalytics,
@@ -35,6 +40,7 @@ import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
 import { promptStash } from "../lib/prompt-stash";
 import { invalidateSessionCache, useSession } from "../lib/session";
+import { DevPasswordSignIn } from "./dev-password-sign-in";
 import { EmailAuthSection } from "./email-auth-section";
 
 type AuthModalOpenOptions = {
@@ -372,6 +378,16 @@ function AuthModalDialog({
 								onError={setError}
 								onClearError={() => setError(null)}
 								onMagicLinkPendingChange={onMagicLinkPendingChange}
+							/>
+						) : null}
+
+						{/* Browser agents cannot pass Google sign-in. The production
+						    build drops this branch. */}
+						{import.meta.env.DEV ? (
+							<DevPasswordSignIn
+								nextPath={nextPath}
+								onError={setError}
+								onClearError={() => setError(null)}
 							/>
 						) : null}
 

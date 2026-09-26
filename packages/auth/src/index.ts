@@ -1,10 +1,19 @@
+/**
+ * Builds the Better Auth instances: createAuth for the web and native apps, createAdminAuth for the admin app.
+ * The server AuthModule calls createAuth with its delivery and signup hooks.
+ * Both instances write users, sessions, and accounts to Postgres through the Drizzle adapter.
+ */
 import { expo } from "@better-auth/expo";
 import { isStaffRole } from "@wandit/contracts";
 import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
-import { corsWebOrigins, expoDevOrigins } from "@wandit/env/cors-origins";
+import {
+	corsWebOrigins,
+	expoDevOrigins,
+	isLocalhostUrl,
+} from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import {
 	type BetterAuthRateLimitStorage,
@@ -29,6 +38,7 @@ import {
 	organization,
 } from "better-auth/plugins";
 import { adminAccessControl, adminRoles } from "./admin-permissions";
+import { isDevPasswordLoginEnabled } from "./dev-password-login";
 import { canonicalizeEmail } from "./email-canonical";
 import { emailMagicLinkUrl } from "./email-magic-link-url";
 import {
@@ -402,7 +412,15 @@ function createGoogleProviderOptions(): GoogleOptions {
 	};
 }
 
+/**
+ * Builds the Better Auth instance for the web and native apps. On a local
+ * development API it also accepts the DEV_USER password, from localhost only.
+ */
 export function createAuth(options: CreateAuthOptions = {}) {
+	const isDevPasswordLogin = isDevPasswordLoginEnabled({
+		authUrl: env.BETTER_AUTH_URL,
+		nodeEnv: env.NODE_ENV,
+	});
 	const emailAuthDisabledError = () =>
 		APIError.from("FORBIDDEN", {
 			code: EMAIL_AUTH_DISABLED_ERROR_CODE,
@@ -484,8 +502,13 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		socialProviders: {
 			google: createGoogleProviderOptions(),
 		},
+		// Local development only: browser agents cannot pass Google sign-in.
+		// Sign-up stays off, so the seeded DEV_USER is the only password account.
+		...(isDevPasswordLogin
+			? { emailAndPassword: { disableSignUp: true, enabled: true } }
+			: {}),
 		hooks: {
-			// The before hook has two jobs that MUST run in the hook pipeline (hook
+			// The before hook has four jobs that MUST run in the hook pipeline (hook
 			// errors always propagate to the client; the email-otp plugin
 			// backgrounds its send callback, so in-callback errors would be
 			// swallowed into a fake `success: true`):
@@ -497,9 +520,25 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			//    disposable blocklist, per-email/per-IP caps. A vetoed request
 			//    never reaches the plugin, so no verification row is created
 			//    and the client gets the real error code.
-			// 3. Pin the expo authorization proxy target (first branch below).
+			// 3. Pin the expo authorization proxy target (second branch below).
+			// 4. Refuse the dev password from a host that is not localhost
+			//    (first branch below).
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
+				// 4. The DEV_USER password is public, and a local API can sit behind
+				//    a public tunnel (docs/v2/security.md). The request host comes
+				//    from the Host header, and a tunnel sends its public host.
+				if (
+					isDevPasswordLogin &&
+					path === "/sign-in/email" &&
+					ctx.request &&
+					!isLocalhostUrl(ctx.request.url)
+				) {
+					throw APIError.from("FORBIDDEN", {
+						code: "DEV_PASSWORD_LOGIN_LOCALHOST_ONLY",
+						message: "Dev password sign-in works only on localhost.",
+					});
+				}
 				// 3. Pin the expo authorization proxy to the Google URL this API
 				//    issues (see expo-authorization-proxy.ts): no open redirect, no
 				//    state-cookie fixation. Runs before the plugin's own handler.
