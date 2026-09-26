@@ -358,6 +358,10 @@ export const env = createEnv({
 		// user app (WANDIT-194), for example "wandit".
 		EXPO_ACCOUNT: z.string().min(1).optional(),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
+		// Appetize app ids of the store Expo Go builds (WANDIT-196). The upload
+		// script prints them; the device-session route answers them to the browser.
+		APPETIZE_IOS_PUBLIC_KEY: z.string().min(1).optional(),
+		APPETIZE_ANDROID_PUBLIC_KEY: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
 	},
 	// Real data source for validation.

@@ -41,6 +41,12 @@ export type PreviewPanelProps = {
 	className: string;
 	/** Inline styles of the panel box. The web preview sets the viewport width here; a width change never touches src. */
 	style?: CSSProperties;
+	/**
+	 * Layout width of the app in CSS px, and the scale that fits it into the
+	 * box. The phone preview passes the device width; the web preview leaves
+	 * it out and the iframe fills the box.
+	 */
+	frameViewport?: { widthPx: number; scale: number };
 	/** The running turn and the backend state. The boot screen shows the real start-up steps from them. */
 	bootContext: BootContext;
 	/** Spec seam: a fake getPreviewToken. Production callers leave it out. */
@@ -59,6 +65,7 @@ export function PreviewPanel({
 	reloadKey,
 	className,
 	style,
+	frameViewport,
 	bootContext,
 	deps,
 }: PreviewPanelProps) {
@@ -112,8 +119,26 @@ export function PreviewPanel({
 						// The boot screen covers the frame until the app shows, so keyboard focus and screen readers skip it.
 						inert={!isAppShown}
 						className="block size-full border-0 bg-transparent"
+						// The iframe keeps the device width and a height that fills the
+						// box after the scale. Physical top and left: the scale origin
+						// is the top-left corner in RTL too.
+						style={
+							frameViewport === undefined
+								? undefined
+								: {
+										position: "absolute",
+										top: 0,
+										left: 0,
+										width: frameViewport.widthPx,
+										height: `${100 / frameViewport.scale}%`,
+										originX: 0,
+										originY: 0,
+									}
+						}
 						initial={false}
-						animate={{ scale: isAppShown ? 1 : 0.985 }}
+						animate={{
+							scale: (isAppShown ? 1 : 0.985) * (frameViewport?.scale ?? 1),
+						}}
 						transition={{ duration: 0.38, delay: 0.04, ease: BOOT_EASE }}
 					/>
 				) : null}

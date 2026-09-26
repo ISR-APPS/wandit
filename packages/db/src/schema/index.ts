@@ -40,6 +40,8 @@ export * from "./connector-operation-events";
 export * from "./credits";
 // Deployment tables.
 export * from "./deployments";
+// Appetize device sessions of the V2 mobile preview.
+export * from "./device-sessions";
 // Domain tables.
 export * from "./domains";
 // In-app feedback and activity tables.

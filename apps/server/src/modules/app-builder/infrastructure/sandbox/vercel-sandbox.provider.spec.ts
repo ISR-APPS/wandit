@@ -343,6 +343,33 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		).toBe(true);
 	});
 
+	it("gives the dev command of a mobile-app project EXPO_PACKAGER_PROXY_URL on the Metro host", async () => {
+		const { provider, sdk } = setup({
+			...ENV_SOURCE,
+			PREVIEW_DOMAIN: "preview-domain.test",
+		});
+
+		await provider.getOrCreate("p1", {
+			...OPTIONS,
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+		await provider.getOrCreate("p2", OPTIONS);
+
+		const devCommandOf = (projectId: string) =>
+			sdk.instances
+				.get(projectId)
+				?.commands.find((command) => command.args?.includes("pnpm dev"));
+		expect(devCommandOf("p1")?.env?.EXPO_PACKAGER_PROXY_URL).toBe(
+			"https://p-p1.preview-domain.test",
+		);
+		// A web-app project runs Vite; the Expo value stays out of its env.
+		expect(devCommandOf("p2")?.env).not.toHaveProperty(
+			"EXPO_PACKAGER_PROXY_URL",
+		);
+	});
+
 	it("reuses the live row and sandbox on a second call", async () => {
 		const { provider, sessions, sdk, templateInit } = setup();
 

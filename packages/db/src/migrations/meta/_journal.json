@@ -568,6 +568,13 @@
       "when": 1790385453469,
       "tag": "0080_mobile-builds",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1790421049580,
+      "tag": "0081_device-sessions",
+      "breakpoints": true
     }
   ]
 }

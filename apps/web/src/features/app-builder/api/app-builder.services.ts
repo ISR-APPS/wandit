@@ -5,7 +5,8 @@
  * routes through `@/lib/api-client` and parse the response with contracts;
  * the Code view functions are there too.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
- * lib/use-builder-chat.ts, lib/use-preview-token.ts, and the route loader.
+ * lib/use-builder-chat.ts, lib/use-preview-token.ts, the Expo Go popover,
+ * and the route loader.
  */
 
 import {
@@ -20,13 +21,20 @@ import {
 	codeFileResponseSchema,
 	codeSnapshotResponseSchema,
 	createAppProjectResponseSchema,
+	type DevicePlatform,
+	endDeviceSessionResponseSchema,
 	type ListVersionsResponse,
 	listVersionsResponseSchema,
+	PHONE_LINK_PATH,
+	type PhonePreviewLinkResponse,
 	type PreviewTokenResponse,
+	phonePreviewLinkResponseSchema,
 	previewTokenResponseSchema,
 	type RestoreVersionBody,
 	type RestoreVersionResponse,
 	restoreVersionResponseSchema,
+	type StartDeviceSessionResponse,
+	startDeviceSessionResponseSchema,
 	type VersionDiffResponse,
 	versionDiffResponseSchema,
 } from "@wandit/contracts";
@@ -391,6 +399,72 @@ export async function getPreviewToken(
 		appBuilderRoutes.previewToken(projectId),
 	);
 	return previewTokenResponseSchema.parse(data);
+}
+
+/**
+ * Mints a 60-minute phone link for Expo Go (WANDIT-193). The API signs a
+ * phone preview token; the preview Worker turns it into an `exps://` URL.
+ * `expoUsername` is the Expo Go account for the iPhone check, or "" for
+ * none. A 409 `SANDBOX_NOT_RUNNING` propagates. `get` and `post` are the
+ * test seams.
+ */
+export async function getPhonePreviewLink(
+	projectId: string,
+	expoUsername: string,
+	get: typeof apiClient.get = apiClient.get,
+	post: typeof fetch = fetch,
+): Promise<PhonePreviewLinkResponse> {
+	const data = await get<unknown>(appBuilderRoutes.previewToken(projectId), {
+		query: {
+			client: "phone",
+			expoUsername: expoUsername === "" ? undefined : expoUsername,
+		},
+	});
+	const { token, previewUrl } = previewTokenResponseSchema.parse(data);
+	// The mint route sits on the run host of the token. A plain-text body
+	// needs no CORS preflight, and no cookie rides along.
+	const response = await post(new URL(PHONE_LINK_PATH, previewUrl), {
+		body: token,
+		credentials: "omit",
+		method: "POST",
+	});
+	if (!response.ok) {
+		throw new Error(`Phone link mint failed with HTTP ${response.status}`);
+	}
+	return phonePreviewLinkResponseSchema.parse(await response.json());
+}
+
+/**
+ * `POST /api/v2/projects/:id/device-sessions` starts an Appetize device
+ * session (WANDIT-196) and answers its client config. 402, 409, and 404
+ * propagate as API errors. `post` is the test seam.
+ */
+export async function startDeviceSession(
+	projectId: string,
+	platform: DevicePlatform,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<StartDeviceSessionResponse> {
+	const data = await post<unknown>(appBuilderRoutes.deviceSessions(projectId), {
+		platform,
+	});
+	return startDeviceSessionResponseSchema.parse(data);
+}
+
+/**
+ * Ends one device session and sends its Appetize session token, or no
+ * token when the session never started. `post` is the test seam.
+ */
+export async function endDeviceSession(
+	projectId: string,
+	deviceSessionId: string,
+	appetizeSessionToken: string | undefined,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<void> {
+	const data = await post<unknown>(
+		appBuilderRoutes.endDeviceSession(projectId, deviceSessionId),
+		{ appetizeSessionToken },
+	);
+	endDeviceSessionResponseSchema.parse(data);
 }
 
 /** Maps one file answer of the API to what the Code view shows: text, or binary with no content. */

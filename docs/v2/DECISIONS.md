@@ -82,7 +82,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Date: 2026-09-09
 - Decided by: nobody yet. Report section 12 sets the default.
 - Issues that change: WANDIT-193 (P4-03), WANDIT-195 (P5-01), WANDIT-196 (P5-02).
-- Notes: Zack, 2026-09-09: no decision yet. Mobile apps come for sure, so P1 code keeps the mobile path open. Source: report 6.5.
+- Notes: Zack, 2026-09-09: no decision yet. Mobile apps come for sure, so P1 code keeps the mobile path open. Source: report 6.5. Zack, 2026-09-26 (WANDIT-193): the phone link of Expo Go lives 60 minutes, not 15. Expo Go takes no cookie, so it cannot renew a token during a Fast Refresh session. The iframe token stays at 15 minutes. Findings: `docs/v2/spikes/P4-03-expo-go.md`. WANDIT-196 (2026-09-26): Appetize runs the store Expo Go builds, not a wandit preview app. Device minutes per UTC month: starter 0, pro 60, business 180 (ESTIMATE; Zack decides). Findings: `docs/v2/spikes/P5-02-appetize.md`.
 
 ## D5. Preview domain
 

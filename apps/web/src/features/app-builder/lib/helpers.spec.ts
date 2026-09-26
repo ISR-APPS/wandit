@@ -2,16 +2,21 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHAT_LAYOUT_STORAGE_KEY } from "./constants";
+import {
+	CHAT_LAYOUT_STORAGE_KEY,
+	EXPO_GO_USERNAME_STORAGE_KEY,
+} from "./constants";
 import {
 	copyToClipboard,
 	panelsForKind,
 	readChatLayout,
 	readChatOpen,
+	readExpoUsername,
 	resolveBuilderView,
 	resolveMorePanel,
 	writeChatLayout,
 	writeChatOpen,
+	writeExpoUsername,
 } from "./helpers";
 
 describe("panelsForKind", () => {
@@ -121,6 +126,58 @@ describe("chat pane storage", () => {
 			JSON.stringify({ chat: "wide" }),
 		);
 		expect(readChatLayout()).toBeUndefined();
+	});
+});
+
+describe("Expo Go username storage", () => {
+	const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+	const values = new Map<string, string>();
+	// The same Map-backed stand-in as the chat pane storage cases, with removeItem.
+	const fakeStorage = {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem: (key: string, value: string) => {
+			values.set(key, value);
+		},
+		removeItem: (key: string) => {
+			values.delete(key);
+		},
+	};
+
+	beforeEach(() => {
+		values.clear();
+		Object.defineProperty(window, "localStorage", {
+			configurable: true,
+			value: fakeStorage,
+		});
+	});
+
+	afterEach(() => {
+		if (original) Object.defineProperty(window, "localStorage", original);
+	});
+
+	it("reads back the name it wrote, and an empty write removes it", () => {
+		expect(readExpoUsername()).toBe("");
+		writeExpoUsername("zack_dev");
+		expect(readExpoUsername()).toBe("zack_dev");
+		writeExpoUsername("");
+		expect(values.has(EXPO_GO_USERNAME_STORAGE_KEY)).toBe(false);
+		expect(readExpoUsername()).toBe("");
+	});
+
+	it("ignores a stored value that the API would reject", () => {
+		fakeStorage.setItem(EXPO_GO_USERNAME_STORAGE_KEY, "bad name");
+		expect(readExpoUsername()).toBe("");
+	});
+
+	it("reads an empty name and does not throw when storage is blocked", () => {
+		Object.defineProperty(window, "localStorage", {
+			configurable: true,
+			get() {
+				throw new Error("blocked");
+			},
+		});
+		expect(() => writeExpoUsername("zack")).not.toThrow();
+		expect(readExpoUsername()).toBe("");
 	});
 });
 

@@ -4,6 +4,7 @@
 	"main": "src/main.ts",
 	"scripts": {
 		"build": "node ../../templates/pack-all.mjs && tsdown",
+		"appetize:upload-expo-go": "tsx scripts/upload-expo-go-to-appetize.ts",
 		"billing:assert-zero-live-subs": "tsx scripts/assert-zero-live-subscriptions.ts",
 		"billing:backfill-history": "tsx scripts/backfill-billing-history.ts",
 		"billing:migrate-v6": "tsx scripts/migrate-subscriptions-v6.ts",

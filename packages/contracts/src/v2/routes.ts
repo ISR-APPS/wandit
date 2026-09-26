@@ -45,6 +45,12 @@ export const appBuilderRoutes = {
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
+	// POST starts an Appetize device session of a mobile project (WANDIT-196).
+	deviceSessions: (projectId: string) =>
+		`/api/v2/projects/${projectId}/device-sessions`,
+	// POST ends one device session and stores its Appetize session token.
+	endDeviceSession: (projectId: string, deviceSessionId: string) =>
+		`/api/v2/projects/${projectId}/device-sessions/${deviceSessionId}/end`,
 	// GET the secret names, kinds, and dates of a project; never a value.
 	secrets: (projectId: string) => `/api/v2/projects/${projectId}/secrets`,
 	// PUT sets or replaces one secret value; DELETE removes it.

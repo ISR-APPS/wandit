@@ -16,6 +16,7 @@ import {
 	Sandbox,
 	type SandboxRegion,
 } from "@vercel/sandbox";
+import { packagerHostFor } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
@@ -47,6 +48,7 @@ import {
 } from "../persistence/sandbox-sessions.repository";
 import { buildNetworkPolicy } from "./network-policy";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
+import { TEMPLATE_PROFILES } from "./template-profiles";
 
 /**
  * 30 minutes after the session start. The vendor timeout is absolute,
@@ -637,7 +639,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 					templateVersion: options.templateVersion,
 				});
 				await this.repoRestorer.restore(projectId, handle);
-				await this.bootServices(sandbox, options);
+				await this.bootServices(projectId, sandbox, options);
 			} else {
 				if (policyApplied) {
 					// A changed allow list reaches a live sandbox only through an
@@ -649,7 +651,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 				if (resumed) {
 					await reportWake();
 					this.logLifecycle("resume", projectId, sandbox.name);
-					await this.bootServices(sandbox, options);
+					await this.bootServices(projectId, sandbox, options);
 				}
 			}
 			this.logger[
@@ -721,8 +723,11 @@ export class VercelSandboxProvider implements SandboxProvider {
 	/**
 	 * The onResume steps: the dev server on its fixed port, the Playwright
 	 * service when the image carries one, and the caller env on each command.
+	 * A mobile-app project also gets `EXPO_PACKAGER_PROXY_URL`; it throws a
+	 * 503 when `PREVIEW_DOMAIN` is unset.
 	 */
 	private async bootServices(
+		projectId: string,
 		sandbox: VercelSandboxInstance,
 		options: SandboxCreateOptions,
 	): Promise<void> {
@@ -733,6 +738,14 @@ export class VercelSandboxProvider implements SandboxProvider {
 			...options.env,
 			HOST: "0.0.0.0",
 			WANDIT_PREVIEW_HOST: this.previewHost(sandbox, options.devPort),
+			// Expo CLI reads this before `.env` and puts its host in every
+			// manifest URL. The preview proxy swaps it for the phone host, so
+			// the vendor host never reaches Expo Go (WANDIT-193).
+			...(options.framework === TEMPLATE_PROFILES.mobile.framework
+				? {
+						EXPO_PACKAGER_PROXY_URL: `https://${packagerHostFor(projectId, requireV2Env("PREVIEW_DOMAIN", this.envSource))}`,
+					}
+				: {}),
 		};
 		await sandbox.runCommand({
 			args: ["-c", options.devCommand],

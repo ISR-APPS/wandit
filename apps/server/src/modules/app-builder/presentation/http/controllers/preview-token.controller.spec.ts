@@ -1,11 +1,14 @@
-import { NotFoundException } from "@nestjs/common";
-import { GUARDS_METADATA } from "@nestjs/common/constants";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { GUARDS_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import {
 	PREVIEW_TOKEN_QUERY,
 	previewHostFor,
 	previewTokenResponseSchema,
+	verifyPreviewToken,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
+
+import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 
 import type { ProjectScope } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
@@ -119,7 +122,7 @@ describe("PreviewTokenController", () => {
 	it("answers the preview-token contract for the project owner", async () => {
 		const { controller } = setup();
 
-		const body = await controller.mint(PROJECT_ID, user, workspace);
+		const body = await controller.mint(PROJECT_ID, user, workspace, {});
 
 		const parsed = previewTokenResponseSchema.parse(body);
 		expect(parsed.previewUrl).toBe(
@@ -131,7 +134,45 @@ describe("PreviewTokenController", () => {
 		const { controller } = setup();
 
 		await expect(
-			controller.mint(PROJECT_ID, user, orgWorkspace),
+			controller.mint(PROJECT_ID, user, orgWorkspace, {}),
 		).rejects.toBeInstanceOf(NotFoundException);
+	});
+
+	it("passes a phone query to the token: the username becomes a claim", async () => {
+		const { controller } = setup();
+
+		const body = await controller.mint(PROJECT_ID, user, workspace, {
+			client: "phone",
+			expoUsername: "zack",
+		});
+
+		const verified = await verifyPreviewToken(
+			previewTokenResponseSchema.parse(body).token,
+			SIGNING_KEY,
+			Math.floor(Date.now() / 1000),
+		);
+		expect(verified.ok && verified.claims.expoUsername).toBe("zack");
+	});
+
+	it("400s a query with a bad Expo username through the route pipe", () => {
+		// SAFETY: Nest stores one { index, pipes } entry per decorated parameter.
+		const routeArguments = Reflect.getMetadata(
+			ROUTE_ARGS_METADATA,
+			PreviewTokenController,
+			"mint",
+		) as Record<string, { index: number; pipes: unknown[] }>;
+		const queryPipe = Object.values(routeArguments)
+			.find((argument) => argument.index === 3)
+			?.pipes.find((pipe) => pipe instanceof ZodValidationPipe);
+		if (!(queryPipe instanceof ZodValidationPipe)) {
+			throw new Error("mint has no ZodValidationPipe on the query");
+		}
+
+		expect(() =>
+			queryPipe.transform(
+				{ client: "phone", expoUsername: 'a"b' },
+				{ type: "query" },
+			),
+		).toThrow(BadRequestException);
 	});
 });
