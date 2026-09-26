@@ -351,7 +351,12 @@ export const env = createEnv({
 		CLOUDFLARE_V2_DEPLOY_TOKEN: z.string().min(1).optional(),
 		// Dispatch namespace of the published V2 app Workers: "production" or "staging".
 		CLOUDFLARE_W4P_NAMESPACE: z.string().min(1).optional(),
+		// Robot access token of the wandit Expo organization. Only the API and
+		// the `mobile-build` task read it; it never enters a sandbox.
 		EXPO_TOKEN: z.string().min(1).optional(),
+		// Name of the wandit Expo organization that owns every EAS project of a
+		// user app (WANDIT-194), for example "wandit".
+		EXPO_ACCOUNT: z.string().min(1).optional(),
 		APPETIZE_API_TOKEN: z.string().min(1).optional(),
 		RESEND_PLATFORM_API_KEY: z.string().min(1).optional(),
 	},

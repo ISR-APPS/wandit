@@ -499,7 +499,6 @@
 		"customDomain": "Custom domain",
 		"connectOne": "Connect one",
 		"ios": "iOS · App Store",
-		"android": "Android · Google Play",
 		"buildReady": "Build {build} ready · TestFlight {testers} testers",
 		"notSetUp": "Not set up",
 		"submit": "Submit",
@@ -507,8 +506,46 @@
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",
 		"showQr": "Show QR",
-		"backendNote": "Backend deploys with every publish",
-		"mobileSoon": "Publishing a mobile app is coming soon. Test your app in the preview for now."
+		"backendNote": "Backend deploys with every publish"
+	},
+	"mobileBuilds": {
+		"title": "Android · APK",
+		"empty": "Install your app on an Android phone",
+		"build": {
+			"one": "Build APK · {count} credit",
+			"other": "Build APK · {count} credits"
+		},
+		"retry": {
+			"one": "Retry · {count} credit",
+			"other": "Retry · {count} credits"
+		},
+		"cancel": "Cancel",
+		"download": "Download APK",
+		"scanHint": "Scan the code with an Android phone to install the app.",
+		"qrTitle": "QR code of the APK download link",
+		"liveHint": "The build continues when you close this panel.",
+		"history": "Earlier builds",
+		"status": {
+			"queued": "Waiting to start",
+			"building": "Building",
+			"finished": "Ready",
+			"failed": "Failed",
+			"canceled": "Canceled"
+		},
+		"errors": {
+			"start_failed": "The build did not start. Try again.",
+			"unconfigured": "App builds are not available now. Try again later.",
+			"clone_failed": "The build could not read the code of your app. Try again.",
+			"config_invalid": "The configuration of your app is not valid. Ask Wandit in the chat to fix app.json, then build again.",
+			"plugin_not_allowed": "Your app uses a native plugin that builds do not support yet.",
+			"install_failed": "The install of the app packages failed. Try again.",
+			"eas_init_failed": "The build service could not set up your app. Try again.",
+			"eas_start_failed": "The build service did not accept the build. Try again.",
+			"eas_errored": "The build failed on the build service. Try again, or ask Wandit in the chat to fix the app.",
+			"artifact_missing": "The build ended without an APK file. Try again.",
+			"timeout": "The build took too long and stopped. Try again.",
+			"internal": "An error occurred during the build. Try again."
+		}
 	},
 	"versions": {
 		"title": "Version history",

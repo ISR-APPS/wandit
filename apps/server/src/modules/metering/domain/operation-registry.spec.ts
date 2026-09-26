@@ -15,6 +15,7 @@ import {
 	LEAD_SCRAPE_CREDITS_PER_LEAD,
 	LEAD_SCRAPE_MINIMUM_CREDITS,
 	leadScrapeCredits,
+	MOBILE_BUILD_CREDITS,
 	maxFinalCreditsCeiling,
 	OPERATION_REGISTRY,
 	TRANSCRIPTION_MAX_DURATION_SECONDS,
@@ -189,6 +190,18 @@ describe("operation registry", () => {
 		expect(leadScrapeCredits(21)).toBe(105);
 		expect(leadScrapeCredits(200)).toBe(1000);
 		expect(() => leadScrapeCredits(-1)).toThrow("non-negative integer");
+	});
+
+	it("prices one mobile build at 25 credits with no parent operation", () => {
+		expect(MOBILE_BUILD_CREDITS).toBe(2_500);
+		expect(OPERATION_REGISTRY.mobile_build).toMatchObject({
+			allowedParentOperations: [],
+			creditsPerUnit: 2_500,
+			mode: "fixed",
+			reserveFloorCredits: 2_500,
+			unit: "operation",
+		});
+		expect(() => assertOperationParentAllowed("mobile_build")).not.toThrow();
 	});
 
 	it("keeps the centi-credit reserve floors of the token operations", () => {

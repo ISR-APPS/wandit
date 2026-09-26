@@ -89,3 +89,42 @@ daily `backend-pause-sweep` on staging, are in
 environment and runs only in PRODUCTION and STAGING. `BACKEND_IDLE_DAYS`
 and `BACKEND_IDLE_DAYS_PUBLISHED` override the idle windows; leave them
 unset in production until WANDIT-153 settles the numbers.
+
+## Mobile builds (WANDIT-194)
+
+The Android card of the publish popover builds an APK on EAS. The API and the
+`mobile-build` Trigger task use the robot token of the wandit Expo
+organization. Do these steps in this order.
+
+1. In the wandit Expo organization, open Settings > Access tokens. Add a
+   robot user with the Developer role, so it can create projects and
+   builds. Create a token for it. Never paste the token in a chat.
+2. Set two values on the API service in Railway and in the Trigger.dev
+   environment, for staging first:
+   - `EXPO_TOKEN`: the robot token of step 1.
+   - `EXPO_ACCOUNT`: the name of the Expo organization.
+   `GET /api/v2/health` then reports both as `true`. Without them the create
+   route answers 503 `V2_ENV_MISSING`, and a queued build fails with
+   `unconfigured`.
+3. The Trigger deploy adds git, `eas-cli@24.8.0`, and `pnpm@11.7.0` to the
+   worker image (`apps/server/trigger.config.ts`). It needs no manual step.
+4. Check the EAS plan of the organization. The free plan gives 15 Android
+   builds per month, one build at a time, and a 45-minute build timeout.
+   After the quota, an Android build costs about $1 to $2.
+5. End test on staging: open a mobile project that has a saved version,
+   click "Build APK" in the publish popover, and install the APK on an
+   Android phone. Log the build id, the EAS build id, the project id, the
+   duration, and the credits.
+
+Local run: install `npm install -g eas-cli@24.8.0 pnpm@11.7.0`, put
+`EXPO_TOKEN` and `EXPO_ACCOUNT` in `apps/server/.env`, and start the worker
+with `npx trigger.dev@4.5.3 dev` from `apps/server`. Caution: each run uses
+one EAS build.
+
+Check these facts on the first real build (UNVERIFIED):
+
+- `eas init --account <org>` with a robot token creates the EAS project.
+- code.storage allows a fetch by commit sha. Else the task fetches `main`
+  and checks out the sha.
+- The first non-interactive build creates the Android keystore on EAS
+  (eas-cli 18.2 and later).

@@ -33,6 +33,8 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D19 | Pixels and third-party scripts in user apps | changed | 2026-09-13 |
 | D20 | Turn stream transport to the browser | open | 2026-09-14 |
 | D21 | Durable git store for project code | changed | 2026-09-14 |
+| D22 | Apple developer account for iOS builds | confirmed | 2026-09-26 |
+| D23 | Price of a mobile build | default | 2026-09-26 |
 
 ## D1. Sandbox vendor
 
@@ -285,9 +287,33 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: WANDIT-152, WANDIT-171, WANDIT-156.
 - Notes: Price from their page, 2026-09-13: $20 per month minimum, about $3.65 per GB per month hot, $0.15 cold, $0.06 per GB push, $0.15 per GB fetch. UNVERIFIED: how the per-repository short-lived credentials work. Check it in WANDIT-152 before WANDIT-171. Real branches make D13 possible later.
 
+## D22. Apple developer account for iOS builds
+
+- Question: Whose Apple developer account signs the iOS build of a user app, for TestFlight?
+- Options: The user brings their own account, and wandit shows the steps. Or one wandit-owned account, with bundle ids under a wandit prefix.
+- Default: the user brings their own account.
+- Final choice: the user's own account. wandit never publishes user apps under a wandit-owned Apple account. Apple rule 4.2.6 rejects apps made from a template service when the service submits them.
+- Status: confirmed
+- Date: 2026-09-26
+- Decided by: Zack, 2026-09-26.
+- Issues that change: WANDIT-194 (P4-04) builds Android APKs only. WANDIT-284 builds iOS with the user Apple key.
+- Notes: Source: Zack, Linear comment on WANDIT-194, 2026-09-26.
+
+## D23. Price of a mobile build
+
+- Question: What does one EAS build cost the user?
+- Options: A new operation `mobile_build` near the EAS price: Android $1, iOS $2. A plan entitlement adds free builds per month: 2 on Pro, 10 on Business. Or builds are free inside the plan.
+- Default: `mobile_build` at 25 credits per Android build (ESTIMATE), with a hold at the start, a settle at the end, and a refund on failure or cancel. No plan entitlement yet.
+- Final choice: open.
+- Status: default
+- Date: 2026-09-26
+- Decided by: open.
+- Issues that change: WANDIT-194 (P4-04), WANDIT-284.
+- Notes: EAS gives 15 free Android builds per month, then $1 to $2 each (`research/expo-mobile.md` 2.4). At $0.032 per credit (D2), 25 credits are $0.80, below that EAS price. The issue text used $0.04 per credit. The hold admits any positive balance, like the other operations. Source: Zack, Linear comment on WANDIT-194, 2026-09-26.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D22.
+1. Take the next number. The next number is D24.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.
@@ -298,4 +324,3 @@ Known future entries:
 
 - The LLM proxy, the wandit server between the sandbox and Anthropic. See WANDIT-150 (P0-03).
 - The Supabase for Platforms terms. See WANDIT-153 (P0-06).
-- The Apple developer account model, and the `mobile_build` credit price. See WANDIT-194 (P4-04).

@@ -2,7 +2,8 @@
  * Narrow read of `projects` for the W4P orphan sweep: which project ids
  * still have a row that is not soft-deleted. The projects module owns the
  * table, so this read-only view lives here, like `TurnProjectRepository`.
- * `w4p-orphan-sweep.runtime.ts` composes it with the Trigger database.
+ * `w4p-orphan-sweep.runtime.ts` and `mobile-build.task.ts` compose it with
+ * the Trigger database.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { and, inArray, isNull } from "@wandit/db";

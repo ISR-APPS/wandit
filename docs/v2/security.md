@@ -10,6 +10,8 @@ Covers the network egress policy, the `request_network_host` host tool,
 the sandbox env allow list, the template deny rules, and the PreToolUse
 hook.
 
+It also covers the mobile build worker (section 12).
+
 Does not cover:
 
 - Rate limits, audit events, and the secret scanner: WANDIT-181.
@@ -336,7 +338,49 @@ Measured on the final run (2026-09-15): sandbox user `ubuntu`, create
 took 24194 ms, the live policy update took 1335 ms, and the case
 passed.
 
-## 12. Open items
+## 12. Mobile builds on the Trigger worker (WANDIT-194)
+
+The `mobile-build` task runs `eas build` on the Trigger.dev worker, never in
+a sandbox: `EXPO_TOKEN` must not enter a VM. The worker holds
+`DATABASE_URL` and every other platform secret in its process env, and a
+child process can read `/proc/<parent pid>/environ`. So no code of the user
+app runs on the worker:
+
+- `eas` runs the local `node_modules/expo/bin/cli config` and loads every
+  config plugin of app.json. That `node_modules` comes from the trusted
+  template files (`templates/mobile-app/package.json` and its lockfile),
+  installed with `--ignore-scripts` in a separate folder. The user lockfile
+  never installs on the worker; EAS installs it on its own build machines.
+- A config plugin must be a template dependency or a module of
+  `native-modules.json` (`checkConfigPlugins` in
+  `app-builder/domain/mobile-build.ts`). A local plugin file is refused.
+- A top-level `app.config` or `app.config.*` file or folder is refused: the
+  expo CLI reads it before app.json. A symbolic link anywhere in the commit
+  is refused, so no tool reads a worker file such as `/proc/<pid>/environ`
+  through it. A `package.json` with an `exports` field is refused: Node
+  would then resolve `expo/bin/cli` to the files of the app.
+- `eas` runs with `EAS_SKIP_AUTO_FINGERPRINT=1`, so it never loads the user
+  `fingerprint.config.js`, and `eas init` runs with `--no-icon`, so no user
+  file leaves the worker as the dashboard icon. The workspace stops when the
+  trusted install shows `metro-config` at the top of `node_modules`,
+  because eas would then load the user `metro.config.js`.
+- wandit writes the EAS identity into app.json: the slug `p` plus the
+  project id without dashes, the owner `EXPO_ACCOUNT`, and the package
+  `app.wandit.<slug>`. A
+  user value can never link the EAS project, and so the keystore, of
+  another app.
+- `eas.json` is the trusted template copy, and `.easignore` is a fixed file.
+  The task removes each path before it writes it, so a user symlink is
+  never followed.
+- Each child process gets an explicit env. Only the `eas` process gets
+  `EXPO_TOKEN`. The code.storage credential is read-only (`git:read`) and
+  never enters `.git/config`.
+
+`view` and `cancel` call the EAS GraphQL API with the token, so the API can
+cancel a build without the eas CLI. The GraphQL API is the one eas-cli
+uses; Expo does not document it as a public contract (UNVERIFIED).
+
+## 13. Open items
 
 - Connector hosts into `buildNetworkPolicy`: WANDIT-189.
 - The custom image and `VERCEL_SANDBOX_IMAGE`: `tooling/sandbox-image/`

@@ -195,6 +195,19 @@ describe("CodeStorageGitStore.issueCredential", () => {
 		expect(payload.scopes).toEqual(["git:read", "git:write"]);
 		expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(600);
 	});
+
+	it("mints a git:read JWT only for read access", async () => {
+		await startServer();
+		const store = makeStore();
+
+		const credential = await store.issueCredential("project-1", 600, "read");
+
+		expect(requests).toHaveLength(0);
+		const key = await importSPKI(publicKeyPem, "ES256");
+		const { payload } = await jwtVerify(credential.password, key);
+		expect(payload.repo).toBe("wandit/project-1");
+		expect(payload.scopes).toEqual(["git:read"]);
+	});
 });
 
 describe("CodeStorageGitStore.deleteRepository", () => {

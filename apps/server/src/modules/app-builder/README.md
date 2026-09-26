@@ -24,7 +24,7 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -36,6 +36,7 @@ PostHog flag `v2-builder`).
 | `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
+| `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
 | `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
@@ -57,6 +58,8 @@ PostHog flag `v2-builder`).
 - `BackendProvider` — the hidden Supabase project behind an app (D18).
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
   back into a fresh sandbox (D21).
+- `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
+- `MobileBuildTaskStarter` — queues the `mobile-build` Trigger task.
 
 ## Sandbox
 
@@ -560,6 +563,64 @@ real caller.
   all three, `WORKERS_FOR_PLATFORMS_CLIENT` is null, the delete step
   answers `skipped`, and the sweep does nothing. The operator steps are in
   `docs/v2/runbook.md`.
+
+## Mobile builds (WANDIT-194)
+
+The Android card of the publish popover builds an APK of a mobile app on
+EAS. iOS joins with WANDIT-284 (D22). The price is 25 credits
+(`MOBILE_BUILD_ANDROID_CREDITS`, D23).
+
+Routes under `/api/v2/projects/:projectId/mobile-builds`, behind
+`V2BuilderEnabledGuard`, `RedisRateLimitGuard`, and the workspace permission
+`project:update`. A V1 project, a web app, or a project of another workspace
+answers 404.
+
+- `POST /` with `{ platform: "android", requestKey }` answers 201 and the
+  build. A retried `requestKey` answers its first build. Without
+  `EXPO_TOKEN` or `EXPO_ACCOUNT` it answers 503 `V2_ENV_MISSING`; without a
+  saved version (no `app_branches` head) 409 `MOBILE_BUILD_NO_VERSION`; with a
+  live build 409 `MOBILE_BUILD_ACTIVE`. The hold `mobile_build:<buildId>`
+  (`mobileBuildHoldKey`) comes first, so a 402 writes no row. Then the
+  `queued` row, the task start, and the audit row `mobile_build.started`. A
+  task that does not start leaves the row `failed` with `start_failed` and
+  refunds the hold. Rate limit: 10 per 10 minutes per user.
+- `GET /` pages the builds, newest first (cursor, at most 50). `GET /:buildId`
+  answers one build.
+- `POST /:buildId/cancel` moves a live row to `canceled` with a
+  compare-and-set, cancels the EAS build over GraphQL, refunds the hold, and
+  writes `mobile_build.canceled`. A build that already ended answers as it
+  is.
+
+`mobile_builds` holds one row per build. The partial unique index
+`mobile_builds_live_project_platform_uq` allows one `queued` or `building` row
+per project and platform. Every status change is a compare-and-set in
+`MobileBuildsRepository.transition`: only one of the API and the task ends a
+build, and only that side moves the credits.
+
+The `mobile-build` task (queue `mobile-builds`, `concurrencyKey` = project,
+one attempt, idempotency key `mobile-build:<buildId>`):
+
+1. Claims the row (`queued` → `building`). A canceled or replayed run skips.
+2. Leases the hold (`LEASE_TTL_MS`, 40 min), so the stale-hold sweep skips
+   it during the build.
+3. Prepares the workspace in a temp folder (`prepareMobileBuildWorkspace`):
+   a read-only credential, `git fetch` of the commit (fallback: `main`), the
+   app.json checks, the wandit EAS identity, the trusted `eas.json` with the
+   backend env, a fixed `.easignore`, and the trusted template install. See
+   `docs/v2/security.md` section 12.
+4. Runs `eas init --account <EXPO_ACCOUNT>` and `eas build -p android
+   --profile apk --no-wait`, then removes the temp folder before any wait.
+5. Polls the build over GraphQL every 30 s with `wait.for`, for at most 2 h.
+   FINISHED stores `artifactUrl` and settles 2500 cc. ERRORED, a timeout, or
+   any other error fails the row and refunds. A failed DB read or EAS read
+   only waits for the next poll. A row that left `building` ends the run:
+   the API canceled it, and the run asks EAS to cancel once more. A
+   soft-deleted project cancels EAS and the row and refunds. A hold that the
+   stale-hold sweep or a cancel refunded stops the build (like builder-turn).
+
+A run that Trigger stops from outside (OOM, `maxDuration`) leaves the row
+`building`. The user Cancel is the exit, and the sweep refunds the hold when
+the lease expires. The operator steps are in `docs/v2/runbook.md`.
 
 ## Builder turn
 
