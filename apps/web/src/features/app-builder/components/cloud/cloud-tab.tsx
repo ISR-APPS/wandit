@@ -2,27 +2,33 @@
  * Cloud tab of the app builder (WANDIT-188): the panel nav on the start
  * side and the open panel on the other side. Rendered by
  * pages/app-builder-page.tsx, which keeps it mounted while hidden. Renders
- * backend-state.tsx around the Database panel.
+ * backend-state.tsx around every panel except Secrets, and one panel
+ * component of this folder.
  */
 
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	CalendarClock,
-	Construction,
 	Database,
 	HardDrive,
+	KeyRound,
 	type LucideIcon,
 	ScrollText,
 	SquareFunction,
 	Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import { CLOUD_PANELS, type CloudPanel } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
 import { BackendState } from "./backend-state";
 import { DatabasePanel } from "./database-panel";
+import { FunctionsPanel } from "./functions-panel";
+import { JobsPanel } from "./jobs-panel";
+import { type LogsFilter, LogsPanel } from "./logs-panel";
+import { SecretsPanel } from "./secrets-panel";
+import { StoragePanel } from "./storage-panel";
+import { UsersPanel } from "./users-panel";
 
 /** Props of CloudTab. The page owns the open panel through `?cloudPanel=`. */
 export type CloudTabProps = {
@@ -38,12 +44,13 @@ const PANEL_ICONS: Record<CloudPanel, LucideIcon> = {
 	database: Database,
 	users: Users,
 	storage: HardDrive,
+	secrets: KeyRound,
 	logs: ScrollText,
 	functions: SquareFunction,
 	jobs: CalendarClock,
 };
 
-/** Nav of the six Cloud panels and the open one. Only Database has a body in slice 1. */
+/** Nav of the seven Cloud panels and the open one. */
 export function CloudTab({
 	projectId,
 	isActive,
@@ -51,28 +58,51 @@ export function CloudTab({
 	onSelectPanel,
 }: CloudTabProps) {
 	const { t } = useTranslation();
+	// The filter Logs opens with. "View logs" of the Functions panel sets it; a nav click clears it.
+	const [logsFilter, setLogsFilter] = useState<LogsFilter | undefined>(
+		undefined,
+	);
+
+	function selectPanel(next: CloudPanel) {
+		setLogsFilter(undefined);
+		onSelectPanel(next);
+	}
 
 	function renderPanel(): ReactNode {
 		switch (panel) {
 			case "database":
-				return (
-					<BackendState projectId={projectId} isActive={isActive}>
-						<DatabasePanel projectId={projectId} isActive={isActive} />
-					</BackendState>
-				);
-			// Slices 2 and 3 of WANDIT-188 build these panels. The nav lists
-			// them now, so it stays the same when they land.
+				return <DatabasePanel projectId={projectId} isActive={isActive} />;
 			case "users":
+				return <UsersPanel projectId={projectId} isActive={isActive} />;
 			case "storage":
+				return <StoragePanel projectId={projectId} isActive={isActive} />;
+			case "secrets":
+				return <SecretsPanel projectId={projectId} isActive={isActive} />;
 			case "logs":
-			case "functions":
-			case "jobs":
 				return (
-					<CodeMessage
-						icon={Construction}
-						text={t("workspace.cloud.comingSoon")}
+					<LogsPanel
+						projectId={projectId}
+						isActive={isActive}
+						initialFilter={logsFilter}
 					/>
 				);
+			case "functions":
+				return (
+					<FunctionsPanel
+						projectId={projectId}
+						isActive={isActive}
+						onViewLogs={(slug) => {
+							// The logs route has no function filter. A function log line
+							// holds the function URL, so a search on the slug finds its calls.
+							// LIMIT: the search also finds a longer slug that holds this one.
+							// Upgrade: a function id filter on the logs route (log_attributes['function_id']).
+							setLogsFilter({ source: "functions", search: slug });
+							onSelectPanel("logs");
+						}}
+					/>
+				);
+			case "jobs":
+				return <JobsPanel projectId={projectId} isActive={isActive} />;
 			default: {
 				// The compiler fails here when CLOUD_PANELS gains a panel without a case above.
 				const unhandled: never = panel;
@@ -97,7 +127,7 @@ export function CloudTab({
 								key={item}
 								type="button"
 								aria-current={isOpen ? "page" : undefined}
-								onClick={() => onSelectPanel(item)}
+								onClick={() => selectPanel(item)}
 								className={cn(
 									"flex h-9 shrink-0 items-center gap-2.5 rounded-xl px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 md:w-full",
 									isOpen
@@ -114,7 +144,16 @@ export function CloudTab({
 					})}
 				</nav>
 			</div>
-			<div className="min-w-0 flex-1 overflow-y-auto p-6">{renderPanel()}</div>
+			<div className="min-w-0 flex-1 overflow-y-auto p-6">
+				{/* Secrets live in the Wandit database, so only that panel works without a running backend. */}
+				{panel === "secrets" ? (
+					renderPanel()
+				) : (
+					<BackendState projectId={projectId} isActive={isActive}>
+						{renderPanel()}
+					</BackendState>
+				)}
+			</div>
 		</div>
 	);
 }

@@ -2,7 +2,8 @@
  * The rows grid of the Cloud tab: one table page with sort headers and page
  * controls, or one SQL result without them. Pure presentation: the caller
  * owns the page, the sort, and the query. Rendered by database-panel.tsx
- * and sql-editor.tsx; builds on the Table of @wandit/ui.
+ * and sql-editor.tsx; builds on the Table of @wandit/ui. Also exports the
+ * page controls that users-panel.tsx shows under the users list.
  */
 
 import type { CloudRowsQuery, SqlRow } from "@wandit/contracts";
@@ -91,10 +92,6 @@ export function RowsGrid({
 		sort.onSortChange(column, direction);
 	}
 
-	const pageCount = paging
-		? Math.max(1, Math.ceil(paging.total / paging.pageSize))
-		: 1;
-
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
 			{rows.length === 0 ? (
@@ -167,42 +164,67 @@ export function RowsGrid({
 				</div>
 			)}
 			{paging ? (
-				<div className="flex items-center justify-between gap-3 text-muted-foreground text-sm">
-					<span>
-						{t("workspace.cloud.database.rowCount", {
-							count: paging.total,
-							countDisplay: formatNumber(paging.total, locale),
-						})}
-					</span>
-					<div className="flex items-center gap-2">
-						<span>
-							{t("workspace.cloud.database.rows.page", {
-								page: formatNumber(paging.page, locale),
-								pageCount: formatNumber(pageCount, locale),
-							})}
-						</span>
-						<Button
-							variant="outline"
-							size="icon-sm"
-							aria-label={t("workspace.cloud.database.rows.previous")}
-							disabled={paging.page <= 1}
-							onClick={() => paging.onPageChange(paging.page - 1)}
-						>
-							{/* In RTL the previous page sits on the right, so the icon mirrors. */}
-							<ChevronLeft className="size-4 rtl:-scale-x-100" />
-						</Button>
-						<Button
-							variant="outline"
-							size="icon-sm"
-							aria-label={t("workspace.cloud.database.rows.next")}
-							disabled={paging.page >= pageCount}
-							onClick={() => paging.onPageChange(paging.page + 1)}
-						>
-							<ChevronRight className="size-4 rtl:-scale-x-100" />
-						</Button>
-					</div>
-				</div>
+				<PageControls
+					{...paging}
+					countText={t("workspace.cloud.database.rowCount", {
+						count: paging.total,
+						countDisplay: formatNumber(paging.total, locale),
+					})}
+				/>
 			) : null}
+		</div>
+	);
+}
+
+/** Props of PageControls. `countText` is the translated total, for example "120 rows". */
+export type PageControlsProps = NonNullable<RowsGridProps["paging"]> & {
+	countText: string;
+};
+
+/**
+ * The total, "Page x of y", and the previous and next buttons under a paged
+ * list. Rendered by RowsGrid and by the users list of users-panel.tsx.
+ */
+export function PageControls({
+	page,
+	pageSize,
+	total,
+	onPageChange,
+	countText,
+}: PageControlsProps) {
+	const { t, locale } = useTranslation();
+	const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+	return (
+		<div className="flex items-center justify-between gap-3 text-muted-foreground text-sm">
+			<span>{countText}</span>
+			<div className="flex items-center gap-2">
+				<span>
+					{t("workspace.cloud.database.rows.page", {
+						page: formatNumber(page, locale),
+						pageCount: formatNumber(pageCount, locale),
+					})}
+				</span>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label={t("workspace.cloud.database.rows.previous")}
+					disabled={page <= 1}
+					onClick={() => onPageChange(page - 1)}
+				>
+					{/* In RTL the previous page sits on the right, so the icon mirrors. */}
+					<ChevronLeft className="size-4 rtl:-scale-x-100" />
+				</Button>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label={t("workspace.cloud.database.rows.next")}
+					disabled={page >= pageCount}
+					onClick={() => onPageChange(page + 1)}
+				>
+					<ChevronRight className="size-4 rtl:-scale-x-100" />
+				</Button>
+			</div>
 		</div>
 	);
 }

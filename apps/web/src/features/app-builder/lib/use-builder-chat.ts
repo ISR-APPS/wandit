@@ -7,7 +7,7 @@
  */
 
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQueryClient } from "@tanstack/react-query";
 import {
 	type CreateTurnResponse,
 	createTurnResponseSchema,
@@ -110,9 +110,11 @@ export function useBuilderChat(
 	);
 
 	// A finished turn can mint a new version, change the code, move the
-	// project summary, run a migration, and settle credits; all five caches
-	// refresh at once. The code key covers the Code view tree and every open
-	// file. The Cloud tables key covers the table list and every loaded page.
+	// project summary, change the backend of the app, and settle credits;
+	// all five caches refresh at once. The code key covers the Code view
+	// tree and every open file. The Cloud keys cover the tables, functions,
+	// secrets, and every other panel, but not the backend state: it polls
+	// on its own while it changes.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
@@ -123,8 +125,10 @@ export function useBuilderChat(
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.project(projectId),
 		});
+		const backendKey = hashKey(cloudKeys.backend(projectId));
 		void queryClient.invalidateQueries({
-			queryKey: cloudKeys.tables(projectId),
+			queryKey: cloudKeys.all(projectId),
+			predicate: (query) => query.queryHash !== backendKey,
 		});
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 	}, [queryClient, projectId]);

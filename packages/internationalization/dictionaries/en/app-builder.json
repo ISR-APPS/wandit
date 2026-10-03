@@ -234,7 +234,10 @@
 			"other": "{count} rows"
 		},
 		"functionsTitle": "Server functions",
-		"today": "{count} today"
+		"today": "{count} today",
+		"inCloud": "The database, users, files, and logs of this app are in the Cloud tab.",
+		"openCloud": "Open Cloud",
+		"cloudOff": "The Cloud tab is not on for your account yet."
 	},
 	"signIn": {
 		"methodsTitle": "Sign-in methods",

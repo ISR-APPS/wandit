@@ -1,11 +1,12 @@
 /**
  * Backend gate of the Cloud tab (WANDIT-188). Reads cloudBackendQuery and
  * shows one block per backend status; only an `active` backend shows the
- * panel it wraps. Rendered by cloud-tab.tsx around each panel that reads
- * the database. Calls useEnableBackend and useRestoreBackend.
+ * panel it wraps. Rendered by cloud-tab.tsx around every panel except
+ * Secrets. Calls useEnableBackend and useRestoreBackend. Also exports
+ * CloudLoadFailed, the failed-load block of the panels.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CloudBackendResponse } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -19,7 +20,7 @@ import type { ReactNode } from "react";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { useEnableBackend, useRestoreBackend } from "../../api/cloud.mutations";
-import { cloudBackendQuery } from "../../api/cloud.queries";
+import { cloudBackendQuery, cloudKeys } from "../../api/cloud.queries";
 import { CodeMessage } from "../code/code-viewer";
 import { RowsGridSkeleton } from "./rows-grid";
 
@@ -173,6 +174,35 @@ function BackendFailed({
 			{/* POST cloud/backend answers an `error` row as it is, so the button can only read the state again. */}
 			<Button variant="outline" size="sm" onClick={onCheckAgain}>
 				{t("workspace.cloud.backend.error.checkAgain")}
+			</Button>
+		</CodeMessage>
+	);
+}
+
+/**
+ * The failed first load of a Cloud panel and a retry. The retry reads every
+ * Cloud query again, the backend state too: a 409 can mean the backend fell
+ * asleep, and the gate then shows the wake-up block.
+ */
+export function CloudLoadFailed({ projectId }: { projectId: string }) {
+	const { t } = useTranslation();
+	const queryClient = useQueryClient();
+
+	return (
+		<CodeMessage
+			icon={TriangleAlert}
+			text={t("workspace.cloud.sectionLoadFailed")}
+		>
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={() =>
+					void queryClient.invalidateQueries({
+						queryKey: cloudKeys.all(projectId),
+					})
+				}
+			>
+				{t("workspace.cloud.retry")}
 			</Button>
 		</CodeMessage>
 	);

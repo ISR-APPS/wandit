@@ -387,9 +387,18 @@ export const cloudObjectsResponseSchema = z.object({
 /** TypeScript objects answer. */
 export type CloudObjectsResponse = z.infer<typeof cloudObjectsResponseSchema>;
 
+// The characters Supabase Storage accepts in an object key (its `isValidKey`
+// rule), less `?`: Storage accepts it, but the signed upload URL then breaks.
+// Checked on a live project. A delete path keeps the wider rule above.
+const STORAGE_UPLOAD_KEY_PATTERN = /^[\w/!\-.*'() &$@=;:+,]+$/;
+
 /** Body of `POST cloud/storage/buckets/:bucket/objects/upload-url`. */
 export const cloudUploadUrlBodySchema = z.object({
-	path: cloudObjectPathSchema,
+	/** Latin letters, digits, `_`, spaces, and `/ ! - . * ' ( ) & $ @ = ; : + ,` only. */
+	path: cloudObjectPathSchema.regex(
+		STORAGE_UPLOAD_KEY_PATTERN,
+		"expected only the characters Supabase Storage accepts",
+	),
 });
 
 /** TypeScript upload-url body. */
@@ -433,7 +442,7 @@ export type CloudDeleteObjectsResponse = z.infer<
 // Logs
 // ---------------------------------------------------------------------------
 
-/** Log tables the route reads: `edge_logs`, `postgres_logs`, `function_edge_logs`. */
+/** Log sources the route reads: `edge_logs`, `postgres_logs`, `function_edge_logs`. */
 export const cloudLogSources = ["api", "postgres", "functions"] as const;
 
 /** Validates `source` in the logs query. */
@@ -634,8 +643,8 @@ export const cloudJobRowSchema = z.object({
 });
 
 /**
- * One log line as the analytics endpoint answers it. `timestamp` is unix
- * microseconds or ISO text (UNVERIFIED which one the endpoint sends).
+ * One log line as the analytics endpoint answers it. The logs SQL asks for
+ * `timestamp` as unix microseconds; ISO text stays valid.
  */
 export const cloudLogRowSchema = z.object({
 	id: z.string(),
