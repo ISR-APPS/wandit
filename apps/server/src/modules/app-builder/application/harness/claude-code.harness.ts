@@ -5,7 +5,9 @@
  * the `template-snapshot` task calls `bootstrapKey` and `prepareSandbox`.
  * `builder-harness.factory.ts` builds it. One instance keeps every live
  * session of the run in a Map. `stream`, `hasUnfinishedTurn`, `detach`,
- * and `suspendTurn` find the matching `HarnessAgentSession` there.
+ * and `suspendTurn` find the matching `HarnessAgentSession` there. On the
+ * harness host (`keepAlive`), a finished session attaches again after the
+ * turn, and the next turn of the chat reuses it.
  */
 
 import { createHash } from "node:crypto";
@@ -59,6 +61,7 @@ import {
 } from "../../domain/ports/sandbox-provider";
 import type { QuestionInteraction } from "../../domain/question-answers";
 import { ASK_USER_TOOL_NAME } from "../host-tools/ask-user.host-tool";
+import { readForkRunTurn, withForkedBridge } from "./claude-code-bridge-fork";
 
 /**
  * The built-in tool the adapter pauses on for a user question. The name
@@ -76,6 +79,24 @@ const ASK_USER_MAX_LABEL_CHARS = 120;
 const ASK_USER_MAX_NOTE_CHARS = 200;
 const ASK_USER_MAX_ID_CHARS = 64;
 const ASK_USER_MAX_FILES = 6;
+
+/**
+ * 30 s for a bridge start or an attach, against the adapter default of 120 s.
+ * A dead bridge after an idle stop retried its socket for the whole window.
+ */
+const BRIDGE_STARTUP_TIMEOUT_MS = 30_000;
+
+/**
+ * 30 min. The bridge fork keeps one Claude Code process while its start env
+ * stays the same. The env names this epoch, so each epoch starts a new
+ * process, and no kept-alive connection holds a proxy token (65 min) too long.
+ */
+// LIMIT: a turn longer than 35 min on a process from an earlier turn can
+// reach the token end. Upgrade: a proxy renewal for a bound chat.
+const TOKEN_EPOCH_MS = 30 * 60_000;
+
+/** 20 min, the window of the `sandbox-idle-sweep` task: a kept session goes after it. */
+const KEPT_SESSION_IDLE_MS = 20 * 60_000;
 
 /** The `HarnessAgentSession` fields the adapter uses; specs fake this. */
 export type ClaudeCodeSessionHandle = Pick<
@@ -127,11 +148,55 @@ export type ClaudeCodeHarnessDeps = {
 	prepareFactory?: typeof prepareSandboxForHarness;
 	/** Warn sink for a skipped pending tool result; defaults to console. */
 	logger?: Pick<Console, "warn">;
+	/**
+	 * Harness host only: a finished session attaches to its bridge again after
+	 * the turn, so the next turn of the chat skips the attach. A Trigger.dev
+	 * run ends after one turn, so the task leaves it off.
+	 */
+	keepAlive?: boolean;
+	/** Clock of the token epoch and the idle window; defaults to `Date.now`. */
+	now?: () => number;
 };
+
+/** The options of `resumeSession`, see `BuilderHarness`. */
+type ResumeOptions = { dropPausedTurn: boolean; bridgeDead: boolean };
 
 type LiveSession = {
 	agent: ClaudeCodeAgentRunner;
 	session: ClaudeCodeSessionHandle;
+	/** The chat of the session; it also names the session in the SDK. */
+	chatId: string;
+	/** The sandbox session the agent started on; a re-attach uses it again. */
+	sandboxSession: HarnessSandboxSession;
+	/** `providerSandboxId` of that sandbox; a new sandbox has a new bridge. */
+	sandboxId: string;
+	/** `TOKEN_EPOCH_MS` bucket of the env the session started with. */
+	epoch: number;
+	/**
+	 * JSON of the host tool approval rules. The SDK fixes them when the
+	 * session starts, so a kept session serves only the same rules.
+	 */
+	toolApproval: string;
+	/**
+	 * Set when the turn reuses a kept session: the stored state to resume from
+	 * when the kept bridge is gone at the turn start.
+	 */
+	fallback?: {
+		input: HarnessSessionInput;
+		resumeState: HarnessResumeState;
+		options: ResumeOptions;
+	};
+};
+
+/** A session kept attached between two turns of a chat (keep-alive only). */
+type KeptSession = {
+	/** The re-attach after the turn; null when it failed. */
+	live: Promise<LiveSession | null>;
+	/** The `payload` the turn end stored; the row must still hold it. */
+	payload: string;
+	sandboxId: string;
+	/** When the turn ended, for the idle window. */
+	idleSince: number;
 };
 
 /**
@@ -156,9 +221,13 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		ClaudeCodeHarnessDeps["prepareFactory"]
 	>;
 	private readonly logger: NonNullable<ClaudeCodeHarnessDeps["logger"]>;
+	private readonly keepAlive: boolean;
+	private readonly now: () => number;
 
 	/** sessionId → the agent and its live session, for `stream`/`detach`. */
 	private readonly sessions = new Map<string, LiveSession>();
+	/** chatId → the session kept attached since the last turn (keep-alive). */
+	private readonly kept = new Map<string, KeptSession>();
 
 	constructor(deps: ClaudeCodeHarnessDeps = {}) {
 		this.agentFactory =
@@ -187,9 +256,16 @@ export class ClaudeCodeHarness implements BuilderHarness {
 						}),
 				};
 			});
-		this.claudeFactory = deps.claudeFactory ?? createClaudeCode;
+		// The real adapter installs the Wandit bridge fork: one Claude Code
+		// process serves many turns of a chat (`claude-code-bridge-fork.ts`).
+		this.claudeFactory =
+			deps.claudeFactory ??
+			((settings) =>
+				withForkedBridge(createClaudeCode(settings), readForkRunTurn()));
 		this.prepareFactory = deps.prepareFactory ?? prepareSandboxForHarness;
 		this.logger = deps.logger ?? console;
+		this.keepAlive = deps.keepAlive ?? false;
+		this.now = deps.now ?? Date.now;
 	}
 
 	async bootstrapKey(): Promise<string> {
@@ -214,7 +290,10 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	}
 
 	async createSession(input: HarnessSessionInput): Promise<HarnessSession> {
-		const agent = this.buildAgent(input);
+		// The new bridge replaces the kept one, so the kept session goes first.
+		await this.dropKept(input.chatId);
+		const epoch = this.tokenEpoch();
+		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
 		// A fresh session owns the sandbox egress policy. An earlier session on
 		// the same sandbox leaves its request transformations behind (the run
@@ -229,25 +308,62 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			sandboxSession,
 			sessionId: input.chatId,
 		});
-		this.sessions.set(session.sessionId, { agent, session });
+		this.sessions.set(
+			session.sessionId,
+			this.liveSession(input, { agent, epoch, sandboxSession, session }),
+		);
 		return { sessionId: session.sessionId };
 	}
 
 	async resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
-		options: { dropPausedTurn: boolean },
+		options: ResumeOptions,
 	): Promise<HarnessSession> {
 		if (resumeState.harness !== this.kind) {
 			throw new HarnessResumeMismatchError(resumeState.harness, this.kind);
 		}
+		const kept = await this.takeKept(input, resumeState, options);
+		if (kept !== null) {
+			// The kept session serves this turn with this turn's tools, model,
+			// and instructions: the SDK reads them from the agent on each prompt.
+			this.sessions.set(kept.session.sessionId, {
+				...kept,
+				agent: this.buildAgent(input, kept.epoch),
+				fallback: { input, options, resumeState },
+			});
+			return { sessionId: kept.session.sessionId };
+		}
+		return this.resumeStored(input, resumeState, options);
+	}
+
+	/**
+	 * Drops the kept sessions idle for longer than `KEPT_SESSION_IDLE_MS`.
+	 * The harness host calls it on a timer. The bridges stay; the stored
+	 * state still attaches to them.
+	 */
+	async dropIdleKept(): Promise<void> {
+		for (const [chatId, kept] of this.kept) {
+			if (this.now() - kept.idleSince >= KEPT_SESSION_IDLE_MS) {
+				await this.dropKept(chatId);
+			}
+		}
+	}
+
+	/** The stored-state resume of `resumeSession`: one attach or bridge start. */
+	private async resumeStored(
+		input: HarnessSessionInput,
+		resumeState: HarnessResumeState,
+		options: ResumeOptions,
+	): Promise<HarnessSession> {
 		// `resumeState.payload` is a JSON string; jsonb hands it back as
 		// unknown, so `JSON.parse` output is the boundary value.
 		const parsed = harnessResumeStateSchema.parse(
 			JSON.parse(resumeState.payload),
 		);
 
-		const agent = this.buildAgent(input);
+		const epoch = this.tokenEpoch();
+		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
 		let session: ClaudeCodeSessionHandle;
 		if (parsed.type === "continue-turn") {
@@ -262,7 +378,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 						// types share the adapter `data` schema; the pending lists stay
 						// out, and the caller's next prompt carries the answers.
 						resumeFrom: {
-							data: continueFrom.data,
+							data: options.bridgeDead
+								? withoutBridgeCoords(continueFrom.data)
+								: continueFrom.data,
 							harnessId: continueFrom.harnessId,
 							specificationVersion: continueFrom.specificationVersion,
 							type: "resume-session",
@@ -276,15 +394,21 @@ export class ClaudeCodeHarness implements BuilderHarness {
 						sessionId: input.chatId,
 					});
 		} else {
+			// SAFETY: zod checked type, harnessId, and specificationVersion
+			// above; the rest is the adapter's own detach() output.
+			const resumeFrom = parsed as HarnessAgentResumeSessionState;
 			session = await agent.createSession({
-				// SAFETY: zod checked type, harnessId, and specificationVersion
-				// above; the rest is the adapter's own detach() output.
-				resumeFrom: parsed as HarnessAgentResumeSessionState,
+				resumeFrom: options.bridgeDead
+					? { ...resumeFrom, data: withoutBridgeCoords(resumeFrom.data) }
+					: resumeFrom,
 				sandboxSession,
 				sessionId: input.chatId,
 			});
 		}
-		this.sessions.set(session.sessionId, { agent, session });
+		this.sessions.set(
+			session.sessionId,
+			this.liveSession(input, { agent, epoch, sandboxSession, session }),
+		);
 		return { sessionId: session.sessionId };
 	}
 
@@ -293,56 +417,86 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		input: HarnessTurnInput,
 	): AsyncIterable<HarnessStreamEvent> {
 		const entry = this.requireSession(session.sessionId);
-		const result =
-			input.kind === "continue"
-				? await entry.agent.continueStream({
-						abortSignal: input.signal,
-						session: entry.session,
-						toolApprovalContinuations: input.approvals.map(
-							(approval): ToolApprovalResponse => ({
-								approvalId: approval.approvalId,
-								approved: approval.approved,
-								type: "tool-approval-response",
-							}),
-						),
-						toolResultContinuations: input.toolResults.map(
-							(result): ToolResultPart =>
-								result.tool === "ask_user"
-									? {
-											output: {
-												type: "json",
-												// The parse keeps a malformed answer out of the
-												// resumed turn; a bad value throws here.
-												value: askUserHostToolOutputSchema.parse(result.output),
-											},
-											toolCallId: result.toolCallId,
-											toolName: ASK_USER_TOOL_NAME,
-											type: "tool-result",
-										}
-									: {
-											output: {
-												type: "json",
-												// The parse keeps a malformed caller answer out of
-												// the resumed turn; a bad value throws here.
-												value: harnessV1QuestionsToolOutputSchema.parse({
-													action: result.partial
-														? "partially-answered"
-														: "answered",
-													answers: result.answers,
-												}),
-											},
-											toolCallId: result.toolCallId,
-											toolName: ASK_USER_QUESTIONS_TOOL_NAME,
-											type: "tool-result",
-										},
-						),
-					})
-				: await entry.agent.stream({
-						abortSignal: input.signal,
-						prompt: input.prompt,
-						session: entry.session,
-					});
+		let result: ClaudeCodeStreamResult;
+		try {
+			result = await this.startStream(entry, input);
+		} catch (error) {
+			// A kept bridge can die while it waits: it crashed, or another path
+			// replaced it. The turn then resumes from the stored state once.
+			if (entry.fallback === undefined) {
+				throw error;
+			}
+			this.logger.warn(
+				`builder-turn.kept-session-lost: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			this.sessions.delete(session.sessionId);
+			const { input: sessionInput, options, resumeState } = entry.fallback;
+			const resumed = await this.resumeStored(
+				sessionInput,
+				resumeState,
+				options,
+			);
+			result = await this.startStream(
+				this.requireSession(resumed.sessionId),
+				input,
+			);
+		}
 		yield* this.streamEvents(result);
+	}
+
+	/** Sends the prompt or the continuation of one turn to the session. */
+	private startStream(
+		entry: LiveSession,
+		input: HarnessTurnInput,
+	): Promise<ClaudeCodeStreamResult> {
+		return input.kind === "continue"
+			? entry.agent.continueStream({
+					abortSignal: input.signal,
+					session: entry.session,
+					toolApprovalContinuations: input.approvals.map(
+						(approval): ToolApprovalResponse => ({
+							approvalId: approval.approvalId,
+							approved: approval.approved,
+							type: "tool-approval-response",
+						}),
+					),
+					toolResultContinuations: input.toolResults.map(
+						(result): ToolResultPart =>
+							result.tool === "ask_user"
+								? {
+										output: {
+											type: "json",
+											// The parse keeps a malformed answer out of the
+											// resumed turn; a bad value throws here.
+											value: askUserHostToolOutputSchema.parse(result.output),
+										},
+										toolCallId: result.toolCallId,
+										toolName: ASK_USER_TOOL_NAME,
+										type: "tool-result",
+									}
+								: {
+										output: {
+											type: "json",
+											// The parse keeps a malformed caller answer out of
+											// the resumed turn; a bad value throws here.
+											value: harnessV1QuestionsToolOutputSchema.parse({
+												action: result.partial
+													? "partially-answered"
+													: "answered",
+												answers: result.answers,
+											}),
+										},
+										toolCallId: result.toolCallId,
+										toolName: ASK_USER_QUESTIONS_TOOL_NAME,
+										type: "tool-result",
+									},
+					),
+				})
+			: entry.agent.stream({
+					abortSignal: input.signal,
+					prompt: input.prompt,
+					session: entry.session,
+				});
 	}
 
 	async hasUnfinishedTurn(session: HarnessSession): Promise<boolean> {
@@ -353,14 +507,143 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const entry = this.requireSession(session.sessionId);
 		this.sessions.delete(session.sessionId);
 		const state = await entry.session.detach();
+		const payload = JSON.stringify(state);
+		// Only a finished turn is kept: a paused one continues through the
+		// stored state, which carries its pending cards.
+		if (this.keepAlive && state.continueFrom === undefined) {
+			await this.keep(entry, state, payload);
+		}
 		// A detach in the middle of a turn keeps that turn in `continueFrom`.
 		// Its cards must reach the row. The SDK refuses a new prompt on a
 		// session with an unfinished turn. The next turn answers the cards.
 		return {
 			harness: this.kind,
-			payload: JSON.stringify(state),
+			payload,
 			pending: this.pendingOf(state.continueFrom),
 		};
+	}
+
+	/**
+	 * Attaches the detached session again in the background and keeps it for
+	 * the next turn of the chat. The bridge serves one socket at a time, and a
+	 * sandbox has one bridge, so a kept session of another chat on it goes.
+	 */
+	private async keep(
+		entry: LiveSession,
+		state: HarnessAgentResumeSessionState,
+		payload: string,
+	): Promise<void> {
+		const { chatId } = entry;
+		for (const [otherChatId, other] of this.kept) {
+			if (otherChatId === chatId || other.sandboxId === entry.sandboxId) {
+				await this.dropKept(otherChatId);
+			}
+		}
+		const live = entry.agent
+			.createSession({
+				resumeFrom: state,
+				sandboxSession: entry.sandboxSession,
+				sessionId: chatId,
+			})
+			.then(
+				(session): LiveSession => ({ ...entry, fallback: undefined, session }),
+			)
+			.catch((error: unknown) => {
+				// The next turn resumes from the stored state instead.
+				this.logger.warn(
+					`builder-turn.keep-session-failed chatId=${chatId}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return null;
+			});
+		this.kept.set(chatId, {
+			idleSince: this.now(),
+			live,
+			payload,
+			sandboxId: entry.sandboxId,
+		});
+	}
+
+	/**
+	 * The kept session of the chat when this turn may reuse it, else null.
+	 * Reuse needs the stored state the last host turn wrote (no other path
+	 * ran a turn since), the same live sandbox, the same tool approval rules,
+	 * and the same token epoch. A kept session that does not fit goes.
+	 */
+	private async takeKept(
+		input: HarnessSessionInput,
+		resumeState: HarnessResumeState,
+		options: ResumeOptions,
+	): Promise<LiveSession | null> {
+		const kept = this.kept.get(input.chatId);
+		if (kept === undefined) {
+			return null;
+		}
+		this.kept.delete(input.chatId);
+		const live = await kept.live;
+		if (live === null) {
+			return null;
+		}
+		const fits =
+			!options.bridgeDead &&
+			kept.payload === resumeState.payload &&
+			live.sandboxId === input.sandbox.providerSandboxId &&
+			live.epoch === this.tokenEpoch() &&
+			live.toolApproval === JSON.stringify(input.hostTools.toolApproval) &&
+			!live.session.hasUnfinishedTurn();
+		if (!fits) {
+			await this.closeKept(input.chatId, live);
+			return null;
+		}
+		return live;
+	}
+
+	/** Closes the kept session of the chat, if one exists. */
+	private async dropKept(chatId: string): Promise<void> {
+		const kept = this.kept.get(chatId);
+		if (kept === undefined) {
+			return;
+		}
+		this.kept.delete(chatId);
+		const live = await kept.live;
+		if (live !== null) {
+			await this.closeKept(chatId, live);
+		}
+	}
+
+	/**
+	 * Closes the socket of a kept session. The bridge and its Claude Code
+	 * process stay, so the stored state still attaches to them.
+	 */
+	private async closeKept(chatId: string, live: LiveSession): Promise<void> {
+		try {
+			await live.session.detach();
+		} catch (error) {
+			// A dead socket has nothing to close; the next resume handles it.
+			this.logger.warn(
+				`builder-turn.kept-session-close-failed chatId=${chatId}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+
+	/** The live session record of a session that just started or resumed. */
+	private liveSession(
+		input: HarnessSessionInput,
+		started: Pick<
+			LiveSession,
+			"agent" | "epoch" | "sandboxSession" | "session"
+		>,
+	): LiveSession {
+		return {
+			...started,
+			chatId: input.chatId,
+			sandboxId: input.sandbox.providerSandboxId,
+			toolApproval: JSON.stringify(input.hostTools.toolApproval),
+		};
+	}
+
+	/** The `TOKEN_EPOCH_MS` bucket of now. */
+	private tokenEpoch(): number {
+		return Math.floor(this.now() / TOKEN_EPOCH_MS);
 	}
 
 	async suspendTurn(session: HarnessSession): Promise<HarnessResumeState> {
@@ -570,7 +853,11 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		};
 	}
 
-	private buildAgent(input: HarnessSessionInput): ClaudeCodeAgentRunner {
+	/** `epoch` is the `TOKEN_EPOCH_MS` bucket the start env names. */
+	private buildAgent(
+		input: HarnessSessionInput,
+		epoch: number,
+	): ClaudeCodeAgentRunner {
 		const baseUrl = input.env.ANTHROPIC_BASE_URL;
 		const authToken = input.env.ANTHROPIC_AUTH_TOKEN;
 		if (baseUrl === undefined || authToken === undefined) {
@@ -578,7 +865,6 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				"Harness env lacks ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN",
 			);
 		}
-		const customHeaders = input.env.ANTHROPIC_CUSTOM_HEADERS;
 		return this.agentFactory({
 			harness: this.claudeFactory({
 				// The explicit auth object stops the adapter from reading
@@ -591,14 +877,22 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				},
 				// Other variables go through `env`. The traffic flag is always
 				// on: deny-by-default egress would turn the telemetry and update
-				// calls into noise. ANTHROPIC_CUSTOM_HEADERS joins when present.
+				// calls into noise. The env must not change between the turns of
+				// an epoch, or the bridge fork starts a new Claude Code process.
 				env: {
+					// Empty: no `X-Wandit-Run` header. One process serves many turns,
+					// so the proxy names the run of the turn the chat binds now.
+					ANTHROPIC_CUSTOM_HEADERS: "",
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-					...(customHeaders === undefined
-						? {}
-						: { ANTHROPIC_CUSTOM_HEADERS: customHeaders }),
+					// Claude Code 2.1.281 adds a `<total_tokens>` system message after
+					// each user prompt. Through the LLM proxy and the gateway, each new
+					// one changed the prompt prefix ahead of the chat history, so every
+					// warm turn wrote the whole history to the cache again (Phase 1, item 4).
+					CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+					WANDIT_TOKEN_EPOCH: String(epoch),
 				},
 				port: HARNESS_BRIDGE_PORT,
+				startupTimeoutMs: BRIDGE_STARTUP_TIMEOUT_MS,
 			}),
 			instructions: input.instructions,
 			model: input.model,
@@ -623,6 +917,23 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		}
 		return entry;
 	}
+}
+
+/**
+ * Adapter state `data` without its `bridge` attach coordinates. The field
+ * is internal to `@ai-sdk/harness-claude-code` (1.0.137 resume schema).
+ * Without it the adapter spawns a new bridge and resumes the Claude
+ * conversation by its id. With it, the adapter retries a dead socket first.
+ */
+function withoutBridgeCoords(
+	data: HarnessAgentResumeSessionState["data"],
+): HarnessAgentResumeSessionState["data"] {
+	// `data` is the library's JSON union; only an object can hold `bridge`.
+	if (data === null || typeof data !== "object" || !("bridge" in data)) {
+		return data;
+	}
+	const { bridge: _deadBridge, ...rest } = data;
+	return rest;
 }
 
 /**

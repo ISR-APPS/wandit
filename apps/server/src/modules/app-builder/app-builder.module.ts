@@ -47,7 +47,10 @@ import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-star
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
-import { TURN_EVENT_READER } from "./domain/ports/turn-events";
+import {
+	HOST_TURN_EVENT_READER,
+	TURN_EVENT_READER,
+} from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
 import {
@@ -58,6 +61,7 @@ import { easBuildRunnerFromEnv } from "./infrastructure/eas/eas-build-runner";
 import { V2_ENV, type V2EnvSource } from "./infrastructure/env/v2-env";
 import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
+import { createTurnTaskStarter } from "./infrastructure/host/routing-turn-task-starter";
 import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
 import { AppPublishRepository } from "./infrastructure/persistence/app-publish.repository";
@@ -73,6 +77,7 @@ import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
+import { RedisTurnEventReader } from "./infrastructure/redis/redis-turn-events";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import {
 	ArchiveTemplateInit,
@@ -251,8 +256,19 @@ export function createCloudSupabaseClient(
 			useFactory: () => new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 		},
 		{ provide: TURN_EVENT_READER, useClass: TriggerTurnEventReader },
+		{ provide: HOST_TURN_EVENT_READER, useClass: RedisTurnEventReader },
 		{ provide: TURN_LOCK, useClass: RedisTurnLock },
-		{ provide: TURN_TASK_STARTER, useClass: TriggerTurnTaskStarter },
+		// The harness host when it is configured and healthy, else the Trigger task.
+		{
+			provide: TURN_TASK_STARTER,
+			useFactory: (turns: BuilderTurnsRepository) =>
+				createTurnTaskStarter(
+					new TriggerTurnTaskStarter(),
+					turns,
+					Sentry.logger,
+				),
+			inject: [BuilderTurnsRepository],
+		},
 		{ provide: V2_ENV, useValue: env },
 		{ provide: VERSION_OBJECTS, useValue: r2VersionObjects },
 		// The W4P client of the API process. Null without the three Cloudflare

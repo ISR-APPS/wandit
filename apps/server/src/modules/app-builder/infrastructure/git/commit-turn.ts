@@ -3,7 +3,8 @@
  * The builder-turn task and the restore flow call it after a turn's file
  * changes. It runs git inside the sandbox through `SandboxHandle.exec`,
  * stores the patch and numstat in R2, pushes to code.storage, writes the
- * `app_commits` row, and moves the `main` head compare-and-swap.
+ * `app_commits` row, and moves the `main` head compare-and-swap. The task
+ * calls it through `commitTurnUnlessClean`, which skips a turn with no change.
  */
 import { type GitNumstatEntry, parseNumstat } from "../../domain/git-numstat";
 import type { GitStore } from "../../domain/ports/git-store";
@@ -230,6 +231,40 @@ export async function commitTurn(
 	}
 
 	return { sha, parentSha, numstat, patchKey, commit };
+}
+
+/**
+ * The builder-turn commit: `commitTurn`, or null when the turn changed no
+ * file. A text-only turn then costs one sandbox command and one row read
+ * instead of about 7 s of git, R2, and push work. A failed status read
+ * commits as before: an unknown tree must not lose work.
+ */
+export async function commitTurnUnlessClean(
+	sandbox: SandboxHandle,
+	deps: CommitTurnDeps,
+	input: CommitTurnInput,
+): Promise<CommitTurnResult | null> {
+	// One command: `git status` lists every changed or new file, and the
+	// marker line carries HEAD. An empty list plus the stored head means
+	// the code.storage history already holds this tree.
+	const state = await sandbox.exec(
+		"sh",
+		["-c", 'git status --porcelain && echo "HEAD=$(git rev-parse HEAD)"'],
+		{ cwd: sandbox.workspaceDir },
+	);
+	const lines = state.stdout.split("\n").filter((line) => line.trim() !== "");
+	const headLine = lines.at(-1);
+	const isClean =
+		state.exitCode === 0 &&
+		lines.length === 1 &&
+		headLine?.startsWith("HEAD=") === true;
+	if (isClean && headLine !== undefined) {
+		const branch = await deps.appCommits.findBranch(input.projectId, "main");
+		if (branch?.headSha === headLine.slice("HEAD=".length).trim()) {
+			return null;
+		}
+	}
+	return commitTurn(sandbox, deps, input);
 }
 
 // A crash between the push and the CAS leaves `app_branches.headSha`

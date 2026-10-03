@@ -35,6 +35,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D21 | Durable git store for project code | changed | 2026-09-14 |
 | D22 | Apple developer account for iOS builds | confirmed | 2026-09-26 |
 | D23 | Price of a mobile build | changed | 2026-09-26 |
+| D24 | Turn stream store when the harness host runs the turn (D20 change) | open | 2026-10-01 |
 
 ## D1. Sandbox vendor
 
@@ -311,9 +312,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: WANDIT-194 (P4-04), WANDIT-284.
 - Notes: EAS gives 15 free Android builds per month, then $1 to $2 each (`research/expo-mobile.md` 2.4). At $0.032 per credit (D2), 50 credits are $1.60. The default EAS worker costs about $1. The issue text used $0.04 per credit. The hold admits any positive balance, like the other operations. Source: Zack, Linear comment on WANDIT-194, 2026-09-26.
 
+## D24. Turn stream store when the harness host runs the turn (D20 change)
+
+- Question: A host-run turn has no Trigger run, so it cannot write the Trigger `ui` stream. Where do its events go?
+- Options: A. The store follows the row: `runner = trigger` uses the Trigger stream, `runner = host` uses a Redis Stream `builder:turn:<turnId>:events`. B. All turns on both paths write the Redis Stream (D20 option B). C. The Trigger task keeps the turn and sends harness I/O through the host (no new store).
+- Default: A, built in the `claude-code-fast` worktree. It changes D20 "One store only" to one store per turn.
+- Final choice: none yet.
+- Status: open
+- Date: 2026-10-01
+- Decided by: nobody yet.
+- Issues that change: WANDIT-166, WANDIT-172.
+- Notes: The relay and the resume GET read the store the row names. B removes the second store but moves every Trigger turn to Redis in `sfo`, about 150 ms per write from `europe-west4` (ESTIMATE). C keeps the 1.6 s Trigger start.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D24.
+1. Take the next number. The next number is D25.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

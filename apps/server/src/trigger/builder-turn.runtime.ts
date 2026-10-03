@@ -6,6 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type {
 	AskUserHostToolOutput,
 	BillingPlanId,
@@ -82,6 +83,7 @@ import type {
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
+	BuilderTurnRunner,
 	BuilderTurnsRepository,
 } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import type {
@@ -100,6 +102,7 @@ import {
 } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
 import type { SupabaseManagementClient } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
+import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
@@ -121,6 +124,17 @@ const CHECKPOINT_STEP_USD_MICROS = 250_000;
 // CLAUDE.md lists the native modules that Expo Go runs.
 const MOBILE_APP_INSTRUCTION =
 	"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.";
+// 100 ms between two in-flight reads while the settle waits for the
+// proxy rows of the run.
+const PROXY_ROWS_POLL_MS = 100;
+// 15 s: the proxy writes its row right after the reply ends. A longer wait
+// means a lost finish mark (an API crash); the settle then uses the rows
+// that exist.
+const PROXY_ROWS_WAIT_MS = 15_000;
+// The recap of a lost session holds the last 10 chat messages, each cut to
+// 1,500 chars: enough for the thread, small next to the 49k-token prompt.
+const RECAP_MESSAGES = 10;
+const RECAP_MESSAGE_MAX_CHARS = 1_500;
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
 // 15 MB, the image upload limit. A bigger answer file is a video or an
@@ -203,6 +217,10 @@ export type BuilderTurnTiming = {
 	session: "resumed" | "created" | null;
 	/** Stream start → first harness part. */
 	firstPartMs: number | null;
+	/** Run start → the first `text-delta` part: the first word the user can read. */
+	firstTextMs: number | null;
+	/** HTTP request start → row insert in the API; null for a promoted turn. */
+	apiCreateMs: number | null;
 	/** Run start → the first proxy request leaves the sandbox, from the rows. */
 	firstModelCallMs: number | null;
 	streamMs: number | null;
@@ -212,9 +230,11 @@ export type BuilderTurnTiming = {
 	settleMs: number | null;
 	/** Run start → this line. */
 	totalMs: number;
+	/** The process that ran the turn: a Trigger.dev run or the harness host. */
+	path: BuilderTurnRunner;
 };
 
-/** Parsed task payload plus the Trigger.dev run id. */
+/** Parsed task payload plus the run id of the path that runs the turn. */
 export type BuilderTurnInput = {
 	turnId: string;
 	projectId: string;
@@ -223,8 +243,15 @@ export type BuilderTurnInput = {
 	/** Org workspace of the project, or null for a personal project. */
 	organizationId: string | null;
 	actorIsLimitExempt?: boolean;
-	/** `ctx.run.id`; binds the row claim and the proxy token claims. */
+	/**
+	 * `ctx.run.id` on Trigger.dev, `hostRunIdOf(turnId)` on the host. It
+	 * binds the proxy token claims, and on Trigger also the row claim.
+	 */
 	runId: string;
+	/** The path that runs the turn; the row claim checks the row names it. */
+	runner: BuilderTurnRunner;
+	/** ms from the HTTP request start to the row insert; null when promoted. */
+	apiCreateMs: number | null;
 };
 
 /** Every dependency of `runBuilderTurn`, one field each for spec fakes. */
@@ -233,6 +260,7 @@ export type BuilderTurnDeps = {
 	turns: Pick<
 		BuilderTurnsRepository,
 		| "claimRunning"
+		| "claimRunningOnHost"
 		| "complete"
 		| "currentTurnNumber"
 		| "fail"
@@ -270,8 +298,14 @@ export type BuilderTurnDeps = {
 	harness: BuilderHarness;
 	writer: TurnEventWriter;
 	lock: TurnLock;
-	/** Redis run-spend counter and token revocation; the pulse tick reads it. */
-	counters: Pick<LlmSpendCounterStore, "readRunSpend" | "revokeRun">;
+	/**
+	 * Redis run-spend counter, token revocation, the in-flight count of proxy
+	 * requests, and the chat binding; the pulse tick and the settle read it.
+	 */
+	counters: Pick<
+		LlmSpendCounterStore,
+		"bindChat" | "readInFlight" | "readRunSpend" | "revokeRun" | "unbindChat"
+	>;
 	metering: Pick<
 		MeteringService,
 		| "acquireExecutionLease"
@@ -308,12 +342,15 @@ export type BuilderTurnDeps = {
 	readV2Enabled: () => Promise<boolean>;
 	/** `GENERATION_BILLING_MODE === "off"`: no checkpoint, no settle, one `billing.off` log. */
 	billingDisabled: boolean;
-	/** `commitTurn` itself, so the spec asserts its input. */
+	/**
+	 * `commitTurnUnlessClean`, so the spec asserts its input. Null means the
+	 * turn changed no file and no commit was made.
+	 */
 	commit: (
 		sandbox: SandboxHandle,
 		deps: CommitTurnDeps,
 		input: CommitTurnInput,
-	) => Promise<CommitTurnResult>;
+	) => Promise<CommitTurnResult | null>;
 	/** `gitStore`, `appCommits`, `putPatch` the task builds once. */
 	commitDeps: CommitTurnDeps;
 	/**
@@ -321,6 +358,8 @@ export type BuilderTurnDeps = {
 	 * upload object. The task binds `publicAssetKeyFromUrl` + `getObjectBytes`.
 	 */
 	readUpload: (url: string) => Promise<Uint8Array | null>;
+	/** `ChatsRepository.listRecentTexts` bound to the repo: newest first. */
+	recentMessages: (chatId: string, limit: number) => Promise<ChatMessageText[]>;
 	/** `ChatsRepository.insertTurnAssistantMessage` bound to the repo. */
 	insertAssistantMessage: (input: {
 		chatId: string;
@@ -383,8 +422,12 @@ export async function runBuilderTurn(
 		organizationId: input.organizationId,
 	};
 
-	// Another run holds the turn, or the row left `queued` already.
-	const claimed = await deps.turns.claimRunning(turnId, runId);
+	// Another run holds the turn, the row left `queued` already, or the API
+	// gave the row to the other path.
+	const claimed =
+		input.runner === "host"
+			? await deps.turns.claimRunningOnHost(turnId)
+			: await deps.turns.claimRunning(turnId, runId);
 	if (!claimed) {
 		logger.info(`Builder turn ${turnId} not claimed by run ${runId}`);
 		return;
@@ -631,6 +674,7 @@ export async function runBuilderTurn(
 			| "sessionEnd"
 			| "streamStart"
 			| "firstPart"
+			| "firstText"
 			| "streamEnd"
 			| "commitEnd"
 			| "settleEnd",
@@ -639,6 +683,8 @@ export async function runBuilderTurn(
 	> = {};
 	/** Set by the sandbox `onWake` callback: the sandbox really booted. */
 	let sandboxWoke = false;
+	/** Set by `onCreated`: a new sandbox, so no stored transcript exists. */
+	let sandboxCreated = false;
 	/** How the harness session started; null until it did. */
 	let sessionStart: BuilderTurnTiming["session"] = null;
 
@@ -661,9 +707,41 @@ export async function runBuilderTurn(
 		}
 	};
 
+	/**
+	 * Waits until every proxy request of the run has its usage row. The
+	 * proxy writes the row after the reply ends, so a turn with no commit
+	 * could settle on a partial sum and refund work that ran. The revoke
+	 * first stops new requests. A Redis failure only logs: the turn is done.
+	 */
+	const waitForProxyRows = async () => {
+		try {
+			await deps.counters.unbindChat(chatId, turnId);
+			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
+			const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
+			while ((await deps.counters.readInFlight(runId)) > 0) {
+				if (deps.now() >= deadline) {
+					logger.warn("builder-turn.proxy-rows-wait-timeout", {
+						runId,
+						turnId,
+					});
+					return;
+				}
+				await delay(PROXY_ROWS_POLL_MS);
+			}
+		} catch (error) {
+			logger.warn("builder-turn.proxy-rows-wait-failed", {
+				message: messageOf(error),
+				turnId,
+			});
+		}
+	};
+
 	/** The cleanup tail every terminal path shares. */
 	const finishTurn = async () => {
-		// The run token must die with the turn.
+		// The run token and the chat binding must die with the turn.
+		await cleanupStep(async () => {
+			await deps.counters.unbindChat(chatId, turnId);
+		});
 		await cleanupStep(async () => {
 			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
 		});
@@ -864,6 +942,7 @@ export async function runBuilderTurn(
 			// refunded. The wip commit ran above, before the `done` event.
 			await detachSession();
 			await cleanupStep(async () => {
+				await waitForProxyRows();
 				const rows = await deps.proxyRows.sumByTurn(turnId);
 				// A stop code lands only after the `model === null` check, so
 				// `resolvedModel` is set; `recordUsage` still writes when it is not.
@@ -1111,19 +1190,21 @@ export async function runBuilderTurn(
 		const resumeState: HarnessResumeState | null =
 			parsedResume?.success === true ? parsedResume.data : null;
 
-		// The user's words, or the attachment URLs when the message is empty.
-		// Answer files count as attachments here too.
+		// The user's words, then the attachment URLs. A message with text keeps
+		// its files too: the agent only sees what the prompt names. Answer
+		// files count as attachments here too.
 		const sentFiles = [
 			...spec.attachments,
 			...spec.answers.flatMap((answer) => answer.files),
 		];
+		const fileLines = sentFiles.map((attachment) => attachment.url).join("\n");
 		const prompt =
 			spec.message.trim().length > 0
-				? spec.message
+				? sentFiles.length > 0
+					? `${spec.message}\n\nAttached files:\n${fileLines}`
+					: spec.message
 				: sentFiles.length > 0
-					? `See the attached files.\n${sentFiles
-							.map((attachment) => attachment.url)
-							.join("\n")}`
+					? `See the attached files.\n${fileLines}`
 					: // An approval or answers alone have no text: the cards carry them.
 						"Continue.";
 		// The pending cards of a suspended turn make a `continue` input.
@@ -1256,7 +1337,7 @@ export async function runBuilderTurn(
 			}
 		}
 
-		const proxyToken = deps.mintToken({
+		const billing = {
 			capUsd,
 			plan,
 			projectId,
@@ -1264,7 +1345,12 @@ export async function runBuilderTurn(
 			turnId,
 			userId: input.actorUserId,
 			workspaceId: input.organizationId,
-		});
+		};
+		const proxyToken = deps.mintToken({ ...billing, chatId });
+		// The Vercel egress proxy keeps the token rule of a kept-alive
+		// connection. A paused Claude Code process that this turn continues
+		// still sends the token of the paused turn; the binding bills it here.
+		await deps.counters.bindChat(chatId, billing, LLM_PROXY_TOKEN_TTL_SECONDS);
 
 		let backend = await deps.backends.findByProjectId(projectId);
 		// A paused backend wakes before the env is built, so the app has its
@@ -1326,6 +1412,9 @@ export async function runBuilderTurn(
 			onWake: async () => {
 				sandboxWoke = true;
 				await writeStatus("sandbox_waking");
+			},
+			onCreated: () => {
+				sandboxCreated = true;
 			},
 			organizationId: project.organizationId,
 			ownerUserId: project.userId,
@@ -1403,7 +1492,7 @@ export async function runBuilderTurn(
 					const resumed = await deps.harness.resumeSession(
 						sessionInput,
 						stored,
-						{ dropPausedTurn: answersAsText },
+						{ bridgeDead: sandboxWoke, dropPausedTurn: answersAsText },
 					);
 					// A resumed session can hold an unfinished turn with no card to
 					// answer. Causes: a detach mid-generation, or a row from before
@@ -1444,7 +1533,16 @@ export async function runBuilderTurn(
 			model,
 			sandbox,
 		};
-		const started = await startSession(resumeState);
+		// A created sandbox has no transcript on its disk: the stored session
+		// cannot resume, so the turn starts fresh and skips the resume try.
+		if (sandboxCreated && resumeState !== null) {
+			logger.warn("builder-turn.session-lost", {
+				reason: "sandbox_created",
+				turnId,
+			});
+			await writeStatus("session_starting", "Starting a fresh session");
+		}
+		const started = await startSession(sandboxCreated ? null : resumeState);
 		session = started.session;
 		sessionStart = started.resumed ? "resumed" : "created";
 		stamps.sessionEnd = deps.now();
@@ -1479,6 +1577,22 @@ export async function runBuilderTurn(
 		} else {
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
 		}
+		// A stored session that did not come back lost the agent memory; the
+		// files stay. The recap gives the agent the recent chat back.
+		if (
+			resumeState !== null &&
+			!started.resumed &&
+			turnInput.kind === "prompt"
+		) {
+			turnInput = {
+				...turnInput,
+				prompt: await withChatRecap(
+					{ logger, recentMessages: deps.recentMessages, turnId },
+					{ chatId, currentMessageId: turn.messageId },
+					turnInput.prompt,
+				),
+			};
+		}
 
 		// reasoning chunk id → the ms clock at its `reasoning-start`.
 		const reasoningStartedAt = new Map<string, number>();
@@ -1486,6 +1600,9 @@ export async function runBuilderTurn(
 			if (event.type === "part") {
 				lastPartAt = deps.now();
 				stamps.firstPart ??= lastPartAt;
+				if (event.chunk.type === "text-delta") {
+					stamps.firstText ??= lastPartAt;
+				}
 				await chunkWriter.write(event.chunk);
 				await writeEvent({ data: event.chunk, type: "part" });
 				if (event.chunk.type === "reasoning-start") {
@@ -1567,7 +1684,7 @@ export async function runBuilderTurn(
 				)
 				.map((part) => part.text)
 				.join("\n");
-			// A text-only turn still gets a commit: the turn number names it.
+			// The summary names the commit when the turn changed files.
 			const summary =
 				assistantText.trim().slice(0, SUMMARY_MAX_CHARS) ||
 				`Turn ${turnNumber}`;
@@ -1584,6 +1701,9 @@ export async function runBuilderTurn(
 					turnId,
 					userId: input.actorUserId,
 				});
+				if (commit === null) {
+					logger.info("builder-turn.commit-skipped", { turnId });
+				}
 			} catch (error) {
 				// A failed commit must not lose the turn's text and usage.
 				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
@@ -1662,6 +1782,7 @@ export async function runBuilderTurn(
 
 			// The proxy rows are the spend truth; the message metadata and
 			// `recordUsage` read them before the CAS and the settle.
+			await waitForProxyRows();
 			const rows = await deps.proxyRows.sumByTurn(turnId);
 			const rowCredits = creditsFromRows(rows);
 
@@ -1821,9 +1942,12 @@ export async function runBuilderTurn(
 			);
 		}
 		const timing: BuilderTurnTiming = {
+			apiCreateMs: input.apiCreateMs,
 			commitMs: msBetween(stamps.streamEnd, stamps.commitEnd),
 			firstModelCallMs,
 			firstPartMs: msBetween(stamps.streamStart, stamps.firstPart),
+			firstTextMs: msBetween(runStartedAt, stamps.firstText),
+			path: input.runner,
 			hostToolsMs: msBetween(stamps.sandboxEnd, stamps.hostToolsEnd),
 			prestartMs: msBetween(runStartedAt, stamps.sandboxStart),
 			queueMs: runStartedAt - turn.createdAt.getTime(),
@@ -2010,6 +2134,64 @@ async function wakeBackend(
 		});
 	}
 	return row;
+}
+
+/** What the recap of a lost session needs from the run. */
+type RecapContext = {
+	logger: BuilderTurnLogger;
+	recentMessages: BuilderTurnDeps["recentMessages"];
+	turnId: string;
+};
+
+/**
+ * `prompt` with the last chat messages in front, for a fresh session that
+ * replaced a stored one. The current user message is left out: the prompt
+ * already carries it. A failed read keeps the plain prompt: the recap
+ * only helps, and the turn must still run.
+ */
+async function withChatRecap(
+	context: RecapContext,
+	chat: {
+		chatId: string;
+		/** `messages.id` of this turn's own user message; null on an old row. */
+		currentMessageId: string | null;
+	},
+	prompt: string,
+): Promise<string> {
+	let recent: ChatMessageText[];
+	try {
+		// One more row than the recap holds: the newest row is this turn's own message.
+		recent = await context.recentMessages(chat.chatId, RECAP_MESSAGES + 1);
+	} catch (error) {
+		context.logger.warn("builder-turn.recap-failed", {
+			message: messageOf(error),
+			turnId: context.turnId,
+		});
+		return prompt;
+	}
+	const lines = recent
+		.filter(
+			(message) =>
+				message.id !== chat.currentMessageId &&
+				message.role !== "system" &&
+				message.text.trim() !== "",
+		)
+		.slice(0, RECAP_MESSAGES)
+		.reverse()
+		.map(
+			(message) =>
+				`${message.role === "user" ? "User" : "You"}: ${message.text.trim().slice(0, RECAP_MESSAGE_MAX_CHARS)}`,
+		);
+	if (lines.length === 0) {
+		return prompt;
+	}
+	return [
+		"Your memory of this chat was lost: the sandbox was rebuilt, or the session could not resume. The project files are intact.",
+		"These are the last messages of the chat, oldest first:",
+		lines.join("\n\n"),
+		"The new message of the user:",
+		prompt,
+	].join("\n\n");
 }
 
 /** `to - from` in ms, or null while either stamp is missing. */

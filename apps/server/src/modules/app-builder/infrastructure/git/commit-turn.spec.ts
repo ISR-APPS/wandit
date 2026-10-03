@@ -14,6 +14,7 @@ import {
 	type CommitTurnInput,
 	type CommitTurnStore,
 	commitTurn,
+	commitTurnUnlessClean,
 	versionNumstatKey,
 	versionPatchKey,
 } from "./commit-turn";
@@ -181,6 +182,63 @@ function storedPatch(
 	}
 	throw new Error(`no stored patch bytes for ${key}`);
 }
+
+describe("commitTurnUnlessClean", () => {
+	it("skips the commit when the tree is clean and HEAD is the stored head", async () => {
+		const { deps, inserted, provider } = fixture({ storedHead: SHA });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", { ...OK, stdout: `HEAD=${SHA}\n` });
+
+		const result = await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(result).toBeNull();
+		// One status command, no git commit, no push, no row.
+		expect(execLog(provider)).toHaveLength(1);
+		expect(inserted).toHaveLength(0);
+	});
+
+	it("commits when the turn left a changed file", async () => {
+		const { deps, inserted, provider } = fixture();
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", {
+			...OK,
+			stdout: ` M src/routes/index.tsx\nHEAD=${PARENT}\n`,
+		});
+		scriptCommit(provider);
+
+		const result = await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(result?.sha).toBe(SHA);
+		expect(inserted).toHaveLength(1);
+	});
+
+	it("commits a clean tree whose HEAD the stored head does not name yet", async () => {
+		// A clean tree with an unpushed HEAD: the history still needs the push.
+		const { deps, inserted, provider } = fixture({ storedHead: PARENT });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", { ...OK, stdout: `HEAD=${STORED_HEAD}\n` });
+		scriptCommit(provider);
+
+		await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(inserted).toHaveLength(1);
+	});
+
+	it("commits when the status command fails", async () => {
+		const { deps, inserted, provider } = fixture({ storedHead: SHA });
+		const sandbox = await fixtureSandbox(provider);
+		provider.respondTo("sh", {
+			exitCode: 128,
+			stderr: "fatal: not a git repository",
+			stdout: "",
+		});
+		scriptCommit(provider);
+
+		await commitTurnUnlessClean(sandbox, deps, INPUT);
+
+		expect(inserted).toHaveLength(1);
+	});
+});
 
 describe("commitTurn", () => {
 	it("runs the git commands in order and writes row, patches, and head", async () => {

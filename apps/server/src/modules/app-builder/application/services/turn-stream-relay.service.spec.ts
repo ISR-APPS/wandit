@@ -66,12 +66,14 @@ function fakeRequest(userId = "user-1") {
 }
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
-	// SAFETY: the relay reads only `id`, `status`, `outputCommitSha`, and
-	// `triggerRunId` off the row; the other columns are never touched.
+	// SAFETY: the relay reads only `id`, `status`, `outputCommitSha`,
+	// `runner`, and `triggerRunId` off the row; the other columns are never
+	// touched.
 	return {
 		id: "turn-1",
 		outputCommitSha: null,
 		projectId: "project-1",
+		runner: "trigger",
 		status: "queued",
 		triggerRunId: "run-1",
 		...overrides,
@@ -117,6 +119,7 @@ function parsedFrames(chunks: string[]): BrowserFrame[] {
 function setup(
 	reader?: TurnEventReader,
 	turns?: Pick<BuilderTurnsRepository, "findById">,
+	hostReader?: TurnEventReader,
 ) {
 	const rateLimit: RateLimitStore = {
 		hit: vi.fn(async () => ({ count: 1, ttlMs: 60_000 })),
@@ -124,6 +127,7 @@ function setup(
 	};
 	const relay = new TurnStreamRelayService(
 		reader ?? new FakeTurnEventStream(),
+		hostReader ?? new FakeTurnEventStream(),
 		rateLimit,
 		// A read that ends quietly on a `succeeded` row ends the stream;
 		// the tests that care about the row pass their own fake.
@@ -434,6 +438,39 @@ describe("TurnStreamRelayService.relay", () => {
 		]);
 		expect(onDone).not.toHaveBeenCalled();
 		expect(turns.findById).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads a host-run turn from the host store by its turn id", async () => {
+		const triggerStream = new FakeTurnEventStream();
+		const hostStream = new FakeTurnEventStream();
+		await hostStream.write("turn-1", {
+			data: { delta: "hi", id: "t1", type: "text-delta" },
+			type: "part",
+		});
+		await hostStream.write("turn-1", {
+			data: { status: "succeeded" },
+			type: "done",
+		});
+		const turns = fakeTurns(() =>
+			turnRow({ runner: "host", status: "running", triggerRunId: null }),
+		);
+		const { relay } = setup(triggerStream, turns, hostStream);
+		const { chunks, reply } = fakeReply();
+
+		await relay.relay({
+			reply,
+			request: fakeRequest(),
+			triggerRunId: null,
+			turnId: "turn-1",
+		});
+
+		const frames = parsedFrames(chunks);
+		expect(frames).toContainEqual({
+			delta: "hi",
+			id: "t1",
+			type: "text-delta",
+		});
+		expect(frames[frames.length - 1]).toBe("[DONE]");
 	});
 
 	it("polls the row for a run id when `triggerRunId` is null, then streams", async () => {

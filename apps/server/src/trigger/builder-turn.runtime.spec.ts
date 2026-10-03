@@ -1,6 +1,7 @@
 import type {
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	LlmProxyChatBinding,
 	SupabaseProjectStatus,
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
@@ -37,6 +38,7 @@ import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/re
 import { FakeSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
 import { FakeTurnEventStream } from "../modules/app-builder/infrastructure/trigger/fake-turn-events";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
+import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
 import {
 	AGENT_SESSION_LEASE_TTL_MS,
 	type MeteringService,
@@ -178,6 +180,8 @@ class FakeTurns {
 	waitingForUser: BuilderTurnRow | null = null;
 
 	readonly claimCalls: { runId: string; turnId: string }[] = [];
+	/** Turn ids of the host claims, which bind no run id. */
+	readonly hostClaimCalls: string[] = [];
 	readonly completeCalls: {
 		input: {
 			completedAt: Date;
@@ -201,6 +205,11 @@ class FakeTurns {
 
 	async claimRunning(turnId: string, triggerRunId: string) {
 		this.claimCalls.push({ runId: triggerRunId, turnId });
+		return this.claimResult;
+	}
+
+	async claimRunningOnHost(turnId: string) {
+		this.hostClaimCalls.push(turnId);
 		return this.claimResult;
 	}
 
@@ -560,6 +569,14 @@ function makeWorld(over?: {
 	let backendRow = over?.backend ?? null;
 	const wakeStatuses = [...(over?.wakeStatuses ?? ["ACTIVE_HEALTHY"])];
 	const revoked: string[] = [];
+	/** Chat rows `recentMessages` answers, newest first. */
+	const recent: ChatMessageText[] = [];
+	/** In-flight counts `readInFlight` answers in order; empty reads 0. */
+	const inFlight: number[] = [];
+	/** Order of the counter and row-sum calls, for the settle-wait specs. */
+	const callOrder: string[] = [];
+	/** Chat id → the turn the chat binding names now. */
+	const chatBindings = new Map<string, LlmProxyChatBinding>();
 	const minted: LlmProxyTokenClaimsInput[] = [];
 	const commits: CommitTurnInput[] = [];
 	// The stream event types that exist when each commit runs, in commit order.
@@ -668,13 +685,29 @@ function makeWorld(over?: {
 		},
 		commitDeps,
 		counters: {
+			bindChat: async (chatId, binding) => {
+				callOrder.push("bindChat");
+				chatBindings.set(chatId, binding);
+			},
+			unbindChat: async (chatId, turnId) => {
+				callOrder.push("unbindChat");
+				if (chatBindings.get(chatId)?.turnId === turnId) {
+					chatBindings.delete(chatId);
+				}
+			},
+			readInFlight: async () => {
+				callOrder.push("readInFlight");
+				return inFlight.shift() ?? 0;
+			},
 			readRunSpend: async () => nextSpend(),
 			revokeRun: async (runId) => {
+				callOrder.push("revokeRun");
 				revoked.push(runId);
 			},
 		},
 		harness,
 		hostTools: new EmptyHostToolRegistry(),
+		recentMessages: async (_chatId, limit) => recent.slice(0, limit),
 		insertAssistantMessage: async (input) => {
 			inserted.push({ input });
 		},
@@ -711,7 +744,10 @@ function makeWorld(over?: {
 		proxyRows: {
 			firstRequestStartedAtMs: async () =>
 				over?.firstRequestStartedAtMs ?? null,
-			sumByTurn: async () => proxySum,
+			sumByTurn: async () => {
+				callOrder.push("sumByTurn");
+				return proxySum;
+			},
 		},
 		readBalance: async () => {
 			const balance = nextBalance();
@@ -749,6 +785,10 @@ function makeWorld(over?: {
 		promoted,
 		proxySum,
 		revoked,
+		recent,
+		inFlight,
+		callOrder,
+		chatBindings,
 		sandboxes,
 		sessions,
 		stream,
@@ -780,9 +820,11 @@ function makeInput(): {
 		controller,
 		input: {
 			actorUserId: "user_1",
+			apiCreateMs: 120,
 			organizationId: null,
 			projectId: PROJECT_ID,
 			runId: RUN_ID,
+			runner: "trigger",
 			turnId: TURN_ID,
 		},
 	};
@@ -831,6 +873,23 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.createCalls).toHaveLength(0);
 		expect(world.turns.failCalls).toHaveLength(0);
 		expect(world.minted).toHaveLength(0);
+	});
+
+	it("claims a host turn with the host claim and logs the host path", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(
+			world.deps,
+			{ ...input, runId: `host-${TURN_ID}`, runner: "host" },
+			controller.signal,
+		);
+
+		expect(world.turns.hostClaimCalls).toEqual([TURN_ID]);
+		expect(world.turns.claimCalls).toHaveLength(0);
+		expect(world.timings[0]?.path).toBe("host");
 	});
 
 	it("rejects the first fenced write when a newer turn number owns the project", async () => {
@@ -972,7 +1031,8 @@ describe("runBuilderTurn", () => {
 		);
 		expect(world.sessions.saved[0]?.input.model).toBe(MODEL);
 
-		expect(world.revoked).toEqual([RUN_ID]);
+		// Revoked before the settle sum, then again in the cleanup tail.
+		expect(world.revoked).toEqual([RUN_ID, RUN_ID]);
 		expect(await world.lock.holder(PROJECT_ID)).toBeNull();
 		expect(world.promoted).toEqual([
 			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
@@ -1933,6 +1993,8 @@ describe("runBuilderTurn", () => {
 		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
 		expect(world.timings[0]?.sandbox).toBe("warm");
 		expect(world.timings[0]?.session).toBe("resumed");
+		// A warm sandbox keeps its bridge, so the resume may attach to it.
+		expect(world.harness.resumeCalls[0]?.options.bridgeDead).toBe(false);
 	});
 
 	it("writes the waking status when a stopped sandbox resumes", async () => {
@@ -1996,10 +2058,13 @@ describe("runBuilderTurn", () => {
 
 		expect(world.timings).toEqual([
 			{
+				apiCreateMs: 120,
 				commitMs: 0,
 				firstModelCallMs: 800,
 				firstPartMs: 0,
+				firstTextMs: 0,
 				hostToolsMs: 0,
+				path: "trigger",
 				prestartMs: 0,
 				queueMs: 2_100,
 				runId: RUN_ID,
@@ -2026,12 +2091,41 @@ describe("runBuilderTurn", () => {
 		expect(world.timings[0]).toMatchObject({
 			firstModelCallMs: null,
 			firstPartMs: null,
+			firstTextMs: null,
 			sandbox: null,
 			sandboxMs: null,
 			session: null,
 			sessionMs: null,
 			streamMs: null,
 		});
+	});
+
+	it("times the first text part from the run start, after a reasoning part", async () => {
+		vi.useFakeTimers({ now: TURN_CREATED_AT.getTime() });
+		const world = makeWorld();
+		// The reasoning part comes first: it is not a word the user can read.
+		const reasoning: HarnessStreamEvent = {
+			chunk: { id: "r1", type: "reasoning-start" },
+			type: "part",
+		};
+		world.harness.events = [reasoning, ...happyEvents()];
+		// The model thinks 1.5 s before its first word.
+		const scripted = world.harness.stream.bind(world.harness);
+		world.harness.stream = async function* (session, turnInput) {
+			for await (const event of scripted(session, turnInput)) {
+				if (event.type === "part" && event.chunk.type === "text-delta") {
+					vi.advanceTimersByTime(1_500);
+				}
+				yield event;
+			}
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.timings[0]?.firstPartMs).toBe(0);
+		expect(world.timings[0]?.firstTextMs).toBe(1_500);
 	});
 
 	it("keeps the timing line when the first proxy request lookup fails", async () => {
@@ -2072,6 +2166,65 @@ describe("runBuilderTurn", () => {
 		expect(world.harness.createCalls).toHaveLength(1);
 		expect(world.turns.failCalls).toHaveLength(0);
 		expect(world.turns.completeCalls).toHaveLength(1);
+	});
+
+	it("starts fresh with a chat recap when the sandbox was created under a stored session", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// The vendor lost the sandbox: the new disk has no transcript.
+		world.sandboxes.reportsCreated = true;
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.turns.row = fakeTurnRow({ messageId: "msg-now" });
+		world.recent.push(
+			{ id: "msg-now", role: "user", text: "Build a form" },
+			{ id: "msg-2", role: "assistant", text: "Done: a booking page." },
+			{ id: "msg-1", role: "user", text: "A barber shop app" },
+		);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// No resume try on a disk without the transcript.
+		expect(world.harness.resumeCalls).toHaveLength(0);
+		expect(world.harness.createCalls).toHaveLength(1);
+		const prompt =
+			world.harness.streamCalls[0]?.input.kind === "prompt"
+				? world.harness.streamCalls[0].input.prompt
+				: "";
+		// Oldest first; the turn's own message comes once, at the end.
+		expect(prompt).toContain(
+			"User: A barber shop app\n\nYou: Done: a booking page.",
+		);
+		expect(
+			prompt.endsWith("The new message of the user:\n\nBuild a form"),
+		).toBe(true);
+	});
+
+	it("keeps the plain prompt when the recap read fails", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// SAFETY: the runtime reads only resumeState off the session row.
+		world.sessions.row = {
+			resumeState: { harness: "claude_code", payload: "{}" },
+		} as BuilderSessionRow;
+		world.harness.resumeError = new Error("policy conflict");
+		world.deps.recentMessages = async () => {
+			throw new Error("db down");
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: "Build a form",
+		});
+		expect(world.turns.completeCalls[0]?.input.status).toBe("succeeded");
 	});
 
 	it("starts a fresh session when the resumed one holds an unfinished turn and no card to answer", async () => {
@@ -2134,6 +2287,27 @@ describe("runBuilderTurn", () => {
 		expect(claims?.projectId).toBe(PROJECT_ID);
 		expect(claims?.userId).toBe("user_1");
 		expect(claims?.workspaceId).toBeNull();
+		expect(claims?.chatId).toBe(CHAT_ID);
+	});
+
+	it("binds the chat to the turn while it runs and unbinds it at the end", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		let boundDuringStream: LlmProxyChatBinding | undefined;
+		const scripted = world.harness.stream.bind(world.harness);
+		world.harness.stream = async function* (session, turnInput) {
+			boundDuringStream = world.chatBindings.get(CHAT_ID);
+			yield* scripted(session, turnInput);
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// A continued Claude Code process sends an older token of the chat;
+		// the binding bills its requests to this turn and run.
+		expect(boundDuringStream).toMatchObject({ runId: RUN_ID, turnId: TURN_ID });
+		expect(world.chatBindings.has(CHAT_ID)).toBe(false);
 	});
 
 	it("falls back to the default per-turn cap when the project has no caps row", async () => {
@@ -2159,6 +2333,70 @@ describe("runBuilderTurn", () => {
 		expect(env?.ANTHROPIC_CUSTOM_HEADERS).toContain(RUN_ID);
 		expect(env?.VITE_SUPABASE_URL).toBeUndefined();
 		expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+	});
+
+	it("settles only after every proxy request of the run has its row", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		// One request still streams its reply when the harness stream ends.
+		world.inFlight.push(1, 0);
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The unbind and the revoke stop new requests; the sum waits for the
+		// count to drop.
+		expect(
+			world.callOrder.slice(world.callOrder.indexOf("unbindChat")).slice(0, 5),
+		).toEqual([
+			"unbindChat",
+			"revokeRun",
+			"readInFlight",
+			"readInFlight",
+			"sumByTurn",
+		]);
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("logs a skipped commit and still settles the turn", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.deps.commit = async () => null;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.infos).toContain("builder-turn.commit-skipped");
+		expect(world.turns.completeCalls[0]?.input.outputCommitSha).toBeNull();
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("sends the attachment URLs together with the message text", async () => {
+		const world = makeWorld();
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [
+					{
+						filename: "shot.png",
+						mediaType: "image/png",
+						url: "https://files.test/shot.png",
+					},
+				],
+				composer: null,
+				message: "Make it look like this",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt:
+				"Make it look like this\n\nAttached files:\nhttps://files.test/shot.png",
+		});
 	});
 
 	it("pauses on a pending question and waits for the answer turn", async () => {
@@ -2521,6 +2759,7 @@ describe("runBuilderTurn", () => {
 
 		// The new sandbox woke, but an approval keeps the paused turn.
 		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: true,
 			dropPausedTurn: false,
 		});
 		expect(world.harness.streamCalls[0]?.input).toEqual({
@@ -2879,6 +3118,7 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: true,
 			dropPausedTurn: true,
 		});
 		expect(world.harness.createCalls).toHaveLength(0);

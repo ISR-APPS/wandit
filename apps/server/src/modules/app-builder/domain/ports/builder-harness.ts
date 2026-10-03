@@ -118,6 +118,12 @@ export interface BuilderHarness {
 			 * calls are gone.
 			 */
 			dropPausedTurn: boolean;
+			/**
+			 * True when the sandbox booted or resumed for this turn, so the
+			 * stored bridge process is dead. The harness then starts a new
+			 * bridge at once instead of retrying the old socket.
+			 */
+			bridgeDead: boolean;
 		},
 	): Promise<HarnessSession>;
 	stream(

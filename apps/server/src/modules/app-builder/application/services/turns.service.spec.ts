@@ -22,6 +22,10 @@ import type { AiUsageEvent } from "../../../metering/domain/metering";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
+import type {
+	TurnRunHandle,
+	TurnTaskStartInput,
+} from "../../domain/ports/turn-task-starter";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { BuilderSessionsRepository } from "../../infrastructure/persistence/builder-sessions.repository";
 import type {
@@ -114,6 +118,7 @@ function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 		startedAt: null,
 		status: "queued",
 		triggerRunId: null,
+		runner: "trigger",
 		turnNumber: 1,
 		userId: "user-1",
 		...overrides,
@@ -251,7 +256,12 @@ function setup(
 	const lock = new FakeTurnLock();
 	const starter = {
 		cancel: vi.fn(async () => undefined),
-		start: vi.fn(async () => ({ runId: "run-1" })),
+		start: vi.fn(
+			async (_input: TurnTaskStartInput): Promise<TurnRunHandle> => ({
+				runId: "run-1",
+				runner: "trigger",
+			}),
+		),
 	};
 	const turnEvents = new FakeTurnEventStream();
 	const counters = new FakeLlmSpendCounters();
@@ -402,6 +412,29 @@ describe("TurnsService.create", () => {
 			streamUrl: "/api/v2/projects/project-1/turns/active/stream",
 		});
 		expect(result).not.toHaveProperty("queued");
+	});
+
+	it("stores no Trigger run id when the host runs the turn", async () => {
+		const { service, starter, turns } = setup();
+		starter.start.mockResolvedValue({ runner: "host" });
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(turns.setTriggerRunId).not.toHaveBeenCalled();
+		expect(result.runId).toBeNull();
+	});
+
+	it("passes the API create time to the task in whole ms", async () => {
+		const { service, starter } = setup();
+
+		// Fastify reports the request age with decimals.
+		await service.create(SCOPE, "project-1", BODY, {
+			requestStartedAt: Date.now() - 12.6,
+		});
+
+		const startInput = starter.start.mock.calls[0]?.[0];
+		expect(Number.isInteger(startInput?.apiCreateMs)).toBe(true);
+		expect(startInput?.apiCreateMs).toBeGreaterThanOrEqual(13);
 	});
 
 	it("sizes the hold from the settled-turn median when history exists", async () => {
@@ -1021,7 +1054,10 @@ describe("TurnsService.cancel", () => {
 			["queued", "running"],
 			"cancelling",
 		);
-		expect(starter.cancel).toHaveBeenCalledWith("run-1");
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", {
+			runId: "run-1",
+			runner: "trigger",
+		});
 		expect(await lock.holder("project-1")).toBeNull();
 		expect(metering.refund).toHaveBeenCalledWith(
 			"event-1",
@@ -1040,8 +1076,34 @@ describe("TurnsService.cancel", () => {
 
 		await service.cancel(SCOPE, "project-1", "turn-1");
 
-		expect(starter.cancel).toHaveBeenCalledWith("run-1");
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", {
+			runId: "run-1",
+			runner: "trigger",
+		});
 		expect(counters.revoked.has("run-1")).toBe(true);
+	});
+
+	it("cancels a host turn on the host and revokes its host run token", async () => {
+		const { counters, service, starter, turns } = setup();
+		const row = turnRow({ runner: "host", status: "running" });
+		turns.findById.mockImplementation(async () => row);
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		// The host run ends the row itself; the settle wait polls the row.
+		starter.cancel.mockImplementation(async () => {
+			row.status = "canceled";
+		});
+
+		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", { runner: "host" });
+		expect(counters.revoked.has("host-turn-1")).toBe(true);
+		expect(result.status).toBe("canceled");
 	});
 
 	it("404s on a turn of another project", async () => {
@@ -1095,6 +1157,17 @@ describe("TurnsService.handleTurnEnded", () => {
 		await service.handleTurnEnded("project-1", "turn-1");
 
 		expect(counters.revoked.has("run-7")).toBe(true);
+	});
+
+	it("revokes the host run token when a host turn ended", async () => {
+		const { counters, service, turns } = setup();
+		turns.findById.mockResolvedValue(
+			turnRow({ runner: "host", status: "succeeded" }),
+		);
+
+		await service.handleTurnEnded("project-1", "turn-1");
+
+		expect(counters.revoked.has("host-turn-1")).toBe(true);
 	});
 
 	it("does nothing while the row is still non-terminal", async () => {

@@ -46,7 +46,7 @@ export class FakeBuilderHarness implements BuilderHarness {
 	readonly resumeCalls: {
 		input: HarnessSessionInput;
 		resumeState: HarnessResumeState;
-		options: { dropPausedTurn: boolean };
+		options: { dropPausedTurn: boolean; bridgeDead: boolean };
 	}[] = [];
 
 	/** Recorded `stream` calls; `input` keeps the full prompt/continue payload. */
@@ -102,7 +102,7 @@ export class FakeBuilderHarness implements BuilderHarness {
 	async resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
-		options: { dropPausedTurn: boolean },
+		options: { dropPausedTurn: boolean; bridgeDead: boolean },
 	): Promise<HarnessSession> {
 		this.resumeCalls.push({ input, options, resumeState });
 		if (this.resumeError) {

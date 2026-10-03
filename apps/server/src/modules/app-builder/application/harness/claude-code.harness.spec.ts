@@ -155,6 +155,8 @@ function sessionInput(): HarnessSessionInput {
 
 type Captured = {
 	agentSettings?: HarnessAgentSettings;
+	/** Calls of `agent.createSession`: starts, resumes, and keep re-attaches. */
+	createCount: number;
 	claudeSettings?: ClaudeCodeHarnessSettings;
 	createOptions?: {
 		continueFrom?: HarnessAgentContinueTurnState;
@@ -171,8 +173,15 @@ type Captured = {
 function setup(
 	streamResult?: ClaudeCodeStreamResult,
 	logger?: Pick<Console, "warn">,
+	options: {
+		keepAlive?: boolean;
+		now?: () => number;
+		/** `agent.stream` throws this once, like a send on a dead bridge socket. */
+		streamErrorOnce?: Error;
+	} = {},
 ) {
-	const captured: Captured = {};
+	const captured: Captured = { createCount: 0 };
+	let streamError = options.streamErrorOnce;
 	const session: ClaudeCodeSessionHandle = {
 		detach: vi.fn(async () => RESUME_STATE),
 		hasUnfinishedTurn: vi.fn(() => false),
@@ -189,15 +198,24 @@ function setup(
 				}
 			);
 		},
-		createSession: async (options) => {
-			captured.createOptions = options;
+		createSession: async (createOptions) => {
+			captured.createOptions = createOptions;
+			captured.createCount += 1;
 			return session;
 		},
-		stream: async () =>
-			streamResult ?? {
-				toUIMessageStream: () => (async function* () {})(),
-				totalUsage: Promise.resolve(usage()),
-			},
+		stream: async () => {
+			if (streamError !== undefined) {
+				const error = streamError;
+				streamError = undefined;
+				throw error;
+			}
+			return (
+				streamResult ?? {
+					toUIMessageStream: () => (async function* () {})(),
+					totalUsage: Promise.resolve(usage()),
+				}
+			);
+		},
 	};
 	const harness = new ClaudeCodeHarness({
 		agentFactory: (settings) => {
@@ -210,7 +228,9 @@ function setup(
 			// settings are under test.
 			return {} as HarnessAgentAdapter;
 		},
+		keepAlive: options.keepAlive,
 		logger,
+		now: options.now,
 	});
 	return { captured, harness, session };
 }
@@ -228,13 +248,19 @@ describe("ClaudeCodeHarness.createSession", () => {
 		});
 		expect(Object.keys(captured.claudeSettings?.auth ?? {})).toHaveLength(2);
 		expect(captured.claudeSettings?.env).toEqual({
-			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
+			// One Claude Code process serves many turns: no per-run header.
+			ANTHROPIC_CUSTOM_HEADERS: "",
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+			// The per-turn token note broke the prompt cache prefix.
+			CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+			WANDIT_TOKEN_EPOCH: expect.any(String),
 		});
 		expect(captured.agentSettings?.sandboxConfig?.workDir).toBe(
 			HARNESS_WORK_DIR,
 		);
 		expect(captured.agentSettings?.permissionMode).toBe("allow-all");
+		// A dead bridge must not hold a turn for the adapter default of 120 s.
+		expect(captured.claudeSettings?.startupTimeoutMs).toBe(30_000);
 		// The model asks through ask_user only; the built-in tool is off.
 		expect(captured.agentSettings?.inactiveTools).toEqual(["askUserQuestions"]);
 		expect(captured.agentSettings?.model).toBe("anthropic/claude-sonnet-5");
@@ -243,16 +269,16 @@ describe("ClaudeCodeHarness.createSession", () => {
 		);
 	});
 
-	it("passes only the telemetry flag to env when no custom header exists", async () => {
-		const { captured, harness } = setup();
-		const input = sessionInput();
-		delete input.env.ANTHROPIC_CUSTOM_HEADERS;
-
-		await harness.createSession(input);
-
-		expect(captured.claudeSettings?.env).toEqual({
-			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+	it("names the 30-minute token epoch in the env", async () => {
+		const { captured, harness } = setup(undefined, undefined, {
+			now: () => 3 * 30 * 60_000 + 5,
 		});
+
+		await harness.createSession(sessionInput());
+
+		// A new epoch changes the start env, so the bridge fork starts a new
+		// Claude Code process before a kept-alive connection holds an old token.
+		expect(captured.claudeSettings?.env?.WANDIT_TOKEN_EPOCH).toBe("3");
 	});
 
 	it("passes the chat id as the session id", async () => {
@@ -293,11 +319,32 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 				payload: JSON.stringify(RESUME_STATE),
 				pending: [],
 			},
-			{ dropPausedTurn: false },
+			{ bridgeDead: false, dropPausedTurn: false },
 		);
 
 		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 		expect(captured.createOptions?.sessionId).toBe("chat-1");
+	});
+
+	it("drops the bridge coordinates of a resume when the sandbox woke", async () => {
+		const { captured, harness } = setup();
+		const stored = {
+			...RESUME_STATE,
+			data: {
+				bridge: { lastSeenEventId: 7, port: 8787, token: "bridge-token" },
+				claudeSessionId: "claude-1",
+				forkOnResume: false,
+			},
+		};
+
+		await harness.resumeSession(
+			sessionInput(),
+			{ harness: "claude_code", payload: JSON.stringify(stored), pending: [] },
+			{ bridgeDead: true, dropPausedTurn: false },
+		);
+
+		// The conversation id stays; only the dead attach target goes.
+		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 	});
 
 	it("resumes a suspended turn through continueFrom, not resumeFrom", async () => {
@@ -310,7 +357,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 				payload: JSON.stringify(CONTINUE_STATE),
 				pending: [PENDING_COLOR_QUESTION],
 			},
-			{ dropPausedTurn: false },
+			{ bridgeDead: false, dropPausedTurn: false },
 		);
 
 		expect(captured.createOptions?.continueFrom).toEqual(CONTINUE_STATE);
@@ -327,7 +374,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 				payload: JSON.stringify(CONTINUE_STATE),
 				pending: [PENDING_COLOR_QUESTION],
 			},
-			{ dropPausedTurn: true },
+			{ bridgeDead: false, dropPausedTurn: true },
 		);
 
 		// Same Claude conversation (`data`), no pending lists, no continueFrom.
@@ -340,6 +387,31 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.continueFrom).toBeUndefined();
 	});
 
+	it("drops the dead bridge of a lost paused turn but keeps its conversation", async () => {
+		const { captured, harness } = setup();
+		const stored = {
+			...CONTINUE_STATE,
+			data: {
+				bridge: { lastSeenEventId: 3, port: 8787, token: "bridge-token" },
+				claudeSessionId: "claude-1",
+			},
+		};
+
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(stored),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ bridgeDead: true, dropPausedTurn: true },
+		);
+
+		expect(captured.createOptions?.resumeFrom?.data).toEqual({
+			claudeSessionId: "claude-1",
+		});
+	});
+
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
 		const { harness } = setup();
 
@@ -347,7 +419,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 			harness.resumeSession(
 				sessionInput(),
 				{ harness: "opencode", payload: "{}", pending: [] },
-				{ dropPausedTurn: false },
+				{ bridgeDead: false, dropPausedTurn: false },
 			),
 		).rejects.toBeInstanceOf(HarnessResumeMismatchError);
 	});
@@ -842,6 +914,141 @@ describe("ClaudeCodeHarness.detach", () => {
 				toolCallId: "call-1",
 			},
 		]);
+	});
+});
+
+describe("ClaudeCodeHarness keep-alive (harness host)", () => {
+	/** One finished turn on a kept-alive harness; answers the stored state. */
+	async function finishOneTurn(
+		options: Parameters<typeof setup>[2] = {},
+	): Promise<
+		ReturnType<typeof setup> & {
+			stored: Awaited<ReturnType<ClaudeCodeHarness["detach"]>>;
+		}
+	> {
+		const world = setup(
+			undefined,
+			{ warn: vi.fn() },
+			{
+				keepAlive: true,
+				...options,
+			},
+		);
+		const session = await world.harness.createSession(sessionInput());
+		const stored = await world.harness.detach(session);
+		return { ...world, stored };
+	}
+
+	const LIVE = { bridgeDead: false, dropPausedTurn: false };
+
+	it("attaches a finished session again and gives it to the next turn of the chat", async () => {
+		const { captured, harness, stored } = await finishOneTurn();
+		// The start and the background re-attach.
+		expect(captured.createCount).toBe(2);
+
+		const session = await harness.resumeSession(sessionInput(), stored, LIVE);
+		const events = [];
+		for await (const event of harness.stream(session, {
+			kind: "prompt",
+			prompt: "make it blue",
+			signal: new AbortController().signal,
+		})) {
+			events.push(event);
+		}
+
+		// No third attach: the kept session serves the turn.
+		expect(captured.createCount).toBe(2);
+		expect(events.at(-1)?.type).toBe("usage");
+	});
+
+	it("resumes from the stored state when another path wrote a newer one", async () => {
+		const { captured, harness, session: inner, stored } = await finishOneTurn();
+		// A Trigger turn ran in between and stored its own state.
+		const newer = {
+			...stored,
+			payload: JSON.stringify({
+				...RESUME_STATE,
+				data: { claudeSessionId: "claude-2" },
+			}),
+		};
+
+		await harness.resumeSession(sessionInput(), newer, LIVE);
+
+		expect(captured.createCount).toBe(3);
+		// The kept socket closes; its bridge stays for the stored state.
+		expect(inner.detach).toHaveBeenCalledTimes(2);
+	});
+
+	it("resumes from the stored state when the sandbox woke", async () => {
+		const { captured, harness, stored } = await finishOneTurn();
+
+		await harness.resumeSession(sessionInput(), stored, {
+			bridgeDead: true,
+			dropPausedTurn: false,
+		});
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("drops the kept session in a new token epoch", async () => {
+		let now = 0;
+		const { captured, harness, stored } = await finishOneTurn({
+			now: () => now,
+		});
+		now = 30 * 60_000;
+
+		await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("resumes from the stored state once when the kept bridge is gone", async () => {
+		const { captured, harness, stored } = await finishOneTurn({
+			streamErrorOnce: new Error("SandboxChannel: cannot send start"),
+		});
+		const session = await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		for await (const _event of harness.stream(session, {
+			kind: "prompt",
+			prompt: "hey",
+			signal: new AbortController().signal,
+		})) {
+			// Drain the turn.
+		}
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("does not keep a session whose turn is still unfinished", async () => {
+		const world = setup(undefined, undefined, { keepAlive: true });
+		world.session.detach = vi.fn(async () => ({
+			...RESUME_STATE,
+			continueFrom: CONTINUE_STATE,
+		}));
+		const session = await world.harness.createSession(sessionInput());
+
+		await world.harness.detach(session);
+
+		expect(world.captured.createCount).toBe(1);
+	});
+
+	it("closes kept sessions after 20 idle minutes", async () => {
+		let now = 0;
+		const {
+			captured,
+			harness,
+			session: inner,
+			stored,
+		} = await finishOneTurn({
+			now: () => now,
+		});
+		now = 20 * 60_000;
+
+		await harness.dropIdleKept();
+		await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		expect(inner.detach).toHaveBeenCalledTimes(2);
+		expect(captured.createCount).toBe(3);
 	});
 });
 

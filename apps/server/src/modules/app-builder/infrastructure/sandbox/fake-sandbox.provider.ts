@@ -128,6 +128,11 @@ export class FakeSandboxProvider implements SandboxProvider {
 	readonly calls: FakeSandboxCall[] = [];
 	/** Sandboxes actually created — a repeated `getOrCreate` adds none. */
 	createdCount = 0;
+	/**
+	 * True makes a create call `onCreated`, like a vendor rebuild. Off by
+	 * default: most runtime specs pair a stored session with a fresh fake.
+	 */
+	reportsCreated = false;
 	/** `handle.keepAlive()` calls across every project handle. */
 	keepAliveCalls = 0;
 	/** Every policy `handle.setNetworkPolicy` received, across all handles. */
@@ -168,6 +173,9 @@ export class FakeSandboxProvider implements SandboxProvider {
 		const handle = new FakeSandboxHandle(projectId, this, files);
 		this.projects.set(projectId, { handle, stopped: false });
 		this.createdCount += 1;
+		if (this.reportsCreated) {
+			options.onCreated?.();
+		}
 		return handle;
 	}
 

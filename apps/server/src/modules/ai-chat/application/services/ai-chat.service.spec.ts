@@ -453,7 +453,8 @@ describe("AiChatService MCP lifecycle", () => {
 						parts: [expect.objectContaining({ type: "data-ai-error" })],
 						role: "assistant",
 					}),
-					nextUserMessage,
+					// `ai` 7.0.122 validation adds `metadata: {}` to each message.
+					expect.objectContaining(nextUserMessage),
 				],
 			}),
 		);

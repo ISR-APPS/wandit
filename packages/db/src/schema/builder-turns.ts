@@ -44,6 +44,18 @@ export const builderTurnStatus = pgEnum("builder_turn_status", [
 	"stopped_disabled",
 ]);
 
+/**
+ * The process that owns the turn run. `trigger`: one `builder-turn`
+ * Trigger.dev run, linked by `trigger_run_id`. `host`: the harness host
+ * process, which keeps the chat's Claude Code session alive between turns
+ * and streams through Redis. Cancel, the token revoke, the relay, and the
+ * crash recovery branch on it.
+ */
+export const builderTurnRunner = pgEnum("builder_turn_runner", [
+	"trigger",
+	"host",
+]);
+
 export const builderTurns = pgTable(
 	"builder_turns",
 	{
@@ -77,6 +89,9 @@ export const builderTurns = pgTable(
 		requestKey: text("request_key").notNull(),
 		// Trigger.dev run id. Links the row to the run in their dashboard.
 		triggerRunId: text("trigger_run_id"),
+		// Which process runs the turn; see `builderTurnRunner`. The API sets
+		// `host` with a CAS before it hands the turn to the host.
+		runner: builderTurnRunner("runner").notNull().default("trigger"),
 		// Position of the turn inside the project. Fencing: a higher number
 		// wins.
 		turnNumber: integer("turn_number").notNull(),

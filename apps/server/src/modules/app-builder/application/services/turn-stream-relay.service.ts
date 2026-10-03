@@ -1,8 +1,10 @@
 /**
  * Relays a builder turn's `ui` stream to the browser as SSE.
- * The task writes D20 envelope events on the Trigger stream; this service
- * unwraps them into the plain AI SDK chunks `useChat` +
- * `DefaultChatTransport` parse — one `data:` frame each, `[DONE]` to end.
+ * A Trigger-run turn writes D20 envelope events on the Trigger stream; a
+ * host-run turn (`runner = host`) writes them on a Redis Stream. This
+ * service reads the store the row names, and unwraps the events into the
+ * plain AI SDK chunks `useChat` + `DefaultChatTransport` parse — one
+ * `data:` frame each, `[DONE]` to end.
  * Same socket handling as `chat-stream-relay.service.ts` (hijack,
  * heartbeat every 15 s, `drain` backpressure). The reader replays from
  * the start, so the relay dedupes on the last written event id.
@@ -22,6 +24,7 @@ import { env } from "@wandit/env/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import {
+	HOST_TURN_EVENT_READER,
 	TURN_EVENT_READER,
 	type TurnEventReader,
 } from "../../domain/ports/turn-events";
@@ -77,6 +80,8 @@ export class TurnStreamRelayService {
 	constructor(
 		@Inject(TURN_EVENT_READER)
 		private readonly turnEvents: TurnEventReader,
+		@Inject(HOST_TURN_EVENT_READER)
+		private readonly hostTurnEvents: TurnEventReader,
 		@Inject(RATE_LIMIT_STORE)
 		private readonly rateLimit: RateLimitStore,
 		@Inject(BuilderTurnsRepository)
@@ -153,7 +158,12 @@ export class TurnStreamRelayService {
 		}, HEARTBEAT_INTERVAL_MS);
 
 		const lagMs: number[] = [];
-		let runId = options.triggerRunId;
+		// The store to read: the Trigger run id, or the turn id of a host-run
+		// turn. Null while the row names neither yet.
+		let source: { reader: TurnEventReader; id: string } | null =
+			options.triggerRunId === null
+				? null
+				: { id: options.triggerRunId, reader: this.turnEvents };
 		let lastSeenId: string | null = null;
 		let done = false;
 		try {
@@ -166,10 +176,12 @@ export class TurnStreamRelayService {
 			}
 
 			while (!closed && !done) {
-				if (runId === null) {
+				if (source === null) {
 					const row = await this.turns.findById(turnId);
-					if (row?.triggerRunId) {
-						runId = row.triggerRunId;
+					if (row?.runner === "host") {
+						source = { id: turnId, reader: this.hostTurnEvents };
+					} else if (row?.triggerRunId) {
+						source = { id: row.triggerRunId, reader: this.turnEvents };
 					} else if (row && isTerminalStatus(row.status)) {
 						// The turn settled before a run ever started (cancel).
 						await this.finishFromRow(raw, row, onDone, turnId);
@@ -187,12 +199,12 @@ export class TurnStreamRelayService {
 					continue;
 				}
 
-				const activeRunId = runId;
+				const activeRunId = source.id;
 				// The reader replays from the start on every open; the browser
 				// must not get a chunk twice, so events up to the last written
 				// id are skipped.
 				let skipping = lastSeenId !== null;
-				for await (const event of this.turnEvents.read(
+				for await (const event of source.reader.read(
 					activeRunId,
 					abort.signal,
 				)) {
