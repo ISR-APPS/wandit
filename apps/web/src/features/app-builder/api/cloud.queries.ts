@@ -1,9 +1,9 @@
 /**
- * TanStack Query keys and options of the Cloud tab (WANDIT-188). queryFn
- * delegates to cloud.services.ts. Every factory takes `enabled` from the
- * caller: the Cloud tab stays mounted while hidden, so its queries must not
- * fetch then. Read by the app-builder page, components/cloud/*, and
- * lib/use-builder-chat.ts (the refresh after a turn).
+ * TanStack Query keys and options of the Cloud panels of the More view
+ * (WANDIT-188). queryFn delegates to cloud.services.ts. Every factory takes
+ * `enabled` from the caller: the More view stays mounted while hidden, so
+ * these queries must not fetch then. Read by the app-builder page,
+ * components/cloud/*, and lib/use-builder-chat.ts (the refresh after a turn).
  */
 
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
@@ -30,7 +30,7 @@ import {
 } from "./cloud.services";
 
 /**
- * Keys of the Cloud tab, under `appBuilderKeys.all`. `rows` sits under
+ * Keys of the Cloud panels of the More view, under `appBuilderKeys.all`. `rows` sits under
  * `tables`, so one invalidation of `tables` refreshes the list and every
  * loaded page. `objects` sits under `buckets` the same way. `backend` is a
  * sibling: a table refresh never reads it again.
@@ -83,8 +83,8 @@ export function cloudBackendPollMs(
 
 /**
  * The Supabase backend state of one project. The page reads it with
- * `enabled: true` for the preview boot screen. The Cloud tab reads it
- * while it is open.
+ * `enabled: true` for the preview boot screen. The Cloud panels of the
+ * More view read it while the view is open.
  */
 export const cloudBackendQuery = (projectId: string, enabled: boolean) =>
 	queryOptions({
@@ -96,7 +96,7 @@ export const cloudBackendQuery = (projectId: string, enabled: boolean) =>
 
 /**
  * The `public` tables with columns and row estimates. The caller passes
- * `enabled: false` unless the tab is open and the backend is `active`.
+ * `enabled: false` unless the More view is open and the backend is `active`.
  */
 // LIMIT: the API caches the table list for 30 s and a write does not clear it,
 // so a new or dropped table can show up to 30 s late. Upgrade: CloudService.runSql

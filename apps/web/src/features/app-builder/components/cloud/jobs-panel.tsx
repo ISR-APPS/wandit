@@ -1,7 +1,7 @@
 /**
- * Jobs panel of the Cloud tab: the pg_cron jobs of the app with their
+ * Jobs panel of the Backend group: the pg_cron jobs of the app with their
  * schedule, active state, and last run. Read only (WANDIT-188). Rendered by
- * cloud-tab.tsx inside backend-state.tsx, so the backend is `active` here.
+ * cloud-panel-content.tsx inside backend-state.tsx, so the backend is `active` here.
  * Reads cloudJobsQuery.
  */
 
@@ -27,7 +27,7 @@ import { RowsGridSkeleton } from "./rows-grid";
 /** Props of JobsPanel. The panel mounts only while the backend is `active`. */
 export type JobsPanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The query of the panel waits for it. */
+	/** True while the More view is on screen. The query of the panel waits for it. */
 	isActive: boolean;
 };
 

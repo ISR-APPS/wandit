@@ -38,10 +38,15 @@ export interface BackendProvider {
 	): Promise<{ status: BackendProjectStatus; dbHost: string | null }>;
 	getApiKeys(ref: string): Promise<{ anonKey: string; serviceRoleKey: string }>;
 	runSql(ref: string, sql: string): Promise<void>;
-	/** Auth URLs the app's sign-in accepts. */
+	/** Auth URLs the app's sign-in accepts, and the email confirmation switch. */
 	updateAuthConfig(
 		ref: string,
-		input: { siteUrl: string; uriAllowList: string[] },
+		input: {
+			siteUrl: string;
+			uriAllowList: string[];
+			/** True: a new email user gets a session at sign-up, with no confirmation email. */
+			skipEmailConfirmation: boolean;
+		},
 	): Promise<void>;
 	pauseProject(ref: string): Promise<void>;
 	restoreProject(ref: string): Promise<void>;

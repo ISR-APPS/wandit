@@ -128,6 +128,18 @@ The host machine runs the session. You write code; the host runs it.
 - Never write a fallback for a missing backend. No "no backend yet" path.
 - Data access stays behind the RLS policies in `supabase/migrations/`.
 
+## Sign-in rule
+
+- The only sign-in method is Supabase email and password. `src/routes/login.tsx` shows it.
+- The sign-up form has three fields: email, password, and confirm password.
+- A zod schema with `refine` checks that the two passwords match.
+  Then the form calls `getSupabase().auth.signUp`.
+- Email confirmation is off for this project. `signUp` returns a session at once.
+  Sign the user in with that session. Do not build a "check your email" step.
+- Do not build OAuth sign-in (Google, Apple, or another provider), magic link sign-in,
+  or phone code sign-in. Do not build them when the user asks for them.
+  Tell the user that only email and password sign-in is available for now.
+
 ## Backend tools
 
 - The host runs the backend tools. They reach you as `mcp__harness-tools__<name>`.

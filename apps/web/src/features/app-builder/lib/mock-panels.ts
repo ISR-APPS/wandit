@@ -1,129 +1,19 @@
 /**
- * Mock data of the More panels: backend, sign-in, payments, domains,
- * app stores, and settings.
+ * Mock data of the More panels: sign-in, domains, app stores, and settings.
  * Read only by api/app-builder.services.ts.
  * Generated-app content stays in English on purpose (docs/localization.md).
  */
 
 import type {
 	AppStoresSummary,
-	BackendSummary,
-	PaymentsSummary,
 	ProjectDomain,
 	ProjectSettings,
 	SignInSummary,
 } from "../api/dto";
 
-export const MOCK_BACKEND: BackendSummary = {
-	rowCount: 10_491,
-	sizeMb: 38,
-	storageGb: 1.2,
-	storageNote: "Member photos, class posters",
-	functionCallsToday: 2_104,
-	tables: [
-		{
-			name: "members",
-			columns: [
-				"id",
-				"phone",
-				"full_name",
-				"plan_id",
-				"expires_at",
-				"photo_url",
-			],
-			rowCount: 312,
-		},
-		{
-			name: "plans",
-			columns: ["id", "name", "price_dzd", "duration_days"],
-			rowCount: 3,
-		},
-		{
-			name: "payments",
-			columns: [
-				"id",
-				"member_id",
-				"amount_dzd",
-				"provider",
-				"status",
-				"created_at",
-			],
-			rowCount: 1_204,
-		},
-		{
-			name: "check_ins",
-			columns: ["id", "member_id", "scanned_by", "scanned_at"],
-			rowCount: 8_930,
-		},
-		{
-			name: "classes",
-			columns: ["id", "title", "coach", "starts_at", "capacity", "studio"],
-			rowCount: 42,
-		},
-	],
-	functions: [
-		{ name: "createCheckout", trigger: "Called from app", callsToday: 96 },
-		{ name: "paymentsWebhook", trigger: "Chargily event", callsToday: 91 },
-		{ name: "verifyPass", trigger: "Door scanner", callsToday: 1_870 },
-		{ name: "sendOtp", trigger: "Sign-in", callsToday: 47 },
-	],
-};
-
+/** Sign-in panel data of every project: the member count of the seed gym app. */
 export const MOCK_SIGN_IN: SignInSummary = {
 	userCount: 312,
-	methods: [
-		{ id: "phoneOtp", enabled: true },
-		{ id: "emailPassword", enabled: false },
-		{ id: "google", enabled: false },
-		{ id: "magicLink", enabled: false },
-	],
-};
-
-export const MOCK_PAYMENTS: PaymentsSummary = {
-	provider: {
-		name: "Chargily Pay",
-		account: "nadi-fitness",
-		cards: "CIB and Edahabia cards",
-		mode: "live",
-	},
-	products: [
-		{
-			id: "monthly",
-			name: "Monthly pass",
-			billing: { kind: "recurring", days: 30 },
-			priceDzd: 2_500,
-		},
-		{
-			id: "quarterly",
-			name: "Quarterly pass",
-			billing: { kind: "recurring", days: 90 },
-			priceDzd: 6_500,
-		},
-		{
-			id: "day",
-			name: "Day pass",
-			billing: { kind: "oneTime" },
-			priceDzd: 500,
-		},
-	],
-	collectedDzd: 780_000,
-	collectedMonth: "2026-09",
-	paymentCount: 312,
-	refundCount: 2,
-	webhookPath: "/api/payments/webhook",
-	webhookReceiving: true,
-};
-
-/** Payments before the user connects a provider. Used by the mobile mock project. */
-export const MOCK_PAYMENTS_NOT_CONNECTED: PaymentsSummary = {
-	provider: null,
-	products: [],
-	collectedDzd: 0,
-	collectedMonth: "2026-09",
-	paymentCount: 0,
-	refundCount: 0,
-	webhookPath: "/api/payments/webhook",
-	webhookReceiving: false,
 };
 
 export const MOCK_DOMAINS: ProjectDomain[] = [
@@ -171,6 +61,7 @@ export const MOCK_APP_STORES: AppStoresSummary = {
 	],
 };
 
+/** Settings panel data. Each `setBy` names a More panel that the nav still opens, so "Set by" shows its title. */
 export const MOCK_SETTINGS: ProjectSettings = {
 	collaboratorLimit: 5,
 	collaborators: [
@@ -198,9 +89,9 @@ export const MOCK_SETTINGS: ProjectSettings = {
 	],
 	environmentVariables: [
 		{
-			name: "CHARGILY_SECRET_KEY",
+			name: "AI_API_KEY",
 			value: null,
-			setBy: "payments",
+			setBy: "ai",
 			isPublic: false,
 		},
 		{

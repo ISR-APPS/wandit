@@ -9,11 +9,11 @@ import {
 import {
 	copyToClipboard,
 	panelsForKind,
+	panelTitleKey,
 	readChatLayout,
 	readChatOpen,
 	readExpoUsername,
-	resolveBuilderView,
-	resolveMorePanel,
+	resolvePanel,
 	writeChatLayout,
 	writeChatOpen,
 	writeExpoUsername,
@@ -39,30 +39,37 @@ describe("panelsForKind", () => {
 	});
 });
 
-describe("resolveBuilderView", () => {
-	it("keeps a requested view and opens the preview when nothing is requested", () => {
-		expect(resolveBuilderView("code", false)).toBe("code");
-		expect(resolveBuilderView(undefined, true)).toBe("preview");
+describe("resolvePanel", () => {
+	it("keeps a More panel the kind has, with the Cloud gate open or closed", () => {
+		expect(resolvePanel("web", "payments", true)).toBe("payments");
+		expect(resolvePanel("mobile", "appStores", false)).toBe("appStores");
 	});
 
-	it("opens the Cloud view only while the Cloud gate is open", () => {
-		expect(resolveBuilderView("cloud", true)).toBe("cloud");
-		expect(resolveBuilderView("cloud", false)).toBe("preview");
+	it("keeps a Cloud panel only while the Cloud gate is open", () => {
+		expect(resolvePanel("web", "logs", true)).toBe("logs");
+		expect(resolvePanel("web", "logs", false)).toBe("analytics");
+	});
+
+	it("opens Database with the gate open and Analytics with it closed when nothing is requested", () => {
+		expect(resolvePanel("web", undefined, true)).toBe("database");
+		expect(resolvePanel("mobile", undefined, false)).toBe("analytics");
+	});
+
+	it("falls back for Integrations, which the nav shows as Soon", () => {
+		expect(resolvePanel("web", "integrations", true)).toBe("database");
+		expect(resolvePanel("web", "integrations", false)).toBe("analytics");
+	});
+
+	it("falls back for a panel the kind does not have", () => {
+		expect(resolvePanel("mobile", "domains", false)).toBe("analytics");
+		expect(resolvePanel("web", "appStores", true)).toBe("database");
 	});
 });
 
-describe("resolveMorePanel", () => {
-	it("keeps a panel the kind has", () => {
-		expect(resolveMorePanel("web", "payments")).toBe("payments");
-	});
-
-	it("falls back to the first panel when the kind does not have it", () => {
-		expect(resolveMorePanel("mobile", "domains")).toBe("analytics");
-		expect(resolveMorePanel("web", "appStores")).toBe("analytics");
-	});
-
-	it("falls back to the first panel when nothing is requested", () => {
-		expect(resolveMorePanel("web", undefined)).toBe("analytics");
+describe("panelTitleKey", () => {
+	it("names a Cloud panel from the workspace dictionary and a More panel from its meta", () => {
+		expect(panelTitleKey("logs")).toBe("workspace.cloud.panels.logs");
+		expect(panelTitleKey("payments")).toBe("appBuilder.panels.payments.title");
 	});
 });
 

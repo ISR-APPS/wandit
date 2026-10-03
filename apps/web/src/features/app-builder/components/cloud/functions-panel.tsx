@@ -1,7 +1,7 @@
 /**
- * Functions panel of the Cloud tab: the Edge Functions of the app with their
+ * Functions panel of the Backend group: the Edge Functions of the app with their
  * status, last deploy, calls of the last 24 hours, and a link to their logs.
- * Rendered by cloud-tab.tsx inside backend-state.tsx, so the backend is
+ * Rendered by cloud-panel-content.tsx inside backend-state.tsx, so the backend is
  * `active` here. Reads cloudFunctionsQuery.
  */
 
@@ -28,7 +28,7 @@ import { RowsGridSkeleton } from "./rows-grid";
 /** Props of FunctionsPanel. The panel mounts only while the backend is `active`. */
 export type FunctionsPanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The query of the panel waits for it. */
+	/** True while the More view is on screen. The query of the panel waits for it. */
 	isActive: boolean;
 	/** Opens the Logs panel on the `functions` source, filtered on this function slug. */
 	onViewLogs: (slug: string) => void;

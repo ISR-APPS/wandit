@@ -1,8 +1,8 @@
 /**
- * Logs panel of the Cloud tab: the log lines of one source (API, Postgres,
+ * Logs panel of the Backend group: the log lines of one source (API, Postgres,
  * or Functions) in a 24-hour window, with a level filter, a text search, and
  * the previous and next windows. It never polls: Refresh reads the newest
- * window. Rendered by cloud-tab.tsx inside backend-state.tsx, so the backend
+ * window. Rendered by cloud-panel-content.tsx inside backend-state.tsx, so the backend
  * is `active` here. Reads cloudLogsQuery.
  */
 
@@ -54,7 +54,7 @@ export type LogsFilter = {
 /** Props of LogsPanel. The panel mounts only while the backend is `active`. */
 export type LogsPanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The query of the panel waits for it. */
+	/** True while the More view is on screen. The query of the panel waits for it. */
 	isActive: boolean;
 	/** The filter to open with. The Functions panel passes the `functions` source and a function slug. */
 	initialFilter?: LogsFilter;

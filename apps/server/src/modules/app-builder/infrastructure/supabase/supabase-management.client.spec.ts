@@ -392,7 +392,7 @@ describe("SupabaseManagementClient guards", () => {
 });
 
 describe("SupabaseManagementClient.updateAuthConfig", () => {
-	it("joins the allow list with a comma", async () => {
+	it("joins the allow list with a comma and turns email confirmation off", async () => {
 		const fixture = makeClient([
 			jsonResponse(
 				200,
@@ -408,6 +408,7 @@ describe("SupabaseManagementClient.updateAuthConfig", () => {
 			siteUrl: "https://preview.example",
 			uriAllowList: ["https://a", "https://b"],
 			externalEmailEnabled: true,
+			skipEmailConfirmation: true,
 		});
 
 		expect(fixture.requests[0]?.method).toBe("PATCH");
@@ -418,6 +419,7 @@ describe("SupabaseManagementClient.updateAuthConfig", () => {
 			site_url: "https://preview.example",
 			uri_allow_list: "https://a,https://b",
 			external_email_enabled: true,
+			mailer_autoconfirm: true,
 		});
 	});
 });

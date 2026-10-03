@@ -850,8 +850,8 @@ importers:
   apps/worker:
     dependencies:
       '@ai-sdk/gateway':
-        specifier: 4.0.80
-        version: 4.0.80(zod@4.4.3)
+        specifier: 4.0.100
+        version: 4.0.100(zod@4.4.3)
       '@nestjs/bullmq':
         specifier: ^11.0.4
         version: 11.0.4(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(bullmq@5.79.2)
@@ -866,7 +866,7 @@ importers:
         version: 11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@openrouter/ai-sdk-provider':
         specifier: ^3.0.0
-        version: 3.0.0(ai@7.0.99(zod@4.4.3))(zod@4.4.3)
+        version: 3.0.0(ai@7.0.122(zod@4.4.3))(zod@4.4.3)
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.218.0(@opentelemetry/api@1.9.1))
@@ -886,8 +886,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       ai:
-        specifier: 7.0.99
-        version: 7.0.99(zod@4.4.3)
+        specifier: 7.0.122
+        version: 7.0.122(zod@4.4.3)
       bullmq:
         specifier: ^5.79.2
         version: 5.79.2
@@ -902,8 +902,8 @@ importers:
         version: 7.8.2
     devDependencies:
       '@ai-sdk/provider':
-        specifier: 4.0.14
-        version: 4.0.14
+        specifier: 4.0.19
+        version: 4.0.19
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.0
@@ -14235,11 +14235,6 @@ snapshots:
   '@openrouter/ai-sdk-provider@3.0.0(ai@7.0.122(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       ai: 7.0.122(zod@4.4.3)
-      zod: 4.4.3
-
-  '@openrouter/ai-sdk-provider@3.0.0(ai@7.0.99(zod@4.4.3))(zod@4.4.3)':
-    dependencies:
-      ai: 7.0.99(zod@4.4.3)
       zod: 4.4.3
 
   '@opentelemetry/api-logs@0.208.0':

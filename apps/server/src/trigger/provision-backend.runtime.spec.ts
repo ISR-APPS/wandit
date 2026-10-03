@@ -58,6 +58,7 @@ type AuthConfigCall = {
 		siteUrl: string;
 		uriAllowList: string[];
 		externalEmailEnabled: boolean;
+		skipEmailConfirmation: boolean;
 	};
 };
 
@@ -268,6 +269,7 @@ describe("runProvisionBackend", () => {
 					siteUrl: `https://${PREVIEW_DOMAIN}`,
 					uriAllowList: [`https://r-*--p-${PROJECT_ID}.${PREVIEW_DOMAIN}/**`],
 					externalEmailEnabled: true,
+					skipEmailConfirmation: true,
 				},
 			},
 		]);

@@ -1,7 +1,7 @@
 /**
- * Users panel of the Cloud tab: the sign-ups chart of the last 30 days and
+ * Users panel of the Backend group: the sign-ups chart of the last 30 days and
  * the paged list of the `auth.users` rows of the app. Rendered by
- * cloud-tab.tsx inside backend-state.tsx, so the backend is `active` here.
+ * cloud-panel-content.tsx inside backend-state.tsx, so the backend is `active` here.
  * Reads cloudSignupsQuery and cloudAuthUsersQuery; renders signups-chart.tsx.
  */
 
@@ -36,7 +36,7 @@ import { SignupsChart } from "./signups-chart";
 /** Props of UsersPanel. The panel mounts only while the backend is `active`. */
 export type UsersPanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The queries of the panel wait for it. */
+	/** True while the More view is on screen. The queries of the panel wait for it. */
 	isActive: boolean;
 };
 
