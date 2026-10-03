@@ -11,8 +11,9 @@ import Loader from "@/components/loader";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import type { MorePanel } from "../../lib/constants";
+import { isMockAppProject } from "../../lib/mock-projects";
 import { AppStoresPanel } from "./app-stores-panel";
-import { BackendPanel } from "./backend-panel";
+import { BackendInCloud, BackendPanel } from "./backend-panel";
 import { DomainsPanel } from "./domains-panel";
 import { EmptyPanel } from "./empty-panel";
 import { MoreNav } from "./more-nav";
@@ -26,6 +27,8 @@ export type MoreViewProps = {
 	/** Already resolved for the project kind by the page. */
 	panel: MorePanel;
 	onSelectPanel: (panel: MorePanel) => void;
+	/** Opens the Cloud view. undefined while the Cloud tab is hidden for this user or project. */
+	onOpenCloud: (() => void) | undefined;
 };
 
 /** Panels with no data yet. Each one shows the empty state with its own button label. */
@@ -41,7 +44,12 @@ const EMPTY_PANEL_CTA: Record<EmptyMorePanel, TranslationKey> = {
 	security: "appBuilder.panels.security.cta",
 };
 
-export function MoreView({ project, panel, onSelectPanel }: MoreViewProps) {
+export function MoreView({
+	project,
+	panel,
+	onSelectPanel,
+	onOpenCloud,
+}: MoreViewProps) {
 	const { t } = useTranslation();
 
 	function renderPanel(): ReactNode {
@@ -52,7 +60,12 @@ export function MoreView({ project, panel, onSelectPanel }: MoreViewProps) {
 			case "security":
 				return <EmptyPanel ctaLabel={t(EMPTY_PANEL_CTA[panel])} />;
 			case "backend":
-				return <BackendPanel projectId={project.id} />;
+				// The backend summary is mock data. A real project reads its backend in the Cloud tab.
+				return isMockAppProject(project.id) ? (
+					<BackendPanel projectId={project.id} />
+				) : (
+					<BackendInCloud onOpenCloud={onOpenCloud} />
+				);
 			case "signIn":
 				return <SignInPanel projectId={project.id} />;
 			case "payments":

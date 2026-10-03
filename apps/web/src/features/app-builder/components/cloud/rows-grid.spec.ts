@@ -5,7 +5,12 @@ import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RowsGrid, type RowsGridProps } from "./rows-grid";
+import {
+	PageControls,
+	type PageControlsProps,
+	RowsGrid,
+	type RowsGridProps,
+} from "./rows-grid";
 
 const ROWS = [
 	{ id: 1, name: "Ada", tags: ["admin"] },
@@ -87,5 +92,69 @@ describe("RowsGrid", () => {
 		cleanup();
 		renderGrid({ rows: [] });
 		expect(screen.getByText("This table has no rows.")).toBeTruthy();
+	});
+});
+
+describe("PageControls", () => {
+	function renderControls(props: Omit<PageControlsProps, "countText">) {
+		// I18nProvider requires children in its props type for createElement calls.
+		const providerProps: ComponentProps<typeof I18nProvider> = {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(PageControls, {
+				...props,
+				countText: "120 users",
+			}),
+		};
+		render(createElement(I18nProvider, providerProps));
+	}
+
+	it("shows the count text and the page, and stops at the ends", () => {
+		renderControls({
+			page: 1,
+			pageSize: 50,
+			total: 120,
+			onPageChange: vi.fn(),
+		});
+
+		expect(screen.getByText("120 users")).toBeTruthy();
+		expect(screen.getByText("Page 1 of 3")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Previous page" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Next page" })
+				.hasAttribute("disabled"),
+		).toBe(false);
+
+		cleanup();
+		renderControls({
+			page: 3,
+			pageSize: 50,
+			total: 120,
+			onPageChange: vi.fn(),
+		});
+
+		expect(
+			screen
+				.getByRole("button", { name: "Next page" })
+				.hasAttribute("disabled"),
+		).toBe(true);
+	});
+
+	it("asks for the page before and the page after the current page", () => {
+		const onPageChange = vi.fn();
+		renderControls({ page: 2, pageSize: 50, total: 120, onPageChange });
+
+		expect(screen.getByText("Page 2 of 3")).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+		fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+		expect(onPageChange.mock.calls).toEqual([[1], [3]]);
 	});
 });

@@ -153,42 +153,39 @@ select j.jobid::int as jobid, j.jobname, j.schedule, j.command, j.active,
     order by d.start_time desc nulls last limit ${CLOUD_JOB_RUNS_PER_JOB}) r), '[]'::json) as runs
 from cron.job j order by j.jobid`;
 
-// Calls per function id over the window the request sets. UNVERIFIED:
-// the `function_id` field of the unnested metadata (Studio uses it).
-const FUNCTION_COUNTS_SQL =
-	"select m.function_id as function_id, count(*) as count from function_edge_logs cross join unnest(metadata) as m group by m.function_id";
+// The analytics `logs` endpoint takes ClickHouse SQL over one `logs` table.
+// The `source` column names the service, and `log_attributes` maps each
+// field name to text (checked against the live API).
 
-/** The log table of each source and how its level is read. UNVERIFIED shapes. */
+// Calls per function id over the window the request sets.
+const FUNCTION_COUNTS_SQL =
+	"select log_attributes['function_id'] as function_id, count() as count from logs where source = 'function_edge_logs' group by function_id";
+
+// The status text becomes a number, so the level filter compares numbers. A
+// line without a status reads 0, the `info` level.
+const STATUS_CODE = "toUInt16OrZero(log_attributes['response.status_code'])";
+
+/** The `logs` source of each Cloud source and how its level is read. */
 const LOG_SOURCES: Record<
 	CloudLogSource,
 	{
-		table: string;
-		/** Unnest joins that expose the level column. */
-		joins: string;
-		/** Column the level filter and `level_value` read. */
+		/** Value of the `source` column. */
+		source: string;
+		/** Expression the level filter and `level_value` read. */
 		levelColumn: string;
 		/** `status` for HTTP status codes; `severity` for Postgres severities. */
 		kind: "status" | "severity";
 	}
 > = {
-	api: {
-		table: "edge_logs",
-		joins:
-			"cross join unnest(metadata) as m cross join unnest(m.response) as r",
-		levelColumn: "r.status_code",
-		kind: "status",
-	},
+	api: { source: "edge_logs", levelColumn: STATUS_CODE, kind: "status" },
 	functions: {
-		table: "function_edge_logs",
-		joins:
-			"cross join unnest(metadata) as m cross join unnest(m.response) as r",
-		levelColumn: "r.status_code",
+		source: "function_edge_logs",
+		levelColumn: STATUS_CODE,
 		kind: "status",
 	},
 	postgres: {
-		table: "postgres_logs",
-		joins: "cross join unnest(metadata) as m cross join unnest(m.parsed) as p",
-		levelColumn: "p.error_severity",
+		source: "postgres_logs",
+		levelColumn: "log_attributes['parsed.error_severity']",
 		kind: "severity",
 	},
 };
@@ -1030,25 +1027,33 @@ function isoUtc(column: string): string {
 	return `to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
-// A string literal for the logs SQL: backslashes and quotes escaped.
-function escapeSqlLiteral(text: string): string {
-	return text.replaceAll("\\", "\\\\").replaceAll("'", "''");
+// The search as the text of a ClickHouse string literal: a quote doubles.
+// The Supabase logs endpoint removes one level of backslashes before
+// ClickHouse reads the SQL (checked live), so a backslash can end the
+// literal early. The search drops every backslash.
+function logsSearchLiteral(search: string): string {
+	return search.replaceAll("\\", "").replaceAll("'", "''");
 }
 
-/** The logs SQL of one request: source table, level and search filters, newest first. */
+/**
+ * The ClickHouse logs SQL of one request: the source, the level and search
+ * filters, newest first. The timestamp goes out as unix microseconds.
+ */
 export function buildLogsSql(query: CloudLogsQuery): string {
 	const source = LOG_SOURCES[query.source];
-	const filters: string[] = [];
+	const filters = [`source = '${source.source}'`];
 	if (query.level !== undefined) {
 		filters.push(
 			`${source.levelColumn} ${LEVEL_FILTERS[source.kind][query.level]}`,
 		);
 	}
+	// `position` finds the plain text. In `like`, `%` and `_` are wildcards.
 	if (query.search !== undefined) {
-		filters.push(`event_message like '%${escapeSqlLiteral(query.search)}%'`);
+		filters.push(
+			`position(event_message, '${logsSearchLiteral(query.search)}') > 0`,
+		);
 	}
-	const where = filters.length === 0 ? "" : ` where ${filters.join(" and ")}`;
-	return `select id, timestamp, event_message, ${source.levelColumn} as level_value from ${source.table} ${source.joins}${where} order by timestamp desc limit ${CLOUD_LOGS_PAGE_SIZE}`;
+	return `select id, toUnixTimestamp64Micro(timestamp) as timestamp, event_message, ${source.levelColumn} as level_value from logs where ${filters.join(" and ")} order by timestamp desc limit ${CLOUD_LOGS_PAGE_SIZE}`;
 }
 
 // HTTP status classes and Postgres severities fold into three levels.
@@ -1070,7 +1075,8 @@ function logLevelOf(
 	return status >= 400 ? "warning" : "info";
 }
 
-// The analytics endpoint answers unix microseconds (UNVERIFIED) or ISO text.
+// buildLogsSql asks for unix microseconds. ISO text stays readable for a row
+// that comes without the conversion.
 function logTimestampIso(timestamp: number | string): string {
 	const ms =
 		typeof timestamp === "number" ? timestamp / 1000 : Date.parse(timestamp);

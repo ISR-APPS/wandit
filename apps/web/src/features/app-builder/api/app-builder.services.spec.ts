@@ -1,10 +1,11 @@
-import type {
-	AppProject as ApiAppProject,
-	CodeFileResponse,
-	CodeSnapshotResponse,
-	PreviewTokenResponse,
+import {
+	type AppProject as ApiAppProject,
+	appBuilderRoutes,
+	type CodeFileResponse,
+	type CodeSnapshotResponse,
+	type PreviewTokenResponse,
 } from "@wandit/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	ApiClientError,
@@ -37,6 +38,10 @@ const MOBILE_ID = "nadi-fitness-mobile";
 
 beforeEach(() => {
 	resetMockStore();
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
 });
 
 describe("createAppProject", () => {
@@ -81,13 +86,13 @@ describe("getAppProject", () => {
 		expect(second?.name).toBe("Nadi Fitness");
 	});
 
-	it("answers null on a 404 and rethrows every other API error", async () => {
+	it("answers null on a 404 and on a V2 gate refusal, and rethrows every other API error", async () => {
 		const realId = crypto.randomUUID();
 		const getFails =
-			(statusCode: number): typeof apiClient.get =>
+			(statusCode: number, code = `HTTP_${statusCode}`): typeof apiClient.get =>
 			async () => {
 				throw new ApiClientError({
-					code: `HTTP_${statusCode}`,
+					code,
 					message: "The request failed.",
 					path: `/api/v2/projects/${realId}`,
 					requestId: "req-1",
@@ -97,9 +102,38 @@ describe("getAppProject", () => {
 			};
 
 		expect(await getAppProject(realId, getFails(404))).toBeNull();
+		expect(
+			await getAppProject(realId, getFails(403, "V2_BUILDER_DISABLED")),
+		).toBeNull();
+		await expect(getAppProject(realId, getFails(403))).rejects.toMatchObject({
+			statusCode: 403,
+		});
 		await expect(getAppProject(realId, getFails(500))).rejects.toMatchObject({
 			statusCode: 500,
 		});
+	});
+
+	it("sends a seed id to the API outside development", async () => {
+		vi.stubEnv("DEV", false);
+		const paths: string[] = [];
+		const get: typeof apiClient.get = async (path) => {
+			paths.push(path);
+			throw new ApiClientError({
+				code: "HTTP_404",
+				message: "Not found.",
+				path,
+				requestId: "req-1",
+				statusCode: 404,
+				timestamp: "2026-10-03T00:00:00.000Z",
+			});
+		};
+
+		expect(await getAppProject(WEB_ID, get)).toBeNull();
+		expect(await getAppProject(MOBILE_ID, get)).toBeNull();
+		expect(paths).toEqual([
+			appBuilderRoutes.project(WEB_ID),
+			appBuilderRoutes.project(MOBILE_ID),
+		]);
 	});
 });
 
@@ -112,6 +146,11 @@ describe("listAppProjects", () => {
 			"nadi-fitness",
 			"nadi-fitness-mobile",
 		]);
+	});
+
+	it("returns no seed row outside development", async () => {
+		vi.stubEnv("DEV", false);
+		expect(await listAppProjects()).toEqual([]);
 	});
 });
 

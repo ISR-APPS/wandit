@@ -215,6 +215,11 @@ export default function AppBuilderPage({
 					project={project}
 					panel={panel}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
+					onOpenCloud={
+						isCloudTabEnabled
+							? () => setSearch({ view: "cloud" }, false)
+							: undefined
+					}
 				/>
 			) : null}
 			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its queries wait for isActive. */}

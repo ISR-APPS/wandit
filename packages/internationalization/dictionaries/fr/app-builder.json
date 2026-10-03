@@ -234,7 +234,10 @@
 			"other": "{count} lignes"
 		},
 		"functionsTitle": "Fonctions serveur",
-		"today": "{count} aujourd'hui"
+		"today": "{count} aujourd'hui",
+		"inCloud": "La base de données, les utilisateurs, les fichiers et les journaux de cette app sont dans l'onglet Cloud.",
+		"openCloud": "Ouvrir Cloud",
+		"cloudOff": "L'onglet Cloud n'est pas encore activé pour ton compte."
 	},
 	"signIn": {
 		"methodsTitle": "Méthodes de connexion",

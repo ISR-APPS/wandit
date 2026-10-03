@@ -79,6 +79,7 @@
 		"MOBILE_BUILD_ACTIVE": "Un build de cette app est déjà en cours. Attends qu’il se termine.",
 		"MOBILE_BUILD_NO_VERSION": "Ton app n’a pas encore de version enregistrée. Crée-la d’abord dans le chat.",
 		"V2_ENV_MISSING": "Cette fonction n’est pas encore configurée sur le serveur. Réessaie plus tard.",
+		"PROJECT_SECRET_SYSTEM": "Ce secret appartient à Wandit. Tu ne peux ni le modifier ni le supprimer.",
 		"PUBLISH_ACTIVE": "Une publication de cette app est déjà en cours. Attends la fin.",
 		"PUBLISH_NO_VERSION": "Ton app n’a pas encore de version enregistrée. Construis-la d’abord dans le chat.",
 		"PUBLISH_ROLLBACK_INVALID": "Cette version ne peut pas être restaurée. Choisis une version précédente.",

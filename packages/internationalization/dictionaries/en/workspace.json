@@ -1234,13 +1234,15 @@
 			"database": "Database",
 			"users": "Users",
 			"storage": "Storage",
+			"secrets": "Secrets",
 			"logs": "Logs",
 			"functions": "Functions",
 			"jobs": "Jobs"
 		},
-		"comingSoon": "This section is not ready yet. A later update adds it.",
 		"loadFailed": "The backend state did not load.",
 		"retry": "Try again",
+		"sectionLoadFailed": "This section did not load.",
+		"never": "Never",
 		"backend": {
 			"none": {
 				"description": "A backend gives your app a database, user accounts, and file storage. Wandit sets it up and runs it for you.",
@@ -1307,6 +1309,142 @@
 					"run": "Run query"
 				}
 			}
+		},
+		"users": {
+			"signups": {
+				"title": "Sign-ups in the last 30 days",
+				"total": {
+					"one": "{count} sign-up",
+					"other": "{count} sign-ups"
+				},
+				"chartLabel": "Bar chart of the sign-ups per day in the last 30 days",
+				"day": "{date}: {count}"
+			},
+			"title": "Users",
+			"columns": {
+				"email": "Email",
+				"phone": "Phone",
+				"provider": "Sign-in method",
+				"createdAt": "Signed up",
+				"lastSignInAt": "Last sign-in"
+			},
+			"count": {
+				"one": "{count} user",
+				"other": "{count} users"
+			},
+			"empty": "No user has signed up to your app yet."
+		},
+		"storage": {
+			"buckets": {
+				"name": "Bucket",
+				"access": "Access",
+				"public": "Public",
+				"private": "Private",
+				"updated": "Updated",
+				"empty": "Your app has no storage buckets yet. Ask the agent to add one.",
+				"back": "All buckets"
+			},
+			"objects": {
+				"name": "Name",
+				"size": "Size",
+				"updated": "Updated",
+				"download": "Download {name}",
+				"delete": "Delete {name}",
+				"empty": "This folder is empty.",
+				"loadMore": "Load more",
+				"pathLabel": "Folder path"
+			},
+			"upload": {
+				"button": "Upload file",
+				"tooLarge": "The file is larger than {limit}. Choose a smaller file.",
+				"invalidName": "Storage accepts only Latin letters (a to z), digits, spaces, and simple signs like - _ . ( ) in a file name. Rename the file and try again.",
+				"failed": "The file did not upload. A file with the same name can already be in this folder.",
+				"done": "{name} is uploaded."
+			},
+			"deleteConfirm": {
+				"title": "Delete this file?",
+				"description": "Wandit deletes {name} from the storage of your app. You cannot undo it.",
+				"cancel": "Cancel",
+				"confirm": "Delete file",
+				"done": "{name} is deleted."
+			}
+		},
+		"secrets": {
+			"description": "Secrets are private values that your app uses on the server, for example API keys. Wandit keeps them encrypted and never shows a value again.",
+			"columns": {
+				"name": "Name",
+				"kind": "Set by",
+				"updated": "Updated"
+			},
+			"kinds": {
+				"user": "You",
+				"system": "Wandit"
+			},
+			"empty": "This project has no secrets yet.",
+			"form": {
+				"title": "Add or replace a secret",
+				"name": "Name",
+				"value": "Value",
+				"save": "Save secret",
+				"hint": "To replace a value, use the name of a secret in the list.",
+				"nameInvalid": "Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer.",
+				"valueInvalid": "Enter a value of 8 KB or less.",
+				"saved": "{name} is saved."
+			},
+			"delete": {
+				"label": "Delete {name}",
+				"title": "Delete this secret?",
+				"description": "Your app can no longer use {name}. You cannot undo it.",
+				"cancel": "Cancel",
+				"confirm": "Delete secret",
+				"done": "{name} is deleted."
+			}
+		},
+		"logs": {
+			"sources": {
+				"api": "API",
+				"postgres": "Postgres",
+				"functions": "Functions"
+			},
+			"levels": {
+				"all": "All levels",
+				"info": "Info",
+				"warning": "Warning",
+				"error": "Error"
+			},
+			"levelLabel": "Log level",
+			"searchLabel": "Search the log messages",
+			"search": "Search",
+			"refresh": "Refresh",
+			"window": "{start} to {end}",
+			"previous": "Previous 24 hours",
+			"next": "Next 24 hours",
+			"empty": "There are no log lines in this time window.",
+			"capped": "Only the newest {limit} lines of this window show. Use the search or the level to see fewer lines."
+		},
+		"functions": {
+			"columns": {
+				"name": "Function",
+				"status": "Status",
+				"lastDeployedAt": "Last deploy",
+				"invocations": "Calls in 24 hours"
+			},
+			"viewLogs": "View logs",
+			"empty": "Your app has no Edge Functions yet. Ask the agent to add one."
+		},
+		"jobs": {
+			"columns": {
+				"name": "Job",
+				"schedule": "Schedule",
+				"active": "Active",
+				"lastStatus": "Last run",
+				"lastRunAt": "Last run time"
+			},
+			"yes": "Yes",
+			"no": "No",
+			"unnamed": "Job {id}",
+			"notInstalled": "Scheduled jobs are off. The pg_cron extension is not on in the database of your app.",
+			"empty": "Your app has no scheduled jobs yet. Ask the agent to add one."
 		}
 	}
 }

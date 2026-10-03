@@ -508,7 +508,7 @@ export class SupabaseManagementClient {
 	async queryLogs<TRow>(
 		scope: BackendRef,
 		input: {
-			/** Logs SQL over `edge_logs`, `postgres_logs`, or `function_edge_logs`. */
+			/** ClickHouse SQL over the `logs` table, filtered on its `source` column. */
 			sql: string;
 			/** Start of the window, ISO 8601. */
 			startIso: string;
@@ -524,7 +524,8 @@ export class SupabaseManagementClient {
 			iso_timestamp_start: input.startIso,
 			iso_timestamp_end: input.endIso,
 		});
-		const path = `/projects/${scope.ref}/analytics/endpoints/logs.all`;
+		// The `logs` endpoint takes ClickHouse SQL over one `logs` table.
+		const path = `/projects/${scope.ref}/analytics/endpoints/logs`;
 		const answer = await this.request({
 			method: "GET",
 			path: `${path}?${params.toString()}`,
@@ -754,11 +755,12 @@ export class SupabaseManagementClient {
 						authorization: `Bearer ${plan.bearer ?? this.deps.token}`,
 						// The project gateway also wants the key in `apikey`.
 						...(plan.bearer === undefined ? {} : { apikey: plan.bearer }),
-						// A multipart body gets no content type here: `fetch` writes
-						// it with the boundary.
-						...(plan.form === undefined
-							? { "content-type": "application/json" }
-							: {}),
+						// Only a JSON body gets the JSON content type. `fetch` writes
+						// the multipart type with its boundary. Storage answers 400 to
+						// a JSON content type with no body (the upload-url sign call).
+						...(plan.body === undefined
+							? {}
+							: { "content-type": "application/json" }),
 						accept: "application/json",
 					},
 					body:

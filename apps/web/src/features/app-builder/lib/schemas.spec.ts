@@ -33,11 +33,17 @@ describe("appBuilderSearchSchema", () => {
 		});
 	});
 
+	it("parses the Secrets Cloud panel", () => {
+		expect(
+			appBuilderSearchSchema.parse({ view: "cloud", cloudPanel: "secrets" }),
+		).toEqual({ view: "cloud", cloudPanel: "secrets" });
+	});
+
 	it("drops unknown values instead of throwing", () => {
 		const result = appBuilderSearchSchema.parse({
 			view: "settings",
 			panel: 42,
-			cloudPanel: "secrets",
+			cloudPanel: "connectors",
 			device: "windows",
 			viewport: "",
 			file: "x".repeat(600),

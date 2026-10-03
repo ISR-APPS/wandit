@@ -15,7 +15,7 @@
  * - POST  /projects/{ref}/functions/deploy (multipart, WANDIT-186)
  * - POST  /projects/{ref}/secrets (WANDIT-186)
  * - GET   /projects/{ref}/advisors/{security|performance} (WANDIT-186)
- * - GET   /projects/{ref}/analytics/endpoints/logs.all
+ * - GET   /projects/{ref}/analytics/endpoints/logs (ClickHouse SQL)
  *
  * Covered paths of the project Storage API, base
  * `https://{ref}.supabase.co/storage/v1` (the Cloud tab, WANDIT-187):
@@ -296,9 +296,9 @@ export const supabaseAdvisorsResponseSchema = z.object({
 });
 
 /**
- * Answer of `GET /projects/{ref}/analytics/endpoints/logs.all`: the rows in
- * `result`, or an `error` text when the SQL failed (UNVERIFIED shape). The
- * caller passes the row schema of its own SQL.
+ * Answer of `GET /projects/{ref}/analytics/endpoints/logs`: the rows in
+ * `result`, or an `error` text when the SQL failed (both verified on
+ * 2026-10-03). The caller passes the row schema of its own SQL.
  */
 export function supabaseLogsResponseSchema<TRow extends z.ZodType>(
 	rowSchema: TRow,

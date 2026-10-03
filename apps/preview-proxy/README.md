@@ -66,6 +66,19 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`,
 `Cache-Control: no-store`, and drops the upstream `X-Frame-Options`
 (security.md 9.3 item 4).
 
+`FRAME_ANCESTORS` names the builder origins that can show a preview in
+an iframe:
+
+| Config | Origins |
+| --- | --- |
+| `wrangler.jsonc` top level (route `*.wanditpreview.app/*`) | `https://wandit.dev` (production), `https://preview.wandit.dev` (the staging web app, not a preview host), `http://localhost:*` |
+| `wrangler.jsonc` `env.staging` (no route yet) | the same, plus `https://*.vercel.app` |
+| `wrangler.dev.jsonc` | the same as the top level |
+
+The top-level Worker serves the previews of production and of staging,
+because only it has the route. A new builder origin goes into all three
+values. Then deploy the top-level Worker (see Deploy).
+
 Each forwarded request also writes `preview:last-seen:<pid>` to `PREVIEW_KV`
 (at most once per 60 s per isolate; the idle sweep reads it) and one data
 point to the `wandit_preview_proxy` Analytics Engine dataset. The outcome

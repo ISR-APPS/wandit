@@ -834,9 +834,7 @@ describe("SupabaseManagementClient.queryLogs", () => {
 
 		expect(rows).toEqual([{ count: 2, id: "log-1" }]);
 		const url = new URL(fixture.requests[0]?.url ?? "");
-		expect(url.pathname).toBe(
-			`/v1/projects/${REF}/analytics/endpoints/logs.all`,
-		);
+		expect(url.pathname).toBe(`/v1/projects/${REF}/analytics/endpoints/logs`);
 		expect(url.searchParams.get("sql")).toBe(
 			"select id, count(*) as count from edge_logs group by id",
 		);
@@ -968,6 +966,8 @@ describe("SupabaseManagementClient storage calls", () => {
 		expect(fixture.requests[0]?.url).toBe(
 			`${STORAGE_BASE}/object/upload/sign/avatars/users/new%20file.png`,
 		);
+		// Storage answers 400 to a JSON content type with no body.
+		expect(fixture.requests[0]?.headers["content-type"]).toBeUndefined();
 	});
 
 	it("deletes objects and counts the removed entries", async () => {
@@ -986,6 +986,9 @@ describe("SupabaseManagementClient storage calls", () => {
 			method: "DELETE",
 			url: `${STORAGE_BASE}/object/avatars`,
 		});
+		expect(fixture.requests[0]?.headers["content-type"]).toBe(
+			"application/json",
+		);
 	});
 });
 

@@ -246,7 +246,10 @@
 			"other": "{count} صف"
 		},
 		"functionsTitle": "دوال الخادم",
-		"today": "{count} اليوم"
+		"today": "{count} اليوم",
+		"inCloud": "توجد قاعدة بيانات هذا التطبيق ومستخدموه وملفاته وسجلاته في تبويب Cloud.",
+		"openCloud": "فتح Cloud",
+		"cloudOff": "تبويب Cloud غير مفعّل لحسابك بعد."
 	},
 	"signIn": {
 		"methodsTitle": "طرق تسجيل الدخول",

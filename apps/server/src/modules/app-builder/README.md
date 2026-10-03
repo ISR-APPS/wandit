@@ -513,12 +513,14 @@ through `to_char` so the answers parse with `isoDateTimeSchema`.
   removes up to 100 paths and leaves an `audit_events` row
   `cloud.objects_deleted` with the bucket and the counts.
 - `GET logs?source&start&end&level&search`: the analytics endpoint
-  `GET /projects/{ref}/analytics/endpoints/logs.all` with the window as
-  `iso_timestamp_start` and `iso_timestamp_end`. Sources map to
-  `edge_logs`, `postgres_logs`, and `function_edge_logs`; the level
-  reads the HTTP status class or the Postgres severity. A window above
-  24 hours answers 400 `WINDOW_TOO_LARGE`. At most 100 lines, newest
-  first. The metadata field names are UNVERIFIED against the live API.
+  `GET /projects/{ref}/analytics/endpoints/logs` with the window as
+  `iso_timestamp_start` and `iso_timestamp_end`. It takes ClickHouse SQL
+  over one `logs` table (Supabase removed `logs.all` on 2026-09-23).
+  Sources map to the `source` values `edge_logs`, `postgres_logs`, and
+  `function_edge_logs`; the level reads `log_attributes['response.status_code']`
+  or `log_attributes['parsed.error_severity']`. A window above 24 hours
+  answers 400 `WINDOW_TOO_LARGE`. At most 100 lines, newest first. The
+  field names were verified against the live API on 2026-10-03.
 - `GET functions`: `GET /projects/{ref}/functions` plus one logs query
   over the last 24 hours for the call counts; cached 30 s.
 - `GET jobs`: `to_regclass('cron.job')` first (`installed: false`

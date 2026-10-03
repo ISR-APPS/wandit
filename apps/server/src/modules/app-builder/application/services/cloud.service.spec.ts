@@ -1241,7 +1241,9 @@ describe("CloudService.queryLogs", () => {
 		const url = new URL(requests[0]?.url ?? "");
 		expect(url.searchParams.get("iso_timestamp_start")).toBe(WINDOW.start);
 		expect(url.searchParams.get("iso_timestamp_end")).toBe(WINDOW.end);
-		expect(url.searchParams.get("sql")).toContain("from edge_logs");
+		expect(url.searchParams.get("sql")).toContain(
+			"from logs where source = 'edge_logs'",
+		);
 		expect(rateLimiter.calls[0]).toEqual({
 			bucket: `supabase:rl:logs:${REF}`,
 			limitPerMinute: 30,
@@ -1293,7 +1295,7 @@ describe("CloudService.queryLogs", () => {
 });
 
 describe("buildLogsSql", () => {
-	it("filters by level and by an escaped search text, newest first", () => {
+	it("filters by level and by the search text with its quote doubled and its backslash dropped, newest first", () => {
 		const sql = buildLogsSql({
 			end: "2026-09-17T02:00:00.000Z",
 			level: "error",
@@ -1303,11 +1305,11 @@ describe("buildLogsSql", () => {
 		});
 
 		expect(sql).toBe(
-			"select id, timestamp, event_message, p.error_severity as level_value from postgres_logs cross join unnest(metadata) as m cross join unnest(m.parsed) as p where p.error_severity in ('ERROR', 'FATAL', 'PANIC') and event_message like '%o''neil\\\\%' order by timestamp desc limit 100",
+			"select id, toUnixTimestamp64Micro(timestamp) as timestamp, event_message, log_attributes['parsed.error_severity'] as level_value from logs where source = 'postgres_logs' and log_attributes['parsed.error_severity'] in ('ERROR', 'FATAL', 'PANIC') and position(event_message, 'o''neil') > 0 order by timestamp desc limit 100",
 		);
 	});
 
-	it("uses the status code column for api and functions", () => {
+	it("compares the status code as a number for api and functions", () => {
 		expect(
 			buildLogsSql({
 				end: "2026-09-17T02:00:00.000Z",
@@ -1316,8 +1318,18 @@ describe("buildLogsSql", () => {
 				start: "2026-09-17T01:00:00.000Z",
 			}),
 		).toContain(
-			"from function_edge_logs cross join unnest(metadata) as m cross join unnest(m.response) as r where r.status_code between 400 and 499",
+			"from logs where source = 'function_edge_logs' and toUInt16OrZero(log_attributes['response.status_code']) between 400 and 499",
 		);
+	});
+
+	it("filters on the source alone without a level or a search", () => {
+		expect(
+			buildLogsSql({
+				end: "2026-09-17T02:00:00.000Z",
+				source: "api",
+				start: "2026-09-17T01:00:00.000Z",
+			}),
+		).toContain("from logs where source = 'edge_logs' order by timestamp desc");
 	});
 });
 
@@ -1393,6 +1405,9 @@ describe("CloudService.listFunctions", () => {
 		);
 		expect(url.searchParams.get("iso_timestamp_end")).toBe(
 			"2026-09-17T10:00:00.000Z",
+		);
+		expect(url.searchParams.get("sql")).toContain(
+			"from logs where source = 'function_edge_logs' group by function_id",
 		);
 	});
 
