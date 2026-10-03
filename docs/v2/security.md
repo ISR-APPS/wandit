@@ -162,14 +162,22 @@ calls still carry the token.
 ## 6. Template deny rules
 
 `templates/web-app/.claude/settings.json` holds the `permissions.deny`
-list. Grouped:
+list. `templates/mobile-app` has a byte-identical copy. Grouped:
 
 - Config paths: `.claude/**`, `.mcp.json`, `opencode.json`,
   `.git/hooks/**`, `.git/config`.
+- Agent rules files (WANDIT-280): `CLAUDE.md`, `CLAUDE.local.md`,
+  `AGENTS.md`, `template_version`, `native-modules.json`. A changed
+  `CLAUDE.md` is committed and steers every later turn.
 - Env files: `.env`, `.env.*`.
 - Shell rc files: `.bashrc`, `.bash_profile`, `.zshrc`, `.zprofile`,
   `.zshenv`, `.profile`, each in the project and under `~/`.
-- Install config: `.npmrc`, `.pnpmfile.cjs`, `pnpm approve-builds*`.
+- Install config: `.npmrc`, `.pnpmfile.cjs`, `.pnpmfile.mjs`,
+  `pnpm-workspace.yaml`, `pnpm approve-builds*`. pnpm 11 keeps its
+  `allowBuilds` list in `pnpm-workspace.yaml` and loads `.pnpmfile.mjs`
+  by default. So the agent cannot approve the build script of a package.
+  pnpm then stops with `ERR_PNPM_IGNORED_BUILDS`, and the agent removes
+  that package.
 - Git commands: `git push*`, `git reset*`, `git checkout*`,
   `git switch*`, `git rebase*`, `git tag*`, `git config*`.
 - Root and network tools: `sudo *`, `ssh *`, `nc *`, `ncat *`,
@@ -264,6 +272,10 @@ it must resolve inside the project or `/tmp`. An unresolvable target
   case-insensitively: `dangerouslyAllowAllBuilds`,
   `dangerously-allow-all-builds`,
   `npm_config_dangerously_allow_all_builds`, `--ignore-scripts=false`.
+  It also denies the text `allow-build`, `allowbuild`, `allow_build`,
+  and `pnpmfile`. These cover `pnpm add x --allow-build=x`,
+  `--config.allowBuilds.x=true`, `pnpm_config_allow_builds=...`, and
+  `--config.pnpmfile=...`. A read such as `cat .pnpmfile.cjs` denies too.
 - Denies the package-manager subcommands that run scripts:
   `pnpm approve-builds`, `pnpm rebuild`, `pnpm rb`; `npm install` and
   its aliases, `npm ci`, `npm rebuild`, `npm add`; `yarn` (bare),
@@ -291,8 +303,7 @@ nested deeper than three levels; interpreter
 one-liners (`node -e`, `python -c`, `npx -c`) that write through an
 API; `git apply` and `patch`; `tar -x` and `unzip` targets; symlinks;
 `GIT_CONFIG_*` env vars; package-run shortcuts (`npx <pkg>`,
-`pnpm dlx`, `bunx`); the `/private/tmp` symlink on macOS;
-`pnpm.onlyBuiltDependencies` in `package.json`; a script file or a
+`pnpm dlx`, `bunx`); the `/private/tmp` symlink on macOS; a script file or a
 `package.json` script run through `sh`, `node`, or `pnpm run`;
 launchers not in `WRAPPERS` (`setsid`, `flock`); Debian binary names
 (`nc.openbsd`); `perl -i` and `awk` file writes. Upgrade: a shell

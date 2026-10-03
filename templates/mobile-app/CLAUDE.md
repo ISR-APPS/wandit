@@ -37,15 +37,16 @@ These rules are binding. The host machine runs the session. You write code; the 
 - Do not remove the Supabase env check or return a null client.
 - Do not create `ios/` or `android/`. The app runs in Expo Go with no native code.
 - Do not change the `dev` script in `package.json`. The host starts it.
-- Do not edit `CLAUDE.md`, `AGENTS.md`, `template_version`, `native-modules.json`,
-  `pnpm-workspace.yaml`, `eas.json`, or `scripts/`.
+- Leave `eas.json` and `scripts/` as they are. The host uses its own copies.
 - Do not run `pnpm run pack`, `pnpm run smoke`, or `pnpm run allow-list`. They are host tools.
 - When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
   you added. Then tell the user and pick another package. Leave the `allowBuilds` line
   that pnpm writes into `pnpm-workspace.yaml`.
-- The deny rules in `.claude/settings.json` block edits to `.claude/`, `.mcp.json`,
-  `opencode.json`, `.git/hooks/`, `.git/config`, `.env`, `.env.*`, `.npmrc`,
-  `.pnpmfile.cjs`, and shell start-up files.
+- The deny rules in `.claude/settings.json` block edits to `CLAUDE.md`, `CLAUDE.local.md`,
+  `AGENTS.md`, `.claude/`, `.mcp.json`, `opencode.json`, `.git/hooks/`, `.git/config`,
+  `.env`, `.env.*`, `.npmrc`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, `pnpm-workspace.yaml`,
+  `template_version`, `native-modules.json`, and shell start-up files.
+  Do not change these files in another way.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
 - Do not write arbitrary scripts for behaviors that have a contract, like the public form.
@@ -187,34 +188,78 @@ booking, a contact request, a sign-up for news.
 
 - The form writes to the app's own database. The wandit Leads tab is V1 only and
   receives nothing from this app.
-- Create the table first with one `apply_migration` call. The Migrations rules apply:
-  additive, row-level security in the same migration, and never a `using (true)`
-  select policy for `anon`.
-- The table gets one insert policy for `anon` and `authenticated`. It gets no select,
-  update, or delete policy for `anon`.
-- A mobile app has no server function. The write goes through one of these two paths:
-  - A Supabase RPC: a `security definer` Postgres function, created by migration.
-    Give it `set search_path = ''`, then write each table, type, and function outside
+- The anon key ships inside the app. So `anon` never writes the table directly: the
+  only write path is one `security definer` function (an RPC).
+- Create the table and the RPC in one `apply_migration` call, as in the example below:
+  - `enable row level security`, then `revoke all on table ... from anon, authenticated`.
+  - One policy `for all to anon, authenticated using (false) with check (false)`.
+    It grants nothing. Without a policy, `get_advisors` reports an `error`.
+  - No other policy for `anon`: no select, insert, update, or delete.
+  - The RPC has `set search_path = ''`. Write each table, type, and function outside
     `pg_catalog` with its schema, for example `public.orders`.
-    Revoke `execute` from `public` and grant it to `anon` and `authenticated`.
-    The app calls `supabase.rpc("<name>", fields)`.
-  - An Edge Function in `supabase/functions/<slug>/`. The app calls
-    `supabase.functions.invoke("<slug>", { body: fields })`. With the anon key the
-    function cannot read the new row, so it inserts without `.select()`. To return an
-    order number, it makes the id with `crypto.randomUUID()` and inserts that id.
-    Give that table `id uuid primary key default gen_random_uuid()`.
-- The app never inserts into the table directly. The app code never names the table.
+  - The RPC checks the honeypot first. When it is filled, it returns a fake id and
+    writes nothing. A bot must not learn that it failed.
+  - The RPC validates every field: required, length, format. It raises `invalid_input`.
+  - The RPC sets every column that the form does not send, for example `status`.
+  - The RPC catches its insert errors and raises one general `submit_failed`.
+  - Revoke `execute` from `public`, `anon`, and `authenticated`. Then grant it to
+    `anon` and `authenticated`.
+- `get_advisors` then reports `anon_security_definer_function_executable` and
+  `authenticated_security_definer_function_executable` for the RPC. They are `warn`
+  findings and are expected. Never revoke `execute` to clear them.
+- The app validates the fields with zod to show field errors. Then it calls
+  `supabase.rpc("submit_order", { ... })`. The app code never names the table.
+- On an error, the screen shows a translated general error, never `error.message`.
+- A form that also needs a secret, for example to send an email, uses an Edge Function
+  in `supabase/functions/<slug>/`. The function calls the same RPC with its anon client.
+  It never inserts into the table.
 - The honeypot is a text field named `website` that a person never sees: give it the
   `hidden` class and `autoComplete="off"`. The app sends its value with the fields.
-- The RPC or the function checks the honeypot first. When it is filled, it answers
-  success and writes nothing. A bot must not learn that it failed.
-- The RPC or the function validates every field. The app validates too, with zod,
-  to show field errors.
-- The RPC or the function catches its database errors (in SQL: `exception when others`)
-  and answers one general failure. The database error text never reaches the app.
-- The screen shows a translated general error.
+- The zod schema accepts any `website` text and passes it as `p_website`. Only the
+  RPC decides. A schema that rejects a filled honeypot tells the bot that it failed.
 - The success state shows what the app promised, for example an order number from
-  the inserted row.
+  the returned id.
+
+```sql
+create table public.orders (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text not null,
+  quantity int not null,
+  status text not null default 'new',
+  created_at timestamptz not null default now()
+);
+alter table public.orders enable row level security;
+revoke all on table public.orders from anon, authenticated;
+create policy orders_no_direct_access on public.orders
+  for all to anon, authenticated using (false) with check (false);
+
+create function public.submit_order(p_name text, p_phone text, p_quantity int, p_website text)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare
+  v_id uuid;
+begin
+  if coalesce(p_website, '') <> '' then
+    return gen_random_uuid();
+  end if;
+  if length(trim(coalesce(p_name, ''))) not between 1 and 200
+    or coalesce(p_phone, '') !~ '^[+0-9][0-9 ().-]{5,30}$'
+    or coalesce(p_quantity, 0) not between 1 and 100 then
+    raise exception 'invalid_input';
+  end if;
+  begin
+    insert into public.orders (name, phone, quantity, status)
+    values (trim(p_name), p_phone, p_quantity, 'new')
+    returning id into v_id;
+  exception when others then
+    raise exception 'submit_failed';
+  end;
+  return v_id;
+end;
+$$;
+revoke execute on function public.submit_order(text, text, int, text) from public, anon, authenticated;
+grant execute on function public.submit_order(text, text, int, text) to anon, authenticated;
+```
 
 ## Backend tools
 
@@ -258,6 +303,8 @@ booking, a contact request, a sign-up for news.
 - The same SQL twice is skipped. A new change needs a new migration with a new name.
 - Every new table gets `enable row level security` and its policies in the same migration.
 - Never give `anon` a `using (true)` policy, except on a table of public content.
+- Never give `anon` an insert, update, or delete policy on a public form table.
+  Visitors write through the RPC of the public form contract.
 - A migration that can destroy data answers `needs_approval`: drop, truncate,
   delete, update, merge, a column type change, or a statement that opens with
   `do`, `call`, `select`, `with`, `explain`, or `values`.

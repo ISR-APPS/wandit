@@ -554,7 +554,6 @@ function firstWord(words) {
 // - Debian binary names (`nc.openbsd`)
 // - `perl -i` and `awk` file writes
 // - the /private/tmp symlink on macOS
-// - package.json pnpm.onlyBuiltDependencies
 // Upgrade: a shell parser package in the image.
 
 /**
@@ -1441,14 +1440,20 @@ function checkPipes(allSegments) {
  * move the parent. depth counts the script levels above this command.
  */
 function checkBash(command, dirState, bashRules, pathPatterns, depth) {
-	// Rule 5a: flags that turn dependency build scripts back on. pnpm config
-	// keys are case-insensitive, so the text is matched lower-cased.
+	// Rule 5a: flags, config keys, and env vars that approve dependency build
+	// scripts: `--allow-build=x`, `allowBuilds`, `pnpm_config_allow_builds`,
+	// and a pnpmfile hook. pnpm config keys are case-insensitive, so the text
+	// is matched lower-cased. A read such as `cat .pnpmfile.cjs` is denied too.
 	const lowered = command.toLowerCase();
 	for (const marker of [
 		"dangerouslyallowallbuilds",
 		"dangerously-allow-all-builds",
 		"npm_config_dangerously_allow_all_builds",
 		"--ignore-scripts=false",
+		"allow-build",
+		"allowbuild",
+		"allow_build",
+		"pnpmfile",
 	]) {
 		if (lowered.includes(marker)) {
 			deny(`install scripts enabled by ${marker}`);

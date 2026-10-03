@@ -1,6 +1,9 @@
 # This file makes the template its own install root. Without it, pnpm walks
 # up into the monorepo workspace and installs that instead.
 packages: []
+# pnpm 11 reads only auth and network keys from .npmrc, so these two live here.
+engineStrict: true
+saveExact: true
 # esbuild downloads its platform binary; workerd runs the Workers preview.
 allowBuilds:
   esbuild: true

@@ -25,11 +25,17 @@ The host machine runs the session. You write code; the host runs it.
 - Do not switch framework, router, styling system, or backend.
 - Do not add a state library, an ORM, or a second i18n system.
 - Do not remove the Supabase env check or return a null client.
-- Do not edit `CLAUDE.md`, anything under `.claude/`, `.mcp.json`, `opencode.json`,
-  `.git/`, `.env`, `.env.*`, or shell start-up files. The deny rules block it.
+- The deny rules in `.claude/settings.json` block edits to `CLAUDE.md`, `CLAUDE.local.md`,
+  `AGENTS.md`, `.claude/`, `.mcp.json`, `opencode.json`, `.git/hooks/`, `.git/config`,
+  `.env`, `.env.*`, `.npmrc`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, `pnpm-workspace.yaml`,
+  `template_version`, `native-modules.json`, and shell start-up files.
+  Do not change these files in another way.
+- When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
+  you added. Then tell the user and pick another package. Leave the `allowBuilds` line
+  that pnpm writes into `pnpm-workspace.yaml`.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
-- Do not write arbitrary scripts for behaviors that have a contract, like the lead form.
+- Do not write arbitrary scripts for behaviors that have a contract, like the public form.
 
 ## Route rules
 
@@ -80,7 +86,7 @@ The host machine runs the session. You write code; the host runs it.
 
 - `src/routes/`: one file per route. `__root.tsx` is the html shell.
 - `src/components/`: page components. `src/components/ui/` holds the base kit.
-- `src/lib/`: shared logic (supabase, leads, utils).
+- `src/lib/`: shared logic and server functions (supabase, profile, utils).
 - `src/i18n/`: dictionaries and the `useT` hook.
 - `src/styles/tokens.css`: the semantic design tokens.
 - `src/wandit/preview-bridge.ts`: dev-only error bridge. Never call it yourself.
@@ -148,17 +154,88 @@ The host machine runs the session. You write code; the host runs it.
 - `generate` keeps an existing value. It never replaces a key the app uses.
 - Names that start with `SUPABASE_` are reserved. Edge Functions get them already.
 
-## COD lead form contract
+## Public form contract
 
-- The lead form fields are fixed: name, phone (`type="tel"`), wilaya, commune,
-  product, quantity.
+A public form is a form that a visitor sends without an account: an order, a
+booking, a contact request, a sign-up for news. A design skill gives its look.
+This section gives its data path.
+
+- The form writes to the app's own database. The wandit Leads tab is V1 only and
+  receives nothing from this app.
+- The anon key is public. So `anon` never writes the table directly: the only
+  write path is one `security definer` function (an RPC).
+- Create the table and the RPC in one `apply_migration` call, as in the example below:
+  - `enable row level security`, then `revoke all on table ... from anon, authenticated`.
+  - One policy `for all to anon, authenticated using (false) with check (false)`.
+    It grants nothing. Without a policy, `get_advisors` reports an `error`.
+  - No other policy for `anon`: no select, insert, update, or delete.
+  - The RPC has `set search_path = ''`. Write each table, type, and function outside
+    `pg_catalog` with its schema, for example `public.orders`.
+  - The RPC checks the honeypot first. When it is filled, it returns a fake id and
+    writes nothing. A bot must not learn that it failed.
+  - The RPC validates every field: required, length, format. It raises `invalid_input`.
+  - The RPC sets every column that the form does not send, for example `status`.
+  - The RPC catches its insert errors and raises one general `submit_failed`.
+  - Revoke `execute` from `public`, `anon`, and `authenticated`. Then grant it to
+    `anon` and `authenticated`.
+- `get_advisors` then reports `anon_security_definer_function_executable` and
+  `authenticated_security_definer_function_executable` for the RPC. They are `warn`
+  findings and are expected. Never revoke `execute` to clear them.
+- The browser calls a server function in `src/lib/`, built like `profile-server.ts`.
+  It validates the fields with zod, then calls
+  `getSupabaseServer().rpc("submit_order", { ... })`. The browser never names the
+  table or the RPC.
+- On an RPC error, the server function logs `error.message` and answers one general
+  failure. The database error text never reaches the browser.
 - The honeypot is exactly `<input type="text" name="website" data-wandit-hp
-  tabindex="-1" autocomplete="off" aria-hidden="true" />`.
-- Submit validates the fields, then dispatches
-  `new CustomEvent("wandit:lead", { detail: fields })` on `document`.
-- The form makes no network request. The host runtime owns the listener.
-- A filled honeypot means a bot: report success and drop the lead.
-- Keep the field names, the honeypot, the success state, and the dispatch.
+  tabindex="-1" autocomplete="off" aria-hidden="true" />`. Send its value with the
+  fields, for example with `new FormData(form)`. When a skill says the page script
+  never reads the decoy, it means: no validation and no style on it.
+- The zod schema accepts any `website` text and passes it as `p_website`. Only the
+  RPC decides. A schema that rejects a filled honeypot tells the bot that it failed.
+- The success state shows what the app promised, for example an order number from
+  the returned id.
+
+```sql
+create table public.orders (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text not null,
+  quantity int not null,
+  status text not null default 'new',
+  created_at timestamptz not null default now()
+);
+alter table public.orders enable row level security;
+revoke all on table public.orders from anon, authenticated;
+create policy orders_no_direct_access on public.orders
+  for all to anon, authenticated using (false) with check (false);
+
+create function public.submit_order(p_name text, p_phone text, p_quantity int, p_website text)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare
+  v_id uuid;
+begin
+  if coalesce(p_website, '') <> '' then
+    return gen_random_uuid();
+  end if;
+  if length(trim(coalesce(p_name, ''))) not between 1 and 200
+    or coalesce(p_phone, '') !~ '^[+0-9][0-9 ().-]{5,30}$'
+    or coalesce(p_quantity, 0) not between 1 and 100 then
+    raise exception 'invalid_input';
+  end if;
+  begin
+    insert into public.orders (name, phone, quantity, status)
+    values (trim(p_name), p_phone, p_quantity, 'new')
+    returning id into v_id;
+  exception when others then
+    raise exception 'submit_failed';
+  end;
+  return v_id;
+end;
+$$;
+revoke execute on function public.submit_order(text, text, int, text) from public, anon, authenticated;
+grant execute on function public.submit_order(text, text, int, text) to anon, authenticated;
+```
 
 ## Migrations
 
@@ -173,6 +250,8 @@ The host machine runs the session. You write code; the host runs it.
 - The same SQL twice is skipped. A new change needs a new migration with a new name.
 - Every new table gets `enable row level security` and its policies in the same migration.
 - Never give `anon` a `using (true)` policy, except on a table of public content.
+- Never give `anon` an insert, update, or delete policy on a public form table.
+  Visitors write through the RPC of the public form contract.
 - A migration that can destroy data answers `needs_approval`: drop, truncate,
   delete, update, merge, a column type change, or a statement that opens with
   `do`, `call`, `select`, `with`, `explain`, or `values`.
