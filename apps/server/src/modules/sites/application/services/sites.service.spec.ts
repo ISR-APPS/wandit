@@ -74,9 +74,12 @@ const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
 
 function deploymentRow(overrides: Partial<DeploymentRow> = {}): DeploymentRow {
 	return {
+		buildId: null,
+		commitSha: null,
 		createdAt: new Date("2026-07-25T10:00:00.000Z"),
 		error: null,
 		id: "33333333-3333-4333-8333-333333333333",
+		kind: "page",
 		projectId: PROJECT_ID,
 		slug: "smoke-project",
 		status: "pending",
@@ -1105,6 +1108,25 @@ describe("SitesService.rollback", () => {
 		await expect(
 			service.rollback(SCOPE, PROJECT_ID, {
 				deploymentId: "44444444-4444-4444-8444-444444444444",
+			}),
+		).rejects.toBeInstanceOf(NotFoundException);
+	});
+
+	it("404s on a V2 app deployment, which has no version", async () => {
+		const { repository, service } = setup();
+		repository.findById.mockResolvedValue(
+			deploymentRow({
+				buildId: "55555555-5555-4555-8555-555555555555",
+				commitSha: "a".repeat(40),
+				kind: "app",
+				status: "superseded",
+				versionId: null,
+			}),
+		);
+
+		await expect(
+			service.rollback(SCOPE, PROJECT_ID, {
+				deploymentId: "33333333-3333-4333-8333-333333333333",
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
 	});

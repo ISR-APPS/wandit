@@ -6,10 +6,12 @@ import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { chatGatewayFetch } from "../ai-chat/agent/gateway-fetch";
 import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
 import { CreditsModule } from "../credits/credits.module";
+import { DomainsModule } from "../domains/domains.module";
 import { GenerationModule } from "../generation/generation.module";
 import { MeteringModule } from "../metering/metering.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
+import { SitesModule } from "../sites/sites.module";
 import { AppBuilderModule } from "./app-builder.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { BackendsService } from "./application/services/backends.service";
@@ -23,6 +25,7 @@ import {
 import { MobileBuildsService } from "./application/services/mobile-builds.service";
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
+import { PublishService } from "./application/services/publish.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -36,6 +39,7 @@ import { EAS_BUILD_RUNNER } from "./domain/ports/eas-build-runner";
 import { GIT_STORE, REPO_RESTORER } from "./domain/ports/git-store";
 import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-starter";
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
+import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
 import { TURN_EVENT_READER } from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
@@ -47,6 +51,7 @@ import { CodeStorageGitStore } from "./infrastructure/git/code-storage.git-store
 import { CodeStorageRepoRestorer } from "./infrastructure/git/code-storage-repo-restorer";
 import { AppBackendsRepository } from "./infrastructure/persistence/app-backends.repository";
 import { AppCommitsRepository } from "./infrastructure/persistence/app-commits.repository";
+import { AppPublishRepository } from "./infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "./infrastructure/persistence/audit-events.repository";
 import { BuilderSessionsRepository } from "./infrastructure/persistence/builder-sessions.repository";
 import { BuilderTurnsRepository } from "./infrastructure/persistence/builder-turns.repository";
@@ -67,6 +72,7 @@ import { RedisSupabaseRateLimiter } from "./infrastructure/supabase/supabase-rat
 import { TemplateVersionService } from "./infrastructure/template/template-version.service";
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
+import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
@@ -78,6 +84,7 @@ import { LlmProxyController } from "./presentation/http/controllers/llm-proxy.co
 import { MobileBuildsController } from "./presentation/http/controllers/mobile-builds.controller";
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
+import { PublishController } from "./presentation/http/controllers/publish.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -102,6 +109,7 @@ describe("AppBuilderModule", () => {
 			MobileBuildsController,
 			PreviewTokenController,
 			ProjectSecretsController,
+			PublishController,
 			TurnsController,
 			V2HealthController,
 			VersionsController,
@@ -111,10 +119,12 @@ describe("AppBuilderModule", () => {
 		).toEqual([
 			CreditsModule,
 			DatabaseModule,
+			DomainsModule,
 			GenerationModule,
 			MeteringModule,
 			ProjectsModule,
 			SettingsModule,
+			SitesModule,
 		]);
 		expect(
 			Reflect.getMetadata(MODULE_METADATA.PROVIDERS, AppBuilderModule),
@@ -122,6 +132,7 @@ describe("AppBuilderModule", () => {
 			AppBackendsRepository,
 			AppCommitsRepository,
 			AppProjectsService,
+			AppPublishRepository,
 			AuditEventsRepository,
 			BackendsService,
 			BuilderSessionsRepository,
@@ -140,6 +151,7 @@ describe("AppBuilderModule", () => {
 			ProjectCostCapsRepository,
 			ProjectSecretsRepository,
 			ProjectSecretsService,
+			PublishService,
 			RedisRateLimitGuard,
 			RedisSupabaseRateLimiter,
 			SandboxSessionsRepository,
@@ -165,6 +177,10 @@ describe("AppBuilderModule", () => {
 			{
 				provide: PROVISION_BACKEND_TASK_STARTER,
 				useClass: TriggerProvisionBackendTaskStarter,
+			},
+			{
+				provide: PUBLISH_APP_TASK_STARTER,
+				useClass: TriggerPublishAppTaskStarter,
 			},
 			{ provide: RATE_LIMIT_STORE, useClass: RedisRateLimitStore },
 			{ provide: REPO_RESTORER, useClass: CodeStorageRepoRestorer },

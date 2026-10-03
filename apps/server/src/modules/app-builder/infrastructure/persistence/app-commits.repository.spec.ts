@@ -1,4 +1,4 @@
-import { PgDialect } from "@wandit/db";
+import { PgDialect, type SQL } from "@wandit/db";
 import { appBranches, appCommits } from "@wandit/db/schema/app-versions";
 import { describe, expect, it, vi } from "vitest";
 
@@ -208,6 +208,66 @@ describe("AppCommitsRepository.hasFileChanges", () => {
 		);
 
 		expect(await repository.hasFileChanges("p-1")).toBe(false);
+	});
+});
+
+describe("AppCommitsRepository.countVersions", () => {
+	// Two selects: the live app deployment (ends in `limit`), then the counts
+	// (ends in `where`).
+	function countCapture(
+		liveRows: { commitSha: string | null }[],
+		countRows: { unpublishedChanges: number; versionNumber: number }[],
+	) {
+		const liveWhere = vi.fn((_where: SQL) => ({ limit: async () => liveRows }));
+		const countWhere = vi.fn(async (_where: SQL) => countRows);
+		const countSelect = vi.fn((_fields: Record<string, SQL>) => ({
+			from: () => ({ where: countWhere }),
+		}));
+		const select = vi
+			.fn()
+			.mockImplementationOnce(() => ({ from: () => ({ where: liveWhere }) }))
+			.mockImplementationOnce(countSelect);
+		return { countSelect, countWhere, liveWhere, select };
+	}
+
+	it("counts the commits after the live commit as unpublished", async () => {
+		const capture = countCapture(
+			[{ commitSha: "a".repeat(40) }],
+			[{ unpublishedChanges: 2, versionNumber: 5 }],
+		);
+		const repository = new AppCommitsRepository(
+			fakeDb({ select: capture.select }),
+		);
+
+		expect(await repository.countVersions("p-1")).toEqual({
+			unpublishedChanges: 2,
+			versionNumber: 5,
+		});
+
+		const live = compile(capture.liveWhere.mock.calls[0]?.[0]);
+		expect(live.sql).toContain(`"deployments"."kind" = $2`);
+		expect(live.params).toEqual(["p-1", "app", "active"]);
+		const fields = capture.countSelect.mock.calls[0]?.[0];
+		const unpublished = compile(fields?.unpublishedChanges);
+		expect(unpublished.sql).toContain(
+			`count(*) filter (where "app_commits"."created_at" > coalesce((select live.created_at from app_commits live where live.project_id = $1 and live.sha = $2), '-infinity'::timestamptz))::int`,
+		);
+		expect(unpublished.params).toEqual(["p-1", "a".repeat(40)]);
+	});
+
+	it("counts every commit as unpublished when nothing is live", async () => {
+		const capture = countCapture(
+			[],
+			[{ unpublishedChanges: 3, versionNumber: 3 }],
+		);
+		const repository = new AppCommitsRepository(
+			fakeDb({ select: capture.select }),
+		);
+
+		await repository.countVersions("p-1");
+
+		const fields = capture.countSelect.mock.calls[0]?.[0];
+		expect(compile(fields?.unpublishedChanges).sql).toBe("count(*)::int");
 	});
 });
 

@@ -24,23 +24,23 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
 | `infrastructure/redis/` | WANDIT-167: the Redis `TurnLock` |
 | `infrastructure/git/` | WANDIT-152/171: `CodeStorageGitStore`, `commitTurn`, `CodeStorageRepoRestorer` |
-| `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter |
+| `infrastructure/trigger/` | WANDIT-166/167: the `ui` stream writer/reader; WANDIT-175: the `delete-app-project` starter; WANDIT-178: the `publish-app` starter |
 | `infrastructure/template/` | WANDIT-175: `TemplateVersionService`; WANDIT-192: one version per platform (the web file is required at boot, the mobile file is optional) |
 | `infrastructure/mappers/` | WANDIT-175: `mapAppProjectRow` |
-| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject` |
+| `infrastructure/persistence/` | WANDIT-163: V2 schema spec; WANDIT-164: `sandbox_sessions` repository; WANDIT-175: `audit_events` repository; WANDIT-183: `app_backends` repository; WANDIT-185: `project_secrets` repository; WANDIT-200: `ProjectLivenessRepository`; WANDIT-184: the lifecycle writes of `app_backends` and `deleteAllForProject`; WANDIT-178: `AppPublishRepository` |
 | `infrastructure/supabase/` | WANDIT-183: the Management API client and the rate limiter; WANDIT-187: the interactive form, the Storage API calls, and the shared fake fetch; WANDIT-186: the function deploy, the bulk secrets, and the advisors calls; WANDIT-184: `pauseProject` and `deleteProject` |
 | `infrastructure/cloudflare/` | WANDIT-200: the Workers for Platforms client, its fake, and `assetManifest` |
 | `infrastructure/eas/` | WANDIT-194: `hostExec`, the EAS runner (eas CLI and GraphQL), and the build workspace |
 | `infrastructure/secrets/` | WANDIT-185: `secret-crypto.ts` (AES-256-GCM, the key ring) and `rotateProjectSecrets` |
-| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes |
+| `presentation/http/controllers/` | WANDIT-162: health; WANDIT-167: turn routes; WANDIT-170: the preview-token route; WANDIT-174: cost caps; WANDIT-175: `POST /api/v2/projects`; WANDIT-185: the secrets routes; WANDIT-187: the Cloud tab routes; WANDIT-271: the Code view routes; WANDIT-178: the publish routes |
 | `presentation/http/guards/` | WANDIT-162: `V2BuilderEnabledGuard` |
-| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement |
+| `application/` | WANDIT-166: the builder-turn task; WANDIT-169: host tools; WANDIT-171: versions; WANDIT-174: money; WANDIT-183: backends; WANDIT-165: the LLM proxy; WANDIT-170: the preview token; WANDIT-185: `ProjectSecretsService`; WANDIT-187: `CloudService`; WANDIT-186: the backend tools in `host-tools/backend/`, `AdvisorsService`, `BackendSecretsService`; WANDIT-271: `CodeService`; WANDIT-184: the activity stamps and the backend entitlement; WANDIT-178: `PublishService` |
 
 ## Ports (`domain/ports/`)
 
@@ -282,14 +282,17 @@ Deletion rides the V1 route: a `v2_app` soft-delete queues the
 `delete-app-project` task. The task is idempotent on `projectId` and
 runs one attempt. It uses its own `app-project-cleanup` queue at
 concurrency 2, so a delete never waits behind a sweep. The runtime runs
-eight steps, each in its own try/catch. It cancels the active turn's
+nine steps, each in its own try/catch. It cancels the active turn's
 run, destroys the vendor sandbox, and deletes the user Worker
-(WANDIT-200). The backend step (WANDIT-184) moves the `app_backends` row
+(WANDIT-200). The deployment step (WANDIT-178) deletes the slug pointer,
+then marks the live app deployment `unpublished`. The backend step
+(WANDIT-184) moves the `app_backends` row
 to `deleting`, pauses a running Supabase project, and deletes the
 `project_secrets` rows; the pause sweep deletes the Supabase project after
-the grace window. Then it drains the two `v2ProjectPrefixes` and deletes the
-code.storage repository. The prefixes are `git/<id>/` and
-`sites/<id>/assets/`, never `published/` — WANDIT-178 owns that root.
+the grace window. Then it drains the three `v2ProjectPrefixes` and deletes
+the code.storage repository. The prefixes are `git/<id>/`,
+`sites/<id>/assets/`, and `published/<id>/builds/` (the stored publish
+outputs), never the whole `published/<id>/` root.
 It writes one `audit_events` row with each step's outcome and sends
 `v2_project_deleted`. The starter binds null when V2 is off, so a V1
 deploy never builds it.
@@ -595,6 +598,81 @@ real caller.
   all three, `WORKERS_FOR_PLATFORMS_CLIENT` is null, the delete step
   answers `skipped`, and the sweep does nothing. The operator steps are in
   `docs/v2/runbook.md`.
+
+## Publish (WANDIT-178)
+
+A V2 web app goes live as its user Worker `app-<projectId>` (see the
+section above) on `{slug}.{SITES_DOMAIN}`. A mobile app publishes through
+the mobile builds below.
+
+Routes under `/api/v2/projects/:projectId/publish`, behind
+`V2BuilderEnabledGuard` and `RedisRateLimitGuard`. The writes need
+`publish:manage`, like the V1 routes, and take 10 requests per 10 minutes
+per user. A V1 project, a mobile app, or a project of another workspace
+answers 404.
+
+- `GET /` answers `live` (the active row and its URL), `latestBuild`, and
+  the 20 newest app deployments. Every route first ends a live row with no
+  change for 30 minutes and a pending deployment older than 35 minutes: a
+  run that Trigger stopped from outside never ends its row. A run whose
+  row ended this way uploads nothing.
+- `POST /` with `{ requestKey }` answers 202 and a `queued` build of the
+  head of `main`. Without the W4P client or R2 it answers 503
+  `V2_ENV_MISSING`; without KV (and without `ALLOW_PUBLISH_WITHOUT_KV`)
+  503 `PUBLISH_UNAVAILABLE`; with a negative settled balance 402; with no
+  saved version 409 `PUBLISH_NO_VERSION`; with a live build 409
+  `PUBLISH_ACTIVE`. A publish costs no credits (WANDIT-178: no debit in P2).
+- `POST /rollback` with `{ deploymentId, requestKey }` answers 202 and a
+  `queued` build whose `sourceBuildId` names the stored output to upload
+  again. Only a `superseded` or `unpublished` row comes back (409
+  `PUBLISH_ROLLBACK_INVALID`).
+- `DELETE /` deletes the slug pointer (its error reaches the client),
+  deletes the Worker (best effort), and marks the live row `unpublished`.
+  A live build answers 409. The Supabase project keeps running: the
+  builder preview uses it.
+
+`app_builds` holds one row per attempt: `queued` → `building` →
+`uploading` → `published`, or `blocked` / `failed`. The partial unique
+index `app_builds_live_project_uq` allows one live row per project, so a
+publish and a rollback never upload at the same time. A `deployments` row
+of kind `app` names its build and its commit; `version_id` is null on it.
+The V1 routes answer 404 for a `v2_app` project.
+
+The `publish-app` task (queue `publish-app`, `concurrencyKey` = project,
+one attempt, key `publish-app:<buildId>`, `maxDuration` 900 s):
+
+1. Claims the row (`queued` → `building`). A replay skips.
+2. Build from source: wakes the sandbox, adds a git worktree of the
+   commit under `/tmp/wandit-publish/<buildId>`, runs `pnpm install
+   --frozen-lockfile --prefer-offline` (3 min) and `pnpm run build` (5 min)
+   with the public `VITE_SUPABASE_*` values, then removes the worktree. A
+   running turn neither blocks the build nor changes its files.
+3. Reads `dist/`: the `.js`, `.mjs`, and `.wasm` files of `server/` are the
+   modules (`server/wrangler.json` names the main one), the files of
+   `client/` minus `.assetsignore` are the assets. A symlink, more than
+   2,000 files, more than 100 MB, or an asset above 25 MiB fails the build.
+4. Runs the publish gates (`domain/ports/publish-gate.ts`, none today). A
+   `block` finding moves the row to `blocked` and uploads nothing.
+5. Stores the output as gzip JSON at
+   `published/<projectId>/builds/<buildId>.json.gz`. A rollback skips steps
+   2 to 5 and reads this object of its source build.
+6. Uploads: asset session, assets, then the script with the bindings. The
+   user `project_secrets` rows go as `secret_text`, the public Supabase
+   values as `plain_text`. A `system` row never goes. No secret enters a
+   file of the build.
+7. Promotes the pending row, then writes the pointer `{ projectId, kind:
+   "app", source: "slug", slug, limits }`. The promote comes first: the
+   unique slug index then holds the slug, so the pointer never overwrites
+   another project. The live slug stays; a first publish takes a free slug
+   of the project name with the V1 rules. Every plan gets
+   `DEFAULT_APP_WORKER_LIMITS` today.
+
+A failed upload keeps the previous Worker live. A first publish that fails
+after the script upload deletes the Worker again (and ends its row when
+the pointer write failed), so no app stays reachable without a live row. A
+re-publish whose pointer rewrite fails stays published: the stored pointer
+already names the project. The project delete deletes the
+slug pointer, ends the live row, and drains `published/<id>/builds/`.
 
 ## Mobile builds (WANDIT-194)
 

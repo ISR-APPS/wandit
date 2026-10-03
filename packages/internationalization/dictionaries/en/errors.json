@@ -79,6 +79,10 @@
 		"MOBILE_BUILD_ACTIVE": "A build of this app is already running. Wait for it to finish.",
 		"MOBILE_BUILD_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
 		"V2_ENV_MISSING": "This feature is not set up on the server yet. Try again later.",
-		"PROJECT_SECRET_SYSTEM": "This secret belongs to Wandit. You cannot change or delete it."
+		"PROJECT_SECRET_SYSTEM": "This secret belongs to Wandit. You cannot change or delete it.",
+		"PUBLISH_ACTIVE": "A publish of this app is already running. Wait for it to finish.",
+		"PUBLISH_NO_VERSION": "Your app has no saved version yet. Build it in the chat first.",
+		"PUBLISH_ROLLBACK_INVALID": "This version cannot come back. Choose an earlier version.",
+		"PUBLISH_UNAVAILABLE": "Publishing is not available now. Try again later."
 	}
 }

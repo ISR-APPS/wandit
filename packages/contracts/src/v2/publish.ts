@@ -43,7 +43,7 @@ export type AppWorkerLimits = {
 /**
  * Limits the edge applies to a pointer without `limits`. 100 ms CPU covers
  * one SSR render with margin; 50 subrequests cover one page of Supabase
- * calls. WANDIT-178 writes the plan values into the pointer.
+ * calls. The publish task (WANDIT-178) writes these values for every plan.
  */
 export const DEFAULT_APP_WORKER_LIMITS: AppWorkerLimits = {
 	cpuMs: 100,

@@ -99,6 +99,11 @@ export const appProjectSchema = projectSchema.extend({
 	// True when one version changed a file. False while the project holds
 	// only the template, so the web preview shows no app yet.
 	hasCodeChanges: z.boolean(),
+	// Count of saved versions: the `app_commits` rows of the project.
+	versionNumber: z.int().nonnegative(),
+	// Versions saved after the commit of the live app. Every version when
+	// nothing is live. The publish popover shows it.
+	unpublishedChanges: z.int().nonnegative(),
 });
 
 /** TypeScript V2 app project type. */

@@ -85,7 +85,10 @@ export class AppProjectsService {
 		@Inject(BackendsService)
 		private readonly backends: Pick<BackendsService, "provisionBackend">,
 		@Inject(AppCommitsRepository)
-		private readonly appCommits: Pick<AppCommitsRepository, "hasFileChanges">,
+		private readonly appCommits: Pick<
+			AppCommitsRepository,
+			"countVersions" | "hasFileChanges"
+		>,
 	) {}
 
 	/**
@@ -221,7 +224,8 @@ export class AppProjectsService {
 
 	/**
 	 * `GET /v2/projects/:id`. A V1 row in scope answers 404, same as missing.
-	 * `hasCodeChanges` reads the commits only after the scope check.
+	 * `hasCodeChanges` and the version counts read the commits only after
+	 * the scope check.
 	 */
 	async get(scope: ProjectScope, projectId: string): Promise<AppProject> {
 		const row = await this.projects.findByIdForScope(scope, projectId);
@@ -229,10 +233,11 @@ export class AppProjectsService {
 			throw new NotFoundException();
 		}
 
-		return mapAppProjectRow(
-			row,
-			await this.appCommits.hasFileChanges(projectId),
-		);
+		const [hasCodeChanges, versions] = await Promise.all([
+			this.appCommits.hasFileChanges(projectId),
+			this.appCommits.countVersions(projectId),
+		]);
+		return mapAppProjectRow(row, hasCodeChanges, versions);
 	}
 
 	/**

@@ -375,12 +375,10 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		description: project.prompt,
 		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
 		engine: project.engine,
-		// LIMIT: the V2 API has no publish state yet, so the slug, the version
-		// number, and the unpublished count keep their empty values.
-		// Upgrade: the publish state of WANDIT-178.
+		// Empty until the first publish: the live slug comes from the active deployment.
 		slug: project.publishedSlug ?? "",
-		versionNumber: 0,
-		unpublishedChanges: 0,
+		versionNumber: project.versionNumber,
+		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
 	};
 }

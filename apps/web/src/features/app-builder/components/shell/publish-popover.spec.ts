@@ -3,6 +3,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type {
+	AppBuild,
+	AppDeployment,
+	AppPublishStatus,
 	ListMobileBuildsResponse,
 	MobileBuild,
 	MobileBuildStatus,
@@ -17,10 +20,9 @@ import { ApiClientError } from "@/lib/api-client";
 // The router is a third-party module. The stub lets the mobile body call useNavigate outside a RouterProvider.
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
-import { appBuilderKeys } from "../../api/app-builder.queries";
-import type { AppProject, ProjectDomain } from "../../api/dto";
+import type { AppProject } from "../../api/dto";
 import { mobileBuildsKeys } from "../../api/mobile-builds.queries";
-import { MOCK_APP_STORES, MOCK_DOMAINS } from "../../lib/mock-panels";
+import { appPublishKeys } from "../../api/publish.queries";
 import type { AndroidBuildCardProps } from "./android-build-card";
 import {
 	PublishMobileTargets,
@@ -82,12 +84,21 @@ const MOBILE_PROJECT: AppProject = {
 	hasCodeChanges: true,
 };
 
+const WEB_PROJECT: AppProject = {
+	...MOBILE_PROJECT,
+	id: "project-2",
+	name: "Booking App",
+	kind: "web",
+	versionNumber: 5,
+	unpublishedChanges: 2,
+};
+
 /**
- * A cache with the iOS mock. The infinite stale time and `retryOnMount: false`
- * keep every seeded query from a fetch, a failed one too.
+ * An empty cache. The infinite stale time and `retryOnMount: false` keep
+ * every seeded query from a fetch, a failed one too.
  */
 function mobileClient(): QueryClient {
-	const queryClient = new QueryClient({
+	return new QueryClient({
 		defaultOptions: {
 			queries: {
 				retry: false,
@@ -96,11 +107,70 @@ function mobileClient(): QueryClient {
 			},
 		},
 	});
-	queryClient.setQueryData(
-		appBuilderKeys.appStores(MOBILE_PROJECT.id),
-		MOCK_APP_STORES,
-	);
-	return queryClient;
+}
+
+const LIVE_URL = "https://booking-app.wandit.app";
+
+/** One publish attempt of `status`. A failed one has an error code. */
+function appBuild(status: AppBuild["status"]): AppBuild {
+	return {
+		id: crypto.randomUUID(),
+		projectId: WEB_PROJECT.id,
+		status,
+		commitSha: "e".repeat(40),
+		sourceBuildId: null,
+		errorCode: status === "failed" ? "build_failed" : null,
+		createdAt: "2026-10-01T10:00:00.000Z",
+		completedAt: null,
+	};
+}
+
+/** One app deployment of `status` on the commit `sha`. */
+function deployment(
+	status: AppDeployment["status"],
+	sha: string,
+): AppDeployment {
+	return {
+		id: crypto.randomUUID(),
+		status,
+		slug: "booking-app",
+		commitSha: sha,
+		buildId: crypto.randomUUID(),
+		createdAt: "2026-09-30T10:00:00.000Z",
+	};
+}
+
+/** The status of an app that is live on `LIVE_URL`, with `overrides` on top. */
+function liveStatus(
+	overrides: Partial<AppPublishStatus> = {},
+): AppPublishStatus {
+	return {
+		live: {
+			deploymentId: crypto.randomUUID(),
+			url: LIVE_URL,
+			slug: "booking-app",
+			commitSha: "e".repeat(40),
+			publishedAt: "2026-10-01T10:00:00.000Z",
+		},
+		latestBuild: appBuild("published"),
+		history: [],
+		...overrides,
+	};
+}
+
+/** Web target props with the status of a live app and no-op actions. A case overrides what it checks. */
+function webProps(
+	overrides: Partial<ComponentProps<typeof PublishWebTargets>> = {},
+): ComponentProps<typeof PublishWebTargets> {
+	return {
+		status: liveStatus(),
+		isSending: false,
+		onPublish: () => {},
+		onRollback: () => {},
+		onUnpublish: () => {},
+		onConnectDomain: () => {},
+		...overrides,
+	};
 }
 
 /** Renders the popover of the mobile project with `builds` in the cache and opens it. */
@@ -113,13 +183,16 @@ function openMobilePopover(builds: MobileBuild[]) {
 	renderOpenPopover(queryClient);
 }
 
-/** Renders the popover of the mobile project on `queryClient` and opens it. */
-function renderOpenPopover(queryClient: QueryClient) {
+/** Renders the popover of `project` on `queryClient` and opens it. */
+function renderOpenPopover(
+	queryClient: QueryClient,
+	project: AppProject = MOBILE_PROJECT,
+) {
 	renderWithI18n(
 		createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(PublishPopover, { project: MOBILE_PROJECT }),
+			createElement(PublishPopover, { project }),
 		),
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Publish" }));
@@ -128,63 +201,133 @@ function renderOpenPopover(queryClient: QueryClient) {
 afterEach(cleanup);
 
 describe("PublishWebTargets", () => {
-	it("shows Live and Update when the Wandit domain is live", () => {
-		const onUpdate = vi.fn();
+	it("shows Live, the host, Update, the live link, and Unpublish for a live app", () => {
+		const onPublish = vi.fn();
+		const onUnpublish = vi.fn();
 		renderWithI18n(
-			createElement(PublishWebTargets, {
-				domains: MOCK_DOMAINS,
-				onUpdate,
-				onConnectDomain: () => {},
-			}),
+			createElement(PublishWebTargets, webProps({ onPublish, onUnpublish })),
 		);
 		expect(screen.getByText("Live")).toBeTruthy();
-		expect(screen.getByText("nadi.wandit.app")).toBeTruthy();
+		expect(screen.getByText("booking-app.wandit.app")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open the live app" })
+				.getAttribute("href"),
+		).toBe(LIVE_URL);
+
 		fireEvent.click(screen.getByRole("button", { name: "Update" }));
-		expect(onUpdate).toHaveBeenCalledOnce();
+		fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+		expect(onPublish).toHaveBeenCalledOnce();
+		expect(onUnpublish).toHaveBeenCalledOnce();
 	});
 
-	it("shows Not published yet and Publish without a Wandit domain", () => {
+	it("shows Not published yet and Publish before the first publish", () => {
 		renderWithI18n(
-			createElement(PublishWebTargets, {
-				domains: [],
-				onUpdate: () => {},
-				onConnectDomain: () => {},
-			}),
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: { live: null, latestBuild: null, history: [] },
+				}),
+			),
 		);
 		expect(screen.getByText("Not published yet")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
 		expect(screen.queryByText("Live")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Unpublish" })).toBeNull();
 	});
 
-	it("shows the host and Publish while the Wandit domain verifies", () => {
-		const verifying: ProjectDomain[] = [
-			{
-				host: "nadi.wandit.app",
-				kind: "wandit",
-				status: "verifying",
-				cnameTarget: null,
-			},
-		];
+	it("shows the running step and disables every action while a publish runs", () => {
 		renderWithI18n(
-			createElement(PublishWebTargets, {
-				domains: verifying,
-				onUpdate: () => {},
-				onConnectDomain: () => {},
-			}),
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: liveStatus({
+						latestBuild: appBuild("building"),
+						history: [deployment("superseded", "c".repeat(40))],
+					}),
+				}),
+			),
 		);
-		expect(screen.getByText("nadi.wandit.app")).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+		expect(screen.getByText("Building your app")).toBeTruthy();
+		expect(
+			screen.getByText("The publish continues when you close this panel."),
+		).toBeTruthy();
 		expect(screen.queryByText("Live")).toBeNull();
+		for (const name of ["Update", "Unpublish", "Roll back"]) {
+			expect(
+				screen.getByRole("button", { name }).hasAttribute("disabled"),
+			).toBe(true);
+		}
+	});
+
+	it("shows the text of the error code of a failed or blocked publish", () => {
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: { live: null, latestBuild: appBuild("failed"), history: [] },
+				}),
+			),
+		);
+		expect(
+			screen.getByText(
+				"The build of your app failed. Ask Wandit in the chat to fix it, then publish again.",
+			),
+		).toBeTruthy();
+		cleanup();
+
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: {
+						live: null,
+						latestBuild: { ...appBuild("blocked"), errorCode: "gate_blocked" },
+						history: [],
+					},
+				}),
+			),
+		);
+		expect(
+			screen.getByText(
+				"The safety check stopped this publish. Ask Wandit in the chat to fix the problems.",
+			),
+		).toBeTruthy();
+	});
+
+	it("lists only the versions that were live once and rolls one back by its id", () => {
+		const replaced = deployment("superseded", "c".repeat(40));
+		const onRollback = vi.fn();
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					onRollback,
+					status: liveStatus({
+						history: [
+							deployment("active", "e".repeat(40)),
+							deployment("failed", "f".repeat(40)),
+							replaced,
+							deployment("unpublished", "d".repeat(40)),
+						],
+					}),
+				}),
+			),
+		);
+		expect(screen.getByText("Earlier versions")).toBeTruthy();
+		expect(screen.getByText("ccccccc")).toBeTruthy();
+		expect(screen.getByText("ddddddd")).toBeTruthy();
+		expect(screen.queryByText("fffffff")).toBeNull();
+		expect(screen.queryByText("eeeeeee")).toBeNull();
+
+		fireEvent.click(screen.getAllByRole("button", { name: "Roll back" })[0]);
+		expect(onRollback).toHaveBeenCalledWith(replaced.id);
 	});
 
 	it("calls onConnectDomain from the Connect one link", () => {
 		const onConnectDomain = vi.fn();
 		renderWithI18n(
-			createElement(PublishWebTargets, {
-				domains: MOCK_DOMAINS,
-				onUpdate: () => {},
-				onConnectDomain,
-			}),
+			createElement(PublishWebTargets, webProps({ onConnectDomain })),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Connect one" }));
 		expect(onConnectDomain).toHaveBeenCalledOnce();
@@ -192,6 +335,18 @@ describe("PublishWebTargets", () => {
 });
 
 describe("PublishPopover", () => {
+	it("reads the publish status of a web project and its version counts", async () => {
+		const queryClient = mobileClient();
+		queryClient.setQueryData(
+			appPublishKeys.status(WEB_PROJECT.id),
+			liveStatus(),
+		);
+		renderOpenPopover(queryClient, WEB_PROJECT);
+
+		expect(await screen.findByText("booking-app.wandit.app")).toBeTruthy();
+		expect(screen.getByText("v5 · 2 changes")).toBeTruthy();
+	});
+
 	it("shows the download link and the QR code of a finished build", async () => {
 		openMobilePopover([build("finished")]);
 
@@ -266,15 +421,11 @@ describe("PublishPopover", () => {
 });
 
 describe("PublishMobileTargets", () => {
-	it("offers Build APK before the first build, Submit for a ready iOS build, and Show QR", () => {
+	it("offers Build APK before the first build and Show QR, with no iOS row", () => {
 		const onBuild = vi.fn();
-		const onSubmit = vi.fn();
 		const onShowQr = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				ios: MOCK_APP_STORES.ios,
-				onSubmit,
-				onSetUp: () => {},
 				onShowQr,
 				android: androidProps({ onBuild }),
 			}),
@@ -282,37 +433,16 @@ describe("PublishMobileTargets", () => {
 		expect(
 			screen.getByText("Install your app on an Android phone"),
 		).toBeTruthy();
-		expect(
-			screen.getByText("Build 12 ready · TestFlight 9 testers"),
-		).toBeTruthy();
 		expect(screen.getByText("Backend deploys with every publish")).toBeTruthy();
+		// WANDIT-194 follow-up: the mock iOS row with TestFlight testers is gone.
+		expect(screen.queryByText(/App Store|TestFlight/)).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Build APK · 50 credits" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 		fireEvent.click(screen.getByRole("button", { name: "Show QR" }));
 		expect(onBuild).toHaveBeenCalledOnce();
-		expect(onSubmit).toHaveBeenCalledOnce();
 		expect(onShowQr).toHaveBeenCalledOnce();
-	});
-
-	it("offers Set up when iOS is not set up", () => {
-		const onSetUp = vi.fn();
-		renderWithI18n(
-			createElement(PublishMobileTargets, {
-				ios: { ...MOCK_APP_STORES.ios, status: "notSetUp" },
-				onSubmit: () => {},
-				onSetUp,
-				onShowQr: () => {},
-				android: androidProps(),
-			}),
-		);
-		expect(screen.getByText("Not set up")).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
-
-		fireEvent.click(screen.getByRole("button", { name: "Set up" }));
-		expect(onSetUp).toHaveBeenCalledOnce();
 	});
 
 	it("cancels the live build by its id", () => {
@@ -320,9 +450,6 @@ describe("PublishMobileTargets", () => {
 		const onCancel = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				ios: MOCK_APP_STORES.ios,
-				onSubmit: () => {},
-				onSetUp: () => {},
 				onShowQr: () => {},
 				android: androidProps({ builds: [live], onCancel }),
 			}),
@@ -336,9 +463,6 @@ describe("PublishMobileTargets", () => {
 	it("lists the older builds with a download link for a finished one", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				ios: MOCK_APP_STORES.ios,
-				onSubmit: () => {},
-				onSetUp: () => {},
 				onShowQr: () => {},
 				android: androidProps({
 					builds: [build("canceled"), build("finished"), build("failed")],
@@ -362,9 +486,6 @@ describe("PublishMobileTargets", () => {
 	it("shows at most five older builds after a create adds one to the list", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				ios: MOCK_APP_STORES.ios,
-				onSubmit: () => {},
-				onSetUp: () => {},
 				onShowQr: () => {},
 				android: androidProps({
 					builds: [
