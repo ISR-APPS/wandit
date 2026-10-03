@@ -4,9 +4,10 @@
  * button. Below it sit the scrolling message list with one working row
  * while a turn runs, an alert row for a refused send (`errorText`), and the
  * composer pinned at the bottom. When the agent asks the user something,
- * the request tray opens on top of the composer. Rendered by
- * pages/app-builder-page.tsx, which owns the thread hook and the card
- * chrome. Renders chat-message.tsx, composer.tsx, and the request tray.
+ * the request tray opens on top of the composer. The raw thought rows show
+ * only with `showsAgentDebug`. Rendered by pages/app-builder-page.tsx,
+ * which owns the thread hook and the card chrome. Renders chat-message.tsx,
+ * working-row.tsx, composer.tsx, and the request tray.
  */
 
 import type { TurnQuestionAnswer, TurnStreamPhase } from "@wandit/contracts";
@@ -24,11 +25,13 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
+import { liveActivityOf, withoutThoughts } from "../../lib/turn-parts";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
+import { WorkingRow } from "./working-row";
 
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
@@ -37,11 +40,15 @@ export type ChatPaneProps = {
 	turnEstimateCredits: number;
 	/** Screen or element the next turn targets, shown as a chip above the textarea. */
 	focusLabel: string | null;
-	/** True while a turn runs. Locks the composer and shows the working indicator. */
+	/** True while a turn runs. Locks the composer and shows the working row. */
 	isSending: boolean;
-	/** Phase of the running turn; picks the working row label. Null shows "Wandit is working…". */
+	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the working row label. */
 	phase: TurnStreamPhase | null;
-	/** False until the project chat id resolves. Locks the composer together with `isSending`. */
+	/** True on the first turn of the project, null while the history loads. From useBuilderThread. Picks the preparation lines. */
+	isFirstTurn: boolean | null;
+	/** True shows the raw thought rows and the seconds counter. True in local dev or for staff. */
+	showsAgentDebug: boolean;
+	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
 	/** Name of the open project. Shown after "Chat" in the card header. */
 	projectName: string;
@@ -70,6 +77,8 @@ export function ChatPane({
 	focusLabel,
 	isSending,
 	phase,
+	isFirstTurn,
+	showsAgentDebug,
 	isReady,
 	projectName,
 	onSend,
@@ -85,6 +94,8 @@ export function ChatPane({
 	const listRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [draft, setDraft] = useState("");
+	// Raw thinking is for debugging. Users see only the labels of the working row.
+	const shownMessages = showsAgentDebug ? messages : withoutThoughts(messages);
 
 	// The tray shows the open questions of the last reply. A rejected answer
 	// leaves its user bubble after that reply, and the questions stay open.
@@ -160,7 +171,7 @@ export function ChatPane({
 				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3"
 			>
 				<div ref={contentRef} className="flex flex-col gap-5">
-					{messages.map((message) => (
+					{shownMessages.map((message) => (
 						<ChatMessageView
 							key={message.id}
 							message={message}
@@ -178,12 +189,14 @@ export function ChatPane({
 						/>
 					))}
 					{isSending ? (
-						<WorkingIndicator
-							label={
-								phase === null
-									? t("appBuilder.chat.working")
-									: t(`appBuilder.chat.phases.${phase}`)
-							}
+						<WorkingRow
+							activity={liveActivityOf(messages, {
+								phase,
+								isFirstTurn,
+								showsThoughts: showsAgentDebug,
+							})}
+							phase={phase}
+							showsElapsed={showsAgentDebug}
 						/>
 					) : null}
 				</div>
@@ -201,8 +214,9 @@ export function ChatPane({
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
 					focusLabel={focusLabel}
-					// The composer also locks while the chat id resolves: a send
-					// without it would clear the draft and drop the turn.
+					// The composer also locks while the chat id and the history load.
+					// A send without the id drops the turn; a send before the history
+					// puts the reply above it.
 					isSending={isSending || !isReady}
 					onSend={(input) => {
 						// A plain message after the skip X also answers the skipped
@@ -292,51 +306,4 @@ function useAutoScroll(
 		isFollowingRef.current = true;
 		list.scrollTop = list.scrollHeight;
 	}, [isSending, listRef]);
-}
-
-// A 3 by 3 grid. Each pixel starts later along the diagonal, so the shimmer runs corner to corner.
-const PIXEL_GRID = [0, 1, 2].flatMap((row) =>
-	[0, 1, 2].map((column) => ({
-		key: `${row}${column}`,
-		delayMs: (row + column) * 120,
-	})),
-);
-
-/** Shimmering pixel grid, the working label, and the seconds since the row appeared. */
-function WorkingIndicator({ label }: { label: string }) {
-	const { t, locale } = useTranslation();
-	const [startedAt] = useState(() => Date.now());
-	const [elapsedMs, setElapsedMs] = useState(0);
-
-	// One tick per 100 ms reads the clock, so a slow tab does not drift the counter.
-	useEffect(() => {
-		const timer = setInterval(() => setElapsedMs(Date.now() - startedAt), 100);
-		return () => clearInterval(timer);
-	}, [startedAt]);
-
-	const seconds = new Intl.NumberFormat(locale, {
-		minimumFractionDigits: 1,
-		maximumFractionDigits: 1,
-	}).format(elapsedMs / 1000);
-
-	return (
-		<div
-			role="status"
-			className="flex items-center gap-2.5 text-muted-foreground text-sm"
-		>
-			<span aria-hidden className="grid size-3.5 shrink-0 grid-cols-3 gap-px">
-				{PIXEL_GRID.map((pixel) => (
-					<span
-						key={pixel.key}
-						className="animate-pulse-soft rounded-[1px] bg-primary"
-						style={{ animationDelay: `${pixel.delayMs}ms` }}
-					/>
-				))}
-			</span>
-			<span>{label}</span>
-			<span className="font-mono text-xs tabular-nums">
-				{t("appBuilder.chat.elapsed", { seconds })}
-			</span>
-		</div>
-	);
 }

@@ -404,6 +404,15 @@
 		"focusChip": "Working on {label}",
 		"removeFocus": "Remove",
 		"working": "Wandit is working…",
+		"preparing": {
+			"title": "Getting your project ready",
+			"workspace": "Creating your workspace",
+			"files": "Preparing your app's files",
+			"install": "Installing what it needs",
+			"firstTime": "The first start takes a little longer",
+			"waking": "Waking up your project",
+			"restoring": "Bringing back your latest changes"
+		},
 		"tray": {
 			"needsDetail": "Needs a detail",
 			"needsFiles": "Images requested",

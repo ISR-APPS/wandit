@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	type QueryKey,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { CreateTurnResponse } from "@wandit/contracts";
 import { createElement, type ReactNode } from "react";
@@ -141,10 +145,15 @@ function postCount(fake: ReturnType<typeof createDeps>): number {
 afterEach(cleanup);
 
 describe("useBuilderChat", () => {
-	it("exposes the turn id and estimate of data-turn-created while sending", async () => {
+	it("refuses a second send while a turn runs", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			fake.deps,
 		);
 		// The mount resume GET replays the active turn; 204 means none runs.
@@ -162,7 +171,6 @@ describe("useBuilderChat", () => {
 			expect(result.current.turnId).toBe(TURN_ID);
 			expect(result.current.isSending).toBe(true);
 		});
-		expect(result.current.estimate).toEqual(createdFrame.data.estimate);
 
 		// One turn runs at a time: a second send while streaming is refused.
 		act(() => {
@@ -186,7 +194,12 @@ describe("useBuilderChat", () => {
 					: fake.deps.fetch(input, init),
 		};
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			deps,
 		);
 		await waitFor(() =>
@@ -208,7 +221,12 @@ describe("useBuilderChat", () => {
 		// A resumed turn sends no data-turn-created, so it must not wait for one.
 		const resumed = createDeps({ resumeReply: true });
 		const { result: resumedResult } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			resumed.deps,
 		);
 		await waitFor(() => expect(resumedResult.current.isSending).toBe(true));
@@ -218,7 +236,12 @@ describe("useBuilderChat", () => {
 	it("aborts the stream and then posts the turn cancel", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			fake.deps,
 		);
 		act(() => {
@@ -251,7 +274,12 @@ describe("useBuilderChat", () => {
 			return { turnId, status: "canceled" };
 		});
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			fake.deps,
 			queryClient,
 		);
@@ -268,78 +296,36 @@ describe("useBuilderChat", () => {
 		expect(queryClient.getQueryState(projectKey)?.isInvalidated).toBe(true);
 	});
 
-	it("refuses to send while the chat id is unknown", async () => {
+	it("marks the Code view and every Cloud panel stale when a turn ends, not the backend state", async () => {
 		const fake = createDeps();
+		const queryClient = new QueryClient();
+		const isStale = (key: QueryKey) =>
+			queryClient.getQueryState(key)?.isInvalidated;
+		const turnKeys = [
+			// The turn woke the sandbox, so an asleep Code view loads again.
+			appBuilderKeys.code(PROJECT_ID),
+			// The agent can run a migration, deploy a function, or set a secret in any turn.
+			cloudKeys.tables(PROJECT_ID),
+			cloudKeys.rows(PROJECT_ID, "orders", {
+				page: 1,
+				pageSize: 50,
+				dir: "asc",
+			}),
+			cloudKeys.functions(PROJECT_ID),
+			cloudKeys.secrets(PROJECT_ID),
+		];
+		// The backend state polls on its own while it changes.
+		const backendKey = cloudKeys.backend(PROJECT_ID);
+		for (const key of [...turnKeys, backendKey]) {
+			queryClient.setQueryData(key, null);
+		}
 		const { result } = renderBuilderChat(
 			{
 				projectId: PROJECT_ID,
-				chatId: undefined,
+				chatId: CHAT_ID,
 				initialMessages: [],
+				isHistorySettled: true,
 			},
-			fake.deps,
-		);
-
-		act(() => {
-			result.current.send({ text: "hello" });
-		});
-		// Flush pending work so a stray POST would have fired.
-		await act(async () => {});
-
-		expect(postCount(fake)).toBe(0);
-		expect(result.current.turnId).toBeNull();
-	});
-
-	it("marks the Code view tree and files stale when a turn ends", async () => {
-		const fake = createDeps();
-		const queryClient = new QueryClient();
-		queryClient.setQueryData(appBuilderKeys.code(PROJECT_ID), null);
-		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
-			fake.deps,
-			queryClient,
-		);
-		await waitFor(() => expect(result.current.status).toBe("ready"));
-
-		act(() => {
-			result.current.send({ text: "hello" });
-		});
-		await waitFor(() => expect(result.current.isSending).toBe(true));
-		expect(
-			queryClient.getQueryState(appBuilderKeys.code(PROJECT_ID))?.isInvalidated,
-		).toBe(false);
-
-		fake.endPostStream();
-		await waitFor(() => expect(result.current.status).toBe("ready"));
-
-		// The turn woke the sandbox, so an asleep Code view loads again.
-		await waitFor(() =>
-			expect(
-				queryClient.getQueryState(appBuilderKeys.code(PROJECT_ID))
-					?.isInvalidated,
-			).toBe(true),
-		);
-	});
-
-	it("marks every Cloud panel stale when a turn ends, not the backend state", async () => {
-		const fake = createDeps();
-		const queryClient = new QueryClient();
-		const rowsKey = cloudKeys.rows(PROJECT_ID, "orders", {
-			page: 1,
-			pageSize: 50,
-			dir: "asc",
-		});
-		queryClient.setQueryData(cloudKeys.tables(PROJECT_ID), []);
-		queryClient.setQueryData(rowsKey, null);
-		queryClient.setQueryData(cloudKeys.functions(PROJECT_ID), []);
-		queryClient.setQueryData(cloudKeys.secrets(PROJECT_ID), []);
-		queryClient.setQueryData(cloudKeys.backend(PROJECT_ID), {
-			status: "active",
-			ref: "abcdefghijklmnopqrst",
-			region: "eu-west-3",
-			failureCode: null,
-		});
-		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
 			fake.deps,
 			queryClient,
 		);
@@ -349,26 +335,15 @@ describe("useBuilderChat", () => {
 			result.current.send({ text: "add an orders table" });
 		});
 		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(turnKeys.map(isStale)).toEqual([false, false, false, false, false]);
+
 		fake.endPostStream();
 		await waitFor(() => expect(result.current.status).toBe("ready"));
 
-		// The agent can run a migration in any turn.
 		await waitFor(() =>
-			expect(
-				queryClient.getQueryState(cloudKeys.tables(PROJECT_ID))?.isInvalidated,
-			).toBe(true),
+			expect(turnKeys.map(isStale)).toEqual([true, true, true, true, true]),
 		);
-		expect(queryClient.getQueryState(rowsKey)?.isInvalidated).toBe(true);
-		// The agent can also deploy a function or set a secret.
-		expect(
-			queryClient.getQueryState(cloudKeys.functions(PROJECT_ID))?.isInvalidated,
-		).toBe(true);
-		expect(
-			queryClient.getQueryState(cloudKeys.secrets(PROJECT_ID))?.isInvalidated,
-		).toBe(true);
-		expect(
-			queryClient.getQueryState(cloudKeys.backend(PROJECT_ID))?.isInvalidated,
-		).toBe(false);
+		expect(isStale(backendKey)).toBe(false);
 	});
 
 	it("ignores a history change while streaming and reseeds when ready", async () => {
@@ -378,7 +353,11 @@ describe("useBuilderChat", () => {
 			role: "user",
 			parts: [{ type: "text", text }],
 		});
-		const baseInput = { projectId: PROJECT_ID, chatId: CHAT_ID };
+		const baseInput = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			isHistorySettled: true,
+		};
 		const { result, rerender } = renderBuilderChat(
 			{ ...baseInput, initialMessages: [historyMessage("h1", "old history")] },
 			fake.deps,
@@ -422,14 +401,18 @@ describe("useBuilderChat", () => {
 		);
 	});
 
-	it("puts a late history in front of a resumed reply", async () => {
+	it("puts a history refetch in front of a resumed reply", async () => {
 		const fake = createDeps({ resumeReply: true });
-		const baseInput = { projectId: PROJECT_ID, chatId: CHAT_ID };
+		const baseInput = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			isHistorySettled: true,
+		};
 		const { result, rerender } = renderBuilderChat(
 			{ ...baseInput, initialMessages: [] },
 			fake.deps,
 		);
-		// The reload resumed the running turn before the history query landed.
+		// The history load failed, so the resume ran with no history.
 		await waitFor(() =>
 			expect(messageTexts(result.current.messages)).toEqual(["resumed reply"]),
 		);

@@ -1,7 +1,8 @@
 /**
  * Text with a light band that runs across it: the mark of the activity row
- * that works now ("Thinking", "Editing"). Rendered by thought-row.tsx and
- * step-row.tsx. With reduced motion it is plain muted text.
+ * that works now ("Thinking", "Editing"). Rendered by thought-row.tsx,
+ * step-row.tsx, and working-row.tsx. With reduced motion it is plain muted
+ * text.
  */
 
 import { cn } from "@wandit/ui/lib/utils";

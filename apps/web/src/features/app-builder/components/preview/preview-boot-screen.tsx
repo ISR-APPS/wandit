@@ -24,7 +24,7 @@ import {
 	rememberBoot,
 	sceneOf,
 } from "../../lib/boot-state";
-import { BOOT_EASE } from "../../lib/constants";
+import { BOOT_EASE, DETAIL_STEP_MS } from "../../lib/constants";
 import { BootPlan } from "./boot-plan";
 
 /**
@@ -33,8 +33,6 @@ import { BootPlan } from "./boot-plan";
  * a turn end is faster.
  */
 const NOTE_DELAY_MS = 1200;
-/** Time each detail line stays before the next one, ms. The last line then stays. */
-const DETAIL_STEP_MS = 3200;
 /** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
 const TIMER_TICK_MS = 250;
 
