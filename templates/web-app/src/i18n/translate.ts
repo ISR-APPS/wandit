@@ -18,7 +18,7 @@ type NestedKeys<T> = {
 	[K in keyof T & string]: T[K] extends string ? K : `${K}.${NestedKeys<T[K]>}`;
 }[keyof T & string];
 
-/** Union of every dotted key, for example `"lead.title"`. */
+/** Union of every dotted key, for example `"landing.heroTitle"`. */
 export type TranslationKey = NestedKeys<typeof en>;
 
 /** One node of a dictionary tree: a message string or a nested group. */

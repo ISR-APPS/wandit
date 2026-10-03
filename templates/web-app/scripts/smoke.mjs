@@ -1,5 +1,6 @@
 // Smoke test for the template. CI and the host run it before shipping a pack.
 // It installs frozen deps, typechecks, lints, builds, then inspects dist/.
+// Last, it starts the dev server and checks the HMR client for the sandbox host.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -69,6 +70,35 @@ if (!prerendered) {
 	throw new Error("no prerendered HTML file under dist/client");
 }
 
+// WANDIT-281: the sandbox host has no token check, so the browser must never
+// see it. Vite writes the HMR host into /@vite/client for every viewer.
+const fakeSandboxHost = "smoke-sandbox-5173.vercel.run";
+process.env.WANDIT_PREVIEW_HOST = fakeSandboxHost;
+// A dynamic import, because vite exists only after the install above.
+const { createServer } = await import("vite");
+const devServer = await createServer({
+	root,
+	logLevel: "error",
+	// Port 0 lets the OS pick a free port, so a running dev server is no conflict.
+	server: { port: 0 },
+});
+try {
+	await devServer.listen();
+	const { port } = devServer.httpServer.address();
+	const response = await fetch(`http://localhost:${port}/@vite/client`);
+	const hmrClient = await response.text();
+	if (!response.ok) {
+		throw new Error(`GET /@vite/client answered ${response.status}`);
+	}
+	if (hmrClient.includes(fakeSandboxHost)) {
+		throw new Error(
+			"/@vite/client names the sandbox host; remove server.ws.host from vite.config.ts",
+		);
+	}
+} finally {
+	await devServer.close();
+}
+
 // The sandbox installs the full dev tree because vite dev, typecheck, and
 // lint all need it. The size check measures that same tree here.
 // LIMIT: the dev tree is about 490 MB, workerd alone 146 MB. Upgrade: a
@@ -83,5 +113,6 @@ if (nodeModulesSize > maxBytes) {
 
 console.log(
 	`smoke ok: worker entry dist/server/index.js, assets, ${prerendered} found; ` +
+		"HMR client without the sandbox host; " +
 		`node_modules ${(nodeModulesSize / 1024 / 1024).toFixed(0)} MB`,
 );

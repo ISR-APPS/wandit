@@ -1,7 +1,6 @@
 // Public landing route. Prerendered at build time.
-// The generated app keeps its hero, features, and lead form here.
+// The generated app keeps its hero and features here.
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { LeadForm } from "~/components/lead-form";
 import { LocaleSwitcher } from "~/components/locale-switcher";
 import { Button } from "~/components/ui/button";
 import { ArrowRightIcon, CheckCircleIcon } from "~/components/ui/icons";
@@ -49,7 +48,7 @@ function LandingPage() {
 					</p>
 					<div className="flex justify-center">
 						<Button asChild size="lg">
-							<a href="#lead">
+							<a href="#features">
 								{t("landing.heroCta")}
 								<ArrowRightIcon className="rtl:rotate-180" />
 							</a>
@@ -75,10 +74,6 @@ function LandingPage() {
 							</div>
 						))}
 					</div>
-				</section>
-
-				<section id="lead" className="mx-auto max-w-xl py-12">
-					<LeadForm />
 				</section>
 			</main>
 		</div>

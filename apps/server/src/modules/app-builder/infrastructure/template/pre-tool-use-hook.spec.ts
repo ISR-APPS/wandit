@@ -391,6 +391,9 @@ describe("pre-tool-use hook", () => {
 			"echo x > /tmp/a\\ b/../../etc/passwd",
 			"echo x > .clau{d,}e/settings.json",
 			"echo x > >(tee .env)",
+			"echo x >> pnpm-workspace.yaml",
+			"echo x > .pnpmfile.mjs",
+			"echo x > CLAUDE.md",
 		])("denies %s", (command) => {
 			expectDenied(bash(command));
 		});
@@ -536,6 +539,9 @@ describe("pre-tool-use hook", () => {
 			"rsync -a x host:/y",
 			"find . -execdir rm .env ;",
 			"find -f .claude -delete",
+			"sed -i s/a/b/ pnpm-workspace.yaml",
+			"cp x pnpm-workspace.yaml",
+			"sed -i s/a/b/ AGENTS.md",
 		])("denies %s", (command) => {
 			expectDenied(bash(command));
 		});
@@ -588,8 +594,45 @@ describe("pre-tool-use hook", () => {
 			"yarn config set registry http://evil",
 			"pnpm dlx npm install",
 			"bun x npm install",
+			"pnpm add x --allow-build=x",
+			"pnpm install --config.pnpmfile=h.cjs",
+			"pnpm install --config.allowBuilds.x=true",
+			"pnpm_config_allow_builds=x pnpm install",
 		])("denies %s", (command) => {
 			expectDenied(bash(command));
+		});
+	});
+
+	describe("rules files and pnpm build approvals", () => {
+		it.each([
+			["Edit", "pnpm-workspace.yaml"],
+			["Write", "packages/x/pnpm-workspace.yaml"],
+			["Write", `${FAKE_WORKSPACE_DIR}/app/pnpm-workspace.yaml`],
+			["Write", "/tmp/x/pnpm-workspace.yaml"],
+			["Edit", ".pnpmfile.mjs"],
+			["Write", `${FAKE_WORKSPACE_DIR}/app/.pnpmfile.mjs`],
+			["Write", "CLAUDE.md"],
+			["Write", "src/CLAUDE.md"],
+			["Write", "CLAUDE.local.md"],
+			["Edit", "AGENTS.md"],
+			["Edit", "template_version"],
+			["Edit", "native-modules.json"],
+		])("denies %s to %s", (toolName, filePath) => {
+			expectDenied({
+				tool_name: toolName,
+				tool_input: { file_path: filePath },
+			});
+		});
+
+		it.each([
+			["Edit", "package.json"],
+			["Write", "src/scripts/seed.ts"],
+		])("allows %s to %s", (toolName, filePath) => {
+			const result = runHook({
+				tool_name: toolName,
+				tool_input: { file_path: filePath },
+			});
+			expect(result.status).toBe(0);
 		});
 	});
 
@@ -632,6 +675,9 @@ describe("pre-tool-use hook", () => {
 			"pnpm build",
 			"pnpm install --frozen-lockfile",
 			"pnpm add react",
+			"pnpm add -D typescript",
+			"pnpm run dev",
+			"cat pnpm-workspace.yaml",
 			"npm run build",
 			"npm test",
 			"npx tsc --noEmit",

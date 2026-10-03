@@ -43,7 +43,8 @@ shell that the client-side code fills on load.
 - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — injected at project creation.
   Missing values stop the app at start (D18).
 - `WANDIT_PREVIEW_HOST` — set by the sandbox in dev. Used for
-  `server.allowedHosts` and the HMR client host on port 443.
+  `server.allowedHosts` only. The HMR client connects to the page host on
+  port 443, so the sandbox host never reaches the browser.
 
 ## Skills
 
@@ -52,6 +53,9 @@ The sum of all world descriptions passed 8 KB, so the index is split into
 three skills instead of one: `design-worlds-website`, `design-worlds-product`,
 `design-worlds-cod`. Each world has its own `<id>/SKILL.md`, plus the six
 `ads-*` playbooks. Re-run the export script to regenerate; it is idempotent.
+The V1 world docs end their form rule with a `wandit:lead` dispatch. The export
+replaces that clause with a pointer to the public form contract in `CLAUDE.md`,
+and it fails when a clause has a form it does not know (WANDIT-273).
 
 ## Notes for the coding agent
 

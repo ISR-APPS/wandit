@@ -2,6 +2,7 @@
  * Exports design-world and ads skills into templates/web-app/.claude/skills.
  * Run from apps/server: `npx tsx scripts/export-world-skills.ts`.
  * Reads designWorlds and ADS_SKILLS from the ai-chat agent module.
+ * `toV2FormRule` swaps the V1 `wandit:lead` form rule of each world doc for V2.
  * The output is deterministic: a second run writes no changes.
  */
 import {
@@ -70,11 +71,58 @@ export function renderSkillMd(skill: SkillFile): string {
 	);
 }
 
+// The V2 data path of a public form, in place of the V1 `wandit:lead` dispatch.
+const FORM_CONTRACT = "the public form contract in CLAUDE.md";
+// The field list after `in detail`, for example `({ name, phone })`.
+const DETAIL_LIST = String.raw`(?:\s*\((?:[^()]|\([^()]*\))*\))?`;
+// "dispatch the wandit:lead CustomEvent on document with ... in detail (...)".
+// Group 1 is the verb ending, so the pointer keeps the grammar of the sentence.
+const LEAD_DISPATCH_RE = new RegExp(
+	String.raw`\bdispatch(es|ing)?\b[^.;]*?wandit:lead[^.;]*?\bin \`?detail\`?${DETAIL_LIST}`,
+	"g",
+);
+// "the wandit:lead CustomEvent dispatched on document with ... in detail (...)".
+const LEAD_DISPATCHED_RE = new RegExp(
+	String.raw`\bthe wandit:lead CustomEvent dispatched\b[^.;]*?\bin \`?detail\`?${DETAIL_LIST}`,
+	"g",
+);
+
+/**
+ * Rewrites the V1 form data path of one world doc for a V2 app (WANDIT-273).
+ * V1 pages still need the `wandit:lead` dispatch, so only the export rewrites it.
+ * Throws when a `wandit:lead` clause stays or the honeypot sentence is lost.
+ */
+export function toV2FormRule(worldId: string, doc: string): string {
+	const rewritten = doc
+		.replace(LEAD_DISPATCH_RE, (_clause, ending: string | undefined) => {
+			const verb =
+				ending === "es" ? "sends" : ending === "ing" ? "sending" : "send";
+			return `${verb} the fields as ${FORM_CONTRACT} says`;
+		})
+		.replace(LEAD_DISPATCHED_RE, `the fields sent as ${FORM_CONTRACT} says`)
+		// V1 words that also name the old data path.
+		.replace(/\bto the wandit runtime\b/g, "to the app's database")
+		.replace(/\bnever pretends to POST\b/g, "never fakes a send");
+	// A new V1 phrasing must fail the export, not reach the agent.
+	if (rewritten.includes("wandit:lead")) {
+		throw new Error(
+			`world ${worldId}: a wandit:lead clause has a form that toV2FormRule does not know`,
+		);
+	}
+	// The design skill keeps its honeypot rule; the RPC reads that field.
+	if (doc.includes("data-wandit-hp") && !rewritten.includes("data-wandit-hp")) {
+		throw new Error(
+			`world ${worldId}: the rewrite removed the data-wandit-hp honeypot rule`,
+		);
+	}
+	return rewritten;
+}
+
 function worldSkill(world: DesignWorld): SkillFile {
 	return {
 		slug: world.id,
 		description: world.tagline || firstLine(world.doc),
-		body: world.doc,
+		body: toV2FormRule(world.id, world.doc),
 	};
 }
 
