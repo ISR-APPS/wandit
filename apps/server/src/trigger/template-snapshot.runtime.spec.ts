@@ -17,8 +17,18 @@ type EnsureCall = {
 	harnessKey: string;
 };
 
+/** The three Vercel credentials, all set. */
+const VERCEL_ENV: TemplateSnapshotDeps["envSource"] = {
+	VERCEL_PROJECT_ID: "vercel-project-1",
+	VERCEL_SANDBOX_TOKEN: "vercel-token-1",
+	VERCEL_TEAM_ID: "team-1",
+};
+
 /** Answers per framework: an outcome, or an error to throw. */
-function setup(answers: Record<string, "exists" | "built" | Error>) {
+function setup(
+	answers: Record<string, "exists" | "built" | Error>,
+	envSource: TemplateSnapshotDeps["envSource"] = VERCEL_ENV,
+) {
 	const calls: EnsureCall[] = [];
 	const harness = new FakeBuilderHarness();
 	const sandbox: Promise<SandboxHandle> = new FakeSandboxProvider().getOrCreate(
@@ -35,6 +45,7 @@ function setup(answers: Record<string, "exists" | "built" | Error>) {
 	);
 	const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
 	const deps: TemplateSnapshotDeps = {
+		envSource,
 		harness,
 		logger,
 		provider: {
@@ -68,7 +79,12 @@ describe("runTemplateSnapshotBuild", () => {
 
 		const result = await runTemplateSnapshotBuild(deps);
 
-		expect(result).toEqual({ built: 1, existing: 1, failed: 0 });
+		expect(result).toEqual({
+			built: 1,
+			existing: 1,
+			failed: 0,
+			missingEnv: [],
+		});
 		expect(calls).toEqual([
 			{
 				harnessKey: FAKE_HARNESS_BOOTSTRAP_KEY,
@@ -105,5 +121,24 @@ describe("runTemplateSnapshotBuild", () => {
 			"sandbox.template-snapshot.failed",
 			{ error: "install failed", framework: "web-app" },
 		);
+	});
+
+	it("skips every build and names the unset credentials when Vercel is not set up", async () => {
+		const { calls, deps, harness, logger } = setup(
+			{ "mobile-app": "built", "web-app": "built" },
+			{ VERCEL_PROJECT_ID: "vercel-project-1" },
+		);
+
+		const result = await runTemplateSnapshotBuild(deps);
+
+		expect(result).toEqual({
+			built: 0,
+			existing: 0,
+			failed: 0,
+			missingEnv: ["VERCEL_SANDBOX_TOKEN", "VERCEL_TEAM_ID"],
+		});
+		expect(calls).toEqual([]);
+		expect(harness.preparedSandboxIds).toEqual([]);
+		expect(logger.error).not.toHaveBeenCalled();
 	});
 });
