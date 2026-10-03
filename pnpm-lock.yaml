@@ -470,20 +470,20 @@ importers:
   apps/server:
     dependencies:
       '@ai-sdk/gateway':
-        specifier: 4.0.80
-        version: 4.0.80(zod@4.4.3)
+        specifier: 4.0.100
+        version: 4.0.100(zod@4.4.3)
       '@ai-sdk/harness':
-        specifier: 1.0.109
-        version: 1.0.109(ws@8.21.0)(zod@4.4.3)
+        specifier: 1.0.133
+        version: 1.0.133(ws@8.21.0)(zod@4.4.3)
       '@ai-sdk/harness-claude-code':
-        specifier: 1.0.113
-        version: 1.0.113(zod@4.4.3)
+        specifier: 1.0.137
+        version: 1.0.137(zod@4.4.3)
       '@ai-sdk/mcp':
         specifier: 2.0.49
         version: 2.0.49(zod@4.4.3)
       '@ai-sdk/sandbox-vercel':
-        specifier: 1.0.109
-        version: 1.0.109(ws@8.21.0)(zod@4.4.3)
+        specifier: 1.0.133
+        version: 1.0.133(ws@8.21.0)(zod@4.4.3)
       '@aws-sdk/client-s3':
         specifier: ^3.1085.0
         version: 3.1085.0
@@ -510,7 +510,7 @@ importers:
         version: 11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))
       '@openrouter/ai-sdk-provider':
         specifier: ^3.0.0
-        version: 3.0.0(ai@7.0.99(zod@4.4.3))(zod@4.4.3)
+        version: 3.0.0(ai@7.0.122(zod@4.4.3))(zod@4.4.3)
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -522,7 +522,7 @@ importers:
         version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.218.0(@opentelemetry/api@1.9.1))
       '@trigger.dev/sdk':
         specifier: 4.5.3
-        version: 4.5.3(ai@7.0.99(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
+        version: 4.5.3(ai@7.0.122(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
       '@vercel/sandbox':
         specifier: 3.3.0
         version: 3.3.0
@@ -548,8 +548,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
       ai:
-        specifier: 7.0.99
-        version: 7.0.99(zod@4.4.3)
+        specifier: 7.0.122
+        version: 7.0.122(zod@4.4.3)
       better-auth:
         specifier: 'catalog:'
         version: 1.6.22(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(kysely@0.29.2)(pg@8.22.0))(pg@8.22.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(jsdom@30.0.1(@noble/hashes@2.2.0))(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)))
@@ -612,8 +612,8 @@ importers:
         version: 1.8.0
     devDependencies:
       '@ai-sdk/provider':
-        specifier: 4.0.14
-        version: 4.0.14
+        specifier: 4.0.19
+        version: 4.0.19
       '@nestjs/testing':
         specifier: ^11.1.27
         version: 11.2.3(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.27(@nestjs/common@11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))
@@ -1095,7 +1095,7 @@ importers:
         version: 11.1.27(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@trigger.dev/sdk':
         specifier: 4.5.3
-        version: 4.5.3(ai@7.0.99(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
+        version: 4.5.3(ai@7.0.122(zod@4.4.3))(react@19.2.7)(zod@4.4.3)
       '@types/node':
         specifier: ^22.13.14
         version: 22.20.0
@@ -1191,20 +1191,26 @@ packages:
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
 
+  '@ai-sdk/gateway@4.0.100':
+    resolution: {integrity: sha512-diJXVW2D1/NUW2JSg99b8yTpN8eW9AK5ntXSW4B7NrsW5STqwcGJAAOFlfOrQBzYHJlWReyy11WefWetdx4Qsw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/gateway@4.0.80':
     resolution: {integrity: sha512-6t+07o8lSthpKf64Xb1qHWR2bWvJ3Fd2oFvS9fQc45p31bi2OUqan246e/ojAmZpWCiMPjKyQ4TBr4MYytnTiQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/harness-claude-code@1.0.113':
-    resolution: {integrity: sha512-w7HHAlp5A15dmWZ7exjxHK2tA3z3CP09NPqfGKm2Ms7YxuoEBpwnxpTr56nkJF9UcOkjTusyuk5+okwUOxsb0A==}
+  '@ai-sdk/harness-claude-code@1.0.137':
+    resolution: {integrity: sha512-+Phw9rzaql0BuYDiCO+we1r3M8EwaVcTT96xHHmVnJpKT6J+WxOxBipCFwBXhZkqMyLFZ64bZLjwKEMInsyc6A==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/harness@1.0.109':
-    resolution: {integrity: sha512-mOYiRmVvihXVAJOhQxRwSx7MPqS9gJm64kyOsnRcgQGbcUvBxWJq3SQVKBck+J9KjrBITqepi5eBqckmKNFrrA==}
+  '@ai-sdk/harness@1.0.133':
+    resolution: {integrity: sha512-yj4+kkkKeEAOeGkm0cf0QDzywprnPYEESxyAYCTTHHjQSUyKXI3YAFxCgLmtJ5ytR5lmNMxKacu1bVO9ADWaJg==}
     engines: {node: '>=22'}
     peerDependencies:
       ws: ^8.21.0
@@ -1225,8 +1231,18 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/provider-utils@5.0.51':
+    resolution: {integrity: sha512-z0IsEsDx+dxlZqyCtDjMbBj16NGmxFVTgQcP3+n3EFm9ttNU6wjOgL/kgvaPwtmZM6F7JbtRuLyzr6WOfo5DMw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/provider@4.0.14':
     resolution: {integrity: sha512-yukP2tbcQQErG5gLCMBGvpvb/rM3D3KlTKG6eKKOdNHLHqtNNDEeBxdYrY/JL+O76B2ig5dXY19H/f1HFSvRiQ==}
+    engines: {node: '>=22'}
+
+  '@ai-sdk/provider@4.0.19':
+    resolution: {integrity: sha512-ryVZSSfmpEsr4bM8rbt9cSBWal+KGYRrm57C+k/hiPQHMiMahaqg2bPF0MpxSUWY8mGpt7s/ajM6PAqNTMKqPQ==}
     engines: {node: '>=22'}
 
   '@ai-sdk/react@4.0.102':
@@ -1235,8 +1251,8 @@ packages:
     peerDependencies:
       react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
 
-  '@ai-sdk/sandbox-vercel@1.0.109':
-    resolution: {integrity: sha512-zpdOk1XGX7aGdfvDEcrqSsVEUPS+720WFkYTnhIU1oxFKVNsNSwVWThDyenCEw34koGMQxVDPTUI8Ho6i42WJQ==}
+  '@ai-sdk/sandbox-vercel@1.0.133':
+    resolution: {integrity: sha512-tunRX083Fz5FAgQkfQIEuxaGNNi+kwlUxjCiWdC50h/r6GUWdm9CqkszE3h5glmY4E+fgkSujpHmgBVVX8VaeA==}
     engines: {node: '>=22'}
 
   '@alloc/quick-lru@5.2.0':
@@ -6258,6 +6274,12 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
+
+  ai@7.0.122:
+    resolution: {integrity: sha512-Un4yVROG+BMd6Q62xUxb9yV+wlTrUGeXhRtg5ltEFDV0p3lOYQaQHK9ozB6rdPdqlH3LyaszfbFdUkZ1p00nIQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
 
   ai@7.0.99:
     resolution: {integrity: sha512-Ov+3j/nSajaVH5hO8C94wN9wisG5tAJ8HWsLV9d/+nlzrRGUh3oYO3Kp1fRyUNWjAWLSpGLHLPaHCdfxb307Vg==}
@@ -11440,6 +11462,13 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
+  '@ai-sdk/gateway@4.0.100(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.19
+      '@ai-sdk/provider-utils': 5.0.51(zod@4.4.3)
+      '@vercel/oidc': 3.2.0
+      zod: 4.4.3
+
   '@ai-sdk/gateway@4.0.80(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 4.0.14
@@ -11447,21 +11476,21 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/harness-claude-code@1.0.113(zod@4.4.3)':
+  '@ai-sdk/harness-claude-code@1.0.137(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/harness': 1.0.109(ws@8.21.0)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.4.3)
+      '@ai-sdk/harness': 1.0.133(ws@8.21.0)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.51(zod@4.4.3)
       ws: 8.21.0
       zod: 4.4.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@ai-sdk/harness@1.0.109(ws@8.21.0)(zod@4.4.3)':
+  '@ai-sdk/harness@1.0.133(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.14
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.4.3)
-      ai: 7.0.99(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.19
+      '@ai-sdk/provider-utils': 5.0.51(zod@4.4.3)
+      ai: 7.0.122(zod@4.4.3)
       zod: 4.4.3
     optionalDependencies:
       ws: 8.21.0
@@ -11483,7 +11512,20 @@ snapshots:
       undici: 7.29.1
       zod: 4.4.3
 
+  '@ai-sdk/provider-utils@5.0.51(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.19
+      '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
+      eventsource-parser: 3.1.0
+      undici: 7.29.1
+      zod: 4.4.3
+
   '@ai-sdk/provider@4.0.14':
+    dependencies:
+      json-schema: 0.4.0
+
+  '@ai-sdk/provider@4.0.19':
     dependencies:
       json-schema: 0.4.0
 
@@ -11511,10 +11553,10 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
-  '@ai-sdk/sandbox-vercel@1.0.109(ws@8.21.0)(zod@4.4.3)':
+  '@ai-sdk/sandbox-vercel@1.0.133(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/harness': 1.0.109(ws@8.21.0)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.4.3)
+      '@ai-sdk/harness': 1.0.133(ws@8.21.0)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.51(zod@4.4.3)
       '@vercel/sandbox': 3.3.0
     transitivePeerDependencies:
       - bare-abort-controller
@@ -14190,6 +14232,11 @@ snapshots:
 
   '@noble/hashes@2.2.0': {}
 
+  '@openrouter/ai-sdk-provider@3.0.0(ai@7.0.122(zod@4.4.3))(zod@4.4.3)':
+    dependencies:
+      ai: 7.0.122(zod@4.4.3)
+      zod: 4.4.3
+
   '@openrouter/ai-sdk-provider@3.0.0(ai@7.0.99(zod@4.4.3))(zod@4.4.3)':
     dependencies:
       ai: 7.0.99(zod@4.4.3)
@@ -16582,7 +16629,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@trigger.dev/sdk@4.5.3(ai@7.0.99(zod@4.4.3))(react@19.2.7)(zod@4.4.3)':
+  '@trigger.dev/sdk@4.5.3(ai@7.0.122(zod@4.4.3))(react@19.2.7)(zod@4.4.3)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/semantic-conventions': 1.41.1
@@ -16597,7 +16644,7 @@ snapshots:
       ws: 8.21.0
       zod: 4.4.3
     optionalDependencies:
-      ai: 7.0.99(zod@4.4.3)
+      ai: 7.0.122(zod@4.4.3)
       react: 19.2.7
     transitivePeerDependencies:
       - bufferutil
@@ -17007,6 +17054,13 @@ snapshots:
       - supports-color
 
   agent-base@7.1.4: {}
+
+  ai@7.0.122(zod@4.4.3):
+    dependencies:
+      '@ai-sdk/gateway': 4.0.100(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.19
+      '@ai-sdk/provider-utils': 5.0.51(zod@4.4.3)
+      zod: 4.4.3
 
   ai@7.0.99(zod@4.4.3):
     dependencies:

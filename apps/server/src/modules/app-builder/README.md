@@ -1101,9 +1101,11 @@ Check order, per request:
    `V2_RATE_LIMITED` with `retry-after: 60` and a `rate_limited` row.
 4. **Run cap.** Redis `llm:spend:run:{runId}` micros vs `capUsd`. Over:
    402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row.
+   `GENERATION_BILLING_MODE=off` skips this check.
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
    `LLM_PROXY_DAILY_USER_CAP_USD` ($50, ESTIMATE until WANDIT-174). Over:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row.
+   `GENERATION_BILLING_MODE=off` skips this check.
 
 Then the forward. `upstreamFor(modelId, env)` picks the upstream and key:
 `AI_GATEWAY_API_KEY` when the upstream host is `ai-gateway.vercel.sh`,
@@ -1156,7 +1158,8 @@ Env: `LLM_PROXY_SIGNING_KEY`, `V2_DEFAULT_MODEL`,
 `V2_LLM_UPSTREAM_BASE_URL` (unset → `https://api.anthropic.com`),
 `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `OPENROUTER_API_KEY`,
 `REDIS_URL`, `GENERATION_BILLING_MODE` (`off` skips the hold, the
-checkpoints, and the settle), `AI_USD_PER_CREDIT` (0.032, the credit
+checkpoints, the settle, and the proxy run and daily spend caps; the env
+schema refuses `off` when `NODE_ENV=production`), `AI_USD_PER_CREDIT` (0.032, the credit
 anchor the settle uses). Logs carry ids, tokens counts, micros, and
 status — never a body, a token, or a provider key.
 

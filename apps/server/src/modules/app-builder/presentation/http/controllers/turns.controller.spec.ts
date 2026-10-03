@@ -53,9 +53,11 @@ function fakeSseRequest() {
 }
 
 function fakeReply() {
-	// SAFETY: the controller uses only `code` and `send` on the 204 path.
+	// SAFETY: the controller uses only `code` and `send` on the 204 path,
+	// and `elapsedTime` on the create path.
 	const reply = {
 		code: vi.fn(),
+		elapsedTime: 40,
 		send: vi.fn(async () => reply),
 	};
 	reply.code.mockReturnValue(reply);
@@ -67,6 +69,7 @@ function fakeReply() {
 const turnRow = (overrides: Record<string, null | string> = {}) => ({
 	id: "turn-1",
 	projectId: "project-1",
+	runner: "trigger",
 	triggerRunId: "run-1",
 	...overrides,
 });
@@ -96,6 +99,7 @@ describe("TurnsController", () => {
 			{ kind: "personal", userId: "user_1" },
 			"project-1",
 			body,
+			{ requestStartedAt: expect.any(Number) },
 		);
 		// The create response rides as the first frame; the create guard
 		// took a count slot, so the relay must not release a stream slot.
@@ -159,6 +163,28 @@ describe("TurnsController", () => {
 		expect(relay.relay).not.toHaveBeenCalled();
 		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
 		expect(reply.code).toHaveBeenCalledWith(204);
+	});
+
+	it("relays a host turn, which never has a Trigger run id", async () => {
+		const { controller, relay, turns } = setup();
+		turns.assertStreamAccess.mockResolvedValue(
+			turnRow({ runner: "host", triggerRunId: null }),
+		);
+		const request = fakeSseRequest();
+		const reply = fakeReply();
+
+		await controller.stream(
+			"project-1",
+			"turn-1",
+			user,
+			workspace,
+			request,
+			reply,
+		);
+
+		expect(relay.relay).toHaveBeenCalledWith(
+			expect.objectContaining({ triggerRunId: null, turnId: "turn-1" }),
+		);
 	});
 
 	it("answers 204 on the active stream when nothing is running", async () => {

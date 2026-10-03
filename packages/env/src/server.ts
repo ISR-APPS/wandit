@@ -323,6 +323,14 @@ export const env = createEnv({
 		ANTHROPIC_API_KEY: z.string().min(1).optional(),
 		// Comma-separated list: the first key signs, any key verifies.
 		LLM_PROXY_SIGNING_KEY: z.string().min(1).optional(),
+		// Base URL of the harness host process, which keeps Claude Code
+		// sessions alive between turns. Unset: every turn runs on Trigger.dev.
+		HARNESS_HOST_URL: z.url().optional(),
+		// Shared secret of the API and the harness host; only the API may start
+		// paid turns there. 32 chars at least, like the other signing keys.
+		HARNESS_HOST_SECRET: z.string().min(32).optional(),
+		// Port the harness host process listens on.
+		HARNESS_HOST_PORT: z.coerce.number().int().positive().optional(),
 		SUPABASE_PLATFORM_TOKEN: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_ORG_ID: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_REGION: z.string().min(1).optional(),

@@ -57,6 +57,7 @@ import {
 import { TURN_LOCK, type TurnLock } from "../../domain/ports/turn-lock";
 import {
 	TURN_TASK_STARTER,
+	type TurnRunHandle,
 	type TurnTaskStarter,
 } from "../../domain/ports/turn-task-starter";
 import {
@@ -65,6 +66,7 @@ import {
 } from "../../domain/turn-caps";
 import {
 	CANCELLABLE_TURN_STATUSES,
+	hostRunIdOf,
 	isTerminalStatus,
 	nextStatusForCancel,
 	RESTORE_LOCK_HOLDER_PREFIX,
@@ -180,8 +182,12 @@ export class TurnsService {
 		scope: ProjectScope,
 		projectId: string,
 		body: CreateTurnRequest,
-		/** Set by the create-project path: the first user message row already exists inside the create transaction. */
-		options: { existingMessageId?: string } = {},
+		options: {
+			/** Set by the create-project path: the first user message row already exists inside the create transaction. */
+			existingMessageId?: string;
+			/** `Date.now()` ms when the HTTP request arrived; feeds `apiCreateMs` of the timing line. */
+			requestStartedAt?: number;
+		} = {},
 	): Promise<CreateTurnResponse> {
 		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
 		// One 404 for "missing", "out of scope", and "not a V2 project".
@@ -361,6 +367,12 @@ export class TurnsService {
 				userId: scope.userId,
 			});
 			rowCreated = true;
+			// Whole ms: the task payload schema takes an integer, and Fastify
+			// counts the request time with decimals.
+			const apiCreateMs =
+				options.requestStartedAt === undefined
+					? null
+					: Math.round(Date.now() - options.requestStartedAt);
 
 			if (created.replayed) {
 				// The requestKey matched an earlier row: adopt it. The fresh hold
@@ -417,16 +429,25 @@ export class TurnsService {
 				return this.responseFor(created.turn, body.chatId, estimate);
 			}
 
-			const { runId } = await this.starter.start({
+			const handle = await this.starter.start({
 				actorUserId: scope.userId,
+				apiCreateMs,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
 				turnId: created.turn.id,
 			});
-			await this.turns.setTriggerRunId(created.turn.id, runId);
+			if (handle.runner === "host") {
+				// The relay reads a host turn from Redis by its turn id.
+				return this.responseFor(
+					{ ...created.turn, runner: "host" },
+					body.chatId,
+					estimate,
+				);
+			}
+			await this.turns.setTriggerRunId(created.turn.id, handle.runId);
 
 			return this.responseFor(
-				{ ...created.turn, triggerRunId: runId },
+				{ ...created.turn, triggerRunId: handle.runId },
 				body.chatId,
 				estimate,
 			);
@@ -511,13 +532,15 @@ export class TurnsService {
 			};
 		}
 
-		if (turn.triggerRunId) {
-			await this.starter.cancel(turn.triggerRunId);
+		const handle = runHandleOf(turn);
+		if (handle !== null) {
+			await this.starter.cancel(turn.id, handle);
 			// The run is dead or dying; its proxy token must die with it, or a
 			// leftover sandbox process keeps spending the run cap.
-			await this.revokeRunToken(turn.triggerRunId);
+			await this.revokeRunToken(runIdOf(turn.id, handle));
 		}
 
+		// A host turn has no Trigger run id, so the wait polls its row.
 		await this.waitForCancelSettled(turn.id, turn.triggerRunId);
 
 		// Release before the terminal flip per the issue order: the compare-
@@ -590,8 +613,9 @@ export class TurnsService {
 
 		// Same rule as cancel: a terminal turn's proxy token must not
 		// outlive the run that owned it.
-		if (row.triggerRunId) {
-			await this.revokeRunToken(row.triggerRunId);
+		const handle = runHandleOf(row);
+		if (handle !== null) {
+			await this.revokeRunToken(runIdOf(row.id, handle));
 		}
 
 		await this.promoter
@@ -928,4 +952,24 @@ export class TurnsService {
 			...(turn.status === "waiting" ? { queued: true } : {}),
 		};
 	}
+}
+
+/**
+ * The run of a row, or null when no run started: a Trigger turn without a
+ * run id yet. A host turn always names the host.
+ */
+function runHandleOf(
+	turn: Pick<BuilderTurnRow, "runner" | "triggerRunId">,
+): TurnRunHandle | null {
+	if (turn.runner === "host") {
+		return { runner: "host" };
+	}
+	return turn.triggerRunId === null
+		? null
+		: { runId: turn.triggerRunId, runner: "trigger" };
+}
+
+/** The run id the turn's proxy token carries; see `hostRunIdOf`. */
+function runIdOf(turnId: string, handle: TurnRunHandle): string {
+	return handle.runner === "host" ? hostRunIdOf(turnId) : handle.runId;
 }

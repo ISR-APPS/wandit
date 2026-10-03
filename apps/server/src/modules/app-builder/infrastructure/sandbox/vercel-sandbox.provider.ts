@@ -798,6 +798,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		try {
 			if (created) {
 				await reportWake();
+				options.onCreated?.();
 				// A live row means the vendor lost the sandbox — this is a rebuild.
 				this.logLifecycle(
 					context.hadLiveRow ? "rebuild" : "create",

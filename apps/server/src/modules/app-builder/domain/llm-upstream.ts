@@ -8,6 +8,8 @@
 export type LlmProxyEnv = {
 	AI_GATEWAY_API_KEY?: string | undefined;
 	ANTHROPIC_API_KEY?: string | undefined;
+	/** `off` is the local test mode; the env schema refuses it in production. */
+	GENERATION_BILLING_MODE?: "enforce" | "off" | undefined;
 	LLM_PROXY_SIGNING_KEY?: string | undefined;
 	OPENROUTER_API_KEY?: string | undefined;
 	V2_DEFAULT_MODEL?: string | undefined;

@@ -41,7 +41,10 @@ import { MOBILE_BUILD_TASK_STARTER } from "./domain/ports/mobile-build-task-star
 import { PROVISION_BACKEND_TASK_STARTER } from "./domain/ports/provision-backend-task-starter";
 import { PUBLISH_APP_TASK_STARTER } from "./domain/ports/publish-app-task-starter";
 import { SANDBOX_PROVIDER } from "./domain/ports/sandbox-provider";
-import { TURN_EVENT_READER } from "./domain/ports/turn-events";
+import {
+	HOST_TURN_EVENT_READER,
+	TURN_EVENT_READER,
+} from "./domain/ports/turn-events";
 import { TURN_LOCK } from "./domain/ports/turn-lock";
 import { TURN_TASK_STARTER } from "./domain/ports/turn-task-starter";
 import { WORKERS_FOR_PLATFORMS_CLIENT } from "./infrastructure/cloudflare/workers-for-platforms.client";
@@ -64,6 +67,7 @@ import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
+import { RedisTurnEventReader } from "./infrastructure/redis/redis-turn-events";
 import { RedisTurnLock } from "./infrastructure/redis/redis-turn-lock";
 import { TEMPLATE_INIT } from "./infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "./infrastructure/sandbox/vercel-sandbox.provider";
@@ -74,7 +78,6 @@ import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
-import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
@@ -189,8 +192,13 @@ describe("AppBuilderModule", () => {
 			// The factory identity is not stable; match the token only.
 			expect.objectContaining({ provide: TEMPLATE_INIT }),
 			{ provide: TURN_EVENT_READER, useClass: TriggerTurnEventReader },
+			{ provide: HOST_TURN_EVENT_READER, useClass: RedisTurnEventReader },
 			{ provide: TURN_LOCK, useClass: RedisTurnLock },
-			{ provide: TURN_TASK_STARTER, useClass: TriggerTurnTaskStarter },
+			// The routing starter factory; match the token and its injection.
+			expect.objectContaining({
+				inject: [BuilderTurnsRepository],
+				provide: TURN_TASK_STARTER,
+			}),
 			{ provide: V2_ENV, useValue: env },
 			{ provide: VERSION_OBJECTS, useValue: r2VersionObjects },
 			expect.objectContaining({ provide: WORKERS_FOR_PLATFORMS_CLIENT }),

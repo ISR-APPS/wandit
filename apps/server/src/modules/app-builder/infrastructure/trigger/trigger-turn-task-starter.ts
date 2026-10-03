@@ -15,6 +15,7 @@ import { idempotencyKeys, runs, tasks } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 
 import type {
+	TurnRunHandle,
 	TurnTaskStarter,
 	TurnTaskStartInput,
 } from "../../domain/ports/turn-task-starter";
@@ -39,7 +40,9 @@ export class TriggerTurnTaskStarter implements TurnTaskStarter {
 	 * retried `create` or a promoted requeue can never start a twin run.
 	 * `concurrencyKey` keeps one project's runs ordered server-side too.
 	 */
-	async start(input: TurnTaskStartInput): Promise<{ runId: string }> {
+	async start(
+		input: TurnTaskStartInput,
+	): Promise<{ runner: "trigger"; runId: string }> {
 		this.assertTriggerConfigured();
 
 		const idempotencyKey = await idempotencyKeys.create(
@@ -54,6 +57,7 @@ export class TriggerTurnTaskStarter implements TurnTaskStarter {
 					BUILDER_TURN_TASK_ID,
 					{
 						actorUserId: input.actorUserId,
+						apiCreateMs: input.apiCreateMs,
 						organizationId: input.organizationId,
 						projectId: input.projectId,
 						turnId: input.turnId,
@@ -69,7 +73,7 @@ export class TriggerTurnTaskStarter implements TurnTaskStarter {
 					},
 				);
 
-				return { runId: handle.id };
+				return { runId: handle.id, runner: "trigger" };
 			} catch (error) {
 				lastError = error;
 
@@ -94,8 +98,14 @@ export class TriggerTurnTaskStarter implements TurnTaskStarter {
 	 * means the run burns until its own abort/ttl catches up — logged, not
 	 * thrown.
 	 */
-	async cancel(runId: string): Promise<void> {
+	async cancel(turnId: string, handle: TurnRunHandle): Promise<void> {
+		if (handle.runner !== "trigger") {
+			// The router sends host turns to the host; this one has no run here.
+			this.logger.warn(`Trigger cancel skipped for host turn ${turnId}`);
+			return;
+		}
 		this.assertTriggerConfigured();
+		const { runId } = handle;
 
 		try {
 			await runs.cancel(runId);

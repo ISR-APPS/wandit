@@ -76,6 +76,12 @@ export default defineConfig({
 	// calls webidl.util.markAsUncloneable, which Node 21 never got — the
 	// deploy indexer crashes on import with the default runtime.
 	runtime: "node-22",
+	// A finished run leaves its process warm for the next run: a builder turn
+	// then skips the fork, the bootstrap, and the task import (about 0.8 s of
+	// the 1.6 s queue time, report 2.2). Each run opens its own pool and Redis
+	// clients and closes them in `finally`, so a reused process starts clean.
+	// The default cap of 50 runs per process bounds a slow leak.
+	processKeepAlive: true,
 	// Generous ceiling: the builder agent does a single deliberate build pass
 	// (typically a few minutes), but long model calls need headroom.
 	// Compute-seconds: 1800 = 30 minutes — a safety net, not an estimate.
@@ -118,6 +124,9 @@ export default defineConfig({
 					"../../templates/mobile-app/.npmrc",
 					"../../templates/mobile-app/eas.json",
 					"../../templates/mobile-app/native-modules.json",
+					// The Claude Code bridge fork; `readForkRunTurn` reads it under the
+					// working directory of the deployed worker.
+					"./src/modules/app-builder/application/harness/claude-code-bridge/persistent-run-turn.mjs",
 				],
 			}),
 			// Uploads source maps to Sentry on `trigger.dev deploy` so task

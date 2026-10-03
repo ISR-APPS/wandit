@@ -52,6 +52,7 @@ function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 		startedAt: null,
 		status: "queued",
 		triggerRunId: null,
+		runner: "trigger",
 		turnNumber: 1,
 		userId: "user-1",
 		...overrides,

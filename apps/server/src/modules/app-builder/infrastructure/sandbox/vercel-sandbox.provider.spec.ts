@@ -513,6 +513,27 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		expect(env.ANTHROPIC_API_KEY).toBe("");
 	});
 
+	it("calls onCreated on a create and a rebuild, not on a resume", async () => {
+		const { provider, sdk } = setup();
+		let created = 0;
+		const options = {
+			...OPTIONS,
+			onCreated: () => {
+				created += 1;
+			},
+		};
+
+		await provider.getOrCreate("p1", options);
+		await provider.stop("p1");
+		// A resume keeps the disk and its Claude Code transcript.
+		await provider.getOrCreate("p1", options);
+		expect(created).toBe(1);
+
+		sdk.expire("p1");
+		await provider.getOrCreate("p1", options);
+		expect(created).toBe(2);
+	});
+
 	it("rebuilds from the template when the vendor lost the sandbox", async () => {
 		const { provider, logger, restorer, sdk, sessions, templateInit } = setup();
 

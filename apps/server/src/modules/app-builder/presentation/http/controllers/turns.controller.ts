@@ -89,6 +89,8 @@ export class TurnsController {
 			projectScopeFrom(workspace, user.id),
 			projectId,
 			body,
+			// `elapsedTime` counts from the request arrival, so the guards count too.
+			{ requestStartedAt: Date.now() - reply.elapsedTime },
 		);
 		await this.relay.relay({
 			first: created,
@@ -174,8 +176,9 @@ export class TurnsController {
 				turnId,
 			);
 
-			if (!turn.triggerRunId) {
-				// A queued or waiting turn has no stream yet; the client retries.
+			if (turn.runner === "trigger" && !turn.triggerRunId) {
+				// A queued or waiting Trigger turn has no stream yet; the client
+				// retries. A host turn streams from Redis by its turn id.
 				await reply.code(204).send();
 				await this.relay.releaseStreamSlot(request);
 				return;

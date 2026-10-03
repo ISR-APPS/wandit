@@ -87,6 +87,12 @@ export type SandboxCreateOptions = {
 	 */
 	onWake?: () => Promise<void>;
 	/**
+	 * Called when the vendor created a new sandbox: a first boot, or a
+	 * rebuild after the vendor lost the old one. Its disk holds no Claude
+	 * Code transcript, so a stored agent session cannot resume.
+	 */
+	onCreated?: () => void;
+	/**
 	 * Hash of the harness install, from `BuilderHarness.bootstrapKey`. With
 	 * it, a new sandbox boots from the template snapshot of the same key
 	 * when one exists. Absent, it boots from the image; a restore passes none.

@@ -11,6 +11,7 @@
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
 		"dev:trigger": "npx trigger.dev@4.5.3 dev",
+		"dev:host": "tsx watch src/harness-host/main.ts",
 		"domains:backfill-apex": "tsx scripts/backfill-apex-zones.ts",
 		"images:backfill-variants": "tsx scripts/backfill-image-variants.ts",
 		"mcp:seed": "tsx scripts/seed-mcp-connectors.ts",
@@ -22,11 +23,11 @@
 		"stripe:seed": "tsx scripts/seed-stripe.ts"
 	},
 	"dependencies": {
-		"@ai-sdk/gateway": "4.0.80",
-		"@ai-sdk/harness": "1.0.109",
-		"@ai-sdk/harness-claude-code": "1.0.113",
+		"@ai-sdk/gateway": "4.0.100",
+		"@ai-sdk/harness": "1.0.133",
+		"@ai-sdk/harness-claude-code": "1.0.137",
 		"@ai-sdk/mcp": "2.0.49",
-		"@ai-sdk/sandbox-vercel": "1.0.109",
+		"@ai-sdk/sandbox-vercel": "1.0.133",
 		"@aws-sdk/client-s3": "^3.1085.0",
 		"@fastify/multipart": "^10.0.0",
 		"@modelcontextprotocol/sdk": "1.29.0",
@@ -48,7 +49,7 @@
 		"@wandit/env": "workspace:*",
 		"@wandit/jobs": "workspace:*",
 		"@wandit/observability": "workspace:*",
-		"ai": "7.0.99",
+		"ai": "7.0.122",
 		"better-auth": "catalog:",
 		"bullmq": "^5.79.2",
 		"cheerio": "^1.2.0",
@@ -71,7 +72,7 @@
 		"unpdf": "^1.8.0"
 	},
 	"devDependencies": {
-		"@ai-sdk/provider": "4.0.14",
+		"@ai-sdk/provider": "4.0.19",
 		"@nestjs/testing": "^11.1.27",
 		"@sentry/esbuild-plugin": "catalog:",
 		"@trigger.dev/build": "4.5.3",

@@ -395,6 +395,36 @@ describe("livePhaseOf", () => {
 	it("returns null when no turn runs, so an old status never shows", () => {
 		expect(livePhaseOf(messages, false)).toBeNull();
 	});
+
+	const createdOnly = (queued: boolean) =>
+		[
+			{
+				id: "a2",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-turn-created",
+						id: "turn-created",
+						data: {
+							chatId: "chat-1",
+							runId: null,
+							status: queued ? "waiting" : "queued",
+							streamUrl: "/api/v2/projects/p/turns/active/stream",
+							turnId: "turn-1",
+							...(queued ? { queued: true } : {}),
+						},
+					},
+				],
+			},
+		] satisfies TurnMessage[];
+
+	it("shows session_starting as soon as the turn is created", () => {
+		expect(livePhaseOf(createdOnly(false), true)).toBe("session_starting");
+	});
+
+	it("keeps the default label for a turn queued behind another turn", () => {
+		expect(livePhaseOf(createdOnly(true), true)).toBeNull();
+	});
 });
 
 describe("toBuilderMessages", () => {

@@ -3,8 +3,8 @@
  *
  * Repository means: keep SQL/database details here, not inside services.
  *
- * This file is API-side only. The worker has its own repository for writing the
- * final assistant message.
+ * The API and the V2 `builder-turn` task use it. The V1 worker has its own
+ * repository for writing the final assistant message.
  */
 // `@Injectable()` lets Nest create and inject this repository.
 import { Inject, Injectable } from "@nestjs/common";
@@ -15,7 +15,7 @@ import type {
 	TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, eq, isNull, sql } from "@wandit/db";
+import { and, asc, desc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
 import type { UIMessage } from "ai";
@@ -39,6 +39,11 @@ export type OwnedChatRow = {
 
 // Type of one row from the messages table.
 export type InsertedMessageRow = typeof messages.$inferSelect;
+
+/** One row of `listRecentTexts`: the message id, its role, and its text parts joined. */
+export type ChatMessageText = Pick<InsertedMessageRow, "id" | "role"> & {
+	text: string;
+};
 
 type UiMessageToInsert = {
 	id: string;
@@ -123,6 +128,25 @@ export class ChatsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	/**
+	 * The last `limit` messages of a chat, newest first, as plain text: the
+	 * text parts joined, nothing else. The builder-turn task reads it for the
+	 * recap of a lost agent session. Assistant rows hold 44–80 KB of parts,
+	 * so the database extracts the text and the row count has a limit (X6).
+	 */
+	listRecentTexts(chatId: string, limit: number): Promise<ChatMessageText[]> {
+		return this.db
+			.select({
+				id: messages.id,
+				role: messages.role,
+				text: sql<string>`coalesce((select string_agg(part->>'text', E'\\n') from jsonb_array_elements(case when jsonb_typeof(${messages.parts}) = 'array' then ${messages.parts} else '[]'::jsonb end) as part where part->>'type' = 'text'), '')`,
+			})
+			.from(messages)
+			.where(eq(messages.chatId, chatId))
+			.orderBy(desc(messages.seq))
+			.limit(limit);
 	}
 
 	// Return chat messages in insertion order.

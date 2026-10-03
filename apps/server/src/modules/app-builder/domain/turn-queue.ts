@@ -60,6 +60,15 @@ export const CANCELLABLE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
  */
 export const RESTORE_LOCK_HOLDER_PREFIX = "restore:";
 
+/**
+ * The run id of a host-run turn, for the proxy token, its revoke, and the
+ * spend counters. A host turn has no Trigger.dev run, so the id comes from
+ * the turn id and the API and the host derive the same value.
+ */
+export function hostRunIdOf(turnId: string): string {
+	return `host-${turnId}`;
+}
+
 /** True while the turn can still change state. Inverse of the terminal set. */
 export function isActiveStatus(status: BuilderTurnStatus): boolean {
 	return !isTerminalStatus(status);

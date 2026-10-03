@@ -112,6 +112,8 @@ export * from "./v2/cost-caps";
 export * from "./v2/device-sessions";
 // V2 builder harness lifecycle contracts.
 export * from "./v2/harness";
+// V2 harness host routes: the API starts and stops host-run turns there.
+export * from "./v2/harness-host";
 // V2 app-builder health contract.
 export * from "./v2/health";
 // V2 builder host-tool input/output contracts.

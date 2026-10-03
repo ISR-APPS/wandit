@@ -382,21 +382,30 @@ export function receiptOf(
 
 /**
  * The phase of the running turn: the last `data-turn-status` part of the
- * last message while a turn runs. Null when no turn runs or no status
- * arrived yet. The pane shows it in its one working row.
+ * last message while a turn runs. Before the first status, a created turn
+ * that is not queued reads as `session_starting` ("Getting ready"): a warm
+ * turn sends its first status only after about 5 s. Null when no turn
+ * runs or nothing arrived yet. The pane shows it in its one working row.
  */
 export function livePhaseOf(
 	messages: readonly TurnMessage[],
 	isRunning: boolean,
 ): TurnStreamPhase | null {
 	if (!isRunning) return null;
-	const status = messages
-		.at(-1)
-		?.parts.findLast(
-			(part): part is Extract<TurnMessagePart, { type: "data-turn-status" }> =>
-				part.type === "data-turn-status",
-		);
-	return status?.data.phase ?? null;
+	const parts = messages.at(-1)?.parts ?? [];
+	const status = parts.findLast(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-status" }> =>
+			part.type === "data-turn-status",
+	);
+	if (status !== undefined) return status.data.phase;
+	const created = parts.find(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-created" }> =>
+			part.type === "data-turn-created",
+	);
+	// A queued turn waits behind another turn; "Getting ready" would be wrong.
+	return created !== undefined && created.data.queued !== true
+		? "session_starting"
+		: null;
 }
 
 /** The text parts of a message joined with a blank line, trimmed. */
