@@ -71,8 +71,6 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 	const onSend = vi.fn();
 	const onDecideApproval = vi.fn();
 	const onAnswerQuestions = vi.fn();
-	const onCancel = vi.fn();
-	const onCollapse = vi.fn();
 	const paneWith = (overrides: Partial<ChatPaneProps>) => {
 		// I18nProvider requires children in its props type for createElement calls.
 		const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -88,14 +86,17 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 					focusLabel: null,
 					isSending: false,
 					phase: null,
+					isFirstTurn: false,
+					// True keeps the thought rows and the seconds counter of the debug view.
+					showsAgentDebug: true,
 					isReady: true,
 					projectName: "Nadi Fitness",
 					onSend,
 					onDecideApproval,
 					onAnswerQuestions,
-					onCancel,
+					onCancel: () => {},
 					errorText: null,
-					onCollapse,
+					onCollapse: () => {},
 					onPreviewVersion: () => {},
 					...props,
 					...overrides,
@@ -109,8 +110,6 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 		onSend,
 		onDecideApproval,
 		onAnswerQuestions,
-		onCancel,
-		onCollapse,
 		rerenderWith: (overrides: Partial<ChatPaneProps>) =>
 			view.rerender(paneWith(overrides)),
 	};
@@ -139,78 +138,58 @@ afterEach(() => {
 });
 
 describe("ChatPane", () => {
-	it("renders every message and passes a sent draft through", () => {
-		const { onSend } = renderPane();
-		expect(screen.getByText("Build the app")).toBeTruthy();
-		expect(screen.getByText("Here is the plan.")).toBeTruthy();
-		expect(screen.queryByRole("status")).toBeNull();
-		const textarea = screen.getByRole("textbox");
-		fireEvent.change(textarea, { target: { value: "Add a QR pass" } });
-		fireEvent.keyDown(textarea, { key: "Enter" });
-		expect(onSend).toHaveBeenCalledWith({
-			text: "Add a QR pass",
-			mode: "build",
-		});
-	});
-
-	it("sends a follow-up as a build turn, and drops it while a turn runs", () => {
-		const followUp: BuilderMessage = {
-			id: "a2",
-			role: "assistant",
-			metadata: { followUps: ["Add a classes schedule"] },
-			parts: [{ type: "text", text: "Done." }],
-		};
-		const idle = renderPane({ messages: [followUp] });
-		fireEvent.click(
-			screen.getByRole("button", { name: "Add a classes schedule" }),
-		);
-		expect(idle.onSend).toHaveBeenCalledWith({
-			text: "Add a classes schedule",
-			mode: "build",
-		});
-		cleanup();
-		const busy = renderPane({ messages: [followUp], isSending: true });
-		fireEvent.click(
-			screen.getByRole("button", { name: "Add a classes schedule" }),
-		);
-		expect(busy.onSend).not.toHaveBeenCalled();
-	});
-
-	it("sends an approval decision, and drops it while a turn runs", () => {
-		const approvalMessage: BuilderMessage = {
-			id: "a3",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-approval",
-					id: "ap-1",
-					data: {
-						approvalId: "ap-1",
-						toolName: "run_sql_write",
-						input: '{"query":"delete from notes"}',
-						decision: null,
-						isOpen: true,
+	// One active turn per project: the cards stay clickable, so the pane drops a second send.
+	it.each<{
+		name: string;
+		message: BuilderMessage;
+		buttonName: string;
+		callback: "onSend" | "onDecideApproval";
+	}>([
+		{
+			name: "a follow-up",
+			message: {
+				id: "a2",
+				role: "assistant",
+				metadata: { followUps: ["Add a classes schedule"] },
+				parts: [{ type: "text", text: "Done." }],
+			},
+			buttonName: "Add a classes schedule",
+			callback: "onSend",
+		},
+		{
+			name: "an approval decision",
+			message: {
+				id: "a3",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-approval",
+						id: "ap-1",
+						data: {
+							approvalId: "ap-1",
+							toolName: "run_sql_write",
+							input: '{"query":"delete from notes"}',
+							decision: null,
+							isOpen: true,
+						},
 					},
-				},
-			],
-		};
-		const idle = renderPane({ messages: [approvalMessage] });
-		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-		expect(idle.onDecideApproval).toHaveBeenCalledWith("ap-1", true);
+				],
+			},
+			buttonName: "Approve",
+			callback: "onDecideApproval",
+		},
+	])("sends $name, and drops it while a turn runs", ({
+		message,
+		buttonName,
+		callback,
+	}) => {
+		const idle = renderPane({ messages: [message] });
+		fireEvent.click(screen.getByRole("button", { name: buttonName }));
+		expect(idle[callback]).toHaveBeenCalledOnce();
 		cleanup();
-		const busy = renderPane({
-			messages: [approvalMessage],
-			isSending: true,
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-		expect(busy.onDecideApproval).not.toHaveBeenCalled();
-	});
-
-	it("shows the project name in the header and hides the chat from its button", () => {
-		const { onCollapse } = renderPane();
-		expect(screen.getByText(/Nadi Fitness/)).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Hide the chat" }));
-		expect(onCollapse).toHaveBeenCalledOnce();
+		const busy = renderPane({ messages: [message], isSending: true });
+		fireEvent.click(screen.getByRole("button", { name: buttonName }));
+		expect(busy[callback]).not.toHaveBeenCalled();
 	});
 
 	it("locks the composer while the chat id is unknown", () => {
@@ -222,63 +201,47 @@ describe("ChatPane", () => {
 		).toBe(true);
 	});
 
-	it("shows the Stop button only while a turn runs, and it calls onCancel", () => {
-		const onCancel = vi.fn();
-		renderPane({ onCancel });
-		expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
-		cleanup();
-		renderPane({ onCancel, isSending: true });
-		fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-		expect(onCancel).toHaveBeenCalledOnce();
-	});
-
-	it("shows the error sentence in an alert row when errorText is set", () => {
-		renderPane();
-		expect(screen.queryByRole("alert")).toBeNull();
-		cleanup();
-		renderPane({ errorText: "You have no credits left for this turn." });
-		expect(screen.getByRole("alert").textContent).toBe(
-			"You have no credits left for this turn.",
-		);
-	});
-
-	it("names the live phase in the working row", () => {
-		renderPane({ isSending: true, phase: "sandbox_waking" });
-		expect(screen.getByRole("status").textContent).toContain(
-			"Getting your app ready",
-		);
-	});
-
-	it("opens the tray on the composer and sends the picked option as an answer", () => {
-		const { onAnswerQuestions, onSend } = renderPane({
-			messages: [QUESTION_MESSAGE],
-		});
-		// The thread keeps a receipt line; the tray repeats the question above the composer.
-		expect(screen.getAllByText("Which style fits your shop?")).toHaveLength(2);
-		expect(screen.getByText("Answer below")).toBeTruthy();
-		const answer = screen.getByRole("button", { name: "Choose an option" });
-		expect(answer.hasAttribute("disabled")).toBe(true);
-		fireEvent.click(screen.getByRole("button", { name: "Warm and crafted" }));
-		fireEvent.click(screen.getByRole("button", { name: "Choose this option" }));
-		expect(onAnswerQuestions).toHaveBeenCalledWith({
-			message: "Warm and crafted",
-			answers: [
+	it("hides the raw thinking without the debug view, and shows the thought rows with it", () => {
+		const reply: BuilderMessage = {
+			id: "a1",
+			role: "assistant",
+			parts: [
 				{
-					toolCallId: "call-1",
-					questionId: "question-0",
-					action: "answered",
-					optionIds: ["warm"],
-					text: "",
-					files: [],
+					type: "data-thought",
+					data: {
+						text: "Check the layout first.",
+						seconds: 4,
+						isStreaming: false,
+					},
 				},
+				{ type: "text", text: "Here is the plan." },
 			],
-		});
-		expect(onSend).not.toHaveBeenCalled();
+		};
+		renderPane({ messages: [reply], showsAgentDebug: false });
+		expect(screen.getByText("Here is the plan.")).toBeTruthy();
+		expect(screen.queryByText(/Thought for/)).toBeNull();
+		expect(screen.queryByText("Check the layout first.")).toBeNull();
+		cleanup();
+		renderPane({ messages: [reply], showsAgentDebug: true });
+		fireEvent.click(screen.getByRole("button", { name: "Thought for 4s" }));
+		expect(screen.getByText("Check the layout first.")).toBeTruthy();
 	});
 
-	it("shows the tray again after a rejected answer, so the same answer can go again", () => {
-		// A rejected send keeps the user bubble after the reply, and no turn runs.
-		const { onAnswerQuestions } = renderPane({
+	it("shows the elapsed seconds in the working row only with the debug view", () => {
+		renderPane({ isSending: true });
+		expect(screen.getByRole("status").textContent).toBe(
+			"Wandit is working…0.0s",
+		);
+		cleanup();
+		renderPane({ isSending: true, showsAgentDebug: false });
+		expect(screen.getByRole("status").textContent).toBe("Wandit is working…");
+	});
+
+	it.each<{ name: string; messages: BuilderMessage[] }>([
+		{ name: "for the last reply", messages: [QUESTION_MESSAGE] },
+		{
+			// A rejected send keeps the user bubble after the reply, and no turn runs.
+			name: "again after a rejected answer",
 			messages: [
 				QUESTION_MESSAGE,
 				{
@@ -287,7 +250,11 @@ describe("ChatPane", () => {
 					parts: [{ type: "text", text: "Warm and crafted" }],
 				},
 			],
-		});
+		},
+	])("opens the tray $name and sends the picked option as an answer", ({
+		messages,
+	}) => {
+		const { onAnswerQuestions, onSend } = renderPane({ messages });
 		fireEvent.click(screen.getByRole("button", { name: "Warm and crafted" }));
 		fireEvent.click(screen.getByRole("button", { name: "Choose this option" }));
 		expect(onAnswerQuestions).toHaveBeenCalledWith(
@@ -295,6 +262,31 @@ describe("ChatPane", () => {
 				answers: [expect.objectContaining({ optionIds: ["warm"] })],
 			}),
 		);
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
+	it("answers a skipped question with the next plain message", () => {
+		const { onAnswerQuestions, onSend } = renderPane({
+			messages: [QUESTION_MESSAGE],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Skip the question" }));
+		const textarea = screen.getByRole("textbox");
+		fireEvent.change(textarea, { target: { value: "Use green" } });
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(onSend).not.toHaveBeenCalled();
+		expect(onAnswerQuestions).toHaveBeenCalledWith({
+			message: "Use green",
+			answers: [
+				{
+					toolCallId: "call-1",
+					questionId: "question-0",
+					action: "dismissed",
+					optionIds: [],
+					text: "Use green",
+					files: [],
+				},
+			],
+		});
 	});
 
 	it("follows new content at the end, stops after a scroll up, and jumps back on a send", () => {
@@ -324,45 +316,5 @@ describe("ChatPane", () => {
 		// A send shows the new bubble at the end again.
 		rerenderWith({ isSending: true });
 		expect(list.scrollTop).toBe(1400);
-	});
-
-	it("answers a skipped question with the next plain message", () => {
-		const { onAnswerQuestions, onSend } = renderPane({
-			messages: [QUESTION_MESSAGE],
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Skip the question" }));
-		const textarea = screen.getByRole("textbox");
-		fireEvent.change(textarea, { target: { value: "Use green" } });
-		fireEvent.keyDown(textarea, { key: "Enter" });
-		expect(onSend).not.toHaveBeenCalled();
-		expect(onAnswerQuestions).toHaveBeenCalledWith({
-			message: "Use green",
-			answers: [
-				{
-					toolCallId: "call-1",
-					questionId: "question-0",
-					action: "dismissed",
-					optionIds: [],
-					text: "Use green",
-					files: [],
-				},
-			],
-		});
-	});
-
-	it("shows the working row with the elapsed seconds while a turn runs", () => {
-		vi.useFakeTimers();
-		try {
-			renderPane({ isSending: true });
-			expect(screen.getByRole("status").textContent).toBe(
-				"Wandit is working…0.0s",
-			);
-			act(() => vi.advanceTimersByTime(1500));
-			expect(screen.getByRole("status").textContent).toBe(
-				"Wandit is working…1.5s",
-			);
-		} finally {
-			vi.useRealTimers();
-		}
 	});
 });

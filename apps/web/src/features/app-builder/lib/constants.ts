@@ -1,9 +1,9 @@
 /**
  * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
  * devices, and composer modes. Also the storage keys and panel widths of the
- * chat card, and the easing of the preview boot screen. Read by the route
- * search schema, the shell, the More view, the Cloud tab, and the preview.
- * No logic and no React here.
+ * chat card, and the easing and detail pace of the start-up screens. Read by
+ * the route search schema, the shell, the More view, the Cloud tab, the
+ * preview, and the chat. No logic and no React here.
  */
 
 import type { LucideIcon } from "lucide-react";
@@ -212,3 +212,10 @@ export const MOCK_LATENCY_MS = 150;
 
 /** Easing of the preview boot screen and its exit, as a motion cubic bezier. It is the `cubic-bezier(0.4, 0, 0.2, 1)` of DESIGN.md. */
 export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;
+
+/**
+ * Time each start-up detail line stays before the next one, ms. The preview
+ * boot screen and the chat working row both use it, so the two lists keep
+ * the same pace. The last line then stays.
+ */
+export const DETAIL_STEP_MS = 3200;

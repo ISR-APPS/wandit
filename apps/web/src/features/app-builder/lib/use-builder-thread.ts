@@ -57,7 +57,11 @@ export type BuilderThreadState = {
 	}) => void;
 	/** Aborts the stream, then posts the turn cancel. Rejects with ApiClientError. */
 	cancel: () => Promise<void>;
-	/** False while the project id resolves to a chat id, and after that lookup failed. */
+	/**
+	 * False until the chat id resolves and the stored history loads or fails
+	 * on this mount. A send before the history shows would put the reply
+	 * above it. Also false after the chat id lookup failed.
+	 */
 	isReady: boolean;
 	/**
 	 * True while a turn the API accepted streams, or while a resumed turn
@@ -71,8 +75,8 @@ export type BuilderThreadState = {
 	lastTurnFailed: boolean;
 	/**
 	 * True while the chat holds at most one user message. The first turn
-	 * creates the sandbox from the template. Null while the history loads:
-	 * a resumed turn can stream before it lands.
+	 * creates the sandbox from the template. Null until the history loads or
+	 * fails on this mount. A failed load counts as a first turn.
 	 */
 	isFirstTurn: boolean | null;
 };
@@ -142,7 +146,19 @@ export function useBuilderThread(
 		[history],
 	);
 
-	const chat = useBuilderChat({ projectId, chatId, initialMessages }, deps);
+	// The resume and the composer wait for the history, so the user bubble
+	// shows above the reply. A history from the cache resumes at once and can
+	// lack the bubble of the running turn. A load that fails on this mount
+	// also settles. `isFetchedAfterMount` ignores an error cached by an
+	// earlier mount, which refetches now. It stays true during a later
+	// refetch, so useChat does not resume a second time.
+	const isHistorySettled =
+		history !== undefined || messagesQuery.isFetchedAfterMount;
+
+	const chat = useBuilderChat(
+		{ projectId, chatId, initialMessages, isHistorySettled },
+		deps,
+	);
 
 	const messages = useMemo(
 		() => toBuilderMessages(chat.messages, { isRunning: chat.isSending }),
@@ -178,16 +194,15 @@ export function useBuilderThread(
 		answerQuestions: ({ message, answers }) =>
 			chat.send({ text: message, answers }),
 		cancel: chat.cancel,
-		isReady: chatId !== undefined,
+		isReady: chatId !== undefined && isHistorySettled,
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
 		// The phase lives in the reply that streams now, the last message.
 		phase: livePhaseOf(chat.messages, chat.isSending),
 		lastTurnFailed: replyHoldsError,
 		// LIMIT: a first turn that failed before the sandbox existed makes the
 		// next turn show the resume copy. Upgrade: a sandbox status from the API.
-		isFirstTurn:
-			history === undefined && messagesQuery.error === null
-				? null
-				: messages.filter((message) => message.role === "user").length <= 1,
+		isFirstTurn: isHistorySettled
+			? messages.filter((message) => message.role === "user").length <= 1
+			: null,
 	};
 }

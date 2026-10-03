@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	onlineManager,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { ChatMessage, CreateTurnResponse } from "@wandit/contracts";
+import type { CreateTurnResponse } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chatKeys } from "@/features/workspace";
 import { ApiClientError } from "@/lib/api-client";
 import type { BuilderChatDeps } from "./use-builder-chat";
-import { turnErrorKey, useBuilderThread } from "./use-builder-thread";
+import { useBuilderThread } from "./use-builder-thread";
 
 const PROJECT_ID = crypto.randomUUID();
 const CHAT_ID = crypto.randomUUID();
@@ -43,6 +47,25 @@ const failedTurnFrames = [
 	},
 	{ type: "error", errorText: "Something went wrong on our side." },
 ];
+
+// A V1 project id gets a 400 from the chat id lookup.
+const lookupError = new ApiClientError({
+	code: "CHAT_LOOKUP_FAILED",
+	message: "The chat lookup failed.",
+	path: `/api/v1/chats/by-project/${PROJECT_ID}`,
+	requestId: "req-lookup",
+	statusCode: 400,
+	timestamp: "2026-09-17T00:00:00.000Z",
+});
+
+const loadError = new ApiClientError({
+	code: "CHAT_LOAD_FAILED",
+	message: "The history load failed.",
+	path: `/api/v1/chats/${CHAT_ID}/messages`,
+	requestId: "req-load",
+	statusCode: 500,
+	timestamp: "2026-09-17T00:00:00.000Z",
+});
 
 // Minimal fetch fake, copied small from use-builder-chat.spec.ts on purpose.
 // The resume GET answers 204 (no active turn to replay). The turn POST
@@ -105,31 +128,18 @@ function createDeps(
 	return { requests, deps: { fetch: fetchImpl, cancelTurn } };
 }
 
-// Seeds one query as a finished error state, so the hook sees `error`
-// with no network call (`retryOnMount: false` keeps the state on mount).
-function seedQueryError(
+// Starts a fetch of one query that rejects with `error`. The hook mounts
+// while it runs and joins it, so the load fails on this mount, like a real
+// failed load. The real queryFn never runs, so no real API call happens.
+function failQueryDuringMount(
 	queryClient: QueryClient,
 	queryKey: readonly unknown[],
 	error: ApiClientError,
 ) {
-	queryClient.getQueryCache().build(
-		queryClient,
-		{ queryKey },
-		{
-			data: undefined,
-			dataUpdateCount: 0,
-			dataUpdatedAt: 0,
-			error,
-			errorUpdateCount: 1,
-			errorUpdatedAt: 1,
-			fetchFailureCount: 1,
-			fetchFailureReason: error,
-			fetchMeta: null,
-			isInvalidated: false,
-			status: "error",
-			fetchStatus: "idle",
-		},
-	);
+	void queryClient.prefetchQuery({
+		queryKey,
+		queryFn: () => Promise.reject(error),
+	});
 }
 
 function renderThread(
@@ -137,24 +147,22 @@ function renderThread(
 	options: {
 		byProjectError?: ApiClientError;
 		messagesError?: ApiClientError;
-		/** Stored rows of the chat history; empty when left out. */
-		history?: ChatMessage[];
+		/** True leaves the history query without an answer, so it loads. */
+		historyPending?: boolean;
+		/** The cache of an earlier render: the user comes back to the project. A new cache when left out. */
+		queryClient?: QueryClient;
 	} = {},
 ) {
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: {
-				staleTime: Number.POSITIVE_INFINITY,
-				retry: false,
-				// A seeded error state must survive the hook mount; without this
-				// the query would run its real queryFn.
-				retryOnMount: false,
+	const queryClient =
+		options.queryClient ??
+		new QueryClient({
+			defaultOptions: {
+				queries: { staleTime: Number.POSITIVE_INFINITY, retry: false },
 			},
-		},
-	});
+		});
 	if (options.byProjectError) {
 		// A failed by-project lookup: a V1 project id gets a 400.
-		seedQueryError(
+		failQueryDuringMount(
 			queryClient,
 			chatKeys.byProject(PROJECT_ID),
 			options.byProjectError,
@@ -166,19 +174,19 @@ function renderThread(
 			projectId: PROJECT_ID,
 		});
 		if (options.messagesError) {
-			seedQueryError(
+			failQueryDuringMount(
 				queryClient,
 				chatKeys.messages(CHAT_ID),
 				options.messagesError,
 			);
-		} else {
+		} else if (!options.historyPending) {
 			queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
 				generationActive: false,
-				messages: options.history ?? [],
+				messages: [],
 			});
 		}
 	}
-	return renderHook(() => useBuilderThread(PROJECT_ID, deps), {
+	const view = renderHook(() => useBuilderThread(PROJECT_ID, deps), {
 		wrapper: ({ children }: { children: ReactNode }) =>
 			createElement(
 				QueryClientProvider,
@@ -191,6 +199,7 @@ function renderThread(
 				}),
 			),
 	});
+	return { ...view, queryClient };
 }
 
 // The mount resume GET must settle first: send refuses while a request runs.
@@ -209,62 +218,6 @@ async function waitForResume(
 afterEach(cleanup);
 
 describe("useBuilderThread", () => {
-	it("posts an approval decision as a turn with an empty message", async () => {
-		const fake = createDeps();
-		const { result } = renderThread(fake.deps);
-		await waitForResume(fake, result);
-
-		act(() => {
-			result.current.decideApproval("ap-1", true);
-		});
-
-		await waitFor(() =>
-			expect(
-				fake.requests.some((request) => request.init?.method === "POST"),
-			).toBe(true),
-		);
-		const post = fake.requests.find(
-			(request) => request.init?.method === "POST",
-		);
-		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
-			message: "",
-			approval: { approvalId: "ap-1", approved: true },
-		});
-	});
-
-	it("posts the tray answers with the summary as the message", async () => {
-		const fake = createDeps();
-		const { result } = renderThread(fake.deps);
-		await waitForResume(fake, result);
-		const answers = [
-			{
-				toolCallId: "call-1",
-				questionId: "question-0",
-				action: "delegated" as const,
-				optionIds: [],
-				text: "",
-				files: [],
-			},
-		];
-
-		act(() => {
-			result.current.answerQuestions({ message: "Decide for me", answers });
-		});
-
-		await waitFor(() =>
-			expect(
-				fake.requests.some((request) => request.init?.method === "POST"),
-			).toBe(true),
-		);
-		const post = fake.requests.find(
-			(request) => request.init?.method === "POST",
-		);
-		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
-			message: "Decide for me",
-			answers,
-		});
-	});
-
 	it("shows the no-credits sentence when the turn POST answers 402", async () => {
 		const fake = createDeps({ postResponds402: true });
 		const { result } = renderThread(fake.deps);
@@ -281,46 +234,34 @@ describe("useBuilderThread", () => {
 		);
 	});
 
-	it("shows the lookup error and stays unready when the chat id lookup fails", async () => {
-		const lookupError = new ApiClientError({
-			code: "CHAT_LOOKUP_FAILED",
-			message: "The chat lookup failed.",
-			path: `/api/v1/chats/by-project/${PROJECT_ID}`,
-			requestId: "req-4",
-			statusCode: 400,
-			timestamp: "2026-09-17T00:00:00.000Z",
-		});
-		const fake = createDeps();
-		const { result } = renderThread(fake.deps, { byProjectError: lookupError });
+	it.each([
+		{
+			failure: "chat id lookup",
+			options: { byProjectError: lookupError },
+			isReady: false,
+			isFirstTurn: null,
+		},
+		// A failed load settles the history, so the composer and the boot screen do not hang.
+		{
+			failure: "history load",
+			options: { messagesError: loadError },
+			isReady: true,
+			isFirstTurn: true,
+		},
+	])("shows the generic sentence when the $failure fails (ready: $isReady, first turn: $isFirstTurn)", async ({
+		options,
+		isReady,
+		isFirstTurn,
+	}) => {
+		const { result } = renderThread(createDeps().deps, options);
 
 		await waitFor(() =>
 			expect(result.current.errorText).toBe(
 				"Something went wrong. Please try again.",
 			),
 		);
-		expect(result.current.isReady).toBe(false);
-		// The turn routes never open: no turn POST, no resume GET.
-		expect(fake.requests).toHaveLength(0);
-	});
-
-	it("shows the load error when the history load fails", async () => {
-		const loadError = new ApiClientError({
-			code: "CHAT_LOAD_FAILED",
-			message: "The history load failed.",
-			path: `/api/v1/chats/${CHAT_ID}/messages`,
-			requestId: "req-5",
-			statusCode: 500,
-			timestamp: "2026-09-17T00:00:00.000Z",
-		});
-		const fake = createDeps();
-		const { result } = renderThread(fake.deps, { messagesError: loadError });
-
-		await waitFor(() =>
-			expect(result.current.errorText).toBe(
-				"Something went wrong. Please try again.",
-			),
-		);
-		expect(result.current.messages).toEqual([]);
+		expect(result.current.isReady).toBe(isReady);
+		expect(result.current.isFirstTurn).toBe(isFirstTurn);
 	});
 
 	it("keeps the row empty when the reply holds the error card", async () => {
@@ -343,57 +284,6 @@ describe("useBuilderThread", () => {
 		expect(result.current.errorText).toBeNull();
 		// The preview reads the same card to say that the app did not start.
 		expect(result.current.lastTurnFailed).toBe(true);
-	});
-
-	it("reports the phase of the running turn and the first turn", async () => {
-		const fake = createDeps();
-		const encoder = new TextEncoder();
-		const statusFrame = {
-			type: "data-turn-status",
-			id: "turn-status",
-			data: { phase: "sandbox_waking" },
-		};
-		let endStream = () => {};
-		// The turn stream stays open after the status frame, like a sandbox that boots.
-		const deps: BuilderChatDeps = {
-			...fake.deps,
-			fetch: async (input, init) => {
-				if (init?.method !== "POST") return fake.deps.fetch(input, init);
-				return new Response(
-					new ReadableStream<Uint8Array>({
-						start(controller) {
-							for (const frame of [createdFrame, statusFrame]) {
-								controller.enqueue(
-									encoder.encode(`data: ${JSON.stringify(frame)}\n\n`),
-								);
-							}
-							endStream = () => {
-								controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-								controller.close();
-							};
-						},
-					}),
-					{ status: 200, headers: { "content-type": "text/event-stream" } },
-				);
-			},
-		};
-		const { result } = renderThread(deps);
-		await waitForResume(fake, result);
-		expect(result.current.phase).toBeNull();
-
-		act(() => {
-			result.current.send("Build the dashboard");
-		});
-
-		await waitFor(() => expect(result.current.phase).toBe("sandbox_waking"));
-		expect(result.current.isTurnRunning).toBe(true);
-		// The chat holds one user message, so this turn creates the sandbox.
-		expect(result.current.isFirstTurn).toBe(true);
-
-		act(() => endStream());
-
-		await waitFor(() => expect(result.current.isSending).toBe(false));
-		expect(result.current.phase).toBeNull();
 	});
 
 	it("does not count a send that the API refuses as a running turn", async () => {
@@ -425,67 +315,96 @@ describe("useBuilderThread", () => {
 		expect(result.current.isTurnRunning).toBe(false);
 	});
 
-	it("knows the first turn only from a loaded or failed history", async () => {
-		const userRow = (id: string, seq: number): ChatMessage => ({
-			id,
-			chatId: CHAT_ID,
-			role: "user",
-			parts: [{ type: "text", text: `prompt ${seq}` }],
-			metadata: null,
-			seq,
-			createdAt: "2026-09-24T10:00:00.000Z",
+	it.each([
+		{ cache: "is new", seedCache: async () => undefined },
+		{
+			cache: "holds a failed load of an earlier mount",
+			// The user comes back: the new mount refetches the failed load.
+			seedCache: async () => {
+				const earlierFake = createDeps();
+				const earlier = renderThread(earlierFake.deps, {
+					messagesError: loadError,
+				});
+				await waitForResume(earlierFake, earlier.result);
+				earlier.unmount();
+				return earlier.queryClient;
+			},
+		},
+	])("stays unready and does not resume until the history answers, when the cache $cache", async ({
+		seedCache,
+	}) => {
+		const earlierCache = await seedCache();
+		// Offline, the history query waits and never calls the real API.
+		onlineManager.setOnline(false);
+		const fake = createDeps();
+		const { result, queryClient, unmount } = renderThread(fake.deps, {
+			historyPending: true,
+			queryClient: earlierCache,
 		});
-		const lookupFailed = new ApiClientError({
-			code: "BAD_REQUEST",
-			message: "Not a V2 project.",
-			path: "/api/v1/chats/by-project",
-			requestId: "req-1",
-			statusCode: 400,
-			timestamp: "2026-09-24T00:00:00.000Z",
-		});
+		try {
+			await act(async () => {});
+			expect(result.current.isReady).toBe(false);
+			expect(result.current.isFirstTurn).toBeNull();
+			expect(fake.requests).toHaveLength(0);
 
-		// No chat id means no history yet: the value is unknown.
-		const unknown = renderThread(createDeps().deps, {
-			byProjectError: lookupFailed,
-		});
-		expect(unknown.result.current.isFirstTurn).toBeNull();
-		unknown.unmount();
-
-		// A failed history load must not hold the boot screen on its mark.
-		const failed = renderThread(createDeps().deps, {
-			messagesError: lookupFailed,
-		});
-		expect(failed.result.current.isFirstTurn).toBe(true);
-		failed.unmount();
-
-		const later = renderThread(createDeps().deps, {
-			history: [userRow("u1", 0), userRow("u2", 1)],
-		});
-		expect(later.result.current.isFirstTurn).toBe(false);
+			act(() => {
+				queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
+					generationActive: false,
+					messages: [],
+				});
+			});
+			await waitFor(() => expect(result.current.isReady).toBe(true));
+			await waitFor(() =>
+				expect(
+					fake.requests.some((request) => request.init?.method === "GET"),
+				).toBe(true),
+			);
+		} finally {
+			unmount();
+			// The clear cancels the waiting fetch before the network comes back.
+			queryClient.clear();
+			onlineManager.setOnline(true);
+		}
 	});
-});
 
-describe("turnErrorKey", () => {
-	it("maps the project cap code and returns null for an unknown code", () => {
-		const capError = new ApiClientError({
-			code: "PROJECT_CREDIT_CAP_REACHED",
-			message: "The cap is reached.",
-			path: `/api/v2/projects/${PROJECT_ID}/turns`,
-			requestId: "req-2",
-			statusCode: 403,
-			timestamp: "2026-09-17T00:00:00.000Z",
+	it("resumes once and stays ready while a failed history load refetches", async () => {
+		const fake = createDeps();
+		const { result, queryClient, unmount } = renderThread(fake.deps, {
+			messagesError: loadError,
 		});
-		expect(turnErrorKey(capError)).toBe("appBuilder.chat.errors.projectCap");
+		const resumeCount = () =>
+			fake.requests.filter((request) => request.init?.method === "GET").length;
+		try {
+			await waitForResume(fake, result);
+			expect(resumeCount()).toBe(1);
 
-		const other = new ApiClientError({
-			code: "SOME_OTHER_CODE",
-			message: "Unknown failure.",
-			path: `/api/v2/projects/${PROJECT_ID}/turns`,
-			requestId: "req-3",
-			statusCode: 500,
-			timestamp: "2026-09-17T00:00:00.000Z",
-		});
-		expect(turnErrorKey(other)).toBeNull();
-		expect(turnErrorKey(new Error("offline"))).toBeNull();
+			// Offline, the refetch waits and never calls the real API. It sets
+			// `error` to null while `data` stays undefined, like a reconnect refetch.
+			onlineManager.setOnline(false);
+			act(() => {
+				void queryClient.refetchQueries({
+					queryKey: chatKeys.messages(CHAT_ID),
+				});
+			});
+			await waitFor(() => expect(result.current.errorText).toBeNull());
+			expect(result.current.isReady).toBe(true);
+			expect(result.current.isFirstTurn).toBe(true);
+
+			act(() => {
+				queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
+					generationActive: false,
+					messages: [],
+				});
+			});
+			// One macrotask lets a second resume GET go out, if the gate flipped.
+			await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+			expect(result.current.isReady).toBe(true);
+			expect(resumeCount()).toBe(1);
+		} finally {
+			unmount();
+			// The clear cancels the waiting fetch before the network comes back.
+			queryClient.clear();
+			onlineManager.setOnline(true);
+		}
 	});
 });

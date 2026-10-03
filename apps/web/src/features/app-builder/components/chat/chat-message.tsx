@@ -5,8 +5,8 @@
  * step rows, grouped tight), the change card, one short line per question
  * (the user answers it in the tray), the approval, suggestion, and diff
  * cards, the error row and the receipt line, then the action row and the
- * follow-ups. Rendered by chat-pane.tsx. Actions with no backend show
- * the notWired toast.
+ * follow-ups. Rendered by chat-pane.tsx; working-row.tsx reuses the
+ * byline. Actions with no backend show the notWired toast.
  */
 
 import { CornerDownLeft } from "lucide-react";
@@ -67,12 +67,7 @@ export function ChatMessageView({
 
 	return (
 		<div className="flex flex-col gap-3">
-			<div className="flex items-center gap-2">
-				<span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-gradient-ember">
-					<Spark className="size-3 text-background" />
-				</span>
-				<span className="font-medium text-sm">Wandit</span>
-			</div>
+			<AssistantByline />
 			{blocksOf(message.parts).map((block) => {
 				// Parts carry no stable id. The index is stable inside one message.
 				const key = `${message.id}-${block.index}`;
@@ -226,6 +221,21 @@ export function ChatMessageView({
 					))}
 				</div>
 			) : null}
+		</div>
+	);
+}
+
+/**
+ * The Spark avatar and the "Wandit" name above a reply. working-row.tsx
+ * shows it too, before the reply has parts.
+ */
+export function AssistantByline() {
+	return (
+		<div className="flex items-center gap-2">
+			<span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-gradient-ember">
+				<Spark className="size-3 text-background" />
+			</span>
+			<span className="font-medium text-sm">Wandit</span>
 		</div>
 	);
 }

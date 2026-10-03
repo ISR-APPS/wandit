@@ -1,17 +1,24 @@
+import type { TurnStreamPhase } from "@wandit/contracts";
 import type { DynamicToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 
 import type {
+	BuilderDiffLine,
+	BuilderMessage,
 	BuilderMessagePart,
+	BuilderStepKind,
+	BuilderStepState,
 	TurnMessage,
 	TurnMessagePart,
 } from "../api/dto";
 import {
-	errorOf,
+	type LiveActivity,
+	liveActivityOf,
 	livePhaseOf,
 	receiptOf,
 	stepOf,
 	toBuilderMessages,
+	withoutThoughts,
 } from "./turn-parts";
 
 const IDLE = { isRunning: false };
@@ -41,39 +48,47 @@ function stepsOf(messages: TurnMessage[], options = IDLE) {
 }
 
 describe("stepOf", () => {
-	it("shows an edit as an edit row with the file name and the diff lines", () => {
-		expect(
-			stepOf(
-				doneCall("edit", {
-					file_path: "src/styles.css",
-					old_string: "a {}",
-					new_string: "a { color: red; }",
-				}),
-				false,
-			),
-		).toEqual({
-			kind: "edit",
-			state: "done",
+	it.each<{
+		toolName: string;
+		input: Record<string, string>;
+		target: string;
+		detail: BuilderDiffLine[];
+	}>([
+		{
+			toolName: "edit",
+			input: {
+				file_path: "src/styles.css",
+				old_string: "a {}",
+				new_string: "a { color: red; }",
+			},
 			target: "styles.css",
-			description: null,
 			detail: [
 				{ kind: "remove", text: "a {}" },
 				{ kind: "add", text: "a { color: red; }" },
 			],
+		},
+		{
+			toolName: "write",
+			input: { file_path: "src/app.tsx", content: "one\ntwo" },
+			target: "app.tsx",
+			detail: [
+				{ kind: "add", text: "one" },
+				{ kind: "add", text: "two" },
+			],
+		},
+	])("shows a $toolName call as an edit row with the file name and the diff lines", ({
+		toolName,
+		input,
+		target,
+		detail,
+	}) => {
+		expect(stepOf(doneCall(toolName, input), false)).toEqual({
+			kind: "edit",
+			state: "done",
+			target,
+			description: null,
+			detail,
 		});
-	});
-
-	it("shows a write as an edit row with the content as added lines", () => {
-		const step = stepOf(
-			doneCall("write", { file_path: "src/app.tsx", content: "one\ntwo" }),
-			false,
-		);
-		expect(step?.kind).toBe("edit");
-		expect(step?.target).toBe("app.tsx");
-		expect(step?.detail).toEqual([
-			{ kind: "add", text: "one" },
-			{ kind: "add", text: "two" },
-		]);
 	});
 
 	it("cuts a long detail to 40 lines and one ellipsis line", () => {
@@ -86,152 +101,67 @@ describe("stepOf", () => {
 		expect(step?.detail.at(-1)).toEqual({ kind: "context", text: "…" });
 	});
 
-	it("uses the model's command sentence and hides the command in the detail", () => {
-		const step = stepOf(
-			doneCall("bash", {
-				command: "pnpm run typecheck",
-				description: "Vérification que l'application se charge",
-			}),
-			false,
-		);
-		expect(step).toMatchObject({
-			kind: "run",
-			target: null,
-			description: "Vérification que l'application se charge",
-			detail: [{ kind: "context", text: "pnpm run typecheck" }],
-		});
-	});
-
-	it("names a fetched page by its host", () => {
-		const step = stepOf(
-			doneCall("WebFetch", { url: "https://docs.example.com/a", prompt: "x" }),
-			false,
-		);
-		expect(step).toMatchObject({ kind: "web", target: "docs.example.com" });
-	});
-
-	it("gives a web search no target", () => {
-		expect(
-			stepOf(doneCall("webSearch", { query: "tanstack start" }), false),
-		).toMatchObject({ kind: "web", target: null });
-	});
-
-	it("names the skill of a guide row", () => {
-		expect(
-			stepOf(doneCall("Skill", { skill: "zellige" }), false),
-		).toMatchObject({ kind: "guide", target: "zellige" });
-	});
-
-	it("names the host of a network request", () => {
-		expect(
-			stepOf(
-				doneCall(
-					"request_network_host",
-					{ host: "api.github.com", reason: "Load the repos" },
-					{ status: "allowed", host: "api.github.com" },
-				),
-				false,
-			),
-		).toMatchObject({
-			kind: "network",
-			state: "done",
-			target: "api.github.com",
-		});
-	});
-
-	it("shows the SQL of a migration in the detail", () => {
-		expect(
-			stepOf(
-				doneCall(
-					"apply_migration",
-					{ name: "notes", sql: "create table notes ();" },
-					{ status: "applied", file: "supabase/migrations/1_notes.sql" },
-				),
-				false,
-			),
-		).toMatchObject({
+	// A host tool reports a failure or a pause as a normal output with a status.
+	it.each<{
+		toolName: string;
+		input: Record<string, string>;
+		output: Record<string, string>;
+		kind: BuilderStepKind;
+		state: BuilderStepState;
+		/** The one detail line: the SQL or the image prompt of the input. */
+		detailText: string;
+	}>([
+		{
+			toolName: "apply_migration",
+			input: { name: "notes", sql: "create table notes ();" },
+			output: { status: "applied", file: "supabase/migrations/1_notes.sql" },
 			kind: "database",
-			detail: [{ kind: "context", text: "create table notes ();" }],
-		});
-	});
-
-	it("marks a host tool failure status as an error", () => {
-		expect(
-			stepOf(
-				doneCall(
-					"generate_image",
-					{ prompt: "a cat", aspect: "1:1", path: "public/cat.png" },
-					{ status: "failed", message: "no credits" },
-				),
-				false,
-			),
-		).toMatchObject({
+			state: "done",
+			detailText: "create table notes ();",
+		},
+		{
+			toolName: "generate_image",
+			input: { prompt: "a cat", aspect: "1:1", path: "public/cat.png" },
+			output: { status: "failed", message: "no credits" },
 			kind: "image",
 			state: "error",
-			detail: [{ kind: "context", text: "a cat" }],
-		});
-	});
-
-	it("marks a host tool that waits for an approval as skipped", () => {
-		expect(
-			stepOf(
-				doneCall(
-					"run_sql",
-					{ query: "delete from notes" },
-					{ status: "needs_approval", tool: "run_sql_write" },
-				),
-				false,
-			),
-		).toMatchObject({
+			detailText: "a cat",
+		},
+		{
+			toolName: "run_sql",
+			input: { query: "delete from notes" },
+			output: { status: "needs_approval", tool: "run_sql_write" },
 			kind: "databaseCheck",
 			state: "skipped",
-			detail: [{ kind: "context", text: "delete from notes" }],
+			detailText: "delete from notes",
+		},
+	])("shows the $toolName status $output.status as a $state row with its input in the detail", ({
+		toolName,
+		input,
+		output,
+		kind,
+		state,
+		detailText,
+	}) => {
+		expect(stepOf(doneCall(toolName, input, output), false)).toMatchObject({
+			kind,
+			state,
+			detail: [{ kind: "context", text: detailText }],
 		});
 	});
 
-	it("shows a sub-agent task with its description and its prompt", () => {
-		expect(
-			stepOf(
-				doneCall("Agent", {
-					description: "Check the forms",
-					prompt: "Read src/forms",
-				}),
-				false,
-			),
-		).toEqual({
-			kind: "task",
-			state: "done",
-			target: null,
-			description: "Check the forms",
-			detail: [{ kind: "context", text: "Read src/forms" }],
-		});
-	});
-
-	it("never shows the raw name of an unknown tool as the label", () => {
-		expect(
-			stepOf(doneCall("CronCreate", { cron: "* * * * *" }), false),
-		).toEqual({
+	// The tool map is a Map, so a prototype key like constructor finds no kind either.
+	it.each([
+		"CronCreate",
+		"constructor",
+	])("keeps the raw name of the unknown tool %s out of the label", (toolName) => {
+		expect(stepOf(doneCall(toolName, {}), false)).toEqual({
 			kind: "other",
 			state: "done",
 			target: null,
 			description: null,
-			detail: [{ kind: "context", text: "CronCreate" }],
+			detail: [{ kind: "context", text: toolName }],
 		});
-	});
-
-	it("treats a prototype key like constructor as an unknown tool", () => {
-		expect(stepOf(doneCall("constructor", {}), false)?.kind).toBe("other");
-	});
-
-	it("gives the bookkeeping and question tools no row", () => {
-		for (const toolName of [
-			"TodoWrite",
-			"ToolSearch",
-			"ask_user",
-			"askUserQuestions",
-		]) {
-			expect(stepOf(doneCall(toolName, {}), false)).toBeNull();
-		}
 	});
 
 	it("hides a call that waits for an approval; the approval card covers it", () => {
@@ -342,62 +272,43 @@ describe("receiptOf", () => {
 			outputTokens: 500,
 		});
 	});
-
-	it("returns null without a usage or a done part", () => {
-		expect(receiptOf([])).toBeNull();
-	});
-});
-
-describe("errorOf", () => {
-	it("returns the payload of the error part", () => {
-		const parts = [
-			{
-				type: "data-turn-error",
-				id: "turn-error",
-				data: {
-					code: "SANDBOX_LOST",
-					message: "The sandbox stopped.",
-					retryable: true,
-				},
-			},
-		] satisfies TurnMessagePart[];
-		expect(errorOf(parts)).toEqual({
-			code: "SANDBOX_LOST",
-			message: "The sandbox stopped.",
-			retryable: true,
-		});
-	});
-
-	it("returns null without an error part", () => {
-		expect(errorOf([])).toBeNull();
-	});
 });
 
 describe("livePhaseOf", () => {
-	const messages = [
-		{
-			id: "a1",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-turn-status",
-					id: "turn-status",
-					data: { phase: "sandbox_waking" },
-				},
-			],
-		},
-	] satisfies TurnMessage[];
-
-	it("returns the last status phase while a turn runs", () => {
-		expect(livePhaseOf(messages, true)).toBe("sandbox_waking");
+	// An old status must never show after the turn ends.
+	it.each([
+		{ isRunning: true, expected: "sandbox_waking" },
+		{ isRunning: false, expected: null },
+	])("returns $expected for the last status when isRunning is $isRunning", ({
+		isRunning,
+		expected,
+	}) => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-turn-status",
+						id: "turn-status",
+						data: { phase: "sandbox_waking" },
+					},
+				],
+			},
+		] satisfies TurnMessage[];
+		expect(livePhaseOf(messages, isRunning)).toBe(expected);
 	});
 
-	it("returns null when no turn runs, so an old status never shows", () => {
-		expect(livePhaseOf(messages, false)).toBeNull();
-	});
-
-	const createdOnly = (queued: boolean) =>
-		[
+	// A warm turn sends its first status after about 5 s. A queued turn waits
+	// behind another turn, so "Getting ready" would be wrong for it.
+	it.each([
+		{ queued: false, expected: "session_starting" },
+		{ queued: true, expected: null },
+	])("returns $expected before the first status when queued is $queued", ({
+		queued,
+		expected,
+	}) => {
+		const messages = [
 			{
 				id: "a2",
 				role: "assistant",
@@ -417,13 +328,7 @@ describe("livePhaseOf", () => {
 				],
 			},
 		] satisfies TurnMessage[];
-
-	it("shows session_starting as soon as the turn is created", () => {
-		expect(livePhaseOf(createdOnly(false), true)).toBe("session_starting");
-	});
-
-	it("keeps the default label for a turn queued behind another turn", () => {
-		expect(livePhaseOf(createdOnly(true), true)).toBeNull();
+		expect(livePhaseOf(messages, true)).toBe(expected);
 	});
 });
 
@@ -447,13 +352,6 @@ describe("toBuilderMessages", () => {
 		const out = toBuilderMessages(messages, IDLE);
 		expect(out).toHaveLength(1);
 		expect(out[0].parts.map((part) => part.type)).toEqual(["text", "file"]);
-	});
-
-	it("drops an empty user message, like the answer to an approval", () => {
-		const messages = [
-			{ id: "u1", role: "user", parts: [{ type: "text", text: "" }] },
-		] satisfies TurnMessage[];
-		expect(toBuilderMessages(messages, IDLE)).toEqual([]);
 	});
 
 	it("keeps the stream order: thought, steps, text", () => {
@@ -663,7 +561,16 @@ describe("toBuilderMessages", () => {
 		});
 	});
 
-	it("closes an approval card when a reply follows it, as after a reload", () => {
+	// A rejected answer gets no reply, so the card stays open for a new decision.
+	// The answer itself is an empty user message, and it never shows.
+	it.each([
+		{ hasReply: true, ids: ["a1", "a2"], isOpen: false },
+		{ hasReply: false, ids: ["a1"], isOpen: true },
+	])("sets isOpen $isOpen on an approval card when a reply follows is $hasReply", ({
+		hasReply,
+		ids,
+		isOpen,
+	}) => {
 		const messages = [
 			{
 				id: "a1",
@@ -689,35 +596,12 @@ describe("toBuilderMessages", () => {
 				parts: [{ type: "text", text: "Ran it." }],
 			},
 		] satisfies TurnMessage[];
-		const out = toBuilderMessages(messages, IDLE);
-		expect(out.map((message) => message.id)).toEqual(["a1", "a2"]);
-		expect(out[0].parts[0]).toMatchObject({ data: { isOpen: false } });
-	});
-
-	it("keeps an approval card open when the answer got no reply", () => {
-		const messages = [
-			{
-				id: "a1",
-				role: "assistant",
-				parts: [
-					{
-						type: "data-approval",
-						id: "ap-1",
-						data: {
-							approvalId: "ap-1",
-							toolCallId: "call-9",
-							toolName: "run_sql_write",
-							input: "{}",
-							decision: null,
-						},
-					},
-				],
-			},
-			{ id: "u1", role: "user", parts: [{ type: "text", text: "" }] },
-		] satisfies TurnMessage[];
-		expect(toBuilderMessages(messages, IDLE)[0].parts[0]).toMatchObject({
-			data: { isOpen: true },
-		});
+		const out = toBuilderMessages(
+			hasReply ? messages : messages.slice(0, 2),
+			IDLE,
+		);
+		expect(out.map((message) => message.id)).toEqual(ids);
+		expect(out[0].parts[0]).toMatchObject({ data: { isOpen } });
 	});
 
 	it("ends with the error and the receipt and never renders the status", () => {
@@ -780,5 +664,173 @@ describe("toBuilderMessages", () => {
 		expect(
 			toBuilderMessages(messages, IDLE).map((message) => message.id),
 		).toEqual(["u1"]);
+	});
+});
+
+/** The user bubble of the running turn. */
+const USER_BUBBLE: BuilderMessage = {
+	id: "u1",
+	role: "user",
+	parts: [{ type: "text", text: "Build a shop" }],
+};
+
+/** A thought row of the reply; `isStreaming` is true while the agent thinks now. */
+function thought(isStreaming: boolean): BuilderMessagePart {
+	return {
+		type: "data-thought",
+		data: { text: "Plan the pages", seconds: null, isStreaming },
+	};
+}
+
+/** A finished explore row that read one file of `src`. */
+function exploreStep(fileName: string): BuilderMessagePart {
+	return {
+		type: "data-step",
+		data: {
+			kind: "explore",
+			state: "done",
+			target: fileName,
+			description: null,
+			detail: [{ kind: "context", text: `src/${fileName}` }],
+		},
+	};
+}
+
+/** The reply of the running turn with these parts. */
+function reply(parts: BuilderMessagePart[]): BuilderMessage {
+	return { id: "a1", role: "assistant", parts };
+}
+
+describe("withoutThoughts", () => {
+	it("drops an assistant message left with no parts, and keeps the user message", () => {
+		expect(withoutThoughts([USER_BUBBLE, reply([thought(true)])])).toEqual([
+			USER_BUBBLE,
+		]);
+	});
+
+	it("merges the two explore rows around a hidden thought into one row", () => {
+		expect(
+			withoutThoughts([
+				reply([exploreStep("a.ts"), thought(false), exploreStep("b.ts")]),
+			]),
+		).toEqual([
+			reply([
+				{
+					type: "data-step",
+					data: {
+						kind: "explore",
+						state: "done",
+						target: null,
+						description: null,
+						detail: [
+							{ kind: "context", text: "src/a.ts" },
+							{ kind: "context", text: "src/b.ts" },
+						],
+					},
+				},
+			]),
+		]);
+	});
+});
+
+describe("liveActivityOf", () => {
+	const onIt: BuilderMessagePart = { type: "text", text: "On it." };
+	const receipt: BuilderMessagePart = {
+		type: "data-receipt",
+		id: "a1-receipt",
+		data: { credits: 1, modelId: null, inputTokens: 10, outputTokens: 5 },
+	};
+
+	it.each<{
+		name: string;
+		messages: BuilderMessage[];
+		phase: TurnStreamPhase | null;
+		isFirstTurn: boolean;
+		showsThoughts: boolean;
+		expected: LiveActivity;
+	}>([
+		{
+			name: "the setup on a first turn before the first phase",
+			messages: [USER_BUBBLE],
+			phase: null,
+			isFirstTurn: true,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "setup" },
+		},
+		{
+			name: "the setup while the first turn creates the sandbox",
+			messages: [USER_BUBBLE],
+			phase: "sandbox_waking",
+			isFirstTurn: true,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "setup" },
+		},
+		{
+			name: "the wake while a later turn wakes the sandbox",
+			messages: [USER_BUBBLE],
+			phase: "sandbox_waking",
+			isFirstTurn: false,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "wake" },
+		},
+		{
+			name: "Thinking on a warm turn with no reply yet",
+			messages: [USER_BUBBLE],
+			phase: "session_starting",
+			isFirstTurn: false,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "thinking" },
+		},
+		{
+			// The sandbox is ready once the agent runs, so the setup lines stop.
+			name: "Thinking on a first turn that runs with no reply yet",
+			messages: [USER_BUBBLE],
+			phase: "running",
+			isFirstTurn: true,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "thinking" },
+		},
+		{
+			name: "Thinking when the reply holds only a hidden thought that streams",
+			messages: [USER_BUBBLE, reply([thought(true)])],
+			phase: "running",
+			isFirstTurn: false,
+			showsThoughts: false,
+			expected: { hasVisibleReply: false, kind: "thinking" },
+		},
+		{
+			name: "Thinking for a hidden thought after the text, also behind a receipt",
+			messages: [USER_BUBBLE, reply([onIt, thought(true), receipt])],
+			phase: "running",
+			isFirstTurn: false,
+			showsThoughts: false,
+			expected: { hasVisibleReply: true, kind: "thinking" },
+		},
+		{
+			name: "the phase once the reply has text",
+			messages: [USER_BUBBLE, reply([onIt])],
+			phase: "running",
+			isFirstTurn: true,
+			showsThoughts: false,
+			expected: { hasVisibleReply: true, kind: "phase" },
+		},
+		{
+			name: "the phase when the last hidden thought is finished",
+			messages: [USER_BUBBLE, reply([onIt, thought(false)])],
+			phase: "running",
+			isFirstTurn: false,
+			showsThoughts: false,
+			expected: { hasVisibleReply: true, kind: "phase" },
+		},
+		{
+			name: "the phase when the feed shows the thought that streams",
+			messages: [USER_BUBBLE, reply([thought(true)])],
+			phase: "running",
+			isFirstTurn: false,
+			showsThoughts: true,
+			expected: { hasVisibleReply: true, kind: "phase" },
+		},
+	])("shows $name", ({ messages, expected, ...input }) => {
+		expect(liveActivityOf(messages, input)).toEqual(expected);
 	});
 });

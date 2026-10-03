@@ -74,10 +74,10 @@ export type BuilderChat = {
 };
 
 /**
- * The `chatId` and `initialMessages` inputs come from the caller (the page
- * composes them from useChatByProjectQuery, useChatMessagesQuery, and
- * hydrateTurnMessages). While `chatId` is undefined no transport exists and
- * `send` refuses.
+ * The `chatId`, `initialMessages`, and `isHistorySettled` inputs come from
+ * useBuilderThread (it composes them from useChatByProjectQuery,
+ * useChatMessagesQuery, and hydrateTurnMessages). While `chatId` is
+ * undefined no transport exists and `send` refuses.
  */
 export function useBuilderChat(
 	input: {
@@ -87,10 +87,16 @@ export function useBuilderChat(
 		chatId: string | undefined;
 		/** Hydrated history; reseeds the chat when it changes while idle. */
 		initialMessages: readonly TurnMessage[];
+		/**
+		 * True once the stored history loaded or failed. The resume waits for
+		 * it, so the user bubble shows above the resumed reply. It must not go
+		 * back to false for one chat: each new true value resumes again.
+		 */
+		isHistorySettled: boolean;
 	},
 	deps: BuilderChatDeps = defaultDeps,
 ): BuilderChat {
-	const { projectId, chatId, initialMessages } = input;
+	const { projectId, chatId, initialMessages, isHistorySettled } = input;
 	const queryClient = useQueryClient();
 	const [activeTurn, setActiveTurn] = useState<{
 		turnId: string;
@@ -139,8 +145,10 @@ export function useBuilderChat(
 			messages: [...initialMessages],
 			transport,
 			// Replays the active turn after a reload. useChat re-runs this for
-			// each Chat instance, and a new `id` builds a new one.
-			resume: chatId !== undefined,
+			// each Chat instance (a new `id` builds a new one) and when the value
+			// turns true. The wait for the history keeps the order: a reply that
+			// streams first shows the working row above the user bubble.
+			resume: chatId !== undefined && isHistorySettled,
 			onData: (part) => {
 				// First frame of the create route. It is the only browser source
 				// of the turn id that `cancel` needs and of the estimate. The
@@ -168,9 +176,9 @@ export function useBuilderChat(
 
 	const isSending = status === "submitted" || status === "streaming";
 
-	// The history query can land or refetch while a stream runs. A reseed
-	// then drops the live parts. So the status check reads a ref, and
-	// `status` stays out of the dependency list on purpose.
+	// The history query can refetch while a stream runs. A reseed then drops
+	// the live parts. So the status check reads a ref, and `status` stays out
+	// of the dependency list on purpose.
 	const statusRef = useRef(status);
 	useEffect(() => {
 		statusRef.current = status;
@@ -180,9 +188,9 @@ export function useBuilderChat(
 			setMessages([...initialMessages]);
 			return;
 		}
-		// A resumed stream (reload during a turn) holds only the reply. The
-		// history lands after the resume GET, so it goes in front of the reply.
-		// A stream that a local send started already holds its user message.
+		// A resume after an empty or failed history load holds only the reply.
+		// A later history refetch goes in front of it. A local send, or a
+		// resume after the history with the user message, keeps its messages.
 		setMessages((current) =>
 			current.some((message) => message.role === "user")
 				? current

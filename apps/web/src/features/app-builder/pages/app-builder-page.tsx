@@ -3,13 +3,15 @@
  * its half of the top bar above it. On desktop a resizable split moves the
  * work pane controls with the main card. On phones the open chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
- * project and thread queries. The URL search params hold the view state.
+ * project and mock thread queries. The URL search params hold the view state.
  * The Cloud view shows only behind useCloudTabEnabled; the Appetize device
- * of a mobile project only behind useDevicePreviewEnabled.
+ * of a mobile project only behind useDevicePreviewEnabled. The raw agent
+ * thinking shows only in local dev or for staff.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { isStaffRole } from "@wandit/contracts";
 import {
 	ResizableHandle,
 	ResizablePanel,
@@ -22,6 +24,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useSession } from "@/features/auth";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -72,6 +75,10 @@ export default function AppBuilderPage({
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
 	const thread = useBuilderThread(projectId);
+	const { data: session } = useSession();
+	// Raw thinking and the seconds counter are for debugging. Users see the labels only.
+	const showsAgentDebug =
+		import.meta.env.DEV || isStaffRole(session?.user.role);
 	// The preview boot screen shows the database step on every view, so this read is always on.
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
@@ -154,6 +161,8 @@ export default function AppBuilderPage({
 			focusLabel={mockThread.focusLabel}
 			isSending={thread.isSending}
 			phase={thread.phase}
+			isFirstTurn={thread.isFirstTurn}
+			showsAgentDebug={showsAgentDebug}
 			isReady={thread.isReady}
 			projectName={project.name}
 			// LIMIT: plan mode sends a build turn; the turn body has no mode

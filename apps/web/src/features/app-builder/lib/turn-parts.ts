@@ -1,8 +1,9 @@
 /**
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
- * `toBuilderMessages` and `livePhaseOf`. Pure functions, no React, no copy:
- * the components translate each row by its kind.
+ * `toBuilderMessages` and `livePhaseOf`. chat-pane.tsx calls
+ * `withoutThoughts` and `liveActivityOf` for its feed and its working row.
+ * Pure functions, no React, no copy: the components translate each row.
  */
 
 import {
@@ -406,6 +407,107 @@ export function livePhaseOf(
 	return created !== undefined && created.data.queued !== true
 		? "session_starting"
 		: null;
+}
+
+/**
+ * The messages without their thought rows. An explore row that a thought
+ * kept apart merges into the explore row before it. An assistant message
+ * left with no parts drops, so no empty byline shows. chat-pane.tsx calls
+ * it when the user has no agent debug view.
+ */
+export function withoutThoughts(
+	messages: readonly BuilderMessage[],
+): BuilderMessage[] {
+	return messages.flatMap((message) => {
+		if (message.role !== "assistant") return [message];
+		const parts: BuilderMessage["parts"] = [];
+		for (const part of message.parts) {
+			if (part.type === "data-thought") continue;
+			const previous = parts.at(-1);
+			// assistantPartsOf merges only the reads with no thought between them.
+			if (
+				part.type === "data-step" &&
+				part.data.kind === "explore" &&
+				previous?.type === "data-step" &&
+				previous.data.kind === "explore"
+			) {
+				parts[parts.length - 1] = {
+					type: "data-step",
+					data: mergeExplore(previous.data, part.data),
+				};
+				continue;
+			}
+			parts.push(part);
+		}
+		return parts.length === 0 ? [] : [{ ...message, parts }];
+	});
+}
+
+/** What the working row of a running turn shows. liveActivityOf makes it; working-row.tsx reads it. */
+export type LiveActivity = {
+	/** True when the reply of the running turn shows one part or more. The row then shows no byline of its own. */
+	hasVisibleReply: boolean;
+	/**
+	 * The row label. `setup`: the first turn creates the sandbox. `wake`: a
+	 * later turn wakes a stopped sandbox. `thinking`: the agent works and
+	 * shows nothing new. `phase`: the label of the stream phase.
+	 */
+	kind: "setup" | "wake" | "thinking" | "phase";
+};
+
+/**
+ * The working row state of the running turn. Call it only while a turn
+ * runs. Before the reply shows, a cold start reads as a preparation step
+ * and a warm turn reads as "Thinking", because the agent starts at once.
+ */
+export function liveActivityOf(
+	messages: readonly BuilderMessage[],
+	input: {
+		/** Phase of the running turn, from livePhaseOf. */
+		phase: TurnStreamPhase | null;
+		/** True on the first turn of the project, null while the history loads. From useBuilderThread. */
+		isFirstTurn: boolean | null;
+		/** True when the feed shows the thought rows: in local dev or for staff. */
+		showsThoughts: boolean;
+	},
+): LiveActivity {
+	const { phase, isFirstTurn, showsThoughts } = input;
+	// Before the reply has parts, the last message is the user bubble. An
+	// approval answer sends an empty user message that toBuilderMessages
+	// drops, so the last message can be the previous reply ("phase" then).
+	const lastMessage = messages.at(-1);
+	const replyParts = lastMessage?.role === "assistant" ? lastMessage.parts : [];
+	const hasVisibleReply = replyParts.some(
+		(part) => showsThoughts || part.type !== "data-thought",
+	);
+	if (!hasVisibleReply) {
+		// The first turn creates the sandbox from the template; a later turn only wakes it.
+		if (phase === "sandbox_waking") {
+			return { hasVisibleReply, kind: isFirstTurn === true ? "setup" : "wake" };
+		}
+		// On the first turn, every early phase is part of the sandbox creation.
+		if (
+			isFirstTurn === true &&
+			(phase === null || phase === "session_starting")
+		) {
+			return { hasVisibleReply, kind: "setup" };
+		}
+		return { hasVisibleReply, kind: "thinking" };
+	}
+	// assistantPartsOf puts the receipt last, and a checkpoint sends usage
+	// during the turn. So the receipt does not count as the last activity.
+	const lastActivity = replyParts.findLast(
+		(part) => part.type !== "data-receipt",
+	);
+	// A hidden thought that streams now still needs a sign of life.
+	const isHiddenThoughtStreaming =
+		!showsThoughts &&
+		lastActivity?.type === "data-thought" &&
+		lastActivity.data.isStreaming;
+	return {
+		hasVisibleReply,
+		kind: isHiddenThoughtStreaming ? "thinking" : "phase",
+	};
 }
 
 /** The text parts of a message joined with a blank line, trimmed. */
