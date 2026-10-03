@@ -15,7 +15,6 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import {
-	Cloud,
 	Code,
 	ExternalLink,
 	Globe,
@@ -110,10 +109,8 @@ export type WorkBarProps = {
 	/** The open project, from appProjectQuery in the page. */
 	project: AppProject;
 	view: BuilderView;
-	/** Centered over the work pane: the view name, or the title of the open More panel. */
+	/** Centered over the work pane: the view name, or the title of the open panel of the More view. */
 	title: string;
-	/** True when the view switcher lists Cloud. The page reads it from useCloudTabEnabled. */
-	showCloud: boolean;
 	/** Phone frame of the mobile preview. Read only when the project is a mobile app. */
 	device: PhoneDevice;
 	/** Frame width of the web preview. Read only when the project is a web app. */
@@ -132,7 +129,6 @@ export function WorkBar({
 	project,
 	view,
 	title,
-	showCloud,
 	device,
 	viewport,
 	onChangeView,
@@ -141,46 +137,10 @@ export function WorkBar({
 	onReload,
 	onOpenExternal,
 }: WorkBarProps) {
-	const { t } = useTranslation();
-
 	return (
 		// LIMIT: the controls need about 740 px; a narrower row clips the actions at the end. Upgrade: fold the actions into one menu.
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
-			<SegmentedControl
-				ariaLabel={t("appBuilder.topBar.viewsAriaLabel")}
-				value={view}
-				onChange={onChangeView}
-				options={[
-					{
-						value: "preview",
-						label: t("appBuilder.views.preview"),
-						icon: Globe,
-						iconOnly: view !== "preview",
-					},
-					{
-						value: "code",
-						label: t("appBuilder.views.code"),
-						icon: Code,
-						iconOnly: view !== "code",
-					},
-					...(showCloud
-						? [
-								{
-									value: "cloud" as const,
-									label: t("workspace.tabs.cloud"),
-									icon: Cloud,
-									iconOnly: view !== "cloud",
-								},
-							]
-						: []),
-					{
-						value: "more",
-						label: t("appBuilder.views.more"),
-						icon: Layers,
-						iconOnly: view !== "more",
-					},
-				]}
-			/>
+			<ViewSwitcher view={view} onChangeView={onChangeView} />
 			<span className="hidden min-w-0 flex-1 truncate px-3 text-center font-medium text-sm lg:block">
 				{title}
 			</span>
@@ -201,6 +161,46 @@ export function WorkBar({
 				<UserMenu />
 			</div>
 		</div>
+	);
+}
+
+/** Props of ViewSwitcher: the same open view and change handler that WorkBar gets from the page. */
+export type ViewSwitcherProps = Pick<WorkBarProps, "view" | "onChangeView">;
+
+/**
+ * The Preview, Code, and More switch at the start of the work bar. Only the
+ * open view shows its label. More holds every project panel, the Cloud
+ * panels too. Exported for the spec.
+ */
+export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
+	const { t } = useTranslation();
+
+	return (
+		<SegmentedControl
+			ariaLabel={t("appBuilder.topBar.viewsAriaLabel")}
+			value={view}
+			onChange={onChangeView}
+			options={[
+				{
+					value: "preview",
+					label: t("appBuilder.views.preview"),
+					icon: Globe,
+					iconOnly: view !== "preview",
+				},
+				{
+					value: "code",
+					label: t("appBuilder.views.code"),
+					icon: Code,
+					iconOnly: view !== "code",
+				},
+				{
+					value: "more",
+					label: t("appBuilder.views.more"),
+					icon: Layers,
+					iconOnly: view !== "more",
+				},
+			]}
+		/>
 	);
 }
 

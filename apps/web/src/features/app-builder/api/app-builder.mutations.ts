@@ -1,8 +1,8 @@
 /**
  * Mutations of the app builder. Most call a service and write the result
  * into the query cache, so the panel that reads the query updates at once.
- * Called by the dashboard create flow, the Settings panel, the Sign-in
- * panel, the Payments panel, the versions popover, and the Expo Go popover.
+ * Called by the dashboard create flow, the Settings panel, the versions
+ * popover, and the Expo Go popover.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,11 +18,9 @@ import {
 	getPhonePreviewLink,
 	restoreVersion,
 	setCollaboratorRole,
-	setPaymentsMode,
-	setSignInMethod,
 	updateAppProject,
 } from "./app-builder.services";
-import type { CollaboratorRole, SignInMethodId } from "./dto";
+import type { CollaboratorRole } from "./dto";
 
 /**
  * Creates a V2 app project from the dashboard prompt. The V1 project grid
@@ -60,31 +58,6 @@ export function useUpdateAppProject(projectId: string) {
 			void queryClient.invalidateQueries({
 				queryKey: appBuilderKeys.projects(),
 			});
-		},
-	});
-}
-
-/** Turns one sign-in method on or off. Writes the returned summary into the sign-in query. */
-export function useSetSignInMethod(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationKey: [...appBuilderKeys.signIn(projectId), "set"],
-		mutationFn: (input: { methodId: SignInMethodId; enabled: boolean }) =>
-			setSignInMethod(projectId, input),
-		onSuccess: (summary) => {
-			queryClient.setQueryData(appBuilderKeys.signIn(projectId), summary);
-		},
-	});
-}
-
-/** Switches the provider keys between test and live. Writes the returned summary into the payments query. */
-export function useSetPaymentsMode(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationKey: [...appBuilderKeys.payments(projectId), "mode"],
-		mutationFn: (mode: "test" | "live") => setPaymentsMode(projectId, mode),
-		onSuccess: (summary) => {
-			queryClient.setQueryData(appBuilderKeys.payments(projectId), summary);
 		},
 	});
 }

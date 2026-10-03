@@ -347,6 +347,9 @@ It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute t
 It reads the anon key.
 It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral and serves both templates.
 It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
+It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
+No task changes this setting on a backend after its provisioning.
+Without `PREVIEW_DOMAIN`, the task skips this step, and the backend keeps email confirmation on.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
 The builder turn reads the row at turn start; a running sandbox gets the env values at its next resume.

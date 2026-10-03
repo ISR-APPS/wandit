@@ -14,7 +14,7 @@ export function resolveDevicePreviewEnabled(input: {
 	/** True when the browser has a PostHog client. */
 	hasAnalytics: boolean;
 }): boolean {
-	// Same rule as the Cloud tab: without a PostHog client (no
+	// Same rule as resolveCloudTabEnabled: without a PostHog client (no
 	// VITE_POSTHOG_KEY, local dev) no flag can load, so the button shows.
 	if (!input.hasAnalytics) {
 		return true;

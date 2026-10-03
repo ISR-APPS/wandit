@@ -1,9 +1,10 @@
 /**
- * The rows grid of the Cloud tab: one table page with sort headers and page
- * controls, or one SQL result without them. Pure presentation: the caller
- * owns the page, the sort, and the query. Rendered by database-panel.tsx
- * and sql-editor.tsx; builds on the Table of @wandit/ui. Also exports the
- * page controls that users-panel.tsx shows under the users list.
+ * The rows grid of the Cloud panels of the More view: one table page with
+ * sort headers and page controls, or one SQL result without them. Pure
+ * presentation: the caller owns the page, the sort, and the query. Rendered
+ * by database-panel.tsx and sql-editor.tsx; builds on the Table of
+ * @wandit/ui. Also exports the page controls that users-panel.tsx shows
+ * under the users list.
  */
 
 import type { CloudRowsQuery, SqlRow } from "@wandit/contracts";

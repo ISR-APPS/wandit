@@ -166,6 +166,7 @@
 		}
 	},
 	"moreNavAriaLabel": "Sections de l'app",
+	"soon": "Bientôt",
 	"panels": {
 		"analytics": {
 			"title": "Analytics",
@@ -173,12 +174,11 @@
 			"cta": "Activer les analytics"
 		},
 		"backend": {
-			"title": "Backend",
-			"description": "Tables, stockage et fonctions serveur que Wandit a créés pour cette app."
+			"title": "Backend"
 		},
 		"signIn": {
 			"title": "Connexion",
-			"description": "Comment tes utilisateurs se connectent. Active ou désactive une méthode ; Wandit met l'app à jour."
+			"description": "Comment tes utilisateurs se connectent à ton app."
 		},
 		"ai": {
 			"title": "IA",
@@ -187,12 +187,11 @@
 		},
 		"payments": {
 			"title": "Paiements",
-			"description": "Accepte les cartes CIB et Edahabia via Chargily Pay, et gère ce que tu vends."
+			"description": "Encaisse des paiements dans ton app et gère ce que tu vends."
 		},
 		"integrations": {
 			"title": "Intégrations",
-			"description": "Google Sheets, WhatsApp, e-mail et les autres services que ton app utilise.",
-			"cta": "Ajouter une intégration"
+			"description": "Google Sheets, WhatsApp, e-mail et les autres services que ton app utilise."
 		},
 		"domains": {
 			"title": "Domaines",
@@ -216,29 +215,6 @@
 		"title": "Rien de configuré pour l'instant",
 		"description": "Demande à Wandit dans le chat, ou configure-le ici."
 	},
-	"backend": {
-		"database": "Base de données",
-		"tableCount": {
-			"one": "{count} table",
-			"other": "{count} tables"
-		},
-		"databaseNote": "{rows} lignes · {size} Mo",
-		"storage": "Stockage",
-		"storageSize": "{size} Go",
-		"functions": "Fonctions",
-		"callsToday": "{count} appels aujourd'hui",
-		"tablesTitle": "Tables",
-		"openSql": "Ouvrir l'éditeur SQL",
-		"rowCount": {
-			"one": "{count} ligne",
-			"other": "{count} lignes"
-		},
-		"functionsTitle": "Fonctions serveur",
-		"today": "{count} aujourd'hui",
-		"inCloud": "La base de données, les utilisateurs, les fichiers et les journaux de cette app sont dans l'onglet Cloud.",
-		"openCloud": "Ouvrir Cloud",
-		"cloudOff": "L'onglet Cloud n'est pas encore activé pour ton compte."
-	},
 	"signIn": {
 		"methodsTitle": "Méthodes de connexion",
 		"userCount": {
@@ -252,7 +228,7 @@
 			},
 			"emailPassword": {
 				"title": "E-mail et mot de passe",
-				"description": "Connexion classique avec lien de réinitialisation"
+				"description": "Activé pour chaque app que tu crées"
 			},
 			"google": {
 				"title": "Google",
@@ -263,31 +239,16 @@
 				"description": "Lien sans mot de passe par e-mail"
 			}
 		},
-		"otpNote": "Les codes OTP sont envoyés par SMS aux numéros algériens (+213). Chaque code coûte 1 crédit."
+		"signUpNote": "Les nouveaux utilisateurs s'inscrivent avec un e-mail et un mot de passe. Ils ne reçoivent aucun e-mail de confirmation."
 	},
 	"payments": {
-		"connectedAs": "Connecté en tant que {account} · {cards}",
-		"live": "Live",
-		"test": "Test",
-		"modeAriaLabel": "Clés du prestataire",
-		"products": "Produits",
-		"addProduct": "+ Ajouter un produit",
-		"recurring": "récurrent · {days} jours",
-		"oneTime": "unique",
-		"collected": "Encaissé · {month}",
-		"paymentCount": {
-			"one": "{count} paiement",
-			"other": "{count} paiements"
-		},
-		"refundCount": {
-			"one": "{count} remboursement",
-			"other": "{count} remboursements"
-		},
-		"webhook": "Webhook",
-		"receiving": "Réception des événements",
-		"notReceiving": "Aucun événement pour l'instant",
-		"noProvider": "Aucun prestataire de paiement",
-		"connectProvider": "Connecter Chargily Pay"
+		"title": "Les paiements arrivent bientôt",
+		"body": "Bientôt, tu pourras encaisser des paiements dans tes apps web et tes SaaS, configurés depuis le chat.",
+		"features": {
+			"oneTime": "Paiements uniques",
+			"subscriptions": "Abonnements",
+			"testMode": "Mode test avant la mise en ligne"
+		}
 	},
 	"domains": {
 		"freePrimary": "Domaine Wandit gratuit · principal",

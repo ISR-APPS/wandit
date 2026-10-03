@@ -1,7 +1,7 @@
 /**
  * Pill group with one active option: the view switcher, the device and
  * viewport toggles in the top bar, and the small toggles in the More panels.
- * Rendered by top-bar.tsx, payments-panel.tsx, and settings-panel.tsx.
+ * Rendered by top-bar.tsx and settings-panel.tsx.
  * Pure presentation: the caller owns the value.
  */
 

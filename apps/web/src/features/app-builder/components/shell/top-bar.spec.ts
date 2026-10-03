@@ -27,7 +27,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import type { AppProject } from "../../api/dto";
-import { PreviewActions, ProjectBar } from "./top-bar";
+import { PreviewActions, ProjectBar, ViewSwitcher } from "./top-bar";
 
 const PROJECT: AppProject = {
 	id: "nadi-fitness",
@@ -122,5 +122,29 @@ describe("PreviewActions", () => {
 		expect(
 			screen.getByRole("button", { name: "Reload the preview" }),
 		).toBeTruthy();
+	});
+});
+
+describe("ViewSwitcher", () => {
+	it("lists Preview, Code, and More, and no Cloud view", () => {
+		const onChangeView = vi.fn();
+		const providerProps: ComponentProps<typeof I18nProvider> = {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(ViewSwitcher, { view: "preview", onChangeView }),
+		};
+		render(createElement(I18nProvider, providerProps));
+
+		const views = screen.getByRole("group", { name: "Workspace views" });
+		expect(
+			[...views.querySelectorAll("button")].map(
+				(button) => button.getAttribute("aria-label") ?? button.textContent,
+			),
+		).toEqual(["Preview", "Code", "More"]);
+		expect(screen.queryByRole("button", { name: "Cloud" })).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "More" }));
+		expect(onChangeView).toHaveBeenCalledWith("more");
 	});
 });

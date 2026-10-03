@@ -1,6 +1,6 @@
 /**
  * Empty state of a More panel that has nothing set up yet: Analytics, AI,
- * Integrations, and Security. One card with a title, a hint, and one button.
+ * and Security. One card with a title, a hint, and one button.
  * Rendered by components/more/more-view.tsx inside PanelShell.
  */
 

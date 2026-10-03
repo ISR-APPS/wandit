@@ -19,15 +19,11 @@ import {
 	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
-	getPaymentsSummary,
 	getPhonePreviewLink,
 	getProjectSettings,
-	getSignInSummary,
 	listAppProjects,
 	resetMockStore,
 	setCollaboratorRole,
-	setPaymentsMode,
-	setSignInMethod,
 	startDeviceSession,
 	toUiAppProject,
 	updateAppProject,
@@ -190,20 +186,6 @@ describe("updateAppProject", () => {
 	});
 });
 
-describe("setSignInMethod", () => {
-	it("flips one method and leaves the others", async () => {
-		const summary = await setSignInMethod(WEB_ID, {
-			methodId: "google",
-			enabled: true,
-		});
-		expect(summary.methods.find((m) => m.id === "google")?.enabled).toBe(true);
-		expect(summary.methods.find((m) => m.id === "phoneOtp")?.enabled).toBe(
-			true,
-		);
-		expect((await getSignInSummary(WEB_ID)).methods).toEqual(summary.methods);
-	});
-});
-
 describe("setCollaboratorRole", () => {
 	it("changes the role of one collaborator", async () => {
 		const settings = await setCollaboratorRole(WEB_ID, {
@@ -227,19 +209,6 @@ describe("setCollaboratorRole with an unknown id", () => {
 		expect((await getProjectSettings(WEB_ID)).collaborators[1]?.role).toBe(
 			"editor",
 		);
-	});
-});
-
-describe("setPaymentsMode", () => {
-	it("switches a connected provider to test keys", async () => {
-		const summary = await setPaymentsMode(WEB_ID, "test");
-		expect(summary.provider?.mode).toBe("test");
-		expect((await getPaymentsSummary(WEB_ID)).provider?.mode).toBe("test");
-	});
-
-	it("leaves a project without a provider unchanged", async () => {
-		const summary = await setPaymentsMode(MOBILE_ID, "live");
-		expect(summary.provider).toBeNull();
 	});
 });
 

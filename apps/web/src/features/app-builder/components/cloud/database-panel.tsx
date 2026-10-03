@@ -1,6 +1,6 @@
 /**
- * Database panel of the Cloud tab: the table list, the rows of the open
- * table, and the SQL editor, in two sections. Rendered by cloud-tab.tsx
+ * Database panel of the Backend group: the table list, the rows of the open
+ * table, and the SQL editor, in two sections. Rendered by cloud-panel-content.tsx
  * inside backend-state.tsx, so the backend is `active` here. Reads
  * cloudTablesQuery and cloudRowsQuery; renders rows-grid.tsx and sql-editor.tsx.
  */
@@ -43,7 +43,7 @@ import { SqlEditor } from "./sql-editor";
 /** Props of DatabasePanel. The panel mounts only while the backend is `active`. */
 export type DatabasePanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The queries of the panel wait for it. */
+	/** True while the More view is on screen. The queries of the panel wait for it. */
 	isActive: boolean;
 };
 
@@ -61,7 +61,7 @@ export function DatabasePanel({ projectId, isActive }: DatabasePanelProps) {
 	const openTable = tables.data?.find((table) => table.name === openTableName);
 
 	// A 409 can mean the backend fell asleep. The retry reads the backend
-	// state too, so the tab can show the wake-up block.
+	// state too, so the panel can show the wake-up block.
 	function retry() {
 		void queryClient.invalidateQueries({ queryKey: cloudKeys.all(projectId) });
 	}

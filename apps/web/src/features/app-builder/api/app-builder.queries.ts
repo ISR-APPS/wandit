@@ -12,11 +12,9 @@ import type { apiClient } from "@/lib/api-client";
 import {
 	getAppProject,
 	getAppStoresSummary,
-	getBackendSummary,
 	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
-	getPaymentsSummary,
 	getProjectDomains,
 	getProjectSettings,
 	getSignInSummary,
@@ -26,6 +24,7 @@ import {
 } from "./app-builder.services";
 import type { CodeSnapshot } from "./dto";
 
+/** Query keys of the app builder. Every key starts with `app-builder`, so one prefix matches them all. */
 export const appBuilderKeys = {
 	all: ["app-builder"] as const,
 	projects: () => [...appBuilderKeys.all, "projects"] as const,
@@ -37,12 +36,8 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
 		[...appBuilderKeys.all, "code", projectId, path] as const,
-	backend: (projectId: string) =>
-		[...appBuilderKeys.all, "backend", projectId] as const,
 	signIn: (projectId: string) =>
 		[...appBuilderKeys.all, "sign-in", projectId] as const,
-	payments: (projectId: string) =>
-		[...appBuilderKeys.all, "payments", projectId] as const,
 	domains: (projectId: string) =>
 		[...appBuilderKeys.all, "domains", projectId] as const,
 	appStores: (projectId: string) =>
@@ -137,22 +132,10 @@ export const codeFileQuery = (projectId: string, path: string) =>
 		gcTime: CODE_FILE_GC_TIME_MS,
 	});
 
-export const backendSummaryQuery = (projectId: string) =>
-	queryOptions({
-		queryKey: appBuilderKeys.backend(projectId),
-		queryFn: () => getBackendSummary(projectId),
-	});
-
 export const signInSummaryQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.signIn(projectId),
 		queryFn: () => getSignInSummary(projectId),
-	});
-
-export const paymentsSummaryQuery = (projectId: string) =>
-	queryOptions({
-		queryKey: appBuilderKeys.payments(projectId),
-		queryFn: () => getPaymentsSummary(projectId),
 	});
 
 /** Web projects only. The route loader warms it when the kind is `web`. */

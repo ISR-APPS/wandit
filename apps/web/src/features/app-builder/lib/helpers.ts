@@ -1,56 +1,77 @@
 /**
- * Pure helpers of the app builder, with no React. One picks the main view
- * and one the More panels of a project. Three pairs store the open state
- * and the split layout of the chat card, and the Expo Go username. One
- * copies text to the clipboard. Called by the page, the More view, the
- * route file, the chat cards, and the Expo Go popover.
+ * Pure helpers of the app builder, with no React. Five list and test the
+ * panels of the More view, pick the open one, and name it. Three pairs
+ * store the open state and the split layout of the chat card, and the Expo
+ * Go username. One copies text to the clipboard. Called by the page, the
+ * More view and its nav, the chat cards, and the Expo Go popover.
  */
 
 import { expoUsernameSchema } from "@wandit/contracts";
 
+import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
 import {
-	type BuilderView,
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
+	CLOUD_PANELS,
+	type CloudPanel,
 	EXPO_GO_USERNAME_STORAGE_KEY,
 	MORE_PANEL_META,
 	MORE_PANELS,
 	type MorePanel,
+	type ProjectPanel,
 } from "./constants";
 import { chatLayoutSchema } from "./schemas";
 
-/** More panels the nav lists for a project kind, in nav order. */
+/** More panels the nav lists for a project kind, in nav order. Disabled panels are in the list. */
 export function panelsForKind(kind: AppProjectKind): MorePanel[] {
 	return MORE_PANELS.filter((panel) =>
 		MORE_PANEL_META[panel].kinds.includes(kind),
 	);
 }
 
-/**
- * The main view to show for a URL request; no request opens the preview.
- * `cloud` opens the preview too while the Cloud gate is closed or still loads.
- */
-export function resolveBuilderView(
-	requested: BuilderView | undefined,
-	isCloudTabEnabled: boolean,
-): BuilderView {
-	// The Cloud tab is behind a rollout gate. A shared link must not open an empty card.
-	if (requested === "cloud" && !isCloudTabEnabled) return "preview";
-	return requested ?? "preview";
+/** True for an id of the Backend group. The More view renders those panels without PanelShell. */
+export function isCloudPanel(
+	panel: MorePanel | CloudPanel,
+): panel is CloudPanel {
+	return CLOUD_PANELS.some((cloudPanel) => cloudPanel === panel);
+}
+
+/** True for Integrations: the nav shows it as "Soon", and it never opens. */
+export function isDisabledMorePanel(panel: MorePanel): panel is "integrations" {
+	return panel === "integrations";
 }
 
 /**
- * The panel to show for a URL request. A panel the kind does not have, or no
- * panel at all, opens the first panel of the nav.
+ * The panel the More view opens for the `?panel=` request. A Cloud panel
+ * opens only while the Cloud gate is open. A panel the kind does not have,
+ * a disabled panel, or no request opens the fallback panel.
  */
-export function resolveMorePanel(
+export function resolvePanel(
 	kind: AppProjectKind,
-	requested: MorePanel | undefined,
-): MorePanel {
-	if (requested && panelsForKind(kind).includes(requested)) return requested;
-	// Analytics is listed for every kind, so it is always a valid fallback.
-	return "analytics";
+	requested: MorePanel | CloudPanel | undefined,
+	isCloudTabEnabled: boolean,
+): ProjectPanel {
+	if (requested !== undefined) {
+		if (isCloudPanel(requested)) {
+			// The Cloud panels are behind a rollout gate. A shared link must not open an empty panel.
+			if (isCloudTabEnabled) return requested;
+		} else if (
+			!isDisabledMorePanel(requested) &&
+			panelsForKind(kind).includes(requested)
+		) {
+			return requested;
+		}
+	}
+	// Product rule: the backend is the main content of a project, so Database opens first.
+	// Analytics is listed for every kind, so it is a valid fallback while the gate is closed.
+	return isCloudTabEnabled ? "database" : "analytics";
+}
+
+/** Dictionary key of the panel title in the work bar. The Cloud labels live in the workspace dictionary (WANDIT-188). */
+export function panelTitleKey(panel: ProjectPanel): TranslationKey {
+	if (isCloudPanel(panel)) return `workspace.cloud.panels.${panel}`;
+	return MORE_PANEL_META[panel].title;
 }
 
 /** Open state of the chat pane from the last visit. Open when nothing is stored or storage fails. */

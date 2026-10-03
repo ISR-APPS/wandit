@@ -1,56 +1,154 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { CloudBackendResponse, CloudFunction } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resetMockStore } from "../../api/app-builder.services";
+import { cloudKeys } from "../../api/cloud.queries";
+import type { ProjectPanel } from "../../lib/constants";
 import { MOCK_APP_PROJECTS } from "../../lib/mock-projects";
 import { MoreView } from "./more-view";
 
-const IN_CLOUD_TEXT =
-	"The database, users, files, and logs of this app are in the Cloud tab.";
+const PROJECT = { ...MOCK_APP_PROJECTS[0], id: crypto.randomUUID() };
 
-/** Renders the Backend panel of the More view for a project with `projectId`. */
-function renderBackendPanel(projectId: string) {
-	// I18nProvider requires children in its props type for createElement calls.
-	const providerProps: ComponentProps<typeof I18nProvider> = {
-		locale: "en",
-		dictionary: fallbackDictionary,
-		setLocale: () => {},
-		children: createElement(MoreView, {
-			project: { ...MOCK_APP_PROJECTS[0], id: projectId },
-			panel: "backend",
-			onSelectPanel: vi.fn(),
-			onOpenCloud: vi.fn(),
-		}),
-	};
-	render(
-		createElement(
-			QueryClientProvider,
-			{ client: new QueryClient() },
-			createElement(I18nProvider, providerProps),
-		),
-	);
+const ACTIVE_BACKEND: CloudBackendResponse = {
+	status: "active",
+	ref: "abcdefghijklmnopqrst",
+	region: "eu-west-3",
+	failureCode: null,
+};
+
+const SEND_EMAIL: CloudFunction = {
+	id: "fn-send-email",
+	slug: "send-email",
+	name: "send-email",
+	status: "ACTIVE",
+	version: 3,
+	lastDeployedAt: "2026-10-02T09:30:00.000Z",
+	invocations24h: 12,
+};
+
+// The cache holds every answer a case puts in it, and nothing is stale or
+// retried, so the view never calls the API for that data.
+function cachedClient(): QueryClient {
+	return new QueryClient({
+		defaultOptions: {
+			queries: {
+				retry: false,
+				retryOnMount: false,
+				staleTime: Number.POSITIVE_INFINITY,
+			},
+		},
+	});
 }
 
-beforeEach(resetMockStore);
+function renderView(
+	panel: ProjectPanel,
+	isActive: boolean,
+	queryClient = cachedClient(),
+) {
+	const onSelectPanel = vi.fn();
+	function view(openPanel: ProjectPanel, isViewActive: boolean) {
+		// I18nProvider requires children in its props type for createElement calls.
+		const providerProps: ComponentProps<typeof I18nProvider> = {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(MoreView, {
+				project: PROJECT,
+				panel: openPanel,
+				isActive: isViewActive,
+				showBackendGroup: true,
+				onSelectPanel,
+			}),
+		};
+		return createElement(
+			QueryClientProvider,
+			{ client: queryClient },
+			createElement(I18nProvider, providerProps),
+		);
+	}
+	const { rerender } = render(view(panel, isActive));
+	// The page owns the open panel, so a case shows another panel with a new render.
+	function showPanel(nextPanel: ProjectPanel, isViewActive: boolean): void {
+		rerender(view(nextPanel, isViewActive));
+	}
+	return { queryClient, onSelectPanel, showPanel };
+}
+
+/** The `query` part of every logs query key in the cache, in creation order. */
+function logsQueries(queryClient: QueryClient) {
+	return queryClient
+		.getQueryCache()
+		.findAll({ queryKey: [...cloudKeys.all(PROJECT.id), "logs"] })
+		.map((query) => query.queryKey.at(-1));
+}
+
 afterEach(cleanup);
 
-describe("MoreView backend panel", () => {
-	it("sends a real project to the Cloud tab and shows no mock summary", async () => {
-		renderBackendPanel(crypto.randomUUID());
+describe("MoreView", () => {
+	it("opens a More panel inside its shell, with the panel title", () => {
+		renderView("payments", true);
 
-		expect(await screen.findByText(IN_CLOUD_TEXT)).toBeTruthy();
-		expect(screen.queryByText("members")).toBeNull();
+		expect(
+			screen.getByRole("heading", { level: 1, name: "Payments" }),
+		).toBeTruthy();
+		expect(screen.getByText("Payments are coming soon")).toBeTruthy();
 	});
 
-	it("shows the mock summary for a seed project", async () => {
-		renderBackendPanel("nadi-fitness");
+	it("opens a Cloud panel without the More panel shell", () => {
+		const queryClient = cachedClient();
+		queryClient.setQueryData(cloudKeys.secrets(PROJECT.id), []);
+		renderView("secrets", true, queryClient);
 
-		expect(await screen.findByText("members")).toBeTruthy();
-		expect(screen.queryByText(IN_CLOUD_TEXT)).toBeNull();
+		expect(screen.getByText("This project has no secrets yet.")).toBeTruthy();
+		expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+	});
+
+	it("opens Logs on the functions source and the slug from View logs", () => {
+		const queryClient = cachedClient();
+		queryClient.setQueryData(cloudKeys.backend(PROJECT.id), ACTIVE_BACKEND);
+		queryClient.setQueryData(cloudKeys.functions(PROJECT.id), [SEND_EMAIL]);
+		const { onSelectPanel, showPanel } = renderView(
+			"functions",
+			true,
+			queryClient,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "View logs" }));
+
+		expect(onSelectPanel).toHaveBeenCalledWith("logs");
+
+		// A hidden view reads nothing, so the logs query enters the cache with no API call.
+		showPanel("logs", false);
+
+		expect(logsQueries(queryClient)).toHaveLength(1);
+		expect(logsQueries(queryClient)[0]).toMatchObject({
+			source: "functions",
+			search: "send-email",
+		});
+	});
+
+	it("clears the Logs filter on a nav click", () => {
+		const queryClient = cachedClient();
+		queryClient.setQueryData(cloudKeys.backend(PROJECT.id), ACTIVE_BACKEND);
+		queryClient.setQueryData(cloudKeys.functions(PROJECT.id), [SEND_EMAIL]);
+		const { onSelectPanel, showPanel } = renderView(
+			"functions",
+			false,
+			queryClient,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "View logs" }));
+
+		fireEvent.click(screen.getByRole("button", { name: "Logs" }));
+		showPanel("logs", false);
+
+		expect(onSelectPanel).toHaveBeenLastCalledWith("logs");
+		expect(logsQueries(queryClient)).toEqual([
+			expect.objectContaining({ source: "api", search: undefined }),
+		]);
 	});
 });
