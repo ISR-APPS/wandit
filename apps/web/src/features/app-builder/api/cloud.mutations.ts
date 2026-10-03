@@ -1,6 +1,7 @@
 /**
- * Mutations of the Cloud tab (WANDIT-188). Each one calls a service of
- * cloud.services.ts and puts its answer where the tab reads it. Called by
+ * Mutations of the Cloud panels of the More view (WANDIT-188). Each one
+ * calls a service of cloud.services.ts and puts its answer where the panels
+ * read it. Called by
  * components/cloud/backend-state.tsx, sql-editor.tsx, storage-panel.tsx,
  * and secrets-panel.tsx. The last parameter of each hook is the service,
  * so a spec injects a fake.
@@ -25,7 +26,7 @@ import {
 
 /**
  * Creates the backend of the project. The `creating` answer goes into the
- * backend key, so the tab shows the wait block and the poll starts at once.
+ * backend key, so BackendState shows the wait block and the poll starts at once.
  */
 export function useEnableBackend(
 	projectId: string,
@@ -46,7 +47,7 @@ export function useEnableBackend(
 
 /**
  * Wakes a paused backend. The `restoring` answer goes into the backend key,
- * so the tab shows the wait block and the poll starts at once.
+ * so BackendState shows the wait block and the poll starts at once.
  */
 export function useRestoreBackend(
 	projectId: string,

@@ -107,10 +107,10 @@ describe("SettingsPanel", () => {
 
 	it("masks secrets and names the panel that set each variable", async () => {
 		renderPanel();
-		await screen.findByText("CHARGILY_SECRET_KEY");
+		await screen.findByText("AI_API_KEY");
 		expect(screen.getAllByText("••••••••••••")).toHaveLength(2);
 		expect(screen.getByText("https://nadi.wandit.app")).toBeTruthy();
-		expect(screen.getByText("Set by Payments")).toBeTruthy();
+		expect(screen.getByText("Set by AI")).toBeTruthy();
 		expect(screen.getByText("Set by Sign-in")).toBeTruthy();
 		expect(screen.getByText("Public")).toBeTruthy();
 	});

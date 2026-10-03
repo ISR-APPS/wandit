@@ -16,8 +16,7 @@
 		"assets": "Assets",
 		"marketing": "Marketing",
 		"leads": "Leads",
-		"settings": "Settings",
-		"cloud": "Cloud"
+		"settings": "Settings"
 	},
 	"switcher": {
 		"menuLabel": "Projects",
@@ -1229,7 +1228,6 @@
 		"cta": "Back to dashboard"
 	},
 	"cloud": {
-		"navAriaLabel": "Cloud sections",
 		"panels": {
 			"database": "Database",
 			"users": "Users",

@@ -263,7 +263,8 @@ function databaseStepOf(
 		case "paused":
 		case "restoring":
 		case "deleting":
-			// The preview does not use the database in these states. They belong to the Cloud tab.
+			// The preview does not use the database in these states.
+			// They belong to the Cloud panels of the More view.
 			return null;
 	}
 }

@@ -170,6 +170,7 @@
 		}
 	},
 	"moreNavAriaLabel": "أقسام التطبيق",
+	"soon": "قريبًا",
 	"panels": {
 		"analytics": {
 			"title": "التحليلات",
@@ -177,12 +178,11 @@
 			"cta": "تفعيل التحليلات"
 		},
 		"backend": {
-			"title": "الخادم",
-			"description": "جداول قاعدة البيانات والتخزين ودوال الخادم التي أنشأها Wandit لهذا التطبيق."
+			"title": "الخادم"
 		},
 		"signIn": {
 			"title": "تسجيل الدخول",
-			"description": "كيف يسجّل مستخدموك الدخول. فعّل أو عطّل طريقة، وسيحدّث Wandit التطبيق."
+			"description": "كيف يسجّل مستخدموك الدخول إلى تطبيقك."
 		},
 		"ai": {
 			"title": "الذكاء الاصطناعي",
@@ -191,12 +191,11 @@
 		},
 		"payments": {
 			"title": "المدفوعات",
-			"description": "اقبل بطاقات CIB والذهبية عبر Chargily Pay، وأدر ما تبيعه."
+			"description": "اقبل المدفوعات في تطبيقك وأدِر ما تبيعه."
 		},
 		"integrations": {
 			"title": "التكاملات",
-			"description": "Google Sheets وWhatsApp والبريد والخدمات الأخرى التي يتواصل معها تطبيقك.",
-			"cta": "إضافة تكامل"
+			"description": "Google Sheets وWhatsApp والبريد والخدمات الأخرى التي يتواصل معها تطبيقك."
 		},
 		"domains": {
 			"title": "النطاقات",
@@ -220,37 +219,6 @@
 		"title": "لم يتم إعداد شيء بعد",
 		"description": "اطلب من Wandit في المحادثة، أو أعدّه هنا."
 	},
-	"backend": {
-		"database": "قاعدة البيانات",
-		"tableCount": {
-			"zero": "لا جداول",
-			"one": "جدول واحد",
-			"two": "جدولان",
-			"few": "{count} جداول",
-			"many": "{count} جدولًا",
-			"other": "{count} جدول"
-		},
-		"databaseNote": "{rows} صف · {size} م.ب",
-		"storage": "التخزين",
-		"storageSize": "{size} ج.ب",
-		"functions": "الدوال",
-		"callsToday": "{count} استدعاء اليوم",
-		"tablesTitle": "الجداول",
-		"openSql": "فتح محرر SQL",
-		"rowCount": {
-			"zero": "لا صفوف",
-			"one": "صف واحد",
-			"two": "صفان",
-			"few": "{count} صفوف",
-			"many": "{count} صفًا",
-			"other": "{count} صف"
-		},
-		"functionsTitle": "دوال الخادم",
-		"today": "{count} اليوم",
-		"inCloud": "توجد قاعدة بيانات هذا التطبيق ومستخدموه وملفاته وسجلاته في تبويب Cloud.",
-		"openCloud": "فتح Cloud",
-		"cloudOff": "تبويب Cloud غير مفعّل لحسابك بعد."
-	},
 	"signIn": {
 		"methodsTitle": "طرق تسجيل الدخول",
 		"userCount": {
@@ -268,7 +236,7 @@
 			},
 			"emailPassword": {
 				"title": "البريد وكلمة المرور",
-				"description": "تسجيل دخول تقليدي مع رابط إعادة التعيين"
+				"description": "مفعّل في كل تطبيق تبنيه"
 			},
 			"google": {
 				"title": "Google",
@@ -279,39 +247,16 @@
 				"description": "رابط بلا كلمة مرور عبر البريد"
 			}
 		},
-		"otpNote": "تُرسل رموز OTP عبر SMS إلى الأرقام الجزائرية (+213). كل رمز يكلف 1 رصيد."
+		"signUpNote": "يسجّل المستخدمون الجدد ببريد إلكتروني وكلمة مرور. لا تصلهم أي رسالة تأكيد عبر البريد."
 	},
 	"payments": {
-		"connectedAs": "متصل باسم {account} · {cards}",
-		"live": "مباشر",
-		"test": "تجريبي",
-		"modeAriaLabel": "مفاتيح المزوّد",
-		"products": "المنتجات",
-		"addProduct": "+ إضافة منتج",
-		"recurring": "متكرر · {days} يومًا",
-		"oneTime": "لمرة واحدة",
-		"collected": "المحصّل · {month}",
-		"paymentCount": {
-			"zero": "لا مدفوعات",
-			"one": "دفعة واحدة",
-			"two": "دفعتان",
-			"few": "{count} دفعات",
-			"many": "{count} دفعة",
-			"other": "{count} دفعة"
-		},
-		"refundCount": {
-			"zero": "لا استردادات",
-			"one": "استرداد واحد",
-			"two": "استردادان",
-			"few": "{count} استردادات",
-			"many": "{count} استردادًا",
-			"other": "{count} استرداد"
-		},
-		"webhook": "Webhook",
-		"receiving": "يستقبل الأحداث",
-		"notReceiving": "لا أحداث بعد",
-		"noProvider": "لا يوجد مزوّد دفع بعد",
-		"connectProvider": "ربط Chargily Pay"
+		"title": "المدفوعات قادمة قريبًا",
+		"body": "قريبًا يمكنك قبول المدفوعات في تطبيقات الويب وخدمات SaaS الخاصة بك، مع إعدادها من المحادثة.",
+		"features": {
+			"oneTime": "مدفوعات لمرة واحدة",
+			"subscriptions": "الاشتراكات",
+			"testMode": "وضع تجريبي قبل الإطلاق"
+		}
 	},
 	"domains": {
 		"freePrimary": "نطاق Wandit مجاني · أساسي",

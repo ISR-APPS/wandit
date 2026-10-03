@@ -2,38 +2,43 @@
  * Fixed values of the V2 app builder workspace: views, More and Cloud panels,
  * devices, and composer modes. Also the storage keys and panel widths of the
  * chat card, and the easing and detail pace of the start-up screens. Read by
- * the route search schema, the shell, the More view, the Cloud tab, the
+ * the route search schema, the shell, the More view, the Cloud panels, the
  * preview, and the chat. No logic and no React here.
  */
 
 import type { LucideIcon } from "lucide-react";
 import {
 	Cable,
+	CalendarClock,
 	ChartLine,
 	CreditCard,
 	Database,
 	Globe,
+	HardDrive,
+	KeyRound,
 	Lock,
+	ScrollText,
 	Settings,
 	Shield,
 	Sparkles,
+	SquareFunction,
 	Store,
+	Users,
 } from "lucide-react";
 
 import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
 
 /**
- * Main views of the workspace. `more` opens the settings-like panels.
- * `cloud` opens the Cloud tab; the page shows it only behind its rollout gate.
+ * Main views of the workspace. `more` opens the project panels: the More
+ * panels and, behind the Cloud rollout gate, the Cloud panels.
  */
-export const BUILDER_VIEWS = ["preview", "code", "more", "cloud"] as const;
+export const BUILDER_VIEWS = ["preview", "code", "more"] as const;
 export type BuilderView = (typeof BUILDER_VIEWS)[number];
 
 /** Panels of the More view, in nav order. `domains` is web only, `appStores` is mobile only. */
 export const MORE_PANELS = [
 	"analytics",
-	"backend",
 	"signIn",
 	"ai",
 	"payments",
@@ -46,8 +51,15 @@ export const MORE_PANELS = [
 export type MorePanel = (typeof MORE_PANELS)[number];
 
 /**
- * Panels of the Cloud tab, in nav order (WANDIT-188). Every panel except
- * `secrets` needs a running backend; secrets live in the Wandit database.
+ * A More panel that the More view can open. The nav lists Integrations muted,
+ * with a "Soon" badge, and never opens it. Payments opens its coming-soon page.
+ */
+export type EnabledMorePanel = Exclude<MorePanel, "integrations">;
+
+/**
+ * Panels of the Backend group of the More view, in nav order (WANDIT-188).
+ * Every panel except `secrets` needs a running backend; secrets live in the
+ * Wandit database. No id is also in MORE_PANELS, so `?panel=` holds both.
  */
 export const CLOUD_PANELS = [
 	"database",
@@ -59,6 +71,20 @@ export const CLOUD_PANELS = [
 	"jobs",
 ] as const;
 export type CloudPanel = (typeof CLOUD_PANELS)[number];
+
+/** A panel that the More view can open: an enabled More panel, or a Cloud panel behind the gate. */
+export type ProjectPanel = EnabledMorePanel | CloudPanel;
+
+/** Nav icon of each Cloud panel. The label is `workspace.cloud.panels.<id>`. */
+export const CLOUD_PANEL_ICONS: Record<CloudPanel, LucideIcon> = {
+	database: Database,
+	users: Users,
+	storage: HardDrive,
+	secrets: KeyRound,
+	logs: ScrollText,
+	functions: SquareFunction,
+	jobs: CalendarClock,
+};
 
 /** Rows per page of the Cloud table grid and of the users list. Both routes accept at most 100. */
 export const CLOUD_ROWS_PAGE_SIZE = 50;
@@ -107,12 +133,6 @@ export const MORE_PANEL_META: Record<MorePanel, MorePanelMeta> = {
 		kinds: ALL_KINDS,
 		title: "appBuilder.panels.analytics.title",
 		description: "appBuilder.panels.analytics.description",
-	},
-	backend: {
-		icon: Database,
-		kinds: ALL_KINDS,
-		title: "appBuilder.panels.backend.title",
-		description: "appBuilder.panels.backend.description",
 	},
 	signIn: {
 		icon: Lock,

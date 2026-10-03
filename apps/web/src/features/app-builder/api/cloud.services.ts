@@ -1,5 +1,5 @@
 /**
- * Data layer of the Cloud tab (WANDIT-188). Each function calls one route
+ * Data layer of the Cloud panels of the More view (WANDIT-188). Each function calls one route
  * under `/api/v2/projects/:id/cloud/*` or `/api/v2/projects/:id/secrets`
  * through `@/lib/api-client` and parses the answer with its contracts
  * schema. `uploadObject` also sends the file to Supabase Storage.
@@ -51,7 +51,7 @@ import { apiClient, isApiClientError } from "@/lib/api-client";
 /**
  * `GET cloud/backend` answers the state of the Supabase backend; `none`
  * when the project has no backend row. The preview boot screen and the
- * Cloud tab both read it.
+ * Cloud panels of the More view both read it.
  */
 export async function getCloudBackend(
 	projectId: string,

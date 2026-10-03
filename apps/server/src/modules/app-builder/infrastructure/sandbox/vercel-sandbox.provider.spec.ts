@@ -87,6 +87,18 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 				this.events.push("sessionRunCommand");
 				return this.runCommand(params);
 			},
+			readFileToBuffer: (file: { path: string }) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				return this.readFileToBuffer(file);
+			},
+			writeFiles: (files: ReadonlyArray<{ path: string }>) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				return this.writeFiles(files);
+			},
 			snapshot: (opts: { expiration: number }) => {
 				if (this.stopped) {
 					return Promise.reject(new Error("sandbox_stopped"));
@@ -327,12 +339,11 @@ const ENV_SOURCE: V2EnvSource = {
 const OPTIONS: SandboxCreateOptions = {
 	devCommand: "pnpm dev",
 	devPort: 3000,
+	backendUrl: "https://project.supabase.co",
 	env: {
 		ANTHROPIC_AUTH_TOKEN: "run-token",
 		ANTHROPIC_BASE_URL: "https://llm-proxy.test",
 		ANTHROPIC_API_KEY: "",
-		VITE_SUPABASE_ANON_KEY: "anon",
-		VITE_SUPABASE_URL: "https://project.supabase.co",
 	},
 	framework: "web-app",
 	organizationId: "org-1",
@@ -974,7 +985,7 @@ describe("VercelSandboxProvider.findRunning", () => {
 		expect(fresh.stopped).toBe(true);
 	});
 
-	it("fails a command after a stop and does not resume the sandbox", async () => {
+	it("fails a command or a file write after a stop and does not resume the sandbox", async () => {
 		const { provider, sdk } = setup();
 		await provider.getOrCreate("p1", OPTIONS);
 		const reader = await provider.findRunning("p1");
@@ -986,6 +997,12 @@ describe("VercelSandboxProvider.findRunning", () => {
 		await expect(reader?.exec("git", ["status"])).rejects.toThrow(
 			"sandbox_stopped",
 		);
+		// provision-backend writes `.env` through the reader: a stopped sandbox stays stopped.
+		await expect(
+			reader?.writeFiles([
+				{ content: "A=1\n", path: "/vercel/workspace/.env" },
+			]),
+		).rejects.toThrow("sandbox_stopped");
 		expect(sandbox?.stopped).toBe(true);
 		expect(sdk.getOrCreateCalls).toHaveLength(1);
 	});
@@ -1132,9 +1149,8 @@ describe("VercelSandboxProvider egress policy", () => {
 		"llm-proxy.test",
 		"project.supabase.co",
 	].sort();
-	// OPTIONS without VITE_SUPABASE_URL: a project with no active backend.
-	const { VITE_SUPABASE_URL: _backendUrl, ...ENV_WITHOUT_BACKEND } =
-		OPTIONS.env;
+	// OPTIONS without backendUrl: a project with no active backend.
+	const { backendUrl: _backendUrl, ...OPTIONS_WITHOUT_BACKEND } = OPTIONS;
 	// The vendor type is a union; the provider always sends `allow` as a list.
 	const supabaseHosts = (policy: NetworkPolicy | undefined): string[] =>
 		typeof policy === "object" && Array.isArray(policy.allow)
@@ -1224,25 +1240,22 @@ describe("VercelSandboxProvider egress policy", () => {
 	it("allows no Supabase host without an active backend", async () => {
 		const { provider, sdk } = setup();
 
-		await provider.getOrCreate("p1", { ...OPTIONS, env: ENV_WITHOUT_BACKEND });
+		await provider.getOrCreate("p1", OPTIONS_WITHOUT_BACKEND);
 
 		expect(supabaseHosts(sdk.getOrCreateCalls[0]?.networkPolicy)).toEqual([]);
 	});
 
-	it("allows no Supabase host when VITE_SUPABASE_URL is not a URL", async () => {
+	it("allows no Supabase host when backendUrl is not a URL", async () => {
 		const { provider, sdk } = setup();
 
-		await provider.getOrCreate("p1", {
-			...OPTIONS,
-			env: { ...ENV_WITHOUT_BACKEND, VITE_SUPABASE_URL: "not a url" },
-		});
+		await provider.getOrCreate("p1", { ...OPTIONS, backendUrl: "not a url" });
 
 		expect(supabaseHosts(sdk.getOrCreateCalls[0]?.networkPolicy)).toEqual([]);
 	});
 
 	it("pushes the backend host on the next turn when the backend becomes active, with no restart", async () => {
 		const { provider, sdk } = setup();
-		await provider.getOrCreate("p1", { ...OPTIONS, env: ENV_WITHOUT_BACKEND });
+		await provider.getOrCreate("p1", OPTIONS_WITHOUT_BACKEND);
 		const sandbox = sdk.instances.get("p1");
 
 		await provider.getOrCreate("p1", OPTIONS);

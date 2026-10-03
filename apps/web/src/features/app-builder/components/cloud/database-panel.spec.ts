@@ -256,7 +256,7 @@ describe("DatabasePanel", () => {
 		).toBeTruthy();
 	});
 
-	it("reads nothing while the Cloud view is hidden", () => {
+	it("reads nothing while the More view is hidden", () => {
 		const queryClient = cachedClient();
 		renderPanel(queryClient, false);
 

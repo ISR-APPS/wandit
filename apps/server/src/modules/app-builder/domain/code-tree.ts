@@ -25,8 +25,9 @@ const PREFETCH_MAX_PATH_BYTES = 4_096;
 
 /**
  * True when the Code view may list and read `path`, a path relative to the
- * worktree root. A `.env*` file holds the per-run proxy token of the
- * sandbox, and `.git` holds the repository internals, so both stay hidden.
+ * worktree root. A `.env*` file holds env values, for example the backend
+ * `.env` that the host writes. `.git` holds the repository internals. So both
+ * stay hidden.
  */
 export function isReadableCodePath(path: string): boolean {
 	if (path.startsWith("/") || path.includes("\0")) {

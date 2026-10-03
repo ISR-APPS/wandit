@@ -4,9 +4,9 @@
  * work pane controls with the main card. On phones the open chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project and mock thread queries. The URL search params hold the view state.
- * The Cloud view shows only behind useCloudTabEnabled; the Appetize device
- * of a mobile project only behind useDevicePreviewEnabled. The raw agent
- * thinking shows only in local dev or for staff.
+ * The Backend group of the More view shows only behind useCloudTabEnabled;
+ * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
+ * The raw agent thinking shows only in local dev or for staff.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
@@ -33,7 +33,6 @@ import {
 } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
 import { ChatPane } from "../components/chat/chat-pane";
-import { CloudTab } from "../components/cloud/cloud-tab";
 import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
 import { PhonePreview } from "../components/preview/phone-preview";
@@ -44,13 +43,12 @@ import type { BootContext } from "../lib/boot-state";
 import {
 	CHAT_PANEL_DEFAULT_WIDTH,
 	CHAT_PANEL_MIN_WIDTH,
-	MORE_PANEL_META,
 } from "../lib/constants";
 import {
+	panelTitleKey,
 	readChatLayout,
 	readChatOpen,
-	resolveBuilderView,
-	resolveMorePanel,
+	resolvePanel,
 	writeChatLayout,
 	writeChatOpen,
 } from "../lib/helpers";
@@ -61,7 +59,7 @@ import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
 
 export type AppBuilderPageProps = {
 	projectId: string;
-	/** Validated `?view=&panel=&cloudPanel=&device=&viewport=&file=` of the URL. */
+	/** Validated `?view=&panel=&device=&viewport=&file=` of the URL. */
 	search: AppBuilderSearch;
 };
 
@@ -122,15 +120,13 @@ export default function AppBuilderPage({
 		hasCodeChanges: project.hasCodeChanges,
 	};
 
-	const view = resolveBuilderView(search.view, isCloudTabEnabled);
-	const panel = resolveMorePanel(project.kind, search.panel);
+	const view = search.view ?? "preview";
+	const panel = resolvePanel(project.kind, search.panel, isCloudTabEnabled);
 	const device = search.device ?? "ios";
 	const viewport = search.viewport ?? "desktop";
 
 	function viewTitle(): string {
-		if (view === "more") return t(MORE_PANEL_META[panel].title);
-		// The Cloud strings live in the workspace dictionary (WANDIT-188).
-		if (view === "cloud") return t("workspace.tabs.cloud");
+		if (view === "more") return t(panelTitleKey(panel));
 		return t(`appBuilder.views.${view}`);
 	}
 
@@ -219,36 +215,23 @@ export default function AppBuilderPage({
 					isTurnRunning={thread.isTurnRunning}
 				/>
 			) : null}
-			{view === "more" ? (
+			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its Cloud queries wait for isActive. */}
+			<div
+				className={cn(
+					"h-full min-h-0 flex-col",
+					view === "more" ? "flex" : "hidden",
+				)}
+			>
+				{/* A project switch in place remounts the view, so no draft or result of the old project stays. */}
 				<MoreView
+					key={project.id}
 					project={project}
 					panel={panel}
+					isActive={view === "more"}
+					showBackendGroup={isCloudTabEnabled}
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
-					onOpenCloud={
-						isCloudTabEnabled
-							? () => setSearch({ view: "cloud" }, false)
-							: undefined
-					}
 				/>
-			) : null}
-			{/* Hidden, not unmounted: the SQL draft and the open page stay. Its queries wait for isActive. */}
-			{isCloudTabEnabled ? (
-				<div
-					className={cn(
-						"h-full min-h-0 flex-col",
-						view === "cloud" ? "flex" : "hidden",
-					)}
-				>
-					{/* A project switch in place remounts the tab, so no draft or result of the old project stays. */}
-					<CloudTab
-						key={project.id}
-						projectId={project.id}
-						isActive={view === "cloud"}
-						panel={search.cloudPanel ?? "database"}
-						onSelectPanel={(next) => setSearch({ cloudPanel: next }, false)}
-					/>
-				</div>
-			) : null}
+			</div>
 		</div>
 	);
 
@@ -269,7 +252,6 @@ export default function AppBuilderPage({
 			project={project}
 			view={view}
 			title={viewTitle()}
-			showCloud={isCloudTabEnabled}
 			device={device}
 			viewport={viewport}
 			onChangeView={(next) => setSearch({ view: next }, false)}

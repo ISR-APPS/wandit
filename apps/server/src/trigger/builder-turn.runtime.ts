@@ -95,7 +95,11 @@ import type { SandboxSessionsRepository } from "../modules/app-builder/infrastru
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
-import { buildSandboxEnv } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import {
+	type BackendEnv,
+	buildSandboxEnv,
+	syncBackendEnvFile,
+} from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
 import {
 	profileForFramework,
 	TEMPLATE_PROFILES,
@@ -272,8 +276,9 @@ export type BuilderTurnDeps = {
 	project: Pick<TurnProjectRepository, "findForTurn">;
 	caps: Pick<ProjectCostCapsRepository, "findByProjectId">;
 	/**
-	 * The `app_backends` row: its URL and anon key enter the sandbox env when
-	 * `active`. The wake moves a paused row back; the turn end stamps activity.
+	 * The `app_backends` row: its URL and anon key enter the sandbox `.env`
+	 * when `active`. The wake moves a paused row back; the turn end stamps
+	 * activity.
 	 */
 	backends: Pick<
 		AppBackendsRepository,
@@ -1379,28 +1384,17 @@ export async function runBuilderTurn(
 				throw new Error("Turn canceled during the backend wake");
 			}
 		}
-		// D18: only an `active` row reaches the VM. A `creating` or `error`
-		// row, or no row, keeps the Supabase names out of the env.
-		const supabase =
-			backend?.status === "active" &&
-			backend.ref !== null &&
-			backend.anonKey !== null
-				? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
-				: null;
-		// LIMIT: a sandbox that already runs keeps its env until its next
-		// resume. Upgrade: write the sandbox `.env` and restart the dev
-		// server (issue step 8).
+		const supabase = activeBackendEnvOf(backend);
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
 			proxyToken,
 			runId,
-			supabaseAnonKey: supabase?.anonKey ?? null,
-			supabaseUrl: supabase?.url ?? null,
 		});
 
 		stamps.sandboxStart = deps.now();
 		sandbox = await deps.sandboxes.getOrCreate(projectId, {
+			backendUrl: supabase?.url,
 			devCommand: templateProfile.devCommand,
 			devPort: templateProfile.devPort,
 			env: sandboxEnv,
@@ -1424,6 +1418,26 @@ export async function runBuilderTurn(
 			harnessKey: await deps.harness.bootstrapKey(),
 		});
 		await deps.sandboxSessions.touchActivity(projectId);
+		// git does not keep `.env`, so a rebuilt sandbox needs the file again.
+		// provision-backend can mark the row active during getOrCreate. Then
+		// the sandbox row is not `running` yet, so its own write skips this
+		// sandbox. So the turn reads the row again here.
+		try {
+			const envBackend = activeBackendEnvOf(
+				await deps.backends.findByProjectId(projectId),
+			);
+			if (envBackend !== null) {
+				await syncBackendEnvFile(sandbox, envBackend);
+			}
+		} catch (error) {
+			// The agent works without the file. A missing file gets its write at
+			// the next turn.
+			logger.warn("builder-turn.env-file-failed", {
+				message: messageOf(error),
+				projectId,
+				turnId,
+			});
+		}
 		stamps.sandboxEnd = deps.now();
 		// The answer files enter the sandbox before the agent reads the
 		// answers, so the tool result and the fallback text name their paths.
@@ -2039,6 +2053,18 @@ async function copyAnswerFile(
 		});
 		return null;
 	}
+}
+
+/**
+ * The public values of the row, or null. D18: only an `active` row reaches
+ * the VM. A `creating`, `paused`, or `error` row, or no row, gives null.
+ */
+function activeBackendEnvOf(backend: AppBackendRow | null): BackendEnv | null {
+	return backend?.status === "active" &&
+		backend.ref !== null &&
+		backend.anonKey !== null
+		? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
+		: null;
 }
 
 /**

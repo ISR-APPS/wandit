@@ -121,7 +121,8 @@ export function buildNetworkPolicy(input: {
 	assetHost: string | null;
 	/**
 	 * Host of the project's own Supabase project, `<ref>.supabase.co`, from
-	 * `VITE_SUPABASE_URL`. Null while the project has no active backend.
+	 * `SandboxCreateOptions.backendUrl`. Null while the project has no active
+	 * backend.
 	 */
 	backendHost: string | null;
 	projectHosts: string[];

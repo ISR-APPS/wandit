@@ -33,7 +33,7 @@ HeroUI Native with Uniwind, Supabase, and i18n (en/fr/ar with right-to-left).
 
 ## Environment
 
-- `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`: injected at project creation.
+- `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`: the host writes them to `.env` when the backend is ready.
   A missing value stops the app at start (D18). Metro inlines both into the bundle.
 - `EXPO_PACKAGER_PROXY_URL`: the public URL that Expo CLI puts in the manifest and the
   QR code. Expo CLI reads it from the process env before `.env` loads, so it must be

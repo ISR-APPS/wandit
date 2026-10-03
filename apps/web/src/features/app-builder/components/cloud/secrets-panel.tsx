@@ -1,8 +1,8 @@
 /**
- * Secrets panel of the Cloud tab (WANDIT-185, WANDIT-188): a write-only
+ * Secrets panel of the Backend group (WANDIT-185, WANDIT-188): a write-only
  * store. It lists the secret names, sets or replaces a value, and deletes a
  * `user` secret. No answer carries a value, and the panel never shows one.
- * Rendered by cloud-tab.tsx without the backend gate: secrets live in the
+ * Rendered by cloud-panel-content.tsx without the backend gate: secrets live in the
  * Wandit database. Reads cloudSecretsQuery; writes through useSetSecret and
  * useDeleteSecret.
  */
@@ -47,12 +47,12 @@ import { CodeMessage } from "../code/code-viewer";
 import { CloudLoadFailed } from "./backend-state";
 import { RowsGridSkeleton } from "./rows-grid";
 
-/** Props of SecretsPanel. `putSecret` is the one test seam; the Cloud tab passes no value. */
+/** Props of SecretsPanel. `putSecret` is the one test seam; cloud-panel-content.tsx passes no value. */
 export type SecretsPanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The list read waits for it. */
+	/** True while the More view is on screen. The list read waits for it. */
 	isActive: boolean;
-	/** The secret PUT. The spec passes a fake; the tab omits it, so the hook calls apiClient. */
+	/** The secret PUT. The spec passes a fake; cloud-panel-content.tsx omits it, so the hook calls apiClient. */
 	putSecret?: typeof setSecret;
 };
 

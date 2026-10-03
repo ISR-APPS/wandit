@@ -14,11 +14,8 @@ import {
 	appBuilderSearchSchema,
 	appProjectQuery,
 	appStoresSummaryQuery,
-	backendSummaryQuery,
 	builderThreadQuery,
 	codeSnapshotQuery,
-	isMockAppProject,
-	paymentsSummaryQuery,
 	projectDomainsQuery,
 	projectSettingsQuery,
 	signInSummaryQuery,
@@ -42,12 +39,7 @@ export const Route = createFileRoute("/_auth/app/$projectId")({
 		await queryClient.ensureQueryData(builderThreadQuery(params.projectId));
 		// The other views read these later. Warm them now without holding the first paint.
 		void queryClient.prefetchQuery(codeSnapshotQuery(params.projectId));
-		// Only a seed project shows the mock backend summary. A real project reads its backend in the Cloud tab.
-		if (isMockAppProject(params.projectId)) {
-			void queryClient.prefetchQuery(backendSummaryQuery(params.projectId));
-		}
 		void queryClient.prefetchQuery(signInSummaryQuery(params.projectId));
-		void queryClient.prefetchQuery(paymentsSummaryQuery(params.projectId));
 		void queryClient.prefetchQuery(projectSettingsQuery(params.projectId));
 		if (project.kind === "web") {
 			void queryClient.prefetchQuery(projectDomainsQuery(params.projectId));
