@@ -4,9 +4,9 @@
  * The steps run in order: claim the `creating` row by `requestKey`.
  * Create the project when the row has no ref. Poll to `ACTIVE_HEALTHY`.
  * Read the anon key. Apply the base schema. Set the auth config.
- * Mark active. Write the audit row.
+ * Mark active. Write the `.env` of a running sandbox. Write the audit row.
  * It calls `AppBackendsRepository`, `SupabaseManagementClient`,
- * `AuditEventsRepository`, and Sentry.
+ * `SandboxProvider.findRunning`, `AuditEventsRepository`, and Sentry.
  * `provision-backend.task.ts` calls it through
  * `createProvisionBackendRuntime`; the spec runs `runProvisionBackend` on
  * fakes. No Nest here — Trigger workers compose dependencies by hand.
@@ -19,6 +19,7 @@ import { wait } from "@trigger.dev/sdk";
 import {
 	type SupabaseInstanceSize,
 	supabaseInstanceSizeSchema,
+	supabaseProjectUrl,
 	supabaseRegionSchema,
 } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
@@ -26,11 +27,21 @@ import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
 import { Sentry } from "@wandit/observability/node";
 
-import type { SandboxLogger } from "../modules/app-builder/domain/ports/sandbox-provider";
+import type {
+	SandboxLogger,
+	SandboxProvider,
+} from "../modules/app-builder/domain/ports/sandbox-provider";
+import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
 import type { AppBackendFailure } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
-import { TEMPLATE_ARCHIVE_DIR } from "../modules/app-builder/infrastructure/sandbox/template-init";
+import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import { syncBackendEnvFile } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
+import {
+	ArchiveTemplateInit,
+	TEMPLATE_ARCHIVE_DIR,
+} from "../modules/app-builder/infrastructure/sandbox/template-init";
+import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
 import {
 	type SupabaseManagementClient,
 	SupabaseManagementError,
@@ -68,6 +79,8 @@ export type ProvisionBackendDeps = {
 	>;
 	/** Append-only writer of the `backend.provisioned` audit row. */
 	auditEvents: Pick<AuditEventsRepository, "insert">;
+	/** Finds the project's sandbox only when it runs now; a stopped one stays stopped. */
+	sandboxes: Pick<SandboxProvider, "findRunning">;
 	/**
 	 * Management API client. Null when the worker env lacks
 	 * `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID`; the run then
@@ -309,9 +322,28 @@ export async function runProvisionBackend(
 			});
 			return { outcome: "skipped", failureCode: null };
 		}
-		// LIMIT: a sandbox that already runs gets the env values at its next
-		// resume. Upgrade: write the sandbox .env and restart the dev server
-		// (issue step 8, `writeBackendEnvToSandbox`).
+		// The app in a running sandbox gets the values now. A stopped sandbox
+		// stays stopped: its next turn writes the file.
+		// LIMIT: in strict egress mode, the policy gets the backend host only
+		// at the next turn. Until then, a server function in the sandbox cannot
+		// reach Supabase. Upgrade: push the policy here too.
+		try {
+			const sandbox = await deps.sandboxes.findRunning(projectId);
+			if (sandbox !== null) {
+				await syncBackendEnvFile(sandbox, {
+					anonKey,
+					url: supabaseProjectUrl(ref),
+				});
+			}
+		} catch (error) {
+			// A failed write never turns an active backend into an error. A
+			// missing file gets its write at the next turn.
+			deps.logger.warn("supabase.provisioning.env-file-failed", {
+				projectId,
+				ref,
+				error: getErrorMessage(error),
+			});
+		}
 		try {
 			await deps.auditEvents.insert({
 				action: "backend.provisioned",
@@ -423,6 +455,13 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 		backends,
 		Sentry.logger,
 	);
+	// The `.env` write only calls `findRunning`, which never restores a repo
+	// or applies a template, like the idle sweep.
+	const sandboxes = new VercelSandboxProvider(
+		new SandboxSessionsRepository(db),
+		new LoggingRepoRestorer(),
+		new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
+	);
 	return {
 		run: (input) =>
 			runProvisionBackend(
@@ -446,6 +485,7 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 							resolve(TEMPLATE_ARCHIVE_DIR, BASE_SQL_RELATIVE_PATH),
 							"utf8",
 						),
+					sandboxes,
 					// A Trigger wait frees the machine during the 10 minute poll.
 					sleep: (ms) => wait.for({ seconds: ms / 1000 }),
 				},

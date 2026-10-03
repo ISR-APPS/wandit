@@ -54,10 +54,16 @@ export type SandboxCreateOptions = {
 	/** The fixed dev server port of the template. */
 	devPort: number;
 	/**
-	 * Values for the sandbox process env. Only per-run tokens and public
-	 * keys; never a platform secret.
+	 * Values for the sandbox process env: the per-run proxy values and the
+	 * preview host. Never a platform secret, and never a Supabase value: those
+	 * go to the `.env` file of `syncBackendEnvFile`.
 	 */
 	env: Record<string, string>;
+	/**
+	 * `https://<ref>.supabase.co` of the project's `active` backend. The
+	 * egress policy allows its host. Absent while the backend is not active.
+	 */
+	backendUrl?: string;
 	/**
 	 * `user.id` of the project owner. The provider writes it on the
 	 * `sandbox_sessions` row it creates; it reads no other table.
@@ -166,13 +172,14 @@ export interface SandboxHandle {
 }
 
 /**
- * The command part of a running sandbox. `SandboxProvider.findRunning`
- * answers it for the Code view routes. It cannot change the network policy
- * or the ports, and its `exec` fails on a stopped sandbox instead of a wake.
+ * The command and file part of a running sandbox. `SandboxProvider.findRunning`
+ * answers it for the Code view routes and for the provision-backend `.env`
+ * write. It cannot change the network policy or the ports. Its calls fail
+ * on a stopped sandbox instead of a wake.
  */
 export type SandboxReader = Pick<
 	SandboxHandle,
-	"projectId" | "workspaceDir" | "exec"
+	"projectId" | "workspaceDir" | "exec" | "readFile" | "writeFiles"
 >;
 
 /**
@@ -196,9 +203,9 @@ export interface SandboxProvider {
 	): Promise<SandboxHandle>;
 	/**
 	 * The project's sandbox when it runs now, else null. It never creates,
-	 * resumes, or boots a sandbox, never pushes a network policy or an env,
-	 * and never writes the `sandbox_sessions` row. The Code view reads
-	 * through it, so a read never wakes a stopped sandbox.
+	 * resumes, or boots a sandbox. It never pushes a network policy or a
+	 * process env, and never writes the `sandbox_sessions` row. The Code view
+	 * reads through it, so a read never wakes a stopped sandbox.
 	 */
 	findRunning(projectId: string): Promise<SandboxReader | null>;
 	stop(projectId: string): Promise<void>;

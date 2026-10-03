@@ -40,7 +40,7 @@ shell that the client-side code fills on load.
 
 ## Environment
 
-- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — injected at project creation.
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — the host writes them to `.env` when the backend is ready.
   Missing values stop the app at start (D18).
 - `WANDIT_PREVIEW_HOST` — set by the sandbox in dev. Used for
   `server.allowedHosts` only. The HMR client connects to the page host on

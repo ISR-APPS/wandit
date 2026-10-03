@@ -23,9 +23,8 @@ const OPTIONS: SandboxCreateOptions = {
 		ANTHROPIC_AUTH_TOKEN: "integration-run-token",
 		ANTHROPIC_BASE_URL: "https://llm-proxy.test",
 		ANTHROPIC_API_KEY: "",
-		VITE_SUPABASE_ANON_KEY: "integration-anon",
-		VITE_SUPABASE_URL: "https://project.supabase.co",
 	},
+	backendUrl: "https://project.supabase.co",
 	framework: "web-app",
 	organizationId: null,
 	ownerUserId: "integration-user",
@@ -68,8 +67,8 @@ describe.skipIf(!RUN)("vercel sandbox integration", () => {
 
 			const namesAfterCreate = await sandboxEnvNames(handle);
 			console.log("sandbox env names:", namesAfterCreate.join(","));
-			expect(namesAfterCreate).toContain("VITE_SUPABASE_URL");
-			expect(namesAfterCreate).toContain("VITE_SUPABASE_ANON_KEY");
+			expect(namesAfterCreate).toContain("ANTHROPIC_AUTH_TOKEN");
+			expect(namesAfterCreate).toContain("ANTHROPIC_BASE_URL");
 
 			await provider.stop(projectId);
 
@@ -78,8 +77,8 @@ describe.skipIf(!RUN)("vercel sandbox integration", () => {
 			console.log(`resume took ${Date.now() - resumedAt}ms`);
 
 			const namesAfterResume = await sandboxEnvNames(resumed);
-			expect(namesAfterResume).toContain("VITE_SUPABASE_URL");
-			expect(namesAfterResume).toContain("VITE_SUPABASE_ANON_KEY");
+			expect(namesAfterResume).toContain("ANTHROPIC_AUTH_TOKEN");
+			expect(namesAfterResume).toContain("ANTHROPIC_BASE_URL");
 		} finally {
 			await provider.destroy(projectId);
 		}

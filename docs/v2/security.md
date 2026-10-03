@@ -46,12 +46,12 @@ call:
 - The git host `<org>.code.storage`, from `CODE_STORAGE_ORG`.
 - The asset host, the hostname of `R2_PUBLIC_BASE_URL`.
 - The backend host `<ref>.supabase.co`, the hostname of
-  `VITE_SUPABASE_URL`. The builder-turn runtime puts that value in the env
-  only while the `app_backends` row is `active`. `start` rebuilds the
+  `SandboxCreateOptions.backendUrl`. The builder-turn runtime passes that
+  value only while the `app_backends` row is `active`. `start` rebuilds the
   policy on each turn and pushes it when its hash changes. So a backend
   that becomes active gets its host on the next turn, with no restart. In
   strict mode, an invalid or wildcard backend host throws. A
-  `VITE_SUPABASE_URL` that is not a URL gives no backend host.
+  `backendUrl` that is not a URL gives no backend host.
 
 Two leak paths stay open (WANDIT-283):
 
@@ -320,14 +320,14 @@ cannot re-enable them.
 
 ## 9. No platform secret in the VM
 
-`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the ten env names
-a sandbox may receive: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+`SANDBOX_ENV_ALLOW_LIST` (`sandbox-env.ts`) holds the six env names
+a sandbox process may receive: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS`,
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
-`EXPO_PUBLIC_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
-`VITE_SUPABASE_URL`, `WANDIT_PREVIEW_HOST`. The two Supabase pairs
-hold the same public values: the web-app template reads `VITE_*`, the
-mobile-app template reads `EXPO_PUBLIC_*`. Every other name — a
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `WANDIT_PREVIEW_HOST`.
+The public Supabase URL and anon key go to the `.env` file of the
+workspace (`syncBackendEnvFile`), not to the process env: the web-app
+template reads `VITE_*`, the mobile-app template reads `EXPO_PUBLIC_*`.
+Every other name — a
 Vercel token, a real Anthropic key, a service-role key, a signing
 key — is a platform secret and stays out. `buildSandboxEnv` throws
 `SandboxEnvRejectedError` on a non-listed `extra` name and writes

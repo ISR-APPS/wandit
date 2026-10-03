@@ -119,14 +119,14 @@ Both Supabase paths were checked in the Supabase OpenAPI
 
 ## Wake
 
-- **Turn start.** `runBuilderTurn` reads the backend row before it builds
-  the sandbox env. A `paused` row gets `POST /v1/projects/{ref}/restore`
+- **Turn start.** `runBuilderTurn` reads the backend row before it boots
+  the sandbox. A `paused` row gets `POST /v1/projects/{ref}/restore`
   and `markRestoring`. When the restore call fails, one status read
   decides: a project in `ACTIVE_HEALTHY`, `COMING_UP`, or `RESTORING` only
   needs the wait. A `paused` or `restoring` row then gets one status
   read every 5 s. At `ACTIVE_HEALTHY` the row moves to `active`
-  (`markRestored`) and the turn passes the Supabase URL and anon key to
-  the sandbox. `RESTORE_FAILED` or `REMOVED` ends the wake at once and
+  (`markRestored`) and the turn writes the Supabase URL and anon key to
+  the sandbox `.env`. `RESTORE_FAILED` or `REMOVED` ends the wake at once and
   moves the row to `error`. The turn card shows the `sandbox_waking`
   status with the message `Waking up the database`. A cancel during the
   wake stops it, and the turn ends `canceled` before any sandbox boots.
