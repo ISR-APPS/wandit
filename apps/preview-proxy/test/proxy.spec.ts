@@ -124,8 +124,10 @@ function headerOf(
 }
 
 function expectSecurityHeaders(response: Response): void {
+	// The literal list of the top-level wrangler.jsonc: it frames the
+	// production and the staging builder (WANDIT-155/160).
 	expect(response.headers.get("content-security-policy")).toBe(
-		`frame-ancestors ${env.FRAME_ANCESTORS}`,
+		"frame-ancestors https://wandit.dev https://preview.wandit.dev http://localhost:*",
 	);
 	expect(response.headers.get("x-robots-tag")).toBe("noindex");
 	expect(response.headers.get("referrer-policy")).toBe(

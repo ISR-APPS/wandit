@@ -10,7 +10,8 @@
 	"vars": {
 		"PREVIEW_DOMAIN": "wanditpreview.app",
 		// The origins allowed to frame a preview (security.md 9.3 item 4).
-		"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev http://localhost:*"
+		// preview.wandit.dev is the staging web app, not a preview host.
+		"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev http://localhost:*"
 	},
 	// PREVIEW_TOKEN_SIGNING_KEY is a secret: `wrangler secret put
 	// PREVIEW_TOKEN_SIGNING_KEY`. It must equal the API env of the same name.
@@ -30,7 +31,7 @@
 			"vars": {
 				"PREVIEW_DOMAIN": "wanditpreview.app",
 				// Staging also frames previews from Vercel preview deploys.
-				"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev https://*.vercel.app http://localhost:*"
+				"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev https://*.vercel.app http://localhost:*"
 			},
 			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "c47f46ef7fa7451388c0ff3c329daea0" }],
 			"ratelimits": [
