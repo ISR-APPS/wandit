@@ -1,7 +1,8 @@
 /**
  * Data layer of the app builder. Most functions are a mock store: each waits
  * a short delay and returns a copy, like a fetch. State lives in this module
- * until a reload. The functions under `// ---- Real API ----` call the V2
+ * until a reload. The seed projects open only in development. The
+ * functions under `// ---- Real API ----` call the V2
  * routes through `@/lib/api-client` and parse the response with contracts;
  * the Code view functions are there too.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
@@ -181,9 +182,14 @@ function required<T>(map: Map<string, T>, projectId: string): T {
 	return value;
 }
 
-/** The seed rows only. A placeholder row seeded for a real id must not reach the project menu. */
+/**
+ * The seed rows only, and only in development. A placeholder row seeded
+ * for a real id must not reach the project menu.
+ */
 export async function listAppProjects(): Promise<AppProject[]> {
 	await delay();
+	// The seed rows open the V2 builder without the API gate (WANDIT-279).
+	if (!import.meta.env.DEV) return [];
 	const projects = getStore().projects;
 	return structuredClone(
 		MOCK_APP_PROJECTS.flatMap((seed) => {
@@ -194,17 +200,21 @@ export async function listAppProjects(): Promise<AppProject[]> {
 }
 
 /**
- * null when no project has this id, so the route can show its not-found
- * screen. `get` is the test seam of the real API call; production gets
- * the shared client.
+ * null when no project has this id or the V2 gate refuses the user, so the
+ * route shows its not-found screen. `get` is the test seam of the real API
+ * call; production gets the shared client.
  */
 export async function getAppProject(
 	projectId: string,
 	get: typeof apiClient.get = apiClient.get,
 ): Promise<AppProject | null> {
-	// Only the seed ids answer the mock. A real id goes to the API even after
-	// a panel guard seeded a placeholder row for it into the store.
-	if (!MOCK_APP_PROJECTS.some((project) => project.id === projectId)) {
+	// Only the seed ids answer the mock, and only in development: the mock
+	// skips the API, so it skips the V2 gate (WANDIT-279). A real id goes to
+	// the API even after a panel guard seeded a placeholder row for it.
+	if (
+		!import.meta.env.DEV ||
+		!MOCK_APP_PROJECTS.some((project) => project.id === projectId)
+	) {
 		return fetchAppProject(projectId, get);
 	}
 	await delay();
@@ -329,11 +339,11 @@ export async function createAppProject(
 }
 
 /**
- * `GET /api/v2/projects/:id`. A 404 answers null like a missing mock id;
- * every other failure propagates so the query enters its error state.
- * `get` comes from the caller so a spec can inject a fake client. The
- * store keeps the real row, so a later mock guard (updateAppProject, the
- * panels) patches the real project and not a fixture.
+ * `GET /api/v2/projects/:id`. A 404 and a V2 gate refusal answer null like
+ * a missing mock id; every other failure propagates so the query enters its
+ * error state. `get` comes from the caller so a spec can inject a fake
+ * client. The store keeps the real row, so a later mock guard
+ * (updateAppProject, the panels) patches the real project and not a fixture.
  */
 async function fetchAppProject(
 	projectId: string,
@@ -345,7 +355,11 @@ async function fetchAppProject(
 		getStore().projects.set(project.id, structuredClone(project));
 		return project;
 	} catch (error) {
-		if (isApiClientError(error) && error.statusCode === 404) return null;
+		if (!isApiClientError(error)) throw error;
+		if (error.statusCode === 404) return null;
+		// A mounted module answers 403 V2_BUILDER_DISABLED to a user outside
+		// the rollout. That user sees the same screen as with no module: 404.
+		if (error.code === "V2_BUILDER_DISABLED") return null;
 		throw error;
 	}
 }

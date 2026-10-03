@@ -1,7 +1,8 @@
 /**
  * Scheduled task: every 10 minutes, build the template snapshot of each
- * platform when the template, the image, or the harness changed. The Trigger
- * scheduler calls it; the work lives in `template-snapshot.runtime.ts`.
+ * platform when the template, the image, or the harness changed. Without
+ * the Vercel credentials, the run skips and its log line names them. The
+ * Trigger scheduler calls it; the work lives in `template-snapshot.runtime.ts`.
  * The task file only wires real dependencies.
  */
 import "./undici-timeouts";
@@ -39,6 +40,7 @@ export const templateSnapshotTask = schedules.task({
 		const db = createDb({ idleTimeoutMillis: 10_000, max: 1 });
 		try {
 			const result = await runTemplateSnapshotBuild({
+				envSource: env,
 				harness: createBuilderHarness(env.V2_HARNESS),
 				logger: Sentry.logger,
 				provider: new VercelSandboxProvider(
