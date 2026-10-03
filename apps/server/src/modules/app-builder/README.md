@@ -72,8 +72,8 @@ partial unique index guarantees at most one live row per project.
 - `getOrCreate` is the only entry: it creates (row `creating` → `running`),
   reuses a live sandbox, and resumes a stopped one from its vendor
   snapshot. `resume` takes the same options — the caller always rebuilds
-  the env from the `projects` and `app_backends` rows plus the per-run
-  proxy token; the provider never reads `app_backends`.
+  the env from the per-run proxy token, and passes `backendUrl` from an
+  `active` `app_backends` row; the provider never reads `app_backends`.
 - `stop` keeps the last snapshot (`keepLastSnapshots: 1`) and marks the
   row stopped. `destroy` deletes sandbox, snapshots, and the live row.
   `fork` throws `SandboxForkNotSupportedError` until P6 (D13).
@@ -122,20 +122,28 @@ partial unique index guarantees at most one live row per project.
   `TEMPLATE_VERSION_FILE_PATHS` and `TEMPLATE_ARCHIVE_DIR` both resolve from
   the working directory, never from the bundled file.
 - Env allow-list: `buildSandboxEnv` emits only `SANDBOX_ENV_ALLOW_LIST`
-  names — the per-run proxy values, `VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_ANON_KEY`, their Expo copies `EXPO_PUBLIC_SUPABASE_URL`
-  and `EXPO_PUBLIC_SUPABASE_ANON_KEY`, and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
+  names — the per-run proxy values and `WANDIT_PREVIEW_HOST`. `ANTHROPIC_API_KEY`
   is always written empty; `VERCEL_SANDBOX_TOKEN`, signing keys, and
-  service-role keys can never enter the sandbox. The builder-turn runtime
-  reads `app_backends` and passes the URL and anon key only when the row
-  is `active`. A running sandbox gets them at its next resume.
+  service-role keys can never enter the sandbox.
+- Backend values: `syncBackendEnvFile` writes `VITE_SUPABASE_URL`,
+  `VITE_SUPABASE_ANON_KEY`, and their Expo copies `EXPO_PUBLIC_SUPABASE_URL`
+  and `EXPO_PUBLIC_SUPABASE_ANON_KEY` to `<workspace>/.env`, only for an
+  `active` `app_backends` row. They are not in the process env, because
+  Vite and Expo CLI prefer a process value to a `.env` value. Vite restarts
+  and Metro sends an HMR update when the file changes, so the running app
+  gets the values with no restart code. The builder-turn runtime writes the
+  file after `getOrCreate`; provision-backend writes it after `markActive`
+  when the sandbox runs. The writer waits until the dev port answers,
+  because a dev server watches `.env` only from then. It writes only when
+  the content differs, because each write restarts Vite. git ignores
+  `.env`, and the Code view never shows it.
 - Egress is deny-by-default. `buildNetworkPolicy` emits the global allow
   list: `registry.npmjs.org`, fonts, `api.stripe.com`, `api.resend.com`,
   `maps.googleapis.com`, and `api.openai.com`. It adds the proxy host of
   `ANTHROPIC_BASE_URL`, the `<org>.code.storage` git host, and the
   `R2_PUBLIC_BASE_URL` host. It adds the project's own Supabase host, the
-  hostname of `VITE_SUPABASE_URL`, only while the backend is active
-  (WANDIT-283). It adds the per-project hosts of
+  hostname of `SandboxCreateOptions.backendUrl`, only while the backend is
+  active (WANDIT-283). It adds the per-project hosts of
   `projects.networkAllowedHosts` (layer 3). The list has no
   `*.supabase.co`: it also reaches a Supabase project of an attacker.
   `request_network_host` denies every `supabase.co` and `supabase.com`
@@ -349,7 +357,7 @@ It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is pl
 It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
-The builder turn reads the row at turn start; a running sandbox gets the env values at its next resume.
+When the sandbox runs, the run then writes the backend values to its `.env` (see "Backend values" above).
 Before the insert, the D3 entitlement checks the payer's plan (see "Backend lifecycle").
 
 ## Backend lifecycle (WANDIT-184)
@@ -764,16 +772,18 @@ One run does this, in order:
    (`buildSandboxEnv`): the run token becomes
    `ANTHROPIC_AUTH_TOKEN`, the proxy URL `ANTHROPIC_BASE_URL`, the run id
    `ANTHROPIC_CUSTOM_HEADERS`; the real `ANTHROPIC_API_KEY` is forced to
-   an empty string. An `active` `app_backends` row adds `VITE_SUPABASE_URL`
-   and `VITE_SUPABASE_ANON_KEY`, plus the same two values as
-   `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`; any other row, or no row, adds the note
+   an empty string. An `active` `app_backends` row gives `backendUrl` for
+   the egress policy; any other row, or no row, adds the note
    `Backend not ready yet` to the first status of the turn
    (`session_starting` on a cold session, `running` on a warm turn).
 5. Wakes or creates the sandbox (`sandboxes.getOrCreate`, with the dev
    command and port of the template profile) and touches
    `sandbox_sessions` activity so the idle sweep leaves it alone. The
    `sandbox_waking` status is written from `onWake`, so a running sandbox
-   (a warm turn) shows no waking step on the card.
+   (a warm turn) shows no waking step on the card. Then it reads the
+   `app_backends` row again and, for an `active` row, writes the backend
+   `.env` (`syncBackendEnvFile`). The second read covers a row that turned
+   `active` while the sandbox booted.
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a

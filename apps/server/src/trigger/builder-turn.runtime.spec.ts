@@ -35,7 +35,10 @@ import type { ProjectCostCapsRow } from "../modules/app-builder/infrastructure/p
 import type { TurnProjectRow } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../modules/app-builder/infrastructure/redis/fake-turn-lock";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
-import { FakeSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
 import { FakeTurnEventStream } from "../modules/app-builder/infrastructure/trigger/fake-turn-events";
 import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import type { ChatMessageText } from "../modules/generation/infrastructure/persistence/chats.repository";
@@ -440,6 +443,20 @@ function fakeBackendRow(over?: Partial<AppBackendRow>): AppBackendRow {
 	};
 }
 
+/** The `.env` text the turn wrote into the running fake sandbox, or null. */
+async function envFileOf(
+	world: ReturnType<typeof makeWorld>,
+): Promise<string | null> {
+	const sandbox = await world.sandboxes.findRunning(PROJECT_ID);
+	const bytes = await sandbox?.readFile(`${FAKE_WORKSPACE_DIR}/.env`);
+	return bytes === undefined || bytes === null
+		? null
+		: new TextDecoder().decode(bytes);
+}
+
+const BACKEND_URL_LINE =
+	"VITE_SUPABASE_URL=https://abcdefghijklmnopqrst.supabase.co";
+
 function fakeCapsRow(
 	perTurnCapCredits: number | null,
 	monthlyCapCredits: number | null = null,
@@ -559,6 +576,8 @@ function makeWorld(over?: {
 	const stream = new FakeTurnEventStream();
 	const lock = new FakeTurnLock();
 	const sandboxes = new FakeSandboxProvider();
+	// The `.env` write waits for the dev port first; a fake port answers at once.
+	sandboxes.respondTo("bash", { exitCode: 0, stderr: "", stdout: "" });
 	const harness = new FakeBuilderHarness();
 	const touched: string[] = [];
 	/** Project ids `backends.touchActive` got, in call order. */
@@ -2331,8 +2350,6 @@ describe("runBuilderTurn", () => {
 		expect(env?.ANTHROPIC_AUTH_TOKEN).toBe("fake-run-token");
 		expect(env?.ANTHROPIC_BASE_URL).toBe(PROXY_BASE_URL);
 		expect(env?.ANTHROPIC_CUSTOM_HEADERS).toContain(RUN_ID);
-		expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-		expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
 	});
 
 	it("settles only after every proxy request of the run has its row", async () => {
@@ -3242,8 +3259,8 @@ describe("runBuilderTurn", () => {
 		expect(world.inserted[0]?.input.parts).toContainEqual(thought);
 	});
 
-	describe("sandbox env from app_backends", () => {
-		it("passes the active row's URL and anon key into the sandbox env", async () => {
+	describe("sandbox .env from app_backends", () => {
+		it("writes the active row's URL and anon key into the sandbox .env, not the process env", async () => {
 			const world = makeWorld({ backend: fakeBackendRow() });
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
@@ -3252,15 +3269,16 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBe(
+			const options = world.sandboxes.createOptions[0];
+			// A process value would win over the `.env` value in Vite and Expo.
+			expect(options?.env.VITE_SUPABASE_URL).toBeUndefined();
+			expect(options?.env.EXPO_PUBLIC_SUPABASE_URL).toBeUndefined();
+			expect(options?.backendUrl).toBe(
 				"https://abcdefghijklmnopqrst.supabase.co",
 			);
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
-			expect(env?.EXPO_PUBLIC_SUPABASE_URL).toBe(
-				"https://abcdefghijklmnopqrst.supabase.co",
-			);
-			expect(env?.EXPO_PUBLIC_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			const envFile = await envFileOf(world);
+			expect(envFile).toContain(BACKEND_URL_LINE);
+			expect(envFile).toContain("EXPO_PUBLIC_SUPABASE_ANON_KEY=anon-key-test");
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -3271,8 +3289,15 @@ describe("runBuilderTurn", () => {
 			).toEqual({ phase: "session_starting" });
 		});
 
-		it("sends no VITE_SUPABASE_* names and keeps the note without a row", async () => {
-			const world = makeWorld();
+		it.each([
+			{ backend: null, label: "no row" },
+			{
+				backend: fakeBackendRow({ anonKey: null, status: "creating" }),
+				label: "a creating row",
+			},
+			{ backend: fakeBackendRow({ status: "error" }), label: "an error row" },
+		])("writes no .env and keeps the note with $label", async ({ backend }) => {
+			const world = makeWorld({ backend });
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 			const { controller, input } = makeInput();
@@ -3280,9 +3305,8 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
+			expect(world.sandboxes.createOptions[0]?.backendUrl).toBeUndefined();
+			expect(await envFileOf(world)).toBeNull();
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -3296,7 +3320,7 @@ describe("runBuilderTurn", () => {
 			});
 		});
 
-		it("wakes a paused backend with one restore, then passes its env", async () => {
+		it("wakes a paused backend with one restore, then writes its .env", async () => {
 			const world = makeWorld({
 				backend: fakeBackendRow({ status: "paused" }),
 			});
@@ -3307,11 +3331,7 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.backendCalls).toEqual(["restoreProject", "getProject"]);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBe(
-				"https://abcdefghijklmnopqrst.supabase.co",
-			);
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBe("anon-key-test");
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 			const statuses = world.stream
 				.eventsOf(TURN_ID)
 				.flatMap((e) => (e.type === "status" ? [e.data] : []));
@@ -3333,9 +3353,7 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.backendCalls).toEqual(["getProject"]);
-			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
-				"https://abcdefghijklmnopqrst.supabase.co",
-			);
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
 
 		it("runs the turn with the note when the wake times out", async () => {
@@ -3356,8 +3374,7 @@ describe("runBuilderTurn", () => {
 			expect(
 				world.backendCalls.filter((call) => call === "getProject"),
 			).toHaveLength(36);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
+			expect(await envFileOf(world)).toBeNull();
 			const sessionStarting = world.stream
 				.eventsOf(TURN_ID)
 				.find(
@@ -3389,9 +3406,7 @@ describe("runBuilderTurn", () => {
 			expect(
 				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
 			).toBe("error");
-			expect(
-				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
-			).toBeUndefined();
+			expect(await envFileOf(world)).toBeNull();
 			const done = world.stream.eventsOf(TURN_ID).at(-1);
 			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 		});
@@ -3425,9 +3440,7 @@ describe("runBuilderTurn", () => {
 
 			expect(reads).toBe(2);
 			expect(world.warnings).toContain("backend.wake-poll-failed");
-			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
-				"https://abcdefghijklmnopqrst.supabase.co",
-			);
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
 
 		it("boots no sandbox and cancels the turn on a cancel during the wake", async () => {
@@ -3478,9 +3491,7 @@ describe("runBuilderTurn", () => {
 			expect(
 				(await world.deps.backends.findByProjectId(PROJECT_ID))?.status,
 			).toBe("active");
-			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
-				"https://abcdefghijklmnopqrst.supabase.co",
-			);
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
 
 		it("runs the turn with the note when the restore call fails", async () => {
@@ -3501,9 +3512,7 @@ describe("runBuilderTurn", () => {
 
 			await runBuilderTurn(world.deps, input, controller.signal);
 
-			expect(world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL).toBe(
-				undefined,
-			);
+			expect(await envFileOf(world)).toBeNull();
 			const done = world.stream.eventsOf(TURN_ID).at(-1);
 			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 		});
@@ -3520,9 +3529,7 @@ describe("runBuilderTurn", () => {
 			await runBuilderTurn(world.deps, input, controller.signal);
 
 			expect(world.backendCalls).toEqual([]);
-			expect(
-				world.sandboxes.createOptions[0]?.env.VITE_SUPABASE_URL,
-			).toBeUndefined();
+			expect(await envFileOf(world)).toBeNull();
 			// No wake starts, so the card shows no waking line for the database.
 			expect(
 				world.stream
@@ -3547,31 +3554,45 @@ describe("runBuilderTurn", () => {
 			expect(world.backendCalls).toEqual([]);
 		});
 
-		it("sends no VITE_SUPABASE_* names and keeps the note on an error row", async () => {
-			const world = makeWorld({
-				backend: fakeBackendRow({ status: "error" }),
-			});
+		it("writes the .env and still succeeds when no dev port answers", async () => {
+			const world = makeWorld({ backend: fakeBackendRow() });
+			// The dev port wait ends after its last try: the dev server is down or slow.
+			world.sandboxes.scriptedExec.set("bash", [
+				{ exitCode: 1, stderr: "", stdout: "" },
+			]);
 			world.harness.events = happyEvents();
 			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 			const { controller, input } = makeInput();
 
 			await runBuilderTurn(world.deps, input, controller.signal);
 
-			expect(world.sandboxes.createOptions).toHaveLength(1);
-			const env = world.sandboxes.createOptions[0]?.env;
-			expect(env?.VITE_SUPABASE_URL).toBeUndefined();
-			expect(env?.VITE_SUPABASE_ANON_KEY).toBeUndefined();
-			const sessionStarting = world.stream
-				.eventsOf(TURN_ID)
-				.find(
-					(e) => e.type === "status" && e.data.phase === "session_starting",
-				);
-			expect(
-				sessionStarting?.type === "status" && sessionStarting.data,
-			).toEqual({
-				message: "Backend not ready yet",
-				phase: "session_starting",
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
+			expect(world.warnings).toContain("builder-turn.env-file-failed");
+			const done = world.stream.eventsOf(TURN_ID).at(-1);
+			expect(done?.type === "done" && done.data.status).toBe("succeeded");
+		});
+
+		it("writes the .env when the row turns active while the sandbox boots", async () => {
+			const world = makeWorld({
+				backend: fakeBackendRow({ anonKey: null, status: "creating" }),
 			});
+			// provision-backend marks the row active during getOrCreate, while the
+			// sandbox row is not running yet, so its own write skips the sandbox.
+			const reads = [
+				fakeBackendRow({ anonKey: null, status: "creating" }),
+				fakeBackendRow(),
+			];
+			world.deps.backends = {
+				...world.deps.backends,
+				findByProjectId: async () => reads.shift() ?? fakeBackendRow(),
+			};
+			world.harness.events = happyEvents();
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			await runBuilderTurn(world.deps, input, controller.signal);
+
+			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
 	});
 

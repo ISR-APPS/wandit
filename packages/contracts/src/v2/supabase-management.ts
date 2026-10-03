@@ -361,8 +361,8 @@ export const supabaseDeletedObjectsResponseSchema = z.array(
 );
 
 /**
- * Public URL of a Supabase project. The builder-turn runtime writes it as
- * `VITE_SUPABASE_URL` into the sandbox env.
+ * Public URL of a Supabase project. The builder-turn runtime and
+ * provision-backend write it as `VITE_SUPABASE_URL` into the sandbox `.env`.
  */
 export function supabaseProjectUrl(ref: string): string {
 	return `https://${ref}.supabase.co`;

@@ -11,6 +11,10 @@ import type {
 	AppBackendRow,
 } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { AuditEventInput } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
+import {
+	FAKE_WORKSPACE_DIR,
+	FakeSandboxProvider,
+} from "../modules/app-builder/infrastructure/sandbox/fake-sandbox.provider";
 import type { BackendRef } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import { SupabaseManagementError } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import {
@@ -29,6 +33,17 @@ const BASE_SQL = "create extension if not exists pg_cron;";
 const PREVIEW_DOMAIN = "preview.test";
 
 const INPUT = { projectId: PROJECT_ID, requestKey: REQUEST_KEY };
+
+// The options a builder turn boots the fake sandbox with; only the project id matters here.
+const SANDBOX_OPTIONS = {
+	devCommand: "pnpm run dev",
+	devPort: 8081,
+	env: {},
+	framework: "mobile-app",
+	organizationId: null,
+	ownerUserId: "user-1",
+	templateVersion: "mobile-app@1.1.0",
+};
 
 type CreateProjectCall = {
 	projectId: string;
@@ -179,6 +194,7 @@ function setup(
 		},
 	};
 	let fakeNow = 0;
+	const sandboxes = new FakeSandboxProvider();
 	const deps = {
 		auditEvents: {
 			insert: vi.fn(async (input: AuditEventInput) => {
@@ -202,13 +218,14 @@ function setup(
 				? PREVIEW_DOMAIN
 				: options.previewDomain,
 		readBaseSql: vi.fn(async () => BASE_SQL),
+		sandboxes,
 		sleep: async (ms: number) => {
 			sleeps.push(ms);
 			fakeNow += ms;
 		},
 	} satisfies ProvisionBackendDeps;
 
-	return { audits, backends, captures, client, deps, logs, sleeps };
+	return { audits, backends, captures, client, deps, logs, sandboxes, sleeps };
 }
 
 describe("runProvisionBackend", () => {
@@ -472,6 +489,43 @@ describe("runProvisionBackend", () => {
 				(line) =>
 					line.level === "error" &&
 					line.message === "supabase.provisioning.audit-failed",
+			),
+		).toHaveLength(1);
+	});
+
+	it("writes the backend .env into a running sandbox after markActive", async () => {
+		const { deps, sandboxes } = setup(backendRow(), {
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+		const sandbox = await sandboxes.getOrCreate(PROJECT_ID, SANDBOX_OPTIONS);
+		// The dev port wait of the write; a fake port answers at once.
+		sandboxes.respondTo("bash", { exitCode: 0, stderr: "", stdout: "" });
+
+		const result = await runProvisionBackend(deps, INPUT);
+
+		expect(result).toEqual({ outcome: "active", failureCode: null });
+		const bytes = await sandbox.readFile(`${FAKE_WORKSPACE_DIR}/.env`);
+		expect(bytes === null ? null : new TextDecoder().decode(bytes)).toContain(
+			`EXPO_PUBLIC_SUPABASE_URL=https://${REF}.supabase.co`,
+		);
+	});
+
+	it("still ends active when the .env write fails", async () => {
+		const { backends, deps, logs, sandboxes } = setup(backendRow(), {
+			statuses: ["ACTIVE_HEALTHY"],
+		});
+		// No scripted dev port answer: the fake exec throws, like a vendor error.
+		await sandboxes.getOrCreate(PROJECT_ID, SANDBOX_OPTIONS);
+
+		const result = await runProvisionBackend(deps, INPUT);
+
+		expect(result).toEqual({ outcome: "active", failureCode: null });
+		expect(backends.markError).not.toHaveBeenCalled();
+		expect(
+			logs.filter(
+				(line) =>
+					line.level === "warn" &&
+					line.message === "supabase.provisioning.env-file-failed",
 			),
 		).toHaveLength(1);
 	});

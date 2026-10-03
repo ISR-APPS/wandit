@@ -173,7 +173,7 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
 - That client reads `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
 - An Edge Function makes its own client with `Deno.env.get("SUPABASE_URL")` and
   `Deno.env.get("SUPABASE_ANON_KEY")`.
-- The sandbox env already holds both values. Never write them into a file.
+- The host writes both values to `.env`. Never edit `.env` or copy the values into another file.
 - A missing value throws a clear error at start. Never catch it away.
 - Never write a fallback for a missing backend. No "no backend yet" path.
 - Data access stays behind the RLS policies in `supabase/migrations/`.

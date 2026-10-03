@@ -47,7 +47,10 @@ function localReader(worktree: string): SandboxReader {
 			};
 		},
 		projectId: "p-1",
+		// CodeService reads files only through exec; a direct call fails loud.
+		readFile: () => Promise.reject(new Error("CodeService reads by exec")),
 		workspaceDir: worktree,
+		writeFiles: () => Promise.reject(new Error("CodeService never writes")),
 	};
 }
 

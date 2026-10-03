@@ -122,14 +122,18 @@ export type VercelSandboxInstance = {
 	/**
 	 * The vendor session; `cwd` is the default working directory of the
 	 * image. `networkPolicy` is the policy the vendor read back with the
-	 * session, or undefined when the answer carried none. Its `runCommand`
-	 * and its `snapshot` fail on a stopped session; the `Sandbox` methods
-	 * resume it first.
+	 * session, or undefined when the answer carried none. Its `runCommand`,
+	 * its file calls, and its `snapshot` fail on a stopped session; the
+	 * `Sandbox` methods resume it first.
 	 */
 	currentSession(): {
 		readonly cwd: string;
 		readonly networkPolicy: NetworkPolicy | undefined;
 		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+		writeFiles(
+			files: ReadonlyArray<{ content: string | Uint8Array; path: string }>,
+		): Promise<void>;
+		readFileToBuffer(file: { path: string }): Promise<Uint8Array | null>;
 		/**
 		 * Saves the disk as a snapshot and stops the sandbox. `expiration` is
 		 * in ms; the vendor counts it from the last boot from the snapshot.
@@ -521,7 +525,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		if (sandbox?.status !== "running") {
 			return null;
 		}
-		// The session fails on a stop between this check and a command; it
+		// The session fails on a stop between this check and a call; it
 		// never resumes. No `keepAlive`: turns and the preview own the vendor
 		// deadline, and a read must not keep a sandbox alive.
 		const session = sandbox.currentSession();
@@ -529,7 +533,12 @@ export class VercelSandboxProvider implements SandboxProvider {
 			exec: (command, args, options) =>
 				runCommandToEnd(session, command, args, options),
 			projectId,
+			readFile: async (path) => {
+				const buffer = await session.readFileToBuffer({ path });
+				return buffer === null ? null : new Uint8Array(buffer);
+			},
 			workspaceDir: workspaceDirOf(sandbox),
+			writeFiles: (files) => session.writeFiles(files),
 		};
 	}
 
@@ -692,14 +701,14 @@ export class VercelSandboxProvider implements SandboxProvider {
 				"Sandbox env lacks ANTHROPIC_BASE_URL; the egress policy needs the proxy host",
 			);
 		}
-		// WANDIT-283: the only Supabase host is the project's own. The env
-		// holds VITE_SUPABASE_URL only while the backend is active. So a new
+		// WANDIT-283: the only Supabase host is the project's own. The caller
+		// passes `backendUrl` only while the backend is active. So a new
 		// active backend reaches the policy on the next turn. A value that is
 		// not a URL gives no backend host.
-		const supabaseUrl = options.env.VITE_SUPABASE_URL;
+		const backendUrl = options.backendUrl;
 		const backendHost =
-			supabaseUrl !== undefined && URL.canParse(supabaseUrl)
-				? new URL(supabaseUrl).hostname
+			backendUrl !== undefined && URL.canParse(backendUrl)
+				? new URL(backendUrl).hostname
 				: null;
 		const built: ReturnType<typeof buildNetworkPolicy> = options.networkPolicy
 			? { policy: options.networkPolicy, rejected: [] }
