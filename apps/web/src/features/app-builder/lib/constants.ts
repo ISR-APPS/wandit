@@ -46,21 +46,37 @@ export const MORE_PANELS = [
 export type MorePanel = (typeof MORE_PANELS)[number];
 
 /**
- * Panels of the Cloud tab, in nav order. WANDIT-188 slice 1 builds
- * `database`; the other panels show a coming-soon state until slices 2 and 3.
+ * Panels of the Cloud tab, in nav order (WANDIT-188). Every panel except
+ * `secrets` needs a running backend; secrets live in the Wandit database.
  */
 export const CLOUD_PANELS = [
 	"database",
 	"users",
 	"storage",
+	"secrets",
 	"logs",
 	"functions",
 	"jobs",
 ] as const;
 export type CloudPanel = (typeof CLOUD_PANELS)[number];
 
-/** Rows per page of the Cloud table grid. The rows route accepts at most 100. */
+/** Rows per page of the Cloud table grid and of the users list. Both routes accept at most 100. */
 export const CLOUD_ROWS_PAGE_SIZE = 50;
+
+/**
+ * Largest file the Storage panel uploads: 50 MB, the default file size limit
+ * of a Supabase project. The browser checks it before it asks for an upload URL.
+ */
+export const CLOUD_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+
+/** Cell text of a Cloud panel for a value the API does not give: no email, a folder size, a run without a start. */
+export const CLOUD_EMPTY_CELL = "—";
+
+/** Date and time style of the Cloud panels, for example "Oct 3, 2026, 2:15 AM" in English. */
+export const CLOUD_DATE_TIME_FORMAT = {
+	dateStyle: "medium",
+	timeStyle: "short",
+} as const satisfies Intl.DateTimeFormatOptions;
 
 /** Phone frames of the mobile preview. */
 export const PHONE_DEVICES = ["ios", "android"] as const;

@@ -1,7 +1,8 @@
 /**
  * Backend panel: three stat cards, the table list, and the server function
  * list of the generated backend. Reads backendSummaryQuery and suspends
- * until the summary is loaded.
+ * until the summary is loaded. The summary is mock data, so only the seed
+ * projects show it; a real project shows BackendInCloud, a link to the Cloud tab.
  * Rendered by components/more/more-view.tsx inside PanelShell.
  */
 
@@ -109,6 +110,34 @@ export function BackendPanel({ projectId }: BackendPanelProps) {
 				))}
 			</section>
 		</>
+	);
+}
+
+/** Props of BackendInCloud. */
+export type BackendInCloudProps = {
+	/** Opens the Cloud view. undefined while the Cloud tab is hidden for this user or project. */
+	onOpenCloud: (() => void) | undefined;
+};
+
+/** The Backend panel of a real project: its backend lives in the Cloud tab. */
+export function BackendInCloud({ onOpenCloud }: BackendInCloudProps) {
+	const { t } = useTranslation();
+
+	return (
+		<div className="flex max-w-lg flex-col items-start gap-3 rounded-2xl border bg-card p-6">
+			{onOpenCloud ? (
+				<>
+					<p className="text-sm">{t("appBuilder.backend.inCloud")}</p>
+					<Button onClick={onOpenCloud}>
+						{t("appBuilder.backend.openCloud")}
+					</Button>
+				</>
+			) : (
+				<p className="text-muted-foreground text-sm">
+					{t("appBuilder.backend.cloudOff")}
+				</p>
+			)}
+		</div>
 	);
 }
 

@@ -320,7 +320,7 @@ describe("useBuilderChat", () => {
 		);
 	});
 
-	it("marks the Cloud tables and their pages stale when a turn ends, not the backend state", async () => {
+	it("marks every Cloud panel stale when a turn ends, not the backend state", async () => {
 		const fake = createDeps();
 		const queryClient = new QueryClient();
 		const rowsKey = cloudKeys.rows(PROJECT_ID, "orders", {
@@ -330,6 +330,8 @@ describe("useBuilderChat", () => {
 		});
 		queryClient.setQueryData(cloudKeys.tables(PROJECT_ID), []);
 		queryClient.setQueryData(rowsKey, null);
+		queryClient.setQueryData(cloudKeys.functions(PROJECT_ID), []);
+		queryClient.setQueryData(cloudKeys.secrets(PROJECT_ID), []);
 		queryClient.setQueryData(cloudKeys.backend(PROJECT_ID), {
 			status: "active",
 			ref: "abcdefghijklmnopqrst",
@@ -357,6 +359,13 @@ describe("useBuilderChat", () => {
 			).toBe(true),
 		);
 		expect(queryClient.getQueryState(rowsKey)?.isInvalidated).toBe(true);
+		// The agent can also deploy a function or set a secret.
+		expect(
+			queryClient.getQueryState(cloudKeys.functions(PROJECT_ID))?.isInvalidated,
+		).toBe(true);
+		expect(
+			queryClient.getQueryState(cloudKeys.secrets(PROJECT_ID))?.isInvalidated,
+		).toBe(true);
 		expect(
 			queryClient.getQueryState(cloudKeys.backend(PROJECT_ID))?.isInvalidated,
 		).toBe(false);

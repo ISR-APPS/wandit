@@ -1,8 +1,9 @@
 /**
  * Mutations of the Cloud tab (WANDIT-188). Each one calls a service of
  * cloud.services.ts and puts its answer where the tab reads it. Called by
- * components/cloud/backend-state.tsx and components/cloud/sql-editor.tsx.
- * The last parameter of each hook is the service, so a spec injects a fake.
+ * components/cloud/backend-state.tsx, sql-editor.tsx, storage-panel.tsx,
+ * and secrets-panel.tsx. The last parameter of each hook is the service,
+ * so a spec injects a fake.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,8 +11,17 @@ import type { CloudSqlBody } from "@wandit/contracts";
 import { toast } from "sonner";
 
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
+import { useTranslation } from "@/lib/i18n";
 import { cloudKeys } from "./cloud.queries";
-import { enableBackend, restoreBackend, runSql } from "./cloud.services";
+import {
+	deleteObjects,
+	deleteSecret,
+	enableBackend,
+	restoreBackend,
+	runSql,
+	setSecret,
+	uploadObject,
+} from "./cloud.services";
 
 /**
  * Creates the backend of the project. The `creating` answer goes into the
@@ -78,6 +88,106 @@ export function useRunSql(projectId: string, run: typeof runSql = runSql) {
 			if (isApiClientError(error) && error.code === "WRITE_NEEDS_CONFIRM") {
 				return;
 			}
+			toast.error(getApiErrorMessage(error));
+		},
+	});
+}
+
+/**
+ * Uploads one file of the Storage panel to a path of `bucket`. Every loaded
+ * folder of the bucket reads again, so the new file shows in its folder.
+ */
+export function useUploadObject(
+	projectId: string,
+	bucket: string,
+	upload: typeof uploadObject = uploadObject,
+) {
+	const queryClient = useQueryClient();
+	const { t } = useTranslation();
+	return useMutation({
+		mutationKey: [...cloudKeys.bucketObjects(projectId, bucket), "upload"],
+		mutationFn: (input: { path: string; file: File }) =>
+			upload(projectId, bucket, input),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: cloudKeys.bucketObjects(projectId, bucket),
+			});
+		},
+		onError: (error) => {
+			// The upload URL comes from the API. The file goes to Supabase
+			// Storage, and its refusal has no API error code.
+			toast.error(
+				isApiClientError(error)
+					? getApiErrorMessage(error)
+					: t("workspace.cloud.storage.upload.failed"),
+			);
+		},
+	});
+}
+
+/** Deletes files of the Storage panel. Every loaded folder of the bucket reads again. */
+export function useDeleteObjects(
+	projectId: string,
+	bucket: string,
+	remove: typeof deleteObjects = deleteObjects,
+) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationKey: [...cloudKeys.bucketObjects(projectId, bucket), "delete"],
+		mutationFn: (paths: string[]) => remove(projectId, bucket, { paths }),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: cloudKeys.bucketObjects(projectId, bucket),
+			});
+		},
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
+		},
+	});
+}
+
+/**
+ * Sets or replaces one secret value. The list reads again for the new dates.
+ * The mutation cache drops the value at once after the mutation ends.
+ */
+export function useSetSecret(
+	projectId: string,
+	set: typeof setSecret = setSecret,
+) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationKey: [...cloudKeys.secrets(projectId), "set"],
+		// The variables hold the secret value. A cache time of 0 removes them
+		// as soon as no component observes the mutation.
+		gcTime: 0,
+		mutationFn: (input: { name: string; value: string }) =>
+			set(projectId, input.name, { value: input.value }),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: cloudKeys.secrets(projectId),
+			});
+		},
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
+		},
+	});
+}
+
+/** Deletes one `user` secret. The list reads again. */
+export function useDeleteSecret(
+	projectId: string,
+	remove: typeof deleteSecret = deleteSecret,
+) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationKey: [...cloudKeys.secrets(projectId), "delete"],
+		mutationFn: (name: string) => remove(projectId, name),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: cloudKeys.secrets(projectId),
+			});
+		},
+		onError: (error) => {
 			toast.error(getApiErrorMessage(error));
 		},
 	});

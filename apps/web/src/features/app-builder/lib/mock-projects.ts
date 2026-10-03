@@ -1,6 +1,7 @@
 /**
  * Mock projects of the app builder, one web app and one mobile app.
- * Read only by api/app-builder.services.ts, which copies them into its store.
+ * Read by api/app-builder.services.ts, which copies them into its store.
+ * isMockAppProject tells the More view and the route loader which ids they are.
  * Generated-app content stays in English on purpose (docs/localization.md).
  */
 
@@ -32,3 +33,8 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 		hasCodeChanges: true,
 	},
 ];
+
+/** True for the id of a seed project. Every other id is a real V2 project that the API answers. */
+export function isMockAppProject(projectId: string): boolean {
+	return MOCK_APP_PROJECTS.some((project) => project.id === projectId);
+}

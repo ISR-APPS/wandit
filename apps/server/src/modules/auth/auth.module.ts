@@ -30,6 +30,7 @@ import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
 import { UtmAttributionService } from "../attribution/application/services/utm-attribution.service";
 import { AttributionModule } from "../attribution/attribution.module";
+import { SubscriptionsRepository } from "../billing/infrastructure/persistence/subscriptions.repository";
 import { CreditsModule } from "../credits/credits.module";
 import { EmailService } from "../email/application/services/email.service";
 import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
@@ -255,6 +256,8 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		authProvider,
 		AuthGuard,
 		DevUserSeedService,
+		// The dev seed writes the Business plan row of the dev user.
+		SubscriptionsRepository,
 		SignupGrantOutboxRepository,
 		SignupGrantOutboxService,
 		SignupGrantsService,

@@ -9,6 +9,7 @@ import {
 	cloudRoutes,
 	cloudRowsQuerySchema,
 	cloudSqlBodySchema,
+	cloudUploadUrlBodySchema,
 } from "./cloud";
 
 describe("classifySql", () => {
@@ -126,6 +127,22 @@ describe("cloudObjectPathSchema", () => {
 		expect(cloudObjectPathSchema.safeParse("../secret").success).toBe(false);
 		expect(cloudObjectPathSchema.safeParse("/root.png").success).toBe(false);
 		expect(cloudObjectPathSchema.safeParse("a//b.png").success).toBe(false);
+	});
+});
+
+describe("cloudUploadUrlBodySchema", () => {
+	// Each refused path failed a live upload: Storage answered InvalidKey, or
+	// the `?` broke the signed URL.
+	it("accepts the characters Storage accepts and refuses the others", () => {
+		const accepts = (path: string) =>
+			cloudUploadUrlBodySchema.safeParse({ path }).success;
+
+		expect(accepts("k/a b(1)&x$@=;:+,'!*_-.txt")).toBe(true);
+		expect(accepts("صورة.png")).toBe(false);
+		expect(accepts("été.png")).toBe(false);
+		expect(accepts("a?b.png")).toBe(false);
+		expect(accepts("a~b.png")).toBe(false);
+		expect(accepts("../a.png")).toBe(false);
 	});
 });
 
