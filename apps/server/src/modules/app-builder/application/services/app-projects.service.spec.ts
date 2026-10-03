@@ -115,6 +115,10 @@ function setup() {
 		provisionBackend: vi.fn(async () => null),
 	};
 	const appCommits = {
+		countVersions: vi.fn(async () => ({
+			unpublishedChanges: 0,
+			versionNumber: 0,
+		})),
 		hasFileChanges: vi.fn(async () => false),
 	};
 
@@ -439,6 +443,19 @@ describe("AppProjectsService.get", () => {
 
 		expect(project.hasCodeChanges).toBe(true);
 		expect(appCommits.hasFileChanges).toHaveBeenCalledWith("project-1");
+	});
+
+	it("answers the version counts of the project", async () => {
+		const { appCommits, service } = setup();
+		appCommits.countVersions.mockResolvedValue({
+			unpublishedChanges: 2,
+			versionNumber: 7,
+		});
+
+		const project = await service.get(SCOPE, "project-1");
+
+		expect(project).toMatchObject({ unpublishedChanges: 2, versionNumber: 7 });
+		expect(appCommits.countVersions).toHaveBeenCalledWith("project-1");
 	});
 
 	it("404s on a v1_page row", async () => {

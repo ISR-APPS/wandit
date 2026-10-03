@@ -1,11 +1,13 @@
 /**
  * Repository for the `app_commits` and `app_branches` tables (WANDIT-163).
  * `commitTurn` writes commit rows and moves the `main` head; the versions
- * routes list rows, load one commit, and gate on the project's scope.
+ * routes list rows, load one commit, and gate on the project's scope. The
+ * project answer counts the versions against the live app deployment.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, lt, or, type SQL, sql } from "@wandit/db";
 import { appBranches, appCommits } from "@wandit/db/schema/app-versions";
+import { deployments } from "@wandit/db/schema/deployments";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -183,6 +185,43 @@ export class AppCommitsRepository {
 			)
 			.limit(1);
 		return rows.length > 0;
+	}
+
+	/**
+	 * The publish counts of the project answer (WANDIT-178): every commit,
+	 * and the commits saved after the commit of the live app deployment.
+	 * Nothing live, or a live commit without a row (the template commit),
+	 * counts every commit as unpublished.
+	 */
+	async countVersions(
+		projectId: string,
+	): Promise<{ versionNumber: number; unpublishedChanges: number }> {
+		const [live] = await this.db
+			.select({ commitSha: deployments.commitSha })
+			.from(deployments)
+			.where(
+				and(
+					eq(deployments.projectId, projectId),
+					eq(deployments.kind, "app"),
+					eq(deployments.status, "active"),
+				),
+			)
+			.limit(1);
+		const liveSha = live?.commitSha ?? null;
+		const [row] = await this.db
+			.select({
+				unpublishedChanges:
+					liveSha === null
+						? sql<number>`count(*)::int`
+						: sql<number>`count(*) filter (where ${appCommits.createdAt} > coalesce((select live.created_at from app_commits live where live.project_id = ${projectId} and live.sha = ${liveSha}), '-infinity'::timestamptz))::int`,
+				versionNumber: sql<number>`count(*)::int`,
+			})
+			.from(appCommits)
+			.where(eq(appCommits.projectId, projectId));
+		return {
+			unpublishedChanges: row?.unpublishedChanges ?? 0,
+			versionNumber: row?.versionNumber ?? 0,
+		};
 	}
 
 	/** The `main` branch head row of a project, or null when no row exists. */

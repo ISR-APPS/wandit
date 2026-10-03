@@ -14,6 +14,8 @@ export * from "./admin-view-grants";
 export * from "./affiliates";
 // The hidden Supabase backend of a V2 user app.
 export * from "./app-backends";
+// V2 web app publish attempts (WANDIT-178).
+export * from "./app-builds";
 // V2 project git history: commits and branches.
 export * from "./app-versions";
 // Generated page/artifact tables.

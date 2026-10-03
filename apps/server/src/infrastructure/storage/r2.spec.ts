@@ -281,7 +281,11 @@ describe("deleteObjectsByPrefix", () => {
 		expect(io.remove).not.toHaveBeenCalled();
 	});
 
-	it("names the two v2 prefixes of a project", () => {
-		expect(v2ProjectPrefixes("p1")).toEqual(["git/p1/", "sites/p1/assets/"]);
+	it("names the three v2 prefixes of a project", () => {
+		expect(v2ProjectPrefixes("p1")).toEqual([
+			"git/p1/",
+			"sites/p1/assets/",
+			"published/p1/builds/",
+		]);
 	});
 });

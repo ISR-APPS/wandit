@@ -575,6 +575,13 @@
       "when": 1790421049580,
       "tag": "0081_device-sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1790992950956,
+      "tag": "0082_app-publish",
+      "breakpoints": true
     }
   ]
 }

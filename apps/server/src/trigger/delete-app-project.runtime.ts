@@ -1,9 +1,10 @@
 /**
  * Delete-app-project runtime: removes the external resources of one
  * soft-deleted `v2_app` project.
- * Eight steps run in order: turn-run cancel, sandbox destroy, user Worker
- * delete, backend pause and secrets delete (WANDIT-184), R2 drain,
- * repository delete, audit row, analytics event.
+ * Nine steps run in order: turn-run cancel, sandbox destroy, user Worker
+ * delete, slug pointer delete and live deployment end (WANDIT-178),
+ * backend pause and secrets delete (WANDIT-184), R2 drain, repository
+ * delete, audit row, analytics event.
  * Every step runs in its own try/catch, so one failed vendor call never
  * blocks the audit row.
  * `delete-app-project.task.ts` calls it through
@@ -35,6 +36,7 @@ import {
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
 import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import { AppPublishRepository } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
@@ -48,6 +50,9 @@ import {
 	type SupabaseManagementClient,
 	supabaseWorkerClientFromEnv,
 } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
+import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
+import { DeploymentsRepository } from "../modules/sites/infrastructure/persistence/deployments.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -64,6 +69,17 @@ export type DeleteAppProjectDeps = {
 	 * unset; `workersForPlatformsClientFromEnv` builds it.
 	 */
 	workers: Pick<WorkersForPlatformsApi, "deleteScript"> | null;
+	/** Finds the live app deployment, whose slug host the edge still routes. */
+	publish: Pick<AppPublishRepository, "findLiveDeployment">;
+	/** Moves the live deployment row to `unpublished`. */
+	deployments: Pick<DeploymentsRepository, "unpublishActive">;
+	/**
+	 * Deletes the `domain:{slug}.{domain}` KV pointer. Null when KV is not
+	 * configured: the step then only ends the deployment row.
+	 */
+	routing: Pick<DomainRoutingService, "deleteHostPointer"> | null;
+	/** `env.SITES_DOMAIN`: the zone of the slug host. */
+	sitesDomain: string;
 	/** Reads the `app_backends` row and moves it to `deleting`. */
 	backends: Pick<AppBackendsRepository, "findByProjectId" | "markDeleting">;
 	/**
@@ -101,6 +117,12 @@ export type DeleteAppProjectResult = {
 	 */
 	worker: "deleted" | "missing" | "skipped" | "error";
 	/**
+	 * "unpublished" when the live row ended and its pointer went, or KV is
+	 * not configured and no pointer delete ran; "none" when nothing was
+	 * live; "error" when a call threw.
+	 */
+	deployment: "unpublished" | "none" | "error";
+	/**
 	 * "paused" when the row moved to `deleting` and Supabase paused the
 	 * project; "deleting" when the row moved and no pause ran (the project
 	 * was not running, or no client); "skipped" without a row or on a row
@@ -118,7 +140,7 @@ export type DeleteAppProjectResult = {
 };
 
 /**
- * Runs the eight cleanup steps for one soft-deleted `v2_app` project.
+ * Runs the nine cleanup steps for one soft-deleted `v2_app` project.
  * It never throws: each step logs its own failure and the result reports every outcome.
  * The audit row carries the same outcomes, so a failed vendor call stays visible after the run.
  */
@@ -175,6 +197,31 @@ export async function runDeleteAppProject(
 				scriptName,
 			});
 		}
+	}
+
+	// The slug host keeps routing to the deleted app until its pointer goes.
+	// The pointer goes before the row ends: a failed delete leaves the row
+	// `active`, so the audit row and a rerun still name the slug.
+	let deployment: DeleteAppProjectResult["deployment"] = "none";
+	try {
+		const live = await deps.publish.findLiveDeployment(projectId);
+		if (live !== null) {
+			if (deps.routing === null) {
+				deps.logger.warn("app-project.delete.kv-unconfigured", fields);
+			} else {
+				await deps.routing.deleteHostPointer(
+					`${live.slug}.${deps.sitesDomain}`,
+				);
+			}
+			await deps.deployments.unpublishActive(projectId);
+			deployment = "unpublished";
+		}
+	} catch (error) {
+		deployment = "error";
+		deps.logger.error("app-project.delete.deployment-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
 	}
 
 	// The row moves to `deleting` before the pause: the pause sweep then
@@ -250,6 +297,7 @@ export async function runDeleteAppProject(
 			actorUserId: input.actorUserId,
 			metadata: {
 				backend,
+				deployment,
 				objectsDeleted,
 				repository,
 				sandbox,
@@ -283,6 +331,7 @@ export async function runDeleteAppProject(
 	deps.logger.info("app-project.delete.completed", {
 		...fields,
 		backend,
+		deployment,
 		objectsDeleted: String(objectsDeleted),
 		repository,
 		sandbox,
@@ -293,6 +342,7 @@ export async function runDeleteAppProject(
 	return {
 		auditWritten,
 		backend,
+		deployment,
 		objectsDeleted,
 		repository,
 		sandbox,
@@ -303,9 +353,9 @@ export async function runDeleteAppProject(
 }
 
 /**
- * Composes the real repositories, the provider, the W4P client, the
- * Supabase client, the git store, the R2 drain, the run cancel, and the
- * PostHog capture for the Trigger worker.
+ * Composes the real repositories, the provider, the W4P client, the KV
+ * pointer writer, the Supabase client, the git store, the R2 drain, the
+ * run cancel, and the PostHog capture for the Trigger worker.
  * The provider's template-init and repo-restorer arguments exist because
  * `destroy` shares the provider with the start path. The task closes `db`
  * and calls `close`, which quits the rate limiter's Redis client.
@@ -316,6 +366,7 @@ export function createDeleteAppProjectRuntime(
 ) {
 	const sessions = new SandboxSessionsRepository(db);
 	const backends = new AppBackendsRepository(db);
+	const routing = new DomainRoutingService(new DomainsRepository(db));
 	const { client: supabase, close } = supabaseWorkerClientFromEnv(
 		env,
 		backends,
@@ -332,9 +383,13 @@ export function createDeleteAppProjectRuntime(
 					},
 					capture,
 					deleteObjectsByPrefix: (prefix) => deleteObjectsByPrefix(prefix),
+					deployments: new DeploymentsRepository(db),
 					gitStore: new CodeStorageGitStore(env),
 					logger: Sentry.logger,
 					projectSecrets: new ProjectSecretsRepository(db),
+					publish: new AppPublishRepository(db),
+					routing: routing.isKvConfigured() ? routing : null,
+					sitesDomain: env.SITES_DOMAIN,
 					sandboxes: new VercelSandboxProvider(
 						sessions,
 						new LoggingRepoRestorer(),

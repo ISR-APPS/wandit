@@ -102,11 +102,13 @@ export class DeploymentsRepository {
 					eq(projects.id, projectId),
 					projectScopePredicate(scope),
 					sql`${projects.deletedAt} IS NULL`,
+					// A V2 app publishes through `/api/v2/.../publish` (WANDIT-178).
+					eq(projects.engine, "v1_page"),
 				),
 			)
 			.limit(1);
 
-		// Missing and not-accessible both become 404 — never reveal which.
+		// Missing, not-accessible, and V2 all become 404 — never reveal which.
 		if (!project) {
 			throw new NotFoundException("Project not found");
 		}

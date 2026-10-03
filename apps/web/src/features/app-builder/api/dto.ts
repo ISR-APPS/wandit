@@ -28,9 +28,9 @@ export type AppProject = {
 	kind: AppProjectKind;
 	/** Builder of the project, from `GET /api/v2/projects/:id`. The Cloud tab shows only for `v2_app`. */
 	engine: ProjectEngine;
-	/** Highest version number so far. The publish popover shows it as "v{n}". */
+	/** Count of saved versions, from the API. The publish popover shows it as "v{n}". */
 	versionNumber: number;
-	/** Builder turns since the last publish. 0 means the live app is current. */
+	/** Versions saved after the live commit; every version before the first publish. 0 means the live app is current. */
 	unpublishedChanges: number;
 	/** False while the project holds only the template. The preview then covers the frame: the build step during a turn, else the waiting note. */
 	hasCodeChanges: boolean;

@@ -4,6 +4,7 @@ import type { DeleteAppProjectInput } from "../modules/app-builder/domain/ports/
 import { FakeWorkersForPlatformsClient } from "../modules/app-builder/infrastructure/cloudflare/fake-workers-for-platforms.client";
 import type { AppWorkerScope } from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import type { AppBackendRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type { AppDeploymentRow } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import type { BuilderTurnRow } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import type { BackendRef } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import {
@@ -77,11 +78,30 @@ function backendRow(overrides: Partial<AppBackendRow> = {}): AppBackendRow {
 	};
 }
 
+// The live app deployment of `project-1` on the slug `shop`.
+function liveDeployment(): AppDeploymentRow {
+	return {
+		buildId: "build-1",
+		commitSha: "a".repeat(40),
+		createdAt: new Date(0),
+		error: null,
+		id: "deployment-1",
+		kind: "app",
+		projectId: "project-1",
+		slug: "shop",
+		status: "active",
+		updatedAt: new Date(0),
+		versionId: null,
+	};
+}
+
 function setup(
 	active: BuilderTurnRow | null = null,
 	workers: FakeWorkersForPlatformsClient | null = new FakeWorkersForPlatformsClient(),
 	/** The `app_backends` row of the project; null means none. */
 	backend: AppBackendRow | null = null,
+	/** The live app deployment; null means the app is not published. */
+	live: AppDeploymentRow | null = null,
 ) {
 	const order: string[] = [];
 	const deps = {
@@ -105,14 +125,34 @@ function setup(
 		}),
 		deleteObjectsByPrefix: vi.fn(async (prefix: string) => {
 			order.push(`objects:${prefix}`);
+			// No stored build under `published/`: the default project never published.
+			if (prefix.startsWith("published/")) {
+				return 0;
+			}
 			return prefix.startsWith("git/") ? 2 : 3;
 		}),
+		deployments: {
+			unpublishActive: vi.fn(async (_projectId: string) => {
+				order.push("deployment");
+				return live === null
+					? null
+					: { ...live, status: "unpublished" as const };
+			}),
+		},
 		gitStore: {
 			deleteRepository: vi.fn(async () => {
 				order.push("repository");
 			}),
 		},
 		logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+		publish: {
+			findLiveDeployment: vi.fn(async (_projectId: string) => live),
+		},
+		routing: {
+			deleteHostPointer: vi.fn(async (_host: string) => {
+				order.push("pointer");
+			}),
+		},
 		projectSecrets: {
 			deleteAllForProject: vi.fn(async (_projectId: string) => {
 				order.push("secrets");
@@ -129,6 +169,7 @@ function setup(
 				order.push("backend-pause");
 			}),
 		},
+		sitesDomain: "wandit.app",
 		turns: { findActiveForProject: vi.fn(async () => active) },
 		workers:
 			workers === null
@@ -145,7 +186,7 @@ function setup(
 }
 
 describe("runDeleteAppProject", () => {
-	it("runs the eight steps in order and sums both prefixes", async () => {
+	it("runs the nine steps in order and sums the prefixes", async () => {
 		const { deps, order } = setup(
 			turnRow({ status: "running", triggerRunId: "run-9" }),
 		);
@@ -159,6 +200,7 @@ describe("runDeleteAppProject", () => {
 			"secrets",
 			"objects:git/project-1/",
 			"objects:sites/project-1/assets/",
+			"objects:published/project-1/builds/",
 			"repository",
 			"audit",
 			"capture",
@@ -167,6 +209,8 @@ describe("runDeleteAppProject", () => {
 			auditWritten: true,
 			// No `app_backends` row in the default setup.
 			backend: "skipped",
+			// The default project never published.
+			deployment: "none",
 			objectsDeleted: 5,
 			repository: "deleted",
 			sandbox: "destroyed",
@@ -306,6 +350,52 @@ describe("runDeleteAppProject", () => {
 		expect(result.turnCanceled).toBe(false);
 	});
 
+	it("deletes the slug pointer, then ends the live deployment", async () => {
+		const { deps, order } = setup(null, undefined, null, liveDeployment());
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.deployment).toBe("unpublished");
+		expect(order.slice(0, 4)).toEqual([
+			"sandbox",
+			"worker",
+			"pointer",
+			"deployment",
+		]);
+		expect(deps.routing.deleteHostPointer).toHaveBeenCalledWith(
+			"shop.wandit.app",
+		);
+		expect(deps.deployments.unpublishActive).toHaveBeenCalledWith("project-1");
+	});
+
+	it("keeps the live row when the pointer delete fails, and runs the later steps", async () => {
+		const { deps } = setup(null, undefined, null, liveDeployment());
+		deps.routing.deleteHostPointer.mockRejectedValue(new Error("kv down"));
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.deployment).toBe("error");
+		expect(deps.deployments.unpublishActive).not.toHaveBeenCalled();
+		expect(result.repository).toBe("deleted");
+		expect(deps.logger.error).toHaveBeenCalledWith(
+			"app-project.delete.deployment-failed",
+			{ error: "kv down", projectId: "project-1" },
+		);
+	});
+
+	it("ends the live deployment without KV and logs the missing pointer delete", async () => {
+		const base = setup(null, undefined, null, liveDeployment());
+		const deps = { ...base.deps, routing: null };
+
+		const result = await runDeleteAppProject(deps, INPUT);
+
+		expect(result.deployment).toBe("unpublished");
+		expect(deps.logger.warn).toHaveBeenCalledWith(
+			"app-project.delete.kv-unconfigured",
+			{ projectId: "project-1" },
+		);
+	});
+
 	it("answers sandbox error and continues when destroy throws", async () => {
 		const { deps } = setup();
 		deps.sandboxes.destroy.mockRejectedValue(new Error("vercel down"));
@@ -324,6 +414,7 @@ describe("runDeleteAppProject", () => {
 			expect.objectContaining({
 				metadata: {
 					backend: "skipped",
+					deployment: "none",
 					objectsDeleted: 5,
 					repository: "deleted",
 					sandbox: "error",
@@ -372,6 +463,7 @@ describe("runDeleteAppProject", () => {
 			actorUserId: "user-1",
 			metadata: {
 				backend: "skipped",
+				deployment: "none",
 				objectsDeleted: 5,
 				repository: "deleted",
 				sandbox: "destroyed",
@@ -452,7 +544,7 @@ describe("runDeleteAppProject", () => {
 		);
 	});
 
-	it("logs a prefix failure and drains the other prefix", async () => {
+	it("logs a prefix failure and drains the other prefixes", async () => {
 		const { deps } = setup();
 		deps.deleteObjectsByPrefix.mockImplementation(async (prefix) => {
 			if (prefix.startsWith("git/")) {
@@ -463,7 +555,8 @@ describe("runDeleteAppProject", () => {
 
 		const result = await runDeleteAppProject(deps, INPUT);
 
-		expect(result.objectsDeleted).toBe(3);
+		// `sites/` and `published/` still drain: 3 keys each.
+		expect(result.objectsDeleted).toBe(6);
 		expect(deps.logger.error).toHaveBeenCalledWith(
 			"app-project.delete.objects-failed",
 			expect.objectContaining({ prefix: "git/project-1/" }),

@@ -10,11 +10,13 @@ import type { ProjectQueryRow } from "../../../projects/infrastructure/persisten
 
 /**
  * One row → one API object; throws when `languages` holds a bad value.
- * `hasCodeChanges` comes from `AppCommitsRepository.hasFileChanges`.
+ * `hasCodeChanges` comes from `AppCommitsRepository.hasFileChanges`, the
+ * two counts from `AppCommitsRepository.countVersions`.
  */
 export function mapAppProjectRow(
 	row: ProjectQueryRow,
 	hasCodeChanges: boolean,
+	versions: { versionNumber: number; unpublishedChanges: number },
 ): AppProject {
 	return {
 		...mapProjectRow(row),
@@ -26,5 +28,7 @@ export function mapAppProjectRow(
 		targetPlatform: row.targetPlatform,
 		templateVersion: row.templateVersion,
 		hasCodeChanges,
+		unpublishedChanges: versions.unpublishedChanges,
+		versionNumber: versions.versionNumber,
 	};
 }

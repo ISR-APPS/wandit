@@ -1,7 +1,8 @@
 import { deploymentSlugSchema } from "@wandit/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { slugifyProjectName, withRandomSuffix } from "./slugify";
+import { SlugTakenError } from "./errors/site.errors";
+import { pickFreeSlug, slugifyProjectName, withRandomSuffix } from "./slugify";
 
 describe("slugifyProjectName", () => {
 	it("lowercases and hyphenates", () => {
@@ -56,5 +57,32 @@ describe("withRandomSuffix", () => {
 
 		expect(result.length).toBeLessThanOrEqual(63);
 		expect(deploymentSlugSchema.safeParse(result).success).toBe(true);
+	});
+});
+
+describe("pickFreeSlug", () => {
+	it("answers the name slug when no other live site has it", async () => {
+		await expect(
+			pickFreeSlug("Smoke Project", async () => false),
+		).resolves.toBe("smoke-project");
+	});
+
+	it("adds a random suffix when the name slug is taken", async () => {
+		const taken = new Set(["smoke-project"]);
+
+		const slug = await pickFreeSlug("Smoke Project", async (candidate) =>
+			taken.has(candidate),
+		);
+
+		expect(slug).toMatch(/^smoke-project-[a-z0-9]{4}$/);
+	});
+
+	it("throws SlugTakenError after five taken candidates", async () => {
+		const isTaken = vi.fn(async () => true);
+
+		await expect(pickFreeSlug("Smoke Project", isTaken)).rejects.toBeInstanceOf(
+			SlugTakenError,
+		);
+		expect(isTaken).toHaveBeenCalledTimes(5);
 	});
 });

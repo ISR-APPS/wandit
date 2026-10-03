@@ -93,6 +93,18 @@ export function publishedArchiveKey(
 	return `published/${projectId}/v/${deploymentId}.html`;
 }
 
+/**
+ * Stored output of one V2 app build (WANDIT-178): gzip JSON of the Worker
+ * modules and the static assets. A rollback uploads it again.
+ * published/{project_id}/builds/{build_id}.json.gz
+ */
+export function publishedAppBuildKey(
+	projectId: string,
+	buildId: string,
+): string {
+	return `published/${projectId}/builds/${buildId}.json.gz`;
+}
+
 // Images the builder generates mid-build live under the attempt, not a
 // version (they exist before any version does):
 // sites/{project_id}/assets/{attempt_id}/img-{n}.{ext}
@@ -592,12 +604,17 @@ function isAwsNotFoundError(
 
 /**
  * R2 prefixes one `v2_app` project owns. Writers: the `commit-turn.ts`
- * patches under `git/`, and the generate_image host tool of WANDIT-169
- * under `sites/<id>/assets/`. Never the `published/` prefix: WANDIT-178
- * publishes there and the V1 pages share it.
+ * patches under `git/`, the generate_image host tool of WANDIT-169 under
+ * `sites/<id>/assets/`, and the `publish-app` task (WANDIT-178) under
+ * `published/<id>/builds/`. Never the whole `published/<id>/` prefix: the
+ * V1 page files of a migrated project live there too.
  */
 export function v2ProjectPrefixes(projectId: string): string[] {
-	return [`git/${projectId}/`, `sites/${projectId}/assets/`];
+	return [
+		`git/${projectId}/`,
+		`sites/${projectId}/assets/`,
+		`published/${projectId}/builds/`,
+	];
 }
 
 /**

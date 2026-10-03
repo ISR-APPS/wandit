@@ -374,6 +374,8 @@ const API_PROJECT = {
 	templateVersion: "1",
 	languages: ["ar", "fr", "en"],
 	hasCodeChanges: true,
+	versionNumber: 5,
+	unpublishedChanges: 2,
 } satisfies ApiAppProject;
 
 describe("toUiAppProject", () => {
@@ -385,8 +387,8 @@ describe("toUiAppProject", () => {
 			description: "A storefront for crafts",
 			kind: "web",
 			engine: "v2_app",
-			versionNumber: 0,
-			unpublishedChanges: 0,
+			versionNumber: 5,
+			unpublishedChanges: 2,
 			hasCodeChanges: true,
 		});
 	});
