@@ -44,10 +44,7 @@ import { apiClient, isApiClientError } from "@/lib/api-client";
 import { type ComposerMode, MOCK_LATENCY_MS } from "../lib/constants";
 import {
 	MOCK_APP_STORES,
-	MOCK_BACKEND,
 	MOCK_DOMAINS,
-	MOCK_PAYMENTS,
-	MOCK_PAYMENTS_NOT_CONNECTED,
 	MOCK_SETTINGS,
 	MOCK_SIGN_IN,
 } from "../lib/mock-panels";
@@ -57,15 +54,12 @@ import type {
 	AppProject,
 	AppProjectKind,
 	AppStoresSummary,
-	BackendSummary,
 	BuilderThread,
 	CodeFile,
 	CodeSnapshot,
 	CollaboratorRole,
-	PaymentsSummary,
 	ProjectDomain,
 	ProjectSettings,
-	SignInMethodId,
 	SignInSummary,
 } from "./dto";
 
@@ -87,8 +81,6 @@ export type SendBuilderMessageInput = {
 type MockStore = {
 	projects: Map<string, AppProject>;
 	threads: Map<string, BuilderThread>;
-	signIn: Map<string, SignInSummary>;
-	payments: Map<string, PaymentsSummary>;
 	settings: Map<string, ProjectSettings>;
 };
 
@@ -98,8 +90,6 @@ function createStore(): MockStore {
 	const next: MockStore = {
 		projects: new Map(),
 		threads: new Map(),
-		signIn: new Map(),
-		payments: new Map(),
 		settings: new Map(),
 	};
 	for (const project of MOCK_APP_PROJECTS) {
@@ -133,14 +123,6 @@ function seedProject(
 		...structuredClone(MOCK_BUILDER_THREAD),
 		projectId,
 	});
-	store.signIn.set(projectId, structuredClone(MOCK_SIGN_IN));
-	// The mobile kind shows the not-connected state of the Payments panel.
-	store.payments.set(
-		projectId,
-		structuredClone(
-			kind === "web" ? MOCK_PAYMENTS : MOCK_PAYMENTS_NOT_CONNECTED,
-		),
-	);
 	store.settings.set(projectId, structuredClone(MOCK_SETTINGS));
 }
 
@@ -239,49 +221,13 @@ export async function getBuilderThread(
 	return structuredClone(required(getStore().threads, projectId));
 }
 
-export async function getBackendSummary(
-	projectId: string,
-): Promise<BackendSummary> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_BACKEND);
-}
-
+/** User count of the Sign-in panel. A mock: every project gets the seed count. */
 export async function getSignInSummary(
 	projectId: string,
 ): Promise<SignInSummary> {
 	await delay();
-	return structuredClone(required(getStore().signIn, projectId));
-}
-
-export async function setSignInMethod(
-	projectId: string,
-	input: { methodId: SignInMethodId; enabled: boolean },
-): Promise<SignInSummary> {
-	await delay();
-	const summary = required(getStore().signIn, projectId);
-	for (const method of summary.methods) {
-		if (method.id === input.methodId) method.enabled = input.enabled;
-	}
-	return structuredClone(summary);
-}
-
-export async function getPaymentsSummary(
-	projectId: string,
-): Promise<PaymentsSummary> {
-	await delay();
-	return structuredClone(required(getStore().payments, projectId));
-}
-
-/** Switches the connected provider between test and live keys. No-op without a provider. */
-export async function setPaymentsMode(
-	projectId: string,
-	mode: "test" | "live",
-): Promise<PaymentsSummary> {
-	await delay();
-	const summary = required(getStore().payments, projectId);
-	if (summary.provider) summary.provider.mode = mode;
-	return structuredClone(summary);
+	required(getStore().projects, projectId);
+	return structuredClone(MOCK_SIGN_IN);
 }
 
 export async function getProjectDomains(

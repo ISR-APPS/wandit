@@ -26,7 +26,7 @@ export type AppProject = {
 	slug: string;
 	description: string;
 	kind: AppProjectKind;
-	/** Builder of the project, from `GET /api/v2/projects/:id`. The Cloud tab shows only for `v2_app`. */
+	/** Builder of the project, from `GET /api/v2/projects/:id`. The Backend group of the More view shows only for `v2_app`. */
 	engine: ProjectEngine;
 	/** Count of saved versions, from the API. The publish popover shows it as "v{n}". */
 	versionNumber: number;
@@ -195,74 +195,10 @@ export type CodeFile =
 	| { kind: "tooLarge"; path: string }
 	| { kind: "missing"; path: string };
 
-export type BackendTable = {
-	name: string;
-	columns: string[];
-	rowCount: number;
-};
-
-export type BackendFunction = {
-	name: string;
-	/** Who calls it, as the generated backend describes it. */
-	trigger: string;
-	callsToday: number;
-};
-
-export type BackendSummary = {
-	/** Rows of every table together. */
-	rowCount: number;
-	/** Database size in megabytes. */
-	sizeMb: number;
-	/** Storage bucket size in gigabytes. */
-	storageGb: number;
-	/** What the bucket holds, as the agent described it. */
-	storageNote: string;
-	functionCallsToday: number;
-	tables: BackendTable[];
-	functions: BackendFunction[];
-};
-
-export type SignInMethodId =
-	| "phoneOtp"
-	| "emailPassword"
-	| "google"
-	| "magicLink";
-
-export type SignInMethod = {
-	id: SignInMethodId;
-	enabled: boolean;
-};
-
+/** Data of the Sign-in panel. The mock store answers it; the methods themselves are fixed UI. */
 export type SignInSummary = {
+	/** Users who signed up in the generated app. */
 	userCount: number;
-	methods: SignInMethod[];
-};
-
-export type PaymentProduct = {
-	id: string;
-	name: string;
-	billing: { kind: "recurring"; days: number } | { kind: "oneTime" };
-	priceDzd: number;
-};
-
-export type PaymentsSummary = {
-	/** null until the user connects a provider. */
-	provider: {
-		name: string;
-		/** Merchant account name at the provider. */
-		account: string;
-		/** Card networks the provider accepts, as the provider names them. */
-		cards: string;
-		mode: "test" | "live";
-	} | null;
-	products: PaymentProduct[];
-	collectedDzd: number;
-	/** Month of the collected amount, as an ISO `YYYY-MM` string. */
-	collectedMonth: string;
-	paymentCount: number;
-	refundCount: number;
-	webhookPath: string;
-	webhookReceiving: boolean;
 };
 
 export type ProjectDomain = {

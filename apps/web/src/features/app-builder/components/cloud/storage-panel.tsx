@@ -1,7 +1,7 @@
 /**
- * Storage panel of the Cloud tab: the buckets of the app, then the files and
+ * Storage panel of the Backend group: the buckets of the app, then the files and
  * folders of one bucket, with folder navigation, download links, upload, and
- * delete. Rendered by cloud-tab.tsx inside backend-state.tsx, so the backend
+ * delete. Rendered by cloud-panel-content.tsx inside backend-state.tsx, so the backend
  * is `active` here. Reads cloudBucketsQuery and cloudObjectsQuery; writes
  * through useUploadObject and useDeleteObjects.
  */
@@ -61,7 +61,7 @@ import { RowsGridSkeleton } from "./rows-grid";
 /** Props of StoragePanel. The panel mounts only while the backend is `active`. */
 export type StoragePanelProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The queries of the panel wait for it. */
+	/** True while the More view is on screen. The queries of the panel wait for it. */
 	isActive: boolean;
 };
 

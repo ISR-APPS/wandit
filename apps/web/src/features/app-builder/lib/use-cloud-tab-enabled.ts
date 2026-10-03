@@ -1,6 +1,7 @@
 /**
- * Rollout gate of the Cloud tab (WANDIT-188). The app-builder page calls
- * useCloudTabEnabled to show or hide the Cloud view. It combines the project
+ * Rollout gate of the Cloud panels (WANDIT-188). The app-builder page calls
+ * useCloudTabEnabled to show or hide the Backend group of the More view and
+ * to let `?panel=` open a Cloud panel. It combines the project
  * engine, useV2BuilderEnabled, and the PostHog flag `v2-cloud-tab` through
  * resolveCloudTabEnabled, which is pure so a spec can call it.
  */
@@ -13,7 +14,7 @@ import { useV2BuilderEnabled } from "./use-v2-builder-enabled";
 /**
  * True when all three checks pass: a `v2_app` project, the V2 builder
  * rollout, and the `v2-cloud-tab` flag. An unknown flag answers false, like
- * resolveV2BuilderEnabled, so the tab never shows and then goes away.
+ * resolveV2BuilderEnabled, so the Backend group never shows and then goes away.
  */
 export function resolveCloudTabEnabled(input: {
 	/** Engine of the open project; undefined when the project does not exist. Only a `v2_app` project has a Supabase backend. */
@@ -36,7 +37,7 @@ export function resolveCloudTabEnabled(input: {
 	return input.flagEnabled === true;
 }
 
-/** True when the page shows the Cloud view for this project. False while the rollout state loads. */
+/** True when the More view shows the Backend group for this project. False while the rollout state loads. */
 export function useCloudTabEnabled(engine: ProjectEngine | undefined): boolean {
 	const v2BuilderEnabled = useV2BuilderEnabled();
 	const flagEnabled = useFeatureFlagEnabled("v2-cloud-tab");

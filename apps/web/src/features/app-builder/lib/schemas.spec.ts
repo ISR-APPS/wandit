@@ -21,10 +21,16 @@ describe("appBuilderSearchSchema", () => {
 		});
 	});
 
-	it("keeps the Cloud view and its open panel", () => {
+	it("keeps a Cloud panel id in panel", () => {
+		expect(
+			appBuilderSearchSchema.parse({ view: "more", panel: "logs" }),
+		).toEqual({ view: "more", panel: "logs" });
+	});
+
+	it("drops the old Cloud view and its cloudPanel param", () => {
 		expect(
 			appBuilderSearchSchema.parse({ view: "cloud", cloudPanel: "logs" }),
-		).toEqual({ view: "cloud", cloudPanel: "logs" });
+		).toEqual({});
 	});
 
 	it("parses the tablet viewport", () => {
@@ -34,23 +40,21 @@ describe("appBuilderSearchSchema", () => {
 	});
 
 	it("parses the Secrets Cloud panel", () => {
-		expect(
-			appBuilderSearchSchema.parse({ view: "cloud", cloudPanel: "secrets" }),
-		).toEqual({ view: "cloud", cloudPanel: "secrets" });
+		expect(appBuilderSearchSchema.parse({ panel: "secrets" })).toEqual({
+			panel: "secrets",
+		});
 	});
 
 	it("drops unknown values instead of throwing", () => {
 		const result = appBuilderSearchSchema.parse({
 			view: "settings",
-			panel: 42,
-			cloudPanel: "connectors",
+			panel: "connectors",
 			device: "windows",
 			viewport: "",
 			file: "x".repeat(600),
 		});
 		expect(result.view).toBeUndefined();
 		expect(result.panel).toBeUndefined();
-		expect(result.cloudPanel).toBeUndefined();
 		expect(result.device).toBeUndefined();
 		expect(result.viewport).toBeUndefined();
 		expect(result.file).toBeUndefined();

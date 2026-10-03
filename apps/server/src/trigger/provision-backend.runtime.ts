@@ -289,6 +289,8 @@ export async function runProvisionBackend(
 						`https://r-*--p-${projectId}.${deps.previewDomain}/**`,
 					],
 					externalEmailEnabled: true,
+					// Product rule: a new app account works at sign-up, with no confirmation email.
+					skipEmailConfirmation: true,
 				},
 			);
 		}

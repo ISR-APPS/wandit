@@ -1,7 +1,7 @@
 /**
- * Backend gate of the Cloud tab (WANDIT-188). Reads cloudBackendQuery and
+ * Backend gate of the Cloud panels (WANDIT-188). Reads cloudBackendQuery and
  * shows one block per backend status; only an `active` backend shows the
- * panel it wraps. Rendered by cloud-tab.tsx around every panel except
+ * panel it wraps. Rendered by cloud-panel-content.tsx around every panel except
  * Secrets. Calls useEnableBackend and useRestoreBackend. Also exports
  * CloudLoadFailed, the failed-load block of the panels.
  */
@@ -27,7 +27,7 @@ import { RowsGridSkeleton } from "./rows-grid";
 /** Props of BackendState. `children` is a panel that reads the database of the app. */
 export type BackendStateProps = {
 	projectId: string;
-	/** True while the Cloud view is on screen. The state read waits for it. */
+	/** True while the More view is on screen. The state read waits for it. */
 	isActive: boolean;
 	/** The panel to show while the backend is `active`. */
 	children: ReactNode;

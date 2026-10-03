@@ -16,8 +16,7 @@
 		"assets": "Médias",
 		"marketing": "Marketing",
 		"leads": "Leads",
-		"settings": "Réglages",
-		"cloud": "Cloud"
+		"settings": "Réglages"
 	},
 	"switcher": {
 		"menuLabel": "Projets",
@@ -1229,7 +1228,6 @@
 		"cta": "Retour au tableau de bord"
 	},
 	"cloud": {
-		"navAriaLabel": "Sections Cloud",
 		"panels": {
 			"database": "Base de données",
 			"users": "Utilisateurs",

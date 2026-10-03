@@ -655,7 +655,10 @@ export class SupabaseManagementClient {
 		});
 	}
 
-	/** Sets the auth site URL, the redirect allow list, and the email flag. */
+	/**
+	 * Sets the auth site URL, the redirect allow list, the email flag, and
+	 * the email confirmation switch (`mailer_autoconfirm`).
+	 */
 	async updateAuthConfig(
 		scope: BackendRef,
 		input: {
@@ -665,6 +668,11 @@ export class SupabaseManagementClient {
 			uriAllowList: string[];
 			/** Turns the email provider on. */
 			externalEmailEnabled: boolean;
+			/**
+			 * True confirms a new email user at sign-up. `signUp` then returns a
+			 * session at once, and Supabase sends no confirmation email.
+			 */
+			skipEmailConfirmation: boolean;
 		},
 	): Promise<void> {
 		await this.requireOwnedRef(scope);
@@ -678,6 +686,7 @@ export class SupabaseManagementClient {
 				// The API takes one comma-separated string, not an array.
 				uri_allow_list: input.uriAllowList.join(","),
 				external_email_enabled: input.externalEmailEnabled,
+				mailer_autoconfirm: input.skipEmailConfirmation,
 			},
 			schema: supabaseAuthConfigResponseSchema,
 		});

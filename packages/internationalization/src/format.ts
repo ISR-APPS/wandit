@@ -1,3 +1,7 @@
+/**
+ * Locale-aware number, date, and relative-time formatters, built on `Intl`.
+ * The apps import them through the package index (`@wandit/internationalization`).
+ */
 import type { Locale } from "./config";
 
 type DateValue = Date | number | string;
@@ -54,11 +58,4 @@ export function formatRelativeTime(
 	}
 
 	return formatter.format(Math.round(diffSeconds / 31_557_600), "year");
-}
-
-export function formatCurrencyDZD(value: number, locale: Locale): string {
-	return new Intl.NumberFormat(locale, {
-		style: "currency",
-		currency: "DZD",
-	}).format(value);
 }
