@@ -7,10 +7,17 @@ import {
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { Toaster } from "~/components/ui/sonner";
 import { I18nProvider, useT } from "~/i18n";
 import tokensCss from "~/styles/tokens.css?url";
+import { installPreviewBridge } from "~/wandit/preview-bridge";
+
+// Dev-only bridge to the wandit preview frame. It installs at module load,
+// before the first render, so an error of the first render reaches the host.
+if (import.meta.env.DEV) {
+	installPreviewBridge();
+}
 
 export const Route = createRootRoute({
 	head: () => ({
@@ -40,15 +47,6 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-	useEffect(() => {
-		// Dev-only bridge: posts runtime errors to the preview parent frame.
-		if (import.meta.env.DEV) {
-			void import("~/wandit/preview-bridge").then((m) =>
-				m.installPreviewBridge(),
-			);
-		}
-	}, []);
-
 	return (
 		<I18nProvider>
 			<RootDocument>

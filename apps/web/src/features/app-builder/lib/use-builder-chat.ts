@@ -12,6 +12,7 @@ import { hashKey, useQueryClient } from "@tanstack/react-query";
 import {
 	type BuilderTurnStatus,
 	createTurnResponseSchema,
+	type PreviewTarget,
 	type TurnApprovalAnswer,
 	type TurnEstimate,
 	type TurnQuestionAnswer,
@@ -24,7 +25,7 @@ import { creditsKeys } from "@/features/credits";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
 import { cloudKeys } from "../api/cloud.queries";
-import type { TurnMessage } from "../api/dto";
+import type { TurnMessage, TurnMessagePart } from "../api/dto";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
 /** What `send` accepts: the draft text plus optional per-turn extras. */
@@ -43,6 +44,8 @@ export type BuilderChatSend = {
 	answers?: TurnQuestionAnswer[];
 	/** Paid model id the user picked for this turn; absent uses the deploy default. */
 	model?: string;
+	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
+	targets?: PreviewTarget[];
 };
 
 /**
@@ -229,11 +232,22 @@ export function useBuilderChat(
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
 			if (chatId === undefined || isSending) return;
 			setIsAwaitingTurn(true);
+			// Files first, then the text, as the AI SDK orders `{ text, files }`.
+			// The bubble shows the chips from the targets part; the transport reads
+			// the targets of the turn body from it too.
+			const parts: TurnMessagePart[] = [
+				...(sendInput.files ?? []),
+				{ type: "text", text: sendInput.text },
+			];
+			if (sendInput.targets?.length) {
+				parts.push({
+					type: "data-targets",
+					id: "targets",
+					data: { targets: sendInput.targets },
+				});
+			}
 			void sendMessage(
-				{
-					text: sendInput.text,
-					...(sendInput.files ? { files: sendInput.files } : {}),
-				},
+				{ parts },
 				{
 					body: {
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),

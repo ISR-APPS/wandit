@@ -13,6 +13,7 @@ import type {
 	TurnDataParts,
 	TurnQuestionOption,
 	TurnSummaryData,
+	TurnTargetsData,
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
@@ -88,7 +89,8 @@ export type BuilderDiffLine = {
  * time and the changed files. `question` is one question of the agent.
  * `approval` waits for the user to allow a tool call. `error` is a turn
  * failure. `stopped` marks a turn the user stopped. `receipt` is the
- * settled cost of a turn.
+ * settled cost of a turn. `targets` sits in a user message: the elements it
+ * picked in the preview.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -172,6 +174,7 @@ export type BuilderDataParts = {
 		/** Prompt tokens the model wrote to its cache. Not part of `inputTokens`. */
 		cacheWriteTokens: number;
 	};
+	targets: TurnTargetsData;
 };
 
 /** One chat message in the AI SDK shape, as lib/turn-parts.ts maps it from a `TurnMessage`. */

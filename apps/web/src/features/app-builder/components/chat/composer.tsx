@@ -1,6 +1,6 @@
 /**
- * Prompt box of the builder chat: the request tray slot on top, the file
- * chips, growing textarea, the add context menu (a file or an image),
+ * Prompt box of the builder chat: the request tray slot on top, the chips
+ * of the elements picked in the preview, the file chips, growing textarea, the add context menu (a file or an image),
  * the credit estimate of the next turn, dictation, and the send button.
  * While the tray shows, the send button becomes the tray's answer button.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
@@ -10,6 +10,7 @@
 
 import {
 	ATTACHMENT_MEDIA_TYPES,
+	type PreviewTarget,
 	projectPromptMaxLength,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -52,6 +53,7 @@ import {
 } from "@/features/projects";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import { TargetChip } from "./target-chip";
 
 /**
  * The answer button that replaces the send circle while the request tray
@@ -69,6 +71,10 @@ export type ComposerSubmitOverride = {
 export type ComposerProps = {
 	/** Credits the next turn holds, whole credits, from the estimate route or the running turn. Null hides the text. */
 	turnEstimateCredits: number | null;
+	/** Elements picked in the preview for the next turn, in pick order. Each shows as a chip the user can remove. */
+	targets: PreviewTarget[];
+	/** Removes the target at this index of `targets`. */
+	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
@@ -120,6 +126,8 @@ const PILL_CLASS =
 
 export function Composer({
 	turnEstimateCredits,
+	targets,
+	onRemoveTarget,
 	isSending,
 	onSend,
 	topSlot,
@@ -272,6 +280,18 @@ export function Composer({
 				{topSlot}
 				{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
 				<div className="flex flex-col px-4 pt-3.5 pb-3">
+					{targets.length > 0 ? (
+						<div className="mb-2 flex flex-wrap gap-1.5">
+							{targets.map((target, index) => (
+								<TargetChip
+									// One element can show twice with another text (a list item), so the key holds both.
+									key={`${target.src}|${target.label}`}
+									target={target}
+									onRemove={() => onRemoveTarget(index)}
+								/>
+							))}
+						</div>
+					) : null}
 					{files.length > 0 ? (
 						<div className="mb-2 flex flex-wrap gap-1.5">
 							{files.map((file) => (

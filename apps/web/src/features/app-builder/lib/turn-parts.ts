@@ -834,8 +834,9 @@ function assistantPartsOf(
 
 /**
  * Maps the turn messages to the card messages. A user message keeps its
- * text and file parts and drops when it has neither (an approval answer
- * sends an empty message; the approval card shows the decision). An
+ * text, file, and `data-targets` parts. It drops when it has no text and no
+ * file (an approval answer sends an empty message; the approval card shows
+ * the decision). An
  * assistant message keeps its parts in stream order (see assistantPartsOf).
  * `isRunning` is true while a turn streams: only the last message is live.
  */
@@ -846,8 +847,15 @@ export function toBuilderMessages(
 	return messages.flatMap<BuilderMessage>((message, index) => {
 		if (message.role === "user") {
 			const parts = message.parts.filter(
-				(part): part is Extract<TurnMessagePart, { type: "text" | "file" }> =>
-					part.type === "text" || part.type === "file",
+				(
+					part,
+				): part is Extract<
+					TurnMessagePart,
+					{ type: "text" | "file" | "data-targets" }
+				> =>
+					part.type === "text" ||
+					part.type === "file" ||
+					part.type === "data-targets",
 			);
 			if (
 				messageTextOf(message).length === 0 &&

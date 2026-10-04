@@ -9,6 +9,7 @@
 
 import type {
 	ChatMessage,
+	PreviewTarget,
 	TurnEstimate,
 	TurnQuestionAnswer,
 	TurnStreamPhase,
@@ -42,8 +43,11 @@ export type BuilderThreadState = {
 	 * worked. Null when the reply already holds the error card.
 	 */
 	errorText: string | null;
-	/** Sends one turn with this text and these uploaded files. Dropped while a turn runs or the chat id is unknown. */
-	send: (input: SendBuilderMessageInput) => void;
+	/**
+	 * Sends one turn with this text, these uploaded files, and the elements
+	 * picked in the preview. Dropped while a turn runs or the chat id is unknown.
+	 */
+	send: (input: SendBuilderMessageInput, targets?: PreviewTarget[]) => void;
 	/** Answers an open approval card through a turn with an empty message. */
 	decideApproval: (approvalId: string, approved: boolean) => void;
 	/**
@@ -194,7 +198,7 @@ export function useBuilderThread(
 						undefined,
 					t,
 				),
-		send: ({ text, files }) => chat.send({ text, files }),
+		send: ({ text, files }, targets) => chat.send({ text, files, targets }),
 		decideApproval: (approvalId, approved) =>
 			chat.send({ text: "", approval: { approvalId, approved } }),
 		answerQuestions: ({ message, answers, files }) =>

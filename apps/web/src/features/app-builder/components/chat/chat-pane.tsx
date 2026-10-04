@@ -12,7 +12,11 @@
  * working-row.tsx, composer.tsx, and the request tray.
  */
 
-import type { TurnQuestionAnswer, TurnStreamPhase } from "@wandit/contracts";
+import type {
+	PreviewTarget,
+	TurnQuestionAnswer,
+	TurnStreamPhase,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
@@ -44,6 +48,10 @@ export type ChatPaneProps = {
 	messages: BuilderMessage[];
 	/** Credits the next turn holds, whole credits. Shown next to the send button; null hides it. */
 	turnEstimateCredits: number | null;
+	/** Elements picked in the preview for the next turn. The composer shows them as chips. */
+	targets: PreviewTarget[];
+	/** Removes the target at this index of `targets`. */
+	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs. Locks the composer and shows the status line. */
 	isSending: boolean;
 	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the status line label before the reply has steps. */
@@ -87,6 +95,8 @@ export type ChatPaneProps = {
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
+	targets,
+	onRemoveTarget,
 	isSending,
 	phase,
 	isFirstTurn,
@@ -261,6 +271,8 @@ export function ChatPane({
 			<div className="shrink-0 px-4 pt-2 pb-4">
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
+					targets={targets}
+					onRemoveTarget={onRemoveTarget}
 					// The composer also locks while the chat id and the history load.
 					// A send without the id drops the turn; a send before the history
 					// puts the reply above it.

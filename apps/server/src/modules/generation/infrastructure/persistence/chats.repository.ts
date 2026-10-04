@@ -12,6 +12,7 @@ import type {
 	ChatUsageResponse,
 	ComposerMetadata,
 	FileRef,
+	PreviewTarget,
 	TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
@@ -231,13 +232,17 @@ export class ChatsRepository {
 	/**
 	 * V2 turn user message. Same parts layout as the project-create path —
 	 * file parts BEFORE the text part — plus the `builder_turns` FK so the
-	 * history filter can hide its in-flight assistant answer.
+	 * history filter can hide its in-flight assistant answer. The elements
+	 * picked in the preview go last, as one `data-targets` part, so the
+	 * bubble shows them after a reload.
 	 */
 	async insertTurnUserMessage(input: {
 		attachments?: FileRef[];
 		chatId: string;
 		composer?: ComposerMetadata;
 		id: string;
+		/** Elements picked in the preview, already checked by `createTurnRequestSchema`. */
+		targets?: PreviewTarget[];
 		text: string;
 		turnId: string;
 	}): Promise<InsertedMessageRow> {
@@ -262,6 +267,16 @@ export class ChatsRepository {
 									state: "done",
 									text: input.text,
 									type: "text",
+								},
+							]
+						: []),
+					// The `turnTargetsDataPartSchema` shape; the web hydration parses it.
+					...(input.targets !== undefined && input.targets.length > 0
+						? [
+								{
+									data: { targets: input.targets },
+									id: "targets",
+									type: "data-targets",
 								},
 							]
 						: []),

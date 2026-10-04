@@ -148,6 +148,8 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 					createElement(ChatPane, {
 						messages: MESSAGES,
 						turnEstimateCredits: 6,
+						targets: [],
+						onRemoveTarget: vi.fn(),
 						isSending: false,
 						phase: null,
 						isFirstTurn: false,

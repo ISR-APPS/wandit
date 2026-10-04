@@ -1,7 +1,7 @@
 /**
  * One message of the builder thread. A user message is a bubble at the end
- * side, with its files above it. An assistant message starts with the
- * Wandit byline. In the production view, one summary line opens the details
+ * side. Its files sit above it, and the chips of its preview picks sit above
+ * the files. An assistant message starts with the Wandit byline. In the production view, one summary line opens the details
  * panel, and only the parts the user reads or acts on follow: the final
  * answer, a missing secret, the question lines, the approval card, the
  * error with Retry, the stopped line, and the receipt. The developer view
@@ -25,6 +25,7 @@ import { ApprovalCard } from "./approval-card";
 import { MessageActions } from "./message-actions";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
+import { TargetChip } from "./target-chip";
 import { ThoughtRow } from "./thought-row";
 
 /** Props of one message, as chat-pane.tsx passes them. */
@@ -59,8 +60,21 @@ export function ChatMessageView({
 		const files = message.parts.filter(
 			(part): part is FileUIPart => part.type === "file",
 		);
+		const targets = message.parts.flatMap((part) =>
+			part.type === "data-targets" ? part.data.targets : [],
+		);
 		return (
 			<div className="flex flex-col items-end gap-1.5">
+				{targets.length > 0 ? (
+					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+						{targets.map((target) => (
+							<TargetChip
+								key={`${target.src}|${target.label}`}
+								target={target}
+							/>
+						))}
+					</div>
+				) : null}
 				{files.length > 0 ? (
 					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
 						{files.map((file) => (

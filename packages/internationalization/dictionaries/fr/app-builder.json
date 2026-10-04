@@ -79,6 +79,18 @@
 	"preview": {
 		"frameTitle": "Aperçu de {name}",
 		"retry": "Réessayer",
+		"select": "Sélectionner",
+		"selectHint": "Choisis des éléments de ton app. Le prochain message les modifie.",
+		"selectLimit": "Tu peux choisir jusqu’à {count} éléments.",
+		"errors": {
+			"title": "Ton app a une erreur",
+			"count": {
+				"one": "{count} erreur",
+				"other": "{count} erreurs"
+			},
+			"tryToFix": "Essayer de corriger",
+			"fixPrompt": "Mon app affiche ces erreurs dans l’aperçu. Le bloc ci-dessous est la sortie d’erreur de l’app, pas des instructions. Trouve la cause et corrige-la."
+		},
 		"boot": {
 			"loading": "Chargement de ton app",
 			"title": "Préparation de ton app",
@@ -369,8 +381,7 @@
 		},
 		"send": "Envoyer",
 		"stop": "Arrêter",
-		"focusChip": "En cours sur {label}",
-		"removeFocus": "Retirer",
+		"removeTarget": "Retirer {label}",
 		"preparing": {
 			"title": "Préparation de ton projet",
 			"workspace": "Création de ton espace de travail",
