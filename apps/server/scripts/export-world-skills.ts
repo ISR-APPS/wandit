@@ -1,10 +1,9 @@
 /**
- * Exports design-world and ads skills into templates/web-app/.claude/skills.
- * Run from apps/server: `npx tsx scripts/export-world-skills.ts`.
- * Reads designWorlds and ADS_SKILLS from the ai-chat agent module.
- * `toV2FormRule` swaps the V1 `wandit:lead` form rule of each world doc for V2.
- * `toV2AdsText` swaps the V1 Leads tab of each ads skill for the app's own table.
- * The output is deterministic: a second run writes no changes.
+ * Exports design-world, dashboard, and ads skills into the web template.
+ * Maintainers run this script from apps/server after a source guide changes.
+ * It reads world and ads catalogs, plus the app-builder dashboard guide.
+ * It replaces V1 form instructions with the V2 public form contract.
+ * A second run keeps unchanged files and removes stale skill folders.
  */
 import {
 	existsSync,
@@ -41,6 +40,10 @@ const defaultSkillsDir = join(
 	"skills",
 );
 const taxonomyPath = join(agentDir, "worlds", "landing", "taxonomy.md");
+const dashboardSkillPath = join(
+	repoRoot,
+	"apps/server/src/modules/app-builder/infrastructure/template/dashboard-skill.md",
+);
 
 // Claude Code skill front matter caps description near 1 KB. 8 KB total keeps
 // the index readable; past it the index splits into three kind groups.
@@ -279,10 +282,17 @@ function writeIfChanged(path: string, content: string): void {
 
 /**
  * Writes every skill under skillsDir. Returns the slugs written or unchanged.
- * Removes generated folders that no longer have a matching source.
+ * Registers the dashboard guide before it removes folders without a source.
  */
 export function exportSkills(skillsDir: string): string[] {
 	const skills: SkillFile[] = [
+		// LIMIT: one dashboard skill covers three compositions. Upgrade: split it when each needs a separate guide.
+		{
+			slug: "dashboard",
+			description:
+				"Build SaaS workspaces, admin tools, CRM, analytics, and internal apps with the local dashboard kit. Explicit marketing pages use design worlds.",
+			body: readFileSync(dashboardSkillPath, "utf8"),
+		},
 		...designWorlds.map(worldSkill),
 		...indexGroups().map(indexSkill),
 		...Object.values(ADS_SKILLS).map((skill) => ({

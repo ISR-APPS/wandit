@@ -1,3 +1,5 @@
+<!-- This file describes the source template for maintainers.
+It explains the skill export, local dashboard kit, and sandbox archive flow. -->
 # web-app template
 
 TanStack Start + Vite + Cloudflare Workers starter for generated wandit sites.
@@ -43,7 +45,7 @@ and i18n with one language by default (more on request, RTL ready).
 
 - `dist/client/` — static assets and the prerendered HTML pages
   (`dist/client/assets/` holds hashed JS/CSS; `dist/client/index.html` is the
-  prerendered landing page; `dist/client/login/` and `dist/client/app/` hold
+  prerendered root route; `dist/client/login/` and `dist/client/app/` hold
   their prerendered shells).
 - `dist/server/index.js` — the Worker entry bundle.
 - `dist/server/wrangler.json` — the generated Wrangler config the deploy uses.
@@ -76,6 +78,47 @@ It fails when a V1 phrase has a form that it does not know (WANDIT-273).
 `frontend-design/` is Anthropic's frontend design skill, copied unchanged from the
 `frontend-design` Claude Code plugin with its `LICENSE.txt` (Apache License 2.0).
 The export keeps this folder.
+
+The same exporter writes one `dashboard` skill from
+`apps/server/src/modules/app-builder/infrastructure/template/dashboard-skill.md`.
+It keeps this skill during stale-folder cleanup. Edit the source guide, then run
+`npx tsx scripts/export-world-skills.ts` from `apps/server`.
+
+## Workspace architecture
+
+The brief selects the product structure before a design world supplies visual rules.
+SaaS, admin, CRM, analytics, and internal tools use the dashboard skill.
+An explicit marketing request still uses a design world.
+An explicit request for both gets separate marketing and workspace routes.
+A new workspace-only app sends `/` through authentication to the workspace.
+Existing apps keep their routes and layout unless the requested change requires modification.
+
+The template contains an original local source catalog:
+
+- `src/shared/ui/dashboard-shell.tsx`: `sidebar`, `inset`, and `rail` shells with mobile navigation.
+- `src/shared/ui/dashboard-content.tsx`: analytics, operations, and workbench compositions.
+- `src/shared/ui/`: shared controls for the chosen composition.
+- `src/styles/tokens.css`: semantic colors, fonts, radii, sidebar colors, and chart colors.
+
+The agent reads only the selected source files. No cloud registry or premium template source is required.
+Analytics emphasizes trends and drill-down. Operations emphasizes records, filters, and detail views.
+A workbench emphasizes the main work surface and its context. Metrics remain optional.
+Each generated app must connect its controls to real behavior and show honest empty states.
+The kit supplies structure. The brief supplies the domain, data model, and workflows.
+Existing Supabase authentication and RLS still control access.
+
+The harness supplies stable defaults for each project. An explicit brief or existing design takes priority.
+The agent saves the final palette, shell, radius, width, and density as literals and CSS tokens.
+These choices stay fixed across renders and later turns. The app has no automatic theme picker.
+
+## Rollout
+
+`template_version` identifies this source as `web-app@1.1.0`.
+The archive must contain the generated dashboard skill and the local kit together.
+New projects use the archive selected by the template version service.
+Existing projects retain their saved source and version. This change does not migrate or redesign them.
+The harness reads the dashboard skill only when the project contains it.
+Archive creation and publication remain separate release steps.
 
 ## Notes for the coding agent
 

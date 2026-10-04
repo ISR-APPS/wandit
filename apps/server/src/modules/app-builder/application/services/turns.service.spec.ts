@@ -639,6 +639,31 @@ describe("TurnsService.create", () => {
 		});
 	});
 
+	it("starts above the monthly cap without a credit hold when billing is off", async () => {
+		// SAFETY: the env schema types this field as "enforce" | "off".
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = "off";
+		const { caps, lock, metering, service, starter, turns } = setup();
+		caps.findByProjectId.mockResolvedValue({
+			monthlyCapCredits: 1,
+			perTurnCapCredits: 1,
+		});
+		// The recorded spend exceeds both project caps before the turn starts.
+		metering.monthlySpendCredits.mockResolvedValue(4_500);
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.monthlySpendCredits).not.toHaveBeenCalled();
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "queued" }),
+		);
+		expect(starter.start).toHaveBeenCalledTimes(1);
+		expect(await lock.holder("project-1")).toBe(result.turnId);
+		expect(result.runId).toBe("run-1");
+	});
+
 	it("does not refund when a billing-off create fails after the row", async () => {
 		// SAFETY: the env schema already types this field as "enforce" | "off".
 		(

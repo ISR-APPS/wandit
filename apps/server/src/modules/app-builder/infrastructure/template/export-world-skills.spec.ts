@@ -4,20 +4,28 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	exportSkills,
-	renderSkillMd,
 	toV2AdsText,
 	toV2FormRule,
 } from "../../../../../scripts/export-world-skills";
 
 const tempDirs: string[] = [];
+const dashboardSource = fileURLToPath(
+	new URL("./dashboard-skill.md", import.meta.url),
+);
+const templateRoot = fileURLToPath(
+	new URL("../../../../../../../templates/web-app/", import.meta.url),
+);
 
 function makeTempDir(): string {
 	const dir = mkdtempSync(join(tmpdir(), "wandit-skills-"));
@@ -29,19 +37,6 @@ afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		rmSync(dir, { recursive: true, force: true });
 	}
-});
-
-describe("renderSkillMd", () => {
-	it("writes YAML front matter and the body", () => {
-		const md = renderSkillMd({
-			slug: "atelier",
-			description: "A quiet, crafted world.",
-			body: "# Atelier\n\nThe doc body.",
-		});
-		expect(md).toBe(
-			'---\nname: "atelier"\ndescription: "A quiet, crafted world."\n---\n\n# Atelier\n\nThe doc body.\n',
-		);
-	});
 });
 
 describe("toV2FormRule", () => {
@@ -128,45 +123,67 @@ describe("exportSkills", () => {
 		}
 	});
 
-	it("writes one SKILL.md per world with name and description front matter", () => {
+	it("exports the complete dashboard guide with real project source links", () => {
 		const dir = makeTempDir();
 		const slugs = exportSkills(dir);
-		expect(slugs.length).toBeGreaterThan(20);
-		const atelier = readFileSync(join(dir, "atelier", "SKILL.md"), "utf8");
-		expect(atelier).toMatch(/^---\nname: "atelier"\ndescription: ".+"\n---\n/);
-	});
+		const dashboard = readFileSync(join(dir, "dashboard", "SKILL.md"), "utf8");
+		const source = readFileSync(dashboardSource, "utf8").trim();
+		expect(slugs.filter((slug) => slug === "dashboard")).toEqual(["dashboard"]);
+		expect(dashboard).toMatch(
+			/^---\nname: "dashboard"\ndescription: ".+"\n---\n/,
+		);
+		expect(dashboard.endsWith(`${source}\n`)).toBe(true);
+		expect(
+			readFileSync(
+				join(templateRoot, ".claude/skills/dashboard/SKILL.md"),
+				"utf8",
+			),
+		).toBe(dashboard);
 
-	it("writes the six ads skills", () => {
-		const dir = makeTempDir();
-		const slugs = exportSkills(dir);
-		for (const slug of [
-			"ads-fundamentals",
-			"ads-creative",
-			"ads-audiences",
-			"ads-measurement",
-			"ads-cod-maghreb",
-			"ads-diagnostic",
-		]) {
-			expect(slugs).toContain(slug);
+		const sourceLinks = [
+			...dashboard.matchAll(/\]\(\.\.\/\.\.\/\.\.\/(src\/[^)]+)\)/g),
+		];
+		expect(sourceLinks.length).toBeGreaterThan(0);
+		for (const link of sourceLinks) {
+			const path = link[1];
+			if (!path) {
+				throw new Error("The dashboard source link has no path");
+			}
+			expect(statSync(join(templateRoot, path)).isFile()).toBe(true);
 		}
 	});
 
 	it("is idempotent: a second run changes no file", () => {
 		const dir = makeTempDir();
+		const slugs = exportSkills(dir);
+		const before = slugs.map((slug) => {
+			const path = join(dir, slug, "SKILL.md");
+			// A fixed timestamp detects rewrites even when both export calls run within one clock tick.
+			utimesSync(path, new Date(0), new Date(0));
+			return {
+				path,
+				content: readFileSync(path, "utf8"),
+				mtimeMs: statSync(path).mtimeMs,
+			};
+		});
 		exportSkills(dir);
-		const before = readFileSync(join(dir, "atelier", "SKILL.md"), "utf8");
-		exportSkills(dir);
-		const after = readFileSync(join(dir, "atelier", "SKILL.md"), "utf8");
-		expect(after).toBe(before);
+		for (const file of before) {
+			expect(readFileSync(file.path, "utf8")).toBe(file.content);
+			expect(statSync(file.path).mtimeMs).toBe(file.mtimeMs);
+		}
 	});
 
-	it("removes a stale skill folder that no source produces", () => {
+	it("removes stale folders and restores the registered dashboard skill", () => {
 		const dir = makeTempDir();
 		exportSkills(dir);
+		const dashboardPath = join(dir, "dashboard", "SKILL.md");
+		const dashboard = readFileSync(dashboardPath, "utf8");
+		writeFileSync(dashboardPath, "old dashboard guide");
 		const staleDir = join(dir, "stale-world");
 		mkdirSync(staleDir, { recursive: true });
 		writeFileSync(join(staleDir, "SKILL.md"), "stale");
 		exportSkills(dir);
 		expect(existsSync(staleDir)).toBe(false);
+		expect(readFileSync(dashboardPath, "utf8")).toBe(dashboard);
 	});
 });
