@@ -60,15 +60,16 @@ export const appBackends = pgTable(
 		status: appBackendStatus("status").notNull().default("creating"),
 		// Public anon key the app uses in the browser. Not a secret.
 		anonKey: text("anon_key"),
-		// Id of the `project_secrets` row that holds the service-role key.
-		// No FK: WANDIT-185 adds that table and the keys.
+		// Id of the `system` row of `project_secrets` that holds the
+		// service-role key. The provisioning task writes it; no FK.
 		serviceRoleSecretId: uuid("service_role_secret_id"),
-		// Id of the `project_secrets` row that holds the database password.
-		// No FK: WANDIT-185 adds that table and the keys.
+		// Id of the `system` row of `project_secrets` that holds the database
+		// password. The provisioning task writes it; no FK.
 		dbPasswordSecretId: uuid("db_password_secret_id"),
 		// Database host of the Supabase project.
 		dbHost: text("db_host"),
-		// When the idle pause suspended the project.
+		// When the idle pause suspended the project. On an `error` row: when
+		// the sweep paused its project or found it stopped.
 		pausedAt: timestamp("paused_at", { withTimezone: true }),
 		// Last activity the pause sweep uses.
 		lastActiveAt: timestamp("last_active_at", { withTimezone: true }),

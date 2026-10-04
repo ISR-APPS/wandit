@@ -1,8 +1,7 @@
 /**
- * Shared surface of the cards inside an assistant message: the change card,
- * the progress card, the trace, the tool chips, the question, the suggestion,
- * and the diff. Rendered by those components under components/chat.
- * One place holds the chrome, so every card lifts from the thread the same way.
+ * Shared surface of the builder cards: the approval card in an assistant
+ * message and the diff card of a version. Rendered by approval-card.tsx and
+ * diff-card.tsx. One place holds the chrome, so every card lifts the same way.
  */
 
 import { cn } from "@wandit/ui/lib/utils";

@@ -1,8 +1,9 @@
 /**
  * Narrow read of the `projects` row the builder-turn task needs.
- * The `builder-turn` runtime calls `findForTurn`; the projects module
- * owns the table, so this read-only view lives here instead of widening
- * `ProjectsRepository` for one task.
+ * The `builder-turn` runtime calls `findForTurn`, and so does
+ * `startSandboxWithoutTurn` (restore, wake, publish) for the same sandbox
+ * inputs. The projects module owns the table, so this read-only view lives
+ * here instead of widening `ProjectsRepository`.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "@wandit/db";

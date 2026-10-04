@@ -59,6 +59,9 @@ export const projectSchema = z.object({
 	// User-uploaded brand logo reused by rebuilds; null until one is selected.
 	logoUrl: z.string().nullable(),
 	publishedSlug: z.string().optional(),
+	// https://{slug}.{SITES_DOMAIN} of the live deployment; absent until the
+	// first publish. The server builds it, so the web never hard-codes the sites domain.
+	liveUrl: z.url().optional(),
 	// Ad pixels injected into the published page at publish time.
 	metaPixelId: z.string().nullable(),
 	tiktokPixelId: z.string().nullable(),

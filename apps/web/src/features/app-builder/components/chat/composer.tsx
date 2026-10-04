@@ -1,14 +1,18 @@
 /**
- * Prompt box of the builder chat: the request tray slot on top, focus chip,
- * growing textarea, the add context menu, the Build | Plan mode menu,
- * credit estimate, dictation, and the send button. While the tray shows,
- * the send button becomes the tray's answer button. Rendered by
- * chat-pane.tsx. Calls `onSend` with the trimmed draft; the pane runs the
- * mutation. Local state: the draft, the mode, the chip. Actions with no
- * backend show the notWired toast.
+ * Prompt box of the builder chat: the request tray slot on top, the chips
+ * of the elements picked in the preview, the file chips, growing textarea, the add context menu (a file or an image),
+ * the credit estimate of the next turn, dictation, and the send button.
+ * While the tray shows, the send button becomes the tray's answer button.
+ * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
+ * uploaded files; the pane runs the mutation. Uploads go through the
+ * projects feature, with the limits of the dashboard prompt box.
  */
 
-import { projectPromptMaxLength } from "@wandit/contracts";
+import {
+	ATTACHMENT_MEDIA_TYPES,
+	type PreviewTarget,
+	projectPromptMaxLength,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -17,24 +21,39 @@ import {
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Textarea } from "@wandit/ui/components/textarea";
+import { cn } from "@wandit/ui/lib/utils";
+import type { FileUIPart } from "ai";
 import {
 	ArrowUp,
 	Check,
-	ChevronDown,
-	Crosshair,
+	FileText,
 	ImageIcon,
-	LayoutTemplate,
+	Loader2,
 	Mic,
 	Paperclip,
 	Plus,
+	Square,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useState } from "react";
-import { toast } from "sonner";
+import {
+	type ChangeEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
-import { useTranslation } from "@/lib/i18n";
+import {
+	ATTACHMENT_ACCEPT,
+	AttachmentUploadError,
+	attachmentMaxBytesFor,
+	uploadAttachment,
+	useVoiceDictation,
+} from "@/features/projects";
+import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
-import { COMPOSER_MODES, type ComposerMode } from "../../lib/constants";
+import { TargetChip } from "./target-chip";
 
 /**
  * The answer button that replaces the send circle while the request tray
@@ -50,10 +69,12 @@ export type ComposerSubmitOverride = {
 };
 
 export type ComposerProps = {
-	/** Credits one turn costs, whole credits. Shown next to the mode menu. */
-	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. Shown as a chip the user can remove. */
-	focusLabel: string | null;
+	/** Credits the next turn holds, whole credits, from the estimate route or the running turn. Null hides the text. */
+	turnEstimateCredits: number | null;
+	/** Elements picked in the preview for the next turn, in pick order. Each shows as a chip the user can remove. */
+	targets: PreviewTarget[];
+	/** Removes the target at this index of `targets`. */
+	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
@@ -65,13 +86,48 @@ export type ComposerProps = {
 	onDraftChange?: (text: string) => void;
 };
 
-/** Round pill shared by the add context and mode triggers. Ember on hover, a soft halo while open. */
+/** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
+const MAX_FILES = 6;
+
+/** The image types of the upload allow-list, for the "Add an image" picker. */
+const IMAGE_ACCEPT = ATTACHMENT_MEDIA_TYPES.filter((type) =>
+	type.startsWith("image/"),
+).join(",");
+
+/** One file chip above the textarea. */
+type ComposerFile = {
+	/** Local id of the chip; the upload has no id before it answers. */
+	id: string;
+	/** Name of the file on the user's disk. */
+	filename: string;
+	/** Object URL of an image for the chip thumbnail; null for other files. */
+	previewUrl: string | null;
+	/** `uploading` until the upload answers. An `error` chip stays, so the user sees why, and is not sent. */
+	status: "uploading" | "ready" | "error";
+	/** The uploaded file as the turn sends it; null until `status` is `ready`. */
+	part: FileUIPart | null;
+	/** Why the upload failed; picks the chip text. Null unless `status` is `error`. */
+	error: AttachmentUploadError["reason"] | null;
+};
+
+/** Chip text of each upload failure, shared with the dashboard prompt box. */
+const UPLOAD_ERROR_KEYS: Record<
+	AttachmentUploadError["reason"],
+	TranslationKey
+> = {
+	unsupported: "projects.promptBox.attachments.unsupported",
+	"too-large": "projects.promptBox.attachments.tooLarge",
+	failed: "projects.promptBox.attachments.failed",
+};
+
+/** Round pill of the add context trigger. Ember on hover, a soft halo while open. */
 const PILL_CLASS =
 	"rounded-full border-border bg-transparent shadow-none transition-[border-color,box-shadow,background-color] duration-200 hover:border-primary/35 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10";
 
 export function Composer({
 	turnEstimateCredits,
-	focusLabel,
+	targets,
+	onRemoveTarget,
 	isSending,
 	onSend,
 	topSlot,
@@ -84,24 +140,118 @@ export function Composer({
 		setDraftState(text);
 		onDraftChange?.(text);
 	};
-	const [mode, setMode] = useState<ComposerMode>("build");
-	// The label the user removed. A different label from the preview shows the chip again.
-	// LIMIT: the same label picked again stays hidden until a reload. Upgrade: the page clears thread.focusLabel through a mutation.
-	const [clearedLabel, setClearedLabel] = useState<string | null>(null);
+	const [files, setFiles] = useState<ComposerFile[]>([]);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const imageInputRef = useRef<HTMLInputElement>(null);
+	// The unmount cleanup reads the chips of the last render.
+	const filesRef = useRef(files);
+	useEffect(() => {
+		filesRef.current = files;
+	}, [files]);
+	// The thumbnail URLs live until their chip goes; an unmount frees the rest.
+	useEffect(
+		() => () => {
+			for (const file of filesRef.current) {
+				if (file.previewUrl !== null) URL.revokeObjectURL(file.previewUrl);
+			}
+		},
+		[],
+	);
+
+	const dictation = useVoiceDictation(
+		// The hook calls the callback of the latest render, so `draft` is current.
+		(text) => setDraft(draft ? `${draft.trimEnd()} ${text}` : text),
+		{
+			permissionDenied: t("projects.promptBox.micPermissionDenied"),
+			transcribeError: t("projects.promptBox.micError"),
+		},
+	);
+
 	const trimmed = draft.trim();
+	const readyParts = files.flatMap((file) =>
+		file.part === null ? [] : [file.part],
+	);
+	const isUploading = files.some((file) => file.status === "uploading");
 	// The tray decides when its answer is complete: a picked chip answers with
-	// an empty draft.
+	// an empty draft. A message waits for its uploads.
 	const canSend = submitOverride
 		? !submitOverride.disabled && !isSending
-		: trimmed.length > 0 && !isSending;
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
+		: (trimmed.length > 0 || readyParts.length > 0) &&
+			!isUploading &&
+			!isSending;
+
+	function updateFile(id: string, patch: Partial<ComposerFile>) {
+		setFiles((current) =>
+			current.map((file) => (file.id === id ? { ...file, ...patch } : file)),
+		);
+	}
+
+	async function upload(id: string, file: File) {
+		try {
+			const uploaded = await uploadAttachment(file);
+			updateFile(id, {
+				status: "ready",
+				part: {
+					type: "file",
+					url: uploaded.url,
+					mediaType: uploaded.mediaType,
+					filename: uploaded.filename,
+				},
+			});
+		} catch (error) {
+			// The chip shows the reason; the user removes it or picks the file again.
+			updateFile(id, {
+				status: "error",
+				error: error instanceof AttachmentUploadError ? error.reason : "failed",
+			});
+		}
+	}
+
+	function addFiles(event: ChangeEvent<HTMLInputElement>) {
+		const picked = Array.from(event.target.files ?? []).slice(
+			0,
+			Math.max(0, MAX_FILES - files.length),
+		);
+		// The same file can be picked again after its chip was removed.
+		event.target.value = "";
+		const added = picked.map((file) => {
+			// Same per-type size limits as the server; a large file never uploads.
+			const isTooLarge = file.size > attachmentMaxBytesFor(file.type);
+			const chip: ComposerFile = {
+				id: crypto.randomUUID(),
+				filename: file.name,
+				previewUrl: file.type.startsWith("image/")
+					? URL.createObjectURL(file)
+					: null,
+				status: isTooLarge ? "error" : "uploading",
+				part: null,
+				error: isTooLarge ? "too-large" : null,
+			};
+			return { chip, file };
+		});
+		setFiles((current) => [...current, ...added.map((entry) => entry.chip)]);
+		for (const { chip, file } of added) {
+			if (chip.status === "uploading") void upload(chip.id, file);
+		}
+	}
+
+	function removeFile(id: string) {
+		const removed = files.find((file) => file.id === id);
+		if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+		setFiles((current) => current.filter((file) => file.id !== id));
+	}
 
 	function send() {
 		if (!canSend) return;
 		if (submitOverride) {
+			// The tray answer takes text only; the files wait for the next message.
 			submitOverride.onSubmit(trimmed);
 		} else {
-			onSend({ text: trimmed, mode });
+			onSend({ text: trimmed, files: readyParts });
+			for (const file of files) {
+				if (file.previewUrl !== null) URL.revokeObjectURL(file.previewUrl);
+			}
+			setFiles([]);
 		}
 		setDraft("");
 	}
@@ -130,21 +280,28 @@ export function Composer({
 				{topSlot}
 				{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
 				<div className="flex flex-col px-4 pt-3.5 pb-3">
-					{focusLabel !== null && focusLabel !== clearedLabel ? (
-						<span className="mb-2 flex h-6 items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/5 ps-2.5 pe-1 text-primary text-xs">
-							<Crosshair className="size-3 shrink-0" aria-hidden />
-							<span dir="auto">
-								{t("appBuilder.chat.focusChip", { label: focusLabel })}
-							</span>
-							<button
-								type="button"
-								aria-label={t("appBuilder.chat.removeFocus")}
-								onClick={() => setClearedLabel(focusLabel)}
-								className="grid size-4 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-							>
-								<X className="size-3" />
-							</button>
-						</span>
+					{targets.length > 0 ? (
+						<div className="mb-2 flex flex-wrap gap-1.5">
+							{targets.map((target, index) => (
+								<TargetChip
+									// One element can show twice with another text (a list item), so the key holds both.
+									key={`${target.src}|${target.label}`}
+									target={target}
+									onRemove={() => onRemoveTarget(index)}
+								/>
+							))}
+						</div>
+					) : null}
+					{files.length > 0 ? (
+						<div className="mb-2 flex flex-wrap gap-1.5">
+							{files.map((file) => (
+								<FileChip
+									key={file.id}
+									file={file}
+									onRemove={() => removeFile(file.id)}
+								/>
+							))}
+						</div>
 					) : null}
 					{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
 					<Textarea
@@ -159,6 +316,22 @@ export function Composer({
 						onKeyDown={onKeyDown}
 						className="max-h-40 min-h-[38px] resize-none border-0 bg-transparent px-0 py-1.5 text-[15px] leading-[1.5] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent"
 					/>
+					<input
+						ref={fileInputRef}
+						type="file"
+						multiple
+						accept={ATTACHMENT_ACCEPT}
+						onChange={addFiles}
+						className="hidden"
+					/>
+					<input
+						ref={imageInputRef}
+						type="file"
+						multiple
+						accept={IMAGE_ACCEPT}
+						onChange={addFiles}
+						className="hidden"
+					/>
 					<div className="mt-1.5 flex items-center gap-1.5">
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
@@ -166,61 +339,64 @@ export function Composer({
 									variant="outline"
 									size="icon-sm"
 									aria-label={t("appBuilder.chat.addContext")}
+									disabled={files.length >= MAX_FILES}
 									className={PILL_CLASS}
 								>
 									<Plus />
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="start" className="rounded-2xl p-1.5">
-								<DropdownMenuItem onSelect={notWired}>
+								<DropdownMenuItem
+									onSelect={() => fileInputRef.current?.click()}
+								>
 									<Paperclip />
 									{t("appBuilder.chat.attach")}
 								</DropdownMenuItem>
-								<DropdownMenuItem onSelect={notWired}>
+								<DropdownMenuItem
+									onSelect={() => imageInputRef.current?.click()}
+								>
 									<ImageIcon />
 									{t("appBuilder.chat.attachImage")}
 								</DropdownMenuItem>
-								<DropdownMenuItem onSelect={notWired}>
-									<LayoutTemplate />
-									{t("appBuilder.chat.attachScreen")}
-								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
-						<span className="ms-auto text-muted-foreground text-xs">
-							{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
-						</span>
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<Button
-									variant="outline"
-									size="sm"
-									aria-label={t("appBuilder.chat.modeLabel")}
-									className={PILL_CLASS}
-								>
-									{t(`appBuilder.chat.modes.${mode}`)}
-									<ChevronDown className="size-3.5 text-muted-foreground" />
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end" className="rounded-2xl p-1.5">
-								{COMPOSER_MODES.map((option) => (
-									<DropdownMenuItem
-										key={option}
-										onSelect={() => setMode(option)}
-									>
-										{t(`appBuilder.chat.modes.${option}`)}
-									</DropdownMenuItem>
-								))}
-							</DropdownMenuContent>
-						</DropdownMenu>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							aria-label={t("appBuilder.chat.dictate")}
-							onClick={notWired}
-							className="rounded-full text-muted-foreground hover:text-foreground"
-						>
-							<Mic />
-						</Button>
+						{turnEstimateCredits !== null ? (
+							<span className="ms-auto text-muted-foreground text-xs">
+								{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
+							</span>
+						) : (
+							<span className="ms-auto" />
+						)}
+						{dictation.supported ? (
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								aria-label={t(
+									dictation.isRecording
+										? "projects.promptBox.micStop"
+										: "appBuilder.chat.dictate",
+								)}
+								aria-pressed={dictation.isRecording}
+								// A running recording must stay stoppable when a turn starts.
+								disabled={
+									dictation.isTranscribing ||
+									(isSending && !dictation.isRecording)
+								}
+								onClick={dictation.toggle}
+								className={cn(
+									"rounded-full text-muted-foreground hover:text-foreground",
+									dictation.isRecording && "text-destructive",
+								)}
+							>
+								{dictation.isTranscribing ? (
+									<Loader2 className="animate-spin motion-reduce:animate-none" />
+								) : dictation.isRecording ? (
+									<Square />
+								) : (
+									<Mic />
+								)}
+							</Button>
+						) : null}
 						{submitOverride ? (
 							// The V1 answer pill: same ember gradient as the send circle, with a label.
 							<Button
@@ -250,5 +426,64 @@ export function Composer({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+/** One file of the next message: a thumbnail or a file icon, the name, the upload state, and a remove button. */
+function FileChip({
+	file,
+	onRemove,
+}: {
+	file: ComposerFile;
+	/** Drops the chip; the file is then not sent. */
+	onRemove: () => void;
+}) {
+	const { t } = useTranslation();
+	const isError = file.status === "error";
+	return (
+		<span
+			className={cn(
+				"inline-flex h-9 max-w-full items-center gap-2 rounded-xl border px-1.5 text-xs",
+				isError
+					? "border-destructive/40 bg-destructive/10 text-destructive"
+					: "bg-muted/60",
+			)}
+		>
+			<span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-lg border bg-background text-muted-foreground">
+				{file.status === "uploading" ? (
+					<Loader2 className="size-3 animate-spin motion-reduce:animate-none" />
+				) : file.previewUrl !== null ? (
+					<img
+						src={file.previewUrl}
+						alt=""
+						className="size-full object-cover"
+					/>
+				) : (
+					<FileText className="size-3" />
+				)}
+			</span>
+			<span className="min-w-0">
+				<span dir="auto" className="block max-w-36 truncate">
+					{file.filename}
+				</span>
+				{file.status === "uploading" ? (
+					<span className="block text-[10px] text-muted-foreground">
+						{t("projects.promptBox.attachments.uploading")}
+					</span>
+				) : file.error !== null ? (
+					<span className="block max-w-36 truncate text-[10px]">
+						{t(UPLOAD_ERROR_KEYS[file.error])}
+					</span>
+				) : null}
+			</span>
+			<button
+				type="button"
+				aria-label={t("projects.promptBox.attachments.remove")}
+				onClick={onRemove}
+				className="grid size-5 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
+			>
+				<X className="size-3" />
+			</button>
+		</span>
 	);
 }

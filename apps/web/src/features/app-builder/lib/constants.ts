@@ -95,7 +95,7 @@ export const CLOUD_ROWS_PAGE_SIZE = 50;
  */
 export const CLOUD_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
-/** Cell text of a Cloud panel for a value the API does not give: no email, a folder size, a run without a start. */
+/** Text for a value the API does not give: in a Cloud panel (no email, a folder size) and in Settings (no template version). */
 export const CLOUD_EMPTY_CELL = "—";
 
 /** Date and time style of the Cloud panels, for example "Oct 3, 2026, 2:15 AM" in English. */
@@ -111,10 +111,6 @@ export type PhoneDevice = (typeof PHONE_DEVICES)[number];
 /** Frame widths of the web preview. `tablet` sits between `desktop` and `mobile`. */
 export const WEB_VIEWPORTS = ["desktop", "tablet", "mobile"] as const;
 export type WebViewport = (typeof WEB_VIEWPORTS)[number];
-
-/** `build` changes the code. `plan` only answers in the chat. */
-export const COMPOSER_MODES = ["build", "plan"] as const;
-export type ComposerMode = (typeof COMPOSER_MODES)[number];
 
 type MorePanelMeta = {
 	icon: LucideIcon;
@@ -190,6 +186,9 @@ export const CHAT_OPEN_STORAGE_KEY = "wandit-app-builder-chat-open";
 /** localStorage key of the chat | main split. Holds the react-resizable-panels layout, panel id to percent. */
 export const CHAT_LAYOUT_STORAGE_KEY = "wandit-app-builder-chat-layout";
 
+/** localStorage key of the chat view switch, "production" or "developer". The page reads it only in local dev. */
+export const CHAT_VIEW_STORAGE_KEY = "wandit-app-builder-chat-view";
+
 /** Start width of the chat card. The width of the design (400 px) fits the composer row and every card. */
 export const CHAT_PANEL_DEFAULT_WIDTH = "400px";
 
@@ -226,9 +225,6 @@ export const EXPO_GO_STORE_LINKS = [
 		url: "https://play.google.com/store/apps/details?id=host.exp.exponent",
 	},
 ] as const;
-
-/** Round-trip delay of a mock service call, ms. Long enough to show pending states, short enough to feel local. */
-export const MOCK_LATENCY_MS = 150;
 
 /** Easing of the preview boot screen and its exit, as a motion cubic bezier. It is the `cubic-bezier(0.4, 0, 0.2, 1)` of DESIGN.md. */
 export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;

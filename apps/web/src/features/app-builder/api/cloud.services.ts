@@ -62,8 +62,8 @@ export async function getCloudBackend(
 }
 
 /**
- * `POST cloud/backend` creates the backend and answers `creating`. The
- * server does nothing when a row exists, and answers that row as it is.
+ * `POST cloud/backend` creates the backend, or provisions an `error` row
+ * again, and answers `creating`. Any other row comes back as it is.
  */
 export async function enableBackend(
 	projectId: string,

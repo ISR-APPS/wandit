@@ -66,8 +66,11 @@ src/
   styles/tokens.css    the design tokens
   wandit/              host files. Never edit them and never call them.
 supabase/migrations/   written only by `apply_migration`
+vite-plugins/          host files: dev-only source tags for click-to-edit
 ```
 
+- Keep `vite-plugins/wandit-source.ts`, its entry in `vite.config.ts`, and the bridge install
+  at the top of `src/routes/__root.tsx`. Click-to-edit in the preview needs all three.
 - Code outside a feature imports only from the feature's `index.ts`. Inside a feature, import files directly.
 - A route file holds the path, the guard, the loader, and one feature component. No markup, no fetch, no state.
 - Move code to `shared/` only when a second feature needs it.

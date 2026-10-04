@@ -1,8 +1,8 @@
 /**
  * Shared sandbox git exec helper for the versions flow (WANDIT-171).
- * `commitTurn`, `CodeStorageRepoRestorer`, `VersionsService`, and
- * `CodeService` run git in the project worktree through `exec`. Each one
- * needs the same exit-code check and the same credential masking.
+ * `commitTurn`, `CodeStorageRepoRestorer`, `VersionsService`, `CodeService`,
+ * and the mobile build workspace run git through `exec`. Each one needs the
+ * same exit-code check, credential masking, and hook-off flags (WANDIT-282).
  */
 import type {
 	SandboxExecResult,
@@ -10,9 +10,26 @@ import type {
 } from "../../domain/ports/sandbox-provider";
 
 /**
- * Runs `git <args>` in `sandbox.workspaceDir` and returns the result. It
- * reads only `exec` and `workspaceDir`, so a `SandboxReader` also fits. A
- * non-zero exit throws `new errorType("<label> failed (<code>): <stderr>")`.
+ * Git config flags in front of every git command that `mustRunGit` and
+ * `pushOnce` run (WANDIT-282).
+ * Sandbox code can write `.git/hooks` and `.git/config`. The flags turn off
+ * hooks, credential helpers, and the fsmonitor program, so none of them runs
+ * or gets the push JWT. A live probe saw all three run without the flags.
+ */
+export const SAFE_GIT_CONFIG_ARGS = [
+	"-c",
+	"core.hooksPath=/dev/null",
+	"-c",
+	"credential.helper=",
+	"-c",
+	"core.fsmonitor=false",
+] as const;
+
+/**
+ * Runs `git <SAFE_GIT_CONFIG_ARGS> <args>` in `sandbox.workspaceDir` and
+ * returns the result. It reads only `exec` and `workspaceDir`, so a
+ * `SandboxReader` also fits. A non-zero exit throws
+ * `new errorType("<label> failed (<code>): <stderr>")`.
  * `options.secret` (a git credential) becomes `***` in the message and in a
  * default label because git echoes the remote URL on errors.
  */
@@ -27,7 +44,9 @@ export async function mustRunGit<E extends Error>(
 		secret?: string;
 	},
 ): Promise<SandboxExecResult> {
-	const result = await sandbox.exec("git", args, { cwd: sandbox.workspaceDir });
+	const result = await sandbox.exec("git", [...SAFE_GIT_CONFIG_ARGS, ...args], {
+		cwd: sandbox.workspaceDir,
+	});
 	if (result.exitCode !== 0) {
 		const mask = (text: string): string =>
 			options?.secret === undefined

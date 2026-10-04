@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 
 import { ServiceUnavailableException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
@@ -274,6 +275,31 @@ describe("LlmProxyService", () => {
 			// The endpoint is free: no charge on the row, no spend counters.
 			expect(inserted[0]?.usdMicros).toBe(0);
 			expect(await counters.readRunSpend("run_test")).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it("drops content-encoding when fetch already decoded a gzip answer", async () => {
+		const json = JSON.stringify({ input_tokens: 7 });
+		const upstream = await startUpstream((_req, res) => {
+			res.writeHead(200, {
+				"content-encoding": "gzip",
+				"content-type": "application/json",
+			});
+			res.end(gzipSync(json));
+		});
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service } = makeService(env);
+			const reply = new FakeReply();
+			const { input } = inbound(env, { endpoint: "count_tokens" });
+
+			await service.proxyAnthropic(input, reply);
+
+			// The client gets plain bytes, so a gzip label would break its decode.
+			expect(reply.bodyText).toBe(json);
+			expect(reply.headers["content-encoding"]).toBeUndefined();
 		} finally {
 			await upstream.close();
 		}

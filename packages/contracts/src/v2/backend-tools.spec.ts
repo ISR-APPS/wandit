@@ -142,6 +142,7 @@ describe("backend tool outputs", () => {
 		).toBe("ok");
 		expect(
 			deployFunctionToolOutputSchema.parse({
+				slug: "hello-world",
 				status: "deployed",
 				url: "https://abcdefghijklmnopqrst.supabase.co/functions/v1/hello-world",
 			}).status,

@@ -8,10 +8,17 @@ import {
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { I18nProvider, useT } from "~/shared/i18n";
 import { Toaster } from "~/shared/ui/sonner";
 import tokensCss from "~/styles/tokens.css?url";
+import { installPreviewBridge } from "~/wandit/preview-bridge";
+
+// Dev-only bridge to the wandit preview frame. It installs at module load,
+// before the first render, so an error of the first render reaches the host.
+if (import.meta.env.DEV) {
+	installPreviewBridge();
+}
 
 /** What every route gets in `context`. router.tsx creates it once per request. */
 type RouterContext = {
@@ -47,16 +54,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootComponent() {
-	// effect: the preview bridge listens to window errors, an external system, after hydration.
-	useEffect(() => {
-		// Dev-only bridge: posts runtime errors to the preview parent frame.
-		if (import.meta.env.DEV) {
-			void import("~/wandit/preview-bridge").then((m) =>
-				m.installPreviewBridge(),
-			);
-		}
-	}, []);
-
 	return (
 		<I18nProvider>
 			<RootDocument>

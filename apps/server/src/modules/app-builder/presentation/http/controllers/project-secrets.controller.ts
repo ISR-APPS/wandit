@@ -22,6 +22,7 @@ import {
 	projectSecretNameSchema,
 	type SetProjectSecretRequest,
 	setProjectSecretRequestSchema,
+	userSecretNameSchema,
 	uuidSchema,
 } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
@@ -66,13 +67,15 @@ export class ProjectSecretsController {
 	}
 
 	// The body holds the value once; the answer and the logs never carry it.
+	// Security: a `SUPABASE_` name answers 400, so no user row takes the name
+	// of a Supabase key that provisioning stores.
 	@RequireWorkspacePermission("project", "update")
 	@Put(":name")
 	@HttpCode(204)
-	set(
+	async set(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
-		@Param("name", new ZodValidationPipe(projectSecretNameSchema))
+		@Param("name", new ZodValidationPipe(userSecretNameSchema))
 		name: string,
 		@Body(new ZodValidationPipe(setProjectSecretRequestSchema))
 		body: SetProjectSecretRequest,
@@ -80,7 +83,7 @@ export class ProjectSecretsController {
 		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Req() request: FastifyRequest,
 	): Promise<void> {
-		return this.secrets.set(projectId, name, body.value, "user", {
+		await this.secrets.set(projectId, name, body.value, "user", {
 			ip: readClientIp(request),
 			scope: projectScopeFrom(workspace, user.id),
 		});
