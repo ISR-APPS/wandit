@@ -288,6 +288,38 @@ describe("preview proxy", () => {
 		expect(response.headers.get("x-frame-options")).toBeNull();
 	});
 
+	it.each([
+		// A font load of the preview page itself: Expo CLI refused it with a 500.
+		{ name: "same-origin", origin: "self", expected: UPSTREAM },
+		{
+			name: "foreign",
+			origin: "https://evil.example",
+			expected: "https://evil.example",
+		},
+	])("sends a $name Origin upstream as $expected", async ({
+		origin,
+		expected,
+	}) => {
+		const token = await signPreviewToken(makeClaims(), KEY);
+		const host = previewHost(PROJECT_ID, RUN_ID);
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/font.ttf" })
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "font";
+			});
+
+		await dispatch(
+			cookieRequest(`https://${host}/font.ttf`, token, {
+				origin: origin === "self" ? `https://${host}` : origin,
+			}),
+		);
+
+		expect(headerOf(seenHeaders, "origin")).toBe(expected);
+	});
+
 	it("forwards a request whose only cookie is the wandit cookie with no Cookie header at all", async () => {
 		const token = await signPreviewToken(makeClaims(), KEY);
 		const host = previewHost(PROJECT_ID, RUN_ID);
