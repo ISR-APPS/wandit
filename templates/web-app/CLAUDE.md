@@ -90,6 +90,8 @@ The host machine runs the session. You write code; the host runs it.
 - `src/i18n/`: dictionaries and the `useT` hook.
 - `src/styles/tokens.css`: the semantic design tokens.
 - `src/wandit/preview-bridge.ts`: dev-only error bridge. Never call it yourself.
+- `vite-plugins/wandit-source.ts`: dev-only source tags for click-to-edit. Keep it, its entry
+  in `vite.config.ts`, and the bridge install at the top of `src/routes/__root.tsx`.
 - `supabase/migrations/`: SQL migrations, forward-only.
 - `.claude/skills/`: loadable instruction packs. Read them when a task fits.
 
