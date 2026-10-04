@@ -95,6 +95,7 @@ import type { SandboxSessionsRepository } from "../modules/app-builder/infrastru
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
+import { isValidNetworkHost } from "../modules/app-builder/infrastructure/sandbox/network-policy";
 import {
 	type BackendEnv,
 	buildSandboxEnv,
@@ -639,6 +640,12 @@ export async function runBuilderTurn(
 	signal.addEventListener("abort", onTaskAbort, { once: true });
 
 	let sandbox: SandboxHandle | null = null;
+	/**
+	 * True while the egress policy lacks the Supabase host and this turn can
+	 * add it. The keep-alive tick adds the host and clears it; a resumed
+	 * session also clears it.
+	 */
+	let backendHostMissing = false;
 	let session: HarnessSession | null = null;
 	/** Set by `suspendTurn` after a paused stream; the failure path saves it. */
 	let suspendState: HarnessResumeState | null = null;
@@ -997,6 +1004,39 @@ export async function runBuilderTurn(
 				await sandbox?.keepAlive();
 				// The idle sweep must not stop a live turn.
 				await deps.sandboxSessions.touchActivity(projectId);
+				// WANDIT-283: a backend that goes active during the turn gets its
+				// host here. It runs after the activity stamp, so a failure skips no stamp.
+				// The turn adds it, not provision-backend: a vendor push from that
+				// process deletes the run token transformation of this session.
+				// LIMIT: the host arrives up to 60 s after the row goes active.
+				// Upgrade: provision-backend sends a Redis notice to the turn.
+				if (backendHostMissing && sandbox !== null) {
+					const backendEnv = activeBackendEnvOf(
+						await deps.backends.findByProjectId(projectId),
+					);
+					if (backendEnv === null) {
+						return;
+					}
+					const host = new URL(backendEnv.url).hostname;
+					// Security: like `buildNetworkPolicy`, one exact host. A wildcard
+					// opens every Supabase project, also a project of an attacker.
+					if (!isValidNetworkHost(host) || host.startsWith("*.")) {
+						backendHostMissing = false;
+						logger.warn("builder-turn.backend-host-invalid", {
+							host,
+							projectId,
+							turnId,
+						});
+						return;
+					}
+					await sandbox.allowHost(host);
+					backendHostMissing = false;
+					logger.info("builder-turn.backend-host-allowed", {
+						host,
+						projectId,
+						turnId,
+					});
+				}
 			});
 		}, TURN_KEEPALIVE_MS);
 		pulseTimer = setInterval(() => {
@@ -1385,6 +1425,10 @@ export async function runBuilderTurn(
 			}
 		}
 		const supabase = activeBackendEnvOf(backend);
+		// Without an active row here, getOrCreate builds the policy with no
+		// backend host. The `.env` re-read after it writes only the file, so it
+		// keeps this flag.
+		backendHostMissing = supabase === null;
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
@@ -1559,6 +1603,16 @@ export async function runBuilderTurn(
 		const started = await startSession(sandboxCreated ? null : resumeState);
 		session = started.session;
 		sessionStart = started.resumed ? "resumed" : "created";
+		// Only a fresh session keeps the flag. A resumed session can be a kept
+		// one, which never called `harnessSession()` on this handle. Then
+		// `allowHost` pushes a raw vendor policy. That push deletes the
+		// transformation that carries the proxy run token.
+		// LIMIT: a resumed turn gets the backend host only at the next turn
+		// start. Upgrade: a kept session attaches its sandbox session to the
+		// new handle.
+		if (started.resumed) {
+			backendHostMissing = false;
+		}
 		stamps.sessionEnd = deps.now();
 		const providerSessionId = session.sessionId;
 

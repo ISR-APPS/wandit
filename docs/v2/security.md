@@ -49,9 +49,14 @@ call:
   `SandboxCreateOptions.backendUrl`. The builder-turn runtime passes that
   value only while the `app_backends` row is `active`. `start` rebuilds the
   policy on each turn and pushes it when its hash changes. So a backend
-  that becomes active gets its host on the next turn, with no restart. In
-  strict mode, an invalid or wildcard backend host throws. A
-  `backendUrl` that is not a URL gives no backend host.
+  that becomes active gets its host on the next turn, with no restart. A
+  backend that becomes active during a turn with a fresh harness session
+  gets its host within 60 s: the keep-alive tick of the turn calls
+  `allowHost` through the session, which keeps the proxy run-token rule.
+  The provisioning task never pushes the policy, because a push from that
+  process deletes this rule. In strict mode, an invalid or wildcard
+  backend host throws. A `backendUrl` that is not a URL gives no backend
+  host.
 
 Two leak paths stay open (WANDIT-283):
 
