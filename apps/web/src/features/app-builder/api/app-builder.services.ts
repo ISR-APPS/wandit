@@ -36,12 +36,16 @@ import {
 	restoreVersionResponseSchema,
 	type StartDeviceSessionResponse,
 	startDeviceSessionResponseSchema,
+	type TurnEstimateResponse,
+	turnEstimateResponseSchema,
 	type VersionDiffResponse,
 	versionDiffResponseSchema,
 } from "@wandit/contracts";
 
+import type { FileUIPart } from "ai";
+
 import { apiClient, isApiClientError } from "@/lib/api-client";
-import { type ComposerMode, MOCK_LATENCY_MS } from "../lib/constants";
+import { MOCK_LATENCY_MS } from "../lib/constants";
 import {
 	MOCK_APP_STORES,
 	MOCK_DOMAINS,
@@ -49,12 +53,10 @@ import {
 	MOCK_SIGN_IN,
 } from "../lib/mock-panels";
 import { MOCK_APP_PROJECTS } from "../lib/mock-projects";
-import { MOCK_BUILDER_THREAD } from "../lib/mock-thread";
 import type {
 	AppProject,
 	AppProjectKind,
 	AppStoresSummary,
-	BuilderThread,
 	CodeFile,
 	CodeSnapshot,
 	CollaboratorRole,
@@ -72,15 +74,14 @@ export type AppProjectPatch = {
 
 /** One turn the composer or a chat card sends. */
 export type SendBuilderMessageInput = {
-	/** The trimmed draft, or the text of a card action. Never empty. */
+	/** The trimmed draft, or the text of a card action. Empty only when `files` holds a file. */
 	text: string;
-	/** The composer choice. The page sends every mode as a build turn until the turn body has a mode field. */
-	mode: ComposerMode;
+	/** Files the user uploaded for this message, with their upload URLs. Empty for a card action. */
+	files: FileUIPart[];
 };
 
 type MockStore = {
 	projects: Map<string, AppProject>;
-	threads: Map<string, BuilderThread>;
 	settings: Map<string, ProjectSettings>;
 };
 
@@ -89,7 +90,6 @@ let store: MockStore | null = null;
 function createStore(): MockStore {
 	const next: MockStore = {
 		projects: new Map(),
-		threads: new Map(),
 		settings: new Map(),
 	};
 	for (const project of MOCK_APP_PROJECTS) {
@@ -119,10 +119,6 @@ function seedProject(
 			structuredClone({ ...template, id: projectId, kind }),
 		);
 	}
-	store.threads.set(projectId, {
-		...structuredClone(MOCK_BUILDER_THREAD),
-		projectId,
-	});
 	store.settings.set(projectId, structuredClone(MOCK_SETTINGS));
 }
 
@@ -212,13 +208,6 @@ export async function updateAppProject(
 	const project = required(getStore().projects, projectId);
 	Object.assign(project, patch);
 	return structuredClone(project);
-}
-
-export async function getBuilderThread(
-	projectId: string,
-): Promise<BuilderThread> {
-	await delay();
-	return structuredClone(required(getStore().threads, projectId));
 }
 
 /** User count of the Sign-in panel. A mock: every project gets the seed count. */
@@ -491,6 +480,19 @@ export async function getCodeFile(
 		}
 		throw error;
 	}
+}
+
+/**
+ * `GET /api/v2/projects/:id/turns/estimate`: the hold that the next turn
+ * reserves, so the composer shows the real cost before send.
+ */
+export async function getTurnEstimate(
+	projectId: string,
+): Promise<TurnEstimateResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.turnEstimate(projectId),
+	);
+	return turnEstimateResponseSchema.parse(data);
 }
 
 /**

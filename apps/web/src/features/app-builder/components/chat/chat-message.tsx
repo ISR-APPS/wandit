@@ -1,15 +1,18 @@
 /**
  * One message of the builder thread. A user message is a bubble at the end
- * side. An assistant message starts with the Wandit byline, then renders its
- * parts in stream order: markdown text, the activity feed (thought rows and
- * step rows, grouped tight), the change card, one short line per question
- * (the user answers it in the tray), the approval, suggestion, and diff
- * cards, the error row and the receipt line, then the action row and the
+ * side, with its files above it. An assistant message starts with the
+ * Wandit byline, then renders its parts in stream order: markdown text, the
+ * activity feed (thought rows and step rows, grouped tight), the change
+ * card, one short line per question (the user answers it in the tray), the
+ * approval, suggestion, and diff cards, the error row with Retry, the
+ * stopped line and the receipt line, then the action row and the
  * follow-ups. Rendered by chat-pane.tsx; working-row.tsx reuses the
  * byline. Actions with no backend show the notWired toast.
  */
 
-import { CornerDownLeft } from "lucide-react";
+import { Button } from "@wandit/ui/components/button";
+import type { FileUIPart } from "ai";
+import { CornerDownLeft, Paperclip, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
@@ -36,6 +39,10 @@ export type ChatMessageViewProps = {
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
 	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
 	trayQuestionKey: string | null;
+	/** Sends the user message of this failed reply again. Set only on the last reply when it holds an error. */
+	onRetry?: () => void;
+	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
 };
 
 export function ChatMessageView({
@@ -44,18 +51,34 @@ export function ChatMessageView({
 	onSendText,
 	onDecideApproval,
 	trayQuestionKey,
+	onRetry,
+	onOpenSecrets,
 }: ChatMessageViewProps) {
 	const { t, locale } = useTranslation();
 
 	if (message.role === "user") {
+		const text = textOf(message.parts);
+		const files = message.parts.filter(
+			(part): part is FileUIPart => part.type === "file",
+		);
 		return (
-			<div className="flex justify-end">
-				<div
-					dir="auto"
-					className="max-w-[88%] whitespace-pre-wrap break-words rounded-[18px] rounded-ee-md border bg-bubble px-3.5 py-2.5 text-[14.5px] leading-[1.5]"
-				>
-					{textOf(message.parts)}
-				</div>
+			<div className="flex flex-col items-end gap-1.5">
+				{files.length > 0 ? (
+					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+						{files.map((file) => (
+							<SentFile key={file.url} file={file} />
+						))}
+					</div>
+				) : null}
+				{/* A message with files only has no text bubble. */}
+				{text !== "" ? (
+					<div
+						dir="auto"
+						className="max-w-[88%] whitespace-pre-wrap break-words rounded-[18px] rounded-ee-md border bg-bubble px-3.5 py-2.5 text-[14.5px] leading-[1.5]"
+					>
+						{text}
+					</div>
+				) : null}
 			</div>
 		);
 	}
@@ -83,7 +106,11 @@ export function ChatMessageView({
 										isStreaming={row.data.isStreaming}
 									/>
 								) : (
-									<StepRow key={`${message.id}-${index}`} {...row.data} />
+									<StepRow
+										key={`${message.id}-${index}`}
+										{...row.data}
+										onOpenSecrets={onOpenSecrets}
+									/>
 								),
 							)}
 						</div>
@@ -167,10 +194,24 @@ export function ChatMessageView({
 										message: part.data.message,
 									})}
 								</p>
-								{part.data.retryable ? (
-									<p>{t("appBuilder.chat.turnErrorRetry")}</p>
+								{onRetry ? (
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={onRetry}
+										className="mt-2 rounded-full"
+									>
+										<RotateCcw className="rtl:-scale-x-100" aria-hidden />
+										{t("appBuilder.chat.retry")}
+									</Button>
 								) : null}
 							</div>
+						);
+					case "data-stopped":
+						return (
+							<p key={key} className="text-muted-foreground text-sm">
+								{t("appBuilder.chat.stopped")}
+							</p>
 						);
 					case "data-receipt":
 						return (
@@ -184,6 +225,13 @@ export function ChatMessageView({
 										locale,
 									),
 								})}
+								{/* The input count leaves out the cached prompt tokens, so they show on their own. */}
+								{part.data.cacheReadTokens + part.data.cacheWriteTokens > 0
+									? ` · ${t("appBuilder.chat.receiptCache", {
+											read: formatNumber(part.data.cacheReadTokens, locale),
+											write: formatNumber(part.data.cacheWriteTokens, locale),
+										})}`
+									: null}
 								{part.data.modelId !== null
 									? ` · ${getModelLabel(part.data.modelId)}`
 									: null}
@@ -237,6 +285,35 @@ export function AssistantByline() {
 			</span>
 			<span className="font-medium text-sm">Wandit</span>
 		</div>
+	);
+}
+
+/** One file of a user message: an image thumbnail, or a link with the file name. */
+function SentFile({ file }: { file: FileUIPart }) {
+	const name = file.filename ?? file.url.split("/").at(-1) ?? file.url;
+	if (file.mediaType.startsWith("image/")) {
+		return (
+			<a href={file.url} target="_blank" rel="noopener noreferrer">
+				<img
+					src={file.url}
+					alt={name}
+					className="size-16 rounded-xl border object-cover"
+				/>
+			</a>
+		);
+	}
+	return (
+		<a
+			href={file.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			className="flex h-9 max-w-56 items-center gap-1.5 rounded-xl border bg-muted/60 px-2.5 text-xs hover:text-primary"
+		>
+			<Paperclip className="size-3.5 shrink-0" aria-hidden />
+			<span dir="auto" className="truncate">
+				{name}
+			</span>
+		</a>
 	);
 }
 

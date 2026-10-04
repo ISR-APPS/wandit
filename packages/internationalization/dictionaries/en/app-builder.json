@@ -325,6 +325,7 @@
 		"thought": "Thought",
 		"stepFailed": "Failed",
 		"stepSkipped": "Skipped",
+		"addSecret": "Add the secret",
 		"steps": {
 			"edit": {
 				"done": "Edited",
@@ -394,11 +395,6 @@
 			"one": "{count} credit",
 			"other": "{count} credits"
 		},
-		"modeLabel": "Composer mode",
-		"modes": {
-			"build": "Build",
-			"plan": "Plan"
-		},
 		"send": "Send",
 		"stop": "Stop",
 		"focusChip": "Working on {label}",
@@ -454,7 +450,6 @@
 			"sandbox_waking": "Getting your app ready",
 			"session_starting": "Getting ready",
 			"running": "Working",
-			"checkpoint": "Saving your changes",
 			"committing": "Saving your changes"
 		},
 		"approval": {
@@ -486,8 +481,10 @@
 		"attachScreen": "Reference a screen",
 		"dictate": "Dictate",
 		"turnError": "The turn stopped: {message}",
-		"turnErrorRetry": "You can send the message again.",
+		"retry": "Retry",
+		"stopped": "Stopped",
 		"receipt": "{credits} · {tokens} tokens",
+		"receiptCache": "cache: {read} read, {write} written",
 		"errors": {
 			"noCredits": "You have no credits left for this turn.",
 			"projectCap": "This project reached its credit cap.",

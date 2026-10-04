@@ -221,6 +221,35 @@ describe("TurnsController", () => {
 		expect(relay.releaseStreamSlot).not.toHaveBeenCalled();
 	});
 
+	// Without the frame the browser has no turn id after a reload, and Stop
+	// leaves the turn running and spending credits.
+	it("sends the turn-created frame first on the active stream", async () => {
+		const { controller, relay, turns } = setup();
+		turns.findActiveTurn.mockResolvedValue(
+			turnRow({ chatId: "chat-1", status: "running" }),
+		);
+
+		await controller.activeStream(
+			"project-1",
+			user,
+			workspace,
+			fakeSseRequest(),
+			fakeReply(),
+		);
+
+		expect(relay.relay).toHaveBeenCalledWith(
+			expect.objectContaining({
+				first: {
+					chatId: "chat-1",
+					runId: "run-1",
+					status: "running",
+					streamUrl: "/api/v2/projects/project-1/turns/active/stream",
+					turnId: "turn-1",
+				},
+			}),
+		);
+	});
+
 	it("frees the open slot when the stream lookup rejects with a 404", async () => {
 		const { controller, relay, turns } = setup();
 		turns.assertStreamAccess.mockRejectedValue(new NotFoundException());

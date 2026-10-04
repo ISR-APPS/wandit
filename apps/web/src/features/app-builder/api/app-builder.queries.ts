@@ -2,7 +2,7 @@
  * TanStack Query options and keys of the app builder. queryFn delegates to
  * app-builder.services.ts. The route loader calls `ensureQueryData` with the
  * same options, so components read with `useSuspenseQuery` and never see a
- * loading state for the project and the thread.
+ * loading state for the project.
  */
 
 import { queryOptions } from "@tanstack/react-query";
@@ -12,12 +12,12 @@ import type { apiClient } from "@/lib/api-client";
 import {
 	getAppProject,
 	getAppStoresSummary,
-	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
 	getProjectDomains,
 	getProjectSettings,
 	getSignInSummary,
+	getTurnEstimate,
 	getVersionDiff,
 	listAppProjects,
 	listVersions,
@@ -30,8 +30,8 @@ export const appBuilderKeys = {
 	projects: () => [...appBuilderKeys.all, "projects"] as const,
 	project: (projectId: string) =>
 		[...appBuilderKeys.all, "project", projectId] as const,
-	thread: (projectId: string) =>
-		[...appBuilderKeys.all, "thread", projectId] as const,
+	turnEstimate: (projectId: string) =>
+		[...appBuilderKeys.all, "turn-estimate", projectId] as const,
 	code: (projectId: string) =>
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
@@ -65,10 +65,11 @@ export const appProjectQuery = (projectId: string) =>
 		queryFn: () => getAppProject(projectId),
 	});
 
-export const builderThreadQuery = (projectId: string) =>
+/** The cost of the next turn, before send. A turn end changes it, so use-builder-chat.ts marks it stale. */
+export const turnEstimateQuery = (projectId: string) =>
 	queryOptions({
-		queryKey: appBuilderKeys.thread(projectId),
-		queryFn: () => getBuilderThread(projectId),
+		queryKey: appBuilderKeys.turnEstimate(projectId),
+		queryFn: () => getTurnEstimate(projectId),
 	});
 
 /**
