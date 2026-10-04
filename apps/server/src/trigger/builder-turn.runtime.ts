@@ -124,10 +124,11 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The one platform sentence of a mobile app. The mobile-app template
-// CLAUDE.md lists the native modules that Expo Go runs.
+// The one platform sentence of a mobile app. The template CLAUDE.md holds
+// the rules and the module allow-list. The mobile-design skill holds the
+// screen rules.
 const MOBILE_APP_INSTRUCTION =
-	"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.";
+	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
 // 100 ms between two in-flight reads while the settle waits for the
 // proxy rows of the run.
 const PROXY_ROWS_POLL_MS = 100;
