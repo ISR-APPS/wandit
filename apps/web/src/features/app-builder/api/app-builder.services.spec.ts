@@ -259,15 +259,12 @@ const API_PROJECT = {
 } satisfies ApiAppProject;
 
 describe("toUiAppProject", () => {
-	it("maps a mobile target and a missing published slug", () => {
+	it("maps a mobile target", () => {
 		const mobile = {
 			...API_PROJECT,
 			targetPlatform: "mobile",
-			publishedSlug: undefined,
 		} satisfies ApiAppProject;
-		const ui = toUiAppProject(mobile);
-		expect(ui.kind).toBe("mobile");
-		expect(ui.slug).toBe("");
+		expect(toUiAppProject(mobile).kind).toBe("mobile");
 	});
 });
 

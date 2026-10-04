@@ -14,7 +14,6 @@ import { PhonePreview, type PhonePreviewProps } from "./phone-preview";
 const project: AppProject = {
 	id: "nadi-fitness-mobile",
 	name: "Nadi Fitness",
-	slug: "nadi",
 	kind: "mobile",
 	languages: ["en"],
 	templateVersion: "1.0.0",

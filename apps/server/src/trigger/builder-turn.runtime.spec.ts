@@ -23,6 +23,7 @@ import type {
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
 import type { AppBackendRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type { LatestAppCommit } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionRow } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -53,6 +54,7 @@ import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
 	type BuilderTurnTiming,
+	restoreNoteOf,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
 
@@ -788,6 +790,7 @@ function makeWorld(over?: {
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
+		versions: { findLatest: async () => null },
 		writer: stream,
 	};
 
@@ -3706,5 +3709,53 @@ describe("runBuilderTurn", () => {
 			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 			expect(world.promoted).toHaveLength(1);
 		});
+	});
+});
+
+describe("restoreNoteOf", () => {
+	// The restore commit f9e8d7c copies the picked version a1b2c3d forward.
+	const restore: LatestAppCommit = {
+		createdAt: new Date("2026-10-04T10:00:00.000Z"),
+		restoredFromSha: "a1b2c3d".padEnd(40, "0"),
+		sha: "f9e8d7c".padEnd(40, "0"),
+		source: "restore",
+	};
+
+	// The agent hears about a restore once: in the first agent turn after it.
+	it.each([
+		[
+			"a restore after the last agent turn gives a note",
+			restore,
+			"2026-10-04T09:00:00.000Z",
+			true,
+		],
+		["a restore and no session row give a note", restore, null, true],
+		[
+			"a restore the last agent turn saw gives no note",
+			restore,
+			"2026-10-04T11:00:00.000Z",
+			false,
+		],
+		[
+			"an agent commit gives no note",
+			{ ...restore, source: "agent" },
+			"2026-10-04T09:00:00.000Z",
+			false,
+		],
+		["no commit gives no note", null, null, false],
+	] satisfies [
+		string,
+		LatestAppCommit | null,
+		string | null,
+		boolean,
+	][])("%s", (_label, latest, sessionSavedAt, hasNote) => {
+		const note = restoreNoteOf(
+			latest,
+			sessionSavedAt === null ? null : new Date(sessionSavedAt),
+		);
+		expect(note === null).toBe(!hasNote);
+		// A note names the picked version a1b2c3d, never the copy-forward commit f9e8d7c.
+		expect(note?.includes("a1b2c3d") ?? false).toBe(hasNote);
+		expect(note?.includes("f9e8d7c") ?? false).toBe(false);
 	});
 });

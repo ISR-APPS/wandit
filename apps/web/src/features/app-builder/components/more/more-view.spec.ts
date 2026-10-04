@@ -15,7 +15,6 @@ import { MoreView } from "./more-view";
 const PROJECT: AppProject = {
 	id: crypto.randomUUID(),
 	name: "Nadi Fitness",
-	slug: "nadi",
 	kind: "web",
 	languages: ["en"],
 	templateVersion: "1.0.0",

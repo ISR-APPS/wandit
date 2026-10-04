@@ -21,8 +21,6 @@ export type AppProjectKind = "web" | "mobile";
 export type AppProject = {
 	id: string;
 	name: string;
-	/** URL slug. Web previews live on `{slug}.wandit.app`. */
-	slug: string;
 	/** Set at creation from `targetPlatform`. It never changes, so Settings shows it as a badge. */
 	kind: AppProjectKind;
 	/** Languages the agent builds the app in, from `projects.languages`. Settings lists them read-only. */

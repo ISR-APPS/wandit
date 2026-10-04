@@ -5,7 +5,7 @@
  * loading state for the project.
  */
 
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import type { apiClient } from "@/lib/api-client";
 
@@ -125,11 +125,17 @@ export const projectCostCapsQuery = (projectId: string) =>
 		queryFn: () => getCostCaps(projectId),
 	});
 
-/** The version list of a project: `items` newest first. */
+/**
+ * The version list of a project, one page of 50 per fetch, newest first.
+ * The popover asks for the next page with "Load more"; null ends the list.
+ */
 export const appVersionsQuery = (projectId: string) =>
-	queryOptions({
+	infiniteQueryOptions({
 		queryKey: appBuilderKeys.versions(projectId),
-		queryFn: () => listVersions(projectId),
+		queryFn: ({ pageParam }) => listVersions(projectId, pageParam),
+		// SAFETY: widens the literal null to the cursor type; the first page has no cursor.
+		initialPageParam: null as string | null,
+		getNextPageParam: (lastPage) => lastPage.nextCursor,
 	});
 
 /** The stored `git show` patch of one commit. */

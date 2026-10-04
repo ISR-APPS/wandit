@@ -102,8 +102,6 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		languages: project.languages,
 		templateVersion: project.templateVersion,
 		engine: project.engine,
-		// Empty until the first publish: the live slug comes from the active deployment.
-		slug: project.publishedSlug ?? "",
 		versionNumber: project.versionNumber,
 		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
@@ -315,15 +313,18 @@ export async function getTurnEstimate(
 }
 
 /**
- * `GET /api/v2/projects/:id/versions` answers the version list, newest
- * first. The items are git commits of the project's repository.
+ * `GET /api/v2/projects/:id/versions` answers one page of 50 versions,
+ * newest first. The items are git commits of the project's repository.
+ * `cursor` is the `nextCursor` of the previous page; null loads the first.
  */
-// LIMIT: only the first page of 50 loads; there is no cursor paging yet. Upgrade: follow `nextCursor`.
 export async function listVersions(
 	projectId: string,
+	cursor: string | null,
 ): Promise<ListVersionsResponse> {
 	const data = await apiClient.get<unknown>(
 		appBuilderRoutes.versions(projectId),
+		// The client drops a null value, so the first page sends no cursor.
+		{ query: { cursor } },
 	);
 	return listVersionsResponseSchema.parse(data);
 }
@@ -345,8 +346,9 @@ export async function getVersionDiff(
 /**
  * `POST /api/v2/projects/:id/versions/:sha/restore` copies the version
  * forward as a new commit. `body.expectedHeadSha` is the compare-and-swap
- * input: a stale head answers 409 VERSION_CONFLICT, and a running turn
- * answers 409 BUILDER_TURN_ACTIVE.
+ * input: a stale head answers 409 VERSION_CONFLICT, a running turn answers
+ * 409 BUILDER_TURN_ACTIVE, and a turn that waits for the user answers 409
+ * BUILDER_TURN_WAITING.
  */
 export async function restoreVersion(
 	projectId: string,

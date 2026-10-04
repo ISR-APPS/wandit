@@ -1,8 +1,9 @@
 /**
  * TanStack Query key and options of the web app publish status (WANDIT-178).
  * queryFn delegates to publish.services.ts. Read by the web body of
- * publish-popover.tsx and written by publish.mutations.ts. The query polls
- * while a publish runs and refreshes the project when one ends.
+ * publish-popover.tsx and by the builder page for the live URL, and written
+ * by publish.mutations.ts. The query polls while a publish runs and
+ * refreshes the project when one ends.
  */
 
 import { queryOptions } from "@tanstack/react-query";
@@ -39,8 +40,9 @@ export function isPublishRunning(
 }
 
 /**
- * The publish status of one project. The publish popover body and the
- * Domains panel mount it, so the poll stops when both are closed. `get` is
+ * The publish status of one project. The builder page reads it for a web
+ * project, and the publish popover body and the Domains panel read it too.
+ * So the poll runs until the publish ends, also with both closed. `get` is
  * the test seam.
  */
 export const appPublishQuery = (

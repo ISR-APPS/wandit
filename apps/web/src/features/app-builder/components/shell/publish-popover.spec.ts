@@ -75,7 +75,6 @@ function androidProps(
 const MOBILE_PROJECT: AppProject = {
 	id: "project-1",
 	name: "Nadi Fitness",
-	slug: "",
 	kind: "mobile",
 	languages: ["en"],
 	templateVersion: "1.0.0",

@@ -29,6 +29,7 @@ import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import { appProjectQuery, turnEstimateQuery } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
+import { appPublishQuery } from "../api/publish.queries";
 import { ChatPane } from "../components/chat/chat-pane";
 import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
@@ -78,6 +79,16 @@ export default function AppBuilderPage({
 	// The preview boot screen shows the database step on every view, so this read is always on.
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
+	// The live app of a web project: the preview bar, the open button, and the
+	// Live mark of the versions read it. A mobile app has no publish status.
+	const { data: publishStatus } = useQuery({
+		...appPublishQuery(projectId),
+		enabled: project?.kind === "web",
+	});
+	const live = publishStatus?.live ?? null;
+	// Undefined until a status arrives, so the preview bar never says "Not published yet" for a live app.
+	const previewLiveUrl =
+		publishStatus === undefined ? undefined : (live?.url ?? null);
 	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
 	const isDevicePreviewEnabled = useDevicePreviewEnabled();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
@@ -190,6 +201,7 @@ export default function AppBuilderPage({
 					<WebPreview
 						key={project.id}
 						project={project}
+						liveUrl={previewLiveUrl}
 						viewport={viewport}
 						reloadKey={reloadKey}
 						bootContext={bootContext}
@@ -238,6 +250,7 @@ export default function AppBuilderPage({
 			project={project}
 			chatOpen={chatOpen}
 			onExpandChat={() => setChatOpenAndStore(true)}
+			liveCommitSha={live?.commitSha ?? null}
 			// The restore writes the old tree into the sandbox worktree; the reload
 			// mints a new token and shows it. A stopped sandbox shows the waking
 			// state until the next turn.
@@ -256,9 +269,7 @@ export default function AppBuilderPage({
 			onChangeDevice={(next) => setSearch({ device: next }, true)}
 			onChangeViewport={(next) => setSearch({ viewport: next }, true)}
 			onReload={() => setReloadKey((key) => key + 1)}
-			onOpenExternal={() =>
-				window.open(`https://${project.slug}.wandit.app`, "_blank", "noopener")
-			}
+			liveUrl={live?.url ?? null}
 		/>
 	);
 
