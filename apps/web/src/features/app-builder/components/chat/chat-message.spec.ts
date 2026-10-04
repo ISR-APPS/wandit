@@ -20,6 +20,7 @@ import { ChatMessageView } from "./chat-message";
 function renderMessage(
 	message: BuilderMessage,
 	trayQuestionKey: string | null = null,
+	onRetry?: () => void,
 ) {
 	const onPreviewVersion = vi.fn();
 	const onSendText = vi.fn();
@@ -38,6 +39,7 @@ function renderMessage(
 				onSendText,
 				onDecideApproval,
 				trayQuestionKey,
+				onRetry,
 			}),
 		),
 	};
@@ -328,30 +330,36 @@ describe("ChatMessageView", () => {
 		expect(onDecideApproval).toHaveBeenCalledWith("ap-1", true);
 	});
 
-	it("renders the turn error as an alert with the retry line", () => {
-		renderMessage({
-			id: "a8",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-error",
-					id: "e1",
-					data: {
-						code: "SANDBOX_LOST",
-						message: "The sandbox stopped.",
-						retryable: true,
+	it("renders the turn error as an alert with a Retry button", () => {
+		const onRetry = vi.fn();
+		renderMessage(
+			{
+				id: "a8",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-error",
+						id: "e1",
+						data: {
+							code: "SANDBOX_LOST",
+							message: "The sandbox stopped.",
+							retryable: true,
+						},
 					},
-				},
-			],
-		});
+				],
+			},
+			null,
+			onRetry,
+		);
 		const alert = screen.getByRole("alert");
 		expect(alert.textContent).toContain(
 			"The turn stopped: The sandbox stopped.",
 		);
-		expect(alert.textContent).toContain("You can send the message again.");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledOnce();
 	});
 
-	it("renders the receipt line with credits, tokens, and the model label", () => {
+	it("renders the receipt line with credits, tokens, the cache, and the model label", () => {
 		renderMessage({
 			id: "a9",
 			role: "assistant",
@@ -364,12 +372,16 @@ describe("ChatMessageView", () => {
 						modelId: "anthropic/claude-sonnet-5",
 						inputTokens: 1000,
 						outputTokens: 500,
+						cacheReadTokens: 3000,
+						cacheWriteTokens: 200,
 					},
 				},
 			],
 		});
 		expect(
-			screen.getByText("2 credits · 1,500 tokens · Claude Sonnet 5"),
+			screen.getByText(
+				"2 credits · 1,500 tokens · cache: 3,000 read, 200 written · Claude Sonnet 5",
+			),
 		).toBeTruthy();
 	});
 

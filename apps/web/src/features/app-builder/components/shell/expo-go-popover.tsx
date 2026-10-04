@@ -2,8 +2,9 @@
  * "Open on phone" button of the top bar and its popover, for mobile
  * projects (WANDIT-193). Each open mints a new phone link and shows its
  * Expo Go QR, the store links, and the iPhone username field.
- * Rendered by components/shell/top-bar.tsx. Mints through
- * useMintPhonePreviewLink; ExpoGoLinkBody is pure, and the spec renders it.
+ * Rendered by components/shell/top-bar.tsx; the publish popover renders
+ * ExpoGoPanel. Mints through useMintPhonePreviewLink; ExpoGoLinkBody is
+ * pure, and the spec renders it.
  */
 
 import { expoUsernameSchema } from "@wandit/contracts";
@@ -61,8 +62,12 @@ export function ExpoGoPopover({ projectId }: ExpoGoPopoverProps) {
 	);
 }
 
-/** Holds the username and the mint. A username change mints a new link with the new claim. */
-function ExpoGoPanel({ projectId }: ExpoGoPopoverProps) {
+/**
+ * Holds the username and the mint. A username change mints a new link with
+ * the new claim. Each mount mints a new link. The publish popover shows it
+ * too, after "Show QR".
+ */
+export function ExpoGoPanel({ projectId }: ExpoGoPopoverProps) {
 	const { t } = useTranslation();
 	const [expoUsername, setExpoUsername] = useState(readExpoUsername);
 	// A new mutate resets `data` and `error`, so a pending mint reads as neither.

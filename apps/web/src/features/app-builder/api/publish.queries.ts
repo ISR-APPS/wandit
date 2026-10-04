@@ -41,8 +41,9 @@ export function isPublishRunning(
 
 /**
  * The publish status of one project. The builder page reads it for a web
- * project, so the poll runs until the publish ends, also with the popover
- * closed. `get` is the test seam.
+ * project, and the publish popover body and the Domains panel read it too.
+ * So the poll runs until the publish ends, also with both closed. `get` is
+ * the test seam.
  */
 export const appPublishQuery = (
 	projectId: string,

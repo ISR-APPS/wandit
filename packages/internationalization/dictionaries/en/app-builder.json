@@ -196,7 +196,7 @@
 		},
 		"appStores": {
 			"title": "App stores",
-			"description": "Signing, builds and the listing for the App Store and Google Play."
+			"description": "Your Android builds, and the state of iPhone builds."
 		},
 		"security": {
 			"title": "Security",
@@ -205,12 +205,12 @@
 		},
 		"settings": {
 			"title": "Settings",
-			"description": "Name, project type, collaborators and environment variables."
+			"description": "Name, app facts, spending limits, and delete."
 		}
 	},
 	"empty": {
-		"title": "Nothing set up yet",
-		"description": "Ask Wandit in the chat, or set it up here."
+		"title": "Coming soon",
+		"description": "You cannot set this up from this panel yet."
 	},
 	"signIn": {
 		"methodsTitle": "Sign-in methods",
@@ -248,72 +248,49 @@
 		}
 	},
 	"domains": {
-		"freePrimary": "Free Wandit domain · primary",
-		"waitingDns": "Waiting for DNS · point CNAME to {target}",
+		"freeHost": "Free Wandit domain",
 		"live": "Live",
-		"verifying": "Verifying",
-		"inputLabel": "Domain to connect",
-		"placeholder": "yourdomain.dz",
-		"connect": "Connect",
-		"buy": "Buy a domain"
+		"freeTitle": "Free Wandit address",
+		"freeAfterPublish": "You get it when you publish the app."
 	},
 	"appStores": {
-		"appStore": "App Store",
-		"googlePlay": "Google Play",
-		"readyToSubmit": "Ready to submit",
-		"notSetUp": "Not set up",
-		"bundleId": "Bundle ID",
-		"latestBuild": "Latest build",
-		"buildValue": "{build} · v{version}",
-		"testflight": "TestFlight",
-		"testers": {
-			"one": "{count} tester",
-			"other": "{count} testers"
-		},
-		"submitForReview": "Submit for review",
-		"googlePlayHelp": "Connect a Google Play developer account and Wandit signs and uploads the build for you.",
-		"connectGooglePlay": "Connect Google Play",
-		"listingTitle": "Store listing",
-		"listingProgress": "{done} of {total} done",
-		"listing": {
-			"appIcon": "App icon",
-			"appName": "App name and subtitle",
-			"description": "Description",
-			"screenshots": "Screenshots",
-			"privacyUrl": "Privacy policy URL",
-			"ageRating": "Age rating and category"
-		},
-		"neededForReview": "Needed for review"
+		"androidHelp": "The Android builds of your app. Start a new build from Publish.",
+		"iphone": "iPhone",
+		"iphoneNotAvailable": "iPhone builds are not available yet."
 	},
 	"settings": {
 		"project": "Project",
 		"name": "Name",
 		"projectUrl": "Project URL",
 		"projectUrlPrefix": "wandit.dev/app/",
-		"descriptionLabel": "Description",
 		"projectType": "Project type",
-		"projectTypeHelp": "Changes what Wandit builds and where you can publish.",
-		"collaborators": "Collaborators",
-		"seats": "{count} of {max}",
-		"invite": "Invite",
-		"roles": {
-			"owner": "Owner",
-			"editor": "Editor",
-			"viewer": "Viewer"
-		},
-		"roleLabel": "Role of {name}",
-		"pending": "Invited · pending",
-		"envTitle": "Environment variables",
-		"envHelp": "Secrets your backend can read",
-		"addVariable": "+ Add variable",
-		"setBy": "Set by {panel}",
-		"public": "Public",
+		"projectTypeHelp": "Set when you created the project. It cannot change.",
+		"languages": "App languages",
+		"templateVersion": "Template version",
+		"nameSaved": "Name saved",
+		"secretsTitle": "Secrets",
+		"secretsHelp": "Your backend reads its API keys and tokens from the Secrets panel.",
+		"openSecrets": "Open Secrets",
+		"limitsTitle": "Spending limits",
+		"limitsManagersOnly": "Only workspace owners and admins can see and change the spending limits.",
+		"perTurnLimit": "Limit per turn",
+		"perTurnDefault": "Default",
+		"perTurnHelp": "A turn stops when it uses this number of credits. Empty uses the default.",
+		"monthlyLimit": "Monthly limit",
+		"monthlyNone": "No limit",
+		"monthlyHelp": "New turns stop when this project uses this number of credits in one month. Empty means no limit.",
+		"creditsUnit": "credits",
+		"limitsInvalid": "Use a number of credits from 0.01, with 2 decimals at most. The limit per turn is 2,500 credits at most.",
+		"limitsSave": "Save limits",
+		"limitsSaved": "Spending limits saved",
 		"deleteTitle": "Delete this project",
 		"deleteHelp": "Takes the app offline and removes the database, versions and chat. This cannot be undone.",
+		"deleteManagersOnly": "Only workspace owners and admins can delete this project.",
 		"delete": "Delete",
 		"deleteConfirmTitle": "Delete {name}?",
 		"deleteConfirmBody": "The app goes offline and the database, versions and chat are removed.",
-		"cancel": "Cancel"
+		"cancel": "Cancel",
+		"deleted": "Project deleted"
 	},
 	"chat": {
 		"title": "Chat",
@@ -322,6 +299,7 @@
 		"thought": "Thought",
 		"stepFailed": "Failed",
 		"stepSkipped": "Skipped",
+		"addSecret": "Add the secret",
 		"steps": {
 			"edit": {
 				"done": "Edited",
@@ -391,11 +369,6 @@
 			"one": "{count} credit",
 			"other": "{count} credits"
 		},
-		"modeLabel": "Composer mode",
-		"modes": {
-			"build": "Build",
-			"plan": "Plan"
-		},
 		"send": "Send",
 		"stop": "Stop",
 		"focusChip": "Working on {label}",
@@ -451,7 +424,6 @@
 			"sandbox_waking": "Getting your app ready",
 			"session_starting": "Getting ready",
 			"running": "Working",
-			"checkpoint": "Saving your changes",
 			"committing": "Saving your changes"
 		},
 		"approval": {
@@ -483,8 +455,10 @@
 		"attachScreen": "Reference a screen",
 		"dictate": "Dictate",
 		"turnError": "The turn stopped: {message}",
-		"turnErrorRetry": "You can send the message again.",
+		"retry": "Retry",
+		"stopped": "Stopped",
 		"receipt": "{credits} · {tokens} tokens",
+		"receiptCache": "cache: {read} read, {write} written",
 		"errors": {
 			"noCredits": "You have no credits left for this turn.",
 			"projectCap": "This project reached its credit cap.",
@@ -544,7 +518,8 @@
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",
 		"showQr": "Show QR",
-		"backendNote": "Backend deploys with every publish"
+		"backendNote": "Backend deploys with every publish",
+		"hideQr": "Hide QR"
 	},
 	"mobileBuilds": {
 		"title": "Android · APK",

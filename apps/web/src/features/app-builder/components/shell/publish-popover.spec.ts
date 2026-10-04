@@ -75,8 +75,9 @@ function androidProps(
 const MOBILE_PROJECT: AppProject = {
 	id: "project-1",
 	name: "Nadi Fitness",
-	description: "Membership app for a gym.",
 	kind: "mobile",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 0,
 	unpublishedChanges: 0,
@@ -422,10 +423,12 @@ describe("PublishPopover", () => {
 describe("PublishMobileTargets", () => {
 	it("offers Build APK before the first build and Show QR, with no iOS row", () => {
 		const onBuild = vi.fn();
-		const onShowQr = vi.fn();
+		const onToggleQr = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr,
+				isQrOpen: false,
+				onToggleQr,
+				qrPanel: null,
 				android: androidProps({ onBuild }),
 			}),
 		);
@@ -441,7 +444,7 @@ describe("PublishMobileTargets", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Show QR" }));
 		expect(onBuild).toHaveBeenCalledOnce();
-		expect(onShowQr).toHaveBeenCalledOnce();
+		expect(onToggleQr).toHaveBeenCalledOnce();
 	});
 
 	it("cancels the live build by its id", () => {
@@ -449,7 +452,9 @@ describe("PublishMobileTargets", () => {
 		const onCancel = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({ builds: [live], onCancel }),
 			}),
 		);
@@ -462,7 +467,9 @@ describe("PublishMobileTargets", () => {
 	it("lists the older builds with a download link for a finished one", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({
 					builds: [build("canceled"), build("finished"), build("failed")],
 				}),
@@ -485,7 +492,9 @@ describe("PublishMobileTargets", () => {
 	it("shows at most five older builds after a create adds one to the list", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({
 					builds: [
 						build("queued"),

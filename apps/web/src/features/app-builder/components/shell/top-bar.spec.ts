@@ -32,8 +32,9 @@ import { PreviewActions, ProjectBar, ViewSwitcher } from "./top-bar";
 const PROJECT: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	description: "Membership app for a gym.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,

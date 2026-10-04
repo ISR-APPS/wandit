@@ -14,8 +14,9 @@ import { WebPreview, type WebPreviewProps } from "./web-preview";
 const project: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	description: "Membership app for a gym in Oran.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,

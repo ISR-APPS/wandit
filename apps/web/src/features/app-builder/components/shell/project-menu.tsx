@@ -1,11 +1,11 @@
 /**
- * Project name and kind badge in the top bar. Opens a menu that lists every
- * project of the user, switches to one, or goes back to the dashboard.
- * Rendered by components/shell/top-bar.tsx. The list reads appProjectsQuery
- * when the menu opens; the open project comes from the page through props.
+ * Project name and kind badge in the top bar. Opens a menu that lists the
+ * V2 apps of the active workspace, switches to one, or goes back to the
+ * dashboard. Rendered by components/shell/top-bar.tsx. The list reads
+ * useProjectsQuery of the projects feature when the menu opens; the open
+ * project comes from the page through props.
  */
 
-import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
@@ -19,8 +19,8 @@ import {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Check, ChevronDown, LayoutGrid } from "lucide-react";
 
+import { useProjectsQuery } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import { appProjectsQuery } from "../../api/app-builder.queries";
 import type { AppProject, AppProjectKind } from "../../api/dto";
 
 export type ProjectMenuProps = {
@@ -28,7 +28,7 @@ export type ProjectMenuProps = {
 	project: AppProject;
 };
 
-/** Two mock projects share one name; the kind badge tells them apart in the trigger and the list. */
+/** The kind badge tells apart two projects with the same name, in the trigger and the list. */
 export function ProjectMenu({ project }: ProjectMenuProps) {
 	const { t } = useTranslation();
 
@@ -66,13 +66,14 @@ export function ProjectMenu({ project }: ProjectMenuProps) {
 }
 
 /**
- * One menu item per project. Lives inside the menu content, so the query
- * starts when the menu opens and not on every page paint.
+ * One menu item per V2 app. Lives inside the menu content, so the query
+ * starts when the menu opens and not on every page paint. The dashboard
+ * shares the cache entry of the list.
  */
 function ProjectList({ currentId }: { currentId: string }) {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
-	const projects = useQuery(appProjectsQuery());
+	const projects = useProjectsQuery();
 
 	if (projects.isPending) {
 		return (
@@ -89,31 +90,36 @@ function ProjectList({ currentId }: { currentId: string }) {
 			</p>
 		);
 	}
-	return projects.data.map((candidate) => (
-		<DropdownMenuItem
-			key={candidate.id}
-			onSelect={() => {
-				// The open project is already on screen. A navigation would only reset the view.
-				if (candidate.id === currentId) return;
-				void navigate({
-					to: "/app/$projectId",
-					params: { projectId: candidate.id },
-				});
-			}}
-		>
-			<span className="truncate" dir="auto">
-				{candidate.name}
-			</span>
-			<KindBadge kind={candidate.kind} />
-			{candidate.id === currentId ? (
-				<Check className="ms-auto size-4 text-foreground" />
-			) : null}
-		</DropdownMenuItem>
-	));
+	// The list holds V1 pages too. A V1 page opens in the V1 workspace, not here.
+	return projects.data
+		.filter((candidate) => candidate.engine === "v2_app")
+		.map((candidate) => (
+			<DropdownMenuItem
+				key={candidate.id}
+				onSelect={() => {
+					// The open project is already on screen. A navigation would only reset the view.
+					if (candidate.id === currentId) return;
+					void navigate({
+						to: "/app/$projectId",
+						params: { projectId: candidate.id },
+					});
+				}}
+			>
+				<span className="truncate" dir="auto">
+					{candidate.name}
+				</span>
+				<KindBadge
+					kind={candidate.targetPlatform === "mobile" ? "mobile" : "web"}
+				/>
+				{candidate.id === currentId ? (
+					<Check className="ms-auto size-4 text-foreground" />
+				) : null}
+			</DropdownMenuItem>
+		));
 }
 
-/** The "Web app" or "Mobile app" pill, in the trigger and in every list row. */
-function KindBadge({ kind }: { kind: AppProjectKind }) {
+/** The "Web app" or "Mobile app" pill: in the trigger, in every list row, and in Settings. */
+export function KindBadge({ kind }: { kind: AppProjectKind }) {
 	const { t } = useTranslation();
 	return (
 		<Badge

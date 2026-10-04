@@ -2,7 +2,7 @@
  * TanStack Query options and keys of the app builder. queryFn delegates to
  * app-builder.services.ts. The route loader calls `ensureQueryData` with the
  * same options, so components read with `useSuspenseQuery` and never see a
- * loading state for the project and the thread.
+ * loading state for the project.
  */
 
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
@@ -11,15 +11,11 @@ import type { apiClient } from "@/lib/api-client";
 
 import {
 	getAppProject,
-	getAppStoresSummary,
-	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
-	getProjectDomains,
-	getProjectSettings,
-	getSignInSummary,
+	getCostCaps,
+	getTurnEstimate,
 	getVersionDiff,
-	listAppProjects,
 	listVersions,
 } from "./app-builder.services";
 import type { CodeSnapshot } from "./dto";
@@ -27,36 +23,22 @@ import type { CodeSnapshot } from "./dto";
 /** Query keys of the app builder. Every key starts with `app-builder`, so one prefix matches them all. */
 export const appBuilderKeys = {
 	all: ["app-builder"] as const,
-	projects: () => [...appBuilderKeys.all, "projects"] as const,
 	project: (projectId: string) =>
 		[...appBuilderKeys.all, "project", projectId] as const,
-	thread: (projectId: string) =>
-		[...appBuilderKeys.all, "thread", projectId] as const,
+	turnEstimate: (projectId: string) =>
+		[...appBuilderKeys.all, "turn-estimate", projectId] as const,
 	code: (projectId: string) =>
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
 		[...appBuilderKeys.all, "code", projectId, path] as const,
-	signIn: (projectId: string) =>
-		[...appBuilderKeys.all, "sign-in", projectId] as const,
-	domains: (projectId: string) =>
-		[...appBuilderKeys.all, "domains", projectId] as const,
-	appStores: (projectId: string) =>
-		[...appBuilderKeys.all, "app-stores", projectId] as const,
-	settings: (projectId: string) =>
-		[...appBuilderKeys.all, "settings", projectId] as const,
+	costCaps: (projectId: string) =>
+		[...appBuilderKeys.all, "cost-caps", projectId] as const,
 	versions: (projectId: string) =>
 		[...appBuilderKeys.all, "versions", projectId] as const,
 	// A sibling of `versions`, not a child: a list refresh must not refetch the immutable diffs.
 	versionDiff: (projectId: string, sha: string) =>
 		[...appBuilderKeys.all, "version-diff", projectId, sha] as const,
 };
-
-/** Every project the user can open from the project menu. */
-export const appProjectsQuery = () =>
-	queryOptions({
-		queryKey: appBuilderKeys.projects(),
-		queryFn: listAppProjects,
-	});
 
 /** null data means the project does not exist. */
 export const appProjectQuery = (projectId: string) =>
@@ -65,10 +47,11 @@ export const appProjectQuery = (projectId: string) =>
 		queryFn: () => getAppProject(projectId),
 	});
 
-export const builderThreadQuery = (projectId: string) =>
+/** The cost of the next turn, before send. A turn end changes it, so use-builder-chat.ts marks it stale. */
+export const turnEstimateQuery = (projectId: string) =>
 	queryOptions({
-		queryKey: appBuilderKeys.thread(projectId),
-		queryFn: () => getBuilderThread(projectId),
+		queryKey: appBuilderKeys.turnEstimate(projectId),
+		queryFn: () => getTurnEstimate(projectId),
 	});
 
 /**
@@ -132,30 +115,14 @@ export const codeFileQuery = (projectId: string, path: string) =>
 		gcTime: CODE_FILE_GC_TIME_MS,
 	});
 
-export const signInSummaryQuery = (projectId: string) =>
+/**
+ * The spending limits of a project, in centi-credits. Settings reads it only
+ * for a workspace owner or admin: the API refuses a member with 403.
+ */
+export const projectCostCapsQuery = (projectId: string) =>
 	queryOptions({
-		queryKey: appBuilderKeys.signIn(projectId),
-		queryFn: () => getSignInSummary(projectId),
-	});
-
-/** Web projects only. The route loader warms it when the kind is `web`. */
-export const projectDomainsQuery = (projectId: string) =>
-	queryOptions({
-		queryKey: appBuilderKeys.domains(projectId),
-		queryFn: () => getProjectDomains(projectId),
-	});
-
-/** Mobile projects only. The route loader warms it when the kind is `mobile`. */
-export const appStoresSummaryQuery = (projectId: string) =>
-	queryOptions({
-		queryKey: appBuilderKeys.appStores(projectId),
-		queryFn: () => getAppStoresSummary(projectId),
-	});
-
-export const projectSettingsQuery = (projectId: string) =>
-	queryOptions({
-		queryKey: appBuilderKeys.settings(projectId),
-		queryFn: () => getProjectSettings(projectId),
+		queryKey: appBuilderKeys.costCaps(projectId),
+		queryFn: () => getCostCaps(projectId),
 	});
 
 /**

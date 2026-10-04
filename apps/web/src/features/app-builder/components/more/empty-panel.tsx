@@ -1,22 +1,21 @@
 /**
- * Empty state of a More panel that has nothing set up yet: Analytics, AI,
- * and Security. One card with a title, a hint, and one button.
+ * "Soon" state of a More panel that Wandit cannot set up yet: Analytics, AI,
+ * and Security. One card with a title, a hint, and the planned action as a
+ * disabled button with a "Soon" badge, like the Integrations nav row.
  * Rendered by components/more/more-view.tsx inside PanelShell.
  */
 
+import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
-import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
 
 export type EmptyPanelProps = {
-	/** Translated label of the one action, for example "Turn on analytics". */
+	/** Translated label of the planned action, for example "Turn on analytics". */
 	ctaLabel: string;
-	/** Runs on the button. Without it the button shows the "not connected" toast. */
-	onCta?: () => void;
 };
 
-export function EmptyPanel({ ctaLabel, onCta }: EmptyPanelProps) {
+export function EmptyPanel({ ctaLabel }: EmptyPanelProps) {
 	const { t } = useTranslation();
 
 	return (
@@ -25,12 +24,12 @@ export function EmptyPanel({ ctaLabel, onCta }: EmptyPanelProps) {
 			<p className="text-muted-foreground text-sm">
 				{t("appBuilder.empty.description")}
 			</p>
-			<Button
-				className="mt-2"
-				onClick={onCta ?? (() => toast(t("appBuilder.mock.notWired")))}
-			>
-				{ctaLabel}
-			</Button>
+			<div className="mt-2 flex items-center gap-2">
+				<Button disabled>{ctaLabel}</Button>
+				<Badge className="bg-primary/10 text-ember-strong">
+					{t("appBuilder.soon")}
+				</Badge>
+			</div>
 		</div>
 	);
 }

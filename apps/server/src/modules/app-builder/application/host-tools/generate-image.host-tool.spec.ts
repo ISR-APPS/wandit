@@ -234,6 +234,8 @@ describe("createGenerateImageTool", () => {
 			expect.objectContaining({
 				idempotencyKey: "builder-turn-image:turn-1:1",
 				parentEventId: "evt_parent_1",
+				// Every V2 metering event names its project, the image child too.
+				projectId: "project-1",
 			}),
 		);
 		expect(calls.captureGeneration).toHaveBeenCalledWith(

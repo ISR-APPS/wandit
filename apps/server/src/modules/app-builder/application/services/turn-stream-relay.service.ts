@@ -95,7 +95,7 @@ export class TurnStreamRelayService {
 	 * promote the next waiting turn.
 	 */
 	async relay(options: {
-		/** First frame on the create route: the `CreateTurnResponse`. */
+		/** First frame: the `CreateTurnResponse`. The create route and the resume route send it. */
 		first?: CreateTurnResponse;
 		/** Called once with the done payload after the terminal frame. */
 		onDone?: OnTurnDone;

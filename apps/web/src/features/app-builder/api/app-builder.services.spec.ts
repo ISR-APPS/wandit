@@ -1,11 +1,10 @@
-import {
-	type AppProject as ApiAppProject,
-	appBuilderRoutes,
-	type CodeFileResponse,
-	type CodeSnapshotResponse,
-	type PreviewTokenResponse,
+import type {
+	AppProject as ApiAppProject,
+	CodeFileResponse,
+	CodeSnapshotResponse,
+	PreviewTokenResponse,
 } from "@wandit/contracts";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
 	ApiClientError,
@@ -16,29 +15,12 @@ import {
 	createAppProject,
 	endDeviceSession,
 	getAppProject,
-	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
 	getPhonePreviewLink,
-	getProjectSettings,
-	listAppProjects,
-	resetMockStore,
-	setCollaboratorRole,
 	startDeviceSession,
 	toUiAppProject,
-	updateAppProject,
 } from "./app-builder.services";
-
-const WEB_ID = "nadi-fitness";
-const MOBILE_ID = "nadi-fitness-mobile";
-
-beforeEach(() => {
-	resetMockStore();
-});
-
-afterEach(() => {
-	vi.unstubAllEnvs();
-});
 
 describe("createAppProject", () => {
 	const body = {
@@ -74,14 +56,6 @@ describe("createAppProject", () => {
 });
 
 describe("getAppProject", () => {
-	it("returns a copy, so a caller cannot change the store", async () => {
-		const first = await getAppProject(WEB_ID);
-		if (!first) throw new Error("fixture missing");
-		first.name = "changed";
-		const second = await getAppProject(WEB_ID);
-		expect(second?.name).toBe("Nadi Fitness");
-	});
-
 	it("answers null on a 404 and on a V2 gate refusal, and rethrows every other API error", async () => {
 		const realId = crypto.randomUUID();
 		const getFails =
@@ -107,107 +81,6 @@ describe("getAppProject", () => {
 		await expect(getAppProject(realId, getFails(500))).rejects.toMatchObject({
 			statusCode: 500,
 		});
-	});
-
-	it("sends a seed id to the API outside development", async () => {
-		vi.stubEnv("DEV", false);
-		const paths: string[] = [];
-		const get: typeof apiClient.get = async (path) => {
-			paths.push(path);
-			throw new ApiClientError({
-				code: "HTTP_404",
-				message: "Not found.",
-				path,
-				requestId: "req-1",
-				statusCode: 404,
-				timestamp: "2026-10-03T00:00:00.000Z",
-			});
-		};
-
-		expect(await getAppProject(WEB_ID, get)).toBeNull();
-		expect(await getAppProject(MOBILE_ID, get)).toBeNull();
-		expect(paths).toEqual([
-			appBuilderRoutes.project(WEB_ID),
-			appBuilderRoutes.project(MOBILE_ID),
-		]);
-	});
-});
-
-describe("listAppProjects", () => {
-	it("returns only the seed rows after a real id seeded a placeholder", async () => {
-		// The thread guard seeds every map of the store for the unknown id.
-		await getBuilderThread(crypto.randomUUID());
-		const projects = await listAppProjects();
-		expect(projects.map((project) => project.id)).toEqual([
-			"nadi-fitness",
-			"nadi-fitness-mobile",
-		]);
-	});
-
-	it("returns no seed row outside development", async () => {
-		vi.stubEnv("DEV", false);
-		expect(await listAppProjects()).toEqual([]);
-	});
-});
-
-describe("getBuilderThread", () => {
-	it("seeds the mock fixtures for a real project id instead of throwing", async () => {
-		const thread = await getBuilderThread(crypto.randomUUID());
-		expect(thread.focusLabel).toBe("Pass screen");
-	});
-});
-
-describe("updateAppProject", () => {
-	it("changes the kind", async () => {
-		const project = await updateAppProject(WEB_ID, { kind: "mobile" });
-		expect(project.kind).toBe("mobile");
-		expect((await getAppProject(WEB_ID))?.kind).toBe("mobile");
-	});
-
-	it("patches the real row of a fetched project, not a fixture", async () => {
-		const realId = crypto.randomUUID();
-		// SAFETY: the fake answers the one GET this case makes, and
-		// getAppProject parses the answer with appProjectSchema.
-		const getReal = (async () => ({
-			...API_PROJECT,
-			id: realId,
-			targetPlatform: "mobile",
-		})) as typeof apiClient.get;
-		await getAppProject(realId, getReal);
-
-		const project = await updateAppProject(realId, { name: "Atlas Two" });
-
-		expect(project).toMatchObject({
-			id: realId,
-			name: "Atlas Two",
-			kind: "mobile",
-		});
-	});
-});
-
-describe("setCollaboratorRole", () => {
-	it("changes the role of one collaborator", async () => {
-		const settings = await setCollaboratorRole(WEB_ID, {
-			collaboratorId: "u2",
-			role: "viewer",
-		});
-		expect(settings.collaborators.find((c) => c.id === "u2")?.role).toBe(
-			"viewer",
-		);
-		expect((await getProjectSettings(WEB_ID)).collaborators[1]?.role).toBe(
-			"viewer",
-		);
-	});
-});
-
-describe("setCollaboratorRole with an unknown id", () => {
-	it("throws and changes nothing", async () => {
-		await expect(
-			setCollaboratorRole(WEB_ID, { collaboratorId: "nobody", role: "viewer" }),
-		).rejects.toThrow("Unknown collaborator");
-		expect((await getProjectSettings(WEB_ID)).collaborators[1]?.role).toBe(
-			"editor",
-		);
 	});
 });
 
@@ -386,19 +259,6 @@ const API_PROJECT = {
 } satisfies ApiAppProject;
 
 describe("toUiAppProject", () => {
-	it("maps a web project to the UI shape", () => {
-		expect(toUiAppProject(API_PROJECT)).toEqual({
-			id: API_PROJECT.id,
-			name: "Atlas Shop",
-			description: "A storefront for crafts",
-			kind: "web",
-			engine: "v2_app",
-			versionNumber: 5,
-			unpublishedChanges: 2,
-			hasCodeChanges: true,
-		});
-	});
-
 	it("maps a mobile target", () => {
 		const mobile = {
 			...API_PROJECT,
