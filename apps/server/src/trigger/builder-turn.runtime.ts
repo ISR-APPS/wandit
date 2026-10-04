@@ -80,6 +80,10 @@ import type {
 	AppBackendRow,
 	AppBackendsRepository,
 } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppCommitsRepository,
+	LatestAppCommit,
+} from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -385,6 +389,8 @@ export type BuilderTurnDeps = {
 	now: () => number;
 	/** Log sink; the task passes the Trigger `logger`. */
 	logger: BuilderTurnLogger;
+	/** The newest `app_commits` row of the project, for the restore note. */
+	versions: Pick<AppCommitsRepository, "findLatest">;
 };
 
 /**
@@ -1194,6 +1200,12 @@ export async function runBuilderTurn(
 		}
 		const resumeState: HarnessResumeState | null =
 			parsedResume?.success === true ? parsedResume.data : null;
+		// The session row is saved at the end of each agent turn, so its
+		// `updatedAt` tells whether the agent ran after a restore.
+		const restoreNote = restoreNoteOf(
+			await deps.versions.findLatest(projectId),
+			sessionRow?.updatedAt ?? null,
+		);
 
 		// The user's words, then the attachment URLs. A message with text keeps
 		// its files too: the agent only sees what the prompt names. Answer
@@ -1590,6 +1602,15 @@ export async function runBuilderTurn(
 			};
 		} else {
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
+		}
+		// The note goes in front of the user's words. A `continue` input holds
+		// only tool results, but VersionsService refuses a restore under a paused turn.
+		if (restoreNote !== null && turnInput.kind === "prompt") {
+			logger.info("builder-turn.restore-note", { turnId });
+			turnInput = {
+				...turnInput,
+				prompt: `${restoreNote}\n\n${turnInput.prompt}`,
+			};
 		}
 		// A stored session that did not come back lost the agent memory; the
 		// files stay. The recap gives the agent the recent chat back.
@@ -2160,6 +2181,28 @@ async function wakeBackend(
 		});
 	}
 	return row;
+}
+
+/**
+ * The note for the agent when the newest version is a restore that the
+ * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
+ * the chat's session row, or null when the chat has none.
+ */
+export function restoreNoteOf(
+	latest: LatestAppCommit | null,
+	sessionSavedAt: Date | null,
+): string | null {
+	if (latest?.source !== "restore") {
+		return null;
+	}
+	// A restore holds the turn lock, so it never overlaps a turn. A session
+	// saved after the restore commit already ran on the restored code.
+	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
+		return null;
+	}
+	// The version the user picked, not the new commit that copies it forward.
+	const version = latest.restoredFromSha ?? latest.sha;
+	return `The user restored the code to version ${version.slice(0, 7)} before this message. Read the files again before you edit.`;
 }
 
 /** What the recap of a lost session needs from the run. */

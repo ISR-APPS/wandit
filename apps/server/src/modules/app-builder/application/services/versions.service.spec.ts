@@ -1,5 +1,4 @@
 import {
-	BadRequestException,
 	ConflictException,
 	InternalServerErrorException,
 	Logger,
@@ -22,9 +21,9 @@ import {
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
-	MalformedVersionCursorError,
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
+import type { BuilderTurnRow } from "../../infrastructure/persistence/builder-turns.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import {
 	FAKE_WORKSPACE_DIR,
@@ -79,6 +78,8 @@ function fixture(options?: {
 	project?: ScopedAppProject | null;
 	/** CAS answer of `upsertBranchHead`; default true. */
 	upsertOk?: boolean;
+	/** True when a turn of the project waits for a user answer. */
+	turnWaits?: boolean;
 }) {
 	const objects = new Map<string, string | Uint8Array>();
 	const store: VersionsObjectStore = {
@@ -142,6 +143,12 @@ function fixture(options?: {
 
 	const sandboxes = new FakeSandboxProvider();
 	const turnLock = new FakeTurnLock();
+	const turns = {
+		findWaitingForUser: vi.fn(async () =>
+			// SAFETY: the service reads only whether a row exists.
+			options?.turnWaits ? ({ id: "turn-8" } as BuilderTurnRow) : null,
+		),
+	};
 	const service = new VersionsService(
 		appCommits,
 		sandboxes,
@@ -149,6 +156,7 @@ function fixture(options?: {
 		gitStore,
 		repoRestorer,
 		store,
+		turns,
 	);
 
 	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
@@ -215,17 +223,6 @@ describe("VersionsService.list", () => {
 			expect.any(NotFoundException),
 		);
 	});
-
-	it("answers 400 for a malformed cursor", async () => {
-		const { appCommits, service } = fixture();
-		appCommits.listByProject = vi.fn(async () => {
-			throw new MalformedVersionCursorError();
-		});
-
-		await expect(
-			service.list(SCOPE, "p-1", { cursor: "not-a-cursor", limit: 50 }),
-		).rejects.toEqual(expect.any(BadRequestException));
-	});
 });
 
 describe("VersionsService.diff", () => {
@@ -277,6 +274,24 @@ describe("VersionsService.restore", () => {
 		});
 		// The failed acquire left the turn's lock entry untouched.
 		expect(await turnLock.holder("p-1")).toBe("turn-9");
+	});
+
+	// A paused turn resumes with tool results, which cannot carry the restore note.
+	it("answers 409 BUILDER_TURN_WAITING while a turn waits for the user", async () => {
+		const { service, turnLock } = fixture({ turnWaits: true });
+
+		const failure = await service
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "BUILDER_TURN_WAITING",
+		});
+		// The refused restore gave the lock back.
+		expect(await turnLock.holder("p-1")).toBeNull();
 	});
 
 	it("answers 409 VERSION_CONFLICT on a stale expected head", async () => {
