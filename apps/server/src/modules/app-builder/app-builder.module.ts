@@ -33,6 +33,7 @@ import { MobileBuildsService } from "./application/services/mobile-builds.servic
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
 import { PublishService } from "./application/services/publish.service";
+import { SandboxWakeService } from "./application/services/sandbox-wake.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -75,6 +76,7 @@ import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-buil
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
@@ -111,6 +113,7 @@ import { MobileBuildsController } from "./presentation/http/controllers/mobile-b
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
+import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -165,6 +168,7 @@ export function createCloudSupabaseClient(
 		PreviewTokenController,
 		ProjectSecretsController,
 		PublishController,
+		SandboxController,
 		TurnsController,
 		V2HealthController,
 		VersionsController,
@@ -213,10 +217,13 @@ export function createCloudSupabaseClient(
 		RedisRateLimitGuard,
 		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,
+		SandboxWakeService,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
 		TemplateVersionService,
+		// The sandbox start of a restore and a wake reads the egress hosts here.
+		TurnProjectRepository,
 		TurnsService,
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,

@@ -2,7 +2,9 @@
  * Initializes a fresh sandbox disk from a template archive.
  * `VercelSandboxProvider` calls `apply` when the vendor creates a new
  * sandbox without the template snapshot, and when it builds that snapshot.
- * It calls `contentHash` for the snapshot name. The idle sweep never calls it.
+ * It calls `contentHash` for the snapshot name, and `replaceOldTemplateFiles`
+ * after the repo restore of a new sandbox and before the dev server starts on
+ * a resume. The idle sweep never calls it.
  * Reads the archive from the repo `templates/` folder that WANDIT-168 fills.
  */
 import { createHash } from "node:crypto";
@@ -13,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 import { env } from "@wandit/env/server";
+import { getErrorMessage } from "@wandit/observability/error";
 import { Sentry } from "@wandit/observability/node";
 
 import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
@@ -20,6 +23,7 @@ import type {
 	SandboxHandle,
 	SandboxLogger,
 } from "../../domain/ports/sandbox-provider";
+import { TEMPLATE_PROFILES } from "./template-profiles";
 
 /** Nest token for the `TemplateInit` implementation. */
 export const TEMPLATE_INIT = Symbol.for("app-builder.template-init");
@@ -38,6 +42,15 @@ export interface TemplateInit {
 		framework: string;
 		templateVersion: string;
 	}): Promise<string>;
+	/**
+	 * Writes the archive copy over each file of `OLD_TEMPLATE_FILES` that is
+	 * byte-equal to an old template version. Any other content stays.
+	 * Never throws: a failure only logs, and the next start tries again.
+	 */
+	replaceOldTemplateFiles(
+		sandbox: SandboxHandle,
+		options: { framework: string; templateVersion: string },
+	): Promise<void>;
 }
 
 /**
@@ -87,14 +100,66 @@ const TEMPLATE_COMMIT_DATE = "2000-01-01T00:00:00Z";
 /** Size of one tar header and of one content block. */
 const TAR_BLOCK_BYTES = 512;
 
+/** One template file that an old project repo can bring back. */
+type OldTemplateFile = {
+	/** Path from the project root. The archive uses the same path. */
+	path: string;
+	/** The `projects.framework` values whose template ships the file. */
+	frameworks: readonly string[];
+	/** SHA-256 hex of each old version, from the git history of `templates/`. */
+	oldSha256: readonly string[];
+};
+
 /**
- * SHA-256 hex of the regular files and symlinks in a `.tar.gz`, by path,
- * mode, and content. It ignores file times and entry order, which change
- * with each checkout that packs the same files.
+ * Template files with a known bad old version. Each project repo commits the
+ * template, so a restore or a resume brings the old file back.
  */
-export function hashTemplateArchive(archive: Uint8Array): string {
+const OLD_TEMPLATE_FILES: readonly OldTemplateFile[] = [
+	{
+		// `server.ws.host` sends the raw sandbox host to the browser, so HMR
+		// skips the preview proxy (WANDIT-281).
+		path: "vite.config.ts",
+		frameworks: [TEMPLATE_PROFILES.web.framework],
+		oldSha256: [
+			// templates/web-app/vite.config.ts at commit 2426225b.
+			"d4c38320ad9d77e2cb31adf75926e2a08f23a81007c81c6e9267faae3735b776",
+		],
+	},
+	{
+		// A relative hook path fails open after `cd src` (WANDIT-180).
+		path: ".claude/settings.json",
+		frameworks: [
+			TEMPLATE_PROFILES.web.framework,
+			TEMPLATE_PROFILES.mobile.framework,
+		],
+		oldSha256: [
+			// web-app at commit 2426225b.
+			"3a6541d9af588c5dcbe46aac164f5c8466020ec38cd3a40796f816e62b093212",
+			// web-app at commit 92710d54, mobile-app at commit d9b8d3b9.
+			"ef4b9ac841b7c18865918694971f927bdbf15fd4ef3f4619585d6051038be3af",
+			// web-app and mobile-app at commit c90761e6.
+			"8f303450eb4120f47a883ef7e16c30ca6ba9272b4b4b62572aabe2bc477d55a9",
+		],
+	},
+];
+
+/** One entry of a ustar archive, read from its 512-byte header. */
+type TarEntry = {
+	/** Path in the archive with no leading "./", for example "src/app.tsx". */
+	path: string;
+	/** Octal mode text of the header, for example "000644". */
+	mode: string;
+	/** Type flag: "0" or "" is a regular file, "2" a symlink, "5" a folder. */
+	type: string;
+	/** Bytes after the header. Only a regular file holds project bytes. */
+	content: Uint8Array;
+	/** Target of a symlink. A regular file has an empty value. */
+	linkTarget: string;
+};
+
+/** The entries of a `.tar.gz` in archive order. */
+function* tarEntries(archive: Uint8Array): Generator<TarEntry> {
 	const tar = gunzipSync(archive);
-	const entries: string[] = [];
 	let offset = 0;
 	// A zero block ends the archive; a truncated archive ends the loop too.
 	while (offset + TAR_BLOCK_BYTES <= tar.length) {
@@ -103,23 +168,52 @@ export function hashTemplateArchive(archive: Uint8Array): string {
 			break;
 		}
 		// Header fields of the ustar format: offsets and lengths in bytes.
-		const name = tarText(header, 0, 100);
-		const mode = tarText(header, 100, 8);
 		const size = Number.parseInt(tarText(header, 124, 12) || "0", 8);
-		const type = tarText(header, 156, 1);
-		const path = posix.join(tarText(header, 345, 155), name);
 		const contentStart = offset + TAR_BLOCK_BYTES;
-		// "0" and an empty type are regular files, "2" is a symlink. A folder
-		// or a pax header holds no project file.
-		if (type === "0" || type === "") {
-			const content = tar.subarray(contentStart, contentStart + size);
-			entries.push(`${path}\0${mode}\0${sha256Hex(content)}`);
-		} else if (type === "2") {
-			entries.push(`${path}\0${mode}\0->${tarText(header, 157, 100)}`);
-		}
+		yield {
+			content: tar.subarray(contentStart, contentStart + size),
+			linkTarget: tarText(header, 157, 100),
+			mode: tarText(header, 100, 8),
+			path: posix.join(tarText(header, 345, 155), tarText(header, 0, 100)),
+			type: tarText(header, 156, 1),
+		};
 		offset = contentStart + Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;
 	}
+}
+
+/** True for a regular file. A folder or a pax header holds no project file. */
+function isRegularFile(entry: TarEntry): boolean {
+	return entry.type === "0" || entry.type === "";
+}
+
+/**
+ * SHA-256 hex of the regular files and symlinks in a `.tar.gz`, by path,
+ * mode, and content. It ignores file times and entry order, which change
+ * with each checkout that packs the same files.
+ */
+export function hashTemplateArchive(archive: Uint8Array): string {
+	const entries: string[] = [];
+	for (const entry of tarEntries(archive)) {
+		if (isRegularFile(entry)) {
+			entries.push(`${entry.path}\0${entry.mode}\0${sha256Hex(entry.content)}`);
+		} else if (entry.type === "2") {
+			entries.push(`${entry.path}\0${entry.mode}\0->${entry.linkTarget}`);
+		}
+	}
 	return sha256Hex(entries.sort().join("\n"));
+}
+
+/** Bytes of the regular file at `path` in a `.tar.gz`, or null when absent. */
+function archiveFileContent(
+	archive: Uint8Array,
+	path: string,
+): Uint8Array | null {
+	for (const entry of tarEntries(archive)) {
+		if (isRegularFile(entry) && entry.path === path) {
+			return entry.content;
+		}
+	}
+	return null;
 }
 
 /** One NUL-padded text field of a tar header, trimmed. */
@@ -216,6 +310,53 @@ export class ArchiveTemplateInit implements TemplateInit {
 		templateVersion: string;
 	}): Promise<string> {
 		return hashTemplateArchive(await this.readArchive(options));
+	}
+
+	async replaceOldTemplateFiles(
+		sandbox: SandboxHandle,
+		options: { framework: string; templateVersion: string },
+	): Promise<void> {
+		for (const file of OLD_TEMPLATE_FILES) {
+			// A file of another template makes no vendor call.
+			if (!file.frameworks.includes(options.framework)) {
+				continue;
+			}
+			const path = posix.join(sandbox.workspaceDir, file.path);
+			try {
+				const current = await sandbox.readFile(path);
+				// A missing file or other bytes are the work of the agent or the user.
+				if (current === null || !file.oldSha256.includes(sha256Hex(current))) {
+					continue;
+				}
+				const replacement = archiveFileContent(
+					await this.readArchive(options),
+					file.path,
+				);
+				// An archive packed before the fix holds an old file too.
+				if (
+					replacement === null ||
+					file.oldSha256.includes(sha256Hex(replacement))
+				) {
+					throw new Error(
+						`Template ${options.templateVersion} has no current ${file.path}`,
+					);
+				}
+				await sandbox.writeFiles([{ content: replacement, path }]);
+				this.logger.info("sandbox.template-init.old-file-replaced", {
+					path: file.path,
+					projectId: sandbox.projectId,
+					sandboxId: sandbox.providerSandboxId,
+				});
+			} catch (error) {
+				// The sandbox start goes on with the old file; the next start tries again.
+				this.logger.warn("sandbox.template-init.old-file-replace-failed", {
+					error: getErrorMessage(error),
+					path: file.path,
+					projectId: sandbox.projectId,
+					sandboxId: sandbox.providerSandboxId,
+				});
+			}
+		}
 	}
 
 	/** The archive bytes; throws `TemplateArchiveMissingError` with the path. */

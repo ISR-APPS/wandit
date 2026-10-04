@@ -1,6 +1,7 @@
 import { type ArgumentsHost, ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
+import { BackendLimitReachedError } from "../../modules/app-builder/domain/errors/backend-limit-reached.error";
 import { InsufficientCreditsError } from "../../modules/credits/domain/errors/insufficient-credits.error";
 import { GenerationPaymentRequiredError } from "../../modules/generation/domain/errors/generation-payment-required.error";
 import { ApiExceptionFilter } from "./api-exception.filter";
@@ -96,6 +97,36 @@ describe("ApiExceptionFilter project-cap details", () => {
 			}),
 		});
 		expect(send).toHaveBeenCalledWith({
+			error: expect.not.objectContaining({ details: expect.anything() }),
+		});
+	});
+});
+
+describe("ApiExceptionFilter backend-limit details", () => {
+	it("emits plan and limit for BACKEND_LIMIT_REACHED and drops the same body on another 403", () => {
+		const limitReached = setupHost();
+		new ApiExceptionFilter().catch(
+			new BackendLimitReachedError("pro", 1),
+			limitReached.host,
+		);
+		expect(limitReached.send).toHaveBeenCalledWith({
+			error: expect.objectContaining({
+				code: "BACKEND_LIMIT_REACHED",
+				details: { plan: "pro", limit: 1 },
+				statusCode: 403,
+			}),
+		});
+
+		const otherForbidden = setupHost();
+		new ApiExceptionFilter().catch(
+			new ForbiddenException({
+				code: "PROJECT_NOT_OWNED",
+				details: { plan: "pro", limit: 1 },
+				message: "x",
+			}),
+			otherForbidden.host,
+		);
+		expect(otherForbidden.send).toHaveBeenCalledWith({
 			error: expect.not.objectContaining({ details: expect.anything() }),
 		});
 	});

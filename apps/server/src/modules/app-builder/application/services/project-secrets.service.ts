@@ -1,8 +1,10 @@
 /**
  * Write-only store of the secret values of one V2 app project (WANDIT-185).
  * `project-secrets.controller.ts` calls `set`, `remove`, and `listNames`;
- * only server code calls `readValue` (the provisioning task of WANDIT-183,
- * the `set_secret` tool of WANDIT-186, the connectors of WANDIT-189).
+ * only server code reads a value: `readValue` for `user` rows (the
+ * `set_secret` tool of WANDIT-186, the backend push, the publish bindings)
+ * and `readSystemValue` for the Supabase keys that the provisioning task
+ * of WANDIT-183 stores.
  * Encrypts through `secret-crypto.ts`, writes through
  * `ProjectSecretsRepository`, and records every write in `audit_events`.
  */
@@ -32,14 +34,24 @@ import {
 	type SecretKeyRing,
 } from "../../infrastructure/secrets/secret-crypto";
 
+/**
+ * Name of the `system` row with the service-role key of the app's Supabase
+ * project. The `SUPABASE_` prefix keeps the `set_secret` tool from writing it.
+ */
+export const SUPABASE_SERVICE_ROLE_KEY_SECRET = "SUPABASE_SERVICE_ROLE_KEY";
+
+/** Name of the `system` row with the Postgres password of the Supabase project create call. */
+export const SUPABASE_DB_PASSWORD_SECRET = "SUPABASE_DB_PASSWORD";
+
 /** Who performs a write. The audit row and the owner columns read it. */
 export type SecretActor = {
 	/**
 	 * Membership proof of the caller: `set` and `remove` answer 404 when the
-	 * project is outside it. A task builds it from the `projects` row.
+	 * project is outside it. A task builds it from the `projects` row; the
+	 * provision task builds it from the `app_backends` row.
 	 */
 	scope: ProjectScope;
-	/** Client IP of the HTTP request, for the audit row; null when a task writes. */
+	/** Client IP of the HTTP request, for the audit row; null for a task write and for a `system` write from a Cloud route. */
 	ip: string | null;
 };
 
@@ -63,9 +75,9 @@ export class ProjectSecretsService {
 	) {}
 
 	/**
-	 * Encrypts `value` and inserts or replaces the row. A `user` write over
-	 * a `system` row answers 409. Writes one `secret.set` audit row; the
-	 * value itself is never logged or stored in the clear.
+	 * Encrypts `value` and inserts or replaces the row, and answers its id.
+	 * A `user` write over a `system` row answers 409. Writes one `secret.set`
+	 * audit row; the value itself is never logged or stored in the clear.
 	 */
 	async set(
 		projectId: string,
@@ -73,7 +85,7 @@ export class ProjectSecretsService {
 		value: string,
 		kind: ProjectSecretKind,
 		actor: SecretActor,
-	): Promise<void> {
+	): Promise<string> {
 		await this.requireV2AppProject(actor.scope, projectId);
 		const encrypted = encryptSecret(this.keyRing(), { name, projectId }, value);
 		const owner = projectOwnerColumns(actor.scope);
@@ -104,6 +116,7 @@ export class ProjectSecretsService {
 			targetId: rowId,
 			targetType: "project_secret",
 		});
+		return rowId;
 	}
 
 	/**
@@ -156,12 +169,36 @@ export class ProjectSecretsService {
 	}
 
 	/**
-	 * The plain value of one secret, or null when the project has no row
-	 * of that name. Server code only: no controller may call it. Throws
-	 * when the row cannot decrypt (a missing key version or a moved row).
+	 * The plain value of one `user` secret, or null when the project has no
+	 * user row of that name. Server code only: no controller may call it.
+	 * Throws when the row cannot decrypt (a missing key version or a moved row).
 	 */
 	async readValue(projectId: string, name: string): Promise<string | null> {
-		const row = await this.secrets.findCipherByName(projectId, name);
+		// Security: the callers (`set_secret`, the backend push, the publish
+		// bindings) hand the value to the app. A `system` row never goes there.
+		const row = await this.secrets.findCipherByName(projectId, name, "user");
+		if (row === null) {
+			return null;
+		}
+
+		return decryptSecret(
+			this.keyRing(),
+			{ name, projectId },
+			row.ciphertext,
+			row.keyVersion,
+		);
+	}
+
+	/**
+	 * Like `readValue`, but only a `system` row answers. Security: a `user`
+	 * row with the same name, from before the `SUPABASE_` name rule, never
+	 * acts as a platform key. Server code only.
+	 */
+	async readSystemValue(
+		projectId: string,
+		name: string,
+	): Promise<string | null> {
+		const row = await this.secrets.findCipherByName(projectId, name, "system");
 		if (row === null) {
 			return null;
 		}

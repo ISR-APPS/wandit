@@ -24,6 +24,10 @@ const PARENT = "b".repeat(40);
 const STORED_HEAD = "d".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
+// WANDIT-282: every git call through `mustRunGit` and the push turn off
+// hooks, credential helpers, and fsmonitor. Literal, so a weaker list fails.
+const SAFE =
+	"git -c core.hooksPath=/dev/null -c credential.helper= -c core.fsmonitor=false";
 
 const INPUT: CommitTurnInput = {
 	projectId: "p-1",
@@ -242,7 +246,7 @@ describe("commitTurnUnlessClean", () => {
 
 describe("commitTurn", () => {
 	it("runs the git commands in order and writes row, patches, and head", async () => {
-		const { appCommits, deps, headWrites, inserted, provider, puts } =
+		const { appCommits, deps, gitStore, headWrites, inserted, provider, puts } =
 			fixture();
 		scriptCommit(provider);
 		const sandbox = await fixtureSandbox(provider);
@@ -250,20 +254,27 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		const execs = execLog(provider);
-		expect(execs[0]).toBe("git add -A");
+		expect(execs[0]).toBe(`${SAFE} add -A`);
 		expect(execs[1]).toBe("git log -1 --format=%B");
 		// The fake joins command and args with a space; a real exec passes
-		// the message as one argv entry.
+		// the message as one argv entry. Hooks stay off on the commit.
 		expect(execs[2]).toBe(
-			"git -c user.name=wandit -c user.email=builder@wandit.dev commit --allow-empty -m Add the hero section -m Wandit-Message: msg-1 -m Wandit-Chat: chat-1",
+			`${SAFE} -c user.name=wandit -c user.email=builder@wandit.dev commit --no-verify --allow-empty -m Add the hero section -m Wandit-Message: msg-1 -m Wandit-Chat: chat-1`,
 		);
-		expect(execs[3]).toBe("git tag -f msg/msg-1");
-		expect(execs[4]).toBe("git rev-parse HEAD");
+		expect(execs[3]).toBe(`${SAFE} tag -f msg/msg-1`);
+		expect(execs[4]).toBe(`${SAFE} rev-parse HEAD`);
 		expect(execs[5]).toBe("git rev-parse HEAD~1");
-		expect(execs[6]).toBe("git show --numstat --format= HEAD");
-		expect(execs[7]).toBe("git show --format= HEAD");
+		expect(execs[6]).toBe(`${SAFE} show --numstat --format= HEAD`);
+		expect(execs[7]).toBe(`${SAFE} show --format= HEAD`);
+		// The push carries the JWT: no hook or credential helper may run.
 		expect(execs[8]).toBe(
-			`git push https://t:${JWT}@org.code.storage/wandit/p-1.git HEAD:main`,
+			`${SAFE} push --no-verify https://t:${JWT}@org.code.storage/wandit/p-1.git HEAD:main`,
+		);
+		// The push uses the "push-main" token, the one with the refs claim.
+		expect(gitStore.issueCredential).toHaveBeenCalledWith(
+			"p-1",
+			expect.any(Number),
+			"push-main",
 		);
 
 		expect(result.sha).toBe(SHA);
@@ -312,8 +323,8 @@ describe("commitTurn", () => {
 
 		const execs = execLog(provider);
 		// `git commit` is skipped; `tag -f` still re-points the tag.
-		expect(execs.filter((line) => line.includes("git -c"))).toHaveLength(0);
-		expect(execs[2]).toBe("git tag -f msg/msg-1");
+		expect(execs.filter((line) => line.includes(" commit "))).toHaveLength(0);
+		expect(execs[2]).toBe(`${SAFE} tag -f msg/msg-1`);
 	});
 
 	it("records a null parent on the root commit", async () => {
@@ -339,6 +350,8 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		expect(gitStore.ensureRepository).toHaveBeenCalledOnce();
+		// The ensure retries can outlast the push TTL: the retry mints a new JWT.
+		expect(gitStore.issueCredential).toHaveBeenCalledTimes(2);
 		expect(result.sha).toBe(SHA);
 	});
 
@@ -500,7 +513,7 @@ describe("commitTurn", () => {
 		});
 
 		const commitLine = execLog(provider).find((line) =>
-			line.includes("git -c user.name=wandit"),
+			line.includes(" commit "),
 		);
 		expect(commitLine).toContain("Wandit-Message: restore-9");
 		expect(commitLine).toContain(`Wandit-Restore-From: ${PARENT}`);

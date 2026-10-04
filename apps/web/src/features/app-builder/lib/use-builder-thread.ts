@@ -10,23 +10,23 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type {
 	ChatMessage,
+	PreviewTarget,
+	TurnEstimate,
 	TurnQuestionAnswer,
 	TurnStreamPhase,
 } from "@wandit/contracts";
+import type { FileUIPart } from "ai";
 import { useMemo } from "react";
 
 import { useChatByProjectQuery } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { chatHistoryQuery } from "../api/app-builder.queries";
+import type { SendBuilderMessageInput } from "../api/app-builder.services";
 import type { BuilderMessage } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
 import { livePhaseOf, toBuilderMessages } from "./turn-parts";
-import {
-	type BuilderChatDeps,
-	type TurnEstimate,
-	useBuilderChat,
-} from "./use-builder-chat";
+import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
 
 /** The chat state the app-builder page binds to the pane. */
 export type BuilderThreadState = {
@@ -42,8 +42,11 @@ export type BuilderThreadState = {
 	 * worked. Null when the reply already holds the error card.
 	 */
 	errorText: string | null;
-	/** Sends one turn with this text. Dropped while a turn runs or the chat id is unknown. */
-	send: (text: string) => void;
+	/**
+	 * Sends one turn with this text, these uploaded files, and the elements
+	 * picked in the preview. Dropped while a turn runs or the chat id is unknown.
+	 */
+	send: (input: SendBuilderMessageInput, targets?: PreviewTarget[]) => void;
 	/** Answers an open approval card through a turn with an empty message. */
 	decideApproval: (approvalId: string, approved: boolean) => void;
 	/**
@@ -53,6 +56,8 @@ export type BuilderThreadState = {
 	answerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
+		/** Files of a typed message that also answers a skipped round. */
+		files?: FileUIPart[];
 	}) => void;
 	/** Aborts the stream, then posts the turn cancel. Rejects with ApiClientError. */
 	cancel: () => Promise<void>;
@@ -70,6 +75,11 @@ export type BuilderThreadState = {
 	isTurnRunning: boolean;
 	/** Last `data-turn-status` phase of the running turn. Null before its first status part and while no turn runs. */
 	phase: TurnStreamPhase | null;
+	/**
+	 * Id of the reply that streams now, or null while no turn runs or before
+	 * the reply starts. The production chat shows this reply as one status line.
+	 */
+	liveMessageId: string | null;
 	/** True when the last reply holds an error card. The preview then says that the app did not start. */
 	lastTurnFailed: boolean;
 	/**
@@ -214,16 +224,21 @@ export function useBuilderThread(
 					chat.error ?? byProjectQuery.error ?? historyQuery.error ?? undefined,
 					t,
 				),
-		send: (text) => chat.send({ text }),
+		send: ({ text, files }, targets) => chat.send({ text, files, targets }),
 		decideApproval: (approvalId, approved) =>
 			chat.send({ text: "", approval: { approvalId, approved } }),
-		answerQuestions: ({ message, answers }) =>
-			chat.send({ text: message, answers }),
+		answerQuestions: ({ message, answers, files }) =>
+			chat.send({ text: message, answers, files }),
 		cancel: chat.cancel,
 		isReady: chatId !== undefined && isHistorySettled,
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
 		// The phase lives in the reply that streams now, the last message.
 		phase: livePhaseOf(chat.messages, chat.isSending),
+		// toBuilderMessages keeps the ids, so this id also finds the card message.
+		liveMessageId:
+			chat.isSending && chat.messages.at(-1)?.role === "assistant"
+				? (chat.messages.at(-1)?.id ?? null)
+				: null,
 		lastTurnFailed: replyHoldsError,
 		// LIMIT: a first turn that failed before the sandbox existed makes the
 		// next turn show the resume copy. Upgrade: a sandbox status from the API.

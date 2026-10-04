@@ -233,7 +233,7 @@ describe("useBuilderThread", () => {
 		await waitForResume(fake, result);
 
 		act(() => {
-			result.current.send("Build the dashboard");
+			result.current.send({ text: "Build the dashboard", files: [] });
 		});
 
 		await waitFor(() =>
@@ -280,7 +280,7 @@ describe("useBuilderThread", () => {
 		await waitForResume(fake, result);
 
 		act(() => {
-			result.current.send("Build the dashboard");
+			result.current.send({ text: "Build the dashboard", files: [] });
 		});
 
 		await waitFor(() =>
@@ -313,7 +313,7 @@ describe("useBuilderThread", () => {
 		await waitForResume(fake, result);
 
 		act(() => {
-			result.current.send("Build the dashboard");
+			result.current.send({ text: "Build the dashboard", files: [] });
 		});
 
 		await waitFor(() => expect(result.current.isSending).toBe(true));
@@ -339,7 +339,7 @@ describe("useBuilderThread", () => {
 		await waitForResume(fake, result);
 
 		act(() => {
-			result.current.send("Build the dashboard");
+			result.current.send({ text: "Build the dashboard", files: [] });
 		});
 		await waitFor(() => expect(result.current.isSending).toBe(true));
 

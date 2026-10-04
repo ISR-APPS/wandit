@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
@@ -10,17 +11,23 @@ import { Composer, type ComposerProps } from "./composer";
 function renderComposer(props: Partial<ComposerProps> = {}) {
 	const onSend = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
+	// The dictation hook refreshes the credits, so it needs a query client.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(Composer, {
-			turnEstimateCredits: 6,
-			focusLabel: "Pass screen",
-			isSending: false,
-			onSend,
-			...props,
-		}),
+		children: createElement(
+			QueryClientProvider,
+			{ client: new QueryClient() },
+			createElement(Composer, {
+				turnEstimateCredits: 6,
+				targets: [],
+				onRemoveTarget: vi.fn(),
+				isSending: false,
+				onSend,
+				...props,
+			}),
+		),
 	};
 	render(createElement(I18nProvider, providerProps));
 	return { onSend, textarea: screen.getByRole<HTMLTextAreaElement>("textbox") };
@@ -34,12 +41,12 @@ function typeAndEnter(textarea: HTMLTextAreaElement, value: string) {
 afterEach(cleanup);
 
 describe("Composer", () => {
-	it("sends the trimmed draft in build mode on Enter and clears it", () => {
+	it("sends the trimmed draft on Enter and clears it", () => {
 		const { onSend, textarea } = renderComposer();
 		typeAndEnter(textarea, "  Add a login page  ");
 		expect(onSend).toHaveBeenCalledWith({
 			text: "Add a login page",
-			mode: "build",
+			files: [],
 		});
 		expect(textarea.value).toBe("");
 	});
@@ -61,45 +68,12 @@ describe("Composer", () => {
 		expect(onSend).not.toHaveBeenCalled();
 	});
 
-	it("sends in plan mode after Plan is picked in the menu", () => {
-		const { onSend, textarea } = renderComposer();
-		fireEvent.keyDown(screen.getByRole("button", { name: "Composer mode" }), {
-			key: "Enter",
-		});
-		fireEvent.click(screen.getByRole("menuitem", { name: "Plan" }));
-		expect(
-			screen.getByRole("button", { name: "Composer mode" }).textContent,
-		).toBe("Plan");
-		typeAndEnter(textarea, "Explain the QR pass");
-		expect(onSend).toHaveBeenCalledWith({
-			text: "Explain the QR pass",
-			mode: "plan",
-		});
-	});
-
 	it("locks the textarea and the send button while a turn runs", () => {
 		const { textarea } = renderComposer({ isSending: true });
 		expect(textarea.hasAttribute("disabled")).toBe(true);
 		expect(
 			screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
 		).toBe(true);
-	});
-
-	it("opens the add context menu with three items", () => {
-		renderComposer();
-		fireEvent.keyDown(screen.getByRole("button", { name: "Add context" }), {
-			key: "Enter",
-		});
-		expect(
-			screen.getAllByRole("menuitem").map((item) => item.textContent),
-		).toEqual(["Attach a file", "Add an image", "Reference a screen"]);
-	});
-
-	it("shows the focus chip and removes it on the X button", () => {
-		renderComposer();
-		expect(screen.getByText("Working on Pass screen")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-		expect(screen.queryByText("Working on Pass screen")).toBeNull();
 	});
 
 	it("renders the top slot above the textarea and reports each draft change", () => {

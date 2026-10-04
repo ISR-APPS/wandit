@@ -3,7 +3,7 @@
  * `BuilderHostToolRegistry` builds it per turn. It reads
  * `supabase/functions/<slug>/` from the sandbox, deploys the files through
  * `SupabaseManagementClient.deployFunction`, writes an audit row, and
- * answers the public function URL.
+ * answers the slug and the public function URL.
  */
 import { posix } from "node:path";
 
@@ -136,6 +136,7 @@ export function createDeployFunctionTool(
 						targetType: "app_backend",
 					});
 					return {
+						slug,
 						status: "deployed",
 						url: `${supabaseProjectUrl(backend.ref)}/functions/v1/${slug}`,
 					};

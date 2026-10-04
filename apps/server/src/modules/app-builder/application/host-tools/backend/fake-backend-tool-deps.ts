@@ -164,6 +164,7 @@ export async function createBackendToolFixture(
 			set: async (_projectId, name, value, kind, actor) => {
 				secretSets.push({ actor, kind, name, value });
 				stored.set(name, value);
+				return `secret-${name}`;
 			},
 		},
 		secretsRepo: {

@@ -49,9 +49,14 @@ call:
   `SandboxCreateOptions.backendUrl`. The builder-turn runtime passes that
   value only while the `app_backends` row is `active`. `start` rebuilds the
   policy on each turn and pushes it when its hash changes. So a backend
-  that becomes active gets its host on the next turn, with no restart. In
-  strict mode, an invalid or wildcard backend host throws. A
-  `backendUrl` that is not a URL gives no backend host.
+  that becomes active gets its host on the next turn, with no restart. A
+  backend that becomes active during a turn with a fresh harness session
+  gets its host within 60 s: the keep-alive tick of the turn calls
+  `allowHost` through the session, which keeps the proxy run-token rule.
+  The provisioning task never pushes the policy, because a push from that
+  process deletes this rule. In strict mode, an invalid or wildcard
+  backend host throws. A `backendUrl` that is not a URL gives no backend
+  host.
 
 Two leak paths stay open (WANDIT-283):
 
@@ -149,10 +154,17 @@ On approval the tool does four steps:
    section 2).
 2. It appends the host to `projects.networkAllowedHosts` with a deduping
    write, so a repeated grant is a no-op and the next sandbox keeps it.
-3. It calls `SandboxHandle.allowHost`, which merges the host into the
-   live allow list and applies it, no restart.
-4. It writes an `audit_events` row with the action `network.host_allowed`
+3. It writes an `audit_events` row with the action `network.host_allowed`
    (the action name comes from WANDIT-181).
+4. It calls `SandboxHandle.allowHost`, which merges the host into the
+   live allow list and applies it, no restart.
+
+Steps 2 to 4 run in one Postgres transaction. The live allow has no undo,
+so it runs last. When any step fails, both rows roll back and the agent
+gets `denied`, so the next sandbox does not allow the host. If the commit
+fails after `allowHost`, the host stays live in the current sandbox until it
+stops, with no stored host and no audit row (`LIMIT` in
+`request-network-host.host-tool.ts`).
 
 `allowHost` routes through the live harness session, not the raw vendor
 call. The session holds the run-token transformation for the proxy host.

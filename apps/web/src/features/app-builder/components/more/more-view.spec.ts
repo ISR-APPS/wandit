@@ -8,11 +8,21 @@ import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cloudKeys } from "../../api/cloud.queries";
+import type { AppProject } from "../../api/dto";
 import type { ProjectPanel } from "../../lib/constants";
-import { MOCK_APP_PROJECTS } from "../../lib/mock-projects";
 import { MoreView } from "./more-view";
 
-const PROJECT = { ...MOCK_APP_PROJECTS[0], id: crypto.randomUUID() };
+const PROJECT: AppProject = {
+	id: crypto.randomUUID(),
+	name: "Nadi Fitness",
+	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
+	engine: "v2_app",
+	versionNumber: 4,
+	unpublishedChanges: 3,
+	hasCodeChanges: true,
+};
 
 const ACTIVE_BACKEND: CloudBackendResponse = {
 	status: "active",

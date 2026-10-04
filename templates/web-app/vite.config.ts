@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { wanditSource } from "./vite-plugins/wandit-source.ts";
 
 // The sandbox sets this variable to the public preview hostname.
 const previewHost = process.env.WANDIT_PREVIEW_HOST;
@@ -25,6 +26,7 @@ export default defineConfig({
 		ws: previewHost ? { clientPort: 443, protocol: "wss" } : undefined,
 	},
 	plugins: [
+		wanditSource(),
 		cloudflare({ viteEnvironment: { name: "ssr" } }),
 		tanstackStart({
 			// Public pages are prerendered at build time. Auth pages stay dynamic.

@@ -10,6 +10,7 @@ import {
 	paginatedResultSchema,
 	paginationQuerySchema,
 } from "../http/pagination";
+import { billingPlanIdSchema } from "../v1/billing";
 import { isoDateSchema, isoDateTimeSchema } from "../v1/shared/primitives";
 
 // ---------------------------------------------------------------------------
@@ -46,12 +47,27 @@ export const cloudBackendResponseSchema = z.object({
 	ref: z.string().nullable(),
 	/** Supabase region of the project, for example "eu-west-3". */
 	region: z.string().nullable(),
-	/** Machine failure code of the last failed provisioning run; null while healthy. */
+	/** Machine failure code of the last failed provisioning run or restore; null while healthy. */
 	failureCode: z.string().nullable(),
 });
 
 /** TypeScript backend answer. */
 export type CloudBackendResponse = z.infer<typeof cloudBackendResponseSchema>;
+
+/**
+ * `details` of the 403 `BACKEND_LIMIT_REACHED` that `POST cloud/backend`
+ * answers when the plan of the owner has no free backend. The API exception
+ * filter forwards it, and the Cloud tab shows the plan and the limit.
+ */
+export const backendLimitDetailsSchema = z.object({
+	/** The plan of the owner that pays for the backend; also `starter` for an owner without a subscription. */
+	plan: billingPlanIdSchema,
+	/** Backends the plan allows. 0 means that the plan has no backend. */
+	limit: z.int().nonnegative(),
+});
+
+/** Plan and limit of a 403 `BACKEND_LIMIT_REACHED`; the web reads them only after `safeParse`. */
+export type BackendLimitDetails = z.infer<typeof backendLimitDetailsSchema>;
 
 // ---------------------------------------------------------------------------
 // Database: tables, rows, SQL console

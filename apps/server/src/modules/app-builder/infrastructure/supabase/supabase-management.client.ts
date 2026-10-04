@@ -25,6 +25,7 @@ import {
 	supabaseErrorBodySchema,
 	supabaseFunctionsResponseSchema,
 	supabaseLogsResponseSchema,
+	supabaseOrganizationProjectsResponseSchema,
 	supabaseProjectResponseSchema,
 	supabaseSignedUrlsResponseSchema,
 	supabaseStorageObjectsResponseSchema,
@@ -183,8 +184,9 @@ type RequestPlan<T> = {
 	/** Fetch timeout in milliseconds; default `REQUEST_TIMEOUT_MS`. */
 	timeoutMs?: number;
 	/**
-	 * True for a SQL write: one fetch only. After a timeout or a 5xx the
-	 * upstream can already hold the commit, and a retry would write twice.
+	 * True for a SQL write or a project create: no retry after a timeout or
+	 * a 5xx, because the upstream can already hold the commit and a retry
+	 * would write twice. A 429 still retries: the upstream ran nothing.
 	 */
 	singleAttempt?: boolean;
 };
@@ -204,7 +206,9 @@ export class SupabaseManagementClient {
 
 	/**
 	 * Creates the hidden Supabase project `wandit-<projectId>` on the org
-	 * bucket. Answers the new ref and the deprecated `organization_id`.
+	 * bucket. Answers the new ref and the deprecated `organization_id`. No
+	 * retry after a timeout or a 5xx: a lost answer can hide a created
+	 * project, and the next run adopts it with `findLiveProjectRef`.
 	 */
 	async createProject(input: {
 		/** `projects.id`; the Supabase project is named `wandit-<projectId>`. */
@@ -229,8 +233,34 @@ export class SupabaseManagementClient {
 				desired_instance_size: input.instanceSize,
 			},
 			schema: supabaseCreateProjectResponseSchema,
+			singleAttempt: true,
 		});
 		return { ref: project.ref, orgId: project.organization_id };
+	}
+
+	/**
+	 * The ref of a live project named `wandit-<projectId>`, or null. A create
+	 * call whose answer was lost leaves such a project on no row; the
+	 * provision run adopts it instead of a second paid project. A removed,
+	 * going-down, or failed project does not count. The name holds the
+	 * project uuid, so it is unique to the wandit project.
+	 */
+	async findLiveProjectRef(projectId: string): Promise<string | null> {
+		const name = `wandit-${projectId}`;
+		const answer = await this.request({
+			method: "GET",
+			path: `/organizations/${encodeURIComponent(this.deps.organizationSlug)}/projects?search=${encodeURIComponent(name)}`,
+			bucket: supabaseRateLimitKeys.org(),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseOrganizationProjectsResponseSchema,
+		});
+		// `search` matches a part of the name, so the name check is exact here.
+		const live = answer.projects.find(
+			(project) =>
+				project.name === name &&
+				!["REMOVED", "GOING_DOWN", "INIT_FAILED"].includes(project.status),
+		);
+		return live?.ref ?? null;
 	}
 
 	/** Reads the lifecycle status and the Postgres host of one project. */
@@ -274,7 +304,8 @@ export class SupabaseManagementClient {
 	/**
 	 * Reads the service-role key with `reveal=true`: the legacy
 	 * `service_role` entry, else the first `secret` key. Throws when none
-	 * carries a key. The key never leaves the API process and is never logged.
+	 * carries a key. The key is never logged and never reaches the browser;
+	 * callers store it only encrypted in `project_secrets`.
 	 */
 	async getServiceRoleKey(scope: BackendRef): Promise<string> {
 		const keys = await this.readApiKeys(scope);
@@ -714,14 +745,13 @@ export class SupabaseManagementClient {
 	 * A 429 waits `X-RateLimit-Reset` (5 s when absent); a 5xx or a thrown
 	 * fetch backs off 1 s, 2 s, 4 s, 8 s. Another 4xx throws at once. The
 	 * interactive form never waits on a bucket and retries once. A
-	 * `singleAttempt` plan gets one fetch.
+	 * `singleAttempt` plan retries only a 429.
 	 */
 	private async request<T>(plan: RequestPlan<T>): Promise<T> {
 		const interactive = this.deps.interactive === true;
-		let maxAttempts = interactive ? INTERACTIVE_MAX_ATTEMPTS : MAX_ATTEMPTS;
-		if (plan.singleAttempt === true) {
-			maxAttempts = 1;
-		}
+		const maxAttempts = interactive ? INTERACTIVE_MAX_ATTEMPTS : MAX_ATTEMPTS;
+		// A single-attempt plan still retries a 429: the upstream ran nothing.
+		const retriesAfterCommit = plan.singleAttempt !== true;
 		// The limiter answers the wait until the bucket's window ends; at
 		// most MAX_RATE_LIMIT_WAITS sleeps, then the call fails.
 		let waitsDone = 0;
@@ -799,11 +829,12 @@ export class SupabaseManagementClient {
 						rateLimitResetMs(response) ?? RATE_LIMIT_FALLBACK_WAIT_MS,
 					);
 				}
-				// A 429 and a 5xx are retryable; another 4xx is a final answer.
-				if (
-					(response.status !== 429 && response.status < 500) ||
-					attempt === maxAttempts - 1
-				) {
+				// A 429 is retryable; a 5xx too, unless the upstream can hold a
+				// commit already. Another 4xx is a final answer.
+				const retryable =
+					response.status === 429 ||
+					(response.status >= 500 && retriesAfterCommit);
+				if (!retryable || attempt === maxAttempts - 1) {
 					throw failure;
 				}
 				const waitMs =
@@ -823,7 +854,7 @@ export class SupabaseManagementClient {
 					null,
 					null,
 				);
-				if (attempt === maxAttempts - 1) {
+				if (!retriesAfterCommit || attempt === maxAttempts - 1) {
 					throw failure;
 				}
 				this.logRetry(null, attempt, plan.path);
@@ -870,6 +901,26 @@ export class SupabaseManagementClient {
 			attempt: String(attempt + 1),
 			path,
 		});
+	}
+}
+
+/**
+ * The status of a stored ref; a 404 answers `REMOVED`, because the project
+ * is gone either way (`deleteProject` reads a 404 the same way). The
+ * provision runtime and the pause sweep read a ref that can be dead. Any
+ * other failure throws.
+ */
+export async function projectStatusOrRemoved(
+	client: Pick<SupabaseManagementClient, "getProject">,
+	scope: BackendRef,
+): Promise<SupabaseProjectStatus> {
+	try {
+		return (await client.getProject(scope)).status;
+	} catch (error) {
+		if (error instanceof SupabaseManagementError && error.status === 404) {
+			return "REMOVED";
+		}
+		throw error;
 	}
 }
 

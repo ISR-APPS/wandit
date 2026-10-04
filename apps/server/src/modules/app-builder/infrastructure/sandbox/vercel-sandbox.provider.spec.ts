@@ -87,6 +87,12 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 				this.events.push("sessionRunCommand");
 				return this.runCommand(params);
 			},
+			extendTimeout: (duration: number) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				return this.extendTimeout(duration);
+			},
 			readFileToBuffer: (file: { path: string }) => {
 				if (this.stopped) {
 					return Promise.reject(new Error("sandbox_stopped"));
@@ -307,6 +313,11 @@ class FakeTemplateInit implements TemplateInit {
 			return Promise.reject(this.failWith);
 		}
 		this.applied.push(options);
+		return Promise.resolve();
+	}
+
+	// template-init.spec.ts covers the replace; the real method never throws.
+	replaceOldTemplateFiles(): Promise<void> {
 		return Promise.resolve();
 	}
 }
@@ -1045,6 +1056,38 @@ describe("VercelSandboxProvider.findRunning", () => {
 	});
 });
 
+describe("VercelSandboxProvider.keepAliveIfRunning", () => {
+	// WANDIT-164: an open preview buys time for a running sandbox only. A
+	// stopped one must stay stopped, or it bills with no dev server.
+	it.each([
+		{ extensions: [600_000], state: "running", stopped: false },
+		{ extensions: [], state: "stopped", stopped: true },
+	])("gives a $state sandbox the extensions $extensions and keeps its state", async ({
+		extensions,
+		stopped,
+	}) => {
+		vi.useFakeTimers();
+		try {
+			const { provider, sdk } = setup();
+			await provider.getOrCreate("p1", OPTIONS);
+			const sandbox = sdk.instances.get("p1");
+			if (sandbox) {
+				sandbox.stopped = stopped;
+			}
+			// Ten minutes in, the deadline sits 20 minutes out.
+			vi.setSystemTime(Date.now() + 10 * 60_000);
+
+			await provider.keepAliveIfRunning("p1");
+
+			expect(sandbox?.extensions).toEqual(extensions);
+			expect(sandbox?.stopped).toBe(stopped);
+			expect(sdk.getOrCreateCalls).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe("VercelSandboxHandle", () => {
 	it("returns the vendor domain for previewUrl", async () => {
 		const { provider } = setup();
@@ -1463,6 +1506,27 @@ describe("VercelSandboxProvider egress policy", () => {
 		expect(policies).toHaveLength(2);
 		expect(policies[1]).toEqual({
 			allow: [...STRICT_ALLOW, "new.example.com"].sort(),
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+	});
+
+	it("handle.allowHost keeps both hosts of two grants that overlap", async () => {
+		const { provider, sdk } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		// The keep-alive tick and the request_network_host tool, at once.
+		await Promise.all([
+			handle.allowHost("first.example.com"),
+			handle.allowHost("second.example.com"),
+		]);
+
+		const policies = sdk.instances.get("p1")?.networkPolicies ?? [];
+		expect(policies.at(-1)).toEqual({
+			allow: [
+				...STRICT_ALLOW,
+				"first.example.com",
+				"second.example.com",
+			].sort(),
 			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
 		});
 	});

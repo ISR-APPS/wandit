@@ -175,10 +175,12 @@ export class ProjectSecretsRepository {
 			.orderBy(asc(projectSecrets.name));
 	}
 
-	/** The ciphertext row of one name, or null. Only `readValue` calls it. */
+	/** The ciphertext row of one name, or null. `readValue` and `readSystemValue` call it. */
 	async findCipherByName(
 		projectId: string,
 		name: string,
+		/** Reads only a row of this kind; omitted reads either kind. */
+		kind?: ProjectSecretKind,
 	): Promise<ProjectSecretCipherRow | null> {
 		const [row] = await this.db
 			.select(CIPHER_COLUMNS)
@@ -187,6 +189,7 @@ export class ProjectSecretsRepository {
 				and(
 					eq(projectSecrets.projectId, projectId),
 					eq(projectSecrets.name, name),
+					kind === undefined ? undefined : eq(projectSecrets.kind, kind),
 				),
 			)
 			.limit(1);

@@ -235,8 +235,8 @@ export async function runDeleteAppProject(
 			backend = "deleting";
 			// A running project costs money during the grace window; a paused
 			// one costs nothing.
-			// LIMIT: a `creating` or `restoring` project runs until the grace
-			// delete. Upgrade: the sweep pauses a `deleting` row that runs.
+			// LIMIT: a `creating`, `restoring`, or `error` project can run until
+			// the grace delete. Upgrade: the sweep pauses a `deleting` row that runs.
 			if (row.status === "active" && row.ref !== null) {
 				if (deps.supabase === null) {
 					deps.logger.warn("app-project.delete.backend-unconfigured", fields);

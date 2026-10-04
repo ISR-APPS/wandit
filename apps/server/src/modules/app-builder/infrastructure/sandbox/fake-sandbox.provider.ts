@@ -107,6 +107,9 @@ class FakeSandboxHandle implements SandboxHandle {
 
 	async allowHost(host: string): Promise<void> {
 		this.provider.calls.push({ detail: host, method: "allowHost" });
+		if (this.provider.allowHostFailure !== null) {
+			throw this.provider.allowHostFailure;
+		}
 		this.provider.allowedHosts.push(host);
 	}
 
@@ -137,8 +140,10 @@ export class FakeSandboxProvider implements SandboxProvider {
 	keepAliveCalls = 0;
 	/** Every policy `handle.setNetworkPolicy` received, across all handles. */
 	readonly networkPolicies: SandboxNetworkPolicy[] = [];
-	/** Every host `handle.allowHost` received, across all handles, in order. */
+	/** Every host `handle.allowHost` applied, across all handles, in order. */
 	readonly allowedHosts: string[] = [];
+	/** When set, `handle.allowHost` rejects with it: a failed live policy update. */
+	allowHostFailure: Error | null = null;
 	/** Every options object `getOrCreate` and `resume` received, in order; specs read `env` from it. */
 	readonly createOptions: SandboxCreateOptions[] = [];
 	/** The options of each `exec`, in the order of the "exec" entries in `calls`. */
@@ -201,6 +206,10 @@ export class FakeSandboxProvider implements SandboxProvider {
 		const state = this.projects.get(projectId);
 		// Like the real provider: a stopped sandbox stays stopped.
 		return state && !state.stopped ? state.handle : null;
+	}
+
+	async keepAliveIfRunning(projectId: string): Promise<void> {
+		this.calls.push({ detail: projectId, method: "keepAliveIfRunning" });
 	}
 
 	async stop(projectId: string): Promise<void> {
