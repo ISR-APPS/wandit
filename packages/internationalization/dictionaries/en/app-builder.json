@@ -382,10 +382,6 @@
 			}
 		},
 		"details": "Details",
-		"preview": "Preview",
-		"bookmark": "Save as checkpoint",
-		"revert": "Revert to this version",
-		"like": "Good response",
 		"copy": "Copy",
 		"copied": "Copied",
 		"placeholder": "Ask Wandit…",
@@ -403,7 +399,6 @@
 		"stop": "Stop",
 		"focusChip": "Working on {label}",
 		"removeFocus": "Remove",
-		"working": "Wandit is working…",
 		"preparing": {
 			"title": "Getting your project ready",
 			"workspace": "Creating your workspace",
@@ -451,11 +446,53 @@
 			"untitled": "Wandit needs your answer"
 		},
 		"phases": {
-			"sandbox_waking": "Getting your app ready",
-			"session_starting": "Getting ready",
-			"running": "Working",
-			"checkpoint": "Saving your changes",
 			"committing": "Saving your changes"
+		},
+		"status": {
+			"writing": "Writing",
+			"edit": {
+				"styles": "Updating the styles",
+				"pages": "Updating the pages",
+				"components": "Updating the components",
+				"texts": "Updating the texts",
+				"images": "Updating the images",
+				"database": "Preparing the database",
+				"settings": "Updating the app settings",
+				"code": "Updating your app"
+			},
+			"explore": "Looking at your project",
+			"run": "Checking your app",
+			"web": "Searching the web",
+			"image": "Creating an image",
+			"database": "Updating the database",
+			"databaseCheck": "Checking the database",
+			"deploy": "Setting up a server function",
+			"secret": "Saving a secret",
+			"network": "Asking for internet access",
+			"guide": "Reading the build guide",
+			"task": "Working on part of the task",
+			"other": "Working"
+		},
+		"summary": {
+			"workedSeconds": "Worked for {count}s",
+			"workedMinutes": {
+				"one": "Worked for 1 min",
+				"other": "Worked for {count} min"
+			},
+			"files": {
+				"one": "1 file changed",
+				"other": "{count} files changed"
+			},
+			"fallback": "See what Wandit did",
+			"changedFiles": "Changed files"
+		},
+		"activity": {
+			"close": "Close the details"
+		},
+		"devView": {
+			"label": "Chat view",
+			"production": "Production",
+			"developer": "Developer"
 		},
 		"approval": {
 			"approve": "Approve",
@@ -470,16 +507,6 @@
 			"apply_destructive_migration": "Change your database structure? Some data can be lost.",
 			"other": "Allow Wandit to run this action?"
 		},
-		"suggestion": {
-			"accept": "Accept",
-			"alternatives": "Alternatives",
-			"confidence": {
-				"high": "High confidence",
-				"medium": "Medium confidence",
-				"low": "Low confidence"
-			}
-		},
-		"followUps": "Follow-ups",
 		"elapsed": "{seconds}s",
 		"addContext": "Add context",
 		"attachImage": "Add an image",

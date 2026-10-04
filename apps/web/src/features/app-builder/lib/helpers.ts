@@ -1,9 +1,10 @@
 /**
  * Pure helpers of the app builder, with no React. Five list and test the
- * panels of the More view, pick the open one, and name it. Three pairs
- * store the open state and the split layout of the chat card, and the Expo
- * Go username. One copies text to the clipboard. Called by the page, the
- * More view and its nav, the chat cards, and the Expo Go popover.
+ * panels of the More view, pick the open one, and name it. Four pairs
+ * store the open state and the split layout of the chat card, the chat view
+ * of local dev, and the Expo Go username. One copies text to the clipboard.
+ * Called by the page, the More view and its nav, the chat cards, and the
+ * Expo Go popover.
  */
 
 import { expoUsernameSchema } from "@wandit/contracts";
@@ -13,6 +14,7 @@ import type { AppProjectKind } from "../api/dto";
 import {
 	CHAT_LAYOUT_STORAGE_KEY,
 	CHAT_OPEN_STORAGE_KEY,
+	CHAT_VIEW_STORAGE_KEY,
 	CLOUD_PANELS,
 	type CloudPanel,
 	EXPO_GO_USERNAME_STORAGE_KEY,
@@ -117,6 +119,28 @@ export function writeChatLayout(layout: Record<string, number>): void {
 		);
 	} catch {
 		// Private mode or a full quota: the layout only lasts the session.
+	}
+}
+
+/** True when the last visit chose the developer view of the chat. False when nothing is stored or storage fails. */
+export function readDeveloperView(): boolean {
+	try {
+		return window.localStorage.getItem(CHAT_VIEW_STORAGE_KEY) === "developer";
+	} catch {
+		// Blocked storage: the default production view shows.
+		return false;
+	}
+}
+
+/** Stores the chat view choice of local dev. A storage failure is not an error for the user. */
+export function writeDeveloperView(isDeveloperView: boolean): void {
+	try {
+		window.localStorage.setItem(
+			CHAT_VIEW_STORAGE_KEY,
+			isDeveloperView ? "developer" : "production",
+		);
+	} catch {
+		// Private mode or a full quota: the view choice only lasts the session.
 	}
 }
 

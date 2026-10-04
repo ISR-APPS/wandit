@@ -190,6 +190,9 @@ export const CHAT_OPEN_STORAGE_KEY = "wandit-app-builder-chat-open";
 /** localStorage key of the chat | main split. Holds the react-resizable-panels layout, panel id to percent. */
 export const CHAT_LAYOUT_STORAGE_KEY = "wandit-app-builder-chat-layout";
 
+/** localStorage key of the chat view switch, "production" or "developer". The page reads it only in local dev. */
+export const CHAT_VIEW_STORAGE_KEY = "wandit-app-builder-chat-view";
+
 /** Start width of the chat card. The width of the design (400 px) fits the composer row and every card. */
 export const CHAT_PANEL_DEFAULT_WIDTH = "400px";
 

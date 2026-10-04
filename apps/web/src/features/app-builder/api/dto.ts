@@ -11,6 +11,7 @@ import type {
 	ProjectEngine,
 	TurnDataParts,
 	TurnQuestionOption,
+	TurnSummaryData,
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
@@ -58,8 +59,20 @@ export type BuilderStepKind =
 /** Life state of a step row: the tool call runs, ended, failed, or did not run. */
 export type BuilderStepState = "running" | "done" | "error" | "skipped";
 
-/** How sure the agent is about a suggestion. Drawn as one, two, or three bars. */
-export type BuilderConfidence = "high" | "medium" | "low";
+/**
+ * The part of the app that an edit changes, in plain words for the chat
+ * status line, for example "styles" for `global.css`. lib/turn-parts.ts
+ * reads it from the file path; "code" is the fallback.
+ */
+export type BuilderEditArea =
+	| "styles"
+	| "pages"
+	| "components"
+	| "texts"
+	| "images"
+	| "database"
+	| "settings"
+	| "code";
 
 /** One line of a unified diff, without the leading sign. */
 export type BuilderDiffLine = {
@@ -68,16 +81,14 @@ export type BuilderDiffLine = {
 };
 
 /**
- * Custom data parts the builder streams inside an assistant message.
- * `change` marks a saved version. `thought` is one reasoning block. `step`
- * is one row of the activity feed (one tool call, or a run of reads).
- * `question` is one question of the agent. `approval` waits for the user to
- * allow a tool call. `error` is a turn failure. `receipt` is the settled
- * cost of a turn. `suggestion` is a next step the user can accept. `diff`
- * shows one changed file.
+ * Custom data parts of an assistant message, made by lib/turn-parts.ts.
+ * `thought`, `step`, and `note` are the activity of the turn: the details
+ * panel shows them, the production chat does not. `summary` gives the work
+ * time and the changed files. `question` is one question of the agent.
+ * `approval` waits for the user to allow a tool call. `error` is a turn
+ * failure. `receipt` is the settled cost of a turn.
  */
 export type BuilderDataParts = {
-	change: { title: string; versionNumber: number };
 	thought: {
 		/** The reasoning text the model streamed; "" when it sent none. */
 		text: string;
@@ -95,7 +106,22 @@ export type BuilderDataParts = {
 		description: string | null;
 		/** Technical lines behind the chevron: diff lines, the command, the SQL. */
 		detail: BuilderDiffLine[];
+		/** Part of the app an edit changes, from the file path; null for a step that is not an edit. */
+		area: BuilderEditArea | null;
+		/**
+		 * Image the step read or made: a `data:` URL for a read of an image
+		 * file, the https URL for a generated image. Null for other steps.
+		 */
+		imageUrl: string | null;
 	};
+	/**
+	 * Text the agent wrote between its steps, for example "Now the texts…".
+	 * Only the text after the last step is the final answer; it stays a
+	 * `text` part. While the turn runs, every text is a note.
+	 */
+	note: { text: string };
+	/** The `data-turn-summary` payload: work time in whole seconds and the changed files. */
+	summary: TurnSummaryData;
 	question: {
 		/** Harness call id of the paused tool call; the answer sends it back. */
 		toolCallId: string;
@@ -136,21 +162,10 @@ export type BuilderDataParts = {
 		inputTokens: number;
 		outputTokens: number;
 	};
-	suggestion: { title: string; body: string; confidence: BuilderConfidence };
-	diff: { path: string; lines: BuilderDiffLine[] };
 };
 
-/** Fields of an assistant message outside its parts. The AI SDK carries them as `message.metadata`. */
-export type BuilderMessageMetadata = {
-	/** Prompts the user can send with one click, shown under the message. */
-	followUps?: string[];
-};
-
-/** One chat message in the AI SDK shape, so `useChat` can replace the mock later. */
-export type BuilderMessage = UIMessage<
-	BuilderMessageMetadata,
-	BuilderDataParts
->;
+/** One chat message in the AI SDK shape, as lib/turn-parts.ts maps it from a `TurnMessage`. */
+export type BuilderMessage = UIMessage<never, BuilderDataParts>;
 
 /** A message part of the builder. Same union the AI SDK gives for BuilderMessage. */
 export type BuilderMessagePart = BuilderMessage["parts"][number];

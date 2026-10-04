@@ -2,13 +2,15 @@
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
  * `toBuilderMessages` and `livePhaseOf`. chat-pane.tsx calls
- * `withoutThoughts` and `liveActivityOf` for its feed and its working row.
- * Pure functions, no React, no copy: the components translate each row.
+ * `liveStatusOf` for its status line; the chat and the details panel call
+ * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
+ * copy: the components translate each row.
  */
 
 import {
 	applyMigrationToolInputSchema,
 	generateImageHostToolInputSchema,
+	generateImageHostToolOutputSchema,
 	requestNetworkHostToolInputSchema,
 	runSqlToolInputSchema,
 	type TurnStreamPhase,
@@ -24,7 +26,9 @@ import { z } from "zod";
 import type {
 	BuilderDataParts,
 	BuilderDiffLine,
+	BuilderEditArea,
 	BuilderMessage,
+	BuilderMessagePart,
 	BuilderStepKind,
 	BuilderStepState,
 	TurnMessage,
@@ -96,6 +100,35 @@ const DETAIL_MAX_LINES = 40;
 
 const toolOutputStatusSchema = z.object({ status: z.string() });
 
+// The output of a Claude Code Read of an image file. The harness passes the
+// tool result through, so the image arrives as base64 bytes. Only raster
+// types and plain base64 pass: the details panel puts it in an <img> src.
+const readImageOutputSchema = z.object({
+	type: z.literal("image"),
+	file: z.object({
+		base64: z.string().regex(/^[A-Za-z0-9+/]+={0,2}$/),
+		type: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+	}),
+});
+
+// The plain area of an edited file, first match wins. The path can be
+// relative or absolute, so each rule matches a folder name or an end.
+// The page and component folders are the ones of the web and mobile templates.
+// No "messages" folder for the texts: a chat app has a `routes/messages` page.
+const EDIT_AREA_RULES: readonly [RegExp, BuilderEditArea][] = [
+	[/\.(png|jpe?g|gif|webp|avif|svg|ico)$/i, "images"],
+	[/\.(css|scss|sass|less)$/i, "styles"],
+	[/(^|\/)(i18n|locales?|translations)\//i, "texts"],
+	// Edge functions in supabase/functions are server code, not the database.
+	[/(^|\/)supabase\/migrations\/|\.sql$/i, "database"],
+	[
+		/(^|\/)(package\.json|app\.json|eas\.json|tsconfig[^/]*\.json|[^/]+\.config\.[cm]?[jt]s)$/i,
+		"settings",
+	],
+	[/(^|\/)(components|ui)\//i, "components"],
+	[/(^|\/)src\/(routes|app|pages)\//i, "pages"],
+];
+
 // The input fields of the Claude Code built-ins that a row reads. During
 // `input-streaming` the input is partial, so every field is optional.
 const builtinToolInputSchema = z.object({
@@ -130,6 +163,34 @@ type Step = BuilderDataParts["step"];
 /** The last segment of a slash path, for example `styles.css`. */
 function fileNameOf(path: string): string {
 	return path.split("/").at(-1) || path;
+}
+
+/** The plain area of an edited file path; "code" when no rule matches. */
+function editAreaOf(path: string): BuilderEditArea {
+	return EDIT_AREA_RULES.find(([pattern]) => pattern.test(path))?.[1] ?? "code";
+}
+
+/**
+ * The image of a step, or null. A read of an image file gives a `data:`
+ * URL. A generated image gives its URL, only on https: the agent output is
+ * not trusted.
+ */
+function imageUrlOf(toolName: string, output: unknown): string | null {
+	if (toolName === "read") {
+		const read = readImageOutputSchema.safeParse(output);
+		return read.success
+			? `data:${read.data.file.type};base64,${read.data.file.base64}`
+			: null;
+	}
+	if (toolName === "generate_image") {
+		const generated = generateImageHostToolOutputSchema.safeParse(output);
+		if (!generated.success || generated.data.status !== "generated") {
+			return null;
+		}
+		const { url } = generated.data;
+		return URL.canParse(url) && new URL(url).protocol === "https:" ? url : null;
+	}
+	return null;
 }
 
 /** The host of a URL, or null when the text is not a URL. */
@@ -302,21 +363,26 @@ export function stepOf(part: ToolPart, isLive: boolean): Step | null {
 	if (state === null) return null;
 	const kind = STEP_KIND_BY_TOOL_NAME.get(toolName) ?? "other";
 	const parsed = builtinToolInputSchema.safeParse(part.input);
-	const content = stepContentOf(
-		toolName,
-		kind,
-		parsed.success ? parsed.data : {},
-		part.input,
-	);
+	const input: BuiltinToolInput = parsed.success ? parsed.data : {};
+	const content = stepContentOf(toolName, kind, input, part.input);
 	const errorLines: BuilderDiffLine[] =
 		part.state === "output-error"
 			? linesOf(part.errorText, "remove").slice(0, DETAIL_MAX_LINES)
 			: [];
+	const editedPath = input.file_path ?? input.notebook_path;
 	return {
 		kind,
 		state,
 		...content,
 		detail: [...content.detail, ...errorLines],
+		area:
+			kind === "edit" && editedPath !== undefined
+				? editAreaOf(editedPath)
+				: null,
+		imageUrl:
+			part.state === "output-available"
+				? imageUrlOf(toolName, part.output)
+				: null,
 	};
 }
 
@@ -409,105 +475,103 @@ export function livePhaseOf(
 		: null;
 }
 
-/**
- * The messages without their thought rows. An explore row that a thought
- * kept apart merges into the explore row before it. An assistant message
- * left with no parts drops, so no empty byline shows. chat-pane.tsx calls
- * it when the user has no agent debug view.
- */
-export function withoutThoughts(
-	messages: readonly BuilderMessage[],
-): BuilderMessage[] {
-	return messages.flatMap((message) => {
-		if (message.role !== "assistant") return [message];
-		const parts: BuilderMessage["parts"] = [];
-		for (const part of message.parts) {
-			if (part.type === "data-thought") continue;
-			const previous = parts.at(-1);
-			// assistantPartsOf merges only the reads with no thought between them.
-			if (
-				part.type === "data-step" &&
-				part.data.kind === "explore" &&
-				previous?.type === "data-step" &&
-				previous.data.kind === "explore"
-			) {
-				parts[parts.length - 1] = {
-					type: "data-step",
-					data: mergeExplore(previous.data, part.data),
-				};
-				continue;
-			}
-			parts.push(part);
-		}
-		return parts.length === 0 ? [] : [{ ...message, parts }];
-	});
+/** A part of the turn activity: the details panel shows it, the production chat does not. */
+type ActivityPart = Extract<
+	BuilderMessagePart,
+	{ type: "data-thought" | "data-step" | "data-note" }
+>;
+
+/** True for a thought, a step, or a note. The chat and the details panel split the parts with it. */
+export function isActivityPart(part: BuilderMessagePart): part is ActivityPart {
+	return (
+		part.type === "data-thought" ||
+		part.type === "data-step" ||
+		part.type === "data-note"
+	);
 }
 
-/** What the working row of a running turn shows. liveActivityOf makes it; working-row.tsx reads it. */
-export type LiveActivity = {
-	/** True when the reply of the running turn shows one part or more. The row then shows no byline of its own. */
-	hasVisibleReply: boolean;
+/**
+ * What the status line of a running turn says. liveStatusOf makes it;
+ * working-row.tsx translates it.
+ */
+export type LiveStatus =
+	/** No activity yet. `setup`: the first turn creates the sandbox. `wake`: a later turn wakes it. */
+	| { kind: "setup" | "wake" }
+	/** The agent thinks, or a warm turn shows no activity yet. */
+	| { kind: "thinking" }
+	/** The agent writes a note or its answer. */
+	| { kind: "writing" }
+	/** The task saves the work of the turn (the `committing` phase). */
+	| { kind: "saving" }
 	/**
-	 * The row label. `setup`: the first turn creates the sandbox. `wake`: a
-	 * later turn wakes a stopped sandbox. `thinking`: the agent works and
-	 * shows nothing new. `phase`: the label of the stream phase.
+	 * The latest step. `area` names the part of the app an edit changes.
+	 * The model sentence of a command never shows here: it is often
+	 * technical and in English. The details panel shows it.
 	 */
-	kind: "setup" | "wake" | "thinking" | "phase";
-};
+	| {
+			kind: "step";
+			stepKind: BuilderStepKind;
+			area: BuilderEditArea | null;
+	  };
 
 /**
- * The working row state of the running turn. Call it only while a turn
- * runs. Before the reply shows, a cold start reads as a preparation step
- * and a warm turn reads as "Thinking", because the agent starts at once.
+ * The status line of the running turn: the latest activity of the live
+ * reply in plain words. Before the reply has activity, a cold start reads
+ * as a preparation step and a warm turn reads as "Thinking".
  */
-export function liveActivityOf(
-	messages: readonly BuilderMessage[],
+export function liveStatusOf(
+	/** The reply of the running turn, or null before its first visible part. */
+	liveMessage: BuilderMessage | null,
 	input: {
 		/** Phase of the running turn, from livePhaseOf. */
 		phase: TurnStreamPhase | null;
 		/** True on the first turn of the project, null while the history loads. From useBuilderThread. */
 		isFirstTurn: boolean | null;
-		/** True when the feed shows the thought rows: in local dev or for staff. */
-		showsThoughts: boolean;
 	},
-): LiveActivity {
-	const { phase, isFirstTurn, showsThoughts } = input;
-	// Before the reply has parts, the last message is the user bubble. An
-	// approval answer sends an empty user message that toBuilderMessages
-	// drops, so the last message can be the previous reply ("phase" then).
-	const lastMessage = messages.at(-1);
-	const replyParts = lastMessage?.role === "assistant" ? lastMessage.parts : [];
-	const hasVisibleReply = replyParts.some(
-		(part) => showsThoughts || part.type !== "data-thought",
-	);
-	if (!hasVisibleReply) {
+): LiveStatus {
+	const { phase, isFirstTurn } = input;
+	// The commit runs after the agent stops, so no step or thought is current.
+	if (phase === "committing") return { kind: "saving" };
+	const latest = liveMessage?.parts.filter(isActivityPart).at(-1);
+	if (latest === undefined) {
 		// The first turn creates the sandbox from the template; a later turn only wakes it.
 		if (phase === "sandbox_waking") {
-			return { hasVisibleReply, kind: isFirstTurn === true ? "setup" : "wake" };
+			return { kind: isFirstTurn === true ? "setup" : "wake" };
 		}
 		// On the first turn, every early phase is part of the sandbox creation.
 		if (
 			isFirstTurn === true &&
 			(phase === null || phase === "session_starting")
 		) {
-			return { hasVisibleReply, kind: "setup" };
+			return { kind: "setup" };
 		}
-		return { hasVisibleReply, kind: "thinking" };
+		return { kind: "thinking" };
 	}
-	// assistantPartsOf puts the receipt last, and a checkpoint sends usage
-	// during the turn. So the receipt does not count as the last activity.
-	const lastActivity = replyParts.findLast(
-		(part) => part.type !== "data-receipt",
-	);
-	// A hidden thought that streams now still needs a sign of life.
-	const isHiddenThoughtStreaming =
-		!showsThoughts &&
-		lastActivity?.type === "data-thought" &&
-		lastActivity.data.isStreaming;
-	return {
-		hasVisibleReply,
-		kind: isHiddenThoughtStreaming ? "thinking" : "phase",
-	};
+	switch (latest.type) {
+		case "data-thought":
+			return { kind: "thinking" };
+		case "data-note":
+			return { kind: "writing" };
+		case "data-step":
+			return {
+				kind: "step",
+				stepKind: latest.data.kind,
+				area: latest.data.area,
+			};
+	}
+}
+
+/**
+ * The work time of a turn as the summary line says it: whole seconds under
+ * one minute, else whole minutes rounded to the nearest one.
+ */
+export function workedDurationOf(workedSeconds: number): {
+	unit: "seconds" | "minutes";
+	count: number;
+} {
+	return workedSeconds < 60
+		? { unit: "seconds", count: workedSeconds }
+		: { unit: "minutes", count: Math.round(workedSeconds / 60) };
 }
 
 /** The text parts of a message joined with a blank line, trimmed. */
@@ -533,11 +597,11 @@ function hasAssistantMessageAfter(
 }
 
 /**
- * The parts of one assistant message in stream order: text, a thought row
- * per reasoning block, a step row per visible tool call (a run of reads
- * and searches merges into one row), the question and approval cards, then
- * the error and the receipt. `isLive` is true only for the last message of
- * a running turn.
+ * The parts of one assistant message in stream order: text and notes, a
+ * thought row per reasoning block, a step row per visible tool call (a run
+ * of reads and searches merges into one row), the summary, the question
+ * and approval cards, then the error and the receipt. `isLive` is true
+ * only for the last message of a running turn.
  */
 function assistantPartsOf(
 	messages: readonly TurnMessage[],
@@ -553,11 +617,24 @@ function assistantPartsOf(
 		}
 	}
 	const hasReplyAfter = hasAssistantMessageAfter(messages, index);
+	// Only the text after the last visible step is the final answer. While
+	// the turn runs, a step can still follow any text, so all text is a note.
+	const lastStepIndex = message.parts.findLastIndex(
+		(part) => isToolUIPart(part) && stepOf(part, isLive) !== null,
+	);
 
 	const parts: BuilderMessage["parts"] = [];
-	for (const part of message.parts) {
+	for (const [partIndex, part] of message.parts.entries()) {
 		if (part.type === "text") {
-			parts.push(part);
+			if (!isLive && partIndex > lastStepIndex) {
+				parts.push(part);
+			} else if (part.text.trim() !== "") {
+				parts.push({ type: "data-note", data: { text: part.text } });
+			}
+			continue;
+		}
+		if (part.type === "data-turn-summary") {
+			parts.push({ type: "data-summary", id: part.id, data: part.data });
 			continue;
 		}
 		if (part.type === "reasoning") {
@@ -580,10 +657,13 @@ function assistantPartsOf(
 			const step = stepOf(part, isLive);
 			if (step === null) continue;
 			const previous = parts.at(-1);
+			// A row holds one image, so a read that shows an image keeps its own row.
 			if (
 				step.kind === "explore" &&
+				step.imageUrl === null &&
 				previous?.type === "data-step" &&
-				previous.data.kind === "explore"
+				previous.data.kind === "explore" &&
+				previous.data.imageUrl === null
 			) {
 				parts[parts.length - 1] = {
 					type: "data-step",

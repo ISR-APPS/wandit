@@ -1,52 +1,50 @@
 /**
  * One message of the builder thread. A user message is a bubble at the end
- * side. An assistant message starts with the Wandit byline, then renders its
- * parts in stream order: markdown text, the activity feed (thought rows and
- * step rows, grouped tight), the change card, one short line per question
- * (the user answers it in the tray), the approval, suggestion, and diff
- * cards, the error row and the receipt line, then the action row and the
- * follow-ups. Rendered by chat-pane.tsx; working-row.tsx reuses the
- * byline. Actions with no backend show the notWired toast.
+ * side. An assistant message starts with the Wandit byline. In the
+ * production view, one summary line opens the details panel, and only the
+ * parts the user reads or acts on follow: the final answer, the question
+ * lines, the approval card, the error, and the receipt. The developer view
+ * (local dev only) renders every part in stream order, with the thinking
+ * text. A Copy action ends a reply that has a final answer. Rendered by
+ * chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
-import { CornerDownLeft } from "lucide-react";
-import { toast } from "sonner";
+import { ChevronRight } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
 import { formatNumber, useTranslation } from "@/lib/i18n";
 import { getModelLabel } from "@/lib/model-labels";
 import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
+import { isActivityPart } from "../../lib/turn-parts";
+import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
-import { ChangeCard } from "./change-card";
-import { DiffCard } from "./diff-card";
 import { MessageActions } from "./message-actions";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
-import { SuggestionCard } from "./suggestion-card";
 import { ThoughtRow } from "./thought-row";
 
+/** Props of one message, as chat-pane.tsx passes them. */
 export type ChatMessageViewProps = {
 	message: BuilderMessage;
-	/** Opens the preview on the version of a change card. */
-	onPreviewVersion: (versionNumber: number) => void;
-	/** Sends a follow-up or an accepted suggestion as a new build turn. */
-	onSendText: (text: string) => void;
+	/** True renders every part inline, with the thinking text. Only the local dev switch sets it. */
+	isDeveloperView: boolean;
+	/** Opens the details panel of this message. The production summary line calls it with `message.id`. */
+	onOpenActivity: (messageId: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
 	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
 	trayQuestionKey: string | null;
 };
 
+/** One user bubble or one assistant reply, in the production or the developer view. */
 export function ChatMessageView({
 	message,
-	onPreviewVersion,
-	onSendText,
+	isDeveloperView,
+	onOpenActivity,
 	onDecideApproval,
 	trayQuestionKey,
 }: ChatMessageViewProps) {
-	const { t, locale } = useTranslation();
-
 	if (message.role === "user") {
 		return (
 			<div className="flex justify-end">
@@ -60,18 +58,24 @@ export function ChatMessageView({
 		);
 	}
 
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-	// Only a message that saved a version gets the revert, like, and copy row.
-	const hasChange = message.parts.some((part) => part.type === "data-change");
-	const followUps = message.metadata?.followUps ?? [];
+	const finalText = textOf(message.parts);
+	const partView = (part: BuilderMessagePart, key: string) => (
+		<MessagePartView
+			key={key}
+			part={part}
+			onDecideApproval={onDecideApproval}
+			trayQuestionKey={trayQuestionKey}
+		/>
+	);
 
 	return (
 		<div className="flex flex-col gap-3">
 			<AssistantByline />
-			{blocksOf(message.parts).map((block) => {
-				// Parts carry no stable id. The index is stable inside one message.
-				const key = `${message.id}-${block.index}`;
-				if (block.kind === "feed") {
+			{isDeveloperView ? (
+				blocksOf(message.parts).map((block) => {
+					// Parts carry no stable id. The index is stable inside one message.
+					const key = `${message.id}-${block.index}`;
+					if (block.kind === "part") return partView(block.part, key);
 					return (
 						<div key={key} className="flex flex-col">
 							{block.rows.map(({ part: row, index }) =>
@@ -88,141 +92,135 @@ export function ChatMessageView({
 							)}
 						</div>
 					);
-				}
-				const part = block.part;
-				switch (part.type) {
-					case "text":
-						return (
-							<Streamdown
-								key={key}
-								dir="auto"
-								className="space-y-2 break-words text-[14.5px] leading-[1.55]"
-							>
-								{part.text}
-							</Streamdown>
-						);
-					case "data-change":
-						return (
-							<ChangeCard
-								key={key}
-								title={part.data.title}
-								versionNumber={part.data.versionNumber}
-								onDetails={notWired}
-								onPreview={onPreviewVersion}
-								onBookmark={notWired}
-							/>
-						);
-					case "data-question":
-						return (
-							<QuestionReceipt
-								key={key}
-								question={part.data.question}
-								isAnswered={part.data.isAnswered}
-								isInTray={part.id === trayQuestionKey}
-							/>
-						);
-					case "data-approval":
-						return (
-							<ApprovalCard
-								key={key}
-								toolName={part.data.toolName}
-								input={part.data.input}
-								decision={part.data.decision}
-								isOpen={part.data.isOpen}
-								onDecide={(approved) =>
-									onDecideApproval(part.data.approvalId, approved)
-								}
-							/>
-						);
-					case "data-suggestion":
-						return (
-							<SuggestionCard
-								key={key}
-								title={part.data.title}
-								body={part.data.body}
-								confidence={part.data.confidence}
-								// The body is the instruction, so accepting sends it as the next turn.
-								onAccept={() => onSendText(part.data.body)}
-								onAlternatives={notWired}
-							/>
-						);
-					case "data-diff":
-						return (
-							<DiffCard
-								key={key}
-								path={part.data.path}
-								lines={part.data.lines}
-							/>
-						);
-					case "data-error":
-						return (
-							<div
-								key={key}
-								role="alert"
-								dir="auto"
-								className="text-destructive text-sm"
-							>
-								<p>
-									{t("appBuilder.chat.turnError", {
-										message: part.data.message,
-									})}
-								</p>
-								{part.data.retryable ? (
-									<p>{t("appBuilder.chat.turnErrorRetry")}</p>
-								) : null}
-							</div>
-						);
-					case "data-receipt":
-						return (
-							<p key={key} className="text-muted-foreground text-xs">
-								{t("appBuilder.chat.receipt", {
-									credits: t("appBuilder.chat.estimate", {
-										count: part.data.credits,
-									}),
-									tokens: formatNumber(
-										part.data.inputTokens + part.data.outputTokens,
-										locale,
-									),
-								})}
-								{part.data.modelId !== null
-									? ` · ${getModelLabel(part.data.modelId)}`
-									: null}
-							</p>
-						);
-					default:
-						return null;
-				}
-			})}
-			{hasChange ? (
-				<MessageActions
-					onRevert={notWired}
-					onLike={notWired}
-					text={textOf(message.parts)}
-				/>
-			) : null}
-			{followUps.length > 0 ? (
-				<div className="flex flex-col">
-					<span className="mb-1 text-muted-foreground text-xs">
-						{t("appBuilder.chat.followUps")}
-					</span>
-					{followUps.map((prompt) => (
-						<button
-							key={prompt}
-							type="button"
-							onClick={() => onSendText(prompt)}
-							className="flex items-center gap-2 border-t py-2 text-start text-sm outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/50"
-						>
-							<CornerDownLeft
-								className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100"
-								aria-hidden
-							/>
-							<span dir="auto">{prompt}</span>
-						</button>
-					))}
-				</div>
-			) : null}
+				})
+			) : (
+				<>
+					<SummaryLine message={message} onOpenActivity={onOpenActivity} />
+					{/* The steps, the notes, and the summary show in the details panel only. */}
+					{message.parts.map((part, index) =>
+						isActivityPart(part) || part.type === "data-summary"
+							? null
+							: partView(part, `${message.id}-${index}`),
+					)}
+				</>
+			)}
+			{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
 		</div>
 	);
+}
+
+/**
+ * The production line that opens the details panel, for example "Worked
+ * for 1 min · 6 files changed ›". Null when the reply has no step, no
+ * note, no thought, and no summary.
+ */
+function SummaryLine({
+	message,
+	onOpenActivity,
+}: Pick<ChatMessageViewProps, "message" | "onOpenActivity">) {
+	const summary = summaryOf(message);
+	if (summary === null && !message.parts.some(isActivityPart)) return null;
+	return (
+		<button
+			type="button"
+			onClick={() => onOpenActivity(message.id)}
+			className="flex items-center gap-1 self-start rounded-md text-start text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+		>
+			<WorkSummaryLabel summary={summary} />
+			<ChevronRight
+				className="size-3.5 shrink-0 rtl:-scale-x-100"
+				aria-hidden
+			/>
+		</button>
+	);
+}
+
+/**
+ * One part of an assistant message outside the feed rows. Both views use
+ * it; the production view never passes a note or a summary. A part type
+ * this switch does not know renders nothing.
+ */
+function MessagePartView({
+	part,
+	onDecideApproval,
+	trayQuestionKey,
+}: Pick<ChatMessageViewProps, "onDecideApproval" | "trayQuestionKey"> & {
+	part: BuilderMessagePart;
+}) {
+	const { t, locale } = useTranslation();
+	switch (part.type) {
+		case "text":
+		case "data-note":
+			return (
+				<Streamdown
+					dir="auto"
+					className="space-y-2 break-words text-[14.5px] leading-[1.55]"
+				>
+					{part.type === "text" ? part.text : part.data.text}
+				</Streamdown>
+			);
+		case "data-summary":
+			return (
+				<div className="flex flex-col gap-1">
+					<p className="text-muted-foreground text-sm">
+						<WorkSummaryLabel summary={part.data} />
+					</p>
+					{part.data.files.length > 0 ? (
+						<ChangedFiles files={part.data.files} />
+					) : null}
+				</div>
+			);
+		case "data-question":
+			return (
+				<QuestionReceipt
+					question={part.data.question}
+					isAnswered={part.data.isAnswered}
+					isInTray={part.id === trayQuestionKey}
+				/>
+			);
+		case "data-approval":
+			return (
+				<ApprovalCard
+					toolName={part.data.toolName}
+					input={part.data.input}
+					decision={part.data.decision}
+					isOpen={part.data.isOpen}
+					onDecide={(approved) =>
+						onDecideApproval(part.data.approvalId, approved)
+					}
+				/>
+			);
+		case "data-error":
+			return (
+				<div role="alert" dir="auto" className="text-destructive text-sm">
+					<p>
+						{t("appBuilder.chat.turnError", { message: part.data.message })}
+					</p>
+					{part.data.retryable ? (
+						<p>{t("appBuilder.chat.turnErrorRetry")}</p>
+					) : null}
+				</div>
+			);
+		case "data-receipt":
+			return (
+				<p className="text-muted-foreground text-xs">
+					{t("appBuilder.chat.receipt", {
+						credits: t("appBuilder.chat.estimate", {
+							count: part.data.credits,
+						}),
+						tokens: formatNumber(
+							part.data.inputTokens + part.data.outputTokens,
+							locale,
+						),
+					})}
+					{part.data.modelId !== null
+						? ` · ${getModelLabel(part.data.modelId)}`
+						: null}
+				</p>
+			);
+		default:
+			return null;
+	}
 }
 
 /**
@@ -255,9 +253,9 @@ type MessageBlock =
 	| { kind: "part"; index: number; part: BuilderMessagePart };
 
 /**
- * Groups the parts for rendering. Thought and step rows that follow each
- * other form one block: they sit close together like one activity list,
- * while every other part keeps the message gap.
+ * Groups the parts for the developer view. Thought and step rows that
+ * follow each other form one block: they sit close together like one
+ * activity list, while every other part keeps the message gap.
  */
 function blocksOf(parts: BuilderMessagePart[]): MessageBlock[] {
 	const blocks: MessageBlock[] = [];

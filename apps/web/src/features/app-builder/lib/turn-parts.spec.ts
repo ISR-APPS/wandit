@@ -1,9 +1,11 @@
 import type { TurnStreamPhase } from "@wandit/contracts";
-import type { DynamicToolUIPart } from "ai";
+import type { DynamicToolUIPart, JSONValue } from "ai";
 import { describe, expect, it } from "vitest";
 
 import type {
+	BuilderDataParts,
 	BuilderDiffLine,
+	BuilderEditArea,
 	BuilderMessage,
 	BuilderMessagePart,
 	BuilderStepKind,
@@ -12,13 +14,13 @@ import type {
 	TurnMessagePart,
 } from "../api/dto";
 import {
-	type LiveActivity,
-	liveActivityOf,
+	type LiveStatus,
 	livePhaseOf,
+	liveStatusOf,
 	receiptOf,
 	stepOf,
 	toBuilderMessages,
-	withoutThoughts,
+	workedDurationOf,
 } from "./turn-parts";
 
 const IDLE = { isRunning: false };
@@ -28,7 +30,7 @@ const RUNNING = { isRunning: true };
 function doneCall(
 	toolName: string,
 	input: Record<string, string>,
-	output: Record<string, string> = {},
+	output: JSONValue = {},
 ): DynamicToolUIPart {
 	return {
 		type: "dynamic-tool",
@@ -46,6 +48,12 @@ function stepsOf(messages: TurnMessage[], options = IDLE) {
 		part.type === "data-step" ? [part.data] : [],
 	);
 }
+
+/** The output of a Read of a PNG file, as Claude Code returns it. */
+const PNG_READ_OUTPUT = {
+	type: "image",
+	file: { base64: "iVBORw0KGgo=", type: "image/png" },
+};
 
 describe("stepOf", () => {
 	it.each<{
@@ -82,7 +90,7 @@ describe("stepOf", () => {
 		target,
 		detail,
 	}) => {
-		expect(stepOf(doneCall(toolName, input), false)).toEqual({
+		expect(stepOf(doneCall(toolName, input), false)).toMatchObject({
 			kind: "edit",
 			state: "done",
 			target,
@@ -99,6 +107,125 @@ describe("stepOf", () => {
 		);
 		expect(step?.detail).toHaveLength(41);
 		expect(step?.detail.at(-1)).toEqual({ kind: "context", text: "…" });
+	});
+
+	// The first rule that matches wins, so the order of the rules matters.
+	it.each<{ toolName: string; path: string; area: BuilderEditArea | null }>([
+		{ toolName: "edit", path: "src/styles/global.css", area: "styles" },
+		{
+			toolName: "edit",
+			path: "/vercel/sandbox/src/routes/index.tsx",
+			area: "pages",
+		},
+		{ toolName: "write", path: "src/app/(tabs)/index.tsx", area: "pages" },
+		// A chat app often has a "messages" route; it is a page, not the texts.
+		{ toolName: "edit", path: "src/routes/messages/index.tsx", area: "pages" },
+		{ toolName: "edit", path: "src/components/hero.tsx", area: "components" },
+		{ toolName: "edit", path: "src/shared/ui/button.tsx", area: "components" },
+		{ toolName: "edit", path: "src/i18n/fr.ts", area: "texts" },
+		{
+			toolName: "write",
+			path: "supabase/migrations/001_init.sql",
+			area: "database",
+		},
+		// An edge function is server code, not the database.
+		{
+			toolName: "write",
+			path: "supabase/functions/send-mail/index.ts",
+			area: "code",
+		},
+		{ toolName: "edit", path: "package.json", area: "settings" },
+		{ toolName: "edit", path: "vite.config.ts", area: "settings" },
+		{ toolName: "write", path: "public/hero.png", area: "images" },
+		{ toolName: "edit", path: "src/lib/use-load.ts", area: "code" },
+		{ toolName: "read", path: "src/styles/global.css", area: null },
+	])("gives the $toolName of $path the area $area", ({
+		toolName,
+		path,
+		area,
+	}) => {
+		expect(stepOf(doneCall(toolName, { file_path: path }), false)?.area).toBe(
+			area,
+		);
+	});
+
+	// The details panel puts the URL in an <img> src, so only safe images pass.
+	it.each<{
+		name: string;
+		toolName: string;
+		output: JSONValue;
+		imageUrl: string | null;
+	}>([
+		{
+			name: "a read of a PNG file as a data URL",
+			toolName: "read",
+			output: PNG_READ_OUTPUT,
+			imageUrl: "data:image/png;base64,iVBORw0KGgo=",
+		},
+		{
+			name: "no image for a read of an SVG file",
+			toolName: "read",
+			output: {
+				type: "image",
+				file: { base64: "PHN2Zz4=", type: "image/svg+xml" },
+			},
+			imageUrl: null,
+		},
+		{
+			name: "no image for base64 with a quote in it",
+			toolName: "read",
+			output: {
+				type: "image",
+				file: { base64: 'iVBOR"onerror="x', type: "image/png" },
+			},
+			imageUrl: null,
+		},
+		{
+			name: "the https URL of a generated image",
+			toolName: "generate_image",
+			output: {
+				status: "generated",
+				url: "https://images.example.com/hero.png",
+				width: 1024,
+				height: 1024,
+				path: "public/hero.png",
+			},
+			imageUrl: "https://images.example.com/hero.png",
+		},
+		{
+			name: "no image for a generated image on http",
+			toolName: "generate_image",
+			output: {
+				status: "generated",
+				url: "http://images.example.com/hero.png",
+				width: 1024,
+				height: 1024,
+				path: "public/hero.png",
+			},
+			imageUrl: null,
+		},
+		{
+			name: "no image for a javascript URL",
+			toolName: "generate_image",
+			output: {
+				status: "generated",
+				url: "javascript:alert(1)",
+				width: 1024,
+				height: 1024,
+				path: "public/hero.png",
+			},
+			imageUrl: null,
+		},
+		{
+			name: "no image for a failed generation",
+			toolName: "generate_image",
+			output: { status: "failed", message: "no credits" },
+			imageUrl: null,
+		},
+	])("gives $name", ({ toolName, output, imageUrl }) => {
+		expect(stepOf(doneCall(toolName, {}, output), false)?.imageUrl).toBe(
+			imageUrl,
+		);
 	});
 
 	// A host tool reports a failure or a pause as a normal output with a status.
@@ -161,6 +288,8 @@ describe("stepOf", () => {
 			target: null,
 			description: null,
 			detail: [{ kind: "context", text: toolName }],
+			area: null,
+			imageUrl: null,
 		});
 	});
 
@@ -354,31 +483,102 @@ describe("toBuilderMessages", () => {
 		expect(out[0].parts.map((part) => part.type)).toEqual(["text", "file"]);
 	});
 
-	it("keeps the stream order: thought, steps, text", () => {
-		const messages = [
-			{
-				id: "a1",
-				role: "assistant",
-				parts: [
-					{ type: "step-start" },
-					{
-						type: "reasoning",
-						id: "r-1",
-						text: "Plan the page.",
-						state: "done",
+	// The production chat shows only the final `text`; a `data-note` goes to the details.
+	it.each<{
+		name: string;
+		parts: TurnMessagePart[];
+		options: { isRunning: boolean };
+		/** Each output part as its type and its text; null for a part without text. */
+		expected: [string, string | null][];
+	}>([
+		{
+			name: "a note before the last step and the final text after it",
+			parts: [
+				{ type: "text", text: "Now the styles." },
+				doneCall("edit", { file_path: "src/a.css" }),
+				{ type: "text", text: "Your page is live." },
+				{
+					type: "data-turn-summary",
+					id: "summary-turn-1",
+					data: {
+						files: [{ path: "src/a.css", insertions: 3, deletions: 1 }],
+						workedSeconds: 42,
 					},
-					{ type: "data-thought", data: { reasoningId: "r-1", seconds: 5 } },
-					doneCall("edit", { file_path: "src/a.ts" }),
-					{ type: "text", text: "Your page is live." },
-				],
-			},
+				},
+			],
+			options: IDLE,
+			expected: [
+				["data-note", "Now the styles."],
+				["data-step", null],
+				["text", "Your page is live."],
+				["data-summary", null],
+			],
+		},
+		{
+			// A step can still follow any text of a running turn.
+			name: "only notes while the turn runs",
+			parts: [
+				{ type: "text", text: "Now the styles." },
+				doneCall("edit", { file_path: "src/a.css" }),
+				{ type: "text", text: "Your page is live." },
+			],
+			options: RUNNING,
+			expected: [
+				["data-note", "Now the styles."],
+				["data-step", null],
+				["data-note", "Your page is live."],
+			],
+		},
+		{
+			name: "all text as final in a reply with no step",
+			parts: [
+				{ type: "text", text: "Hello." },
+				{ type: "text", text: "What do you want to build?" },
+			],
+			options: IDLE,
+			expected: [
+				["text", "Hello."],
+				["text", "What do you want to build?"],
+			],
+		},
+		{
+			name: "no note for whitespace before a step",
+			parts: [
+				{ type: "text", text: "\n\n" },
+				doneCall("edit", { file_path: "src/a.css" }),
+				{ type: "text", text: "Done." },
+			],
+			options: IDLE,
+			expected: [
+				["data-step", null],
+				["text", "Done."],
+			],
+		},
+		{
+			// ask_user gets no row, so it must not turn the question text into a note.
+			name: "the final text before a hidden tool",
+			parts: [
+				doneCall("edit", { file_path: "src/a.css" }),
+				{ type: "text", text: "Which style do you like?" },
+				doneCall("ask_user", {}),
+			],
+			options: IDLE,
+			expected: [
+				["data-step", null],
+				["text", "Which style do you like?"],
+			],
+		},
+	])("splits the text of a reply: $name", ({ parts, options, expected }) => {
+		const messages = [
+			{ id: "a1", role: "assistant", parts },
 		] satisfies TurnMessage[];
-		const out = toBuilderMessages(messages, IDLE);
-		expect(out[0].parts.map((part) => part.type)).toEqual([
-			"data-thought",
-			"data-step",
-			"text",
-		]);
+		expect(
+			toBuilderMessages(messages, options)[0].parts.map((part) => {
+				if (part.type === "text") return [part.type, part.text];
+				if (part.type === "data-note") return [part.type, part.data.text];
+				return [part.type, null];
+			}),
+		).toEqual(expected);
 	});
 
 	it("reads the thought seconds of the reasoning block by its id", () => {
@@ -462,6 +662,28 @@ describe("toBuilderMessages", () => {
 		expect(steps[0].detail.map((line) => line.text)).toEqual([
 			"src/a.ts",
 			"useChat",
+		]);
+	});
+
+	// A merged row holds one image at most; a merge would lose the image.
+	it("keeps a read that shows an image in its own row", () => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					doneCall("read", { file_path: "src/a.ts" }),
+					doneCall("read", { file_path: "public/hero.png" }, PNG_READ_OUTPUT),
+					doneCall("read", { file_path: "src/b.ts" }),
+				],
+			},
+		] satisfies TurnMessage[];
+		expect(
+			stepsOf(messages).map((step) => [step.target, step.imageUrl]),
+		).toEqual([
+			["a.ts", null],
+			["hero.png", "data:image/png;base64,iVBORw0KGgo="],
+			["b.ts", null],
 		]);
 	});
 
@@ -667,74 +889,45 @@ describe("toBuilderMessages", () => {
 	});
 });
 
-/** The user bubble of the running turn. */
-const USER_BUBBLE: BuilderMessage = {
-	id: "u1",
-	role: "user",
-	parts: [{ type: "text", text: "Build a shop" }],
-};
-
-/** A thought row of the reply; `isStreaming` is true while the agent thinks now. */
-function thought(isStreaming: boolean): BuilderMessagePart {
-	return {
-		type: "data-thought",
-		data: { text: "Plan the pages", seconds: null, isStreaming },
-	};
-}
-
-/** A finished explore row that read one file of `src`. */
-function exploreStep(fileName: string): BuilderMessagePart {
-	return {
-		type: "data-step",
-		data: {
-			kind: "explore",
-			state: "done",
-			target: fileName,
-			description: null,
-			detail: [{ kind: "context", text: `src/${fileName}` }],
-		},
-	};
-}
-
 /** The reply of the running turn with these parts. */
 function reply(parts: BuilderMessagePart[]): BuilderMessage {
 	return { id: "a1", role: "assistant", parts };
 }
 
-describe("withoutThoughts", () => {
-	it("drops an assistant message left with no parts, and keeps the user message", () => {
-		expect(withoutThoughts([USER_BUBBLE, reply([thought(true)])])).toEqual([
-			USER_BUBBLE,
-		]);
-	});
+/** A finished step row with these fields; the other fields are empty. */
+function stepPart(
+	fields: Partial<BuilderDataParts["step"]>,
+): BuilderMessagePart {
+	return {
+		type: "data-step",
+		data: {
+			kind: "explore",
+			state: "done",
+			target: null,
+			description: null,
+			detail: [],
+			area: null,
+			imageUrl: null,
+			...fields,
+		},
+	};
+}
 
-	it("merges the two explore rows around a hidden thought into one row", () => {
-		expect(
-			withoutThoughts([
-				reply([exploreStep("a.ts"), thought(false), exploreStep("b.ts")]),
-			]),
-		).toEqual([
-			reply([
-				{
-					type: "data-step",
-					data: {
-						kind: "explore",
-						state: "done",
-						target: null,
-						description: null,
-						detail: [
-							{ kind: "context", text: "src/a.ts" },
-							{ kind: "context", text: "src/b.ts" },
-						],
-					},
-				},
-			]),
-		]);
+describe("liveStatusOf", () => {
+	const thought: BuilderMessagePart = {
+		type: "data-thought",
+		data: { text: "Plan the pages", seconds: null, isStreaming: true },
+	};
+	const note: BuilderMessagePart = {
+		type: "data-note",
+		data: { text: "Now the texts." },
+	};
+	const styleEdit = stepPart({
+		kind: "edit",
+		target: "global.css",
+		area: "styles",
 	});
-});
-
-describe("liveActivityOf", () => {
-	const onIt: BuilderMessagePart = { type: "text", text: "On it." };
+	// A checkpoint sends usage during the turn, so a receipt can sit last.
 	const receipt: BuilderMessagePart = {
 		type: "data-receipt",
 		id: "a1-receipt",
@@ -743,94 +936,95 @@ describe("liveActivityOf", () => {
 
 	it.each<{
 		name: string;
-		messages: BuilderMessage[];
+		liveMessage: BuilderMessage | null;
 		phase: TurnStreamPhase | null;
 		isFirstTurn: boolean;
-		showsThoughts: boolean;
-		expected: LiveActivity;
+		expected: LiveStatus;
 	}>([
 		{
 			name: "the setup on a first turn before the first phase",
-			messages: [USER_BUBBLE],
+			liveMessage: null,
 			phase: null,
 			isFirstTurn: true,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "setup" },
+			expected: { kind: "setup" },
 		},
 		{
 			name: "the setup while the first turn creates the sandbox",
-			messages: [USER_BUBBLE],
+			liveMessage: null,
 			phase: "sandbox_waking",
 			isFirstTurn: true,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "setup" },
+			expected: { kind: "setup" },
 		},
 		{
 			name: "the wake while a later turn wakes the sandbox",
-			messages: [USER_BUBBLE],
+			liveMessage: null,
 			phase: "sandbox_waking",
 			isFirstTurn: false,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "wake" },
+			expected: { kind: "wake" },
 		},
 		{
-			name: "Thinking on a warm turn with no reply yet",
-			messages: [USER_BUBBLE],
+			name: "Thinking on a warm turn before the reply starts",
+			liveMessage: null,
 			phase: "session_starting",
 			isFirstTurn: false,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "thinking" },
+			expected: { kind: "thinking" },
 		},
 		{
 			// The sandbox is ready once the agent runs, so the setup lines stop.
-			name: "Thinking on a first turn that runs with no reply yet",
-			messages: [USER_BUBBLE],
+			name: "Thinking on a first turn that runs with no activity yet",
+			liveMessage: reply([receipt]),
 			phase: "running",
 			isFirstTurn: true,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "thinking" },
+			expected: { kind: "thinking" },
 		},
 		{
-			name: "Thinking when the reply holds only a hidden thought that streams",
-			messages: [USER_BUBBLE, reply([thought(true)])],
+			name: "Thinking when the latest activity is a thought",
+			liveMessage: reply([styleEdit, thought]),
 			phase: "running",
 			isFirstTurn: false,
-			showsThoughts: false,
-			expected: { hasVisibleReply: false, kind: "thinking" },
+			expected: { kind: "thinking" },
 		},
 		{
-			name: "Thinking for a hidden thought after the text, also behind a receipt",
-			messages: [USER_BUBBLE, reply([onIt, thought(true), receipt])],
+			name: "Writing when the latest activity is a note",
+			liveMessage: reply([thought, note]),
 			phase: "running",
 			isFirstTurn: false,
-			showsThoughts: false,
-			expected: { hasVisibleReply: true, kind: "thinking" },
+			expected: { kind: "writing" },
 		},
 		{
-			name: "the phase once the reply has text",
-			messages: [USER_BUBBLE, reply([onIt])],
-			phase: "running",
-			isFirstTurn: true,
-			showsThoughts: false,
-			expected: { hasVisibleReply: true, kind: "phase" },
-		},
-		{
-			name: "the phase when the last hidden thought is finished",
-			messages: [USER_BUBBLE, reply([onIt, thought(false)])],
+			name: "the latest step with its area, also behind a receipt",
+			liveMessage: reply([note, styleEdit, receipt]),
 			phase: "running",
 			isFirstTurn: false,
-			showsThoughts: false,
-			expected: { hasVisibleReply: true, kind: "phase" },
+			expected: { kind: "step", stepKind: "edit", area: "styles" },
 		},
 		{
-			name: "the phase when the feed shows the thought that streams",
-			messages: [USER_BUBBLE, reply([thought(true)])],
-			phase: "running",
+			name: "Saving while the turn commits after its last step",
+			liveMessage: reply([styleEdit]),
+			phase: "committing",
 			isFirstTurn: false,
-			showsThoughts: true,
-			expected: { hasVisibleReply: true, kind: "phase" },
+			expected: { kind: "saving" },
 		},
-	])("shows $name", ({ messages, expected, ...input }) => {
-		expect(liveActivityOf(messages, input)).toEqual(expected);
+		{
+			// An ask_user turn with no text and no reasoning has no activity at all.
+			name: "Saving while a turn with no activity commits",
+			liveMessage: null,
+			phase: "committing",
+			isFirstTurn: false,
+			expected: { kind: "saving" },
+		},
+	])("shows $name", ({ liveMessage, expected, ...input }) => {
+		expect(liveStatusOf(liveMessage, input)).toEqual(expected);
+	});
+});
+
+describe("workedDurationOf", () => {
+	it.each<[number, ReturnType<typeof workedDurationOf>]>([
+		[59, { unit: "seconds", count: 59 }],
+		[60, { unit: "minutes", count: 1 }],
+		[89, { unit: "minutes", count: 1 }],
+		[90, { unit: "minutes", count: 2 }],
+	])("says %i s as %j", (workedSeconds, expected) => {
+		expect(workedDurationOf(workedSeconds)).toEqual(expected);
 	});
 });

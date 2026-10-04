@@ -6,25 +6,25 @@
  * project and mock thread queries. The URL search params hold the view state.
  * The Backend group of the More view shows only behind useCloudTabEnabled;
  * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
- * The raw agent thinking shows only in local dev or for staff.
+ * The details panel of a reply covers the main card (a sheet on a phone).
+ * Raw agent thinking never shows in production; local dev has a switch.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { isStaffRole } from "@wandit/contracts";
 import {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
 	type ResizablePanelHandle,
 } from "@wandit/ui/components/resizable";
+import { Sheet, SheetContent, SheetTitle } from "@wandit/ui/components/sheet";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { useSession } from "@/features/auth";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -32,6 +32,7 @@ import {
 	builderThreadQuery,
 } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
+import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
 import { CodeView } from "../components/code/code-view";
 import { MoreView } from "../components/more/more-view";
@@ -48,9 +49,11 @@ import {
 	panelTitleKey,
 	readChatLayout,
 	readChatOpen,
+	readDeveloperView,
 	resolvePanel,
 	writeChatLayout,
 	writeChatOpen,
+	writeDeveloperView,
 } from "../lib/helpers";
 import type { AppBuilderSearch } from "../lib/schemas";
 import { useBuilderThread } from "../lib/use-builder-thread";
@@ -63,6 +66,7 @@ export type AppBuilderPageProps = {
 	search: AppBuilderSearch;
 };
 
+/** The workspace page. Owns the chat open state, the details panel state, and the chat view of local dev. */
 export default function AppBuilderPage({
 	projectId,
 	search,
@@ -73,10 +77,24 @@ export default function AppBuilderPage({
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
 	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
 	const thread = useBuilderThread(projectId);
-	const { data: session } = useSession();
-	// Raw thinking and the seconds counter are for debugging. Users see the labels only.
-	const showsAgentDebug =
-		import.meta.env.DEV || isStaffRole(session?.user.role);
+	// Product rule: raw thinking never shows in production, also not for staff.
+	// Local dev can switch to the developer view to see every step.
+	const [isDeveloperView, setIsDeveloperView] = useState(
+		() => import.meta.env.DEV && readDeveloperView(),
+	);
+	// Id of the reply whose details panel opened last, or null before the first open.
+	// A close keeps the id, so the phone sheet still shows the reply while it slides out.
+	const [activityMessageId, setActivityMessageId] = useState<string | null>(
+		null,
+	);
+	const [isActivityOpen, setIsActivityOpen] = useState(false);
+	// A reply that leaves the thread (a project switch, a canceled turn) closes the panel.
+	const activityMessage =
+		activityMessageId === null
+			? undefined
+			: thread.messages.find((message) => message.id === activityMessageId);
+	// The project menu switches the project in place. A missing reply must not open again on the way back.
+	if (isActivityOpen && activityMessage === undefined) setIsActivityOpen(false);
 	// The preview boot screen shows the database step on every view, so this read is always on.
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
@@ -158,7 +176,21 @@ export default function AppBuilderPage({
 			isSending={thread.isSending}
 			phase={thread.phase}
 			isFirstTurn={thread.isFirstTurn}
-			showsAgentDebug={showsAgentDebug}
+			liveMessageId={thread.liveMessageId}
+			isDeveloperView={isDeveloperView}
+			// The switch exists only in local dev. A production build always shows the production view.
+			onChangeDeveloperView={
+				import.meta.env.DEV
+					? (next) => {
+							setIsDeveloperView(next);
+							writeDeveloperView(next);
+						}
+					: null
+			}
+			onOpenActivity={(messageId) => {
+				setActivityMessageId(messageId);
+				setIsActivityOpen(true);
+			}}
 			isReady={thread.isReady}
 			projectName={project.name}
 			// LIMIT: plan mode sends a build turn; the turn body has no mode
@@ -173,13 +205,12 @@ export default function AppBuilderPage({
 			}
 			errorText={thread.errorText}
 			onCollapse={() => setChatOpenAndStore(false)}
-			onPreviewVersion={() => setSearch({ view: "preview" }, false)}
 			className="h-full rounded-2xl border bg-sidebar"
 		/>
 	);
 
 	const mainCard = (
-		<div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-sidebar">
+		<div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-sidebar">
 			{/* The preview stays mounted across views so the app inside keeps its state. */}
 			<div
 				className={cn(
@@ -232,6 +263,17 @@ export default function AppBuilderPage({
 					onSelectPanel={(next) => setSearch({ panel: next }, false)}
 				/>
 			</div>
+			{/* The panel covers the views and keeps them mounted, so the preview keeps its state. */}
+			{!isMobile && isActivityOpen && activityMessage !== undefined ? (
+				<ActivityPanel
+					// A new reply mounts a new panel, so its scroll and its follow state start fresh.
+					key={activityMessage.id}
+					message={activityMessage}
+					isLive={activityMessageId === thread.liveMessageId}
+					onClose={() => setIsActivityOpen(false)}
+					className="absolute inset-0 z-20 bg-sidebar"
+				/>
+			) : null}
 		</div>
 	);
 
@@ -254,7 +296,11 @@ export default function AppBuilderPage({
 			title={viewTitle()}
 			device={device}
 			viewport={viewport}
-			onChangeView={(next) => setSearch({ view: next }, false)}
+			// A view change is a new intent, so it also closes the details panel.
+			onChangeView={(next) => {
+				setIsActivityOpen(false);
+				setSearch({ view: next }, false);
+			}}
 			onChangeDevice={(next) => setSearch({ device: next }, true)}
 			onChangeViewport={(next) => setSearch({ viewport: next }, true)}
 			onReload={() => setReloadKey((key) => key + 1)}
@@ -287,6 +333,43 @@ export default function AppBuilderPage({
 								{mainCard}
 							</main>
 						</div>
+						{/* On a phone the details open as a full-screen sheet over the chat. */}
+						<Sheet
+							open={isActivityOpen && activityMessage !== undefined}
+							onOpenChange={(open) => {
+								if (!open) setIsActivityOpen(false);
+							}}
+						>
+							<SheetContent
+								// Radix focuses the first button, which is the close button. On a
+								// phone, its tooltip then opens. The dialog itself takes the focus instead.
+								onOpenAutoFocus={(event) => {
+									event.preventDefault();
+									if (event.currentTarget instanceof HTMLElement) {
+										event.currentTarget.focus();
+									}
+								}}
+								side="bottom"
+								showCloseButton={false}
+								aria-describedby={undefined}
+								className="flex h-svh flex-col gap-0 bg-sidebar p-0"
+							>
+								{/* Radix needs a dialog title; the panel header shows the same words. */}
+								<SheetTitle className="sr-only">
+									{t("appBuilder.chat.details")}
+								</SheetTitle>
+								{activityMessage !== undefined ? (
+									<ActivityPanel
+										// A new reply mounts a new panel, so its scroll and its follow state start fresh.
+										key={activityMessage.id}
+										message={activityMessage}
+										isLive={activityMessageId === thread.liveMessageId}
+										onClose={() => setIsActivityOpen(false)}
+										className="flex-1"
+									/>
+								) : null}
+							</SheetContent>
+						</Sheet>
 					</>
 				) : (
 					<ResizablePanelGroup
