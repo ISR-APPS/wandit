@@ -59,6 +59,7 @@ function renderList(
 			versions,
 			onRestore,
 			projectId: PROJECT_ID,
+			liveCommitSha: null,
 			isRestoring,
 		}),
 	};

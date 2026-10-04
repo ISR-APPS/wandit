@@ -1,9 +1,10 @@
 /**
  * One row of the activity feed: what the agent did, in plain words, for
  * example "Edited" + `styles.css`, or the model's sentence for a command.
- * The technical detail (diff lines, the command, the SQL) opens behind the
- * chevron. An image the step read or made shows under the row. Rendered for
- * each `data-step` part by chat-message.tsx (developer view) and
+ * The technical detail (diff lines, the command and its output, the SQL)
+ * opens behind the chevron. An image the step read or made shows under the
+ * row. A secret that has no value gets a link to the Secrets panel.
+ * Rendered for each `data-step` part by chat-message.tsx and
  * activity-panel.tsx.
  */
 
@@ -36,7 +37,10 @@ import type { BuilderDataParts, BuilderStepKind } from "../../api/dto";
 import { ShimmerText } from "./shimmer-text";
 
 /** Props of one `data-step` part, as chat-message.tsx and activity-panel.tsx pass them. */
-export type StepRowProps = BuilderDataParts["step"];
+export type StepRowProps = BuilderDataParts["step"] & {
+	/** Opens the Secrets panel. Absent while the Cloud panels are off; the link then hides. */
+	onOpenSecrets?: () => void;
+};
 
 const ICONS: Record<BuilderStepKind, LucideIcon> = {
 	edit: FilePen,
@@ -91,6 +95,8 @@ export function StepRow({
 	description,
 	detail,
 	imageUrl,
+	isSecretMissing,
+	onOpenSecrets,
 }: StepRowProps) {
 	const { t } = useTranslation();
 	const isRunning = state === "running";
@@ -130,7 +136,16 @@ export function StepRow({
 					{target}
 				</span>
 			) : null}
-			{state === "error" ? (
+			{isSecretMissing && onOpenSecrets ? (
+				// The agent cannot set a value: the user adds it in the Secrets panel.
+				<button
+					type="button"
+					onClick={onOpenSecrets}
+					className="shrink-0 text-primary text-xs underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+				>
+					{t("appBuilder.chat.addSecret")}
+				</button>
+			) : state === "error" ? (
 				<span className="shrink-0 text-destructive text-xs">
 					{t("appBuilder.chat.stepFailed")}
 				</span>

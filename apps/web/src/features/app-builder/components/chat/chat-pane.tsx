@@ -5,9 +5,10 @@
  * message list with one status line while a turn runs, an alert row for a
  * refused send (`errorText`), and the composer pinned at the bottom. When
  * the agent asks the user something, the request tray opens on top of the
- * composer. In the production view, the live reply shows only as the status
- * line. Rendered by pages/app-builder-page.tsx, which owns the thread hook,
- * the details panel, and the card chrome. Renders chat-message.tsx,
+ * composer. A failed last reply gets a Retry button that sends its user
+ * message again. In the production view, the live reply shows only as the
+ * status line. Rendered by pages/app-builder-page.tsx, which owns the
+ * thread hook, the details panel, and the card chrome. Renders chat-message.tsx,
  * working-row.tsx, composer.tsx, and the request tray.
  */
 
@@ -19,6 +20,7 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
+import type { FileUIPart } from "ai";
 import { PanelLeftClose, Square } from "lucide-react";
 import { AnimatePresence, MotionConfig } from "motion/react";
 import { useRef, useState } from "react";
@@ -40,10 +42,8 @@ import { WorkingRow } from "./working-row";
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
 	messages: BuilderMessage[];
-	/** Credits one turn costs, whole credits. Shown next to the send button. */
-	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, shown as a chip above the textarea. */
-	focusLabel: string | null;
+	/** Credits the next turn holds, whole credits. Shown next to the send button; null hides it. */
+	turnEstimateCredits: number | null;
 	/** True while a turn runs. Locks the composer and shows the status line. */
 	isSending: boolean;
 	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the status line label before the reply has steps. */
@@ -69,6 +69,8 @@ export type ChatPaneProps = {
 	onAnswerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
+		/** Files of a typed message that also answers a skipped round. */
+		files?: FileUIPart[];
 	}) => void;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
@@ -76,6 +78,8 @@ export type ChatPaneProps = {
 	errorText: string | null;
 	/** Hides the chat. The header button calls it; the page stores the choice. */
 	onCollapse: () => void;
+	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
 	className?: string;
 };
 
@@ -83,7 +87,6 @@ export type ChatPaneProps = {
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
-	focusLabel,
 	isSending,
 	phase,
 	isFirstTurn,
@@ -99,6 +102,7 @@ export function ChatPane({
 	onCancel,
 	errorText,
 	onCollapse,
+	onOpenSecrets,
 	className,
 }: ChatPaneProps) {
 	const { t } = useTranslation();
@@ -112,6 +116,8 @@ export function ChatPane({
 		: messages.filter((message) => message.id !== liveMessageId);
 	const liveMessage =
 		messages.find((message) => message.id === liveMessageId) ?? null;
+	const retryInput = isSending ? null : retryInputOf(messages);
+	const lastMessageId = messages.at(-1)?.id;
 
 	// The tray shows the open questions of the last reply. A rejected answer
 	// leaves its user bubble after that reply, and the questions stay open.
@@ -211,6 +217,12 @@ export function ChatPane({
 							message={message}
 							isDeveloperView={isDeveloperView}
 							onOpenActivity={onOpenActivity}
+							onOpenSecrets={onOpenSecrets}
+							onRetry={
+								message.id === lastMessageId && retryInput !== null
+									? () => onSend(retryInput)
+									: undefined
+							}
 							// One active turn per project. The card stays clickable while a
 							// turn runs, so the pane drops a second send.
 							onDecideApproval={(approvalId, approved) => {
@@ -249,7 +261,6 @@ export function ChatPane({
 			<div className="shrink-0 px-4 pt-2 pb-4">
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
-					focusLabel={focusLabel}
 					// The composer also locks while the chat id and the history load.
 					// A send without the id drops the turn; a send before the history
 					// puts the reply above it.
@@ -261,7 +272,11 @@ export function ChatPane({
 						if (answers === null) {
 							onSend(input);
 						} else {
-							onAnswerQuestions({ message: input.text, answers });
+							onAnswerQuestions({
+								message: input.text,
+								answers,
+								files: input.files,
+							});
 						}
 					}}
 					onDraftChange={setDraft}
@@ -286,4 +301,29 @@ export function ChatPane({
 			</div>
 		</div>
 	);
+}
+
+/**
+ * The message that the Retry button of the last reply sends again, or null.
+ * The last reply must hold an error, and the message before it must be the
+ * user message of that turn. An approval answer has no user bubble, so its
+ * failed reply gets no Retry. A stopped turn has no error: no Retry either.
+ */
+function retryInputOf(
+	messages: readonly BuilderMessage[],
+): SendBuilderMessageInput | null {
+	const reply = messages.at(-1);
+	const userMessage = messages.at(-2);
+	if (reply?.role !== "assistant" || userMessage?.role !== "user") return null;
+	// Every failure can be sent again, also a stop on a credit cap: the
+	// agent then continues from the files that the stop committed.
+	if (!reply.parts.some((part) => part.type === "data-error")) return null;
+	return {
+		text: userMessage.parts
+			.flatMap((part) => (part.type === "text" ? [part.text] : []))
+			.join("\n\n"),
+		files: userMessage.parts.filter(
+			(part): part is FileUIPart => part.type === "file",
+		),
+	};
 }

@@ -1,6 +1,6 @@
 /**
- * Orchestration behind the turn API: create, cancel, stream access checks,
- * and the end-of-turn promotion trigger.
+ * Orchestration behind the turn API: create, the pre-send estimate, cancel,
+ * stream access checks, and the end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
  * model allow-list, the monthly cap, and the per-actor turn limit, then
@@ -28,6 +28,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
+	type TurnEstimateResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
@@ -70,6 +71,7 @@ import {
 	isTerminalStatus,
 	nextStatusForCancel,
 	RESTORE_LOCK_HOLDER_PREFIX,
+	WAKE_LOCK_HOLDER_PREFIX,
 } from "../../domain/turn-queue";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import {
@@ -106,9 +108,9 @@ export const TURN_HOLD_DEFAULT_CREDITS = 1_400;
 export const MAX_ACTIVE_TURNS_PER_ACTOR = 3;
 
 /**
- * The create-time hold estimate `responseFor` reports. `modelId` is null
+ * The hold estimate of `estimateTurn`, in centi-credits. `modelId` is null
  * only when no deploy default is set and the body picks none; the
- * contract needs a model name, so the response omits `estimate` then.
+ * contract needs a model name, so the answers omit the estimate then.
  */
 type TurnEstimate = {
 	/** `fixed`: the default hold; `history`: the project's settled median. */
@@ -338,14 +340,17 @@ export class TurnsService {
 			lockHeld = acquired;
 
 			if (!acquired && active === null && oldestWaiting === null) {
-				// The busy lock holder is not a turn row. A `restore:` prefix
-				// marks a running restore; parking would strand the row because
-				// a restore never promotes a waiting turn. Answer a 409.
+				// The busy lock holder is not a turn row. A `restore:` or `wake:`
+				// prefix marks a running restore or sandbox wake. Neither promotes
+				// a waiting turn, so a parked row would strand. Answer a 409.
 				const holder = await this.lock.holder(projectId);
-				if (holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX)) {
+				if (
+					holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX) ||
+					holder?.startsWith(WAKE_LOCK_HOLDER_PREFIX)
+				) {
 					throw new ConflictException({
 						code: BUILDER_TURN_ACTIVE_ERROR_CODE,
-						message: "A restore is running for this project",
+						message: "A restore or a sandbox wake is running for this project",
 					});
 				}
 			}
@@ -388,7 +393,7 @@ export class TurnsService {
 						"builder_turn_create_replayed",
 					);
 				}
-				return this.responseFor(created.turn, body.chatId, estimate);
+				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
 
 			if (options.existingMessageId === undefined) {
@@ -426,7 +431,7 @@ export class TurnsService {
 							);
 						});
 				}
-				return this.responseFor(created.turn, body.chatId, estimate);
+				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
 
 			const handle = await this.starter.start({
@@ -438,7 +443,7 @@ export class TurnsService {
 			});
 			if (handle.runner === "host") {
 				// The relay reads a host turn from Redis by its turn id.
-				return this.responseFor(
+				return turnCreatedResponseOf(
 					{ ...created.turn, runner: "host" },
 					body.chatId,
 					estimate,
@@ -446,7 +451,7 @@ export class TurnsService {
 			}
 			await this.turns.setTriggerRunId(created.turn.id, handle.runId);
 
-			return this.responseFor(
+			return turnCreatedResponseOf(
 				{ ...created.turn, triggerRunId: handle.runId },
 				body.chatId,
 				estimate,
@@ -583,6 +588,30 @@ export class TurnsService {
 		turnId: string,
 	): Promise<BuilderTurnRow> {
 		return this.requireScopedTurn(scope, projectId, turnId);
+	}
+
+	/**
+	 * `GET /v2/projects/:id/turns/estimate`. The hold that the next turn on
+	 * the deploy default model reserves: the same `estimateTurn` that
+	 * `create` runs, with no write. 404 for a project that is out of scope
+	 * or not V2.
+	 */
+	async estimate(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<TurnEstimateResponse> {
+		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
+		if (engine !== "v2_app") {
+			throw new NotFoundException();
+		}
+
+		const caps = await this.caps.findByProjectId(projectId);
+		const estimate = await this.estimateTurn(
+			projectId,
+			this.v2Env.V2_DEFAULT_MODEL ?? null,
+			caps?.perTurnCapCredits ?? null,
+		);
+		return { estimate: wholeCreditEstimateOf(estimate) };
 	}
 
 	/** The project's currently active turn (for `turns/active/stream`). */
@@ -920,38 +949,51 @@ export class TurnsService {
 			);
 		}
 	}
+}
 
-	private responseFor(
-		turn: BuilderTurnRow,
-		chatId: string,
-		estimate: TurnEstimate,
-	): CreateTurnResponse {
-		return {
-			chatId,
-			// The contract's estimate needs a model name; a null model means
-			// no deploy default is set, so the field is omitted (it is
-			// optional).
-			...(estimate.modelId === null
-				? {}
-				: {
-						estimate: {
-							basis: estimate.basis,
-							// The estimate surfaces whole credits; the hold is
-							// centi-credits.
-							credits: Math.ceil(estimate.creditsCc / 100),
-							modelId: estimate.modelId,
-							multiplier: estimate.multiplier,
-						},
-					}),
-			runId: turn.triggerRunId,
-			status: turn.status,
-			// The reconnect route: the create response rides the create
-			// route's own stream, so `streamUrl` exists for a reload resume.
-			streamUrl: appBuilderRoutes.activeTurnStream(turn.projectId),
-			turnId: turn.id,
-			...(turn.status === "waiting" ? { queued: true } : {}),
-		};
+/**
+ * The `data-turn-created` payload of a turn. The create route sends it with
+ * the hold estimate. The resume route sends it with a null estimate: the
+ * browser then knows the turn id after a reload, so Stop can cancel.
+ */
+export function turnCreatedResponseOf(
+	turn: BuilderTurnRow,
+	chatId: string,
+	estimate: TurnEstimate | null,
+): CreateTurnResponse {
+	const wholeCredits =
+		estimate === null ? null : wholeCreditEstimateOf(estimate);
+	return {
+		chatId,
+		...(wholeCredits === null ? {} : { estimate: wholeCredits }),
+		runId: turn.triggerRunId,
+		status: turn.status,
+		// The reconnect route: the create response rides the create
+		// route's own stream, so `streamUrl` exists for a reload resume.
+		streamUrl: appBuilderRoutes.activeTurnStream(turn.projectId),
+		turnId: turn.id,
+		...(turn.status === "waiting" ? { queued: true } : {}),
+	};
+}
+
+/**
+ * The contract shape of a hold estimate, in whole credits. Null when no
+ * model is configured: the contract needs a model name.
+ */
+function wholeCreditEstimateOf(
+	estimate: TurnEstimate,
+): TurnEstimateResponse["estimate"] {
+	if (estimate.modelId === null) {
+		return null;
 	}
+	return {
+		basis: estimate.basis,
+		// The hold is in centi-credits (1 credit = 100 cc); the UI shows
+		// whole credits.
+		credits: Math.ceil(estimate.creditsCc / 100),
+		modelId: estimate.modelId,
+		multiplier: estimate.multiplier,
+	};
 }
 
 /**

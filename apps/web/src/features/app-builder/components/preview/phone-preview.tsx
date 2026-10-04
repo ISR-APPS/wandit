@@ -60,31 +60,25 @@ export function PhonePreview({
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex h-10 shrink-0 items-center justify-between px-4 text-muted-foreground text-xs">
 				<span>{deviceLabel}</span>
-				<span className="flex items-center gap-3">
-					<span className="flex items-center gap-1.5">
-						<span className="size-1.5 rounded-full bg-success" />
-						{t("appBuilder.preview.liveReload")}
-					</span>
-					{canRunOnDevice ? (
-						<Button
-							variant="outline"
-							size="sm"
-							className="h-7 text-xs"
-							onClick={() => setIsDeviceOpen((open) => !open)}
-						>
-							{isDeviceOpen ? (
-								<ArrowLeft className="size-3.5 rtl:-scale-x-100" />
-							) : (
-								<Smartphone className="size-3.5" />
-							)}
-							{t(
-								isDeviceOpen
-									? "appBuilder.devicePreview.back"
-									: "appBuilder.devicePreview.open",
-							)}
-						</Button>
-					) : null}
-				</span>
+				{canRunOnDevice ? (
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-7 text-xs"
+						onClick={() => setIsDeviceOpen((open) => !open)}
+					>
+						{isDeviceOpen ? (
+							<ArrowLeft className="size-3.5 rtl:-scale-x-100" />
+						) : (
+							<Smartphone className="size-3.5" />
+						)}
+						{t(
+							isDeviceOpen
+								? "appBuilder.devicePreview.back"
+								: "appBuilder.devicePreview.open",
+						)}
+					</Button>
+				) : null}
 			</div>
 			<div className="relative grid min-h-0 flex-1 place-items-center overflow-auto p-6">
 				{/* The dots sit on their own layer: `bg-dots` carries a mask that would fade the phone too. */}

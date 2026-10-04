@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import {
 	AppCommitsRepository,
-	MalformedVersionCursorError,
 	type NewAppCommit,
 	VersionConflictError,
 } from "./app-commits.repository";
@@ -114,7 +113,7 @@ describe("AppCommitsRepository.listByProject", () => {
 		);
 
 		await repository.listByProject("p-1", {
-			cursor: "2026-09-14T10:00:00.000Z_row-5",
+			cursor: { createdAt: new Date("2026-09-14T10:00:00.000Z"), id: "row-5" },
 			limit: 50,
 		});
 
@@ -159,14 +158,6 @@ describe("AppCommitsRepository.listByProject", () => {
 		const page = await repository.listByProject("p-1", { limit: 50 });
 
 		expect(page.nextCursor).toBeNull();
-	});
-
-	it("rejects a malformed cursor with a typed error", async () => {
-		const repository = new AppCommitsRepository(fakeDb({}));
-
-		await expect(
-			repository.listByProject("p-1", { cursor: "not-a-cursor", limit: 50 }),
-		).rejects.toBeInstanceOf(MalformedVersionCursorError);
 	});
 });
 

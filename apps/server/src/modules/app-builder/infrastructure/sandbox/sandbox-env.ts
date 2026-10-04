@@ -3,12 +3,17 @@
  * The builder-turn task calls `buildSandboxEnv` once per turn. The provider
  * passes the result to the vendor and to every command it runs inside.
  * The allow list is the boundary of the process env: only its names enter it.
- * The builder-turn task and provision-backend call `syncBackendEnvFile`.
+ * The builder-turn task, provision-backend, and `startSandboxWithoutTurn`
+ * call `syncBackendEnvFile`. The builder-turn task and
+ * `startSandboxWithoutTurn` read the backend with `activeBackendEnvOf`.
  */
 import { posix } from "node:path";
 
+import { supabaseProjectUrl } from "@wandit/contracts";
+
 import { SandboxEnvRejectedError } from "../../domain/errors/sandbox-env-rejected.error";
 import type { SandboxReader } from "../../domain/ports/sandbox-provider";
+import type { AppBackendRow } from "../persistence/app-backends.repository";
 import { TEMPLATE_PROFILES } from "./template-profiles";
 
 /**
@@ -88,6 +93,21 @@ export type BackendEnv = {
 	/** The anon key. RLS limits it, so the browser bundle may hold it. */
 	anonKey: string;
 };
+
+/**
+ * The public values of the row, or null. D18 and WANDIT-283: only an
+ * `active` row reaches the VM and the egress list. The builder-turn task and
+ * `startSandboxWithoutTurn` share it, so both give the same policy hash.
+ */
+export function activeBackendEnvOf(
+	backend: AppBackendRow | null,
+): BackendEnv | null {
+	return backend?.status === "active" &&
+		backend.ref !== null &&
+		backend.anonKey !== null
+		? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
+		: null;
+}
 
 // 60 tries, one per second. Metro is the slowest start: it crawls the
 // project before it opens its port.

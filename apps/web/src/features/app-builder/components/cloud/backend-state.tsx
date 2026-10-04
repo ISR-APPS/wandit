@@ -2,12 +2,18 @@
  * Backend gate of the Cloud panels (WANDIT-188). Reads cloudBackendQuery and
  * shows one block per backend status; only an `active` backend shows the
  * panel it wraps. Rendered by cloud-panel-content.tsx around every panel except
- * Secrets. Calls useEnableBackend and useRestoreBackend. Also exports
- * CloudLoadFailed, the failed-load block of the panels.
+ * Secrets. Calls useEnableBackend and useRestoreBackend, and links to /billing
+ * when the plan has no free backend. Also exports CloudLoadFailed.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CloudBackendResponse } from "@wandit/contracts";
+import { Link } from "@tanstack/react-router";
+import {
+	type BackendLimitDetails,
+	type BillingPlanId,
+	backendLimitDetailsSchema,
+	type CloudBackendResponse,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DatabaseZap,
@@ -18,6 +24,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { useEnableBackend, useRestoreBackend } from "../../api/cloud.mutations";
 import { cloudBackendQuery, cloudKeys } from "../../api/cloud.queries";
@@ -34,9 +41,12 @@ export type BackendStateProps = {
 };
 
 /**
- * Text of each `failureCode` the provisioning run writes (apps/server:
- * backends.service.ts and trigger/provision-backend.runtime.ts). Any
- * other code shows the `unknown` text.
+ * Text of each `failureCode` the server writes. The provisioning run writes
+ * the `backend_provision_*` and `backend_base_schema_missing` codes
+ * (backends.service.ts, trigger/provision-backend.runtime.ts).
+ * app-backends.repository.ts writes `backend_restore_failed` in
+ * markRestoreFailed and markRestoreTimedOut. The turn wake, the Cloud tab
+ * read, and the pause sweep call them. Any other code shows the `unknown` text.
  */
 const FAILURE_REASONS = new Map<string, TranslationKey>([
 	[
@@ -59,7 +69,18 @@ const FAILURE_REASONS = new Map<string, TranslationKey>([
 		"backend_base_schema_missing",
 		"workspace.cloud.backend.error.reasons.baseSchemaMissing",
 	],
+	[
+		"backend_restore_failed",
+		"workspace.cloud.backend.error.reasons.restoreFailed",
+	],
 ]);
+
+/** The plan names of the billing dictionary, so the limit text names the plan as the plan picker does. */
+const PLAN_NAMES = {
+	starter: "billing.planPicker.starterName",
+	pro: "billing.planPicker.proName",
+	business: "billing.planPicker.businessName",
+} as const satisfies Record<BillingPlanId, TranslationKey>;
 
 /**
  * Shows `children` only while the backend is `active`. Every other status,
@@ -74,6 +95,18 @@ export function BackendState({
 	const backend = useQuery(cloudBackendQuery(projectId, isActive));
 	const enable = useEnableBackend(projectId);
 	const restore = useRestoreBackend(projectId);
+	// The enable button and the retry of an `error` row get a 403 when the plan has no free backend.
+	// The next mutate() clears the error, so the limit block goes away on the next click.
+	const limitReached =
+		isApiClientError(enable.error) &&
+		enable.error.code === "BACKEND_LIMIT_REACHED"
+			? {
+					// `details` is unknown on the wire. When the parse fails, the block shows the text without numbers.
+					details:
+						backendLimitDetailsSchema.safeParse(enable.error.details).data ??
+						null,
+				}
+			: null;
 
 	if (backend.isPending) {
 		return <RowsGridSkeleton />;
@@ -103,18 +136,27 @@ export function BackendState({
 					icon={DatabaseZap}
 					text={t("workspace.cloud.backend.none.description")}
 				>
+					{limitReached === null ? null : (
+						<BackendLimitReached details={limitReached.details} />
+					)}
 					<Button disabled={enable.isPending} onClick={() => enable.mutate()}>
 						{t("workspace.cloud.backend.none.enable")}
 					</Button>
 				</CodeMessage>
 			);
-		// Both states end without a click; cloudBackendPollMs reads the state every 5 s until then.
+		// `creating` and `restoring` end without a click; cloudBackendPollMs reads the state every 5 s until then.
 		case "creating":
-		case "restoring":
 			return (
 				<CodeMessage
 					icon={Hourglass}
 					text={t("workspace.cloud.backend.waiting")}
+				/>
+			);
+		case "restoring":
+			return (
+				<CodeMessage
+					icon={Hourglass}
+					text={t("workspace.cloud.backend.restoring")}
 				/>
 			);
 		// The lifecycle pauses an unused backend. Every panel needs it awake.
@@ -138,10 +180,20 @@ export function BackendState({
 			);
 		case "error":
 			return (
-				<BackendFailed
-					failureCode={backend.data.failureCode}
-					onCheckAgain={() => void backend.refetch()}
-				/>
+				<BackendFailed failureCode={backend.data.failureCode}>
+					{limitReached === null ? null : (
+						<BackendLimitReached details={limitReached.details} />
+					)}
+					{/* POST cloud/backend provisions an `error` row again and answers it as `creating`. */}
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={enable.isPending}
+						onClick={() => enable.mutate()}
+					>
+						{t("workspace.cloud.retry")}
+					</Button>
+				</BackendFailed>
 			);
 		default: {
 			// The compiler fails here when the contract gains a status without a case above.
@@ -151,13 +203,14 @@ export function BackendState({
 	}
 }
 
-/** The failure text for the code, the code itself for support, and a new read of the state. */
+/** The failure text for the code, the code itself for support, and the retry controls. */
 function BackendFailed({
 	failureCode,
-	onCheckAgain,
+	children,
 }: {
 	failureCode: CloudBackendResponse["failureCode"];
-	onCheckAgain: () => void;
+	/** The retry button, and the plan limit block when the last retry hit the limit. */
+	children: ReactNode;
 }) {
 	const { t } = useTranslation();
 	const reason =
@@ -171,11 +224,42 @@ function BackendFailed({
 					{t("workspace.cloud.backend.error.code", { code: failureCode })}
 				</p>
 			)}
-			{/* POST cloud/backend answers an `error` row as it is, so the button can only read the state again. */}
-			<Button variant="outline" size="sm" onClick={onCheckAgain}>
-				{t("workspace.cloud.backend.error.checkAgain")}
-			</Button>
+			{children}
 		</CodeMessage>
+	);
+}
+
+/**
+ * The plan limit of a 403 `BACKEND_LIMIT_REACHED` and a link to the billing
+ * page, where the owner picks a plan with more backends.
+ */
+function BackendLimitReached({
+	details,
+}: {
+	/** Plan and limit from the 403 body; null when the body did not parse. */
+	details: BackendLimitDetails | null;
+}) {
+	const { t } = useTranslation();
+	let text = t("workspace.cloud.backend.limit.generic");
+	if (details !== null) {
+		// A limit of 0 gets its own sentence with no plan name: the server
+		// sends `starter` also for an owner without a subscription.
+		text =
+			details.limit === 0
+				? t("workspace.cloud.backend.limit.notIncluded")
+				: t("workspace.cloud.backend.limit.inUse", {
+						plan: t(PLAN_NAMES[details.plan]),
+						count: details.limit,
+					});
+	}
+
+	return (
+		<div className="flex max-w-sm flex-col items-center gap-2">
+			<p className="text-sm">{text}</p>
+			<Button asChild size="sm">
+				<Link to="/billing">{t("workspace.cloud.backend.limit.seePlans")}</Link>
+			</Button>
+		</div>
 	);
 }
 

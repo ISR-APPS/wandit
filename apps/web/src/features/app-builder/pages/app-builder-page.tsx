@@ -3,7 +3,7 @@
  * its half of the top bar above it. On desktop a resizable split moves the
  * work pane controls with the main card. On phones the open chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
- * project and mock thread queries. The URL search params hold the view state.
+ * project query. The URL search params hold the view state.
  * The Backend group of the More view shows only behind useCloudTabEnabled;
  * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
  * The details panel of a reply covers the main card (a sheet on a phone).
@@ -27,11 +27,9 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import {
-	appProjectQuery,
-	builderThreadQuery,
-} from "../api/app-builder.queries";
+import { appProjectQuery, turnEstimateQuery } from "../api/app-builder.queries";
 import { cloudBackendQuery } from "../api/cloud.queries";
+import { appPublishQuery } from "../api/publish.queries";
 import { ActivityPanel } from "../components/chat/activity-panel";
 import { ChatPane } from "../components/chat/chat-pane";
 import { CodeView } from "../components/code/code-view";
@@ -73,9 +71,10 @@ export default function AppBuilderPage({
 }: AppBuilderPageProps) {
 	const { t } = useTranslation();
 	const navigate = useNavigate({ from: "/app/$projectId" });
-	// The route loader filled both queries, so neither suspends on first paint.
+	// The route loader filled the project query, so it does not suspend on first paint.
 	const { data: project } = useSuspenseQuery(appProjectQuery(projectId));
-	const { data: mockThread } = useSuspenseQuery(builderThreadQuery(projectId));
+	// The hold of the next turn. A failed read hides the estimate; it never blocks a send.
+	const { data: nextTurnEstimate } = useQuery(turnEstimateQuery(projectId));
 	const thread = useBuilderThread(projectId);
 	// Product rule: raw thinking never shows in production, also not for staff.
 	// Local dev can switch to the developer view to see every step.
@@ -98,6 +97,16 @@ export default function AppBuilderPage({
 	// The preview boot screen shows the database step on every view, so this read is always on.
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
+	// The live app of a web project: the preview bar, the open button, and the
+	// Live mark of the versions read it. A mobile app has no publish status.
+	const { data: publishStatus } = useQuery({
+		...appPublishQuery(projectId),
+		enabled: project?.kind === "web",
+	});
+	const live = publishStatus?.live ?? null;
+	// Undefined until a status arrives, so the preview bar never says "Not published yet" for a live app.
+	const previewLiveUrl =
+		publishStatus === undefined ? undefined : (live?.url ?? null);
 	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
 	const isDevicePreviewEnabled = useDevicePreviewEnabled();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
@@ -162,17 +171,22 @@ export default function AppBuilderPage({
 		writeChatOpen(open);
 	}
 
+	// The Secrets panel is a Cloud panel; with the Cloud gate closed the link would land elsewhere.
+	// The More view replaces the details panel, so the panel closes.
+	const openSecrets = isCloudTabEnabled
+		? () => {
+				setIsActivityOpen(false);
+				setSearch({ view: "more", panel: "secrets" }, false);
+			}
+		: undefined;
+
 	const chatCard = (
 		<ChatPane
 			messages={thread.messages}
-			// LIMIT: the focus chip and the pre-turn estimate come from the mock
-			// thread; the real estimate arrives with the first `data-turn-created`
-			// frame. Upgrade: a preview selection for the chip and an estimate
-			// route for the credits.
+			// The running turn shows its own hold; before a send, the estimate route answers.
 			turnEstimateCredits={
-				thread.estimate?.credits ?? mockThread.turnEstimateCredits
+				thread.estimate?.credits ?? nextTurnEstimate?.estimate?.credits ?? null
 			}
-			focusLabel={mockThread.focusLabel}
 			isSending={thread.isSending}
 			phase={thread.phase}
 			isFirstTurn={thread.isFirstTurn}
@@ -193,9 +207,7 @@ export default function AppBuilderPage({
 			}}
 			isReady={thread.isReady}
 			projectName={project.name}
-			// LIMIT: plan mode sends a build turn; the turn body has no mode
-			// field. Upgrade: a builder mode on composerMetadataSchema.
-			onSend={(input) => thread.send(input.text)}
+			onSend={thread.send}
 			onDecideApproval={thread.decideApproval}
 			onAnswerQuestions={thread.answerQuestions}
 			onCancel={() =>
@@ -205,6 +217,7 @@ export default function AppBuilderPage({
 			}
 			errorText={thread.errorText}
 			onCollapse={() => setChatOpenAndStore(false)}
+			onOpenSecrets={openSecrets}
 			className="h-full rounded-2xl border bg-sidebar"
 		/>
 	);
@@ -223,6 +236,7 @@ export default function AppBuilderPage({
 					<WebPreview
 						key={project.id}
 						project={project}
+						liveUrl={previewLiveUrl}
 						viewport={viewport}
 						reloadKey={reloadKey}
 						bootContext={bootContext}
@@ -271,6 +285,7 @@ export default function AppBuilderPage({
 					message={activityMessage}
 					isLive={activityMessageId === thread.liveMessageId}
 					onClose={() => setIsActivityOpen(false)}
+					onOpenSecrets={openSecrets}
 					className="absolute inset-0 z-20 bg-sidebar"
 				/>
 			) : null}
@@ -282,6 +297,7 @@ export default function AppBuilderPage({
 			project={project}
 			chatOpen={chatOpen}
 			onExpandChat={() => setChatOpenAndStore(true)}
+			liveCommitSha={live?.commitSha ?? null}
 			// The restore writes the old tree into the sandbox worktree; the reload
 			// mints a new token and shows it. A stopped sandbox shows the waking
 			// state until the next turn.
@@ -304,9 +320,7 @@ export default function AppBuilderPage({
 			onChangeDevice={(next) => setSearch({ device: next }, true)}
 			onChangeViewport={(next) => setSearch({ viewport: next }, true)}
 			onReload={() => setReloadKey((key) => key + 1)}
-			onOpenExternal={() =>
-				window.open(`https://${project.slug}.wandit.app`, "_blank", "noopener")
-			}
+			liveUrl={live?.url ?? null}
 		/>
 	);
 
@@ -365,6 +379,7 @@ export default function AppBuilderPage({
 										message={activityMessage}
 										isLive={activityMessageId === thread.liveMessageId}
 										onClose={() => setIsActivityOpen(false)}
+										onOpenSecrets={openSecrets}
 										className="flex-1"
 									/>
 								) : null}

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -124,8 +125,10 @@ class ResizeObserverStub implements ResizeObserver {
 	unobserve() {}
 }
 
-// The page mounts one TooltipProvider; the pane's message actions need it too.
+// The page mounts one TooltipProvider; the pane's message actions need it
+// too. The composer dictation refreshes the credits through a query client.
 function renderPane(props: Partial<ChatPaneProps> = {}) {
+	const queryClient = new QueryClient();
 	const onSend = vi.fn();
 	const onDecideApproval = vi.fn();
 	const onAnswerQuestions = vi.fn();
@@ -137,30 +140,33 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 			dictionary: fallbackDictionary,
 			setLocale: () => {},
 			children: createElement(
-				TooltipProvider,
-				null,
-				createElement(ChatPane, {
-					messages: MESSAGES,
-					turnEstimateCredits: 6,
-					focusLabel: null,
-					isSending: false,
-					phase: null,
-					isFirstTurn: false,
-					liveMessageId: null,
-					isDeveloperView: false,
-					onChangeDeveloperView: null,
-					onOpenActivity,
-					isReady: true,
-					projectName: "Nadi Fitness",
-					onSend,
-					onDecideApproval,
-					onAnswerQuestions,
-					onCancel: () => {},
-					errorText: null,
-					onCollapse: () => {},
-					...props,
-					...overrides,
-				}),
+				QueryClientProvider,
+				{ client: queryClient },
+				createElement(
+					TooltipProvider,
+					null,
+					createElement(ChatPane, {
+						messages: MESSAGES,
+						turnEstimateCredits: 6,
+						isSending: false,
+						phase: null,
+						isFirstTurn: false,
+						liveMessageId: null,
+						isDeveloperView: false,
+						onChangeDeveloperView: null,
+						onOpenActivity,
+						isReady: true,
+						projectName: "Nadi Fitness",
+						onSend,
+						onDecideApproval,
+						onAnswerQuestions,
+						onCancel: () => {},
+						errorText: null,
+						onCollapse: () => {},
+						...props,
+						...overrides,
+					}),
+				),
 			),
 		};
 		return createElement(I18nProvider, providerProps);
@@ -325,6 +331,7 @@ describe("ChatPane", () => {
 					files: [],
 				},
 			],
+			files: [],
 		});
 	});
 

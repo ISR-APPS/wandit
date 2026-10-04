@@ -1,5 +1,5 @@
-// Public surface consumed by workspace Settings. Pages are not exported from
-// feature barrels.
+// Public surface consumed by workspace Settings and the V2 Domains panel.
+// Pages are not exported from feature barrels.
 export type {
 	DnsRecordDiagnostic,
 	DnsRecordDiagnosticStatus,
@@ -35,3 +35,4 @@ export {
 	isDomainTransitional,
 } from "./lib/helpers";
 export { useDebouncedValue } from "./lib/hooks";
+export { useDomainCheckoutReturn } from "./lib/use-domain-checkout-return";

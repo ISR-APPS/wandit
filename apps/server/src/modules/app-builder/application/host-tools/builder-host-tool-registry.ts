@@ -11,7 +11,6 @@ import type {
 	HostToolRegistry,
 	HostToolSet,
 } from "../../domain/ports/host-tools";
-import type { ProjectNetworkHostsRepository } from "../../infrastructure/persistence/project-network-hosts.repository";
 import { ASK_USER_TOOL_NAME, createAskUserTool } from "./ask-user.host-tool";
 import {
 	createApplyDestructiveMigrationTool,
@@ -29,7 +28,10 @@ import {
 	createGenerateImageTool,
 	type GenerateImageHostToolDeps,
 } from "./generate-image.host-tool";
-import { createRequestNetworkHostTool } from "./request-network-host.host-tool";
+import {
+	createRequestNetworkHostTool,
+	type RequestNetworkHostHostToolDeps,
+} from "./request-network-host.host-tool";
 
 /**
  * The image deps, the backend tool deps (WANDIT-186), and the network-host
@@ -38,8 +40,8 @@ import { createRequestNetworkHostTool } from "./request-network-host.host-tool";
  */
 export type BuilderHostToolRegistryDeps = GenerateImageHostToolDeps &
 	BackendToolDeps & {
-		/** Appends an approved egress host to the project. */
-		networkHosts: Pick<ProjectNetworkHostsRepository, "appendHost">;
+		/** Appends an approved egress host, in one transaction with its audit row. */
+		networkHosts: RequestNetworkHostHostToolDeps["networkHosts"];
 	};
 
 /**

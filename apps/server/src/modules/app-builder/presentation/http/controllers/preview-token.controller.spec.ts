@@ -97,7 +97,9 @@ function setup() {
 		PREVIEW_TOKEN_SIGNING_KEY: SIGNING_KEY,
 		V2_HARNESS: "claude-code",
 	};
-	const service = new PreviewTokenService(appCommits, sessions, env);
+	// The mint spec covers the vendor keep-alive; here it is a no-op.
+	const sandboxes = { keepAliveIfRunning: async () => undefined };
+	const service = new PreviewTokenService(appCommits, sessions, env, sandboxes);
 	return { controller: new PreviewTokenController(service), sessions };
 }
 

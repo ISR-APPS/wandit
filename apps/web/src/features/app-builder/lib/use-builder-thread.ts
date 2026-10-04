@@ -9,9 +9,11 @@
 
 import type {
 	ChatMessage,
+	TurnEstimate,
 	TurnQuestionAnswer,
 	TurnStreamPhase,
 } from "@wandit/contracts";
+import type { FileUIPart } from "ai";
 import { useMemo } from "react";
 
 import {
@@ -20,14 +22,11 @@ import {
 } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import type { SendBuilderMessageInput } from "../api/app-builder.services";
 import type { BuilderMessage } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
 import { livePhaseOf, toBuilderMessages } from "./turn-parts";
-import {
-	type BuilderChatDeps,
-	type TurnEstimate,
-	useBuilderChat,
-} from "./use-builder-chat";
+import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
 
 /** The chat state the app-builder page binds to the pane. */
 export type BuilderThreadState = {
@@ -43,8 +42,8 @@ export type BuilderThreadState = {
 	 * worked. Null when the reply already holds the error card.
 	 */
 	errorText: string | null;
-	/** Sends one turn with this text. Dropped while a turn runs or the chat id is unknown. */
-	send: (text: string) => void;
+	/** Sends one turn with this text and these uploaded files. Dropped while a turn runs or the chat id is unknown. */
+	send: (input: SendBuilderMessageInput) => void;
 	/** Answers an open approval card through a turn with an empty message. */
 	decideApproval: (approvalId: string, approved: boolean) => void;
 	/**
@@ -54,6 +53,8 @@ export type BuilderThreadState = {
 	answerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
+		/** Files of a typed message that also answers a skipped round. */
+		files?: FileUIPart[];
 	}) => void;
 	/** Aborts the stream, then posts the turn cancel. Rejects with ApiClientError. */
 	cancel: () => Promise<void>;
@@ -193,11 +194,11 @@ export function useBuilderThread(
 						undefined,
 					t,
 				),
-		send: (text) => chat.send({ text }),
+		send: ({ text, files }) => chat.send({ text, files }),
 		decideApproval: (approvalId, approved) =>
 			chat.send({ text: "", approval: { approvalId, approved } }),
-		answerQuestions: ({ message, answers }) =>
-			chat.send({ text: message, answers }),
+		answerQuestions: ({ message, answers, files }) =>
+			chat.send({ text: message, answers, files }),
 		cancel: chat.cancel,
 		isReady: chatId !== undefined && isHistorySettled,
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,

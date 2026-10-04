@@ -32,6 +32,8 @@ export type ActivityPanelProps = {
 	isLive: boolean;
 	/** Closes the panel. The close button and the Escape key call it. */
 	onClose: () => void;
+	/** Opens the Secrets panel from a step row of a missing secret. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
 	className?: string;
 };
 
@@ -40,6 +42,7 @@ export function ActivityPanel({
 	message,
 	isLive,
 	onClose,
+	onOpenSecrets,
 	className,
 }: ActivityPanelProps) {
 	const { t } = useTranslation();
@@ -113,7 +116,13 @@ export function ActivityPanel({
 							);
 						}
 						if (part.type === "data-step") {
-							return <StepRow key={key} {...part.data} />;
+							return (
+								<StepRow
+									key={key}
+									{...part.data}
+									onOpenSecrets={onOpenSecrets}
+								/>
+							);
 						}
 						// The third activity kind: a note the agent wrote between its steps.
 						return (

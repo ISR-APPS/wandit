@@ -6,6 +6,7 @@
  */
 
 import type {
+	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
 	ProjectEngine,
@@ -15,18 +16,18 @@ import type {
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
-import type { MorePanel } from "../lib/constants";
-
 /** What Wandit builds. Changes the preview frame, the More panels, and the publish targets. */
 export type AppProjectKind = "web" | "mobile";
 
 export type AppProject = {
 	id: string;
 	name: string;
-	/** URL slug. Web previews live on `{slug}.wandit.app`. */
-	slug: string;
-	description: string;
+	/** Set at creation from `targetPlatform`. It never changes, so Settings shows it as a badge. */
 	kind: AppProjectKind;
+	/** Languages the agent builds the app in, from `projects.languages`. Settings lists them read-only. */
+	languages: AppLanguage[];
+	/** Version of the template the project started from, for example "1.4.0". null until the create flow sets it. */
+	templateVersion: string | null;
 	/** Builder of the project, from `GET /api/v2/projects/:id`. The Backend group of the More view shows only for `v2_app`. */
 	engine: ProjectEngine;
 	/** Count of saved versions, from the API. The publish popover shows it as "v{n}". */
@@ -86,7 +87,8 @@ export type BuilderDiffLine = {
  * panel shows them, the production chat does not. `summary` gives the work
  * time and the changed files. `question` is one question of the agent.
  * `approval` waits for the user to allow a tool call. `error` is a turn
- * failure. `receipt` is the settled cost of a turn.
+ * failure. `stopped` marks a turn the user stopped. `receipt` is the
+ * settled cost of a turn.
  */
 export type BuilderDataParts = {
 	thought: {
@@ -104,7 +106,7 @@ export type BuilderDataParts = {
 		target: string | null;
 		/** The model's own sentence for a command, in the user's language; null when absent. */
 		description: string | null;
-		/** Technical lines behind the chevron: diff lines, the command, the SQL. */
+		/** Technical lines behind the chevron: diff lines, the command and the end of its output, the SQL. */
 		detail: BuilderDiffLine[];
 		/** Part of the app an edit changes, from the file path; null for a step that is not an edit. */
 		area: BuilderEditArea | null;
@@ -113,6 +115,8 @@ export type BuilderDataParts = {
 		 * file, the https URL for a generated image. Null for other steps.
 		 */
 		imageUrl: string | null;
+		/** True when `set_secret` answered `missing`: the project has no stored value. The row links to the Secrets panel. */
+		isSecretMissing?: boolean;
 	};
 	/**
 	 * Text the agent wrote between its steps, for example "Now the texts…".
@@ -154,6 +158,8 @@ export type BuilderDataParts = {
 	};
 	/** The `data-turn-error` payload as the stream sends it. */
 	error: { code: string; message: string; retryable: boolean };
+	/** The `data-turn-done` status of a turn the user stopped. */
+	stopped: { status: "canceled" };
 	receipt: {
 		/** Whole credits, rounded up from the centi-credits the stream sends. */
 		credits: number;
@@ -161,6 +167,10 @@ export type BuilderDataParts = {
 		modelId: string | null;
 		inputTokens: number;
 		outputTokens: number;
+		/** Prompt tokens the model read from its cache. Not part of `inputTokens`. */
+		cacheReadTokens: number;
+		/** Prompt tokens the model wrote to its cache. Not part of `inputTokens`. */
+		cacheWriteTokens: number;
 	};
 };
 
@@ -179,15 +189,6 @@ export type TurnMessage = UIMessage<never, TurnDataParts>;
 
 /** One part of a real V2 message: text, file, reasoning, or a `data-*` card. */
 export type TurnMessagePart = TurnMessage["parts"][number];
-
-export type BuilderThread = {
-	projectId: string;
-	messages: BuilderMessage[];
-	/** Credits one more turn costs, whole credits. Shown in the composer as an estimate. */
-	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. The preview sets it on a selection. */
-	focusLabel: string | null;
-};
 
 /** A folder or a file of the sandbox worktree, for the Code view tree. */
 export type { CodeTreeNode } from "@wandit/contracts";
@@ -209,75 +210,3 @@ export type CodeFile =
 	| { kind: "binary"; path: string; size: number }
 	| { kind: "tooLarge"; path: string }
 	| { kind: "missing"; path: string };
-
-/** Data of the Sign-in panel. The mock store answers it; the methods themselves are fixed UI. */
-export type SignInSummary = {
-	/** Users who signed up in the generated app. */
-	userCount: number;
-};
-
-export type ProjectDomain = {
-	host: string;
-	/** `wandit` is the free subdomain. `custom` is a domain the user owns. */
-	kind: "wandit" | "custom";
-	status: "live" | "verifying";
-	/** CNAME target the user must set while the status is `verifying`. */
-	cnameTarget: string | null;
-};
-
-export type StoreListingItemId =
-	| "appIcon"
-	| "appName"
-	| "description"
-	| "screenshots"
-	| "privacyUrl"
-	| "ageRating";
-
-export type StoreListingItem = {
-	id: StoreListingItemId;
-	done: boolean;
-	/** Value or hint shown at the end of the row, as the store tooling reports it. */
-	detail: string;
-};
-
-export type AppStoresSummary = {
-	ios: {
-		status: "readyToSubmit" | "notSetUp";
-		bundleId: string;
-		latestBuild: number;
-		testflightTesters: number;
-	};
-	android: {
-		status: "readyToSubmit" | "notSetUp";
-	};
-	listing: StoreListingItem[];
-};
-
-export type CollaboratorRole = "owner" | "editor" | "viewer";
-
-export type Collaborator = {
-	id: string;
-	name: string;
-	/** Email or job title, shown under the name. */
-	subtitle: string;
-	role: CollaboratorRole;
-	/** True while the invitation email is not accepted. */
-	pending: boolean;
-};
-
-export type EnvironmentVariable = {
-	name: string;
-	/** null for a secret. The panel shows dots instead. */
-	value: string | null;
-	/** More panel that wrote the variable, or null when the user added it. */
-	setBy: MorePanel | null;
-	/** True when the app can read it in the browser. */
-	isPublic: boolean;
-};
-
-export type ProjectSettings = {
-	collaborators: Collaborator[];
-	/** Seats the plan allows, including the owner. */
-	collaboratorLimit: number;
-	environmentVariables: EnvironmentVariable[];
-};

@@ -199,7 +199,7 @@ describe("CodeService.snapshot", () => {
 				/ bash 5000 2097152 ls-files -z --cached --others --exclude-standard$/,
 			),
 			expect.stringMatching(/ bash 5000 2097152 ls-files -z --deleted$/),
-			"git rev-parse --abbrev-ref HEAD",
+			expect.stringMatching(/^git .* rev-parse --abbrev-ref HEAD$/),
 			expect.stringMatching(
 				/ bash 65536 524288 src\/routes\/index\.tsx src\/app\.tsx package\.json$/,
 			),
