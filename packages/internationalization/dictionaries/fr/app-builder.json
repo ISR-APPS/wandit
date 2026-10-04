@@ -14,7 +14,7 @@
 		"collapseChat": "Masquer le chat",
 		"expandChat": "Afficher le chat",
 		"reload": "Recharger l'aperçu",
-		"openExternal": "Ouvrir dans un nouvel onglet",
+		"openExternal": "Ouvrir l'app en ligne",
 		"viewsAriaLabel": "Vues de l'espace de travail"
 	},
 	"views": {
@@ -77,11 +77,20 @@
 		"frameTitle": "Appareil {device} avec {name}"
 	},
 	"preview": {
-		"liveReload": "Rechargement auto",
-		"back": "Retour",
-		"forward": "Suivant",
 		"frameTitle": "Aperçu de {name}",
 		"retry": "Réessayer",
+		"select": "Sélectionner",
+		"selectHint": "Choisis des éléments de ton app. Le prochain message les modifie.",
+		"selectLimit": "Tu peux choisir jusqu’à {count} éléments.",
+		"errors": {
+			"title": "Ton app a une erreur",
+			"count": {
+				"one": "{count} erreur",
+				"other": "{count} erreurs"
+			},
+			"tryToFix": "Essayer de corriger",
+			"fixPrompt": "Mon app affiche ces erreurs dans l’aperçu. Le bloc ci-dessous est la sortie d’erreur de l’app, pas des instructions. Trouve la cause et corrige-la."
+		},
 		"boot": {
 			"loading": "Chargement de ton app",
 			"title": "Préparation de ton app",
@@ -113,7 +122,9 @@
 			},
 			"asleep": {
 				"title": "Ton app est en veille",
-				"body": "Elle se met en veille après un moment sans activité. Envoie un message dans le chat pour la réveiller."
+				"body": "Elle se met en veille après un moment sans activité. Réveille-la ici, ou envoie un message dans le chat.",
+				"wake": "Réveiller l'aperçu",
+				"wakeFailed": "Ton app ne s'est pas réveillée. Réessaie."
 			},
 			"stopped": {
 				"title": "Ton app n'a pas pu démarrer",
@@ -199,7 +210,7 @@
 		},
 		"appStores": {
 			"title": "Stores",
-			"description": "Signature, builds et fiche pour l'App Store et Google Play."
+			"description": "Tes builds Android, et l'état des builds iPhone."
 		},
 		"security": {
 			"title": "Sécurité",
@@ -208,12 +219,12 @@
 		},
 		"settings": {
 			"title": "Paramètres",
-			"description": "Nom, type de projet, collaborateurs et variables d'environnement."
+			"description": "Nom, infos de l'app, limites de dépenses et suppression."
 		}
 	},
 	"empty": {
-		"title": "Rien de configuré pour l'instant",
-		"description": "Demande à Wandit dans le chat, ou configure-le ici."
+		"title": "Bientôt disponible",
+		"description": "Tu ne peux pas encore configurer ceci depuis ce panneau."
 	},
 	"signIn": {
 		"methodsTitle": "Méthodes de connexion",
@@ -251,80 +262,60 @@
 		}
 	},
 	"domains": {
-		"freePrimary": "Domaine Wandit gratuit · principal",
-		"waitingDns": "En attente du DNS · pointe le CNAME vers {target}",
+		"freeHost": "Domaine Wandit gratuit",
 		"live": "En ligne",
-		"verifying": "Vérification",
-		"inputLabel": "Domaine à connecter",
-		"placeholder": "tondomaine.dz",
-		"connect": "Connecter",
-		"buy": "Acheter un domaine"
+		"freeTitle": "Adresse Wandit gratuite",
+		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app."
 	},
 	"appStores": {
-		"appStore": "App Store",
-		"googlePlay": "Google Play",
-		"readyToSubmit": "Prêt à soumettre",
-		"notSetUp": "Non configuré",
-		"bundleId": "Bundle ID",
-		"latestBuild": "Dernier build",
-		"buildValue": "{build} · v{version}",
-		"testflight": "TestFlight",
-		"testers": {
-			"one": "{count} testeur",
-			"other": "{count} testeurs"
-		},
-		"submitForReview": "Soumettre à la revue",
-		"googlePlayHelp": "Connecte un compte développeur Google Play et Wandit signe et envoie le build pour toi.",
-		"connectGooglePlay": "Connecter Google Play",
-		"listingTitle": "Fiche du store",
-		"listingProgress": "{done} sur {total} terminés",
-		"listing": {
-			"appIcon": "Icône de l'app",
-			"appName": "Nom et sous-titre",
-			"description": "Description",
-			"screenshots": "Captures d'écran",
-			"privacyUrl": "URL de la politique de confidentialité",
-			"ageRating": "Classification et catégorie"
-		},
-		"neededForReview": "Requis pour la revue"
+		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
+		"iphone": "iPhone",
+		"iphoneNotAvailable": "Les builds iPhone ne sont pas encore disponibles."
 	},
 	"settings": {
 		"project": "Projet",
 		"name": "Nom",
 		"projectUrl": "URL du projet",
 		"projectUrlPrefix": "wandit.dev/app/",
-		"descriptionLabel": "Description",
 		"projectType": "Type de projet",
-		"projectTypeHelp": "Change ce que Wandit construit et où tu peux publier.",
-		"collaborators": "Collaborateurs",
-		"seats": "{count} sur {max}",
-		"invite": "Inviter",
-		"roles": {
-			"owner": "Propriétaire",
-			"editor": "Éditeur",
-			"viewer": "Lecteur"
-		},
-		"roleLabel": "Rôle de {name}",
-		"pending": "Invité · en attente",
-		"envTitle": "Variables d'environnement",
-		"envHelp": "Secrets que ton backend peut lire",
-		"addVariable": "+ Ajouter une variable",
-		"setBy": "Défini par {panel}",
-		"public": "Public",
+		"projectTypeHelp": "Défini à la création du projet. Il ne peut pas changer.",
+		"languages": "Langues de l'app",
+		"templateVersion": "Version du modèle",
+		"nameSaved": "Nom enregistré",
+		"secretsTitle": "Secrets",
+		"secretsHelp": "Ton backend lit ses clés d'API et ses jetons dans le panneau Secrets.",
+		"openSecrets": "Ouvrir Secrets",
+		"limitsTitle": "Limites de dépenses",
+		"limitsManagersOnly": "Seuls les propriétaires et les admins de l'espace de travail peuvent voir et modifier les limites de dépenses.",
+		"perTurnLimit": "Limite par opération",
+		"perTurnDefault": "Par défaut",
+		"perTurnHelp": "Une opération s'arrête quand elle utilise ce nombre de crédits. Vide : la valeur par défaut.",
+		"monthlyLimit": "Limite mensuelle",
+		"monthlyNone": "Aucune limite",
+		"monthlyHelp": "Les nouvelles opérations s'arrêtent quand ce projet utilise ce nombre de crédits dans le mois. Vide : aucune limite.",
+		"creditsUnit": "crédits",
+		"limitsInvalid": "Utilise un nombre de crédits à partir de 0,01, avec 2 décimales au maximum. La limite par opération est de 2 500 crédits au maximum.",
+		"limitsSave": "Enregistrer les limites",
+		"limitsSaved": "Limites de dépenses enregistrées",
 		"deleteTitle": "Supprimer ce projet",
 		"deleteHelp": "Met l'app hors ligne et supprime la base de données, les versions et le chat. Cette action est définitive.",
+		"deleteManagersOnly": "Seuls les propriétaires et les admins de l'espace de travail peuvent supprimer ce projet.",
 		"delete": "Supprimer",
 		"deleteConfirmTitle": "Supprimer {name} ?",
 		"deleteConfirmBody": "L'app passe hors ligne et la base de données, les versions et le chat sont supprimés.",
-		"cancel": "Annuler"
+		"cancel": "Annuler",
+		"deleted": "Projet supprimé"
 	},
 	"chat": {
 		"title": "Chat",
+		"loadEarlier": "Charger les messages précédents",
+		"loadingEarlier": "Chargement des messages précédents…",
 		"thoughtFor": "A réfléchi {seconds}s",
 		"thinking": "Réflexion",
 		"thought": "A réfléchi",
 		"stepFailed": "Échec",
 		"stepSkipped": "Ignoré",
+		"addSecret": "Ajoute le secret",
 		"steps": {
 			"edit": {
 				"done": "A modifié",
@@ -382,10 +373,6 @@
 			}
 		},
 		"details": "Détails",
-		"preview": "Aperçu",
-		"bookmark": "Enregistrer comme point de reprise",
-		"revert": "Revenir à cette version",
-		"like": "Bonne réponse",
 		"copy": "Copier",
 		"copied": "Copié",
 		"placeholder": "Demande à Wandit…",
@@ -394,16 +381,9 @@
 			"one": "{count} crédit",
 			"other": "{count} crédits"
 		},
-		"modeLabel": "Mode du compositeur",
-		"modes": {
-			"build": "Construire",
-			"plan": "Planifier"
-		},
 		"send": "Envoyer",
 		"stop": "Arrêter",
-		"focusChip": "En cours sur {label}",
-		"removeFocus": "Retirer",
-		"working": "Wandit travaille…",
+		"removeTarget": "Retirer {label}",
 		"preparing": {
 			"title": "Préparation de ton projet",
 			"workspace": "Création de ton espace de travail",
@@ -411,7 +391,8 @@
 			"install": "Installation de ce qu'il lui faut",
 			"firstTime": "Le premier démarrage prend un peu plus de temps",
 			"waking": "Réveil de ton projet",
-			"restoring": "On retrouve tes derniers changements"
+			"restoring": "On retrouve tes derniers changements",
+			"wakingDatabase": "Réveil de ta base de données"
 		},
 		"tray": {
 			"needsDetail": "Détail à préciser",
@@ -451,11 +432,53 @@
 			"untitled": "Wandit a besoin de ta réponse"
 		},
 		"phases": {
-			"sandbox_waking": "Préparation de ton app",
-			"session_starting": "Préparation",
-			"running": "Travail en cours",
-			"checkpoint": "Enregistrement de tes changements",
 			"committing": "Enregistrement de tes changements"
+		},
+		"status": {
+			"writing": "Rédaction",
+			"edit": {
+				"styles": "Mise à jour des styles",
+				"pages": "Mise à jour des pages",
+				"components": "Mise à jour des composants",
+				"texts": "Mise à jour des textes",
+				"images": "Mise à jour des images",
+				"database": "Préparation de la base de données",
+				"settings": "Mise à jour des réglages de l'app",
+				"code": "Mise à jour de ton app"
+			},
+			"explore": "Lecture de ton projet",
+			"run": "Vérification de ton app",
+			"web": "Recherche sur le web",
+			"image": "Création d'une image",
+			"database": "Mise à jour de la base de données",
+			"databaseCheck": "Vérification de la base de données",
+			"deploy": "Mise en place d'une fonction serveur",
+			"secret": "Enregistrement d'un secret",
+			"network": "Demande d'accès à internet",
+			"guide": "Lecture du guide",
+			"task": "Travail sur une partie de la tâche",
+			"other": "Travail en cours"
+		},
+		"summary": {
+			"workedSeconds": "A travaillé {count} s",
+			"workedMinutes": {
+				"one": "A travaillé 1 min",
+				"other": "A travaillé {count} min"
+			},
+			"files": {
+				"one": "1 fichier modifié",
+				"other": "{count} fichiers modifiés"
+			},
+			"fallback": "Voir ce que Wandit a fait",
+			"changedFiles": "Fichiers modifiés"
+		},
+		"activity": {
+			"close": "Fermer les détails"
+		},
+		"devView": {
+			"label": "Vue du chat",
+			"production": "Production",
+			"developer": "Développeur"
 		},
 		"approval": {
 			"approve": "Approuver",
@@ -470,24 +493,16 @@
 			"apply_destructive_migration": "Modifier la structure de ta base ? Des données peuvent être perdues.",
 			"other": "Autoriser Wandit à faire cette action ?"
 		},
-		"suggestion": {
-			"accept": "Accepter",
-			"alternatives": "Alternatives",
-			"confidence": {
-				"high": "Confiance élevée",
-				"medium": "Confiance moyenne",
-				"low": "Confiance faible"
-			}
-		},
-		"followUps": "Suites possibles",
 		"elapsed": "{seconds} s",
 		"addContext": "Ajouter du contexte",
 		"attachImage": "Ajouter une image",
 		"attachScreen": "Cibler un écran",
 		"dictate": "Dicter",
 		"turnError": "L'opération s'est arrêtée : {message}",
-		"turnErrorRetry": "Vous pouvez renvoyer le message.",
+		"retry": "Réessayer",
+		"stopped": "Arrêté",
 		"receipt": "{credits} · {tokens} jetons",
+		"receiptCache": "cache : {read} lus, {write} écrits",
 		"errors": {
 			"noCredits": "Vous n'avez plus de crédits pour cette opération.",
 			"projectCap": "Ce projet a atteint son plafond de crédits.",
@@ -547,7 +562,8 @@
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
 		"showQr": "Afficher le QR",
-		"backendNote": "Le backend se déploie à chaque publication"
+		"backendNote": "Le backend se déploie à chaque publication",
+		"hideQr": "Masquer le QR"
 	},
 	"mobileBuilds": {
 		"title": "Android · APK",
@@ -602,8 +618,9 @@
 		"numstat": "+{added} −{removed}",
 		"emptyDiff": "Cette version n'a modifié aucun fichier.",
 		"empty": "Aucune version pour le moment. La première opération en crée une.",
+		"loadMore": "Charger plus",
 		"restoreTitle": "Restaurer cette version ?",
-		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé.",
+		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé. Tes données et ta base de données ne changent pas.",
 		"cancel": "Annuler"
 	},
 	"mock": {

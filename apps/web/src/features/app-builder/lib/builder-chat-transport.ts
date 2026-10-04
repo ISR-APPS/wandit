@@ -68,6 +68,10 @@ export function createBuilderChatTransport(input: {
 					mediaType: part.mediaType,
 					...(part.filename ? { filename: part.filename } : {}),
 				}));
+			// The elements picked in the preview ride on the user message.
+			const targets = (lastUserMessage?.parts ?? []).flatMap((part) =>
+				part.type === "data-targets" ? part.data.targets : [],
+			);
 			// The SDK always passes an object here (resolvedBody + options.body).
 			// A malformed approval, answer, or model must throw. parse throws,
 			// and useChat surfaces the ZodError as `error`; a plain turn would
@@ -77,13 +81,13 @@ export function createBuilderChatTransport(input: {
 				body: {
 					chatId: id,
 					message,
-					// `composer` stays off the wire: the UI modes `build | plan` do
-					// not map to `composerMetadataSchema.mode`
-					// (`auto | page | marketing | image`).
+					// `composer` stays off the wire: the builder composer has no
+					// modes, and `composerMetadataSchema.mode` is a V1 field.
 					...(attachments.length > 0 ? { attachments } : {}),
 					...(extras.approval ? { approval: extras.approval } : {}),
 					...(extras.answers ? { answers: extras.answers } : {}),
 					...(extras.model ? { model: extras.model } : {}),
+					...(targets.length > 0 ? { targets } : {}),
 				} satisfies CreateTurnRequest,
 				headers: { ...headers, ...workspaceScopeHeaders() },
 			};

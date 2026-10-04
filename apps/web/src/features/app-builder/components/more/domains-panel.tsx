@@ -1,20 +1,21 @@
 /**
- * Domains panel of the More view: one row per domain with its status, and the
- * connect / buy card under it. Web apps only.
- * Rendered by components/more/more-view.tsx inside PanelShell, which draws the
- * title. Reads projectDomainsQuery; connect and buy have no backend yet.
+ * Domains panel of the More view, web apps only: the free Wandit address
+ * once the app is live, then the custom domains section of the domains
+ * feature (list, connect, verify, remove, buy). Rendered by
+ * components/more/more-view.tsx inside PanelShell, which draws the title.
+ * Reads appPublishQuery; DomainsSection reads and writes the V1 domain routes.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@wandit/ui/components/badge";
-import { Button } from "@wandit/ui/components/button";
-import { Input } from "@wandit/ui/components/input";
-import { useState } from "react";
-import { toast } from "sonner";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 
+import { DomainsSection, useDomainCheckoutReturn } from "@/features/domains";
+import { useWorkspace } from "@/features/workspaces";
+import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import { projectDomainsQuery } from "../../api/app-builder.queries";
-import type { ProjectDomain } from "../../api/dto";
+import { usePublishApp } from "../../api/publish.mutations";
+import { appPublishQuery, isPublishRunning } from "../../api/publish.queries";
 
 export type DomainsPanelProps = {
 	projectId: string;
@@ -22,73 +23,57 @@ export type DomainsPanelProps = {
 
 export function DomainsPanel({ projectId }: DomainsPanelProps) {
 	const { t } = useTranslation();
-	const { data: domains } = useSuspenseQuery(projectDomainsQuery(projectId));
-	const [draft, setDraft] = useState("");
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
+	const { actorCanManageWorkspace } = useWorkspace();
+	const publishStatus = useQuery(appPublishQuery(projectId));
+	const publish = usePublishApp(projectId);
+	// A domain purchase returns from Stripe to this panel. The hook shows the result and refreshes the list.
+	useDomainCheckoutReturn(projectId);
 
+	// A failed poll keeps the last status on screen. Only a first load without a status shows the error.
+	if (publishStatus.data === undefined) {
+		return publishStatus.isError ? (
+			<p className="text-muted-foreground text-sm">
+				{getApiErrorMessage(publishStatus.error)}
+			</p>
+		) : (
+			<Skeleton className="h-16 rounded-2xl" />
+		);
+	}
+
+	const { live } = publishStatus.data;
 	return (
 		<>
-			<ul className="divide-y rounded-2xl border bg-card">
-				{domains.map((domain) => (
-					<li
-						key={domain.host}
-						className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+			<div className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-sm">
+				<div className="min-w-0">
+					{/* The API builds the URL from the sites domain, so the web never hard-codes it. A host reads left to right. */}
+					<div
+						className="truncate font-semibold"
+						dir={live ? "ltr" : undefined}
 					>
-						<div className="min-w-0">
-							<div className="font-semibold" dir="auto">
-								{domain.host}
-							</div>
-							<div className="text-muted-foreground text-xs">
-								{statusNote(domain, t)}
-							</div>
-						</div>
-						{domain.status === "live" ? (
-							<Badge variant="success">
-								<span
-									aria-hidden
-									className="size-1.5 rounded-full bg-success"
-								/>
-								{t("appBuilder.domains.live")}
-							</Badge>
-						) : (
-							<Badge variant="warning">
-								{t("appBuilder.domains.verifying")}
-							</Badge>
-						)}
-					</li>
-				))}
-			</ul>
-
-			<div className="flex items-center gap-2 rounded-2xl border bg-card p-3">
-				<Input
-					className="flex-1"
-					placeholder={t("appBuilder.domains.placeholder")}
-					aria-label={t("appBuilder.domains.inputLabel")}
-					value={draft}
-					onChange={(event) => setDraft(event.target.value)}
-					dir="auto"
-				/>
-				<Button disabled={draft.trim() === ""} onClick={notWired}>
-					{t("appBuilder.domains.connect")}
-				</Button>
-				<Button variant="outline" onClick={notWired}>
-					{t("appBuilder.domains.buy")}
-				</Button>
+						{live ? new URL(live.url).host : t("appBuilder.domains.freeTitle")}
+					</div>
+					<div className="text-muted-foreground text-xs">
+						{live
+							? t("appBuilder.domains.freeHost")
+							: t("appBuilder.domains.freeAfterPublish")}
+					</div>
+				</div>
+				{live ? (
+					<Badge variant="success">
+						<span aria-hidden className="size-1.5 rounded-full bg-success" />
+						{t("appBuilder.domains.live")}
+					</Badge>
+				) : null}
 			</div>
+			<DomainsSection
+				projectId={projectId}
+				isPublished={live !== null}
+				canManageDomains={actorCanManageWorkspace}
+				// One publish runs at a time. The API answers 409 PUBLISH_ACTIVE to a second one.
+				canPublish={!publish.isPending && !isPublishRunning(publishStatus.data)}
+				// A new key per click, like the Publish button of the top bar.
+				onPublish={() => publish.mutate(crypto.randomUUID())}
+			/>
 		</>
 	);
-}
-
-/** Second line of a domain row. A live custom domain has no note. */
-function statusNote(
-	domain: ProjectDomain,
-	t: ReturnType<typeof useTranslation>["t"],
-): string | null {
-	if (domain.kind === "wandit") return t("appBuilder.domains.freePrimary");
-	if (domain.status === "verifying") {
-		return t("appBuilder.domains.waitingDns", {
-			target: domain.cnameTarget ?? "",
-		});
-	}
-	return null;
 }

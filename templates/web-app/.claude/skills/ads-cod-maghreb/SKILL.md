@@ -5,6 +5,8 @@ description: "COD economics (cost per DELIVERED order, confirmation / delivery /
 
 # COD Maghreb
 
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
+
 # ADS SKILL — COD MAGHREB
 
 Open this skill when the account sells cash-on-delivery in Algeria or the Maghreb and a number, a plan or a verdict depends on what happens AFTER the click: confirmation, shipping, delivery, returns, seasons, languages, wilayas.
@@ -34,7 +36,7 @@ do NOT call a campaign profitable from platform ROAS or CPA alone. do NOT scale 
 
 ## 2. THE MERCHANT'S NUMBERS BEAT EVERY BENCHMARK
 
-The Leads tab is the merchant-side truth. Each lead carries a source (facebook, tiktok or direct, from fbclid, ttclid or utm_source), a campaign (from utm_campaign) and a status: to_confirm -> confirmed -> shipped -> delivered or returned or cancelled. cancelled = confirmation failed; returned = shipped and refused, shipping paid and lost. Read counts and rates by source, campaign and status over a date window with read_lead_performance before any benchmark is mentioned.
+The app's leads table is the merchant-side truth. Each lead carries a source (facebook, tiktok or direct, from fbclid, ttclid or utm_source), a campaign (from utm_campaign) and a status: to_confirm -> confirmed -> shipped -> delivered or returned or cancelled. cancelled = confirmation failed; returned = shipped and refused, shipping paid and lost. Read counts and rates by source, campaign and status over a date window with a run_sql query on the app's leads table before any benchmark is mentioned.
 
 Rules of thumb for the Algerian COD market, to be used ONLY when the merchant has no history yet, and always labelled as such: confirmation rate often lands between 50 and 75 percent; delivery rate of shipped orders between 60 and 85 percent, higher for stopdesk than for home delivery; returns 15 to 40 percent of shipped. They vary strongly by product, price, wilaya mix and confirmation speed. From thirty or more leads on a campaign, the merchant's own rates replace the rule of thumb. Judge delivery on a window old enough for parcels to have arrived (window minus carrier lead time).
 
@@ -46,9 +48,9 @@ There is no checkout and no Purchase event with a value. A published Wandit COD 
 - Optimise Meta and TikTok on that Lead event (conversions objective on the Lead / form event): it is the closest thing to a qualified lead the platform can see. Never optimise on clicks, landing-page views or video views: that buys the cheapest finger in the country, often a bot.
 - The platform cannot see confirmation, delivery or value. Its conversions and any ROAS it prints are lead counts. Value-based bidding (Meta value optimisation, TikTok VBO) has nothing to learn from and should not be promised until a value or a confirmed signal is sent back.
 - Phone number is the identity key. It is what the merchant calls and what deduplicates. Email is absent by design, so customer-file uploads and match quality rest on the phone alone (ads-audiences, ads-measurement).
-- Attribution: the platform credits Lead events by its click and view windows and cannot see which lead became a parcel; the merchant-side truth is the Leads tab's source and utm_campaign. Reconcile the two as counts of leads, never as revenue (ads-measurement owns the reconciliation).
+- Attribution: the platform credits Lead events by its click and view windows and cannot see which lead became a parcel; the merchant-side truth is the source and utm_campaign columns of the app's leads table. Reconcile the two as counts of leads, never as revenue (ads-measurement owns the reconciliation).
 - Future-looking, say it as future: sending a confirmed or delivered event back to the platform (CAPI / Events API, matched on hashed phone) would let the auction optimise on real buyers. Wandit does not do this today; do not claim it does.
-- Every ad Wandit creates or updates that links to a Wandit page carries UTM tags (utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=name) and existing tags are never stripped. Without them the Leads tab shows direct and the merchant-side truth is lost for that campaign.
+- Every ad Wandit creates or updates that links to a Wandit page carries UTM tags (utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=name) and existing tags are never stripped. Without them the app's leads table shows direct and the merchant-side truth is lost for that campaign.
 
 ## 4. JUNK TRAFFIC IS 20 TO 30 PERCENT HIGHER THAN TIER 1
 
@@ -60,7 +62,7 @@ What to do: optimise on the Lead event, never on clicks or landing-page views; r
 
 Many Maghreb buyers ask questions before ordering. Meta offers click-to-WhatsApp and click-to-Messenger ads (engagement objective with a messaging destination, optimised for conversations started); TikTok offers messaging destinations (WhatsApp, Messenger, instant messaging ads). They suit considered or high-priced products with questions; the conversation IS the confirmation and costs agent time.
 
-Limit: a wa.me tap is not a tracked lead in Wandit today. The Leads tab shows only form submissions. For a messaging campaign the platform reports conversations started; the merchant counts closed orders in WhatsApp by hand. Judge them on the platform's cost per conversation plus the merchant's own count of orders and delivered parcels, stated explicitly as manual. Never mix them with form-lead CPA in one table without saying which is which. A page with a form and a WhatsApp button understates demand in the Leads tab; say so.
+Limit: a wa.me tap is not a tracked lead in Wandit today. The app's leads table shows only form submissions. For a messaging campaign the platform reports conversations started; the merchant counts closed orders in WhatsApp by hand. Judge them on the platform's cost per conversation plus the merchant's own count of orders and delivered parcels, stated explicitly as manual. Never mix them with form-lead CPA in one table without saying which is which. A page with a form and a WhatsApp button understates demand in the app's leads table; say so.
 
 ## 6. LANGUAGE: DARIJA, FRENCH, ARABIC, CODE-SWITCHING
 

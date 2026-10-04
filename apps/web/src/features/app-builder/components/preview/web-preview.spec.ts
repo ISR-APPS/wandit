@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AppProject } from "../../api/dto";
 import type { BootContext } from "../../lib/boot-state";
@@ -14,9 +16,9 @@ import { WebPreview, type WebPreviewProps } from "./web-preview";
 const project: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
-	description: "Membership app for a gym in Oran.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
@@ -44,12 +46,21 @@ const idleBoot: BootContext = {
 	hasCodeChanges: true,
 };
 
-async function renderPreview(viewport: WebViewport) {
+async function renderPreview(
+	viewport: WebViewport,
+	liveUrl: string | null = null,
+) {
 	const props: WebPreviewProps = {
 		project,
+		liveUrl,
 		viewport,
 		reloadKey: 0,
 		bootContext: idleBoot,
+		canStartTurn: true,
+		isSelecting: false,
+		onSelectingChange: vi.fn(),
+		onPickTarget: vi.fn(),
+		onTryToFix: vi.fn(),
 		deps: readyDeps,
 	};
 	// I18nProvider requires children in its props type for createElement calls.
@@ -57,9 +68,21 @@ async function renderPreview(viewport: WebViewport) {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(WebPreview, props),
+		// The page mounts one TooltipProvider; the Select toggle needs it.
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(WebPreview, props),
+		),
 	};
-	render(createElement(I18nProvider, providerProps));
+	// The wake button of the boot screen needs a query client.
+	render(
+		createElement(
+			QueryClientProvider,
+			{ client: new QueryClient() },
+			createElement(I18nProvider, providerProps),
+		),
+	);
 	const iframe = await screen.findByTitle("Preview of Nadi Fitness");
 	// The width and the borders sit on the panel box that holds the iframe and the boot screen.
 	const panel = iframe.parentElement;
@@ -70,9 +93,13 @@ async function renderPreview(viewport: WebViewport) {
 afterEach(cleanup);
 
 describe("WebPreview", () => {
-	it("shows the project URL in the browser bar", async () => {
-		await renderPreview("desktop");
-		expect(screen.getByText("nadi.wandit.app")).toBeTruthy();
+	// Before the first publish the bar showed ".wandit.app", a host that does not exist.
+	it.each([
+		["https://nadi.wandit.app", "nadi.wandit.app"],
+		[null, "Not published yet"],
+	])("shows %s in the bar as %s", async (liveUrl, text) => {
+		await renderPreview("desktop", liveUrl);
+		expect(screen.getByText(text)).toBeTruthy();
 	});
 
 	it("fills the width without side borders on the desktop viewport", async () => {

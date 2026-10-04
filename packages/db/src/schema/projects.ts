@@ -80,8 +80,8 @@ export const projects = pgTable(
 		framework: text("framework"),
 		// Version of the app template the project was created from.
 		templateVersion: text("template_version"),
-		// Languages the agent must build in (D7). The check below allows only
-		// ar, fr, and en.
+		// UI locale at project creation (D7): a hint for the app language only.
+		// The check below allows only ar, fr, and en.
 		languages: text("languages").array().notNull().default(sql`'{}'::text[]`),
 		// Extra egress hosts the V2 sandbox may reach, on top of the global
 		// allow list (WANDIT-180). The `request_network_host` host tool appends

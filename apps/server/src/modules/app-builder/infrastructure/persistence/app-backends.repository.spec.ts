@@ -84,7 +84,7 @@ describe("AppBackendsRepository.findByProjectId", () => {
 	});
 });
 
-describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
+describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 	const INPUT = {
 		organizationId: "org-1",
 		projectId: "project-1",
@@ -95,11 +95,13 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 	const ORG_OWNER = { organizationId: "org-1", type: "org" as const };
 
 	// A transaction stub: `execute` takes the lock, the first select reads
-	// the project row, the second counts, and the insert returns `inserted`.
+	// the project row, the second counts, the insert returns `inserted`,
+	// and the retry update returns `retried`.
 	function setupTransaction(options: {
 		existing: AppBackendRow[];
 		owned: number;
 		inserted: AppBackendRow[];
+		retried?: AppBackendRow[];
 	}) {
 		const order: string[] = [];
 		const execute = vi.fn(async (_query: SQL) => {
@@ -127,7 +129,23 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 				return options.inserted;
 			},
 		}));
-		const tx = { execute, insert: () => ({ values }), select };
+		const updateWhere = vi.fn((_predicate: SQL | undefined) => ({
+			returning: async () => {
+				order.push("update");
+				return options.retried ?? [];
+			},
+		}));
+		const updateSet = vi.fn(
+			(_input: Partial<typeof appBackends.$inferInsert>) => ({
+				where: updateWhere,
+			}),
+		);
+		const tx = {
+			execute,
+			insert: () => ({ values }),
+			select,
+			update: () => ({ set: updateSet }),
+		};
 		const transaction = vi.fn(
 			async <T>(work: (client: typeof tx) => Promise<T>): Promise<T> =>
 				work(tx),
@@ -141,6 +159,8 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 			execute,
 			order,
 			repository: new AppBackendsRepository(db),
+			updateSet,
+			updateWhere,
 			values,
 		};
 	}
@@ -152,7 +172,7 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 			owned: 2,
 		});
 
-		const outcome = await repository.insertCreatingWithinLimit(
+		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
 			(owned) => assertBackendEntitlement("business", owned),
@@ -173,7 +193,7 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 			owned: 1,
 		});
 
-		const outcome = await repository.insertCreatingWithinLimit(
+		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
 			(owned) => assertBackendEntitlement("pro", owned),
@@ -200,7 +220,7 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 			owned: 5,
 		});
 
-		const outcome = await repository.insertCreatingWithinLimit(
+		const outcome = await repository.writeCreatingWithinLimit(
 			INPUT,
 			ORG_OWNER,
 			(owned) => assertBackendEntitlement("pro", owned),
@@ -208,6 +228,64 @@ describe("AppBackendsRepository.insertCreatingWithinLimit", () => {
 
 		expect(outcome).toEqual({ kind: "exists", row: existing });
 		expect(order).toEqual(["lock", "project-row"]);
+	});
+
+	it("moves an error row to creating with the new key, under the lock and the plan check", async () => {
+		const failed = {
+			...ROW,
+			ref: "abcdefghijklmnopqrst",
+			status: "error" as const,
+		};
+		const retried = {
+			...failed,
+			requestKey: "req-key-2",
+			status: "creating" as const,
+		};
+		const { order, repository, updateSet, updateWhere, values } =
+			setupTransaction({
+				existing: [failed],
+				inserted: [],
+				owned: 0,
+				retried: [retried],
+			});
+
+		const outcome = await repository.writeCreatingWithinLimit(
+			{ ...INPUT, requestKey: "req-key-2" },
+			ORG_OWNER,
+			(owned) => assertBackendEntitlement("pro", owned),
+		);
+
+		expect(outcome).toEqual({ kind: "retried", row: retried });
+		expect(order).toEqual(["lock", "project-row", "count", "update"]);
+		expect(values).not.toHaveBeenCalled();
+		expect(updateSet.mock.calls[0]?.[0]).toMatchObject({
+			failureCode: null,
+			pausedAt: null,
+			requestKey: "req-key-2",
+			status: "creating",
+		});
+		// The compare-and-set on `error`: a second retry finds `creating`.
+		const guard = compile(updateWhere.mock.calls[0]?.[0]);
+		expect(guard.sql).toContain('"app_backends"."status" = $2');
+		expect(guard.params).toEqual(["project-1", "error"]);
+	});
+
+	it("refuses the retry of an error row at the plan limit and writes nothing", async () => {
+		const failed = { ...ROW, status: "error" as const };
+		const { order, repository } = setupTransaction({
+			existing: [failed],
+			inserted: [],
+			owned: 1,
+		});
+
+		const outcome = await repository.writeCreatingWithinLimit(
+			INPUT,
+			ORG_OWNER,
+			(owned) => assertBackendEntitlement("pro", owned),
+		);
+
+		expect(outcome).toMatchObject({ kind: "refused" });
+		expect(order).toEqual(["lock", "project-row", "count"]);
 	});
 });
 
@@ -217,7 +295,7 @@ describe("AppBackendsRepository.markActive", () => {
 		const lastActiveAt = new Date("2026-09-17T12:00:00Z");
 
 		await expect(
-			repository.markActive("project-1", {
+			repository.markActive("project-1", "req-key-1", {
 				anonKey: "anon-key-1",
 				dbHost: "db.ref.supabase.co",
 				lastActiveAt,
@@ -239,16 +317,17 @@ describe("AppBackendsRepository.markActive", () => {
 			status: "active",
 		});
 		const predicate = compile(where.mock.calls[0]?.[0]);
-		expect(predicate.params).toEqual(["project-1", "deleting"]);
+		expect(predicate.params).toEqual(["project-1", "req-key-1", "deleting"]);
 		expect(predicate.sql).toContain('"app_backends"."project_id" = $1');
-		expect(predicate.sql).toContain('"app_backends"."status" <> $2');
+		expect(predicate.sql).toContain('"app_backends"."request_key" = $2');
+		expect(predicate.sql).toContain('"app_backends"."status" <> $3');
 	});
 
 	it("answers false and keeps a deleting row", async () => {
 		const { repository } = setupCasUpdate([]);
 
 		await expect(
-			repository.markActive("project-1", {
+			repository.markActive("project-1", "req-key-1", {
 				anonKey: "anon-key-1",
 				dbHost: "db.ref.supabase.co",
 				lastActiveAt: new Date(),
@@ -263,7 +342,8 @@ describe("AppBackendsRepository.markRestoring", () => {
 
 		await expect(repository.markRestoring("project-1")).resolves.toBe(true);
 
-		expect(set).toHaveBeenCalledWith({ status: "restoring" });
+		// The cleared mark lets the sweep check the project of a failed wake.
+		expect(set).toHaveBeenCalledWith({ pausedAt: null, status: "restoring" });
 		const compiled = compile(where.mock.calls[0]?.[0]);
 		expect(compiled.sql).toContain('"project_id" = $1');
 		expect(compiled.sql).toContain('"status" = $2');
@@ -281,7 +361,7 @@ describe("AppBackendsRepository.markError", () => {
 	it("writes the failure code and the failure columns", async () => {
 		const { repository, set, where } = setupUpdate();
 
-		await repository.markError("project-1", {
+		await repository.markError("project-1", "req-key-1", {
 			error: "poll timed out",
 			failureCode: "backend_provision_timeout",
 			failureKind: "timeout",
@@ -304,8 +384,9 @@ describe("AppBackendsRepository.markError", () => {
 			status: "error",
 		});
 		const predicate = compile(where.mock.calls[0]?.[0]);
-		expect(predicate.params).toEqual(["project-1", "deleting"]);
-		expect(predicate.sql).toContain('"app_backends"."status" <> $2');
+		expect(predicate.params).toEqual(["project-1", "req-key-1", "deleting"]);
+		expect(predicate.sql).toContain('"app_backends"."request_key" = $2');
+		expect(predicate.sql).toContain('"app_backends"."status" <> $3');
 	});
 });
 
@@ -396,12 +477,41 @@ describe("AppBackendsRepository.markRestoreFailed", () => {
 			failureProviderMessage: "RESTORE_FAILED",
 			failureRequestId: null,
 			failureSource: "supabase_api",
+			pausedAt: null,
 			sentryEventId: null,
 			status: "error",
 		});
 		const predicate = compile(where.mock.calls[0]?.[0]);
 		expect(predicate.sql).toContain('"app_backends"."status" = $2');
 		expect(predicate.params).toEqual(["project-1", "restoring"]);
+	});
+});
+
+describe("AppBackendsRepository timeout writes", () => {
+	// A wrong guard moves a young or healthy row to `error` on the first poll.
+	it.each([
+		{ method: "markCreatingTimedOut", status: "creating" },
+		{ method: "markRestoreTimedOut", status: "restoring" },
+	] as const)("$method moves only an old $status row", async ({
+		method,
+		status,
+	}) => {
+		const { repository, where } = setupCasUpdate([{ id: "backend-1" }]);
+		const cutoff = new Date("2026-10-04T09:00:00Z");
+
+		await (method === "markCreatingTimedOut"
+			? repository.markCreatingTimedOut("project-1", cutoff)
+			: repository.markRestoreTimedOut("project-1", cutoff, "COMING_UP"));
+
+		const predicate = compile(where.mock.calls[0]?.[0]);
+		expect(predicate.sql).toContain('"app_backends"."status" = $2');
+		expect(predicate.sql).toContain('"app_backends"."updated_at" < $3');
+		// The dialect writes a timestamp parameter as its ISO text.
+		expect(predicate.params).toEqual([
+			"project-1",
+			status,
+			cutoff.toISOString(),
+		]);
 	});
 });
 
@@ -458,6 +568,7 @@ describe("AppBackendsRepository.listLifecycleCandidates", () => {
 		projectId: "project-1",
 		published: false,
 		status: "active" as const,
+		updatedAt: new Date("2026-09-01T00:00:00Z"),
 	};
 
 	function setupList(rows: (typeof CANDIDATE & { ref: string | null })[]) {
@@ -478,7 +589,7 @@ describe("AppBackendsRepository.listLifecycleCandidates", () => {
 		};
 	}
 
-	it("reads idle active, restoring, deleting, and deleted-project rows that hold a ref", async () => {
+	it("reads idle active, creating, restoring, deleting, unmarked error, and deleted-project rows that hold a ref", async () => {
 		const idleBefore = new Date("2026-09-18T03:00:00Z");
 		const { innerJoin, repository, where } = setupList([
 			{ ...CANDIDATE, ref: "abcdefghijklmnopqrst" },
@@ -493,11 +604,14 @@ describe("AppBackendsRepository.listLifecycleCandidates", () => {
 			'coalesce("app_backends"."last_active_at", "app_backends"."created_at") < $2',
 		);
 		expect(predicate.sql).toContain('"projects"."deleted_at" IS NOT NULL');
+		expect(predicate.sql).toContain('"app_backends"."paused_at" is null');
 		expect(predicate.params).toEqual([
 			"active",
 			idleBefore,
+			"creating",
 			"restoring",
 			"deleting",
+			"error",
 		]);
 		const join = compile(innerJoin.mock.calls[0]?.[1]);
 		expect(join.sql).toBe('"projects"."id" = "app_backends"."project_id"');

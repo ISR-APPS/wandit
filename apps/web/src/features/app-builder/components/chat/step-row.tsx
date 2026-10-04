@@ -1,8 +1,11 @@
 /**
  * One row of the activity feed: what the agent did, in plain words, for
  * example "Edited" + `styles.css`, or the model's sentence for a command.
- * The technical detail (diff lines, the command, the SQL) opens behind the
- * chevron. Rendered by chat-message.tsx for each `data-step` part.
+ * The technical detail (diff lines, the command and its output, the SQL)
+ * opens behind the chevron. An image the step read or made shows under the
+ * row. A secret that has no value gets a link to the Secrets panel.
+ * Rendered for each `data-step` part by chat-message.tsx and
+ * activity-panel.tsx.
  */
 
 import {
@@ -33,8 +36,11 @@ import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { BuilderDataParts, BuilderStepKind } from "../../api/dto";
 import { ShimmerText } from "./shimmer-text";
 
-/** Props of one `data-step` part, as chat-message.tsx passes them. */
-export type StepRowProps = BuilderDataParts["step"];
+/** Props of one `data-step` part, as chat-message.tsx and activity-panel.tsx pass them. */
+export type StepRowProps = BuilderDataParts["step"] & {
+	/** Opens the Secrets panel. Absent while the Cloud panels are off; the link then hides. */
+	onOpenSecrets?: () => void;
+};
 
 const ICONS: Record<BuilderStepKind, LucideIcon> = {
 	edit: FilePen,
@@ -78,13 +84,19 @@ function labelKeyOf(
 	}
 }
 
-/** One activity row: an icon, a plain label, and a target chip; the detail opens behind the chevron. */
+/**
+ * One activity row: an icon, a plain label, and a target chip; the detail
+ * opens behind the chevron. A step image always shows under the row.
+ */
 export function StepRow({
 	kind,
 	state,
 	target,
 	description,
 	detail,
+	imageUrl,
+	isSecretMissing,
+	onOpenSecrets,
 }: StepRowProps) {
 	const { t } = useTranslation();
 	const isRunning = state === "running";
@@ -124,7 +136,16 @@ export function StepRow({
 					{target}
 				</span>
 			) : null}
-			{state === "error" ? (
+			{isSecretMissing && onOpenSecrets ? (
+				// The agent cannot set a value: the user adds it in the Secrets panel.
+				<button
+					type="button"
+					onClick={onOpenSecrets}
+					className="shrink-0 text-primary text-xs underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+				>
+					{t("appBuilder.chat.addSecret")}
+				</button>
+			) : state === "error" ? (
 				<span className="shrink-0 text-destructive text-xs">
 					{t("appBuilder.chat.stepFailed")}
 				</span>
@@ -136,11 +157,26 @@ export function StepRow({
 		</>
 	);
 
+	// The alt text is the file name. A generated image has no name, so it is decorative.
+	// The max width leaves room for the ms-6 indent under the row icon.
+	const image =
+		imageUrl === null ? null : (
+			<img
+				src={imageUrl}
+				alt={target ?? ""}
+				loading="lazy"
+				className="ms-6 mt-1 mb-2 block max-h-48 max-w-[calc(100%-1.5rem)] self-start rounded-md border object-contain"
+			/>
+		);
+
 	if (detail.length === 0) {
 		return (
-			<div className="flex min-h-8 min-w-0 items-center gap-2.5 py-1 text-sm">
-				{row}
-			</div>
+			<>
+				<div className="flex min-h-8 min-w-0 items-center gap-2.5 py-1 text-sm">
+					{row}
+				</div>
+				{image}
+			</>
 		);
 	}
 
@@ -153,6 +189,7 @@ export function StepRow({
 					aria-hidden
 				/>
 			</CollapsibleTrigger>
+			{image}
 			<CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none">
 				<pre
 					dir="ltr"

@@ -61,6 +61,13 @@ export const CANCELLABLE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 export const RESTORE_LOCK_HOLDER_PREFIX = "restore:";
 
 /**
+ * Lock-holder prefix a sandbox wake writes (`sandbox-wake.service.ts`).
+ * Like a restore, a wake never promotes a waiting turn, so a submit during
+ * the boot gets a 409 from `turns.service.ts`.
+ */
+export const WAKE_LOCK_HOLDER_PREFIX = "wake:";
+
+/**
  * The run id of a host-run turn, for the proxy token, its revoke, and the
  * spend counters. A host turn has no Trigger.dev run, so the id comes from
  * the turn id and the API and the host derive the same value.

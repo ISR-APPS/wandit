@@ -1,9 +1,11 @@
 ---
 name: "ads-diagnostic"
-description: "THE method: expert restraint (72 h / 3x target CPA), tracking-first diagnostic order, the symptom -> cause -> test -> action tree, seven playbooks (CPM spike, CTR drop, CVR collapse, ROAS drop after a raise, learning limited, platform vs Leads-tab gap, budget not spending), policy pre-flight that informs but never forbids, recommendation tone. Load FIRST for any 'why is it not working', review, or change request."
+description: "THE method: expert restraint (72 h / 3x target CPA), tracking-first diagnostic order, the symptom -> cause -> test -> action tree, seven playbooks (CPM spike, CTR drop, CVR collapse, ROAS drop after a raise, learning limited, platform vs leads-table gap, budget not spending), policy pre-flight that informs but never forbids, recommendation tone. Load FIRST for any 'why is it not working', review, or change request."
 ---
 
 # Diagnostic
+
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
 
 # ADS SKILL — DIAGNOSTIC
 
@@ -32,12 +34,12 @@ Step 0 — TRACKING FIRST, systematically, before any other hypothesis. Many "pe
 - The page is published; an unpublished or replaced page fires nothing.
 - The platform lists that pixel (TikTok pixel list; Meta advertiser context).
 - The Lead event fires. The published page fires one bare "Lead" event per accepted lead: no value, no currency, no eventID. So: no value optimisation from the page alone, no server deduplication, and Lead (never Purchase) is the only honest optimisation event unless the user built more.
-- Platform lead counts roughly match the Leads tab. read_lead_performance (counts and rates by source, campaign, status over a date window) is the merchant-side truth; platform counts are attributed and modelled. A 10 to 30 percent gap is normal (rule of thumb); a 2x gap is a tracking or UTM problem, not a performance problem.
-- UTMs sit on every ad link. The Leads tab derives source from fbclid, ttclid and utm_source, and campaign from utm_campaign; without them the lead reads "direct" and no campaign is credited. Required: utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=name.
+- Platform lead counts roughly match the app's leads table. A run_sql query on the app's leads table (counts and rates by source, campaign, status over a date window) is the merchant-side truth; platform counts are attributed and modelled. A 10 to 30 percent gap is normal (rule of thumb); a 2x gap is a tracking or UTM problem, not a performance problem.
+- UTMs sit on every ad link. The app's leads table takes its source from fbclid, ttclid and utm_source, and campaign from utm_campaign; without them the lead reads "direct" and no campaign is credited. Required: utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=name.
 Only then are numbers performance.
 
 Step 1 — isolate the failing layer, in this order, one discriminating test each:
-- Offer: confirmed and delivered rates poor for every campaign AND direct traffic. Test: per-source CVR in the Leads tab; all sources fail alike, stop touching ads.
+- Offer: confirmed and delivered rates poor for every campaign AND direct traffic. Test: per-source CVR in the app's leads table; all sources fail alike, stop touching ads.
 - Creative: CTR, hook rate, hold rate (ads-creative). Test: same audience, new creative; CTR unmoved, not the creative.
 - Audience: CPM and frequency for the same creative. Test: same creative in a broad adset; sharply lower CPM with similar CVR indicts the audience.
 - Landing page: clicks arrive, leads do not. Test: load it on a mid-range Android on 4G, submit the form, check message match and first-viewport price. Fast and matched but low CVR sends you back to offer.
@@ -47,7 +49,7 @@ Step 2 — the tree. Symptom -> causes in order -> discriminating test -> action
 - CPM high or rising -> narrow or saturated audience; creative the auction dislikes; adset overlap; seasonal pressure (Ramadan, Aid) -> broad duplicate, same creative; frequency trend -> broaden or consolidate, or refresh creative; never both.
 - CTR low -> the hook; placement mismatch (a 1:1 still in Reels); wrong language register -> swap only the first 3 seconds -> ads-creative.
 - CVR low, CTR healthy -> page speed, form, message match; price shock; trust -> per-source CVR and a manual run -> fix the page, not the adset.
-- Leads high, confirmed or delivered low -> lead quality, confirmation process, wilaya not served -> status rates by campaign (Leads tab) -> ads-cod-maghreb.
+- Leads high, confirmed or delivered low -> lead quality, confirmation process, wilaya not served -> status rates by campaign (the app's leads table) -> ads-cod-maghreb.
 - Everything fell on one day -> tracking, payment, restriction, page unpublished -> Step 0, error list -> fix the plumbing.
 
 ## 3. THE SEVEN PLAYBOOKS
@@ -56,15 +58,15 @@ Each: signal -> first checks -> causes in order -> discriminating test -> action
 
 3.1 CPM sharply up. Signal: CPM up over about 30 percent versus the prior 7 days at stable spend (rule of thumb). Checks: edit in the last 72 hours; peak period; one adset or all. Causes: recent edit; seasonal auction; saturation; quality ranking down; adsets bidding against each other. Test: broad duplicate, same creative, or the account-wide trend. Action: market-wide, hold and say so; one adset, broaden or consolidate; ranking fell, refresh. Judge: 72 hours and 3x target CPA later.
 3.2 CTR falling. Signal: link CTR (not CTR all) down over 5 to 7 days, CPM stable. Checks: frequency; creative age; first-time impression ratio; placements. Causes: fatigue (2 to 3 times faster on TikTok than Meta); a hook no longer novel; overlap; wrong placement. Test: same adset, new hook on the same body. Action: rotate creative, leave the audience alone. Judge: 3x target CPA on the new creative.
-3.3 CVR collapsing. Signal: leads per click down sharply, CTR and CPM holding. Checks: Step 0 first (a dead form looks exactly like a CVR collapse); price, offer or delivery fee changed; stock message. Causes: broken page or tracking; message mismatch after a creative swap; price change; cheaper competitor; traffic quality shift after a placement or audience change (bots run high here). Test: direct versus paid CVR in the Leads tab; a manual order. Action: fix page or tracking, restore message match, only then traffic. Judge: 48 to 72 hours after the fix (rule of thumb; a page fix is not an adset edit).
+3.3 CVR collapsing. Signal: leads per click down sharply, CTR and CPM holding. Checks: Step 0 first (a dead form looks exactly like a CVR collapse); price, offer or delivery fee changed; stock message. Causes: broken page or tracking; message mismatch after a creative swap; price change; cheaper competitor; traffic quality shift after a placement or audience change (bots run high here). Test: direct versus paid CVR in the app's leads table; a manual order. Action: fix page or tracking, restore message match, only then traffic. Judge: 48 to 72 hours after the fix (rule of thumb; a page fix is not an adset edit).
 3.4 ROAS dropping after a budget raise. Signal: cost per lead up within 24 to 72 hours of a raise. Checks: raise size (over about 20 to 30 percent per 48 hours restarts learning, ads-fundamentals); delivered margin versus platform ROAS. Causes: learning reset; marginal CPA above average CPA; saturation reached faster. Test: cost of the extra leads only, against break-even. Action: hold 72 hours; if marginal CPA stays above break-even, step back to the last profitable level and scale horizontally. Judge: 72 hours and 3x target CPA at the new budget.
 3.5 Adset stuck in learning limited. Signal: the flag, or under about 50 optimisation events in 7 days on Meta. Checks: daily budget versus target CPA (50 events in 7 days is about 7 a day; a daily budget under about 5 to 7x the expected cost per result cannot exit, rule of thumb); audience size; event choice; adset count. Causes: thin budget; too many adsets; event too rare (Purchase where only Lead fires); narrow audience. Test: arithmetic. Action: consolidate, fund to the viable level, or optimise on the event that fires; never daily edits. Judge: 7 days after consolidation.
-3.6 Big gap between platform and backend (Leads tab). Signal: counts differ by over about 30 percent either way (rule of thumb). Checks: all of Step 0; attribution window (7-day click plus 1-day view inflates against a same-day backend); campaigns sharing one utm_campaign. Causes: missing UTMs (leads fall into direct); pixel firing twice; modelled conversions; two platforms claiming one lead. Test: one day, Leads tab by source and campaign versus each platform. Action: fix UTMs and pixel; backend is truth, platform is the optimisation signal. Judge: next day.
+3.6 Big gap between platform and backend (the app's leads table). Signal: counts differ by over about 30 percent either way (rule of thumb). Checks: all of Step 0; attribution window (7-day click plus 1-day view inflates against a same-day backend); campaigns sharing one utm_campaign. Causes: missing UTMs (leads fall into direct); pixel firing twice; modelled conversions; two platforms claiming one lead. Test: one day, the app's leads table by source and campaign versus each platform. Action: fix UTMs and pixel; backend is truth, platform is the optimisation signal. Judge: next day.
 3.7 Campaign not spending its budget. Signal: spend well under daily budget for 2 or more days. Checks: account errors and payment; spending limit; cost cap; audience size; ad rejected or in review; schedule; a rule paused it. Causes in order: billing or policy block; tight cap; exhausted audience; creative losing auctions; learning limited. Test: lift the cap or widen the audience on a duplicate, one at a time. Action: clear the block, then loosen. Judge: 48 hours per change.
 
 ## 4. POSTMORTEM TEMPLATE
 
-One or two lines each, business language, no blame: 1 Goal and target cost per delivered order. 2 Spend (USD), dates, platforms. 3 Result: leads, confirmed, delivered, returned, cancelled (Leads tab), plus platform view. 4 Tracking status during the run. 5 Failing layer and the test that proved it. 6 What we would not do again. 7 Next test and its first judgment date. 8 Decision: restart with one change, or stop.
+One or two lines each, business language, no blame: 1 Goal and target cost per delivered order. 2 Spend (USD), dates, platforms. 3 Result: leads, confirmed, delivered, returned, cancelled (the app's leads table), plus platform view. 4 Tracking status during the run. 5 Failing layer and the test that proved it. 6 What we would not do again. 7 Next test and its first judgment date. 8 Decision: restart with one change, or stop.
 
 ## 5. POLICY AND ACCOUNT-HEALTH PRE-FLIGHT
 

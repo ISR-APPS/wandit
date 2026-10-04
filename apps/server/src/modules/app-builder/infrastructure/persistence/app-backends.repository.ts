@@ -1,12 +1,14 @@
 /**
  * Read and write of the `app_backends` row of one project (D18).
- * `BackendsService` inserts the `creating` row under the plan limit; the
- * `provision-backend` runtime marks it created, active, or error. The
- * lifecycle (WANDIT-184) stamps activity, pauses, restores, and deletes
+ * `BackendsService` writes the `creating` row under the plan limit: a new
+ * row, or a retry of an `error` row. The `provision-backend` runtime marks
+ * it created, active, or error, only while the row holds its request key.
+ * The lifecycle (WANDIT-184) stamps activity, pauses, restores, and deletes
  * through compare-and-set writes. The unique index
  * `app_backends_projectId_uq` keeps one row per project.
  */
 import { Inject, Injectable } from "@nestjs/common";
+import type { SupabaseProjectStatus } from "@wandit/contracts";
 import { and, eq, inArray, isNull, lt, ne, or, sql } from "@wandit/db";
 import {
 	type appBackendStatus,
@@ -88,13 +90,22 @@ export type BackendLifecycleRow = BackendLifecycleFacts & {
 	organizationId: string | null;
 	/** The Supabase project ref; the query reads only rows that have one. */
 	ref: string;
+	/**
+	 * Last write of the row. On a `restoring` row it is the restore start:
+	 * every other write to a `restoring` row also moves it out of `restoring`.
+	 */
+	updatedAt: Date;
 };
 
-/** Answer of `insertCreatingWithinLimit`. */
-export type InsertCreatingOutcome =
+/** Answer of `writeCreatingWithinLimit`. */
+export type WriteCreatingOutcome =
 	| {
-			/** `inserted`: this call wrote the row; `exists`: the project already had one. */
-			kind: "inserted" | "exists";
+			/**
+			 * `inserted`: this call wrote a new row. `retried`: this call moved
+			 * an `error` row back to `creating`. `exists`: the row is in another
+			 * status, and this call changed nothing.
+			 */
+			kind: "inserted" | "retried" | "exists";
 			row: AppBackendRow;
 	  }
 	| { kind: "refused"; refusal: BackendRefusal };
@@ -148,26 +159,29 @@ export class AppBackendsRepository {
 	}
 
 	/**
-	 * Inserts the `creating` row of a new project when `check` accepts the
-	 * payer's count of owned backends. One transaction under a per-payer
-	 * advisory lock: the project row check, the count, and the insert.
+	 * Writes the `creating` row of a project when `check` accepts the payer's
+	 * count of owned backends: a new row, or a retry of an `error` row with
+	 * the new request key. One transaction under a per-payer advisory lock:
+	 * the project row check, the count, and the write.
 	 */
-	async insertCreatingWithinLimit(
+	async writeCreatingWithinLimit(
 		input: {
 			projectId: string;
 			userId: string;
 			organizationId: string | null;
 			region: string;
+			/** New dedupe key; a retry replaces the old key, so a run of the old key exits. */
 			requestKey: string;
 		},
 		/** The payer whose backends count against the plan: the org, else the user. */
 		owner: CreditOwner,
 		/** The plan rule: `assertBackendEntitlement` bound to the payer's plan. */
 		check: (ownedBackends: number) => BackendEntitlement,
-	): Promise<InsertCreatingOutcome> {
+	): Promise<WriteCreatingOutcome> {
 		return this.db.transaction(async (tx) => {
-			// Two parallel creates of one payer must not both pass the plan
-			// limit. The prefix keeps this lock apart from the credit lock.
+			// Two parallel creates or retries of one payer must not both pass
+			// the plan limit, and two retry clicks must not both start a run.
+			// The prefix keeps this lock apart from the credit lock.
 			await tx.execute(
 				sql`select pg_advisory_xact_lock(hashtext(${`app-backends:${creditOwnerLockValue(owner)}`}))`,
 			);
@@ -177,12 +191,17 @@ export class AppBackendsRepository {
 				.from(appBackends)
 				.where(eq(appBackends.projectId, input.projectId))
 				.limit(1);
-			if (existing !== undefined) {
+			if (existing !== undefined && existing.status !== "error") {
 				return { kind: "exists", row: existing };
 			}
+			// An `error` row is not in the count, and the retry adds it again,
+			// so a retry passes the same plan check as a new row.
 			const entitlement = check(await this.countActiveForOwner(owner, tx));
 			if (!entitlement.allowed) {
 				return { kind: "refused", refusal: entitlement };
+			}
+			if (existing !== undefined) {
+				return this.retryErrorRow(tx, existing, input);
 			}
 			const [row] = await tx
 				.insert(appBackends)
@@ -204,6 +223,48 @@ export class AppBackendsRepository {
 		});
 	}
 
+	// Moves an `error` row back to `creating` with a compare-and-set on the
+	// status. The ref stays: the next run reuses or cleans that Supabase
+	// project, so a retry never leaves a second paid project. A row without a
+	// ref takes the new region, so a region override reaches the next create.
+	private async retryErrorRow(
+		tx: AppBackendsClient,
+		existing: AppBackendRow,
+		input: { region: string; requestKey: string },
+	): Promise<WriteCreatingOutcome> {
+		const [row] = await tx
+			.update(appBackends)
+			.set({
+				error: null,
+				failureCode: null,
+				failureKind: null,
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureRequestId: null,
+				failureSource: null,
+				// The sweep marks a stopped project of an `error` row here; the
+				// new run owns the project again.
+				pausedAt: null,
+				region: existing.ref === null ? input.region : existing.region,
+				requestKey: input.requestKey,
+				sentryEventId: null,
+				status: "creating",
+				triggerRunId: null,
+			})
+			.where(
+				and(
+					eq(appBackends.projectId, existing.projectId),
+					eq(appBackends.status, "error"),
+				),
+			)
+			.returning(APP_BACKEND_COLUMNS);
+		// A writer outside the payer lock (the project delete) moved the row
+		// first, so this call starts nothing.
+		return row === undefined
+			? { kind: "exists", row: existing }
+			: { kind: "retried", row };
+	}
+
 	/**
 	 * Stores the run id the trigger call returned. No CAS: the API writes
 	 * this once, right after `tasks.trigger` answers.
@@ -220,25 +281,63 @@ export class AppBackendsRepository {
 
 	/**
 	 * Stores the ref and the platform org id after a successful create call.
-	 * The status stays `creating` until the project reports healthy.
+	 * The status stays `creating` until the project reports healthy. A
+	 * `deleting` row also gets the ref, so the sweep deletes the project.
+	 * Answers false when a retry gave the row another request key first.
 	 */
 	async markCreated(
 		projectId: string,
-		input: { ref: string; orgId: string },
+		/** Request key of the run; a run of an old key writes nothing. */
+		requestKey: string,
+		/** `orgId` is null for a project the run adopted: the list answer has no org id. */
+		input: { ref: string; orgId: string | null },
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(appBackends)
+			.set({ ref: input.ref, orgId: input.orgId })
+			.where(
+				and(
+					eq(appBackends.projectId, projectId),
+					eq(appBackends.requestKey, requestKey),
+				),
+			)
+			.returning({ id: appBackends.id });
+
+		return rows.length > 0;
+	}
+
+	/**
+	 * Stores the id of a `system` row of `project_secrets` that holds a
+	 * Supabase key. Callers: the provision runtime and the Cloud storage
+	 * routes. The id of a (project, name) row never changes, so a repeat
+	 * write is a no-op.
+	 */
+	async setSecretId(
+		projectId: string,
+		column: "serviceRoleSecretId" | "dbPasswordSecretId",
+		/** `project_secrets.id` of the system row. */
+		secretId: string,
 	): Promise<void> {
 		await this.db
 			.update(appBackends)
-			.set({ ref: input.ref, orgId: input.orgId })
+			.set(
+				column === "serviceRoleSecretId"
+					? { serviceRoleSecretId: secretId }
+					: { dbPasswordSecretId: secretId },
+			)
 			.where(eq(appBackends.projectId, projectId));
 	}
 
 	/**
 	 * Marks the backend ready: stores the anon key, the host, and the
 	 * activity stamp, and clears the failure columns of an earlier failed
-	 * run. A `deleting` row stays `deleting`, and the answer is false.
+	 * run. A `deleting` row stays `deleting`, and the answer is false. A run
+	 * whose request key a retry replaced also gets false.
 	 */
 	async markActive(
 		projectId: string,
+		/** Request key of the run; a run of an old key writes nothing. */
+		requestKey: string,
 		input: { anonKey: string; dbHost: string; lastActiveAt: Date },
 	): Promise<boolean> {
 		const rows = await this.db
@@ -260,6 +359,7 @@ export class AppBackendsRepository {
 			.where(
 				and(
 					eq(appBackends.projectId, projectId),
+					eq(appBackends.requestKey, requestKey),
 					// A project delete during provisioning wins: the sweep must still
 					// delete the Supabase project after the grace window.
 					ne(appBackends.status, "deleting"),
@@ -271,14 +371,16 @@ export class AppBackendsRepository {
 	}
 
 	/**
-	 * Moves a `paused` row to `restoring` with a compare-and-set. Answers
+	 * Moves a `paused` row to `restoring` with a compare-and-set, and clears
+	 * `pausedAt`: the restore call went out. A failed wake then ends as an
+	 * `error` row without the mark, so the sweep checks its project. Answers
 	 * false when the row is not `paused`, so a second restore click starts
 	 * nothing. Callers: `CloudService.restoreBackend` and the turn wake.
 	 */
 	async markRestoring(projectId: string): Promise<boolean> {
 		const rows = await this.db
 			.update(appBackends)
-			.set({ status: "restoring" })
+			.set({ pausedAt: null, status: "restoring" })
 			.where(
 				and(
 					eq(appBackends.projectId, projectId),
@@ -292,10 +394,13 @@ export class AppBackendsRepository {
 
 	/**
 	 * Marks the backend failed and stores the eight failure columns. A
-	 * `deleting` row stays `deleting`, so the sweep still deletes it.
+	 * `deleting` row stays `deleting`, so the sweep still deletes it. A row
+	 * that a retry gave another request key stays as it is.
 	 */
 	async markError(
 		projectId: string,
+		/** Request key of the failed run or start; an old key writes nothing. */
+		requestKey: string,
 		failure: AppBackendFailure,
 	): Promise<void> {
 		await this.db
@@ -314,6 +419,7 @@ export class AppBackendsRepository {
 			.where(
 				and(
 					eq(appBackends.projectId, projectId),
+					eq(appBackends.requestKey, requestKey),
 					ne(appBackends.status, "deleting"),
 				),
 			);
@@ -321,8 +427,8 @@ export class AppBackendsRepository {
 
 	/**
 	 * Stamps `lastActiveAt` on an `active` row; another status stays as it
-	 * is. The pause sweep reads the stamp. Callers: the turn end, the Cloud
-	 * tab reads, and the agent backend tools.
+	 * is. The pause sweep reads the stamp. Callers: the turn end, the
+	 * publish, the Cloud tab reads, and the agent backend tools.
 	 */
 	async touchActive(projectId: string): Promise<void> {
 		await this.db
@@ -396,6 +502,9 @@ export class AppBackendsRepository {
 				failureProviderMessage: providerStatus,
 				failureRequestId: null,
 				failureSource: "supabase_api",
+				// A restore call went out, so the idle-pause mark is stale; the
+				// sweep must check this project.
+				pausedAt: null,
 				sentryEventId: null,
 				status: "error",
 			})
@@ -403,6 +512,107 @@ export class AppBackendsRepository {
 				and(
 					eq(appBackends.projectId, projectId),
 					eq(appBackends.status, "restoring"),
+				),
+			)
+			.returning({ id: appBackends.id });
+
+		return rows.length > 0;
+	}
+
+	/**
+	 * Moves a `restoring` row that entered `restoring` before
+	 * `restoringBefore` to `error` with `backend_restore_failed`. Callers:
+	 * the pause sweep and the Cloud tab read, for a project that Supabase
+	 * never brings up. Answers false for a younger restore or a moved row.
+	 */
+	async markRestoreTimedOut(
+		projectId: string,
+		/** From `stuckRestoreCutoff`; a restore that started later stays. */
+		restoringBefore: Date,
+		/** The Supabase project status at the timeout, for support. */
+		providerStatus: SupabaseProjectStatus,
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(appBackends)
+			.set({
+				error: `The restore did not finish; Supabase still reported ${providerStatus}`,
+				failureCode: "backend_restore_failed",
+				failureKind: "timeout",
+				failureProvider: "supabase",
+				failureProviderMessage: providerStatus,
+				failureRequestId: null,
+				failureSource: "supabase_api",
+				// A restore call went out, so the idle-pause mark is stale; the
+				// sweep must check this project.
+				pausedAt: null,
+				sentryEventId: null,
+				status: "error",
+			})
+			.where(
+				and(
+					eq(appBackends.projectId, projectId),
+					eq(appBackends.status, "restoring"),
+					// `updatedAt` of a `restoring` row is the restore start. The
+					// check also stops a write on a new restore of the same row.
+					lt(appBackends.updatedAt, restoringBefore),
+				),
+			)
+			.returning({ id: appBackends.id });
+
+		return rows.length > 0;
+	}
+
+	/**
+	 * Moves a `creating` row whose last write is older than `createdBefore`
+	 * to `error` with `backend_provision_timeout`: its run never started, or
+	 * stopped before a status write. The Cloud tab read calls it, so the
+	 * user gets "Try again". Answers false for a younger row or a moved row.
+	 */
+	async markCreatingTimedOut(
+		projectId: string,
+		/** From `stuckCreatingCutoff`; a row written later stays `creating`. */
+		createdBefore: Date,
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(appBackends)
+			.set({
+				error: "The provisioning run did not finish",
+				failureCode: "backend_provision_timeout",
+				failureKind: "timeout",
+				failureProvider: null,
+				failureProviderMessage: null,
+				failureRequestId: null,
+				failureSource: "task",
+				sentryEventId: null,
+				status: "error",
+			})
+			.where(
+				and(
+					eq(appBackends.projectId, projectId),
+					eq(appBackends.status, "creating"),
+					// Every write of a run (the ref, the secret ids) moves `updatedAt`,
+					// so only a row with no write for the whole window matches.
+					lt(appBackends.updatedAt, createdBefore),
+				),
+			)
+			.returning({ id: appBackends.id });
+
+		return rows.length > 0;
+	}
+
+	/**
+	 * Records on an `error` row that its Supabase project does not run: the
+	 * sweep paused it, or found it stopped or gone. The sweep then skips the
+	 * row, and a retry clears the mark. Answers false when the row moved.
+	 */
+	async markErrorProjectStopped(projectId: string): Promise<boolean> {
+		const rows = await this.db
+			.update(appBackends)
+			.set({ pausedAt: new Date() })
+			.where(
+				and(
+					eq(appBackends.projectId, projectId),
+					eq(appBackends.status, "error"),
 				),
 			)
 			.returning({ id: appBackends.id });
@@ -453,9 +663,10 @@ export class AppBackendsRepository {
 
 	/**
 	 * The rows the daily sweep acts on, all with a ref: `active` rows with no
-	 * activity since `idleBefore`, every `restoring` and `deleting` row, and
+	 * activity since `idleBefore`, every `creating`, `restoring`, and
+	 * `deleting` row, the `error` rows the sweep has not marked stopped, and
 	 * every row of a soft-deleted project. Without a ref no Supabase project
-	 * exists to act on.
+	 * exists.
 	 */
 	async listLifecycleCandidates(
 		/** The oldest idle cutoff of the run: now minus the shorter idle window. */
@@ -472,6 +683,7 @@ export class AppBackendsRepository {
 				organizationId: appBackends.organizationId,
 				projectDeletedAt: projects.deletedAt,
 				projectId: appBackends.projectId,
+				updatedAt: appBackends.updatedAt,
 				// `deployments` holds the live publish of V1 pages and, from
 				// WANDIT-178, of V2 apps: at most one `active` row per project.
 				// The predicate is one nested chunk: a bare column in a `sql`
@@ -497,7 +709,8 @@ export class AppBackendsRepository {
 								idleBefore,
 							),
 						),
-						inArray(appBackends.status, ["restoring", "deleting"]),
+						inArray(appBackends.status, ["creating", "restoring", "deleting"]),
+						and(eq(appBackends.status, "error"), isNull(appBackends.pausedAt)),
 						sql`${projects.deletedAt} IS NOT NULL`,
 					),
 				),
@@ -516,7 +729,7 @@ export class AppBackendsRepository {
 	 */
 	async countActiveForOwner(
 		owner: CreditOwner,
-		/** The pool, or the transaction of `insertCreatingWithinLimit`. */
+		/** The pool, or the transaction of `writeCreatingWithinLimit`. */
 		client: AppBackendsClient = this.db,
 	): Promise<number> {
 		// Same owner split as `SubscriptionsRepository.findActiveByOwner`: a
