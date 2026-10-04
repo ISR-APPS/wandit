@@ -31,6 +31,7 @@ import {
 	classifyAiError,
 	renderAiErrorSentence,
 } from "../modules/ai-errors/domain";
+import type { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
@@ -375,6 +376,8 @@ export type BuilderTurnDeps = {
 	}) => Promise<void>;
 	/** `TurnPromoter.promoteNext` bound to the task's promoter. */
 	promoteNext: (projectId: string, endedTurnId: string) => Promise<void>;
+	/** Writes the `turn.end` audit row; a failed write only logs. The task binds `AuditEventsService`. */
+	audit: Pick<AuditEventsService, "record">;
 	/** `<API origin>/api/v2/llm`; becomes `ANTHROPIC_BASE_URL` in the VM. */
 	proxyBaseUrl: string;
 	/** Micros per whole credit (32,000 = $0.032) from `AI_USD_PER_CREDIT`. */
@@ -565,9 +568,25 @@ export async function runBuilderTurn(
 		}
 	};
 
+	/**
+	 * Writes a `turn.end` audit row. Each caller calls it right after a CAS
+	 * that it wins, so a later throw cannot skip it. A lost CAS writes no
+	 * row. A paused turn that fails later gets a second row.
+	 */
+	const recordTurnEnd = (status: BuilderTurnStatus) =>
+		deps.audit.record({
+			action: "turn.end",
+			actorUserId: input.actorUserId,
+			metadata: { status },
+			organizationId: input.organizationId,
+			projectId,
+			targetId: turnId,
+			targetType: "builder_turn",
+		});
+
 	if (chatId === null) {
 		// `chat_id` survives a deleted chat; an orphaned turn cannot run.
-		await deps.turns.fail(turnId, {
+		const failed = await deps.turns.fail(turnId, {
 			error: "The turn has no chat",
 			failureCode: "chat_missing",
 			failureKind: null,
@@ -577,6 +596,9 @@ export async function runBuilderTurn(
 			failureSource: null,
 			sentryEventId: null,
 		});
+		if (failed) {
+			await recordTurnEnd("failed");
+		}
 		// The API reserved the hold at create; nothing ran, so it goes back.
 		await cleanupStep(() => refundHold("builder_turn_failed"));
 		// The API relay needs a terminal event, or the browser waits forever.
@@ -808,6 +830,7 @@ export async function runBuilderTurn(
 			if (!moved) {
 				logger.warn(`Cancel write lost for turn ${turnId}: row moved on`);
 			} else {
+				await recordTurnEnd("canceled");
 				// The CAS winner refunds. The API cancel (turns.service.ts) refunds
 				// only when its own `cancelling -> canceled` CAS wins.
 				await cleanupStep(() => refundHold("builder_turn_canceled"));
@@ -902,6 +925,8 @@ export async function runBuilderTurn(
 		if (!failed) {
 			// A false CAS means the row went terminal under us (a cancel won).
 			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
+		} else {
+			await recordTurnEnd(terminalStatus ?? "failed");
 		}
 		// D3: a stopped turn keeps its file work. The commit lands before the
 		// `done` event: the web refetches the project at the stream end and
@@ -1844,6 +1869,10 @@ export async function runBuilderTurn(
 			if (!completed) {
 				logger.warn(`Complete write lost for turn ${turnId}: row moved on`);
 			} else {
+				// A paused turn ends its run here too, so this `turn.end` audit row
+				// holds the `waiting_for_*` status. The answer turn later moves
+				// this turn to `succeeded` and writes no `turn.end` for it.
+				await recordTurnEnd(outcome.status);
 				await settleHoldFromRows(model, rows);
 
 				// A suspended session is already parked; a live one detaches.

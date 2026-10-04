@@ -354,9 +354,10 @@ It creates the Supabase project when the row has no `ref`; a replay creates no s
 It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout.
 It reads the anon key.
 It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral and serves both templates.
-It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
+It sets the auth `site_url` to the preview apex with the `previewAuthRedirectPattern` allow list (`r-` plus 12 hex characters, never `*`: a `*` also matches `@` and lets a login token go to another host).
+`BackendAuthUrlsService` (Trigger task `sync-backend-auth-urls`) replaces both URL fields after a publish, an unpublish, and a custom domain change: `site_url` becomes the primary domain, else the slug host, and the allow list keeps the preview pattern and adds each live host.
 It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
-No task changes this setting on a backend after its provisioning.
+No task changes the email setting on a backend after its provisioning.
 Without `PREVIEW_DOMAIN`, the task skips this step, and the backend keeps email confirmation on.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
@@ -618,9 +619,23 @@ the mobile builds below.
 
 Routes under `/api/v2/projects/:projectId/publish`, behind
 `V2BuilderEnabledGuard` and `RedisRateLimitGuard`. The writes need
-`publish:manage`, like the V1 routes, and take 10 requests per 10 minutes
-per user. A V1 project, a mobile app, or a project of another workspace
-answers 404.
+`publish:manage`, like the V1 routes. Publish and "Publish anyway" share
+one bucket: 10 per user and 30 per trusted client IP per hour. Rollback
+and unpublish take 10 per 10 minutes per user. A V1 project, a mobile
+app, or a project of another workspace answers 404.
+
+Rate limits (WANDIT-181): `RedisRateLimitGuard` counts per user and, with
+`ipLimit`, per client IP that `TRUSTED_PROXY_CIDRS` confirms (the Better
+Auth rule; without a trusted IP the IP key is skipped). Project create:
+10 per user and 30 per IP per day. Turn create: 30 per user and 90 per IP
+per 10 minutes. A Redis error lets the request through with a Sentry
+warning. Every audit row of these routes goes through `AuditEventsService`
+(`audit_events`, action names in `packages/contracts/src/v2/audit.ts`).
+
+- `POST /override` ("Publish anyway"): only the project creator, only for
+  the newest `blocked` attempt, and only when every `block` finding is an
+  RLS probe finding or a WARN lint. It writes `publish.gate_override`
+  first, then queues a build of the same commit with `gate_override`.
 
 - `GET /` answers `live` (the active row and its URL), `latestBuild`, and
   the 20 newest app deployments. Every route first ends a live row with no
@@ -662,8 +677,17 @@ one attempt, key `publish-app:<buildId>`, `maxDuration` 900 s):
    modules (`server/wrangler.json` names the main one), the files of
    `client/` minus `.assetsignore` are the assets. A symlink, more than
    2,000 files, more than 100 MB, or an asset above 25 MiB fails the build.
-4. Runs the publish gates (`domain/ports/publish-gate.ts`, none today). A
-   `block` finding moves the row to `blocked` and uploads nothing.
+4. Checks the slug with the phishing rules (`domain/publish-gate/phishing-rules.ts`),
+   then runs the publish gates in order: the secret scan
+   (`domain/publish-gate/secret-scanner.ts`) and the backend gate
+   (`application/services/backend-publish-gate.ts`: Supabase security
+   advisors and the anonymous RLS probe). A `block` finding moves the row
+   to `blocked`, stores every finding in `app_builds.gate_findings`, and
+   uploads nothing. The owner "Publish anyway" route builds again with
+   `gate_override`: then RLS probe findings and WARN lints pass; a secret,
+   a phishing name, and an ERROR lint never pass. A gate that cannot run
+   fails the row with `gate_unavailable`. A suspended project fails with
+   `suspended`, and the API refuses it with 403 `PROJECT_SUSPENDED`.
 5. Stores the output as gzip JSON at
    `published/<projectId>/builds/<buildId>.json.gz`. A rollback skips steps
    2 to 5 and reads this object of its source build.
@@ -671,12 +695,14 @@ one attempt, key `publish-app:<buildId>`, `maxDuration` 900 s):
    user `project_secrets` rows go as `secret_text`, the public Supabase
    values as `plain_text`. A `system` row never goes. No secret enters a
    file of the build.
-7. Promotes the pending row, then writes the pointer `{ projectId, kind:
-   "app", source: "slug", slug, limits }`. The promote comes first: the
+7. Promotes the pending row, then writes `appHostPointer` on the slug host
+   and on every active custom domain. The promote comes first: the
    unique slug index then holds the slug, so the pointer never overwrites
    another project. The live slug stays; a first publish takes a free slug
    of the project name with the V1 rules. Every plan gets
-   `DEFAULT_APP_WORKER_LIMITS` today.
+   `DEFAULT_APP_WORKER_LIMITS` today. Then it reads the suspend state again:
+   a suspend during the run rewrites every pointer as suspended. It writes
+   the `publish.done` audit row and queues `sync-backend-auth-urls`.
 
 A failed upload keeps the previous Worker live. A first publish that fails
 after the script upload deletes the Worker again (and ends its row when
@@ -1024,7 +1050,8 @@ the caller runs `resolveActiveBackend` first.
 - `AdvisorsService.run(backend)` answers `GateFinding[]`. It holds the
   Supabase security and performance lints, without `INFO`. It adds one
   `wandit_rls_missing` error for each `public` table with RLS off or
-  without a policy. The publish gate of WANDIT-190 calls it.
+  without a policy. The `get_advisors` tool calls it; the publish gate
+  reads the advisors itself.
 - `BackendSecretsService.push(backend, name)`: one push and the sync
   stamp. The connectors of WANDIT-189 call it.
 

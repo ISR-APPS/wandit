@@ -17,6 +17,7 @@ import { resolve } from "node:path";
 
 import { wait } from "@trigger.dev/sdk";
 import {
+	previewAuthRedirectPattern,
 	type SupabaseInstanceSize,
 	supabaseInstanceSizeSchema,
 	supabaseProjectUrl,
@@ -292,14 +293,15 @@ export async function runProvisionBackend(
 				ref,
 			});
 		} else {
-			// LIMIT: `site_url` is the preview apex until WANDIT-190 registers
-			// the published domain. Upgrade: pass the published host.
+			// Provisioning sets the preview apex as `site_url` at creation.
+			// `BackendAuthUrlsService` replaces it after the first publish or a
+			// domain change.
 			await client.updateAuthConfig(
 				{ projectId, ref },
 				{
 					siteUrl: `https://${deps.previewDomain}`,
 					uriAllowList: [
-						`https://r-*--p-${projectId}.${deps.previewDomain}/**`,
+						previewAuthRedirectPattern(projectId, deps.previewDomain),
 					],
 					externalEmailEnabled: true,
 					// Product rule: a new app account works at sign-up, with no confirmation email.

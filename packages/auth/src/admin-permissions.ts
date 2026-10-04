@@ -8,16 +8,17 @@ import { createAccessControl } from "better-auth/plugins/access";
 // actions gate its mutations. On "billing", "update-request" only changes an
 // offline request; "manage" grants, renews, or ends a paid period and replays
 // billing webhooks. On "credits", "read" opens the grant log and "grant" adds
-// promo credits to a user or an organization. Tweak
-// supportViewActions/defaultSupportViews to change the per-view or default
-// support policy.
+// promo credits to a user or an organization. On "publications", "suspend"
+// takes a V2 app down or brings it back (WANDIT-181); only an admin holds it.
+// Tweak supportViewActions/defaultSupportViews to change the per-view or
+// default support policy.
 export const adminStatement = {
 	overview: ["read"],
 	users: ["read", "ban", "set-role"],
 	organizations: ["read", "manage"],
 	billing: ["read", "update-request", "manage"],
 	credits: ["read", "grant"],
-	publications: ["read"],
+	publications: ["read", "suspend"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
 	links: ["read", "manage"],
@@ -44,7 +45,7 @@ const fullAdminStatements = {
 	organizations: ["read", "manage"],
 	billing: ["read", "update-request", "manage"],
 	credits: ["read", "grant"],
-	publications: ["read"],
+	publications: ["read", "suspend"],
 	feedback: ["read", "manage"],
 	affiliates: ["read", "manage"],
 	links: ["read", "manage"],
@@ -68,6 +69,7 @@ export const supportViewActions = {
 	// Not a default view. An admin ticks it for each support account that can
 	// grant credits. Every grant shows in the grant log with its granter.
 	credits: ["read", "grant"],
+	// Only an admin takes an app down. Support sees the log and the state.
 	publications: ["read"],
 	feedback: ["read", "manage"],
 	affiliates: ["read"],

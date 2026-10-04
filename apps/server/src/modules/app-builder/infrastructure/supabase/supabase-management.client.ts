@@ -8,6 +8,7 @@ import {
 	type SupabaseAdvisorKind,
 	type SupabaseAdvisorLint,
 	type SupabaseApiKeysResponse,
+	type SupabaseAuthConfigResponse,
 	type SupabaseBucket,
 	type SupabaseDeployedFunction,
 	type SupabaseFunction,
@@ -689,6 +690,49 @@ export class SupabaseManagementClient {
 				mailer_autoconfirm: input.skipEmailConfirmation,
 			},
 			schema: supabaseAuthConfigResponseSchema,
+		});
+	}
+
+	/**
+	 * Reads the auth site URL and the redirect allow list. The login URL sync
+	 * compares them first and sends no PATCH when nothing changed.
+	 */
+	async getAuthConfig(scope: BackendRef): Promise<SupabaseAuthConfigResponse> {
+		await this.requireOwnedRef(scope);
+		return this.request({
+			method: "GET",
+			path: `/projects/${scope.ref}/config/auth`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			schema: supabaseAuthConfigResponseSchema,
+		});
+	}
+
+	/**
+	 * Replaces only the site URL and the redirect allow list. The email
+	 * settings of `updateAuthConfig` stay as provisioning set them. The
+	 * answer body stays unread.
+	 */
+	async updateAuthUrls(
+		scope: BackendRef,
+		input: {
+			/** Origin the app's sign-in redirects to by default, for example `https://www.example.com`. */
+			siteUrl: string;
+			/** Every allowed redirect URL pattern; joined into one comma-separated string. */
+			uriAllowList: string[];
+		},
+	): Promise<void> {
+		await this.requireOwnedRef(scope);
+		await this.request<void>({
+			method: "PATCH",
+			path: `/projects/${scope.ref}/config/auth`,
+			bucket: supabaseRateLimitKeys.project(scope.ref),
+			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			body: {
+				site_url: input.siteUrl,
+				// The API takes one comma-separated string, not an array.
+				uri_allow_list: input.uriAllowList.join(","),
+			},
 		});
 	}
 

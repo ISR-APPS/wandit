@@ -34,6 +34,8 @@ const ROW: AppBuildRow = {
 	errorCode: null,
 	errorMessage: null,
 	fileCount: null,
+	gateFindings: [],
+	gateOverride: false,
 	id: BUILD_ID,
 	organizationId: null,
 	projectId: PROJECT_ID,
@@ -47,6 +49,7 @@ const ROW: AppBuildRow = {
 
 const NEW_BUILD: NewAppBuild = {
 	commitSha: ROW.commitSha,
+	gateOverride: false,
 	organizationId: null,
 	projectId: PROJECT_ID,
 	requestKey: REQUEST_KEY,
@@ -197,12 +200,14 @@ describe("AppPublishRepository writes", () => {
 			await repository.transition(BUILD_ID, {
 				fileCount: 3,
 				bytes: 90,
+				gateFindings: [],
 				to: "uploading",
 			}),
 		).toBeNull();
 		expect(set).toHaveBeenCalledWith({
 			bytes: 90,
 			fileCount: 3,
+			gateFindings: [],
 			status: "uploading",
 		});
 		const predicate = compile(updateWhere.mock.calls[0]?.[0]);
@@ -216,7 +221,15 @@ describe("AppPublishRepository writes", () => {
 		const { repository, set } = fakeDb({});
 
 		await repository.transition(BUILD_ID, {
-			errorMessage: "index.html: phishing form",
+			errorMessage: "paypal-login: phishing name",
+			gateFindings: [
+				{
+					kind: "phishing",
+					severity: "block",
+					target: "paypal-login",
+					term: "paypal",
+				},
+			],
 			to: "blocked",
 		});
 		await repository.transition(BUILD_ID, {

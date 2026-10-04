@@ -25,6 +25,7 @@ import {
 } from "@wandit/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
@@ -46,6 +47,10 @@ import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 // 30 creates or cancels per user per 10 min — a human cannot click faster.
 const TURN_MUTATION_LIMIT = 30;
 const TURN_MUTATION_WINDOW_MS = 600_000;
+// 90 turn creates per IP per 10 min (WANDIT-181): three times the user cap.
+// Three people behind one office IP still fit, but the cap stops one person
+// who uses many accounts.
+const TURN_CREATE_IP_LIMIT = 90;
 
 // An open SSE slot stays taken until the stream closes or this TTL lapses.
 // A turn cannot outlive ~2 lock TTLs, so 60 min covers any real stream.
@@ -67,6 +72,7 @@ export class TurnsController {
 	// promotion gives it a run.
 	@RequireWorkspacePermission("project", "update")
 	@RateLimit({
+		ipLimit: TURN_CREATE_IP_LIMIT,
 		key: "turn-create",
 		limit: TURN_MUTATION_LIMIT,
 		windowMs: TURN_MUTATION_WINDOW_MS,
@@ -89,8 +95,11 @@ export class TurnsController {
 			projectScopeFrom(workspace, user.id),
 			projectId,
 			body,
-			// `elapsedTime` counts from the request arrival, so the guards count too.
-			{ requestStartedAt: Date.now() - reply.elapsedTime },
+			{
+				ip: readClientIp(request),
+				// `elapsedTime` counts from the request arrival, so the guards count too.
+				requestStartedAt: Date.now() - reply.elapsedTime,
+			},
 		);
 		await this.relay.relay({
 			first: created,
@@ -215,11 +224,13 @@ export class TurnsController {
 		turnId: string,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: FastifyRequest,
 	): Promise<CancelTurnResponse> {
 		return this.turns.cancel(
 			projectScopeFrom(workspace, user.id),
 			projectId,
 			turnId,
+			readClientIp(request),
 		);
 	}
 }

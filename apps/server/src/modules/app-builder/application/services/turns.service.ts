@@ -6,7 +6,9 @@
  * model allow-list, the monthly cap, and the per-actor turn limit, then
  * the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
- * failure after the hold refunds it.
+ * failure after the hold refunds it. It writes the `turn.start` and
+ * `turn.cancel` audit rows through `AuditEventsService`, and `turn.end`
+ * when its own `cancelling -> canceled` CAS wins.
  */
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -88,6 +90,7 @@ import {
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
+import { AuditEventsService, type AuditRecord } from "./audit-events.service";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "./llm-proxy-token.service";
 import { TurnPromoter } from "./turn-promotion";
 
@@ -166,6 +169,8 @@ export class TurnsService {
 			SubscriptionsRepository,
 			"findActiveByOwner"
 		>,
+		@Inject(AuditEventsService)
+		private readonly audit: Pick<AuditEventsService, "record">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -185,6 +190,8 @@ export class TurnsService {
 		options: {
 			/** Set by the create-project path: the first user message row already exists inside the create transaction. */
 			existingMessageId?: string;
+			/** Client IP of the request, from `readClientIp`, for the `turn.start` audit row. The create-project path passes none. */
+			ip?: string;
 			/** `Date.now()` ms when the HTTP request arrived; feeds `apiCreateMs` of the timing line. */
 			requestStartedAt?: number;
 		} = {},
@@ -411,6 +418,13 @@ export class TurnsService {
 			}
 
 			if (!acquired) {
+				await this.recordTurnAudit(
+					"turn.start",
+					scope.userId,
+					created.turn,
+					options.ip ?? null,
+					{ queued: true },
+				);
 				if (oldestWaiting !== null) {
 					// The slot is free but a row is parked ahead. Promote it now;
 					// no terminal event may come.
@@ -436,6 +450,13 @@ export class TurnsService {
 				projectId,
 				turnId: created.turn.id,
 			});
+			await this.recordTurnAudit(
+				"turn.start",
+				scope.userId,
+				created.turn,
+				options.ip ?? null,
+				{ queued: false },
+			);
 			if (handle.runner === "host") {
 				// The relay reads a host turn from Redis by its turn id.
 				return this.responseFor(
@@ -469,12 +490,14 @@ export class TurnsService {
 	 * `waiting_for_*` row flips straight to `canceled`. A paused one also
 	 * clears the chat resume state. An active row goes through
 	 * `cancelling`, a best-effort remote cancel, and a bounded settle wait
-	 * before the final CAS.
+	 * before the final CAS. `ip` is the client IP for the `turn.cancel`
+	 * audit row.
 	 */
 	async cancel(
 		scope: ProjectScope,
 		projectId: string,
 		turnId: string,
+		ip: string,
 	): Promise<CancelTurnResponse> {
 		const turn = await this.requireScopedTurn(scope, projectId, turnId);
 		const next = nextStatusForCancel(turn.status);
@@ -493,6 +516,9 @@ export class TurnsService {
 				"canceled",
 			);
 			if (moved) {
+				await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+					fromStatus: turn.status,
+				});
 				if (
 					turn.chatId !== null &&
 					(turn.status === "waiting_for_answer" ||
@@ -531,6 +557,14 @@ export class TurnsService {
 				turnId: turn.id,
 			};
 		}
+		// One row per user cancel: the request that wins the `cancelling` CAS
+		// writes it before the remote cancel can throw. A retry finds
+		// `cancelling` and writes no second row. `turn.end` holds the outcome.
+		if (turn.status !== "cancelling") {
+			await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+				fromStatus: turn.status,
+			});
+		}
 
 		const handle = runHandleOf(turn);
 		if (handle !== null) {
@@ -553,6 +587,11 @@ export class TurnsService {
 			"canceled",
 		);
 		if (finalized) {
+			// The run lost this CAS, so it writes no `turn.end`. The actor is
+			// the turn creator, as in the row that the task writes.
+			await this.recordTurnAudit("turn.end", turn.userId, turn, null, {
+				status: "canceled",
+			});
 			await this.refundHold(scope, turn.id);
 		}
 
@@ -919,6 +958,32 @@ export class TurnsService {
 				}`,
 			);
 		}
+	}
+
+	/**
+	 * Writes one audit row about a turn. `record` logs a failed write and
+	 * never throws, so the action itself never fails here. The API writes
+	 * `turn.end` only when its `cancelling -> canceled` CAS wins. A parked
+	 * turn has no run, so its cancel writes no `turn.end`.
+	 */
+	private recordTurnAudit(
+		action: "turn.start" | "turn.cancel" | "turn.end",
+		/** The requester for a start or a cancel; the turn creator for an end. */
+		actorUserId: string,
+		turn: Pick<BuilderTurnRow, "id" | "organizationId" | "projectId">,
+		ip: string | null,
+		metadata: AuditRecord["metadata"],
+	): Promise<void> {
+		return this.audit.record({
+			action,
+			actorUserId,
+			ip,
+			metadata,
+			organizationId: turn.organizationId,
+			projectId: turn.projectId,
+			targetId: turn.id,
+			targetType: "builder_turn",
+		});
 	}
 
 	private responseFor(

@@ -1,9 +1,16 @@
+/**
+ * Hand-wires the domain steps for the `domain-*` Trigger tasks, the purchase
+ * reconciler, the delegation reminders, and `scripts/backfill-apex-zones.ts`.
+ * It builds the repositories, the Cloudflare and Name.com clients, and the
+ * V2 auth URL sync starter on one task-local DB.
+ */
 import { logger as triggerLogger } from "@trigger.dev/sdk";
 import type { DomainSource, DomainStatus } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { ApexZoneStep } from "../modules/domains/application/fulfillment/apex-zone.step";
 import { CustomHostnameConfigurationStep } from "../modules/domains/application/fulfillment/custom-hostname-configuration.step";
 import { CustomHostnameVerificationStep } from "../modules/domains/application/fulfillment/custom-hostname-verification.step";
@@ -304,6 +311,9 @@ function createDomainCore(
 	options: ConfigurationRuntimeOptions,
 	apexZone?: ApexZoneStep,
 ) {
+	// No V2_BUILDER_ENABLED gate here: no other Trigger code reads the flag,
+	// and the step syncs only a `v2_app` project.
+	const projectDomainHook = new TriggerSyncBackendAuthUrlsTaskStarter();
 	const activation = new DomainActivationStep({
 		activateExternalDomain: (domainId, statuses) =>
 			infrastructure.domains.activateAndClearExternalVerification(
@@ -315,11 +325,15 @@ function createDomainCore(
 		deleteDomainPointer: (name) =>
 			infrastructure.routing.deleteDomainPointer(name),
 		findDomain: (domainId) => infrastructure.domains.getById(domainId),
+		findProjectServing: (projectId) =>
+			infrastructure.domains.findProjectServing(projectId),
 		logger: options.logger,
 		markDomainFailed: (domainId, summary) =>
 			infrastructure.domains.markFailed(domainId, summary),
 		markOrderFulfilled: (orderId) =>
 			infrastructure.paymentOrders.markFulfilled(orderId),
+		onProjectDomainsChanged: (projectId) =>
+			projectDomainHook.onProjectDomainsChanged(projectId),
 		putDomainPointer: (name, pointer) =>
 			infrastructure.routing.putDomainPointer(name, pointer),
 		updateDomainIfStatus: (domainId, statuses, patch) =>

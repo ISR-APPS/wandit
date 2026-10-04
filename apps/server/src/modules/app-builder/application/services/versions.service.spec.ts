@@ -39,6 +39,8 @@ const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A TEST-NET-3 address (RFC 5737): it never names a real client.
+const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
@@ -149,6 +151,7 @@ function fixture(options?: {
 		gitStore,
 		repoRestorer,
 		store,
+		{ record: async () => undefined },
 	);
 
 	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
@@ -266,7 +269,7 @@ describe("VersionsService.restore", () => {
 		await turnLock.acquire("p-1", "turn-9", 60_000);
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -283,7 +286,7 @@ describe("VersionsService.restore", () => {
 		const { service } = fixture({ branchHead: "d".repeat(40) });
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -298,7 +301,7 @@ describe("VersionsService.restore", () => {
 		const { service } = fixture({ commit: null });
 
 		await expect(
-			service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }),
+			service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP),
 		).rejects.toEqual(expect.any(NotFoundException));
 	});
 
@@ -307,9 +310,13 @@ describe("VersionsService.restore", () => {
 			fixture();
 		scriptRestore(sandboxes);
 
-		const body = await service.restore(SCOPE, "p-1", SHA, {
-			expectedHeadSha: HEAD,
-		});
+		const body = await service.restore(
+			SCOPE,
+			"p-1",
+			SHA,
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
 
 		const parsed = restoreVersionResponseSchema.parse(body);
 		expect(parsed.commit.sha).toBe(NEW_SHA);
@@ -351,7 +358,7 @@ describe("VersionsService.restore", () => {
 		});
 		scriptRestore(sandboxes);
 
-		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD });
+		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP);
 
 		expect(sandboxes.createOptions[0]).toMatchObject({
 			devCommand: "pnpm run dev",
@@ -368,7 +375,7 @@ describe("VersionsService.restore", () => {
 		scriptRestore(sandboxes, { mergeBase: { exitCode: 1 } });
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -389,7 +396,7 @@ describe("VersionsService.restore", () => {
 		});
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(InternalServerErrorException);

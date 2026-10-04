@@ -1,18 +1,22 @@
 /**
  * Application service behind the V2 web app publish routes (WANDIT-178).
- * `publish.controller.ts` calls it. `publish` and `rollback` write a
- * `queued` `app_builds` row and start the `publish-app` Trigger task;
- * `unpublish` takes the app down at once. It calls the publish repository,
- * the V1 deployments repository, the KV pointer writer, the W4P client,
- * the commits repository, the credits balance, and the task starter.
+ * `publish.controller.ts` calls it. `publish`, `rollback`, and the owner
+ * "Publish anyway" write a `queued` `app_builds` row and start the
+ * `publish-app` Trigger task; `unpublish` takes the app down at once. It
+ * refuses a suspended project and a phishing slug (WANDIT-181). It calls the
+ * publish repository, the V1 deployments repository, the KV pointer writer,
+ * the W4P client, the commits repository, the credits balance, the task
+ * starter, and the audit trail.
  */
 import {
 	ConflictException,
+	ForbiddenException,
 	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
 	ServiceUnavailableException,
+	UnprocessableEntityException,
 } from "@nestjs/common";
 import {
 	APP_PUBLISH_HISTORY_LIMIT,
@@ -22,7 +26,11 @@ import {
 	type AppLive,
 	type AppPublishStatus,
 	appWorkerName,
+	isGateFindingOverridable,
+	type OverridePublishGateBody,
 	type PublishAppBody,
+	type PublishGateFinding,
+	publishGateFindingSchema,
 	type RollbackAppBody,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -32,17 +40,20 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { subjectPayer } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import type { ProjectDomainHook } from "../../../domains/domain/ports/project-domain-hook.port";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
 	projectOwnerColumns,
 } from "../../../projects/domain/project-scope";
+import { slugifyProjectName } from "../../../sites/domain/slugify";
 import { DeploymentsRepository } from "../../../sites/infrastructure/persistence/deployments.repository";
 import {
 	PUBLISH_APP_TASK_STARTER,
 	type PublishAppTaskStarter,
 } from "../../domain/ports/publish-app-task-starter";
+import { findPhishingTerm } from "../../domain/publish-gate/phishing-rules";
 import {
 	WORKERS_FOR_PLATFORMS_CLIENT,
 	type WorkersForPlatformsApi,
@@ -52,8 +63,11 @@ import {
 	type AppBuildRow,
 	type AppDeploymentRow,
 	AppPublishRepository,
+	type PublishProjectRow,
 } from "../../infrastructure/persistence/app-publish.repository";
 import { TEMPLATE_PROFILES } from "../../infrastructure/sandbox/template-profiles";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "../../infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
+import { AuditEventsService } from "./audit-events.service";
 
 // 30 min without a row change. A run changes the row at the claim and
 // before the upload, both within its 900 s `maxDuration`, so a running
@@ -78,6 +92,7 @@ export class PublishService {
 			| "findLive"
 			| "failStaleLive"
 			| "findLiveDeployment"
+			| "findProject"
 			| "insertQueued"
 			| "listDeployments"
 			| "setTriggerRunId"
@@ -102,6 +117,10 @@ export class PublishService {
 		>,
 		@Inject(PUBLISH_APP_TASK_STARTER)
 		private readonly starter: PublishAppTaskStarter,
+		@Inject(AuditEventsService)
+		private readonly audit: Pick<AuditEventsService, "record">,
+		@Inject(TriggerSyncBackendAuthUrlsTaskStarter)
+		private readonly authUrlSync: ProjectDomainHook,
 		/** Null when a Cloudflare W4P env value is unset: publish answers 503. */
 		@Inject(WORKERS_FOR_PLATFORMS_CLIENT)
 		private readonly workers: Pick<
@@ -117,7 +136,7 @@ export class PublishService {
 	): Promise<AppPublishStatus> {
 		await this.requireWebApp(scope, projectId);
 		await this.healStale(projectId);
-		return this.readStatus(projectId);
+		return this.readStatus(scope, projectId);
 	}
 
 	/**
@@ -137,6 +156,7 @@ export class PublishService {
 		if (existing) {
 			return toApiBuild(existing);
 		}
+		await this.assertPublishable(projectId);
 		this.assertConfigured();
 		await this.assertBalanceNotNegative(scope);
 		// The task builds the saved head of `main`. An app with no saved
@@ -150,6 +170,7 @@ export class PublishService {
 		}
 		return this.queue(scope, projectId, {
 			commitSha,
+			gateOverride: false,
 			requestKey: body.requestKey,
 			sourceBuildId: null,
 		});
@@ -164,6 +185,7 @@ export class PublishService {
 		scope: ProjectScope,
 		projectId: string,
 		body: RollbackAppBody,
+		ip: string | null,
 	): Promise<AppBuild> {
 		await this.requireWebApp(scope, projectId);
 		const existing = await this.publish.findByRequestKey(
@@ -192,13 +214,97 @@ export class PublishService {
 		if (!source || source.projectId !== projectId) {
 			throw new NotFoundException();
 		}
+		await this.assertPublishable(projectId);
 		this.assertConfigured();
 		await this.assertBalanceNotNegative(scope);
-		return this.queue(scope, projectId, {
+		const build = await this.queue(scope, projectId, {
 			commitSha: target.commitSha,
+			gateOverride: false,
 			requestKey: body.requestKey,
 			// A rollback of a rollback uploads the first stored output again.
 			sourceBuildId: source.sourceBuildId ?? source.id,
+		});
+		await this.audit.record({
+			action: "publish.rollback",
+			actorUserId: scope.userId,
+			ip,
+			metadata: { deploymentId: target.id, sourceBuildId: source.id },
+			organizationId: projectOwnerColumns(scope).organizationId,
+			projectId,
+			targetId: build.id,
+			targetType: "app_build",
+		});
+		return build;
+	}
+
+	/**
+	 * `POST .../publish/override` ("Publish anyway", WANDIT-190). Builds the
+	 * commit of the newest `blocked` attempt again; the task then lets its
+	 * overridable findings pass. Only the project creator may do it, and only
+	 * when no finding is a secret, a phishing name, or an ERROR lint.
+	 */
+	async overrideGate(
+		scope: ProjectScope,
+		projectId: string,
+		body: OverridePublishGateBody,
+		ip: string | null,
+	): Promise<AppBuild> {
+		await this.requireWebApp(scope, projectId);
+		const existing = await this.publish.findByRequestKey(
+			projectId,
+			body.requestKey,
+		);
+		if (existing) {
+			return toApiBuild(existing);
+		}
+		const project = await this.publish.findProject(projectId);
+		// Product rule (WANDIT-190): only the owner takes the risk of an
+		// open table. In an org workspace the owner is the creator.
+		if (project === null || project.userId !== scope.userId) {
+			throw new ForbiddenException({
+				code: "PUBLISH_OVERRIDE_FORBIDDEN",
+				message: "Only the owner of the app can publish it anyway",
+			});
+		}
+		const blocked = await this.publish.findById(body.buildId);
+		const latest = await this.publish.findLatest(projectId);
+		if (
+			blocked === null ||
+			blocked.projectId !== projectId ||
+			blocked.status !== "blocked" ||
+			latest?.id !== blocked.id ||
+			!isOverridable(parseGateFindings(blocked))
+		) {
+			throw new ConflictException({
+				code: "PUBLISH_OVERRIDE_INVALID",
+				message:
+					"Only the newest blocked publish can go live anyway, and never with a secret, a phishing name, or a critical database problem",
+			});
+		}
+		await this.assertPublishable(projectId);
+		this.assertConfigured();
+		await this.assertBalanceNotNegative(scope);
+		// The audit row comes first: the override is the risky decision, and
+		// it must stay on record even when the start below fails.
+		await this.audit.record({
+			action: "publish.gate_override",
+			actorUserId: scope.userId,
+			ip,
+			metadata: {
+				blockedBuildId: blocked.id,
+				commitSha: blocked.commitSha,
+				findings: parseGateFindings(blocked).length,
+			},
+			organizationId: project.organizationId,
+			projectId,
+			targetId: blocked.id,
+			targetType: "app_build",
+		});
+		return this.queue(scope, projectId, {
+			commitSha: blocked.commitSha,
+			gateOverride: true,
+			requestKey: body.requestKey,
+			sourceBuildId: null,
 		});
 	}
 
@@ -210,6 +316,7 @@ export class PublishService {
 	async unpublish(
 		scope: ProjectScope,
 		projectId: string,
+		ip: string | null,
 	): Promise<AppPublishStatus> {
 		await this.requireWebApp(scope, projectId);
 		await this.healStale(projectId);
@@ -231,8 +338,32 @@ export class PublishService {
 			}
 			await this.deleteWorker(projectId);
 			await this.deployments.unpublishActive(projectId);
+			await this.audit.record({
+				action: "publish.unpublish",
+				actorUserId: scope.userId,
+				ip,
+				metadata: { slug: live.slug },
+				organizationId: projectOwnerColumns(scope).organizationId,
+				projectId,
+				targetId: live.id,
+				targetType: "deployment",
+			});
+			await this.syncAuthUrls(projectId);
 		}
-		return this.readStatus(projectId);
+		return this.readStatus(scope, projectId);
+	}
+
+	// Security: a freed slug can go to another project. Its host must leave
+	// the login redirect list of this backend, or that project could receive
+	// login links. Best effort: the app is already down; the task retries.
+	private async syncAuthUrls(projectId: string): Promise<void> {
+		try {
+			await this.authUrlSync.onProjectDomainsChanged(projectId);
+		} catch (error) {
+			this.logger.error(
+				`publish.unpublish.auth-url-sync-failed project=${projectId}: ${getErrorMessage(error)}`,
+			);
+		}
 	}
 
 	// Inserts the row and starts the task. The live index is the real guard
@@ -242,6 +373,8 @@ export class PublishService {
 		projectId: string,
 		input: {
 			commitSha: string;
+			/** True only for the owner "Publish anyway" attempt. */
+			gateOverride: boolean;
 			requestKey: string;
 			sourceBuildId: string | null;
 		},
@@ -349,6 +482,30 @@ export class PublishService {
 		}
 	}
 
+	// WANDIT-181: a suspended project never goes live again until staff
+	// unsuspend it, and a slug that looks like a login, bank, or wallet page
+	// never gets a public host. The task checks both again before it uploads.
+	private async assertPublishable(projectId: string): Promise<void> {
+		const project = await this.publish.findProject(projectId);
+		if (project === null) {
+			throw new NotFoundException();
+		}
+		if (project.suspendedReasonCode !== null) {
+			throw new ForbiddenException({
+				code: "PROJECT_SUSPENDED",
+				message: "Wandit staff suspended this app. Contact support.",
+			});
+		}
+		const live = await this.publish.findLiveDeployment(projectId);
+		if (findPhishingTerm(live?.slug ?? slugifyProjectName(project.name))) {
+			throw new UnprocessableEntityException({
+				code: "SLUG_BLOCKED",
+				message:
+					"This app name looks like a login, bank, or wallet page, so it cannot get a public address. Rename the app. If this is a mistake, contact support.",
+			});
+		}
+	}
+
 	// Product rule of WANDIT-178: a publish costs no credits, but a payer
 	// with a negative settled balance cannot publish.
 	private async assertBalanceNotNegative(scope: ProjectScope): Promise<void> {
@@ -380,18 +537,68 @@ export class PublishService {
 		}
 	}
 
-	private async readStatus(projectId: string): Promise<AppPublishStatus> {
-		const [live, latest, history] = await Promise.all([
+	private async readStatus(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<AppPublishStatus> {
+		const [live, latest, history, project] = await Promise.all([
 			this.publish.findLiveDeployment(projectId),
 			this.publish.findLatest(projectId),
 			this.publish.listDeployments(projectId, APP_PUBLISH_HISTORY_LIMIT),
+			this.publish.findProject(projectId),
 		]);
 		return {
+			// A suspended app cannot publish, so it offers no override either.
+			gateOverrideAllowed:
+				latest !== null &&
+				latest.status === "blocked" &&
+				project !== null &&
+				project.userId === scope.userId &&
+				project.suspendedReasonCode === null &&
+				isOverridable(parseGateFindings(latest)),
 			history: history.map(toApiDeployment),
 			latestBuild: latest === null ? null : toApiBuild(latest),
 			live: live === null ? null : toApiLive(live),
+			suspension: toApiSuspension(project),
 		};
 	}
+}
+
+// True when a blocked attempt can go live anyway: it has a `block` finding,
+// and each `block` finding is overridable.
+function isOverridable(findings: PublishGateFinding[]): boolean {
+	const blocking = findings.filter((finding) => finding.severity === "block");
+	return blocking.length > 0 && blocking.every(isGateFindingOverridable);
+}
+
+// The jsonb column has no type in the DB package, so the API parses it.
+// A row from an older finding shape gives no findings instead of a 500 on
+// the status route; the error goes to the log.
+function parseGateFindings(row: AppBuildRow): PublishGateFinding[] {
+	const parsed = publishGateFindingSchema.array().safeParse(row.gateFindings);
+	if (!parsed.success) {
+		new Logger(PublishService.name).error(
+			`publish.gate-findings-unreadable build=${row.id}: ${parsed.error.message}`,
+		);
+		return [];
+	}
+	return parsed.data;
+}
+
+function toApiSuspension(
+	project: PublishProjectRow | null,
+): AppPublishStatus["suspension"] {
+	if (
+		project === null ||
+		project.suspendedReasonCode === null ||
+		project.suspendedAt === null
+	) {
+		return null;
+	}
+	return {
+		reasonCode: project.suspendedReasonCode,
+		suspendedAt: project.suspendedAt.toISOString(),
+	};
 }
 
 function activePublishError(): ConflictException {
@@ -412,6 +619,8 @@ function toApiBuild(row: AppBuildRow): AppBuild {
 		// `transitionColumns` (an `AppBuildErrorCode`, `gate_blocked` included)
 		// and `failStaleLive` (`internal`).
 		errorCode: row.errorCode as AppBuildErrorCode | null,
+		gateFindings: parseGateFindings(row),
+		gateOverride: row.gateOverride,
 		id: row.id,
 		projectId: row.projectId,
 		sourceBuildId: row.sourceBuildId,

@@ -14,6 +14,7 @@ import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { AppBuilderModule } from "./app-builder.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
@@ -77,6 +78,7 @@ import { TemplateVersionService } from "./infrastructure/template/template-versi
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
@@ -160,10 +162,15 @@ describe("AppBuilderModule", () => {
 			SandboxSessionsRepository,
 			SubscriptionsRepository,
 			TemplateVersionService,
+			TriggerSyncBackendAuthUrlsTaskStarter,
 			TurnsService,
 			TurnStreamRelayService,
 			V2BuilderEnabledGuard,
 			VersionsService,
+			expect.objectContaining({
+				inject: [AuditEventsRepository],
+				provide: AuditEventsService,
+			}),
 			{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
 			{
 				provide: EAS_BUILD_RUNNER,
