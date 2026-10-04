@@ -1,9 +1,11 @@
 ---
 name: "ads-measurement"
-description: "Attribution windows, MER vs platform ROAS, incrementality, CAPI / EMQ, UTM and the Leads tab as backend truth, statistics (sample size, peeking, regression to the mean), media finance (contribution margin, break-even and MARGINAL ROAS, payback, stock), cross-platform allocation. Load before any ROAS, CPA, profitability, or attribution claim."
+description: "Attribution windows, MER vs platform ROAS, incrementality, CAPI / EMQ, UTM and the app's leads table as backend truth, statistics (sample size, peeking, regression to the mean), media finance (contribution margin, break-even and MARGINAL ROAS, payback, stock), cross-platform allocation. Load before any ROAS, CPA, profitability, or attribution claim."
 ---
 
 # Measurement
+
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
 
 # ADS SKILL — MEASUREMENT
 
@@ -16,10 +18,10 @@ Not in this skill (open the sibling skill instead): account structure and biddin
 The published Wandit page fires ONE bare "Lead" pixel event per accepted lead: no value, no currency, no eventID. Consequences, all HARD:
 - Platform-side ROAS does NOT exist for a Wandit page: Meta and TikTok see lead counts only; never quote their ROAS column.
 - A Lead is a form submission, not money. Statuses: to_confirm -> confirmed -> shipped -> delivered | returned | cancelled (cancelled = never shipped, usually a failed confirmation; returned = shipped but refused, delivery cost still incurred). Only delivered orders are revenue.
-- Merchant-side truth is the Leads tab and read_lead_performance: counts and rates by source (facebook / tiktok / direct, from fbclid / ttclid / utm_source), campaign (utm_campaign) and status over a date window; wilaya sits on each lead in the Leads tab, not in the tool's groupings. Platforms explain where leads came from; the Leads tab decides how many and what they became.
+- Merchant-side truth is the app's leads table, read with run_sql: counts and rates by source (facebook / tiktok / direct, from fbclid / ttclid / utm_source), campaign (utm_campaign) and status over a date window; wilaya sits on each row of the app's leads table. Platforms explain where leads came from; the app's leads table decides how many and what they became.
 - Ad budgets and spend are USD and you say "USD" every time; prices, margins and delivery fees are DZD. Every CPA-to-profit bridge crosses currencies. HARD RULE: the exchange rate is an input the user gives; never assume one silently, state the rate used.
 - Before any profitability statement, ask for (or confirm you hold): selling price, product cost, delivery cost to merchant, return cost, confirmation rate, delivery rate, USD/DZD rate. Missing inputs -> say what you can compute (CPL, lead-to-delivered rate) and what you cannot (ROAS, profit). Do NOT fill gaps with "typical" values presented as the merchant's.
-- No server-side event and no event_id exist today: no dedup question, no recovery of leads lost to blocked browsers either. Expect platform Lead counts below Leads-tab counts (section 3).
+- No server-side event and no event_id exist today: no dedup question, no recovery of leads lost to blocked browsers either. Expect platform Lead counts below leads-table counts (section 3).
 
 ## 2. ATTRIBUTION WINDOWS — WHY DISPLAYED NUMBERS MOVE
 
@@ -33,7 +35,7 @@ A window decides which conversions the platform claims. Change it and the same s
 
 - MER (blended ROAS) = total revenue / total ad spend, all platforms. Platform ROAS = revenue one platform claims / its spend. Platforms double-claim: a TikTok view then a Meta click is one sale claimed twice. HARD RULE: never sum platform conversions; the backend total is the total, platforms split it.
 - UTM discipline is mandatory: every ad pointing at a Wandit page carries utm_source=facebook|tiktok, utm_medium=paid, utm_campaign=<name>. Missing UTMs land the lead in "direct" with an unknown campaign. A rising "direct" share after a launch is usually a tagging hole, not organic love; check tags before blaming a platform.
-- Expected gaps: platform Lead count below the Leads tab (blocked browsers, consent, iOS) is normal; platform count above it means duplicate firing, test submissions or a pixel on a page that creates no leads — a tracking fault (ads-diagnostic).
+- Expected gaps: platform Lead count below the app's leads table (blocked browsers, consent, iOS) is normal; platform count above it means duplicate firing, test submissions or a pixel on a page that creates no leads — a tracking fault (ads-diagnostic).
 - nCAC (spend / first-time customers) vs blended CAC (spend / all orders): repeat buyers and retargeting flatter blended CAC. On a single-product COD launch the two converge; once phone numbers repeat, separate them.
 - Backend attribution is last-click by construction (the click that carried the tag): it under-credits discovery (TikTok) and over-credits the closing click (Meta, branded search). Read it as each channel's honest floor; correct with incrementality when stakes justify (section 5).
 - Post-purchase survey: one question on the confirmation call ("where did you see us?") catches what tags cannot (a share, a screenshot, a creator's story). Triangulation input only; people recall the memorable touch, not the first.
@@ -47,7 +49,7 @@ Tracking is verified FIRST in every diagnosis (ads-diagnostic owns the tree; thi
 
 ## 5. INCREMENTALITY, MMM AND TRIANGULATION
 
-- Incrementality answers the causal question: would these orders have happened without the spend? Geo holdout (pause a channel in some wilayas, keep comparable ones, compare delivered orders by wilaya from the Leads tab export — no platform tool needed), conversion lift (platform test/control), PSA test (a blank or charity ad to the control group).
+- Incrementality answers the causal question: would these orders have happened without the spend? Geo holdout (pause a channel in some wilayas, keep comparable ones, compare delivered orders by wilaya from an export of the app's leads table — no platform tool needed), conversion lift (platform test/control), PSA test (a blank or charity ad to the control group).
 - Rule of thumb: run one when a channel spends enough that a 20-30% mis-estimate changes a decision; below that, accept last-click plus survey. Marketing Mix Modeling needs long weekly history and real spend variation — do not promise it to a merchant with two months of data.
 - Triangulate three sources: platform claims (ceiling), backend last-click (floor), experiment or survey (tie-breaker). Report the range. Do NOT manufacture one reconciled number.
 - Halo: paid lifts "direct" and organic; when a pause makes direct drop, the channel was worth more than its last-click share.
@@ -80,8 +82,8 @@ Tracking is verified FIRST in every diagnosis (ads-diagnostic owns the tree; thi
 ## 8. CROSS-PLATFORM ORCHESTRATION
 
 - Allocate by marginal contribution ROAS per platform, not average: move budget from the platform whose last step returned least to the one whose last step returned most, in steps, re-measuring.
-- Sequencing: TikTok discovers, Meta converts. TikTok looks weaker on last-click and Meta stronger than it deserves; retargeting TikTok viewers on Meta makes Meta borrow TikTok's work. Judge the pair on MER and the Leads tab.
-- Single source of truth: the Leads tab by source and campaign; dashboards are inputs. Global frequency: a buyer fatigued on TikTok is fatigued on Meta too.
+- Sequencing: TikTok discovers, Meta converts. TikTok looks weaker on last-click and Meta stronger than it deserves; retargeting TikTok viewers on Meta makes Meta borrow TikTok's work. Judge the pair on MER and the app's leads table.
+- Single source of truth: the app's leads table by source and campaign; dashboards are inputs. Global frequency: a buyer fatigued on TikTok is fatigued on Meta too.
 - Brand vs non-brand search (Google, phase 2): branded search harvests demand Meta and TikTok created and cannibalises free organic clicks; never credit it as acquisition. Creative portability: a TikTok hook often travels to Reels, rarely to search (ads-creative).
 
 ## 9. GOOGLE AND SNAPCHAT — PRINCIPLES, NOT CONSOLE

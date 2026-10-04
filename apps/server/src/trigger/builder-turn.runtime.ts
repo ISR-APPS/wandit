@@ -1635,12 +1635,15 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Three sentences, plus one for a mobile app. The template
+			// Four sentences, plus one for a mobile app. The template
 			// CLAUDE.md in the workspace root holds every other rule.
+			// projects.languages holds the wandit UI locale at creation, not a
+			// choice of the user, so the agent gets it as a hint only.
 			instructions:
-				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
-				"Ask the user with the ask_user tool only when you cannot decide yourself: put every question of one step in ONE call. " +
-				"Write the Bash and Agent description in the user's language: the chat shows it to the user." +
+				`The language of the user's wandit interface is ${project.languages.join(", ")}: a hint for the app language, not a decision. ` +
+				"Ask the user with the ask_user tool only when you cannot decide yourself, and for the app language on the first build (CLAUDE.md): put every question of one step in ONE call. " +
+				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
+				"Follow CLAUDE.md: plan before you code, run its checks before you say that you are done, and end with a short answer in plain words." +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION}`
 					: ""),

@@ -829,9 +829,10 @@ One run does this, in order:
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
-   harness mismatch is a failure. The session instructions name the app
-   languages, the `ask_user` rule, and the description language. A
-   mobile project adds one sentence that points at the template
+   harness mismatch is a failure. The session instructions give the UI
+   language as a hint for the app language, the `ask_user` rule, the
+   description language, and the CLAUDE.md work rules (plan, checks,
+   plain final answer). A mobile project adds one sentence that points at the template
    `CLAUDE.md`, which Claude Code loads from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`

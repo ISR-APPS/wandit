@@ -1,8 +1,16 @@
 // Smoke test for the template. CI and the host run it before shipping a pack.
 // It installs frozen deps, typechecks, lints, builds, then inspects dist/.
-// Last, it starts the dev server and checks the HMR client for the sandbox host.
-import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+// Then it self-tests the effect check, and checks the HMR client for the sandbox host.
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -70,6 +78,27 @@ if (!prerendered) {
 	throw new Error("no prerendered HTML file under dist/client");
 }
 
+// The typecheck passes only if check-effects finds nothing. A fixture proves that
+// it still rejects an effect without a reason and accepts one with a reason.
+const fixtureDir = mkdtempSync(join(tmpdir(), "check-effects-"));
+try {
+	const checkEffects = join(root, "scripts", "check-effects.mjs");
+	const effectCall = "useEffect(() => {}, []);\n";
+	writeFileSync(join(fixtureDir, "bad.tsx"), effectCall);
+	if (spawnSync(process.execPath, [checkEffects, fixtureDir]).status !== 1) {
+		throw new Error("check-effects passed a useEffect without a reason");
+	}
+	writeFileSync(
+		join(fixtureDir, "bad.tsx"),
+		`// effect: syncs a third-party widget.\n${effectCall}`,
+	);
+	if (spawnSync(process.execPath, [checkEffects, fixtureDir]).status !== 0) {
+		throw new Error("check-effects refused a useEffect with a reason");
+	}
+} finally {
+	rmSync(fixtureDir, { recursive: true, force: true });
+}
+
 // WANDIT-281: the sandbox host has no token check, so the browser must never
 // see it. Vite writes the HMR host into /@vite/client for every viewer.
 const fakeSandboxHost = "smoke-sandbox-5173.vercel.run";
@@ -101,8 +130,8 @@ try {
 
 // The sandbox installs the full dev tree because vite dev, typecheck, and
 // lint all need it. The size check measures that same tree here.
-// LIMIT: the dev tree is about 490 MB, workerd alone 146 MB. Upgrade: a
-// pre-warmed pnpm store in the sandbox image (WANDIT-164).
+// LIMIT: the dev tree is about 590 MB (2026-10-04), workerd alone 146 MB.
+// Upgrade: a pre-warmed pnpm store in the sandbox image (WANDIT-164).
 const nodeModulesSize = dirSizeBytes(join(root, "node_modules"));
 const maxBytes = 600 * 1024 * 1024;
 if (nodeModulesSize > maxBytes) {
@@ -113,6 +142,6 @@ if (nodeModulesSize > maxBytes) {
 
 console.log(
 	`smoke ok: worker entry dist/server/index.js, assets, ${prerendered} found; ` +
-		"HMR client without the sandbox host; " +
+		"effect check self-test; HMR client without the sandbox host; " +
 		`node_modules ${(nodeModulesSize / 1024 / 1024).toFixed(0)} MB`,
 );

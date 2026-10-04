@@ -1,15 +1,16 @@
 // Root route: the html shell, the head, and the providers.
-// Every route renders inside this document.
+// Every route renders inside this document. router.tsx gives it the QueryClient.
 // D19: user pixel ids and third-party scripts go in head() once, below.
+import type { QueryClient } from "@tanstack/react-query";
 import {
-	createRootRoute,
+	createRootRouteWithContext,
 	HeadContent,
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { Toaster } from "~/components/ui/sonner";
-import { I18nProvider, useT } from "~/i18n";
+import { I18nProvider, useT } from "~/shared/i18n";
+import { Toaster } from "~/shared/ui/sonner";
 import tokensCss from "~/styles/tokens.css?url";
 import { installPreviewBridge } from "~/wandit/preview-bridge";
 
@@ -19,7 +20,13 @@ if (import.meta.env.DEV) {
 	installPreviewBridge();
 }
 
-export const Route = createRootRoute({
+/** What every route gets in `context`. router.tsx creates it once per request. */
+type RouterContext = {
+	/** The React Query cache. A loader calls `context.queryClient.query(...)` on it. */
+	queryClient: QueryClient;
+};
+
+export const Route = createRootRouteWithContext<RouterContext>()({
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },

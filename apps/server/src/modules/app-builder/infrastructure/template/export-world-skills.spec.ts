@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	exportSkills,
 	renderSkillMd,
+	toV2AdsText,
 	toV2FormRule,
 } from "../../../../../scripts/export-world-skills";
 
@@ -67,6 +68,11 @@ describe("toV2FormRule", () => {
 			"one exposure leaves the page: the wandit:lead CustomEvent dispatched on document with the fields flat in detail (name, phone), while one decoy waits.",
 			"one exposure leaves the page: the fields sent as the public form contract in CLAUDE.md says, while one decoy waits.",
 		],
+		// fournil writes the plural "Forms never pretend to POST" (WANDIT-273 audit).
+		[
+			"Forms never pretend to POST to a server.",
+			"Forms never fake a send to a server.",
+		],
 	])("rewrites %s", (doc, expected) => {
 		expect(toV2FormRule("x", doc)).toBe(expected);
 	});
@@ -84,6 +90,31 @@ describe("toV2FormRule", () => {
 				"On valid submit dispatch data-wandit-hp and wandit:lead on document with the fields in detail.",
 			),
 		).toThrow(/data-wandit-hp/);
+	});
+});
+
+describe("toV2AdsText", () => {
+	it.each([
+		[
+			"Merchant-side truth by source and campaign is the Leads tab / read_lead_performance.",
+			"Merchant-side truth by source and campaign is the app's leads table, read with run_sql.",
+		],
+		[
+			"Platform lead counts roughly match the Leads tab. read_lead_performance (counts) is the truth.",
+			"Platform lead counts roughly match the app's leads table. A run_sql query on the app's leads table (counts) is the truth.",
+		],
+		[
+			"platform vs Leads-tab gap; rebuild from the Leads tab export.",
+			"platform vs leads-table gap; rebuild from an export of the app's leads table.",
+		],
+	])("rewrites %s", (text, expected) => {
+		expect(toV2AdsText("x", text)).toBe(expected);
+	});
+
+	it("throws when a V1 Leads tab phrase has an unknown form", () => {
+		expect(() => toV2AdsText("x", "Compare both Leads tabs.")).toThrow(
+			/ads skill x/,
+		);
 	});
 });
 
