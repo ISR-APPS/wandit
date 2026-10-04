@@ -18,7 +18,10 @@
 			"@wandit/internationalization/*": [
 				"../../packages/internationalization/src/*"
 			],
-			"@wandit/ui/*": ["../../packages/ui/src/*"]
+			"@wandit/ui/*": ["../../packages/ui/src/*"],
+			// lib/wandit-source.spec.ts imports the Vite plugin of the web template.
+			// The template has no node_modules in CI, so its `vite` is this one.
+			"vite": ["./node_modules/vite/dist/node/index.d.ts"]
 		}
 	}
 }

@@ -11,6 +11,7 @@ import { hashKey, useQueryClient } from "@tanstack/react-query";
 import {
 	type CreateTurnResponse,
 	createTurnResponseSchema,
+	type PreviewTarget,
 	type TurnApprovalAnswer,
 	type TurnQuestionAnswer,
 } from "@wandit/contracts";
@@ -21,7 +22,7 @@ import { creditsKeys } from "@/features/credits";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
 import { cloudKeys } from "../api/cloud.queries";
-import type { TurnMessage } from "../api/dto";
+import type { TurnMessage, TurnMessagePart } from "../api/dto";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
 /** Cost hint carried by `data-turn-created`, in whole credits plus its basis. */
@@ -40,6 +41,8 @@ export type BuilderChatSend = {
 	answers?: TurnQuestionAnswer[];
 	/** Paid model id the user picked for this turn; absent uses the deploy default. */
 	model?: string;
+	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
+	targets?: PreviewTarget[];
 };
 
 /**
@@ -204,8 +207,18 @@ export function useBuilderChat(
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
 			if (chatId === undefined || isSending) return;
 			setIsAwaitingTurn(true);
+			// The bubble shows the chips from this part; the transport reads the
+			// targets of the turn body from it too.
+			const parts: TurnMessagePart[] = [{ type: "text", text: sendInput.text }];
+			if (sendInput.targets?.length) {
+				parts.push({
+					type: "data-targets",
+					id: "targets",
+					data: { targets: sendInput.targets },
+				});
+			}
 			void sendMessage(
-				{ text: sendInput.text },
+				{ parts },
 				{
 					body: {
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),

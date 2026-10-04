@@ -16,7 +16,8 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 		setLocale: () => {},
 		children: createElement(Composer, {
 			turnEstimateCredits: 6,
-			focusLabel: "Pass screen",
+			targets: [],
+			onRemoveTarget: vi.fn(),
 			isSending: false,
 			onSend,
 			...props,
@@ -93,13 +94,6 @@ describe("Composer", () => {
 		expect(
 			screen.getAllByRole("menuitem").map((item) => item.textContent),
 		).toEqual(["Attach a file", "Add an image", "Reference a screen"]);
-	});
-
-	it("shows the focus chip and removes it on the X button", () => {
-		renderComposer();
-		expect(screen.getByText("Working on Pass screen")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-		expect(screen.queryByText("Working on Pass screen")).toBeNull();
 	});
 
 	it("renders the top slot above the textarea and reports each draft change", () => {

@@ -152,8 +152,9 @@ describe("listAppProjects", () => {
 
 describe("getBuilderThread", () => {
 	it("seeds the mock fixtures for a real project id instead of throwing", async () => {
-		const thread = await getBuilderThread(crypto.randomUUID());
-		expect(thread.focusLabel).toBe("Pass screen");
+		const projectId = crypto.randomUUID();
+		const thread = await getBuilderThread(projectId);
+		expect(thread.projectId).toBe(projectId);
 	});
 });
 

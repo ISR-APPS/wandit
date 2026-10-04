@@ -1,14 +1,14 @@
 /**
- * Prompt box of the builder chat: the request tray slot on top, focus chip,
- * growing textarea, the add context menu, the Build | Plan mode menu,
- * credit estimate, dictation, and the send button. While the tray shows,
- * the send button becomes the tray's answer button. Rendered by
- * chat-pane.tsx. Calls `onSend` with the trimmed draft; the pane runs the
- * mutation. Local state: the draft, the mode, the chip. Actions with no
- * backend show the notWired toast.
+ * Prompt box of the builder chat: the request tray slot on top, the chips
+ * of the elements picked in the preview, growing textarea, the add context
+ * menu, the Build | Plan mode menu, credit estimate, dictation, and the send
+ * button. While the tray shows, the send button becomes the tray's answer
+ * button. Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft;
+ * the pane runs the mutation. Local state: the draft and the mode. Actions
+ * with no backend show the notWired toast.
  */
 
-import { projectPromptMaxLength } from "@wandit/contracts";
+import { type PreviewTarget, projectPromptMaxLength } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -21,13 +21,11 @@ import {
 	ArrowUp,
 	Check,
 	ChevronDown,
-	Crosshair,
 	ImageIcon,
 	LayoutTemplate,
 	Mic,
 	Paperclip,
 	Plus,
-	X,
 } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -35,6 +33,7 @@ import { toast } from "sonner";
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import { COMPOSER_MODES, type ComposerMode } from "../../lib/constants";
+import { TargetChip } from "./target-chip";
 
 /**
  * The answer button that replaces the send circle while the request tray
@@ -52,8 +51,10 @@ export type ComposerSubmitOverride = {
 export type ComposerProps = {
 	/** Credits one turn costs, whole credits. Shown next to the mode menu. */
 	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. Shown as a chip the user can remove. */
-	focusLabel: string | null;
+	/** Elements picked in the preview for the next turn, in pick order. Each shows as a chip the user can remove. */
+	targets: PreviewTarget[];
+	/** Removes the target at this index of `targets`. */
+	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
@@ -71,7 +72,8 @@ const PILL_CLASS =
 
 export function Composer({
 	turnEstimateCredits,
-	focusLabel,
+	targets,
+	onRemoveTarget,
 	isSending,
 	onSend,
 	topSlot,
@@ -85,9 +87,6 @@ export function Composer({
 		onDraftChange?.(text);
 	};
 	const [mode, setMode] = useState<ComposerMode>("build");
-	// The label the user removed. A different label from the preview shows the chip again.
-	// LIMIT: the same label picked again stays hidden until a reload. Upgrade: the page clears thread.focusLabel through a mutation.
-	const [clearedLabel, setClearedLabel] = useState<string | null>(null);
 	const trimmed = draft.trim();
 	// The tray decides when its answer is complete: a picked chip answers with
 	// an empty draft.
@@ -130,21 +129,17 @@ export function Composer({
 				{topSlot}
 				{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
 				<div className="flex flex-col px-4 pt-3.5 pb-3">
-					{focusLabel !== null && focusLabel !== clearedLabel ? (
-						<span className="mb-2 flex h-6 items-center gap-1.5 self-start rounded-full border border-primary/30 bg-primary/5 ps-2.5 pe-1 text-primary text-xs">
-							<Crosshair className="size-3 shrink-0" aria-hidden />
-							<span dir="auto">
-								{t("appBuilder.chat.focusChip", { label: focusLabel })}
-							</span>
-							<button
-								type="button"
-								aria-label={t("appBuilder.chat.removeFocus")}
-								onClick={() => setClearedLabel(focusLabel)}
-								className="grid size-4 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-							>
-								<X className="size-3" />
-							</button>
-						</span>
+					{targets.length > 0 ? (
+						<div className="mb-2 flex flex-wrap gap-1.5">
+							{targets.map((target, index) => (
+								<TargetChip
+									// One element can show twice with another text (a list item), so the key holds both.
+									key={`${target.src}|${target.label}`}
+									target={target}
+									onRemove={() => onRemoveTarget(index)}
+								/>
+							))}
+						</div>
 					) : null}
 					{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
 					<Textarea

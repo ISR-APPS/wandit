@@ -6,12 +6,17 @@
  * project and mock thread queries. The URL search params hold the view state.
  * The Backend group of the More view shows only behind useCloudTabEnabled;
  * the Appetize device of a mobile project only behind useDevicePreviewEnabled.
- * The raw agent thinking shows only in local dev or for staff.
+ * The raw agent thinking shows only in local dev or for staff. The page owns
+ * the elements picked in the web preview: the composer shows them as chips.
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { isStaffRole } from "@wandit/contracts";
+import {
+	isStaffRole,
+	PREVIEW_TARGETS_MAX,
+	type PreviewTarget,
+} from "@wandit/contracts";
 import {
 	ResizableHandle,
 	ResizablePanel,
@@ -85,6 +90,16 @@ export default function AppBuilderPage({
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	// A new key makes the panel mint a new token; the top bar reload button bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
+	// The elements picked in the preview for the next turn, with their project.
+	// A project switch in place keeps this page, so picks of another project read as none.
+	const [picked, setPicked] = useState<{
+		projectId: string;
+		targets: PreviewTarget[];
+	}>({ projectId, targets: [] });
+	const targets = picked.projectId === projectId ? picked.targets : [];
+	const [isSelecting, setIsSelecting] = useState(false);
+	// A turn changes the app under the picks, so the select mode stops when a send starts.
+	if (thread.isSending && isSelecting) setIsSelecting(false);
 	// LIMIT: the first paint on a phone shows the desktop split for one frame. Upgrade: read the breakpoint in the route loader.
 	const isMobile = useIsMobile();
 	const chatPanelRef = useRef<ResizablePanelHandle>(null);
@@ -144,17 +159,38 @@ export default function AppBuilderPage({
 		writeChatOpen(open);
 	}
 
+	function pickTarget(target: PreviewTarget) {
+		// A list item repeats one JSX element, so the text tells two picks of it apart.
+		const isPicked = targets.some(
+			(current) => current.src === target.src && current.label === target.label,
+		);
+		if (isPicked) return;
+		// The turn route takes at most PREVIEW_TARGETS_MAX targets.
+		if (targets.length >= PREVIEW_TARGETS_MAX) {
+			toast(
+				t("appBuilder.preview.selectLimit", { count: PREVIEW_TARGETS_MAX }),
+			);
+			return;
+		}
+		setPicked({ projectId, targets: [...targets, target] });
+	}
+
 	const chatCard = (
 		<ChatPane
 			messages={thread.messages}
-			// LIMIT: the focus chip and the pre-turn estimate come from the mock
-			// thread; the real estimate arrives with the first `data-turn-created`
-			// frame. Upgrade: a preview selection for the chip and an estimate
-			// route for the credits.
+			// LIMIT: the pre-turn estimate comes from the mock thread; the real
+			// estimate arrives with the first `data-turn-created` frame.
+			// Upgrade: an estimate route for the credits.
 			turnEstimateCredits={
 				thread.estimate?.credits ?? mockThread.turnEstimateCredits
 			}
-			focusLabel={mockThread.focusLabel}
+			targets={targets}
+			onRemoveTarget={(index) =>
+				setPicked({
+					projectId,
+					targets: targets.filter((_, current) => current !== index),
+				})
+			}
 			isSending={thread.isSending}
 			phase={thread.phase}
 			isFirstTurn={thread.isFirstTurn}
@@ -163,8 +199,13 @@ export default function AppBuilderPage({
 			projectName={project.name}
 			// LIMIT: plan mode sends a build turn; the turn body has no mode
 			// field. Upgrade: a builder mode on composerMetadataSchema.
-			onSend={(input) => thread.send(input.text)}
+			onSend={(input) => {
+				thread.send(input.text, targets);
+				setPicked({ projectId, targets: [] });
+			}}
 			onDecideApproval={thread.decideApproval}
+			// LIMIT: an answer to a question round carries no targets; the chips stay for
+			// the next plain message. Upgrade: add the targets to the ask_user tool result.
 			onAnswerQuestions={thread.answerQuestions}
 			onCancel={() =>
 				void thread
@@ -195,6 +236,12 @@ export default function AppBuilderPage({
 						viewport={viewport}
 						reloadKey={reloadKey}
 						bootContext={bootContext}
+						canStartTurn={thread.isReady && !thread.isSending}
+						isSelecting={isSelecting}
+						onSelectingChange={setIsSelecting}
+						onPickTarget={pickTarget}
+						// The errors belong to the whole app, so the picks stay for a later message.
+						onTryToFix={(message) => thread.send(message)}
 					/>
 				) : (
 					<PhonePreview

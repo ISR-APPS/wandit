@@ -239,14 +239,15 @@ describe("PreviewPanel", () => {
 			});
 		renderPanel({ deps: { getPreviewToken } });
 
-		const iframe = await screen.findByTitle(TITLE);
+		const iframe = await screen.findByTitle<HTMLIFrameElement>(TITLE);
 		expect(iframe.getAttribute("src")).toBe(PREVIEW_URL);
 
-		// The proxy error page reports the dead token from the preview origin.
+		// The proxy error page in the frame reports the dead token from the preview origin.
 		act(() => {
 			window.dispatchEvent(
 				new MessageEvent("message", {
 					origin: PREVIEW_ORIGIN,
+					source: iframe.contentWindow,
 					data: { type: "wandit:preview", event: "token-expired" },
 				}),
 			);
@@ -261,15 +262,16 @@ describe("PreviewPanel", () => {
 	it("drops the iframe and shows the asleep note on a not-running message", async () => {
 		renderPanel({ deps: readyDeps() });
 
-		await screen.findByTitle(TITLE);
+		const iframe = await screen.findByTitle<HTMLIFrameElement>(TITLE);
 		// The message listener registers in an effect; flush it before the dispatch.
 		await act(async () => {});
 
-		// The proxy error page reports the stopped sandbox from the preview origin.
+		// The proxy error page in the frame reports the stopped sandbox from the preview origin.
 		act(() => {
 			window.dispatchEvent(
 				new MessageEvent("message", {
 					origin: PREVIEW_ORIGIN,
+					source: iframe.contentWindow,
 					data: { type: "wandit:preview", event: "not-running" },
 				}),
 			);
@@ -285,13 +287,15 @@ describe("PreviewPanel", () => {
 	it("shows the boot screen again when a loaded frame reports not-running", async () => {
 		renderPanel({ deps: readyDeps() });
 
-		fireEvent.load(await screen.findByTitle(TITLE));
+		const iframe = await screen.findByTitle<HTMLIFrameElement>(TITLE);
+		fireEvent.load(iframe);
 		await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
 
 		act(() => {
 			window.dispatchEvent(
 				new MessageEvent("message", {
 					origin: PREVIEW_ORIGIN,
+					source: iframe.contentWindow,
 					data: { type: "wandit:preview", event: "not-running" },
 				}),
 			);

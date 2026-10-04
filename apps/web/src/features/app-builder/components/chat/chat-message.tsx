@@ -1,6 +1,7 @@
 /**
  * One message of the builder thread. A user message is a bubble at the end
- * side. An assistant message starts with the Wandit byline, then renders its
+ * side. The chips of the elements it picked in the preview sit above it.
+ * An assistant message starts with the Wandit byline, then renders its
  * parts in stream order: markdown text, the activity feed (thought rows and
  * step rows, grouped tight), the change card, one short line per question
  * (the user answers it in the tray), the approval, suggestion, and diff
@@ -24,6 +25,7 @@ import { MessageActions } from "./message-actions";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
 import { SuggestionCard } from "./suggestion-card";
+import { TargetChip } from "./target-chip";
 import { ThoughtRow } from "./thought-row";
 
 export type ChatMessageViewProps = {
@@ -48,8 +50,21 @@ export function ChatMessageView({
 	const { t, locale } = useTranslation();
 
 	if (message.role === "user") {
+		const targets = message.parts.flatMap((part) =>
+			part.type === "data-targets" ? part.data.targets : [],
+		);
 		return (
-			<div className="flex justify-end">
+			<div className="flex flex-col items-end gap-1.5">
+				{targets.length > 0 ? (
+					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+						{targets.map((target) => (
+							<TargetChip
+								key={`${target.src}|${target.label}`}
+								target={target}
+							/>
+						))}
+					</div>
+				) : null}
 				<div
 					dir="auto"
 					className="max-w-[88%] whitespace-pre-wrap break-words rounded-[18px] rounded-ee-md border bg-bubble px-3.5 py-2.5 text-[14.5px] leading-[1.5]"

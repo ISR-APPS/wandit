@@ -2,8 +2,9 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AppProject } from "../../api/dto";
 import type { BootContext } from "../../lib/boot-state";
@@ -50,6 +51,11 @@ async function renderPreview(viewport: WebViewport) {
 		viewport,
 		reloadKey: 0,
 		bootContext: idleBoot,
+		canStartTurn: true,
+		isSelecting: false,
+		onSelectingChange: vi.fn(),
+		onPickTarget: vi.fn(),
+		onTryToFix: vi.fn(),
 		deps: readyDeps,
 	};
 	// I18nProvider requires children in its props type for createElement calls.
@@ -57,7 +63,12 @@ async function renderPreview(viewport: WebViewport) {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(WebPreview, props),
+		// The page mounts one TooltipProvider; the Select toggle needs it.
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(WebPreview, props),
+		),
 	};
 	render(createElement(I18nProvider, providerProps));
 	const iframe = await screen.findByTitle("Preview of Nadi Fitness");

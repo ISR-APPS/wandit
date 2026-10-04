@@ -11,6 +11,7 @@ import type {
 	ProjectEngine,
 	TurnDataParts,
 	TurnQuestionOption,
+	TurnTargetsData,
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
 
@@ -74,7 +75,8 @@ export type BuilderDiffLine = {
  * `question` is one question of the agent. `approval` waits for the user to
  * allow a tool call. `error` is a turn failure. `receipt` is the settled
  * cost of a turn. `suggestion` is a next step the user can accept. `diff`
- * shows one changed file.
+ * shows one changed file. `targets` sits in a user message: the elements it
+ * picked in the preview.
  */
 export type BuilderDataParts = {
 	change: { title: string; versionNumber: number };
@@ -138,6 +140,7 @@ export type BuilderDataParts = {
 	};
 	suggestion: { title: string; body: string; confidence: BuilderConfidence };
 	diff: { path: string; lines: BuilderDiffLine[] };
+	targets: TurnTargetsData;
 };
 
 /** Fields of an assistant message outside its parts. The AI SDK carries them as `message.metadata`. */
@@ -170,8 +173,6 @@ export type BuilderThread = {
 	messages: BuilderMessage[];
 	/** Credits one more turn costs, whole credits. Shown in the composer as an estimate. */
 	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. The preview sets it on a selection. */
-	focusLabel: string | null;
 };
 
 /** A folder or a file of the sandbox worktree, for the Code view tree. */
