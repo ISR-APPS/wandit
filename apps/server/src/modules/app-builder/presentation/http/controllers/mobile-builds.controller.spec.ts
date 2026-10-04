@@ -49,7 +49,7 @@ const SCOPE = { kind: "personal", userId: "user_1" };
 const user = { id: "user_1" } as AuthUser;
 const workspace: WorkspaceContext = { kind: "personal" };
 const request = {
-	headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" },
+	headers: { "x-forwarded-for": "203.0.113.9" },
 	ip: "10.0.0.2",
 };
 
@@ -64,7 +64,7 @@ describe("MobileBuildsController", () => {
 		});
 	});
 
-	it("create delegates the body with the first forwarded IP", async () => {
+	it("create delegates the body with the client IP", async () => {
 		const { builds, controller } = setup();
 		const body = {
 			platform: "android",
