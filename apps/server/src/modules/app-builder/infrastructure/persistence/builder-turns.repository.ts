@@ -11,6 +11,7 @@ import type {
 	BuilderTurnStatus,
 	ComposerMetadata,
 	FileRef,
+	PreviewTarget,
 	TurnQuestionAnswer,
 } from "@wandit/contracts";
 import {
@@ -62,6 +63,8 @@ export type BuilderTurnSpec = {
 	composer: ComposerMetadata | null;
 	/** The user prompt text; may be empty when attachments carry the turn. */
 	message: string;
+	/** Elements the user picked in the preview, in pick order. Empty without a pick. */
+	targets: PreviewTarget[];
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */

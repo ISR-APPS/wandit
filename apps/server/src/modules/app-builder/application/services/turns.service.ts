@@ -322,6 +322,7 @@ export class TurnsService {
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,
 				message: body.message,
+				targets: body.targets ?? [],
 			};
 
 			// The row check is the fast path; the lock is authoritative. The
@@ -397,6 +398,7 @@ export class TurnsService {
 					chatId: body.chatId,
 					composer: body.composer,
 					id: messageId,
+					targets: body.targets,
 					text: body.message,
 					turnId: created.turn.id,
 				});

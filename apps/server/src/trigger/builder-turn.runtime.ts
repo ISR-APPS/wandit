@@ -1203,7 +1203,7 @@ export async function runBuilderTurn(
 			...spec.answers.flatMap((answer) => answer.files),
 		];
 		const fileLines = sentFiles.map((attachment) => attachment.url).join("\n");
-		const prompt =
+		const requestText =
 			spec.message.trim().length > 0
 				? sentFiles.length > 0
 					? `${spec.message}\n\nAttached files:\n${fileLines}`
@@ -1212,6 +1212,16 @@ export async function runBuilderTurn(
 					? `See the attached files.\n${fileLines}`
 					: // An approval or answers alone have no text: the cards carry them.
 						"Continue.";
+		// The elements the user picked in the preview name the JSX to change
+		// (WANDIT-203). JSON quotes the label, so its text cannot break the line.
+		const targetLines = spec.targets.map(
+			(target) =>
+				`- ${target.src} (${target.tag} ${JSON.stringify(target.label)})`,
+		);
+		const prompt =
+			targetLines.length > 0
+				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
+				: requestText;
 		// The pending cards of a suspended turn make a `continue` input.
 		// `spec.answers`, the message text, and `spec.approval` carry the
 		// answers.

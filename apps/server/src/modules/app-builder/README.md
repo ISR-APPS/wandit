@@ -225,7 +225,11 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
   `approval`. A turn paused on a question takes `answers` as the answer:
   one entry per `data-question` card, with `optionIds`, `text`, and
   `files`. Without `answers`, the message text answers the first
-  question. Answer files pass the same owner check as attachments.
+  question. Answer files pass the same owner check as attachments. The
+  optional `targets` field holds at most 10 elements that the user picked
+  in the preview (WANDIT-203). The user row keeps them as a `data-targets`
+  part, and the task adds one "The user points at:" line per target to
+  the prompt.
 - `GET /:turnId/stream` relays one turn's stream; `204` while the row has
   no run id.
 - `GET /active/stream` is the `useChat` reconnect route: the active

@@ -12,6 +12,7 @@ import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { askUserHostToolActionSchema } from "./host-tools";
+import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 
 /**
  * Every status a `builder_turns` row can hold, in lifecycle order. Matches
@@ -92,6 +93,13 @@ export const createTurnRequestSchema = z
 		// The answers to the open `data-question` cards. Without them, the
 		// message text answers the cards.
 		answers: z.array(turnQuestionAnswerSchema).min(1).max(8).optional(),
+		// Elements the user picked in the preview. The task names them in the
+		// prompt, so the agent edits that JSX. They never admit a turn alone.
+		targets: z
+			.array(previewTargetSchema)
+			.min(1)
+			.max(PREVIEW_TARGETS_MAX)
+			.optional(),
 	})
 	.refine(
 		(body) =>
@@ -455,9 +463,30 @@ export const turnThoughtDataPartSchema = z.object({
 export type TurnThoughtData = z.infer<typeof turnThoughtDataSchema>;
 
 /**
+ * `data` of the `data-targets` part of a user message: the elements the user
+ * picked in the preview for that turn. The API stores the part in the user
+ * row, so the bubble shows the chips after a reload too.
+ */
+export const turnTargetsDataSchema = z.object({
+	targets: z.array(previewTargetSchema).min(1).max(PREVIEW_TARGETS_MAX),
+});
+
+/** The `data-targets` part of a user message; see `turnTargetsDataSchema`. */
+export const turnTargetsDataPartSchema = z.object({
+	type: z.literal("data-targets"),
+	id: z.literal("targets"),
+	data: turnTargetsDataSchema,
+});
+
+/** The picks of one user message, 1 to 10, in pick order. */
+export type TurnTargetsData = z.infer<typeof turnTargetsDataSchema>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
+ * `data-targets` is the exception: only the user message row holds it, and
+ * `hydrateTurnMessages` parses it.
  */
 export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnCreatedDataPartSchema,
@@ -468,6 +497,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnQuestionDataPartSchema,
 	turnApprovalDataPartSchema,
 	turnThoughtDataPartSchema,
+	turnTargetsDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -486,4 +516,5 @@ export type TurnDataParts = {
 	question: TurnQuestionData;
 	approval: TurnApprovalData;
 	thought: TurnThoughtData;
+	targets: TurnTargetsData;
 };
