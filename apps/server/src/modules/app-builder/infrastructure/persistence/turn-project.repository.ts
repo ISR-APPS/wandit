@@ -21,7 +21,7 @@ export type TurnProjectRow = {
 	framework: string | null;
 	/** Template release tag; null means a broken V2 row. */
 	templateVersion: string | null;
-	/** Output languages the harness instructions enforce. */
+	/** UI locale at project creation. The harness instructions give it as a hint, not a rule. */
 	languages: string[];
 	/** Per-project egress hosts (WANDIT-180); layer 3 of the allow list. */
 	networkAllowedHosts: string[];

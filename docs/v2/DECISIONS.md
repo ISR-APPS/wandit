@@ -120,6 +120,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-12.
 - Issues that change: WANDIT-168 (P1-07), WANDIT-172 (P1-11), WANDIT-173 (P1-12), WANDIT-179 (P2-03), WANDIT-191 (P4-01).
 - Notes: The wandit platform itself stays in three languages. WANDIT-175 adds the language choice to project creation. Source: report 12.
+- Update 2026-10-04 (Zack): an app ships one language. The agent asks once; with no answer, French for a French-writing user, else English. `projects.languages` is a hint only. The template keeps i18n and RTL ready.
 
 ## D8. Data residency
 
@@ -263,6 +264,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-13.
 - Issues that change: WANDIT-178, WANDIT-168, WANDIT-173.
 - Notes: Linear edits wait for the next batch. The leads SDK stays in the template. Source: Zack, 2026-09-13.
+- Update 2026-10-04: WANDIT-179 is cancelled. The leads SDK stub is gone from the template (c90761e6). A public form writes to the app's own table (WANDIT-273).
 
 ## D20. Turn stream transport to the browser
 
