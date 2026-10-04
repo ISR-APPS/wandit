@@ -46,6 +46,9 @@ The host machine runs the session and commits your work.
   that pnpm writes into `pnpm-workspace.yaml`.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
+- A shell command that writes a file must name a literal path, such as `/tmp/page.html`.
+  The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/p-$i.html`.
+  Write one command for each file, not a loop.
 - Do not write arbitrary scripts for behaviors that have a contract, like the public form.
 
 ## Structure

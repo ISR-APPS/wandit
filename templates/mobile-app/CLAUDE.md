@@ -55,6 +55,9 @@ The app must feel like a real app from the store: clean code, modern design, rea
   Do not change these files in another way.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
+- A shell command that writes a file must name a literal path, such as `/tmp/bundle-ios.js`.
+  The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/b-$p.js`.
+  Write one command for each file, not a loop.
 - Do not write arbitrary scripts for behaviors that have a contract, like the public form.
 
 ## Plan before code
