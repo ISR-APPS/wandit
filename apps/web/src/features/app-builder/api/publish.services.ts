@@ -12,6 +12,7 @@ import {
 	appBuildSchema,
 	appPublishRoutes,
 	appPublishStatusSchema,
+	type OverridePublishGateBody,
 } from "@wandit/contracts";
 
 import { apiClient } from "@/lib/api-client";
@@ -58,4 +59,18 @@ export async function unpublishApp(
 ): Promise<AppPublishStatus> {
 	const data = await remove<unknown>(appPublishRoutes.publish(projectId));
 	return appPublishStatusSchema.parse(data);
+}
+
+/**
+ * `POST publish/override` ("Publish anyway") builds the commit of a blocked
+ * attempt again past its overridable findings. The API answers 403 to a
+ * viewer who did not create the project.
+ */
+export async function overridePublishGate(
+	projectId: string,
+	input: OverridePublishGateBody,
+	post: typeof apiClient.post = apiClient.post,
+): Promise<AppBuild> {
+	const data = await post<unknown>(appPublishRoutes.override(projectId), input);
+	return appBuildSchema.parse(data);
 }

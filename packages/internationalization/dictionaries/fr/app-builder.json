@@ -539,10 +539,56 @@
 			"output_too_large": "Ton app est trop lourde pour être publiée. La limite est de 2 000 fichiers et 100 Mo.",
 			"source_missing": "Cette version n’est plus stockée. Publie la version actuelle.",
 			"gate_blocked": "Le contrôle de sécurité a arrêté cette publication. Demande à Wandit dans le chat de corriger les problèmes.",
+			"gate_unavailable": "Le contrôle de sécurité n’a pas pu s’exécuter. Réessaie dans quelques minutes.",
+			"suspended": "L’équipe Wandit a suspendu cette app, donc la publication s’est arrêtée.",
 			"slug_taken": "Un autre site en ligne a pris cette adresse. Réessaie.",
 			"upload_failed": "L’envoi vers l’hébergement a échoué. Réessaie.",
 			"unconfigured": "La publication n’est pas disponible pour le moment. Réessaie plus tard.",
 			"internal": "Une erreur est survenue pendant la publication. Réessaie."
+		},
+		"suspension": "L’équipe Wandit a suspendu cette app. Motif : {reason}. Contacte le support pour en savoir plus.",
+		"suspensionReasons": {
+			"abuse_phishing": "une fausse page de connexion, de banque ou de portefeuille",
+			"abuse_malware": "un logiciel malveillant ou un téléchargement dangereux",
+			"abuse_url_scan": "un scanner de sécurité a signalé l’app comme dangereuse",
+			"legal_takedown": "une décision légale demande le retrait de l’app",
+			"legal_notice": "une notification légale en cours d’examen",
+			"tos_violation": "une violation des conditions d’utilisation",
+			"billing": "un solde impayé sur le compte",
+			"manual_review": "l’équipe Wandit examine un signalement sur l’app"
+		},
+		"findings": {
+			"block": "À corriger avant de publier",
+			"warn": "Avertissements",
+			"secretClient": "Le fichier public {path} contient une clé secrète : {rule} ({sample})",
+			"secretServer": "Le code serveur {path} contient une clé secrète : {rule} ({sample})",
+			"secretRules": {
+				"aws_access_key": "clé d’accès AWS",
+				"stripe_live_secret_key": "clé secrète Stripe live",
+				"stripe_live_restricted_key": "clé restreinte Stripe live",
+				"stripe_webhook_secret": "secret de webhook Stripe",
+				"supabase_secret_key": "clé secrète Supabase",
+				"supabase_service_role_jwt": "clé service role Supabase",
+				"anthropic_api_key": "clé API Anthropic",
+				"google_api_key": "clé API Google",
+				"private_key": "clé privée"
+			},
+			"phishing": "Le nom public « {target} » ressemble à une page de connexion, de banque ou de portefeuille.",
+			"advisor": {
+				"ERROR": "Contrôle Supabase : {title}. Tu dois corriger ce point avant de publier.",
+				"WARN": "Contrôle Supabase : {title}"
+			},
+			"rlsProbe": {
+				"rows_returned": "N’importe qui peut lire la table {relation} sans se connecter.",
+				"no_rls": "La table {relation} n’a pas de sécurité au niveau des lignes.",
+				"anon_policy": "Une règle permet à n’importe qui de lire toutes les lignes de {relation}.",
+				"probe_timeout": "Le contrôle de la base de données ne s’est pas terminé."
+			},
+			"unknownTable": "(inconnue)",
+			"askFix": "Demander à l’IA de corriger",
+			"askFixMessage": "Le contrôle de sécurité de la publication a trouvé ces problèmes dans mon app. Corrige-les :",
+			"overrideWarning": "N’importe qui pourrait lire les tables listées. Publie seulement si ces données sont publiques.",
+			"override": "Publier quand même"
 		},
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",

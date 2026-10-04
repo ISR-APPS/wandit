@@ -24,8 +24,12 @@ function statusWith(status: AppBuildStatus | null): AppPublishStatus {
 						errorCode: null,
 						createdAt: "2026-10-01T10:00:00.000Z",
 						completedAt: null,
+						gateFindings: [],
+						gateOverride: false,
 					},
 		history: [],
+		suspension: null,
+		gateOverrideAllowed: false,
 	};
 }
 

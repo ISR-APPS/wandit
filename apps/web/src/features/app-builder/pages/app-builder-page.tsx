@@ -261,6 +261,12 @@ export default function AppBuilderPage({
 			onOpenExternal={() =>
 				window.open(`https://${project.slug}.wandit.app`, "_blank", "noopener")
 			}
+			canAskFix={thread.isReady && !thread.isSending}
+			onAskFix={(text) => {
+				thread.send(text);
+				// The reply shows in the chat, so a closed chat opens. On a phone it covers the work pane.
+				setChatOpenAndStore(true);
+			}}
 		/>
 	);
 

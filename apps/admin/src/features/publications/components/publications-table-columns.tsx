@@ -1,8 +1,13 @@
+/**
+ * Columns of the desktop publish log table. `PublicationsDataTable` renders
+ * them with the cells of `publication-table-cells.tsx`.
+ */
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table";
 import type { AdminPublication } from "@/features/publications/api/publications.dto";
 
+import { PublicationSuspensionAction } from "./publication-suspension-action";
 import {
 	PublicationLink,
 	PublicationPublishedAt,
@@ -50,7 +55,13 @@ const publicationsTableColumns: ColumnDef<AdminPublication>[] = [
 		header: ({ column }) => (
 			<DataTableColumnHeader column={column} title="Status" />
 		),
-		cell: ({ row }) => <PublicationStatusBadge status={row.original.status} />,
+		cell: ({ row }) => <PublicationStatusBadge publication={row.original} />,
+	},
+	{
+		id: "actions",
+		cell: ({ row }) => (
+			<PublicationSuspensionAction publication={row.original} />
+		),
 	},
 ];
 

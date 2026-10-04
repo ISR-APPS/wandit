@@ -539,10 +539,56 @@
 			"output_too_large": "Your app is too large to publish. The limit is 2,000 files and 100 MB.",
 			"source_missing": "This version is not stored anymore. Publish the current version.",
 			"gate_blocked": "The safety check stopped this publish. Ask Wandit in the chat to fix the problems.",
+			"gate_unavailable": "The safety check could not run. Try again in a few minutes.",
+			"suspended": "Wandit staff suspended this app, so the publish stopped.",
 			"slug_taken": "Another live site took this address. Try again.",
 			"upload_failed": "The upload to the hosting service failed. Try again.",
 			"unconfigured": "Publishing is not available now. Try again later.",
 			"internal": "An error occurred during the publish. Try again."
+		},
+		"suspension": "Wandit staff suspended this app. Reason: {reason}. Contact support to learn more.",
+		"suspensionReasons": {
+			"abuse_phishing": "a fake login, bank, or wallet page",
+			"abuse_malware": "malware or a harmful download",
+			"abuse_url_scan": "a security scanner marked the app as harmful",
+			"legal_takedown": "a legal order to remove the app",
+			"legal_notice": "a legal notice that is under review",
+			"tos_violation": "a breach of the terms of service",
+			"billing": "an unpaid balance on the account",
+			"manual_review": "Wandit staff are checking a report about the app"
+		},
+		"findings": {
+			"block": "Fix before you publish",
+			"warn": "Warnings",
+			"secretClient": "The public file {path} holds a secret key: {rule} ({sample})",
+			"secretServer": "The server code {path} holds a secret key: {rule} ({sample})",
+			"secretRules": {
+				"aws_access_key": "AWS access key",
+				"stripe_live_secret_key": "Stripe live secret key",
+				"stripe_live_restricted_key": "Stripe live restricted key",
+				"stripe_webhook_secret": "Stripe webhook secret",
+				"supabase_secret_key": "Supabase secret key",
+				"supabase_service_role_jwt": "Supabase service role key",
+				"anthropic_api_key": "Anthropic API key",
+				"google_api_key": "Google API key",
+				"private_key": "private key"
+			},
+			"phishing": "The public name \"{target}\" looks like a login, bank, or wallet page.",
+			"advisor": {
+				"ERROR": "Supabase check: {title}. You must fix this before you publish.",
+				"WARN": "Supabase check: {title}"
+			},
+			"rlsProbe": {
+				"rows_returned": "Anyone can read the table {relation} without signing in.",
+				"no_rls": "The table {relation} has no row level security.",
+				"anon_policy": "A rule lets anyone read every row of {relation}.",
+				"probe_timeout": "The database check did not finish."
+			},
+			"unknownTable": "(unknown)",
+			"askFix": "Ask the AI to fix",
+			"askFixMessage": "The publish safety check found these problems in my app. Fix them:",
+			"overrideWarning": "Anyone may be able to read the listed tables. Publish only if this data is public.",
+			"override": "Publish anyway"
 		},
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",

@@ -1,8 +1,10 @@
 /**
  * Publish button of the top bar and its popover. Rendered by components/shell/top-bar.tsx.
  * A web app shows its publish status (appPublishQuery, WANDIT-178) with Publish,
- * Unpublish, and Roll back. A mobile app shows the Android APK card of
- * android-build-card.tsx (mobileBuildsQuery, WANDIT-194). The spec renders the pure *Targets parts.
+ * Unpublish, Roll back, the gate findings of publish-gate-findings.tsx, "Publish
+ * anyway" (WANDIT-190), and a staff suspension (WANDIT-181). A mobile app shows the
+ * Android APK card of android-build-card.tsx (mobileBuildsQuery, WANDIT-194).
+ * The spec renders the pure *Targets parts.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -37,6 +39,7 @@ import {
 } from "../../api/mobile-builds.mutations";
 import { mobileBuildsQuery } from "../../api/mobile-builds.queries";
 import {
+	useOverridePublishGate,
 	usePublishApp,
 	useRollbackApp,
 	useUnpublishApp,
@@ -49,19 +52,29 @@ import {
 	AndroidBuildCard,
 	type AndroidBuildCardProps,
 } from "./android-build-card";
+import { PublishGateFindings } from "./publish-gate-findings";
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
 // Seven characters name a commit, like `git log --oneline`.
 const SHORT_SHA_LENGTH = 7;
 
+/** Props of the top bar Publish button. WorkBar in top-bar.tsx passes them from the page. */
 export type PublishPopoverProps = {
 	/** The open project, from appProjectQuery in the page. Sets the kind, the name, and the version line. */
 	project: AppProject;
+	/** True when the chat can take a message: its history loaded and no turn sends. From useBuilderThread in the page. */
+	canAskFix: boolean;
+	/** Sends one chat message through `thread.send` of the page. "Ask the AI to fix" lists the gate findings in it. */
+	onAskFix: (text: string) => void;
 };
 
 /** Each body loads its data when the popover opens and shows a skeleton until then, so the top bar never waits. */
-export function PublishPopover({ project }: PublishPopoverProps) {
+export function PublishPopover({
+	project,
+	canAskFix,
+	onAskFix,
+}: PublishPopoverProps) {
 	const { t, locale } = useTranslation();
 	// Controlled, so a link to a More panel can close the popover before the view changes.
 	const [open, setOpen] = useState(false);
@@ -100,6 +113,12 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 				{project.kind === "web" ? (
 					<PublishWebBody
 						projectId={project.id}
+						canAskFix={canAskFix}
+						onAskFix={(text) => {
+							onAskFix(text);
+							// The reply shows in the chat, so the popover gets out of the way.
+							setOpen(false);
+						}}
 						onNavigate={() => setOpen(false)}
 					/>
 				) : (
@@ -113,8 +132,10 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 /** Reads the publish status and wires the web actions. Connect one opens the Domains panel. */
 function PublishWebBody({
 	projectId,
+	canAskFix,
+	onAskFix,
 	onNavigate,
-}: {
+}: Pick<PublishWebTargetsProps, "canAskFix" | "onAskFix"> & {
 	projectId: string;
 	/** Closes the popover before the view changes under it. */
 	onNavigate: () => void;
@@ -124,6 +145,7 @@ function PublishWebBody({
 	const publish = usePublishApp(projectId);
 	const rollback = useRollbackApp(projectId);
 	const unpublish = useUnpublishApp(projectId);
+	const override = useOverridePublishGate(projectId);
 
 	// A failed poll keeps the last status on screen. Only a first load without a status shows the error.
 	if (publishStatus.data === undefined) {
@@ -139,10 +161,18 @@ function PublishWebBody({
 	return (
 		<PublishWebTargets
 			status={publishStatus.data}
-			isSending={publish.isPending || rollback.isPending || unpublish.isPending}
+			isSending={
+				publish.isPending ||
+				rollback.isPending ||
+				unpublish.isPending ||
+				override.isPending
+			}
+			canAskFix={canAskFix}
+			onAskFix={onAskFix}
 			// A new key per click. A second click while a publish runs gets 409 PUBLISH_ACTIVE.
 			onPublish={() => publish.mutate(crypto.randomUUID())}
 			onRollback={(deploymentId) => rollback.mutate(deploymentId)}
+			onOverride={(buildId) => override.mutate(buildId)}
 			onUnpublish={() => unpublish.mutate()}
 			onConnectDomain={() => {
 				onNavigate();
@@ -154,15 +184,22 @@ function PublishWebBody({
 	);
 }
 
+/** What the web targets show and do. PublishWebBody fills it; the spec passes plain values. */
 export type PublishWebTargetsProps = {
 	/** The publish status of the project, from appPublishQuery. */
 	status: AppPublishStatus;
-	/** True while a publish, rollback, or unpublish request runs. The actions are disabled then. */
+	/** True while a publish, rollback, override, or unpublish request runs. The actions are disabled then. */
 	isSending: boolean;
+	/** True when the chat can take a message. "Ask the AI to fix" is disabled otherwise. */
+	canAskFix: boolean;
+	/** Sends the "Ask the AI to fix" chat message and closes the popover. */
+	onAskFix: (text: string) => void;
 	/** Publishes the saved head of the app, or updates the live app. */
 	onPublish: () => void;
 	/** Puts the earlier deployment with this id live again. */
 	onRollback: (deploymentId: string) => void;
+	/** "Publish anyway": builds the blocked attempt with this id again past its overridable findings. */
+	onOverride: (buildId: string) => void;
 	/** Takes the live app down. */
 	onUnpublish: () => void;
 	/** Opens the Domains panel of the More view. */
@@ -170,20 +207,24 @@ export type PublishWebTargetsProps = {
 };
 
 /**
- * The web row with its Live badge or the running step, the failure text,
- * the live link with Unpublish, the earlier versions with Roll back, and
- * the custom domain footer.
+ * The suspension box, the web row with its Live badge or the running step,
+ * the failure text, the gate findings with "Publish anyway", the live link
+ * with Unpublish, the earlier versions with Roll back, and the custom
+ * domain footer.
  */
 export function PublishWebTargets({
 	status,
 	isSending,
+	canAskFix,
+	onAskFix,
 	onPublish,
 	onRollback,
+	onOverride,
 	onUnpublish,
 	onConnectDomain,
 }: PublishWebTargetsProps) {
 	const { t, locale } = useTranslation();
-	const { live, latestBuild } = status;
+	const { live, latestBuild, suspension } = status;
 	const runningBuild =
 		latestBuild && LIVE_PUBLISH_STATUSES.has(latestBuild.status)
 			? latestBuild
@@ -202,9 +243,20 @@ export function PublishWebTargets({
 		.slice(0, HISTORY_ROWS);
 	// One publish runs at a time, so every action waits for the running one.
 	const isBusy = isSending || runningBuild !== null;
+	// A suspended app cannot go live again. The API also answers 403 PROJECT_SUSPENDED.
+	const isPublishDisabled = isBusy || suspension !== null;
 
 	return (
 		<>
+			{suspension ? (
+				<p className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-destructive text-xs">
+					{t("appBuilder.publish.suspension", {
+						reason: t(
+							`appBuilder.publish.suspensionReasons.${suspension.reasonCode}`,
+						),
+					})}
+				</p>
+			) : null}
 			<TargetRow
 				icon={runningBuild ? LoaderCircle : Globe}
 				iconClassName={runningBuild ? "animate-spin" : undefined}
@@ -223,7 +275,7 @@ export function PublishWebTargets({
 						{t("appBuilder.publish.live")}
 					</Badge>
 				) : null}
-				<Button size="sm" disabled={isBusy} onClick={onPublish}>
+				<Button size="sm" disabled={isPublishDisabled} onClick={onPublish}>
 					{t(
 						live
 							? "appBuilder.publish.update"
@@ -243,6 +295,30 @@ export function PublishWebTargets({
 						`appBuilder.publish.errors.${failedBuild.errorCode ?? "internal"}`,
 					)}
 				</p>
+			) : null}
+			{latestBuild && latestBuild.gateFindings.length > 0 ? (
+				<PublishGateFindings
+					findings={latestBuild.gateFindings}
+					isOverride={latestBuild.gateOverride}
+					canAskFix={canAskFix}
+					onAskFix={onAskFix}
+				/>
+			) : null}
+			{/* The API sets the flag for the project creator when every block finding is overridable. */}
+			{latestBuild && status.gateOverrideAllowed ? (
+				<div className="flex items-center gap-3">
+					<p className="flex-1 text-orange-600 text-xs dark:text-orange-400">
+						{t("appBuilder.publish.findings.overrideWarning")}
+					</p>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={isPublishDisabled}
+						onClick={() => onOverride(latestBuild.id)}
+					>
+						{t("appBuilder.publish.findings.override")}
+					</Button>
+				</div>
 			) : null}
 			{live ? (
 				<div className="flex items-center justify-between gap-3 text-xs">
@@ -289,7 +365,7 @@ export function PublishWebTargets({
 								</span>
 								<button
 									type="button"
-									disabled={isBusy}
+									disabled={isPublishDisabled}
 									onClick={() => onRollback(deployment.id)}
 									className="text-primary hover:underline disabled:opacity-50"
 								>
