@@ -1246,7 +1246,17 @@
 				"description": "Un backend donne à ton app une base de données, des comptes utilisateurs et un stockage de fichiers. Wandit l'installe et le gère pour toi.",
 				"enable": "Activer le backend"
 			},
+			"limit": {
+				"inUse": {
+					"one": "Ton offre {plan} inclut {count} base de données d'app, et elle est utilisée.",
+					"other": "Ton offre {plan} inclut {count} bases de données d'app, et toutes sont utilisées."
+				},
+				"notIncluded": "Ton offre actuelle n'inclut pas de base de données d'app.",
+				"generic": "Ton offre n'a plus de base de données d'app libre.",
+				"seePlans": "Voir les offres"
+			},
 			"waiting": "Installation de ton backend. Cela prend environ 2 minutes.",
+			"restoring": "Réveil de ta base de données.",
 			"paused": {
 				"description": "Le backend se met en veille quand personne n'utilise l'app pendant un moment. Réveille-le pour voir tes données.",
 				"wake": "Réveiller"
@@ -1254,13 +1264,13 @@
 			"deleting": "Le backend de ce projet est en cours de suppression.",
 			"error": {
 				"code": "Code d'erreur : {code}",
-				"checkAgain": "Vérifier à nouveau",
 				"reasons": {
 					"startFailed": "L'installation du backend n'a pas démarré.",
 					"unconfigured": "Les backends ne sont pas encore disponibles sur ce serveur.",
 					"provisionFailed": "Le service de base de données n'a pas pu créer le backend.",
 					"timeout": "L'installation du backend a pris trop de temps et s'est arrêtée.",
 					"baseSchemaMissing": "Le backend a démarré, mais ses tables de base sont absentes.",
+					"restoreFailed": "Ta base de données ne s'est pas réveillée.",
 					"unknown": "Une erreur inattendue a arrêté l'installation du backend."
 				}
 			}
@@ -1385,7 +1395,7 @@
 				"value": "Valeur",
 				"save": "Enregistrer le secret",
 				"hint": "Pour remplacer une valeur, utilise le nom d'un secret de la liste.",
-				"nameInvalid": "Utilise A à Z, 0 à 9 et _. Commence par une lettre. Utilise 64 caractères au plus.",
+				"nameInvalid": "Utilise A à Z, 0 à 9 et _. Commence par une lettre. Utilise 64 caractères au plus. Les noms qui commencent par SUPABASE_ sont réservés.",
 				"valueInvalid": "Saisis une valeur de 8 Ko au plus.",
 				"saved": "{name} est enregistré."
 			},
