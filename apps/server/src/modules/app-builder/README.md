@@ -846,8 +846,9 @@ One run does this, in order:
    card is an approval), and the suspended state lands on the session
    row. A finished turn completes as `succeeded`. Both paths share the
    same tail: `commitTurn` commits the workspace (a commit failure only
-   costs the commit, not the turn), a `files` event carries the numstat,
-   `insertTurnAssistantMessage` persists the assistant message with
+   costs the commit, not the turn), one `data-turn-summary` part carries
+   the numstat and the work seconds on the stream and in the stored
+   message, `insertTurnAssistantMessage` persists the assistant message with
    usage (the proxy row sums) and commit metadata, and the resume state
    is saved on the session row. A `detach` in the middle of a turn (a
    cancel, a stall) keeps that turn in the state too, with its cards in

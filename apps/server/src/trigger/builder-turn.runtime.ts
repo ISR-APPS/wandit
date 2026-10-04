@@ -17,6 +17,7 @@ import type {
 	TurnAssistantMessageMetadata,
 	TurnQuestionData,
 	TurnStreamPhase,
+	TurnSummaryData,
 	TurnThoughtData,
 } from "@wandit/contracts";
 import {
@@ -228,7 +229,7 @@ export type BuilderTurnTiming = {
 	/** Run start → the first proxy request leaves the sandbox, from the rows. */
 	firstModelCallMs: number | null;
 	streamMs: number | null;
-	/** Stream end → commit done: the pause check, the commit, the files event. */
+	/** Stream end → commit done: the pause check, the commit. The summary part follows. */
 	commitMs: number | null;
 	/** Commit done → cleanup done: message row, usage, CAS, settle, done event. */
 	settleMs: number | null;
@@ -1725,16 +1726,21 @@ export async function runBuilderTurn(
 			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
 
-			// The files event is a stream-only part; the message row keeps the
-			// harness chunks only.
-			await writeEvent({
+			// The chat summary line reads this part: "Worked for 1 min · 6 files
+			// changed". The stored message keeps it too, so a reload shows it.
+			const summaryPart: UIMessage["parts"][number] = {
 				data: {
-					data: { files: commit?.numstat ?? [] },
-					id: `files-${turnId}`,
-					type: "data-builder-files",
-				},
-				type: "part",
-			});
+					files: commit?.numstat ?? [],
+					// ms → whole seconds; a turn under 0.5 s still shows 1 s.
+					workedSeconds: Math.max(
+						1,
+						Math.round((stamps.commitEnd - runStartedAt) / 1000),
+					),
+				} satisfies TurnSummaryData,
+				id: `summary-${turnId}`,
+				type: "data-turn-summary",
+			};
+			await writeEvent({ data: summaryPart, type: "part" });
 
 			// One stream part and one message part per card the user must
 			// answer; the cards are what the next turn answers.
@@ -1816,7 +1822,7 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...(finalMessage?.parts ?? []), ...cardParts],
+					parts: [...(finalMessage?.parts ?? []), summaryPart, ...cardParts],
 					turnId,
 				}),
 			);

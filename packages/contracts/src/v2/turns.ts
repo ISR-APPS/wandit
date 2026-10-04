@@ -12,6 +12,7 @@ import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { askUserHostToolActionSchema } from "./host-tools";
+import { appCommitNumstatEntrySchema } from "./versions";
 
 /**
  * Every status a `builder_turns` row can hold, in lifecycle order. Matches
@@ -455,6 +456,30 @@ export const turnThoughtDataPartSchema = z.object({
 export type TurnThoughtData = z.infer<typeof turnThoughtDataSchema>;
 
 /**
+ * `data` of the `data-turn-summary` part the task writes once, after the
+ * commit of a turn that ended normally. The chat shows it as "Worked for
+ * 1 min · 6 files changed". The stored assistant message keeps it too.
+ */
+export const turnSummaryDataSchema = z.object({
+	// The files of the turn commit; empty when the turn changed no file or
+	// the commit failed.
+	files: z.array(appCommitNumstatEntrySchema),
+	// Whole seconds from the task start to the commit end, at least 1. The
+	// queue wait before the task start is not in it.
+	workedSeconds: z.int().positive(),
+});
+
+/** One `data-turn-summary` part; id is `summary-${turnId}`. */
+export const turnSummaryDataPartSchema = z.object({
+	type: z.literal("data-turn-summary"),
+	id: z.string(),
+	data: turnSummaryDataSchema,
+});
+
+/** Inferred from `turnSummaryDataSchema`; the work time and the changed files of one turn. */
+export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
@@ -468,6 +493,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnQuestionDataPartSchema,
 	turnApprovalDataPartSchema,
 	turnThoughtDataPartSchema,
+	turnSummaryDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -486,4 +512,5 @@ export type TurnDataParts = {
 	question: TurnQuestionData;
 	approval: TurnApprovalData;
 	thought: TurnThoughtData;
+	"turn-summary": TurnSummaryData;
 };
