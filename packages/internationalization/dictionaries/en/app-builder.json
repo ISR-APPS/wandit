@@ -381,7 +381,8 @@
 			"install": "Installing what it needs",
 			"firstTime": "The first start takes a little longer",
 			"waking": "Waking up your project",
-			"restoring": "Bringing back your latest changes"
+			"restoring": "Bringing back your latest changes",
+			"wakingDatabase": "Waking up your database"
 		},
 		"tray": {
 			"needsDetail": "Needs a detail",

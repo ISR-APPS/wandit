@@ -1467,6 +1467,27 @@ describe("VercelSandboxProvider egress policy", () => {
 		});
 	});
 
+	it("handle.allowHost keeps both hosts of two grants that overlap", async () => {
+		const { provider, sdk } = setup();
+		const handle = await provider.getOrCreate("p1", OPTIONS);
+
+		// The keep-alive tick and the request_network_host tool, at once.
+		await Promise.all([
+			handle.allowHost("first.example.com"),
+			handle.allowHost("second.example.com"),
+		]);
+
+		const policies = sdk.instances.get("p1")?.networkPolicies ?? [];
+		expect(policies.at(-1)).toEqual({
+			allow: [
+				...STRICT_ALLOW,
+				"first.example.com",
+				"second.example.com",
+			].sort(),
+			subnets: { deny: [...SANDBOX_DENIED_RANGES] },
+		});
+	});
+
 	it("handle.setNetworkPolicy maps the port policy and forwards it", async () => {
 		const { provider, sdk } = setup();
 		const handle = await provider.getOrCreate("p1", OPTIONS);

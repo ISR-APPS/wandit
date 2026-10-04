@@ -3662,6 +3662,55 @@ describe("runBuilderTurn", () => {
 
 			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
+
+		it.each([
+			{
+				allowed: ["abcdefghijklmnopqrst.supabase.co"],
+				label: "a fresh session allows the host once",
+				storedSession: false,
+			},
+			// A kept session would lose the proxy run token on a raw policy push.
+			{
+				allowed: [],
+				label: "a resumed session allows no host",
+				storedSession: true,
+			},
+		])("$label when the backend row turns active mid-turn", async ({
+			allowed,
+			storedSession,
+		}) => {
+			vi.useFakeTimers();
+			const world = makeWorld();
+			// provision-backend moves this row to `active` while the agent works.
+			let backendRow = fakeBackendRow({ anonKey: null, status: "creating" });
+			world.deps.backends = {
+				...world.deps.backends,
+				findByProjectId: async () => backendRow,
+			};
+			if (storedSession) {
+				// SAFETY: the runtime reads only resumeState off the session row.
+				world.sessions.row = {
+					resumeState: { harness: "claude_code", payload: "{}" },
+				} as BuilderSessionRow;
+			}
+			let release: () => void = () => {};
+			world.harness.streamHold = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await waitForStream(world.harness);
+			backendRow = fakeBackendRow();
+			// Two keep-alive ticks: the second one must add no second host.
+			await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+			expect(world.sandboxes.createOptions[0]?.backendUrl).toBeUndefined();
+			expect(world.sandboxes.allowedHosts).toEqual(allowed);
+			release();
+			await run;
+		});
 	});
 
 	describe("backend activity stamp", () => {

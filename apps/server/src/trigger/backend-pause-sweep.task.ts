@@ -15,7 +15,7 @@ export const backendPauseSweepTask = schedules.task({
 	id: "backend-pause-sweep",
 	// 03:00 UTC: a quiet hour, and a free slot before the 04:00 W4P sweep.
 	cron: { pattern: "0 3 * * *", timezone: "UTC" },
-	// 900 s: four steps of at most 50 rows take a few minutes at normal
+	// 900 s: six steps of at most 50 rows take a few minutes at normal
 	// speed. In a Supabase outage one call can take 165 s (5 timeouts of
 	// 30 s plus the backoff), so the run stops at 900 s and the next day
 	// continues.

@@ -20,7 +20,7 @@ function setup() {
 	const secrets = {
 		listNames: vi.fn(async () => LIST),
 		remove: vi.fn(async () => undefined),
-		set: vi.fn(async () => undefined),
+		set: vi.fn(async () => "secret-1"),
 	};
 	const controller = new ProjectSecretsController(secrets);
 

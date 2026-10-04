@@ -381,7 +381,8 @@
 			"install": "Installation de ce qu'il lui faut",
 			"firstTime": "Le premier démarrage prend un peu plus de temps",
 			"waking": "Réveil de ton projet",
-			"restoring": "On retrouve tes derniers changements"
+			"restoring": "On retrouve tes derniers changements",
+			"wakingDatabase": "Réveil de ta base de données"
 		},
 		"tray": {
 			"needsDetail": "Détail à préciser",
