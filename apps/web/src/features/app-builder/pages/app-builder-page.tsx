@@ -259,6 +259,9 @@ export default function AppBuilderPage({
 			errorText={thread.errorText}
 			onCollapse={() => setChatOpenAndStore(false)}
 			onOpenSecrets={openSecrets}
+			hasOlderMessages={thread.hasOlderMessages}
+			isLoadingOlderMessages={thread.isLoadingOlderMessages}
+			onLoadOlderMessages={thread.loadOlderMessages}
 			className="h-full rounded-2xl border bg-sidebar"
 		/>
 	);

@@ -21,6 +21,7 @@ import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
 import { BackendsService } from "./application/services/backends.service";
+import { ChatHistoryService } from "./application/services/chat-history.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
 import { DeviceSessionsService } from "./application/services/device-sessions.service";
@@ -102,6 +103,7 @@ import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-p
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { ChatHistoryController } from "./presentation/http/controllers/chat-history.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
@@ -156,6 +158,7 @@ export function createCloudSupabaseClient(
 @Module({
 	controllers: [
 		AppProjectsController,
+		ChatHistoryController,
 		CloudController,
 		CodeController,
 		CostCapsController,
@@ -195,6 +198,7 @@ export function createCloudSupabaseClient(
 		BackendsService,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
+		ChatHistoryService,
 		CloudService,
 		CodeService,
 		DeviceSessionsRepository,

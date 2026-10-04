@@ -2,7 +2,8 @@
  * The chat card of the app builder. The header shows the project name, the
  * dev view switch in local dev, the pulsing turn dot with a Stop button
  * while a turn runs, and the collapse button. Below it sit the scrolling
- * message list with one status line while a turn runs, an alert row for a
+ * message list with a "Load earlier messages" button at the top while older
+ * pages exist, one status line while a turn runs, an alert row for a
  * refused send (`errorText`), and the composer pinned at the bottom. When
  * the agent asks the user something, the request tray opens on top of the
  * composer. A failed last reply gets a Retry button that sends its user
@@ -88,6 +89,12 @@ export type ChatPaneProps = {
 	onCollapse: () => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
 	onOpenSecrets?: () => void;
+	/** True while the stored chat has an older page. Shows the "Load earlier messages" button. From useBuilderThread. */
+	hasOlderMessages: boolean;
+	/** True while the older page loads. Disables the button. */
+	isLoadingOlderMessages: boolean;
+	/** Loads the next older page. The list keeps the message the user reads in place. */
+	onLoadOlderMessages: () => void;
 	className?: string;
 };
 
@@ -113,6 +120,9 @@ export function ChatPane({
 	errorText,
 	onCollapse,
 	onOpenSecrets,
+	hasOlderMessages,
+	isLoadingOlderMessages,
+	onLoadOlderMessages,
 	className,
 }: ChatPaneProps) {
 	const { t } = useTranslation();
@@ -144,7 +154,12 @@ export function ChatPane({
 		onSubmit: onAnswerQuestions,
 	});
 
-	useAutoScroll(listRef, contentRef, isSending);
+	const keepPositionForOlder = useAutoScroll(
+		listRef,
+		contentRef,
+		isSending,
+		isLoadingOlderMessages,
+	);
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
@@ -218,9 +233,30 @@ export function ChatPane({
 			</div>
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3"
+				// The browser scroll anchor is off. It moves the list a second time
+				// after the manual position fix of an older page.
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3 [overflow-anchor:none]"
 			>
 				<div ref={contentRef} className="flex flex-col gap-5">
+					{hasOlderMessages ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="self-center text-muted-foreground"
+							disabled={isLoadingOlderMessages}
+							aria-busy={isLoadingOlderMessages}
+							onClick={() => {
+								keepPositionForOlder();
+								onLoadOlderMessages();
+							}}
+						>
+							{t(
+								isLoadingOlderMessages
+									? "appBuilder.chat.loadingEarlier"
+									: "appBuilder.chat.loadEarlier",
+							)}
+						</Button>
+					) : null}
 					{shownMessages.map((message) => (
 						<ChatMessageView
 							key={message.id}

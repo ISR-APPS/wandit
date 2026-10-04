@@ -308,6 +308,8 @@
 	},
 	"chat": {
 		"title": "Chat",
+		"loadEarlier": "Charger les messages précédents",
+		"loadingEarlier": "Chargement des messages précédents…",
 		"thoughtFor": "A réfléchi {seconds}s",
 		"thinking": "Réflexion",
 		"thought": "A réfléchi",

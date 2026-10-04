@@ -11,10 +11,12 @@ import {
 	appBuilderRoutes,
 	appProjectSchema,
 	type CancelTurnResponse,
+	type ChatHistoryPage,
 	type CodeFileResponse,
 	type CreateAppProjectRequest,
 	type CreateAppProjectResponse,
 	cancelTurnResponseSchema,
+	chatHistoryPageSchema,
 	codeFileResponseSchema,
 	codeSnapshotResponseSchema,
 	createAppProjectResponseSchema,
@@ -344,6 +346,23 @@ export async function listVersions(
 		{ query: { cursor } },
 	);
 	return listVersionsResponseSchema.parse(data);
+}
+
+/**
+ * `GET /api/v2/projects/:id/messages` answers one page of the stored chat,
+ * in chat order. `cursor` is the `nextCursor` of the newer page; null
+ * reads the newest page. The API hides the reply of a running turn (D20).
+ */
+export async function listChatHistory(
+	projectId: string,
+	cursor: string | null,
+): Promise<ChatHistoryPage> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.messages(projectId),
+		// The client drops a null query value, so the newest page has no cursor.
+		{ query: { cursor } },
+	);
+	return chatHistoryPageSchema.parse(data);
 }
 
 /**

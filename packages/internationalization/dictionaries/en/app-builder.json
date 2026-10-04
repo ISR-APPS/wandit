@@ -308,6 +308,8 @@
 	},
 	"chat": {
 		"title": "Chat",
+		"loadEarlier": "Load earlier messages",
+		"loadingEarlier": "Loading earlier messages…",
 		"thoughtFor": "Thought for {seconds}s",
 		"thinking": "Thinking",
 		"thought": "Thought",

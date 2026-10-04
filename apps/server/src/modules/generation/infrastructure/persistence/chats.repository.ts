@@ -16,7 +16,19 @@ import type {
 	TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, desc, eq, isNull, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	isNull,
+	lt,
+	ne,
+	notInArray,
+	or,
+	type SQL,
+	sql,
+} from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
 import type { UIMessage } from "ai";
@@ -157,6 +169,46 @@ export class ChatsRepository {
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
 			.orderBy(asc(messages.seq));
+	}
+
+	/**
+	 * Rows of the V2 history route (WANDIT-204): older than `beforeSeq`,
+	 * newest first, at most `limit + 1`. The extra row tells the caller that
+	 * an older page exists. The `messages_chatId_seq_idx` index serves it.
+	 */
+	listHistoryRows(
+		chatId: string,
+		options: {
+			/** `seq` of the oldest row of the newer page; undefined reads the newest page. */
+			beforeSeq?: number;
+			/** Rows of one page, without the extra row. */
+			limit: number;
+			/** Ids of the `builder_turns` rows whose answer still streams. */
+			hiddenTurnIds: readonly string[];
+		},
+	): Promise<InsertedMessageRow[]> {
+		const predicates: (SQL | undefined)[] = [eq(messages.chatId, chatId)];
+		if (options.beforeSeq !== undefined) {
+			predicates.push(lt(messages.seq, options.beforeSeq));
+		}
+		if (options.hiddenTurnIds.length > 0) {
+			// D20: a turn that is not terminal streams its answer over SSE, so its
+			// stored row stays hidden. The filter runs before the LIMIT, so a page stays full.
+			predicates.push(
+				or(
+					ne(messages.role, "assistant"),
+					isNull(messages.turnId),
+					notInArray(messages.turnId, [...options.hiddenTurnIds]),
+				),
+			);
+		}
+
+		return this.db
+			.select()
+			.from(messages)
+			.where(and(...predicates))
+			.orderBy(desc(messages.seq))
+			.limit(options.limit + 1);
 	}
 
 	async getUsage(chatId: string): Promise<ChatUsageResponse> {
