@@ -1,7 +1,7 @@
 /**
  * Route of the V2 app builder at `/app/$projectId`.
  * Validates the search params, fills the project query before the page
- * renders, warms the turn estimate and the caches of the other views, and lazy-loads
+ * renders, warms the turn estimate and the Code view cache, and lazy-loads
  * the page chunk. The `/_auth` parent already checked the session.
  */
 
@@ -13,11 +13,7 @@ import {
 	AppNotFound,
 	appBuilderSearchSchema,
 	appProjectQuery,
-	appStoresSummaryQuery,
 	codeSnapshotQuery,
-	projectDomainsQuery,
-	projectSettingsQuery,
-	signInSummaryQuery,
 	turnEstimateQuery,
 } from "@/features/app-builder";
 import { pageTitle } from "@/lib/i18n";
@@ -36,16 +32,9 @@ export const Route = createFileRoute("/_auth/app/$projectId")({
 			appProjectQuery(params.projectId),
 		);
 		if (!project) throw notFound();
-		// The composer and the other views read these later. Warm them now without holding the first paint.
+		// The composer and the Code view read these later. Warm them now without holding the first paint.
 		void queryClient.prefetchQuery(turnEstimateQuery(params.projectId));
 		void queryClient.prefetchQuery(codeSnapshotQuery(params.projectId));
-		void queryClient.prefetchQuery(signInSummaryQuery(params.projectId));
-		void queryClient.prefetchQuery(projectSettingsQuery(params.projectId));
-		if (project.kind === "web") {
-			void queryClient.prefetchQuery(projectDomainsQuery(params.projectId));
-		} else {
-			void queryClient.prefetchQuery(appStoresSummaryQuery(params.projectId));
-		}
 	},
 	head: () => ({ meta: [{ title: pageTitle("appBuilder.meta.title") }] }),
 	notFoundComponent: AppNotFound,

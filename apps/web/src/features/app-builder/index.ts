@@ -1,11 +1,7 @@
 // Public surface consumed by the route file. Pages are never exported from barrels.
 export {
 	appProjectQuery,
-	appStoresSummaryQuery,
 	codeSnapshotQuery,
-	projectDomainsQuery,
-	projectSettingsQuery,
-	signInSummaryQuery,
 	turnEstimateQuery,
 } from "./api/app-builder.queries";
 export { AppNotFound } from "./components/shell/app-not-found";

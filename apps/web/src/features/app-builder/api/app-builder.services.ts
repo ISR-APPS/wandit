@@ -1,13 +1,9 @@
 /**
- * Data layer of the app builder. Most functions are a mock store: each waits
- * a short delay and returns a copy, like a fetch. State lives in this module
- * until a reload. The seed projects open only in development. The
- * functions under `// ---- Real API ----` call the V2
- * routes through `@/lib/api-client` and parse the response with contracts;
- * the Code view functions are there too.
+ * Data layer of the app builder. Each function calls a V2 route through
+ * `@/lib/api-client` and parses the answer with contracts.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
- * lib/use-builder-chat.ts, lib/use-preview-token.ts, the Expo Go popover,
- * and the route loader.
+ * lib/use-builder-chat.ts, lib/use-preview-token.ts, the chat pane, the
+ * composer, and the device panel.
  */
 
 import {
@@ -29,8 +25,10 @@ import {
 	PHONE_LINK_PATH,
 	type PhonePreviewLinkResponse,
 	type PreviewTokenResponse,
+	type ProjectCostCaps,
 	phonePreviewLinkResponseSchema,
 	previewTokenResponseSchema,
+	projectCostCapsSchema,
 	type RestoreVersionBody,
 	type RestoreVersionResponse,
 	restoreVersionResponseSchema,
@@ -38,6 +36,7 @@ import {
 	startDeviceSessionResponseSchema,
 	type TurnEstimateResponse,
 	turnEstimateResponseSchema,
+	type UpdateProjectCostCapsRequest,
 	type VersionDiffResponse,
 	versionDiffResponseSchema,
 } from "@wandit/contracts";
@@ -45,32 +44,7 @@ import {
 import type { FileUIPart } from "ai";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
-import { MOCK_LATENCY_MS } from "../lib/constants";
-import {
-	MOCK_APP_STORES,
-	MOCK_DOMAINS,
-	MOCK_SETTINGS,
-	MOCK_SIGN_IN,
-} from "../lib/mock-panels";
-import { MOCK_APP_PROJECTS } from "../lib/mock-projects";
-import type {
-	AppProject,
-	AppProjectKind,
-	AppStoresSummary,
-	CodeFile,
-	CodeSnapshot,
-	CollaboratorRole,
-	ProjectDomain,
-	ProjectSettings,
-	SignInSummary,
-} from "./dto";
-
-/** Fields the Settings panel can change. */
-export type AppProjectPatch = {
-	name?: string;
-	description?: string;
-	kind?: AppProjectKind;
-};
+import type { AppProject, CodeFile, CodeSnapshot } from "./dto";
 
 /** One turn the composer or a chat card sends. */
 export type SendBuilderMessageInput = {
@@ -79,186 +53,6 @@ export type SendBuilderMessageInput = {
 	/** Files the user uploaded for this message, with their upload URLs. Empty for a card action. */
 	files: FileUIPart[];
 };
-
-type MockStore = {
-	projects: Map<string, AppProject>;
-	settings: Map<string, ProjectSettings>;
-};
-
-let store: MockStore | null = null;
-
-function createStore(): MockStore {
-	const next: MockStore = {
-		projects: new Map(),
-		settings: new Map(),
-	};
-	for (const project of MOCK_APP_PROJECTS) {
-		seedProject(next, project.id, project.kind);
-	}
-	return next;
-}
-
-/**
- * Fills every map of `store` with the fixtures of one project. A mock id
- * copies its own project row; any other id is a real project that borrows
- * the first fixture row, so the panels that still read mocks work for it.
- */
-function seedProject(
-	store: MockStore,
-	projectId: string,
-	kind: AppProjectKind,
-): void {
-	const template =
-		MOCK_APP_PROJECTS.find((project) => project.id === projectId) ??
-		MOCK_APP_PROJECTS[0];
-	// A real row that fetchAppProject stored stays. The placeholder is only
-	// for an id the store has never seen.
-	if (!store.projects.has(projectId)) {
-		store.projects.set(
-			projectId,
-			structuredClone({ ...template, id: projectId, kind }),
-		);
-	}
-	store.settings.set(projectId, structuredClone(MOCK_SETTINGS));
-}
-
-function getStore(): MockStore {
-	if (!store) store = createStore();
-	return store;
-}
-
-/** Drops every change made through the mutations. Specs call it before each case. */
-export function resetMockStore(): void {
-	store = null;
-}
-
-function delay(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, MOCK_LATENCY_MS));
-}
-
-/**
- * Reads a value of the store. A project id the store does not hold yet — a
- * real id — gets the mock fixtures seeded first, so the panels that still
- * read mocks answer for it.
- */
-function required<T>(map: Map<string, T>, projectId: string): T {
-	const current = getStore();
-	if (!map.has(projectId)) {
-		// A real project id gets the mock fixtures until each panel lands on
-		// its route. The kind comes from the real row when fetchAppProject
-		// stored it; before that, `web` stands in.
-		seedProject(
-			current,
-			projectId,
-			current.projects.get(projectId)?.kind ?? "web",
-		);
-	}
-	const value = map.get(projectId);
-	if (value === undefined) {
-		throw new Error(`Unknown app project: ${projectId}`);
-	}
-	return value;
-}
-
-/**
- * The seed rows only, and only in development. A placeholder row seeded
- * for a real id must not reach the project menu.
- */
-export async function listAppProjects(): Promise<AppProject[]> {
-	await delay();
-	// The seed rows open the V2 builder without the API gate (WANDIT-279).
-	if (!import.meta.env.DEV) return [];
-	const projects = getStore().projects;
-	return structuredClone(
-		MOCK_APP_PROJECTS.flatMap((seed) => {
-			const row = projects.get(seed.id);
-			return row ? [row] : [];
-		}),
-	);
-}
-
-/**
- * null when no project has this id or the V2 gate refuses the user, so the
- * route shows its not-found screen. `get` is the test seam of the real API
- * call; production gets the shared client.
- */
-export async function getAppProject(
-	projectId: string,
-	get: typeof apiClient.get = apiClient.get,
-): Promise<AppProject | null> {
-	// Only the seed ids answer the mock, and only in development: the mock
-	// skips the API, so it skips the V2 gate (WANDIT-279). A real id goes to
-	// the API even after a panel guard seeded a placeholder row for it.
-	if (
-		!import.meta.env.DEV ||
-		!MOCK_APP_PROJECTS.some((project) => project.id === projectId)
-	) {
-		return fetchAppProject(projectId, get);
-	}
-	await delay();
-	const project = getStore().projects.get(projectId);
-	return project ? structuredClone(project) : null;
-}
-
-export async function updateAppProject(
-	projectId: string,
-	patch: AppProjectPatch,
-): Promise<AppProject> {
-	await delay();
-	const project = required(getStore().projects, projectId);
-	Object.assign(project, patch);
-	return structuredClone(project);
-}
-
-/** User count of the Sign-in panel. A mock: every project gets the seed count. */
-export async function getSignInSummary(
-	projectId: string,
-): Promise<SignInSummary> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_SIGN_IN);
-}
-
-export async function getProjectDomains(
-	projectId: string,
-): Promise<ProjectDomain[]> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_DOMAINS);
-}
-
-export async function getAppStoresSummary(
-	projectId: string,
-): Promise<AppStoresSummary> {
-	await delay();
-	required(getStore().projects, projectId);
-	return structuredClone(MOCK_APP_STORES);
-}
-
-export async function getProjectSettings(
-	projectId: string,
-): Promise<ProjectSettings> {
-	await delay();
-	return structuredClone(required(getStore().settings, projectId));
-}
-
-export async function setCollaboratorRole(
-	projectId: string,
-	input: { collaboratorId: string; role: CollaboratorRole },
-): Promise<ProjectSettings> {
-	await delay();
-	const settings = required(getStore().settings, projectId);
-	const collaborator = settings.collaborators.find(
-		(candidate) => candidate.id === input.collaboratorId,
-	);
-	if (!collaborator) {
-		throw new Error(`Unknown collaborator: ${input.collaboratorId}`);
-	}
-	collaborator.role = input.role;
-	return structuredClone(settings);
-}
-
-// ---- Real API ----
 
 /**
  * `POST /api/v2/projects`. Creates the project, its first chat, and starts
@@ -274,21 +68,18 @@ export async function createAppProject(
 }
 
 /**
- * `GET /api/v2/projects/:id`. A 404 and a V2 gate refusal answer null like
- * a missing mock id; every other failure propagates so the query enters its
- * error state. `get` comes from the caller so a spec can inject a fake
- * client. The store keeps the real row, so a later mock guard
- * (updateAppProject, the panels) patches the real project and not a fixture.
+ * `GET /api/v2/projects/:id`. null when no project has this id or the V2
+ * gate refuses the user, so the route shows its not-found screen. Every
+ * other failure propagates and the query enters its error state. `get` is
+ * the test seam; production gets the shared client.
  */
-async function fetchAppProject(
+export async function getAppProject(
 	projectId: string,
-	get: typeof apiClient.get,
+	get: typeof apiClient.get = apiClient.get,
 ): Promise<AppProject | null> {
 	try {
 		const data = await get<unknown>(appBuilderRoutes.project(projectId));
-		const project = toUiAppProject(appProjectSchema.parse(data));
-		getStore().projects.set(project.id, structuredClone(project));
-		return project;
+		return toUiAppProject(appProjectSchema.parse(data));
 	} catch (error) {
 		if (!isApiClientError(error)) throw error;
 		if (error.statusCode === 404) return null;
@@ -307,8 +98,9 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 	return {
 		id: project.id,
 		name: project.name,
-		description: project.prompt,
 		kind: project.targetPlatform === "mobile" ? "mobile" : "web",
+		languages: project.languages,
+		templateVersion: project.templateVersion,
 		engine: project.engine,
 		// Empty until the first publish: the live slug comes from the active deployment.
 		slug: project.publishedSlug ?? "",
@@ -316,6 +108,33 @@ export function toUiAppProject(project: ApiAppProject): AppProject {
 		unpublishedChanges: project.unpublishedChanges,
 		hasCodeChanges: project.hasCodeChanges,
 	};
+}
+
+/**
+ * `GET /api/v2/projects/:id/cost-caps`. Both caps are in centi-credits; a
+ * null monthly cap means no monthly limit. Only workspace owners and admins
+ * may call it: a member gets 403 WORKSPACE_PERMISSION_DENIED.
+ */
+export async function getCostCaps(projectId: string): Promise<ProjectCostCaps> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.costCaps(projectId),
+	);
+	return projectCostCapsSchema.parse(data);
+}
+
+/**
+ * `PUT /api/v2/projects/:id/cost-caps` replaces both caps and answers the
+ * stored values. The same role rule as the read applies.
+ */
+export async function updateCostCaps(
+	projectId: string,
+	body: UpdateProjectCostCapsRequest,
+): Promise<ProjectCostCaps> {
+	const data = await apiClient.put<unknown>(
+		appBuilderRoutes.costCaps(projectId),
+		body,
+	);
+	return projectCostCapsSchema.parse(data);
 }
 
 /**

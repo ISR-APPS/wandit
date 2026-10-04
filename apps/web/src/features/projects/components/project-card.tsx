@@ -1,6 +1,9 @@
-// Dashboard grid card: thumbnail, name, platform badge, status badge, lead
-// count, and updated-at. The hover actions open, view live, rename, or delete
-// the project.
+/**
+ * Dashboard grid card: thumbnail, name, platform badge, status badge, lead
+ * count (V1 pages only), and updated-at. The hover actions open, view live,
+ * rename, or delete the project. Rendered by pages/dashboard-page.tsx.
+ * Renames and deletes through projects.mutations.ts.
+ */
 
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -32,11 +35,6 @@ import {
 } from "@wandit/ui/components/dropdown-menu";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	ExternalLink,
@@ -182,7 +180,7 @@ function RenameDialog({
 }
 
 export function ProjectCard({ project }: { project: Project }) {
-	const { t, dir } = useTranslation();
+	const { t } = useTranslation();
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
@@ -191,7 +189,6 @@ export function ProjectCard({ project }: { project: Project }) {
 	>(null);
 	const deleteProject = useDeleteProject();
 
-	const isPublished = project.status === "published";
 	const glyph = project.name.trim().charAt(0).toUpperCase() || "✦";
 	const showPreview = shouldShowProjectPreview(
 		project.previewImageUrl,
@@ -250,17 +247,23 @@ export function ProjectCard({ project }: { project: Project }) {
 						<PlatformBadge platform={project.targetPlatform} />
 					</div>
 					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
-						<Users aria-hidden className="size-3 shrink-0" />
-						<span>{t("projects.leadCount", { count: project.leadCount })}</span>
-						<span aria-hidden className="text-muted-foreground/50">
-							·
-						</span>
+						{/* A V2 app collects no leads: the leads SDK is canceled, so its count is always 0. */}
+						{project.engine === "v2_app" ? null : (
+							<>
+								<Users aria-hidden className="size-3 shrink-0" />
+								<span>
+									{t("projects.leadCount", { count: project.leadCount })}
+								</span>
+								<span aria-hidden className="text-muted-foreground/50">
+									·
+								</span>
+							</>
+						)}
 						<span>{relativeTime(project.updatedAt)}</span>
 					</div>
-					{isPublished && project.publishedSlug ? (
+					{project.liveUrl ? (
 						<div className="mt-1.5 truncate font-mono text-primary text-xs">
-							{project.publishedSlug}
-							{t("projects.publishedDomain")}
+							{new URL(project.liveUrl).host}
 						</div>
 					) : null}
 				</div>
@@ -290,20 +293,17 @@ export function ProjectCard({ project }: { project: Project }) {
 						<ExternalLink />
 						{t("projects.menuOpen")}
 					</DropdownMenuItem>
-					{isPublished ? (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div>
-									<DropdownMenuItem disabled>
-										<ExternalLink />
-										{t("projects.menuViewLive")}
-									</DropdownMenuItem>
-								</div>
-							</TooltipTrigger>
-							<TooltipContent side={dir === "rtl" ? "left" : "right"}>
-								{t("projects.menuViewLiveMock")}
-							</TooltipContent>
-						</Tooltip>
+					{project.liveUrl ? (
+						<DropdownMenuItem asChild>
+							<a
+								href={project.liveUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<ExternalLink />
+								{t("projects.menuViewLive")}
+							</a>
+						</DropdownMenuItem>
 					) : null}
 					<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
 						<PenLine />

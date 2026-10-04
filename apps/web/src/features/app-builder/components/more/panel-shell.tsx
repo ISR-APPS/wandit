@@ -11,7 +11,7 @@ import { MORE_PANEL_META, type MorePanel } from "../../lib/constants";
 
 export type PanelShellProps = {
 	panel: MorePanel;
-	/** The panel component, already inside a Suspense boundary. */
+	/** The open panel component. Each panel shows its own loading and error states. */
 	children: ReactNode;
 };
 
