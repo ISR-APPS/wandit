@@ -49,7 +49,8 @@ import type {
 	PublishProjectRow,
 } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import type { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
-import { profileForFramework } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
+import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
+import { startSandboxWithoutTurn } from "../modules/app-builder/infrastructure/sandbox/sandbox-start";
 import { DomainProviderError } from "../modules/domains/domain/errors/domain.errors";
 import type { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { SlugTakenError } from "../modules/sites/domain/errors/site.errors";
@@ -110,8 +111,16 @@ export type PublishAppDeps = {
 	secretRows: Pick<ProjectSecretsRepository, "listSummaries">;
 	/** Decrypts one secret value; null when the row is gone. */
 	secretValues: Pick<ProjectSecretsService, "readValue">;
-	/** Wakes or creates the project sandbox. The provider restores the repository on a rebuild. */
-	sandboxes: Pick<SandboxProvider, "getOrCreate">;
+	/**
+	 * Reuses a running sandbox, or wakes or creates it. The provider restores
+	 * the repository on a rebuild.
+	 */
+	sandboxes: Pick<
+		SandboxProvider,
+		"findRunning" | "getOrCreate" | "keepAliveIfRunning"
+	>;
+	/** Reads the template and the approved egress hosts that the sandbox start needs. */
+	projects: Pick<TurnProjectRepository, "findForTurn">;
 	/** R2 reads and writes of the stored output. Null when R2 is not configured: the run fails `unconfigured`. */
 	storage: {
 		put: (key: string, bytes: Uint8Array) => Promise<void>;
@@ -208,7 +217,7 @@ export async function runPublishApp(
 
 		let output: StoredAppBuild;
 		if (row.sourceBuildId === null) {
-			output = await buildInSandbox(deps, row, project);
+			output = await buildInSandbox(deps, row);
 			const findings = await runGates(deps.gates, row, output);
 			const blocking = findings.filter(
 				(finding) => finding.severity === "block",
@@ -291,23 +300,19 @@ export async function runPublishApp(
 async function buildInSandbox(
 	deps: PublishAppDeps,
 	row: AppBuildRow,
-	project: PublishProjectRow,
 ): Promise<StoredAppBuild> {
-	if (project.framework === null || project.templateVersion === null) {
-		throw new PublishFailure("internal", "The project row has no template");
+	// A running sandbox can serve a live turn. A policy push from outside the
+	// turn drops the proxy header of the harness session, so the build reuses it.
+	const running = await deps.sandboxes.findRunning(row.projectId);
+	if (running !== null) {
+		// The reader runs no keep-alive, and install plus build take up to 8 min.
+		await deps.sandboxes.keepAliveIfRunning(row.projectId);
 	}
-	const profile = profileForFramework(project.framework);
-	const sandbox = await deps.sandboxes.getOrCreate(row.projectId, {
-		devCommand: profile.devCommand,
-		devPort: profile.devPort,
-		// Like a version restore: a resume with no env keeps the build
-		// values out of the dev server; the build command gets its own env.
-		env: {},
-		framework: project.framework,
-		organizationId: project.organizationId,
-		ownerUserId: project.userId,
-		templateVersion: project.templateVersion,
-	});
+	// A stopped or lost sandbox starts like a version restore: the start env
+	// holds the proxy URL, but no token and no Supabase values. The build
+	// command gets its Supabase values in its own env.
+	const sandbox =
+		running ?? (await startSandboxWithoutTurn(deps, row.projectId));
 	const buildEnv = webAppEnvOf(
 		await deps.backends.findByProjectId(row.projectId),
 	);

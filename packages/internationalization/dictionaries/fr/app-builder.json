@@ -113,7 +113,9 @@
 			},
 			"asleep": {
 				"title": "Ton app est en veille",
-				"body": "Elle se met en veille après un moment sans activité. Envoie un message dans le chat pour la réveiller."
+				"body": "Elle se met en veille après un moment sans activité. Réveille-la ici, ou envoie un message dans le chat.",
+				"wake": "Réveiller l'aperçu",
+				"wakeFailed": "Ton app ne s'est pas réveillée. Réessaie."
 			},
 			"stopped": {
 				"title": "Ton app n'a pas pu démarrer",

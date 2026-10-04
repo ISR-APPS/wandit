@@ -2,7 +2,7 @@
  * Mutations of the app builder. Most call a service and write the result
  * into the query cache, so the panel that reads the query updates at once.
  * Called by the dashboard create flow, the Settings panel, the versions
- * popover, and the Expo Go popover.
+ * popover, the Expo Go popover, and the preview boot screen.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +19,7 @@ import {
 	restoreVersion,
 	setCollaboratorRole,
 	updateAppProject,
+	wakeSandbox,
 } from "./app-builder.services";
 import type { CollaboratorRole } from "./dto";
 
@@ -44,6 +45,17 @@ export function useMintPhonePreviewLink(projectId: string) {
 	return useMutation({
 		mutationFn: (expoUsername: string) =>
 			getPhonePreviewLink(projectId, expoUsername),
+	});
+}
+
+/**
+ * Wakes the sleeping sandbox from the asleep note of the preview. No cache
+ * write and no toast: the preview token poll sees the running sandbox, and
+ * the note shows the error under its button.
+ */
+export function useWakeSandbox(projectId: string) {
+	return useMutation({
+		mutationFn: () => wakeSandbox(projectId),
 	});
 }
 

@@ -45,6 +45,9 @@ export const appBuilderRoutes = {
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
+	// POST wakes a stopped sandbox without a turn and with no credit charge.
+	wakeSandbox: (projectId: string) =>
+		`/api/v2/projects/${projectId}/sandbox/wake`,
 	// POST starts an Appetize device session of a mobile project (WANDIT-196).
 	deviceSessions: (projectId: string) =>
 		`/api/v2/projects/${projectId}/device-sessions`,

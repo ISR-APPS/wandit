@@ -22,6 +22,7 @@ import type {
 	SandboxExecResult,
 	SandboxHandle,
 } from "../../domain/ports/sandbox-provider";
+import { SAFE_GIT_CONFIG_ARGS } from "../git/sandbox-git";
 import { hostExec } from "./host-exec";
 import {
 	type MobileBuildWorkspaceInput,
@@ -163,6 +164,11 @@ function inputFor(repo: Repo): MobileBuildWorkspaceInput {
 	};
 }
 
+// The git subcommand of one call: `mustRunGit` puts its -c flags first.
+function subcommand(args: string[]): string | undefined {
+	return args[SAFE_GIT_CONFIG_ARGS.length];
+}
+
 type ExecCall = {
 	command: string;
 	args: string[];
@@ -215,7 +221,7 @@ describe("prepareMobileBuildWorkspace", () => {
 		expect(git(appDir, ["rev-parse", "HEAD"]).trim()).toBe(repo.sha);
 		// A hung fetch must not hold the build: every git call has a timeout.
 		const gitCalls = calls.filter((call) => call.command === "git");
-		expect(gitCalls.map((call) => call.args[0])).toEqual([
+		expect(gitCalls.map((call) => subcommand(call.args))).toEqual([
 			"init",
 			"fetch",
 			"checkout",
@@ -461,7 +467,7 @@ describe("prepareMobileBuildWorkspace", () => {
 		const repo = makeRepo(USER_FILES);
 		const { calls, exec } = recordingExec({
 			gitAnswer: (args) =>
-				args[0] === "fetch" && args.includes("--depth")
+				subcommand(args) === "fetch" && args.includes("--depth")
 					? { exitCode: 128, stdout: "", stderr: "not our ref" }
 					: null,
 		});
@@ -471,7 +477,7 @@ describe("prepareMobileBuildWorkspace", () => {
 		expect(result.kind).toBe("ready");
 		expect(
 			calls
-				.filter((call) => call.args[0] === "fetch")
+				.filter((call) => subcommand(call.args) === "fetch")
 				.map((call) => call.args.at(-1)),
 		).toEqual([repo.sha, "main"]);
 	});
@@ -479,7 +485,7 @@ describe("prepareMobileBuildWorkspace", () => {
 	it("fails with clone_failed and a masked message when git echoes the credential", async () => {
 		const { exec, pnpmCalls } = recordingExec({
 			gitAnswer: (args) =>
-				args[0] === "fetch"
+				subcommand(args) === "fetch"
 					? {
 							exitCode: 128,
 							stdout: "",
@@ -524,7 +530,7 @@ describe("prepareMobileBuildWorkspace", () => {
 		const other = "f".repeat(40);
 		const { exec } = recordingExec({
 			gitAnswer: (args) =>
-				args[0] === "rev-parse"
+				subcommand(args) === "rev-parse"
 					? { exitCode: 0, stdout: `${other}\n`, stderr: "" }
 					: null,
 		});

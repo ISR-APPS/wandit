@@ -70,6 +70,7 @@ import {
 	isTerminalStatus,
 	nextStatusForCancel,
 	RESTORE_LOCK_HOLDER_PREFIX,
+	WAKE_LOCK_HOLDER_PREFIX,
 } from "../../domain/turn-queue";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import {
@@ -338,14 +339,17 @@ export class TurnsService {
 			lockHeld = acquired;
 
 			if (!acquired && active === null && oldestWaiting === null) {
-				// The busy lock holder is not a turn row. A `restore:` prefix
-				// marks a running restore; parking would strand the row because
-				// a restore never promotes a waiting turn. Answer a 409.
+				// The busy lock holder is not a turn row. A `restore:` or `wake:`
+				// prefix marks a running restore or sandbox wake. Neither promotes
+				// a waiting turn, so a parked row would strand. Answer a 409.
 				const holder = await this.lock.holder(projectId);
-				if (holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX)) {
+				if (
+					holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX) ||
+					holder?.startsWith(WAKE_LOCK_HOLDER_PREFIX)
+				) {
 					throw new ConflictException({
 						code: BUILDER_TURN_ACTIVE_ERROR_CODE,
-						message: "A restore is running for this project",
+						message: "A restore or a sandbox wake is running for this project",
 					});
 				}
 			}

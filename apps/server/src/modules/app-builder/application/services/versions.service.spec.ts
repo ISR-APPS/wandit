@@ -19,12 +19,14 @@ import {
 	versionNumstatKey,
 	versionPatchKey,
 } from "../../infrastructure/git/commit-turn";
+import type { AppBackendRow } from "../../infrastructure/persistence/app-backends.repository";
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
 	MalformedVersionCursorError,
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
+import type { TurnProjectRow } from "../../infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import {
 	FAKE_WORKSPACE_DIR,
@@ -45,6 +47,22 @@ const PROJECT: ScopedAppProject = {
 	id: "p-1",
 	organizationId: null,
 	templateVersion: "web-app@1.0.0",
+	userId: "user-1",
+};
+
+const BACKEND: AppBackendRow = {
+	anonKey: "anon-key-1",
+	dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+	failureCode: null,
+	id: "backend-1",
+	orgId: "sb-org",
+	organizationId: null,
+	projectId: "p-1",
+	ref: "abcdefghijklmnopqrst",
+	region: "eu-west-3",
+	requestKey: "request-1",
+	status: "active",
+	triggerRunId: null,
 	userId: "user-1",
 };
 
@@ -129,8 +147,8 @@ function fixture(options?: {
 		})),
 	};
 
-	// The fake restorer consumes the same exec slots the real one does on a
-	// warm sandbox: `test -d .git` then `git pull`.
+	// The fake restorer consumes one `test` slot and one `git` slot, so the
+	// git answers below line up with the restore steps after it.
 	const repoRestorer: RepoRestorer = {
 		restore: vi.fn(async (_projectId: string, sandbox) => {
 			await sandbox.exec("test", ["-d", ".git"], { cwd: FAKE_WORKSPACE_DIR });
@@ -139,6 +157,24 @@ function fixture(options?: {
 			});
 		}),
 	};
+
+	// The sandbox start reads the projects row again for its egress hosts.
+	const project = options?.project === undefined ? PROJECT : options.project;
+	const projects = {
+		findForTurn: async (): Promise<TurnProjectRow | null> =>
+			project === null
+				? null
+				: {
+						engine: "v2_app",
+						framework: project.framework,
+						languages: ["en"],
+						networkAllowedHosts: ["api.stripe.com"],
+						organizationId: project.organizationId,
+						templateVersion: project.templateVersion,
+						userId: project.userId,
+					},
+	};
+	const backends = { findByProjectId: async () => BACKEND };
 
 	const sandboxes = new FakeSandboxProvider();
 	const turnLock = new FakeTurnLock();
@@ -149,16 +185,19 @@ function fixture(options?: {
 		gitStore,
 		repoRestorer,
 		store,
+		projects,
+		backends,
 	);
 
 	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
 }
 
-/** Scripts the exec queue for one restore: pull → read-tree → clean → commitTurn. */
+/** Scripts the exec queue for one restore: `.env` → pull → read-tree → clean → commitTurn. */
 function scriptRestore(
 	provider: FakeSandboxProvider,
 	options?: { mergeBase?: { exitCode: number } },
 ): void {
+	provider.respondTo("bash", OK); // the boot's `.env` write waits for the dev port
 	provider.respondTo("test", OK); // restorer's `.git` check
 	provider.respondTo("git", OK); // restorer pull
 	provider.respondTo("git", OK); // read-tree -u --reset
@@ -319,13 +358,18 @@ describe("VersionsService.restore", () => {
 			.filter((call) => call.method === "exec")
 			.map((call) => call.detail ?? "");
 		// read-tree leaves untracked files; clean runs before `add -A` sweeps.
-		const readTree = execs.indexOf(`git read-tree -u --reset ${SHA}`);
-		const clean = execs.indexOf("git clean -fd");
-		const add = execs.indexOf("git add -A");
+		// `mustRunGit` puts its -c flags between `git` and the subcommand.
+		const readTree = execs.findIndex((line) =>
+			line.endsWith(` read-tree -u --reset ${SHA}`),
+		);
+		const clean = execs.findIndex((line) => line.endsWith(" clean -fd"));
+		const add = execs.findIndex((line) => line.endsWith(" add -A"));
 		expect(readTree).toBeGreaterThanOrEqual(0);
 		expect(clean).toBe(readTree + 1);
 		expect(add).toBe(clean + 1);
-		expect(execs.some((line) => line.startsWith("git push "))).toBe(true);
+		expect(execs.some((line) => line.includes(" push --no-verify "))).toBe(
+			true,
+		);
 
 		expect(appCommits.insert).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -339,6 +383,29 @@ describe("VersionsService.restore", () => {
 		expect(objects.has(versionPatchKey("p-1", NEW_SHA))).toBe(true);
 		// A finished restore frees the project lock for the next turn.
 		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
+	it("starts the sandbox with the egress inputs of a turn and no proxy token", async () => {
+		const { sandboxes, service } = fixture();
+		scriptRestore(sandboxes);
+
+		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD });
+
+		// A strict start throws without the proxy URL. A policy without the
+		// backend and project hosts cuts a running sandbox off from them.
+		const options = sandboxes.createOptions[0];
+		expect(options).toMatchObject({
+			backendUrl: "https://abcdefghijklmnopqrst.supabase.co",
+			env: {
+				ANTHROPIC_API_KEY: "",
+				ANTHROPIC_BASE_URL: expect.stringMatching(
+					/^https?:\/\/[^/]+\/api\/v2\/llm$/,
+				),
+			},
+			networkAllowedHosts: ["api.stripe.com"],
+		});
+		// Security: with no turn, a token in the VM spends LLM credits.
+		expect(options?.env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
 	});
 
 	it("boots a mobile project with the Metro command and port", async () => {

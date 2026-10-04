@@ -1,8 +1,8 @@
 /**
- * Pure state of the preview boot screen. The preview token, chat, project,
- * and Cloud signals go in; the screen content comes out. PreviewBootScreen
- * calls rememberBoot and bootViewOf on every render. This file calls no
- * API and holds no React state.
+ * Pure state of the preview boot screen. The preview token, wake, chat,
+ * project, and Cloud signals go in; the screen content comes out.
+ * PreviewBootScreen calls rememberBoot and bootViewOf on every render. This
+ * file calls no API and holds no React state.
  */
 
 import type { CloudBackendResponse, TurnStreamPhase } from "@wandit/contracts";
@@ -29,11 +29,16 @@ export type BootContext = {
 export type BootSignals = BootContext & {
 	/** Status of `usePreviewToken`, without `error`. */
 	tokenStatus: "loading" | "waking" | "ready";
+	/**
+	 * True after the wake route answered 202 on this screen, until the screen stops the wait.
+	 * PreviewBootScreen holds it. A `busy` answer counts too: the lock holder boots the sandbox.
+	 */
+	wakeAccepted: boolean;
 };
 
 /** Facts the screen keeps between renders. They reset when the boot screen unmounts, which happens when the app shows. */
 export type BootMemory = {
-	/** True from the first `waking` without a turn until a turn starts. A token flip back to `ready` does not end it. */
+	/** True from the first `waking` without a turn until a turn starts or the wake route accepts a wake. A token flip back to `ready` does not end it. */
 	asleep: boolean;
 	/**
 	 * True after the machine answered, until the sandbox sleeps. The machine step then never goes back to active.
@@ -105,9 +110,11 @@ export function rememberBoot(
 	memory: BootMemory,
 	signals: BootSignals,
 ): BootMemory {
-	// Only a chat message wakes a stopped sandbox, so asleep holds until a turn starts.
+	// A chat message or the wake button wakes a stopped sandbox.
+	// So asleep holds until a turn starts or the wake route accepts a wake.
 	const asleep =
 		!signals.isTurnRunning &&
+		!signals.wakeAccepted &&
 		(memory.asleep || signals.tokenStatus === "waking");
 	const machineAnswers =
 		signals.tokenStatus === "ready" ||
@@ -140,16 +147,14 @@ export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
 			stopped: memory.turnSeen && signals.lastTurnFailed,
 		};
 	}
+	// A wake restores the saved app. The chat can still hold only one message, so the first-turn copy does not apply.
+	const isFirstTurn = signals.wakeAccepted ? false : signals.isFirstTurn;
 	// The machine labels differ for a first turn. The mark stays until the history tells which turn runs.
-	if (!memory.machineReady && signals.isFirstTurn === null) {
+	if (!memory.machineReady && isFirstTurn === null) {
 		return { variant: "loading" };
 	}
 	// The first turn creates the sandbox from the template. A later turn resumes the saved one.
-	const scene = memory.machineReady
-		? "open"
-		: signals.isFirstTurn
-			? "create"
-			: "wake";
+	const scene = memory.machineReady ? "open" : isFirstTurn ? "create" : "wake";
 	const machine: BootStep =
 		scene === "open"
 			? {

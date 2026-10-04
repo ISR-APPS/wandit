@@ -6,7 +6,10 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
-import type { SandboxCreateOptions } from "../../domain/ports/sandbox-provider";
+import type {
+	SandboxCreateOptions,
+	SandboxLogger,
+} from "../../domain/ports/sandbox-provider";
 import {
 	FAKE_WORKSPACE_DIR,
 	FakeSandboxProvider,
@@ -149,32 +152,32 @@ describe("ArchiveTemplateInit", () => {
 	});
 });
 
-describe("hashTemplateArchive", () => {
-	// Packs `files` with the system tar, like templates/*/scripts/pack.mjs,
-	// with every file time set to `time` (touch -t format). `links` maps a
-	// symlink path to its target.
-	async function pack(
-		files: Record<string, string>,
-		time: string,
-		links: Record<string, string> = {},
-	) {
-		const root = await mkdtemp(join(tmpdir(), "wandit-pack-"));
-		const source = join(root, "source");
-		for (const [path, content] of Object.entries(files)) {
-			await mkdir(dirname(join(source, path)), { recursive: true });
-			await writeFile(join(source, path), content);
-			execFileSync("touch", ["-t", time, join(source, path)]);
-		}
-		for (const [path, target] of Object.entries(links)) {
-			await symlink(target, join(source, path));
-		}
-		const archive = join(root, "template.tar.gz");
-		execFileSync("tar", ["-czf", archive, "-C", source, "."], {
-			env: { ...process.env, COPYFILE_DISABLE: "1" },
-		});
-		return readFile(archive);
+// Packs `files` with the system tar, like templates/*/scripts/pack.mjs,
+// with every file time set to `time` (touch -t format). `links` maps a
+// symlink path to its target.
+async function pack(
+	files: Record<string, string>,
+	time: string,
+	links: Record<string, string> = {},
+) {
+	const root = await mkdtemp(join(tmpdir(), "wandit-pack-"));
+	const source = join(root, "source");
+	for (const [path, content] of Object.entries(files)) {
+		await mkdir(dirname(join(source, path)), { recursive: true });
+		await writeFile(join(source, path), content);
+		execFileSync("touch", ["-t", time, join(source, path)]);
 	}
+	for (const [path, target] of Object.entries(links)) {
+		await symlink(target, join(source, path));
+	}
+	const archive = join(root, "template.tar.gz");
+	execFileSync("tar", ["-czf", archive, "-C", source, "."], {
+		env: { ...process.env, COPYFILE_DISABLE: "1" },
+	});
+	return readFile(archive);
+}
 
+describe("hashTemplateArchive", () => {
 	const FILES = { "package.json": "{}", "src/app.tsx": "export {};" };
 
 	it("gives the same hash for the same files packed at another time", async () => {
@@ -218,5 +221,142 @@ describe("hashTemplateArchive", () => {
 		});
 
 		expect(hash).toBe(hashTemplateArchive(bytes));
+	});
+});
+
+describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
+	// templates/web-app/vite.config.ts at commit 2426225b. CI clones with
+	// depth 1, so the spec cannot read it from git history.
+	const OLD_VITE_CONFIG = [
+		"// Vite build configuration for the generated web app.",
+		"// The dev server and the Cloudflare worker build read this file.",
+		"// WANDIT_PREVIEW_HOST opens the sandbox dev server to the preview iframe.",
+		'import { cloudflare } from "@cloudflare/vite-plugin";',
+		'import tailwindcss from "@tailwindcss/vite";',
+		'import { tanstackStart } from "@tanstack/react-start/plugin/vite";',
+		'import viteReact from "@vitejs/plugin-react";',
+		'import { defineConfig } from "vite";',
+		"",
+		"// The sandbox sets this variable to the public preview hostname.",
+		"const previewHost = process.env.WANDIT_PREVIEW_HOST;",
+		"",
+		"export default defineConfig({",
+		"\tresolve: {",
+		"\t\t// Vite reads the ~/* alias from tsconfig.json paths.",
+		"\t\ttsconfigPaths: true,",
+		"\t},",
+		"\tserver: {",
+		"\t\t// The preview tunnel needs an explicit host allowlist.",
+		"\t\tallowedHosts: previewHost ? [previewHost] : [],",
+		"\t\t// clientPort and wss point the HMR client at the HTTPS tunnel on 443.",
+		"\t\t// `port` would bind a second WebSocket server that the sandbox rejects.",
+		"\t\tws: previewHost",
+		'\t\t\t? { host: previewHost, clientPort: 443, protocol: "wss" }',
+		"\t\t\t: undefined,",
+		"\t},",
+		"\tplugins: [",
+		'\t\tcloudflare({ viteEnvironment: { name: "ssr" } }),',
+		"\t\ttanstackStart({",
+		"\t\t\t// Public pages are prerendered at build time. Auth pages stay dynamic.",
+		"\t\t\tprerender: { enabled: true },",
+		"\t\t}),",
+		"\t\tviteReact(),",
+		"\t\ttailwindcss(),",
+		"\t],",
+		"});",
+		"",
+	].join("\n");
+	const CURRENT_VITE_CONFIG = "export default {}; // the archive copy\n";
+	const VITE_CONFIG = `${FAKE_WORKSPACE_DIR}/vite.config.ts`;
+
+	/** A web-app archive with the current file, and a sandbox with `restored`. */
+	async function setup(restored: string | null, logger?: SandboxLogger) {
+		const dir = await mkdtemp(join(tmpdir(), "wandit-tpl-vite-"));
+		await writeFile(
+			join(dir, "web-app-1.0.0.tar.gz"),
+			await pack({ "vite.config.ts": CURRENT_VITE_CONFIG }, "202601010000"),
+		);
+		const provider = new FakeSandboxProvider();
+		const handle = await provider.getOrCreate("p1", CREATE_OPTIONS);
+		if (restored !== null) {
+			await handle.writeFiles([{ content: restored, path: VITE_CONFIG }]);
+		}
+		const callsBefore = provider.calls.length;
+		return {
+			handle,
+			init: new ArchiveTemplateInit(dir, logger),
+			/** Vendor calls after the setup, by method name. */
+			vendorCalls: () =>
+				provider.calls.slice(callsBefore).map((call) => call.method),
+			/** The sandbox file as text, or null when it is absent. */
+			viteConfig: async () => {
+				const bytes = await handle.readFile(VITE_CONFIG);
+				return bytes === null ? null : new TextDecoder().decode(bytes);
+			},
+		};
+	}
+
+	it.each([
+		{
+			name: "replaces an old web-app file",
+			framework: "web-app",
+			restored: OLD_VITE_CONFIG,
+			expected: CURRENT_VITE_CONFIG,
+			// The second read is `.claude/settings.json`, which this sandbox lacks.
+			calls: ["readFile", "writeFiles", "readFile"],
+		},
+		{
+			name: "keeps an old file that the agent changed",
+			framework: "web-app",
+			restored: `${OLD_VITE_CONFIG}// edited\n`,
+			expected: `${OLD_VITE_CONFIG}// edited\n`,
+			calls: ["readFile", "readFile"],
+		},
+		{
+			name: "keeps a missing file missing",
+			framework: "web-app",
+			restored: null,
+			expected: null,
+			calls: ["readFile", "readFile"],
+		},
+		{
+			name: "reads no Vite config in a mobile-app project",
+			framework: "mobile-app",
+			restored: OLD_VITE_CONFIG,
+			expected: OLD_VITE_CONFIG,
+			// Only `.claude/settings.json` is a mobile-app template file.
+			calls: ["readFile"],
+		},
+	])("$name", async ({ framework, restored, expected, calls }) => {
+		const { init, handle, vendorCalls, viteConfig } = await setup(restored);
+
+		await init.replaceOldTemplateFiles(handle, {
+			framework,
+			templateVersion: `${framework}@1.0.0`,
+		});
+
+		expect(vendorCalls()).toEqual(calls);
+		expect(await viteConfig()).toBe(expected);
+	});
+
+	it("logs with the projectId and resolves when the archive is missing", async () => {
+		const warnings: Record<string, string>[] = [];
+		const logger: SandboxLogger = {
+			error: () => undefined,
+			info: () => undefined,
+			warn: (_message, fields) => {
+				warnings.push(fields);
+			},
+		};
+		const { init, handle, viteConfig } = await setup(OLD_VITE_CONFIG, logger);
+
+		// The sandbox start must go on with the old file.
+		await init.replaceOldTemplateFiles(handle, {
+			framework: "web-app",
+			templateVersion: "web-app@9.9.9",
+		});
+
+		expect(warnings).toEqual([expect.objectContaining({ projectId: "p1" })]);
+		expect(await viteConfig()).toBe(OLD_VITE_CONFIG);
 	});
 });

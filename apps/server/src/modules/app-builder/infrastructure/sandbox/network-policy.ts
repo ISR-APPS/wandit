@@ -125,7 +125,9 @@ export function buildNetworkPolicy(input: {
 	 * backend.
 	 */
 	backendHost: string | null;
+	/** Hosts the user approved through request_network_host, from projects.networkAllowedHosts. */
 	projectHosts: string[];
+	/** Hosts of the project connectors. The provider passes [] until WANDIT-189 adds the connector registry. */
 	connectorHosts: string[];
 }): { policy: SandboxNetworkPolicy; rejected: string[] } {
 	const deniedRanges = [...SANDBOX_DENIED_RANGES];
@@ -179,9 +181,6 @@ export function buildNetworkPolicy(input: {
 		hosts.add(input.backendHost);
 	}
 	const rejected: string[] = [];
-	// LIMIT: callers pass empty lists in round 1. Upgrade: the
-	// projects.networkAllowedHosts column and the connector registry feed
-	// projectHosts, and WANDIT-189 feeds connectorHosts.
 	for (const host of [...input.projectHosts, ...input.connectorHosts]) {
 		const trimmed = host.trim();
 		// The check sees the given case: an upper-case letter rejects, so a

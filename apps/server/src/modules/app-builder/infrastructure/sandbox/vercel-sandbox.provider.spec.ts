@@ -87,6 +87,12 @@ class FakeVercelSandbox implements VercelSandboxInstance {
 				this.events.push("sessionRunCommand");
 				return this.runCommand(params);
 			},
+			extendTimeout: (duration: number) => {
+				if (this.stopped) {
+					return Promise.reject(new Error("sandbox_stopped"));
+				}
+				return this.extendTimeout(duration);
+			},
 			readFileToBuffer: (file: { path: string }) => {
 				if (this.stopped) {
 					return Promise.reject(new Error("sandbox_stopped"));
@@ -307,6 +313,11 @@ class FakeTemplateInit implements TemplateInit {
 			return Promise.reject(this.failWith);
 		}
 		this.applied.push(options);
+		return Promise.resolve();
+	}
+
+	// template-init.spec.ts covers the replace; the real method never throws.
+	replaceOldTemplateFiles(): Promise<void> {
 		return Promise.resolve();
 	}
 }
@@ -1042,6 +1053,38 @@ describe("VercelSandboxProvider.findRunning", () => {
 		expect(await provider.findRunning("p1")).toBeNull();
 		expect(stopped.stopped).toBe(true);
 		expect(sdk.getOrCreateCalls).toHaveLength(0);
+	});
+});
+
+describe("VercelSandboxProvider.keepAliveIfRunning", () => {
+	// WANDIT-164: an open preview buys time for a running sandbox only. A
+	// stopped one must stay stopped, or it bills with no dev server.
+	it.each([
+		{ extensions: [600_000], state: "running", stopped: false },
+		{ extensions: [], state: "stopped", stopped: true },
+	])("gives a $state sandbox the extensions $extensions and keeps its state", async ({
+		extensions,
+		stopped,
+	}) => {
+		vi.useFakeTimers();
+		try {
+			const { provider, sdk } = setup();
+			await provider.getOrCreate("p1", OPTIONS);
+			const sandbox = sdk.instances.get("p1");
+			if (sandbox) {
+				sandbox.stopped = stopped;
+			}
+			// Ten minutes in, the deadline sits 20 minutes out.
+			vi.setSystemTime(Date.now() + 10 * 60_000);
+
+			await provider.keepAliveIfRunning("p1");
+
+			expect(sandbox?.extensions).toEqual(extensions);
+			expect(sandbox?.stopped).toBe(stopped);
+			expect(sdk.getOrCreateCalls).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

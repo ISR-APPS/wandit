@@ -28,7 +28,10 @@ describe("BuilderHostToolRegistry.build", () => {
 			imageEditModel: null,
 			imageModel: null,
 			metering: unusedMetering(),
-			networkHosts: { appendHost: async () => [] },
+			networkHosts: {
+				appendHost: async () => [],
+				transaction: async () => undefined,
+			},
 		});
 
 		const toolSet = await registry.build(fixture.context);

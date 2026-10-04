@@ -22,8 +22,8 @@ import type {
 import {
 	builderTurnSpecSchema,
 	harnessResumeEnvelopeSchema,
-	supabaseProjectUrl,
 } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/node";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
 import { worldCardOf } from "../modules/ai-chat/agent/worlds";
 import {
@@ -96,7 +96,7 @@ import type { TurnProjectRepository } from "../modules/app-builder/infrastructur
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
 import {
-	type BackendEnv,
+	activeBackendEnvOf,
 	buildSandboxEnv,
 	syncBackendEnvFile,
 } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
@@ -1721,6 +1721,9 @@ export async function runBuilderTurn(
 			} catch (error) {
 				// A failed commit must not lose the turn's text and usage.
 				logger.warn(`Commit failed for turn ${turnId}: ${messageOf(error)}`);
+				// The turn still succeeds, but its version is missing from the
+				// history. Sentry makes that loss visible (WANDIT-171).
+				Sentry.captureException(error, { tags: { projectId, turnId } });
 			}
 			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
@@ -2053,18 +2056,6 @@ async function copyAnswerFile(
 		});
 		return null;
 	}
-}
-
-/**
- * The public values of the row, or null. D18: only an `active` row reaches
- * the VM. A `creating`, `paused`, or `error` row, or no row, gives null.
- */
-function activeBackendEnvOf(backend: AppBackendRow | null): BackendEnv | null {
-	return backend?.status === "active" &&
-		backend.ref !== null &&
-		backend.anonKey !== null
-		? { anonKey: backend.anonKey, url: supabaseProjectUrl(backend.ref) }
-		: null;
 }
 
 /**
