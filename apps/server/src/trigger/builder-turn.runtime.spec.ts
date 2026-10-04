@@ -565,6 +565,8 @@ function makeWorld(over?: {
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
+	/** True makes `hasRunCapRejection` answer that the proxy refused a request on the run cap. */
+	runCapRejected?: boolean;
 	/** `readRunSpend` answers in USD micros, one per call. */
 	runSpend?: number[];
 	/** `readV2Enabled` answers, one per call. */
@@ -763,6 +765,7 @@ function makeWorld(over?: {
 		proxyRows: {
 			firstRequestStartedAtMs: async () =>
 				over?.firstRequestStartedAtMs ?? null,
+			hasRunCapRejection: async () => over?.runCapRejected ?? false,
 			sumByTurn: async () => {
 				callOrder.push("sumByTurn");
 				return proxySum;
@@ -1091,7 +1094,9 @@ describe("runBuilderTurn", () => {
 
 	it("writes one error event for a harness error chunk", async () => {
 		const world = makeWorld();
+		// The harness yields the raw error chunk first, then its error event.
 		world.harness.events = [
+			{ chunk: { errorText: "boom", type: "error" }, type: "part" },
 			{
 				code: "harness_error",
 				message: "boom",
@@ -1105,6 +1110,12 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const events = world.stream.eventsOf(TURN_ID);
+		// useChat stops its read at an error chunk; the card frame must come first.
+		expect(
+			events.some(
+				(e) => e.type === "part" && JSON.stringify(e.data).includes('"error"'),
+			),
+		).toBe(false);
 		const errors = events.filter((e) => e.type === "error");
 		expect(errors).toHaveLength(1);
 		expect(errors[0]?.type === "error" && errors[0].data.code).toBe(
@@ -1648,6 +1659,59 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe(
 			"stopped_project_cap",
 		);
+	});
+
+	// The proxy refuses with 402 V2_RUN_CAP_REACHED at the cap. The harness
+	// then ends with an error chunk, or ends clean, before the 30 s tick. A
+	// turn whose last request only crossed the cap had no refusal.
+	it.each([
+		{
+			name: "an error chunk after a cap refusal",
+			events: [
+				{
+					code: "harness_error",
+					message: "API Error: 402 This run reached its spend cap",
+					retryable: false,
+					type: "error" as const,
+				},
+			],
+			runCapRejected: true,
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end after a cap refusal",
+			events: [],
+			runCapRejected: true,
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end with no refusal",
+			events: [],
+			runCapRejected: false,
+			status: "succeeded",
+		},
+	])("ends $status when the harness ends with $name, before a tick", async ({
+		events,
+		runCapRejected,
+		status,
+	}) => {
+		// 1000 cc = 10 credits; the spend of 320_000 micros is at that cap.
+		const world = makeWorld({
+			caps: fakeCapsRow(1000),
+			runCapRejected,
+			runSpend: [320_000],
+		});
+		world.harness.events = events;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(status);
+		// Both ends settle the real spend; neither refunds the hold.
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.metering.settleCalls).toHaveLength(1);
 	});
 
 	it("stops as stopped_project_cap on a tick when the monthly cap is crossed", async () => {
@@ -2362,14 +2426,15 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		// The unbind and the revoke stop new requests; the sum waits for the
-		// count to drop.
-		expect(
-			world.callOrder.slice(world.callOrder.indexOf("unbindChat")).slice(0, 5),
-		).toEqual([
+		// The stream end waits for the count to drop before it reads the cap
+		// refusal row. The unbind and the revoke stop new requests, and the
+		// sum reads the rows after that.
+		expect(world.callOrder.slice(0, 7)).toEqual([
+			"bindChat",
+			"readInFlight",
+			"readInFlight",
 			"unbindChat",
 			"revokeRun",
-			"readInFlight",
 			"readInFlight",
 			"sumByTurn",
 		]);

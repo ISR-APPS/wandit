@@ -16,7 +16,6 @@ import {
 	createAppProject,
 	endDeviceSession,
 	getAppProject,
-	getBuilderThread,
 	getCodeFile,
 	getCodeSnapshot,
 	getPhonePreviewLink,
@@ -135,8 +134,8 @@ describe("getAppProject", () => {
 
 describe("listAppProjects", () => {
 	it("returns only the seed rows after a real id seeded a placeholder", async () => {
-		// The thread guard seeds every map of the store for the unknown id.
-		await getBuilderThread(crypto.randomUUID());
+		// The settings guard seeds every map of the store for the unknown id.
+		await getProjectSettings(crypto.randomUUID());
 		const projects = await listAppProjects();
 		expect(projects.map((project) => project.id)).toEqual([
 			"nadi-fitness",
@@ -147,13 +146,6 @@ describe("listAppProjects", () => {
 	it("returns no seed row outside development", async () => {
 		vi.stubEnv("DEV", false);
 		expect(await listAppProjects()).toEqual([]);
-	});
-});
-
-describe("getBuilderThread", () => {
-	it("seeds the mock fixtures for a real project id instead of throwing", async () => {
-		const thread = await getBuilderThread(crypto.randomUUID());
-		expect(thread.focusLabel).toBe("Pass screen");
 	});
 });
 

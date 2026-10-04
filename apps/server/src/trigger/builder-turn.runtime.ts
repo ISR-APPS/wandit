@@ -323,11 +323,12 @@ export type BuilderTurnDeps = {
 	>;
 	/**
 	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
-	 * token counts; the first request time only feeds the timing line.
+	 * token counts; the first request time only feeds the timing line; a
+	 * `run_cap` refusal makes the turn end on the cap.
 	 */
 	proxyRows: Pick<
 		LlmProxyRequestsRepository,
-		"firstRequestStartedAtMs" | "sumByTurn"
+		"firstRequestStartedAtMs" | "hasRunCapRejection" | "sumByTurn"
 	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
@@ -712,6 +713,21 @@ export async function runBuilderTurn(
 		}
 	};
 
+	/** Waits until no proxy request of the run is in flight, at most PROXY_ROWS_WAIT_MS. */
+	const waitForInFlightRows = async () => {
+		const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
+		while ((await deps.counters.readInFlight(runId)) > 0) {
+			if (deps.now() >= deadline) {
+				logger.warn("builder-turn.proxy-rows-wait-timeout", {
+					runId,
+					turnId,
+				});
+				return;
+			}
+			await delay(PROXY_ROWS_POLL_MS);
+		}
+	};
+
 	/**
 	 * Waits until every proxy request of the run has its usage row. The
 	 * proxy writes the row after the reply ends, so a turn with no commit
@@ -722,17 +738,7 @@ export async function runBuilderTurn(
 		try {
 			await deps.counters.unbindChat(chatId, turnId);
 			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
-			const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
-			while ((await deps.counters.readInFlight(runId)) > 0) {
-				if (deps.now() >= deadline) {
-					logger.warn("builder-turn.proxy-rows-wait-timeout", {
-						runId,
-						turnId,
-					});
-					return;
-				}
-				await delay(PROXY_ROWS_POLL_MS);
-			}
+			await waitForInFlightRows();
 		} catch (error) {
 			logger.warn("builder-turn.proxy-rows-wait-failed", {
 				message: messageOf(error),
@@ -966,6 +972,33 @@ export async function runBuilderTurn(
 			});
 		}
 		await finishTurn();
+	};
+
+	/**
+	 * Stops the turn on the cap when the LLM proxy refused one of its
+	 * requests with 402 V2_RUN_CAP_REACHED. The harness can end on that
+	 * refusal before the next pulse tick; the turn then settles its spend
+	 * instead of `succeeded`, or `failed` with a full refund. A turn whose
+	 * last request only crossed the cap had no refusal and keeps its status.
+	 */
+	const stopIfRefusedForCap = async (): Promise<void> => {
+		if (abortCode !== null) {
+			return;
+		}
+		try {
+			// A refused request stays in flight until the proxy wrote its row.
+			await waitForInFlightRows();
+			if (await deps.proxyRows.hasRunCapRejection(turnId)) {
+				abortTurn("project_cap");
+			}
+		} catch (error) {
+			// A failed read must not block the end of the turn. The turn keeps
+			// the end status that the stream gave.
+			logger.warn("builder-turn.cap-refusal-check-failed", {
+				message: messageOf(error),
+				turnId,
+			});
+		}
 	};
 
 	/** Timer bodies must never reject unhandled; a stale write ends the turn. */
@@ -1618,7 +1651,12 @@ export async function runBuilderTurn(
 					stamps.firstText ??= lastPartAt;
 				}
 				await chunkWriter.write(event.chunk);
-				await writeEvent({ data: event.chunk, type: "part" });
+				// useChat stops its read at an `error` chunk. The browser must
+				// first get the `data-turn-error` card that `failTurn` writes, so
+				// the raw harness error stays off the stream.
+				if (event.chunk.type !== "error") {
+					await writeEvent({ data: event.chunk, type: "part" });
+				}
 				if (event.chunk.type === "reasoning-start") {
 					reasoningStartedAt.set(event.chunk.id, lastPartAt);
 				}
@@ -1658,6 +1696,14 @@ export async function runBuilderTurn(
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
 		stamps.streamEnd = deps.now();
+
+		// An abort code that a tick set after the last chunk, or a cap refusal
+		// before the next tick, ends the turn here. `failTurn` settles a stop
+		// code and refunds every other code.
+		await stopIfRefusedForCap();
+		if (abortCode !== null) {
+			throw new Error(`Turn ${turnId} stopped at the stream end: ${abortCode}`);
+		}
 
 		// The harness counts stay informational; money comes from the proxy rows.
 		logger.info("builder-turn.harness-usage", {
@@ -1900,6 +1946,11 @@ export async function runBuilderTurn(
 		if (signal.aborted) {
 			await finalizeCanceled();
 		} else {
+			// A harness error after the proxy cap refusal is a cap stop. A
+			// stale turn never stops on the cap: a newer turn owns the sandbox.
+			if (!(error instanceof StaleTurnError)) {
+				await stopIfRefusedForCap();
+			}
 			const code =
 				abortCode ??
 				(typeof error === "object" &&

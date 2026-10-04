@@ -8,9 +8,12 @@
 
 import {
 	applyMigrationToolInputSchema,
+	deployFunctionToolInputSchema,
 	generateImageHostToolInputSchema,
 	requestNetworkHostToolInputSchema,
 	runSqlToolInputSchema,
+	setSecretToolInputSchema,
+	setSecretToolOutputSchema,
 	type TurnStreamPhase,
 } from "@wandit/contracts";
 import {
@@ -91,10 +94,23 @@ const FAILED_OUTPUT_STATUSES = new Set([
 // These statuses mean that the call stopped before it ran.
 const SKIPPED_OUTPUT_STATUSES = new Set(["needs_approval", "skipped"]);
 
-/** Most detail lines one row shows behind its chevron; a longer block is cut. */
+/**
+ * Most detail lines one row shows behind its chevron; a longer block is cut.
+ * The shell output of a run row is cut by characters instead.
+ */
 const DETAIL_MAX_LINES = 40;
 
+/** 2 KB of shell output, counted in characters. A run row shows the end of the output. */
+const RUN_OUTPUT_MAX_CHARS = 2_048;
+
 const toolOutputStatusSchema = z.object({ status: z.string() });
+
+// The output fields of a shell call that a run row reads. The Claude Code
+// result has `stdout` and `stderr`; the bridge fallback has `stdout` only.
+const runToolOutputSchema = z.object({
+	stdout: z.string().optional(),
+	stderr: z.string().optional(),
+});
 
 // The input fields of the Claude Code built-ins that a row reads. During
 // `input-streaming` the input is partial, so every field is optional.
@@ -143,6 +159,55 @@ function linesOf(
 	kind: BuilderDiffLine["kind"],
 ): BuilderDiffLine[] {
 	return text.split("\n").map((line) => ({ kind, text: line }));
+}
+
+/**
+ * The last RUN_OUTPUT_MAX_CHARS characters of a shell output, with one "…"
+ * line in front when text was cut. No lines for an empty output.
+ */
+function outputTailOf(
+	text: string,
+	kind: BuilderDiffLine["kind"],
+): BuilderDiffLine[] {
+	const trimmed = text.trimEnd();
+	if (trimmed === "") return [];
+	if (trimmed.length <= RUN_OUTPUT_MAX_CHARS) return linesOf(trimmed, kind);
+	return [
+		{ kind: "context", text: "…" },
+		...linesOf(trimmed.slice(-RUN_OUTPUT_MAX_CHARS), kind),
+	];
+}
+
+/** stdout, then stderr, of a parsed shell result; "" when it has neither. */
+function shellTextOf(output: z.infer<typeof runToolOutputSchema>): string {
+	return [output.stdout, output.stderr]
+		.filter((text): text is string => text !== undefined && text !== "")
+		.join("\n");
+}
+
+/**
+ * The end of the shell output of a run row. A failed call carries its
+ * result as JSON text in `errorText`; any other error text shows as it is.
+ */
+function runOutputLinesOf(part: ToolPart): BuilderDiffLine[] {
+	if (part.state === "output-available") {
+		const output = runToolOutputSchema.safeParse(part.output);
+		return output.success
+			? outputTailOf(shellTextOf(output.data), "context")
+			: [];
+	}
+	if (part.state !== "output-error") return [];
+	let text = part.errorText;
+	try {
+		const output = runToolOutputSchema.safeParse(JSON.parse(part.errorText));
+		if (output.success && shellTextOf(output.data) !== "") {
+			text = shellTextOf(output.data);
+		}
+	} catch (error) {
+		// Not JSON: the harness sent a plain sentence, which shows as it is.
+		if (!(error instanceof SyntaxError)) throw error;
+	}
+	return outputTailOf(text, "remove");
 }
 
 /** The first DETAIL_MAX_LINES lines, then one "…" line when lines were cut. */
@@ -278,9 +343,23 @@ function stepContentOf(
 				description: input.description ?? null,
 				detail: capLines(linesOf(input.prompt ?? "", "context")),
 			};
-		case "deploy":
-		case "secret":
-			return { target: null, description: null, detail: [] };
+		case "deploy": {
+			const parsed = deployFunctionToolInputSchema.safeParse(rawInput);
+			return {
+				target: parsed.success ? parsed.data.slug : null,
+				description: null,
+				detail: [],
+			};
+		}
+		case "secret": {
+			// The input holds the name and the source, never the value.
+			const parsed = setSecretToolInputSchema.safeParse(rawInput);
+			return {
+				target: parsed.success ? parsed.data.name : null,
+				description: null,
+				detail: [],
+			};
+		}
 		case "other":
 			// The raw name stays behind the chevron; the label never shows it.
 			return {
@@ -308,16 +387,30 @@ export function stepOf(part: ToolPart, isLive: boolean): Step | null {
 		parsed.success ? parsed.data : {},
 		part.input,
 	);
-	const errorLines: BuilderDiffLine[] =
-		part.state === "output-error"
-			? linesOf(part.errorText, "remove").slice(0, DETAIL_MAX_LINES)
-			: [];
+	// A run row shows the end of the output, also of a failed call. Other
+	// rows show the start of the error text.
+	const resultLines: BuilderDiffLine[] =
+		kind === "run"
+			? runOutputLinesOf(part)
+			: part.state === "output-error"
+				? linesOf(part.errorText, "remove").slice(0, DETAIL_MAX_LINES)
+				: [];
 	return {
 		kind,
 		state,
 		...content,
-		detail: [...content.detail, ...errorLines],
+		detail: [...content.detail, ...resultLines],
+		...(kind === "secret" && isSecretMissing(part)
+			? { isSecretMissing: true }
+			: {}),
 	};
+}
+
+/** True when a `set_secret` call answered `missing`: the project has no stored value. */
+function isSecretMissing(part: ToolPart): boolean {
+	if (part.state !== "output-available") return false;
+	const output = setSecretToolOutputSchema.safeParse(part.output);
+	return output.success && output.data.status === "missing";
 }
 
 /**
@@ -378,6 +471,8 @@ export function receiptOf(
 		modelId: settled?.modelId ?? null,
 		inputTokens: source.inputTokens,
 		outputTokens: source.outputTokens,
+		cacheReadTokens: source.cacheReadTokens,
+		cacheWriteTokens: source.cacheWriteTokens,
 	};
 }
 
@@ -536,8 +631,8 @@ function hasAssistantMessageAfter(
  * The parts of one assistant message in stream order: text, a thought row
  * per reasoning block, a step row per visible tool call (a run of reads
  * and searches merges into one row), the question and approval cards, then
- * the error and the receipt. `isLive` is true only for the last message of
- * a running turn.
+ * the error, the stopped line, and the receipt. `isLive` is true only for
+ * the last message of a running turn.
  */
 function assistantPartsOf(
 	messages: readonly TurnMessage[],
@@ -633,6 +728,19 @@ function assistantPartsOf(
 	if (error !== null) {
 		parts.push({ type: "data-error", id: `${message.id}-error`, data: error });
 	}
+	// The stream sends this status when the turn ends on a cancel. After a
+	// Stop, use-builder-chat.ts adds it from the cancel answer.
+	const done = message.parts.findLast(
+		(part): part is Extract<TurnMessagePart, { type: "data-turn-done" }> =>
+			part.type === "data-turn-done",
+	);
+	if (done?.data.status === "canceled") {
+		parts.push({
+			type: "data-stopped",
+			id: `${message.id}-stopped`,
+			data: { status: "canceled" },
+		});
+	}
 	const receipt = receiptOf(message.parts);
 	if (receipt !== null) {
 		parts.push({
@@ -671,8 +779,8 @@ export function toBuilderMessages(
 		}
 		if (message.role !== "assistant") return [];
 		const parts = assistantPartsOf(messages, index, isRunning);
-		// A canceled turn leaves a reply that holds only the created frame.
-		// The bubble drops, as the stored history drops such rows.
+		// A reply that holds only the created frame drops: a Stop whose
+		// cancel answer did not come. The stored history drops such rows too.
 		if (parts.length === 0) return [];
 		return [{ id: message.id, role: "assistant", parts }];
 	});

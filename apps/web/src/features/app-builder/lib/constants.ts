@@ -112,10 +112,6 @@ export type PhoneDevice = (typeof PHONE_DEVICES)[number];
 export const WEB_VIEWPORTS = ["desktop", "tablet", "mobile"] as const;
 export type WebViewport = (typeof WEB_VIEWPORTS)[number];
 
-/** `build` changes the code. `plan` only answers in the chat. */
-export const COMPOSER_MODES = ["build", "plan"] as const;
-export type ComposerMode = (typeof COMPOSER_MODES)[number];
-
 type MorePanelMeta = {
 	icon: LucideIcon;
 	/** Project kinds that list the panel in the More nav. */

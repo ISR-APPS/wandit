@@ -1,7 +1,7 @@
 /**
  * Route of the V2 app builder at `/app/$projectId`.
- * Validates the search params, fills the project and thread queries before
- * the page renders, warms the caches of the other views, and lazy-loads
+ * Validates the search params, fills the project query before the page
+ * renders, warms the turn estimate and the caches of the other views, and lazy-loads
  * the page chunk. The `/_auth` parent already checked the session.
  */
 
@@ -14,11 +14,11 @@ import {
 	appBuilderSearchSchema,
 	appProjectQuery,
 	appStoresSummaryQuery,
-	builderThreadQuery,
 	codeSnapshotQuery,
 	projectDomainsQuery,
 	projectSettingsQuery,
 	signInSummaryQuery,
+	turnEstimateQuery,
 } from "@/features/app-builder";
 import { pageTitle } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
@@ -36,8 +36,8 @@ export const Route = createFileRoute("/_auth/app/$projectId")({
 			appProjectQuery(params.projectId),
 		);
 		if (!project) throw notFound();
-		await queryClient.ensureQueryData(builderThreadQuery(params.projectId));
-		// The other views read these later. Warm them now without holding the first paint.
+		// The composer and the other views read these later. Warm them now without holding the first paint.
+		void queryClient.prefetchQuery(turnEstimateQuery(params.projectId));
 		void queryClient.prefetchQuery(codeSnapshotQuery(params.projectId));
 		void queryClient.prefetchQuery(signInSummaryQuery(params.projectId));
 		void queryClient.prefetchQuery(projectSettingsQuery(params.projectId));

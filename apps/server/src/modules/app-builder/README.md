@@ -200,8 +200,10 @@ compare-and-delete; the running task only refreshes it.
 
 ## Turn API (WANDIT-167)
 
-Four routes under `/api/v2/projects/:projectId/turns`, all behind
-`V2BuilderEnabledGuard` and the workspace `project:update` permission:
+Five routes under `/api/v2/projects/:projectId/turns`, all behind
+`V2BuilderEnabledGuard`. The two `POST` routes also need the workspace
+`project:update` permission; the three `GET` routes are reads, and the
+service checks the scope:
 
 - `POST /` creates a turn — the `agent_session` hold first, then the
   session, the lock, the `queued` row, the user message, and the task
@@ -226,11 +228,17 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
   one entry per `data-question` card, with `optionIds`, `text`, and
   `files`. Without `answers`, the message text answers the first
   question. Answer files pass the same owner check as attachments.
+- `GET /estimate` answers `{ estimate }`: the hold that the next turn on
+  the default model reserves, from the same `estimateTurn` as `POST /`,
+  with no write. `estimate` is null when the deploy sets no default
+  model. The composer shows it before send.
 - `GET /:turnId/stream` relays one turn's stream; `204` while the row has
   no run id.
 - `GET /active/stream` is the `useChat` reconnect route: the active
   turn's stream, or `204` when the project has none. A row whose run id
-  is not written yet streams through the row poll instead of `204`.
+  is not written yet streams through the row poll instead of `204`. The
+  stream starts with a `data-turn-created` part with no estimate, so
+  the browser knows the turn id after a reload and Stop can cancel.
 - `POST /:turnId/cancel` CAS-moves the row to `cancelling`, cancels the
   run best-effort, releases the lock, settles to `canceled`, refunds the
   hold, and promotes the oldest `waiting` turn.
@@ -831,10 +839,15 @@ One run does this, in order:
    from the rows. Each stop writes the `error` event (`code` = the
    terminal status, `retryable: false`), then the `done` event with
    that status. `GENERATION_BILLING_MODE=off` skips the checkpoint and
-   the balance and cap checks.
+   the balance and cap checks. The harness can end on a proxy 402
+   `V2_RUN_CAP_REACHED` before the next tick. So at the stream end and
+   in the failure path, the task reads the `llm_proxy_requests` row with
+   reason `run_cap` of the turn: one row stops the turn on the cap.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
-   reconstruction. Harness `usage` events only feed the
+   reconstruction. A harness `error` chunk stays off the `ui` stream:
+   `useChat` stops at it, and the `data-turn-error` card comes later.
+   Harness `usage` events only feed the
    `builder-turn.harness-usage` log line; the money path never reads
    them. After each `reasoning-end`, the task writes a `data-thought`
    part (`reasoningId`, `seconds`, at least 1) to both streams. The UI
