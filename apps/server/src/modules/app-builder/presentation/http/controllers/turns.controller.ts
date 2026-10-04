@@ -1,5 +1,5 @@
 /**
- * HTTP routes for V2 builder turns: create, stream, cancel.
+ * HTTP routes for V2 builder turns: create, estimate, stream, cancel.
  * `V2BuilderEnabledGuard` gates the whole controller; `RedisRateLimitGuard`
  * reads the per-route `@RateLimit` metadata. Scope and engine checks live
  * in `TurnsService`; this file only parses and delegates.
@@ -21,6 +21,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	createTurnRequestSchema,
+	type TurnEstimateResponse,
 	uuidSchema,
 } from "@wandit/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -35,7 +36,10 @@ import {
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { TurnStreamRelayService } from "../../../application/services/turn-stream-relay.service";
-import { TurnsService } from "../../../application/services/turns.service";
+import {
+	TurnsService,
+	turnCreatedResponseOf,
+} from "../../../application/services/turns.service";
 import {
 	RateLimit,
 	RedisRateLimitGuard,
@@ -104,6 +108,18 @@ export class TurnsController {
 		});
 	}
 
+	// A read like the stream routes: the service checks the scope, so no
+	// permission decorator. Declared before `:turnId/stream`.
+	@Get("estimate")
+	estimate(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<TurnEstimateResponse> {
+		return this.turns.estimate(projectScopeFrom(workspace, user.id), projectId);
+	}
+
 	// Declared before `:turnId/stream` so "active" is not read as a turn id.
 	@Get("active/stream")
 	@RateLimit({
@@ -134,6 +150,12 @@ export class TurnsController {
 			}
 
 			await this.relay.relay({
+				// The first frame gives the browser the turn id after a reload,
+				// so Stop can post the cancel. A row whose chat was deleted has
+				// no frame.
+				...(turn.chatId === null
+					? {}
+					: { first: turnCreatedResponseOf(turn, turn.chatId, null) }),
 				onDone: () => this.turns.handleTurnEnded(turn.projectId, turn.id),
 				reply,
 				request,

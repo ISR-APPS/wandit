@@ -240,8 +240,10 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 		shownPathRef.current = selectedPath;
 	});
 
-	// LIMIT: every visible row renders, about 5,000 rows during a search on
-	// the largest tree. Upgrade: virtualize with @tanstack/react-virtual.
+	// LIMIT: React still mounts every visible row: 5,051 rows for a search on
+	// a 5,000-file tree. The rows skip off-screen layout, so they show in about
+	// 1 s, not 1.2 to 1.9 s. A fast scroll then lays out rows on the way: p95
+	// frame 25 ms, not 19 ms. Upgrade: virtualize with @tanstack/react-virtual.
 	const items = tree.getItems();
 
 	function onSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -336,7 +338,8 @@ function TreeRow({
 			title={node.path}
 			style={{ paddingInlineStart: ROW_INSET_PX + level * DEPTH_INDENT_PX }}
 			className={cn(
-				"relative flex h-7 pointer-coarse:h-9 w-full shrink-0 items-center gap-1.5 rounded-md pe-2 text-start text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
+				// The browser skips layout and paint of rows outside the scroll view. The fixed row height keeps the scroll bar right.
+				"relative flex h-7 pointer-coarse:h-9 w-full shrink-0 items-center gap-1.5 rounded-md pe-2 text-start text-[13px] outline-none transition-colors duration-150 [content-visibility:auto] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
 				isSelected
 					? "bg-primary/10 font-medium text-ember-strong"
 					: "text-foreground/85 hover:bg-foreground/5 hover:text-foreground",

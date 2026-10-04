@@ -234,6 +234,7 @@ export async function createBuilderTurnDeps(
 			turns,
 			// The service already converts AI_USD_PER_CREDIT at build.
 			usdMicrosPerCredit: metering.usdMicrosPerCredit,
+			versions: new AppCommitsRepository(db),
 		};
 		return deps;
 	}

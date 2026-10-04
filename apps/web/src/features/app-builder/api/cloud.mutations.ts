@@ -25,8 +25,10 @@ import {
 } from "./cloud.services";
 
 /**
- * Creates the backend of the project. The `creating` answer goes into the
- * backend key, so BackendState shows the wait block and the poll starts at once.
+ * Creates the backend of the project, or provisions an `error` backend again.
+ * The `creating` answer goes into the backend key, so BackendState shows the
+ * wait block and the poll starts at once. 403 `BACKEND_LIMIT_REACHED` shows
+ * no toast, because BackendState shows the plan limit block on that code.
  */
 export function useEnableBackend(
 	projectId: string,
@@ -40,6 +42,9 @@ export function useEnableBackend(
 			queryClient.setQueryData(cloudKeys.backend(projectId), backend);
 		},
 		onError: (error) => {
+			if (isApiClientError(error) && error.code === "BACKEND_LIMIT_REACHED") {
+				return;
+			}
 			toast.error(getApiErrorMessage(error));
 		},
 	});

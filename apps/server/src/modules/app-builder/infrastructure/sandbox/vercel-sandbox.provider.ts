@@ -358,6 +358,12 @@ class VercelSandboxHandle implements SandboxHandle {
 	 */
 	private liveHarnessSession: HarnessSandboxSession | null = null;
 
+	/**
+	 * The last `allowHost` push. The next call chains on it, so its merge
+	 * reads the policy that the push before it applied.
+	 */
+	private hostGrant: Promise<void> = Promise.resolve();
+
 	readonly workspaceDir: string;
 
 	constructor(
@@ -429,15 +435,23 @@ class VercelSandboxHandle implements SandboxHandle {
 	}
 
 	async allowHost(host: string): Promise<void> {
-		// Merge the host into the current allow list, deduped and sorted, and
-		// keep the deny ranges. A repeated grant maps to the same policy.
-		const allowedHosts = [
-			...new Set([...this.appliedPolicy.allowedHosts, host]),
-		].sort();
-		await this.applyPolicy({
-			allowedHosts,
-			deniedRanges: this.appliedPolicy.deniedRanges,
+		// Two grants can overlap in one turn (the keep-alive tick and the
+		// `request_network_host` tool). Without the chain, the later push
+		// drops the host of the earlier one.
+		const grant = this.hostGrant.then(async () => {
+			// Merge the host into the current allow list, deduped and sorted, and
+			// keep the deny ranges. A repeated grant maps to the same policy.
+			const allowedHosts = [
+				...new Set([...this.appliedPolicy.allowedHosts, host]),
+			].sort();
+			await this.applyPolicy({
+				allowedHosts,
+				deniedRanges: this.appliedPolicy.deniedRanges,
+			});
 		});
+		// The caller gets the error of its own grant; the chain only waits.
+		this.hostGrant = grant.catch(() => undefined);
+		await grant;
 	}
 
 	/**

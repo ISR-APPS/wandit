@@ -7,7 +7,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-	BadRequestException,
 	ConflictException,
 	Inject,
 	Injectable,
@@ -54,10 +53,10 @@ import { AppBackendsRepository } from "../../infrastructure/persistence/app-back
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
-	MalformedVersionCursorError,
 	type ScopedAppProject,
 	VersionConflictError,
 } from "../../infrastructure/persistence/app-commits.repository";
+import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder-turns.repository";
 import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
 import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
@@ -105,6 +104,8 @@ export class VersionsService {
 		private readonly projects: Pick<TurnProjectRepository, "findForTurn">,
 		@Inject(AppBackendsRepository)
 		private readonly backends: Pick<AppBackendsRepository, "findByProjectId">,
+		@Inject(BuilderTurnsRepository)
+		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
 	) {}
 
 	/** One page of versions, newest first, for the versions panel. */
@@ -114,25 +115,15 @@ export class VersionsService {
 		query: ListVersionsQuery,
 	): Promise<ListVersionsResponse> {
 		await this.requireV2Project(scope, projectId);
-		try {
-			const page = await this.appCommits.listByProject(projectId, {
-				cursor: query.cursor,
-				limit: query.limit,
-			});
-			return {
-				items: page.items.map(toApiCommit),
-				nextCursor: page.nextCursor,
-			};
-		} catch (error) {
-			// The cursor is client input; a malformed one is a 400, not a 500.
-			if (error instanceof MalformedVersionCursorError) {
-				throw new BadRequestException({
-					code: "VALIDATION_ERROR",
-					message: "Malformed versions cursor",
-				});
-			}
-			throw error;
-		}
+		// The controller pipe parses the cursor first and answers 400 for a bad one.
+		const page = await this.appCommits.listByProject(projectId, {
+			cursor: query.cursor,
+			limit: query.limit,
+		});
+		return {
+			items: page.items.map(toApiCommit),
+			nextCursor: page.nextCursor,
+		};
 	}
 
 	/** The stored patch and numstat of one version, for the diff view. */
@@ -166,8 +157,8 @@ export class VersionsService {
 	 * Copy-forward restore: the worktree goes back to `sha`'s content and a
 	 * NEW commit lands on top, so history never rewinds (WANDIT-171). The
 	 * restore takes the project turn lock — a turn starting mid-restore
-	 * would interleave git commands on the same sandbox. A held lock or a
-	 * stale `expectedHeadSha` answers 409.
+	 * would interleave git commands on the same sandbox. A held lock, a turn
+	 * that waits for the user, or a stale `expectedHeadSha` answers 409.
 	 */
 	async restore(
 		scope: ProjectScope,
@@ -199,6 +190,15 @@ export class VersionsService {
 		}
 
 		try {
+			// Product rule: a turn paused on a question or an approval resumes on
+			// the code it saw. That resume cannot tell the agent about a restore.
+			if ((await this.turns.findWaitingForUser(projectId)) !== null) {
+				throw new ConflictException({
+					code: "BUILDER_TURN_WAITING",
+					message: "Answer the open question in the chat first",
+				});
+			}
+
 			const branch = await this.appCommits.findBranch(projectId, "main");
 			if ((branch?.headSha ?? null) !== body.expectedHeadSha) {
 				throw new ConflictException({

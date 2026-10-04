@@ -3,7 +3,8 @@
  * `LlmProxyService` calls `insert` once per request.
  * The builder-turn runtime and the reconcile sweep call `sumByTurn` to
  * settle a turn's spend; the runtime's timing line calls
- * `firstRequestStartedAtMs`. `sumUsdMicrosByRun` has no production caller yet.
+ * `firstRequestStartedAtMs`, and its end calls `hasRunCapRejection`.
+ * `sumUsdMicrosByRun` has no production caller yet.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "@wandit/db";
@@ -107,6 +108,24 @@ export class LlmProxyRequestsRepository {
 		const value = result.rows[0]?.started_at_ms ?? null;
 		// bigint comes back as a string under node-postgres.
 		return value === null ? null : Number(value);
+	}
+
+	/**
+	 * True when the proxy refused a request of the turn on the per-run
+	 * spend cap (402 V2_RUN_CAP_REACHED, row reason `run_cap`). The runtime
+	 * reads it at the stream end to stop the turn on the cap.
+	 */
+	async hasRunCapRejection(turnId: string): Promise<boolean> {
+		const result = await this.db.execute<{ found: number }>(sql`
+			select 1 as found
+			from ${llmProxyRequests}
+			where
+				${llmProxyRequests.turnId} = ${turnId}
+				and ${llmProxyRequests.status} = 'cap_rejected'
+				and ${llmProxyRequests.reason} = 'run_cap'
+			limit 1
+		`);
+		return result.rows.length > 0;
 	}
 
 	/**

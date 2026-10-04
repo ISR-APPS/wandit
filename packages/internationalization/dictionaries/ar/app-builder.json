@@ -14,7 +14,7 @@
 		"collapseChat": "إخفاء المحادثة",
 		"expandChat": "إظهار المحادثة",
 		"reload": "إعادة تحميل المعاينة",
-		"openExternal": "فتح في تبويب جديد",
+		"openExternal": "فتح التطبيق المنشور",
 		"viewsAriaLabel": "طرق عرض مساحة العمل"
 	},
 	"views": {
@@ -77,9 +77,6 @@
 		"frameTitle": "جهاز {device} مع {name}"
 	},
 	"preview": {
-		"liveReload": "تحديث مباشر",
-		"back": "رجوع",
-		"forward": "تقدم",
 		"frameTitle": "معاينة {name}",
 		"retry": "حاول مرة أخرى",
 		"boot": {
@@ -205,7 +202,7 @@
 		},
 		"appStores": {
 			"title": "متاجر التطبيقات",
-			"description": "التوقيع والبناء وصفحة التطبيق على App Store وGoogle Play."
+			"description": "عمليات بناء Android الخاصة بك، وحالة بناء iPhone."
 		},
 		"security": {
 			"title": "الأمان",
@@ -214,12 +211,12 @@
 		},
 		"settings": {
 			"title": "الإعدادات",
-			"description": "الاسم ونوع المشروع والمتعاونون ومتغيرات البيئة."
+			"description": "الاسم ومعلومات التطبيق وحدود الإنفاق والحذف."
 		}
 	},
 	"empty": {
-		"title": "لم يتم إعداد شيء بعد",
-		"description": "اطلب من Wandit في المحادثة، أو أعدّه هنا."
+		"title": "قريبًا",
+		"description": "لا يمكنك إعداد هذا من هذه اللوحة بعد."
 	},
 	"signIn": {
 		"methodsTitle": "طرق تسجيل الدخول",
@@ -261,76 +258,49 @@
 		}
 	},
 	"domains": {
-		"freePrimary": "نطاق Wandit مجاني · أساسي",
-		"waitingDns": "بانتظار DNS · وجّه CNAME إلى {target}",
+		"freeHost": "نطاق Wandit مجاني",
 		"live": "مباشر",
-		"verifying": "قيد التحقق",
-		"inputLabel": "النطاق المراد ربطه",
-		"placeholder": "yourdomain.dz",
-		"connect": "ربط",
-		"buy": "شراء نطاق"
+		"freeTitle": "عنوان Wandit مجاني",
+		"freeAfterPublish": "تحصل عليه عند نشر التطبيق."
 	},
 	"appStores": {
-		"appStore": "App Store",
-		"googlePlay": "Google Play",
-		"readyToSubmit": "جاهز للإرسال",
-		"notSetUp": "غير مُعدّ",
-		"bundleId": "معرّف الحزمة",
-		"latestBuild": "آخر بناء",
-		"buildValue": "{build} · v{version}",
-		"testflight": "TestFlight",
-		"testers": {
-			"zero": "لا مختبرين",
-			"one": "مختبر واحد",
-			"two": "مختبران",
-			"few": "{count} مختبرين",
-			"many": "{count} مختبرًا",
-			"other": "{count} مختبر"
-		},
-		"submitForReview": "إرسال للمراجعة",
-		"googlePlayHelp": "اربط حساب مطوّر Google Play وسيوقّع Wandit البناء ويرفعه نيابة عنك.",
-		"connectGooglePlay": "ربط Google Play",
-		"listingTitle": "صفحة المتجر",
-		"listingProgress": "{done} من {total} مكتملة",
-		"listing": {
-			"appIcon": "أيقونة التطبيق",
-			"appName": "اسم التطبيق والعنوان الفرعي",
-			"description": "الوصف",
-			"screenshots": "لقطات الشاشة",
-			"privacyUrl": "رابط سياسة الخصوصية",
-			"ageRating": "التصنيف العمري والفئة"
-		},
-		"neededForReview": "مطلوب للمراجعة"
+		"androidHelp": "عمليات بناء Android لتطبيقك. ابدأ بناءً جديدًا من النشر.",
+		"iphone": "iPhone",
+		"iphoneNotAvailable": "بناء تطبيقات iPhone غير متوفر بعد."
 	},
 	"settings": {
 		"project": "المشروع",
 		"name": "الاسم",
 		"projectUrl": "رابط المشروع",
 		"projectUrlPrefix": "wandit.dev/app/",
-		"descriptionLabel": "الوصف",
 		"projectType": "نوع المشروع",
-		"projectTypeHelp": "يغيّر ما يبنيه Wandit وأين يمكنك النشر.",
-		"collaborators": "المتعاونون",
-		"seats": "{count} من {max}",
-		"invite": "دعوة",
-		"roles": {
-			"owner": "المالك",
-			"editor": "محرر",
-			"viewer": "مشاهد"
-		},
-		"roleLabel": "دور {name}",
-		"pending": "مدعو · بانتظار القبول",
-		"envTitle": "متغيرات البيئة",
-		"envHelp": "أسرار يمكن للخادم قراءتها",
-		"addVariable": "+ إضافة متغير",
-		"setBy": "أضافها {panel}",
-		"public": "عام",
+		"projectTypeHelp": "يُحدَّد عند إنشاء المشروع ولا يمكن تغييره.",
+		"languages": "لغات التطبيق",
+		"templateVersion": "إصدار القالب",
+		"nameSaved": "تم حفظ الاسم",
+		"secretsTitle": "الأسرار",
+		"secretsHelp": "يقرأ الخادم مفاتيح API والرموز من لوحة الأسرار.",
+		"openSecrets": "فتح الأسرار",
+		"limitsTitle": "حدود الإنفاق",
+		"limitsManagersOnly": "يمكن لمالكي مساحة العمل ومشرفيها فقط رؤية حدود الإنفاق وتغييرها.",
+		"perTurnLimit": "الحد لكل عملية",
+		"perTurnDefault": "الافتراضي",
+		"perTurnHelp": "تتوقف العملية عندما تستخدم هذا العدد من الأرصدة. اتركه فارغًا لاستخدام القيمة الافتراضية.",
+		"monthlyLimit": "الحد الشهري",
+		"monthlyNone": "بلا حد",
+		"monthlyHelp": "تتوقف العمليات الجديدة عندما يستخدم هذا المشروع هذا العدد من الأرصدة في الشهر. اتركه فارغًا لعدم وضع حد.",
+		"creditsUnit": "رصيد",
+		"limitsInvalid": "استخدم عددًا من الأرصدة يبدأ من 0.01، بمنزلتين عشريتين على الأكثر. الحد لكل عملية هو 2,500 رصيد كحد أقصى.",
+		"limitsSave": "حفظ الحدود",
+		"limitsSaved": "تم حفظ حدود الإنفاق",
 		"deleteTitle": "حذف هذا المشروع",
 		"deleteHelp": "يوقف التطبيق ويحذف قاعدة البيانات والإصدارات والمحادثة. لا يمكن التراجع عن ذلك.",
+		"deleteManagersOnly": "يمكن لمالكي مساحة العمل ومشرفيها فقط حذف هذا المشروع.",
 		"delete": "حذف",
 		"deleteConfirmTitle": "حذف {name}؟",
 		"deleteConfirmBody": "سيتوقف التطبيق وتُحذف قاعدة البيانات والإصدارات والمحادثة.",
-		"cancel": "إلغاء"
+		"cancel": "إلغاء",
+		"deleted": "تم حذف المشروع"
 	},
 	"chat": {
 		"title": "الدردشة",
@@ -339,6 +309,7 @@
 		"thought": "فكّر",
 		"stepFailed": "فشل",
 		"stepSkipped": "تم التخطي",
+		"addSecret": "أضف السر",
 		"steps": {
 			"edit": {
 				"done": "عدّل",
@@ -412,11 +383,6 @@
 			"many": "{count} رصيدًا",
 			"other": "{count} رصيد"
 		},
-		"modeLabel": "وضع الكتابة",
-		"modes": {
-			"build": "بناء",
-			"plan": "تخطيط"
-		},
 		"send": "إرسال",
 		"stop": "إيقاف",
 		"focusChip": "العمل على {label}",
@@ -429,7 +395,8 @@
 			"install": "نثبّت ما يحتاجه",
 			"firstTime": "التشغيل الأول يستغرق وقتًا أطول قليلًا",
 			"waking": "نوقظ مشروعك",
-			"restoring": "نستعيد آخر تغييراتك"
+			"restoring": "نستعيد آخر تغييراتك",
+			"wakingDatabase": "نوقظ قاعدة بياناتك"
 		},
 		"tray": {
 			"needsDetail": "نحتاج توضيحًا",
@@ -484,7 +451,6 @@
 			"sandbox_waking": "نجهّز تطبيقك",
 			"session_starting": "جارٍ التحضير",
 			"running": "جارٍ العمل",
-			"checkpoint": "حفظ تغييراتك",
 			"committing": "حفظ تغييراتك"
 		},
 		"approval": {
@@ -516,8 +482,10 @@
 		"attachScreen": "الإشارة إلى شاشة",
 		"dictate": "إملاء",
 		"turnError": "توقفت العملية: {message}",
-		"turnErrorRetry": "يمكنك إرسال الرسالة مرة أخرى.",
+		"retry": "إعادة المحاولة",
+		"stopped": "تم الإيقاف",
 		"receipt": "{credits} · {tokens} رمزًا",
+		"receiptCache": "الذاكرة المؤقتة: {read} مقروءة، {write} مكتوبة",
 		"errors": {
 			"noCredits": "لم يتبقَّ لديك رصيد لهذه العملية.",
 			"projectCap": "بلغ هذا المشروع سقف الرصيد الخاص به.",
@@ -581,7 +549,8 @@
 		"testOnPhone": "جرّب على هاتفك",
 		"scanQr": "امسح رمز QR · يتحدّث فورًا",
 		"showQr": "إظهار QR",
-		"backendNote": "يُنشر الخادم مع كل عملية نشر"
+		"backendNote": "يُنشر الخادم مع كل عملية نشر",
+		"hideQr": "إخفاء QR"
 	},
 	"mobileBuilds": {
 		"title": "Android · APK",
@@ -644,8 +613,9 @@
 		"numstat": "+{added} −{removed}",
 		"emptyDiff": "لم تغيّر هذه النسخة أي ملف.",
 		"empty": "لا توجد نسخة بعد. تنشئ العملية الأولى نسخة.",
+		"loadMore": "تحميل المزيد",
 		"restoreTitle": "استعادة هذه النسخة؟",
-		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء.",
+		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء. لا تتغير بياناتك ولا قاعدة بياناتك.",
 		"cancel": "إلغاء"
 	},
 	"mock": {

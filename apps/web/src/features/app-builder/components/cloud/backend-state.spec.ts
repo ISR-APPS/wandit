@@ -98,16 +98,12 @@ describe("BackendState", () => {
 		expect(screen.getByRole("button", { name: "Enable backend" })).toBeTruthy();
 	});
 
-	it("shows the same wait text while the backend is created or woken", () => {
-		for (const status of ["creating", "restoring"] as const) {
-			renderGate(clientWith(backend(status)));
-			expect(
-				screen.getByText(
-					"Setting up your backend. This takes about 2 minutes.",
-				),
-			).toBeTruthy();
-			cleanup();
-		}
+	it.each([
+		["creating", "Setting up your backend. This takes about 2 minutes."],
+		["restoring", "Waking up your database."],
+	] as const)("shows the wait text of the %s state", (status, text) => {
+		renderGate(clientWith(backend(status)));
+		expect(screen.getByText(text)).toBeTruthy();
 	});
 
 	it("tells that the backend is being deleted", () => {
@@ -117,7 +113,7 @@ describe("BackendState", () => {
 		).toBeTruthy();
 	});
 
-	it("shows the text of a known failure code, the code, and a check-again button", () => {
+	it("shows the text of a known failure code, the code, and a try-again button", () => {
 		renderGate(clientWith(backend("error", "backend_provision_timeout")));
 		expect(
 			screen.getByText("The backend setup took too long and stopped."),
@@ -125,7 +121,7 @@ describe("BackendState", () => {
 		expect(
 			screen.getByText("Error code: backend_provision_timeout"),
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 	});
 
 	it("shows the generic text for an unknown failure code", () => {

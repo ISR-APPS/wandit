@@ -80,6 +80,10 @@ import type {
 	AppBackendRow,
 	AppBackendsRepository,
 } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type {
+	AppCommitsRepository,
+	LatestAppCommit,
+} from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionsRepository } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -95,6 +99,7 @@ import type { SandboxSessionsRepository } from "../modules/app-builder/infrastru
 import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
+import { isValidNetworkHost } from "../modules/app-builder/infrastructure/sandbox/network-policy";
 import {
 	activeBackendEnvOf,
 	buildSandboxEnv,
@@ -323,11 +328,12 @@ export type BuilderTurnDeps = {
 	>;
 	/**
 	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
-	 * token counts; the first request time only feeds the timing line.
+	 * token counts; the first request time only feeds the timing line; a
+	 * `run_cap` refusal makes the turn end on the cap.
 	 */
 	proxyRows: Pick<
 		LlmProxyRequestsRepository,
-		"firstRequestStartedAtMs" | "sumByTurn"
+		"firstRequestStartedAtMs" | "hasRunCapRejection" | "sumByTurn"
 	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
@@ -385,6 +391,8 @@ export type BuilderTurnDeps = {
 	now: () => number;
 	/** Log sink; the task passes the Trigger `logger`. */
 	logger: BuilderTurnLogger;
+	/** The newest `app_commits` row of the project, for the restore note. */
+	versions: Pick<AppCommitsRepository, "findLatest">;
 };
 
 /**
@@ -639,6 +647,12 @@ export async function runBuilderTurn(
 	signal.addEventListener("abort", onTaskAbort, { once: true });
 
 	let sandbox: SandboxHandle | null = null;
+	/**
+	 * True while the egress policy lacks the Supabase host and this turn can
+	 * add it. The keep-alive tick adds the host and clears it; a resumed
+	 * session also clears it.
+	 */
+	let backendHostMissing = false;
 	let session: HarnessSession | null = null;
 	/** Set by `suspendTurn` after a paused stream; the failure path saves it. */
 	let suspendState: HarnessResumeState | null = null;
@@ -712,6 +726,21 @@ export async function runBuilderTurn(
 		}
 	};
 
+	/** Waits until no proxy request of the run is in flight, at most PROXY_ROWS_WAIT_MS. */
+	const waitForInFlightRows = async () => {
+		const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
+		while ((await deps.counters.readInFlight(runId)) > 0) {
+			if (deps.now() >= deadline) {
+				logger.warn("builder-turn.proxy-rows-wait-timeout", {
+					runId,
+					turnId,
+				});
+				return;
+			}
+			await delay(PROXY_ROWS_POLL_MS);
+		}
+	};
+
 	/**
 	 * Waits until every proxy request of the run has its usage row. The
 	 * proxy writes the row after the reply ends, so a turn with no commit
@@ -722,17 +751,7 @@ export async function runBuilderTurn(
 		try {
 			await deps.counters.unbindChat(chatId, turnId);
 			await deps.counters.revokeRun(runId, LLM_PROXY_TOKEN_TTL_SECONDS);
-			const deadline = deps.now() + PROXY_ROWS_WAIT_MS;
-			while ((await deps.counters.readInFlight(runId)) > 0) {
-				if (deps.now() >= deadline) {
-					logger.warn("builder-turn.proxy-rows-wait-timeout", {
-						runId,
-						turnId,
-					});
-					return;
-				}
-				await delay(PROXY_ROWS_POLL_MS);
-			}
+			await waitForInFlightRows();
 		} catch (error) {
 			logger.warn("builder-turn.proxy-rows-wait-failed", {
 				message: messageOf(error),
@@ -968,6 +987,33 @@ export async function runBuilderTurn(
 		await finishTurn();
 	};
 
+	/**
+	 * Stops the turn on the cap when the LLM proxy refused one of its
+	 * requests with 402 V2_RUN_CAP_REACHED. The harness can end on that
+	 * refusal before the next pulse tick; the turn then settles its spend
+	 * instead of `succeeded`, or `failed` with a full refund. A turn whose
+	 * last request only crossed the cap had no refusal and keeps its status.
+	 */
+	const stopIfRefusedForCap = async (): Promise<void> => {
+		if (abortCode !== null) {
+			return;
+		}
+		try {
+			// A refused request stays in flight until the proxy wrote its row.
+			await waitForInFlightRows();
+			if (await deps.proxyRows.hasRunCapRejection(turnId)) {
+				abortTurn("project_cap");
+			}
+		} catch (error) {
+			// A failed read must not block the end of the turn. The turn keeps
+			// the end status that the stream gave.
+			logger.warn("builder-turn.cap-refusal-check-failed", {
+				message: messageOf(error),
+				turnId,
+			});
+		}
+	};
+
 	/** Timer bodies must never reject unhandled; a stale write ends the turn. */
 	const guardTick = (tick: () => Promise<void>) => {
 		void tick().catch((error: unknown) => {
@@ -997,6 +1043,39 @@ export async function runBuilderTurn(
 				await sandbox?.keepAlive();
 				// The idle sweep must not stop a live turn.
 				await deps.sandboxSessions.touchActivity(projectId);
+				// WANDIT-283: a backend that goes active during the turn gets its
+				// host here. It runs after the activity stamp, so a failure skips no stamp.
+				// The turn adds it, not provision-backend: a vendor push from that
+				// process deletes the run token transformation of this session.
+				// LIMIT: the host arrives up to 60 s after the row goes active.
+				// Upgrade: provision-backend sends a Redis notice to the turn.
+				if (backendHostMissing && sandbox !== null) {
+					const backendEnv = activeBackendEnvOf(
+						await deps.backends.findByProjectId(projectId),
+					);
+					if (backendEnv === null) {
+						return;
+					}
+					const host = new URL(backendEnv.url).hostname;
+					// Security: like `buildNetworkPolicy`, one exact host. A wildcard
+					// opens every Supabase project, also a project of an attacker.
+					if (!isValidNetworkHost(host) || host.startsWith("*.")) {
+						backendHostMissing = false;
+						logger.warn("builder-turn.backend-host-invalid", {
+							host,
+							projectId,
+							turnId,
+						});
+						return;
+					}
+					await sandbox.allowHost(host);
+					backendHostMissing = false;
+					logger.info("builder-turn.backend-host-allowed", {
+						host,
+						projectId,
+						turnId,
+					});
+				}
 			});
 		}, TURN_KEEPALIVE_MS);
 		pulseTimer = setInterval(() => {
@@ -1194,6 +1273,12 @@ export async function runBuilderTurn(
 		}
 		const resumeState: HarnessResumeState | null =
 			parsedResume?.success === true ? parsedResume.data : null;
+		// The session row is saved at the end of each agent turn, so its
+		// `updatedAt` tells whether the agent ran after a restore.
+		const restoreNote = restoreNoteOf(
+			await deps.versions.findLatest(projectId),
+			sessionRow?.updatedAt ?? null,
+		);
 
 		// The user's words, then the attachment URLs. A message with text keeps
 		// its files too: the agent only sees what the prompt names. Answer
@@ -1385,6 +1470,10 @@ export async function runBuilderTurn(
 			}
 		}
 		const supabase = activeBackendEnvOf(backend);
+		// Without an active row here, getOrCreate builds the policy with no
+		// backend host. The `.env` re-read after it writes only the file, so it
+		// keeps this flag.
+		backendHostMissing = supabase === null;
 		const sandboxEnv = buildSandboxEnv({
 			previewHost: null,
 			proxyBaseUrl: deps.proxyBaseUrl,
@@ -1559,6 +1648,16 @@ export async function runBuilderTurn(
 		const started = await startSession(sandboxCreated ? null : resumeState);
 		session = started.session;
 		sessionStart = started.resumed ? "resumed" : "created";
+		// Only a fresh session keeps the flag. A resumed session can be a kept
+		// one, which never called `harnessSession()` on this handle. Then
+		// `allowHost` pushes a raw vendor policy. That push deletes the
+		// transformation that carries the proxy run token.
+		// LIMIT: a resumed turn gets the backend host only at the next turn
+		// start. Upgrade: a kept session attaches its sandbox session to the
+		// new handle.
+		if (started.resumed) {
+			backendHostMissing = false;
+		}
 		stamps.sessionEnd = deps.now();
 		const providerSessionId = session.sessionId;
 
@@ -1591,6 +1690,15 @@ export async function runBuilderTurn(
 		} else {
 			turnInput = { kind: "prompt", prompt, signal: ownAbort.signal };
 		}
+		// The note goes in front of the user's words. A `continue` input holds
+		// only tool results, but VersionsService refuses a restore under a paused turn.
+		if (restoreNote !== null && turnInput.kind === "prompt") {
+			logger.info("builder-turn.restore-note", { turnId });
+			turnInput = {
+				...turnInput,
+				prompt: `${restoreNote}\n\n${turnInput.prompt}`,
+			};
+		}
 		// A stored session that did not come back lost the agent memory; the
 		// files stay. The recap gives the agent the recent chat back.
 		if (
@@ -1618,7 +1726,12 @@ export async function runBuilderTurn(
 					stamps.firstText ??= lastPartAt;
 				}
 				await chunkWriter.write(event.chunk);
-				await writeEvent({ data: event.chunk, type: "part" });
+				// useChat stops its read at an `error` chunk. The browser must
+				// first get the `data-turn-error` card that `failTurn` writes, so
+				// the raw harness error stays off the stream.
+				if (event.chunk.type !== "error") {
+					await writeEvent({ data: event.chunk, type: "part" });
+				}
 				if (event.chunk.type === "reasoning-start") {
 					reasoningStartedAt.set(event.chunk.id, lastPartAt);
 				}
@@ -1658,6 +1771,14 @@ export async function runBuilderTurn(
 			throw Object.assign(new Error(event.message), { code: event.code });
 		}
 		stamps.streamEnd = deps.now();
+
+		// An abort code that a tick set after the last chunk, or a cap refusal
+		// before the next tick, ends the turn here. `failTurn` settles a stop
+		// code and refunds every other code.
+		await stopIfRefusedForCap();
+		if (abortCode !== null) {
+			throw new Error(`Turn ${turnId} stopped at the stream end: ${abortCode}`);
+		}
 
 		// The harness counts stay informational; money comes from the proxy rows.
 		logger.info("builder-turn.harness-usage", {
@@ -1903,6 +2024,11 @@ export async function runBuilderTurn(
 		if (signal.aborted) {
 			await finalizeCanceled();
 		} else {
+			// A harness error after the proxy cap refusal is a cap stop. A
+			// stale turn never stops on the cap: a newer turn owns the sandbox.
+			if (!(error instanceof StaleTurnError)) {
+				await stopIfRefusedForCap();
+			}
 			const code =
 				abortCode ??
 				(typeof error === "object" &&
@@ -2151,6 +2277,28 @@ async function wakeBackend(
 		});
 	}
 	return row;
+}
+
+/**
+ * The note for the agent when the newest version is a restore that the
+ * agent did not see yet, else null. `sessionSavedAt` is the `updatedAt` of
+ * the chat's session row, or null when the chat has none.
+ */
+export function restoreNoteOf(
+	latest: LatestAppCommit | null,
+	sessionSavedAt: Date | null,
+): string | null {
+	if (latest?.source !== "restore") {
+		return null;
+	}
+	// A restore holds the turn lock, so it never overlaps a turn. A session
+	// saved after the restore commit already ran on the restored code.
+	if (sessionSavedAt !== null && sessionSavedAt > latest.createdAt) {
+		return null;
+	}
+	// The version the user picked, not the new commit that copies it forward.
+	const version = latest.restoredFromSha ?? latest.sha;
+	return `The user restored the code to version ${version.slice(0, 7)} before this message. Read the files again before you edit.`;
 }
 
 /** What the recap of a lost session needs from the run. */

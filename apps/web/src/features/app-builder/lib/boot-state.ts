@@ -93,11 +93,10 @@ export type BootView =
 			steps: BootStep[];
 	  };
 
-// The turn writes these phases after the sandbox runs. `checkpoint` is in the contract, but no code sends it.
+// The turn writes these phases after the sandbox runs.
 const MACHINE_READY_PHASES: readonly TurnStreamPhase[] = [
 	"session_starting",
 	"running",
-	"checkpoint",
 	"committing",
 ];
 

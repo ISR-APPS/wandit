@@ -13,6 +13,9 @@ export const appBuilderRoutes = {
 	project: (projectId: string) => `/api/v2/projects/${projectId}`,
 	// POST start a builder turn.
 	createTurn: (projectId: string) => `/api/v2/projects/${projectId}/turns`,
+	// GET the hold that the next turn reserves, before send.
+	turnEstimate: (projectId: string) =>
+		`/api/v2/projects/${projectId}/turns/estimate`,
 	// GET the SSE stream of one turn.
 	turnStream: (projectId: string, turnId: string) =>
 		`/api/v2/projects/${projectId}/turns/${turnId}/stream`,

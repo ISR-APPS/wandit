@@ -2,26 +2,26 @@
  * Mutations of the app builder. Most call a service and write the result
  * into the query cache, so the panel that reads the query updates at once.
  * Called by the dashboard create flow, the Settings panel, the versions
- * popover, the Expo Go popover, and the preview boot screen.
+ * popover, the Expo Go popover, and the asleep note of the preview.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { CreateAppProjectRequest } from "@wandit/contracts";
+import type {
+	CreateAppProjectRequest,
+	UpdateProjectCostCapsRequest,
+} from "@wandit/contracts";
 import { toast } from "sonner";
 
 import { projectKeys } from "@/features/projects";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import {
-	type AppProjectPatch,
 	createAppProject,
 	getPhonePreviewLink,
 	restoreVersion,
-	setCollaboratorRole,
-	updateAppProject,
+	updateCostCaps,
 	wakeSandbox,
 } from "./app-builder.services";
-import type { CollaboratorRole } from "./dto";
 
 /**
  * Creates a V2 app project from the dashboard prompt. The V1 project grid
@@ -59,30 +59,21 @@ export function useWakeSandbox(projectId: string) {
 	});
 }
 
-/** Name, description, or kind. The project menu list refreshes too, so its badge stays right. */
-export function useUpdateAppProject(projectId: string) {
+/**
+ * Saves both spending limits of a project. Writes the stored caps into the
+ * cost-caps query; a refusal shows the API message as a toast.
+ */
+export function useUpdateCostCaps(projectId: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationKey: [...appBuilderKeys.project(projectId), "update"],
-		mutationFn: (patch: AppProjectPatch) => updateAppProject(projectId, patch),
-		onSuccess: (project) => {
-			queryClient.setQueryData(appBuilderKeys.project(projectId), project);
-			void queryClient.invalidateQueries({
-				queryKey: appBuilderKeys.projects(),
-			});
+		mutationKey: [...appBuilderKeys.costCaps(projectId), "update"],
+		mutationFn: (body: UpdateProjectCostCapsRequest) =>
+			updateCostCaps(projectId, body),
+		onSuccess: (caps) => {
+			queryClient.setQueryData(appBuilderKeys.costCaps(projectId), caps);
 		},
-	});
-}
-
-/** Changes the role of one collaborator. Writes the returned settings into the settings query. */
-export function useSetCollaboratorRole(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationKey: [...appBuilderKeys.settings(projectId), "role"],
-		mutationFn: (input: { collaboratorId: string; role: CollaboratorRole }) =>
-			setCollaboratorRole(projectId, input),
-		onSuccess: (settings) => {
-			queryClient.setQueryData(appBuilderKeys.settings(projectId), settings);
+		onError: (error) => {
+			toast.error(getApiErrorMessage(error));
 		},
 	});
 }

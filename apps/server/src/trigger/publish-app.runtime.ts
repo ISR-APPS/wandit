@@ -105,8 +105,8 @@ export type PublishAppDeps = {
 		DeploymentsRepository,
 		"isSlugTakenByOther" | "markFailed" | "promoteToActive" | "unpublishActive"
 	>;
-	/** Reads the `app_backends` row for the public Supabase values. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
+	/** Reads the `app_backends` row for the public Supabase values, and stamps its activity after a publish. */
+	backends: Pick<AppBackendsRepository, "findByProjectId" | "touchActive">;
 	/** Lists the names and kinds of the `project_secrets` rows. */
 	secretRows: Pick<ProjectSecretsRepository, "listSummaries">;
 	/** Decrypts one secret value; null when the row is gone. */
@@ -261,6 +261,17 @@ export async function runPublishApp(
 		await goLive(deps, { output, project, row, routing, workers });
 		if ((await publish.transition(row.id, { to: "published" })) === null) {
 			deps.logger.error("publish-app.row-ended-after-upload", fields);
+		}
+		// A publish is activity: the pause sweep must not pause the backend
+		// of an app that just went live. The stamp is a hint, so its failure
+		// never turns a live build into a failed one.
+		try {
+			await deps.backends.touchActive(row.projectId);
+		} catch (error) {
+			deps.logger.warn("publish-app.backend-touch-failed", {
+				...fields,
+				error: getErrorMessage(error),
+			});
 		}
 		deps.logger.info("publish-app.published", {
 			...fields,
