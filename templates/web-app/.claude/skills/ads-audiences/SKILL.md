@@ -5,6 +5,8 @@ description: "Prospecting broad-first, the retargeting warmth ladder (3/7/14/30/
 
 # Audiences
 
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
+
 # ADS SKILL — AUDIENCES
 
 You opened this skill because the conversation is about WHO an ad set or ad group reaches: prospecting targeting, retargeting ladders, customer files, lookalikes, exclusions, overlap, cross-platform retargeting.
@@ -54,17 +56,17 @@ On a Wandit page there is no cart and no card. The "purchase" is the form submis
 The COD ladder:
 - Visited, did NOT submit (website audience minus Lead audience): the retargeting target, message by rung.
 - Submitted (Lead audience): EXCLUDE from retargeting and prospecting. They are in the confirmation pipeline; only the phone call converts them, more ads waste USD and create duplicate orders.
-- Confirmed / shipped / delivered: EXCLUDE from acquisition of that product. The pixel cannot know who confirmed; rebuild from the Leads tab export as a customer file (section 6).
+- Confirmed / shipped / delivered: EXCLUDE from acquisition of that product. The pixel cannot know who confirmed; rebuild from an export of the app's leads table as a customer file (section 6).
 - Cancelled (confirmation failed): do NOT retarget with the same offer; the failure was the phone, the price or a fake order. A different offer later, if the merchant wants it.
 - Returned (shipped, refused, shipping cost incurred): exclude; a second attempt is the most expensive lead in the funnel.
-The platform sees Lead; Wandit sees the rest. Merchant-side truth by source and campaign is the Leads tab / read_lead_performance. Decide which audiences deserve budget on confirmation and delivery rates, not only on platform cost per Lead.
+The platform sees Lead; Wandit sees the rest. Merchant-side truth by source and campaign is the app's leads table, read with run_sql. Decide which audiences deserve budget on confirmation and delivery rates, not only on platform cost per Lead.
 
 ## 6. CUSTOMER FILE (PHONE-FIRST)
 
 Maghreb is no-bank-card and phone-first: the match key is the phone number, not the email. Upload phones in international format (+213...), normalised, plus country. Platforms hash (SHA-256) on upload; both accept pre-hashed data.
-Source: Leads tab export filtered by status (confirmed / delivered = buyers; cancelled / returned = negative list). Re-upload weekly (rule of thumb) so exclusions stay current.
+Source: an export of the app's leads table filtered by status (confirmed / delivered = buyers; cancelled / returned = negative list). Re-upload weekly (rule of thumb) so exclusions stay current.
 Match rate: a phone matches only when the platform account carries that number (common in the Maghreb, where accounts are registered by phone; rule of thumb, not a guarantee). Expect well under 100 percent on both platforms and treat the MATCHED count as the audience. Below the delivery minimum, the file is an exclusion and a seed, not a deliverable audience.
-LTV segmentation: the pixel carries no value; value lives in the Leads tab. Segment by hand: delivered buyers (best), repeat buyers (rare in single-product COD, gold when present), returned (negative). Add an order value column to unlock value-based lookalikes.
+LTV segmentation: the pixel carries no value; value lives in the app's leads table. Segment by hand: delivered buyers (best), repeat buyers (rare in single-product COD, gold when present), returned (negative). Add an order value column to unlock value-based lookalikes.
 
 ## 7. LOOKALIKES
 
@@ -95,7 +97,7 @@ A single-product COD merchant on a Wandit page should IGNORE them: one product, 
 
 ## 11. CROSS-PLATFORM RETARGETING
 
-The sequence: TikTok for discovery, Meta for conversion. Audiences are not portable between platforms; a TikTok viewer cannot be retargeted on Meta by identity. What crosses is the page visit: a TikTok click that lands on the Wandit page joins the Meta website audience (pixel / CAPI), and its ttclid and utm tags put the lead in the Leads tab under tiktok. The honest mechanism: drive cheap TikTok traffic to the page, retarget page visitors on Meta, exclude the Lead audience on both. The director's UTM rule (utm_source=tiktok|facebook, utm_medium=paid, utm_campaign=<name>) is what makes the source readable.
+The sequence: TikTok for discovery, Meta for conversion. Audiences are not portable between platforms; a TikTok viewer cannot be retargeted on Meta by identity. What crosses is the page visit: a TikTok click that lands on the Wandit page joins the Meta website audience (pixel / CAPI), and its ttclid and utm tags put the lead in the app's leads table under tiktok. The honest mechanism: drive cheap TikTok traffic to the page, retarget page visitors on Meta, exclude the Lead audience on both. The director's UTM rule (utm_source=tiktok|facebook, utm_medium=paid, utm_campaign=<name>) is what makes the source readable.
 Limits: a TikTok view that never clicks is invisible to Meta; each platform will claim the same lead (ads-measurement). Never say "we retarget TikTok viewers on Meta" without the page-visit caveat.
 
 ## 12. RETENTION WINDOWS AND VALUE DECAY
@@ -113,7 +115,7 @@ Tracking first, always: name an audience cause only after the Lead event and UTM
 - Frequency up, CPM up, CTR down on prospecting -> saturation -> test a new angle in the same ad set; cost per Lead recovers = fatigue, does not = pool exhausted, widen geography or accept the ceiling.
 - Retargeting cost per Lead above prospecting -> rung exhausted or buyers not excluded -> check Lead and buyer-file exclusions, then cut the rung.
 - Two ad sets with CPM rising together, reach not adding up -> overlap -> overlap tool or consolidate, judge after 72 hours.
-- Good platform cost per Lead, poor confirmation rate for that source or campaign in read_lead_performance -> wrong people (curiosity clicks, under-age, undeliverable wilayas) -> compare confirmation by campaign, exclude undeliverable wilayas, move budget to the Lead-optimised broad ad set.
+- Good platform cost per Lead, poor confirmation rate for that source or campaign in a run_sql query on the app's leads table -> wrong people (curiosity clicks, under-age, undeliverable wilayas) -> compare confirmation by campaign, exclude undeliverable wilayas, move budget to the Lead-optimised broad ad set.
 - Lookalike spending nothing -> seed too small or tier covered by broad -> matched seed size, exclusions; rebuild from delivered buyers past a thousand.
 - Ad set with a custom audience not spending -> below delivery minimum -> merge rungs (section 2).
 Recommendation tone: what happened, why, what to do, when to judge again. No drama, no excuses, business language. Budgets in USD, always.
