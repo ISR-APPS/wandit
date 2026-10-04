@@ -1,7 +1,6 @@
 /**
  * Data layer of the app builder. Each function calls a V2 route through
- * `@/lib/api-client` and parses the answer with contracts. One mock stays:
- * `getBuilderThread` copies the mock thread until the chat reads real turns.
+ * `@/lib/api-client` and parses the answer with contracts.
  * Called by app-builder.queries.ts, app-builder.mutations.ts,
  * lib/use-builder-chat.ts, lib/use-preview-token.ts, the chat pane, the
  * composer, and the device panel.
@@ -35,30 +34,25 @@ import {
 	restoreVersionResponseSchema,
 	type StartDeviceSessionResponse,
 	startDeviceSessionResponseSchema,
+	type TurnEstimateResponse,
+	turnEstimateResponseSchema,
 	type UpdateProjectCostCapsRequest,
 	type VersionDiffResponse,
 	versionDiffResponseSchema,
 } from "@wandit/contracts";
 
+import type { FileUIPart } from "ai";
+
 import { apiClient, isApiClientError } from "@/lib/api-client";
-import type { ComposerMode } from "../lib/constants";
-import { MOCK_BUILDER_THREAD } from "../lib/mock-thread";
-import type { AppProject, BuilderThread, CodeFile, CodeSnapshot } from "./dto";
+import type { AppProject, CodeFile, CodeSnapshot } from "./dto";
 
 /** One turn the composer or a chat card sends. */
 export type SendBuilderMessageInput = {
-	/** The trimmed draft, or the text of a card action. Never empty. */
+	/** The trimmed draft, or the text of a card action. Empty only when `files` holds a file. */
 	text: string;
-	/** The composer choice. The page sends every mode as a build turn until the turn body has a mode field. */
-	mode: ComposerMode;
+	/** Files the user uploaded for this message, with their upload URLs. Empty for a card action. */
+	files: FileUIPart[];
 };
-
-/** The mock thread with the id of the open project. The page reads its estimate and focus chip. */
-export function getBuilderThread(projectId: string): BuilderThread {
-	return { ...structuredClone(MOCK_BUILDER_THREAD), projectId };
-}
-
-// ---- Real API ----
 
 /**
  * `POST /api/v2/projects`. Creates the project, its first chat, and starts
@@ -305,6 +299,19 @@ export async function getCodeFile(
 		}
 		throw error;
 	}
+}
+
+/**
+ * `GET /api/v2/projects/:id/turns/estimate`: the hold that the next turn
+ * reserves, so the composer shows the real cost before send.
+ */
+export async function getTurnEstimate(
+	projectId: string,
+): Promise<TurnEstimateResponse> {
+	const data = await apiClient.get<unknown>(
+		appBuilderRoutes.turnEstimate(projectId),
+	);
+	return turnEstimateResponseSchema.parse(data);
 }
 
 /**

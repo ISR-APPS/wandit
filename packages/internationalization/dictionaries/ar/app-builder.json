@@ -310,6 +310,7 @@
 		"thought": "فكّر",
 		"stepFailed": "فشل",
 		"stepSkipped": "تم التخطي",
+		"addSecret": "أضف السر",
 		"steps": {
 			"edit": {
 				"done": "عدّل",
@@ -383,11 +384,6 @@
 			"many": "{count} رصيدًا",
 			"other": "{count} رصيد"
 		},
-		"modeLabel": "وضع الكتابة",
-		"modes": {
-			"build": "بناء",
-			"plan": "تخطيط"
-		},
 		"send": "إرسال",
 		"stop": "إيقاف",
 		"focusChip": "العمل على {label}",
@@ -455,7 +451,6 @@
 			"sandbox_waking": "نجهّز تطبيقك",
 			"session_starting": "جارٍ التحضير",
 			"running": "جارٍ العمل",
-			"checkpoint": "حفظ تغييراتك",
 			"committing": "حفظ تغييراتك"
 		},
 		"approval": {
@@ -487,8 +482,10 @@
 		"attachScreen": "الإشارة إلى شاشة",
 		"dictate": "إملاء",
 		"turnError": "توقفت العملية: {message}",
-		"turnErrorRetry": "يمكنك إرسال الرسالة مرة أخرى.",
+		"retry": "إعادة المحاولة",
+		"stopped": "تم الإيقاف",
 		"receipt": "{credits} · {tokens} رمزًا",
+		"receiptCache": "الذاكرة المؤقتة: {read} مقروءة، {write} مكتوبة",
 		"errors": {
 			"noCredits": "لم يتبقَّ لديك رصيد لهذه العملية.",
 			"projectCap": "بلغ هذا المشروع سقف الرصيد الخاص به.",

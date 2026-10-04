@@ -75,9 +75,9 @@ export type BuilderDiffLine = {
  * `change` marks a saved version. `thought` is one reasoning block. `step`
  * is one row of the activity feed (one tool call, or a run of reads).
  * `question` is one question of the agent. `approval` waits for the user to
- * allow a tool call. `error` is a turn failure. `receipt` is the settled
- * cost of a turn. `suggestion` is a next step the user can accept. `diff`
- * shows one changed file.
+ * allow a tool call. `error` is a turn failure. `stopped` marks a turn the
+ * user stopped. `receipt` is the settled cost of a turn. `suggestion` is a
+ * next step the user can accept. `diff` shows one changed file.
  */
 export type BuilderDataParts = {
 	change: { title: string; versionNumber: number };
@@ -96,8 +96,10 @@ export type BuilderDataParts = {
 		target: string | null;
 		/** The model's own sentence for a command, in the user's language; null when absent. */
 		description: string | null;
-		/** Technical lines behind the chevron: diff lines, the command, the SQL. */
+		/** Technical lines behind the chevron: diff lines, the command and the end of its output, the SQL. */
 		detail: BuilderDiffLine[];
+		/** True when `set_secret` answered `missing`: the project has no stored value. The row links to the Secrets panel. */
+		isSecretMissing?: boolean;
 	};
 	question: {
 		/** Harness call id of the paused tool call; the answer sends it back. */
@@ -131,6 +133,8 @@ export type BuilderDataParts = {
 	};
 	/** The `data-turn-error` payload as the stream sends it. */
 	error: { code: string; message: string; retryable: boolean };
+	/** The `data-turn-done` status of a turn the user stopped. */
+	stopped: { status: "canceled" };
 	receipt: {
 		/** Whole credits, rounded up from the centi-credits the stream sends. */
 		credits: number;
@@ -138,6 +142,10 @@ export type BuilderDataParts = {
 		modelId: string | null;
 		inputTokens: number;
 		outputTokens: number;
+		/** Prompt tokens the model read from its cache. Not part of `inputTokens`. */
+		cacheReadTokens: number;
+		/** Prompt tokens the model wrote to its cache. Not part of `inputTokens`. */
+		cacheWriteTokens: number;
 	};
 	suggestion: { title: string; body: string; confidence: BuilderConfidence };
 	diff: { path: string; lines: BuilderDiffLine[] };
@@ -167,15 +175,6 @@ export type TurnMessage = UIMessage<never, TurnDataParts>;
 
 /** One part of a real V2 message: text, file, reasoning, or a `data-*` card. */
 export type TurnMessagePart = TurnMessage["parts"][number];
-
-export type BuilderThread = {
-	projectId: string;
-	messages: BuilderMessage[];
-	/** Credits one more turn costs, whole credits. Shown in the composer as an estimate. */
-	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. The preview sets it on a selection. */
-	focusLabel: string | null;
-};
 
 /** A folder or a file of the sandbox worktree, for the Code view tree. */
 export type { CodeTreeNode } from "@wandit/contracts";

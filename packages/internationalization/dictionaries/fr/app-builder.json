@@ -302,6 +302,7 @@
 		"thought": "A réfléchi",
 		"stepFailed": "Échec",
 		"stepSkipped": "Ignoré",
+		"addSecret": "Ajoute le secret",
 		"steps": {
 			"edit": {
 				"done": "A modifié",
@@ -371,11 +372,6 @@
 			"one": "{count} crédit",
 			"other": "{count} crédits"
 		},
-		"modeLabel": "Mode du compositeur",
-		"modes": {
-			"build": "Construire",
-			"plan": "Planifier"
-		},
 		"send": "Envoyer",
 		"stop": "Arrêter",
 		"focusChip": "En cours sur {label}",
@@ -431,7 +427,6 @@
 			"sandbox_waking": "Préparation de ton app",
 			"session_starting": "Préparation",
 			"running": "Travail en cours",
-			"checkpoint": "Enregistrement de tes changements",
 			"committing": "Enregistrement de tes changements"
 		},
 		"approval": {
@@ -463,8 +458,10 @@
 		"attachScreen": "Cibler un écran",
 		"dictate": "Dicter",
 		"turnError": "L'opération s'est arrêtée : {message}",
-		"turnErrorRetry": "Vous pouvez renvoyer le message.",
+		"retry": "Réessayer",
+		"stopped": "Arrêté",
 		"receipt": "{credits} · {tokens} jetons",
+		"receiptCache": "cache : {read} lus, {write} écrits",
 		"errors": {
 			"noCredits": "Vous n'avez plus de crédits pour cette opération.",
 			"projectCap": "Ce projet a atteint son plafond de crédits.",
