@@ -5,7 +5,8 @@
  * `PreviewTokenController` calls `mint`; the preview-proxy Worker in
  * `apps/preview-proxy` verifies the token. Reads `projects` and
  * `sandbox_sessions` through repositories and signs the claims with the
- * shared `signPreviewToken` helper.
+ * shared `signPreviewToken` helper. Each mint also moves the vendor
+ * deadline of the running sandbox through `SandboxProvider`.
  */
 import { randomUUID } from "node:crypto";
 
@@ -24,8 +25,13 @@ import {
 	previewHostFor,
 	signPreviewToken,
 } from "@wandit/contracts";
+import { getErrorMessage } from "@wandit/observability/error";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	SANDBOX_PROVIDER,
+	type SandboxProvider,
+} from "../../domain/ports/sandbox-provider";
 import {
 	requireV2Env,
 	V2_ENV,
@@ -61,6 +67,8 @@ export class PreviewTokenService {
 		>,
 		@Inject(V2_ENV)
 		private readonly v2Env: V2EnvSource,
+		@Inject(SANDBOX_PROVIDER)
+		private readonly sandboxes: Pick<SandboxProvider, "keepAliveIfRunning">,
 	) {}
 
 	/**
@@ -68,7 +76,8 @@ export class PreviewTokenService {
 	 * the `?wt=` URL on the isolated `r-<rid12>--p-<projectId>` host.
 	 * A phone query adds the Expo Go username claim. Throws 404 for a
 	 * missing, out-of-scope, or V1 project and 409 `SANDBOX_NOT_RUNNING`
-	 * when no running row has a preview host.
+	 * when no running row has a preview host. A failed vendor keep-alive
+	 * only logs; the token still answers.
 	 */
 	async mint(
 		scope: ProjectScope,
@@ -119,6 +128,21 @@ export class PreviewTokenService {
 		// A user who opens the preview counts as activity; the stamp keeps
 		// the idle sweep away while the preview is open.
 		await this.sessions.touchActivity(pid);
+		// The vendor timeout is absolute, so the stamp alone does not keep the
+		// sandbox up. The web mints again every 14 minutes while the preview is open.
+		// LIMIT: an open preview tab, also a hidden one, keeps the sandbox up
+		// until the run-time cap of the vendor plan. Upgrade: pause the web
+		// re-mint in a hidden tab.
+		try {
+			await this.sandboxes.keepAliveIfRunning(pid);
+		} catch (error) {
+			// The token still works until the current vendor deadline, so the
+			// mint answers it and only logs the failure.
+			this.logger.warn("preview.keep-alive.failed", {
+				error: getErrorMessage(error),
+				projectId: pid,
+			});
+		}
 		// A phone link opens the source bundles to any phone that holds it,
 		// so each mint leaves an audit line (WANDIT-193).
 		if (query.client === "phone") {

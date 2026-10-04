@@ -32,7 +32,9 @@ import {
 	type RestoreVersionBody,
 	type RestoreVersionResponse,
 	restoreVersionResponseSchema,
+	type SandboxWakeResponse,
 	type StartDeviceSessionResponse,
+	sandboxWakeResponseSchema,
 	startDeviceSessionResponseSchema,
 	type TurnEstimateResponse,
 	turnEstimateResponseSchema,
@@ -163,6 +165,21 @@ export async function getPreviewToken(
 		appBuilderRoutes.previewToken(projectId),
 	);
 	return previewTokenResponseSchema.parse(data);
+}
+
+/**
+ * `POST /api/v2/projects/:id/sandbox/wake` boots a sleeping sandbox
+ * without a turn and charges no credits. Every success is a 202; the
+ * caller then polls the preview token. A 429 RATE_LIMITED answers after
+ * 6 wakes per user in 10 minutes and propagates like every other error.
+ */
+export async function wakeSandbox(
+	projectId: string,
+): Promise<SandboxWakeResponse> {
+	const data = await apiClient.post<unknown>(
+		appBuilderRoutes.wakeSandbox(projectId),
+	);
+	return sandboxWakeResponseSchema.parse(data);
 }
 
 /**

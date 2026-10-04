@@ -110,7 +110,9 @@
 			},
 			"asleep": {
 				"title": "Your app is asleep",
-				"body": "It goes to sleep after a while without use. Send a message in the chat to wake it up."
+				"body": "It goes to sleep after a while without use. Wake it up here, or send a message in the chat.",
+				"wake": "Wake up the preview",
+				"wakeFailed": "Your app did not wake up. Try again."
 			},
 			"stopped": {
 				"title": "Your app could not start",

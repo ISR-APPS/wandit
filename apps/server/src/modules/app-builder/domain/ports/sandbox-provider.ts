@@ -82,7 +82,7 @@ export type SandboxCreateOptions = {
 	/**
 	 * Per-project egress hosts from `projects.networkAllowedHosts`, layer 3
 	 * of the allow list. The provider validates each one and drops invalid
-	 * ones. Absent means none; a restore passes none.
+	 * ones. Absent means none.
 	 */
 	networkAllowedHosts?: string[];
 	/**
@@ -208,6 +208,12 @@ export interface SandboxProvider {
 	 * reads through it, so a read never wakes a stopped sandbox.
 	 */
 	findRunning(projectId: string): Promise<SandboxReader | null>;
+	/**
+	 * Moves the vendor deadline of the project's running sandbox back to a
+	 * full timeout. The preview-token mint calls it, so an open preview keeps
+	 * the sandbox up. It never creates or resumes; a stopped one stays stopped.
+	 */
+	keepAliveIfRunning(projectId: string): Promise<void>;
 	stop(projectId: string): Promise<void>;
 	destroy(projectId: string): Promise<void>;
 	/**

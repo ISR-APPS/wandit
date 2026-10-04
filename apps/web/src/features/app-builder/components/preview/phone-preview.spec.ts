@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
@@ -60,7 +61,14 @@ async function renderPreview(device: PhoneDevice, canRunOnDevice = false) {
 		setLocale: () => {},
 		children: createElement(PhonePreview, props),
 	};
-	render(createElement(I18nProvider, providerProps));
+	// The wake button of the boot screen needs a query client.
+	render(
+		createElement(
+			QueryClientProvider,
+			{ client: new QueryClient() },
+			createElement(I18nProvider, providerProps),
+		),
+	);
 	return screen.findByTitle("Preview of Nadi Fitness");
 }
 

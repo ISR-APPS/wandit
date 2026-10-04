@@ -154,10 +154,17 @@ On approval the tool does four steps:
    section 2).
 2. It appends the host to `projects.networkAllowedHosts` with a deduping
    write, so a repeated grant is a no-op and the next sandbox keeps it.
-3. It calls `SandboxHandle.allowHost`, which merges the host into the
-   live allow list and applies it, no restart.
-4. It writes an `audit_events` row with the action `network.host_allowed`
+3. It writes an `audit_events` row with the action `network.host_allowed`
    (the action name comes from WANDIT-181).
+4. It calls `SandboxHandle.allowHost`, which merges the host into the
+   live allow list and applies it, no restart.
+
+Steps 2 to 4 run in one Postgres transaction. The live allow has no undo,
+so it runs last. When any step fails, both rows roll back and the agent
+gets `denied`, so the next sandbox does not allow the host. If the commit
+fails after `allowHost`, the host stays live in the current sandbox until it
+stops, with no stored host and no audit row (`LIMIT` in
+`request-network-host.host-tool.ts`).
 
 `allowHost` routes through the live harness session, not the raw vendor
 call. The session holds the run-token transformation for the proxy host.

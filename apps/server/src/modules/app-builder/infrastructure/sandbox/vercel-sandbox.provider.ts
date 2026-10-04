@@ -2,8 +2,8 @@
  * `SandboxProvider` on Vercel Sandbox (D1): one persistent named sandbox
  * per project in `cdg1`, resumed from its snapshot and rebuilt from the
  * template when the vendor lost it. A new sandbox boots from the template
- * snapshot when one is ready. The builder-turn task, the idle sweep, and
- * the template-snapshot task call it. All `@vercel/sandbox` /
+ * snapshot when one is ready. Trigger tasks and API services call it
+ * through the `SANDBOX_PROVIDER` port. All `@vercel/sandbox` /
  * `@ai-sdk/sandbox-vercel` imports live in this folder (vendor isolation).
  */
 import { createHash } from "node:crypto";
@@ -65,6 +65,18 @@ const SANDBOX_TIMEOUT_MS = 1_800_000;
  */
 const EXTEND_MIN_GAP_MS = 60_000;
 
+/**
+ * The ms to add so the vendor deadline sits `SANDBOX_TIMEOUT_MS` after
+ * `nowMs`, or null when the gap is under `EXTEND_MIN_GAP_MS`. The vendor
+ * adds to the current deadline, so a flat full timeout per call would
+ * outgrow the cap.
+ */
+function timeoutExtensionMs(deadlineMs: number, nowMs: number): number | null {
+	const extension = SANDBOX_TIMEOUT_MS - (deadlineMs - nowMs);
+	// A gap under one minute is not worth a call; the vendor rejects tiny ones.
+	return extension < EXTEND_MIN_GAP_MS ? null : extension;
+}
+
 /** Reserved for the Metro dev server (WANDIT-193). */
 const METRO_PORT = 8081;
 
@@ -123,13 +135,15 @@ export type VercelSandboxInstance = {
 	 * The vendor session; `cwd` is the default working directory of the
 	 * image. `networkPolicy` is the policy the vendor read back with the
 	 * session, or undefined when the answer carried none. Its `runCommand`,
-	 * its file calls, and its `snapshot` fail on a stopped session; the
-	 * `Sandbox` methods resume it first.
+	 * its file calls, its `extendTimeout`, and its `snapshot` fail on a
+	 * stopped session; the `Sandbox` methods resume it first.
 	 */
 	currentSession(): {
 		readonly cwd: string;
 		readonly networkPolicy: NetworkPolicy | undefined;
 		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+		/** Adds `duration` ms to the current vendor deadline. */
+		extendTimeout(duration: number): Promise<void>;
 		writeFiles(
 			files: ReadonlyArray<{ content: string | Uint8Array; path: string }>,
 		): Promise<void>;
@@ -408,9 +422,8 @@ class VercelSandboxHandle implements SandboxHandle {
 	/** Tops the vendor timeout back up to `SANDBOX_TIMEOUT_MS` from now. */
 	async keepAlive(): Promise<void> {
 		const now = Date.now();
-		const extension = SANDBOX_TIMEOUT_MS - (this.deadlineMs - now);
-		// A gap under one minute is not worth a call; the vendor rejects tiny ones.
-		if (extension < EXTEND_MIN_GAP_MS) {
+		const extension = timeoutExtensionMs(this.deadlineMs, now);
+		if (extension === null) {
 			return;
 		}
 		await this.sandbox.extendTimeout(extension);
@@ -554,6 +567,27 @@ export class VercelSandboxProvider implements SandboxProvider {
 			workspaceDir: workspaceDirOf(sandbox),
 			writeFiles: (files) => session.writeFiles(files),
 		};
+	}
+
+	async keepAliveIfRunning(projectId: string): Promise<void> {
+		// Not the `live` cache: its status and deadline can be old. This read
+		// never resumes a stopped sandbox.
+		const sandbox = await this.getVendorSandbox(projectId);
+		if (sandbox?.status !== "running") {
+			return;
+		}
+		const now = Date.now();
+		// An answer with no deadline counts as full, so no time is bought.
+		const extension = timeoutExtensionMs(
+			sandbox.expiresAt?.getTime() ?? now + SANDBOX_TIMEOUT_MS,
+			now,
+		);
+		if (extension === null) {
+			return;
+		}
+		// The session call, not `Sandbox.extendTimeout`: the session fails on a
+		// stop after the read, but the `Sandbox` method resumes the sandbox.
+		await sandbox.currentSession().extendTimeout(extension);
 	}
 
 	async stop(projectId: string): Promise<void> {
@@ -844,6 +878,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 					});
 				}
 				await this.repoRestorer.restore(projectId, handle);
+				// The restored repo can bring back an old template file.
+				await this.templateInit.replaceOldTemplateFiles(handle, options);
 				await this.bootServices(projectId, sandbox, options);
 			} else {
 				if (policyApplied) {
@@ -856,6 +892,8 @@ export class VercelSandboxProvider implements SandboxProvider {
 				if (resumed) {
 					await reportWake();
 					this.logLifecycle("resume", projectId, sandbox.name);
+					// A sandbox from before the template fix still holds the old files.
+					await this.templateInit.replaceOldTemplateFiles(handle, options);
 					await this.bootServices(projectId, sandbox, options);
 				}
 			}

@@ -24,6 +24,7 @@ import {
 	type RestoreVersionResponse,
 	type VersionDiffResponse,
 } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import {
 	contentTypeFor,
@@ -48,6 +49,7 @@ import {
 	versionNumstatKey,
 } from "../../infrastructure/git/commit-turn";
 import { mustRunGit } from "../../infrastructure/git/sandbox-git";
+import { AppBackendsRepository } from "../../infrastructure/persistence/app-backends.repository";
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
@@ -55,8 +57,9 @@ import {
 	VersionConflictError,
 } from "../../infrastructure/persistence/app-commits.repository";
 import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder-turns.repository";
+import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
-import { profileForFramework } from "../../infrastructure/sandbox/template-profiles";
+import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
 
 /** Nest token for the R2 object store the service reads and writes. */
 export const VERSION_OBJECTS = Symbol.for("app-builder.version-objects");
@@ -95,6 +98,12 @@ export class VersionsService {
 		private readonly repoRestorer: RepoRestorer,
 		@Inject(VERSION_OBJECTS)
 		private readonly objects: VersionsObjectStore,
+		// The Pick types keep the sandbox start reads narrow; a spec passes
+		// plain fakes.
+		@Inject(TurnProjectRepository)
+		private readonly projects: Pick<TurnProjectRepository, "findForTurn">,
+		@Inject(AppBackendsRepository)
+		private readonly backends: Pick<AppBackendsRepository, "findByProjectId">,
 		@Inject(BuilderTurnsRepository)
 		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
 	) {}
@@ -211,19 +220,18 @@ export class VersionsService {
 			}
 
 			// A restore boots a stopped or lost sandbox, and that boot starts
-			// the dev server. So the command and port come from the template.
-			const templateProfile = profileForFramework(project.framework);
-			const sandbox = await this.sandboxes.getOrCreate(projectId, {
-				devCommand: templateProfile.devCommand,
-				devPort: templateProfile.devPort,
-				env: {},
-				framework: project.framework,
-				templateVersion: project.templateVersion,
-				ownerUserId: project.userId,
-				organizationId: project.organizationId,
-			});
-			// A fresh or stale sandbox first pulls or clones the repository; a
-			// restore on top of a missing worktree cannot read-tree anything.
+			// the dev server. A strict start needs the egress inputs of a turn.
+			const sandbox = await startSandboxWithoutTurn(
+				{
+					backends: this.backends,
+					logger: Sentry.logger,
+					projects: this.projects,
+					sandboxes: this.sandboxes,
+				},
+				projectId,
+			);
+			// A fresh or stale sandbox first fetches the repository; a restore
+			// on top of a missing worktree cannot read-tree anything.
 			await this.repoRestorer.restore(projectId, sandbox);
 
 			// Copy-forward: the worktree and index take the old tree; the commit

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
@@ -63,7 +64,14 @@ async function renderPreview(
 		setLocale: () => {},
 		children: createElement(WebPreview, props),
 	};
-	render(createElement(I18nProvider, providerProps));
+	// The wake button of the boot screen needs a query client.
+	render(
+		createElement(
+			QueryClientProvider,
+			{ client: new QueryClient() },
+			createElement(I18nProvider, providerProps),
+		),
+	);
 	const iframe = await screen.findByTitle("Preview of Nadi Fitness");
 	// The width and the borders sit on the panel box that holds the iframe and the boot screen.
 	const panel = iframe.parentElement;

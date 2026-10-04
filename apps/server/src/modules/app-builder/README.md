@@ -80,8 +80,11 @@ partial unique index guarantees at most one live row per project.
   code.storage is the source of truth (D21). When the named sandbox or its
   snapshot is gone, the provider boots a fresh one, applies the template
   archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
-  `rebuild` warning. `LoggingRepoRestorer` is the placeholder until
-  WANDIT-171.
+  `rebuild` warning. After `RepoRestorer`, and on each resume before the
+  dev server starts, `TemplateInit.replaceOldTemplateFiles` replaces a
+  `vite.config.ts` (WANDIT-281) or a `.claude/settings.json` (WANDIT-180)
+  that is byte-equal to an old template version. The next turn commits the
+  new file. `LoggingRepoRestorer` is the placeholder until WANDIT-171.
 - Template snapshot (first-turn latency): a new or rebuilt sandbox boots
   from a ready Vercel snapshot that already holds the template, its
   `node_modules`, the template commit, and the harness install. The boot
@@ -107,7 +110,8 @@ partial unique index guarantees at most one live row per project.
   `template-profiles.ts` holds one profile per target platform: the
   `framework` (the archive prefix, `web-app` or `mobile-app`), the dev
   command, the dev port (5173 for Vite, 8081 for Metro), and the version
-  file. The builder-turn runtime and a restore pick the profile with
+  file. The builder-turn runtime and `startSandboxWithoutTurn` (restore,
+  wake, publish) pick the profile with
   `profileForFramework(project.framework)` and pass its dev command and
   port to `getOrCreate`. The dev port decides `previewHost`.
 - Template files in a deploy: the `templates/<framework>-<version>.tar.gz`
@@ -131,11 +135,12 @@ partial unique index guarantees at most one live row per project.
   Vite and Expo CLI prefer a process value to a `.env` value. Vite restarts
   and Metro sends an HMR update when the file changes, so the running app
   gets the values with no restart code. The builder-turn runtime writes the
-  file after `getOrCreate`; provision-backend writes it after `markActive`
-  when the sandbox runs. provision-backend never pushes the egress policy:
-  a push from that process deletes the proxy run-token rule of the harness
-  session. A turn that started without an active backend adds the backend
-  host itself on its keep-alive tick. The writer waits until the dev port answers,
+  file after `getOrCreate`; `startSandboxWithoutTurn` (restore, wake,
+  publish) writes it after a boot; provision-backend writes it after
+  `markActive` when the sandbox runs. provision-backend never pushes the
+  egress policy: a push from that process deletes the proxy run-token rule of
+  the harness session. A turn that started without an active backend adds the
+  backend host itself on its keep-alive tick. The writer waits until the dev port answers,
   because a dev server watches `.env` only from then. It writes only when
   the content differs, because each write restarts Vite. git ignores
   `.env`, and the Code view never shows it.
@@ -174,6 +179,9 @@ partial unique index guarantees at most one live row per project.
   `request_network_host` tool. It merges the host into the applied
   policy and routes through the live harness session, so the proxy
   run-token transformation the session added stays in place.
+- `keepAliveIfRunning(projectId)` moves the vendor deadline of a running
+  sandbox back to a full 30 minutes (WANDIT-164). The preview-token mint
+  calls it. It uses the session call, so a stopped sandbox stays stopped.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
   command env; the vendor route only reaches a `0.0.0.0` listener. A
@@ -191,9 +199,9 @@ partial unique index guarantees at most one live row per project.
   domain policy (`allowedHosts`, `deniedRanges`) and `handle.previewUrl`.
 - Idle: `sandbox-idle-sweep` (Trigger cron, every 5 min, queue
   `sandbox-maintenance`) stops running rows whose `lastActiveAt` is older
-  than `SANDBOX_IDLE_STOP_MINUTES` (20). Turn start/end and preview
-  heartbeats call `touchActivity`; an old stamp means no turn and no
-  preview traffic.
+  than `SANDBOX_IDLE_STOP_MINUTES` (20). The turn and each preview-token
+  mint call `touchActivity`. An open preview mints every 14 minutes, so an
+  old stamp means no turn and no open preview.
 
 ## Lock rule
 
@@ -958,14 +966,15 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `askUserQuestions` is inactive.
 - `request_network_host` (WANDIT-180) asks to reach one extra egress
   host. It is `"user-approval"`, so the user approves first; the body
-  runs only on approval. It checks the host with `isValidNetworkHost`,
-  appends it to `projects.networkAllowedHosts` (a deduping write), calls
-  `SandboxHandle.allowHost` to apply it to the live sandbox with no
-  restart, and writes a `network.host_allowed` audit row. `allowHost`
+  runs only on approval. It checks the host with `isValidNetworkHost`.
+  Then one transaction appends it to `projects.networkAllowedHosts` (a
+  deduping write), writes a `network.host_allowed` audit row, and calls
+  `SandboxHandle.allowHost` last to apply it with no restart. `allowHost`
   routes through the live harness session, so the proxy run-token
   transformation survives. A bad host, a `supabase.co` or `supabase.com`
-  host (WANDIT-283), or a failed update answers `denied` and writes no
-  audit row. See `docs/v2/security.md` section 5.
+  host (WANDIT-283), or a failed step answers `denied`. A failed step
+  rolls back both rows, so the next start does not allow the host.
+  See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is
@@ -1076,10 +1085,16 @@ repository is the durable copy.
 - Credentials are ES256 JWTs minted locally with the org's private key
   (`CODE_STORAGE_PRIVATE_KEY`, `CODE_STORAGE_ORG`). Claims: `iss` = org
   slug, `sub` = `wandit-api`, `repo` = the repository name, `scopes`,
-  `iat`, `exp`. A git credential carries `git:read` + `git:write` for one
-  repository only, so a project token cannot touch another project's
-  code. A repository-admin call carries `repo:write` (TTL 300 s); a push,
-  pull, or clone credential lives 600 s.
+  `iat`, `exp`. A JWT is for one repository only, so a project token
+  cannot touch another project's code (a live probe confirmed it).
+- A restore or mobile-build credential carries `git:read` only. A push
+  credential carries `git:read` + `git:write` and the `refs` claim
+  `[["refs/heads/main", ["no-force-push"]], ["*", ["no-push"]]]`: no force
+  push, no other branch, no tag. code.storage still accepts a delete of
+  `main` and a new `main` (the LIMIT at `PUSH_MAIN_REFS`).
+- A push or restore credential lives 120 s, and each push mints a new
+  JWT. A mobile-build credential lives 600 s on the Trigger worker. A
+  repository-admin call carries `repo:write` (TTL 300 s).
 - The git URL passes the JWT as `https://t:<jwt>@<org>.code.storage/...`.
   `redactRemoteUrl` masks it for logs; errors never carry it.
 - One commit per turn: `git add -A`, `commit --allow-empty` with the
@@ -1094,10 +1109,12 @@ repository is the durable copy.
   write creates it for any previous head. The template init commits
   outside `commitTurn`, so the first turn has no row. A head mismatch
   answers 409 `VERSION_CONFLICT`.
-- A fresh sandbox restores the code through `RepoRestorer`: `git pull`
-  when `.git` exists, `git clone` when the sandbox workspace (`<vendor cwd>/workspace`) is
-  empty, and an in-place `init` + `fetch` + `reset --hard` + `clean -fd`
-  when the template files are already unpacked.
+- A fresh sandbox restores the code through `RepoRestorer`: `fetch` +
+  `reset --hard FETCH_HEAD` when `.git` exists (the template commit of a
+  new sandbox can have another root than the project, so `git pull` can
+  refuse), and else an in-place `init` + `fetch` + `reset --hard` +
+  `clean -fd`. No `git clone`: it stores the URL with the JWT in
+  `.git/config`.
 - A restore is copy-forward: `git read-tree -u --reset <sha>` sets the
   worktree to the old content and a NEW commit lands on top
   (`source = 'restore'`, `restored_from_sha` points at the target).
@@ -1236,7 +1253,24 @@ the `__Host-wandit_preview` cookie that carries it on later requests.
 A `creating` or `stopped` sandbox row, or a running row without
 `previewHost`, answers 409 `SANDBOX_NOT_RUNNING`. Each mint also calls
 `sandbox_sessions.touchActivity`, so an open preview keeps the idle
-sweep away.
+sweep away. It also calls `SandboxProvider.keepAliveIfRunning`, because
+the vendor timeout is absolute. A vendor failure there only logs
+`preview.keep-alive.failed`; the token still answers.
+
+`POST /api/v2/projects/:projectId/sandbox/wake` (`SandboxController`)
+boots a sleeping sandbox without a turn, so the asleep note needs no paid
+message. It needs `project:update` and has a `RedisRateLimitGuard` bucket
+of 6 wakes per user per 10 minutes (key `sandbox-wake`). The scope checks
+are the same as the versions routes. It answers 202 at once:
+`running` (no boot), `starting` (a background boot started), or `busy`
+(a turn, a restore, or a wake holds the project lock and boots the
+sandbox). The boot holds the turn lock with a `wake:` holder for at most
+10 minutes, so a turn submit during the boot answers 409
+`BUILDER_TURN_ACTIVE`. The boot goes through `startSandboxWithoutTurn`,
+like a restore and a publish: the egress inputs of a turn, no proxy
+token, and the backend `.env` after a boot. A failed boot logs
+`sandbox.wake-failed` and goes to Sentry. The route does not report it, so
+the web shows a failure after a 3-minute wait.
 
 `?client=phone` (WANDIT-193) mints the same token for the phone link of
 Expo Go. It takes an optional `expoUsername` (`expoUsernameSchema`:

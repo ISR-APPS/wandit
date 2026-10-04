@@ -1,5 +1,6 @@
 /**
- * Shared contract for the V2 preview token route and the phone link.
+ * Shared contract for the V2 preview token route, the phone link, and the
+ * sandbox wake route that brings a sleeping preview back.
  *
  * The browser asks the API for a signed preview URL of the app's running
  * sandbox port; the preview domain (D5) validates the token. The
@@ -52,6 +53,25 @@ export const previewTokenQuerySchema = z
 
 /** TypeScript preview-token query. */
 export type PreviewTokenQuery = z.infer<typeof previewTokenQuerySchema>;
+
+/**
+ * Answer of `POST /api/v2/projects/:id/sandbox/wake`, always HTTP 202. The
+ * route takes no body and charges no credits. After each status, the web
+ * polls the preview-token route until the token is ready.
+ */
+export const sandboxWakeResponseSchema = z.object({
+	/**
+	 * `running`: the sandbox runs already, so nothing boots.
+	 * `starting`: the API started the boot. A resume takes 10 to 60 s. A
+	 * rebuild from the image takes a few minutes.
+	 * `busy`: a turn, a restore, or another wake holds the project lock.
+	 * That work boots the sandbox, so the wake starts nothing.
+	 */
+	status: z.enum(["running", "starting", "busy"]),
+});
+
+/** The parsed wake answer. The web does not branch on `status`: every value counts as an accepted wake. */
+export type SandboxWakeResponse = z.infer<typeof sandboxWakeResponseSchema>;
 
 /**
  * Claims inside the signed preview token. The API `PreviewTokenService`
