@@ -147,6 +147,17 @@ export const supabaseProjectResponseSchema =
 		}),
 	});
 
+/**
+ * Answer of `GET /organizations/{slug}/projects?search=` (200), cut to the
+ * fields the provision run reads. `status` stays a string: the list can
+ * hold a status that `supabaseProjectStatuses` does not name yet.
+ */
+export const supabaseOrganizationProjectsResponseSchema = z.object({
+	projects: z.array(
+		z.object({ name: z.string(), ref: z.string(), status: z.string() }),
+	),
+});
+
 /** Parsed answer of `SupabaseManagementClient.getProject`. */
 export type SupabaseProjectResponse = z.infer<
 	typeof supabaseProjectResponseSchema

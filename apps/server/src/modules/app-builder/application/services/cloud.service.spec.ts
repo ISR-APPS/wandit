@@ -151,6 +151,10 @@ function fixture(options?: {
 	provisionError?: Error;
 	/** True makes `touchActive` throw, like a database outage. */
 	touchFails?: boolean;
+	/** True: the `creating` row had no write for 30 minutes, so the CAS moves it. */
+	creatingTimedOut?: boolean;
+	/** The service-role key in its `system` row. Default: no row, like a backend from before the store. */
+	storedServiceRoleKey?: string;
 }) {
 	const requests: RecordedRequest[] = [];
 	const audits: AuditEventInput[] = [];
@@ -160,6 +164,16 @@ function fixture(options?: {
 	const markRestoredCalls: string[] = [];
 	const markRestoreFailedCalls: string[] = [];
 	const touches: string[] = [];
+	// The `system` rows by name, and each `set` call, like `project_secrets`.
+	const systemSecrets = new Map<string, string>();
+	if (options?.storedServiceRoleKey !== undefined) {
+		systemSecrets.set(
+			"SUPABASE_SERVICE_ROLE_KEY",
+			options.storedServiceRoleKey,
+		);
+	}
+	const secretSets: { name: string; kind: string }[] = [];
+	const secretIds: string[] = [];
 	const rateLimiter = options?.rateLimiter ?? new FakeSupabaseRateLimiter();
 	const client = options?.noClient
 		? null
@@ -205,9 +219,27 @@ function fixture(options?: {
 				backend = backend === null ? null : { ...backend, status: "active" };
 				return Promise.resolve(true);
 			},
+			// The 10 and 30 minute cutoffs live in the SQL of the repository;
+			// these fakes answer a younger row.
+			markCreatingTimedOut: () => {
+				if (options?.creatingTimedOut !== true || backend === null) {
+					return Promise.resolve(false);
+				}
+				backend = {
+					...backend,
+					failureCode: "backend_provision_timeout",
+					status: "error",
+				};
+				return Promise.resolve(true);
+			},
+			markRestoreTimedOut: () => Promise.resolve(false),
 			markRestoring: (projectId) => {
 				markRestoringCalls.push(projectId);
 				return Promise.resolve(true);
+			},
+			setSecretId: (_projectId, column, secretId) => {
+				secretIds.push(`${column}:${secretId}`);
+				return Promise.resolve();
 			},
 			touchActive: (projectId) => {
 				if (options?.touchFails) {
@@ -237,6 +269,15 @@ function fixture(options?: {
 			},
 		},
 		client,
+		{
+			readSystemValue: (_projectId, name) =>
+				Promise.resolve(systemSecrets.get(name) ?? null),
+			set: (_projectId, name, value, kind) => {
+				secretSets.push({ kind, name });
+				systemSecrets.set(name, value);
+				return Promise.resolve(`secret-${name}`);
+			},
+		},
 	);
 	return {
 		audits,
@@ -246,6 +287,8 @@ function fixture(options?: {
 		provisionCalls,
 		rateLimiter,
 		requests,
+		secretIds,
+		secretSets,
 		service,
 		touches,
 	};
@@ -419,6 +462,23 @@ describe("CloudService backend routes", () => {
 			url: `${API}/projects/${REF}`,
 		});
 		expect(markRestoredCalls).toEqual([PROJECT_ID]);
+	});
+
+	it.each([
+		{ creatingTimedOut: false, status: "creating" },
+		{ creatingTimedOut: true, status: "error" },
+	] as const)("getBackend answers $status for a creating row when the timeout CAS answers $creatingTimedOut", async ({
+		creatingTimedOut,
+		status,
+	}) => {
+		const { service } = fixture({
+			backend: { ...BACKEND, status: "creating" },
+			creatingTimedOut,
+		});
+
+		const answer = await service.getBackend(SCOPE, PROJECT_ID);
+
+		expect(answer.status).toBe(status);
 	});
 
 	it("getBackend keeps a restoring row while Supabase still comes up", async () => {
@@ -1081,6 +1141,30 @@ describe("CloudService storage routes", () => {
 			JSON.stringify({ expiresIn: 600, paths: ["users/a.png"] }),
 		);
 		expect(JSON.stringify(answer)).not.toContain(SERVICE_ROLE_KEY);
+	});
+
+	it("reads the API key once for a backend without a stored key, stores it, then reads the stored key", async () => {
+		const { service, requests, secretIds, secretSets } = fixture({
+			answers: [
+				jsonResponse(200, API_KEYS_ANSWER),
+				jsonResponse(200, JSON.stringify({ url: "/object/upload/sign/a" })),
+				jsonResponse(200, JSON.stringify({ url: "/object/upload/sign/b" })),
+			],
+		});
+
+		await service.createUploadUrl(SCOPE, PROJECT_ID, "avatars", { path: "a" });
+		await service.createUploadUrl(SCOPE, PROJECT_ID, "avatars", { path: "b" });
+
+		expect(
+			requests.filter((request) => request.url.includes("/api-keys")),
+		).toHaveLength(1);
+		expect(secretSets).toEqual([
+			{ kind: "system", name: "SUPABASE_SERVICE_ROLE_KEY" },
+		]);
+		expect(secretIds).toEqual([
+			"serviceRoleSecretId:secret-SUPABASE_SERVICE_ROLE_KEY",
+		]);
+		expect(requests[2]?.headers.apikey).toBe(SERVICE_ROLE_KEY);
 	});
 
 	it("answers the next cursor when the page is full and skips the sign call on folders only", async () => {

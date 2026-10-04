@@ -202,7 +202,10 @@ async function setup(
 	sandboxes.respondTo("git", OK); // worktree remove
 
 	const deps = {
-		backends: { findByProjectId: vi.fn(async () => BACKEND) },
+		backends: {
+			findByProjectId: vi.fn(async () => BACKEND),
+			touchActive: vi.fn(async () => undefined),
+		},
 		captureException: vi.fn(),
 		deployments: {
 			isSlugTakenByOther: vi.fn(async () => false),

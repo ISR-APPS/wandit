@@ -55,7 +55,6 @@ PostHog flag `v2-builder`).
 - `TurnEventWriter` / `TurnEventReader` — the two ends of the `ui` stream
   (D20).
 - `TurnLock` — the per-project lock serializing turns.
-- `BackendProvider` — the hidden Supabase project behind an app (D18).
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
   back into a fresh sandbox (D21).
 - `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
@@ -133,7 +132,10 @@ partial unique index guarantees at most one live row per project.
   and Metro sends an HMR update when the file changes, so the running app
   gets the values with no restart code. The builder-turn runtime writes the
   file after `getOrCreate`; provision-backend writes it after `markActive`
-  when the sandbox runs. The writer waits until the dev port answers,
+  when the sandbox runs. provision-backend never pushes the egress policy:
+  a push from that process deletes the proxy run-token rule of the harness
+  session. A turn that started without an active backend adds the backend
+  host itself on its keep-alive tick. The writer waits until the dev port answers,
   because a dev server watches `.env` only from then. It writes only when
   the content differs, because each write restarts Vite. git ignores
   `.env`, and the Code view never shows it.
@@ -339,8 +341,10 @@ deploy never builds it.
 
 `BackendsService.provisionBackend` is the single entry of provisioning (D18):
 `AppProjectsService.create` calls it after the create transaction and before
-the first turn; no tool and no button creates a backend. It inserts the
-`creating` row and starts the task with idempotency key
+the first turn. `POST cloud/backend` calls it for a project without a row
+(for example a project made while provisioning was unconfigured) and for a
+failed (`error`) row, which it provisions again with a new request key. It
+writes the `creating` row and starts the task with idempotency key
 `provision-backend:<requestKey>`; a second call answers the row and starts
 nothing.
 Without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID` it writes no
@@ -350,10 +354,13 @@ invalid value logs `supabase.provisioning.region-override-invalid` and the
 picked region wins. A task-start failure never throws: the row is marked
 `backend_provision_start_failed` and the project keeps working.
 The task (`backend-provisioning` queue, concurrency 3, one attempt) claims the row by `requestKey`.
-It creates the Supabase project when the row has no `ref`; a replay creates no second project.
-It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout.
-It reads the anon key.
-It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral and serves both templates.
+Every row write of the task applies only while the row holds that key, so a run of an old key cannot change a retried row.
+A row with a `ref` (a retry or a replay) reuses its project; an `INIT_FAILED` project is deleted first, and a `REMOVED` one (or a 404) is replaced. A replay or a retry never leaves a second paid project.
+It stores the database password as the `system` secret `SUPABASE_DB_PASSWORD` before the create call, and sets `db_password_secret_id`.
+It creates the Supabase project when the row has no `ref`, with one fetch only: a retry after a lost answer could create a second paid project.
+It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout. A paused (`INACTIVE`) or `RESTORE_FAILED` project of a retried row gets one restore call.
+It reads the anon key and the service-role key, stores the service-role key as the `system` secret `SUPABASE_SERVICE_ROLE_KEY`, and sets `service_role_secret_id`.
+It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral, serves both templates, and can run twice. A reused project that was active before keeps its schema and auth config: the run skips this step and the next one.
 It sets the auth `site_url` to the preview apex with a `r-*--p-<projectId>.<domain>/**` allow list.
 It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
 No task changes this setting on a backend after its provisioning.
@@ -370,8 +377,8 @@ Every number here is a provisional D3 default in `BACKEND_DEFAULTS`
 description and the operator steps are in `docs/v2/backend-lifecycle.md`.
 
 - Activity: `touchActive` stamps `last_active_at` of an `active` row at
-  every turn end, every Cloud tab panel read, and every agent backend
-  tool call. A failed stamp logs `backend.touch-failed` only.
+  every turn end, every publish that went live, every Cloud tab panel
+  read, and every agent backend tool call. A failed stamp only logs.
 - Pause sweep: the Trigger task `backend-pause-sweep` (03:00 UTC, own
   queue at 1, one attempt, PRODUCTION and STAGING only) pauses at most 50
   `active` backends idle for 7 days (30 days with a live `deployments`
@@ -384,7 +391,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   (the row keeps `deleting` and loses its ref: the terminal state), and
   the audit row `backend.deleted`. The sweep also moves the backend of a
   project deleted more than a day ago to `deleting` when the delete step
-  missed it, and ends a stale `restoring` row.
+  missed it, ends a stale `restoring` row (also one stuck for more than
+  10 minutes), and pauses the running project of an `error` row.
 - Wake: the turn start restores a `paused` backend and waits for a
   `paused` or `restoring` one (a 180 s poll; with the restore call and the
   last read, about 300 s at most), with the `sandbox_waking` status
@@ -392,7 +400,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   `Backend not ready yet`. `markRestored` moves `restoring` back to
   `active`; `GET cloud/backend` and the sweep also call it.
   `RESTORE_FAILED` or `REMOVED` moves the row to `error`
-  (`backend_restore_failed`).
+  (`backend_restore_failed`); `GET cloud/backend` and the sweep do the same
+  for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
   refuses at the plan limit (starter 0, pro 1, business 3) with 403
@@ -434,16 +443,21 @@ missing, out-of-scope, or V1 project, like the turn routes.
 - `PUT /:name` with `{ value }` (at most 8 KB of UTF-8) sets or replaces
   a `user` row and answers 204. A `user` write over a `system` row
   answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
-  upsert, so no read races the write.
+  upsert, so no read races the write. A name that starts with `SUPABASE_`
+  answers 400 (`userSecretNameSchema`): the Supabase keys use these names.
 - `DELETE /:name` removes a `user` row and answers 204. A `system` row
   answers 409; a missing row answers 404.
 
 `ProjectSecretsService.readValue(projectId, name)` decrypts one row for
-server code only; no controller calls it. Its callers land in
-WANDIT-183 (the provisioning task), WANDIT-186 (`set_secret`), and
-WANDIT-189 (the connectors). `set(projectId, name, value, kind, actor)`
-takes `kind: "system"` for those callers; the actor scope comes from the
-`projects` row.
+server code only; no controller calls it. Its callers are WANDIT-186
+(`set_secret`) and WANDIT-189 (the connectors). `readSystemValue` reads
+only a `system` row, so a `user` row with the same name never acts as a
+platform key; the Cloud storage routes call it.
+`set(projectId, name, value, kind, actor)` answers the row id. The
+provisioning task (WANDIT-183) and the Cloud storage routes pass
+`kind: "system"` for `SUPABASE_SERVICE_ROLE_KEY` and
+`SUPABASE_DB_PASSWORD`; the actor scope comes from the `app_backends` row
+or the request.
 
 Every set and delete writes one `audit_events` row (`secret.set`,
 `secret.deleted`) with the actor, the client IP, the project, and the
@@ -469,20 +483,25 @@ composes the interactive `SupabaseManagementClient` (token
 `SUPABASE_MANAGEMENT_CLIENT`): no wait on a full bucket, one retry (none
 for a SQL write), and
 a 429 at once. Without `SUPABASE_PLATFORM_TOKEN` the factory answers
-null and every route answers 503 `V2_ENV_MISSING`. The service-role key
-comes from `GET /projects/{ref}/api-keys?reveal=true` on each storage
-call and never leaves the process. A follow-up swaps that read for the
-`project_secrets` store of WANDIT-185.
+null and every route answers 503 `V2_ENV_MISSING`. The storage routes
+read the service-role key from its `system` row in `project_secrets`. A
+backend from before that store has no row: the first storage call reads
+`GET /projects/{ref}/api-keys?reveal=true` once, stores the key, and sets
+`service_role_secret_id`. The key never leaves the process.
 
 Backend state:
 
 - `GET backend` answers `status`, `ref`, `region`, and `failureCode`;
   `status: "none"` without a row. A `restoring` row reads the Supabase
-  status and moves to `active` at `ACTIVE_HEALTHY` (WANDIT-184).
-- `POST backend` calls `BackendsService.provisionBackend` (idempotent)
-  and answers the row. Unconfigured provisioning answers 503
+  status and moves to `active` at `ACTIVE_HEALTHY` (WANDIT-184), or to
+  `error` when the wake is older than 10 minutes. A `creating` row with no
+  write for 30 minutes moves to `error` (`backend_provision_timeout`,
+  `markCreatingTimedOut`), and the Cloud tab then shows "Try again".
+- `POST backend` calls `BackendsService.provisionBackend` and answers the
+  row: no row gets one, an `error` row gets a new run, and any other row
+  starts nothing. Unconfigured provisioning answers 503
   `V2_ENV_MISSING`; a plan without a free slot answers 403
-  `BACKEND_LIMIT_REACHED`.
+  `BACKEND_LIMIT_REACHED` with `details: { plan, limit }`.
 - `POST backend/restore` calls `POST /projects/{ref}/restore`, then moves
   the row `paused` → `restoring` with the CAS `markRestoring`. A row in
   another state answers as it is. A failed upstream call leaves the row
@@ -991,7 +1010,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `apply_destructive_migration` | user-approval | Applies any migration. | `backend.migration_applied` with `destructive: true` |
 | `run_sql` | not-applicable | A read (`classifySql`) with `read_only: true`, first 200 rows. A write answers `needs_approval`. | none |
 | `run_sql_write` | user-approval | Runs the statement with `read_only: false`. | `backend.sql_written` (`queryHash`, `returnedRows`: the rows the endpoint answered), never the text |
-| `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the function URL. | `backend.function_deployed` (`slug`, `version`) |
+| `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
 
