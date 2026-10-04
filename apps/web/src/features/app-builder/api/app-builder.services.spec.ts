@@ -180,7 +180,6 @@ describe("updateAppProject", () => {
 		expect(project).toMatchObject({
 			id: realId,
 			name: "Atlas Two",
-			slug: "atlas",
 			kind: "mobile",
 		});
 	});
@@ -391,7 +390,6 @@ describe("toUiAppProject", () => {
 		expect(toUiAppProject(API_PROJECT)).toEqual({
 			id: API_PROJECT.id,
 			name: "Atlas Shop",
-			slug: "atlas",
 			description: "A storefront for crafts",
 			kind: "web",
 			engine: "v2_app",
@@ -401,15 +399,12 @@ describe("toUiAppProject", () => {
 		});
 	});
 
-	it("maps a mobile target and a missing published slug", () => {
+	it("maps a mobile target", () => {
 		const mobile = {
 			...API_PROJECT,
 			targetPlatform: "mobile",
-			publishedSlug: undefined,
 		} satisfies ApiAppProject;
-		const ui = toUiAppProject(mobile);
-		expect(ui.kind).toBe("mobile");
-		expect(ui.slug).toBe("");
+		expect(toUiAppProject(mobile).kind).toBe("mobile");
 	});
 });
 

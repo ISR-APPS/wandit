@@ -10,7 +10,6 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 	{
 		id: "nadi-fitness",
 		name: "Nadi Fitness",
-		slug: "nadi",
 		description:
 			"Membership app for a gym in Oran: member accounts, QR door pass and a front-desk dashboard.",
 		kind: "web",
@@ -22,7 +21,6 @@ export const MOCK_APP_PROJECTS: AppProject[] = [
 	{
 		id: "nadi-fitness-mobile",
 		name: "Nadi Fitness",
-		slug: "nadi",
 		description:
 			"Membership app for a gym in Oran: member accounts, QR door pass and a front-desk dashboard.",
 		kind: "mobile",

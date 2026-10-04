@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	type InfiniteData,
+	QueryClient,
+	QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type {
 	AppCommit,
@@ -65,7 +69,10 @@ afterEach(cleanup);
 describe("useRestoreVersion", () => {
 	it("posts the restore, invalidates the seeded versions list and code, and runs onRestored", async () => {
 		const queryClient = new QueryClient();
-		const versions: ListVersionsResponse = { items: [], nextCursor: null };
+		const versions: InfiniteData<ListVersionsResponse, string | null> = {
+			pages: [{ items: [], nextCursor: null }],
+			pageParams: [null],
+		};
 		queryClient.setQueryData(appBuilderKeys.versions(PROJECT_ID), versions);
 		const openFile: CodeFile = { kind: "missing", path: "src/app.tsx" };
 		queryClient.setQueryData(
@@ -133,7 +140,10 @@ describe("useRestoreVersion", () => {
 
 	it("invalidates the versions list when the head moved", async () => {
 		const queryClient = new QueryClient();
-		const versions: ListVersionsResponse = { items: [], nextCursor: null };
+		const versions: InfiniteData<ListVersionsResponse, string | null> = {
+			pages: [{ items: [], nextCursor: null }],
+			pageParams: [null],
+		};
 		queryClient.setQueryData(appBuilderKeys.versions(PROJECT_ID), versions);
 		const restoreVersion = vi.fn<RestoreFn>(async () => {
 			throw apiError("VERSION_CONFLICT", 409);
@@ -155,7 +165,10 @@ describe("useRestoreVersion", () => {
 
 	it("keeps the versions list untouched on another error code", async () => {
 		const queryClient = new QueryClient();
-		const versions: ListVersionsResponse = { items: [], nextCursor: null };
+		const versions: InfiniteData<ListVersionsResponse, string | null> = {
+			pages: [{ items: [], nextCursor: null }],
+			pageParams: [null],
+		};
 		queryClient.setQueryData(appBuilderKeys.versions(PROJECT_ID), versions);
 		const restoreVersion = vi.fn<RestoreFn>(async () => {
 			throw apiError("INTERNAL_ERROR", 500);

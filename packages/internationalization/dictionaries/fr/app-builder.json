@@ -14,7 +14,7 @@
 		"collapseChat": "Masquer le chat",
 		"expandChat": "Afficher le chat",
 		"reload": "Recharger l'aperçu",
-		"openExternal": "Ouvrir dans un nouvel onglet",
+		"openExternal": "Ouvrir l'app en ligne",
 		"viewsAriaLabel": "Vues de l'espace de travail"
 	},
 	"views": {
@@ -77,9 +77,6 @@
 		"frameTitle": "Appareil {device} avec {name}"
 	},
 	"preview": {
-		"liveReload": "Rechargement auto",
-		"back": "Retour",
-		"forward": "Suivant",
 		"frameTitle": "Aperçu de {name}",
 		"retry": "Réessayer",
 		"boot": {
@@ -602,8 +599,9 @@
 		"numstat": "+{added} −{removed}",
 		"emptyDiff": "Cette version n'a modifié aucun fichier.",
 		"empty": "Aucune version pour le moment. La première opération en crée une.",
+		"loadMore": "Charger plus",
 		"restoreTitle": "Restaurer cette version ?",
-		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé.",
+		"restoreBody": "Wandit crée une nouvelle version avec le code de celle-ci. Rien n'est supprimé. Tes données et ta base de données ne changent pas.",
 		"cancel": "Annuler"
 	},
 	"mock": {

@@ -14,7 +14,7 @@
 		"collapseChat": "إخفاء المحادثة",
 		"expandChat": "إظهار المحادثة",
 		"reload": "إعادة تحميل المعاينة",
-		"openExternal": "فتح في تبويب جديد",
+		"openExternal": "فتح التطبيق المنشور",
 		"viewsAriaLabel": "طرق عرض مساحة العمل"
 	},
 	"views": {
@@ -77,9 +77,6 @@
 		"frameTitle": "جهاز {device} مع {name}"
 	},
 	"preview": {
-		"liveReload": "تحديث مباشر",
-		"back": "رجوع",
-		"forward": "تقدم",
 		"frameTitle": "معاينة {name}",
 		"retry": "حاول مرة أخرى",
 		"boot": {
@@ -642,8 +639,9 @@
 		"numstat": "+{added} −{removed}",
 		"emptyDiff": "لم تغيّر هذه النسخة أي ملف.",
 		"empty": "لا توجد نسخة بعد. تنشئ العملية الأولى نسخة.",
+		"loadMore": "تحميل المزيد",
 		"restoreTitle": "استعادة هذه النسخة؟",
-		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء.",
+		"restoreBody": "ينشئ Wandit نسخة جديدة بكود هذه النسخة. لا يُحذف أي شيء. لا تتغير بياناتك ولا قاعدة بياناتك.",
 		"cancel": "إلغاء"
 	},
 	"mock": {

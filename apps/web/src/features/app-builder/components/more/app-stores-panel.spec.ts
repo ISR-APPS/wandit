@@ -13,7 +13,6 @@ import { AppStoresPanel } from "./app-stores-panel";
 const project: AppProject = {
 	id: "nadi-fitness-mobile",
 	name: "Nadi Fitness",
-	slug: "nadi",
 	description: "Membership app for a gym in Oran.",
 	kind: "mobile",
 	engine: "v2_app",

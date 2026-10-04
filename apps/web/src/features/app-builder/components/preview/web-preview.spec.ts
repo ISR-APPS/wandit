@@ -14,7 +14,6 @@ import { WebPreview, type WebPreviewProps } from "./web-preview";
 const project: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
 	description: "Membership app for a gym in Oran.",
 	kind: "web",
 	engine: "v2_app",
@@ -44,9 +43,13 @@ const idleBoot: BootContext = {
 	hasCodeChanges: true,
 };
 
-async function renderPreview(viewport: WebViewport) {
+async function renderPreview(
+	viewport: WebViewport,
+	liveUrl: string | null = null,
+) {
 	const props: WebPreviewProps = {
 		project,
+		liveUrl,
 		viewport,
 		reloadKey: 0,
 		bootContext: idleBoot,
@@ -70,9 +73,13 @@ async function renderPreview(viewport: WebViewport) {
 afterEach(cleanup);
 
 describe("WebPreview", () => {
-	it("shows the project URL in the browser bar", async () => {
-		await renderPreview("desktop");
-		expect(screen.getByText("nadi.wandit.app")).toBeTruthy();
+	// Before the first publish the bar showed ".wandit.app", a host that does not exist.
+	it.each([
+		["https://nadi.wandit.app", "nadi.wandit.app"],
+		[null, "Not published yet"],
+	])("shows %s in the bar as %s", async (liveUrl, text) => {
+		await renderPreview("desktop", liveUrl);
+		expect(screen.getByText(text)).toBeTruthy();
 	});
 
 	it("fills the width without side borders on the desktop viewport", async () => {

@@ -22,8 +22,6 @@ export type AppProjectKind = "web" | "mobile";
 export type AppProject = {
 	id: string;
 	name: string;
-	/** URL slug. Web previews live on `{slug}.wandit.app`. */
-	slug: string;
 	description: string;
 	kind: AppProjectKind;
 	/** Builder of the project, from `GET /api/v2/projects/:id`. The Backend group of the More view shows only for `v2_app`. */

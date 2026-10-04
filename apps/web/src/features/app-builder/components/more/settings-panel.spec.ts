@@ -20,7 +20,6 @@ import { SettingsPanel } from "./settings-panel";
 const project: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
 	description: "Membership app for a gym in Oran.",
 	kind: "web",
 	engine: "v2_app",

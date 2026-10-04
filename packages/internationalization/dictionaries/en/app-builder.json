@@ -14,7 +14,7 @@
 		"collapseChat": "Hide the chat",
 		"expandChat": "Show the chat",
 		"reload": "Reload the preview",
-		"openExternal": "Open in a new tab",
+		"openExternal": "Open the live app",
 		"viewsAriaLabel": "Workspace views"
 	},
 	"views": {
@@ -77,9 +77,6 @@
 		"frameTitle": "{device} device with {name}"
 	},
 	"preview": {
-		"liveReload": "Live reload",
-		"back": "Back",
-		"forward": "Forward",
 		"frameTitle": "Preview of {name}",
 		"retry": "Try again",
 		"boot": {
@@ -602,8 +599,9 @@
 		"numstat": "+{added} −{removed}",
 		"emptyDiff": "This version changed no file.",
 		"empty": "No version yet. The first turn creates one.",
+		"loadMore": "Load more",
 		"restoreTitle": "Restore this version?",
-		"restoreBody": "Wandit creates a new version with the code of this one. Nothing is deleted.",
+		"restoreBody": "Wandit creates a new version with the code of this one. Nothing is deleted. Your data and your database do not change.",
 		"cancel": "Cancel"
 	},
 	"mock": {
