@@ -1,4 +1,4 @@
-// Supabase client for every screen. Screens import `supabase` from here.
+// Supabase client of the app. The `api/` files of each feature import it.
 // The root layout imports this file first, so a missing env value stops the
 // app at start. D18: there is no null client and no "no backend yet" path.
 import AsyncStorage from "@react-native-async-storage/async-storage";

@@ -3273,9 +3273,7 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
-		expect(instructions).toContain(
-			"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.",
-		);
+		expect(instructions).toContain("Expo Go");
 		expect(instructions).toContain("ask_user tool");
 	});
 

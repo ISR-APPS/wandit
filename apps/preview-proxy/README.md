@@ -30,6 +30,11 @@ Every forwarded request carries `X-Forwarded-Host: <preview host>` and
 from these two headers, so the vendor host does not reach the browser or
 the phone.
 
+A request whose `Origin` is the preview host itself goes upstream with the
+sandbox origin instead. Expo CLI refuses a request whose `Origin` host is
+not its `Host`, and a browser sends `Origin` on a font load. A foreign
+`Origin` passes unchanged, so the dev server still refuses it.
+
 ## The phone link
 
 Expo Go sends no cookie, so a phone gets its own host instead of the

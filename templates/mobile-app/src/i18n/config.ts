@@ -1,43 +1,37 @@
-// Locale configuration for the app.
-// The i18n provider and the language switch read this file.
-// The template has en, fr, and ar (D7); the agent narrows `locales` to the project languages.
+// Locale configuration of the app. The locale store, the translate lookup,
+// and the language picker read this file.
+// The app starts with one language. CLAUDE.md, "Languages", tells how to add one.
 
-/** Every language with a dictionary file. The files stay even when `locales` is shorter. */
-export type DictionaryLocale = "en" | "fr" | "ar";
+/** Text direction of a locale. The root layout applies it to the whole app. */
+export type Direction = "ltr" | "rtl";
 
-/** The languages the app shows. The switch, the saved locale, and the device match read it. */
+/**
+ * Every language this app can show: its name in its own language and its
+ * direction. Add a language here before you add its code to `locales`.
+ */
+export const localeMeta = {
+	en: { nativeLabel: "English", dir: "ltr" },
+	fr: { nativeLabel: "Français", dir: "ltr" },
+	ar: { nativeLabel: "العربية", dir: "rtl" },
+} as const satisfies Record<string, { nativeLabel: string; dir: Direction }>;
+
+/** The languages the app shows. The first code is the default and the source dictionary. */
 export const locales = [
 	"en",
-	"fr",
-	"ar",
-] as const satisfies readonly DictionaryLocale[];
+] as const satisfies readonly (keyof typeof localeMeta)[];
 
-/** The only locale codes this app renders. `ar` renders right to left. */
+/** The locale codes this app renders. */
 export type Locale = (typeof locales)[number];
 
 /** The first code in `locales`. The app renders it when no saved or device locale matches. */
 export const defaultLocale: Locale = locales[0];
 
-/** Text direction of a locale. The root layout applies it to the whole app. */
-export type Direction = "ltr" | "rtl";
-
-/** Keyed by the dictionary files, so a shorter `locales` still compiles. The switch shows `nativeLabel`. */
-export const localeMeta = {
-	en: { nativeLabel: "English", dir: "ltr" },
-	fr: { nativeLabel: "Français", dir: "ltr" },
-	ar: { nativeLabel: "العربية", dir: "rtl" },
-} as const satisfies Record<
-	DictionaryLocale,
-	{ nativeLabel: string; dir: Direction }
->;
-
-/** Narrows a stored or device value to a supported locale code. */
+/** Narrows a stored or device value to a locale of `locales`. */
 export function isLocale(value: string | null): value is Locale {
-	// SAFETY: includes() rejects any string outside the tuple, so the cast is sound.
-	return value !== null && locales.includes(value as Locale);
+	return locales.some((locale) => locale === value);
 }
 
-/** Direction of a locale; `ar` is the only right-to-left one. */
+/** Direction of a locale. */
 export function getDir(locale: Locale): Direction {
 	return localeMeta[locale].dir;
 }
