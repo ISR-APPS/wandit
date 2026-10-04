@@ -1,7 +1,8 @@
 /**
  * The chat card of the app builder. The header shows the project name, the
  * pulsing turn dot with a Stop button while a turn runs, and the collapse
- * button. Below it sit the scrolling message list with one working row
+ * button. Below it sit the scrolling message list with a "Load earlier
+ * messages" button at the top while older pages exist, one working row
  * while a turn runs, an alert row for a refused send (`errorText`), and the
  * composer pinned at the bottom. When the agent asks the user something,
  * the request tray opens on top of the composer. The raw thought rows show
@@ -20,7 +21,14 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { PanelLeftClose, Square } from "lucide-react";
 import { AnimatePresence, MotionConfig } from "motion/react";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
@@ -68,6 +76,12 @@ export type ChatPaneProps = {
 	onCollapse: () => void;
 	/** Opens the preview on a saved version. The change card calls it. */
 	onPreviewVersion: (versionNumber: number) => void;
+	/** True while the stored chat has an older page. Shows the "Load earlier messages" button. From useBuilderThread. */
+	hasOlderMessages: boolean;
+	/** True while the older page loads. Disables the button. */
+	isLoadingOlderMessages: boolean;
+	/** Loads the next older page. The list keeps the message the user reads in place. */
+	onLoadOlderMessages: () => void;
 	className?: string;
 };
 
@@ -88,6 +102,9 @@ export function ChatPane({
 	errorText,
 	onCollapse,
 	onPreviewVersion,
+	hasOlderMessages,
+	isLoadingOlderMessages,
+	onLoadOlderMessages,
 	className,
 }: ChatPaneProps) {
 	const { t } = useTranslation();
@@ -112,7 +129,12 @@ export function ChatPane({
 		onSubmit: onAnswerQuestions,
 	});
 
-	useAutoScroll(listRef, contentRef, isSending);
+	const keepPositionForOlder = useAutoScroll(
+		listRef,
+		contentRef,
+		isSending,
+		isLoadingOlderMessages,
+	);
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
@@ -168,9 +190,30 @@ export function ChatPane({
 			</div>
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3"
+				// The browser scroll anchor is off. It moves the list a second time
+				// after the manual position fix of an older page.
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3 [overflow-anchor:none]"
 			>
 				<div ref={contentRef} className="flex flex-col gap-5">
+					{hasOlderMessages ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="self-center text-muted-foreground"
+							disabled={isLoadingOlderMessages}
+							aria-busy={isLoadingOlderMessages}
+							onClick={() => {
+								keepPositionForOlder();
+								onLoadOlderMessages();
+							}}
+						>
+							{t(
+								isLoadingOlderMessages
+									? "appBuilder.chat.loadingEarlier"
+									: "appBuilder.chat.loadEarlier",
+							)}
+						</Button>
+					) : null}
 					{shownMessages.map((message) => (
 						<ChatMessageView
 							key={message.id}
@@ -259,16 +302,23 @@ const NEAR_BOTTOM_PX = 120;
  * Keeps the end of the list in view while content grows: new messages,
  * streamed text, new feed rows, and a tray that shrinks the list. A scroll
  * up stops the follow, so the user can read. A new send starts it again.
+ * Returns the call to make before an older page loads. The list then keeps
+ * the read message in place when the page goes in above it.
  */
 function useAutoScroll(
 	listRef: RefObject<HTMLDivElement | null>,
 	contentRef: RefObject<HTMLDivElement | null>,
 	/** True while a turn runs; a new send jumps to the end. */
 	isSending: boolean,
-) {
+	/** True while an older page loads; its end puts the saved position back. */
+	isLoadingOlder: boolean,
+): () => void {
 	// True while the list follows new content. The scroll handler and the
 	// send effect set it.
 	const isFollowingRef = useRef(true);
+	// Distance in px from the scroll position to the end of the content when
+	// an older page was asked for. Null while no older page loads.
+	const distanceFromEndRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		const list = listRef.current;
@@ -306,4 +356,24 @@ function useAutoScroll(
 		isFollowingRef.current = true;
 		list.scrollTop = list.scrollHeight;
 	}, [isSending, listRef]);
+
+	// The older page renders in the same commit that ends the load. A layout
+	// effect puts the position back before the browser paints the jump.
+	// LIMIT: text that streams in during the load moves the view by its
+	// height. Upgrade: anchor on the first message node instead of the end.
+	useLayoutEffect(() => {
+		const list = listRef.current;
+		const distanceFromEnd = distanceFromEndRef.current;
+		if (isLoadingOlder || !list || distanceFromEnd === null) return;
+		distanceFromEndRef.current = null;
+		list.scrollTop = list.scrollHeight - distanceFromEnd;
+	}, [isLoadingOlder, listRef]);
+
+	return useCallback(() => {
+		const list = listRef.current;
+		if (!list) return;
+		// The follow would jump to the end when the older page grows the content.
+		isFollowingRef.current = false;
+		distanceFromEndRef.current = list.scrollHeight - list.scrollTop;
+	}, [listRef]);
 }

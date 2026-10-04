@@ -332,6 +332,8 @@
 	},
 	"chat": {
 		"title": "الدردشة",
+		"loadEarlier": "تحميل الرسائل السابقة",
+		"loadingEarlier": "جارٍ تحميل الرسائل السابقة…",
 		"thoughtFor": "فكّر لمدة {seconds} ث",
 		"thinking": "يفكّر",
 		"thought": "فكّر",

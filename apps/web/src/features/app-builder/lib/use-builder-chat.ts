@@ -76,7 +76,7 @@ export type BuilderChat = {
 /**
  * The `chatId`, `initialMessages`, and `isHistorySettled` inputs come from
  * useBuilderThread (it composes them from useChatByProjectQuery,
- * useChatMessagesQuery, and hydrateTurnMessages). While `chatId` is
+ * the paged chatHistoryQuery, and hydrateTurnMessages). While `chatId` is
  * undefined no transport exists and `send` refuses.
  */
 export function useBuilderChat(
@@ -85,7 +85,7 @@ export function useBuilderChat(
 		projectId: string;
 		/** Resolved chat id; undefined while the by-project query loads. */
 		chatId: string | undefined;
-		/** Hydrated history; reseeds the chat when it changes while idle. */
+		/** Hydrated newest history page; reseeds the chat when it changes while idle. */
 		initialMessages: readonly TurnMessage[];
 		/**
 		 * True once the stored history loaded or failed. The resume waits for
