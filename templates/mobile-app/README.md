@@ -1,8 +1,10 @@
 # mobile-app template
 
 Expo starter for generated wandit mobile apps. It runs on iPhone, Android, and the web.
-Expo SDK 57 (pinned to the store Expo Go app), React Native 0.86, expo-router,
-HeroUI Native with Uniwind, Supabase, and i18n (en/fr/ar with right-to-left).
+Expo SDK 57 (pinned to the store Expo Go app), React Native 0.86, expo-router (bottom tabs,
+a stack per tab, modals), HeroUI Native with Uniwind, React Query, Supabase email and
+password sign-in, and i18n (one language by default, ready for more and for right to left).
+The code uses feature folders like `apps/native`; `CLAUDE.md`, "Code structure", shows the tree.
 
 ## How the template reaches the sandbox
 
@@ -47,13 +49,26 @@ To run the template locally: `pnpm install`, export the two Supabase values, the
 - `pnpm run dev`: Metro on port 8081 for web and native.
 - `pnpm run web`: the same, and it opens the browser.
 - `pnpm run export:web`: static web build into `dist/`.
-- `pnpm run typecheck`: `tsc --noEmit`.
+- `pnpm run typecheck`: `tsc --noEmit`, then `scripts/check-effects.mjs`. The check fails on a
+  `useEffect`, `useLayoutEffect`, or `useFocusEffect` in `src/` without a `// effect: <reason>`
+  line above it.
 - `pnpm run lint`: `biome check --error-on-warnings .`
 - `pnpm run allow-list`: writes `native-modules.json` and the allow-list block in `CLAUDE.md`.
-- `pnpm run smoke`: frozen install, typecheck, lint, the allow-list check, the base SQL
-  compare, Metro (web page, iOS manifest, iOS bundle), the web export, and a 500 MB
-  ceiling on `node_modules`.
+- `node --env-file=.env scripts/create-test-user.mjs`: the agent runs it once to create a
+  test account in the app backend (sign-up with the anon key) and give it to the user.
+- `pnpm run smoke`: frozen install, typecheck (with the effect check), lint, the allow-list
+  check, the base SQL compare, Metro (web page, iOS manifest, iOS bundle), the web export,
+  and a 500 MB ceiling on `node_modules`.
 - `pnpm run pack`: writes the archive.
+
+## Icon and splash
+
+`assets/` holds neutral defaults: `icon.png` (1024 x 1024, no alpha for iOS),
+`adaptive-icon.png` (the Android foreground; the mark stays inside the 66 % safe zone),
+`splash-icon.png`, and `favicon.png`. SDK 57 has no top-level `splash` key, so `app.json`
+sets the splash through the `expo-splash-screen` plugin. Expo Go shows the app icon, not
+the splash; an EAS build shows both. `expo-system-ui` has no import: an Android build needs
+it to apply `userInterfaceStyle: "automatic"` (dark mode). Keep it.
 
 ## Module allow-list
 

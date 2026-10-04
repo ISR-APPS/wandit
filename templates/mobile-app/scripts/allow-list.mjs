@@ -115,6 +115,7 @@ const NO_WEB = [
 // bundledNativeModules.json does not list them.
 const JS_ONLY = {
 	"@supabase/supabase-js": "the Supabase client (D18)",
+	"@tanstack/react-query": "server data: queries, mutations, and the cache",
 	"heroui-native": "the UI kit (D6)",
 	"tailwind-merge": "a peer of heroui-native",
 	"tailwind-variants": "a peer of heroui-native",
