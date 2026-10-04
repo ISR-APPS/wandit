@@ -1,15 +1,17 @@
 /**
  * History button of the top bar and its popover with the version list.
- * Rendered by components/shell/top-bar.tsx. The list reads appVersionsQuery
- * when the popover opens. Each older row can open its diff (versionDiffQuery,
- * parsed by lib/unified-diff.ts) or restore the version through
- * useRestoreVersion after a confirm dialog.
+ * Rendered by components/shell/top-bar.tsx on every screen width. The list
+ * reads appVersionsQuery when the popover opens, 50 versions per page, with
+ * "Load more" for older ones. The page gives the live commit for the Live
+ * badge. Each older row can open its diff (versionDiffQuery, parsed by
+ * lib/unified-diff.ts) or restore the version through useRestoreVersion
+ * after a confirm dialog.
  * The spec renders VersionsList without the popover. The Diff toggle mounts
  * VersionDiff, which reads versionDiffQuery, so the list needs a
  * QueryClientProvider around it.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { AppCommit } from "@wandit/contracts";
 import {
 	AlertDialog,
@@ -35,7 +37,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import { History } from "lucide-react";
+import { History, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
 import { formatRelativeTime, useTranslation } from "@/lib/i18n";
@@ -50,13 +52,16 @@ import { DiffCard } from "../chat/diff-card";
 export type VersionsPopoverProps = {
 	/** Route param of the open project. */
 	projectId: string;
+	/** Sha of the commit the live web app runs, from the publish status. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** Runs after a restore succeeds. The page mints a new preview token with it. */
 	onRestored: () => void;
 };
 
-/** The top bar hides this button below the md breakpoint; see top-bar.tsx. */
+/** The History icon button. Its popover loads the versions only while it is open. */
 export function VersionsPopover({
 	projectId,
+	liveCommitSha,
 	onRestored,
 }: VersionsPopoverProps) {
 	const { t } = useTranslation();
@@ -79,27 +84,40 @@ export function VersionsPopover({
 					{t("appBuilder.topBar.history")}
 				</TooltipContent>
 			</Tooltip>
-			{/* 26 rem so a diff line fits under a row. */}
-			<PopoverContent align="start" className="w-[26rem] p-0">
-				<div className="border-b px-4 py-3 font-semibold text-sm">
+			{/* 26 rem so a diff line fits under a row. On a phone it keeps 12 px from each edge. */}
+			{/* The list scrolls under the title when it is taller than the space under the button. */}
+			<PopoverContent
+				align="start"
+				collisionPadding={12}
+				className="flex max-h-(--radix-popover-content-available-height) w-[26rem] max-w-[calc(100vw-24px)] flex-col p-0"
+			>
+				<div className="shrink-0 border-b px-4 py-3 font-semibold text-sm">
 					{t("appBuilder.versions.title")}
 				</div>
-				<VersionsBody projectId={projectId} onRestored={onRestored} />
+				<div className="min-h-0 overflow-y-auto">
+					<VersionsBody
+						projectId={projectId}
+						liveCommitSha={liveCommitSha}
+						onRestored={onRestored}
+					/>
+				</div>
 			</PopoverContent>
 		</Popover>
 	);
 }
 
-/** Loads the versions when the popover opens and owns the restore mutation. Three skeleton rows stand in while it loads. */
+/**
+ * Loads the versions when the popover opens and owns the restore mutation.
+ * Three skeleton rows stand in while it loads. "Load more" fetches the next
+ * page while the API answers a cursor.
+ */
 function VersionsBody({
 	projectId,
+	liveCommitSha,
 	onRestored,
-}: {
-	projectId: string;
-	onRestored: () => void;
-}) {
+}: Pick<VersionsPopoverProps, "projectId" | "liveCommitSha" | "onRestored">) {
 	const { t } = useTranslation();
-	const versions = useQuery(appVersionsQuery(projectId));
+	const versions = useInfiniteQuery(appVersionsQuery(projectId));
 	// The callback lives on the hook so it also runs when the popover closed mid-restore.
 	const restore = useRestoreVersion(projectId, { onRestored });
 
@@ -112,49 +130,78 @@ function VersionsBody({
 			</div>
 		);
 	}
-	if (versions.isError) {
+	// A failed "Load more" keeps the loaded rows. Only a first load without rows shows the error.
+	if (versions.data === undefined) {
 		return (
 			<p className="px-4 py-3 text-muted-foreground text-sm">
 				{t("errors.generic")}
 			</p>
 		);
 	}
+	const items = versions.data.pages.flatMap((page) => page.items);
 	return (
-		<VersionsList
-			versions={versions.data.items}
-			projectId={projectId}
-			isRestoring={restore.isPending}
-			onRestore={(sha) =>
-				restore.mutate(
-					// The API compares this head with the real one and swaps on it.
-					{ sha, expectedHeadSha: versions.data.items[0].sha },
-				)
-			}
-		/>
+		<>
+			<VersionsList
+				versions={items}
+				projectId={projectId}
+				liveCommitSha={liveCommitSha}
+				isRestoring={restore.isPending}
+				onRestore={(sha) =>
+					restore.mutate(
+						// The API compares this head with the real one and swaps on it.
+						{ sha, expectedHeadSha: items[0].sha },
+					)
+				}
+			/>
+			{versions.hasNextPage ? (
+				<div className="flex flex-col items-center gap-1 border-t p-2">
+					{versions.isFetchNextPageError ? (
+						<p className="text-muted-foreground text-xs">
+							{t("errors.generic")}
+						</p>
+					) : null}
+					{/* A click during a refetch cancels it and keeps the old head on top. */}
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={versions.isFetching}
+						onClick={() => void versions.fetchNextPage()}
+					>
+						{versions.isFetchingNextPage ? (
+							<LoaderCircle className="size-3.5 animate-spin" />
+						) : null}
+						{t("appBuilder.versions.loadMore")}
+					</Button>
+				</div>
+			) : null}
+		</>
 	);
 }
 
 export type VersionsListProps = {
-	/** Newest first, as appVersionsQuery returns them. The first row is the current version. */
+	/** Newest first, every loaded page of appVersionsQuery. The first row is the current version. */
 	versions: AppCommit[];
 	/** Sha of the version to restore. The parent runs the mutation. */
 	onRestore: (sha: string) => void;
 	/** Route param of the open project. The diff block queries with it. */
 	projectId: string;
+	/** Sha of the commit the live web app runs. Its row gets the Live mark. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** True while a restore runs. Every Restore button is disabled then. */
 	isRestoring: boolean;
 };
 
 /**
- * One row per version: short sha, first message line, age, and the source
- * badge. The first row is the current version; every other row also has a
- * Diff toggle and a Restore button that opens a confirm dialog.
+ * One row per version: short sha, first message line, age, the Live mark on
+ * the published version, and the source badge. The first row is the
+ * current version; every other row also has a Diff toggle and a Restore
+ * button that opens a confirm dialog.
  */
-// LIMIT: the V2 API has no publish state, so there is no Live badge. Upgrade: WANDIT-178.
 export function VersionsList({
 	versions,
 	onRestore,
 	projectId,
+	liveCommitSha,
 	isRestoring,
 }: VersionsListProps) {
 	const { t, locale } = useTranslation();
@@ -187,11 +234,22 @@ export function VersionsList({
 								<div className="truncate" dir="auto">
 									{version.message.split("\n")[0]}
 								</div>
-								<div className="text-muted-foreground text-xs">
+								{/* The Live mark sits in this line, so a phone row keeps room for the message. */}
+								<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
 									{formatRelativeTime(version.createdAt, locale)}
+									{version.sha === liveCommitSha ? (
+										<span className="flex items-center gap-1 font-medium text-success-text">
+											<span
+												aria-hidden
+												className="size-1.5 rounded-full bg-success"
+											/>
+											{t("appBuilder.publish.live")}
+										</span>
+									) : null}
 								</div>
 							</div>
-							<Badge variant="secondary">
+							{/* A phone row has no room for it next to Diff and Restore; the message names a restore. */}
+							<Badge variant="secondary" className="max-sm:hidden">
 								{t(`appBuilder.versions.source.${version.source}`)}
 							</Badge>
 							{isCurrent ? (

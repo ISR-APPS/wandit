@@ -259,6 +259,62 @@ describe("useBuilderChat", () => {
 		expect(result.current.turnId).toBeNull();
 	});
 
+	// A Stop during the admission of the POST has no turn id yet. Without the
+	// wait, no cancel goes out and the turn keeps running and spending.
+	it("waits for the turn id when Stop comes before the first frame, then cancels", async () => {
+		const fake = createDeps();
+		let answerPost = () => {};
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>((resolve) => {
+							answerPost = () => resolve(fake.deps.fetch(input, init));
+						})
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+		);
+		// The mount resume GET answers 204 first, so it cannot reset the status.
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+
+		let canceling: Promise<void> = Promise.resolve();
+		act(() => {
+			canceling = result.current.cancel();
+		});
+		await act(async () => {});
+		expect(fake.deps.cancelTurn).not.toHaveBeenCalled();
+
+		act(() => answerPost());
+		await act(async () => {
+			await canceling;
+		});
+
+		expect(fake.deps.cancelTurn).toHaveBeenCalledWith(PROJECT_ID, TURN_ID);
+		expect(fake.postAbortSignal()?.aborted).toBe(true);
+		// The reply gets the canceled status, so the chat shows "Stopped".
+		expect(result.current.messages.at(-1)?.parts).toContainEqual({
+			type: "data-turn-done",
+			id: "turn-done",
+			data: { status: "canceled" },
+		});
+	});
+
 	it("marks the project stale again after the cancel POST answers", async () => {
 		const fake = createDeps();
 		const queryClient = new QueryClient();

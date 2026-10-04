@@ -717,9 +717,14 @@ describe("TurnsService.create", () => {
 		expect(await lock.holder("project-1")).toBe("other-turn");
 	});
 
-	it("answers 409 BUILDER_TURN_ACTIVE when a restore holds the lock", async () => {
+	// Neither a restore nor a sandbox wake promotes a waiting turn, so a
+	// parked row would strand until the next submit.
+	it.each([
+		"restore:abc-123",
+		"wake:abc-123",
+	])("answers 409 BUILDER_TURN_ACTIVE when %s holds the lock", async (holder) => {
 		const { lock, metering, service, turns } = setup();
-		await lock.acquire("project-1", "restore:abc-123", 60_000);
+		await lock.acquire("project-1", holder, 60_000);
 
 		const failure = await service
 			.create(SCOPE, "project-1", BODY)
@@ -736,8 +741,8 @@ describe("TurnsService.create", () => {
 			"event-1",
 			"builder_turn_create_failed",
 		);
-		// No row parked, no task started; the restore keeps its lock.
-		expect(await lock.holder("project-1")).toBe("restore:abc-123");
+		// No row parked, no task started; the holder keeps its lock.
+		expect(await lock.holder("project-1")).toBe(holder);
 		expect(turns.promoteOldestWaiting).not.toHaveBeenCalled();
 	});
 

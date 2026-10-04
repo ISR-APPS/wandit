@@ -51,6 +51,8 @@ export type ProjectBarProps = {
 	chatOpen: boolean;
 	/** Opens the chat card. The collapse button lives in the card header. */
 	onExpandChat: () => void;
+	/** Sha of the commit the live web app runs, from the publish status in the page. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** Runs after a restore succeeds. The page mints a new preview token with it. */
 	onRestored: () => void;
 };
@@ -60,6 +62,7 @@ export function ProjectBar({
 	project,
 	chatOpen,
 	onExpandChat,
+	liveCommitSha,
 	onRestored,
 }: ProjectBarProps) {
 	const { t } = useTranslation();
@@ -89,9 +92,12 @@ export function ProjectBar({
 			</Link>
 			<ProjectMenu project={project} />
 			<span className="flex items-center gap-1">
-				<span className="hidden md:block">
-					<VersionsPopover projectId={project.id} onRestored={onRestored} />
-				</span>
+				{/* Every width shows it: a phone user must be able to list and restore versions too. */}
+				<VersionsPopover
+					projectId={project.id}
+					liveCommitSha={liveCommitSha}
+					onRestored={onRestored}
+				/>
 				{chatOpen ? null : (
 					<IconAction label={t("appBuilder.topBar.expandChat")}>
 						<Button variant="ghost" size="icon-sm" onClick={onExpandChat}>
@@ -121,8 +127,8 @@ export type WorkBarProps = {
 	onChangeViewport: (viewport: WebViewport) => void;
 	/** Bumps `reloadKey`; the panel mints a new token and the new src reloads the frame. */
 	onReload: () => void;
-	/** Opens the published app in a new tab. Web projects only: a mobile app has no site. */
-	onOpenExternal: () => void;
+	/** `https://{slug}.{SITES_DOMAIN}` of the live web app, from the publish status in the page. Null before the first publish and for a mobile app. */
+	liveUrl: string | null;
 	/** True when the chat can take a message. Passed to the publish popover for "Ask the AI to fix". */
 	canAskFix: boolean;
 	/** Sends one chat message and opens the chat. The publish popover sends the gate findings with it. */
@@ -140,7 +146,7 @@ export function WorkBar({
 	onChangeDevice,
 	onChangeViewport,
 	onReload,
-	onOpenExternal,
+	liveUrl,
 	canAskFix,
 	onAskFix,
 }: WorkBarProps) {
@@ -160,7 +166,7 @@ export function WorkBar({
 						onChangeDevice={onChangeDevice}
 						onChangeViewport={onChangeViewport}
 						onReload={onReload}
-						onOpenExternal={onOpenExternal}
+						liveUrl={liveUrl}
 					/>
 				) : null}
 				<CreditsChip className="hidden sm:flex" />
@@ -179,9 +185,9 @@ export function WorkBar({
 export type ViewSwitcherProps = Pick<WorkBarProps, "view" | "onChangeView">;
 
 /**
- * The Preview, Code, and More switch at the start of the work bar. Only the
- * open view shows its label. More holds every project panel, the Cloud
- * panels too. Exported for the spec.
+ * The Preview, Code, and More switch at the start of the work bar. From the
+ * sm width, only the open view shows its label; below it, icons only. More
+ * holds every project panel, the Cloud panels too. Exported for the spec.
  */
 export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 	const { t } = useTranslation();
@@ -191,6 +197,8 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 			ariaLabel={t("appBuilder.topBar.viewsAriaLabel")}
 			value={view}
 			onChange={onChangeView}
+			// A phone row also holds History and reload, so the open view keeps its label for screen readers only.
+			className="max-sm:[&_span]:sr-only"
 			options={[
 				{
 					value: "preview",
@@ -223,13 +231,13 @@ export type PreviewActionsProps = Pick<
 	| "onChangeDevice"
 	| "onChangeViewport"
 	| "onReload"
-	| "onOpenExternal"
+	| "liveUrl"
 >;
 
 /**
- * Preview controls of the work bar. A web app gets the viewport switch and
- * the new-tab button. A mobile app gets the device switch and the Expo Go
- * popover. Both get the reload button.
+ * Preview controls of the work bar. A web app gets the viewport switch and,
+ * once published, the link to the live app. A mobile app gets the device
+ * switch and the Expo Go popover. Both get the reload button on every width.
  */
 export function PreviewActions({
 	project,
@@ -238,17 +246,12 @@ export function PreviewActions({
 	onChangeDevice,
 	onChangeViewport,
 	onReload,
-	onOpenExternal,
+	liveUrl,
 }: PreviewActionsProps) {
 	const { t } = useTranslation();
 	const reload = (
 		<IconAction label={t("appBuilder.topBar.reload")}>
-			<Button
-				variant="outline"
-				size="icon-sm"
-				className="hidden md:inline-flex"
-				onClick={onReload}
-			>
+			<Button variant="outline" size="icon-sm" onClick={onReload}>
 				<RefreshCw className="size-3.5" />
 			</Button>
 		</IconAction>
@@ -284,16 +287,21 @@ export function PreviewActions({
 					]}
 				/>
 				{reload}
-				<IconAction label={t("appBuilder.topBar.openExternal")}>
-					<Button
-						variant="outline"
-						size="icon-sm"
-						className="hidden md:inline-flex"
-						onClick={onOpenExternal}
-					>
-						<ExternalLink className="size-3.5" />
-					</Button>
-				</IconAction>
+				{/* Before the first publish no site exists; the preview bar says "Not published yet". */}
+				{liveUrl === null ? null : (
+					<IconAction label={t("appBuilder.topBar.openExternal")}>
+						<Button
+							asChild
+							variant="outline"
+							size="icon-sm"
+							className="hidden md:inline-flex"
+						>
+							<a href={liveUrl} target="_blank" rel="noopener noreferrer">
+								<ExternalLink className="size-3.5" />
+							</a>
+						</Button>
+					</IconAction>
+				)}
 			</>
 		);
 	}

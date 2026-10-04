@@ -20,6 +20,16 @@ export const projectSecretNameSchema = z
 	);
 
 /**
+ * A name that a user writes from the Secrets panel or with `set_secret`.
+ * Supabase refuses the `SUPABASE_` prefix, and wandit keeps its `system`
+ * rows (the Supabase keys) under it, so a user row never takes one.
+ */
+export const userSecretNameSchema = projectSecretNameSchema.refine(
+	(name) => !name.startsWith("SUPABASE_"),
+	"Names that start with SUPABASE_ are reserved",
+);
+
+/**
  * Who wrote the row. `user` rows come from the panel; `system` rows come
  * from server code (the Supabase keys) and a user can never replace or
  * delete one.

@@ -8,7 +8,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-	BadRequestException,
 	ConflictException,
 	Inject,
 	Injectable,
@@ -26,6 +25,7 @@ import {
 	type RestoreVersionResponse,
 	type VersionDiffResponse,
 } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import {
 	contentTypeFor,
@@ -50,15 +50,17 @@ import {
 	versionNumstatKey,
 } from "../../infrastructure/git/commit-turn";
 import { mustRunGit } from "../../infrastructure/git/sandbox-git";
+import { AppBackendsRepository } from "../../infrastructure/persistence/app-backends.repository";
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
-	MalformedVersionCursorError,
 	type ScopedAppProject,
 	VersionConflictError,
 } from "../../infrastructure/persistence/app-commits.repository";
+import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder-turns.repository";
+import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
-import { profileForFramework } from "../../infrastructure/sandbox/template-profiles";
+import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
 import { AuditEventsService } from "./audit-events.service";
 
 /** Nest token for the R2 object store the service reads and writes. */
@@ -98,6 +100,14 @@ export class VersionsService {
 		private readonly repoRestorer: RepoRestorer,
 		@Inject(VERSION_OBJECTS)
 		private readonly objects: VersionsObjectStore,
+		// The Pick types keep the sandbox start reads narrow; a spec passes
+		// plain fakes.
+		@Inject(TurnProjectRepository)
+		private readonly projects: Pick<TurnProjectRepository, "findForTurn">,
+		@Inject(AppBackendsRepository)
+		private readonly backends: Pick<AppBackendsRepository, "findByProjectId">,
+		@Inject(BuilderTurnsRepository)
+		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
 		@Inject(AuditEventsService)
 		private readonly audit: Pick<AuditEventsService, "record">,
 	) {}
@@ -109,25 +119,15 @@ export class VersionsService {
 		query: ListVersionsQuery,
 	): Promise<ListVersionsResponse> {
 		await this.requireV2Project(scope, projectId);
-		try {
-			const page = await this.appCommits.listByProject(projectId, {
-				cursor: query.cursor,
-				limit: query.limit,
-			});
-			return {
-				items: page.items.map(toApiCommit),
-				nextCursor: page.nextCursor,
-			};
-		} catch (error) {
-			// The cursor is client input; a malformed one is a 400, not a 500.
-			if (error instanceof MalformedVersionCursorError) {
-				throw new BadRequestException({
-					code: "VALIDATION_ERROR",
-					message: "Malformed versions cursor",
-				});
-			}
-			throw error;
-		}
+		// The controller pipe parses the cursor first and answers 400 for a bad one.
+		const page = await this.appCommits.listByProject(projectId, {
+			cursor: query.cursor,
+			limit: query.limit,
+		});
+		return {
+			items: page.items.map(toApiCommit),
+			nextCursor: page.nextCursor,
+		};
 	}
 
 	/** The stored patch and numstat of one version, for the diff view. */
@@ -161,9 +161,9 @@ export class VersionsService {
 	 * Copy-forward restore: the worktree goes back to `sha`'s content and a
 	 * NEW commit lands on top, so history never rewinds (WANDIT-171). The
 	 * restore takes the project turn lock — a turn starting mid-restore
-	 * would interleave git commands on the same sandbox. A held lock or a
-	 * stale `expectedHeadSha` answers 409. `ip` is the client IP for the
-	 * `version.restore` audit row.
+	 * would interleave git commands on the same sandbox. A held lock, a turn
+	 * that waits for the user, or a stale `expectedHeadSha` answers 409.
+	 * `ip` is the client IP for the `version.restore` audit row.
 	 */
 	async restore(
 		scope: ProjectScope,
@@ -196,6 +196,15 @@ export class VersionsService {
 		}
 
 		try {
+			// Product rule: a turn paused on a question or an approval resumes on
+			// the code it saw. That resume cannot tell the agent about a restore.
+			if ((await this.turns.findWaitingForUser(projectId)) !== null) {
+				throw new ConflictException({
+					code: "BUILDER_TURN_WAITING",
+					message: "Answer the open question in the chat first",
+				});
+			}
+
 			const branch = await this.appCommits.findBranch(projectId, "main");
 			if ((branch?.headSha ?? null) !== body.expectedHeadSha) {
 				throw new ConflictException({
@@ -217,19 +226,18 @@ export class VersionsService {
 			}
 
 			// A restore boots a stopped or lost sandbox, and that boot starts
-			// the dev server. So the command and port come from the template.
-			const templateProfile = profileForFramework(project.framework);
-			const sandbox = await this.sandboxes.getOrCreate(projectId, {
-				devCommand: templateProfile.devCommand,
-				devPort: templateProfile.devPort,
-				env: {},
-				framework: project.framework,
-				templateVersion: project.templateVersion,
-				ownerUserId: project.userId,
-				organizationId: project.organizationId,
-			});
-			// A fresh or stale sandbox first pulls or clones the repository; a
-			// restore on top of a missing worktree cannot read-tree anything.
+			// the dev server. A strict start needs the egress inputs of a turn.
+			const sandbox = await startSandboxWithoutTurn(
+				{
+					backends: this.backends,
+					logger: Sentry.logger,
+					projects: this.projects,
+					sandboxes: this.sandboxes,
+				},
+				projectId,
+			);
+			// A fresh or stale sandbox first fetches the repository; a restore
+			// on top of a missing worktree cannot read-tree anything.
 			await this.repoRestorer.restore(projectId, sandbox);
 
 			// Copy-forward: the worktree and index take the old tree; the commit

@@ -32,9 +32,9 @@ import { PreviewActions, ProjectBar, ViewSwitcher } from "./top-bar";
 const PROJECT: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
-	description: "Membership app for a gym.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
@@ -56,6 +56,7 @@ function renderBar(chatOpen: boolean) {
 				project: PROJECT,
 				chatOpen,
 				onExpandChat,
+				liveCommitSha: null,
 				onRestored: vi.fn(),
 			}),
 		),
@@ -81,8 +82,7 @@ describe("ProjectBar", () => {
 });
 
 // Renders the preview controls of one project kind inside the two providers of the page.
-function renderActions(kind: AppProject["kind"]) {
-	const onOpenExternal = vi.fn();
+function renderActions(kind: AppProject["kind"], liveUrl: string | null) {
 	const providerProps: ComponentProps<typeof I18nProvider> = {
 		locale: "en",
 		dictionary: fallbackDictionary,
@@ -97,27 +97,29 @@ function renderActions(kind: AppProject["kind"]) {
 				onChangeDevice: vi.fn(),
 				onChangeViewport: vi.fn(),
 				onReload: vi.fn(),
-				onOpenExternal,
+				liveUrl,
 			}),
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
-	return { onOpenExternal };
 }
 
 describe("PreviewActions", () => {
-	it("gives a web app the new-tab button and no Expo Go button", () => {
-		const { onOpenExternal } = renderActions("web");
-		fireEvent.click(screen.getByRole("button", { name: "Open in a new tab" }));
-		expect(onOpenExternal).toHaveBeenCalledOnce();
+	it("gives a published web app the live app link and no Expo Go button", () => {
+		renderActions("web", "https://nadi.wandit.app");
+		expect(
+			screen
+				.getByRole("link", { name: "Open the live app" })
+				.getAttribute("href"),
+		).toBe("https://nadi.wandit.app");
 		expect(screen.queryByRole("button", { name: "Open on phone" })).toBeNull();
 	});
 
-	it("gives a mobile app the Expo Go button and no new-tab button: it has no site", () => {
-		renderActions("mobile");
+	it("gives a mobile app the Expo Go button and no live app link: it has no site", () => {
+		renderActions("mobile", null);
 		expect(screen.getByRole("button", { name: "Open on phone" })).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Open in a new tab" }),
+			screen.queryByRole("link", { name: "Open the live app" }),
 		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Reload the preview" }),

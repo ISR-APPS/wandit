@@ -210,6 +210,77 @@ describe("stepOf", () => {
 			text: "exit code 1",
 		});
 	});
+
+	// The harness sends a shell result as an object, and a failed call as
+	// JSON text in `errorText`. The row shows at most the last 2 KB.
+	it.each<{ name: string; part: DynamicToolUIPart; output: BuilderDiffLine[] }>(
+		[
+			{
+				name: "the stdout and the stderr of a finished call",
+				part: doneCall(
+					"bash",
+					{ command: "pnpm build" },
+					{ stdout: "built", stderr: "1 warning" },
+				),
+				output: [
+					{ kind: "context", text: "built" },
+					{ kind: "context", text: "1 warning" },
+				],
+			},
+			{
+				name: "the result inside the JSON error text of a failed call",
+				part: {
+					type: "dynamic-tool",
+					toolName: "bash",
+					toolCallId: "call-1",
+					state: "output-error",
+					input: { command: "pnpm build" },
+					errorText: JSON.stringify({ stdout: "", stderr: "Type error" }),
+				},
+				output: [{ kind: "remove", text: "Type error" }],
+			},
+			{
+				name: "only the last 2 KB of a long output",
+				part: doneCall(
+					"bash",
+					{ command: "pnpm build" },
+					{ stdout: `${"a".repeat(3000)}\nlast line` },
+				),
+				// 2048 characters: 2038 times "a", the newline, and "last line".
+				output: [
+					{ kind: "context", text: "…" },
+					{ kind: "context", text: "a".repeat(2038) },
+					{ kind: "context", text: "last line" },
+				],
+			},
+		],
+	)("shows $name after the command of a run row", ({ part, output }) => {
+		expect(stepOf(part, false)?.detail).toEqual([
+			{ kind: "context", text: "pnpm build" },
+			...output,
+		]);
+	});
+
+	// The link to the Secrets panel shows only for this answer.
+	it("names the secret and flags a missing value", () => {
+		expect(
+			stepOf(
+				doneCall(
+					"set_secret",
+					{ name: "STRIPE_KEY", source: "project_secret" },
+					{ status: "missing", name: "STRIPE_KEY" },
+				),
+				false,
+			),
+		).toEqual({
+			kind: "secret",
+			state: "error",
+			target: "STRIPE_KEY",
+			description: null,
+			detail: [],
+			isSecretMissing: true,
+		});
+	});
 });
 
 describe("receiptOf", () => {
@@ -232,6 +303,8 @@ describe("receiptOf", () => {
 			modelId: null,
 			inputTokens: 1200,
 			outputTokens: 300,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
 		});
 	});
 
@@ -258,8 +331,8 @@ describe("receiptOf", () => {
 						modelId: "anthropic/claude-sonnet-5",
 						inputTokens: 1400,
 						outputTokens: 500,
-						cacheReadTokens: 0,
-						cacheWriteTokens: 0,
+						cacheReadTokens: 9000,
+						cacheWriteTokens: 400,
 						balanceCredits: 750,
 					},
 				},
@@ -270,6 +343,8 @@ describe("receiptOf", () => {
 			modelId: "anthropic/claude-sonnet-5",
 			inputTokens: 1400,
 			outputTokens: 500,
+			cacheReadTokens: 9000,
+			cacheWriteTokens: 400,
 		});
 	});
 });
@@ -738,7 +813,14 @@ describe("liveActivityOf", () => {
 	const receipt: BuilderMessagePart = {
 		type: "data-receipt",
 		id: "a1-receipt",
-		data: { credits: 1, modelId: null, inputTokens: 10, outputTokens: 5 },
+		data: {
+			credits: 1,
+			modelId: null,
+			inputTokens: 10,
+			outputTokens: 5,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		},
 	};
 
 	it.each<{

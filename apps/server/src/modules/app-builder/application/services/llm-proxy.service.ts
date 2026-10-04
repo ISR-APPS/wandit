@@ -876,9 +876,12 @@ function utcDayKey(): string {
 
 // Response headers the client gets back. Hop-by-hop headers would corrupt
 // the proxied response: content-length no longer matches a re-sent body.
+// Node fetch decodes a gzip or br body but keeps content-encoding. The
+// client would then decode the plain bytes again and fail.
 function passthroughHeaders(headers: Headers): Record<string, string> {
 	const blocked = new Set([
 		"connection",
+		"content-encoding",
 		"content-length",
 		"keep-alive",
 		"transfer-encoding",

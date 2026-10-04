@@ -55,7 +55,6 @@ PostHog flag `v2-builder`).
 - `TurnEventWriter` / `TurnEventReader` — the two ends of the `ui` stream
   (D20).
 - `TurnLock` — the per-project lock serializing turns.
-- `BackendProvider` — the hidden Supabase project behind an app (D18).
 - `GitStore` / `RepoRestorer` — the code.storage repository and its push
   back into a fresh sandbox (D21).
 - `EasBuildRunner` — starts, reads, and cancels one EAS build (WANDIT-194).
@@ -81,8 +80,11 @@ partial unique index guarantees at most one live row per project.
   code.storage is the source of truth (D21). When the named sandbox or its
   snapshot is gone, the provider boots a fresh one, applies the template
   archive (`ArchiveTemplateInit`), calls `RepoRestorer`, and logs a
-  `rebuild` warning. `LoggingRepoRestorer` is the placeholder until
-  WANDIT-171.
+  `rebuild` warning. After `RepoRestorer`, and on each resume before the
+  dev server starts, `TemplateInit.replaceOldTemplateFiles` replaces a
+  `vite.config.ts` (WANDIT-281) or a `.claude/settings.json` (WANDIT-180)
+  that is byte-equal to an old template version. The next turn commits the
+  new file. `LoggingRepoRestorer` is the placeholder until WANDIT-171.
 - Template snapshot (first-turn latency): a new or rebuilt sandbox boots
   from a ready Vercel snapshot that already holds the template, its
   `node_modules`, the template commit, and the harness install. The boot
@@ -108,7 +110,8 @@ partial unique index guarantees at most one live row per project.
   `template-profiles.ts` holds one profile per target platform: the
   `framework` (the archive prefix, `web-app` or `mobile-app`), the dev
   command, the dev port (5173 for Vite, 8081 for Metro), and the version
-  file. The builder-turn runtime and a restore pick the profile with
+  file. The builder-turn runtime and `startSandboxWithoutTurn` (restore,
+  wake, publish) pick the profile with
   `profileForFramework(project.framework)` and pass its dev command and
   port to `getOrCreate`. The dev port decides `previewHost`.
 - Template files in a deploy: the `templates/<framework>-<version>.tar.gz`
@@ -132,8 +135,12 @@ partial unique index guarantees at most one live row per project.
   Vite and Expo CLI prefer a process value to a `.env` value. Vite restarts
   and Metro sends an HMR update when the file changes, so the running app
   gets the values with no restart code. The builder-turn runtime writes the
-  file after `getOrCreate`; provision-backend writes it after `markActive`
-  when the sandbox runs. The writer waits until the dev port answers,
+  file after `getOrCreate`; `startSandboxWithoutTurn` (restore, wake,
+  publish) writes it after a boot; provision-backend writes it after
+  `markActive` when the sandbox runs. provision-backend never pushes the
+  egress policy: a push from that process deletes the proxy run-token rule of
+  the harness session. A turn that started without an active backend adds the
+  backend host itself on its keep-alive tick. The writer waits until the dev port answers,
   because a dev server watches `.env` only from then. It writes only when
   the content differs, because each write restarts Vite. git ignores
   `.env`, and the Code view never shows it.
@@ -172,6 +179,9 @@ partial unique index guarantees at most one live row per project.
   `request_network_host` tool. It merges the host into the applied
   policy and routes through the live harness session, so the proxy
   run-token transformation the session added stays in place.
+- `keepAliveIfRunning(projectId)` moves the vendor deadline of a running
+  sandbox back to a full 30 minutes (WANDIT-164). The preview-token mint
+  calls it. It uses the session call, so a stopped sandbox stays stopped.
 - On every boot the provider adds `HOST=0.0.0.0` and a fresh
   `WANDIT_PREVIEW_HOST` (the current vendor host of `devPort`) to the dev
   command env; the vendor route only reaches a `0.0.0.0` listener. A
@@ -189,9 +199,9 @@ partial unique index guarantees at most one live row per project.
   domain policy (`allowedHosts`, `deniedRanges`) and `handle.previewUrl`.
 - Idle: `sandbox-idle-sweep` (Trigger cron, every 5 min, queue
   `sandbox-maintenance`) stops running rows whose `lastActiveAt` is older
-  than `SANDBOX_IDLE_STOP_MINUTES` (20). Turn start/end and preview
-  heartbeats call `touchActivity`; an old stamp means no turn and no
-  preview traffic.
+  than `SANDBOX_IDLE_STOP_MINUTES` (20). The turn and each preview-token
+  mint call `touchActivity`. An open preview mints every 14 minutes, so an
+  old stamp means no turn and no open preview.
 
 ## Lock rule
 
@@ -200,8 +210,10 @@ compare-and-delete; the running task only refreshes it.
 
 ## Turn API (WANDIT-167)
 
-Four routes under `/api/v2/projects/:projectId/turns`, all behind
-`V2BuilderEnabledGuard` and the workspace `project:update` permission:
+Five routes under `/api/v2/projects/:projectId/turns`, all behind
+`V2BuilderEnabledGuard`. The two `POST` routes also need the workspace
+`project:update` permission; the three `GET` routes are reads, and the
+service checks the scope:
 
 - `POST /` creates a turn — the `agent_session` hold first, then the
   session, the lock, the `queued` row, the user message, and the task
@@ -226,11 +238,17 @@ Four routes under `/api/v2/projects/:projectId/turns`, all behind
   one entry per `data-question` card, with `optionIds`, `text`, and
   `files`. Without `answers`, the message text answers the first
   question. Answer files pass the same owner check as attachments.
+- `GET /estimate` answers `{ estimate }`: the hold that the next turn on
+  the default model reserves, from the same `estimateTurn` as `POST /`,
+  with no write. `estimate` is null when the deploy sets no default
+  model. The composer shows it before send.
 - `GET /:turnId/stream` relays one turn's stream; `204` while the row has
   no run id.
 - `GET /active/stream` is the `useChat` reconnect route: the active
   turn's stream, or `204` when the project has none. A row whose run id
-  is not written yet streams through the row poll instead of `204`.
+  is not written yet streams through the row poll instead of `204`. The
+  stream starts with a `data-turn-created` part with no estimate, so
+  the browser knows the turn id after a reload and Stop can cancel.
 - `POST /:turnId/cancel` CAS-moves the row to `cancelling`, cancels the
   run best-effort, releases the lock, settles to `canceled`, refunds the
   hold, and promotes the oldest `waiting` turn.
@@ -339,8 +357,10 @@ deploy never builds it.
 
 `BackendsService.provisionBackend` is the single entry of provisioning (D18):
 `AppProjectsService.create` calls it after the create transaction and before
-the first turn; no tool and no button creates a backend. It inserts the
-`creating` row and starts the task with idempotency key
+the first turn. `POST cloud/backend` calls it for a project without a row
+(for example a project made while provisioning was unconfigured) and for a
+failed (`error`) row, which it provisions again with a new request key. It
+writes the `creating` row and starts the task with idempotency key
 `provision-backend:<requestKey>`; a second call answers the row and starts
 nothing.
 Without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID` it writes no
@@ -350,10 +370,13 @@ invalid value logs `supabase.provisioning.region-override-invalid` and the
 picked region wins. A task-start failure never throws: the row is marked
 `backend_provision_start_failed` and the project keeps working.
 The task (`backend-provisioning` queue, concurrency 3, one attempt) claims the row by `requestKey`.
-It creates the Supabase project when the row has no `ref`; a replay creates no second project.
-It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout.
-It reads the anon key.
-It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral and serves both templates.
+Every row write of the task applies only while the row holds that key, so a run of an old key cannot change a retried row.
+A row with a `ref` (a retry or a replay) reuses its project; an `INIT_FAILED` project is deleted first, and a `REMOVED` one (or a 404) is replaced. A replay or a retry never leaves a second paid project.
+It stores the database password as the `system` secret `SUPABASE_DB_PASSWORD` before the create call, and sets `db_password_secret_id`.
+It creates the Supabase project when the row has no `ref`, with one fetch only: a retry after a lost answer could create a second paid project.
+It polls `GET /projects/{ref}` every 5 s until `ACTIVE_HEALTHY` or a 10-minute timeout. A paused (`INACTIVE`) or `RESTORE_FAILED` project of a retried row gets one restore call.
+It reads the anon key and the service-role key, stores the service-role key as the `system` secret `SUPABASE_SERVICE_ROLE_KEY`, and sets `service_role_secret_id`.
+It applies `templates/web-app/supabase/migrations/0000_base.sql`; the file is platform-neutral, serves both templates, and can run twice. A reused project that was active before keeps its schema and auth config: the run skips this step and the next one.
 It sets the auth `site_url` to the preview apex with the `previewAuthRedirectPattern` allow list (`r-` plus 12 hex characters, never `*`: a `*` also matches `@` and lets a login token go to another host).
 `BackendAuthUrlsService` (Trigger task `sync-backend-auth-urls`) replaces both URL fields after a publish, an unpublish, and a custom domain change: `site_url` becomes the primary domain, else the slug host, and the allow list keeps the preview pattern and adds each live host.
 It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
@@ -371,8 +394,8 @@ Every number here is a provisional D3 default in `BACKEND_DEFAULTS`
 description and the operator steps are in `docs/v2/backend-lifecycle.md`.
 
 - Activity: `touchActive` stamps `last_active_at` of an `active` row at
-  every turn end, every Cloud tab panel read, and every agent backend
-  tool call. A failed stamp logs `backend.touch-failed` only.
+  every turn end, every publish that went live, every Cloud tab panel
+  read, and every agent backend tool call. A failed stamp only logs.
 - Pause sweep: the Trigger task `backend-pause-sweep` (03:00 UTC, own
   queue at 1, one attempt, PRODUCTION and STAGING only) pauses at most 50
   `active` backends idle for 7 days (30 days with a live `deployments`
@@ -385,7 +408,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   (the row keeps `deleting` and loses its ref: the terminal state), and
   the audit row `backend.deleted`. The sweep also moves the backend of a
   project deleted more than a day ago to `deleting` when the delete step
-  missed it, and ends a stale `restoring` row.
+  missed it, ends a stale `restoring` row (also one stuck for more than
+  10 minutes), and pauses the running project of an `error` row.
 - Wake: the turn start restores a `paused` backend and waits for a
   `paused` or `restoring` one (a 180 s poll; with the restore call and the
   last read, about 300 s at most), with the `sandbox_waking` status
@@ -393,7 +417,8 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   `Backend not ready yet`. `markRestored` moves `restoring` back to
   `active`; `GET cloud/backend` and the sweep also call it.
   `RESTORE_FAILED` or `REMOVED` moves the row to `error`
-  (`backend_restore_failed`).
+  (`backend_restore_failed`); `GET cloud/backend` and the sweep do the same
+  for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
   refuses at the plan limit (starter 0, pro 1, business 3) with 403
@@ -435,16 +460,21 @@ missing, out-of-scope, or V1 project, like the turn routes.
 - `PUT /:name` with `{ value }` (at most 8 KB of UTF-8) sets or replaces
   a `user` row and answers 204. A `user` write over a `system` row
   answers 409 `PROJECT_SECRET_SYSTEM`; the guard is a `setWhere` on the
-  upsert, so no read races the write.
+  upsert, so no read races the write. A name that starts with `SUPABASE_`
+  answers 400 (`userSecretNameSchema`): the Supabase keys use these names.
 - `DELETE /:name` removes a `user` row and answers 204. A `system` row
   answers 409; a missing row answers 404.
 
 `ProjectSecretsService.readValue(projectId, name)` decrypts one row for
-server code only; no controller calls it. Its callers land in
-WANDIT-183 (the provisioning task), WANDIT-186 (`set_secret`), and
-WANDIT-189 (the connectors). `set(projectId, name, value, kind, actor)`
-takes `kind: "system"` for those callers; the actor scope comes from the
-`projects` row.
+server code only; no controller calls it. Its callers are WANDIT-186
+(`set_secret`) and WANDIT-189 (the connectors). `readSystemValue` reads
+only a `system` row, so a `user` row with the same name never acts as a
+platform key; the Cloud storage routes call it.
+`set(projectId, name, value, kind, actor)` answers the row id. The
+provisioning task (WANDIT-183) and the Cloud storage routes pass
+`kind: "system"` for `SUPABASE_SERVICE_ROLE_KEY` and
+`SUPABASE_DB_PASSWORD`; the actor scope comes from the `app_backends` row
+or the request.
 
 Every set and delete writes one `audit_events` row (`secret.set`,
 `secret.deleted`) with the actor, the client IP, the project, and the
@@ -470,20 +500,25 @@ composes the interactive `SupabaseManagementClient` (token
 `SUPABASE_MANAGEMENT_CLIENT`): no wait on a full bucket, one retry (none
 for a SQL write), and
 a 429 at once. Without `SUPABASE_PLATFORM_TOKEN` the factory answers
-null and every route answers 503 `V2_ENV_MISSING`. The service-role key
-comes from `GET /projects/{ref}/api-keys?reveal=true` on each storage
-call and never leaves the process. A follow-up swaps that read for the
-`project_secrets` store of WANDIT-185.
+null and every route answers 503 `V2_ENV_MISSING`. The storage routes
+read the service-role key from its `system` row in `project_secrets`. A
+backend from before that store has no row: the first storage call reads
+`GET /projects/{ref}/api-keys?reveal=true` once, stores the key, and sets
+`service_role_secret_id`. The key never leaves the process.
 
 Backend state:
 
 - `GET backend` answers `status`, `ref`, `region`, and `failureCode`;
   `status: "none"` without a row. A `restoring` row reads the Supabase
-  status and moves to `active` at `ACTIVE_HEALTHY` (WANDIT-184).
-- `POST backend` calls `BackendsService.provisionBackend` (idempotent)
-  and answers the row. Unconfigured provisioning answers 503
+  status and moves to `active` at `ACTIVE_HEALTHY` (WANDIT-184), or to
+  `error` when the wake is older than 10 minutes. A `creating` row with no
+  write for 30 minutes moves to `error` (`backend_provision_timeout`,
+  `markCreatingTimedOut`), and the Cloud tab then shows "Try again".
+- `POST backend` calls `BackendsService.provisionBackend` and answers the
+  row: no row gets one, an `error` row gets a new run, and any other row
+  starts nothing. Unconfigured provisioning answers 503
   `V2_ENV_MISSING`; a plan without a free slot answers 403
-  `BACKEND_LIMIT_REACHED`.
+  `BACKEND_LIMIT_REACHED` with `details: { plan, limit }`.
 - `POST backend/restore` calls `POST /projects/{ref}/restore`, then moves
   the row `paused` → `restoring` with the CAS `markRestoring`. A row in
   another state answers as it is. A failed upstream call leaves the row
@@ -857,10 +892,15 @@ One run does this, in order:
    from the rows. Each stop writes the `error` event (`code` = the
    terminal status, `retryable: false`), then the `done` event with
    that status. `GENERATION_BILLING_MODE=off` skips the checkpoint and
-   the balance and cap checks.
+   the balance and cap checks. The harness can end on a proxy 402
+   `V2_RUN_CAP_REACHED` before the next tick. So at the stream end and
+   in the failure path, the task reads the `llm_proxy_requests` row with
+   reason `run_cap` of the turn: one row stops the turn on the cap.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
-   reconstruction. Harness `usage` events only feed the
+   reconstruction. A harness `error` chunk stays off the `ui` stream:
+   `useChat` stops at it, and the `data-turn-error` card comes later.
+   Harness `usage` events only feed the
    `builder-turn.harness-usage` log line; the money path never reads
    them. After each `reasoning-end`, the task writes a `data-thought`
    part (`reasoningId`, `seconds`, at least 1) to both streams. The UI
@@ -952,14 +992,15 @@ releases per-turn clients (none today — connectors land in a follow-up).
   `askUserQuestions` is inactive.
 - `request_network_host` (WANDIT-180) asks to reach one extra egress
   host. It is `"user-approval"`, so the user approves first; the body
-  runs only on approval. It checks the host with `isValidNetworkHost`,
-  appends it to `projects.networkAllowedHosts` (a deduping write), calls
-  `SandboxHandle.allowHost` to apply it to the live sandbox with no
-  restart, and writes a `network.host_allowed` audit row. `allowHost`
+  runs only on approval. It checks the host with `isValidNetworkHost`.
+  Then one transaction appends it to `projects.networkAllowedHosts` (a
+  deduping write), writes a `network.host_allowed` audit row, and calls
+  `SandboxHandle.allowHost` last to apply it with no restart. `allowHost`
   routes through the live harness session, so the proxy run-token
   transformation survives. A bad host, a `supabase.co` or `supabase.com`
-  host (WANDIT-283), or a failed update answers `denied` and writes no
-  audit row. See `docs/v2/security.md` section 5.
+  host (WANDIT-283), or a failed step answers `denied`. A failed step
+  rolls back both rows, so the next start does not allow the host.
+  See `docs/v2/security.md` section 5.
 - Approval state comes back in `toolApproval`; a tool with
   `"user-approval"` pauses the stream on an approval request the same
   way `ask_user` pauses for an answer. `generate_image` is
@@ -1017,7 +1058,7 @@ needs `APP_SECRETS_ENCRYPTION_KEY`.
 | `apply_destructive_migration` | user-approval | Applies any migration. | `backend.migration_applied` with `destructive: true` |
 | `run_sql` | not-applicable | A read (`classifySql`) with `read_only: true`, first 200 rows. A write answers `needs_approval`. | none |
 | `run_sql_write` | user-approval | Runs the statement with `read_only: false`. | `backend.sql_written` (`queryHash`, `returnedRows`: the rows the endpoint answered), never the text |
-| `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the function URL. | `backend.function_deployed` (`slug`, `version`) |
+| `deploy_function` | not-applicable | Deploys `supabase/functions/<slug>/` as one multipart request: one folder level, at most 50 files and 5 MB, `index.ts` required. Answers the slug and the function URL. | `backend.function_deployed` (`slug`, `version`) |
 | `set_secret` | not-applicable | Pushes one `project_secrets` value to the Edge Function secrets. | `secret.synced` (`name`, `source`) |
 | `get_advisors` | not-applicable | The Supabase advisors plus the wandit RLS check. | none |
 
@@ -1071,10 +1112,16 @@ repository is the durable copy.
 - Credentials are ES256 JWTs minted locally with the org's private key
   (`CODE_STORAGE_PRIVATE_KEY`, `CODE_STORAGE_ORG`). Claims: `iss` = org
   slug, `sub` = `wandit-api`, `repo` = the repository name, `scopes`,
-  `iat`, `exp`. A git credential carries `git:read` + `git:write` for one
-  repository only, so a project token cannot touch another project's
-  code. A repository-admin call carries `repo:write` (TTL 300 s); a push,
-  pull, or clone credential lives 600 s.
+  `iat`, `exp`. A JWT is for one repository only, so a project token
+  cannot touch another project's code (a live probe confirmed it).
+- A restore or mobile-build credential carries `git:read` only. A push
+  credential carries `git:read` + `git:write` and the `refs` claim
+  `[["refs/heads/main", ["no-force-push"]], ["*", ["no-push"]]]`: no force
+  push, no other branch, no tag. code.storage still accepts a delete of
+  `main` and a new `main` (the LIMIT at `PUSH_MAIN_REFS`).
+- A push or restore credential lives 120 s, and each push mints a new
+  JWT. A mobile-build credential lives 600 s on the Trigger worker. A
+  repository-admin call carries `repo:write` (TTL 300 s).
 - The git URL passes the JWT as `https://t:<jwt>@<org>.code.storage/...`.
   `redactRemoteUrl` masks it for logs; errors never carry it.
 - One commit per turn: `git add -A`, `commit --allow-empty` with the
@@ -1089,10 +1136,12 @@ repository is the durable copy.
   write creates it for any previous head. The template init commits
   outside `commitTurn`, so the first turn has no row. A head mismatch
   answers 409 `VERSION_CONFLICT`.
-- A fresh sandbox restores the code through `RepoRestorer`: `git pull`
-  when `.git` exists, `git clone` when the sandbox workspace (`<vendor cwd>/workspace`) is
-  empty, and an in-place `init` + `fetch` + `reset --hard` + `clean -fd`
-  when the template files are already unpacked.
+- A fresh sandbox restores the code through `RepoRestorer`: `fetch` +
+  `reset --hard FETCH_HEAD` when `.git` exists (the template commit of a
+  new sandbox can have another root than the project, so `git pull` can
+  refuse), and else an in-place `init` + `fetch` + `reset --hard` +
+  `clean -fd`. No `git clone`: it stores the URL with the JWT in
+  `.git/config`.
 - A restore is copy-forward: `git read-tree -u --reset <sha>` sets the
   worktree to the old content and a NEW commit lands on top
   (`source = 'restore'`, `restored_from_sha` points at the target).
@@ -1231,7 +1280,24 @@ the `__Host-wandit_preview` cookie that carries it on later requests.
 A `creating` or `stopped` sandbox row, or a running row without
 `previewHost`, answers 409 `SANDBOX_NOT_RUNNING`. Each mint also calls
 `sandbox_sessions.touchActivity`, so an open preview keeps the idle
-sweep away.
+sweep away. It also calls `SandboxProvider.keepAliveIfRunning`, because
+the vendor timeout is absolute. A vendor failure there only logs
+`preview.keep-alive.failed`; the token still answers.
+
+`POST /api/v2/projects/:projectId/sandbox/wake` (`SandboxController`)
+boots a sleeping sandbox without a turn, so the asleep note needs no paid
+message. It needs `project:update` and has a `RedisRateLimitGuard` bucket
+of 6 wakes per user per 10 minutes (key `sandbox-wake`). The scope checks
+are the same as the versions routes. It answers 202 at once:
+`running` (no boot), `starting` (a background boot started), or `busy`
+(a turn, a restore, or a wake holds the project lock and boots the
+sandbox). The boot holds the turn lock with a `wake:` holder for at most
+10 minutes, so a turn submit during the boot answers 409
+`BUILDER_TURN_ACTIVE`. The boot goes through `startSandboxWithoutTurn`,
+like a restore and a publish: the egress inputs of a turn, no proxy
+token, and the backend `.env` after a boot. A failed boot logs
+`sandbox.wake-failed` and goes to Sentry. The route does not report it, so
+the web shows a failure after a 3-minute wait.
 
 `?client=phone` (WANDIT-193) mints the same token for the phone link of
 Expo Go. It takes an optional `expoUsername` (`expoUsernameSchema`:

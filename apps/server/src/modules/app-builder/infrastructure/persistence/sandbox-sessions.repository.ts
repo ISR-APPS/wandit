@@ -173,7 +173,7 @@ export class SandboxSessionsRepository {
 			);
 	}
 
-	/** Stamps activity on the live row; turn start/end and preview heartbeats call it. */
+	/** Stamps activity on the live row; the turn and each preview-token mint call it. */
 	async touchActivity(projectId: string): Promise<void> {
 		await this.db
 			.update(sandboxSessions)

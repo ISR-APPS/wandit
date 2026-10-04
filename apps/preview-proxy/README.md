@@ -72,8 +72,12 @@ an iframe:
 | Config | Origins |
 | --- | --- |
 | `wrangler.jsonc` top level (route `*.wanditpreview.app/*`) | `https://wandit.dev` (production), `https://preview.wandit.dev` (the staging web app, not a preview host), `http://localhost:*` |
-| `wrangler.jsonc` `env.staging` (no route yet) | the same, plus `https://*.vercel.app` |
+| `wrangler.jsonc` `env.staging` (no route yet) | the same as the top level |
 | `wrangler.dev.jsonc` | the same as the top level |
+
+Do not add `https://*.vercel.app`: any Vercel user can deploy there and
+frame a preview (WANDIT-281). `http://localhost:*` stays in production,
+because the local stack frames the live production Worker.
 
 The top-level Worker serves the previews of production and of staging,
 because only it has the route. A new builder origin goes into all three

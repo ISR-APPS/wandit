@@ -212,7 +212,10 @@ async function setup(
 	const deps = {
 		audit: { record: vi.fn(async () => undefined) },
 		authUrlSync: { onProjectDomainsChanged: vi.fn(async () => undefined) },
-		backends: { findByProjectId: vi.fn(async () => BACKEND) },
+		backends: {
+			findByProjectId: vi.fn(async () => BACKEND),
+			touchActive: vi.fn(async () => undefined),
+		},
 		captureException: vi.fn(),
 		deployments: {
 			isSlugTakenByOther: vi.fn(async () => false),
@@ -229,6 +232,13 @@ async function setup(
 		},
 		gates: options.gates ?? [],
 		logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+		projects: {
+			findForTurn: vi.fn(async () => ({
+				...PROJECT,
+				languages: ["en"],
+				networkAllowedHosts: [],
+			})),
+		},
 		publish: {
 			findById: vi.fn(async () => row),
 			findLiveDeployment: vi.fn(async () => options.live ?? null),
@@ -418,6 +428,21 @@ describe("runPublishApp from source", () => {
 				status: "active",
 			}),
 		]);
+	});
+
+	it("reuses a running sandbox and starts no new one", async () => {
+		const { deps, sandboxes } = await setup();
+		const startsBefore = sandboxes.createOptions.length;
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result).toEqual({ errorCode: null, outcome: "published" });
+		// A start pushes a policy and drops the proxy header of a live turn.
+		expect(sandboxes.createOptions).toHaveLength(startsBefore);
+		// The reader runs no keep-alive, so the build buys the time once.
+		expect(sandboxes.calls.map((call) => call.method)).toContain(
+			"keepAliveIfRunning",
+		);
 	});
 
 	it("keeps the live slug on a second publish", async () => {

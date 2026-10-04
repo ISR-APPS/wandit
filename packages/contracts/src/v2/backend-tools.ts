@@ -8,7 +8,7 @@
 import { z } from "zod";
 
 import { sqlKindSchema, sqlRowSchema, stripSqlNoise } from "./cloud";
-import { projectSecretNameSchema } from "./secrets";
+import { userSecretNameSchema } from "./secrets";
 
 /**
  * The tool names the agent sees. The harness reads approval per tool
@@ -142,9 +142,13 @@ export type DeployFunctionToolInput = z.infer<
 	typeof deployFunctionToolInputSchema
 >;
 
-/** Output of `deploy_function`: the public function URL on success. */
+/**
+ * Output of `deploy_function`: the slug and the public function URL on
+ * success. The slug names the function in the stored result, so a reader
+ * of the output alone can show which function went live.
+ */
 export const deployFunctionToolOutputSchema = z.discriminatedUnion("status", [
-	z.object({ status: z.literal("deployed"), url: z.url() }),
+	z.object({ status: z.literal("deployed"), slug: z.string(), url: z.url() }),
 	...backendToolFailures,
 ]);
 
@@ -158,10 +162,7 @@ export type DeployFunctionToolOutput = z.infer<
  * the value. Supabase reserves the `SUPABASE_` prefix and refuses it.
  */
 export const setSecretToolInputSchema = z.object({
-	name: projectSecretNameSchema.refine(
-		(name) => !name.startsWith("SUPABASE_"),
-		"Names that start with SUPABASE_ are reserved",
-	),
+	name: userSecretNameSchema,
 	// `project_secret` reads the stored value; `generate` creates one when none exists.
 	source: z.enum(["project_secret", "generate"]),
 });

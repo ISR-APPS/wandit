@@ -263,6 +263,26 @@ describe("ProjectSecretsRepository reads", () => {
 		).toBeNull();
 	});
 
+	it("findCipherByName with a kind reads only a row of that kind", async () => {
+		// Security: `readSystemValue` passes "system", so a `user` row with the
+		// name of a Supabase key never acts as the platform key.
+		const { repository, where } = setupSelect([]);
+
+		await repository.findCipherByName(
+			"project-1",
+			"SUPABASE_SERVICE_ROLE_KEY",
+			"system",
+		);
+
+		const predicate = compile(where.mock.calls[0]?.[0]);
+		expect(predicate.sql).toContain('"project_secrets"."kind" = $3');
+		expect(predicate.params).toEqual([
+			"project-1",
+			"SUPABASE_SERVICE_ROLE_KEY",
+			"system",
+		]);
+	});
+
 	it("listBelowKeyVersion pages by id after the cursor", async () => {
 		const { limit, repository, where } = setupSelect([CIPHER_ROW]);
 

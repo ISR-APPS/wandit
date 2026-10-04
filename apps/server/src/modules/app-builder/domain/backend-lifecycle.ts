@@ -1,9 +1,11 @@
 /**
  * The pure rules of the backend lifecycle (WANDIT-184, D3): which backends
- * the daily sweep pauses, deletes, or moves to `deleting`, and how many
- * backends a plan may own. `backend-pause-sweep.runtime.ts` calls the
- * select rules; `BackendsService` hands `assertBackendEntitlement` to the
- * locked insert of `AppBackendsRepository`. No I/O here.
+ * the daily sweep pauses, deletes, or moves to `deleting`, when a wake is
+ * stuck, what happens to the project of an `error` row, and how many
+ * backends a plan may own. `backend-pause-sweep.runtime.ts` and
+ * `CloudService` call the rules; `BackendsService` hands
+ * `assertBackendEntitlement` to the locked write of `AppBackendsRepository`.
+ * No I/O here.
  */
 import type { BillingPlanId, SupabaseProjectStatus } from "@wandit/contracts";
 import type { appBackendStatus } from "@wandit/db/schema/app-backends";
@@ -14,6 +16,13 @@ const DAY_MS = 86_400_000;
 // `deleting` within minutes. One day later, a row that is not there
 // means that step failed or never ran.
 const ORPHAN_AFTER_MS = DAY_MS;
+// 10 min, from WANDIT-184. It is longer than the turn wake (about 5 min),
+// so a wake that a turn started never times out here. A turn that joins an
+// earlier Cloud tab restore can see that restore time out.
+const RESTORE_TIMEOUT_MS = 600_000;
+// 30 min: longer than the 15 min `maxDuration` of the provision-backend
+// task plus a queue wait, so a run that still works never times out here.
+const CREATE_TIMEOUT_MS = 1_800_000;
 
 /**
  * Every number of the lifecycle. All values are provisional defaults from
@@ -27,7 +36,7 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	publishedIdleDays: 30,
 	/** Provisional D3 default: days between `deleting` and the real Supabase delete. */
 	deleteGraceDays: 7,
-	/** Provisional default (ESTIMATE): at most this many rows in each of the four steps of one sweep run. */
+	/** Provisional default (ESTIMATE): at most this many rows in each of the six steps of one sweep run. */
 	sweepBatchCap: 50,
 	/**
 	 * Provisional D3 default, WANDIT-153 open: backends one owner may hold per
@@ -55,7 +64,7 @@ export type BackendLifecycleFacts = {
 	status: (typeof appBackendStatus.enumValues)[number];
 	/** When the row was inserted; the idle clock starts here while `lastActiveAt` is null. */
 	createdAt: Date;
-	/** Last turn end, Cloud tab read, or agent backend tool call; null before the first one. */
+	/** Last turn end, publish, Cloud tab read, or agent backend tool call; null before the first one. */
 	lastActiveAt: Date | null;
 	/** When the project delete or the sweep moved the row to `deleting`; null otherwise. */
 	deletingAt: Date | null;
@@ -135,6 +144,53 @@ export function isProjectComingUp(status: SupabaseProjectStatus): boolean {
 		status === "COMING_UP" ||
 		status === "RESTORING"
 	);
+}
+
+/**
+ * The cutoff of a stuck wake: a row that entered `restoring` before this
+ * moment moves to `error` with `backend_restore_failed`. The sweep and
+ * the Cloud tab read it, so a project stuck in `COMING_UP` does not keep
+ * the row `restoring` for ever.
+ */
+export function stuckRestoreCutoff(now: Date): Date {
+	return new Date(now.getTime() - RESTORE_TIMEOUT_MS);
+}
+
+/**
+ * The cutoff of a stuck provisioning: a `creating` row with no write since
+ * this moment moves to `error`, so the Cloud tab offers "Try again". It
+ * covers a run that never started or stopped without a status write.
+ */
+export function stuckCreatingCutoff(now: Date): Date {
+	return new Date(now.getTime() - CREATE_TIMEOUT_MS);
+}
+
+/**
+ * What the sweep does with the Supabase project of an `error` row. A
+ * failed provisioning or restore can leave a project that runs and costs
+ * money. `pause` stops it, `mark` records that it does not run, and
+ * `wait` reads it again at the next run, because it is still changing.
+ */
+export function errorBackendAction(
+	status: SupabaseProjectStatus,
+): "pause" | "mark" | "wait" {
+	// A failed pause can leave the project running, so it gets one more try.
+	if (
+		status === "ACTIVE_HEALTHY" ||
+		status === "ACTIVE_UNHEALTHY" ||
+		status === "PAUSE_FAILED"
+	) {
+		return "pause";
+	}
+	if (
+		status === "INACTIVE" ||
+		status === "INIT_FAILED" ||
+		status === "REMOVED" ||
+		status === "RESTORE_FAILED"
+	) {
+		return "mark";
+	}
+	return "wait";
 }
 
 /** Answer of `assertBackendEntitlement`: allowed, or the typed refusal. */

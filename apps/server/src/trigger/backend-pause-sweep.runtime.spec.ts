@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import { BACKEND_DEFAULTS } from "../modules/app-builder/domain/backend-lifecycle";
 import type { BackendLifecycleRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type { AuditEventInput } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
-import type { BackendRef } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import {
+	type BackendRef,
+	SupabaseManagementError,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
 import {
 	type BackendPauseSweepDeps,
 	runBackendPauseSweep,
@@ -55,23 +58,29 @@ function row(
 		published: false,
 		ref: `ref-${index}`,
 		status: "active",
+		updatedAt: NOW,
 		...overrides,
 	};
 }
 
 // A scripted Management API client: records each call. `fail` names the
-// refs whose call of that kind throws; `statuses` holds the status reads.
+// refs whose call of that kind throws; `notFound` names the refs whose status
+// read answers 404; `statuses` holds the status reads.
 function fakeClient(options: {
 	fail: { delete: string[]; get: string[]; pause: string[] };
+	notFound: string[];
 	statuses: Map<string, SupabaseProjectStatus>;
 }) {
-	const calls: { method: "delete" | "get" | "pause"; ref: string }[] = [];
+	const calls: {
+		method: "delete" | "get" | "pause" | "restore";
+		ref: string;
+	}[] = [];
 	const call = async (
-		method: "delete" | "get" | "pause",
+		method: "delete" | "get" | "pause" | "restore",
 		scope: BackendRef,
 	) => {
 		calls.push({ method, ref: scope.ref });
-		if (options.fail[method].includes(scope.ref)) {
+		if (method !== "restore" && options.fail[method].includes(scope.ref)) {
 			throw new Error("supabase down");
 		}
 	};
@@ -81,12 +90,16 @@ function fakeClient(options: {
 			deleteProject: (scope: BackendRef) => call("delete", scope),
 			getProject: async (scope: BackendRef) => {
 				await call("get", scope);
+				if (options.notFound.includes(scope.ref)) {
+					throw new SupabaseManagementError("not found", 404, null, null);
+				}
 				return {
 					dbHost: "db.test.supabase.co",
 					status: options.statuses.get(scope.ref) ?? "ACTIVE_HEALTHY",
 				};
 			},
 			pauseProject: (scope: BackendRef) => call("pause", scope),
+			restoreProject: (scope: BackendRef) => call("restore", scope),
 		},
 	};
 }
@@ -98,6 +111,11 @@ function setup(
 		failDelete?: string[];
 		failGet?: string[];
 		failPause?: string[];
+		/** Projects whose row a retry moved to `creating` after the list read. */
+		movedProjects?: string[];
+		/** Projects whose row a retry moves during the pause call: the mark answers false. */
+		movedDuringPause?: string[];
+		notFound?: string[];
 		statuses?: [string, SupabaseProjectStatus][];
 	} = {},
 ) {
@@ -107,6 +125,7 @@ function setup(
 			get: options.failGet ?? [],
 			pause: options.failPause ?? [],
 		},
+		notFound: options.notFound ?? [],
 		statuses: new Map(options.statuses),
 	});
 	const { lines, logger } = makeLogger();
@@ -126,14 +145,49 @@ function setup(
 			},
 		},
 		backends: {
+			// The current row; a moved project reads `creating`, like a retry.
+			findByProjectId: async (projectId) => {
+				const found = rows.find(
+					(candidate) => candidate.projectId === projectId,
+				);
+				return found === undefined
+					? null
+					: {
+							anonKey: null,
+							dbHost: null,
+							failureCode: null,
+							id: found.id,
+							orgId: null,
+							organizationId: found.organizationId,
+							projectId,
+							ref: found.ref,
+							region: "eu-west-3",
+							requestKey: "request-1",
+							status: options.movedProjects?.includes(projectId)
+								? "creating"
+								: found.status,
+							triggerRunId: null,
+							userId: "user-1",
+						};
+			},
 			listLifecycleCandidates: async (idleBefore) => {
 				listCutoffs.push(idleBefore);
 				return rows;
 			},
 			markDeleted: (projectId) => write("markDeleted", projectId),
 			markDeleting: (projectId) => write("markDeleting", projectId),
+			markCreatingTimedOut: (projectId) =>
+				write("markCreatingTimedOut", projectId),
+			markErrorProjectStopped: async (projectId) => {
+				if (options.movedDuringPause?.includes(projectId)) {
+					return false;
+				}
+				return write("markErrorProjectStopped", projectId);
+			},
 			markPaused: (projectId) => write("markPaused", projectId),
 			markRestoreFailed: (projectId) => write("markRestoreFailed", projectId),
+			markRestoreTimedOut: (projectId) =>
+				write("markRestoreTimedOut", projectId),
 			markRestored: (projectId) => write("markRestored", projectId),
 		},
 		client,
@@ -164,6 +218,10 @@ describe("runBackendPauseSweep", () => {
 		expect(result).toEqual({
 			deleteFailed: 0,
 			deleted: 0,
+			creatingTimedOut: 0,
+			errorCheckFailed: 0,
+			errorMarked: 0,
+			errorPaused: 0,
 			expired: 0,
 			idle: 1,
 			orphanFailed: 0,
@@ -172,6 +230,7 @@ describe("runBackendPauseSweep", () => {
 			paused: 1,
 			restoreCheckFailed: 0,
 			restoreFailed: 0,
+			restoreTimedOut: 0,
 			restored: 0,
 			scanned: 1,
 			skipped: null,
@@ -438,14 +497,17 @@ describe("runBackendPauseSweep", () => {
 		);
 	});
 
-	it("ends a stale restore: healthy moves to active, a failed restore to error", async () => {
+	it("ends a stale restore: healthy moves to active, a failed or deleted restore to error", async () => {
 		const world = setup(
 			[
 				row(1, { status: "restoring" }),
 				row(2, { status: "restoring" }),
 				row(3, { status: "restoring" }),
+				row(4, { status: "restoring" }),
 			],
 			{
+				// ref-4 was deleted at Supabase: a 404 counts as REMOVED.
+				notFound: ["ref-4"],
 				statuses: [
 					["ref-1", "ACTIVE_HEALTHY"],
 					["ref-2", "RESTORE_FAILED"],
@@ -457,12 +519,112 @@ describe("runBackendPauseSweep", () => {
 		const result = await runBackendPauseSweep(world.deps);
 
 		expect(result.restored).toBe(1);
-		expect(result.restoreFailed).toBe(1);
+		expect(result.restoreFailed).toBe(2);
 		expect(world.writes).toEqual([
 			"markRestored:project-1",
 			"markRestoreFailed:project-2",
+			"markRestoreFailed:project-4",
 		]);
 		expect(world.calls.every((call) => call.method === "get")).toBe(true);
+	});
+
+	it("moves a wake stuck for more than 10 minutes to error and keeps a younger one", async () => {
+		const minutesAgo = (minutes: number) =>
+			new Date(NOW.getTime() - minutes * 60_000);
+		const world = setup(
+			[
+				row(1, { status: "restoring", updatedAt: minutesAgo(9) }),
+				row(2, { status: "restoring", updatedAt: minutesAgo(11) }),
+			],
+			{
+				statuses: [
+					["ref-1", "COMING_UP"],
+					["ref-2", "COMING_UP"],
+				],
+			},
+		);
+
+		const result = await runBackendPauseSweep(world.deps);
+
+		expect(result.restoreTimedOut).toBe(1);
+		expect(world.writes).toEqual(["markRestoreTimedOut:project-2"]);
+	});
+
+	it("pauses the running project of an error row and marks the stopped ones", async () => {
+		const world = setup(
+			[
+				row(1, { status: "error" }),
+				row(2, { status: "error" }),
+				row(3, { status: "error" }),
+				row(4, { status: "error" }),
+			],
+			{
+				// ref-4 was deleted by a retry: a 404 counts as gone.
+				notFound: ["ref-4"],
+				statuses: [
+					["ref-1", "ACTIVE_HEALTHY"],
+					["ref-2", "INACTIVE"],
+					["ref-3", "COMING_UP"],
+				],
+			},
+		);
+
+		const result = await runBackendPauseSweep(world.deps);
+
+		expect(result.errorPaused).toBe(1);
+		expect(result.errorMarked).toBe(2);
+		expect(world.calls.filter((call) => call.method === "pause")).toEqual([
+			{ method: "pause", ref: "ref-1" },
+		]);
+		// A project still coming up gets its check at the next run.
+		expect(world.writes).toEqual([
+			"markErrorProjectStopped:project-1",
+			"markErrorProjectStopped:project-2",
+			"markErrorProjectStopped:project-4",
+		]);
+		expect(world.audits.map((audit) => audit.action)).toEqual([
+			"backend.paused",
+		]);
+	});
+
+	it("undoes the pause when a retry moves the error row during the pause call", async () => {
+		const world = setup([row(1, { status: "error" })], {
+			movedDuringPause: ["project-1"],
+			statuses: [["ref-1", "ACTIVE_HEALTHY"]],
+		});
+
+		const result = await runBackendPauseSweep(world.deps);
+
+		expect(result.errorPaused).toBe(0);
+		expect(world.calls.map((call) => call.method)).toEqual([
+			"get",
+			"pause",
+			"restore",
+		]);
+	});
+
+	it("moves a stuck creating row to error; the CAS keeps a younger one", async () => {
+		const world = setup([row(1, { status: "creating" })]);
+
+		const result = await runBackendPauseSweep(world.deps);
+
+		expect(result.creatingTimedOut).toBe(1);
+		expect(world.writes).toEqual(["markCreatingTimedOut:project-1"]);
+		// No Supabase call: the next run's error step stops the project.
+		expect(world.calls).toEqual([]);
+	});
+
+	it("does not pause the project of an error row that a retry moved after the list read", async () => {
+		const world = setup([row(1, { status: "error" })], {
+			movedProjects: ["project-1"],
+			statuses: [["ref-1", "ACTIVE_HEALTHY"]],
+		});
+
+		const result = await runBackendPauseSweep(world.deps);
+
+		expect(result.errorPaused).toBe(0);
+		expect(world.calls.filter((call) => call.method === "pause")).toEqual([]);
+		expect(world.writes).toEqual([]);
 	});
 
 	it("counts a failed restore check and continues", async () => {

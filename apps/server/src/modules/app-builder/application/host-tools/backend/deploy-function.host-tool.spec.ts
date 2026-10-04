@@ -35,6 +35,7 @@ describe("deploy_function", () => {
 		const output = await executeTool(tool, { slug: "hello-world" });
 
 		expect(output).toEqual({
+			slug: "hello-world",
 			status: "deployed",
 			url: `https://${FAKE_REF}.supabase.co/functions/v1/hello-world`,
 		});

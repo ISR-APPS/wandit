@@ -37,7 +37,7 @@ const STRIPE_KEY: ProjectSecretSummary = {
 };
 
 const NAME_INVALID =
-	"Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer.";
+	"Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer. Names that start with SUPABASE_ are reserved.";
 
 // The cache holds the list and nothing is stale or retried, so the panel
 // never calls the API. A save goes to the `putSecret` fake; no case
@@ -159,13 +159,17 @@ describe("SecretsPanel", () => {
 		);
 	});
 
-	it("refuses a name that starts with a digit", () => {
+	it.each([
+		{ typed: "1abc", shown: "1ABC" },
+		// Security: the name of a Supabase key that provisioning stores.
+		{ typed: "supabase_service_role_key", shown: "SUPABASE_SERVICE_ROLE_KEY" },
+	])("refuses the name $shown", ({ typed, shown }) => {
 		renderPanel([]);
 
-		typeName("1abc");
+		typeName(typed);
 		typeValue("sk_test_123");
 
-		expect(screen.getByLabelText("Name")).toHaveProperty("value", "1ABC");
+		expect(screen.getByLabelText("Name")).toHaveProperty("value", shown);
 		expect(screen.getByText(NAME_INVALID)).toBeTruthy();
 		expect(saveButton().hasAttribute("disabled")).toBe(true);
 	});
