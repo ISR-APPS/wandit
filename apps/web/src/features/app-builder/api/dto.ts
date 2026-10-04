@@ -6,6 +6,7 @@
  */
 
 import type {
+	AppLanguage,
 	AskUserKind,
 	CodeSnapshotResponse,
 	ProjectEngine,
@@ -13,8 +14,6 @@ import type {
 	TurnQuestionOption,
 } from "@wandit/contracts";
 import type { UIMessage } from "ai";
-
-import type { MorePanel } from "../lib/constants";
 
 /** What Wandit builds. Changes the preview frame, the More panels, and the publish targets. */
 export type AppProjectKind = "web" | "mobile";
@@ -24,8 +23,12 @@ export type AppProject = {
 	name: string;
 	/** URL slug. Web previews live on `{slug}.wandit.app`. */
 	slug: string;
-	description: string;
+	/** Set at creation from `targetPlatform`. It never changes, so Settings shows it as a badge. */
 	kind: AppProjectKind;
+	/** Languages the agent builds the app in, from `projects.languages`. Settings lists them read-only. */
+	languages: AppLanguage[];
+	/** Version of the template the project started from, for example "1.4.0". null until the create flow sets it. */
+	templateVersion: string | null;
 	/** Builder of the project, from `GET /api/v2/projects/:id`. The Backend group of the More view shows only for `v2_app`. */
 	engine: ProjectEngine;
 	/** Count of saved versions, from the API. The publish popover shows it as "v{n}". */
@@ -194,75 +197,3 @@ export type CodeFile =
 	| { kind: "binary"; path: string; size: number }
 	| { kind: "tooLarge"; path: string }
 	| { kind: "missing"; path: string };
-
-/** Data of the Sign-in panel. The mock store answers it; the methods themselves are fixed UI. */
-export type SignInSummary = {
-	/** Users who signed up in the generated app. */
-	userCount: number;
-};
-
-export type ProjectDomain = {
-	host: string;
-	/** `wandit` is the free subdomain. `custom` is a domain the user owns. */
-	kind: "wandit" | "custom";
-	status: "live" | "verifying";
-	/** CNAME target the user must set while the status is `verifying`. */
-	cnameTarget: string | null;
-};
-
-export type StoreListingItemId =
-	| "appIcon"
-	| "appName"
-	| "description"
-	| "screenshots"
-	| "privacyUrl"
-	| "ageRating";
-
-export type StoreListingItem = {
-	id: StoreListingItemId;
-	done: boolean;
-	/** Value or hint shown at the end of the row, as the store tooling reports it. */
-	detail: string;
-};
-
-export type AppStoresSummary = {
-	ios: {
-		status: "readyToSubmit" | "notSetUp";
-		bundleId: string;
-		latestBuild: number;
-		testflightTesters: number;
-	};
-	android: {
-		status: "readyToSubmit" | "notSetUp";
-	};
-	listing: StoreListingItem[];
-};
-
-export type CollaboratorRole = "owner" | "editor" | "viewer";
-
-export type Collaborator = {
-	id: string;
-	name: string;
-	/** Email or job title, shown under the name. */
-	subtitle: string;
-	role: CollaboratorRole;
-	/** True while the invitation email is not accepted. */
-	pending: boolean;
-};
-
-export type EnvironmentVariable = {
-	name: string;
-	/** null for a secret. The panel shows dots instead. */
-	value: string | null;
-	/** More panel that wrote the variable, or null when the user added it. */
-	setBy: MorePanel | null;
-	/** True when the app can read it in the browser. */
-	isPublic: boolean;
-};
-
-export type ProjectSettings = {
-	collaborators: Collaborator[];
-	/** Seats the plan allows, including the owner. */
-	collaboratorLimit: number;
-	environmentVariables: EnvironmentVariable[];
-};

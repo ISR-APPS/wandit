@@ -39,8 +39,9 @@ export function isPublishRunning(
 }
 
 /**
- * The publish status of one project. The popover body mounts it only while
- * the popover is open, so the poll stops when it closes. `get` is the test seam.
+ * The publish status of one project. The publish popover body and the
+ * Domains panel mount it, so the poll stops when both are closed. `get` is
+ * the test seam.
  */
 export const appPublishQuery = (
 	projectId: string,

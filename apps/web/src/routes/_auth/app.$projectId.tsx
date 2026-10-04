@@ -1,8 +1,8 @@
 /**
  * Route of the V2 app builder at `/app/$projectId`.
  * Validates the search params, fills the project and thread queries before
- * the page renders, warms the caches of the other views, and lazy-loads
- * the page chunk. The `/_auth` parent already checked the session.
+ * the page renders, warms the Code view cache, and lazy-loads the page
+ * chunk. The `/_auth` parent already checked the session.
  */
 
 import { createFileRoute, notFound } from "@tanstack/react-router";
@@ -13,12 +13,8 @@ import {
 	AppNotFound,
 	appBuilderSearchSchema,
 	appProjectQuery,
-	appStoresSummaryQuery,
 	builderThreadQuery,
 	codeSnapshotQuery,
-	projectDomainsQuery,
-	projectSettingsQuery,
-	signInSummaryQuery,
 } from "@/features/app-builder";
 import { pageTitle } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
@@ -37,15 +33,8 @@ export const Route = createFileRoute("/_auth/app/$projectId")({
 		);
 		if (!project) throw notFound();
 		await queryClient.ensureQueryData(builderThreadQuery(params.projectId));
-		// The other views read these later. Warm them now without holding the first paint.
+		// The Code view reads it later. Warm it now without holding the first paint.
 		void queryClient.prefetchQuery(codeSnapshotQuery(params.projectId));
-		void queryClient.prefetchQuery(signInSummaryQuery(params.projectId));
-		void queryClient.prefetchQuery(projectSettingsQuery(params.projectId));
-		if (project.kind === "web") {
-			void queryClient.prefetchQuery(projectDomainsQuery(params.projectId));
-		} else {
-			void queryClient.prefetchQuery(appStoresSummaryQuery(params.projectId));
-		}
 	},
 	head: () => ({ meta: [{ title: pageTitle("appBuilder.meta.title") }] }),
 	notFoundComponent: AppNotFound,

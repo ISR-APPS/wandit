@@ -95,7 +95,7 @@ export const CLOUD_ROWS_PAGE_SIZE = 50;
  */
 export const CLOUD_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
-/** Cell text of a Cloud panel for a value the API does not give: no email, a folder size, a run without a start. */
+/** Text for a value the API does not give: in a Cloud panel (no email, a folder size) and in Settings (no template version). */
 export const CLOUD_EMPTY_CELL = "—";
 
 /** Date and time style of the Cloud panels, for example "Oct 3, 2026, 2:15 AM" in English. */
@@ -226,9 +226,6 @@ export const EXPO_GO_STORE_LINKS = [
 		url: "https://play.google.com/store/apps/details?id=host.exp.exponent",
 	},
 ] as const;
-
-/** Round-trip delay of a mock service call, ms. Long enough to show pending states, short enough to feel local. */
-export const MOCK_LATENCY_MS = 150;
 
 /** Easing of the preview boot screen and its exit, as a motion cubic bezier. It is the `cubic-bezier(0.4, 0, 0.2, 1)` of DESIGN.md. */
 export const BOOT_EASE = [0.4, 0, 0.2, 1] as const;

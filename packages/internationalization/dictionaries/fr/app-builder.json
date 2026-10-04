@@ -199,7 +199,7 @@
 		},
 		"appStores": {
 			"title": "Stores",
-			"description": "Signature, builds et fiche pour l'App Store et Google Play."
+			"description": "Tes builds Android, et l'état des builds iPhone."
 		},
 		"security": {
 			"title": "Sécurité",
@@ -208,12 +208,12 @@
 		},
 		"settings": {
 			"title": "Paramètres",
-			"description": "Nom, type de projet, collaborateurs et variables d'environnement."
+			"description": "Nom, infos de l'app, limites de dépenses et suppression."
 		}
 	},
 	"empty": {
-		"title": "Rien de configuré pour l'instant",
-		"description": "Demande à Wandit dans le chat, ou configure-le ici."
+		"title": "Bientôt disponible",
+		"description": "Tu ne peux pas encore configurer ceci depuis ce panneau."
 	},
 	"signIn": {
 		"methodsTitle": "Méthodes de connexion",
@@ -251,72 +251,49 @@
 		}
 	},
 	"domains": {
-		"freePrimary": "Domaine Wandit gratuit · principal",
-		"waitingDns": "En attente du DNS · pointe le CNAME vers {target}",
+		"freeHost": "Domaine Wandit gratuit",
 		"live": "En ligne",
-		"verifying": "Vérification",
-		"inputLabel": "Domaine à connecter",
-		"placeholder": "tondomaine.dz",
-		"connect": "Connecter",
-		"buy": "Acheter un domaine"
+		"freeTitle": "Adresse Wandit gratuite",
+		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app."
 	},
 	"appStores": {
-		"appStore": "App Store",
-		"googlePlay": "Google Play",
-		"readyToSubmit": "Prêt à soumettre",
-		"notSetUp": "Non configuré",
-		"bundleId": "Bundle ID",
-		"latestBuild": "Dernier build",
-		"buildValue": "{build} · v{version}",
-		"testflight": "TestFlight",
-		"testers": {
-			"one": "{count} testeur",
-			"other": "{count} testeurs"
-		},
-		"submitForReview": "Soumettre à la revue",
-		"googlePlayHelp": "Connecte un compte développeur Google Play et Wandit signe et envoie le build pour toi.",
-		"connectGooglePlay": "Connecter Google Play",
-		"listingTitle": "Fiche du store",
-		"listingProgress": "{done} sur {total} terminés",
-		"listing": {
-			"appIcon": "Icône de l'app",
-			"appName": "Nom et sous-titre",
-			"description": "Description",
-			"screenshots": "Captures d'écran",
-			"privacyUrl": "URL de la politique de confidentialité",
-			"ageRating": "Classification et catégorie"
-		},
-		"neededForReview": "Requis pour la revue"
+		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
+		"iphone": "iPhone",
+		"iphoneNotAvailable": "Les builds iPhone ne sont pas encore disponibles."
 	},
 	"settings": {
 		"project": "Projet",
 		"name": "Nom",
 		"projectUrl": "URL du projet",
 		"projectUrlPrefix": "wandit.dev/app/",
-		"descriptionLabel": "Description",
 		"projectType": "Type de projet",
-		"projectTypeHelp": "Change ce que Wandit construit et où tu peux publier.",
-		"collaborators": "Collaborateurs",
-		"seats": "{count} sur {max}",
-		"invite": "Inviter",
-		"roles": {
-			"owner": "Propriétaire",
-			"editor": "Éditeur",
-			"viewer": "Lecteur"
-		},
-		"roleLabel": "Rôle de {name}",
-		"pending": "Invité · en attente",
-		"envTitle": "Variables d'environnement",
-		"envHelp": "Secrets que ton backend peut lire",
-		"addVariable": "+ Ajouter une variable",
-		"setBy": "Défini par {panel}",
-		"public": "Public",
+		"projectTypeHelp": "Défini à la création du projet. Il ne peut pas changer.",
+		"languages": "Langues de l'app",
+		"templateVersion": "Version du modèle",
+		"nameSaved": "Nom enregistré",
+		"secretsTitle": "Secrets",
+		"secretsHelp": "Ton backend lit ses clés d'API et ses jetons dans le panneau Secrets.",
+		"openSecrets": "Ouvrir Secrets",
+		"limitsTitle": "Limites de dépenses",
+		"limitsManagersOnly": "Seuls les propriétaires et les admins de l'espace de travail peuvent voir et modifier les limites de dépenses.",
+		"perTurnLimit": "Limite par opération",
+		"perTurnDefault": "Par défaut",
+		"perTurnHelp": "Une opération s'arrête quand elle utilise ce nombre de crédits. Vide : la valeur par défaut.",
+		"monthlyLimit": "Limite mensuelle",
+		"monthlyNone": "Aucune limite",
+		"monthlyHelp": "Les nouvelles opérations s'arrêtent quand ce projet utilise ce nombre de crédits dans le mois. Vide : aucune limite.",
+		"creditsUnit": "crédits",
+		"limitsInvalid": "Utilise un nombre de crédits à partir de 0,01, avec 2 décimales au maximum. La limite par opération est de 2 500 crédits au maximum.",
+		"limitsSave": "Enregistrer les limites",
+		"limitsSaved": "Limites de dépenses enregistrées",
 		"deleteTitle": "Supprimer ce projet",
 		"deleteHelp": "Met l'app hors ligne et supprime la base de données, les versions et le chat. Cette action est définitive.",
+		"deleteManagersOnly": "Seuls les propriétaires et les admins de l'espace de travail peuvent supprimer ce projet.",
 		"delete": "Supprimer",
 		"deleteConfirmTitle": "Supprimer {name} ?",
 		"deleteConfirmBody": "L'app passe hors ligne et la base de données, les versions et le chat sont supprimés.",
-		"cancel": "Annuler"
+		"cancel": "Annuler",
+		"deleted": "Projet supprimé"
 	},
 	"chat": {
 		"title": "Chat",
@@ -547,7 +524,8 @@
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
 		"showQr": "Afficher le QR",
-		"backendNote": "Le backend se déploie à chaque publication"
+		"backendNote": "Le backend se déploie à chaque publication",
+		"hideQr": "Masquer le QR"
 	},
 	"mobileBuilds": {
 		"title": "Android · APK",
