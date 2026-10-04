@@ -7,8 +7,10 @@
 import { relations, sql } from "drizzle-orm";
 import {
 	type AnyPgColumn,
+	boolean,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -64,8 +66,17 @@ export const appBuilds = pgTable(
 		// Machine failure code, one of `appBuildErrorCodes` in packages/contracts.
 		errorCode: text("error_code"),
 		// English failure detail for support; the API does not send it. Never
-		// holds a secret: the build env carries public values only.
+		// holds a secret: the build env carries public values only, and a
+		// `blocked` row holds only the masked sample of a key.
 		errorMessage: text("error_message"),
+		// The publish gate findings (WANDIT-181, WANDIT-190), as an array of
+		// `PublishGateFinding` from @wandit/contracts. The API parses it with
+		// `publishGateFindingSchema` on read. Never holds a full secret value.
+		gateFindings: jsonb("gate_findings").notNull().default(sql`'[]'::jsonb`),
+		// True on an owner "Publish anyway" attempt: overridable findings do
+		// not block it. The override route writes the `publish.gate_override`
+		// audit row before it inserts the row.
+		gateOverride: boolean("gate_override").notNull().default(false),
 		// Files in the build output: Worker modules plus static assets.
 		fileCount: integer("file_count"),
 		// Total bytes of the build output. The task refuses more than 100 MB,

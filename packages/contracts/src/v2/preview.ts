@@ -160,6 +160,24 @@ export function previewHostFor(
 }
 
 /**
+ * Supabase auth redirect pattern that matches every preview run host of
+ * one project. The provisioning and the login URL sync (WANDIT-190) put it
+ * in `uri_allow_list`.
+ */
+export function previewAuthRedirectPattern(
+	projectId: string,
+	previewDomain: string,
+): string {
+	// Security check: the run label is the 12 hex characters of `rid12Of`.
+	// A `*` also matches `@` and `?`. Then `https://r-@<attacker-host>?--p-...`
+	// matches, and the login token goes to the attacker host. The glob library
+	// of Supabase Auth accepts one range per class, so the class lists the
+	// 16 characters.
+	const runLabel = "[0123456789abcdef]".repeat(12);
+	return `https://r-${runLabel}--p-${projectId}.${previewDomain}/**`;
+}
+
+/**
  * Phone host of one phone link: `m-<phoneId>--p-<projectId>.<domain>`.
  * `phoneId` is 21 lower-case base32 characters, so the label has 63
  * characters, exactly the DNS limit.
