@@ -1,7 +1,8 @@
 /**
  * Provisions the hidden Supabase backend of a new V2 project (D18).
  * `AppProjectsService.create` calls it after the create transaction, and
- * the Cloud route `POST backend` calls it for a project without a row.
+ * the Cloud route `POST backend` calls it for a project without a row or
+ * with a failed (`error`) row, which it provisions again.
  * It checks the plan entitlement (D3, WANDIT-184), writes the
  * `app_backends` row through `AppBackendsRepository`, and hands off to the
  * `provision-backend` task through `ProvisionBackendTaskStarter`.
@@ -37,7 +38,7 @@ export class BackendsService {
 		private readonly backends: Pick<
 			AppBackendsRepository,
 			| "findByProjectId"
-			| "insertCreatingWithinLimit"
+			| "writeCreatingWithinLimit"
 			| "setTriggerRunId"
 			| "markError"
 		>,
@@ -55,7 +56,8 @@ export class BackendsService {
 
 	/**
 	 * The single entry of backend provisioning: project create and the Cloud
-	 * route `POST backend` call it. Answers the `app_backends` row; null means
+	 * route `POST backend` call it. An `error` row gets a new run; any other
+	 * row comes back as it is. Answers the `app_backends` row; null means
 	 * provisioning is not configured and nothing was written. Throws
 	 * `BackendLimitReachedError` when the payer's plan has no free slot.
 	 */
@@ -82,8 +84,9 @@ export class BackendsService {
 			return null;
 		}
 
+		// Only a failed row needs the locked write: it provisions again.
 		const existing = await this.backends.findByProjectId(projectId);
-		if (existing !== null) {
+		if (existing !== null && existing.status !== "error") {
 			return existing;
 		}
 
@@ -110,9 +113,10 @@ export class BackendsService {
 			}
 		}
 
-		// The count and the insert run under one lock per payer, so two
-		// parallel creates cannot both pass the limit.
-		const outcome = await this.backends.insertCreatingWithinLimit(
+		// The count and the write run under one lock per payer, so two
+		// parallel creates cannot both pass the limit, and two retries of one
+		// `error` row cannot both start a run.
+		const outcome = await this.backends.writeCreatingWithinLimit(
 			{
 				organizationId: input.organizationId,
 				projectId,
@@ -134,8 +138,8 @@ export class BackendsService {
 		}
 		const row = outcome.row;
 		if (outcome.kind === "exists") {
-			// A concurrent create wrote the row first and already queued its
-			// task, so this call starts nothing.
+			// A concurrent create or retry wrote the row first and already
+			// queued its task, so this call starts nothing.
 			return row;
 		}
 
@@ -153,7 +157,7 @@ export class BackendsService {
 			this.logger.error(
 				`supabase.provisioning.start-failed project=${projectId}: ${message}`,
 			);
-			await this.backends.markError(projectId, {
+			await this.backends.markError(projectId, row.requestKey, {
 				error: message,
 				failureCode: "backend_provision_start_failed",
 				failureKind: "internal",

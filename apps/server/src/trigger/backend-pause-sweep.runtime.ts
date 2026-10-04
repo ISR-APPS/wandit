@@ -1,7 +1,8 @@
 /**
  * Backend pause sweep runtime (WANDIT-184, D3): pauses idle Supabase
- * projects, ends stale restores, and deletes the projects of deleted apps
- * after the grace window. `backend-pause-sweep.task.ts` calls it through
+ * projects, ends stale and stuck restores and stuck creates, stops the
+ * running project of a failed (`error`) backend, and deletes the projects
+ * of deleted apps after the grace window. `backend-pause-sweep.task.ts` calls it through
  * `createBackendPauseSweepRuntime`; the spec calls `runBackendPauseSweep`
  * on fakes. It calls the `app_backends` and `project_secrets` repositories,
  * `SupabaseManagementClient`, and `AuditEventsRepository`.
@@ -15,9 +16,12 @@ import { Sentry } from "@wandit/observability/node";
 import {
 	BACKEND_DEFAULTS,
 	type BackendLifecycleWindows,
+	errorBackendAction,
 	selectBackendsToDelete,
 	selectBackendsToPause,
 	selectOrphanedBackends,
+	stuckCreatingCutoff,
+	stuckRestoreCutoff,
 } from "../modules/app-builder/domain/backend-lifecycle";
 import type { SandboxLogger } from "../modules/app-builder/domain/ports/sandbox-provider";
 import {
@@ -27,6 +31,7 @@ import {
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import {
+	projectStatusOrRemoved,
 	type SupabaseManagementClient,
 	supabaseWorkerClientFromEnv,
 } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
@@ -46,17 +51,21 @@ export type BackendPauseSweepDeps = {
 	/** Reads the candidates and writes every state change of the row. */
 	backends: Pick<
 		AppBackendsRepository,
+		| "findByProjectId"
 		| "listLifecycleCandidates"
+		| "markCreatingTimedOut"
 		| "markDeleted"
 		| "markDeleting"
+		| "markErrorProjectStopped"
 		| "markPaused"
 		| "markRestoreFailed"
+		| "markRestoreTimedOut"
 		| "markRestored"
 	>;
 	/** The worker Management API client; null when a Supabase platform env value is unset. */
 	client: Pick<
 		SupabaseManagementClient,
-		"deleteProject" | "getProject" | "pauseProject"
+		"deleteProject" | "getProject" | "pauseProject" | "restoreProject"
 	> | null;
 	/** Deletes the secret values of a deleted project before its Supabase delete. */
 	projectSecrets: Pick<ProjectSecretsRepository, "deleteAllForProject">;
@@ -89,8 +98,18 @@ export type BackendPauseSweepResult = {
 	restored: number;
 	/** `restoring` rows that Supabase reports `RESTORE_FAILED` or `REMOVED`; the row is `error`. */
 	restoreFailed: number;
+	/** `restoring` rows older than the restore timeout that Supabase never brought up; the row is `error`. */
+	restoreTimedOut: number;
 	/** `restoring` rows whose status read or row write threw. */
 	restoreCheckFailed: number;
+	/** `creating` rows with no write for 30 minutes; the row is `error`. */
+	creatingTimedOut: number;
+	/** `error` rows whose running Supabase project this run paused. */
+	errorPaused: number;
+	/** `error` rows whose project was already stopped or gone; the row got the mark. */
+	errorMarked: number;
+	/** `error` and `creating` rows whose read or write threw; the next run tries again. */
+	errorCheckFailed: number;
 	/** Active rows past their idle window. */
 	idle: number;
 	/** Idle rows that Supabase paused and the row moved to `paused`. */
@@ -106,10 +125,11 @@ export type BackendPauseSweepResult = {
 };
 
 /**
- * One sweep: reads the candidates once, then runs four steps, each capped
+ * One sweep: reads the candidates once, then runs six steps, each capped
  * at `BACKEND_DEFAULTS.sweepBatchCap` rows: orphaned backends, stale
- * restores, idle pauses, grace deletes. A failed list read rejects the
- * run; a failed row logs and the loop continues.
+ * restores, stuck creates, the projects of `error` rows, idle pauses, grace
+ * deletes. A failed list read rejects the run; a failed row logs and the
+ * loop continues.
  */
 export async function runBackendPauseSweep(
 	deps: BackendPauseSweepDeps,
@@ -117,6 +137,10 @@ export async function runBackendPauseSweep(
 	const result: BackendPauseSweepResult = {
 		deleteFailed: 0,
 		deleted: 0,
+		creatingTimedOut: 0,
+		errorCheckFailed: 0,
+		errorMarked: 0,
+		errorPaused: 0,
 		expired: 0,
 		idle: 0,
 		orphanFailed: 0,
@@ -125,6 +149,7 @@ export async function runBackendPauseSweep(
 		paused: 0,
 		restoreCheckFailed: 0,
 		restoreFailed: 0,
+		restoreTimedOut: 0,
 		restored: 0,
 		scanned: 0,
 		skipped: null,
@@ -187,10 +212,12 @@ export async function runBackendPauseSweep(
 	const restoring = rows.filter(
 		(row) => row.status === "restoring" && row.projectDeletedAt === null,
 	);
+	const restoringBefore = stuckRestoreCutoff(now);
 	for (const row of capped(restoring, "restore", deps.logger)) {
 		const fields = { projectId: row.projectId, ref: row.ref };
 		try {
-			const { status } = await client.getProject(fields);
+			// A project that Supabase deleted answers 404: the same as `REMOVED`.
+			const status = await projectStatusOrRemoved(client, fields);
 			if (status === "ACTIVE_HEALTHY") {
 				if (await deps.backends.markRestored(row.projectId)) {
 					result.restored += 1;
@@ -204,6 +231,23 @@ export async function runBackendPauseSweep(
 						status,
 					});
 				}
+			} else if (row.updatedAt < restoringBefore) {
+				// A project stuck in `COMING_UP` never ends the wake by itself. The
+				// `error` row shows "Try again", and a later run stops the project
+				// if it comes up.
+				if (
+					await deps.backends.markRestoreTimedOut(
+						row.projectId,
+						restoringBefore,
+						status,
+					)
+				) {
+					result.restoreTimedOut += 1;
+					deps.logger.warn("backend.pause-sweep.restore-timed-out", {
+						...fields,
+						status,
+					});
+				}
 			}
 		} catch (error) {
 			result.restoreCheckFailed += 1;
@@ -212,6 +256,90 @@ export async function runBackendPauseSweep(
 				error: getErrorMessage(error),
 			});
 		}
+	}
+
+	// A provision run that died after its create call leaves a `creating`
+	// row that holds a running project. The timeout moves it to `error`, so
+	// the next run stops the project and the Cloud tab offers "Try again".
+	const creating = rows.filter(
+		(row) => row.status === "creating" && row.projectDeletedAt === null,
+	);
+	const createdBefore = stuckCreatingCutoff(now);
+	for (const row of capped(creating, "creating", deps.logger)) {
+		const fields = { projectId: row.projectId, ref: row.ref };
+		try {
+			if (
+				await deps.backends.markCreatingTimedOut(row.projectId, createdBefore)
+			) {
+				result.creatingTimedOut += 1;
+				deps.logger.warn("backend.pause-sweep.creating-timed-out", fields);
+			}
+		} catch (error) {
+			result.errorCheckFailed += 1;
+			deps.logger.warn("backend.pause-sweep.creating-check-failed", {
+				...fields,
+				error: getErrorMessage(error),
+			});
+		}
+	}
+
+	// A failed provisioning or wake can leave a project that runs and costs
+	// money while nothing serves it. The mark keeps a stopped project out of
+	// the next runs, so the cap slots go to rows that still need a check.
+	const failed = rows.filter(
+		(row) => row.status === "error" && row.projectDeletedAt === null,
+	);
+	for (const row of capped(failed, "error", deps.logger)) {
+		const fields = { projectId: row.projectId, ref: row.ref };
+		try {
+			// A ref that a retry deleted answers 404: the same as `REMOVED`.
+			const status = await projectStatusOrRemoved(client, fields);
+			const action = errorBackendAction(status);
+			if (action === "wait") {
+				deps.logger.info("backend.pause-sweep.error-waiting", {
+					...fields,
+					status,
+				});
+				continue;
+			}
+			if (action === "pause") {
+				// The list read can be minutes old. A retry since then owns the
+				// project, and a pause now would stop a backend that is active.
+				const current = await deps.backends.findByProjectId(row.projectId);
+				if (current?.status !== "error" || current.ref !== row.ref) {
+					deps.logger.warn("backend.pause-sweep.row-moved", fields);
+					continue;
+				}
+				await client.pauseProject(fields);
+			}
+			if (!(await deps.backends.markErrorProjectStopped(row.projectId))) {
+				// A retry moved the row to `creating` during the pause call; its
+				// run owns the project, so the pause is undone.
+				if (action === "pause") {
+					await client.restoreProject(fields);
+				}
+				deps.logger.warn("backend.pause-sweep.row-moved", fields);
+				continue;
+			}
+			if (action === "mark") {
+				result.errorMarked += 1;
+				deps.logger.info("backend.pause-sweep.error-marked", {
+					...fields,
+					status,
+				});
+				continue;
+			}
+			result.errorPaused += 1;
+			deps.logger.info("backend.pause-sweep.error-paused", fields);
+		} catch (error) {
+			result.errorCheckFailed += 1;
+			deps.logger.warn("backend.pause-sweep.error-check-failed", {
+				...fields,
+				error: getErrorMessage(error),
+			});
+			continue;
+		}
+		await audit(deps, row, "backend.paused");
 	}
 
 	const idle = selectBackendsToPause(rows, now, deps.windows);
@@ -293,7 +421,7 @@ export async function runBackendPauseSweep(
 // cap slots of a step. Upgrade: order each step by its last attempt.
 function capped(
 	rows: BackendLifecycleRow[],
-	action: "orphan" | "restore" | "pause" | "delete",
+	action: "orphan" | "restore" | "creating" | "error" | "pause" | "delete",
 	logger: SandboxLogger,
 ): BackendLifecycleRow[] {
 	const cap = BACKEND_DEFAULTS.sweepBatchCap;

@@ -1,23 +1,26 @@
 /**
  * React hook over the V2 turn stream of one project chat. Owns the useChat
  * instance and exposes the running turn id and its cost estimate. Sends
- * text, question answers, and approval decisions as turn requests. Called
- * by the app-builder page; calls builder-chat-transport.ts and
- * api/app-builder.services.ts.
+ * text, files, question answers, and approval decisions as turn requests.
+ * A 402 answer opens the credits dialog. Called by the app-builder page;
+ * calls builder-chat-transport.ts, api/app-builder.services.ts, and the
+ * billing dispatch.
  */
 
 import { useChat } from "@ai-sdk/react";
 import { hashKey, useQueryClient } from "@tanstack/react-query";
 import {
-	type CreateTurnResponse,
+	type BuilderTurnStatus,
 	createTurnResponseSchema,
 	type PreviewTarget,
 	type TurnApprovalAnswer,
+	type TurnEstimate,
 	type TurnQuestionAnswer,
 } from "@wandit/contracts";
-import type { ChatStatus } from "ai";
+import type { ChatStatus, FileUIPart } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { dispatchBillingError } from "@/features/billing";
 import { creditsKeys } from "@/features/credits";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import { cancelTurn } from "../api/app-builder.services";
@@ -25,16 +28,16 @@ import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage, TurnMessagePart } from "../api/dto";
 import { createBuilderChatTransport } from "./builder-chat-transport";
 
-/** Cost hint carried by `data-turn-created`, in whole credits plus its basis. */
-export type TurnEstimate = NonNullable<CreateTurnResponse["estimate"]>;
-
 /** What `send` accepts: the draft text plus optional per-turn extras. */
 export type BuilderChatSend = {
 	/**
 	 * Message text for a plain turn, a short summary of the answers for a
-	 * `data-question` round, or "" for a `data-approval` answer.
+	 * `data-question` round, or "" for a `data-approval` answer or a
+	 * message with files only.
 	 */
 	text: string;
+	/** Uploaded files of the message, with their upload URLs. The transport sends them as `attachments`. */
+	files?: FileUIPart[];
 	/** Decision answering a pending `data-approval` card. */
 	approval?: TurnApprovalAnswer;
 	/** One answer per open `data-question` card, from the request tray. */
@@ -72,7 +75,10 @@ export type BuilderChat = {
 	estimate: TurnEstimate | null;
 	/** Sends one turn. Dropped while a turn runs or while the chat id is unknown. */
 	send: (input: BuilderChatSend) => void;
-	/** Aborts the stream, then posts the cancel; rejects with the POST error. */
+	/**
+	 * Aborts the stream, then posts the cancel; rejects with the POST error.
+	 * Before the first frame it waits for the turn id first.
+	 */
 	cancel: () => Promise<void>;
 };
 
@@ -106,6 +112,14 @@ export function useBuilderChat(
 		estimate: TurnEstimate | null;
 	} | null>(null);
 	const [isAwaitingTurn, setIsAwaitingTurn] = useState(false);
+	// Stops that came before the turn id. `data-turn-created` resolves them
+	// with the id; the end of the request resolves them with null.
+	const turnIdWaitersRef = useRef<((turnId: string | null) => void)[]>([]);
+	const resolveTurnIdWaiters = useCallback((turnId: string | null) => {
+		const waiters = turnIdWaitersRef.current;
+		turnIdWaitersRef.current = [];
+		for (const resolve of waiters) resolve(turnId);
+	}, []);
 
 	const transport = useMemo(
 		() =>
@@ -118,12 +132,11 @@ export function useBuilderChat(
 		[projectId, chatId, deps.fetch],
 	);
 
-	// A finished turn can mint a new version, change the code, move the
-	// project summary, change the backend of the app, and settle credits;
-	// all five caches refresh at once. The code key covers the Code view
-	// tree and every open file. The Cloud keys cover the tables, functions,
-	// secrets, and every other panel, but not the backend state: it polls
-	// on its own while it changes.
+	// A finished turn can change six caches: the versions, the code, the
+	// project summary, the app backend, the credits, and the next estimate.
+	// All six refresh at once. The code key covers the Code view tree and
+	// every open file. The Cloud keys cover the tables, functions, secrets,
+	// and every other panel. The backend state polls on its own.
 	const invalidateTurnData = useCallback(() => {
 		void queryClient.invalidateQueries({
 			queryKey: appBuilderKeys.versions(projectId),
@@ -140,6 +153,10 @@ export function useBuilderChat(
 			predicate: (query) => query.queryHash !== backendKey,
 		});
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
+		// The next hold is the median of the settled turns, so it moves too.
+		void queryClient.invalidateQueries({
+			queryKey: appBuilderKeys.turnEstimate(projectId),
+		});
 	}, [queryClient, projectId]);
 
 	const { messages, status, error, sendMessage, setMessages, stop } =
@@ -153,10 +170,11 @@ export function useBuilderChat(
 			// streams first shows the working row above the user bubble.
 			resume: chatId !== undefined && isHistorySettled,
 			onData: (part) => {
-				// First frame of the create route. It is the only browser source
-				// of the turn id that `cancel` needs and of the estimate. The
-				// frame crosses the HTTP boundary, so the schema decides; a bad
-				// frame throws and the stream surfaces it as `error`.
+				// First frame of the create route and of the resume route. It is
+				// the only browser source of the turn id that `cancel` needs and
+				// of the estimate. The frame crosses the HTTP boundary, so the
+				// schema decides; a bad frame throws and the stream surfaces it
+				// as `error`.
 				if (part.type === "data-turn-created") {
 					const created = createTurnResponseSchema.parse(part.data);
 					setIsAwaitingTurn(false);
@@ -164,7 +182,13 @@ export function useBuilderChat(
 						turnId: created.turnId,
 						estimate: created.estimate ?? null,
 					});
+					resolveTurnIdWaiters(created.turnId);
 				}
+			},
+			// A 402 answer of the create POST opens the credits dialog. The
+			// dispatch ignores every other error; the pane shows its sentence.
+			onError: (error) => {
+				dispatchBillingError(error);
 			},
 			// The SDK fires onFinish on success, error, and abort. The turn id
 			// and the estimate are stale from here; a cancel after this point
@@ -173,6 +197,7 @@ export function useBuilderChat(
 			onFinish: () => {
 				setActiveTurn(null);
 				setIsAwaitingTurn(false);
+				resolveTurnIdWaiters(null);
 				invalidateTurnData();
 			},
 		});
@@ -207,9 +232,13 @@ export function useBuilderChat(
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
 			if (chatId === undefined || isSending) return;
 			setIsAwaitingTurn(true);
-			// The bubble shows the chips from this part; the transport reads the
-			// targets of the turn body from it too.
-			const parts: TurnMessagePart[] = [{ type: "text", text: sendInput.text }];
+			// Files first, then the text, as the AI SDK orders `{ text, files }`.
+			// The bubble shows the chips from the targets part; the transport reads
+			// the targets of the turn body from it too.
+			const parts: TurnMessagePart[] = [
+				...(sendInput.files ?? []),
+				{ type: "text", text: sendInput.text },
+			];
 			if (sendInput.targets?.length) {
 				parts.push({
 					type: "data-targets",
@@ -232,20 +261,39 @@ export function useBuilderChat(
 	);
 
 	const cancel = useCallback(async (): Promise<void> => {
+		// A Stop during the admission of the POST has no turn id yet. An abort
+		// drops the first frame, and the turn then runs and spends. So the
+		// cancel waits for the frame or for the end of the request.
+		const turnId =
+			activeTurn?.turnId ??
+			(isSending
+				? await new Promise<string | null>((resolve) => {
+						turnIdWaitersRef.current.push(resolve);
+					})
+				: null);
 		// stop() aborts the POST stream; its onFinish clears activeTurn, so a
 		// turn the user starts during the cancel POST stays untouched.
 		await stop();
-		const turnId = activeTurn?.turnId;
-		// LIMIT: a cancel before the first frame leaves the turn running until
-		// a reload resumes it. Upgrade: wait for data-turn-created before the
-		// cancel POST.
-		if (turnId === undefined) return;
+		if (turnId === null) return;
 		// The error propagates on purpose: the page maps it to copy.
-		await deps.cancelTurn(projectId, turnId);
+		const canceled = await deps.cancelTurn(projectId, turnId);
+		// The aborted read never gets the done frame. The cancel answer has
+		// the same status, so the reply can show that the turn stopped.
+		setMessages((current) =>
+			withTurnDoneStatus(current, turnId, canceled.status),
+		);
 		// The cancel answers after the settle wrote the wip commit. The refresh
 		// shows its files, for example the first version of a new project.
 		invalidateTurnData();
-	}, [stop, activeTurn?.turnId, deps, projectId, invalidateTurnData]);
+	}, [
+		stop,
+		activeTurn?.turnId,
+		isSending,
+		deps,
+		projectId,
+		setMessages,
+		invalidateTurnData,
+	]);
 
 	return {
 		messages,
@@ -258,4 +306,31 @@ export function useBuilderChat(
 		send,
 		cancel,
 	};
+}
+
+/**
+ * The messages with a `data-turn-done` part on the reply of one turn. The
+ * reply is the assistant message that holds the `data-turn-created` frame
+ * of `turnId`. The messages stay the same when no reply holds it.
+ */
+function withTurnDoneStatus(
+	messages: TurnMessage[],
+	turnId: string,
+	status: BuilderTurnStatus,
+): TurnMessage[] {
+	return messages.map((message) =>
+		message.role === "assistant" &&
+		message.parts.some(
+			(part) =>
+				part.type === "data-turn-created" && part.data.turnId === turnId,
+		)
+			? {
+					...message,
+					parts: [
+						...message.parts.filter((part) => part.type !== "data-turn-done"),
+						{ type: "data-turn-done", id: "turn-done", data: { status } },
+					],
+				}
+			: message,
+	);
 }

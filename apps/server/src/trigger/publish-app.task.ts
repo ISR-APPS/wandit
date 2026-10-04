@@ -29,6 +29,7 @@ import { AppPublishRepository } from "../modules/app-builder/infrastructure/pers
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import {
 	ArchiveTemplateInit,
 	TEMPLATE_ARCHIVE_DIR,
@@ -98,6 +99,7 @@ function composeDeps(db: ReturnType<typeof createDb>): PublishAppDeps {
 		deployments: new DeploymentsRepository(db),
 		gates: [],
 		logger: Sentry.logger,
+		projects: new TurnProjectRepository(db),
 		publish: new AppPublishRepository(db),
 		// The V1 rule: without KV, only `ALLOW_PUBLISH_WITHOUT_KV` (local
 		// development) publishes, and no pointer is written.

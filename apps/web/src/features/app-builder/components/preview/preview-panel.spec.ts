@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -58,23 +59,30 @@ function readyDeps(): PreviewTokenDeps {
 	};
 }
 
+/** The wake button of the boot screen needs a query client. No case clicks it, so one client serves every case. */
+const queryClient = new QueryClient();
+
 // I18nProvider requires children in its props type for createElement calls.
 function panelElement(
 	props: Partial<PreviewPanelProps> & { deps: PreviewTokenDeps },
 ) {
-	return createElement(I18nProvider, {
-		locale: "en",
-		dictionary: fallbackDictionary,
-		setLocale: () => {},
-		children: createElement(PreviewPanel, {
-			projectId: PROJECT_ID,
-			title: TITLE,
-			reloadKey: 0,
-			className: "h-full w-full",
-			bootContext: IDLE_BOOT,
-			...props,
-		}),
-	} satisfies ComponentProps<typeof I18nProvider>);
+	return createElement(
+		QueryClientProvider,
+		{ client: queryClient },
+		createElement(I18nProvider, {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(PreviewPanel, {
+				projectId: PROJECT_ID,
+				title: TITLE,
+				reloadKey: 0,
+				className: "h-full w-full",
+				bootContext: IDLE_BOOT,
+				...props,
+			}),
+		} satisfies ComponentProps<typeof I18nProvider>),
+	);
 }
 
 function renderPanel(

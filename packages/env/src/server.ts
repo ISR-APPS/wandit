@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
+import { codeStoragePrivateKeySchema } from "./code-storage-key";
 import { corsExtraOriginsSchema, httpOriginSchema } from "./cors-origins";
 import { parseLlmProviderOverrides } from "./llm-routing";
 import { v2HarnessSchema } from "./v2-harness";
@@ -350,8 +351,9 @@ export const env = createEnv({
 		// the JWT `iss` claim (D21).
 		CODE_STORAGE_ORG: z.string().min(1).optional(),
 		// PKCS8 PEM of the org's ECDSA P-256 key; the API signs per-repository
-		// JWTs with it. Multi-line value, `\n` escapes accepted.
-		CODE_STORAGE_PRIVATE_KEY: z.string().min(1).optional(),
+		// JWTs with it. Multi-line value, `\n` escapes accepted. The schema
+		// normalizes the newlines and stops the boot on a bad key (WANDIT-171).
+		CODE_STORAGE_PRIVATE_KEY: codeStoragePrivateKeySchema.optional(),
 		APP_SECRETS_ENCRYPTION_KEY: z.string().min(1).optional(),
 		PREVIEW_DOMAIN: z.string().min(1).optional(),
 		PREVIEW_TOKEN_SIGNING_KEY: z.string().min(1).optional(),

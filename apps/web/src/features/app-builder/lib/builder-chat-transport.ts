@@ -81,9 +81,8 @@ export function createBuilderChatTransport(input: {
 				body: {
 					chatId: id,
 					message,
-					// `composer` stays off the wire: the UI modes `build | plan` do
-					// not map to `composerMetadataSchema.mode`
-					// (`auto | page | marketing | image`).
+					// `composer` stays off the wire: the builder composer has no
+					// modes, and `composerMetadataSchema.mode` is a V1 field.
 					...(attachments.length > 0 ? { attachments } : {}),
 					...(extras.approval ? { approval: extras.approval } : {}),
 					...(extras.answers ? { answers: extras.answers } : {}),

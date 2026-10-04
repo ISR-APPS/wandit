@@ -2,7 +2,8 @@
  * Publish button of the top bar and its popover. Rendered by components/shell/top-bar.tsx.
  * A web app shows its publish status (appPublishQuery, WANDIT-178) with Publish,
  * Unpublish, and Roll back. A mobile app shows the Android APK card of
- * android-build-card.tsx (mobileBuildsQuery, WANDIT-194). The spec renders the pure *Targets parts.
+ * android-build-card.tsx (mobileBuildsQuery, WANDIT-194), and "Show QR" opens
+ * the Expo Go panel of expo-go-popover.tsx under its row. The spec renders the pure *Targets parts.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -26,7 +27,6 @@ import {
 	Zap,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { formatNumber, formatRelativeTime, useTranslation } from "@/lib/i18n";
@@ -49,6 +49,7 @@ import {
 	AndroidBuildCard,
 	type AndroidBuildCardProps,
 } from "./android-build-card";
+import { ExpoGoPanel } from "./expo-go-popover";
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
@@ -77,10 +78,10 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 					<ChevronDown className="hidden size-3.5 sm:block" />
 				</Button>
 			</PopoverTrigger>
-			{/* 360 px like the design. On a phone it keeps 12 px from each edge. */}
+			{/* 360 px like the design. On a phone it keeps 12 px from each edge. The open QR panel can pass the screen height, so the content scrolls. */}
 			<PopoverContent
 				align="end"
-				className="flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-3 p-4"
+				className="flex max-h-(--radix-popover-content-available-height) w-[360px] max-w-[calc(100vw-24px)] flex-col gap-3 overflow-y-auto p-4"
 			>
 				<div className="flex items-baseline justify-between gap-3">
 					<span className="truncate font-semibold text-sm" dir="auto">
@@ -315,12 +316,16 @@ export function PublishWebTargets({
 	);
 }
 
-/** Reads the Android builds and wires the mobile actions. The builds poll only while this body is mounted. */
+/**
+ * Reads the Android builds and wires the mobile actions. The builds poll
+ * only while this body is mounted. "Show QR" opens the Expo Go panel under
+ * its row; the next open of the popover starts closed again.
+ */
 function PublishMobileBody({ projectId }: { projectId: string }) {
-	const { t } = useTranslation();
 	const builds = useQuery(mobileBuildsQuery(projectId));
 	const createBuild = useCreateMobileBuild(projectId);
 	const cancelBuild = useCancelMobileBuild(projectId);
+	const [isQrOpen, setIsQrOpen] = useState(false);
 
 	// A failed poll keeps the last list on screen. Only a first load without a list shows the error.
 	if (builds.data === undefined) {
@@ -335,7 +340,10 @@ function PublishMobileBody({ projectId }: { projectId: string }) {
 
 	return (
 		<PublishMobileTargets
-			onShowQr={() => toast(t("appBuilder.mock.notWired"))}
+			isQrOpen={isQrOpen}
+			onToggleQr={() => setIsQrOpen((open) => !open)}
+			// Each mount of the panel mints a new phone link, so it mounts only while open.
+			qrPanel={isQrOpen ? <ExpoGoPanel projectId={projectId} /> : null}
 			android={{
 				builds: builds.data.items,
 				isStarting: createBuild.isPending,
@@ -350,8 +358,12 @@ function PublishMobileBody({ projectId }: { projectId: string }) {
 
 /** What the mobile targets show and do. PublishMobileBody fills it; the spec passes plain values. */
 export type PublishMobileTargetsProps = {
-	/** Shows the QR code that opens the app on a phone. */
-	onShowQr: () => void;
+	/** True while the Expo Go panel shows under the test-on-phone row. */
+	isQrOpen: boolean;
+	/** Shows or hides the Expo Go panel. */
+	onToggleQr: () => void;
+	/** The Expo Go panel with the QR code, or null while it is closed. */
+	qrPanel: ReactNode;
 	/** Builds and actions of the Android APK card. */
 	android: AndroidBuildCardProps;
 };
@@ -361,7 +373,9 @@ export type PublishMobileTargetsProps = {
  * iOS row until WANDIT-284 builds iOS: a row with mock testers misled users.
  */
 export function PublishMobileTargets({
-	onShowQr,
+	isQrOpen,
+	onToggleQr,
+	qrPanel,
 	android,
 }: PublishMobileTargetsProps) {
 	const { t } = useTranslation();
@@ -374,10 +388,22 @@ export function PublishMobileTargets({
 				title={t("appBuilder.publish.testOnPhone")}
 				note={t("appBuilder.publish.scanQr")}
 			>
-				<Button variant="outline" size="sm" onClick={onShowQr}>
-					{t("appBuilder.publish.showQr")}
+				<Button
+					variant="outline"
+					size="sm"
+					aria-expanded={isQrOpen}
+					onClick={onToggleQr}
+				>
+					{isQrOpen
+						? t("appBuilder.publish.hideQr")
+						: t("appBuilder.publish.showQr")}
 				</Button>
 			</TargetRow>
+			{isQrOpen ? (
+				<div className="flex flex-col gap-3 rounded-xl border bg-card p-3">
+					{qrPanel}
+				</div>
+			) : null}
 			<p className="text-muted-foreground text-xs">
 				{t("appBuilder.publish.backendNote")}
 			</p>

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -50,6 +51,64 @@ const QUESTION_MESSAGE: BuilderMessage = {
 	],
 };
 
+/**
+ * A finished reply with a thought, one step, a note, and the final text,
+ * then the live reply of the running turn with its thought and one step.
+ */
+const STEP_MESSAGES: BuilderMessage[] = [
+	{
+		id: "a1",
+		role: "assistant",
+		parts: [
+			{
+				type: "data-thought",
+				data: {
+					text: "Check the layout first.",
+					seconds: 4,
+					isStreaming: false,
+				},
+			},
+			{
+				type: "data-step",
+				data: {
+					kind: "edit",
+					state: "done",
+					target: "global.css",
+					description: null,
+					detail: [],
+					area: "styles",
+					imageUrl: null,
+				},
+			},
+			{ type: "data-note", data: { text: "Now the texts." } },
+			{ type: "text", text: "Here is the plan." },
+		],
+	},
+	{ id: "u2", role: "user", parts: [{ type: "text", text: "Now the hero" }] },
+	{
+		id: "a2",
+		role: "assistant",
+		parts: [
+			{
+				type: "data-thought",
+				data: { text: "Pick the hero colors.", seconds: 2, isStreaming: false },
+			},
+			{
+				type: "data-step",
+				data: {
+					kind: "edit",
+					state: "running",
+					target: "hero.tsx",
+					description: null,
+					detail: [],
+					area: "components",
+					imageUrl: null,
+				},
+			},
+		],
+	},
+];
+
 /** Callbacks of the live ResizeObservers; a case calls them as a browser does on a resize. */
 let resizeCallbacks: (() => void)[] = [];
 
@@ -66,11 +125,14 @@ class ResizeObserverStub implements ResizeObserver {
 	unobserve() {}
 }
 
-// The page mounts one TooltipProvider; the pane's message actions need it too.
+// The page mounts one TooltipProvider; the pane's message actions need it
+// too. The composer dictation refreshes the credits through a query client.
 function renderPane(props: Partial<ChatPaneProps> = {}) {
+	const queryClient = new QueryClient();
 	const onSend = vi.fn();
 	const onDecideApproval = vi.fn();
 	const onAnswerQuestions = vi.fn();
+	const onOpenActivity = vi.fn();
 	const paneWith = (overrides: Partial<ChatPaneProps>) => {
 		// I18nProvider requires children in its props type for createElement calls.
 		const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -78,30 +140,35 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 			dictionary: fallbackDictionary,
 			setLocale: () => {},
 			children: createElement(
-				TooltipProvider,
-				null,
-				createElement(ChatPane, {
-					messages: MESSAGES,
-					turnEstimateCredits: 6,
-					targets: [],
-					onRemoveTarget: vi.fn(),
-					isSending: false,
-					phase: null,
-					isFirstTurn: false,
-					// True keeps the thought rows and the seconds counter of the debug view.
-					showsAgentDebug: true,
-					isReady: true,
-					projectName: "Nadi Fitness",
-					onSend,
-					onDecideApproval,
-					onAnswerQuestions,
-					onCancel: () => {},
-					errorText: null,
-					onCollapse: () => {},
-					onPreviewVersion: () => {},
-					...props,
-					...overrides,
-				}),
+				QueryClientProvider,
+				{ client: queryClient },
+				createElement(
+					TooltipProvider,
+					null,
+					createElement(ChatPane, {
+						messages: MESSAGES,
+						turnEstimateCredits: 6,
+						targets: [],
+						onRemoveTarget: vi.fn(),
+						isSending: false,
+						phase: null,
+						isFirstTurn: false,
+						liveMessageId: null,
+						isDeveloperView: false,
+						onChangeDeveloperView: null,
+						onOpenActivity,
+						isReady: true,
+						projectName: "Nadi Fitness",
+						onSend,
+						onDecideApproval,
+						onAnswerQuestions,
+						onCancel: () => {},
+						errorText: null,
+						onCollapse: () => {},
+						...props,
+						...overrides,
+					}),
+				),
 			),
 		};
 		return createElement(I18nProvider, providerProps);
@@ -111,6 +178,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 		onSend,
 		onDecideApproval,
 		onAnswerQuestions,
+		onOpenActivity,
 		rerenderWith: (overrides: Partial<ChatPaneProps>) =>
 			view.rerender(paneWith(overrides)),
 	};
@@ -139,58 +207,32 @@ afterEach(() => {
 });
 
 describe("ChatPane", () => {
-	// One active turn per project: the cards stay clickable, so the pane drops a second send.
-	it.each<{
-		name: string;
-		message: BuilderMessage;
-		buttonName: string;
-		callback: "onSend" | "onDecideApproval";
-	}>([
-		{
-			name: "a follow-up",
-			message: {
-				id: "a2",
-				role: "assistant",
-				metadata: { followUps: ["Add a classes schedule"] },
-				parts: [{ type: "text", text: "Done." }],
-			},
-			buttonName: "Add a classes schedule",
-			callback: "onSend",
-		},
-		{
-			name: "an approval decision",
-			message: {
-				id: "a3",
-				role: "assistant",
-				parts: [
-					{
-						type: "data-approval",
-						id: "ap-1",
-						data: {
-							approvalId: "ap-1",
-							toolName: "run_sql_write",
-							input: '{"query":"delete from notes"}',
-							decision: null,
-							isOpen: true,
-						},
+	// One active turn per project: the card stays clickable, so the pane drops a second send.
+	it("sends an approval decision, and drops it while a turn runs", () => {
+		const message: BuilderMessage = {
+			id: "a3",
+			role: "assistant",
+			parts: [
+				{
+					type: "data-approval",
+					id: "ap-1",
+					data: {
+						approvalId: "ap-1",
+						toolName: "run_sql_write",
+						input: '{"query":"delete from notes"}',
+						decision: null,
+						isOpen: true,
 					},
-				],
-			},
-			buttonName: "Approve",
-			callback: "onDecideApproval",
-		},
-	])("sends $name, and drops it while a turn runs", ({
-		message,
-		buttonName,
-		callback,
-	}) => {
+				},
+			],
+		};
 		const idle = renderPane({ messages: [message] });
-		fireEvent.click(screen.getByRole("button", { name: buttonName }));
-		expect(idle[callback]).toHaveBeenCalledOnce();
+		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+		expect(idle.onDecideApproval).toHaveBeenCalledWith("ap-1", true);
 		cleanup();
 		const busy = renderPane({ messages: [message], isSending: true });
-		fireEvent.click(screen.getByRole("button", { name: buttonName }));
-		expect(busy[callback]).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+		expect(busy.onDecideApproval).not.toHaveBeenCalled();
 	});
 
 	it("locks the composer while the chat id is unknown", () => {
@@ -202,40 +244,44 @@ describe("ChatPane", () => {
 		).toBe(true);
 	});
 
-	it("hides the raw thinking without the debug view, and shows the thought rows with it", () => {
-		const reply: BuilderMessage = {
-			id: "a1",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-thought",
-					data: {
-						text: "Check the layout first.",
-						seconds: 4,
-						isStreaming: false,
-					},
-				},
-				{ type: "text", text: "Here is the plan." },
-			],
-		};
-		renderPane({ messages: [reply], showsAgentDebug: false });
+	it("shows the live reply only as the status line, with no thinking and no file, in the production view", () => {
+		const { onOpenActivity } = renderPane({
+			messages: STEP_MESSAGES,
+			isSending: true,
+			liveMessageId: "a2",
+		});
 		expect(screen.getByText("Here is the plan.")).toBeTruthy();
-		expect(screen.queryByText(/Thought for/)).toBeNull();
-		expect(screen.queryByText("Check the layout first.")).toBeNull();
-		cleanup();
-		renderPane({ messages: [reply], showsAgentDebug: true });
-		fireEvent.click(screen.getByRole("button", { name: "Thought for 4s" }));
-		expect(screen.getByText("Check the layout first.")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: /See what Wandit did/ }),
+		).toBeTruthy();
+		for (const hidden of [
+			/Thought for/,
+			"global.css",
+			"Now the texts.",
+			"hero.tsx",
+		]) {
+			expect(screen.queryByText(hidden)).toBeNull();
+		}
+		const status = screen.getByRole("status");
+		expect(status.textContent).toBe("WanditUpdating the components");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Updating the components" }),
+		);
+		expect(onOpenActivity).toHaveBeenCalledWith("a2");
 	});
 
-	it("shows the elapsed seconds in the working row only with the debug view", () => {
-		renderPane({ isSending: true });
-		expect(screen.getByRole("status").textContent).toBe(
-			"Wandit is working…0.0s",
-		);
-		cleanup();
-		renderPane({ isSending: true, showsAgentDebug: false });
-		expect(screen.getByRole("status").textContent).toBe("Wandit is working…");
+	it("shows the live reply inline and the seconds in the developer view", () => {
+		renderPane({
+			messages: STEP_MESSAGES,
+			isSending: true,
+			liveMessageId: "a2",
+			isDeveloperView: true,
+		});
+		// The live reply renders itself, so the status line has no byline and no button.
+		expect(screen.getByText("hero.tsx")).toBeTruthy();
+		const status = screen.getByRole("status");
+		expect(status.textContent).toBe("Updating the components0.0s");
+		expect(status.querySelector("button")).toBeNull();
 	});
 
 	it.each<{ name: string; messages: BuilderMessage[] }>([
@@ -287,6 +333,7 @@ describe("ChatPane", () => {
 					files: [],
 				},
 			],
+			files: [],
 		});
 	});
 

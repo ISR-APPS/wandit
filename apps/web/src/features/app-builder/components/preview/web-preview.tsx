@@ -1,8 +1,9 @@
 /**
- * Web preview: a browser bar with the app URL and the Select toggle, the
- * error banner with "Try to fix", then the sandbox app in an iframe at full,
- * tablet, or phone width. Rendered by pages/app-builder-page.tsx for web
- * projects. PreviewPanel loads the real preview URL through the
+ * Web preview: a bar with the host of the live app, or "Not published yet",
+ * and the Select toggle, the error banner with "Try to fix", then the sandbox
+ * app in an iframe at full, tablet, or phone width. Rendered by
+ * pages/app-builder-page.tsx for web projects, which reads the live URL from
+ * the publish status. PreviewPanel loads the real preview URL through the
  * preview-token route and passes the messages of the dev bridge in the app.
  */
 
@@ -14,13 +15,7 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	ChevronLeft,
-	ChevronRight,
-	Crosshair,
-	Lock,
-	TriangleAlert,
-} from "lucide-react";
+import { Crosshair, Lock, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -47,8 +42,13 @@ const VIEWPORT_WIDTH_PX: Record<WebViewport, number | null> = {
 
 /** Props of the web preview. The page reads them from the URL, the project query, and the chat. */
 export type WebPreviewProps = {
-	/** The open project. `slug` fills the URL pill, `name` the iframe title, `id` mints the preview token. */
+	/** The open project. `name` fills the iframe title, `id` mints the preview token. */
 	project: AppProject;
+	/**
+	 * `https://{slug}.{SITES_DOMAIN}` of the live app, from the publish status. Null before the
+	 * first publish. Undefined while the status loads or after it failed: the pill then stays empty.
+	 */
+	liveUrl: string | null | undefined;
 	/** `desktop`, `tablet`, or `mobile`, from the viewport toggle of the top bar. The narrow widths shrink the iframe. */
 	viewport: WebViewport;
 	/** Changes when the user presses reload. The panel mints a new token for it. */
@@ -72,6 +72,7 @@ export type WebPreviewProps = {
 /** The narrow viewports shrink the same document; they do not change the app. */
 export function WebPreview({
 	project,
+	liveUrl,
 	viewport,
 	reloadKey,
 	bootContext,
@@ -150,28 +151,23 @@ export function WebPreview({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
+			{/* No Back or Forward: the page cannot read the history of the cross-origin preview frame. */}
 			<div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-				{/* The iframe history is not wired yet, so both buttons stay disabled. */}
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					disabled
-					aria-label={t("appBuilder.preview.back")}
-				>
-					<ChevronLeft className="rtl:rotate-180" />
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					disabled
-					aria-label={t("appBuilder.preview.forward")}
-				>
-					<ChevronRight className="rtl:rotate-180" />
-				</Button>
-				{/* The pill keeps the public app URL; the real sandbox host is in the iframe. */}
-				<div className="flex h-7 flex-1 items-center gap-2 rounded-full border bg-muted/50 px-3 text-xs">
-					<Lock className="size-3 text-muted-foreground" />
-					<span className="text-foreground">{project.slug}.wandit.app</span>
+				{/* The pill shows the public app host; the real sandbox host is in the iframe. */}
+				<div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-full border bg-muted/50 px-3 text-xs">
+					{liveUrl === undefined ? null : liveUrl === null ? (
+						<span className="truncate text-muted-foreground">
+							{t("appBuilder.publish.notLive")}
+						</span>
+					) : (
+						<>
+							<Lock className="size-3 shrink-0 text-muted-foreground" />
+							{/* A host reads left to right in every locale. */}
+							<span dir="ltr" className="truncate text-foreground">
+								{new URL(liveUrl).host}
+							</span>
+						</>
+					)}
 				</div>
 				<Tooltip>
 					<TooltipTrigger asChild>
@@ -190,10 +186,6 @@ export function WebPreview({
 						{t("appBuilder.preview.selectHint")}
 					</TooltipContent>
 				</Tooltip>
-				<span className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs">
-					<span className="size-1.5 rounded-full bg-success" />
-					{t("appBuilder.preview.liveReload")}
-				</span>
 			</div>
 			{firstError === undefined ? null : (
 				<div

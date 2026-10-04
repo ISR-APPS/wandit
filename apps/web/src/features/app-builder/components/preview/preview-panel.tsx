@@ -39,7 +39,7 @@ const PREVIEW_IFRAME_SANDBOX =
 
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {
-	/** The open project. The hook mints its preview token. */
+	/** The open project. The hook mints its preview token; the boot screen wakes its sandbox. */
 	projectId: string;
 	/** Accessible name of the iframe. The parent builds it from the project name. */
 	title: string;
@@ -198,6 +198,7 @@ export function PreviewPanel({
 							transition={{ duration: 0.26, ease: BOOT_EASE }}
 						>
 							<PreviewBootScreen
+								projectId={projectId}
 								tokenStatus={status}
 								bootContext={bootContext}
 							/>

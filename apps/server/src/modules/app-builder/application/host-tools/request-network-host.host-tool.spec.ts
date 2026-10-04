@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostToolContext } from "../../domain/ports/host-tools";
-import type { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
-import type { ProjectNetworkHostsRepository } from "../../infrastructure/persistence/project-network-hosts.repository";
+import type { AuditEventInput } from "../../infrastructure/persistence/audit-events.repository";
+import type { ProjectNetworkHostsTransaction } from "../../infrastructure/persistence/project-network-hosts.repository";
 import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
-import { createRequestNetworkHostTool } from "./request-network-host.host-tool";
+import {
+	createRequestNetworkHostTool,
+	type RequestNetworkHostHostToolDeps,
+} from "./request-network-host.host-tool";
 
 const OPTIONS = {
 	context: {},
@@ -11,8 +14,58 @@ const OPTIONS = {
 	toolCallId: "tc-1",
 };
 
-async function setup() {
+/** The grant step a failure case makes throw. */
+type FailingStep = "host write" | "audit insert" | "live allow";
+
+// In-memory stand-in for Postgres. A write with the open `tx` reaches the
+// lists only when the `transaction` callback resolves.
+function fakeStore(failingStep: FailingStep | undefined) {
+	const hosts: string[] = [];
+	const auditRows: AuditEventInput[] = [];
+	// SAFETY: the fakes compare this object by identity only; nothing calls it.
+	const tx = {} as ProjectNetworkHostsTransaction;
+	let pending: (() => void)[] = [];
+	// A write of the open transaction waits for the commit; any other lands now.
+	const write = (inTransaction: boolean, apply: () => void) => {
+		if (inTransaction) {
+			pending.push(apply);
+		} else {
+			apply();
+		}
+	};
+	const networkHosts: RequestNetworkHostHostToolDeps["networkHosts"] = {
+		appendHost: async (_projectId, host, client) => {
+			if (failingStep === "host write") {
+				throw new Error("db down");
+			}
+			write(client === tx, () => hosts.push(host));
+			return [host];
+		},
+		transaction: async (work) => {
+			pending = [];
+			// A throw skips the commit loop, like a Postgres rollback.
+			await work(tx);
+			for (const apply of pending) {
+				apply();
+			}
+		},
+	};
+	const audit: RequestNetworkHostHostToolDeps["audit"] = {
+		insert: async (input, client) => {
+			if (failingStep === "audit insert") {
+				throw new Error("db down");
+			}
+			write(client === tx, () => auditRows.push(input));
+		},
+	};
+	return { audit, auditRows, hosts, networkHosts };
+}
+
+async function setup(failingStep?: FailingStep) {
 	const provider = new FakeSandboxProvider();
+	if (failingStep === "live allow") {
+		provider.allowHostFailure = new Error("vendor down");
+	}
 	const sandbox = await provider.getOrCreate("project-1", {
 		devCommand: "pnpm run dev",
 		devPort: 5173,
@@ -22,10 +75,7 @@ async function setup() {
 		ownerUserId: "user-1",
 		templateVersion: "web-app@1.0.0",
 	});
-	const appendHost = vi.fn<ProjectNetworkHostsRepository["appendHost"]>(
-		async () => ["api.github.com"],
-	);
-	const insert = vi.fn<AuditEventsRepository["insert"]>(async () => undefined);
+	const store = fakeStore(failingStep);
 	const warn = vi.fn();
 	const context: HostToolContext = {
 		actorUserId: "user-1",
@@ -38,19 +88,23 @@ async function setup() {
 		turnId: "turn-1",
 	};
 	const tool = createRequestNetworkHostTool(
-		{ audit: { insert }, logger: { warn }, networkHosts: { appendHost } },
+		{
+			audit: store.audit,
+			logger: { warn },
+			networkHosts: store.networkHosts,
+		},
 		context,
 	);
 	const execute = tool.execute;
 	if (execute === undefined) {
 		throw new Error("request_network_host must define execute");
 	}
-	return { appendHost, context, execute, insert, provider, warn };
+	return { execute, provider, store, warn };
 }
 
 describe("createRequestNetworkHostTool", () => {
-	it("appends, applies live, audits, and returns allowed for a valid host", async () => {
-		const { appendHost, execute, insert, provider } = await setup();
+	it("stores, audits, applies live, and returns allowed for a valid host", async () => {
+		const { execute, provider, store } = await setup();
 
 		const result = await execute(
 			{ host: "api.github.com", reason: "the app calls the GitHub API" },
@@ -58,24 +112,26 @@ describe("createRequestNetworkHostTool", () => {
 		);
 
 		expect(result).toEqual({ host: "api.github.com", status: "allowed" });
-		expect(appendHost).toHaveBeenCalledWith("project-1", "api.github.com");
+		expect(store.hosts).toEqual(["api.github.com"]);
 		expect(provider.allowedHosts).toEqual(["api.github.com"]);
-		expect(insert).toHaveBeenCalledWith({
-			action: "network.host_allowed",
-			actorUserId: "user-1",
-			metadata: {
-				host: "api.github.com",
-				reason: "the app calls the GitHub API",
+		expect(store.auditRows).toEqual([
+			{
+				action: "network.host_allowed",
+				actorUserId: "user-1",
+				metadata: {
+					host: "api.github.com",
+					reason: "the app calls the GitHub API",
+				},
+				organizationId: "org-1",
+				projectId: "project-1",
+				targetId: "project-1",
+				targetType: "project",
 			},
-			organizationId: "org-1",
-			projectId: "project-1",
-			targetId: "project-1",
-			targetType: "project",
-		});
+		]);
 	});
 
 	it("lower-cases the host before it stores and applies it", async () => {
-		const { appendHost, execute, provider } = await setup();
+		const { execute, provider, store } = await setup();
 
 		const result = await execute(
 			{ host: "API.GitHub.com", reason: "connector" },
@@ -83,12 +139,12 @@ describe("createRequestNetworkHostTool", () => {
 		);
 
 		expect(result).toEqual({ host: "api.github.com", status: "allowed" });
-		expect(appendHost).toHaveBeenCalledWith("project-1", "api.github.com");
+		expect(store.hosts).toEqual(["api.github.com"]);
 		expect(provider.allowedHosts).toEqual(["api.github.com"]);
 	});
 
 	it("denies an IP address and changes nothing", async () => {
-		const { appendHost, execute, insert, provider } = await setup();
+		const { execute, provider, store } = await setup();
 
 		const result = await execute(
 			{ host: "10.0.0.1", reason: "internal" },
@@ -99,8 +155,8 @@ describe("createRequestNetworkHostTool", () => {
 			reason: "host is not a valid public DNS name",
 			status: "denied",
 		});
-		expect(appendHost).not.toHaveBeenCalled();
-		expect(insert).not.toHaveBeenCalled();
+		expect(store.hosts).toEqual([]);
+		expect(store.auditRows).toEqual([]);
 		expect(provider.allowedHosts).toEqual([]);
 	});
 
@@ -110,7 +166,7 @@ describe("createRequestNetworkHostTool", () => {
 		"supabase.co",
 		"api.supabase.com",
 	])("denies the Supabase host %s and changes nothing", async (host) => {
-		const { appendHost, execute, insert, provider } = await setup();
+		const { execute, provider, store } = await setup();
 
 		const result = await execute({ host, reason: "backend" }, OPTIONS);
 
@@ -119,13 +175,13 @@ describe("createRequestNetworkHostTool", () => {
 				"Supabase hosts are not allowed; the sandbox reaches the project's own backend while it is active",
 			status: "denied",
 		});
-		expect(appendHost).not.toHaveBeenCalled();
-		expect(insert).not.toHaveBeenCalled();
+		expect(store.hosts).toEqual([]);
+		expect(store.auditRows).toEqual([]);
 		expect(provider.allowedHosts).toEqual([]);
 	});
 
 	it("denies a single-label host and changes nothing", async () => {
-		const { appendHost, execute, insert } = await setup();
+		const { execute, store } = await setup();
 
 		const result = await execute(
 			{ host: "metadata", reason: "internal" },
@@ -136,31 +192,20 @@ describe("createRequestNetworkHostTool", () => {
 			reason: "host is not a valid public DNS name",
 			status: "denied",
 		});
-		expect(appendHost).not.toHaveBeenCalled();
-		expect(insert).not.toHaveBeenCalled();
+		expect(store.hosts).toEqual([]);
+		expect(store.auditRows).toEqual([]);
 	});
 
-	it("denies and writes no audit row when the live update fails", async () => {
-		const { context, insert, warn } = await setup();
-		// The persist step rejects; the tool must not audit a grant.
-		const failing = createRequestNetworkHostTool(
-			{
-				audit: { insert },
-				logger: { warn },
-				networkHosts: {
-					appendHost: async () => {
-						throw new Error("db down");
-					},
-				},
-			},
-			context,
-		);
-		const failingExecute = failing.execute;
-		if (failingExecute === undefined) {
-			throw new Error("execute missing");
-		}
+	// WANDIT-180: a host the agent hears as denied must not go live at the
+	// next sandbox start, and no audit row may claim a grant.
+	it.each<FailingStep>([
+		"host write",
+		"audit insert",
+		"live allow",
+	])("denies and stores nothing when the %s fails", async (failingStep) => {
+		const { execute, provider, store, warn } = await setup(failingStep);
 
-		const result = await failingExecute(
+		const result = await execute(
 			{ host: "api.github.com", reason: "connector" },
 			OPTIONS,
 		);
@@ -169,7 +214,10 @@ describe("createRequestNetworkHostTool", () => {
 			reason: "could not apply the host",
 			status: "denied",
 		});
-		expect(insert).not.toHaveBeenCalled();
+		expect(store.hosts).toEqual([]);
+		expect(store.auditRows).toEqual([]);
+		// The live allow has no undo, so a failed write must stop it first.
+		expect(provider.allowedHosts).toEqual([]);
 		expect(warn).toHaveBeenCalled();
 	});
 });

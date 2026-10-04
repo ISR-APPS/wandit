@@ -2,8 +2,9 @@
  * Answers every panel of the Cloud tab (WANDIT-187) behind
  * `/api/v2/projects/:id/cloud/*`; `CloudController` is the only caller.
  * Calls Supabase through `SupabaseManagementClient`, writes the backend
- * activity and restore state (WANDIT-184) and audit rows. No platform key
- * or service-role key ever reaches the browser.
+ * activity and restore state (WANDIT-184) and audit rows. Reads the stored
+ * service-role key through `ProjectSecretsService`. No platform key or
+ * service-role key ever reaches the browser.
  */
 import { createHash } from "node:crypto";
 
@@ -66,7 +67,11 @@ import { getErrorMessage } from "@wandit/observability/error";
 import type { z } from "zod";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
-import { isProjectComingUp } from "../../domain/backend-lifecycle";
+import {
+	isProjectComingUp,
+	stuckCreatingCutoff,
+	stuckRestoreCutoff,
+} from "../../domain/backend-lifecycle";
 import {
 	type AppBackendRow,
 	AppBackendsRepository,
@@ -78,6 +83,7 @@ import {
 import { AuditEventsRepository } from "../../infrastructure/persistence/audit-events.repository";
 import {
 	type BackendRef,
+	projectStatusOrRemoved,
 	type StorageRef,
 	SUPABASE_MANAGEMENT_CLIENT,
 	type SupabaseManagementClient,
@@ -85,6 +91,10 @@ import {
 	SupabaseRateLimitedError,
 } from "../../infrastructure/supabase/supabase-management.client";
 import { BackendsService } from "./backends.service";
+import {
+	ProjectSecretsService,
+	SUPABASE_SERVICE_ROLE_KEY_SECRET,
+} from "./project-secrets.service";
 
 // 30 s: a panel refresh inside this window reads the last answer. The
 // issue allows 30 to 60 s; the short end keeps counts close to Studio.
@@ -238,9 +248,12 @@ export class CloudService {
 		private readonly backends: Pick<
 			AppBackendsRepository,
 			| "findByProjectId"
+			| "markCreatingTimedOut"
 			| "markRestoreFailed"
+			| "markRestoreTimedOut"
 			| "markRestoring"
 			| "markRestored"
+			| "setSecretId"
 			| "touchActive"
 		>,
 		@Inject(BackendsService)
@@ -249,12 +262,20 @@ export class CloudService {
 		private readonly auditEvents: Pick<AuditEventsRepository, "insert">,
 		@Inject(SUPABASE_MANAGEMENT_CLIENT)
 		private readonly client: SupabaseManagementClient | null,
+		/** The `system` rows that hold the service-role key of each backend. */
+		@Inject(ProjectSecretsService)
+		private readonly secrets: Pick<
+			ProjectSecretsService,
+			"readSystemValue" | "set"
+		>,
 	) {}
 
 	/**
 	 * The backend row of the project; `status: "none"` without a row. A
 	 * `restoring` row asks Supabase once: `ACTIVE_HEALTHY` answers `active`,
-	 * `RESTORE_FAILED` or `REMOVED` answers `error`.
+	 * `RESTORE_FAILED` or `REMOVED` answers `error`, and a wake older than
+	 * 10 minutes answers `error` too. A `creating` row with no write for 30
+	 * minutes answers `error`, so the user can try again.
 	 */
 	async getBackend(
 		scope: ProjectScope,
@@ -262,6 +283,17 @@ export class CloudService {
 	): Promise<CloudBackendResponse> {
 		await this.requireProject(scope, projectId);
 		const row = await this.backends.findByProjectId(projectId);
+		// A run that never started or stopped without a status write leaves
+		// `creating` for ever; nothing else ends it.
+		if (
+			row?.status === "creating" &&
+			(await this.backends.markCreatingTimedOut(
+				projectId,
+				stuckCreatingCutoff(new Date()),
+			))
+		) {
+			return backendAnswer(await this.backends.findByProjectId(projectId));
+		}
 		if (
 			row?.status === "restoring" &&
 			row.ref !== null &&
@@ -273,9 +305,10 @@ export class CloudService {
 	}
 
 	/**
-	 * Creates the backend when the project has none and answers the row.
-	 * `provisionBackend` is idempotent: an existing row starts nothing. A
-	 * plan without a free slot answers its 403 `BACKEND_LIMIT_REACHED`.
+	 * Creates the backend when the project has none, provisions a failed
+	 * (`error`) row again, and answers the row. Any other row starts
+	 * nothing. A plan without a free slot answers its 403
+	 * `BACKEND_LIMIT_REACHED`.
 	 */
 	async ensureBackend(
 		scope: ProjectScope,
@@ -546,7 +579,7 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		await this.requireProject(scope, projectId);
 		const backend = await this.requireActiveBackend(projectId);
 		const client = this.requireClient();
-		const storage = await this.storageRef(backend);
+		const storage = await this.storageRef(scope, backend);
 		const offset = query.cursor === undefined ? 0 : Number(query.cursor);
 		const prefix = query.prefix.replace(/\/+$/, "");
 		const pathOf = (name: string) =>
@@ -604,7 +637,7 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		await this.requireProject(scope, projectId);
 		const backend = await this.requireActiveBackend(projectId);
 		const client = this.requireClient();
-		const storage = await this.storageRef(backend);
+		const storage = await this.storageRef(scope, backend);
 		const uploadUrl = await this.upstream("api", () =>
 			client.createUploadUrl(storage, { bucket, path: body.path }),
 		);
@@ -621,7 +654,7 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		await this.requireProject(scope, projectId);
 		const backend = await this.requireActiveBackend(projectId);
 		const client = this.requireClient();
-		const storage = await this.storageRef(backend);
+		const storage = await this.storageRef(scope, backend);
 		const deleted = await this.upstream("api", () =>
 			client.deleteObjects(storage, { bucket, paths: body.paths }),
 		);
@@ -812,17 +845,26 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		client: SupabaseManagementClient,
 	): Promise<AppBackendRow> {
 		try {
-			const project = await client.getProject({
+			// A project that Supabase deleted answers 404: the same as `REMOVED`.
+			const status = await projectStatusOrRemoved(client, {
 				projectId: row.projectId,
 				ref,
 			});
-			if (project.status === "RESTORE_FAILED" || project.status === "REMOVED") {
+			if (status === "RESTORE_FAILED" || status === "REMOVED") {
 				// Supabase does not bring this project back by itself; `error`
 				// ends the `restoring` state that nothing else would end.
-				await this.backends.markRestoreFailed(row.projectId, project.status);
-			} else if (project.status === "ACTIVE_HEALTHY") {
+				await this.backends.markRestoreFailed(row.projectId, status);
+			} else if (status === "ACTIVE_HEALTHY") {
 				await this.backends.markRestored(row.projectId);
-			} else {
+			} else if (
+				// A wake stuck in `COMING_UP` ends here after 10 minutes, so the
+				// open Cloud tab shows "Try again" instead of a wait for ever.
+				!(await this.backends.markRestoreTimedOut(
+					row.projectId,
+					stuckRestoreCutoff(new Date()),
+					status,
+				))
+			) {
 				return row;
 			}
 			return (await this.backends.findByProjectId(row.projectId)) ?? row;
@@ -844,13 +886,42 @@ select (select count(*)::float8 from auth.users) as total, coalesce((select json
 		return this.client;
 	}
 
-	// The service-role key comes from the Management API on each call and
-	// never leaves this process. A follow-up swaps this read for
-	// `ProjectSecretsService.readValue` on the `project_secrets` store.
-	private async storageRef(backend: ActiveBackend): Promise<StorageRef> {
+	// The service-role key comes from its `system` row, which provisioning
+	// writes. A backend from before that store has no row: one Management
+	// API read fills it, so the next call reads the row. The key never
+	// leaves this process.
+	// LIMIT: a stored key that Supabase revokes later stays stored, and the
+	// storage calls fail. Upgrade: on a 401, read the key again and store it.
+	private async storageRef(
+		scope: ProjectScope,
+		backend: ActiveBackend,
+	): Promise<StorageRef> {
+		const stored = await this.secrets.readSystemValue(
+			backend.projectId,
+			SUPABASE_SERVICE_ROLE_KEY_SECRET,
+		);
+		if (stored !== null) {
+			return {
+				projectId: backend.projectId,
+				ref: backend.ref,
+				serviceRoleKey: stored,
+			};
+		}
 		const client = this.requireClient();
 		const serviceRoleKey = await this.upstream("api", () =>
 			client.getServiceRoleKey(backend),
+		);
+		const secretId = await this.secrets.set(
+			backend.projectId,
+			SUPABASE_SERVICE_ROLE_KEY_SECRET,
+			serviceRoleKey,
+			"system",
+			{ ip: null, scope },
+		);
+		await this.backends.setSecretId(
+			backend.projectId,
+			"serviceRoleSecretId",
+			secretId,
 		);
 		return { projectId: backend.projectId, ref: backend.ref, serviceRoleKey };
 	}

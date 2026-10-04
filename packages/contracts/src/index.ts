@@ -122,7 +122,7 @@ export * from "./v2/host-tools";
 export * from "./v2/llm-proxy";
 // V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
 export * from "./v2/mobile-builds";
-// V2 app-builder preview token contract.
+// V2 app-builder preview token and sandbox wake contracts.
 export * from "./v2/preview";
 // V2 preview token sign and verify helpers.
 export * from "./v2/preview-token";

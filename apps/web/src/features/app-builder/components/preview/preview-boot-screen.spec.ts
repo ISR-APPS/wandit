@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { type ComponentProps, createElement } from "react";
@@ -28,17 +29,25 @@ const WAKE_BOOTING: BootContext = { ...FIRST_TURN_BOOTING, isFirstTurn: false };
 /** The turn phase after the sandbox answers. The screen then opens the app. */
 const SESSION_STARTING = "session_starting";
 
+/** The wake button needs a query client. No case clicks it, so one client serves every case. */
+const queryClient = new QueryClient();
+
 function screenElement(bootContext: BootContext) {
-	// I18nProvider requires children in its props type for createElement calls.
-	return createElement(I18nProvider, {
-		locale: "en",
-		dictionary: fallbackDictionary,
-		setLocale: () => {},
-		children: createElement(PreviewBootScreen, {
-			tokenStatus: "waking",
-			bootContext,
-		}),
-	} satisfies ComponentProps<typeof I18nProvider>);
+	return createElement(
+		QueryClientProvider,
+		{ client: queryClient },
+		// I18nProvider requires children in its props type for createElement calls.
+		createElement(I18nProvider, {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(PreviewBootScreen, {
+				projectId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+				tokenStatus: "waking",
+				bootContext,
+			}),
+		} satisfies ComponentProps<typeof I18nProvider>),
+	);
 }
 
 function renderScreen(bootContext: BootContext = FIRST_TURN_BOOTING) {
