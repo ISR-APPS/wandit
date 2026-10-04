@@ -367,10 +367,6 @@
 			}
 		},
 		"details": "التفاصيل",
-		"preview": "معاينة",
-		"bookmark": "حفظ كنقطة استعادة",
-		"revert": "العودة إلى هذا الإصدار",
-		"like": "إجابة جيدة",
 		"copy": "نسخ",
 		"copied": "تم النسخ",
 		"placeholder": "اسأل Wandit…",
@@ -387,7 +383,6 @@
 		"stop": "إيقاف",
 		"focusChip": "العمل على {label}",
 		"removeFocus": "إزالة",
-		"working": "Wandit يعمل…",
 		"preparing": {
 			"title": "نجهّز مشروعك",
 			"workspace": "ننشئ مساحة عملك",
@@ -448,10 +443,61 @@
 			"untitled": "يحتاج Wandit إلى إجابتك"
 		},
 		"phases": {
-			"sandbox_waking": "نجهّز تطبيقك",
-			"session_starting": "جارٍ التحضير",
-			"running": "جارٍ العمل",
 			"committing": "حفظ تغييراتك"
+		},
+		"status": {
+			"writing": "يكتب",
+			"edit": {
+				"styles": "يحدّث التنسيقات",
+				"pages": "يحدّث الصفحات",
+				"components": "يحدّث المكوّنات",
+				"texts": "يحدّث النصوص",
+				"images": "يحدّث الصور",
+				"database": "يجهّز قاعدة البيانات",
+				"settings": "يحدّث إعدادات التطبيق",
+				"code": "يحدّث تطبيقك"
+			},
+			"explore": "يطّلع على مشروعك",
+			"run": "يتحقق من تطبيقك",
+			"web": "يبحث في الويب",
+			"image": "ينشئ صورة",
+			"database": "يحدّث قاعدة البيانات",
+			"databaseCheck": "يفحص قاعدة البيانات",
+			"deploy": "يجهّز دالة خادم",
+			"secret": "يحفظ سرًّا",
+			"network": "يطلب الوصول إلى الإنترنت",
+			"guide": "يقرأ دليل البناء",
+			"task": "يعمل على جزء من المهمة",
+			"other": "يعمل"
+		},
+		"summary": {
+			"workedSeconds": "عمل لمدة {count} ث",
+			"workedMinutes": {
+				"zero": "عمل لمدة {count} دقيقة",
+				"one": "عمل لمدة دقيقة واحدة",
+				"two": "عمل لمدة دقيقتين",
+				"few": "عمل لمدة {count} دقائق",
+				"many": "عمل لمدة {count} دقيقة",
+				"other": "عمل لمدة {count} دقيقة"
+			},
+			"files": {
+				"zero": "لم يتغيّر أي ملف",
+				"one": "تغيّر ملف واحد",
+				"two": "تغيّر ملفان",
+				"few": "تغيّرت {count} ملفات",
+				"many": "تغيّر {count} ملفًا",
+				"other": "تغيّر {count} ملف"
+			},
+			"fallback": "اعرض ما فعله Wandit",
+			"changedFiles": "الملفات المعدّلة"
+		},
+		"activity": {
+			"close": "أغلق التفاصيل"
+		},
+		"devView": {
+			"label": "عرض المحادثة",
+			"production": "الإنتاج",
+			"developer": "المطوّر"
 		},
 		"approval": {
 			"approve": "موافقة",
@@ -466,16 +512,6 @@
 			"apply_destructive_migration": "هل تريد تغيير بنية قاعدة بياناتك؟ قد تُفقد بعض البيانات.",
 			"other": "هل تسمح لـ Wandit بتنفيذ هذا الإجراء؟"
 		},
-		"suggestion": {
-			"accept": "قبول",
-			"alternatives": "بدائل",
-			"confidence": {
-				"high": "ثقة عالية",
-				"medium": "ثقة متوسطة",
-				"low": "ثقة منخفضة"
-			}
-		},
-		"followUps": "اقتراحات للمتابعة",
 		"elapsed": "{seconds} ث",
 		"addContext": "إضافة سياق",
 		"attachImage": "إضافة صورة",

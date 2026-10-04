@@ -72,6 +72,11 @@ export type BuilderThreadState = {
 	isTurnRunning: boolean;
 	/** Last `data-turn-status` phase of the running turn. Null before its first status part and while no turn runs. */
 	phase: TurnStreamPhase | null;
+	/**
+	 * Id of the reply that streams now, or null while no turn runs or before
+	 * the reply starts. The production chat shows this reply as one status line.
+	 */
+	liveMessageId: string | null;
 	/** True when the last reply holds an error card. The preview then says that the app did not start. */
 	lastTurnFailed: boolean;
 	/**
@@ -199,6 +204,11 @@ export function useBuilderThread(
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
 		// The phase lives in the reply that streams now, the last message.
 		phase: livePhaseOf(chat.messages, chat.isSending),
+		// toBuilderMessages keeps the ids, so this id also finds the card message.
+		liveMessageId:
+			chat.isSending && chat.messages.at(-1)?.role === "assistant"
+				? (chat.messages.at(-1)?.id ?? null)
+				: null,
 		lastTurnFailed: replyHoldsError,
 		// LIMIT: a first turn that failed before the sandbox existed makes the
 		// next turn show the resume copy. Upgrade: a sandbox status from the API.

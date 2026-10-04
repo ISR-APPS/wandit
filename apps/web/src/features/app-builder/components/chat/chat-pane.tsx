@@ -1,13 +1,14 @@
 /**
  * The chat card of the app builder. The header shows the project name, the
- * pulsing turn dot with a Stop button while a turn runs, and the collapse
- * button. Below it sit the scrolling message list with one working row
- * while a turn runs, an alert row for a refused send (`errorText`), and the
- * composer pinned at the bottom. When the agent asks the user something,
- * the request tray opens on top of the composer. A failed last reply gets a
- * Retry button that sends its user message again. The raw thought rows show
- * only with `showsAgentDebug`. Rendered by pages/app-builder-page.tsx,
- * which owns the thread hook and the card chrome. Renders chat-message.tsx,
+ * dev view switch in local dev, the pulsing turn dot with a Stop button
+ * while a turn runs, and the collapse button. Below it sit the scrolling
+ * message list with one status line while a turn runs, an alert row for a
+ * refused send (`errorText`), and the composer pinned at the bottom. When
+ * the agent asks the user something, the request tray opens on top of the
+ * composer. A failed last reply gets a Retry button that sends its user
+ * message again. In the production view, the live reply shows only as the
+ * status line. Rendered by pages/app-builder-page.tsx, which owns the
+ * thread hook, the details panel, and the card chrome. Renders chat-message.tsx,
  * working-row.tsx, composer.tsx, and the request tray.
  */
 
@@ -22,32 +23,41 @@ import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
 import { PanelLeftClose, Square } from "lucide-react";
 import { AnimatePresence, MotionConfig } from "motion/react";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
-import { liveActivityOf, withoutThoughts } from "../../lib/turn-parts";
+import { isActivityPart, liveStatusOf } from "../../lib/turn-parts";
+import { useAutoScroll } from "../../lib/use-auto-scroll";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
+import { SegmentedControl } from "../shell/segmented-control";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { WorkingRow } from "./working-row";
 
+/** Props of the chat card. pages/app-builder-page.tsx binds them to useBuilderThread. */
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
 	messages: BuilderMessage[];
 	/** Credits the next turn holds, whole credits. Shown next to the send button; null hides it. */
 	turnEstimateCredits: number | null;
-	/** True while a turn runs. Locks the composer and shows the working row. */
+	/** True while a turn runs. Locks the composer and shows the status line. */
 	isSending: boolean;
-	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the working row label. */
+	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the status line label before the reply has steps. */
 	phase: TurnStreamPhase | null;
 	/** True on the first turn of the project, null while the history loads. From useBuilderThread. Picks the preparation lines. */
 	isFirstTurn: boolean | null;
-	/** True shows the raw thought rows and the seconds counter. True in local dev or for staff. */
-	showsAgentDebug: boolean;
+	/** Id of the reply that streams now, from useBuilderThread; null while no reply streams. */
+	liveMessageId: string | null;
+	/** True shows every step inline with the thinking text, and the seconds counter. Only the local dev switch sets it. */
+	isDeveloperView: boolean;
+	/** Changes the chat view. Null outside local dev: the switch then does not render. */
+	onChangeDeveloperView: ((isDeveloperView: boolean) => void) | null;
+	/** Opens the details panel of one assistant reply. The summary line and the status line call it. */
+	onOpenActivity: (messageId: string) => void;
 	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
 	/** Name of the open project. Shown after "Chat" in the card header. */
@@ -68,20 +78,22 @@ export type ChatPaneProps = {
 	errorText: string | null;
 	/** Hides the chat. The header button calls it; the page stores the choice. */
 	onCollapse: () => void;
-	/** Opens the preview on a saved version. The change card calls it. */
-	onPreviewVersion: (versionNumber: number) => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
 	onOpenSecrets?: () => void;
 	className?: string;
 };
 
+/** The chat card: header, message list with the status line, and the composer. */
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
 	isSending,
 	phase,
 	isFirstTurn,
-	showsAgentDebug,
+	liveMessageId,
+	isDeveloperView,
+	onChangeDeveloperView,
+	onOpenActivity,
 	isReady,
 	projectName,
 	onSend,
@@ -90,7 +102,6 @@ export function ChatPane({
 	onCancel,
 	errorText,
 	onCollapse,
-	onPreviewVersion,
 	onOpenSecrets,
 	className,
 }: ChatPaneProps) {
@@ -98,8 +109,13 @@ export function ChatPane({
 	const listRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [draft, setDraft] = useState("");
-	// Raw thinking is for debugging. Users see only the labels of the working row.
-	const shownMessages = showsAgentDebug ? messages : withoutThoughts(messages);
+	// Product rule: in production the live reply shows only as the status line.
+	// The developer view renders it as it streams, with every step.
+	const shownMessages = isDeveloperView
+		? messages
+		: messages.filter((message) => message.id !== liveMessageId);
+	const liveMessage =
+		messages.find((message) => message.id === liveMessageId) ?? null;
 	const retryInput = isSending ? null : retryInputOf(messages);
 	const lastMessageId = messages.at(-1)?.id;
 
@@ -130,9 +146,27 @@ export function ChatPane({
 					· {projectName}
 				</span>
 				<span className="ms-auto flex items-center gap-0.5">
+					{onChangeDeveloperView !== null ? (
+						<SegmentedControl
+							className="me-1"
+							ariaLabel={t("appBuilder.chat.devView.label")}
+							options={[
+								{
+									value: "production",
+									label: t("appBuilder.chat.devView.production"),
+								},
+								{
+									value: "developer",
+									label: t("appBuilder.chat.devView.developer"),
+								},
+							]}
+							value={isDeveloperView ? "developer" : "production"}
+							onChange={(next) => onChangeDeveloperView(next === "developer")}
+						/>
+					) : null}
 					{isSending ? (
 						<>
-							{/* Decorative only: the working row in the list already carries role="status". */}
+							{/* Decorative only: the status line in the list already carries role="status". */}
 							<span
 								aria-hidden
 								className="me-1.5 size-[7px] animate-pulse-soft rounded-full bg-primary"
@@ -181,19 +215,16 @@ export function ChatPane({
 						<ChatMessageView
 							key={message.id}
 							message={message}
-							onPreviewVersion={onPreviewVersion}
+							isDeveloperView={isDeveloperView}
+							onOpenActivity={onOpenActivity}
 							onOpenSecrets={onOpenSecrets}
-							// A follow-up or an accepted suggestion is a normal build turn.
-							// The cards stay clickable while a turn runs, so the pane drops a second send.
-							onSendText={(text) => {
-								if (!isSending) onSend({ text, files: [] });
-							}}
 							onRetry={
 								message.id === lastMessageId && retryInput !== null
 									? () => onSend(retryInput)
 									: undefined
 							}
-							// Same drop rule as onSendText: one active turn per project.
+							// One active turn per project. The card stays clickable while a
+							// turn runs, so the pane drops a second send.
 							onDecideApproval={(approvalId, approved) => {
 								if (!isSending) onDecideApproval(approvalId, approved);
 							}}
@@ -202,13 +233,18 @@ export function ChatPane({
 					))}
 					{isSending ? (
 						<WorkingRow
-							activity={liveActivityOf(messages, {
-								phase,
-								isFirstTurn,
-								showsThoughts: showsAgentDebug,
-							})}
-							phase={phase}
-							showsElapsed={showsAgentDebug}
+							status={liveStatusOf(liveMessage, { phase, isFirstTurn })}
+							// The developer view shows the live reply with its own byline.
+							showsByline={!isDeveloperView || liveMessage === null}
+							showsElapsed={isDeveloperView}
+							// The details panel needs at least one thought, step, or note to show.
+							onOpen={
+								!isDeveloperView &&
+								liveMessage !== null &&
+								liveMessage.parts.some(isActivityPart)
+									? () => onOpenActivity(liveMessage.id)
+									: null
+							}
 						/>
 					) : null}
 				</div>
@@ -290,60 +326,4 @@ function retryInputOf(
 			(part): part is FileUIPart => part.type === "file",
 		),
 	};
-}
-
-/** A list end at most this far below the view still counts as "at the end" (px). */
-const NEAR_BOTTOM_PX = 120;
-
-/**
- * Keeps the end of the list in view while content grows: new messages,
- * streamed text, new feed rows, and a tray that shrinks the list. A scroll
- * up stops the follow, so the user can read. A new send starts it again.
- */
-function useAutoScroll(
-	listRef: RefObject<HTMLDivElement | null>,
-	contentRef: RefObject<HTMLDivElement | null>,
-	/** True while a turn runs; a new send jumps to the end. */
-	isSending: boolean,
-) {
-	// True while the list follows new content. The scroll handler and the
-	// send effect set it.
-	const isFollowingRef = useRef(true);
-
-	useEffect(() => {
-		const list = listRef.current;
-		const content = contentRef.current;
-		if (!list || !content) return;
-		let lastScrollTop = list.scrollTop;
-		const onScroll = () => {
-			const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
-			// A move up means the user reads, also near the end. A follow jump
-			// moves down, and at most 1 px from the end counts as the end.
-			isFollowingRef.current =
-				distance <= 1 ||
-				(list.scrollTop >= lastScrollTop && distance <= NEAR_BOTTOM_PX);
-			lastScrollTop = list.scrollTop;
-		};
-		const follow = () => {
-			if (isFollowingRef.current) list.scrollTop = list.scrollHeight;
-		};
-		follow();
-		list.addEventListener("scroll", onScroll, { passive: true });
-		// The content grows while text streams; the list shrinks when the tray opens.
-		const observer = new ResizeObserver(follow);
-		observer.observe(content);
-		observer.observe(list);
-		return () => {
-			list.removeEventListener("scroll", onScroll);
-			observer.disconnect();
-		};
-	}, [listRef, contentRef]);
-
-	// A send shows its bubble and the working row, also after a scroll up.
-	useEffect(() => {
-		const list = listRef.current;
-		if (!isSending || !list) return;
-		isFollowingRef.current = true;
-		list.scrollTop = list.scrollHeight;
-	}, [isSending, listRef]);
 }

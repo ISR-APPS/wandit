@@ -1,7 +1,7 @@
 /**
- * Unified diff of one file the turn changed. The header shows the path, the
- * added and removed counts, and a copy button. One tinted row per line.
- * Rendered by chat-message.tsx for each `data-diff` part.
+ * Unified diff of one file of a saved version. The header shows the path,
+ * the added and removed counts, and a copy button. One tinted row per line.
+ * Rendered by shell/versions-popover.tsx for each file of a version diff.
  * Copy writes the signed diff text through copyToClipboard in lib/helpers.
  */
 
@@ -15,7 +15,7 @@ import type { BuilderDiffLine } from "../../api/dto";
 import { copyToClipboard } from "../../lib/helpers";
 import { MessageCard } from "./message-card";
 
-/** Props of one `data-diff` part, as chat-message.tsx passes them. */
+/** Props of one file of a version diff, as versions-popover.tsx passes them. */
 export type DiffCardProps = {
 	/** Path of the changed file from the repository root, for example `app/(tabs)/pass.tsx`. */
 	path: string;
