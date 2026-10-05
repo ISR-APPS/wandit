@@ -1,6 +1,6 @@
 /**
  * The screen over the preview while the app is not on screen yet: the
- * Wandit Spark and the app drawing, the real start-up steps, and an
+ * server room or the app drawing, the real start-up steps, and an
  * elapsed timer; the asleep note while the app sleeps; or the waiting note
  * while the project holds only the template. PreviewPanel renders it until
  * the app shows. It reads its content from lib/boot-state.ts and draws with
@@ -10,7 +10,7 @@
 import { cn } from "@wandit/ui/lib/utils";
 import { Check, CircleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import {
@@ -36,7 +36,18 @@ const NOTE_DELAY_MS = 1200;
 /** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
 const TIMER_TICK_MS = 250;
 
-/** Opacity of the ember wash behind the picture, per scene. It is brightest when the app opens and lowest when it did not start. */
+// Soft blobs of the brand colors on the night ground, like the device screen backdrop of device-panel.tsx.
+// They have about half its strength. So the drawing stays the brightest part.
+// Each blob fades out before the top and bottom edges. So the flat night bands of the phone frame meet no seam.
+const BACKDROP_STYLE: CSSProperties = {
+	backgroundImage: [
+		"radial-gradient(60% 32% at 10% 30%, color-mix(in oklab, var(--color-ember) 40%, transparent), transparent 70%)",
+		"radial-gradient(55% 40% at 100% 60%, color-mix(in oklab, var(--color-spark) 20%, transparent), transparent 72%)",
+		"radial-gradient(75% 30% at 22% 72%, color-mix(in oklab, var(--color-cream) 14%, transparent), transparent 72%)",
+	].join(", "),
+};
+
+/** Opacity of the ember glow behind the picture, per scene. It is brightest when the app opens and lowest when it did not start. */
 const WASH_OPACITY: Record<BootScene, string> = {
 	loading: "opacity-30",
 	create: "opacity-55",
@@ -92,10 +103,18 @@ export function PreviewBootScreen({
 	}, [heldNote]);
 	const shown: BootView = heldNote === null ? view : { variant: "loading" };
 	const scene = sceneOf(shown);
+	const database =
+		shown.variant === "booting"
+			? (shown.steps.find((step) => step.id === "database")?.state ?? null)
+			: null;
 
 	return (
-		// The stage is the dark output world in both themes, so the dark tokens apply inside.
-		<div className="dark @container-size relative flex size-full items-center justify-center overflow-hidden bg-void text-white/92">
+		// The stage is a night panel in both themes, like the device screens and the landing build log.
+		// So the dark tokens apply inside.
+		<div
+			className="dark @container-size relative flex size-full items-center justify-center overflow-hidden bg-night text-white/92"
+			style={BACKDROP_STYLE}
+		>
 			<p role="status" className="sr-only">
 				{announcementOf(shown, t)}
 			</p>
@@ -110,11 +129,11 @@ export function PreviewBootScreen({
 					<div
 						aria-hidden="true"
 						className={cn(
-							"-translate-1/2 pointer-events-none absolute top-1/2 left-1/2 @max-[560px]:size-[440px] h-[460px] w-[640px] bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--ember-2)_22%,transparent),transparent)] transition-opacity duration-800",
+							"-translate-1/2 pointer-events-none absolute top-1/2 left-1/2 @max-[560px]:size-[440px] h-[460px] w-[640px] bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-ember)_32%,transparent),transparent)] transition-opacity duration-800",
 							WASH_OPACITY[scene],
 						)}
 					/>
-					<BootPlan scene={scene} />
+					<BootPlan scene={scene} database={database} />
 				</div>
 				{/* The reserved height holds the longest step list, so a late row or a variant change never moves the drawing. */}
 				<motion.div
@@ -184,7 +203,7 @@ function BootCopy({ view }: { view: BootView }) {
 					: "asleep";
 		return (
 			<div>
-				<h2 className="text-balance font-medium @max-[560px]:text-[17px] text-[20px] text-white/92 leading-[1.25]">
+				<h2 className="text-balance font-grotesk font-semibold @max-[560px]:text-[17px] text-[20px] text-white leading-[1.25] tracking-[-0.02em] rtl:tracking-normal">
 					{t(`appBuilder.preview.boot.${note}.title`)}
 				</h2>
 				<p className="mt-2 text-pretty @max-[560px]:text-[13.5px] text-[14px] text-white/62 leading-normal">
@@ -197,7 +216,7 @@ function BootCopy({ view }: { view: BootView }) {
 	return (
 		<div>
 			<div className="flex items-baseline justify-between gap-3">
-				<h2 className="text-balance font-medium @max-[560px]:text-[17px] text-[20px] text-white/92 leading-[1.25]">
+				<h2 className="text-balance font-grotesk font-semibold @max-[560px]:text-[17px] text-[20px] text-white leading-[1.25] tracking-[-0.02em] rtl:tracking-normal">
 					{t("appBuilder.preview.boot.title")}
 				</h2>
 				<ElapsedTime />
@@ -278,7 +297,7 @@ function StepIcon({
 	switch (state) {
 		case "pending":
 			return (
-				<span className="size-[13px] rounded-full border-[1.5px] border-white/22" />
+				<span className="size-[13px] rounded-full border-[1.5px] border-white/25" />
 			);
 		case "active":
 			return (
@@ -303,19 +322,18 @@ function StepIcon({
 						fill="none"
 						strokeWidth="1.5"
 						strokeLinecap="round"
-						className={isDatabase ? "stroke-ember-1/75" : "stroke-ember-1"}
+						className={isDatabase ? "stroke-spark/75" : "stroke-spark"}
 					/>
 				</svg>
 			);
 		case "done":
+			// The amber check of the landing build log.
 			return (
-				<span className="grid size-4 place-items-center rounded-full bg-gradient-ember">
-					<Check
-						className="size-2.5 text-void"
-						strokeWidth={3}
-						aria-hidden="true"
-					/>
-				</span>
+				<Check
+					className="size-4 text-spark"
+					strokeWidth={3.2}
+					aria-hidden="true"
+				/>
 			);
 		case "failed":
 			return (
@@ -338,7 +356,7 @@ function DetailLine({
 	withCaret,
 }: {
 	lines: TranslationKey[];
-	/** True for the main active step: an ember caret blinks after the text. */
+	/** True for the main active step: an amber caret blinks after the text. */
 	withCaret: boolean;
 }) {
 	const { t } = useTranslation();
@@ -371,7 +389,7 @@ function DetailLine({
 				</motion.span>
 			</AnimatePresence>
 			{withCaret ? (
-				<span className="ms-[3px] inline-block h-[11px] w-px animate-caret bg-ember-1 align-[-1px] motion-reduce:animate-none" />
+				<span className="ms-[3px] inline-block h-[11px] w-px animate-caret bg-spark align-[-1px] motion-reduce:animate-none" />
 			) : null}
 		</span>
 	);

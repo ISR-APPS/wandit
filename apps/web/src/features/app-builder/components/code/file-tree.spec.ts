@@ -175,11 +175,16 @@ describe("FileTree", () => {
 		expect(row("payments").getAttribute("aria-expanded")).toBe("false");
 	});
 
-	it("starts with a folder closed when it is not on the selected path, and a dot folder closed", () => {
+	it("starts with a folder closed when it is not on the selected path, and a dot folder closed and out of the count", () => {
 		renderTree();
 		expect(screen.queryByText("migrations")).toBeNull();
 		expect(row(".claude").getAttribute("aria-expanded")).toBe("false");
 		expect(screen.queryByText("CLAUDE.md")).toBeNull();
+		// The count chip next to the title skips the files of the dot folder.
+		expect(
+			screen.getByRole("heading", { name: "Files" }).nextElementSibling
+				?.textContent,
+		).toBe("5");
 		fireEvent.click(row("db"));
 		expect(screen.queryByText("0001_init.sql")).toBeNull();
 		fireEvent.click(row("migrations"));

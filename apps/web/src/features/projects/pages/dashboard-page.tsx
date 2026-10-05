@@ -1,15 +1,15 @@
 /**
  * Dashboard page at `/dashboard`: the prompt box that creates a project and
  * the project grid with search and status filters. The route file imports
- * it by path. Calls the projects queries, the V1 and V2 create hooks, and
- * the credits banners.
+ * it by path. Calls the projects queries, the V1 and V2 create hooks, the
+ * credits banners, and the landing key button and platform word.
  */
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import type { TargetPlatform } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
-import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
-import { Search } from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
@@ -17,16 +17,18 @@ import {
 	useCreateAppProjectWithPrompt,
 	useV2BuilderEnabled,
 } from "@/features/app-builder";
+import { promptStash } from "@/features/auth";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
 	useOutOfCredits,
 } from "@/features/credits";
+import { KeycapButton, PlatformToken } from "@/features/landing";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
-import { useTranslation } from "@/lib/i18n";
+import { useDictionary, useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
-import { ProjectCard } from "../components/project-card";
+import { ProjectCard, ProjectCardSkeleton } from "../components/project-card";
 import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
 import { GRID_SKELETON_COUNT } from "../lib/constants";
@@ -43,61 +45,69 @@ function matchesFilter(project: Project, filter: StatusFilter): boolean {
 	return project.status !== "published";
 }
 
-function CardSkeleton() {
-	return (
-		<div className="overflow-hidden rounded-xl border bg-card">
-			<Skeleton className="aspect-video rounded-none" />
-			<div className="space-y-2.5 p-3.5">
-				<Skeleton className="h-4 w-2/3" />
-				<Skeleton className="h-3 w-1/2" />
-			</div>
-		</div>
-	);
-}
-
+/** No project yet: a night app tile, like the ideas wall of the landing, and the build key. */
 function EmptyState({ onCta }: { onCta: () => void }) {
 	const { t } = useTranslation();
 	return (
-		<div className="relative flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-20 text-center">
-			<div
+		<div className="flex flex-col items-center justify-center rounded-[2rem] border-2 border-night/15 border-dashed px-6 py-16 text-center dark:border-white/15">
+			<span
 				aria-hidden
-				className="pointer-events-none absolute inset-0 bg-dots"
-			/>
-			<div className="relative flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
-				<Spark className="size-5 text-primary" />
-			</div>
-			<h3 className="relative mt-4 font-display font-semibold text-lg">
+				className="grid size-16 -rotate-6 place-items-center rounded-[28%] bg-night shadow-[0_12px_22px_-12px_rgb(11_16_51/0.55)] dark:ring-1 dark:ring-white/10"
+			>
+				<Spark className="size-7 text-spark" />
+			</span>
+			<h3 className="mt-6 font-bold font-grotesk text-2xl text-night tracking-[-0.03em] dark:text-foreground">
 				{t("projects.emptyTitle")}
 			</h3>
-			<p className="relative mt-1 max-w-xs text-muted-foreground text-sm">
+			<p className="mt-2 max-w-xs text-night/60 text-sm dark:text-foreground/60">
 				{t("projects.emptyBody")}
 			</p>
-			<Button onClick={onCta} className="relative mt-5">
+			<KeycapButton
+				size="md"
+				type="button"
+				onClick={onCta}
+				// Night focus shows on the light page, white focus on the dark page.
+				className="mt-6 focus-visible:outline-night dark:focus-visible:outline-white"
+			>
+				<Spark className="size-4" />
 				{t("projects.emptyCta")}
-			</Button>
+			</KeycapButton>
 		</div>
 	);
 }
 
+/** The search or the filter hides every project. Same dashed frame as the empty state, smaller. */
 function NoResultsState({
 	query,
 	onClear,
 }: {
+	/** The trimmed search text. Empty when only the status filter hides the projects. */
 	query: string;
 	onClear: () => void;
 }) {
 	const { t } = useTranslation();
 	return (
-		<div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-16 text-center">
-			<h3 className="font-display font-semibold text-base">
+		<div className="flex flex-col items-center justify-center rounded-[2rem] border-2 border-night/15 border-dashed px-6 py-14 text-center dark:border-white/15">
+			<span
+				aria-hidden
+				className="grid size-12 place-items-center rounded-full bg-white text-night/70 shadow-[0_1px_0_rgb(11_16_51/0.1)] dark:bg-white/10 dark:text-foreground/70"
+			>
+				<MagnifyingGlassIcon weight="duotone" className="size-5" />
+			</span>
+			<h3 className="mt-4 font-bold font-grotesk text-lg text-night dark:text-foreground">
 				{t("projects.noResultsTitle")}
 			</h3>
-			<p className="mt-1 max-w-xs text-muted-foreground text-sm">
+			<p className="mt-1 max-w-xs text-night/60 text-sm dark:text-foreground/60">
 				{query
 					? t("projects.noResultsBody", { query })
 					: t("projects.noResultsBodyEmpty")}
 			</p>
-			<Button variant="outline" size="sm" onClick={onClear} className="mt-4">
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={onClear}
+				className="mt-4 rounded-full font-grotesk"
+			>
 				{t("projects.clearFilters")}
 			</Button>
 		</div>
@@ -106,6 +116,7 @@ function NoResultsState({
 
 export default function DashboardPage() {
 	const { t } = useTranslation();
+	const landingHero = useDictionary().landing.hero;
 	const { data: projects, isPending } = useProjectsQuery();
 	// Product rule: a user in the V2 rollout builds an app with the V2 engine;
 	// every other user builds a V1 page. Both hooks run so the switch is safe.
@@ -114,7 +125,12 @@ export default function DashboardPage() {
 	// Upgrade: expose the loading state from useV2BuilderEnabled and hold
 	// the autostart until it is known.
 	const v2Enabled = useV2BuilderEnabled();
-	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>("web");
+	// A landing draft carries the app type the visitor picked. Read it on the
+	// first render: the autostart below creates with this state, and it can
+	// run before an effect could set it.
+	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>(
+		() => promptStash.peek()?.targetPlatform ?? "web",
+	);
 	const v1Flow = useCreateProjectWithPrompt();
 	const v2Flow = useCreateAppProjectWithPrompt(targetPlatform);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
@@ -164,18 +180,48 @@ export default function DashboardPage() {
 		<DashboardShell>
 			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
 				<PendingInvitesBanner className="mt-6" />
-				{/* Prompt section */}
-				<section className="relative py-10 md:py-14">
-					<div
-						aria-hidden
-						className="pointer-events-none absolute inset-0 bg-dots"
-					/>
+				{/* The prompt panel repeats the ember hero of the landing page. The first
+				    screen after sign-in then looks like the landing. */}
+				<section className="relative mt-4 mb-12 overflow-hidden rounded-[2rem] bg-ember px-4 py-10 md:mt-6 md:px-10 md:py-14">
+					<Spark className="pointer-events-none absolute -end-12 -top-12 size-56 text-white/10 md:-end-8 md:-top-10" />
 					<div className="relative mx-auto w-full max-w-2xl">
-						<h2 className="text-center font-display font-semibold text-2xl tracking-tight md:text-3xl">
-							{t("projects.promptHeading")}
+						{/* Large bold white text passes 3:1 on ember; small text would not. */}
+						<h2 className="text-balance text-center font-extrabold font-grotesk text-[clamp(2rem,4.2vw,3.25rem)] text-white leading-[0.95] tracking-[-0.045em] rtl:leading-[1.3] rtl:tracking-normal">
+							{/* A V2 user builds an app, so the dashboard repeats the landing
+							    sentence. The platform word sets the app type of the new project. */}
+							{v2Enabled ? (
+								<>
+									{/* On a phone the token takes its own line, and the lead words stay together. */}
+									<span className="whitespace-nowrap">
+										{landingHero.leadStart}
+									</span>{" "}
+									<PlatformToken
+										platform={targetPlatform}
+										onFlip={() =>
+											setTargetPlatform((current) =>
+												current === "mobile" ? "web" : "mobile",
+											)
+										}
+									/>
+								</>
+							) : (
+								t("projects.promptHeading")
+							)}
 						</h2>
-						<div ref={promptSectionRef} className="mt-6">
-							<OutOfCreditsBanner active={promptLocked}>
+						{/* The box is a key on an ember-deep edge, like the landing box. It
+						    rises a little while its textarea has the focus. */}
+						<div
+							ref={promptSectionRef}
+							className={cn(
+								"mt-7 rounded-3xl shadow-[0_7px_0_var(--color-ember-deep)] transition-[translate,box-shadow] duration-150 ease-out has-[textarea:focus]:-translate-y-0.5 has-[textarea:focus]:shadow-[0_9px_0_var(--color-ember-deep)]",
+								// The credits strip paints with the primary color, which is the
+								// ember of this panel. Night replaces it while the strip shows.
+								// The box is disabled then, so its own primary parts do not matter.
+								promptLocked &&
+									"text-night [--primary-foreground:var(--color-paper)] [--primary:var(--color-night)]",
+							)}
+						>
+							<OutOfCreditsBanner active={promptLocked} className="rounded-3xl">
 								<PromptBox
 									key={restoreKey}
 									variant="hero"
@@ -186,14 +232,6 @@ export default function DashboardPage() {
 									initialComposer={restoredComposer}
 									onSubmit={create}
 									isSubmitting={isCreating || isAutostarting}
-									platformPicker={
-										v2Enabled
-											? {
-													value: targetPlatform,
-													onValueChange: setTargetPlatform,
-												}
-											: undefined
-									}
 								/>
 							</OutOfCreditsBanner>
 						</div>
@@ -207,27 +245,29 @@ export default function DashboardPage() {
 				{/* Toolbar */}
 				<section>
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-						<div className="flex items-baseline gap-2">
-							<h2 className="font-display font-semibold text-lg tracking-tight">
+						<div className="flex items-center gap-2.5">
+							<h2 className="font-bold font-grotesk text-[1.75rem] text-night tracking-[-0.035em] dark:text-foreground">
 								{t("projects.toolbarTitle")}
 							</h2>
 							{projects ? (
-								<span className="font-mono text-muted-foreground text-xs">
+								<span className="rounded-full bg-night/[0.06] px-2 py-0.5 font-grotesk font-semibold text-night/60 text-xs tabular-nums dark:bg-white/[0.08] dark:text-foreground/60">
 									{projects.length}
 								</span>
 							) : null}
 						</div>
 						<div className="ms-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
-							<div className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
-								<Search
+							{/* On a phone the search takes the full row, so the tabs do not cut its placeholder. */}
+							<div className="relative w-full sm:w-56">
+								<MagnifyingGlassIcon
 									aria-hidden
-									className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+									weight="bold"
+									className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-night/45 dark:text-foreground/50"
 								/>
 								<Input
 									value={query}
 									onChange={(e) => setQuery(e.target.value)}
 									placeholder={t("projects.searchPlaceholder")}
-									className="h-8 ps-8 text-sm"
+									className="h-10 rounded-full border-night/10 bg-white ps-10 text-sm dark:border-border dark:bg-card"
 									aria-label={t("projects.searchPlaceholder")}
 								/>
 							</div>
@@ -235,16 +275,23 @@ export default function DashboardPage() {
 								value={filter}
 								onValueChange={(value) => setFilter(value as StatusFilter)}
 							>
-								<TabsList className="h-8">
-									<TabsTrigger value="all" className="text-xs">
-										{t("projects.filterAll")}
-									</TabsTrigger>
-									<TabsTrigger value="published" className="text-xs">
-										{t("projects.filterPublished")}
-									</TabsTrigger>
-									<TabsTrigger value="drafts" className="text-xs">
-										{t("projects.filterDrafts")}
-									</TabsTrigger>
+								{/* The selected filter is a night pill, like the language switch of the landing page. */}
+								<TabsList className="h-9 rounded-full border-0 bg-night/[0.05] p-1 dark:bg-white/[0.06]">
+									{(
+										[
+											["all", "projects.filterAll"],
+											["published", "projects.filterPublished"],
+											["drafts", "projects.filterDrafts"],
+										] as const
+									).map(([value, labelKey]) => (
+										<TabsTrigger
+											key={value}
+											value={value}
+											className="rounded-full px-3 font-grotesk font-semibold text-night/60 text-xs hover:text-night data-[state=active]:bg-night data-[state=active]:text-paper data-[state=active]:hover:text-paper dark:text-foreground/60 dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-spark dark:data-[state=active]:text-night dark:hover:text-foreground dark:data-[state=active]:hover:text-night"
+										>
+											{t(labelKey)}
+										</TabsTrigger>
+									))}
 								</TabsList>
 							</Tabs>
 						</div>
@@ -253,14 +300,14 @@ export default function DashboardPage() {
 					{/* Grid */}
 					<div className="mt-5">
 						{isPending ? (
-							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+							<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 								{Array.from({ length: GRID_SKELETON_COUNT }, (_, i) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
-									<CardSkeleton key={i} />
+									<ProjectCardSkeleton key={i} />
 								))}
 							</div>
 						) : filtered.length > 0 ? (
-							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+							<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 								{filtered.map((project) => (
 									<ProjectCard key={project.id} project={project} />
 								))}

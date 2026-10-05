@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { PreviewParentMessage } from "@wandit/contracts";
+import type {
+	PreviewParentMessage,
+	PreviewRouteMessage,
+} from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { usePreviewMessages } from "./use-preview-messages";
@@ -14,7 +17,10 @@ const PREVIEW_ORIGIN =
 // Sends one message to the window listener, inside act.
 function postMessage(
 	origin: string,
-	data: PreviewParentMessage | { type: string },
+	data:
+		| PreviewParentMessage
+		| PreviewRouteMessage
+		| { type: string; path?: string },
 ) {
 	act(() => {
 		window.dispatchEvent(new MessageEvent("message", { origin, data }));
@@ -115,5 +121,44 @@ describe("usePreviewMessages", () => {
 
 		expect(onTokenExpired).not.toHaveBeenCalled();
 		expect(onNotRunning).not.toHaveBeenCalled();
+	});
+
+	it("calls onRoute with the path of a route message from the preview origin", () => {
+		const onRoute = vi.fn();
+		renderHook(() =>
+			usePreviewMessages({
+				previewUrl: PREVIEW_URL,
+				onTokenExpired: vi.fn(),
+				onNotRunning: vi.fn(),
+				onRoute,
+			}),
+		);
+
+		postMessage(PREVIEW_ORIGIN, {
+			type: "wandit:route",
+			path: "/invoices?page=2",
+		});
+
+		expect(onRoute).toHaveBeenCalledWith("/invoices?page=2");
+	});
+
+	// The frame runs user code, so a route message must pass the origin check and the schema.
+	it.each([
+		["another origin", "https://evil.example.com", "/invoices"],
+		["a path without a leading slash", PREVIEW_ORIGIN, "invoices"],
+	])("ignores a route message from %s", (_case, origin, path) => {
+		const onRoute = vi.fn();
+		renderHook(() =>
+			usePreviewMessages({
+				previewUrl: PREVIEW_URL,
+				onTokenExpired: vi.fn(),
+				onNotRunning: vi.fn(),
+				onRoute,
+			}),
+		);
+
+		postMessage(origin, { type: "wandit:route", path });
+
+		expect(onRoute).not.toHaveBeenCalled();
 	});
 });

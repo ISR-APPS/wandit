@@ -14,7 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "@/lib/api-client";
 import type { BootContext } from "../../lib/boot-state";
-import type { PreviewTokenDeps } from "../../lib/use-preview-token";
+import {
+	type PreviewTokenDeps,
+	usePreviewToken,
+} from "../../lib/use-preview-token";
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
 
 const PROJECT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
@@ -58,28 +61,34 @@ function readyDeps(): PreviewTokenDeps {
 	};
 }
 
+/** Panel props of one case. The harness mints with `deps`, like WebPreview and PhonePreview do. */
+type HarnessProps = Partial<Omit<PreviewPanelProps, "preview">> & {
+	deps: PreviewTokenDeps;
+};
+
+/** Calls usePreviewToken like the two previews, then renders the panel with the result. */
+function PanelHarness({ deps, ...props }: HarnessProps) {
+	const preview = usePreviewToken(PROJECT_ID, 0, deps);
+	return createElement(PreviewPanel, {
+		preview,
+		title: TITLE,
+		className: "h-full w-full",
+		bootContext: IDLE_BOOT,
+		...props,
+	});
+}
+
 // I18nProvider requires children in its props type for createElement calls.
-function panelElement(
-	props: Partial<PreviewPanelProps> & { deps: PreviewTokenDeps },
-) {
+function panelElement(props: HarnessProps) {
 	return createElement(I18nProvider, {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(PreviewPanel, {
-			projectId: PROJECT_ID,
-			title: TITLE,
-			reloadKey: 0,
-			className: "h-full w-full",
-			bootContext: IDLE_BOOT,
-			...props,
-		}),
+		children: createElement(PanelHarness, props),
 	} satisfies ComponentProps<typeof I18nProvider>);
 }
 
-function renderPanel(
-	props: Partial<PreviewPanelProps> & { deps: PreviewTokenDeps },
-) {
+function renderPanel(props: HarnessProps) {
 	return render(panelElement(props));
 }
 

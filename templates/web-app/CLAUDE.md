@@ -89,7 +89,7 @@ The host machine runs the session. You write code; the host runs it.
 - `src/lib/`: shared logic and server functions (supabase, profile, utils).
 - `src/i18n/`: dictionaries and the `useT` hook.
 - `src/styles/tokens.css`: the semantic design tokens.
-- `src/wandit/preview-bridge.ts`: dev-only error bridge. Never call it yourself.
+- `src/wandit/preview-bridge.ts`: dev-only bridge that posts runtime errors and the current page to the host; never call it yourself.
 - `supabase/migrations/`: SQL migrations, forward-only.
 - `.claude/skills/`: loadable instruction packs. Read them when a task fits.
 

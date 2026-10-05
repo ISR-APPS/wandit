@@ -5,6 +5,7 @@
  * Reads cloudSignupsQuery and cloudAuthUsersQuery; renders signups-chart.tsx.
  */
 
+import { UserIcon } from "@phosphor-icons/react/User";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
 	Table,
@@ -15,7 +16,6 @@ import {
 	TableRow,
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
-import { UserRound } from "lucide-react";
 import { useState } from "react";
 
 import { formatDate, formatNumber, useTranslation } from "@/lib/i18n";
@@ -28,9 +28,14 @@ import {
 	CLOUD_EMPTY_CELL,
 	CLOUD_ROWS_PAGE_SIZE,
 } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import { PANEL_CARD_CLASS, PanelChip, PanelMessage } from "../more/panel-shell";
 import { CloudLoadFailed } from "./backend-state";
-import { PageControls, RowsGridSkeleton } from "./rows-grid";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	PageControls,
+	RowsGridSkeleton,
+} from "./rows-grid";
 import { SignupsChart } from "./signups-chart";
 
 /** Props of UsersPanel. The panel mounts only while the backend is `active`. */
@@ -74,32 +79,35 @@ export function UsersPanel({ projectId, isActive }: UsersPanelProps) {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-8">
-			<section className="flex flex-col gap-3">
-				<div className="flex items-baseline justify-between gap-3">
-					<h2 className="font-semibold">
+			<section className={cn(PANEL_CARD_CLASS, "flex flex-col gap-4 p-5")}>
+				<div className="flex items-center justify-between gap-3">
+					<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 						{t("workspace.cloud.users.signups.title")}
 					</h2>
-					<span className="text-muted-foreground text-sm">
+					<PanelChip tone="ember" className="tabular-nums">
 						{t("workspace.cloud.users.signups.total", {
 							count: signupTotal,
 							countDisplay: formatNumber(signupTotal, locale),
 						})}
-					</span>
+					</PanelChip>
 				</div>
 				<SignupsChart days={signups.data} />
 			</section>
 			<section className="flex min-w-0 flex-col gap-3">
-				<h2 className="font-semibold">{t("workspace.cloud.users.title")}</h2>
+				<h2 className="px-1 font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
+					{t("workspace.cloud.users.title")}
+				</h2>
 				{users.data.items.length === 0 ? (
-					<CodeMessage
-						icon={UserRound}
+					<PanelMessage
+						icon={UserIcon}
 						text={t("workspace.cloud.users.empty")}
 					/>
 				) : (
 					<div
 						aria-busy={users.isPlaceholderData}
 						className={cn(
-							"rounded-xl border transition-opacity",
+							CLOUD_TABLE_CLASS,
+							"transition-opacity",
 							users.isPlaceholderData && "opacity-60",
 						)}
 					>
@@ -126,23 +134,30 @@ export function UsersPanel({ projectId, isActive }: UsersPanelProps) {
 							<TableBody>
 								{users.data.items.map((user) => (
 									<TableRow key={user.id}>
-										<TableCell className="max-w-64 truncate">
+										<TableCell className="max-w-64 truncate font-medium text-night dark:text-foreground">
 											<span dir="ltr">{user.email ?? CLOUD_EMPTY_CELL}</span>
 										</TableCell>
-										<TableCell>
+										<TableCell className="font-mono text-[12.5px]">
 											<span dir="ltr">{user.phone ?? CLOUD_EMPTY_CELL}</span>
 										</TableCell>
-										<TableCell className="text-muted-foreground">
-											{user.provider ?? CLOUD_EMPTY_CELL}
+										<TableCell>
+											{/* The provider is a Supabase code, for example "email". It is not translated. */}
+											{user.provider === null ? (
+												CLOUD_EMPTY_CELL
+											) : (
+												<PanelChip className="font-mono">
+													{user.provider}
+												</PanelChip>
+											)}
 										</TableCell>
-										<TableCell className="text-muted-foreground">
+										<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 											{formatDate(
 												user.createdAt,
 												locale,
 												CLOUD_DATE_TIME_FORMAT,
 											)}
 										</TableCell>
-										<TableCell className="text-muted-foreground">
+										<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 											{user.lastSignInAt === null
 												? t("workspace.cloud.never")
 												: formatDate(

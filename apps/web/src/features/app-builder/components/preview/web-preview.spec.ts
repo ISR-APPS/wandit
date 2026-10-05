@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AppProject } from "../../api/dto";
 import type { BootContext } from "../../lib/boot-state";
-import type { WebViewport } from "../../lib/constants";
 import type { PreviewTokenDeps } from "../../lib/use-preview-token";
 import { WebPreview, type WebPreviewProps } from "./web-preview";
 
@@ -23,16 +23,9 @@ const project: AppProject = {
 	hasCodeChanges: true,
 };
 
-// The fake answers one minted URL, so no network call happens.
-const readyDeps: PreviewTokenDeps = {
-	getPreviewToken: async () => ({
-		token: "t1",
-		previewUrl:
-			"https://r-abcdef123456--p-nadi-fitness.wanditpreview.app/?wt=t1",
-		// One hour out: the scheduled re-mint never fires during a spec run.
-		expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-	}),
-};
+const PREVIEW_ORIGIN =
+	"https://r-abcdef123456--p-nadi-fitness.wanditpreview.app";
+const TITLE = "Preview of Nadi Fitness";
 
 // No turn runs and the backend is unknown: the boot screen has nothing to show over the frame.
 const idleBoot: BootContext = {
@@ -44,57 +37,89 @@ const idleBoot: BootContext = {
 	hasCodeChanges: true,
 };
 
-async function renderPreview(viewport: WebViewport) {
-	const props: WebPreviewProps = {
-		project,
-		viewport,
-		reloadKey: 0,
-		bootContext: idleBoot,
-		deps: readyDeps,
-	};
-	// I18nProvider requires children in its props type for createElement calls.
-	const providerProps: ComponentProps<typeof I18nProvider> = {
+// Each mint answers the next token, so no network call happens.
+function depsWithTokens(...tokens: string[]): PreviewTokenDeps {
+	const getPreviewToken = vi.fn<PreviewTokenDeps["getPreviewToken"]>();
+	for (const token of tokens) {
+		getPreviewToken.mockResolvedValueOnce({
+			token,
+			previewUrl: `${PREVIEW_ORIGIN}/?wt=${token}`,
+			// One hour out: the scheduled re-mint never fires during a spec run.
+			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+	}
+	return { getPreviewToken };
+}
+
+// The bar shows tooltips and translated labels; the page mounts both providers.
+function previewElement(props: WebPreviewProps) {
+	return createElement(I18nProvider, {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(WebPreview, props),
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(WebPreview, props),
+		),
+	} satisfies ComponentProps<typeof I18nProvider>);
+}
+
+function propsWith(deps: PreviewTokenDeps, reloadKey: number): WebPreviewProps {
+	return {
+		project,
+		viewport: "desktop",
+		onChangeViewport: () => {},
+		reloadKey,
+		onReload: () => {},
+		bootContext: idleBoot,
+		deps,
 	};
-	render(createElement(I18nProvider, providerProps));
-	const iframe = await screen.findByTitle("Preview of Nadi Fitness");
-	// The width and the borders sit on the panel box that holds the iframe and the boot screen.
-	const panel = iframe.parentElement;
-	if (panel === null) throw new Error("The iframe has no panel box.");
-	return panel;
+}
+
+// The template bridge of the app posts this message on each page change.
+async function postRoute(path: string) {
+	// The message listener registers in an effect; flush it before the dispatch.
+	await act(async () => {});
+	act(() => {
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				origin: PREVIEW_ORIGIN,
+				data: { type: "wandit:route", path },
+			}),
+		);
+	});
 }
 
 afterEach(cleanup);
 
 describe("WebPreview", () => {
-	it("shows the project URL in the browser bar", async () => {
-		await renderPreview("desktop");
-		expect(screen.getByText("nadi.wandit.app")).toBeTruthy();
+	it("shows a page change of the app in the capsule and keeps the iframe src", async () => {
+		render(previewElement(propsWith(depsWithTokens("t1"), 0)));
+		const iframe = await screen.findByTitle(TITLE);
+
+		await postRoute("/invoices?page=2");
+
+		expect(
+			screen.getByRole("button", { name: "Page /invoices?page=2" }),
+		).toBeTruthy();
+		// A new src would reload the app, and the app would post its route again.
+		expect(iframe.getAttribute("src")).toBe(`${PREVIEW_ORIGIN}/?wt=t1`);
 	});
 
-	it("fills the width without side borders on the desktop viewport", async () => {
-		const panel = await renderPreview("desktop");
-		expect(panel.style.width).toBe("");
-		expect(panel.className).toContain("border-0");
-		expect(panel.className).not.toContain("border-x");
-	});
+	it("loads the page the app shows when a reload mints a new preview URL", async () => {
+		const deps = depsWithTokens("t1", "t2");
+		const { rerender } = render(previewElement(propsWith(deps, 0)));
+		await screen.findByTitle(TITLE);
+		await postRoute("/invoices");
 
-	it("narrows the panel to 768 px on the tablet viewport", async () => {
-		const panel = await renderPreview("tablet");
-		expect(panel.style.width).toBe("768px");
-		expect(panel.style.maxWidth).toBe("100%");
-		expect(panel.className).toContain("border-x");
-		expect(panel.className).not.toContain("border-0");
-	});
+		// The page bumps reloadKey when the reload button calls onReload.
+		rerender(previewElement(propsWith(deps, 1)));
 
-	it("narrows the panel to 393 px with side borders on the mobile viewport", async () => {
-		const panel = await renderPreview("mobile");
-		expect(panel.style.width).toBe("393px");
-		expect(panel.style.maxWidth).toBe("100%");
-		expect(panel.className).toContain("border-x");
-		expect(panel.className).not.toContain("border-0");
+		await waitFor(() =>
+			expect(screen.getByTitle(TITLE).getAttribute("src")).toBe(
+				`${PREVIEW_ORIGIN}/invoices?wt=t2`,
+			),
+		);
 	});
 });

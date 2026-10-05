@@ -1,30 +1,28 @@
 /**
- * The picture of the preview boot screen: a line drawing of an app screen
- * and the Wandit Spark. The Spark sets up or wakes the app, then draws the
- * app in ember lines and rests in its picture. Rendered by
- * preview-boot-screen.tsx. Inline SVG, the `wd-draw` keyframe from
- * globals.css, motion fades, and BootSpark.
+ * The picture of the preview boot screen. While the app starts or wakes, it
+ * shows the server room of BootMachines with the Spark in the rack core.
+ * When the app opens, it draws the app in light lines with amber buttons,
+ * and the Spark rests in its picture. Rendered by preview-boot-screen.tsx.
+ * Inline SVG, the `wd-draw` keyframe from globals.css, motion, and BootSpark.
  */
 
 import { cn } from "@wandit/ui/lib/utils";
-import { motion } from "motion/react";
-import { useId, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 
-import type { BootScene } from "../../lib/boot-state";
+import type { BootScene, BootStep } from "../../lib/boot-state";
 import { BOOT_EASE } from "../../lib/constants";
+import { BootMachines } from "./boot-machines";
 import { BootSpark } from "./boot-spark";
 
-/**
- * `waking`: a sleeping app wakes and its frame warms. `inked`: the app page opens or its first version builds.
- * `asleep`: the app sleeps, did not start, or waits for its first version.
- */
-type PlanStage = "waking" | "inked" | "asleep";
+/** `inked`: the app page opens or its first version builds. `asleep`: the app sleeps, did not start, or waits for its first version. */
+type PlanStage = "inked" | "asleep";
 
-// Null hides the drawing, because no app shows yet.
+// Null hides the drawing: no app shows yet, or the server room shows.
 const PLAN_STAGE: Record<BootScene, PlanStage | null> = {
 	loading: null,
 	create: null,
-	wake: "waking",
+	wake: null,
 	open: "inked",
 	asleep: "asleep",
 	stopped: "asleep",
@@ -183,13 +181,6 @@ const ASLEEP_PART = "fill-transparent stroke-white/12";
 
 /** Fill and stroke of each part role in each stage. A stage change animates between them. */
 const PART_CLASSES: Record<PlanStage, Record<PartRole, string>> = {
-	// Only the frame warms: the Spark wakes the app, and the parts light up when it opens.
-	waking: {
-		frame: "fill-white/[0.02] stroke-ember-1/45",
-		plain: ASLEEP_PART,
-		cta: ASLEEP_PART,
-		image: ASLEEP_PART,
-	},
 	inked: {
 		frame: "fill-white/[0.035] stroke-white/16",
 		plain: INKED_PART,
@@ -208,7 +199,7 @@ const PART_CLASSES: Record<PlanStage, Record<PartRole, string>> = {
 const DRAW_STEP_MS = 45;
 /** Gap between two parts when a stage change passes over the drawing, ms. */
 const INK_STEP_MS = 40;
-/** Delay of the ember button fills when the app opens, s. The fills come after their outlines start to draw. */
+/** Delay of the amber button fills when the app opens, s. The fills come after their outlines start to draw. */
 const CTA_FILL_DELAY_S = 0.7;
 
 /** The picture-circle center as CSS percents of the drawing box. BootSpark anchors there. */
@@ -224,15 +215,18 @@ function orbPercentOf(plan: Plan): { left: string; top: string } {
 export type BootPlanProps = {
 	/** The boot scene from sceneOf. PreviewBootScreen passes it. */
 	scene: BootScene;
+	/** State of the database row of the step list, or null without that row. The server room lights its database from it. */
+	database: BootStep["state"] | null;
 };
 
 /**
- * Renders the wide drawing on stages of 560 px and more, and the tall one
- * below, each with its Spark. The first stage after a hidden drawing is
- * its entrance: `inked` draws the parts one by one, the other stages fade
- * in. Later stage changes only move colors.
+ * Renders the server room while the app starts or wakes. Renders the wide
+ * drawing on stages of 560 px and more, and the tall one below, each with
+ * its Spark. The first stage after a hidden drawing is its entrance:
+ * `inked` draws the parts one by one, `asleep` fades in. Later stage
+ * changes only move colors.
  */
-export function BootPlan({ scene }: BootPlanProps) {
+export function BootPlan({ scene, database }: BootPlanProps) {
 	const stage = PLAN_STAGE[scene];
 	// The parts keep their last stage while the drawing fades out, so they never vanish in one frame.
 	const [shownStage, setShownStage] = useState(stage);
@@ -241,13 +235,28 @@ export function BootPlan({ scene }: BootPlanProps) {
 	if (entrance !== stage && (entrance === null || stage === null)) {
 		setEntrance(stage);
 	}
-	const id = useId();
-
 	return (
 		<>
+			{/* The core window of the rack sits on the box center, where the Spark of the drawing box burns. */}
+			{/* On a wide stage the room grows past the box. It grows 12 % to the left and right, 5 % up and down. */}
+			{/* Opposite sides grow the same, so the center stays. The new box keeps the 16:10 shape of the room. */}
+			<AnimatePresence>
+				{scene === "create" || scene === "wake" ? (
+					<motion.div
+						key="machines"
+						className="absolute inset-0 @min-[560px]:-inset-x-[12%] @min-[560px]:-inset-y-[5%]"
+						// A new room builds itself part by part. A woken room fades in, because its parts are already there.
+						initial={{ opacity: scene === "wake" ? 0 : 1 }}
+						animate={{ opacity: 1, scale: 1 }}
+						exit={{ opacity: 0, scale: 0.96 }}
+						transition={{ duration: 0.4, ease: BOOT_EASE }}
+					>
+						<BootMachines scene={scene} database={database} />
+					</motion.div>
+				) : null}
+			</AnimatePresence>
 			<PlanBox
 				plan={WIDE_PLAN}
-				gradientId={`${id}-wide`}
 				scene={scene}
 				stage={stage}
 				shownStage={shownStage}
@@ -256,7 +265,6 @@ export function BootPlan({ scene }: BootPlanProps) {
 			/>
 			<PlanBox
 				plan={TALL_PLAN}
-				gradientId={`${id}-tall`}
 				scene={scene}
 				stage={stage}
 				shownStage={shownStage}
@@ -269,8 +277,6 @@ export function BootPlan({ scene }: BootPlanProps) {
 
 type PlanBoxProps = {
 	plan: Plan;
-	/** Id of the ember gradient. Each SVG needs its own, and both live in one document. */
-	gradientId: string;
 	scene: BootScene;
 	/** Stage of the scene. Null hides the drawing. */
 	stage: PlanStage | null;
@@ -289,7 +295,6 @@ type PlanBoxProps = {
  */
 function PlanBox({
 	plan,
-	gradientId,
 	scene,
 	stage,
 	shownStage,
@@ -321,12 +326,6 @@ function PlanBox({
 			>
 				{shownStage === null ? null : (
 					<>
-						<defs>
-							<linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-								<stop offset="0" style={{ stopColor: "var(--ember-1)" }} />
-								<stop offset="1" style={{ stopColor: "var(--ember-2)" }} />
-							</linearGradient>
-						</defs>
 						{/* RTL mirrors the drawing of the app, like the app itself. */}
 						<g className="[transform-box:fill-box] [transform-origin:center] rtl:[transform:scaleX(-1)]">
 							{parts.map((part, index) => (
@@ -361,11 +360,8 @@ function PlanBox({
 								{parts
 									.filter((part) => part.role === "cta")
 									.map((part) => (
-										<path
-											key={part.d}
-											d={part.d}
-											fill={`url(#${gradientId})`}
-										/>
+										// A solid amber face, like the keycap buttons of the landing.
+										<path key={part.d} d={part.d} className="fill-spark" />
 									))}
 							</motion.g>
 						</g>

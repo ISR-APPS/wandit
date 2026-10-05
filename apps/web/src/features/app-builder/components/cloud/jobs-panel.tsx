@@ -5,8 +5,9 @@
  * Reads cloudJobsQuery.
  */
 
+import { CalendarDotsIcon } from "@phosphor-icons/react/CalendarDots";
+import { CalendarSlashIcon } from "@phosphor-icons/react/CalendarSlash";
 import { useQuery } from "@tanstack/react-query";
-import { Badge } from "@wandit/ui/components/badge";
 import {
 	Table,
 	TableBody,
@@ -15,14 +16,18 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
-import { CalendarClock, CalendarOff } from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 
 import { formatDate, useTranslation } from "@/lib/i18n";
 import { cloudJobsQuery } from "../../api/cloud.queries";
 import { CLOUD_DATE_TIME_FORMAT, CLOUD_EMPTY_CELL } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import { PanelChip, PanelMessage } from "../more/panel-shell";
 import { CloudLoadFailed } from "./backend-state";
-import { RowsGridSkeleton } from "./rows-grid";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	RowsGridSkeleton,
+} from "./rows-grid";
 
 /** Props of JobsPanel. The panel mounts only while the backend is `active`. */
 export type JobsPanelProps = {
@@ -46,23 +51,23 @@ export function JobsPanel({ projectId, isActive }: JobsPanelProps) {
 	// A new backend has no pg_cron until a migration turns the extension on.
 	if (!jobs.data.installed) {
 		return (
-			<CodeMessage
-				icon={CalendarOff}
+			<PanelMessage
+				icon={CalendarSlashIcon}
 				text={t("workspace.cloud.jobs.notInstalled")}
 			/>
 		);
 	}
 	if (jobs.data.jobs.length === 0) {
 		return (
-			<CodeMessage
-				icon={CalendarClock}
+			<PanelMessage
+				icon={CalendarDotsIcon}
 				text={t("workspace.cloud.jobs.empty")}
 			/>
 		);
 	}
 
 	return (
-		<div className="rounded-xl border">
+		<div className={CLOUD_TABLE_CLASS}>
 			<Table>
 				<TableHeader>
 					<TableRow>
@@ -81,38 +86,48 @@ export function JobsPanel({ projectId, isActive }: JobsPanelProps) {
 						const lastRun = job.runs[0];
 						return (
 							<TableRow key={job.jobId}>
-								<TableCell className="font-medium">
+								<TableCell className="font-medium text-night dark:text-foreground">
 									{job.name === null ? (
 										t("workspace.cloud.jobs.unnamed", { id: job.jobId })
 									) : (
-										<span dir="ltr" className="font-mono text-sm">
+										<span dir="ltr" className="font-mono text-[13px]">
 											{job.name}
 										</span>
 									)}
 								</TableCell>
 								<TableCell>
-									<span dir="ltr" className="font-mono text-sm">
+									<span
+										dir="ltr"
+										className="rounded-full bg-night/[0.05] px-2 py-0.5 font-mono text-[12.5px] dark:bg-white/[0.06]"
+									>
 										{job.schedule}
 									</span>
 								</TableCell>
 								<TableCell>
-									<Badge variant={job.active ? "success" : "outline"}>
+									<PanelChip tone={job.active ? "success" : "neutral"}>
 										{job.active
 											? t("workspace.cloud.jobs.yes")
 											: t("workspace.cloud.jobs.no")}
-									</Badge>
+									</PanelChip>
 								</TableCell>
-								<TableCell className="text-muted-foreground">
+								<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 									{/* pg_cron status text, for example "succeeded". It is a code, so it is not translated. */}
 									{lastRun === undefined ? (
 										t("workspace.cloud.never")
 									) : (
-										<span className="font-mono text-sm">
+										<span
+											className={cn(
+												"font-mono text-[12.5px]",
+												// pg_cron writes "succeeded" or "failed" when a run ends; any other status is still open.
+												lastRun.status === "succeeded" && "text-success-text",
+												lastRun.status === "failed" && "text-destructive",
+											)}
+										>
 											{lastRun.status ?? CLOUD_EMPTY_CELL}
 										</span>
 									)}
 								</TableCell>
-								<TableCell className="text-muted-foreground">
+								<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 									{lastRun?.startTime
 										? formatDate(
 												lastRun.startTime,

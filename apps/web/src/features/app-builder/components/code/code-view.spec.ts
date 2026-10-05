@@ -36,6 +36,9 @@ const SNAPSHOT: CodeSnapshot = {
 	],
 };
 
+/** The en value of `appBuilder.code.asleepTitle` in the fallback dictionary that renderView passes. */
+const ASLEEP_TITLE = "Your app is asleep";
+
 const APP_FILE: CodeFile = {
 	kind: "text",
 	path: "src/app.tsx",
@@ -265,11 +268,9 @@ describe("CodeView", () => {
 		renderView(queryClientWith({ snapshot: SNAPSHOT, files: [logo] }), {
 			filePath: "logo.png",
 		});
-		expect(
-			await screen.findByText(
-				"This file is binary. The Code view shows text files only. · 2 kB",
-			),
-		).toBeTruthy();
+		expect(await screen.findByText("Binary file")).toBeTruthy();
+		// The status bar still gives the size of a binary file.
+		expect(screen.getByText("2 kB")).toBeTruthy();
 
 		cleanup();
 		const big: CodeFile = { kind: "tooLarge", path: "big.json" };
@@ -277,23 +278,8 @@ describe("CodeView", () => {
 			filePath: "big.json",
 		});
 		expect(
-			await screen.findByText(
-				"This file is larger than 512 kB. The Code view shows files up to 512 kB only.",
-			),
+			await screen.findByText("The Code view shows files up to 512 kB only."),
 		).toBeTruthy();
-	});
-
-	it("filters the tree from the search box and forwards a file pick", async () => {
-		const { onSelectFile } = renderView(
-			queryClientWith({ snapshot: SNAPSHOT, files: [APP_FILE] }),
-		);
-		await screen.findByRole("treeitem", { name: "package.json" });
-		fireEvent.change(screen.getByRole("searchbox"), {
-			target: { value: "webhook" },
-		});
-		expect(screen.queryByRole("treeitem", { name: "package.json" })).toBeNull();
-		fireEvent.click(screen.getByRole("treeitem", { name: "webhook.ts" }));
-		expect(onSelectFile).toHaveBeenCalledWith("src/webhook.ts");
 	});
 
 	it("hides and shows the file tree from the header", async () => {
@@ -313,11 +299,7 @@ describe("CodeView", () => {
 	it("shows the asleep message and loads no file when the sandbox sleeps", async () => {
 		const queryClient = queryClientWith({ snapshot: null });
 		renderView(queryClient);
-		expect(
-			await screen.findByText(
-				"Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
-			),
-		).toBeTruthy();
+		expect(await screen.findByText(ASLEEP_TITLE)).toBeTruthy();
 		expect(
 			queryClient.getQueryState(
 				appBuilderKeys.codeFile(PROJECT_ID, "src/app.tsx"),
@@ -335,11 +317,7 @@ describe("CodeView", () => {
 
 		// Without a turn and without a refetch, no sandbox runs.
 		rerenderWith({ isTurnRunning: false });
-		expect(
-			await screen.findByText(
-				"Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
-			),
-		).toBeTruthy();
+		expect(await screen.findByText(ASLEEP_TITLE)).toBeTruthy();
 	});
 
 	it("shows the loading layout, not the asleep message, while a null snapshot refetches", async () => {
@@ -357,11 +335,7 @@ describe("CodeView", () => {
 		);
 		// No turn runs, so the layout claims no setup.
 		expect(screen.queryByRole("status")).toBeNull();
-		expect(
-			screen.queryByText(
-				"Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
-			),
-		).toBeNull();
+		expect(screen.queryByText(ASLEEP_TITLE)).toBeNull();
 	});
 
 	it("shows the no-files message when the tree holds no file", async () => {
@@ -370,16 +344,14 @@ describe("CodeView", () => {
 				snapshot: { branch: "main", defaultFilePath: null, tree: [] },
 			}),
 		);
-		expect(
-			await screen.findByText("The project has no files yet."),
-		).toBeTruthy();
+		expect(await screen.findByText("No files yet")).toBeTruthy();
 	});
 
 	it("shows a retry control when the tree does not load", async () => {
 		const queryClient = queryClientWith({});
 		await failQuery(queryClient, appBuilderKeys.code(PROJECT_ID));
 		renderView(queryClient);
-		expect(await screen.findByText("The code did not load.")).toBeTruthy();
+		expect(await screen.findByText("The code did not load")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 	});
 
@@ -394,7 +366,7 @@ describe("CodeView", () => {
 			.spyOn(queryClient, "invalidateQueries")
 			.mockResolvedValue();
 		renderView(queryClient);
-		expect(await screen.findByText("The code did not load.")).toBeTruthy();
+		expect(await screen.findByText("The code did not load")).toBeTruthy();
 		expect(screen.getByRole("treeitem", { name: "package.json" })).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));

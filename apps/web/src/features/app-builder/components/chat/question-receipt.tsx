@@ -6,7 +6,7 @@
  * chat-message.tsx for each `data-question` part.
  */
 
-import { CircleCheck } from "lucide-react";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 
 import { useTranslation } from "@/lib/i18n";
 import { TrayPointerChip } from "./request-tray/tray-signals";
@@ -34,8 +34,12 @@ export function QuestionReceipt({
 
 	if (isAnswered) {
 		return (
-			<div className="flex items-center gap-2 text-muted-foreground text-sm">
-				<CircleCheck className="size-4 shrink-0" aria-hidden />
+			<div className="flex items-center gap-2 font-grotesk text-[13px] text-night/60 dark:text-foreground/60">
+				<CheckCircleIcon
+					weight="fill"
+					className="size-4 shrink-0 text-success"
+					aria-hidden
+				/>
 				<span className="sr-only">{t("appBuilder.chat.askUser.answered")}</span>
 				<span dir="auto" className="min-w-0">
 					{text}
@@ -44,8 +48,11 @@ export function QuestionReceipt({
 		);
 	}
 	return (
-		<div className="flex flex-wrap items-center gap-2 text-sm">
-			<span dir="auto" className="min-w-0 font-medium">
+		<div className="flex flex-wrap items-center gap-2">
+			<span
+				dir="auto"
+				className="min-w-0 font-grotesk font-semibold text-[14px] text-night dark:text-foreground"
+			>
 				{text}
 			</span>
 			{/* The chip only points at a tray that shows; after the skip X it hides. */}

@@ -1,12 +1,17 @@
 /**
  * The two halves of the top bar of the app builder. ProjectBar holds the
  * project controls: back link, project menu, version history, and the chat
- * expand button. WorkBar holds the work pane controls: the view switcher,
- * the title, the preview actions, credits, publish, and the user menu.
+ * expand button. WorkBar holds the view switcher, publish, and the user menu.
+ * It shows no credit balance. Billing opens from the user menu.
+ * The preview controls live in the bar of each preview card.
  * Rendered by pages/app-builder-page.tsx, which owns every value shown
  * here and places each half over its card.
  */
 
+import { CodeIcon } from "@phosphor-icons/react/Code";
+import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
+import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -14,31 +19,13 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import {
-	Code,
-	ExternalLink,
-	Globe,
-	Layers,
-	Menu,
-	Monitor,
-	PanelLeftOpen,
-	RefreshCw,
-	Smartphone,
-	Tablet,
-} from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
-import { CreditsChip } from "@/features/credits";
 import { useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
-import type {
-	BuilderView,
-	PhoneDevice,
-	WebViewport,
-} from "../../lib/constants";
-import { ExpoGoPopover } from "./expo-go-popover";
+import type { BuilderView } from "../../lib/constants";
 import { ProjectMenu } from "./project-menu";
 import { PublishPopover } from "./publish-popover";
 import { SegmentedControl } from "./segmented-control";
@@ -67,36 +54,35 @@ export function ProjectBar({
 	return (
 		// On phones it grows, so the work controls sit at the end. From md it keeps its width, and a long name truncates.
 		<div className="flex min-w-0 flex-1 items-center gap-2 md:flex-initial">
+			{/* The brand tile of the dashboard sidebar is the way back. */}
+			{/* On phones the project menu's "All projects" item is the way back, so the tile hides. */}
 			<IconAction label={t("appBuilder.topBar.backToDashboard")}>
-				<Button
-					asChild
-					variant="ghost"
-					size="icon-sm"
-					className="hidden md:inline-flex"
+				<Link
+					to="/dashboard"
+					className="group/logo hidden size-8 shrink-0 place-items-center rounded-[10px] bg-night outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid dark:ring-1 dark:ring-white/10"
 				>
-					<Link to="/dashboard">
-						<Menu className="size-4" />
-					</Link>
-				</Button>
+					<Spark className="size-4.5 text-spark transition-transform duration-500 ease-out group-hover/logo:rotate-90 motion-reduce:transition-none" />
+				</Link>
 			</IconAction>
-			{/* On phones the project menu's "All projects" item is the way back, so the mark hides. */}
-			<Link
-				to="/dashboard"
-				aria-label={t("appBuilder.topBar.backToDashboard")}
-				className="hidden size-6 shrink-0 place-items-center rounded-full bg-gradient-ember outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid"
-			>
-				<Spark className="size-3 text-background" />
-			</Link>
 			<ProjectMenu project={project} />
-			<span className="flex items-center gap-1">
+			<span className="flex items-center gap-0.5">
 				<span className="hidden md:block">
 					<VersionsPopover projectId={project.id} onRestored={onRestored} />
 				</span>
 				{chatOpen ? null : (
 					<IconAction label={t("appBuilder.topBar.expandChat")}>
-						<Button variant="ghost" size="icon-sm" onClick={onExpandChat}>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							className={TOOLBAR_ICON_BUTTON_CLASS}
+							onClick={onExpandChat}
+						>
 							{/* In RTL the chat sits on the right, so the icon mirrors. */}
-							<PanelLeftOpen className="size-4 rtl:-scale-x-100" />
+							<SidebarSimpleIcon
+								aria-hidden
+								weight="bold"
+								className="rtl:-scale-x-100"
+							/>
 						</Button>
 					</IconAction>
 				)}
@@ -105,58 +91,22 @@ export function ProjectBar({
 	);
 }
 
+/** Props of WorkBar. The page passes them; ViewSwitcher reuses the view fields. */
 export type WorkBarProps = {
 	/** The open project, from appProjectQuery in the page. */
 	project: AppProject;
+	/** The open view: `preview`, `code`, or `more`. The page reads it from `?view=` of the URL. */
 	view: BuilderView;
-	/** Centered over the work pane: the view name, or the title of the open panel of the More view. */
-	title: string;
-	/** Phone frame of the mobile preview. Read only when the project is a mobile app. */
-	device: PhoneDevice;
-	/** Frame width of the web preview. Read only when the project is a web app. */
-	viewport: WebViewport;
+	/** Writes the picked view to `?view=` of the URL. The view switcher calls it. */
 	onChangeView: (view: BuilderView) => void;
-	onChangeDevice: (device: PhoneDevice) => void;
-	onChangeViewport: (viewport: WebViewport) => void;
-	/** Bumps `reloadKey`; the panel mints a new token and the new src reloads the frame. */
-	onReload: () => void;
-	/** Opens the published app in a new tab. Web projects only: a mobile app has no site. */
-	onOpenExternal: () => void;
 };
 
 /** On desktop this half sits over the main card. A drag of the split moves it with the card. */
-export function WorkBar({
-	project,
-	view,
-	title,
-	device,
-	viewport,
-	onChangeView,
-	onChangeDevice,
-	onChangeViewport,
-	onReload,
-	onOpenExternal,
-}: WorkBarProps) {
+export function WorkBar({ project, view, onChangeView }: WorkBarProps) {
 	return (
-		// LIMIT: the controls need about 740 px; a narrower row clips the actions at the end. Upgrade: fold the actions into one menu.
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
 			<ViewSwitcher view={view} onChangeView={onChangeView} />
-			<span className="hidden min-w-0 flex-1 truncate px-3 text-center font-medium text-sm lg:block">
-				{title}
-			</span>
 			<div className="ms-auto flex shrink-0 items-center gap-2">
-				{view === "preview" ? (
-					<PreviewActions
-						project={project}
-						device={device}
-						viewport={viewport}
-						onChangeDevice={onChangeDevice}
-						onChangeViewport={onChangeViewport}
-						onReload={onReload}
-						onOpenExternal={onOpenExternal}
-					/>
-				) : null}
-				<CreditsChip className="hidden sm:flex" />
 				<PublishPopover project={project} />
 				<UserMenu />
 			</div>
@@ -184,19 +134,19 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 				{
 					value: "preview",
 					label: t("appBuilder.views.preview"),
-					icon: Globe,
+					icon: EyeIcon,
 					iconOnly: view !== "preview",
 				},
 				{
 					value: "code",
 					label: t("appBuilder.views.code"),
-					icon: Code,
+					icon: CodeIcon,
 					iconOnly: view !== "code",
 				},
 				{
 					value: "more",
 					label: t("appBuilder.views.more"),
-					icon: Layers,
+					icon: SquaresFourIcon,
 					iconOnly: view !== "more",
 				},
 			]}
@@ -204,114 +154,14 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 	);
 }
 
-export type PreviewActionsProps = Pick<
-	WorkBarProps,
-	| "project"
-	| "device"
-	| "viewport"
-	| "onChangeDevice"
-	| "onChangeViewport"
-	| "onReload"
-	| "onOpenExternal"
->;
-
 /**
- * Preview controls of the work bar. A web app gets the viewport switch and
- * the new-tab button. A mobile app gets the device switch and the Expo Go
- * popover. Both get the reload button.
+ * Look of every round icon button in the bars of the workspace: the top bar,
+ * the preview bars, the Code view header, and the logs search field. Use it
+ * on a ghost `icon-sm` Button. A navy tint shows on hover and while its menu
+ * or popover is open.
  */
-export function PreviewActions({
-	project,
-	device,
-	viewport,
-	onChangeDevice,
-	onChangeViewport,
-	onReload,
-	onOpenExternal,
-}: PreviewActionsProps) {
-	const { t } = useTranslation();
-	const reload = (
-		<IconAction label={t("appBuilder.topBar.reload")}>
-			<Button
-				variant="outline"
-				size="icon-sm"
-				className="hidden md:inline-flex"
-				onClick={onReload}
-			>
-				<RefreshCw className="size-3.5" />
-			</Button>
-		</IconAction>
-	);
-
-	if (project.kind === "web") {
-		return (
-			<>
-				<SegmentedControl
-					ariaLabel={t("appBuilder.viewport.ariaLabel")}
-					value={viewport}
-					onChange={onChangeViewport}
-					className="hidden md:flex"
-					options={[
-						{
-							value: "desktop",
-							label: t("appBuilder.viewport.desktop"),
-							icon: Monitor,
-							iconOnly: true,
-						},
-						{
-							value: "tablet",
-							label: t("appBuilder.viewport.tablet"),
-							icon: Tablet,
-							iconOnly: true,
-						},
-						{
-							value: "mobile",
-							label: t("appBuilder.viewport.mobile"),
-							icon: Smartphone,
-							iconOnly: true,
-						},
-					]}
-				/>
-				{reload}
-				<IconAction label={t("appBuilder.topBar.openExternal")}>
-					<Button
-						variant="outline"
-						size="icon-sm"
-						className="hidden md:inline-flex"
-						onClick={onOpenExternal}
-					>
-						<ExternalLink className="size-3.5" />
-					</Button>
-				</IconAction>
-			</>
-		);
-	}
-	// A mobile app has no published site yet, so no new-tab button (WANDIT-193).
-	return (
-		<>
-			<SegmentedControl
-				ariaLabel={t("appBuilder.device.ariaLabel")}
-				value={device}
-				onChange={onChangeDevice}
-				className="hidden md:flex"
-				options={[
-					{
-						value: "ios",
-						label: t("appBuilder.device.ios"),
-						icon: Smartphone,
-					},
-					{
-						value: "android",
-						label: t("appBuilder.device.android"),
-						icon: Smartphone,
-					},
-				]}
-			/>
-			<ExpoGoPopover projectId={project.id} />
-			{reload}
-		</>
-	);
-}
+export const TOOLBAR_ICON_BUTTON_CLASS =
+	"size-8 rounded-full text-night/65 hover:bg-night/[0.06] hover:text-night aria-expanded:bg-night/[0.08] aria-expanded:text-night disabled:opacity-40 dark:text-foreground/65 dark:aria-expanded:bg-white/[0.1] dark:aria-expanded:text-foreground dark:hover:bg-white/[0.08] dark:hover:text-foreground [&_svg:not([class*='size-'])]:size-[18px]";
 
 /**
  * Wraps one icon button with its tooltip. The label is also the accessible

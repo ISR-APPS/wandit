@@ -1,7 +1,8 @@
 /**
- * File tree of the Code view: the search box, then folders that open and
- * close and files the user picks, with file-type icons. @headless-tree
- * gives the WAI-ARIA tree: one tab stop, arrow keys, Home and End.
+ * File tree of the Code view: the "Files" header with the file count, the
+ * search box, then folders that open and close and files the user picks,
+ * with file-type icons. @headless-tree gives the WAI-ARIA tree: one tab
+ * stop, arrow keys, Home and End.
  * Rendered by components/code/code-view.tsx, which owns the selected path.
  * `filterTree` is pure and has its own spec cases.
  */
@@ -12,19 +13,16 @@ import {
 	syncDataLoaderFeature,
 } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { FolderIcon } from "@phosphor-icons/react/Folder";
+import { FolderOpenIcon } from "@phosphor-icons/react/FolderOpen";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import {
 	InputGroup,
 	InputGroupAddon,
 	InputGroupInput,
 } from "@wandit/ui/components/input-group";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	ChevronRight,
-	FolderClosed,
-	FolderOpen,
-	Search,
-	SearchX,
-} from "lucide-react";
 import {
 	type KeyboardEvent,
 	type ReactNode,
@@ -38,6 +36,7 @@ import {
 import { useTranslation } from "@/lib/i18n";
 import type { CodeTreeNode } from "../../api/dto";
 import { fileIconFor } from "../../lib/code-files";
+import { CODE_BAR_CLASS } from "./code-viewer";
 
 export type FileTreeProps = {
 	nodes: CodeTreeNode[];
@@ -52,8 +51,8 @@ const ROOT_ID = "";
 const ROW_INSET_PX = 8;
 /** Extra inset per tree depth, CSS px. */
 const DEPTH_INDENT_PX = 12;
-/** Half the 16 px chevron slot: an indent guide runs under the chevron center. */
-const CHEVRON_CENTER_PX = 8;
+/** Half the 16 px caret slot: an indent guide runs under the caret center. */
+const CARET_CENTER_PX = 8;
 
 /** The folders and files of a filtered tree, by path, for the headless tree loader. */
 type TreeIndex = {
@@ -85,6 +84,24 @@ export function filterTree(
 		if (children.length > 0) kept.push({ ...node, children });
 	}
 	return kept;
+}
+
+/**
+ * True for a dot folder like `.claude`. The callers pass top-level nodes
+ * only. It holds about 140 agent files, not app code, so it starts closed
+ * and the file count skips it.
+ */
+function isToolFolder(node: CodeTreeNode): boolean {
+	return node.kind === "folder" && node.name.startsWith(".");
+}
+
+/** Every file under `nodes`, at any depth. Folders do not count. */
+function countFiles(nodes: CodeTreeNode[]): number {
+	let count = 0;
+	for (const node of nodes) {
+		count += node.kind === "file" ? 1 : countFiles(node.children);
+	}
+	return count;
 }
 
 function indexTree(nodes: CodeTreeNode[]): TreeIndex {
@@ -119,9 +136,8 @@ function ancestorsOf(path: string): string[] {
 }
 
 /**
- * Folders open on first render: the top-level folders and every ancestor
- * of the selected file. A dot folder like `.claude` starts closed: it holds
- * about 140 agent files, not app code.
+ * Folders open on first render: the top-level folders, except a tool
+ * folder, and every ancestor of the selected file.
  */
 function initialOpenFolders(
 	nodes: CodeTreeNode[],
@@ -129,7 +145,7 @@ function initialOpenFolders(
 ): string[] {
 	const open = new Set(ancestorsOf(selectedPath));
 	for (const node of nodes) {
-		if (node.kind === "folder" && !node.name.startsWith(".")) {
+		if (node.kind === "folder" && !isToolFolder(node)) {
 			open.add(node.path);
 		}
 	}
@@ -144,7 +160,7 @@ function highlightMatch(name: string, needle: string): ReactNode {
 	return (
 		<>
 			{name.slice(0, start)}
-			<mark className="rounded-sm bg-primary/15 text-ember-strong">
+			<mark className="rounded-[3px] bg-spark/30 text-night dark:bg-spark/25 dark:text-foreground">
 				{name.slice(start, end)}
 			</mark>
 			{name.slice(end)}
@@ -165,6 +181,11 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 	const index = useMemo(
 		() => indexTree(filterTree(nodes, needle)),
 		[nodes, needle],
+	);
+	// The count gives the app files only: the files of a tool folder do not count.
+	const fileCount = useMemo(
+		() => countFiles(nodes.filter((node) => !isToolFolder(node))),
+		[nodes],
 	);
 	const [expandedItems, setExpandedItems] = useState(() =>
 		initialOpenFolders(nodes, selectedPath),
@@ -263,10 +284,22 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 
 	return (
 		<>
-			<div className="flex h-11 shrink-0 items-center border-b px-2">
-				<InputGroup className="h-8 rounded-md">
-					<InputGroupAddon>
-						<Search className="size-3.5" />
+			<div className={cn(CODE_BAR_CLASS, "gap-2 px-4")}>
+				<h2 className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
+					{t("appBuilder.code.files")}
+				</h2>
+				<span className="grid h-5 min-w-5 place-items-center rounded-full bg-night/[0.06] px-1.5 font-grotesk font-medium text-[11px] text-night/60 tabular-nums dark:bg-white/[0.08] dark:text-foreground/60">
+					{fileCount}
+				</span>
+			</div>
+			<div className="shrink-0 px-3 pt-3 pb-1.5">
+				<InputGroup className="h-8 rounded-full border-night/[0.09] bg-white shadow-none dark:border-white/[0.08] dark:bg-white/[0.04]">
+					<InputGroupAddon className="ps-3">
+						<MagnifyingGlassIcon
+							aria-hidden
+							weight="bold"
+							className="size-3.5 text-night/45 dark:text-foreground/45"
+						/>
 					</InputGroupAddon>
 					<InputGroupInput
 						type="search"
@@ -275,21 +308,21 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 						onKeyDown={onSearchKeyDown}
 						placeholder={t("appBuilder.code.searchFiles")}
 						aria-label={t("appBuilder.code.searchFiles")}
+						className="font-sans text-[13px] text-night placeholder:text-night/40 dark:text-foreground dark:placeholder:text-foreground/40"
 					/>
 				</InputGroup>
 			</div>
-			<div className="scroll-warm min-h-0 flex-1 overflow-y-auto px-2 py-2">
+			<div className="scroll-warm min-h-0 flex-1 overflow-y-auto px-1.5 pt-1 pb-3">
 				{/* The filtered index is ready in the first render; the tree rows
 				    come one render later, so they cannot decide "no match". */}
 				{index.childPaths.get(ROOT_ID)?.length === 0 ? (
-					<p className="flex items-center gap-2 px-2 py-1 text-[13px] text-muted-foreground">
-						<SearchX className="size-4 shrink-0" strokeWidth={1.75} />
+					<p className="px-3 py-2 font-sans text-[13px] text-night/55 dark:text-foreground/55">
 						{t("appBuilder.code.noMatch")}
 					</p>
 				) : (
 					<div
 						{...tree.getContainerProps(t("appBuilder.code.treeAriaLabel"))}
-						className="flex flex-col outline-none"
+						className="flex flex-col gap-px outline-none"
 					>
 						{items.map((item) => (
 							<TreeRow
@@ -322,7 +355,7 @@ function TreeRow({
 	const { level } = item.getItemMeta();
 	const isFolder = node.kind === "folder";
 	const isOpen = isFolder && item.isExpanded();
-	const FolderIcon = isOpen ? FolderOpen : FolderClosed;
+	const FolderStateIcon = isOpen ? FolderOpenIcon : FolderIcon;
 	const fileIcon = isFolder ? null : fileIconFor(node.name);
 
 	return (
@@ -336,30 +369,33 @@ function TreeRow({
 			title={node.path}
 			style={{ paddingInlineStart: ROW_INSET_PX + level * DEPTH_INDENT_PX }}
 			className={cn(
-				"relative flex h-7 pointer-coarse:h-9 w-full shrink-0 items-center gap-1.5 rounded-md pe-2 text-start text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
+				"relative flex h-8 pointer-coarse:h-10 w-full shrink-0 items-center gap-1.5 rounded-[10px] pe-2 text-start font-sans text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-inset",
 				isSelected
-					? "bg-primary/10 font-medium text-ember-strong"
-					: "text-foreground/85 hover:bg-foreground/5 hover:text-foreground",
+					? "bg-spark/[0.14] font-medium text-night focus:bg-spark/20 dark:bg-spark/[0.16] dark:text-foreground dark:focus:bg-spark/[0.22]"
+					: "text-night/75 hover:bg-night/[0.04] hover:text-night dark:text-foreground/75 dark:hover:bg-white/[0.05] dark:hover:text-foreground",
 			)}
 		>
-			{/* One guide per ancestor level, under the center of that ancestor's chevron. */}
+			{/* One guide per ancestor level, under the center of that ancestor's caret. */}
 			{Array.from({ length: level }, (_, depth) => (
 				<span
 					// biome-ignore lint/suspicious/noArrayIndexKey: one guide per depth, and the depth is its identity
 					key={depth}
 					aria-hidden="true"
-					className="absolute inset-y-0 w-px bg-border"
+					className="absolute inset-y-0 w-px bg-night/[0.08] dark:bg-white/[0.08]"
 					style={{
 						insetInlineStart:
-							ROW_INSET_PX + depth * DEPTH_INDENT_PX + CHEVRON_CENTER_PX,
+							ROW_INSET_PX + depth * DEPTH_INDENT_PX + CARET_CENTER_PX,
 					}}
 				/>
 			))}
 			<span className="flex size-4 shrink-0 items-center justify-center">
 				{isFolder ? (
-					<ChevronRight
+					<CaretRightIcon
+						aria-hidden
+						weight="bold"
 						className={cn(
-							"size-3.5 text-muted-foreground/70 transition-transform",
+							"size-3 text-night/40 transition-transform duration-150 motion-reduce:transition-none dark:text-foreground/40",
+							// A closed folder points to the end side, so it points left in Arabic.
 							isOpen ? "rotate-90" : "rtl:rotate-180",
 						)}
 					/>
@@ -367,13 +403,15 @@ function TreeRow({
 			</span>
 			{fileIcon ? (
 				<fileIcon.Icon
-					className={cn("size-3.5 shrink-0", fileIcon.colorClass)}
-					strokeWidth={1.75}
+					aria-hidden
+					weight="duotone"
+					className={cn("size-4 shrink-0", fileIcon.colorClass)}
 				/>
 			) : (
-				<FolderIcon
-					className="size-3.5 shrink-0 text-muted-foreground"
-					strokeWidth={1.75}
+				<FolderStateIcon
+					aria-hidden
+					weight="duotone"
+					className="size-4 shrink-0 text-spark-deep dark:text-spark"
 				/>
 			)}
 			{/* A name like `.claude` must not show as `claude.` in Arabic. */}

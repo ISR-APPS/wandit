@@ -1,3 +1,9 @@
+/**
+ * The in-app feedback dialog and its openers. FeedbackHost owns the dialog,
+ * the screenshot capture, and the submit. The workspace top bar renders
+ * FeedbackButton. The dashboard sidebar renders FeedbackHost with its own
+ * trigger. Calls the create-feedback mutation and captureScreenshot.
+ */
 import { captureEvent, getAnalytics } from "@wandit/analytics/browser";
 import {
 	type CreateFeedbackRequest,
@@ -80,9 +86,12 @@ type FeedbackHostProps = {
 	chatId?: string;
 };
 
-// Owns the dialog, the capture, and the submit flow. The trigger below
-// chooses where and how the opener renders.
-function FeedbackHost({ renderTrigger, chatId }: FeedbackHostProps) {
+/**
+ * Owns the dialog, the capture, and the submit flow. `renderTrigger` gets the
+ * function that opens the dialog and draws the opener. Returns null when the
+ * user is signed out, so the opener is hidden too.
+ */
+export function FeedbackHost({ renderTrigger, chatId }: FeedbackHostProps) {
 	const { t } = useTranslation();
 	const { data } = useSession();
 	const createFeedback = useCreateFeedback();
@@ -347,9 +356,9 @@ function FeedbackHost({ renderTrigger, chatId }: FeedbackHostProps) {
 	);
 }
 
-// A labeled header button, styled like the academy button next to it. The
-// label hides on narrow screens where only the icon fits; the tooltip covers
-// that case. The bottom-right corner belongs to the live-chat widget.
+// A labeled button for the workspace top bar. The label hides on narrow
+// screens where only the icon fits; the tooltip covers that case. The
+// bottom-right corner belongs to the live-chat widget.
 export type FeedbackButtonProps = { chatId?: string };
 
 export function FeedbackButton({ chatId }: FeedbackButtonProps) {

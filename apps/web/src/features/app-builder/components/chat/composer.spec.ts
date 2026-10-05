@@ -2,11 +2,13 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer, type ComposerProps } from "./composer";
 
+// The page mounts one TooltipProvider; the icon buttons need it too.
 function renderComposer(props: Partial<ComposerProps> = {}) {
 	const onSend = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
@@ -14,13 +16,17 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(Composer, {
-			turnEstimateCredits: 6,
-			focusLabel: "Pass screen",
-			isSending: false,
-			onSend,
-			...props,
-		}),
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(Composer, {
+				turnEstimateCredits: 6,
+				focusLabel: "Pass screen",
+				isSending: false,
+				onSend,
+				...props,
+			}),
+		),
 	};
 	render(createElement(I18nProvider, providerProps));
 	return { onSend, textarea: screen.getByRole<HTMLTextAreaElement>("textbox") };
@@ -66,7 +72,8 @@ describe("Composer", () => {
 		fireEvent.keyDown(screen.getByRole("button", { name: "Composer mode" }), {
 			key: "Enter",
 		});
-		fireEvent.click(screen.getByRole("menuitem", { name: "Plan" }));
+		// The row name holds the mode and its one-line hint.
+		fireEvent.click(screen.getByRole("menuitemradio", { name: /^Plan/ }));
 		expect(
 			screen.getByRole("button", { name: "Composer mode" }).textContent,
 		).toBe("Plan");

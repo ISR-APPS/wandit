@@ -1,36 +1,42 @@
 /**
  * Empty state of a More panel that has nothing set up yet: Analytics, AI,
- * and Security. One card with a title, a hint, and one button.
- * Rendered by components/more/more-view.tsx inside PanelShell.
+ * and Security. The panel icon on the night tile, a title, a hint, and one
+ * ember button. Rendered by components/more/more-view.tsx inside PanelShell.
  */
 
+import type { Icon } from "@phosphor-icons/react";
 import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
+import { PANEL_PRIMARY_BUTTON_CLASS, PanelMessage } from "./panel-shell";
 
 export type EmptyPanelProps = {
+	/** Icon of the panel from MORE_PANEL_META, so each empty panel keeps its own sign. */
+	icon: Icon;
 	/** Translated label of the one action, for example "Turn on analytics". */
 	ctaLabel: string;
 	/** Runs on the button. Without it the button shows the "not connected" toast. */
 	onCta?: () => void;
 };
 
-export function EmptyPanel({ ctaLabel, onCta }: EmptyPanelProps) {
+export function EmptyPanel({ icon, ctaLabel, onCta }: EmptyPanelProps) {
 	const { t } = useTranslation();
 
 	return (
-		<div className="flex max-w-lg flex-col items-start gap-2 rounded-2xl border bg-card p-6">
-			<p className="font-semibold">{t("appBuilder.empty.title")}</p>
-			<p className="text-muted-foreground text-sm">
-				{t("appBuilder.empty.description")}
-			</p>
+		<PanelMessage
+			tone="feature"
+			icon={icon}
+			title={t("appBuilder.empty.title")}
+			text={t("appBuilder.empty.description")}
+		>
 			<Button
-				className="mt-2"
+				className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
 				onClick={onCta ?? (() => toast(t("appBuilder.mock.notWired")))}
 			>
 				{ctaLabel}
 			</Button>
-		</div>
+		</PanelMessage>
 	);
 }

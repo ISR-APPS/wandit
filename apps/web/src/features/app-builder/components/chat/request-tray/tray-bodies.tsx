@@ -1,25 +1,24 @@
 /**
- * The answer bodies of the request tray, copied from the V1 tray with its
- * look: choice chips, multi-select chips, design-world cards, and the image
- * drop zone with thumbnails. Each body renders only the answer control; the
- * shell (request-tray.tsx) owns the question. All bodies are controlled by
- * lib/use-request-tray.ts through `TrayBodyCallbacks`.
+ * The answer bodies of the request tray: option rows for a single choice or
+ * a multi-select, design-world cards, and the image drop zone with
+ * thumbnails. Each body renders only the answer control; request-tray.tsx
+ * owns the question. lib/use-request-tray.ts controls every body through
+ * `TrayBodyCallbacks`.
  */
 
+import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { ImageIcon } from "@phosphor-icons/react/Image";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import { XIcon } from "@phosphor-icons/react/X";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	AlertCircle,
-	Check,
-	ChevronLeft,
-	ChevronRight,
-	ImageIcon,
-	Plus,
-	X,
-} from "lucide-react";
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
+import { IconAction } from "../../shell/top-bar";
 import { SpinnerArc } from "./tray-signals";
 import type { MediaItem, TrayBody, WorldCardOption } from "./types";
 import { ensureWorldFontsLoaded } from "./world-fonts";
@@ -49,30 +48,30 @@ export function TrayBodySlot({
 			return null;
 		case "single-choice":
 			return (
-				<div className="flex flex-wrap gap-[7px]">
+				<div className="flex flex-col gap-1">
 					{body.options.map((option) => (
-						<ChoiceChip
+						<OptionRow
 							key={option.id}
 							selected={option.id === body.selectedId}
 							onClick={() => callbacks.onPick(option.id)}
 						>
 							{option.label}
-						</ChoiceChip>
+						</OptionRow>
 					))}
 				</div>
 			);
 		case "multi-select":
 			return (
-				<div className="flex flex-wrap gap-[7px]">
+				<div className="flex flex-col gap-1">
 					{body.options.map((option) => (
-						<ChoiceChip
+						<OptionRow
 							key={option.id}
-							withCheck
+							isMulti
 							selected={body.selectedIds.includes(option.id)}
 							onClick={() => callbacks.onToggle(option.id)}
 						>
 							{option.label}
-						</ChoiceChip>
+						</OptionRow>
 					))}
 				</div>
 			);
@@ -83,15 +82,20 @@ export function TrayBodySlot({
 	}
 }
 
-function ChoiceChip({
+/**
+ * One answer option as a 14 px-corner row. A picked row gets the spark tint.
+ * A single choice shows an ember check at the end; a multi-select shows a
+ * check box at the start, so the user sees that more than one row counts.
+ */
+function OptionRow({
 	selected,
-	withCheck = false,
+	isMulti = false,
 	onClick,
 	children,
 }: {
 	selected: boolean;
-	/** Multi-select chips show a check when selected. */
-	withCheck?: boolean;
+	/** True for a multi-select question. */
+	isMulti?: boolean;
 	onClick: () => void;
 	children: string;
 }) {
@@ -102,21 +106,33 @@ function ChoiceChip({
 			onClick={onClick}
 			dir="auto"
 			className={cn(
-				"flex items-center rounded-full border py-2 text-[13.5px] tracking-[-0.025em] transition-colors",
+				"flex min-h-9 w-full items-center gap-2.5 rounded-[14px] border px-3 py-1.5 text-start font-grotesk font-medium text-[13.5px] leading-snug outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/30",
 				selected
-					? // The 0.5px outer shadow draws a thicker ember border without a layout shift.
-						"border-primary bg-primary/8 font-medium text-foreground shadow-[0_0_0_0.5px_var(--primary)]"
-					: "border-border bg-background text-foreground hover:bg-accent",
-				withCheck && selected ? "gap-1.5 px-[13px]" : "px-[15px]",
+					? "border-spark/60 bg-spark/[0.14] text-night focus:bg-spark/20 dark:border-spark/50 dark:text-foreground"
+					: "border-night/[0.07] bg-white text-night/80 hover:border-night/[0.12] hover:text-night dark:border-white/[0.07] dark:bg-white/[0.04] dark:text-foreground/80 dark:hover:border-white/[0.14] dark:hover:text-foreground",
 			)}
 		>
-			{withCheck && selected ? (
-				<Check
-					className="size-[11px] shrink-0 text-ember-text"
-					strokeWidth={3}
+			{isMulti ? (
+				<span
+					aria-hidden
+					className={cn(
+						"grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors duration-150",
+						selected
+							? "border-primary bg-primary text-primary-foreground"
+							: "border-night/25 dark:border-white/25",
+					)}
+				>
+					{selected ? <CheckIcon weight="bold" className="size-3" /> : null}
+				</span>
+			) : null}
+			<span className="min-w-0 flex-1">{children}</span>
+			{!isMulti && selected ? (
+				<CheckIcon
+					weight="bold"
+					aria-hidden
+					className="size-4 shrink-0 text-primary"
 				/>
 			) : null}
-			{children}
 		</button>
 	);
 }
@@ -212,8 +228,8 @@ function WorldPickBody({
 		});
 	};
 
-	const BackChevron = scrollState.isRtl ? ChevronRight : ChevronLeft;
-	const ForwardChevron = scrollState.isRtl ? ChevronLeft : ChevronRight;
+	const BackChevron = scrollState.isRtl ? CaretRightIcon : CaretLeftIcon;
+	const ForwardChevron = scrollState.isRtl ? CaretLeftIcon : CaretRightIcon;
 
 	return (
 		<div className="relative">
@@ -234,32 +250,34 @@ function WorldPickBody({
 				<>
 					<div
 						aria-hidden
-						className="pointer-events-none absolute inset-y-0 -start-[15px] w-6 bg-gradient-to-r from-secondary to-transparent rtl:bg-gradient-to-l"
+						className="pointer-events-none absolute inset-y-0 -start-4 w-6 bg-gradient-to-r from-secondary to-transparent rtl:bg-gradient-to-l"
 					/>
-					<button
-						type="button"
-						aria-label={t("appBuilder.chat.tray.scrollBack")}
-						onClick={() => scrollByCard("back")}
-						className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-					>
-						<BackChevron aria-hidden className="size-3.5" />
-					</button>
+					<IconAction label={t("appBuilder.chat.tray.scrollBack")}>
+						<button
+							type="button"
+							onClick={() => scrollByCard("back")}
+							className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-menu transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
+						>
+							<BackChevron weight="bold" aria-hidden className="size-3.5" />
+						</button>
+					</IconAction>
 				</>
 			) : null}
 			{scrollState.canScrollForward ? (
 				<>
 					<div
 						aria-hidden
-						className="pointer-events-none absolute inset-y-0 -end-[15px] w-6 bg-gradient-to-l from-secondary to-transparent rtl:bg-gradient-to-r"
+						className="pointer-events-none absolute inset-y-0 -end-4 w-6 bg-gradient-to-l from-secondary to-transparent rtl:bg-gradient-to-r"
 					/>
-					<button
-						type="button"
-						aria-label={t("appBuilder.chat.tray.scrollForward")}
-						onClick={() => scrollByCard("forward")}
-						className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-					>
-						<ForwardChevron aria-hidden className="size-3.5" />
-					</button>
+					<IconAction label={t("appBuilder.chat.tray.scrollForward")}>
+						<button
+							type="button"
+							onClick={() => scrollByCard("forward")}
+							className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-night/[0.08] bg-white text-night/60 shadow-menu transition-colors hover:text-night focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/30 dark:border-white/[0.1] dark:bg-popover dark:text-foreground/60 dark:hover:text-foreground"
+						>
+							<ForwardChevron weight="bold" aria-hidden className="size-3.5" />
+						</button>
+					</IconAction>
 				</>
 			) : null}
 		</div>
@@ -282,10 +300,10 @@ function WorldCardButton({
 			aria-pressed={selected}
 			onClick={onClick}
 			className={cn(
-				"w-[168px] shrink-0 overflow-hidden rounded-[14px] border bg-background text-start transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 motion-reduce:hover:translate-y-0",
+				"w-[168px] shrink-0 overflow-hidden rounded-[14px] border bg-white text-start outline-none transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ember/30 motion-reduce:hover:translate-y-0 dark:bg-white/[0.04]",
 				selected
 					? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.14)]"
-					: "border-border hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)]",
+					: "border-night/[0.08] hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)] dark:border-white/[0.08]",
 			)}
 		>
 			<span
@@ -320,25 +338,26 @@ function WorldCardButton({
 					</span>
 				) : null}
 			</span>
-			<span className="block border-border border-t px-3.5 py-2">
+			<span className="block border-night/[0.07] border-t px-3.5 py-2 dark:border-white/[0.07]">
 				<span className="flex items-center justify-between gap-1.5">
 					<span
 						dir="auto"
-						className="min-w-0 truncate font-medium text-[13px] text-foreground"
+						className="min-w-0 truncate font-grotesk font-semibold text-[13px] text-night dark:text-foreground"
 					>
 						{option.card?.name ?? option.label}
 					</span>
 					{selected ? (
-						<Check
-							className="size-[11px] shrink-0 text-ember-text"
-							strokeWidth={3}
+						<CheckIcon
+							weight="bold"
+							aria-hidden
+							className="size-3.5 shrink-0 text-primary"
 						/>
 					) : null}
 				</span>
 				{option.card ? (
 					<span
 						dir="auto"
-						className="mt-0.5 line-clamp-2 block text-[11px] text-muted-foreground leading-[1.35]"
+						className="mt-0.5 line-clamp-2 block font-sans text-[11.5px] text-night/55 leading-[1.35] dark:text-foreground/55"
 					>
 						{option.label}
 					</span>
@@ -404,14 +423,15 @@ function MediaDropBody({
 					/>
 				))}
 				{body.canAddMore ? (
-					<button
-						type="button"
-						aria-label={t("appBuilder.chat.tray.addMore")}
-						onClick={openPicker}
-						className="grid size-16 shrink-0 place-items-center rounded-[11px] border-[1.5px] border-stone border-dashed text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
-					>
-						<Plus className="size-4" />
-					</button>
+					<IconAction label={t("appBuilder.chat.tray.addMore")}>
+						<button
+							type="button"
+							onClick={openPicker}
+							className="grid size-16 shrink-0 place-items-center rounded-[14px] border-[1.5px] border-night/20 border-dashed text-night/50 transition-colors hover:border-primary/60 hover:text-night dark:border-white/20 dark:text-foreground/50 dark:hover:text-foreground"
+						>
+							<PlusIcon weight="bold" className="size-4" aria-hidden />
+						</button>
+					</IconAction>
 				) : null}
 			</div>
 		);
@@ -425,17 +445,17 @@ function MediaDropBody({
 				onClick={openPicker}
 				onDrop={handleDrop}
 				onDragOver={handleDragOver}
-				className="w-full cursor-pointer rounded-[14px] border-[1.5px] border-primary/45 border-dashed bg-primary/4 px-3.5 pt-[15px] pb-[13px] text-center transition-colors hover:bg-primary/8"
+				className="w-full cursor-pointer rounded-[16px] border-[1.5px] border-primary/40 border-dashed bg-white px-3.5 pt-4 pb-3.5 text-center outline-none transition-colors duration-150 hover:bg-spark/[0.08] focus-visible:ring-2 focus-visible:ring-ember/30 dark:bg-white/[0.03] dark:hover:bg-spark/[0.08]"
 			>
 				<span className="mb-2 flex items-center justify-center">
-					<span className="grid size-9 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
-						<ImageIcon className="size-4" />
+					<span className="grid size-10 place-items-center rounded-full bg-spark/[0.2] text-spark-deep dark:bg-spark/[0.16] dark:text-spark">
+						<ImageIcon weight="duotone" className="size-5" aria-hidden />
 					</span>
 				</span>
-				<span className="block font-medium text-[13.5px] text-foreground">
+				<span className="block font-grotesk font-semibold text-[14px] text-night dark:text-foreground">
 					{t("appBuilder.chat.tray.dropTitle")}
 				</span>
-				<span className="mt-0.5 block text-muted-foreground text-xs">
+				<span className="mt-0.5 block font-sans text-[12px] text-night/55 dark:text-foreground/55">
 					<span className="text-ember-text underline underline-offset-2">
 						{t("appBuilder.chat.tray.browse")}
 					</span>
@@ -464,10 +484,10 @@ function MediaThumb({
 		<div className="w-[86px] shrink-0">
 			<div
 				className={cn(
-					"relative h-16 overflow-hidden rounded-[11px] border",
+					"relative h-16 overflow-hidden rounded-[14px] border",
 					item.hasError
 						? "border-destructive/60 bg-destructive/10"
-						: "border-border",
+						: "border-night/[0.08] dark:border-white/[0.08]",
 				)}
 				style={item.hasError ? undefined : { background: item.preview }}
 			>
@@ -483,21 +503,22 @@ function MediaThumb({
 						title={errorLabel}
 						className="absolute inset-0 grid place-items-center text-destructive"
 					>
-						<AlertCircle className="size-4" />
+						<WarningCircleIcon weight="fill" className="size-5" aria-hidden />
 					</span>
 				) : null}
-				<button
-					type="button"
-					aria-label={removeLabel}
-					onClick={onRemove}
-					className="absolute end-1 top-1 grid size-[18px] place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-				>
-					<X className="size-2.5" strokeWidth={2.5} />
-				</button>
+				<IconAction label={removeLabel}>
+					<button
+						type="button"
+						onClick={onRemove}
+						className="absolute end-1 top-1 grid size-[18px] place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+					>
+						<XIcon weight="bold" className="size-2.5" aria-hidden />
+					</button>
+				</IconAction>
 			</div>
 			<p
 				dir="auto"
-				className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground"
+				className="mt-1 truncate font-mono text-[10.5px] text-night/50 dark:text-foreground/50"
 			>
 				{item.name}
 			</p>

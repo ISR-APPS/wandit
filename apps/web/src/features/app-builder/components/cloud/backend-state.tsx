@@ -3,26 +3,35 @@
  * shows one block per backend status; only an `active` backend shows the
  * panel it wraps. Rendered by cloud-panel-content.tsx around every panel except
  * Secrets. Calls useEnableBackend and useRestoreBackend. Also exports
- * CloudLoadFailed, the failed-load block of the panels.
+ * CloudLoadFailed, the failed-load block of the panels. Draws each block
+ * with PanelMessage of more/panel-shell.tsx.
  */
 
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DatabaseIcon } from "@phosphor-icons/react/Database";
+import { HourglassIcon } from "@phosphor-icons/react/Hourglass";
+import { MoonStarsIcon } from "@phosphor-icons/react/MoonStars";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CloudBackendResponse } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
-import {
-	DatabaseZap,
-	Hourglass,
-	MoonStar,
-	Trash2,
-	TriangleAlert,
-} from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { useEnableBackend, useRestoreBackend } from "../../api/cloud.mutations";
 import { cloudBackendQuery, cloudKeys } from "../../api/cloud.queries";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+	PanelMessage,
+} from "../more/panel-shell";
 import { RowsGridSkeleton } from "./rows-grid";
+
+/** The ember pill of a backend block: the one action that moves the backend forward. */
+const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5");
 
 /** Props of BackendState. `children` is a panel that reads the database of the app. */
 export type BackendStateProps = {
@@ -81,15 +90,19 @@ export function BackendState({
 	// A failed refetch keeps the last good state; only a failed first load has no data.
 	if (backend.data === undefined) {
 		return (
-			<CodeMessage icon={TriangleAlert} text={t("workspace.cloud.loadFailed")}>
+			<PanelMessage
+				icon={WarningCircleIcon}
+				text={t("workspace.cloud.loadFailed")}
+			>
 				<Button
 					variant="outline"
 					size="sm"
+					className={PANEL_SECONDARY_BUTTON_CLASS}
 					onClick={() => void backend.refetch()}
 				>
 					{t("workspace.cloud.retry")}
 				</Button>
-			</CodeMessage>
+			</PanelMessage>
 		);
 	}
 
@@ -99,40 +112,70 @@ export function BackendState({
 		// A project gets its backend on demand: from this button or from the agent.
 		case "none":
 			return (
-				<CodeMessage
-					icon={DatabaseZap}
+				<PanelMessage
+					tone="feature"
+					icon={DatabaseIcon}
+					title={t("workspace.cloud.backend.none.title")}
 					text={t("workspace.cloud.backend.none.description")}
 				>
-					<Button disabled={enable.isPending} onClick={() => enable.mutate()}>
+					<Button
+						className={BACKEND_ACTION_CLASS}
+						disabled={enable.isPending}
+						onClick={() => enable.mutate()}
+					>
+						{enable.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.backend.none.enable")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		// Both states end without a click; cloudBackendPollMs reads the state every 5 s until then.
 		case "creating":
 		case "restoring":
 			return (
-				<CodeMessage
-					icon={Hourglass}
+				<PanelMessage
+					tone="feature"
+					icon={HourglassIcon}
+					title={t("workspace.cloud.backend.waitingTitle")}
 					text={t("workspace.cloud.backend.waiting")}
 				/>
 			);
 		// The lifecycle pauses an unused backend. Every panel needs it awake.
 		case "paused":
 			return (
-				<CodeMessage
-					icon={MoonStar}
+				<PanelMessage
+					tone="feature"
+					icon={MoonStarsIcon}
+					title={t("workspace.cloud.backend.paused.title")}
 					text={t("workspace.cloud.backend.paused.description")}
 				>
-					<Button disabled={restore.isPending} onClick={() => restore.mutate()}>
+					<Button
+						className={BACKEND_ACTION_CLASS}
+						disabled={restore.isPending}
+						onClick={() => restore.mutate()}
+					>
+						{restore.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.backend.paused.wake")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		case "deleting":
 			return (
-				<CodeMessage
-					icon={Trash2}
+				<PanelMessage
+					tone="feature"
+					icon={TrashIcon}
+					title={t("workspace.cloud.backend.deletingTitle")}
 					text={t("workspace.cloud.backend.deleting")}
 				/>
 			);
@@ -165,17 +208,26 @@ function BackendFailed({
 		"workspace.cloud.backend.error.reasons.unknown";
 
 	return (
-		<CodeMessage icon={TriangleAlert} text={t(reason)}>
+		<PanelMessage
+			tone="feature"
+			icon={WarningCircleIcon}
+			title={t("workspace.cloud.backend.error.title")}
+			text={t(reason)}
+		>
 			{failureCode === null ? null : (
-				<p className="font-mono text-muted-foreground text-xs">
+				<PanelChip className="font-mono">
 					{t("workspace.cloud.backend.error.code", { code: failureCode })}
-				</p>
+				</PanelChip>
 			)}
 			{/* POST cloud/backend answers an `error` row as it is, so the button can only read the state again. */}
-			<Button variant="outline" size="sm" onClick={onCheckAgain}>
+			<Button
+				variant="outline"
+				className={PANEL_SECONDARY_BUTTON_CLASS}
+				onClick={onCheckAgain}
+			>
 				{t("workspace.cloud.backend.error.checkAgain")}
 			</Button>
-		</CodeMessage>
+		</PanelMessage>
 	);
 }
 
@@ -189,13 +241,14 @@ export function CloudLoadFailed({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
 
 	return (
-		<CodeMessage
-			icon={TriangleAlert}
+		<PanelMessage
+			icon={WarningCircleIcon}
 			text={t("workspace.cloud.sectionLoadFailed")}
 		>
 			<Button
 				variant="outline"
 				size="sm"
+				className={PANEL_SECONDARY_BUTTON_CLASS}
 				onClick={() =>
 					void queryClient.invalidateQueries({
 						queryKey: cloudKeys.all(projectId),
@@ -204,6 +257,6 @@ export function CloudLoadFailed({ projectId }: { projectId: string }) {
 			>
 				{t("workspace.cloud.retry")}
 			</Button>
-		</CodeMessage>
+		</PanelMessage>
 	);
 }

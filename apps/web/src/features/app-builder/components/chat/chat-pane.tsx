@@ -1,24 +1,17 @@
 /**
- * The chat card of the app builder. The header shows the project name, the
- * pulsing turn dot with a Stop button while a turn runs, and the collapse
- * button. Below it sit the scrolling message list with one working row
- * while a turn runs, an alert row for a refused send (`errorText`), and the
- * composer pinned at the bottom. When the agent asks the user something,
- * the request tray opens on top of the composer. The raw thought rows show
- * only with `showsAgentDebug`. Rendered by pages/app-builder-page.tsx,
- * which owns the thread hook and the card chrome. Renders chat-message.tsx,
- * working-row.tsx, composer.tsx, and the request tray.
+ * The chat column of the app builder. It has no card and lies on the sand desk.
+ * Top to bottom: the header, the message list, an alert row, and the composer.
+ * A running turn adds a "Building" chip, a Stop pill, and a working row.
+ * Rendered by pages/app-builder-page.tsx, which owns the thread hook.
+ * Renders chat-message.tsx, working-row.tsx, composer.tsx, and the request tray.
  */
 
+import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
+import { StopIcon } from "@phosphor-icons/react/Stop";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import type { TurnQuestionAnswer, TurnStreamPhase } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { PanelLeftClose, Square } from "lucide-react";
 import { AnimatePresence, MotionConfig } from "motion/react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 
@@ -27,12 +20,14 @@ import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
 import { liveActivityOf, withoutThoughts } from "../../lib/turn-parts";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
+import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { WorkingRow } from "./working-row";
 
+/** Props from pages/app-builder-page.tsx; most values come from useBuilderThread. */
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
 	messages: BuilderMessage[];
@@ -50,8 +45,6 @@ export type ChatPaneProps = {
 	showsAgentDebug: boolean;
 	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
-	/** Name of the open project. Shown after "Chat" in the card header. */
-	projectName: string;
 	onSend: (input: SendBuilderMessageInput) => void;
 	/** Sends an approval card decision; the pane drops it while a turn runs. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
@@ -71,6 +64,7 @@ export type ChatPaneProps = {
 	className?: string;
 };
 
+/** The chat column: header, message list, working row, refused-send alert, and composer. */
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
@@ -80,7 +74,6 @@ export function ChatPane({
 	isFirstTurn,
 	showsAgentDebug,
 	isReady,
-	projectName,
 	onSend,
 	onDecideApproval,
 	onAnswerQuestions,
@@ -116,61 +109,55 @@ export function ChatPane({
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
-			<div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-				<span className="font-medium text-[15px]">
+			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
+				<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 					{t("appBuilder.chat.title")}
-				</span>
-				<span className="min-w-0 truncate text-[13px] text-muted-foreground">
-					· {projectName}
-				</span>
-				<span className="ms-auto flex items-center gap-0.5">
+				</h2>
+				{isSending ? (
+					// No role="status" here: the working row in the list already announces the turn.
+					<span className="flex h-6 items-center gap-1.5 rounded-full bg-ember/[0.1] px-2.5 font-grotesk font-medium text-[12px] text-ember-text dark:bg-spark/[0.12]">
+						<span
+							aria-hidden
+							className="size-1.5 animate-pulse-soft rounded-full bg-ember motion-reduce:animate-none dark:bg-spark"
+						/>
+						{t("appBuilder.chat.building")}
+					</span>
+				) : null}
+				<span className="ms-auto flex items-center gap-1">
 					{isSending ? (
-						<>
-							{/* Decorative only: the working row in the list already carries role="status". */}
-							<span
-								aria-hidden
-								className="me-1.5 size-[7px] animate-pulse-soft rounded-full bg-primary"
-							/>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										aria-label={t("appBuilder.chat.stop")}
-										onClick={onCancel}
-									>
-										<Square className="size-4" />
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent side="bottom">
-									{t("appBuilder.chat.stop")}
-								</TooltipContent>
-							</Tooltip>
-						</>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={onCancel}
+							className="h-8 gap-1.5 border-night/25 bg-transparent px-3 font-grotesk font-medium text-[13px] text-night hover:bg-night/[0.05] hover:text-night has-[>svg]:px-3 dark:border-white/25 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+						>
+							<StopIcon weight="fill" className="size-3.5" aria-hidden />
+							{t("appBuilder.chat.stop")}
+						</Button>
 					) : null}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label={t("appBuilder.topBar.collapseChat")}
-								onClick={onCollapse}
-							>
-								{/* In RTL the chat sits on the right, so the icon mirrors. */}
-								<PanelLeftClose className="size-4 rtl:-scale-x-100" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">
-							{t("appBuilder.topBar.collapseChat")}
-						</TooltipContent>
-					</Tooltip>
+					<IconAction label={t("appBuilder.topBar.collapseChat")}>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onClick={onCollapse}
+							className={TOOLBAR_ICON_BUTTON_CLASS}
+						>
+							{/* In RTL the chat sits on the right, so the icon mirrors. */}
+							<SidebarSimpleIcon
+								weight="bold"
+								className="rtl:-scale-x-100"
+								aria-hidden
+							/>
+						</Button>
+					</IconAction>
 				</span>
 			</div>
+			{/* The list lies on the desk with no card, so its ends fade out over 16 px instead of a hard cut. The pt-5 and pb-4 padding keep the first and last lines clear of the fade. */}
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-3"
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4 [mask-image:linear-gradient(to_bottom,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)]"
 			>
-				<div ref={contentRef} className="flex flex-col gap-5">
+				<div ref={contentRef} className="flex flex-col gap-6">
 					{shownMessages.map((message) => (
 						<ChatMessageView
 							key={message.id}
@@ -205,12 +192,17 @@ export function ChatPane({
 				<p
 					role="alert"
 					dir="auto"
-					className="shrink-0 px-4 pb-2 text-destructive text-sm"
+					className="flex shrink-0 items-start gap-2 px-5 pb-2 font-sans text-[13px] text-destructive leading-snug"
 				>
+					<WarningCircleIcon
+						weight="fill"
+						className="mt-px size-4 shrink-0"
+						aria-hidden
+					/>
 					{errorText}
 				</p>
 			) : null}
-			<div className="shrink-0 px-4 pt-2 pb-4">
+			<div className="shrink-0 px-4 pt-1 pb-4">
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
 					focusLabel={focusLabel}

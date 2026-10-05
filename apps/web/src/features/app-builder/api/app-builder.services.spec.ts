@@ -150,13 +150,6 @@ describe("listAppProjects", () => {
 	});
 });
 
-describe("getBuilderThread", () => {
-	it("seeds the mock fixtures for a real project id instead of throwing", async () => {
-		const thread = await getBuilderThread(crypto.randomUUID());
-		expect(thread.focusLabel).toBe("Pass screen");
-	});
-});
-
 describe("updateAppProject", () => {
 	it("changes the kind", async () => {
 		const project = await updateAppProject(WEB_ID, { kind: "mobile" });

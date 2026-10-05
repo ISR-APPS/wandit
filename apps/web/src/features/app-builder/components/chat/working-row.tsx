@@ -61,7 +61,7 @@ export function WorkingRow({ activity, phase, showsElapsed }: WorkingRowProps) {
 	return (
 		<div role="status" className="flex flex-col gap-3">
 			{activity.hasVisibleReply ? null : <AssistantByline />}
-			<div className="flex items-start gap-2.5 text-muted-foreground text-sm">
+			<div className="flex items-start gap-2 font-grotesk text-[13px] text-night/70 leading-5 dark:text-foreground/70">
 				<span
 					aria-hidden
 					className="mt-[3px] grid size-3.5 shrink-0 grid-cols-3 gap-px"
@@ -69,7 +69,7 @@ export function WorkingRow({ activity, phase, showsElapsed }: WorkingRowProps) {
 					{PIXEL_GRID.map((pixel) => (
 						<span
 							key={pixel.key}
-							className="animate-pulse-soft rounded-[1px] bg-primary motion-reduce:animate-none"
+							className="animate-pulse-soft rounded-[1px] bg-ember motion-reduce:animate-none dark:bg-spark"
 							style={{ animationDelay: `${pixel.delayMs}ms` }}
 						/>
 					))}
@@ -119,7 +119,10 @@ function DetailLine({ lines }: { lines: readonly TranslationKey[] }) {
 
 	return (
 		// The line changes every few seconds. The screen reader hears only the title.
-		<span aria-hidden className="text-[13px] leading-[18px]">
+		<span
+			aria-hidden
+			className="font-sans text-[12.5px] text-night/50 leading-[18px] dark:text-foreground/50"
+		>
 			<MotionConfig reducedMotion="user">
 				<AnimatePresence mode="wait" initial={false}>
 					<motion.span
@@ -156,7 +159,7 @@ function ElapsedSeconds() {
 	}).format(elapsedMs / 1000);
 
 	return (
-		<span className="font-mono text-xs tabular-nums">
+		<span className="font-grotesk text-[12px] text-night/45 tabular-nums dark:text-foreground/45">
 			{t("appBuilder.chat.elapsed", { seconds })}
 		</span>
 	);

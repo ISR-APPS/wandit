@@ -5,6 +5,7 @@
  * sandbox port; the preview domain (D5) validates the token. The
  * preview-proxy Worker also parses its host, mints the phone link for
  * Expo Go (WANDIT-193), and posts its error messages with this file.
+ * The web template bridge posts the route message of this file.
  */
 import { z } from "zod";
 import { isoDateTimeSchema, uuidSchema } from "../v1/shared/primitives";
@@ -235,3 +236,19 @@ export const previewParentMessageSchema = z.object({
 
 /** TypeScript parent-frame message. */
 export type PreviewParentMessage = z.infer<typeof previewParentMessageSchema>;
+
+/**
+ * Message the preview bridge of the web template posts to the parent frame
+ * when the app shows another page. `path` is the pathname plus the query.
+ * The frame runs user code, so the builder parses every message with this
+ * schema. The builder copies only the path onto the preview URL, so the
+ * origin of the frame never changes.
+ */
+export const previewRouteMessageSchema = z.object({
+	type: z.literal("wandit:route"),
+	// 2048 characters: a longer path is not a page the user navigates to by hand.
+	path: z.string().startsWith("/").max(2048),
+});
+
+/** TypeScript route message of the preview bridge. */
+export type PreviewRouteMessage = z.infer<typeof previewRouteMessageSchema>;

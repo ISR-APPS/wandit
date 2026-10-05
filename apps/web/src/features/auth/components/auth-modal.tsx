@@ -2,12 +2,12 @@
  * The app-wide sign-in dialog: AuthModalProvider, useAuthModal, and useRequireAuth.
  * routes/__root.tsx mounts the provider. Pages call requireAuth before an action that needs a session.
  * Signs in with Google, with email when emailAuthEnabled is on, and with a password under `vite dev`.
+ * The look is the V2 brand: an ember band on a white sheet, and the landing keycap for Google.
  */
 import {
 	identifyAnalyticsUser,
 	resetAnalytics,
 } from "@wandit/analytics/browser";
-import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -28,7 +28,8 @@ import {
 	useState,
 } from "react";
 
-import { Logo } from "@/components/logo";
+import { Spark } from "@/components/logo";
+import { KeycapButton } from "@/features/landing";
 import { LegalConsentSentence } from "@/features/legal/components/legal-consent-sentence";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import {
@@ -340,68 +341,94 @@ function AuthModalDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
+			{/* A short phone scrolls the dialog, so its ends stay reachable. The close X sits
+			    on the ember band, so it is night in both themes to keep 3:1 there. */}
 			<DialogContent
-				className="gap-0 overflow-hidden p-0 sm:max-w-sm"
+				className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-4xl border-popover-foreground/[0.08] bg-popover p-0 text-popover-foreground shadow-modal sm:max-w-sm [&>[data-slot=dialog-close]]:text-night"
+				overlayClassName="bg-night/45 backdrop-blur-[2px]"
 				closeLabel={t("common.close")}
 			>
-				<div className="flex flex-col px-6 pt-10 pb-6">
-					<DialogHeader className="items-center gap-2 text-center sm:text-center">
-						<Logo size="md" className="mb-2" />
-						<DialogTitle className="font-display font-semibold text-xl tracking-tight">
+				{/* The ember band repeats the hero panel of the landing and the dashboard. */}
+				<div className="relative overflow-hidden bg-ember px-6 pt-9 pb-7">
+					<Spark className="pointer-events-none absolute -end-10 -top-12 size-40 text-white/10" />
+					<DialogHeader className="relative items-center gap-2 text-center sm:text-center">
+						{/* The app icon of the sidebar: the spark on a navy tile. */}
+						<span
+							aria-hidden
+							className="mb-2 grid size-12 place-items-center rounded-[15px] bg-night shadow-[0_4px_0_var(--color-ember-deep)]"
+						>
+							<Spark className="size-6 text-spark" />
+						</span>
+						{/* Large bold white text passes 3:1 on ember; small text would not. */}
+						<DialogTitle className="text-balance font-extrabold font-grotesk text-[1.75rem] text-white leading-none tracking-[-0.04em] rtl:leading-[1.3] rtl:tracking-normal">
 							{t("auth.modalTitle")}
 						</DialogTitle>
-						<DialogDescription className="text-muted-foreground text-sm">
+						{/* Small text on ember is night, like the hero line of the landing. */}
+						<DialogDescription className="text-balance text-night">
 							{t("auth.modalSubtitle")}
 						</DialogDescription>
 					</DialogHeader>
+				</div>
 
-					<div className="mt-6 flex flex-col gap-3">
-						<Button
+				<div className="flex flex-col px-6 pt-6 pb-6">
+					<div className="flex flex-col gap-3">
+						{/* Google is the main action, so it gets the amber key of the landing CTA.
+						    The Google mark sits on white, as the Google brand rules ask. */}
+						<KeycapButton
 							type="button"
-							className="h-11 w-full rounded-full"
+							size="md"
+							className="h-11 w-full focus-visible:outline-popover-foreground"
 							disabled={isGoogleLoading}
 							onClick={handleGoogle}
 						>
-							{isGoogleLoading ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<GoogleIcon className="size-4" />
-							)}
+							<span className="grid size-6 place-items-center rounded-full bg-white">
+								{isGoogleLoading ? (
+									<Loader2 className="size-3.5 animate-spin" />
+								) : (
+									<GoogleIcon className="size-3.5" />
+								)}
+							</span>
 							{isGoogleLoading
 								? t("auth.googleLoading")
 								: t("auth.googleButton")}
-						</Button>
+						</KeycapButton>
 
 						{emailAuthEnabled ? (
-							<EmailAuthSection
-								nextPath={nextPath}
-								onError={setError}
-								onClearError={() => setError(null)}
-								onMagicLinkPendingChange={onMagicLinkPendingChange}
-							/>
+							<>
+								<AuthDivider label={t("auth.emailDivider")} />
+								<EmailAuthSection
+									nextPath={nextPath}
+									onError={setError}
+									onClearError={() => setError(null)}
+									onMagicLinkPendingChange={onMagicLinkPendingChange}
+								/>
+							</>
 						) : null}
 
 						{/* Browser agents cannot pass Google sign-in. The production
 						    build drops this branch. */}
 						{import.meta.env.DEV ? (
-							<DevPasswordSignIn
-								nextPath={nextPath}
-								onError={setError}
-								onClearError={() => setError(null)}
-							/>
+							<>
+								<AuthDivider label="Dev only" />
+								<DevPasswordSignIn
+									nextPath={nextPath}
+									onError={setError}
+									onClearError={() => setError(null)}
+								/>
+							</>
 						) : null}
 
 						{error ? (
 							<p
 								role="alert"
-								className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-destructive text-sm leading-snug"
+								className="rounded-xl border border-destructive/25 px-3 py-2 text-center text-destructive text-sm leading-snug"
 							>
 								{error}
 							</p>
 						) : null}
 					</div>
 
-					<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
+					<p className="mt-5 text-center text-popover-foreground/60 text-xs leading-relaxed">
 						{/* This dialog is mounted at the app root, so a consent link
 						    would change the route under a modal that stays open on
 						    top of the document — close it on the way out. */}
@@ -415,6 +442,19 @@ function AuthModalDialog({
 				</div>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/** The thin rule with a small caps label ("Or", "Dev only") above each sign-in form. */
+function AuthDivider({ label }: { label: string }) {
+	return (
+		<div className="flex items-center gap-3">
+			<span className="h-px flex-1 bg-popover-foreground/10" />
+			<span className="font-grotesk font-semibold text-[11px] text-popover-foreground/60 uppercase tracking-[0.14em]">
+				{label}
+			</span>
+			<span className="h-px flex-1 bg-popover-foreground/10" />
+		</div>
 	);
 }
 

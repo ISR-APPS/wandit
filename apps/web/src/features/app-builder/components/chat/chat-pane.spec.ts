@@ -90,7 +90,6 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 					// True keeps the thought rows and the seconds counter of the debug view.
 					showsAgentDebug: true,
 					isReady: true,
-					projectName: "Nadi Fitness",
 					onSend,
 					onDecideApproval,
 					onAnswerQuestions,

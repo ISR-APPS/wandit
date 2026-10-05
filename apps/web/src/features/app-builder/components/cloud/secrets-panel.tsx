@@ -7,6 +7,10 @@
  * useDeleteSecret.
  */
 
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { KeyIcon } from "@phosphor-icons/react/Key";
+import { LockSimpleIcon } from "@phosphor-icons/react/LockSimple";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useQuery } from "@tanstack/react-query";
 import {
 	projectSecretNameSchema,
@@ -22,7 +26,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@wandit/ui/components/alert-dialog";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
@@ -34,7 +37,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
-import { KeyRound, LoaderCircle, Lock, Trash2 } from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 
@@ -43,9 +46,24 @@ import { useDeleteSecret, useSetSecret } from "../../api/cloud.mutations";
 import { cloudSecretsQuery } from "../../api/cloud.queries";
 import type { setSecret } from "../../api/cloud.services";
 import { CLOUD_DATE_TIME_FORMAT } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_INPUT_CLASS,
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PanelChip,
+	PanelMessage,
+} from "../more/panel-shell";
+import { IconAction } from "../shell/top-bar";
 import { CloudLoadFailed } from "./backend-state";
-import { RowsGridSkeleton } from "./rows-grid";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	RowsGridSkeleton,
+} from "./rows-grid";
+
+/** Field label of the set form. */
+const FIELD_LABEL_CLASS =
+	"font-grotesk font-medium text-[13px] text-night/70 dark:text-foreground/70";
 
 /** Props of SecretsPanel. `putSecret` is the one test seam; cloud-panel-content.tsx passes no value. */
 export type SecretsPanelProps = {
@@ -105,14 +123,14 @@ export function SecretsPanel({
 		}
 		if (secrets.data.length === 0) {
 			return (
-				<CodeMessage
-					icon={KeyRound}
+				<PanelMessage
+					icon={KeyIcon}
 					text={t("workspace.cloud.secrets.empty")}
 				/>
 			);
 		}
 		return (
-			<div className="rounded-xl border">
+			<div className={CLOUD_TABLE_CLASS}>
 				<Table>
 					<TableHeader>
 						<TableRow>
@@ -128,34 +146,48 @@ export function SecretsPanel({
 						{secrets.data.map((secret) => (
 							<TableRow key={secret.name}>
 								<TableCell>
-									<span dir="ltr" className="font-medium font-mono text-sm">
+									<span
+										dir="ltr"
+										className="font-medium font-mono text-[13px] text-night dark:text-foreground"
+									>
 										{secret.name}
 									</span>
 								</TableCell>
 								<TableCell>
-									<Badge
-										variant={secret.kind === "system" ? "info" : "outline"}
+									{/* Wandit writes the system secrets (the Supabase keys); the lock tells that the user cannot change them. */}
+									<PanelChip
+										tone={secret.kind === "system" ? "ember" : "neutral"}
 									>
-										{secret.kind === "system" ? <Lock /> : null}
+										{secret.kind === "system" ? (
+											<LockSimpleIcon
+												aria-hidden
+												weight="bold"
+												className="size-3"
+											/>
+										) : null}
 										{t(`workspace.cloud.secrets.kinds.${secret.kind}`)}
-									</Badge>
+									</PanelChip>
 								</TableCell>
-								<TableCell className="text-muted-foreground">
+								<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 									{formatDate(secret.updatedAt, locale, CLOUD_DATE_TIME_FORMAT)}
 								</TableCell>
-								<TableCell className="text-end">
+								<TableCell className="w-12 text-end">
 									{/* The server refuses to delete a system secret (the Supabase keys), so it gets no button. */}
 									{secret.kind === "system" ? null : (
-										<Button
-											variant="ghost"
-											size="icon-sm"
-											aria-label={t("workspace.cloud.secrets.delete.label", {
+										<IconAction
+											label={t("workspace.cloud.secrets.delete.label", {
 												name: secret.name,
 											})}
-											onClick={() => setPendingDelete(secret.name)}
 										>
-											<Trash2 />
-										</Button>
+											<Button
+												variant="ghost"
+												size="icon-sm"
+												className="text-night/55 hover:bg-destructive/10 hover:text-destructive dark:text-foreground/55 dark:hover:bg-destructive/15 dark:hover:text-destructive"
+												onClick={() => setPendingDelete(secret.name)}
+											>
+												<TrashIcon aria-hidden weight="bold" />
+											</Button>
+										</IconAction>
 									)}
 								</TableCell>
 							</TableRow>
@@ -168,22 +200,19 @@ export function SecretsPanel({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
-			<p className="max-w-2xl text-muted-foreground text-sm">
-				{t("workspace.cloud.secrets.description")}
-			</p>
 			<form
-				className="flex max-w-2xl flex-col gap-3 rounded-xl border p-4"
+				className={cn(PANEL_CARD_CLASS, "flex max-w-3xl flex-col gap-4 p-5")}
 				onSubmit={(event) => {
 					event.preventDefault();
 					saveSecret();
 				}}
 			>
-				<h2 className="font-semibold">
+				<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 					{t("workspace.cloud.secrets.form.title")}
 				</h2>
 				<div className="grid gap-3 sm:grid-cols-2">
 					<div className="flex flex-col gap-1.5">
-						<Label htmlFor={nameId}>
+						<Label htmlFor={nameId} className={FIELD_LABEL_CLASS}>
 							{t("workspace.cloud.secrets.form.name")}
 						</Label>
 						<Input
@@ -195,16 +224,16 @@ export function SecretsPanel({
 							aria-invalid={name !== "" && !isNameValid}
 							autoComplete="off"
 							spellCheck={false}
-							className="font-mono"
+							className={cn(PANEL_INPUT_CLASS, "font-mono")}
 						/>
 						{name !== "" && !isNameValid ? (
-							<p className="text-destructive text-xs">
+							<p className="px-1 text-destructive text-xs">
 								{t("workspace.cloud.secrets.form.nameInvalid")}
 							</p>
 						) : null}
 					</div>
 					<div className="flex flex-col gap-1.5">
-						<Label htmlFor={valueId}>
+						<Label htmlFor={valueId} className={FIELD_LABEL_CLASS}>
 							{t("workspace.cloud.secrets.form.value")}
 						</Label>
 						{/* A password field, so the value never shows on screen. Chrome ignores
@@ -221,10 +250,10 @@ export function SecretsPanel({
 							data-1p-ignore
 							data-lpignore="true"
 							spellCheck={false}
-							className="font-mono"
+							className={cn(PANEL_INPUT_CLASS, "font-mono")}
 						/>
 						{value !== "" && !isValueValid ? (
-							<p className="text-destructive text-xs">
+							<p className="px-1 text-destructive text-xs">
 								{t("workspace.cloud.secrets.form.valueInvalid")}
 							</p>
 						) : null}
@@ -233,13 +262,19 @@ export function SecretsPanel({
 				<div className="flex flex-wrap items-center gap-3">
 					<Button
 						type="submit"
-						size="sm"
+						className={PANEL_PRIMARY_BUTTON_CLASS}
 						disabled={save.isPending || !isNameValid || !isValueValid}
 					>
-						{save.isPending ? <LoaderCircle className="animate-spin" /> : null}
+						{save.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.secrets.form.save")}
 					</Button>
-					<p className="text-muted-foreground text-xs">
+					<p className="font-sans text-[13px] text-night/50 dark:text-foreground/50">
 						{t("workspace.cloud.secrets.form.hint")}
 					</p>
 				</div>

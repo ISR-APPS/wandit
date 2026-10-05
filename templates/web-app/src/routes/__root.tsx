@@ -41,7 +41,7 @@ export const Route = createRootRoute({
 
 function RootComponent() {
 	useEffect(() => {
-		// Dev-only bridge: posts runtime errors to the preview parent frame.
+		// Dev-only bridge: posts runtime errors and the page path to the preview parent frame.
 		if (import.meta.env.DEV) {
 			void import("~/wandit/preview-bridge").then((m) =>
 				m.installPreviewBridge(),

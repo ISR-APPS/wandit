@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,6 +33,7 @@ const BASE_STATE: RequestTrayState = {
 	typingOverride: false,
 };
 
+// The page mounts one TooltipProvider; the icon buttons need it too.
 function renderTray(state: Partial<RequestTrayState> = {}) {
 	const callbacks = {
 		onDelegate: vi.fn(),
@@ -47,10 +49,14 @@ function renderTray(state: Partial<RequestTrayState> = {}) {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(RequestTray, {
-			state: { ...BASE_STATE, ...state },
-			...callbacks,
-		}),
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(RequestTray, {
+				state: { ...BASE_STATE, ...state },
+				...callbacks,
+			}),
+		),
 	};
 	render(createElement(I18nProvider, providerProps));
 	return callbacks;

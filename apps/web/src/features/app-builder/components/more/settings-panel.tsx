@@ -6,6 +6,8 @@
  * useUpdateAppProject and useSetCollaboratorRole.
  */
 
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
 	AlertDialog,
@@ -48,6 +50,12 @@ import { projectSettingsQuery } from "../../api/app-builder.queries";
 import type { AppProject, EnvironmentVariable } from "../../api/dto";
 import { MORE_PANEL_META } from "../../lib/constants";
 import { SegmentedControl } from "../shell/segmented-control";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_INPUT_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+} from "./panel-shell";
 
 export type SettingsPanelProps = {
 	/** The project the page reads from appProjectQuery. Its fields fill the form. */
@@ -59,6 +67,17 @@ const EDITABLE_ROLES = ["editor", "viewer"] as const;
 
 /** Twelve dots stand in for a secret value the API never returns. */
 const MASKED_SECRET = "••••••••••••";
+
+/** Label above a field of the project card. */
+const FIELD_LABEL_CLASS =
+	"font-grotesk font-medium text-[13px] text-night/70 dark:text-foreground/70";
+
+/** Title of a card. */
+const CARD_TITLE_CLASS =
+	"font-grotesk font-semibold text-[15px] text-night dark:text-foreground";
+
+/** Hairline above each row of a card. The settings spec finds a row by this class. */
+const CARD_ROW_CLASS = "border-night/[0.07] border-t dark:border-white/[0.07]";
 
 export function SettingsPanel({ project }: SettingsPanelProps) {
 	const { t, locale } = useTranslation();
@@ -72,13 +91,13 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 
 	return (
 		<>
-			<section className="rounded-2xl border bg-card p-4">
-				<h2 className="mb-3 font-semibold">
+			<section className={cn(PANEL_CARD_CLASS, "p-5")}>
+				<h2 className={cn(CARD_TITLE_CLASS, "mb-4")}>
 					{t("appBuilder.settings.project")}
 				</h2>
 				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-					<Field>
-						<FieldLabel htmlFor={nameId}>
+					<Field className="gap-2">
+						<FieldLabel htmlFor={nameId} className={FIELD_LABEL_CLASS}>
 							{t("appBuilder.settings.name")}
 						</FieldLabel>
 						{/* The key resets the draft when another project loads or a save changes the name. */}
@@ -87,6 +106,7 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 							id={nameId}
 							defaultValue={project.name}
 							dir="auto"
+							className={PANEL_INPUT_CLASS}
 							onBlur={(event) => {
 								const name = event.currentTarget.value.trim();
 								// An empty name would leave the project without a title in the menu.
@@ -96,14 +116,17 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 							}}
 						/>
 					</Field>
-					<Field>
-						<FieldLabel htmlFor={projectUrlId}>
+					<Field className="gap-2">
+						<FieldLabel htmlFor={projectUrlId} className={FIELD_LABEL_CLASS}>
 							{t("appBuilder.settings.projectUrl")}
 						</FieldLabel>
-						{/* The project URL is the builder link, not the published domain. */}
-						<InputGroup className="h-9 rounded-md">
-							<InputGroupAddon>
-								<InputGroupText>
+						{/* The project URL is the builder link, not the published domain. A URL reads left to right in every locale. */}
+						<InputGroup
+							dir="ltr"
+							className="h-10 rounded-full border-night/[0.12] bg-night/[0.025] shadow-none dark:border-white/[0.12] dark:bg-white/[0.03]"
+						>
+							<InputGroupAddon className="ps-4">
+								<InputGroupText className="font-mono text-[12.5px] text-night/45 dark:text-foreground/45">
 									{t("appBuilder.settings.projectUrlPrefix")}
 								</InputGroupText>
 							</InputGroupAddon>
@@ -111,12 +134,12 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 								id={projectUrlId}
 								readOnly
 								value={project.id}
-								className="font-semibold"
+								className="pe-4 font-medium font-mono text-[12.5px] text-night dark:text-foreground"
 							/>
 						</InputGroup>
 					</Field>
-					<Field className="sm:col-span-2">
-						<FieldLabel htmlFor={descriptionId}>
+					<Field className="gap-2 sm:col-span-2">
+						<FieldLabel htmlFor={descriptionId} className={FIELD_LABEL_CLASS}>
 							{t("appBuilder.settings.descriptionLabel")}
 						</FieldLabel>
 						<Textarea
@@ -124,6 +147,7 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 							id={descriptionId}
 							defaultValue={project.description}
 							dir="auto"
+							className="min-h-20 rounded-[16px] border-night/[0.12] bg-white px-4 py-3 shadow-none focus-visible:border-primary/50 focus-visible:ring-primary/15 dark:border-white/[0.12] dark:bg-white/[0.04]"
 							onBlur={(event) => {
 								const description = event.currentTarget.value.trim();
 								if (description !== project.description) {
@@ -133,12 +157,17 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 						/>
 					</Field>
 				</div>
-				<div className="mt-4 flex items-center justify-between gap-4 border-t pt-4">
+				<div
+					className={cn(
+						CARD_ROW_CLASS,
+						"mt-5 flex flex-wrap items-center justify-between gap-4 pt-4",
+					)}
+				>
 					<div>
-						<p className="font-medium text-sm">
+						<p className="font-grotesk font-medium text-[14px] text-night dark:text-foreground">
 							{t("appBuilder.settings.projectType")}
 						</p>
-						<p className="text-muted-foreground text-xs">
+						<p className="font-sans text-[13px] text-night/55 dark:text-foreground/55">
 							{t("appBuilder.settings.projectTypeHelp")}
 						</p>
 					</div>
@@ -155,34 +184,51 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 				</div>
 			</section>
 
-			<section className="rounded-2xl border bg-card">
-				<div className="flex items-center justify-between gap-3 px-4 py-3">
-					<div className="flex items-baseline gap-2">
-						<h2 className="font-semibold">
+			<section className={PANEL_CARD_CLASS}>
+				<div className="flex items-center justify-between gap-3 px-5 py-4">
+					<div className="flex items-center gap-2.5">
+						<h2 className={CARD_TITLE_CLASS}>
 							{t("appBuilder.settings.collaborators")}
 						</h2>
-						<span className="text-muted-foreground text-xs">
+						<PanelChip className="tabular-nums">
 							{t("appBuilder.settings.seats", {
 								count: formatNumber(settings.collaborators.length, locale),
 								max: formatNumber(settings.collaboratorLimit, locale),
 							})}
-						</span>
+						</PanelChip>
 					</div>
-					<Button variant="outline" size="sm" onClick={notWired}>
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						onClick={notWired}
+					>
+						<UserPlusIcon aria-hidden weight="bold" />
 						{t("appBuilder.settings.invite")}
 					</Button>
 				</div>
 				{settings.collaborators.map((collaborator) => (
 					<div
 						key={collaborator.id}
-						className="flex items-center gap-3 border-t px-4 py-3 text-sm"
+						className={cn(CARD_ROW_CLASS, "flex items-center gap-3 px-5 py-3")}
 					>
-						<span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted font-semibold text-xs">
+						<span
+							aria-hidden
+							className="grid size-9 shrink-0 place-items-center rounded-full bg-cream font-grotesk font-semibold text-[13px] text-night dark:bg-spark/20 dark:text-spark"
+						>
 							{collaborator.name.charAt(0)}
 						</span>
 						<div className="min-w-0 flex-1">
-							<p dir="auto">{collaborator.name}</p>
-							<p className="text-muted-foreground text-xs" dir="auto">
+							<p
+								className="truncate font-grotesk font-medium text-[14px] text-night dark:text-foreground"
+								dir="auto"
+							>
+								{collaborator.name}
+							</p>
+							<p
+								className="truncate font-sans text-[13px] text-night/55 dark:text-foreground/55"
+								dir="auto"
+							>
 								{collaborator.pending
 									? t("appBuilder.settings.pending")
 									: collaborator.subtitle}
@@ -190,9 +236,9 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 						</div>
 						{/* The owner keeps the project; only the other seats get a role menu. */}
 						{collaborator.role === "owner" ? (
-							<span className="text-muted-foreground text-xs">
+							<PanelChip tone="ember">
 								{t("appBuilder.settings.roles.owner")}
-							</span>
+							</PanelChip>
 						) : (
 							<Select
 								value={collaborator.role}
@@ -207,7 +253,7 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 							>
 								<SelectTrigger
 									size="sm"
-									className="rounded-full"
+									className="rounded-full border-night/[0.12] bg-white px-3.5 font-grotesk font-medium text-night shadow-none dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-foreground"
 									aria-label={t("appBuilder.settings.roleLabel", {
 										name: collaborator.name,
 									})}
@@ -227,53 +273,71 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 				))}
 			</section>
 
-			<section className="rounded-2xl border bg-card">
-				<div className="flex items-center justify-between gap-3 px-4 py-3">
-					<div className="flex items-baseline gap-2">
-						<h2 className="font-semibold">
+			<section className={PANEL_CARD_CLASS}>
+				<div className="flex items-center justify-between gap-3 px-5 py-4">
+					<div className="min-w-0">
+						<h2 className={CARD_TITLE_CLASS}>
 							{t("appBuilder.settings.envTitle")}
 						</h2>
-						<span className="text-muted-foreground text-xs">
+						<p className="font-sans text-[13px] text-night/55 dark:text-foreground/55">
 							{t("appBuilder.settings.envHelp")}
-						</span>
+						</p>
 					</div>
-					<Button variant="outline" size="sm" onClick={notWired}>
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						onClick={notWired}
+					>
+						<PlusIcon aria-hidden weight="bold" />
 						{t("appBuilder.settings.addVariable")}
 					</Button>
 				</div>
 				{settings.environmentVariables.map((variable) => (
 					<div
 						key={variable.name}
-						className="grid grid-cols-[220px_1fr_auto] items-center gap-4 border-t px-4 py-3 text-sm"
+						className={cn(
+							CARD_ROW_CLASS,
+							"grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-4 px-5 py-3 sm:grid-cols-[220px_minmax(0,1fr)_auto]",
+						)}
 					>
-						<span className="font-mono text-xs">{variable.name}</span>
 						<span
+							dir="ltr"
+							className="truncate font-medium font-mono text-[12.5px] text-night dark:text-foreground"
+						>
+							{variable.name}
+						</span>
+						<span
+							dir="ltr"
 							className={cn(
-								"font-mono text-xs",
-								variable.value === null && "text-muted-foreground",
+								"truncate font-mono text-[12.5px]",
+								variable.value === null
+									? "text-night/35 tracking-widest dark:text-foreground/35"
+									: "text-night/70 dark:text-foreground/70",
 							)}
 						>
 							{variable.value ?? MASKED_SECRET}
 						</span>
-						<span className="text-muted-foreground text-xs">
-							{variableOrigin(variable, t)}
-						</span>
+						<VariableOrigin variable={variable} />
 					</div>
 				))}
 			</section>
 
-			<section className="flex items-center justify-between gap-4 rounded-2xl border border-destructive/40 p-4">
-				<div>
-					<h2 className="font-semibold">
+			<section className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-destructive/25 bg-destructive/[0.03] p-5 dark:border-destructive/30 dark:bg-destructive/[0.06]">
+				<div className="min-w-0 max-w-md">
+					<h2 className="font-grotesk font-semibold text-[15px] text-destructive">
 						{t("appBuilder.settings.deleteTitle")}
 					</h2>
-					<p className="text-muted-foreground text-xs">
+					<p className="mt-0.5 font-sans text-[13px] text-night/60 dark:text-foreground/60">
 						{t("appBuilder.settings.deleteHelp")}
 					</p>
 				</div>
 				<AlertDialog>
 					<AlertDialogTrigger asChild>
-						<Button variant="destructive">
+						<Button
+							variant="destructive"
+							className="h-10 px-5 font-grotesk font-semibold"
+						>
 							{t("appBuilder.settings.delete")}
 						</Button>
 					</AlertDialogTrigger>
@@ -303,15 +367,20 @@ export function SettingsPanel({ project }: SettingsPanelProps) {
 	);
 }
 
-/** End text of a variable row: the panel that set it, "Public" for a browser value, or nothing. */
-function variableOrigin(
-	variable: EnvironmentVariable,
-	t: ReturnType<typeof useTranslation>["t"],
-): string | null {
+/** End chip of a variable row: the panel that set it, "Public" for a browser value, or nothing. */
+function VariableOrigin({ variable }: { variable: EnvironmentVariable }) {
+	const { t } = useTranslation();
 	if (variable.setBy) {
-		return t("appBuilder.settings.setBy", {
-			panel: t(MORE_PANEL_META[variable.setBy].title),
-		});
+		return (
+			<PanelChip>
+				{t("appBuilder.settings.setBy", {
+					panel: t(MORE_PANEL_META[variable.setBy].title),
+				})}
+			</PanelChip>
+		);
 	}
-	return variable.isPublic ? t("appBuilder.settings.public") : null;
+	// A public value reaches the browser of every user, so it gets the warning tone.
+	return variable.isPublic ? (
+		<PanelChip tone="warning">{t("appBuilder.settings.public")}</PanelChip>
+	) : null;
 }

@@ -6,6 +6,15 @@
  * through useUploadObject and useDeleteObjects.
  */
 
+import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
+import { FileIcon } from "@phosphor-icons/react/File";
+import { FolderIcon } from "@phosphor-icons/react/Folder";
+import { FolderOpenIcon } from "@phosphor-icons/react/FolderOpen";
+import { HardDrivesIcon } from "@phosphor-icons/react/HardDrives";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
 	type CloudBucket,
@@ -22,7 +31,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@wandit/ui/components/alert-dialog";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Table,
@@ -32,17 +40,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
-import {
-	ArrowLeft,
-	Download,
-	FileIcon,
-	Folder,
-	FolderOpen,
-	HardDrive,
-	LoaderCircle,
-	Trash2,
-	Upload,
-} from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -54,9 +52,26 @@ import {
 	CLOUD_EMPTY_CELL,
 	CLOUD_UPLOAD_MAX_BYTES,
 } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+	PanelMessage,
+} from "../more/panel-shell";
+import { IconAction } from "../shell/top-bar";
 import { CloudLoadFailed } from "./backend-state";
-import { RowsGridSkeleton } from "./rows-grid";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	RowsGridSkeleton,
+} from "./rows-grid";
+
+/**
+ * Colors of the ghost icon buttons at the end of a file row: download and
+ * delete. The kit Button `icon-sm` size gives the round 32 px shape.
+ */
+const ROW_ICON_BUTTON_CLASS =
+	"text-night/55 hover:bg-night/[0.06] hover:text-night dark:text-foreground/55 dark:hover:bg-white/[0.08] dark:hover:text-foreground";
 
 /** Props of StoragePanel. The panel mounts only while the backend is `active`. */
 export type StoragePanelProps = {
@@ -126,8 +141,8 @@ export function StoragePanel({ projectId, isActive }: StoragePanelProps) {
 	}
 	if (buckets.data.length === 0) {
 		return (
-			<CodeMessage
-				icon={HardDrive}
+			<PanelMessage
+				icon={HardDrivesIcon}
 				text={t("workspace.cloud.storage.buckets.empty")}
 			/>
 		);
@@ -135,7 +150,7 @@ export function StoragePanel({ projectId, isActive }: StoragePanelProps) {
 	return <BucketsList buckets={buckets.data} onOpen={setOpenBucketId} />;
 }
 
-/** The buckets with their access and last update. A click on a name opens the bucket. */
+/** The buckets with their access and last update. A click on a row opens the bucket. */
 function BucketsList({
 	buckets,
 	onOpen,
@@ -147,7 +162,7 @@ function BucketsList({
 	const { t, locale } = useTranslation();
 
 	return (
-		<div className="rounded-xl border">
+		<div className={CLOUD_TABLE_CLASS}>
 			<Table>
 				<TableHeader>
 					<TableRow>
@@ -160,25 +175,35 @@ function BucketsList({
 				</TableHeader>
 				<TableBody>
 					{buckets.map((bucket) => (
-						<TableRow key={bucket.id}>
+						// The name button stretches over the row, so the whole row opens the bucket.
+						<TableRow key={bucket.id} className="group/row relative">
 							<TableCell>
-								<button
-									type="button"
-									dir="ltr"
-									onClick={() => onOpen(bucket.id)}
-									className="rounded-sm font-medium font-mono text-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
-								>
-									{bucket.name}
-								</button>
+								<span className="flex items-center gap-2.5">
+									<span
+										aria-hidden
+										className="grid size-7 shrink-0 place-items-center rounded-[10px] bg-spark/[0.16] text-spark-deep transition-colors group-hover/row:bg-spark/30 dark:bg-spark/15 dark:text-spark"
+									>
+										<FolderIcon weight="duotone" className="size-4" />
+									</span>
+									<button
+										type="button"
+										dir="ltr"
+										onClick={() => onOpen(bucket.id)}
+										className="cursor-pointer rounded-sm font-medium font-mono text-[13px] text-night outline-none after:absolute after:inset-0 focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+									>
+										{bucket.name}
+									</button>
+								</span>
 							</TableCell>
 							<TableCell>
-								<Badge variant={bucket.public ? "warning" : "outline"}>
+								{/* A public bucket shows its files to anyone with the link, so it gets the warning tone. */}
+								<PanelChip tone={bucket.public ? "warning" : "neutral"}>
 									{bucket.public
 										? t("workspace.cloud.storage.buckets.public")
 										: t("workspace.cloud.storage.buckets.private")}
-								</Badge>
+								</PanelChip>
 							</TableCell>
-							<TableCell className="text-muted-foreground">
+							<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 								{formatStorageDate(bucket.updatedAt, locale)}
 							</TableCell>
 						</TableRow>
@@ -253,15 +278,15 @@ function BucketFiles({
 		const items = objects.data.pages.flatMap((page) => page.items);
 		if (items.length === 0) {
 			return (
-				<CodeMessage
-					icon={FolderOpen}
+				<PanelMessage
+					icon={FolderOpenIcon}
 					text={t("workspace.cloud.storage.objects.empty")}
 				/>
 			);
 		}
 		return (
 			<div className="flex min-w-0 flex-col gap-3">
-				<div className="rounded-xl border">
+				<div className={CLOUD_TABLE_CLASS}>
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -286,27 +311,35 @@ function BucketFiles({
 												type="button"
 												dir="ltr"
 												onClick={() => setPrefix(item.path)}
-												className="inline-flex items-center gap-2 rounded-sm font-mono text-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+												className="inline-flex cursor-pointer items-center gap-2 rounded-sm font-medium font-mono text-[13px] text-night outline-none hover:text-ember-text focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
 											>
-												<Folder className="size-4 shrink-0 text-muted-foreground" />
+												<FolderIcon
+													aria-hidden
+													weight="duotone"
+													className="size-[18px] shrink-0 text-spark-deep dark:text-spark"
+												/>
 												<span className="truncate">{item.name}</span>
 											</button>
 										) : (
 											<span
 												dir="ltr"
-												className="inline-flex items-center gap-2 font-mono text-sm"
+												className="inline-flex items-center gap-2 font-mono text-[13px]"
 											>
-												<FileIcon className="size-4 shrink-0 text-muted-foreground" />
+												<FileIcon
+													aria-hidden
+													weight="duotone"
+													className="size-[18px] shrink-0 text-night/45 dark:text-foreground/45"
+												/>
 												<span className="truncate">{item.name}</span>
 											</span>
 										)}
 									</TableCell>
-									<TableCell className="text-end text-muted-foreground">
+									<TableCell className={cn("text-end", CLOUD_CELL_MUTED_CLASS)}>
 										{item.sizeBytes === null
 											? CLOUD_EMPTY_CELL
 											: formatBytes(item.sizeBytes, locale)}
 									</TableCell>
-									<TableCell className="text-muted-foreground">
+									<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 										{formatStorageDate(item.updatedAt, locale)}
 									</TableCell>
 									<TableCell>
@@ -314,31 +347,47 @@ function BucketFiles({
 										{item.isFolder ? null : (
 											<div className="flex justify-end gap-1">
 												{item.downloadUrl === null ? null : (
-													<Button variant="ghost" size="icon-sm" asChild>
-														<a
-															href={item.downloadUrl}
-															target="_blank"
-															rel="noopener noreferrer"
-															aria-label={t(
-																"workspace.cloud.storage.objects.download",
-																{ name: item.name },
-															)}
+													<IconAction
+														label={t(
+															"workspace.cloud.storage.objects.download",
+															{
+																name: item.name,
+															},
+														)}
+													>
+														<Button
+															variant="ghost"
+															size="icon-sm"
+															className={ROW_ICON_BUTTON_CLASS}
+															asChild
 														>
-															<Download />
-														</a>
-													</Button>
+															<a
+																href={item.downloadUrl}
+																target="_blank"
+																rel="noopener noreferrer"
+															>
+																<DownloadSimpleIcon aria-hidden weight="bold" />
+															</a>
+														</Button>
+													</IconAction>
 												)}
-												<Button
-													variant="ghost"
-													size="icon-sm"
-													aria-label={t(
-														"workspace.cloud.storage.objects.delete",
-														{ name: item.name },
-													)}
-													onClick={() => setPendingDelete(item)}
+												<IconAction
+													label={t("workspace.cloud.storage.objects.delete", {
+														name: item.name,
+													})}
 												>
-													<Trash2 />
-												</Button>
+													<Button
+														variant="ghost"
+														size="icon-sm"
+														className={cn(
+															ROW_ICON_BUTTON_CLASS,
+															"hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/15 dark:hover:text-destructive",
+														)}
+														onClick={() => setPendingDelete(item)}
+													>
+														<TrashIcon aria-hidden weight="bold" />
+													</Button>
+												</IconAction>
 											</div>
 										)}
 									</TableCell>
@@ -352,6 +401,7 @@ function BucketFiles({
 						<Button
 							variant="outline"
 							size="sm"
+							className={PANEL_SECONDARY_BUTTON_CLASS}
 							disabled={objects.isFetchingNextPage}
 							onClick={() => void objects.fetchNextPage()}
 						>
@@ -365,22 +415,35 @@ function BucketFiles({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
-			<div className="flex flex-wrap items-center gap-2">
-				<Button variant="ghost" size="sm" onClick={onBack}>
+			<div className="flex min-h-12 flex-wrap items-center gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					className={PANEL_SECONDARY_BUTTON_CLASS}
+					onClick={onBack}
+				>
 					{/* In RTL the list sits on the right, so the arrow mirrors. */}
-					<ArrowLeft className="rtl:-scale-x-100" />
+					<ArrowLeftIcon
+						aria-hidden
+						weight="bold"
+						className="rtl:-scale-x-100"
+					/>
 					{t("workspace.cloud.storage.buckets.back")}
 				</Button>
-				{/* A path reads left to right in every locale. */}
+				{/* A path reads left to right in every locale. The last segment is the open folder. */}
 				<nav
 					dir="ltr"
 					aria-label={t("workspace.cloud.storage.objects.pathLabel")}
-					className="flex min-w-0 flex-1 flex-wrap items-center gap-1 font-mono text-sm"
+					className="flex min-w-0 flex-1 flex-wrap items-center gap-1 font-mono text-[13px] text-night/55 dark:text-foreground/55"
 				>
 					<button
 						type="button"
 						onClick={() => setPrefix("")}
-						className="rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+						className={cn(
+							"cursor-pointer rounded-sm px-1 outline-none hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:text-foreground",
+							segments.length === 0 &&
+								"font-semibold text-night dark:text-foreground",
+						)}
 					>
 						{bucket.name}
 					</button>
@@ -389,13 +452,22 @@ function BucketFiles({
 							key={segments.slice(0, index + 1).join("/")}
 							className="inline-flex items-center gap-1"
 						>
-							<span className="text-muted-foreground">/</span>
+							<span
+								aria-hidden
+								className="text-night/25 dark:text-foreground/25"
+							>
+								/
+							</span>
 							<button
 								type="button"
 								onClick={() =>
 									setPrefix(segments.slice(0, index + 1).join("/"))
 								}
-								className="rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+								className={cn(
+									"cursor-pointer rounded-sm px-1 outline-none hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:text-foreground",
+									index === segments.length - 1 &&
+										"font-semibold text-night dark:text-foreground",
+								)}
 							>
 								{segment}
 							</button>
@@ -414,14 +486,18 @@ function BucketFiles({
 					}}
 				/>
 				<Button
-					size="sm"
+					className={PANEL_PRIMARY_BUTTON_CLASS}
 					disabled={upload.isPending}
 					onClick={() => fileInput.current?.click()}
 				>
 					{upload.isPending ? (
-						<LoaderCircle className="animate-spin" />
+						<CircleNotchIcon
+							aria-hidden
+							weight="bold"
+							className="animate-spin"
+						/>
 					) : (
-						<Upload />
+						<UploadSimpleIcon aria-hidden weight="bold" />
 					)}
 					{t("workspace.cloud.storage.upload.button")}
 				</Button>

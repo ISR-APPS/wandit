@@ -1,33 +1,21 @@
 /**
- * One row of the activity feed: what the agent did, in plain words, for
- * example "Edited" + `styles.css`, or the model's sentence for a command.
- * The technical detail (diff lines, the command, the SQL) opens behind the
- * chevron. Rendered by chat-message.tsx for each `data-step` part.
+ * One row of the activity feed: what the agent did, for example "Edited" +
+ * `styles.css`. A state icon leads the row: a green check, an ember spinner,
+ * a red warning, or a grey minus for a skipped step. The detail (diff lines,
+ * the command, the SQL) opens behind the caret. Rendered by chat-message.tsx.
  */
 
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@wandit/ui/components/collapsible";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	BookOpen,
-	ChevronDown,
-	CircleX,
-	CloudUpload,
-	Database,
-	DatabaseZap,
-	FilePen,
-	FileSearch,
-	Globe,
-	ImageIcon,
-	KeyRound,
-	type LucideIcon,
-	SquareTerminal,
-	Workflow,
-	Wrench,
-} from "lucide-react";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { BuilderDataParts, BuilderStepKind } from "../../api/dto";
@@ -35,22 +23,6 @@ import { ShimmerText } from "./shimmer-text";
 
 /** Props of one `data-step` part, as chat-message.tsx passes them. */
 export type StepRowProps = BuilderDataParts["step"];
-
-const ICONS: Record<BuilderStepKind, LucideIcon> = {
-	edit: FilePen,
-	explore: FileSearch,
-	run: SquareTerminal,
-	web: Globe,
-	image: ImageIcon,
-	database: Database,
-	databaseCheck: DatabaseZap,
-	deploy: CloudUpload,
-	secret: KeyRound,
-	network: Globe,
-	guide: BookOpen,
-	task: Workflow,
-	other: Wrench,
-};
 
 /**
  * The dictionary key of a row label. Explore and web rows have one label
@@ -78,7 +50,7 @@ function labelKeyOf(
 	}
 }
 
-/** One activity row: an icon, a plain label, and a target chip; the detail opens behind the chevron. */
+/** One activity row: a state icon, a plain label, and a target chip; the detail opens behind the caret. */
 export function StepRow({
 	kind,
 	state,
@@ -91,27 +63,41 @@ export function StepRow({
 	// The model writes the command sentence in the user's language, so it
 	// replaces the generic label.
 	const label = description ?? t(labelKeyOf(kind, isRunning, target !== null));
-	const Icon = ICONS[kind];
 
 	const row = (
 		<>
-			<span className="grid size-4 shrink-0 place-items-center text-muted-foreground">
+			<span className="grid size-4 shrink-0 place-items-center">
 				{isRunning ? (
-					<span
+					<CircleNotchIcon
+						weight="bold"
+						className="size-4 animate-spin text-ember motion-reduce:animate-none dark:text-spark"
 						aria-hidden
-						className="size-3 animate-spin rounded-full border-[1.5px] border-stone border-t-foreground motion-reduce:animate-none"
 					/>
 				) : state === "error" ? (
-					<CircleX className="size-4 text-destructive" aria-hidden />
+					<WarningCircleIcon
+						weight="fill"
+						className="size-4 text-destructive"
+						aria-hidden
+					/>
+				) : state === "skipped" ? (
+					<MinusCircleIcon
+						weight="fill"
+						className="size-4 text-night/25 dark:text-foreground/25"
+						aria-hidden
+					/>
 				) : (
-					<Icon className="size-4" aria-hidden />
+					<CheckCircleIcon
+						weight="fill"
+						className="size-4 text-success"
+						aria-hidden
+					/>
 				)}
 			</span>
 			<span
 				dir="auto"
 				className={cn(
 					"min-w-0 truncate",
-					state === "skipped" && "text-muted-foreground",
+					state === "skipped" && "text-night/45 dark:text-foreground/45",
 				)}
 			>
 				{isRunning ? <ShimmerText>{label}</ShimmerText> : label}
@@ -119,44 +105,50 @@ export function StepRow({
 			{target !== null ? (
 				<span
 					dir="ltr"
-					className="min-w-0 truncate rounded-md border bg-muted px-1.5 py-0.5 font-mono text-[12px] text-muted-foreground"
+					className="min-w-0 truncate rounded-md bg-night/[0.05] px-1.5 py-px font-mono text-[12px] text-night/70 dark:bg-white/[0.07] dark:text-foreground/70"
 				>
 					{target}
 				</span>
 			) : null}
 			{state === "error" ? (
-				<span className="shrink-0 text-destructive text-xs">
+				<span className="shrink-0 text-[12px] text-destructive">
 					{t("appBuilder.chat.stepFailed")}
 				</span>
 			) : state === "skipped" ? (
-				<span className="shrink-0 text-muted-foreground text-xs">
+				<span className="shrink-0 text-[12px] text-night/45 dark:text-foreground/45">
 					{t("appBuilder.chat.stepSkipped")}
 				</span>
 			) : null}
 		</>
 	);
 
+	// One type scale for every feed row: grotesk 13 px at 70 % ink.
+	const rowClass =
+		"flex min-h-7 w-full min-w-0 items-center gap-2 py-0.5 font-grotesk text-[13px] text-night/70 dark:text-foreground/70";
+
 	if (detail.length === 0) {
-		return (
-			<div className="flex min-h-8 min-w-0 items-center gap-2.5 py-1 text-sm">
-				{row}
-			</div>
-		);
+		return <div className={rowClass}>{row}</div>;
 	}
 
 	return (
 		<Collapsible>
-			<CollapsibleTrigger className="group flex min-h-8 w-full min-w-0 items-center gap-2.5 rounded-md py-1 text-start text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+			<CollapsibleTrigger
+				className={cn(
+					rowClass,
+					"group rounded-[8px] text-start outline-none transition-colors duration-150 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:hover:text-foreground",
+				)}
+			>
 				{row}
-				<ChevronDown
-					className="ms-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+				<CaretDownIcon
+					weight="bold"
+					className="ms-auto size-3 shrink-0 text-night/35 transition-transform group-hover:text-night/70 group-data-[state=open]:rotate-180 motion-reduce:transition-none dark:text-foreground/35 dark:group-hover:text-foreground/70"
 					aria-hidden
 				/>
 			</CollapsibleTrigger>
 			<CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none">
 				<pre
 					dir="ltr"
-					className="scroll-warm ms-2 mt-1 mb-2 max-h-72 overflow-auto border-s ps-4 font-mono text-[12px] leading-5"
+					className="scroll-warm mt-1 mb-2 max-h-72 overflow-auto rounded-[12px] border border-night/[0.08] bg-white py-2 font-mono text-[12px] text-night/80 leading-5 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-foreground/80"
 				>
 					{detail.map((line, index) => (
 						<div
@@ -164,10 +156,11 @@ export function StepRow({
 							key={index}
 							data-line-kind={line.kind}
 							className={cn(
-								"whitespace-pre-wrap break-all px-1",
+								"whitespace-pre-wrap break-all px-3",
 								line.kind === "add" && "bg-success/10 text-success-text",
 								line.kind === "remove" && "bg-destructive/10 text-destructive",
-								line.kind === "context" && "text-muted-foreground",
+								line.kind === "context" &&
+									"text-night/55 dark:text-foreground/55",
 							)}
 						>
 							{line.text === "" ? " " : line.text}

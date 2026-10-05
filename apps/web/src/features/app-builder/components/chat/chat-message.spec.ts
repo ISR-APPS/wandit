@@ -69,17 +69,6 @@ function hasToastAfter(skip: number, title: string): boolean {
 afterEach(cleanup);
 
 describe("ChatMessageView", () => {
-	it("renders a user message as a bubble with its text", () => {
-		renderMessage({
-			id: "u1",
-			role: "user",
-			parts: [{ type: "text", text: "Build a membership app" }],
-		});
-		expect(screen.getByText("Build a membership app").className).toContain(
-			"bg-bubble",
-		);
-	});
-
 	it("renders the byline, the feed rows, the question, the suggestion, and the diff", () => {
 		renderMessage({
 			id: "a1",

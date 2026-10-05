@@ -9,7 +9,7 @@ import {
 import {
 	copyToClipboard,
 	panelsForKind,
-	panelTitleKey,
+	previewSrcFor,
 	readChatLayout,
 	readChatOpen,
 	readExpoUsername,
@@ -63,13 +63,6 @@ describe("resolvePanel", () => {
 	it("falls back for a panel the kind does not have", () => {
 		expect(resolvePanel("mobile", "domains", false)).toBe("analytics");
 		expect(resolvePanel("web", "appStores", true)).toBe("database");
-	});
-});
-
-describe("panelTitleKey", () => {
-	it("names a Cloud panel from the workspace dictionary and a More panel from its meta", () => {
-		expect(panelTitleKey("logs")).toBe("workspace.cloud.panels.logs");
-		expect(panelTitleKey("payments")).toBe("appBuilder.panels.payments.title");
 	});
 });
 
@@ -209,5 +202,29 @@ describe("copyToClipboard", () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		expect(await copyToClipboard("text")).toBe(false);
 		expect(errorSpy).toHaveBeenCalledOnce();
+	});
+});
+
+describe("previewSrcFor", () => {
+	const previewUrl = "https://r-abcdef123456--p-p1.wanditpreview.app/?wt=t1";
+
+	// The path comes from the route picker or from a message of the app frame. The origin and the token must never change.
+	it.each([
+		["/", previewUrl],
+		["/login", "https://r-abcdef123456--p-p1.wanditpreview.app/login?wt=t1"],
+		[
+			"/posts?tab=new#top",
+			"https://r-abcdef123456--p-p1.wanditpreview.app/posts?wt=t1&tab=new#top",
+		],
+		[
+			"//evil.example/steal",
+			"https://r-abcdef123456--p-p1.wanditpreview.app/steal?wt=t1",
+		],
+		[
+			"https://evil.example/x?wt=stolen",
+			"https://r-abcdef123456--p-p1.wanditpreview.app/x?wt=t1&wt=stolen",
+		],
+	])("%s gives %s", (path, src) => {
+		expect(previewSrcFor(previewUrl, path)).toBe(src);
 	});
 });

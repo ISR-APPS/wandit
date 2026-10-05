@@ -170,7 +170,7 @@ export type BuilderThread = {
 	messages: BuilderMessage[];
 	/** Credits one more turn costs, whole credits. Shown in the composer as an estimate. */
 	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, or null. The preview sets it on a selection. */
+	/** Screen or element the next turn targets. Always null for now: no preview selection exists yet. */
 	focusLabel: string | null;
 };
 

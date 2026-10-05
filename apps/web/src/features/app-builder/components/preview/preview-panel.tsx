@@ -1,11 +1,11 @@
 /**
- * The one iframe both previews render. It mints the signed sandbox URL
- * through usePreviewToken. PreviewBootScreen covers the frame until the
- * app page loads, and while the project holds only the template; the
- * error state has its own alert. WebPreview and
- * PhonePreview wrap it in their chrome. The page keeps it mounted across
- * the views. The Vite HMR WebSocket of the app inside then survives a
- * view switch.
+ * The one iframe both previews render. WebPreview and PhonePreview mint the
+ * signed sandbox URL with usePreviewToken and pass the result here, so their
+ * bars can read the URL too. PreviewBootScreen covers the frame until the
+ * app page loads, and while the project holds only the template; the error
+ * state has its own alert. The page keeps it mounted across the views. The
+ * Vite HMR WebSocket of the app inside then survives a view switch.
+ * usePreviewMessages reports the page the app shows through `onRouteChange`.
  */
 
 import { Button } from "@wandit/ui/components/button";
@@ -16,11 +16,9 @@ import { type CSSProperties, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import type { BootContext } from "../../lib/boot-state";
 import { BOOT_EASE } from "../../lib/constants";
+import { previewSrcFor } from "../../lib/helpers";
 import { usePreviewMessages } from "../../lib/use-preview-messages";
-import {
-	type PreviewTokenDeps,
-	usePreviewToken,
-} from "../../lib/use-preview-token";
+import type { UsePreviewToken } from "../../lib/use-preview-token";
 import { PreviewBootScreen } from "./preview-boot-screen";
 
 // The generated app must not navigate the builder: no allow-top-navigation.
@@ -31,13 +29,13 @@ const PREVIEW_IFRAME_SANDBOX =
 
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {
-	/** The open project. The hook mints its preview token. */
-	projectId: string;
+	/** The token state and its commands, from usePreviewToken in the parent. A new URL reloads the frame. */
+	preview: UsePreviewToken;
+	/** Page of the app to load, like `/` or `/login?next=%2F`. A change loads that page. Default `/`. */
+	path?: string;
 	/** Accessible name of the iframe. The parent builds it from the project name. */
 	title: string;
-	/** Bump from the reload button. A change mints a new token; the new src reloads the frame. */
-	reloadKey: number;
-	/** Classes of the panel box that holds the iframe. The web preview draws the side borders of the narrow viewports here. */
+	/** Classes of the panel box that holds the iframe. The web preview draws the rounded sheet of the mobile viewport here. */
 	className: string;
 	/** Inline styles of the panel box. The web preview sets the viewport width here; a width change never touches src. */
 	style?: CSSProperties;
@@ -49,29 +47,27 @@ export type PreviewPanelProps = {
 	frameViewport?: { widthPx: number; scale: number };
 	/** The running turn and the backend state. The boot screen shows the real start-up steps from them. */
 	bootContext: BootContext;
-	/** Spec seam: a fake getPreviewToken. Production callers leave it out. */
-	deps?: PreviewTokenDeps;
+	/** Gets the pathname and query of each page the app shows. Only apps with the route bridge of the web template report it. */
+	onRouteChange?: (path: string) => void;
 };
 
 /**
  * Renders the preview iframe once the token mint answers, under the boot
- * screen until its first `load` and a first version exists. No
- * `key={reloadKey}` on the iframe: the reload mints a new token and the new
- * src reloads the frame.
+ * screen until its first `load` and a first version exists. No key on the
+ * iframe: a reload mints a new token, and the new src reloads the frame.
  */
 export function PreviewPanel({
-	projectId,
+	preview,
+	path = "/",
 	title,
-	reloadKey,
 	className,
 	style,
 	frameViewport,
 	bootContext,
-	deps,
+	onRouteChange,
 }: PreviewPanelProps) {
 	const { t } = useTranslation();
-	const { status, previewUrl, errorText, refresh, markNotRunning } =
-		usePreviewToken(projectId, reloadKey, deps);
+	const { status, previewUrl, errorText, refresh, markNotRunning } = preview;
 	// True after the iframe fired `load`. A token swap keeps the same frame, so the boot screen does not come back.
 	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
 	// A dropped frame (not-running, error) must show the boot screen again when the next frame mounts.
@@ -80,11 +76,12 @@ export function PreviewPanel({
 	// The frame still loads under the cover, so the first version shows at once when the flag flips.
 	const isAppShown = isFrameLoaded && bootContext.hasCodeChanges;
 
-	// The proxy error pages report a dead token or a stopped sandbox.
+	// The proxy error pages report a dead token or a stopped sandbox. The app reports its page.
 	usePreviewMessages({
 		previewUrl,
 		onTokenExpired: refresh,
 		onNotRunning: markNotRunning,
+		onRoute: onRouteChange,
 	});
 
 	if (status === "error") {
@@ -92,14 +89,20 @@ export function PreviewPanel({
 			<div
 				role="alert"
 				className={cn(
-					// The alert sits on the void stage, so it takes the dark tokens.
-					"dark flex flex-col items-center justify-center gap-3 px-4",
+					// Both callers draw the panel on a night ground, so the alert takes the dark tokens.
+					// `relative` paints it over the dotted layer of the web stage, like the normal root.
+					"dark relative flex flex-col items-center justify-center gap-3 px-4",
 					className,
 				)}
 				style={style}
 			>
-				<p className="text-center text-muted-foreground text-sm">{errorText}</p>
-				<Button variant="outline" size="sm" onClick={refresh}>
+				<p className="text-center text-sm text-white/70">{errorText}</p>
+				{/* The amber pill of the device card in device-panel.tsx. It reads on the night ground in both themes. */}
+				<Button
+					size="sm"
+					className="bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
+					onClick={refresh}
+				>
 					{t("appBuilder.preview.retry")}
 				</Button>
 			</div>
@@ -112,7 +115,7 @@ export function PreviewPanel({
 			<div className={cn("relative overflow-hidden", className)} style={style}>
 				{status === "ready" && previewUrl !== null ? (
 					<motion.iframe
-						src={previewUrl}
+						src={previewSrcFor(previewUrl, path)}
 						title={title}
 						sandbox={PREVIEW_IFRAME_SANDBOX}
 						onLoad={() => setIsFrameLoaded(true)}
@@ -142,7 +145,7 @@ export function PreviewPanel({
 						transition={{ duration: 0.38, delay: 0.04, ease: BOOT_EASE }}
 					/>
 				) : null}
-				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the ember buttons of the drawing. */}
+				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the amber buttons of the drawing. */}
 				<AnimatePresence>
 					{isAppShown ? null : (
 						<motion.div

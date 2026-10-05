@@ -5,16 +5,24 @@
  * title. Reads projectDomainsQuery; connect and buy have no backend yet.
  */
 
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
+import { cn } from "@wandit/ui/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
 import { projectDomainsQuery } from "../../api/app-builder.queries";
 import type { ProjectDomain } from "../../api/dto";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_INPUT_CLASS,
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+} from "./panel-shell";
 
 export type DomainsPanelProps = {
 	projectId: string;
@@ -28,52 +36,100 @@ export function DomainsPanel({ projectId }: DomainsPanelProps) {
 
 	return (
 		<>
-			<ul className="divide-y rounded-2xl border bg-card">
+			<ul
+				className={cn(
+					PANEL_CARD_CLASS,
+					"divide-y divide-night/[0.07] dark:divide-white/[0.07]",
+				)}
+			>
 				{domains.map((domain) => (
 					<li
 						key={domain.host}
-						className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+						className="flex items-center gap-3.5 px-5 py-3.5"
 					>
-						<div className="min-w-0">
-							<div className="font-semibold" dir="auto">
+						<span
+							aria-hidden
+							className={cn(
+								"grid size-9 shrink-0 place-items-center rounded-full",
+								domain.status === "live"
+									? "bg-spark/20 text-night dark:bg-spark/15 dark:text-spark"
+									: "bg-night/[0.05] text-night/50 dark:bg-white/[0.06] dark:text-foreground/50",
+							)}
+						>
+							<GlobeIcon weight="duotone" className="size-[18px]" />
+						</span>
+						<div className="min-w-0 flex-1">
+							<div
+								className="truncate font-medium font-mono text-[13.5px] text-night dark:text-foreground"
+								dir="auto"
+							>
 								{domain.host}
 							</div>
-							<div className="text-muted-foreground text-xs">
+							<div className="font-sans text-[13px] text-night/55 dark:text-foreground/55">
 								{statusNote(domain, t)}
 							</div>
 						</div>
 						{domain.status === "live" ? (
-							<Badge variant="success">
+							<PanelChip tone="success">
 								<span
 									aria-hidden
 									className="size-1.5 rounded-full bg-success"
 								/>
 								{t("appBuilder.domains.live")}
-							</Badge>
+							</PanelChip>
 						) : (
-							<Badge variant="warning">
+							<PanelChip tone="warning">
+								{/* The pulse tells that the DNS check still runs. */}
+								<span
+									aria-hidden
+									className="size-1.5 rounded-full bg-spark-deep motion-safe:animate-pulse dark:bg-spark"
+								/>
 								{t("appBuilder.domains.verifying")}
-							</Badge>
+							</PanelChip>
 						)}
 					</li>
 				))}
 			</ul>
 
-			<div className="flex items-center gap-2 rounded-2xl border bg-card p-3">
+			<div
+				className={cn(
+					PANEL_CARD_CLASS,
+					"flex flex-col gap-2 p-2 transition-shadow focus-within:border-primary/40 focus-within:ring-[3px] focus-within:ring-primary/15 sm:flex-row sm:items-center",
+				)}
+			>
 				<Input
-					className="flex-1"
+					className={cn(
+						PANEL_INPUT_CLASS,
+						"flex-1 border-transparent bg-transparent font-mono focus-visible:border-transparent focus-visible:ring-0 dark:border-transparent dark:bg-transparent",
+					)}
 					placeholder={t("appBuilder.domains.placeholder")}
 					aria-label={t("appBuilder.domains.inputLabel")}
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
 					dir="auto"
 				/>
-				<Button disabled={draft.trim() === ""} onClick={notWired}>
-					{t("appBuilder.domains.connect")}
-				</Button>
-				<Button variant="outline" onClick={notWired}>
-					{t("appBuilder.domains.buy")}
-				</Button>
+				<div className="flex gap-2">
+					<Button
+						className={cn(
+							PANEL_PRIMARY_BUTTON_CLASS,
+							"h-10 flex-1 px-5 sm:flex-none",
+						)}
+						disabled={draft.trim() === ""}
+						onClick={notWired}
+					>
+						{t("appBuilder.domains.connect")}
+					</Button>
+					<Button
+						variant="outline"
+						className={cn(
+							PANEL_SECONDARY_BUTTON_CLASS,
+							"h-10 flex-1 px-5 sm:flex-none",
+						)}
+						onClick={notWired}
+					>
+						{t("appBuilder.domains.buy")}
+					</Button>
+				</div>
 			</div>
 		</>
 	);
