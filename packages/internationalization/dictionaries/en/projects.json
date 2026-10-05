@@ -128,10 +128,12 @@
 		"modeLabel": "Mode",
 		"platforms": {
 			"web": {
-				"label": "Web app"
+				"label": "Web app",
+				"description": "Opens in the browser, on any device."
 			},
 			"mobile": {
-				"label": "Mobile app"
+				"label": "Mobile app",
+				"description": "For iPhone and Android. Try it on your phone."
 			}
 		},
 		"outputLabel": "Output",
