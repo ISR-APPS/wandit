@@ -425,9 +425,9 @@ description and the operator steps are in `docs/v2/backend-lifecycle.md`.
   for a wake older than 10 minutes.
 - Entitlement: `provisionBackend` counts the payer's `creating`,
   `active`, `paused`, and `restoring` backends on live projects and
-  refuses at the plan limit (starter 0, pro 1, business 3) with 403
-  `BACKEND_LIMIT_REACHED`. The count and the insert run under one
-  advisory lock per payer. Project creation then goes on without a
+  refuses at the plan limit (`backendsPerPlan`; 1000 on every plan for
+  the staging tests) with 403 `BACKEND_LIMIT_REACHED`. The count and the
+  insert run under one advisory lock per payer. Project creation then goes on without a
   backend.
 - Billing: no `backend_provision` or `backend_hosting` operation yet; see
   the doc for what a later issue must do.

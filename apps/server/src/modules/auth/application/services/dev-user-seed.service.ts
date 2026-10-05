@@ -126,10 +126,11 @@ export class DevUserSeedService implements OnModuleInit {
 
 	/**
 	 * Inserts an active yearly Business plan row for the personal pool of the
-	 * dev user, then grants its tier credits once. Starter allows 0 backends
-	 * (backend-lifecycle.ts), so without this row a new project gets no
-	 * backend. The admin grant path allows Business only for an organization;
-	 * `resolveBillingPlan` reads the plan only.
+	 * dev user, then grants its tier credits once. The plan sets the backend
+	 * limit (`backendsPerPlan` in backend-lifecycle.ts). Business has the
+	 * largest limit, so a new project gets a backend. The admin grant path
+	 * allows Business only for an organization; `resolveBillingPlan` reads
+	 * the plan only.
 	 */
 	private async seedPlan(userId: string): Promise<void> {
 		const owner = userOwner(userId);

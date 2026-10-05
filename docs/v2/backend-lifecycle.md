@@ -244,11 +244,14 @@ limit.
 `countActiveForOwner` counts the payer's rows in `creating`, `active`,
 `paused`, or `restoring`, on projects that are not soft-deleted.
 
-| Plan | Backends (provisional, D3, WANDIT-153 open) |
+| Plan | Backends (`BACKEND_DEFAULTS.backendsPerPlan`) |
 | --- | --- |
-| `starter` | 0 |
-| `pro` | 1 |
-| `business` | 3 |
+| `starter` | 1000 |
+| `pro` | 1000 |
+| `business` | 1000 |
+
+Every plan has 1000 (no practical limit) for the staging tests. The
+per-plan caps come back after the tests. WANDIT-153 decides the price.
 
 At the limit the call throws `BackendLimitReachedError`: HTTP 403 with
 the code `BACKEND_LIMIT_REACHED` and the message `Backend limit reached:

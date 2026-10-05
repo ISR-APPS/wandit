@@ -4,7 +4,10 @@ import type { projects } from "@wandit/db/schema/projects";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import { assertBackendEntitlement } from "../../domain/backend-lifecycle";
+import {
+	assertBackendEntitlement,
+	BACKEND_DEFAULTS,
+} from "../../domain/backend-lifecycle";
 import {
 	type AppBackendRow,
 	AppBackendsRepository,
@@ -187,10 +190,11 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 	});
 
 	it("refuses at the plan limit and inserts nothing", async () => {
+		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
 		const { order, repository, values } = setupTransaction({
 			existing: [],
 			inserted: [ROW],
-			owned: 1,
+			owned: limit,
 		});
 
 		const outcome = await repository.writeCreatingWithinLimit(
@@ -204,7 +208,7 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 			refusal: {
 				allowed: false,
 				code: "backend_limit_reached",
-				limit: 1,
+				limit,
 				plan: "pro",
 			},
 		});
@@ -275,7 +279,7 @@ describe("AppBackendsRepository.writeCreatingWithinLimit", () => {
 		const { order, repository } = setupTransaction({
 			existing: [failed],
 			inserted: [],
-			owned: 1,
+			owned: BACKEND_DEFAULTS.backendsPerPlan.pro,
 		});
 
 		const outcome = await repository.writeCreatingWithinLimit(
