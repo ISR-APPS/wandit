@@ -45,6 +45,8 @@ Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in
 // KPI row of the home, style "delta": the value, and the change as a pill at the header end.
 // The home renders it in the KPI slot with the items of buildOverviewKpis (data.md).
 // It calls Card, Badge, and Skeleton from the shared kit. Every number goes through Intl.
+
+import { TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import { Badge } from "~/shared/ui/badge";
@@ -56,7 +58,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { TrendingDownIcon, TrendingUpIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
 import type { KpiItem } from "../lib/series";
 

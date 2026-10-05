@@ -1,7 +1,7 @@
 // Sign-in and sign-up form with Supabase email and password. The /login route renders it.
 // It parses the fields with zod, calls a mutation of auth.mutations.ts, then opens /app.
 // Email confirmation is off for the project, so sign-up returns a session at once.
-import { useNavigate } from "@tanstack/react-router";
+import { useHydrated, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { LocaleSwitcher, useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
@@ -33,6 +33,8 @@ export function LoginPage() {
 	const [formIssue, setFormIssue] = useState<FormIssue | null>(null);
 	const signIn = useSignInMutation();
 	const signUp = useSignUpMutation();
+	// The page is prerendered. Before hydration, onSubmit does not exist, so the button stays disabled.
+	const isHydrated = useHydrated();
 
 	const isSignUp = mode === "signUp";
 	const request = isSignUp ? signUp : signIn;
@@ -85,7 +87,8 @@ export function LoginPage() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<form onSubmit={onSubmit} className="grid gap-4">
+					{/* A native submit must never put the password in the URL. POST sends it in the body. */}
+					<form method="post" onSubmit={onSubmit} className="grid gap-4">
 						<div className="grid gap-2">
 							<Label htmlFor="login-email">{t("login.email")}</Label>
 							<Input
@@ -132,7 +135,7 @@ export function LoginPage() {
 								{isSignUp ? t("login.signUpError") : t("login.error")}
 							</p>
 						)}
-						<Button type="submit" disabled={request.isPending}>
+						<Button type="submit" disabled={!isHydrated || request.isPending}>
 							{request.isPending
 								? t("login.sending")
 								: isSignUp

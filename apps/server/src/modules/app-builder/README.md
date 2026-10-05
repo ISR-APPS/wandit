@@ -260,7 +260,7 @@ service checks the scope:
 `GET` and `PUT /api/v2/projects/:projectId/cost-caps` (WANDIT-174) sit
 behind the same guard and the `limits:manage` permission — an owner or
 org admin, never a member. Amounts are centi-credits: `perTurnCapCredits`
-defaults to 5000 and accepts at most 250_000; `monthlyCapCredits` null
+defaults to 1_000_000 and accepts at most 250_000; `monthlyCapCredits` null
 means no monthly cap. `GET` answers the row or the plan defaults; `PUT`
 upserts and answers the row. A non-`v2_app` project answers 404.
 
@@ -829,7 +829,7 @@ One run does this, in order:
    V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
 2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
    computes `capUsd` for the token claims from `perTurnCapCredits` — the
-   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (5000 cc). The pre-start
+   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (1_000_000 cc). The pre-start
    stop rules throw into `failTurn`: the builder flag off →
    `stopped_disabled`, a settled balance at 0 → `stopped_no_credits`,
    the monthly cap already reached → `stopped_project_cap`.

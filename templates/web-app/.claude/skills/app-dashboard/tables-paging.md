@@ -141,6 +141,7 @@ export const Route = createFileRoute("/app/work-orders/")({
 // It reuses the empty state, the skeleton, and the error of work-orders-page.tsx.
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
@@ -148,11 +149,6 @@ import { formatRelativeTime } from "~/shared/lib/relative-time";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import { Card, CardContent } from "~/shared/ui/card";
-import {
-	ChevronLeftIcon,
-	ChevronRightIcon,
-	SearchIcon,
-} from "~/shared/ui/icons";
 import { Input } from "~/shared/ui/input";
 import {
 	Select,

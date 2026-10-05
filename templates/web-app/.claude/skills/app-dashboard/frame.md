@@ -175,6 +175,8 @@ export function AppHeader({ email }: AppHeaderProps) {
 // The user menu of the topbar shell: an avatar button, and a menu with the email and Sign out.
 // AppHeader renders it at the end of the bar. Sign-out uses the auth feature mutation.
 // On success, that mutation opens / and clears the query cache.
+
+import { LogOutIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useSignOutMutation } from "~/features/auth";
 import { useT } from "~/shared/i18n";
@@ -188,7 +190,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "~/shared/ui/dropdown-menu";
-import { LogOutIcon } from "~/shared/ui/icons";
 
 type NavUserProps = {
 	/** Email of the signed-in user, from the session of the /app layout route. */
