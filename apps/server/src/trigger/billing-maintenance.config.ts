@@ -1,3 +1,8 @@
+/**
+ * Env checks that the billing and metering Trigger tasks run first.
+ * Each assert throws on a missing value, so a bad deploy fails before the
+ * task touches the database, Stripe, or the AI Gateway.
+ */
 // Ensure the repository's standard .env lookup runs before task assertions.
 import "@wandit/env/server";
 
@@ -61,7 +66,8 @@ function assertMeteringGatewayConfiguration(): void {
 	);
 	// Media generations (image edit/generation) always reconcile
 	// against the Vercel gateway — gate on the same env switches that enable
-	// those features.
+	// the V1 media features. V2 builder images use fixed gateway models
+	// (builder-turn.deps.ts), not these switches.
 	const gatewayMediaEnabled = [
 		process.env.AI_IMAGE_MODEL,
 		process.env.AI_IMAGE_EDIT_MODEL,

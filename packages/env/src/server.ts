@@ -93,13 +93,14 @@ export const env = createEnv({
 				}
 			}),
 		OPENROUTER_API_KEY: z.string().min(1).optional(),
-		// Optional: the builder's generate_image tool. Needs R2 plus
-		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
+		// Optional: the V1 site builder and the chat generate_image tools. The V2
+		// builder fixes its models in builder-turn.deps.ts. Needs R2 plus
+		// R2_PUBLIC_BASE_URL too; unset means those tools answer "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
 		// Optional: model used when a generation EDITS user-provided source
 		// images (product photo, logo). Gemini image models use generateText;
-		// GPT Image 2 and Muse Image use the native image API.
-		// Unset means source-image requests degrade to text-only.
+		// GPT Image models and Muse Image use the native image API.
+		// Unset means V1 source-image requests degrade to text-only.
 		AI_IMAGE_EDIT_MODEL: z.string().min(1).optional(),
 		// Optional override for marketing HTML documents; falls back to
 		// AI_PAGE_BUILDER_MODEL, then legacy AI_PAGE_DESIGN_MODEL when unset.

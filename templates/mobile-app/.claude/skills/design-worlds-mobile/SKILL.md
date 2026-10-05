@@ -17,13 +17,15 @@ accessibility, and words.
    for this project only. Other projects get another order, so two similar apps look different.
 2. Read the table in section 4. A world fits when the app is in its "best for" list, or close to
    it, and not in its "avoid for" list.
-3. First build, and the brief names no look: offer the first 3 fitting worlds of the order in the
-   first `ask_user` call. One `single-choice` question, one option per world:
+3. First build, the brief names no look, and the user did not say not to ask: offer the first 3
+   fitting worlds of the order in an `ask_user` call. One `single-choice` question, one option per world:
    `{ id: "<world id>", worldId: "<world id>", label: "<world name>", description: "<6 to 10 words>" }`.
    The chat shows each option as a world card. Put the question with the other first-build
-   questions (the app language and the missing facts): at most 4 questions in the call.
-4. The user delegates or dismisses the question: take the first fitting world of the order.
-   Say the world name in your plan.
+   questions (the scope questions, the app language, and the missing facts): at most 4
+   questions in the call. More than 4 questions: the scope questions go first. The world goes in
+   the next call.
+4. The user says not to ask, delegates, or dismisses the question: take the first fitting world of
+   the order. Say the world name in your plan.
 5. The user describes a look ("dark", "pastel", "like a luxury hotel"): take the fitting world
    closest to it. Never copy a brand or a real app.
 6. Later turns keep the world: its id is in the header comment of `src/global.css`. Change

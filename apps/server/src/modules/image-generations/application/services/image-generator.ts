@@ -3,7 +3,7 @@
  *
  * Generation and source-photo edits share one result shape. Native image
  * models use generateImage; image-output language models use generateText
- * with file parts and result.files. Muse and GPT Image 2 edits use the native
+ * with file parts and result.files. Muse and GPT Image edits use the native
  * image API.
  * Plain functions, no NestJS: the Trigger.dev worker and the site builder
  * both import from here.
@@ -174,14 +174,15 @@ export async function editImageFromSources(params: {
 			};
 		}
 
-		// Muse and GPT Image 2 use native image models for generation and editing.
-		// Their reference photos belong in prompt.images; generateText's files
-		// contract is only appropriate for image-output language models.
-		const isGptImage2 = model === "openai/gpt-image-2";
-		if (isGptImage2 || model.startsWith("meta/muse-image-")) {
+		// Muse and every GPT Image model (2, 2.5 Sunburst) use native image
+		// models for generation and editing. Their reference photos belong in
+		// prompt.images; generateText's files contract is only appropriate for
+		// image-output language models.
+		const isGptImage = model.startsWith("openai/gpt-image-");
+		if (isGptImage || model.startsWith("meta/muse-image-")) {
 			const result = await generateImage({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-				...(isGptImage2
+				...(isGptImage
 					? {
 							size:
 								STANDALONE_SIZE_BY_ASPECT[
