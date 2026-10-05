@@ -11,6 +11,7 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import { WORKSPACE_PERMISSION_KEY } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { MobileTemplateUnavailableError } from "../../../domain/errors/mobile-template-unavailable.error";
+import { RedisRateLimitGuard } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 import { AppProjectsController } from "./app-projects.controller";
 
@@ -116,9 +117,9 @@ describe("AppProjectsController route metadata", () => {
 		).toEqual({ actions: ["create"], resource: "project" });
 	});
 
-	it("applies V2BuilderEnabledGuard to the controller", () => {
+	it("applies V2BuilderEnabledGuard and RedisRateLimitGuard to the controller", () => {
 		expect(Reflect.getMetadata(GUARDS_METADATA, AppProjectsController)).toEqual(
-			[V2BuilderEnabledGuard],
+			[V2BuilderEnabledGuard, RedisRateLimitGuard],
 		);
 	});
 

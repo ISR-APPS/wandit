@@ -1,7 +1,8 @@
 /**
  * Application service behind the versions routes.
- * `list` pages `app_commits`, `diff` answers the stored patch and numstat,
- * and `restore` writes a copy-forward commit through `commitTurn`.
+ * `list` pages `app_commits`, and `diff` answers the stored patch and numstat.
+ * `restore` writes a copy-forward commit through `commitTurn`. It also
+ * writes a `version.restore` audit row through `AuditEventsService`.
  * Every method first proves the project is a scoped `v2_app` row.
  */
 import { randomUUID } from "node:crypto";
@@ -60,6 +61,7 @@ import { BuilderTurnsRepository } from "../../infrastructure/persistence/builder
 import { TurnProjectRepository } from "../../infrastructure/persistence/turn-project.repository";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
 import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
+import { AuditEventsService } from "./audit-events.service";
 
 /** Nest token for the R2 object store the service reads and writes. */
 export const VERSION_OBJECTS = Symbol.for("app-builder.version-objects");
@@ -106,6 +108,8 @@ export class VersionsService {
 		private readonly backends: Pick<AppBackendsRepository, "findByProjectId">,
 		@Inject(BuilderTurnsRepository)
 		private readonly turns: Pick<BuilderTurnsRepository, "findWaitingForUser">,
+		@Inject(AuditEventsService)
+		private readonly audit: Pick<AuditEventsService, "record">,
 	) {}
 
 	/** One page of versions, newest first, for the versions panel. */
@@ -159,12 +163,14 @@ export class VersionsService {
 	 * restore takes the project turn lock — a turn starting mid-restore
 	 * would interleave git commands on the same sandbox. A held lock, a turn
 	 * that waits for the user, or a stale `expectedHeadSha` answers 409.
+	 * `ip` is the client IP for the `version.restore` audit row.
 	 */
 	async restore(
 		scope: ProjectScope,
 		projectId: string,
 		sha: string,
 		body: RestoreVersionBody,
+		ip: string,
 	): Promise<RestoreVersionResponse> {
 		const project = await this.requireV2Project(scope, projectId);
 		const commit = await this.appCommits.findBySha(projectId, sha);
@@ -272,6 +278,16 @@ export class VersionsService {
 				throw error;
 			}
 
+			await this.audit.record({
+				action: "version.restore",
+				actorUserId: scope.userId,
+				ip,
+				metadata: { restoredFromSha: sha },
+				organizationId: project.organizationId,
+				projectId,
+				targetId: result.commit.sha,
+				targetType: "app_commit",
+			});
 			return { commit: toApiCommit(result.commit) };
 		} finally {
 			// A failed release self-heals at the lock TTL; it must not mask

@@ -371,6 +371,12 @@ export default function AppBuilderPage({
 			onChangeViewport={(next) => setSearch({ viewport: next }, true)}
 			onReload={() => setReloadKey((key) => key + 1)}
 			liveUrl={live?.url ?? null}
+			canAskFix={thread.isReady && !thread.isSending}
+			onAskFix={(text) => {
+				thread.send({ files: [], text });
+				// The reply shows in the chat, so a closed chat opens. On a phone it covers the work pane.
+				setChatOpenAndStore(true);
+			}}
 		/>
 	);
 

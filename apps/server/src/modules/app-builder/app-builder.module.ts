@@ -20,6 +20,7 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
 import { ChatHistoryService } from "./application/services/chat-history.service";
 import { CloudService } from "./application/services/cloud.service";
@@ -100,6 +101,7 @@ import { TemplateVersionService } from "./infrastructure/template/template-versi
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
@@ -222,12 +224,20 @@ export function createCloudSupabaseClient(
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
 		TemplateVersionService,
+		TriggerSyncBackendAuthUrlsTaskStarter,
 		// The sandbox start of a restore and a wake reads the egress hosts here.
 		TurnProjectRepository,
 		TurnsService,
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,
 		VersionsService,
+		// A plain class: the Trigger tasks build the same service by hand.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
 		{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
 		// Null without EXPO_TOKEN or EXPO_ACCOUNT: `MobileBuildsService` then answers 503.
 		{

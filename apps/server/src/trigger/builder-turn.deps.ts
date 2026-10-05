@@ -16,6 +16,7 @@ import {
 } from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
 import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
+import { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
@@ -165,6 +166,9 @@ export async function createBuilderTurnDeps(
 				: null;
 
 		const deps: Omit<BuilderTurnDeps, "writer"> = {
+			// The Trigger Sentry client has no `enableLogs`, so `Sentry.logger`
+			// drops lines. The process log keeps a failed audit write.
+			audit: new AuditEventsService(audit, logger),
 			// The wake uses the same interactive client as the backend tools.
 			backendClient: supabase,
 			backends,

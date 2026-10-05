@@ -2,13 +2,15 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type {
-	AppBuild,
-	AppDeployment,
-	AppPublishStatus,
-	ListMobileBuildsResponse,
-	MobileBuild,
-	MobileBuildStatus,
+import {
+	type AppBuild,
+	type AppDeployment,
+	type AppPublishStatus,
+	type ListMobileBuildsResponse,
+	type MobileBuild,
+	type MobileBuildStatus,
+	type PublishGateFinding,
+	projectPromptMaxLength,
 } from "@wandit/contracts";
 import { fallbackDictionary } from "@wandit/internationalization";
 import { I18nProvider } from "@wandit/internationalization/react";
@@ -122,6 +124,18 @@ function appBuild(status: AppBuild["status"]): AppBuild {
 		errorCode: status === "failed" ? "build_failed" : null,
 		createdAt: "2026-10-01T10:00:00.000Z",
 		completedAt: null,
+		gateFindings: [],
+		gateOverride: false,
+	};
+}
+
+/** A block finding of the anonymous RLS probe: a visitor can read `relation`. Overridable. */
+function rlsFinding(relation: string): PublishGateFinding {
+	return {
+		kind: "rls_probe",
+		severity: "block",
+		relation,
+		reason: "rows_returned",
 	};
 }
 
@@ -154,6 +168,8 @@ function liveStatus(
 		},
 		latestBuild: appBuild("published"),
 		history: [],
+		suspension: null,
+		gateOverrideAllowed: false,
 		...overrides,
 	};
 }
@@ -165,8 +181,11 @@ function webProps(
 	return {
 		status: liveStatus(),
 		isSending: false,
+		canAskFix: true,
+		onAskFix: () => {},
 		onPublish: () => {},
 		onRollback: () => {},
+		onOverride: () => {},
 		onUnpublish: () => {},
 		onConnectDomain: () => {},
 		...overrides,
@@ -192,7 +211,11 @@ function renderOpenPopover(
 		createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(PublishPopover, { project }),
+			createElement(PublishPopover, {
+				project,
+				canAskFix: true,
+				onAskFix: () => {},
+			}),
 		),
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Publish" }));
@@ -226,7 +249,7 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: { live: null, latestBuild: null, history: [] },
+					status: liveStatus({ live: null, latestBuild: null }),
 				}),
 			),
 		);
@@ -265,7 +288,7 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: { live: null, latestBuild: appBuild("failed"), history: [] },
+					status: liveStatus({ live: null, latestBuild: appBuild("failed") }),
 				}),
 			),
 		);
@@ -280,11 +303,10 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: {
+					status: liveStatus({
 						live: null,
 						latestBuild: { ...appBuild("blocked"), errorCode: "gate_blocked" },
-						history: [],
-					},
+					}),
 				}),
 			),
 		);
@@ -293,6 +315,75 @@ describe("PublishWebTargets", () => {
 				"The safety check stopped this publish. Ask Wandit in the chat to fix the problems.",
 			),
 		).toBeTruthy();
+	});
+
+	it("lists an overridable finding of a Publish anyway attempt under Warnings", () => {
+		const secret: PublishGateFinding = {
+			kind: "secret",
+			severity: "block",
+			path: "client/assets/index.js",
+			rule: "stripe_live_secret_key",
+			sample: ["sk", "live", "…a1b2"].join("_"),
+		};
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: liveStatus({
+						live: null,
+						latestBuild: {
+							...appBuild("blocked"),
+							errorCode: "gate_blocked",
+							gateOverride: true,
+							gateFindings: [secret, rlsFinding("notes")],
+						},
+					}),
+				}),
+			),
+		);
+		const blockGroup = screen.getByText("Fix before you publish").parentElement;
+		const warnGroup = screen.getByText("Warnings").parentElement;
+		expect(blockGroup?.textContent).toContain(
+			"The public file client/assets/index.js holds a secret key",
+		);
+		expect(blockGroup?.textContent).not.toContain("notes");
+		expect(warnGroup?.textContent).toContain(
+			"Anyone can read the table notes without signing in.",
+		);
+	});
+
+	it("keeps the Ask the AI to fix message within the prompt limit and counts the cut findings", () => {
+		const onAskFix = vi.fn<(text: string) => void>();
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					onAskFix,
+					status: liveStatus({
+						latestBuild: {
+							...appBuild("blocked"),
+							gateFindings: Array.from({ length: 200 }, (_, index) =>
+								rlsFinding(`table_${index}`),
+							),
+						},
+					}),
+				}),
+			),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Ask the AI to fix" }));
+
+		expect(onAskFix).toHaveBeenCalledOnce();
+		const [text] = onAskFix.mock.calls[0];
+		const lines = text.split("\n");
+		const restCount = Number(
+			/^- \(\+(\d+) more\)$/.exec(lines.at(-1) ?? "")?.[1],
+		);
+		expect(text.length).toBeLessThanOrEqual(projectPromptMaxLength);
+		expect(lines[1]).toBe(
+			"- [block] rls_probe relation=table_0 reason=rows_returned",
+		);
+		// The intro and the rest line are not findings. The listed and the cut lines cover all 200.
+		expect(lines.length - 2 + restCount).toBe(200);
 	});
 
 	it("lists only the versions that were live once and rolls one back by its id", () => {

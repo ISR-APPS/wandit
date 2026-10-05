@@ -41,6 +41,12 @@ const expectedPermissionMatrix = [
 		resource: "publications",
 		support: true,
 	},
+	{
+		action: "suspend",
+		admin: true,
+		resource: "publications",
+		support: false,
+	},
 	{ action: "read", admin: true, resource: "feedback", support: true },
 	{ action: "manage", admin: true, resource: "feedback", support: true },
 	{ action: "read", admin: true, resource: "affiliates", support: false },

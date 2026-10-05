@@ -111,6 +111,7 @@ export function ProjectBar({
 	);
 }
 
+/** Values and callbacks of the work pane half. AppBuilderPage owns each one. */
 export type WorkBarProps = {
 	/** The open project, from appProjectQuery in the page. */
 	project: AppProject;
@@ -128,6 +129,10 @@ export type WorkBarProps = {
 	onReload: () => void;
 	/** `https://{slug}.{SITES_DOMAIN}` of the live web app, from the publish status in the page. Null before the first publish and for a mobile app. */
 	liveUrl: string | null;
+	/** True when the chat can take a message. Passed to the publish popover for "Ask the AI to fix". */
+	canAskFix: boolean;
+	/** Sends one chat message and opens the chat. The publish popover sends the gate findings with it. */
+	onAskFix: (text: string) => void;
 };
 
 /** On desktop this half sits over the main card. A drag of the split moves it with the card. */
@@ -142,6 +147,8 @@ export function WorkBar({
 	onChangeViewport,
 	onReload,
 	liveUrl,
+	canAskFix,
+	onAskFix,
 }: WorkBarProps) {
 	return (
 		// LIMIT: the controls need about 740 px; a narrower row clips the actions at the end. Upgrade: fold the actions into one menu.
@@ -163,7 +170,11 @@ export function WorkBar({
 					/>
 				) : null}
 				<CreditsChip className="hidden sm:flex" />
-				<PublishPopover project={project} />
+				<PublishPopover
+					project={project}
+					canAskFix={canAskFix}
+					onAskFix={onAskFix}
+				/>
 				<UserMenu />
 			</div>
 		</div>

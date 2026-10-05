@@ -9,6 +9,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AppBuildErrorCode,
 	liveAppBuildStatuses,
+	type PublishGateFinding,
+	type SuspendedReasonCode,
 } from "@wandit/contracts";
 import { and, desc, eq, inArray, lt } from "@wandit/db";
 import { appBuilds } from "@wandit/db/schema/app-builds";
@@ -41,6 +43,8 @@ export type NewAppBuild = {
 	sourceBuildId: string | null;
 	/** Client uuid of the request. Unique per project. */
 	requestKey: string;
+	/** True on an owner "Publish anyway" attempt: overridable findings do not block it. */
+	gateOverride: boolean;
 };
 
 /** Result of `insertQueued`; the cases match `MobileBuildsRepository.insertQueued`. */
@@ -65,11 +69,15 @@ export type AppBuildTransition =
 			fileCount: number;
 			/** Total bytes of the build output. */
 			bytes: number;
+			/** The findings that did not block: `warn` findings and overridden ones. */
+			gateFindings: PublishGateFinding[];
 	  }
 	| { to: "published" }
 	| {
 			to: "blocked";
-			/** The finding messages of the gate, for support. */
+			/** Every finding of the gates; at least one of them blocks. */
+			gateFindings: PublishGateFinding[];
+			/** A short English summary of the findings, for support. */
 			errorMessage: string;
 	  }
 	| {
@@ -95,6 +103,10 @@ export type PublishProjectRow = {
 	organizationId: string | null;
 	/** Set when the user deleted the project. A deleted project never publishes. */
 	deletedAt: Date | null;
+	/** Set while staff suspend the app (WANDIT-181). A suspended project never publishes. */
+	suspendedReasonCode: SuspendedReasonCode | null;
+	/** When staff suspended the app; set together with `suspendedReasonCode`. */
+	suspendedAt: Date | null;
 };
 
 // A stored failure text stays short. This write is the one place that
@@ -331,6 +343,8 @@ export class AppPublishRepository {
 				framework: projects.framework,
 				name: projects.name,
 				organizationId: projects.organizationId,
+				suspendedAt: projects.suspendedAt,
+				suspendedReasonCode: projects.suspendedReasonCode,
 				templateVersion: projects.templateVersion,
 				userId: projects.userId,
 			})
@@ -352,6 +366,7 @@ function transitionColumns(
 			return {
 				bytes: change.bytes,
 				fileCount: change.fileCount,
+				gateFindings: change.gateFindings,
 				status: "uploading",
 			};
 		case "published":
@@ -361,6 +376,7 @@ function transitionColumns(
 				completedAt: new Date(),
 				errorCode: "gate_blocked",
 				errorMessage: change.errorMessage.slice(0, ERROR_MESSAGE_MAX_LENGTH),
+				gateFindings: change.gateFindings,
 				status: "blocked",
 			};
 		case "failed":

@@ -42,12 +42,16 @@ const QUEUED: AppBuild = {
 	errorCode: null,
 	createdAt: "2026-10-01T10:00:00.000Z",
 	completedAt: null,
+	gateFindings: [],
+	gateOverride: false,
 };
 
 const STATUS: AppPublishStatus = {
 	live: null,
 	latestBuild: QUEUED,
 	history: [],
+	suspension: null,
+	gateOverrideAllowed: false,
 };
 
 describe("getAppPublishStatus", () => {

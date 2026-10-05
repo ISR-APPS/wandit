@@ -4,8 +4,11 @@
  * AppModule imports it. AdminSecurityModule gives the guard and view grants.
  */
 import { Module } from "@nestjs/common";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { AuditEventsService } from "../app-builder/application/services/audit-events.service";
+import { AuditEventsRepository } from "../app-builder/infrastructure/persistence/audit-events.repository";
 import { BillingWebhookEventsRepository } from "../billing/infrastructure/persistence/billing-webhook-events.repository";
 import { TriggerBillingWebhookDispatcherService } from "../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { CreditsModule } from "../credits/credits.module";
@@ -28,6 +31,7 @@ import { AdminPublicationsService } from "./application/services/admin-publicati
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
+import { PublicationSuspensionService } from "./application/services/publication-suspension.service";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
 import { AdminAnalyticsRepository } from "./infrastructure/persistence/admin-analytics.repository";
 import { AdminAuditRepository } from "./infrastructure/persistence/admin-audit.repository";
@@ -96,7 +100,17 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminStatsService,
 		AdminUsersService,
 		AdminWebhookReplayService,
+		AuditEventsRepository,
+		// AppBuilderModule loads only with V2_BUILDER_ENABLED, so the suspend
+		// switch builds its own audit writer, with the same factory.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
 		BillingWebhookEventsRepository,
+		PublicationSuspensionService,
 		TriggerBillingWebhookDispatcherService,
 	],
 })

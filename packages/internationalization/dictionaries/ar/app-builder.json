@@ -594,10 +594,56 @@
 			"output_too_large": "تطبيقك أكبر من الحد المسموح للنشر. الحد هو 2000 ملف و100 ميغابايت.",
 			"source_missing": "لم يعد هذا الإصدار محفوظًا. انشر الإصدار الحالي.",
 			"gate_blocked": "أوقف فحص الأمان هذا النشر. اطلب من Wandit في المحادثة إصلاح المشكلات.",
+			"gate_unavailable": "تعذّر تشغيل فحص الأمان. أعد المحاولة بعد بضع دقائق.",
+			"suspended": "علّق فريق Wandit هذا التطبيق، لذلك توقف النشر.",
 			"slug_taken": "أخذ موقع منشور آخر هذا العنوان. أعد المحاولة.",
 			"upload_failed": "فشل الرفع إلى خدمة الاستضافة. أعد المحاولة.",
 			"unconfigured": "النشر غير متاح الآن. أعد المحاولة لاحقًا.",
 			"internal": "حدث خطأ أثناء النشر. أعد المحاولة."
+		},
+		"suspension": "علّق فريق Wandit هذا التطبيق. السبب: {reason}. تواصل مع الدعم لمعرفة المزيد.",
+		"suspensionReasons": {
+			"abuse_phishing": "صفحة تسجيل دخول أو بنك أو محفظة مزيفة",
+			"abuse_malware": "برمجية خبيثة أو تنزيل ضار",
+			"abuse_url_scan": "صنّف ماسح أمني التطبيق على أنه ضار",
+			"legal_takedown": "أمر قانوني بإزالة التطبيق",
+			"legal_notice": "إشعار قانوني قيد المراجعة",
+			"tos_violation": "مخالفة شروط الخدمة",
+			"billing": "رصيد غير مدفوع في الحساب",
+			"manual_review": "يراجع فريق Wandit بلاغًا عن التطبيق"
+		},
+		"findings": {
+			"block": "يجب الإصلاح قبل النشر",
+			"warn": "تحذيرات",
+			"secretClient": "يحتوي الملف العام {path} على مفتاح سري: {rule} ({sample})",
+			"secretServer": "يحتوي كود الخادم {path} على مفتاح سري: {rule} ({sample})",
+			"secretRules": {
+				"aws_access_key": "مفتاح وصول AWS",
+				"stripe_live_secret_key": "مفتاح Stripe السري للوضع المباشر",
+				"stripe_live_restricted_key": "مفتاح Stripe المقيّد للوضع المباشر",
+				"stripe_webhook_secret": "سر webhook الخاص بـ Stripe",
+				"supabase_secret_key": "مفتاح Supabase السري",
+				"supabase_service_role_jwt": "مفتاح service role الخاص بـ Supabase",
+				"anthropic_api_key": "مفتاح API الخاص بـ Anthropic",
+				"google_api_key": "مفتاح API الخاص بـ Google",
+				"private_key": "مفتاح خاص"
+			},
+			"phishing": "الاسم العام \"{target}\" يشبه صفحة تسجيل دخول أو بنك أو محفظة.",
+			"advisor": {
+				"ERROR": "فحص Supabase: {title}. يجب إصلاح هذا قبل النشر.",
+				"WARN": "فحص Supabase: {title}"
+			},
+			"rlsProbe": {
+				"rows_returned": "يمكن لأي شخص قراءة الجدول {relation} دون تسجيل الدخول.",
+				"no_rls": "الجدول {relation} بلا أمان على مستوى الصفوف.",
+				"anon_policy": "تسمح قاعدة لأي شخص بقراءة كل صفوف {relation}.",
+				"probe_timeout": "لم يكتمل فحص قاعدة البيانات."
+			},
+			"unknownTable": "(غير معروف)",
+			"askFix": "اطلب من الذكاء الاصطناعي الإصلاح",
+			"askFixMessage": "وجد فحص أمان النشر هذه المشكلات في تطبيقي. أصلحها:",
+			"overrideWarning": "قد يتمكن أي شخص من قراءة الجداول المذكورة. انشر فقط إذا كانت هذه البيانات عامة.",
+			"override": "انشر على أي حال"
 		},
 		"testOnPhone": "جرّب على هاتفك",
 		"scanQr": "امسح رمز QR · يتحدّث فورًا",
