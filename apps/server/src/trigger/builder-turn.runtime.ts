@@ -37,6 +37,7 @@ import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { appRecipeInstruction } from "../modules/app-builder/domain/app-recipe";
 import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
 import type {
@@ -1661,7 +1662,8 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Four sentences, plus one for a mobile app. The template
+			// Four sentences, plus one platform sentence: the Expo rule for a
+			// mobile app, the app design recipe for a web app. The template
 			// CLAUDE.md in the workspace root holds every other rule.
 			// projects.languages holds the wandit UI locale at creation, not a
 			// choice of the user, so the agent gets it as a hint only.
@@ -1672,7 +1674,7 @@ export async function runBuilderTurn(
 				"Follow CLAUDE.md: plan before you code, run its checks before you say that you are done, and end with a short answer in plain words." +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION}`
-					: ""),
+					: ` ${appRecipeInstruction(projectId)}`),
 			model,
 			sandbox,
 		};

@@ -37,6 +37,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D23 | Price of a mobile build | changed | 2026-09-26 |
 | D24 | Turn stream store when the harness host runs the turn (D20 change) | open | 2026-10-01 |
 | D25 | Visual edit of text and colors in the V2 preview | default | 2026-10-04 |
+| D26 | App design recipe picked by the host | default | 2026-10-04 |
 
 ## D1. Sandbox vendor
 
@@ -339,9 +340,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: WANDIT-203.
 - Notes: B is not cheap. A text often comes from `t("key")` in three dictionary files, and a color comes from a class or a token in `tokens.css`. A safe source write needs an AST edit, a commit, and a conflict rule with a running turn. WANDIT-203 puts the V1 save-batch model out of scope. Revisit when users ask for it.
 
+## D26. App design recipe picked by the host
+
+- Question: Who picks the look and the layout of the app area behind login?
+- Options: A. The agent picks. B. The host picks a recipe from a hash of the project id. C. A `projects` column stores a random recipe.
+- Default: B. `domain/app-recipe.ts` writes one sentence into the session instructions. The template skill `app-dashboard` explains it.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-10-04
+- Decided by: nobody yet.
+- Issues that change: none filed yet.
+- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D26.
+1. Take the next number. The next number is D27.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

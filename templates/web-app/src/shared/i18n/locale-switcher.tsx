@@ -1,4 +1,4 @@
-// Language switcher for a header. The landing header renders it.
+// Language switcher for a header. The landing header, the login page, and the app header render it.
 // It renders nothing while the app has one language, and it writes through setLocale.
 import {
 	Select,
@@ -12,7 +12,7 @@ import { setLocale, useT } from "./provider";
 
 /** Header select of the app languages. Renders nothing while `locales` has one code. */
 export function LocaleSwitcher() {
-	const { locale } = useT();
+	const { locale, t } = useT();
 	// One language: there is nothing to switch. A second code in `locales` shows it.
 	if (locales.length < 2) {
 		return null;
@@ -26,7 +26,7 @@ export function LocaleSwitcher() {
 				}
 			}}
 		>
-			<SelectTrigger className="w-[7.5rem]" aria-label="Language">
+			<SelectTrigger className="w-[7.5rem]" aria-label={t("common.language")}>
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent>

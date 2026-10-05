@@ -3297,8 +3297,9 @@ describe("runBuilderTurn", () => {
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
 		expect(instructions).toContain("ask_user tool");
 		expect(instructions).toContain("Bash and Agent description");
-		// The platform sentence is for a mobile app only.
+		// The Expo sentence is for a mobile app only.
 		expect(instructions).not.toContain("Expo");
+		expect(instructions).toContain("app-dashboard");
 	});
 
 	it("adds the Expo sentence to the instructions of a mobile project", async () => {
@@ -3316,6 +3317,7 @@ describe("runBuilderTurn", () => {
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
 		expect(instructions).toContain("Expo Go");
 		expect(instructions).toContain("ask_user tool");
+		expect(instructions).not.toContain("app-dashboard");
 	});
 
 	it("writes a data-thought part with the duration after each reasoning block", async () => {

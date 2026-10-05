@@ -24,7 +24,7 @@ PostHog flag `v2-builder`).
 | --- | --- |
 | `domain/ports/` | WANDIT-162 (this issue): the interfaces below |
 | `domain/errors/` | WANDIT-162: `V2BuilderDisabledError`, `SandboxForkNotSupportedError`; WANDIT-184: `BackendLimitReachedError` |
-| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine |
+| `domain/` | WANDIT-184: `backend-lifecycle.ts`, the idle, delete, and entitlement rules; WANDIT-194: `mobile-build.ts`, the build status machine, the EAS identity, and the config plugin check; WANDIT-178: `app-build.ts`, the publish status machine; `app-recipe.ts`, the design recipe sentence of a web project |
 | `infrastructure/env/` | WANDIT-162: `requireV2Env` call-time checks |
 | `infrastructure/sandbox/` | WANDIT-164: the Vercel `SandboxProvider`, env builder, template init; WANDIT-192: `template-profiles.ts`, one profile per platform |
 | `infrastructure/git/` | WANDIT-164: `LoggingRepoRestorer` placeholder; WANDIT-171: code.storage |
@@ -858,8 +858,11 @@ One run does this, in order:
    harness mismatch is a failure. The session instructions give the UI
    language as a hint for the app language, the `ask_user` rule, the
    description language, and the CLAUDE.md work rules (plan, checks,
-   plain final answer). A mobile project adds one sentence that points at the template
-   `CLAUDE.md`, which Claude Code loads from the workspace root. The `session_starting` status is
+   plain final answer). A mobile project adds the Expo sentence. A web
+   project adds the app design recipe (`domain/app-recipe.ts`): one stable
+   sentence per project id, so the warm CLI and the prompt cache stay
+   valid. Claude Code loads the template `CLAUDE.md` from the workspace
+   root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note

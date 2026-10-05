@@ -11,10 +11,13 @@ import {
 	TriangleAlertIcon,
 } from "~/shared/ui/icons";
 
+/** The toast area. The theme is fixed, so it must match the class on <html>. */
 function Toaster({ ...props }: ToasterProps) {
 	return (
 		<Sonner
-			theme="system"
+			// The app sets no dark class by default, so a dark OS must not darken the toasts.
+			// The mode=dark step of the app-dashboard skill sets "dark" here too.
+			theme="light"
 			className="toaster group"
 			icons={{
 				success: <CircleCheckIcon className="size-4" />,
