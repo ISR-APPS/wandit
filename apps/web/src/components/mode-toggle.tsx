@@ -1,6 +1,6 @@
 /**
  * A round button that switches between the light and the dark theme.
- * The dashboard top bar, LandingNav (pricing, terms, privacy), and the billing page render it.
+ * The dashboard top bar and LandingNav (terms, privacy) render it.
  * It calls setTheme of the theme provider.
  */
 import { MoonIcon } from "@phosphor-icons/react/Moon";

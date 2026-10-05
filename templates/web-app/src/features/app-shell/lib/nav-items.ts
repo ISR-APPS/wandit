@@ -1,10 +1,9 @@
 // The pages of the sidebar, in order. AppSidebar lists them; AppHeader shows the active label.
 // The generated app lists its pages here; a wrong path fails typecheck.
 import type { useMatchRoute } from "@tanstack/react-router";
-import type { ComponentType, SVGProps } from "react";
+import { type LucideIcon, UserIcon } from "lucide-react";
 import type { FileRouteTypes } from "~/routeTree.gen";
 import type { TranslationKey } from "~/shared/i18n";
-import { UserIcon } from "~/shared/ui/icons";
 
 /** One entry of the sidebar. */
 export type NavItem = {
@@ -12,8 +11,8 @@ export type NavItem = {
 	to: FileRouteTypes["to"];
 	/** Message key of the label, for example "shell.profile". */
 	labelKey: TranslationKey;
-	/** An icon from ~/shared/ui/icons that names the page. */
-	icon: ComponentType<SVGProps<SVGSVGElement>>;
+	/** A lucide-react icon that names the page, for example `UserIcon`. */
+	icon: LucideIcon;
 };
 
 /** The sidebar entries. The home comes first; Profile stays last. */

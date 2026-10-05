@@ -1,3 +1,9 @@
+/**
+ * The public pricing page at `/pricing`. The route file routes/pricing.tsx renders it.
+ * It uses the nav and the footer of the home page. It reports the
+ * "pricing viewed" product event, which the emitter sends once per browser session.
+ */
+
 import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 
@@ -7,9 +13,9 @@ import {
 	getProductEventSessionState,
 } from "@/features/product-events";
 
-import { LandingFooter } from "../components/landing-footer";
-import { LandingNav } from "../components/landing-nav";
 import { Pricing } from "../components/pricing";
+import { SiteFooter } from "../components/site-footer";
+import { SiteNav } from "../components/site-nav";
 
 export default function PricingPage() {
 	const { data: session, isPending: isSessionPending } = useSession();
@@ -25,13 +31,12 @@ export default function PricingPage() {
 
 	return (
 		<MotionConfig reducedMotion="user">
-			<div className="min-h-svh bg-background">
-				<LandingNav />
-				{/* The nav is fixed — clear its height so the section header shows. */}
-				<main className="pt-14 md:pt-16">
+			<div className="min-h-svh bg-paper font-grotesk text-night antialiased">
+				<SiteNav />
+				<main>
 					<Pricing />
 				</main>
-				<LandingFooter />
+				<SiteFooter />
 			</div>
 		</MotionConfig>
 	);

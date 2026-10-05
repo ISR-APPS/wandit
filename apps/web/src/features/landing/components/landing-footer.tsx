@@ -1,5 +1,5 @@
 /**
- * Footer of the pricing, privacy, and terms pages: link columns, legal links,
+ * Footer of the privacy and terms pages: link columns, legal links,
  * the abuse contact, and the legal entity. Copy comes from landing.footer.
  */
 

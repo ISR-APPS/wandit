@@ -51,6 +51,8 @@ Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in
 // KPI row of the home, style "spark": number cards with a small area chart at the bottom edge.
 // The home renders it in the KPI slot with the items of buildOverviewKpis (data.md).
 // It calls Card, Skeleton, ChartContainer, and recharts. Every number goes through Intl.
+
+import { TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { Area, AreaChart, XAxis } from "recharts";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
@@ -62,7 +64,6 @@ import {
 	CardTitle,
 } from "~/shared/ui/card";
 import { type ChartConfig, ChartContainer } from "~/shared/ui/chart";
-import { TrendingDownIcon, TrendingUpIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
 import type { KpiItem } from "../lib/series";
 

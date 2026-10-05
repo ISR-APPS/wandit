@@ -1,11 +1,12 @@
 /**
- * The fixed top bar of the landing page. pages/landing-page.tsx renders it.
- * It is clear over the top of the ember hero and the closing panel, solid
- * ember when their content is under it, and frosted paper in between.
+ * The fixed top bar of the landing page. pages/landing-page.tsx and
+ * pages/pricing-page.tsx render it. It is clear over the top of the ember
+ * hero and the closing panel, solid ember when their content is under it,
+ * and frosted paper in between.
  * It holds the section links, the language menu, and sign-in.
  */
 
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -23,12 +24,8 @@ import { UserMenu, useAuthModal, useSession } from "@/features/auth";
 import { localeMeta, useDictionary, useTranslation } from "@/lib/i18n";
 
 import { LANDING_NAV_LINK_IDS } from "../lib/constants";
-import {
-	CLOSING_PANEL_ID,
-	HERO_PANEL_ID,
-	scrollToId,
-	scrollToTop,
-} from "../lib/scroll";
+import { CLOSING_PANEL_ID, HERO_PANEL_ID, scrollToTop } from "../lib/scroll";
+import { useSectionNav } from "../lib/use-section-nav";
 import { KeycapButton, keycapClassName } from "./keycap-button";
 
 // Vertical middle of the 64 px bar. The bar takes an ember look while
@@ -99,6 +96,9 @@ export function SiteNav() {
 	const { data: session } = useSession();
 	const { open } = useAuthModal();
 	const activeId = useActiveSection();
+	const navigateToSection = useSectionNav();
+	const pathname = useLocation({ select: (location) => location.pathname });
+	const isHome = pathname === "/";
 	const { scrollY } = useScroll();
 	// The page opens at the top, over the hero. The panels are not in the DOM
 	// at the first render, so the first scroll event sets the real value.
@@ -137,10 +137,17 @@ export function SiteNav() {
 				)}
 			>
 				<div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:px-8 lg:grid lg:grid-cols-[1fr_auto_1fr]">
-					<button
-						type="button"
-						onClick={scrollToTop}
-						aria-label={t("landing.nav.backToTop")}
+					{/* On the home page the logo scrolls to the top. On the pricing page it goes home. */}
+					<Link
+						to="/"
+						onClick={(event) => {
+							if (!isHome) return;
+							event.preventDefault();
+							scrollToTop();
+						}}
+						aria-label={
+							isHome ? t("landing.nav.backToTop") : t("landing.nav.home")
+						}
 						className={cn(
 							"group/logo flex min-h-11 items-center gap-2 justify-self-start rounded-xl outline-offset-4 focus-visible:outline-2",
 							focusRing,
@@ -167,34 +174,20 @@ export function SiteNav() {
 						>
 							wandit
 						</span>
-					</button>
+					</Link>
 
 					<nav className="hidden items-center gap-1 lg:flex">
 						{LANDING_NAV_LINK_IDS.map((id) => {
-							const isActive = id === activeId;
+							// Pricing is a page of its own. The other links are sections of the home page.
+							const isActive =
+								id === "pricing" ? pathname === "/pricing" : id === activeId;
 							const linkClass = cn(
 								quietControl,
 								"relative px-3.5 py-2 font-medium text-sm",
 								isActive && "text-night",
 							);
-							if (id === "pricing") {
-								return (
-									<Link key={id} to="/pricing" className={linkClass}>
-										{nav.links[id]}
-									</Link>
-								);
-							}
-							return (
-								<a
-									key={id}
-									href={`#${id}`}
-									onClick={(event) => {
-										event.preventDefault();
-										scrollToId(id);
-									}}
-									aria-current={isActive ? "location" : undefined}
-									className={linkClass}
-								>
+							const label = (
+								<>
 									{/* The pill glides to the section the visitor reads now. */}
 									{isActive ? (
 										<motion.span
@@ -212,6 +205,28 @@ export function SiteNav() {
 										/>
 									) : null}
 									<span className="relative">{nav.links[id]}</span>
+								</>
+							);
+							if (id === "pricing") {
+								return (
+									<Link key={id} to="/pricing" className={linkClass}>
+										{label}
+									</Link>
+								);
+							}
+							return (
+								<a
+									key={id}
+									// The full path keeps the link true on the pricing page and in a new tab.
+									href={`/#${id}`}
+									onClick={(event) => {
+										event.preventDefault();
+										navigateToSection(id);
+									}}
+									aria-current={isActive ? "location" : undefined}
+									className={linkClass}
+								>
+									{label}
 								</a>
 							);
 						})}

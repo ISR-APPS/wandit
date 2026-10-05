@@ -1,9 +1,9 @@
 // Public landing page. The "/" route renders it, and the build prerenders it.
 // The generated app replaces this hero and these features with its own content.
 import { Link } from "@tanstack/react-router";
+import { ArrowRightIcon, CircleCheckBigIcon } from "lucide-react";
 import { LocaleSwitcher, useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import { ArrowRightIcon, CheckCircleIcon } from "~/shared/ui/icons";
 
 export function LandingPage() {
 	const { t } = useT();
@@ -61,7 +61,7 @@ export function LandingPage() {
 								key={feature.title}
 								className="rounded-xl border bg-card p-6 text-start"
 							>
-								<CheckCircleIcon className="mb-3 size-5 text-primary" />
+								<CircleCheckBigIcon className="mb-3 size-5 text-primary" />
 								<h3 className="font-semibold">{feature.title}</h3>
 								<p className="mt-1 text-muted-foreground text-sm">
 									{feature.body}

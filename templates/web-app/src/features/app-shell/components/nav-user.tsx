@@ -1,6 +1,8 @@
 // The user row at the foot of the sidebar: the avatar, the email, and a menu with Sign out.
 // AppSidebar renders it with the email of the session. Sign-out uses the auth feature mutation,
 // which opens / and clears the query cache on success.
+
+import { ChevronsUpDownIcon, LogOutIcon } from "lucide-react";
 import { Direction } from "radix-ui";
 import { toast } from "sonner";
 import { useSignOutMutation } from "~/features/auth";
@@ -14,7 +16,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "~/shared/ui/dropdown-menu";
-import { ChevronsUpDownIcon, LogOutIcon } from "~/shared/ui/icons";
 import {
 	SidebarMenu,
 	SidebarMenuButton,
