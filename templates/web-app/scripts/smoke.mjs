@@ -130,13 +130,13 @@ try {
 
 // The sandbox installs the full dev tree because vite dev, typecheck, and
 // lint all need it. The size check measures that same tree here.
-// LIMIT: the dev tree is about 590 MB (2026-10-04), workerd alone 146 MB.
+// LIMIT: the dev tree is about 610 MB (2026-10-04), recharts about 22 MB, workerd alone 146 MB.
 // Upgrade: a pre-warmed pnpm store in the sandbox image (WANDIT-164).
 const nodeModulesSize = dirSizeBytes(join(root, "node_modules"));
-const maxBytes = 600 * 1024 * 1024;
+const maxBytes = 640 * 1024 * 1024;
 if (nodeModulesSize > maxBytes) {
 	throw new Error(
-		`node_modules is ${(nodeModulesSize / 1024 / 1024).toFixed(0)} MB, over the 600 MB ceiling`,
+		`node_modules is ${(nodeModulesSize / 1024 / 1024).toFixed(0)} MB, over the 640 MB ceiling`,
 	);
 }
 

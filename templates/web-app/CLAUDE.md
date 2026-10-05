@@ -49,6 +49,7 @@ The host machine runs the session and commits your work.
 ## Structure
 
 The app is split by feature. `src/features/profile/` is the example: copy its shape.
+`src/features/app-shell/` is the frame of every page behind login: the sidebar, the header, and the user menu.
 
 ```
 src/
@@ -75,10 +76,15 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - A route file holds the path, the guard, the loader, and one feature component. No markup, no fetch, no state.
 - Move code to `shared/` only when a second feature needs it.
 - Create a folder only when it gets a file. Delete an example feature that the app does not need.
-- One component per file. File names are kebab-case.
+  `landing` and `profile` are examples too.
+- One component per file. A page or a card file can also hold its Skeleton, its error, and its empty state.
+  File names are kebab-case.
 - Public routes are prerendered at build time. The build crawls links from `/`.
-- Routes behind login render in the browser: `ssr: false`, and
-  `beforeLoad: async () => ({ session: await requireSession() })` with `requireSession` from `~/features/auth`.
+- Keep the `/` route. An app with no public page makes `/` a redirect to `/app`.
+- Every link points to a route that exists. A missing route fails the publish build.
+- Routes behind login are files in `src/routes/app/`. Their layout `src/routes/app.tsx` checks the session
+  with `requireSession` from `~/features/auth` and renders the app shell. It has `ssr: false`,
+  so every child renders in the browser.
 - App logic that needs the server runs in `createServerFn` from `@tanstack/react-start`.
 - This is not a Vite SPA. There is no `dist/index.html` to patch. The document head lives in `src/routes/__root.tsx`.
 
@@ -88,7 +94,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - A read is a `<entity>QueryOptions(...)` function made with `queryOptions()` in `<entity>.queries.ts`.
   The query key starts with the entity name, for example `["bookings", day]`.
 - A route that needs data: its loader calls `context.queryClient.query(options)`,
-  and the page calls `useSuspenseQuery(options)`. See `src/routes/app.tsx`.
+  and the page calls `useSuspenseQuery(options)`. See `src/routes/app/profile.tsx`.
 - Data that loads later, for example after a click: `useQuery(options)`, with a loading and an error state.
 - A write is a `use<Action>Mutation()` hook made with `useMutation()` in `<entity>.mutations.ts`.
   Its `onSuccess` invalidates the queries that the write changes.
@@ -113,18 +119,33 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 
 ## Design
 
-- Load the `frontend-design` skill before every new screen and every redesign.
-  It gives the process and the quality bar: plan the tokens, check the plan against the brief,
-  build, then check screenshots and fix.
-- A design world gives the direction: palette, fonts, voice, motifs. One world applies per app.
-  The world wins on every visual choice that it names. `frontend-design` wins on quality:
-  hierarchy, spacing, contrast, accessibility, restraint.
-- This file comes before both skills. A skill section that needs a fact the user did not give
+- First, classify the request. Write the kind in the plan.
+  - A website: its main value is on public pages. Examples: a showcase site, a landing page,
+    a product page, a COD page, a portfolio, a blog.
+  - An app: its main value is behind sign-in. Its users work in it every day.
+    Examples: a SaaS, a dashboard, a back office, a management tool ("gestion", "suivi"),
+    a CRM, an admin panel, an internal tool. An app is never a landing page with a sign-in button.
+  - Both: public pages and an app area, for example a shop and its back office.
+- An app: load the `app-dashboard` skill before every screen behind login and every redesign of it.
+  On those screens, it replaces `frontend-design` and the design worlds.
+  The app recipe in your session instructions gives the look and the layout. The user's words win over it.
+- An internal tool has no public page: only the team of one business signs in. `/` redirects to `/app`.
+  The request does not say who signs in: build an internal tool, and offer a public page in the final answer.
+- A product that the public signs up for gets one short public page in the app theme, with no world.
+- A website, and the public pages of Both: load the `frontend-design` skill before every new page
+  and every redesign. It gives the process and the quality bar: plan the tokens,
+  check the plan against the brief, build, then check screenshots and fix.
+- A design world gives the direction of the public pages: palette, fonts, voice, motifs.
+  One world applies per app. On public pages, the world wins on every visual choice that it names.
+  `frontend-design` wins on quality: hierarchy, spacing, contrast, accessibility, restraint.
+- A world never shapes the pages behind login. In Both, the app area takes only the world palette and fonts.
+- This file comes before every skill. A skill section that needs a fact the user did not give
   (a quote, a price, an address, a team member): ask for it, or leave the section out.
-- No world is picked: offer 2 to 4 worlds in the first `ask_user` call,
+- A website with no world picked: offer 2 to 4 worlds in the first `ask_user` call,
   or pick the closest world and say so. The index skills list the worlds:
-  `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`.
-- `src/styles/tokens.css` is the single source of colors, radius, and font names. Put the world tokens there.
+  `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`. Never offer a world for an app.
+- `src/styles/tokens.css` is the single source of colors, radius, and font names. It has two parts.
+  A world or an app theme replaces the palette part. Keep the derived part and every token name.
   World skills name the fonts `--font-heading` and `--font-body`. In this template they are
   `--font-display` and `--font-sans`.
 - Load the world fonts in `head().links` of `src/routes/__root.tsx`, and remove the links
@@ -169,7 +190,8 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - Do not ask for things that the message already answers.
 - Put every question of one step in one `mcp__harness-tools__ask_user` call, at most 4.
   The tool description gives the input shape and the answer shape.
-- The first build asks its open choices together: the app language, the design world, and missing facts.
+- The first build asks its open choices together: the app language, the design world of a website
+  or of the public pages, and missing facts. An app area gets no style question: the recipe gives the look.
 
 ## Supabase
 
@@ -206,6 +228,7 @@ Run these before you say that the work is done:
 - No fake data: lists show real rows or facts from the user. No lorem ipsum, no invented reviews or prices.
 - No dead buttons: every button and link does a real thing, or it does not exist.
 - Every new screen has its loading, empty, and error states, and works at 375 px wide.
+- An app: the checklist at the end of the `app-dashboard` skill passes.
 
 ## Final answer
 

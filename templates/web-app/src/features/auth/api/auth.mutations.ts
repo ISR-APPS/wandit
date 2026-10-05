@@ -1,5 +1,5 @@
 // Sign-in, sign-up, and sign-out as React Query mutations over Supabase Auth.
-// The login page and the profile page call these hooks; they call getSupabase().auth.
+// The login page and the user menu of the app shell call these hooks; they call getSupabase().auth.
 // A Supabase error rejects the mutation, so the page reads it from `isError`.
 import type { Session } from "@supabase/supabase-js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";

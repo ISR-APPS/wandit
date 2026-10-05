@@ -3,7 +3,7 @@
 // Email confirmation is off for the project, so sign-up returns a session at once.
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { useT } from "~/shared/i18n";
+import { LocaleSwitcher, useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
 import {
 	Card,
@@ -70,7 +70,11 @@ export function LoginPage() {
 	const showError = formIssue === "invalid" || request.isError;
 
 	return (
-		<div className="flex min-h-svh items-center justify-center bg-background px-6">
+		<div className="relative flex min-h-svh items-center justify-center bg-background px-6">
+			{/* An internal tool has no landing page, so the login page carries the language switcher. */}
+			<div className="absolute end-6 top-6">
+				<LocaleSwitcher />
+			</div>
 			<Card className="w-full max-w-sm">
 				<CardHeader>
 					<CardTitle>

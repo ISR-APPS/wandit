@@ -1,5 +1,6 @@
-// shadcn-style card primitives.
-// Sections and grouped content use these slots.
+// shadcn-style card primitives (port of shadcn/ui, MIT).
+// Sections, KPI cards, and chart cards use these slots.
+// CardAction puts a control (a period Select, an icon) at the end of the header row.
 
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
@@ -17,12 +18,16 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
+/**
+ * The title and the description rows. A CardAction child adds an end column.
+ * Children can use `@container/card-header` queries on its width.
+ */
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card-header"
 			className={cn(
-				"grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6",
+				"@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto]",
 				className,
 			)}
 			{...props}
@@ -50,6 +55,20 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
+/** A control at the end of the header, beside the title and the description. */
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+	return (
+		<div
+			data-slot="card-action"
+			className={cn(
+				"col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
@@ -72,6 +91,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
 
 export {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardFooter,

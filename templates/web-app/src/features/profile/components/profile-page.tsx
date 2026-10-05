@@ -1,20 +1,14 @@
-// The page behind login: the profile form and the sign-out button.
-// The /app route renders it after its guard and its loader; the profile is in the cache.
-// The route also uses the skeleton and the error state below.
+// The profile page behind login: the page header and the profile form.
+// The /app/profile route renders it inside the app shell, after its loader; the profile is in the cache.
+// The route also uses the skeleton and the error state below. Sign-out lives in the sidebar user menu.
 import type { Session } from "@supabase/supabase-js";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { FormEvent } from "react";
-import { useSignOutMutation } from "~/features/auth";
+import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "~/shared/ui/card";
+import { Card, CardContent } from "~/shared/ui/card";
 import { Input } from "~/shared/ui/input";
 import { Label } from "~/shared/ui/label";
 import { Skeleton } from "~/shared/ui/skeleton";
@@ -22,17 +16,17 @@ import { useSaveProfileMutation } from "../api/profile.mutations";
 import { profileQueryOptions } from "../api/profile.queries";
 
 type ProfilePageProps = {
-	/** The signed-in session that the /app route guard returns. */
+	/** The signed-in session that the /app layout guard returns. */
 	session: Session;
 };
 
+/** The page header with the email, then the name form. The /app/profile route renders it. */
 export function ProfilePage({ session }: ProfilePageProps) {
 	const { t } = useT();
 	const { data: profile } = useSuspenseQuery(
 		profileQueryOptions(session.user.id),
 	);
 	const saveProfile = useSaveProfileMutation();
-	const signOut = useSignOutMutation();
 
 	function onSave(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -41,12 +35,9 @@ export function ProfilePage({ session }: ProfilePageProps) {
 	}
 
 	return (
-		<div className="mx-auto max-w-md px-6 py-20">
+		<div className="grid w-full max-w-md gap-6">
+			<PageHeader title={t("profile.title")} description={session.user.email} />
 			<Card>
-				<CardHeader>
-					<CardTitle>{t("profile.title")}</CardTitle>
-					<CardDescription>{session.user.email}</CardDescription>
-				</CardHeader>
 				<CardContent>
 					<form onSubmit={onSave} className="grid gap-4">
 						<div className="grid gap-2">
@@ -72,24 +63,13 @@ export function ProfilePage({ session }: ProfilePageProps) {
 								{t("profile.saveError")}
 							</p>
 						)}
-						{signOut.isError && (
-							<p className="text-destructive text-sm" role="alert">
-								{t("profile.signOutError")}
-							</p>
-						)}
-						<div className="flex items-center justify-between gap-2">
-							<Button type="submit" disabled={saveProfile.isPending}>
-								{t("common.save")}
-							</Button>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={signOut.isPending}
-								onClick={() => signOut.mutate()}
-							>
-								{t("common.signOut")}
-							</Button>
-						</div>
+						<Button
+							type="submit"
+							className="justify-self-start"
+							disabled={saveProfile.isPending}
+						>
+							{t("common.save")}
+						</Button>
 					</form>
 				</CardContent>
 			</Card>
@@ -97,23 +77,31 @@ export function ProfilePage({ session }: ProfilePageProps) {
 	);
 }
 
-/** Placeholder while the /app guard and loader run. The route sets it as pendingComponent. */
+/** Placeholder while the profile loader runs. The route sets it as pendingComponent. */
 export function ProfilePageSkeleton() {
 	return (
-		<div className="mx-auto max-w-md px-6 py-20">
+		<div className="grid w-full max-w-md gap-6">
+			<div className="grid gap-2">
+				<Skeleton className="h-8 w-40" />
+				<Skeleton className="h-4 w-56" />
+			</div>
 			<Skeleton className="h-40 w-full" />
 		</div>
 	);
 }
 
-/** Error state of /app when the loader fails. Retry runs the guard and the loader again. */
+/** Error state of /app/profile when the loader fails. Retry runs the guard and the loader again. */
 export function ProfilePageError() {
 	const { t } = useT();
 	const router = useRouter();
 	return (
-		<div className="mx-auto grid max-w-md gap-4 px-6 py-20 text-center">
+		<div className="grid w-full max-w-md gap-4">
 			<p role="alert">{t("profile.loadError")}</p>
-			<Button type="button" onClick={() => router.invalidate()}>
+			<Button
+				type="button"
+				className="justify-self-start"
+				onClick={() => router.invalidate()}
+			>
 				{t("common.retry")}
 			</Button>
 		</div>

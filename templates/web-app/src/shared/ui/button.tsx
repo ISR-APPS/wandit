@@ -1,19 +1,21 @@
 // shadcn-style button with cva variants.
 // Every interactive action uses this component.
+// The corner radius follows --control-radius from tokens.css: a pill until a theme sets it.
 
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
 
+/** Button looks and sizes. `default` is the one main action of a screen. */
 const buttonVariants = cva(
-	"inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+	"inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground hover:bg-primary/90",
 				destructive:
-					"bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20",
+					"bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20",
 				outline:
 					"border bg-transparent hover:bg-accent hover:text-accent-foreground",
 				secondary:

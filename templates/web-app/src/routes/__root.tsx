@@ -8,6 +8,7 @@ import {
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
+import { Direction } from "radix-ui";
 import type { ReactNode } from "react";
 import { I18nProvider, useT } from "~/shared/i18n";
 import { Toaster } from "~/shared/ui/sonner";
@@ -71,8 +72,11 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<HeadContent />
 			</head>
 			<body>
-				{children}
-				<Toaster />
+				{/* Without a provider, Radix menus and tabs act left to right in Arabic. */}
+				<Direction.Provider dir={dir}>
+					{children}
+					<Toaster />
+				</Direction.Provider>
 				<Scripts />
 			</body>
 		</html>
