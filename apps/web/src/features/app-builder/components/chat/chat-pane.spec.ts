@@ -158,7 +158,6 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onChangeDeveloperView: null,
 						onOpenActivity,
 						isReady: true,
-						projectName: "Nadi Fitness",
 						onSend,
 						onDecideApproval,
 						onAnswerQuestions,

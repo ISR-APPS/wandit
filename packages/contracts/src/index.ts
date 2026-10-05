@@ -100,6 +100,8 @@ export * from "./v1/transcriptions";
 export * from "./v1/workspaces";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
+// V2 audit trail action names.
+export * from "./v2/audit";
 // V2 agent backend tool contracts and the destructive migration check.
 export * from "./v2/backend-tools";
 // V2 paged chat history: the cursor query and one page of messages.

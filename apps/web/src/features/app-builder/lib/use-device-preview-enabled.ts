@@ -15,14 +15,14 @@ export function resolveDevicePreviewEnabled(input: {
 	hasAnalytics: boolean;
 }): boolean {
 	// Same rule as resolveCloudTabEnabled: without a PostHog client (no
-	// VITE_POSTHOG_KEY, local dev) no flag can load, so the button shows.
+	// VITE_POSTHOG_KEY, local dev) no flag can load, so the device targets show.
 	if (!input.hasAnalytics) {
 		return true;
 	}
 	return input.flagEnabled === true;
 }
 
-/** True when the phone preview shows the "Run on a device" button. */
+/** True when the target switch of the mobile stage shows the iOS and Android targets next to Web. */
 export function useDevicePreviewEnabled(): boolean {
 	return resolveDevicePreviewEnabled({
 		flagEnabled: useFeatureFlagEnabled("v2-device-preview"),

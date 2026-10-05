@@ -5,8 +5,9 @@
  * `active` here. Reads cloudFunctionsQuery.
  */
 
+import { FunctionIcon } from "@phosphor-icons/react/Function";
+import { ScrollIcon } from "@phosphor-icons/react/Scroll";
 import { useQuery } from "@tanstack/react-query";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Table,
@@ -16,14 +17,21 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
-import { ScrollText, SquareFunction } from "lucide-react";
 
 import { formatDate, formatNumber, useTranslation } from "@/lib/i18n";
 import { cloudFunctionsQuery } from "../../api/cloud.queries";
 import { CLOUD_DATE_TIME_FORMAT } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+	PanelMessage,
+} from "../more/panel-shell";
 import { CloudLoadFailed } from "./backend-state";
-import { RowsGridSkeleton } from "./rows-grid";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	RowsGridSkeleton,
+} from "./rows-grid";
 
 /** Props of FunctionsPanel. The panel mounts only while the backend is `active`. */
 export type FunctionsPanelProps = {
@@ -52,15 +60,15 @@ export function FunctionsPanel({
 	}
 	if (functions.data.length === 0) {
 		return (
-			<CodeMessage
-				icon={SquareFunction}
+			<PanelMessage
+				icon={FunctionIcon}
 				text={t("workspace.cloud.functions.empty")}
 			/>
 		);
 	}
 
 	return (
-		<div className="rounded-xl border">
+		<div className={CLOUD_TABLE_CLASS}>
 			<Table>
 				<TableHeader>
 					<TableRow>
@@ -81,29 +89,36 @@ export function FunctionsPanel({
 					{functions.data.map((fn) => (
 						<TableRow key={fn.id}>
 							<TableCell>
-								<span dir="ltr" className="font-medium font-mono text-sm">
+								<span
+									dir="ltr"
+									className="font-medium font-mono text-[13px] text-night dark:text-foreground"
+								>
 									{fn.slug}
 								</span>
 							</TableCell>
 							<TableCell>
-								{/* Supabase status text, for example ACTIVE. It is a code, so it is not translated. */}
-								<Badge variant="outline" className="font-mono">
+								{/* Supabase status text, for example ACTIVE. It is a code, so it is not translated. A live function is ACTIVE, so only that code is green. */}
+								<PanelChip
+									tone={fn.status === "ACTIVE" ? "success" : "neutral"}
+									className="font-mono"
+								>
 									{fn.status}
-								</Badge>
+								</PanelChip>
 							</TableCell>
-							<TableCell className="text-muted-foreground">
+							<TableCell className={CLOUD_CELL_MUTED_CLASS}>
 								{formatDate(fn.lastDeployedAt, locale, CLOUD_DATE_TIME_FORMAT)}
 							</TableCell>
-							<TableCell className="text-end text-muted-foreground">
+							<TableCell className="text-end font-grotesk font-medium text-night tabular-nums dark:text-foreground">
 								{formatNumber(fn.invocations24h, locale)}
 							</TableCell>
 							<TableCell className="text-end">
 								<Button
-									variant="ghost"
+									variant="outline"
 									size="sm"
+									className={PANEL_SECONDARY_BUTTON_CLASS}
 									onClick={() => onViewLogs(fn.slug)}
 								>
-									<ScrollText />
+									<ScrollIcon aria-hidden weight="bold" />
 									{t("workspace.cloud.functions.viewLogs")}
 								</Button>
 							</TableCell>

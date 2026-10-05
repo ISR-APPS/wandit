@@ -1,5 +1,11 @@
+/**
+ * Custom domain use cases of the API: search, purchase prep, attach, verify,
+ * activation, auto-renew, primary, detach, and transfer unlock.
+ * `DomainsController`, `OrdersService`, and `AdminProjectsService` call it.
+ * It calls the repository, Name.com, Cloudflare, Trigger, and the domain hook.
+ */
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, type Logger } from "@nestjs/common";
+import { Inject, Injectable, type Logger, Optional } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
@@ -24,6 +30,8 @@ import {
 	type VerifyDomainResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import { getErrorMessage } from "@wandit/observability/error";
+import { findPhishingTerm } from "../../../app-builder/domain/publish-gate/phishing-rules";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	mergeRequiredDomainRecords,
@@ -36,6 +44,7 @@ import {
 	DomainNotAvailableError,
 	ExternalDomainUnregisteredError,
 	InvalidDomainStateError,
+	PhishingDomainBlockedError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
 import {
@@ -47,6 +56,10 @@ import {
 	DOMAIN_TASK_DISPATCHER,
 	type DomainTaskDispatcher,
 } from "../../domain/ports/domain-task-dispatcher.port";
+import {
+	PROJECT_DOMAIN_HOOK,
+	type ProjectDomainHook,
+} from "../../domain/ports/project-domain-hook.port";
 import { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "../../infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
@@ -56,6 +69,10 @@ import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import {
+	customDomainPointer,
+	type ProjectServing,
+} from "../fulfillment/domain-activation.step";
 import {
 	apexCustomHostnameIdOf,
 	customerZoneIdOf,
@@ -75,6 +92,10 @@ export type PreparedDomainPurchase = {
 	wholesaleCeilingUsd: number;
 };
 
+/**
+ * The API side of custom domains. `DomainActivationStep` is the Trigger task
+ * twin of `activateDomain`. When you change one, change the other the same way.
+ */
 @Injectable()
 export class DomainsService {
 	constructor(
@@ -94,6 +115,9 @@ export class DomainsService {
 		private readonly logger: DomainLogger,
 		@Inject(DOMAIN_TASK_DISPATCHER)
 		private readonly domainTaskDispatcher: DomainTaskDispatcher,
+		@Optional()
+		@Inject(PROJECT_DOMAIN_HOOK)
+		private readonly projectDomainHook: ProjectDomainHook | null = null,
 	) {}
 
 	async search(_userId: string, q: string): Promise<SearchDomainsResponse> {
@@ -149,6 +173,11 @@ export class DomainsService {
 		const parsed = this.parseSafeDomainName(name);
 		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
+		// WANDIT-181: a fake login, bank, or wallet name never reaches checkout.
+		if (findPhishingTerm(parsed.name) !== null) {
+			throw new PhishingDomainBlockedError();
+		}
+
 		if (projectId) {
 			await this.domainsRepository.assertProjectAccessible(scope, projectId);
 		}
@@ -181,6 +210,11 @@ export class DomainsService {
 		body: AttachExternalDomainBody,
 	): Promise<AttachExternalDomainResponse> {
 		const parsed = this.parseSafeExternalDomainName(body.name);
+
+		// WANDIT-181: a fake login, bank, or wallet name gets no row or hostname.
+		if (findPhishingTerm(parsed.name) !== null) {
+			throw new PhishingDomainBlockedError();
+		}
 
 		await this.domainsRepository.assertProjectAccessible(scope, projectId);
 		const registration = await this.domainRegistrationCheckService.check(
@@ -331,6 +365,11 @@ export class DomainsService {
 	): Promise<SetPrimaryDomainResponse> {
 		const updated = await this.domainsRepository.setPrimary(id, scope);
 
+		// The primary domain is the `site_url` of the app backend.
+		if (updated.status === "active" && updated.projectId) {
+			await this.syncProjectDomains(updated.projectId, updated.id);
+		}
+
 		return { domain: mapDomain(updated) };
 	}
 
@@ -366,6 +405,11 @@ export class DomainsService {
 		}
 
 		const updated = await this.domainsRepository.detach(id, scope);
+
+		// Only an active domain is in the login URLs of the app.
+		if (row.status === "active" && row.projectId) {
+			await this.syncProjectDomains(row.projectId, row.id);
+		}
 
 		return { domain: mapDomain(updated) };
 	}
@@ -420,10 +464,21 @@ export class DomainsService {
 			);
 		}
 
-		await this.domainRoutingService.putDomainPointer(row.name, {
-			projectId: row.projectId,
-			source: "domain",
-		});
+		const serving = await this.domainsRepository.findProjectServing(
+			row.projectId,
+		);
+
+		// A soft-deleted project gets no new live host.
+		if (!serving) {
+			throw new InvalidDomainStateError(
+				"Domain must be attached to a project before activation",
+			);
+		}
+
+		await this.domainRoutingService.putDomainPointer(
+			row.name,
+			customDomainPointer(row.projectId, serving),
+		);
 
 		const active =
 			row.source === "external"
@@ -438,6 +493,12 @@ export class DomainsService {
 					);
 
 		if (active) {
+			// Only the CAS winner syncs, so one activation queues one sync.
+			if (serving.engine === "v2_app") {
+				await this.recheckSuspension(active, row.projectId, serving);
+				await this.syncProjectDomains(row.projectId, row.id);
+			}
+
 			return active;
 		}
 
@@ -447,6 +508,12 @@ export class DomainsService {
 		);
 
 		if (current.status === "active") {
+			// The pointer write of this call can land after the recheck of the
+			// winner, so this call rechecks too. The winner queues the sync.
+			if (serving.engine === "v2_app") {
+				await this.recheckSuspension(current, row.projectId, serving);
+			}
+
 			return current;
 		}
 
@@ -467,6 +534,61 @@ export class DomainsService {
 			this.logger.warn(
 				`Failed to delete domain routing pointer for ${domainId}`,
 				error instanceof Error ? error.message : String(error),
+			);
+		}
+	}
+
+	// A suspend switch rewrites only active domains. A switch between the
+	// first read and the CAS does not see this row. A read after the CAS sees
+	// the switch. The domain is already live, so a failure only logs.
+	private async recheckSuspension(
+		row: DomainRow,
+		projectId: string,
+		written: ProjectServing,
+	): Promise<void> {
+		try {
+			const current =
+				await this.domainsRepository.findProjectServing(projectId);
+
+			if (
+				current &&
+				current.suspendedReasonCode !== written.suspendedReasonCode
+			) {
+				await this.domainRoutingService.putDomainPointer(
+					row.name,
+					customDomainPointer(projectId, current),
+				);
+			}
+		} catch (error) {
+			this.logger.error(
+				`Failed to recheck the suspension for domain ${row.id} of project ${projectId}`,
+				getErrorMessage(error),
+			);
+		}
+	}
+
+	// The domain change is already done, so a failed sync only logs. The
+	// sync task also runs after the next publish of the app.
+	private async syncProjectDomains(
+		projectId: string,
+		domainId: string,
+	): Promise<void> {
+		if (!this.projectDomainHook) {
+			return;
+		}
+
+		try {
+			const serving =
+				await this.domainsRepository.findProjectServing(projectId);
+
+			// Only a V2 app has backend login URLs to sync.
+			if (serving?.engine === "v2_app") {
+				await this.projectDomainHook.onProjectDomainsChanged(projectId);
+			}
+		} catch (error) {
+			this.logger.warn(
+				`Failed to sync auth URLs for domain ${domainId} of project ${projectId}`,
+				getErrorMessage(error),
 			);
 		}
 	}

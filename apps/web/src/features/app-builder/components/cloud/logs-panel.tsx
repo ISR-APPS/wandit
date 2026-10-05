@@ -6,6 +6,12 @@
  * is `active` here. Reads cloudLogsQuery.
  */
 
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
+import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { ScrollIcon } from "@phosphor-icons/react/Scroll";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
 	CLOUD_LOGS_MAX_WINDOW_MS,
@@ -16,7 +22,6 @@ import {
 	cloudLogLevels,
 	cloudLogSources,
 } from "@wandit/contracts";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import {
@@ -28,19 +33,22 @@ import {
 } from "@wandit/ui/components/select";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	ChevronLeft,
-	ChevronRight,
-	RefreshCw,
-	ScrollText,
-	Search,
-} from "lucide-react";
 import { useState } from "react";
 
 import { formatDate, formatNumber, useTranslation } from "@/lib/i18n";
 import { cloudLogsQuery } from "../../api/cloud.queries";
 import { CLOUD_DATE_TIME_FORMAT } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_INPUT_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PANEL_TABS_LIST_CLASS,
+	PANEL_TABS_TRIGGER_CLASS,
+	PanelChip,
+	type PanelChipTone,
+	PanelMessage,
+} from "../more/panel-shell";
+import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { CloudLoadFailed } from "./backend-state";
 import { RowsGridSkeleton } from "./rows-grid";
 
@@ -67,15 +75,12 @@ const LEVEL_OPTIONS = [ALL_LEVELS, ...cloudLogLevels] as const;
 // The logs route accepts a search of at most 200 characters (cloudLogsQuerySchema).
 const SEARCH_MAX_LENGTH = 200;
 
-/** Badge look of each level. The text label keeps the level readable without the color. */
-const LEVEL_BADGE = {
-	info: "outline",
+/** Chip tone of each level. The text label keeps the level readable without the color. */
+const LEVEL_TONE = {
+	info: "neutral",
 	warning: "warning",
-	error: "destructive",
-} as const satisfies Record<
-	CloudLogLevel,
-	"outline" | "warning" | "destructive"
->;
+	error: "danger",
+} as const satisfies Record<CloudLogLevel, PanelChipTone>;
 
 /** The time line of one source, one 24-hour window at a time, newest line first. */
 export function LogsPanel({
@@ -126,7 +131,10 @@ export function LogsPanel({
 		}
 		if (logs.data.length === 0) {
 			return (
-				<CodeMessage icon={ScrollText} text={t("workspace.cloud.logs.empty")} />
+				<PanelMessage
+					icon={ScrollIcon}
+					text={t("workspace.cloud.logs.empty")}
+				/>
 			);
 		}
 		return (
@@ -136,22 +144,35 @@ export function LogsPanel({
 					dir="ltr"
 					aria-busy={logs.isPlaceholderData}
 					className={cn(
-						"divide-y overflow-x-auto rounded-xl border font-mono text-xs transition-opacity",
+						PANEL_CARD_CLASS,
+						"divide-y divide-night/[0.06] overflow-hidden font-mono text-[12.5px] text-night/85 transition-opacity dark:divide-white/[0.06] dark:text-foreground/85",
 						logs.isPlaceholderData && "opacity-60",
 					)}
 				>
 					{logs.data.map((entry) => (
-						<li key={entry.id} className="flex items-start gap-3 px-3 py-2">
+						<li
+							key={entry.id}
+							className={cn(
+								"flex items-start gap-3 px-4 py-2.5",
+								// An error line gets a faint red wash, so it stands out in a long list.
+								entry.level === "error" && "bg-destructive/[0.04]",
+							)}
+						>
+							{/* The list is left to right, but an Arabic date reads right to left: "auto" keeps its order. */}
 							<time
+								dir="auto"
 								dateTime={entry.timestamp}
-								className="shrink-0 text-muted-foreground"
+								className="min-w-40 shrink-0 whitespace-nowrap pt-0.5 text-night/45 tabular-nums dark:text-foreground/45"
 							>
 								{formatDate(entry.timestamp, locale, CLOUD_DATE_TIME_FORMAT)}
 							</time>
-							<Badge variant={LEVEL_BADGE[entry.level]} className="shrink-0">
+							<PanelChip
+								tone={LEVEL_TONE[entry.level]}
+								className="h-5 px-2 text-[11px]"
+							>
 								{t(`workspace.cloud.logs.levels.${entry.level}`)}
-							</Badge>
-							<span className="min-w-0 whitespace-pre-wrap break-all">
+							</PanelChip>
+							<span className="min-w-0 whitespace-pre-wrap break-all pt-0.5">
 								{entry.message}
 							</span>
 						</li>
@@ -159,7 +180,7 @@ export function LogsPanel({
 				</ol>
 				{/* The route answers at most 100 lines, so a full page can hide older lines of the window. */}
 				{logs.data.length >= CLOUD_LOGS_PAGE_SIZE ? (
-					<p className="text-muted-foreground text-sm">
+					<p className="px-1 font-sans text-[13px] text-night/55 dark:text-foreground/55">
 						{t("workspace.cloud.logs.capped", {
 							limit: formatNumber(CLOUD_LOGS_PAGE_SIZE, locale),
 						})}
@@ -171,7 +192,8 @@ export function LogsPanel({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-4">
-			<div className="flex flex-wrap items-center gap-2">
+			{/* One 48 px row from about 580 px of panel width. Below that, the search wraps to its own full row. */}
+			<div className="flex min-h-12 flex-wrap items-center gap-2">
 				<Tabs
 					value={source}
 					onValueChange={(value) => {
@@ -179,9 +201,13 @@ export function LogsPanel({
 						if (next) setSource(next);
 					}}
 				>
-					<TabsList>
+					<TabsList className={PANEL_TABS_LIST_CLASS}>
 						{cloudLogSources.map((item) => (
-							<TabsTrigger key={item} value={item}>
+							<TabsTrigger
+								key={item}
+								value={item}
+								className={PANEL_TABS_TRIGGER_CLASS}
+							>
 								{t(`workspace.cloud.logs.sources.${item}`)}
 							</TabsTrigger>
 						))}
@@ -195,8 +221,11 @@ export function LogsPanel({
 					}}
 				>
 					<SelectTrigger
-						size="sm"
 						aria-label={t("workspace.cloud.logs.levelLabel")}
+						className={cn(
+							PANEL_SECONDARY_BUTTON_CLASS,
+							"rounded-full px-4 data-[size=default]:h-10",
+						)}
 					>
 						<SelectValue />
 					</SelectTrigger>
@@ -208,64 +237,101 @@ export function LogsPanel({
 						))}
 					</SelectContent>
 				</Select>
+				{/* The search text is a log message, so the field reads left to right in every locale. The icons follow it. */}
 				<form
-					className="flex min-w-48 flex-1 items-center gap-2"
+					dir="ltr"
+					className="relative min-w-40 flex-1"
 					onSubmit={(event) => {
 						event.preventDefault();
 						setSearch(searchDraft.trim());
 					}}
 				>
+					<MagnifyingGlassIcon
+						aria-hidden
+						weight="bold"
+						className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-night/40 dark:text-foreground/45"
+					/>
 					<Input
 						type="search"
-						dir="ltr"
 						value={searchDraft}
 						maxLength={SEARCH_MAX_LENGTH}
 						onChange={(event) => setSearchDraft(event.target.value)}
 						aria-label={t("workspace.cloud.logs.searchLabel")}
-						className="h-8 font-mono text-sm"
+						className={cn(
+							PANEL_INPUT_CLASS,
+							"ps-10 pe-11 font-mono md:text-[13px]",
+						)}
 					/>
-					<Button type="submit" variant="outline" size="sm">
-						<Search />
-						{t("workspace.cloud.logs.search")}
-					</Button>
+					<IconAction label={t("workspace.cloud.logs.search")}>
+						<Button
+							type="submit"
+							variant="ghost"
+							size="icon-sm"
+							className={cn(
+								TOOLBAR_ICON_BUTTON_CLASS,
+								"absolute end-1 top-1/2 -translate-y-1/2",
+							)}
+						>
+							<ArrowRightIcon aria-hidden weight="bold" className="size-4" />
+						</Button>
+					</IconAction>
 				</form>
-				<Button variant="outline" size="sm" onClick={refresh}>
-					<RefreshCw />
-					{t("workspace.cloud.logs.refresh")}
-				</Button>
 			</div>
-			<div className="flex items-center justify-between gap-3 text-muted-foreground text-sm">
+			<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-[13px] text-night/55 tabular-nums dark:text-foreground/55">
 				<span>
 					{t("workspace.cloud.logs.window", {
 						start: formatDate(windowStartMs, locale, CLOUD_DATE_TIME_FORMAT),
 						end: formatDate(windowEndMs, locale, CLOUD_DATE_TIME_FORMAT),
 					})}
 				</span>
-				<div className="flex items-center gap-2">
-					<Button
-						variant="outline"
-						size="icon-sm"
-						aria-label={t("workspace.cloud.logs.previous")}
-						onClick={() =>
-							setWindowEndMs(windowEndMs - CLOUD_LOGS_MAX_WINDOW_MS)
-						}
-					>
-						{/* In RTL the older window sits on the right, so the icon mirrors. */}
-						<ChevronLeft className="size-4 rtl:-scale-x-100" />
-					</Button>
-					<Button
-						variant="outline"
-						size="icon-sm"
-						aria-label={t("workspace.cloud.logs.next")}
-						disabled={windowEndMs >= newestEndMs}
-						onClick={() =>
-							setWindowEndMs(
-								Math.min(windowEndMs + CLOUD_LOGS_MAX_WINDOW_MS, newestEndMs),
-							)
-						}
-					>
-						<ChevronRight className="size-4 rtl:-scale-x-100" />
-					</Button>
+				{/* Refresh sits with the window buttons: it moves the window to now. */}
+				<div className="flex items-center gap-1.5">
+					<IconAction label={t("workspace.cloud.logs.refresh")}>
+						<Button
+							variant="outline"
+							size="icon-sm"
+							className={cn(PANEL_SECONDARY_BUTTON_CLASS, "me-1.5")}
+							onClick={refresh}
+						>
+							<ArrowClockwiseIcon aria-hidden weight="bold" />
+						</Button>
+					</IconAction>
+					<IconAction label={t("workspace.cloud.logs.previous")}>
+						<Button
+							variant="outline"
+							size="icon-sm"
+							className={PANEL_SECONDARY_BUTTON_CLASS}
+							onClick={() =>
+								setWindowEndMs(windowEndMs - CLOUD_LOGS_MAX_WINDOW_MS)
+							}
+						>
+							{/* In RTL the older window sits on the right, so the icon mirrors. */}
+							<CaretLeftIcon
+								aria-hidden
+								weight="bold"
+								className="rtl:-scale-x-100"
+							/>
+						</Button>
+					</IconAction>
+					<IconAction label={t("workspace.cloud.logs.next")}>
+						<Button
+							variant="outline"
+							size="icon-sm"
+							className={PANEL_SECONDARY_BUTTON_CLASS}
+							disabled={windowEndMs >= newestEndMs}
+							onClick={() =>
+								setWindowEndMs(
+									Math.min(windowEndMs + CLOUD_LOGS_MAX_WINDOW_MS, newestEndMs),
+								)
+							}
+						>
+							<CaretRightIcon
+								aria-hidden
+								weight="bold"
+								className="rtl:-scale-x-100"
+							/>
+						</Button>
+					</IconAction>
 				</div>
 			</div>
 			{renderLines()}

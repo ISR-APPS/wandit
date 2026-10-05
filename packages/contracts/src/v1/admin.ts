@@ -7,6 +7,8 @@ import {
 	paginatedResultSchema,
 	paginationQuerySchema,
 } from "../http/pagination";
+import { appSuspensionSchema } from "../v2/app-publish";
+import { suspendedReasonCodes } from "../v2/publish";
 import {
 	billingIntervalSchema,
 	billingPlanIdSchema,
@@ -479,10 +481,16 @@ export type AdminPublicationStatus = z.infer<
 	typeof adminPublicationStatusSchema
 >;
 
+/**
+ * One row of the admin publish log, one row per deployment. The project
+ * fields, `suspension` too, repeat on every row of the project.
+ */
 export const adminPublicationSchema = z.object({
 	// Deployment id — stable key for the log row.
 	id: uuidSchema,
 	status: adminPublicationStatusSchema,
+	// "page" is a V1 page, "app" a V2 app. Only an app can be suspended.
+	kind: z.enum(["page", "app"]),
 	slug: z.string(),
 	// Live links resolve only while the row is still the active deployment
 	// (an unpublished slug can be re-claimed by another project), so both are
@@ -490,6 +498,9 @@ export const adminPublicationSchema = z.object({
 	liveUrl: z.url().nullable(),
 	publicUrl: z.url().nullable(),
 	publishedAt: isoDateTimeSchema,
+	// The take-down state of the project, so every row of one project shows
+	// it. Null while the project is not suspended.
+	suspension: appSuspensionSchema.nullable(),
 	project: z.object({
 		id: uuidSchema,
 		name: z.string(),
@@ -507,6 +518,30 @@ export const adminPublicationSchema = z.object({
 });
 
 export type AdminPublication = z.infer<typeof adminPublicationSchema>;
+
+/**
+ * Body of `POST /api/v1/admin/publications/:projectId/suspend` (WANDIT-181).
+ * A second suspend overwrites the reason and the note.
+ */
+export const adminSuspendPublicationInputSchema = z.object({
+	reasonCode: z.enum(suspendedReasonCodes),
+	// Free text for support, at most 500 characters. The app owner never sees it.
+	note: z.string().trim().max(500).optional(),
+});
+
+export type AdminSuspendPublicationInput = z.infer<
+	typeof adminSuspendPublicationInputSchema
+>;
+
+/** Answer of the suspend and unsuspend routes. `suspension` is null after an unsuspend. */
+export const adminPublicationSuspensionResponseSchema = z.object({
+	projectId: uuidSchema,
+	suspension: appSuspensionSchema.nullable(),
+});
+
+export type AdminPublicationSuspensionResponse = z.infer<
+	typeof adminPublicationSuspensionResponseSchema
+>;
 
 export const adminListPublicationsQuerySchema = paginationQuerySchema;
 
@@ -1477,6 +1512,12 @@ export const adminRoutes = {
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	publications: "/api/v1/admin/publications",
+	/** POST takes a V2 app down on every host. Needs publications:suspend. */
+	suspendPublication: (projectId: string) =>
+		`/api/v1/admin/publications/${projectId}/suspend`,
+	/** POST brings a suspended V2 app back. Needs publications:suspend. */
+	unsuspendPublication: (projectId: string) =>
+		`/api/v1/admin/publications/${projectId}/unsuspend`,
 	/** Manual credit grant log. Needs credits:read. */
 	creditGrants: "/api/v1/admin/credit-grants",
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,

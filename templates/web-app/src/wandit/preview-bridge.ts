@@ -4,13 +4,16 @@
 // so the host can show them.
 // Runs the select mode: a click posts the data-wandit-src value of the element.
 // vite-plugins/wandit-source.ts writes that attribute on each JSX element in dev.
+// Posts the page the app shows, so the host address bar can show its path.
 import { z } from "zod";
 
 type BridgeMessage =
 	| { type: "wandit:bridge-ready" }
 	| { type: "wandit:runtime-error"; message: string; stack?: string }
 	| { type: "wandit:select-source"; src: string; tag: string; label: string }
-	| { type: "wandit:deselect" };
+	| { type: "wandit:deselect" }
+	// `path` is the pathname plus the query of the page, like `/invoices?page=2`.
+	| { type: "wandit:route"; path: string };
 
 // The host drops a longer text, so the bridge cuts each text to these lengths.
 const MESSAGE_MAX_LENGTH = 1000;
@@ -210,6 +213,19 @@ function stopSelectMode() {
 	showOutline(null);
 }
 
+// The router replaces the history entry often with the same URL, so only a new path posts.
+let lastPostedPath: string | null = null;
+
+function postRoute() {
+	const path = window.location.pathname + window.location.search;
+	if (path === lastPostedPath) {
+		return;
+	}
+	lastPostedPath = path;
+	// "*" like postError: the bridge does not know the host origin before the host posts to it.
+	post({ type: "wandit:route", path }, "*");
+}
+
 /** Attaches the listeners once. Safe to call more than once. */
 export function installPreviewBridge() {
 	// Outside the builder frame no host listens.
@@ -276,6 +292,18 @@ export function installPreviewBridge() {
 			stopSelectMode();
 		}
 	});
+
+	// The router changes the page through these two methods, and the browser fires no event for them.
+	// The bridge installs before the router. The router wraps these patched methods, so each navigation still posts.
+	for (const method of ["pushState", "replaceState"] as const) {
+		const original = window.history[method].bind(window.history);
+		window.history[method] = (...args: Parameters<History["pushState"]>) => {
+			original(...args);
+			postRoute();
+		};
+	}
+	window.addEventListener("popstate", postRoute);
+	postRoute();
 
 	// A page load resets the select mode. The host answers ready with its current mode.
 	post({ type: "wandit:bridge-ready" }, "*");

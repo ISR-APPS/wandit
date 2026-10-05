@@ -1,9 +1,9 @@
 /**
  * Listens for the messages of the preview frame. The preview proxy error
  * pages post `token-expired` or `not-running`. The dev bridge of the web
- * template posts `ready`, runtime errors, and the elements the user picks.
- * PreviewPanel wires the proxy events to usePreviewToken and passes the
- * bridge messages up. The hook accepts a message only from the window of the
+ * template posts `ready`, runtime errors, the elements the user picks, and
+ * the page the app shows. PreviewPanel wires the proxy events to
+ * usePreviewToken and passes the bridge messages up. The hook accepts a message only from the window of the
  * preview iframe, on the origin of the current preview URL, and only when it
  * matches a schema of `@wandit/contracts`.
  */

@@ -1,13 +1,22 @@
 /**
- * Prompt box of the builder chat: the request tray slot on top, the chips
- * of the elements picked in the preview, the file chips, growing textarea, the add context menu (a file or an image),
- * the credit estimate of the next turn, dictation, and the send button.
- * While the tray shows, the send button becomes the tray's answer button.
- * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
- * uploaded files; the pane runs the mutation. Uploads go through the
- * projects feature, with the limits of the dashboard prompt box.
+ * Prompt box of the builder chat, a white card: the request tray slot, the
+ * chips of the preview picks and of the files, the textarea, then the add
+ * menu (a file or an image), the credit estimate, dictation, and send. While
+ * the tray shows, send becomes the answer pill of the tray. Rendered by
+ * chat-pane.tsx. Calls `onSend` with the trimmed draft and the uploaded
+ * files. Uploads go through the projects feature, with the dashboard limits.
  */
 
+import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { FileTextIcon } from "@phosphor-icons/react/FileText";
+import { ImageIcon } from "@phosphor-icons/react/Image";
+import { MicrophoneIcon } from "@phosphor-icons/react/Microphone";
+import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { StopIcon } from "@phosphor-icons/react/Stop";
+import { XIcon } from "@phosphor-icons/react/X";
 import {
 	ATTACHMENT_MEDIA_TYPES,
 	type PreviewTarget,
@@ -24,18 +33,6 @@ import { Textarea } from "@wandit/ui/components/textarea";
 import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
 import {
-	ArrowUp,
-	Check,
-	FileText,
-	ImageIcon,
-	Loader2,
-	Mic,
-	Paperclip,
-	Plus,
-	Square,
-	X,
-} from "lucide-react";
-import {
 	type ChangeEvent,
 	type KeyboardEvent,
 	type ReactNode,
@@ -44,6 +41,7 @@ import {
 	useState,
 } from "react";
 
+import { Spark } from "@/components/logo";
 import {
 	ATTACHMENT_ACCEPT,
 	AttachmentUploadError,
@@ -53,6 +51,7 @@ import {
 } from "@/features/projects";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import { IconAction } from "../shell/top-bar";
 import { TargetChip } from "./target-chip";
 
 /**
@@ -120,10 +119,24 @@ const UPLOAD_ERROR_KEYS: Record<
 	failed: "projects.promptBox.attachments.failed",
 };
 
-/** Round pill of the add context trigger. Ember on hover, a soft halo while open. */
-const PILL_CLASS =
-	"rounded-full border-border bg-transparent shadow-none transition-[border-color,box-shadow,background-color] duration-200 hover:border-primary/35 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10";
+// A soft navy chip that turns into a solid night pill (spark in dark mode)
+// while its menu is open. A copy of HERO_CHIP_CLASS in
+// features/projects/components/prompt-box.tsx, so the two prompt boxes match.
+// The open look keys on aria-expanded: a tooltip on the same button overwrites data-state.
+const CHIP_CLASS =
+	"group/trigger rounded-full border-transparent bg-night/[0.05] font-grotesk font-medium text-night/75 shadow-none transition-colors duration-200 hover:bg-night/[0.09] hover:text-night aria-expanded:bg-night aria-expanded:text-paper dark:border-transparent dark:bg-white/[0.06] dark:text-foreground/75 dark:aria-expanded:bg-spark dark:aria-expanded:text-night dark:hover:bg-white/[0.1] dark:hover:text-foreground";
 
+// The send circle and the answer pill share the ember face, with a soft
+// ember (#d16022) glow. Disabled is a flat navy tint, not a faded ember: a
+// pale orange reads as "almost ready".
+const SEND_CLASS =
+	"rounded-full bg-primary text-primary-foreground shadow-[0_1px_0_rgb(11_16_51/0.08),0_4px_12px_-4px_rgb(209_96_34/0.55)] transition-colors duration-150 hover:bg-ember-deep disabled:bg-night/10 disabled:text-night/35 disabled:opacity-100 disabled:shadow-none dark:hover:bg-primary/90 dark:disabled:bg-white/10 dark:disabled:text-foreground/35";
+
+/**
+ * The chat prompt box. Enter sends the trimmed draft and the uploaded files,
+ * Shift+Enter adds a line. With `submitOverride` set, Enter and the pill
+ * answer the tray.
+ */
 export function Composer({
 	turnEstimateCredits,
 	targets,
@@ -269,113 +282,108 @@ export function Composer({
 		send();
 	}
 
+	const dictationLabel = t(
+		dictation.isRecording
+			? "projects.promptBox.micStop"
+			: "appBuilder.chat.dictate",
+	);
+
 	return (
-		<div className="group/prompt relative">
-			{/* Soft ember ring while the textarea has focus. The card below carries the one rich shadow. */}
-			<div
-				aria-hidden
-				className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.12)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
-			/>
-			<div className="relative flex flex-col overflow-hidden rounded-3xl bg-background shadow-composer dark:border dark:bg-card dark:shadow-[0_18px_40px_-20px_rgb(0_0_0_/_0.6)]">
-				{topSlot}
-				{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
-				<div className="flex flex-col px-4 pt-3.5 pb-3">
-					{targets.length > 0 ? (
-						<div className="mb-2 flex flex-wrap gap-1.5">
-							{targets.map((target, index) => (
-								<TargetChip
-									// One element can show twice with another text (a list item), so the key holds both.
-									key={`${target.src}|${target.label}`}
-									target={target}
-									onRemove={() => onRemoveTarget(index)}
-								/>
-							))}
-						</div>
-					) : null}
-					{files.length > 0 ? (
-						<div className="mb-2 flex flex-wrap gap-1.5">
-							{files.map((file) => (
-								<FileChip
-									key={file.id}
-									file={file}
-									onRemove={() => removeFile(file.id)}
-								/>
-							))}
-						</div>
-					) : null}
-					{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
-					<Textarea
-						rows={1}
-						// The turn route refuses a longer message or typed answer.
-						maxLength={projectPromptMaxLength}
-						dir="auto"
-						value={draft}
-						placeholder={t("appBuilder.chat.placeholder")}
-						disabled={isSending}
-						onChange={(event) => setDraft(event.target.value)}
-						onKeyDown={onKeyDown}
-						className="max-h-40 min-h-[38px] resize-none border-0 bg-transparent px-0 py-1.5 text-[15px] leading-[1.5] shadow-none placeholder:text-muted-foreground focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent"
-					/>
-					<input
-						ref={fileInputRef}
-						type="file"
-						multiple
-						accept={ATTACHMENT_ACCEPT}
-						onChange={addFiles}
-						className="hidden"
-					/>
-					<input
-						ref={imageInputRef}
-						type="file"
-						multiple
-						accept={IMAGE_ACCEPT}
-						onChange={addFiles}
-						className="hidden"
-					/>
-					<div className="mt-1.5 flex items-center gap-1.5">
-						<DropdownMenu>
+		// The ember ring shows while any control of the card has focus.
+		<div className="flex flex-col overflow-hidden rounded-[22px] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_12px_32px_-20px_rgb(11_16_51/0.35)] transition-[box-shadow,border-color] duration-200 focus-within:border-ember/40 focus-within:ring-[3px] focus-within:ring-ember/15 dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-none dark:focus-within:border-spark/40 dark:focus-within:ring-spark/15">
+			{topSlot}
+			{/* The padding sits here, not on the card, so the tray reaches the card edges. */}
+			<div className="flex flex-col px-3 pt-3 pb-2.5">
+				{targets.length > 0 ? (
+					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
+						{targets.map((target, index) => (
+							<TargetChip
+								// One element can show twice with another text (a list item), so the key holds both.
+								key={`${target.src}|${target.label}`}
+								target={target}
+								onRemove={() => onRemoveTarget(index)}
+							/>
+						))}
+					</div>
+				) : null}
+				{files.length > 0 ? (
+					<div className="mx-1 mb-1.5 flex flex-wrap gap-1.5">
+						{files.map((file) => (
+							<FileChip
+								key={file.id}
+								file={file}
+								onRemove={() => removeFile(file.id)}
+							/>
+						))}
+					</div>
+				) : null}
+				{/* The kit textarea grows with its content (field-sizing), so no resize code here. */}
+				<Textarea
+					rows={1}
+					// The turn route refuses a longer message or typed answer.
+					maxLength={projectPromptMaxLength}
+					dir="auto"
+					value={draft}
+					placeholder={t("appBuilder.chat.placeholder")}
+					disabled={isSending}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={onKeyDown}
+					className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-1 py-1.5 font-sans text-[15px] text-night leading-[1.5] caret-ember shadow-none placeholder:text-night/40 focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent dark:text-foreground dark:caret-spark dark:placeholder:text-foreground/40"
+				/>
+				<input
+					ref={fileInputRef}
+					type="file"
+					multiple
+					accept={ATTACHMENT_ACCEPT}
+					onChange={addFiles}
+					className="hidden"
+				/>
+				<input
+					ref={imageInputRef}
+					type="file"
+					multiple
+					accept={IMAGE_ACCEPT}
+					onChange={addFiles}
+					className="hidden"
+				/>
+				<div className="mt-1 flex items-center gap-1.5">
+					<DropdownMenu>
+						<IconAction label={t("appBuilder.chat.addContext")}>
 							<DropdownMenuTrigger asChild>
 								<Button
 									variant="outline"
 									size="icon-sm"
-									aria-label={t("appBuilder.chat.addContext")}
 									disabled={files.length >= MAX_FILES}
-									className={PILL_CLASS}
+									className={cn(CHIP_CLASS, "text-night dark:text-foreground")}
 								>
-									<Plus />
+									<PlusIcon weight="bold" className="size-4" aria-hidden />
 								</Button>
 							</DropdownMenuTrigger>
-							<DropdownMenuContent align="start" className="rounded-2xl p-1.5">
-								<DropdownMenuItem
-									onSelect={() => fileInputRef.current?.click()}
-								>
-									<Paperclip />
-									{t("appBuilder.chat.attach")}
-								</DropdownMenuItem>
-								<DropdownMenuItem
-									onSelect={() => imageInputRef.current?.click()}
-								>
-									<ImageIcon />
-									{t("appBuilder.chat.attachImage")}
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-						{turnEstimateCredits !== null ? (
-							<span className="ms-auto text-muted-foreground text-xs">
-								{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
-							</span>
-						) : (
-							<span className="ms-auto" />
-						)}
-						{dictation.supported ? (
+						</IconAction>
+						<DropdownMenuContent align="start" sideOffset={8} className="w-60">
+							<DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+								<PaperclipIcon weight="duotone" aria-hidden />
+								{t("appBuilder.chat.attach")}
+							</DropdownMenuItem>
+							<DropdownMenuItem onSelect={() => imageInputRef.current?.click()}>
+								<ImageIcon weight="duotone" aria-hidden />
+								{t("appBuilder.chat.attachImage")}
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+					{turnEstimateCredits !== null ? (
+						<span className="ms-auto flex items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50">
+							<Spark className="size-3 text-spark" />
+							{t("appBuilder.chat.estimate", { count: turnEstimateCredits })}
+						</span>
+					) : (
+						<span className="ms-auto" />
+					)}
+					{dictation.supported ? (
+						<IconAction label={dictationLabel}>
 							<Button
 								variant="ghost"
 								size="icon-sm"
-								aria-label={t(
-									dictation.isRecording
-										? "projects.promptBox.micStop"
-										: "appBuilder.chat.dictate",
-								)}
 								aria-pressed={dictation.isRecording}
 								// A running recording must stay stoppable when a turn starts.
 								disabled={
@@ -384,45 +392,57 @@ export function Composer({
 								}
 								onClick={dictation.toggle}
 								className={cn(
-									"rounded-full text-muted-foreground hover:text-foreground",
-									dictation.isRecording && "text-destructive",
+									"rounded-full text-night/55 hover:bg-night/[0.06] hover:text-night dark:text-foreground/55 dark:hover:bg-white/[0.08] dark:hover:text-foreground",
+									dictation.isRecording &&
+										"text-destructive hover:text-destructive dark:text-destructive dark:hover:text-destructive",
 								)}
 							>
 								{dictation.isTranscribing ? (
-									<Loader2 className="animate-spin motion-reduce:animate-none" />
+									<CircleNotchIcon
+										weight="bold"
+										className="size-[18px] animate-spin motion-reduce:animate-none"
+										aria-hidden
+									/>
 								) : dictation.isRecording ? (
-									<Square />
+									<StopIcon weight="fill" className="size-4" aria-hidden />
 								) : (
-									<Mic />
+									<MicrophoneIcon
+										weight="bold"
+										className="size-[18px]"
+										aria-hidden
+									/>
 								)}
 							</Button>
-						) : null}
-						{submitOverride ? (
-							// The V1 answer pill: same ember gradient as the send circle, with a label.
+						</IconAction>
+					) : null}
+					{submitOverride ? (
+						<Button
+							disabled={!canSend}
+							onClick={send}
+							className={cn(
+								SEND_CLASS,
+								"h-9 min-w-0 shrink gap-1.5 px-3.5 font-grotesk font-semibold text-[13px] has-[>svg]:px-3.5",
+							)}
+						>
+							<CheckIcon weight="bold" className="size-3.5" aria-hidden />
+							<span className="truncate">{submitOverride.label}</span>
+						</Button>
+					) : (
+						<IconAction label={t("appBuilder.chat.send")}>
 							<Button
-								size="sm"
+								size="icon"
 								disabled={!canSend}
 								onClick={send}
-								className="h-8 gap-1.5 rounded-full bg-gradient-ember px-3 text-background shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity hover:opacity-90 disabled:opacity-40"
+								className={SEND_CLASS}
 							>
-								<Check className="size-3.5" strokeWidth={2.4} aria-hidden />
-								<span className="font-medium text-xs">
-									{submitOverride.label}
-								</span>
+								<ArrowUpIcon
+									weight="bold"
+									className="size-[18px]"
+									aria-hidden
+								/>
 							</Button>
-						) : (
-							<Button
-								size="icon-sm"
-								aria-label={t("appBuilder.chat.send")}
-								disabled={!canSend}
-								onClick={send}
-								// The send circle is the one control that carries the ember gradient.
-								className="rounded-full bg-gradient-ember text-background shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity hover:opacity-90 disabled:opacity-40"
-							>
-								<ArrowUp strokeWidth={2.2} />
-							</Button>
-						)}
-					</div>
+						</IconAction>
+					)}
 				</div>
 			</div>
 		</div>
@@ -443,15 +463,19 @@ function FileChip({
 	return (
 		<span
 			className={cn(
-				"inline-flex h-9 max-w-full items-center gap-2 rounded-xl border px-1.5 text-xs",
+				"inline-flex h-9 max-w-full items-center gap-2 rounded-[12px] ps-1.5 pe-1 font-grotesk text-[12px]",
 				isError
-					? "border-destructive/40 bg-destructive/10 text-destructive"
-					: "bg-muted/60",
+					? "bg-destructive/[0.08] text-destructive dark:bg-destructive/[0.14]"
+					: "bg-night/[0.05] text-night dark:bg-white/[0.06] dark:text-foreground",
 			)}
 		>
-			<span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-lg border bg-background text-muted-foreground">
+			<span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-[8px] bg-white text-night/50 dark:bg-white/[0.08] dark:text-foreground/50">
 				{file.status === "uploading" ? (
-					<Loader2 className="size-3 animate-spin motion-reduce:animate-none" />
+					<CircleNotchIcon
+						weight="bold"
+						className="size-3 animate-spin motion-reduce:animate-none"
+						aria-hidden
+					/>
 				) : file.previewUrl !== null ? (
 					<img
 						src={file.previewUrl}
@@ -459,15 +483,15 @@ function FileChip({
 						className="size-full object-cover"
 					/>
 				) : (
-					<FileText className="size-3" />
+					<FileTextIcon weight="duotone" className="size-3.5" aria-hidden />
 				)}
 			</span>
 			<span className="min-w-0">
-				<span dir="auto" className="block max-w-36 truncate">
+				<span dir="auto" className="block max-w-36 truncate font-medium">
 					{file.filename}
 				</span>
 				{file.status === "uploading" ? (
-					<span className="block text-[10px] text-muted-foreground">
+					<span className="block text-[10px] text-night/50 dark:text-foreground/50">
 						{t("projects.promptBox.attachments.uploading")}
 					</span>
 				) : file.error !== null ? (
@@ -476,14 +500,15 @@ function FileChip({
 					</span>
 				) : null}
 			</span>
-			<button
-				type="button"
-				aria-label={t("projects.promptBox.attachments.remove")}
-				onClick={onRemove}
-				className="grid size-5 place-items-center rounded-full outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/50"
-			>
-				<X className="size-3" />
-			</button>
+			<IconAction label={t("projects.promptBox.attachments.remove")}>
+				<button
+					type="button"
+					onClick={onRemove}
+					className="grid size-5 shrink-0 place-items-center rounded-full text-night/50 outline-none transition-colors hover:bg-night/[0.08] hover:text-night focus-visible:ring-2 focus-visible:ring-ember/40 dark:text-foreground/50 dark:hover:bg-white/[0.1] dark:hover:text-foreground"
+				>
+					<XIcon weight="bold" className="size-3" aria-hidden />
+				</button>
+			</IconAction>
 		</span>
 	);
 }

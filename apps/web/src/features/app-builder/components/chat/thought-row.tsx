@@ -5,12 +5,13 @@
  * (developer view, with the text) and activity-panel.tsx (text "", label only).
  */
 
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@wandit/ui/components/collapsible";
-import { ChevronDown, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -36,12 +37,19 @@ export function ThoughtRow({ text, seconds, isStreaming }: ThoughtRowProps) {
 
 	return (
 		<Collapsible open={isOpen} onOpenChange={setUserOpen} disabled={!hasText}>
-			<CollapsibleTrigger className="group flex items-center gap-2 rounded-md py-1 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:hover:text-muted-foreground">
-				<Sparkles className="size-4 shrink-0" aria-hidden />
+			<CollapsibleTrigger className="group flex min-h-7 items-center gap-2 rounded-[8px] py-0.5 font-grotesk text-[13px] text-night/70 outline-none transition-colors duration-150 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 disabled:hover:text-night/70 dark:text-foreground/70 dark:hover:text-foreground dark:disabled:hover:text-foreground/70">
+				<span className="grid size-4 shrink-0 place-items-center">
+					<SparkleIcon
+						weight="duotone"
+						className="size-4 text-spark-deep dark:text-spark"
+						aria-hidden
+					/>
+				</span>
 				{isStreaming ? <ShimmerText>{label}</ShimmerText> : label}
 				{hasText ? (
-					<ChevronDown
-						className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+					<CaretDownIcon
+						weight="bold"
+						className="size-3 shrink-0 text-night/35 transition-transform group-hover:text-night/70 group-data-[state=open]:rotate-180 motion-reduce:transition-none dark:text-foreground/35 dark:group-hover:text-foreground/70"
 						aria-hidden
 					/>
 				) : null}
@@ -49,7 +57,7 @@ export function ThoughtRow({ text, seconds, isStreaming }: ThoughtRowProps) {
 			<CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none">
 				<p
 					dir="auto"
-					className="ms-2 mt-1 mb-2 whitespace-pre-wrap break-words border-s ps-4 text-[13px] text-muted-foreground leading-relaxed"
+					className="ms-2 mt-1 mb-2 whitespace-pre-wrap break-words border-night/[0.1] border-s-2 ps-3.5 font-sans text-[13px] text-night/60 leading-relaxed dark:border-white/[0.1] dark:text-foreground/60"
 				>
 					{text}
 				</p>

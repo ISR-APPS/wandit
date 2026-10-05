@@ -1244,7 +1244,8 @@
 		"backend": {
 			"none": {
 				"description": "A backend gives your app a database, user accounts, and file storage. Wandit sets it up and runs it for you.",
-				"enable": "Enable backend"
+				"enable": "Enable backend",
+				"title": "Add a backend to your app"
 			},
 			"limit": {
 				"inUse": {
@@ -1259,7 +1260,8 @@
 			"restoring": "Waking up your database.",
 			"paused": {
 				"description": "The backend sleeps when nobody uses the app for some time. Wake it up to see your data.",
-				"wake": "Wake up"
+				"wake": "Wake up",
+				"title": "Your backend is asleep"
 			},
 			"deleting": "The backend of this project is being deleted.",
 			"error": {
@@ -1272,8 +1274,11 @@
 					"baseSchemaMissing": "The backend started, but its base tables are missing.",
 					"restoreFailed": "Your database did not wake up.",
 					"unknown": "An unexpected error stopped the backend setup."
-				}
-			}
+				},
+				"title": "The backend setup stopped"
+			},
+			"waitingTitle": "Your backend is starting",
+			"deletingTitle": "Deleting the backend"
 		},
 		"database": {
 			"sections": {
@@ -1378,7 +1383,6 @@
 			}
 		},
 		"secrets": {
-			"description": "Secrets are private values that your app uses on the server, for example API keys. Wandit keeps them encrypted and never shows a value again.",
 			"columns": {
 				"name": "Name",
 				"kind": "Set by",
@@ -1453,6 +1457,15 @@
 			"unnamed": "Job {id}",
 			"notInstalled": "Scheduled jobs are off. The pg_cron extension is not on in the database of your app.",
 			"empty": "Your app has no scheduled jobs yet. Ask the agent to add one."
+		},
+		"descriptions": {
+			"database": "The tables of your app. Open a table to see its rows, or run SQL.",
+			"users": "The people who signed up to your app, and the sign-ups of the last 30 days.",
+			"storage": "The files that your app keeps, sorted in buckets.",
+			"secrets": "Secrets are private values that your app uses on the server, for example API keys. Wandit keeps them encrypted and never shows a value again.",
+			"logs": "What the backend of your app did, one 24-hour window at a time.",
+			"functions": "Server code that your app calls. Each function runs on demand.",
+			"jobs": "Tasks that run on a schedule in the database of your app."
 		}
 	}
 }

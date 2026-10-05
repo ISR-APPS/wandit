@@ -12,8 +12,8 @@ import { z } from "zod";
 import {
 	BUILDER_VIEWS,
 	CLOUD_PANELS,
+	MOBILE_PREVIEW_TARGETS,
 	MORE_PANELS,
-	PHONE_DEVICES,
 	WEB_VIEWPORTS,
 } from "./constants";
 
@@ -22,8 +22,9 @@ const FILE_PATH_MAX_LENGTH = 512;
 
 /**
  * validateSearch of routes/_auth/app.$projectId.tsx parses the URL with it.
- * An unknown value becomes undefined, so an old `?view=cloud` link opens the
- * preview. `panel` holds a More panel id or a Cloud panel id.
+ * An unknown value becomes undefined, so an old `?view=cloud` or
+ * `?viewport=tablet` link opens the default. `panel` holds a More panel id
+ * or a Cloud panel id. `device` is the mobile preview target.
  */
 export const appBuilderSearchSchema = z.object({
 	view: z.enum(BUILDER_VIEWS).optional().catch(undefined),
@@ -31,7 +32,7 @@ export const appBuilderSearchSchema = z.object({
 		.enum([...MORE_PANELS, ...CLOUD_PANELS])
 		.optional()
 		.catch(undefined),
-	device: z.enum(PHONE_DEVICES).optional().catch(undefined),
+	device: z.enum(MOBILE_PREVIEW_TARGETS).optional().catch(undefined),
 	viewport: z.enum(WEB_VIEWPORTS).optional().catch(undefined),
 	file: z.string().max(FILE_PATH_MAX_LENGTH).optional().catch(undefined),
 });

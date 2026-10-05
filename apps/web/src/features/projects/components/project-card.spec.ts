@@ -6,7 +6,7 @@ import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Project } from "../api/dto";
-import { shouldShowProjectPreview } from "../lib/helpers";
+import { projectTileGlyph, shouldShowProjectPreview } from "../lib/helpers";
 import { PlatformBadge } from "./project-card";
 
 function renderPlatformBadge(platform: Project["targetPlatform"]) {
@@ -35,6 +35,20 @@ describe("project card thumbnail", () => {
 
 	it("does not render a preview without a URL", () => {
 		expect(shouldShowProjectPreview(null, null)).toBe(false);
+	});
+});
+
+describe("project card tile letter", () => {
+	// A name can start with a bracket, a space, or an emoji. The tile still shows a letter.
+	it.each([
+		["[S1] chat", "S"],
+		["  booking app", "B"],
+		["🍕 Pizza order", "P"],
+		["تطبيق حجز", "ت"],
+		["2048 clone", "2"],
+		["[ ] —", "✦"],
+	])("%s gives %s", (name, glyph) => {
+		expect(projectTileGlyph(name)).toBe(glyph);
 	});
 });
 

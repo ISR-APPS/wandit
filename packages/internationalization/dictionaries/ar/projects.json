@@ -127,15 +127,12 @@
 			"signInFirst": "سجّل الدخول لإرفاق الملفات"
 		},
 		"modeLabel": "الوضع",
-		"platformLabel": "نوع التطبيق",
 		"platforms": {
 			"web": {
-				"label": "تطبيق ويب",
-				"description": "موقع أو تطبيق ويب، متاح على رابط wandit."
+				"label": "تطبيق ويب"
 			},
 			"mobile": {
-				"label": "تطبيق موبايل",
-				"description": "تطبيق iOS وأندرويد."
+				"label": "تطبيق موبايل"
 			}
 		},
 		"outputLabel": "المُخرَج",

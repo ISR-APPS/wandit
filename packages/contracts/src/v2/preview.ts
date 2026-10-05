@@ -182,6 +182,24 @@ export function previewHostFor(
 }
 
 /**
+ * Supabase auth redirect pattern that matches every preview run host of
+ * one project. The provisioning and the login URL sync (WANDIT-190) put it
+ * in `uri_allow_list`.
+ */
+export function previewAuthRedirectPattern(
+	projectId: string,
+	previewDomain: string,
+): string {
+	// Security check: the run label is the 12 hex characters of `rid12Of`.
+	// A `*` also matches `@` and `?`. Then `https://r-@<attacker-host>?--p-...`
+	// matches, and the login token goes to the attacker host. The glob library
+	// of Supabase Auth accepts one range per class, so the class lists the
+	// 16 characters.
+	const runLabel = "[0123456789abcdef]".repeat(12);
+	return `https://r-${runLabel}--p-${projectId}.${previewDomain}/**`;
+}
+
+/**
  * Phone host of one phone link: `m-<phoneId>--p-<projectId>.<domain>`.
  * `phoneId` is 21 lower-case base32 characters, so the label has 63
  * characters, exactly the DNS limit.
@@ -306,7 +324,9 @@ export const PREVIEW_TARGETS_MAX = 10 as const;
  * - `wandit:runtime-error`: an uncaught error, a rejected promise, or a `console.error` call.
  * - `wandit:select-source`: the user clicked an element in select mode.
  * - `wandit:deselect`: the user pressed Escape in select mode.
+ * - `wandit:route`: the app shows another page. `path` is the pathname plus the query.
  * The app code in the frame can post the same shapes, so every text is bounded.
+ * The builder copies only the route path onto the preview URL, so the frame origin never changes.
  */
 export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("wandit:bridge-ready") }),
@@ -318,6 +338,11 @@ export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
 	}),
 	previewTargetSchema.extend({ type: z.literal("wandit:select-source") }),
 	z.object({ type: z.literal("wandit:deselect") }),
+	z.object({
+		type: z.literal("wandit:route"),
+		// 2048 characters: a longer path is not a page the user navigates to by hand.
+		path: z.string().startsWith("/").max(2048),
+	}),
 ]);
 
 /** One message of the template dev bridge, after the schema check of the builder. */

@@ -1,3 +1,7 @@
+/**
+ * Card list of the publish log on small screens. `PublicationsDataTable`
+ * renders it below the `lg` breakpoint with the same cells as the table.
+ */
 import type { ReactNode } from "react";
 
 import type { AdminPublication } from "@/features/publications/api/publications.dto";
@@ -6,6 +10,7 @@ import {
 	formatPublicationRelativeTime,
 } from "@/features/publications/lib/formatters";
 
+import { PublicationSuspensionAction } from "./publication-suspension-action";
 import {
 	PublicationLink,
 	PublicationStatusBadge,
@@ -28,7 +33,7 @@ function PublicationsMobileList({
 						<div className="min-w-0 flex-1">
 							<PublicationUser publication={publication} />
 						</div>
-						<PublicationStatusBadge status={publication.status} />
+						<PublicationStatusBadge publication={publication} />
 					</div>
 
 					<div className="grid grid-cols-2 divide-x">
@@ -40,11 +45,12 @@ function PublicationsMobileList({
 						</MobileDatum>
 					</div>
 
-					<div className="border-t px-3 py-2.5 text-xs">
+					<div className="flex items-center justify-between gap-3 border-t px-3 py-2.5 text-xs">
 						<span className="text-muted-foreground">
 							Published {formatPublicationDateTime(publication.publishedAt)} (
 							{formatPublicationRelativeTime(publication.publishedAt)})
 						</span>
+						<PublicationSuspensionAction publication={publication} />
 					</div>
 				</article>
 			))}

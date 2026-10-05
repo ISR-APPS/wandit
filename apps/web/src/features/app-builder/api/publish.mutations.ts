@@ -1,9 +1,9 @@
 /**
- * Mutations of the web app publish (WANDIT-178): publish, roll back, and
- * unpublish. Each writes its answer into the status key, so the poll of
- * publish.queries.ts starts or stops at once. Called by the web body of
- * components/shell/publish-popover.tsx. The last parameter of each hook is
- * the service, so a spec injects a fake.
+ * Mutations of the web app publish (WANDIT-178): publish, roll back,
+ * "Publish anyway" (WANDIT-190), and unpublish. Each writes its answer into
+ * the status key, so the poll of publish.queries.ts starts or stops at once.
+ * Called by the web body of components/shell/publish-popover.tsx. The last
+ * parameter of each hook is the service, so a spec injects a fake.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,20 +14,31 @@ import { isInsufficientCreditsApiError } from "@/features/projects";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { appBuilderKeys } from "./app-builder.queries";
 import { appPublishKeys } from "./publish.queries";
-import { publishApp, rollbackApp, unpublishApp } from "./publish.services";
+import {
+	overridePublishGate,
+	publishApp,
+	rollbackApp,
+	unpublishApp,
+} from "./publish.services";
 
-/** The status with `build` as the newest attempt. No status in the cache stays no status. */
+/**
+ * The status with `build` as the newest attempt. No status in the cache
+ * stays no status. A new attempt is not blocked, so "Publish anyway" hides
+ * until the next read.
+ */
 function withLatestBuild(
 	status: AppPublishStatus | undefined,
 	build: AppBuild,
 ): AppPublishStatus | undefined {
-	return status === undefined ? undefined : { ...status, latestBuild: build };
+	return status === undefined
+		? undefined
+		: { ...status, latestBuild: build, gateOverrideAllowed: false };
 }
 
-/** The shared reaction to a publish or a rollback: the cache on success, a toast on error. */
+/** The shared reaction to a publish, a rollback, or an override: the cache on success, a toast on error. */
 function useQueueBuild<TInput>(
 	projectId: string,
-	action: "publish" | "rollback",
+	action: "publish" | "rollback" | "override",
 	queue: (input: TInput) => Promise<AppBuild>,
 ) {
 	const queryClient = useQueryClient();
@@ -46,7 +57,7 @@ function useQueueBuild<TInput>(
 			if (isInsufficientCreditsApiError(error)) {
 				return;
 			}
-			// errors.json translates every code of these routes.
+			// A code without an errors.json text shows the server message.
 			toast.error(getApiErrorMessage(error));
 			// A 409 PUBLISH_ACTIVE means another tab started a publish. The refetch shows it.
 			void queryClient.invalidateQueries({ queryKey: key });
@@ -71,6 +82,19 @@ export function useRollbackApp(
 ) {
 	return useQueueBuild(projectId, "rollback", (deploymentId: string) =>
 		rollback(projectId, { deploymentId, requestKey: crypto.randomUUID() }),
+	);
+}
+
+/**
+ * "Publish anyway" on a blocked attempt. `mutate` takes the attempt id; the
+ * hook adds a new request key. The API checks the owner and the findings.
+ */
+export function useOverridePublishGate(
+	projectId: string,
+	override: typeof overridePublishGate = overridePublishGate,
+) {
+	return useQueueBuild(projectId, "override", (buildId: string) =>
+		override(projectId, { buildId, requestKey: crypto.randomUUID() }),
 	);
 }
 

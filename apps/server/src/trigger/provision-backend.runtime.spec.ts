@@ -1,7 +1,8 @@
-import type {
-	SupabaseInstanceSize,
-	SupabaseProjectStatus,
-	SupabaseRegion,
+import {
+	previewAuthRedirectPattern,
+	type SupabaseInstanceSize,
+	type SupabaseProjectStatus,
+	type SupabaseRegion,
 } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -346,12 +347,19 @@ describe("runProvisionBackend", () => {
 				scope: { projectId: PROJECT_ID, ref: REF },
 				input: {
 					siteUrl: `https://${PREVIEW_DOMAIN}`,
-					uriAllowList: [`https://r-*--p-${PROJECT_ID}.${PREVIEW_DOMAIN}/**`],
+					uriAllowList: [
+						previewAuthRedirectPattern(PROJECT_ID, PREVIEW_DOMAIN),
+					],
 					externalEmailEnabled: true,
 					skipEmailConfirmation: true,
 				},
 			},
 		]);
+		// Security: a `*` or `?` before the path also matches `@`, so a login
+		// token could go to another host. Only the path may hold a glob.
+		const [redirectHost] =
+			client.authCalls[0]?.input.uriAllowList[0]?.split("/**") ?? [];
+		expect(redirectHost).toMatch(/^https:\/\/[^*?]+$/);
 		expect(backends.markActive).toHaveBeenCalledWith(PROJECT_ID, REQUEST_KEY, {
 			anonKey: ANON_KEY,
 			dbHost: DB_HOST,

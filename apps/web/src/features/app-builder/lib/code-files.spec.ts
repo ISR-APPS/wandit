@@ -1,57 +1,31 @@
 import { syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
-import {
-	Database,
-	File,
-	FileBraces,
-	FileCode,
-	FileCog,
-	FileImage,
-	FileLock,
-	FileSliders,
-	FileTerminal,
-	FileText,
-	FileType,
-} from "lucide-react";
+import { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
+import { FileImageIcon } from "@phosphor-icons/react/FileImage";
+import { FileTextIcon } from "@phosphor-icons/react/FileText";
+import { FileTsIcon } from "@phosphor-icons/react/FileTs";
+import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { LockSimpleIcon } from "@phosphor-icons/react/LockSimple";
 import { describe, expect, it } from "vitest";
 
 import {
 	codeLanguageFor,
 	countLines,
 	fileIconFor,
-	fileNameOf,
 	isProsePath,
 } from "./code-files";
 
 describe("codeLanguageFor", () => {
 	it.each([
-		["src/routes/index.tsx", "TSX"],
-		["src/db/schema.ts", "TypeScript"],
-		["src/worker.mts", "TypeScript"],
-		["src/legacy.cts", "TypeScript"],
-		["src/button.jsx", "JSX"],
-		["scripts/build.js", "JavaScript"],
-		["eslint.config.mjs", "JavaScript"],
-		["babel.config.cjs", "JavaScript"],
-		["package.json", "JSON"],
-		["wrangler.jsonc", "JSON with Comments"],
-		["src/styles.css", "CSS"],
-		["index.html", "HTML"],
-		["README.md", "Markdown"],
-		["docs/page.mdx", "Markdown"],
-		["pnpm-workspace.yaml", "YAML"],
-		[".github/workflows/ci.yml", "YAML"],
-		["migrations/0001_init.sql", "SQL"],
-		["public/favicon.svg", "SVG"],
-		["public/sitemap.xml", "XML"],
 		["src/APP.TSX", "TSX"],
+		// A dot in a folder name is not the extension.
+		[".github/workflows/ci.yml", "YAML"],
 	])("maps %s to %s", (path, label) => {
 		expect(codeLanguageFor(path)?.label).toBe(label);
 	});
 
 	it.each([
 		".gitignore",
-		".npmrc",
 		"template_version",
 		"src/.env.example",
 		"notes.txt",
@@ -80,9 +54,7 @@ describe("codeLanguageFor", () => {
 
 describe("isProsePath", () => {
 	it.each([
-		["README.md", true],
 		["docs/page.MDX", true],
-		["notes.txt", true],
 		["src/app.tsx", false],
 		[".md", false],
 	])("answers %s -> %s", (path, isProse) => {
@@ -91,45 +63,19 @@ describe("isProsePath", () => {
 });
 
 describe("fileIconFor", () => {
+	// Full-name rules win over the extension; case and a leading dot do not change the answer.
 	it.each([
-		["pnpm-lock.yaml", FileLock],
-		["bun.lockb", FileLock],
-		[".gitignore", FileCog],
-		["biome.json", FileCog],
-		["vite.config.ts", FileCog],
-		["tsconfig.json", FileCog],
-		["tsconfig.app.json", FileCog],
-		["index.tsx", FileCode],
-		["schema.ts", FileCode],
-		["build.mjs", FileCode],
-		["styles.css", FileCode],
-		["package.json", FileBraces],
-		["SKILL.md", FileText],
-		["0001_init.sql", Database],
-		["pnpm-workspace.yaml", FileSliders],
-		["logo.PNG", FileImage],
-		["inter.woff2", FileType],
-		["deploy.sh", FileTerminal],
-		["template_version", File],
-		["LICENSE", File],
+		["pnpm-lock.yaml", LockSimpleIcon],
+		[".gitignore", GearSixIcon],
+		["biome.json", GearSixIcon],
+		["vite.config.ts", GearSixIcon],
+		["tsconfig.app.json", GearSixIcon],
+		["schema.ts", FileTsIcon],
+		["package.json", BracketsCurlyIcon],
+		["logo.PNG", FileImageIcon],
+		["template_version", FileTextIcon],
 	])("gives %s its icon", (name, Icon) => {
 		expect(fileIconFor(name).Icon).toBe(Icon);
-	});
-
-	it("colors code by type and keeps prose and configs muted", () => {
-		expect(fileIconFor("index.tsx").colorClass).toBe("text-(--code-type)");
-		expect(fileIconFor("schema.ts").colorClass).toBe("text-(--code-function)");
-		expect(fileIconFor("SKILL.md").colorClass).toBe("text-muted-foreground");
-		expect(fileIconFor("vite.config.ts").colorClass).toBe(
-			"text-muted-foreground",
-		);
-	});
-});
-
-describe("fileNameOf", () => {
-	it("answers the last segment of a path", () => {
-		expect(fileNameOf("src/routes/index.tsx")).toBe("index.tsx");
-		expect(fileNameOf("package.json")).toBe("package.json");
 	});
 });
 

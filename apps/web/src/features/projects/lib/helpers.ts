@@ -4,15 +4,17 @@
  * Flow position:
  * - useCreateProjectWithPrompt() uses deriveProjectName() before creating a
  *   project so the dashboard can show a readable temporary name immediately.
- * - Project cards use thumbGradient() to render deterministic placeholder art
- *   and shouldShowProjectPreview() to recover when a newer thumbnail replaces
- *   one that failed.
+ * - Project cards use projectTileLook() to color the app tile and the stage,
+ *   projectTileGlyph() for the letter on the tile, and shouldShowProjectPreview()
+ *   to recover when a newer thumbnail replaces one that failed.
+ * - The workspace generation card uses thumbGradient() for its placeholder art.
  * - These helpers do not call the API; they only turn local inputs into display
  *   data.
  *
  * Gotchas:
  * - Project naming is intentionally simple MVP logic, not AI-generated naming.
- * - thumbGradient() must stay deterministic so a card keeps the same thumbnail.
+ * - thumbGradient() and projectTileLook() must stay deterministic, so a card
+ *   keeps the same colors after each reload.
  */
 import { getCurrentDictionary, getCurrentLocale, translate } from "@/lib/i18n";
 
@@ -112,11 +114,11 @@ function mix(n: number): number {
 const WARM_HUES = [15, 30, 45, 65, 85, 110, 155, 340] as const;
 
 /**
- * thumbGradient(seed): deterministic diagonal gradient for project card
+ * thumbGradient(seed): deterministic diagonal gradient for project
  * thumbnails — hash the stored seed, pick two distinct warm hues, vary
  * lightness slightly so cards never repeat. Returns a CSS background value.
  */
-// Exported for project card thumbnails. Same seed in, same CSS gradient out.
+// Exported for the workspace generation card. Same seed in, same CSS gradient out.
 export function thumbGradient(seed: number): string {
 	const h = mix(seed);
 	// Pick the first hue directly from the mixed seed.
@@ -130,6 +132,50 @@ export function thumbGradient(seed: number): string {
 	const l1 = (52 + ((h >>> 6) % 12)) / 100; // 0.52–0.63
 	const l2 = (32 + ((h >>> 9) % 10)) / 100; // 0.32–0.41
 	return `linear-gradient(135deg, oklch(${l1} 0.13 ${hue1}), oklch(${l2} 0.12 ${hue2}))`;
+}
+
+/** The colors of one project app tile. Each field is a CSS color. */
+export type ProjectTileLook = {
+	/** Top-start color of the tile gradient. */
+	from: string;
+	/** Bottom-end color of the tile gradient. The card stage tint also uses it. */
+	to: string;
+	/** Color of the letter on the tile. The same as the glyph color of the landing icon. */
+	ink: string;
+};
+
+// A copy of the 12 looks of APP_ICON_LOOKS in the landing ideas wall. We copy
+// and do not import, because the landing icons and the cards can change apart.
+const PROJECT_TILE_LOOKS = [
+	{ from: "#2a2a2a", to: "#050505", ink: "#e3b55f" },
+	{ from: "#ffffff", to: "#e6defe", ink: "#6d4aff" },
+	{ from: "#e6ff6b", to: "#a6dc12", ink: "#16181d" },
+	{ from: "#fbf3e8", to: "#ead2b2", ink: "#c8553d" },
+	{ from: "#3ee0cb", to: "#0c8f80", ink: "#ffffff" },
+	{ from: "#2fd27a", to: "#0a7a3f", ink: "#ffffff" },
+	{ from: "#5a2bb8", to: "#22094f", ink: "#ff9fe2" },
+	{ from: "#ff6aa4", to: "#d9105f", ink: "#ffffff" },
+	{ from: "#6fd3ff", to: "#1677ff", ink: "#ffffff" },
+	{ from: "#fff6dc", to: "#ffd47a", ink: "#c2410c" },
+	{ from: "#ff7a66", to: "#e02f24", ink: "#ffffff" },
+	{ from: "#7486ff", to: "#3341d8", ink: "#ffffff" },
+] as const satisfies readonly ProjectTileLook[];
+
+/**
+ * Picks the app tile colors of a project card from `Project.thumbnailSeed`.
+ * The same seed always gives the same look, so a card keeps its colors.
+ */
+export function projectTileLook(seed: number): ProjectTileLook {
+	return PROJECT_TILE_LOOKS[mix(seed) % PROJECT_TILE_LOOKS.length];
+}
+
+/**
+ * The letter on the app tile of a project card: the first letter or digit of
+ * the name, in upper case. "[S1] chat" gives "S". A name with no letter gives "✦".
+ */
+export function projectTileGlyph(name: string): string {
+	// \p{L} and \p{N} match a letter or a digit in every script, Arabic too.
+	return name.match(/[\p{L}\p{N}]/u)?.[0].toUpperCase() ?? "✦";
 }
 
 /** A failed thumbnail only suppresses the exact URL whose request failed. */

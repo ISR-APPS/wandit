@@ -18,6 +18,7 @@ import type {
 	CloudObjectsResponse,
 } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -134,7 +135,11 @@ function renderPanel(queryClient: QueryClient) {
 		createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(I18nProvider, providerProps),
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(I18nProvider, providerProps),
+			),
 		),
 	);
 }

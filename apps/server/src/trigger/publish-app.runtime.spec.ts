@@ -2,6 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import {
 	DEFAULT_APP_WORKER_LIMITS,
+	type PublishGateFinding,
 	type StoredAppBuild,
 	storedAppBuildSchema,
 } from "@wandit/contracts";
@@ -58,6 +59,8 @@ function buildRow(overrides: Partial<AppBuildRow> = {}): AppBuildRow {
 		errorCode: null,
 		errorMessage: null,
 		fileCount: null,
+		gateFindings: [],
+		gateOverride: false,
 		id: BUILD_ID,
 		organizationId: null,
 		projectId: PROJECT_ID,
@@ -96,6 +99,8 @@ const PROJECT: PublishProjectRow = {
 	framework: "web-app",
 	name: "Booking App",
 	organizationId: null,
+	suspendedAt: null,
+	suspendedReasonCode: null,
 	templateVersion: "web-app@1.0.0",
 	userId: "user-1",
 };
@@ -168,8 +173,11 @@ async function setup(
 		live?: AppDeploymentRow | null;
 		files?: Record<string, string>;
 		gates?: PublishGate[];
+		/** The project rows that `findProject` answers, one per call; the last one repeats. */
+		projects?: PublishProjectRow[];
 	} = {},
 ) {
+	const projects = options.projects ?? [PROJECT];
 	let row = options.row ?? buildRow();
 	const transitions: AppBuildTransition[] = [];
 	const deployments: AppDeploymentRow[] = [];
@@ -202,6 +210,8 @@ async function setup(
 	sandboxes.respondTo("git", OK); // worktree remove
 
 	const deps = {
+		audit: { record: vi.fn(async () => undefined) },
+		authUrlSync: { onProjectDomainsChanged: vi.fn(async () => undefined) },
 		backends: {
 			findByProjectId: vi.fn(async () => BACKEND),
 			touchActive: vi.fn(async () => undefined),
@@ -232,7 +242,10 @@ async function setup(
 		publish: {
 			findById: vi.fn(async () => row),
 			findLiveDeployment: vi.fn(async () => options.live ?? null),
-			findProject: vi.fn(async () => PROJECT),
+			findProject: vi.fn(
+				async () =>
+					(projects.length > 1 ? projects.shift() : projects[0]) ?? PROJECT,
+			),
 			insertPendingDeployment: vi.fn(
 				async (input: {
 					projectId: string;
@@ -262,6 +275,10 @@ async function setup(
 		routing: {
 			putHostPointer: vi.fn(
 				async (_host: string, _pointer: Record<string, unknown>) => undefined,
+			),
+			refreshProjectDomains: vi.fn(
+				async (_projectId: string, _pointer: Record<string, unknown>) =>
+					undefined,
 			),
 		},
 		secretRows: {
@@ -299,6 +316,31 @@ const INPUT = {
 	projectId: PROJECT_ID,
 	triggerRunId: "run-1",
 };
+
+const SECRET_FINDING: PublishGateFinding = {
+	kind: "secret",
+	path: "client/assets/app.js",
+	rule: "stripe_live_secret_key",
+	sample: "sk_live_…abcd",
+	severity: "block",
+};
+
+const RLS_FINDING: PublishGateFinding = {
+	kind: "rls_probe",
+	reason: "rows_returned",
+	relation: "orders",
+	severity: "block",
+};
+
+const SUSPENSION = {
+	suspendedAt: new Date("2026-10-02T08:00:00.000Z"),
+	suspendedReasonCode: "abuse_phishing",
+} as const;
+
+// A gate that answers fixed findings.
+function gateOf(findings: PublishGateFinding[]): PublishGate {
+	return { id: "fake-gate", run: vi.fn(async () => findings) };
+}
 
 describe("runPublishApp from source", () => {
 	it("builds the commit, stores the output, uploads it, and goes live", async () => {
@@ -416,31 +458,99 @@ describe("runPublishApp from source", () => {
 		);
 	});
 
-	it("marks a gate-blocked build blocked and uploads nothing", async () => {
-		const gate: PublishGate = {
-			id: "fake-block",
-			run: vi.fn(async () => [
-				{
-					message: "phishing form",
-					path: "client/index.html",
-					severity: "block" as const,
-				},
-			]),
-		};
+	it("marks a gate-blocked build blocked, stores the findings, and uploads nothing", async () => {
 		const { deps, stored, transitions, workers } = await setup({
-			gates: [gate],
+			gates: [gateOf([SECRET_FINDING])],
 		});
 
 		const result = await runPublishApp(deps, INPUT);
 
 		expect(result).toEqual({ errorCode: "gate_blocked", outcome: "blocked" });
 		expect(transitions.at(-1)).toEqual({
-			errorMessage: "client/index.html: phishing form",
+			errorMessage:
+				"client/assets/app.js: stripe_live_secret_key sk_live_…abcd",
+			gateFindings: [SECRET_FINDING],
 			to: "blocked",
 		});
 		expect(workers.calls).toEqual([]);
 		expect(stored.size).toBe(0);
 		expect(deps.publish.insertPendingDeployment).not.toHaveBeenCalled();
+		expect(deps.audit.record).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "publish.blocked" }),
+		);
+	});
+
+	// WANDIT-177: without `kind: "app"` the edge serves a V2 custom domain
+	// from the V1 path and answers 404.
+	it("writes the app pointer on every active custom domain of the project", async () => {
+		const { deps } = await setup();
+
+		await runPublishApp(deps, INPUT);
+
+		expect(deps.routing.refreshProjectDomains).toHaveBeenCalledWith(
+			PROJECT_ID,
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId: PROJECT_ID,
+				source: "domain",
+			},
+		);
+	});
+
+	// WANDIT-190: the owner may publish past an open table, never past a key.
+	it.each([
+		["an RLS finding without override", RLS_FINDING, false, "blocked"],
+		["an RLS finding with override", RLS_FINDING, true, "published"],
+		["a secret with override", SECRET_FINDING, true, "blocked"],
+	] as const)("decides %s", async (_name, finding, gateOverride, outcome) => {
+		const { deps, transitions } = await setup({
+			gates: [gateOf([finding])],
+			row: buildRow({ gateOverride }),
+		});
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result.outcome).toBe(outcome);
+		// The findings stay on the row, also when they did not block it.
+		expect(transitions).toContainEqual(
+			expect.objectContaining({ gateFindings: [finding] }),
+		);
+	});
+
+	it("fails gate_unavailable and uploads nothing when a gate cannot run", async () => {
+		const broken: PublishGate = {
+			id: "backend",
+			run: vi.fn(async () => {
+				throw new Error("advisors answered 503");
+			}),
+		};
+		const { deps, workers } = await setup({ gates: [broken] });
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result).toEqual({
+			errorCode: "gate_unavailable",
+			outcome: "failed",
+		});
+		expect(workers.calls).toEqual([]);
+	});
+
+	// WANDIT-181: a slug that looks like a bank or login page gets no host,
+	// on a build and on a rollback that takes a new slug.
+	it.each([
+		["a build", buildRow()],
+		["a rollback", buildRow({ sourceBuildId: SOURCE_BUILD_ID })],
+	])("blocks a phishing slug on %s", async (_name, row) => {
+		const { deps, workers } = await setup({
+			projects: [{ ...PROJECT, name: "PayPal Login" }],
+			row,
+		});
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result).toEqual({ errorCode: "gate_blocked", outcome: "blocked" });
+		expect(workers.calls).toEqual([]);
 	});
 
 	it("fails a broken build with build_failed and removes the worktree", async () => {
@@ -675,6 +785,63 @@ describe("runPublishApp failures", () => {
 
 		expect(result).toEqual({ errorCode: "internal", outcome: "failed" });
 		expect(sandboxes.calls).toEqual([]);
+	});
+});
+
+describe("runPublishApp suspend rule", () => {
+	// WANDIT-181: a take-down survives a publish and a rollback.
+	it.each([
+		["a build", buildRow()],
+		["a rollback", buildRow({ sourceBuildId: SOURCE_BUILD_ID })],
+	])("fails %s of a suspended project before any work", async (_name, row) => {
+		const { deps, sandboxes, workers } = await setup({
+			projects: [{ ...PROJECT, ...SUSPENSION }],
+			row,
+		});
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result).toEqual({ errorCode: "suspended", outcome: "failed" });
+		expect(sandboxes.calls.filter((call) => call.method === "exec")).toEqual(
+			[],
+		);
+		expect(workers.calls).toEqual([]);
+		expect(deps.routing.putHostPointer).not.toHaveBeenCalled();
+	});
+
+	it("stops before the upload when staff suspend during the build", async () => {
+		const { deps, workers } = await setup({
+			projects: [PROJECT, { ...PROJECT, ...SUSPENSION }],
+		});
+
+		const result = await runPublishApp(deps, INPUT);
+
+		expect(result).toEqual({ errorCode: "suspended", outcome: "failed" });
+		expect(workers.calls).toEqual([]);
+	});
+
+	it("rewrites every pointer as suspended when staff suspend during the upload", async () => {
+		const { deps } = await setup({
+			projects: [PROJECT, PROJECT, { ...PROJECT, ...SUSPENSION }],
+		});
+
+		await runPublishApp(deps, INPUT);
+
+		const suspended = {
+			kind: "app",
+			limits: DEFAULT_APP_WORKER_LIMITS,
+			projectId: PROJECT_ID,
+			reasonCode: "abuse_phishing",
+			status: "suspended",
+		};
+		expect(deps.routing.putHostPointer).toHaveBeenLastCalledWith(
+			"booking-app.wandit.app",
+			{ ...suspended, slug: "booking-app", source: "slug" },
+		);
+		expect(deps.routing.refreshProjectDomains).toHaveBeenLastCalledWith(
+			PROJECT_ID,
+			{ ...suspended, source: "domain" },
+		);
 	});
 });
 

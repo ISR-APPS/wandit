@@ -16,11 +16,25 @@
 	/* Geist Mono has no Arabic glyphs — mono micro-labels would fall back to
 	   a broken Courier-style face with severed cursive joins. */
 	--font-mono: "Noto Sans Arabic", "Geist Mono", ui-monospace, monospace;
+	/* Bricolage Grotesque has no Arabic glyphs. Readex Pro has the same
+	   geometric build. Alexandria was rejected: it drops the dots of a final
+	   yaa inside a sentence (an Egyptian form). */
+	--font-grotesk: "Readex Pro", "Noto Sans Arabic", sans-serif;
+}
+
+/* An English or French island inside an Arabic page (the languages section
+   shows the app in each language) gets the Latin face back. */
+:lang(en),
+:lang(fr) {
+	--font-grotesk:
+		"Bricolage Grotesque", "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Syntax colors and surfaces of the Code view editor
-   (features/app-builder/components/code/code-editor.tsx). Each text color
-   has at least 5:1 contrast on the editor background of its theme. */
+   (features/app-builder/components/code/code-editor.tsx). Each syntax color
+   has at least 5:1 contrast on the editor background of its theme. The
+   gutter shade is for line numbers only and is fainter on purpose. The
+   surfaces are navy shades of the brand ink; dark mode uses white shades. */
 :root {
 	--code-keyword: oklch(0.5 0.16 45);
 	--code-string: oklch(0.5 0.13 155);
@@ -31,8 +45,14 @@
 	--code-comment: var(--muted-foreground);
 	--code-punctuation: var(--ink-soft);
 	--code-selection: oklch(0.62 0.16 45 / 0.16);
-	--code-active-line: oklch(0.24 0.012 55 / 0.035);
 	--code-match: oklch(0.8 0.15 70 / 0.35);
+	/* A faint spark wash of the focused line, the same in both themes. */
+	--code-active-line: color-mix(in oklab, var(--color-spark) 9%, transparent);
+	--code-ink: var(--color-night);
+	--code-gutter: color-mix(in oklab, var(--color-night) 30%, transparent);
+	--code-hairline: color-mix(in oklab, var(--color-night) 10%, transparent);
+	--code-hover: color-mix(in oklab, var(--color-night) 5%, transparent);
+	--code-panel: color-mix(in oklab, var(--color-night) 2%, transparent);
 }
 
 .dark {
@@ -43,6 +63,10 @@
 	--code-type: oklch(0.8 0.09 195);
 	--code-property: oklch(0.84 0.11 85);
 	--code-selection: oklch(0.74 0.16 55 / 0.24);
-	--code-active-line: oklch(1 0 0 / 0.04);
 	--code-match: oklch(0.84 0.14 75 / 0.28);
+	--code-ink: var(--foreground);
+	--code-gutter: oklch(1 0 0 / 0.3);
+	--code-hairline: oklch(1 0 0 / 0.1);
+	--code-hover: oklch(1 0 0 / 0.06);
+	--code-panel: oklch(1 0 0 / 0.02);
 }

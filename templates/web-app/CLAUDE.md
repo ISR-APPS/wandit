@@ -44,6 +44,9 @@ The host machine runs the session and commits your work.
   that pnpm writes into `pnpm-workspace.yaml`.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
+- A shell command that writes a file must name a literal path, such as `/tmp/page.html`.
+  The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/p-$i.html`.
+  Write one command for each file, not a loop.
 - Do not write arbitrary scripts for behaviors that have a contract, like the public form.
 
 ## Structure
@@ -383,3 +386,26 @@ grant execute on function public.submit_order(text, text, int, text) to anon, au
 
 - The host commits your work. You run no git write command.
 - `git status` and `git diff` for reading are fine.
+
+## Public tables and the publish check
+
+- Every table in the `public` schema has row level security on, with no
+  exception.
+- A table that anyone may read on purpose gets this statement in the same
+  migration: `comment on table public.<name> is 'wandit:public';`
+- A view uses `with (security_invoker = true)`. A public view gets
+  `comment on view` with the same text.
+- A materialized view or a foreign table cannot have RLS. A public one gets
+  `comment on materialized view` or `comment on foreign table` with the same
+  text. A private one gets
+  `revoke select on public.<name> from anon, authenticated;` in the same
+  migration.
+- Create every extension in the `extensions` schema:
+  `create extension if not exists <name> with schema extensions;`. An
+  extension table in `public` blocks the publish, and you cannot fix it.
+- The anonymous read check skips a marked relation. The security advisors
+  still check it.
+- The check blocks every other table with RLS off. It also blocks every
+  other materialized view or foreign table that `anon` can select, a
+  `using (true)` policy for `anon`, and rows that a visitor can read
+  without sign-in.

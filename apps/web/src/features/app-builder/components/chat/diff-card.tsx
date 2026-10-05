@@ -5,15 +5,17 @@
  * Copy writes the signed diff text through copyToClipboard in lib/helpers.
  */
 
+import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import { Code, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
 import type { BuilderDiffLine } from "../../api/dto";
 import { copyToClipboard } from "../../lib/helpers";
-import { MessageCard } from "./message-card";
+import { IconAction } from "../shell/top-bar";
+import { CARD_ICON_BUTTON_CLASS, MessageCard } from "./message-card";
 
 /** Props of one file of a version diff, as versions-popover.tsx passes them. */
 export type DiffCardProps = {
@@ -41,12 +43,16 @@ export function DiffCard({ path, lines }: DiffCardProps) {
 	}
 
 	return (
-		<MessageCard className="overflow-hidden">
-			<div className="flex h-9 items-center gap-2 border-b px-3">
-				<Code className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+		<MessageCard className="overflow-hidden p-0">
+			<div className="flex h-10 items-center gap-2 border-night/[0.07] border-b ps-3.5 pe-2 dark:border-white/[0.07]">
+				<FileCodeIcon
+					weight="duotone"
+					className="size-4 shrink-0 text-night/50 dark:text-foreground/50"
+					aria-hidden
+				/>
 				<span
 					dir="ltr"
-					className="min-w-0 flex-1 truncate font-mono text-[12px]"
+					className="min-w-0 flex-1 truncate font-mono text-[12px] text-night dark:text-foreground"
 				>
 					{path}
 				</span>
@@ -60,19 +66,20 @@ export function DiffCard({ path, lines }: DiffCardProps) {
 						-{removed}
 					</span>
 				) : null}
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					className="text-muted-foreground"
-					aria-label={t("appBuilder.chat.copy")}
-					onClick={() => void copyDiff()}
-				>
-					<Copy />
-				</Button>
+				<IconAction label={t("appBuilder.chat.copy")}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						className={CARD_ICON_BUTTON_CLASS}
+						onClick={() => void copyDiff()}
+					>
+						<CopyIcon weight="bold" aria-hidden />
+					</Button>
+				</IconAction>
 			</div>
 			<pre
 				dir="ltr"
-				className="scroll-warm m-0 overflow-x-auto py-2 font-mono text-[12px] leading-5"
+				className="scroll-warm m-0 overflow-x-auto bg-night/[0.015] py-2 font-mono text-[12px] text-night/80 leading-5 dark:bg-transparent dark:text-foreground/80"
 			>
 				{lines.map((line, index) => (
 					<div
@@ -80,12 +87,12 @@ export function DiffCard({ path, lines }: DiffCardProps) {
 						key={index}
 						data-line-kind={line.kind}
 						className={cn(
-							"flex px-3",
+							"flex px-3.5",
 							line.kind === "add" && "bg-success/10",
 							line.kind === "remove" && "bg-destructive/10",
 						)}
 					>
-						<span className="w-4 shrink-0 select-none text-muted-foreground">
+						<span className="w-4 shrink-0 select-none text-night/35 dark:text-foreground/35">
 							{LINE_SIGN[line.kind]}
 						</span>
 						<span className="whitespace-pre">{line.text}</span>

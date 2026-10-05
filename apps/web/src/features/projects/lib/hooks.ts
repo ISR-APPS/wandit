@@ -229,7 +229,9 @@ export function useAutostartStashedPrompt(
 	// user signed out since — the next account must not inherit it.
 	const restashPrefillOnly = useCallback((draft: StashedPrompt) => {
 		if (promptStash.generation() !== stashGenerationRef.current) return;
-		promptStash.stash(draft.prompt, draft.composer);
+		promptStash.stash(draft.prompt, draft.composer, {
+			targetPlatform: draft.targetPlatform,
+		});
 	}, []);
 
 	useEffect(() => {

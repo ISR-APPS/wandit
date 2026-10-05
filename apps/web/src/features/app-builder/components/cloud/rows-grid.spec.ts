@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -30,7 +31,13 @@ function renderGrid(props: Partial<RowsGridProps> = {}) {
 			...props,
 		}),
 	};
-	render(createElement(I18nProvider, providerProps));
+	render(
+		createElement(
+			TooltipProvider,
+			null,
+			createElement(I18nProvider, providerProps),
+		),
+	);
 }
 
 afterEach(cleanup);
@@ -107,7 +114,13 @@ describe("PageControls", () => {
 				countText: "120 users",
 			}),
 		};
-		render(createElement(I18nProvider, providerProps));
+		render(
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(I18nProvider, providerProps),
+			),
+		);
 	}
 
 	it("shows the count text and the page, and stops at the ends", () => {

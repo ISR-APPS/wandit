@@ -6,6 +6,9 @@ import type {
 	AdminListPublicationsResponse,
 	AdminPublication,
 	AdminPublicationStatus,
+	AdminPublicationSuspensionResponse,
+	AdminSuspendPublicationInput,
+	SuspendedReasonCode,
 } from "@wandit/contracts";
 
 export type {
@@ -13,6 +16,9 @@ export type {
 	AdminListPublicationsResponse,
 	AdminPublication,
 	AdminPublicationStatus,
+	AdminPublicationSuspensionResponse,
+	AdminSuspendPublicationInput,
+	SuspendedReasonCode,
 };
 
 /** Query params the publications log UI sends to GET /api/v1/admin/publications. */

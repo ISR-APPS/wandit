@@ -1,11 +1,12 @@
 /**
- * Pure helpers of the app builder, with no React. Five list and test the
- * panels of the More view, pick the open one, and name it. Four pairs
- * store the open state and the split layout of the chat card, the chat view
- * of local dev, and the Expo Go username. One copies text to the clipboard.
- * Two convert the spending limits between the Settings fields and the API.
- * Called by the page, the More view and its nav, the Settings panel, the
- * chat cards, and the Expo Go popover.
+ * Pure helpers of the app builder, with no React. Four list and test the
+ * panels of the More view and pick the open one. Four pairs store the open
+ * state and the split layout of the chat column, the chat view of local dev,
+ * and the Expo Go username. One copies text to the clipboard. One puts an
+ * app page path on the signed preview URL. Two convert the spending limits
+ * between the Settings fields and the API. Called by the page, the More view
+ * and its nav, the Settings panel, the chat cards, the Expo Go popover, and
+ * the preview panel.
  */
 
 import {
@@ -16,7 +17,6 @@ import {
 	updateProjectCostCapsRequestSchema,
 } from "@wandit/contracts";
 
-import type { TranslationKey } from "@/lib/i18n";
 import type { AppProjectKind } from "../api/dto";
 import {
 	CHAT_LAYOUT_STORAGE_KEY,
@@ -39,7 +39,11 @@ export function panelsForKind(kind: AppProjectKind): MorePanel[] {
 	);
 }
 
-/** True for an id of the Backend group. The More view renders those panels without PanelShell. */
+/**
+ * True for an id of the Backend group. More view renders it through
+ * CloudPanelContent. PanelShell reads its title from `workspace.cloud` and
+ * gives it a wider body.
+ */
 export function isCloudPanel(
 	panel: MorePanel | CloudPanel,
 ): panel is CloudPanel {
@@ -75,12 +79,6 @@ export function resolvePanel(
 	// Product rule: the backend is the main content of a project, so Database opens first.
 	// Analytics is listed for every kind, so it is a valid fallback while the gate is closed.
 	return isCloudTabEnabled ? "database" : "analytics";
-}
-
-/** Dictionary key of the panel title in the work bar. The Cloud labels live in the workspace dictionary (WANDIT-188). */
-export function panelTitleKey(panel: ProjectPanel): TranslationKey {
-	if (isCloudPanel(panel)) return `workspace.cloud.panels.${panel}`;
-	return MORE_PANEL_META[panel].title;
 }
 
 /** Open state of the chat pane from the last visit. Open when nothing is stored or storage fails. */
@@ -190,6 +188,25 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 		console.error("Copy to the clipboard failed", error);
 		return false;
 	}
+}
+
+/**
+ * The iframe src for one page of the app: the signed preview URL with the
+ * path, query, and hash of `path`. Only those parts move, so the origin and
+ * the `wt` token of the preview URL stay. `/` returns the URL unchanged.
+ */
+export function previewSrcFor(previewUrl: string, path: string): string {
+	if (path === "/") return previewUrl;
+	const url = new URL(previewUrl);
+	// The base only lets the URL parser read a relative path. Its origin is never used.
+	const target = new URL(path, "https://preview.invalid");
+	url.pathname = target.pathname;
+	// append keeps the token first, and the proxy reads the first `wt`.
+	for (const [name, value] of target.searchParams) {
+		url.searchParams.append(name, value);
+	}
+	url.hash = target.hash;
+	return url.toString();
 }
 
 /** Text of a spending-limit field for one stored cap: credits with up to 2 decimals, or "" for no cap. */

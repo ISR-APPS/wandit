@@ -1,3 +1,9 @@
+/**
+ * The HTTP errors of the domains module. Each one holds a `code`, a
+ * `message`, and an HTTP status. The domain services, providers, and guards
+ * and the orders service throw them. The global `ApiExceptionFilter` sends
+ * them to the client as `{error: {code, message, statusCode, ...}}`.
+ */
 import { HttpException, HttpStatus } from "@nestjs/common";
 
 export class DomainHttpError extends HttpException {
@@ -69,6 +75,20 @@ export class ExternalDomainUnregisteredError extends DomainHttpError {
 export class DomainBlockedError extends DomainHttpError {
 	constructor(message = "Domain name is blocked") {
 		super("DOMAIN_BLOCKED", message, HttpStatus.BAD_REQUEST);
+	}
+}
+
+/**
+ * 422 when `findPhishingTerm` finds a login, bank, or wallet term in a custom
+ * domain name (WANDIT-181). Thrown before any row, hostname, or payment.
+ */
+export class PhishingDomainBlockedError extends DomainHttpError {
+	constructor() {
+		super(
+			"DOMAIN_BLOCKED",
+			"This domain name looks like a login, bank, or wallet page. Choose another name. If this is a mistake, contact support.",
+			HttpStatus.UNPROCESSABLE_ENTITY,
+		);
 	}
 }
 

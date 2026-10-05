@@ -1,3 +1,8 @@
+/**
+ * Vite config of the web app: the dev port from apps/web/.env, Tailwind,
+ * the router code split, and the Sentry source map upload.
+ */
+
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
@@ -27,11 +32,6 @@ export default defineConfig(({ mode }) => ({
 		// Workspace packages declare react as a peer (autoInstallPeers is off so
 		// native keeps its own react) — resolve their bare react imports to ours.
 		dedupe: ["react", "react-dom"],
-		alias: {
-			// lottie-react's `browser` field points at its UMD build, which breaks
-			// Vite's ESM default-import interop — pin the ES build instead.
-			"lottie-react": "lottie-react/build/index.es.js",
-		},
 	},
 	plugins: [
 		tailwindcss(),

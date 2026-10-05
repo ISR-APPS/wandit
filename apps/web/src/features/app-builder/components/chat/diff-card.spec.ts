@@ -8,6 +8,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,17 +26,22 @@ const LINES: BuilderDiffLine[] = [
 	{ kind: "context", text: "  return null;" },
 ];
 
+// The page mounts one TooltipProvider; the copy button needs it too.
 function renderCard(props: Partial<DiffCardProps> = {}) {
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(DiffCard, {
-			path: "app/(tabs)/pass.tsx",
-			lines: LINES,
-			...props,
-		}),
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(DiffCard, {
+				path: "app/(tabs)/pass.tsx",
+				lines: LINES,
+				...props,
+			}),
+		),
 	};
 	return render(createElement(I18nProvider, providerProps));
 }

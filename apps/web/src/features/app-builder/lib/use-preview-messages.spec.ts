@@ -22,6 +22,7 @@ const SELECT_SOURCE = {
 	tag: "button",
 	label: "Order now",
 };
+const ROUTE = { type: "wandit:route", path: "/invoices?page=2" };
 
 // The preview iframe. Its window is the source the hook accepts.
 let frame: HTMLIFrameElement;
@@ -111,6 +112,7 @@ describe("usePreviewMessages", () => {
 				src: "src/routes/{-$locale}/(shop)/$id.tsx:3:5",
 			},
 		},
+		{ name: "a page change", data: ROUTE },
 	])("passes $name from the preview frame to onBridgeMessage", ({ data }) => {
 		const handlers = renderListener(PREVIEW_URL);
 
@@ -155,6 +157,18 @@ describe("usePreviewMessages", () => {
 			origin: PREVIEW_ORIGIN,
 			source: () => frame.contentWindow,
 			data: { ...SELECT_SOURCE, src: "javascript:alert(1)" },
+		},
+		{
+			name: "another origin with a page change",
+			origin: "https://evil.example.com",
+			source: () => frame.contentWindow,
+			data: ROUTE,
+		},
+		{
+			name: "a page path without a leading slash",
+			origin: PREVIEW_ORIGIN,
+			source: () => frame.contentWindow,
+			data: { ...ROUTE, path: "invoices" },
 		},
 	])("ignores a message from $name", ({ origin, source, data }) => {
 		const handlers = renderListener(PREVIEW_URL);

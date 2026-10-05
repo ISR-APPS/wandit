@@ -1,3 +1,10 @@
+/**
+ * Display helpers of the Publications page: dates, link hosts, and the
+ * labels of the suspend reasons. The table cells, the mobile list, and the
+ * suspend dialog call them.
+ */
+import type { SuspendedReasonCode } from "@/features/publications/api/publications.dto";
+
 // Date helpers copied from the users table so both logs render timestamps
 // identically.
 export function formatPublicationDate(
@@ -74,3 +81,19 @@ export function publicationLinkHost(url: string): string {
 		return url;
 	}
 }
+
+/**
+ * Plain English label of each suspend reason. The suspend dialog lists them
+ * in the order of `suspendedReasonCodes`. The status badge shows the label
+ * under "Suspended".
+ */
+export const SUSPENDED_REASON_LABELS = {
+	abuse_phishing: "Phishing",
+	abuse_malware: "Malware",
+	abuse_url_scan: "Flagged by a URL scan",
+	legal_takedown: "Legal takedown",
+	legal_notice: "Legal notice under review",
+	tos_violation: "Terms of service violation",
+	billing: "Unpaid balance",
+	manual_review: "Manual review",
+} as const satisfies Record<SuspendedReasonCode, string>;

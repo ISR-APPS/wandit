@@ -1,8 +1,8 @@
 /**
- * The prompt → V2 project flow of the dashboard. Creates the app project,
+ * The prompt → V2 project flow of the dashboard and the landing hero. Creates the app project,
  * refreshes the credits, and opens `/app/$projectId`. Same result shape as
  * the V1 `useCreateProjectWithPrompt`, so the dashboard swaps the two.
- * Calls `useCreateAppProject` and the credits and projects features.
+ * Calls `useCreateAppProject` and the auth, credits, and projects features.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import type {
 } from "@wandit/contracts";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { promptStash } from "@/features/auth";
 import { creditsKeys } from "@/features/credits";
 import { isInsufficientCreditsApiError } from "@/features/projects";
 import { getApiErrorMessage } from "@/lib/api-client";
@@ -55,6 +56,10 @@ export function useCreateAppProjectWithPrompt(
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
 		) => {
+			// Claim the post-auth stash so a later dashboard visit cannot create
+			// a second project from the same landing-page draft.
+			promptStash.consume();
+
 			let created: { projectId: string };
 			try {
 				created = await createAppProject.mutateAsync(

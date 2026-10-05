@@ -1,9 +1,26 @@
 "use client";
 
+/**
+ * Dropdown menu of the web app, on top of the Radix primitive.
+ * The look copies the dashboard sidebar: a white sheet, rows in the grotesk
+ * face, a soft navy tint on the focused row, and the icon turns ember.
+ * Every menu of the app renders these parts.
+ */
+
 import { cn } from "@wandit/ui/lib/utils";
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import type * as React from "react";
+
+// One look for every menu row. The text uses the grotesk face of the brand.
+// The icon is dim at rest and turns ember (--primary) on the focused row.
+// An svg with its own text-* or size-* class keeps that color or size.
+const MENU_ROW_CLASS =
+	"relative flex cursor-default select-none items-center gap-2.5 rounded-[14px] px-2.5 py-2 font-grotesk font-medium text-sm outline-hidden transition-colors focus:bg-popover-foreground/[0.05] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-[18px] [&_svg:not([class*='text-'])]:text-popover-foreground/45 focus:[&_svg:not([class*='text-'])]:text-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:transition-colors";
+
+// The sheet of a menu or a sub-menu. Its 20 px corner is the 14 px row corner plus the 6 px padding.
+const MENU_SHEET_CLASS =
+	"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden rounded-[20px] border border-popover-foreground/[0.08] bg-popover p-1.5 text-popover-foreground shadow-menu data-[state=closed]:animate-out data-[state=open]:animate-in";
 
 function DropdownMenu({
 	...props
@@ -41,7 +58,8 @@ function DropdownMenuContent({
 				data-slot="dropdown-menu-content"
 				sideOffset={sideOffset}
 				className={cn(
-					"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in",
+					MENU_SHEET_CLASS,
+					"max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto",
 					className,
 				)}
 				{...props}
@@ -73,7 +91,8 @@ function DropdownMenuItem({
 			data-inset={inset}
 			data-variant={variant}
 			className={cn(
-				"data-[variant=destructive]:*:[svg]:!text-destructive relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[inset]:ps-8 data-[variant=destructive]:text-destructive data-[disabled]:opacity-50 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				MENU_ROW_CLASS,
+				"data-[variant=destructive]:*:[svg]:!text-destructive data-[inset]:ps-9 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/[0.08] data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20",
 				className,
 			)}
 			{...props}
@@ -90,16 +109,13 @@ function DropdownMenuCheckboxItem({
 	return (
 		<DropdownMenuPrimitive.CheckboxItem
 			data-slot="dropdown-menu-checkbox-item"
-			className={cn(
-				"relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 ps-8 pe-2 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-				className,
-			)}
+			className={cn(MENU_ROW_CLASS, "ps-9", className)}
 			checked={checked}
 			{...props}
 		>
-			<span className="pointer-events-none absolute start-2 flex size-3.5 items-center justify-center">
+			<span className="pointer-events-none absolute start-3 flex size-4 items-center justify-center">
 				<DropdownMenuPrimitive.ItemIndicator>
-					<CheckIcon className="size-4" />
+					<CheckIcon className="size-4 text-primary" />
 				</DropdownMenuPrimitive.ItemIndicator>
 			</span>
 			{children}
@@ -126,15 +142,12 @@ function DropdownMenuRadioItem({
 	return (
 		<DropdownMenuPrimitive.RadioItem
 			data-slot="dropdown-menu-radio-item"
-			className={cn(
-				"relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 ps-8 pe-2 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-				className,
-			)}
+			className={cn(MENU_ROW_CLASS, "ps-9", className)}
 			{...props}
 		>
-			<span className="pointer-events-none absolute start-2 flex size-3.5 items-center justify-center">
+			<span className="pointer-events-none absolute start-3 flex size-4 items-center justify-center">
 				<DropdownMenuPrimitive.ItemIndicator>
-					<CircleIcon className="size-2 fill-current" />
+					<CircleIcon className="size-2 fill-current text-primary" />
 				</DropdownMenuPrimitive.ItemIndicator>
 			</span>
 			{children}
@@ -145,7 +158,8 @@ function DropdownMenuRadioItem({
 /**
  * Radio item without the built-in left indicator column — for rows that render
  * their own selection affordance. Exposes `group/row` so children can react to
- * the Radix-managed data-[state=checked] on the item.
+ * the Radix-managed data-[state=checked] on the item. The checked row gets a
+ * soft spark tint, the "picked" color of the brand.
  */
 function DropdownMenuRadioItemBare({
 	className,
@@ -155,7 +169,8 @@ function DropdownMenuRadioItemBare({
 		<DropdownMenuPrimitive.RadioItem
 			data-slot="dropdown-menu-radio-item-bare"
 			className={cn(
-				"group/row relative flex cursor-default select-none items-center gap-2.5 rounded-lg px-2 py-2 text-sm outline-hidden transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				MENU_ROW_CLASS,
+				"group/row data-[state=checked]:bg-spark/[0.14]",
 				className,
 			)}
 			{...props}
@@ -175,7 +190,7 @@ function DropdownMenuLabel({
 			data-slot="dropdown-menu-label"
 			data-inset={inset}
 			className={cn(
-				"px-2 py-1.5 font-medium text-sm data-[inset]:ps-8",
+				"px-2.5 pt-2 pb-1 font-grotesk font-semibold text-popover-foreground/60 text-xs data-[inset]:ps-9",
 				className,
 			)}
 			{...props}
@@ -190,7 +205,10 @@ function DropdownMenuSeparator({
 	return (
 		<DropdownMenuPrimitive.Separator
 			data-slot="dropdown-menu-separator"
-			className={cn("-mx-1 my-1 h-px bg-border", className)}
+			className={cn(
+				"-mx-1.5 my-1.5 h-px bg-popover-foreground/[0.07]",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -231,7 +249,8 @@ function DropdownMenuSubTrigger({
 			data-slot="dropdown-menu-sub-trigger"
 			data-inset={inset}
 			className={cn(
-				"flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[inset]:ps-8 data-[state=open]:text-accent-foreground [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				MENU_ROW_CLASS,
+				"data-[state=open]:bg-popover-foreground/[0.05] data-[inset]:ps-9",
 				className,
 			)}
 			{...props}
@@ -249,10 +268,7 @@ function DropdownMenuSubContent({
 	return (
 		<DropdownMenuPrimitive.SubContent
 			data-slot="dropdown-menu-sub-content"
-			className={cn(
-				"data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=closed]:animate-out data-[state=open]:animate-in",
-				className,
-			)}
+			className={cn(MENU_SHEET_CLASS, "overflow-hidden", className)}
 			{...props}
 		/>
 	);

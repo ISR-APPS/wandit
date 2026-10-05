@@ -5,6 +5,12 @@
  * request (axios + AI stream) carries the new scope automatically.
  */
 
+import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { GaugeIcon } from "@phosphor-icons/react/Gauge";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { UserIcon } from "@phosphor-icons/react/User";
+import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { Link } from "@tanstack/react-router";
 import { PERSONAL_WORKSPACE, type WorkspaceSummary } from "@wandit/contracts";
 import {
@@ -21,7 +27,6 @@ import {
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { cn } from "@wandit/ui/lib/utils";
-import { Check, ChevronsUpDown, Gauge, Plus, User, Users } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/features/auth";
 import { useWorkspaceCreditBalancesQuery } from "@/features/credits/api/credits.queries";
@@ -40,13 +45,27 @@ function workspaceInitials(name: string): string {
 		.join("");
 }
 
+// The row of the current workspace gets the spark tint, like the picked rows of the other menus.
+const ACTIVE_ROW_CLASS = "bg-spark/[0.14] focus:bg-spark/20";
+
+/** The ember check at the end of the current workspace row. */
+function ActiveCheck() {
+	return (
+		<CheckIcon
+			aria-hidden
+			weight="bold"
+			className="size-4 shrink-0 text-primary"
+		/>
+	);
+}
+
 function SettledBalanceValue({ value }: { value: string | null }) {
 	if (value === null) {
 		return null;
 	}
 
 	return (
-		<span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
+		<span className="shrink-0 font-grotesk font-semibold text-popover-foreground/60 text-xs tabular-nums">
 			{value}
 		</span>
 	);
@@ -130,7 +149,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 					) : null}
 					<AvatarFallback className="text-[10px]">
 						{isPersonal ? (
-							<User className="size-3" />
+							<UserIcon aria-hidden weight="duotone" className="size-3.5" />
 						) : (
 							workspaceInitials(activeLabel)
 						)}
@@ -139,67 +158,69 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 				<span className="min-w-0 flex-1 truncate font-medium">
 					{activeLabel}
 				</span>
-				<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+				<CaretUpDownIcon
+					aria-hidden
+					weight="bold"
+					className="size-3.5 shrink-0 text-muted-foreground"
+				/>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-64">
 				<DropdownMenuLabel>{t("workspaces.switcher.label")}</DropdownMenuLabel>
 				<DropdownMenuItem
 					onSelect={() => switchWorkspace("personal")}
-					className="gap-2"
+					className={cn(isPersonal && ACTIVE_ROW_CLASS)}
 				>
-					<Avatar className="size-6">
+					<Avatar className="size-8">
 						<AvatarFallback>
-							<User className="size-3.5" />
+							<UserIcon aria-hidden weight="duotone" className="size-4" />
 						</AvatarFallback>
 					</Avatar>
 					<span className="min-w-0 flex-1">
-						<span className="block truncate font-medium">
+						<span className="block truncate">
 							{t("workspaces.switcher.personal")}
 						</span>
-						<span className="block truncate text-muted-foreground text-xs">
+						<span className="block truncate font-normal font-sans text-muted-foreground text-xs">
 							{t("workspaces.switcher.personalDescription")}
 						</span>
 					</span>
 					<SettledBalanceValue value={settledBalanceFor(PERSONAL_WORKSPACE)} />
-					{isPersonal ? <Check className="size-4 shrink-0" /> : null}
+					{isPersonal ? <ActiveCheck /> : null}
 				</DropdownMenuItem>
 				{workspaces.length > 0 ? <DropdownMenuSeparator /> : null}
 				{workspaces.map((entry) => (
 					<DropdownMenuItem
 						key={entry.id}
 						onSelect={() => switchWorkspace(entry.id)}
-						className="gap-2"
+						className={cn(activeWorkspaceId === entry.id && ACTIVE_ROW_CLASS)}
 					>
-						<Avatar className="size-6">
+						<Avatar className="size-8">
 							{entry.logo ? <AvatarImage src={entry.logo} alt="" /> : null}
 							<AvatarFallback className="text-[10px]">
 								{workspaceInitials(entry.name)}
 							</AvatarFallback>
 						</Avatar>
 						<span className="min-w-0 flex-1">
-							<span className="block truncate font-medium">{entry.name}</span>
-							<span className="block truncate text-muted-foreground text-xs">
+							<span className="block truncate">{entry.name}</span>
+							<span className="block truncate font-normal font-sans text-muted-foreground text-xs">
 								{t(roleLabelKey(entry))}
 							</span>
 						</span>
 						<SettledBalanceValue value={settledBalanceFor(entry.id)} />
-						{activeWorkspaceId === entry.id ? (
-							<Check className="size-4 shrink-0" />
-						) : null}
+						{activeWorkspaceId === entry.id ? <ActiveCheck /> : null}
 					</DropdownMenuItem>
 				))}
 				{!isPersonal ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem asChild className="gap-2">
+						<DropdownMenuItem asChild>
 							<Link to="/workspace/members">
-								<Users className="size-4" />
+								<UsersThreeIcon aria-hidden weight="duotone" />
 								{t("workspaces.members.title")}
 							</Link>
 						</DropdownMenuItem>
-						<DropdownMenuItem asChild className="gap-2">
+						<DropdownMenuItem asChild>
 							<Link to="/workspace/limits">
-								<Gauge className="size-4" />
+								<GaugeIcon aria-hidden weight="duotone" />
 								{t("workspaces.limits.title")}
 							</Link>
 						</DropdownMenuItem>
@@ -208,11 +229,8 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 				{canCreateWorkspace ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem
-							onSelect={() => setCreateOpen(true)}
-							className="gap-2"
-						>
-							<Plus className="size-4" />
+						<DropdownMenuItem onSelect={() => setCreateOpen(true)}>
+							<PlusIcon aria-hidden weight="bold" />
 							{t("workspaces.switcher.create")}
 						</DropdownMenuItem>
 					</>

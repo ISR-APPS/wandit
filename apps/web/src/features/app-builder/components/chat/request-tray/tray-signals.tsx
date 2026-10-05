@@ -1,10 +1,11 @@
 /**
- * Small visuals of the request tray, copied from the V1 tray: the spinning
- * ember arc of an upload in progress, and the chip in the thread that
- * points at the tray on the composer. Rendered by tray-bodies.tsx and
+ * Small visuals of the request tray: the spinning ember arc of an upload in
+ * progress (a copy of the V1 tray), and the chip in the thread that points
+ * at the tray on the composer. Rendered by tray-bodies.tsx and
  * question-receipt.tsx. The caller passes the copy.
  */
 
+import { ArrowDownIcon } from "@phosphor-icons/react/ArrowDown";
 import { cn } from "@wandit/ui/lib/utils";
 
 /** Spinning ember arc on a stone track: the tray working marker. */
@@ -31,7 +32,7 @@ export function SpinnerArc({ className }: { className?: string }) {
 	);
 }
 
-/** Mono chip under an open question in the thread: it points at the tray below. */
+/** Spark chip next to an open question in the thread: it points at the tray below. */
 export function TrayPointerChip({
 	label,
 	className,
@@ -42,16 +43,15 @@ export function TrayPointerChip({
 	return (
 		<span
 			className={cn(
-				"inline-flex shrink-0 items-center gap-[7px] rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] text-muted-foreground",
+				"inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-spark/[0.16] ps-2 pe-2.5 font-grotesk font-medium text-[12px] text-night dark:bg-spark/[0.14] dark:text-foreground",
 				className,
 			)}
 		>
-			<span
+			<ArrowDownIcon
+				weight="bold"
 				aria-hidden
-				className="grid size-3.5 shrink-0 place-items-center rounded-[5px] border border-primary/40 bg-primary/12 font-sans font-semibold text-[9px] text-ember-text"
-			>
-				?
-			</span>
+				className="size-3 shrink-0 text-spark-deep dark:text-spark"
+			/>
 			{label}
 		</span>
 	);

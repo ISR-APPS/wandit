@@ -1,8 +1,10 @@
 import {
+	DEFAULT_APP_WORKER_LIMITS,
 	DOMAIN_TLD_CATALOG,
 	type DomainDns,
 	domainDnsSchema,
 	domainNameSchema,
+	type HostPointer,
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -22,6 +24,7 @@ import type {
 	DomainProviderInfo,
 } from "../../domain/ports/domain-provider.port";
 import type { DomainTaskDispatcher } from "../../domain/ports/domain-task-dispatcher.port";
+import type { ProjectDomainHook } from "../../domain/ports/project-domain-hook.port";
 import type { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import type { CustomerZoneService } from "../../infrastructure/cloudflare/customer-zone.service";
 import type { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
@@ -33,6 +36,7 @@ import type {
 	DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import type { ProjectServing } from "../fulfillment/domain-activation.step";
 import { DomainsService } from "./domains.service";
 
 vi.mock("@wandit/env/server", () => ({
@@ -53,7 +57,16 @@ const nameserverRecords = zoneNameServers.map((value) => ({
 class FakeDomainsRepository {
 	readonly projects = new Set([`${userId}:${projectId}`]);
 	readonly rows = new Map<string, DomainRow>();
+	/** What `findProjectServing` answers for every project. */
+	serving: ProjectServing | null = {
+		engine: "v1_page",
+		suspendedReasonCode: null,
+	};
 	private nextId = 1;
+
+	async findProjectServing(_projectId: string) {
+		return this.serving;
+	}
 
 	async assertProjectAccessible(
 		inputScope: ProjectScope,
@@ -570,7 +583,7 @@ function expectNoRegistrarMutation(provider: FakeProvider) {
 	expect(provider.lockCalls).toHaveLength(0);
 }
 
-function setup() {
+function setup(projectDomainHook: ProjectDomainHook | null = null) {
 	vi.stubEnv("TRIGGER_SECRET_KEY", "tr_dev_test");
 	const repository = new FakeDomainsRepository();
 	const provider = new FakeProvider();
@@ -593,6 +606,7 @@ function setup() {
 		routing as unknown as DomainRoutingService,
 		logger,
 		dispatcher,
+		projectDomainHook,
 	);
 
 	return {
@@ -837,6 +851,40 @@ describe("DomainsService", () => {
 		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
 		expect(dispatcher.triggerPurchase).not.toHaveBeenCalled();
 		expectNoRegistrarMutation(provider);
+	});
+
+	it.each([
+		[
+			"attach",
+			(service: DomainsService) =>
+				service.attachExternal(scope, projectId, { name: "paypa1-login.com" }),
+		],
+		[
+			"purchase",
+			(service: DomainsService) =>
+				service.preparePurchase(scope, "paypa1-login.com", projectId),
+		],
+	])("refuses a phishing name on %s before any side effect", async (_label, run) => {
+		const {
+			cloudflare,
+			dispatcher,
+			provider,
+			registration,
+			repository,
+			service,
+		} = setup();
+
+		const error = await run(service).catch((caught: unknown) => caught);
+
+		expect(error).toMatchObject({
+			response: { code: "DOMAIN_BLOCKED" },
+			status: 422,
+		});
+		expect(repository.rows.size).toBe(0);
+		expect(registration.check).not.toHaveBeenCalled();
+		expect(cloudflare.createCustomHostname).not.toHaveBeenCalled();
+		expect(provider.checkAvailability).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
 	});
 
 	it("refuses a confirmed unregistered external domain before creating resources", async () => {
@@ -1474,6 +1522,154 @@ describe("DomainsService", () => {
 		expect(repository.rows.get(second.id)?.providerDomainId).toBeNull();
 		expect(routing.deleted).toEqual(["second.com"]);
 		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_detach");
+	});
+
+	it.each<[string, ProjectServing, HostPointer, string[][]]>([
+		[
+			"a V1 page",
+			{ engine: "v1_page", suspendedReasonCode: null },
+			{ projectId, source: "domain" },
+			[],
+		],
+		[
+			"a live V2 app",
+			{ engine: "v2_app", suspendedReasonCode: null },
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				source: "domain",
+			},
+			[[projectId]],
+		],
+		[
+			"a suspended V2 app",
+			{ engine: "v2_app", suspendedReasonCode: "legal_takedown" },
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				reasonCode: "legal_takedown",
+				source: "domain",
+				status: "suspended",
+			},
+			[[projectId]],
+		],
+	])("points an activated domain of %s at its project and syncs a V2 app after activation and detach", async (_label, serving, pointer, syncCalls) => {
+		const hook = {
+			onProjectDomainsChanged: vi.fn(async (_projectId: string) => undefined),
+		};
+		const { cloudflare, repository, routing, service } = setup(hook);
+		repository.serving = serving;
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_live",
+			name: "live.com",
+			projectId,
+			source: "purchased",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: { status: "active" },
+		});
+		expect(routing.pointers).toEqual([{ host: "live.com", pointer }]);
+		expect(hook.onProjectDomainsChanged.mock.calls).toEqual(syncCalls);
+
+		await service.detach(row.id, scope);
+		expect(hook.onProjectDomainsChanged.mock.calls).toEqual([
+			...syncCalls,
+			...syncCalls,
+		]);
+	});
+
+	it.each([
+		["wins", true],
+		["loses", false],
+	])("rewrites the app pointer when staff suspend the app before the CAS that this call %s", async (_label, isCasWinner) => {
+		const { cloudflare, repository, routing, service } = setup();
+		repository.serving = { engine: "v2_app", suspendedReasonCode: null };
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_live",
+			name: "live.com",
+			projectId,
+			source: "purchased",
+			status: "configuring",
+		});
+		vi.spyOn(repository, "updateIfStatusOrNull").mockImplementationOnce(
+			async () => {
+				// The suspend switch skips the row here: the row is not active yet.
+				repository.serving = {
+					engine: "v2_app",
+					suspendedReasonCode: "billing",
+				};
+				const active = await repository.updateById(row.id, {
+					status: "active",
+				});
+
+				return isCasWinner ? active : null;
+			},
+		);
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: { status: "active" },
+		});
+		expect(routing.pointers.at(-1)).toEqual({
+			host: "live.com",
+			pointer: {
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				reasonCode: "billing",
+				source: "domain",
+				status: "suspended",
+			},
+		});
+	});
+
+	it("refuses to activate a domain of a soft-deleted project and writes no pointer", async () => {
+		const { cloudflare, repository, routing, service } = setup();
+		repository.serving = null;
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_live",
+			name: "live.com",
+			projectId,
+			source: "purchased",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).rejects.toBeInstanceOf(
+			InvalidDomainStateError,
+		);
+		expect(routing.pointers).toEqual([]);
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+	});
+
+	it("activates and detaches a V2 app domain when the sync hook fails", async () => {
+		const { cloudflare, logger, repository, service } = setup({
+			onProjectDomainsChanged: async () => {
+				throw new Error("Trigger unavailable");
+			},
+		});
+		repository.serving = { engine: "v2_app", suspendedReasonCode: null };
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_live",
+			name: "live.com",
+			projectId,
+			source: "purchased",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: { status: "active" },
+		});
+		await expect(service.detach(row.id, scope)).resolves.toMatchObject({
+			domain: { projectId: null },
+		});
+		expect(logger.warn).toHaveBeenCalledTimes(2);
 	});
 
 	it("detach leaves an external domain's Cloudflare zone in place too", async () => {

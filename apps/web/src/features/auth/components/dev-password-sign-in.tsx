@@ -1,5 +1,6 @@
 /**
- * Email and password sign-in for local development. The auth modal renders it only under `vite dev`.
+ * Email and password sign-in for local development, below its "Dev only" divider.
+ * The auth modal renders it only under `vite dev`.
  * The fields start with DEV_USER, so a browser agent signs in with one click.
  * Calls Better Auth `/sign-in/email`. The API accepts it only on localhost (packages/auth/src/dev-password-login.ts).
  */
@@ -10,6 +11,10 @@ import { KeyRound, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { authClient } from "../lib/auth-client";
+import {
+	AUTH_FIELD_CLASS,
+	AUTH_SECONDARY_BUTTON_CLASS,
+} from "../lib/constants";
 import { invalidateSessionCache } from "../lib/session";
 
 const SIGN_IN_FAILED_MESSAGE = "Dev sign-in failed.";
@@ -63,19 +68,20 @@ export function DevPasswordSignIn({
 				void signIn();
 			}}
 		>
+			{/* The divider lives here, so it shows only when the modal renders the dev form. */}
 			<div className="flex items-center gap-3">
-				<span className="h-px flex-1 bg-border" />
-				<span className="text-muted-foreground/70 text-xs uppercase tracking-wide">
+				<span className="h-px flex-1 bg-popover-foreground/10" />
+				<span className="font-grotesk font-semibold text-[11px] text-popover-foreground/60 uppercase tracking-[0.14em]">
 					Dev only
 				</span>
-				<span className="h-px flex-1 bg-border" />
+				<span className="h-px flex-1 bg-popover-foreground/10" />
 			</div>
 			<Input
 				type="email"
 				required
 				autoComplete="username"
 				aria-label="Dev email"
-				className="h-11 rounded-full px-4"
+				className={AUTH_FIELD_CLASS}
 				value={email}
 				onChange={(event) => setEmail(event.target.value)}
 			/>
@@ -84,14 +90,14 @@ export function DevPasswordSignIn({
 				required
 				autoComplete="current-password"
 				aria-label="Dev password"
-				className="h-11 rounded-full px-4"
+				className={AUTH_FIELD_CLASS}
 				value={password}
 				onChange={(event) => setPassword(event.target.value)}
 			/>
 			<Button
 				type="submit"
 				variant="outline"
-				className="h-11 w-full rounded-full"
+				className={AUTH_SECONDARY_BUTTON_CLASS}
 				disabled={isPending}
 			>
 				{isPending ? (

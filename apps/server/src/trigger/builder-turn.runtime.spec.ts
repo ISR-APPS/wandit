@@ -11,6 +11,7 @@ import {
 	FakeBuilderHarness,
 } from "../modules/app-builder/application/harness/fake.harness";
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
+import type { AuditRecord } from "../modules/app-builder/application/services/audit-events.service";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import type {
 	HarnessResumeState,
@@ -608,6 +609,8 @@ function makeWorld(over?: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
+	/** Every audit row the run wrote, in call order. */
+	const audited: AuditRecord[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
 	/** The fields of every `builder-turn.timing` line, in order. */
@@ -647,6 +650,11 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		audit: {
+			record: async (event) => {
+				audited.push(event);
+			},
+		},
 		backendClient:
 			over?.backendClient === null
 				? null
@@ -795,6 +803,7 @@ function makeWorld(over?: {
 	};
 
 	return {
+		audited,
 		backendCalls,
 		backendTouches,
 		balanceReads,
@@ -1063,6 +1072,38 @@ describe("runBuilderTurn", () => {
 			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
 		]);
 		expect(world.touched.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it.each([
+		{ completeWon: true, settleTailFails: false, written: ["succeeded"] },
+		// A cancel finalized the row first: the cancel path owns the end.
+		{ completeWon: false, settleTailFails: false, written: [] },
+		// The tail throws after the CAS; the fail CAS then loses on the terminal row.
+		{ completeWon: true, settleTailFails: true, written: ["succeeded"] },
+	] as const)("writes turn.end only from the CAS winner (complete won: $completeWon, tail fails: $settleTailFails)", async ({
+		completeWon,
+		settleTailFails,
+		written,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.completeResult = completeWon;
+		if (settleTailFails) {
+			world.metering.settle = async () => {
+				throw new Error("settle failed");
+			};
+			world.turns.failResult = false;
+		}
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// Proof that the failing tail reached the fail path.
+		expect(world.turns.failCalls).toHaveLength(settleTailFails ? 1 : 0);
+		expect(
+			world.audited.map((event) => [event.action, event.metadata]),
+		).toEqual(written.map((status) => ["turn.end", { status }]));
 	});
 
 	it("fails the turn on a harness stream error and refunds the hold", async () => {

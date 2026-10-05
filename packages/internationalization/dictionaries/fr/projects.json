@@ -127,15 +127,12 @@
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
 		"modeLabel": "Mode",
-		"platformLabel": "Type d'app",
 		"platforms": {
 			"web": {
-				"label": "App web",
-				"description": "Un site ou une application web, en ligne sur un lien wandit."
+				"label": "App web"
 			},
 			"mobile": {
-				"label": "App mobile",
-				"description": "Une application iOS et Android."
+				"label": "App mobile"
 			}
 		},
 		"outputLabel": "Sortie",

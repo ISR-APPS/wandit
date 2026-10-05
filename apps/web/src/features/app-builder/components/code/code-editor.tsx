@@ -2,8 +2,9 @@
  * Read-only CodeMirror 6 editor of the Code view: line numbers, colors,
  * selection, and the find panel (Mod-F). code-viewer.tsx loads it with
  * React.lazy, so CodeMirror stays out of the builder chunk. One EditorView
- * lives as long as this component; a new file replaces its state. Colors
- * come from the `--code-*` tokens in apps/web/src/index.css.
+ * lives as long as this component; a new file replaces its state. The
+ * syntax and surface colors come from the `--code-*` tokens in
+ * apps/web/src/index.css, so the `.dark` class switches them with no JS.
  */
 
 import { defaultKeymap } from "@codemirror/commands";
@@ -33,7 +34,11 @@ import { Sentry } from "@wandit/observability/browser";
 import { useEffect, useMemo, useRef } from "react";
 
 import { useTranslation } from "@/lib/i18n";
-import { codeLanguageFor, isProsePath } from "../../lib/code-files";
+import {
+	CODE_FONT_FAMILY,
+	codeLanguageFor,
+	isProsePath,
+} from "../../lib/code-files";
 
 export type CodeEditorProps = {
 	/** Path relative to the worktree root. Picks the language and the line wrap. */
@@ -42,20 +47,14 @@ export type CodeEditorProps = {
 	content: string;
 };
 
-/**
- * Set explicitly: `:lang(ar)` in index.css maps `--font-mono` to a
- * proportional Arabic face, and code needs a monospace face in every locale.
- */
-const CODE_FONT_FAMILY =
-	'"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
-
 /** The look of the editor. Only CSS variables, so the `.dark` class switches it with no JS. */
 const wanditTheme = EditorView.theme({
+	// Transparent: the editor shows the face of the studio card, in both themes.
 	"&": {
 		height: "100%",
 		fontSize: "13px",
-		color: "var(--foreground)",
-		backgroundColor: "var(--background)",
+		color: "var(--code-ink)",
+		backgroundColor: "transparent",
 	},
 	"&.cm-focused": { outline: "none" },
 	".cm-scroller": {
@@ -65,16 +64,16 @@ const wanditTheme = EditorView.theme({
 		letterSpacing: "0",
 		fontVariantLigatures: "none",
 	},
-	".cm-content": { padding: "12px 0", caretColor: "var(--foreground)" },
-	".cm-line": { paddingInline: "16px" },
+	".cm-content": { padding: "16px 0", caretColor: "var(--color-ember)" },
+	".cm-line": { paddingInline: "20px" },
 	".cm-gutters": {
-		backgroundColor: "var(--background)",
-		color: "color-mix(in oklab, var(--muted-foreground) 75%, transparent)",
+		backgroundColor: "transparent",
+		color: "var(--code-gutter)",
 		border: "none",
 	},
 	".cm-lineNumbers .cm-gutterElement": {
 		minWidth: "3ch",
-		paddingInline: "12px 0",
+		paddingInline: "16px 0",
 		fontVariantNumeric: "tabular-nums",
 	},
 	// The active line shows only while the editor has focus; else line 1
@@ -84,7 +83,7 @@ const wanditTheme = EditorView.theme({
 	},
 	".cm-activeLine": { backgroundColor: "transparent" },
 	".cm-activeLineGutter": { backgroundColor: "transparent" },
-	"&.cm-focused .cm-activeLineGutter": { color: "var(--foreground)" },
+	"&.cm-focused .cm-activeLineGutter": { color: "var(--code-ink)" },
 	"&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
 		{ backgroundColor: "var(--code-selection)" },
 	".cm-searchMatch": { backgroundColor: "var(--code-match)" },
@@ -97,10 +96,12 @@ const wanditTheme = EditorView.theme({
 		backgroundColor: "var(--code-match)",
 	},
 	".cm-panels": {
-		backgroundColor: "var(--sidebar)",
-		color: "var(--foreground)",
+		backgroundColor: "var(--code-panel)",
+		color: "var(--code-ink)",
 	},
-	".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
+	".cm-panels.cm-panels-top": {
+		borderBottom: "1px solid var(--code-hairline)",
+	},
 	".cm-panel.cm-search, .cm-panel.cm-gotoLine": {
 		display: "flex",
 		flexWrap: "wrap",
@@ -114,33 +115,39 @@ const wanditTheme = EditorView.theme({
 	".cm-textfield": {
 		height: "28px",
 		margin: "0",
-		padding: "0 8px",
-		border: "1px solid var(--border)",
-		borderRadius: "8px",
+		padding: "0 12px",
+		border: "1px solid var(--code-hairline)",
+		borderRadius: "9999px",
 		backgroundColor: "var(--background)",
-		color: "var(--foreground)",
+		color: "var(--code-ink)",
 		fontSize: "13px",
 	},
 	".cm-textfield:focus": {
-		outline: "2px solid color-mix(in oklab, var(--ring) 50%, transparent)",
+		outline:
+			"3px solid color-mix(in oklab, var(--color-ember) 15%, transparent)",
+		borderColor: "color-mix(in oklab, var(--color-ember) 40%, transparent)",
 	},
 	".cm-button": {
 		height: "28px",
 		margin: "0",
-		padding: "0 10px",
-		border: "1px solid var(--border)",
+		padding: "0 12px",
+		border: "1px solid var(--code-hairline)",
 		borderRadius: "9999px",
 		backgroundImage: "none",
-		backgroundColor: "var(--background)",
-		color: "var(--foreground)",
+		backgroundColor: "transparent",
+		color: "var(--code-ink)",
+		fontFamily: "var(--font-grotesk)",
 		fontSize: "12px",
+		fontWeight: "500",
 	},
-	".cm-button:hover": { backgroundColor: "var(--accent)" },
+	".cm-button:hover": { backgroundColor: "var(--code-hover)" },
+	// Text of the search panel uses the muted token, not the faint gutter shade: it must stay readable (WCAG AA).
 	".cm-panel.cm-search label": {
 		display: "inline-flex",
 		alignItems: "center",
 		gap: "4px",
 		color: "var(--muted-foreground)",
+		fontFamily: "var(--font-grotesk)",
 		fontSize: "12px",
 	},
 	".cm-panel.cm-search [name=close], .cm-panel.cm-gotoLine [name=close]": {

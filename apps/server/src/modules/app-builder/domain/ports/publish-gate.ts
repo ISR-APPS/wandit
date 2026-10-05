@@ -1,9 +1,12 @@
 /**
  * Port: one check of the build output before the upload (WANDIT-178).
  * The `publish-app` runtime runs each gate after it reads the output, so a
- * blocked build never reaches Cloudflare. No gate exists today: WANDIT-181
- * adds the secret scan and the phishing rules, WANDIT-190 the backend checks.
+ * blocked build never reaches Cloudflare. The task wires the secret scan
+ * (WANDIT-181) and then the backend gate (WANDIT-190), in that order.
  */
+import type { PublishGateFinding } from "@wandit/contracts";
+
+export type { PublishGateFinding };
 
 /** One file of the build output, as the gate reads it. */
 export type PublishGateFile = {
@@ -12,17 +15,11 @@ export type PublishGateFile = {
 	content: Uint8Array;
 };
 
-/** One problem a gate found. */
-export type PublishGateFinding = {
-	/** `block` stops the publish; `warn` goes to the log only. */
-	severity: "block" | "warn";
-	/** English text for support. It must not quote a secret value. */
-	message: string;
-	/** The output path the finding is about, or null for the whole build. */
-	path: string | null;
-};
-
-/** One check. The runtime calls `run` once per publish from source. */
+/**
+ * One check. The runtime calls `run` once per publish from source. A gate
+ * that cannot run throws; the runtime then fails the publish with
+ * `gate_unavailable`.
+ */
 export interface PublishGate {
 	/** Short name for the log line, for example `secret-scan`. */
 	readonly id: string;

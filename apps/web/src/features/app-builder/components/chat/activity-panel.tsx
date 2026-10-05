@@ -6,14 +6,10 @@
  * work summary label and the changed files list that chat-message.tsx uses.
  */
 
+import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
+import { XIcon } from "@phosphor-icons/react/X";
 import { Button } from "@wandit/ui/components/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { FilePen, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Streamdown } from "streamdown";
 
@@ -21,6 +17,7 @@ import { useTranslation } from "@/lib/i18n";
 import type { BuilderDataParts, BuilderMessage } from "../../api/dto";
 import { isActivityPart, workedDurationOf } from "../../lib/turn-parts";
 import { useAutoScroll } from "../../lib/use-auto-scroll";
+import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { StepRow } from "./step-row";
 import { ThoughtRow } from "./thought-row";
 
@@ -63,12 +60,12 @@ export function ActivityPanel({
 
 	return (
 		<div className={cn("flex min-h-0 flex-col", className)}>
-			<div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-				<span className="font-medium text-[15px]">
+			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.08] border-b ps-5 pe-2 dark:border-white/[0.08]">
+				<span className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 					{t("appBuilder.chat.details")}
 				</span>
 				{summary !== null ? (
-					<span className="min-w-0 truncate text-[13px] text-muted-foreground">
+					<span className="min-w-0 truncate font-grotesk text-[13px] text-night/50 dark:text-foreground/50">
 						· <WorkSummaryLabel summary={summary} />
 					</span>
 				) : null}
@@ -76,29 +73,23 @@ export function ActivityPanel({
 					// Decorative only: the status line in the chat carries role="status".
 					<span
 						aria-hidden
-						className="size-[7px] shrink-0 animate-pulse-soft rounded-full bg-primary"
+						className="size-1.5 shrink-0 animate-pulse-soft rounded-full bg-ember motion-reduce:animate-none dark:bg-spark"
 					/>
 				) : null}
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							className="ms-auto"
-							aria-label={t("appBuilder.chat.activity.close")}
-							onClick={onClose}
-						>
-							<X className="size-4" />
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent side="bottom">
-						{t("appBuilder.chat.activity.close")}
-					</TooltipContent>
-				</Tooltip>
+				<IconAction label={t("appBuilder.chat.activity.close")}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onClick={onClose}
+						className={cn("ms-auto", TOOLBAR_ICON_BUTTON_CLASS)}
+					>
+						<XIcon weight="bold" aria-hidden />
+					</Button>
+				</IconAction>
 			</div>
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-4 py-4"
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 py-4"
 			>
 				<div ref={contentRef} className="flex flex-col">
 					{message.parts.filter(isActivityPart).map((part, index) => {
@@ -129,7 +120,8 @@ export function ActivityPanel({
 							<Streamdown
 								key={key}
 								dir="auto"
-								className="space-y-2 break-words py-1 text-[13px] text-muted-foreground leading-relaxed"
+								// Streamdown wraps each block in a `display: contents` div, so a flex gap spaces the paragraphs.
+								className="flex flex-col gap-2 break-words py-1 font-sans text-[13px] text-night/60 leading-relaxed dark:text-foreground/60"
 							>
 								{part.data.text}
 							</Streamdown>
@@ -137,7 +129,7 @@ export function ActivityPanel({
 					})}
 					{summary !== null && summary.files.length > 0 ? (
 						<section>
-							<h3 className="mt-4 mb-1 font-medium text-muted-foreground text-xs">
+							<h3 className="mt-4 mb-1 font-grotesk font-medium text-[12px] text-night/50 dark:text-foreground/50">
 								{t("appBuilder.chat.summary.changedFiles")}
 							</h3>
 							<ChangedFiles files={summary.files} />
@@ -202,10 +194,11 @@ export function ChangedFiles({
 				return (
 					<li
 						key={file.path}
-						className="flex min-h-8 min-w-0 items-center gap-2.5 py-1 text-sm"
+						className="flex min-h-7 min-w-0 items-center gap-2 py-0.5 font-grotesk text-[13px] text-night/70 dark:text-foreground/70"
 					>
-						<FilePen
-							className="size-4 shrink-0 text-muted-foreground"
+						<FileCodeIcon
+							weight="duotone"
+							className="size-4 shrink-0 text-night/45 dark:text-foreground/45"
 							aria-hidden
 						/>
 						<span
@@ -213,13 +206,13 @@ export function ChangedFiles({
 							className="flex min-w-0 items-baseline gap-1.5 font-mono text-[12px]"
 						>
 							<span className="max-w-full shrink-0 truncate">{name}</span>
-							<span className="min-w-0 truncate text-muted-foreground">
+							<span className="min-w-0 truncate text-night/45 dark:text-foreground/45">
 								{folder}
 							</span>
 						</span>
 						<span
 							dir="ltr"
-							className="ms-auto shrink-0 font-mono text-xs tabular-nums"
+							className="ms-auto shrink-0 font-mono text-[12px] tabular-nums"
 						>
 							<span className="text-success-text">+{file.insertions}</span>{" "}
 							<span className="text-destructive">−{file.deletions}</span>

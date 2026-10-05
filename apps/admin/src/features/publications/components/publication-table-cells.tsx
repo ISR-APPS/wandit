@@ -1,3 +1,7 @@
+/**
+ * Cells of the publish log: the publish time, the user, the live link, and
+ * the status badge. The desktop table columns and the mobile list render them.
+ */
 import { Link } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
 
@@ -11,6 +15,7 @@ import {
 	formatPublicationDateTime,
 	formatPublicationRelativeTime,
 	publicationLinkHost,
+	SUSPENDED_REASON_LABELS,
 } from "@/features/publications/lib/formatters";
 import { cn } from "@/lib/utils";
 
@@ -110,14 +115,31 @@ const statusLabels: Record<AdminPublicationStatus, string> = {
 	unpublished: "Unpublished",
 };
 
+/** The deployment status, or "Suspended" with its reason while staff suspend the project. */
 function PublicationStatusBadge({
-	status,
+	publication,
 }: {
-	status: AdminPublicationStatus;
+	publication: AdminPublication;
 }) {
+	if (publication.suspension !== null) {
+		return (
+			<div className="flex flex-col items-start gap-1">
+				<Badge
+					variant="outline"
+					className="border-destructive/25 bg-destructive/8 text-destructive"
+				>
+					Suspended
+				</Badge>
+				<span className="text-muted-foreground text-xs">
+					{SUSPENDED_REASON_LABELS[publication.suspension.reasonCode]}
+				</span>
+			</div>
+		);
+	}
+
 	return (
-		<Badge variant="outline" className={cn(statusClasses[status])}>
-			{statusLabels[status]}
+		<Badge variant="outline" className={cn(statusClasses[publication.status])}>
+			{statusLabels[publication.status]}
 		</Badge>
 	);
 }

@@ -14,7 +14,7 @@
 		"collapseChat": "Hide the chat",
 		"expandChat": "Show the chat",
 		"reload": "Reload the preview",
-		"openExternal": "Open the live app",
+		"openExternal": "Open in a new tab",
 		"viewsAriaLabel": "Workspace views"
 	},
 	"views": {
@@ -23,22 +23,18 @@
 		"more": "More"
 	},
 	"viewport": {
-		"ariaLabel": "Preview width",
-		"desktop": "Desktop",
-		"tablet": "Tablet",
-		"mobile": "Mobile"
+		"switchToMobile": "Switch to mobile view",
+		"switchToDesktop": "Switch to desktop view"
 	},
 	"device": {
 		"ariaLabel": "Preview device",
 		"ios": "iOS",
 		"android": "Android",
-		"iosLabel": "iPhone 15 · iOS 17",
-		"androidLabel": "Pixel 8 · Android 14"
+		"web": "Web"
 	},
 	"expoGo": {
-		"cta": "Open on phone",
-		"title": "Open on your phone",
-		"scanHint": "Scan the code with the camera on iPhone, or with Expo Go on Android.",
+		"title": "Test on your phone",
+		"scanHint": "Scan with the Camera app on iPhone, or with Expo Go on Android.",
 		"qrLabel": "QR code of the Expo Go link",
 		"copy": "Copy link",
 		"copied": "Link copied",
@@ -52,29 +48,32 @@
 		"usernameHint": "The account signed in to Expo Go on your iPhone. Android needs no username.",
 		"usernameInvalid": "Use letters, digits, dots, dashes, or underscores.",
 		"usernameSave": "Save",
-		"usernameCurrent": "iPhone account: {name}",
+		"usernameCurrent": "Expo Go account: {name}",
 		"usernameChange": "Change Expo Go username",
 		"mismatchHelp": "Expo Go says the account does not match? Check the username, then scan again.",
 		"fallback": "If Expo Go still does not open the app, use an Android phone.",
-		"oauthNote": "Google sign-in does not work in Expo Go."
+		"oauthNote": "Google sign-in does not work in Expo Go.",
+		"asleep": "Your app is asleep. The QR code shows when it runs.",
+		"trouble": "Trouble connecting?",
+		"usernameEdit": "Change",
+		"previewFailed": "The preview did not load.",
+		"usernameAdd": "iPhone? Add your Expo Go username"
 	},
 	"devicePreview": {
-		"open": "Run on a device",
-		"back": "Back to the web preview",
-		"start": "Start the device",
+		"start": "Turn on",
 		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
 		"starting": "Starting the device…",
-		"queue": "All devices are busy. You are number {position} in line.",
 		"timeLeft": "{time} left",
 		"idleWarning": "The device stops in {seconds} s without activity.",
 		"stop": "Stop",
 		"reload": "Reload the app",
 		"devMenu": "Open the dev menu",
-		"ended": "The device session ended.",
+		"ended": "Session ended",
 		"again": "Start again",
-		"failed": "The device could not start. Try again.",
 		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
-		"frameTitle": "{device} device with {name}"
+		"frameTitle": "{device} device with {name}",
+		"retry": "Try again",
+		"streamFailed": "The device stream had a problem."
 	},
 	"preview": {
 		"frameTitle": "Preview of {name}",
@@ -134,6 +133,14 @@
 				"title": "Waiting for your next step…",
 				"body": "Continue in the chat when you are ready."
 			}
+		},
+		"routes": {
+			"trigger": "Page {path}",
+			"search": "Search or type a path",
+			"pages": "Pages",
+			"goTo": "Go to",
+			"hint": "Type a path, like",
+			"loading": "Loading pages…"
 		}
 	},
 	"code": {
@@ -141,16 +148,13 @@
 		"treeAriaLabel": "Project files",
 		"noMatch": "No file matches.",
 		"synced": "Synced · {branch}",
-		"github": "GitHub",
-		"editCode": "Edit code",
-		"readOnly": "The code is read-only in this preview build.",
 		"fileMissing": "This file is not in the repository.",
-		"asleep": "Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
+		"asleep": "Send a message in the chat to wake it up. Then your code shows here.",
 		"settingUp": "Setting up your project. The files show here when it is ready.",
-		"noFiles": "The project has no files yet.",
-		"binaryFile": "This file is binary. The Code view shows text files only.",
-		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
-		"loadFailed": "The code did not load.",
+		"noFiles": "Ask Wandit in the chat to build your app. Then your code shows here.",
+		"binaryFile": "The Code view shows text files only.",
+		"fileTooLarge": "The Code view shows files up to {limit} only.",
+		"loadFailed": "The code did not load",
 		"retry": "Try again",
 		"copyFile": "Copy file",
 		"lineCount": {
@@ -174,7 +178,15 @@
 			"onLine": "on line",
 			"goToLine": "Go to line",
 			"go": "go"
-		}
+		},
+		"files": "Files",
+		"asleepTitle": "Your app is asleep",
+		"noFilesTitle": "No files yet",
+		"binaryTitle": "Binary file",
+		"tooLargeTitle": "File too large",
+		"missingTitle": "File not found",
+		"loadFailedHint": "Wait a moment, then try again.",
+		"reloadHint": "Reload the page to try again."
 	},
 	"moreNavAriaLabel": "App sections",
 	"soon": "Soon",
@@ -220,6 +232,9 @@
 		"settings": {
 			"title": "Settings",
 			"description": "Name, app facts, spending limits, and delete."
+		},
+		"app": {
+			"title": "App"
 		}
 	},
 	"empty": {
@@ -262,10 +277,10 @@
 		}
 	},
 	"domains": {
-		"freeHost": "Free Wandit domain",
 		"live": "Live",
 		"freeTitle": "Free Wandit address",
-		"freeAfterPublish": "You get it when you publish the app."
+		"freeAfterPublish": "You get it when you publish the app.",
+		"freeHost": "Free Wandit domain"
 	},
 	"appStores": {
 		"androidHelp": "The Android builds of your app. Start a new build from Publish.",
@@ -510,11 +525,11 @@
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "Your plan does not include this model.",
 			"modelUnpriced": "This model has no price yet. Try again later."
-		}
+		},
+		"building": "Building"
 	},
 	"publish": {
 		"cta": "Publish",
-		"title": "Publish {name}",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} change",
@@ -554,10 +569,56 @@
 			"output_too_large": "Your app is too large to publish. The limit is 2,000 files and 100 MB.",
 			"source_missing": "This version is not stored anymore. Publish the current version.",
 			"gate_blocked": "The safety check stopped this publish. Ask Wandit in the chat to fix the problems.",
+			"gate_unavailable": "The safety check could not run. Try again in a few minutes.",
+			"suspended": "Wandit staff suspended this app, so the publish stopped.",
 			"slug_taken": "Another live site took this address. Try again.",
 			"upload_failed": "The upload to the hosting service failed. Try again.",
 			"unconfigured": "Publishing is not available now. Try again later.",
 			"internal": "An error occurred during the publish. Try again."
+		},
+		"suspension": "Wandit staff suspended this app. Reason: {reason}. Contact support to learn more.",
+		"suspensionReasons": {
+			"abuse_phishing": "a fake login, bank, or wallet page",
+			"abuse_malware": "malware or a harmful download",
+			"abuse_url_scan": "a security scanner marked the app as harmful",
+			"legal_takedown": "a legal order to remove the app",
+			"legal_notice": "a legal notice that is under review",
+			"tos_violation": "a breach of the terms of service",
+			"billing": "an unpaid balance on the account",
+			"manual_review": "Wandit staff are checking a report about the app"
+		},
+		"findings": {
+			"block": "Fix before you publish",
+			"warn": "Warnings",
+			"secretClient": "The public file {path} holds a secret key: {rule} ({sample})",
+			"secretServer": "The server code {path} holds a secret key: {rule} ({sample})",
+			"secretRules": {
+				"aws_access_key": "AWS access key",
+				"stripe_live_secret_key": "Stripe live secret key",
+				"stripe_live_restricted_key": "Stripe live restricted key",
+				"stripe_webhook_secret": "Stripe webhook secret",
+				"supabase_secret_key": "Supabase secret key",
+				"supabase_service_role_jwt": "Supabase service role key",
+				"anthropic_api_key": "Anthropic API key",
+				"google_api_key": "Google API key",
+				"private_key": "private key"
+			},
+			"phishing": "The public name \"{target}\" looks like a login, bank, or wallet page.",
+			"advisor": {
+				"ERROR": "Supabase check: {title}. You must fix this before you publish.",
+				"WARN": "Supabase check: {title}"
+			},
+			"rlsProbe": {
+				"rows_returned": "Anyone can read the table {relation} without signing in.",
+				"no_rls": "The table {relation} has no row level security.",
+				"anon_policy": "A rule lets anyone read every row of {relation}.",
+				"probe_timeout": "The database check did not finish."
+			},
+			"unknownTable": "(unknown)",
+			"askFix": "Ask the AI to fix",
+			"askFixMessage": "The publish safety check found these problems in my app. Fix them:",
+			"overrideWarning": "Anyone may be able to read the listed tables. Publish only if this data is public.",
+			"override": "Publish anyway"
 		},
 		"testOnPhone": "Test on your phone",
 		"scanQr": "Scan a QR code · updates instantly",
@@ -630,5 +691,14 @@
 		"title": "App not found",
 		"body": "It may have been deleted, or the link is wrong.",
 		"cta": "Back to dashboard"
+	},
+	"mobileStage": {
+		"reload": "Reload the preview",
+		"iosTitle": "Turn on the iPhone simulator",
+		"androidTitle": "Turn on the Android emulator",
+		"queued": "In line: #{position}",
+		"queueNote": "All devices are busy. Yours starts when one is free.",
+		"errorTitle": "The device did not start",
+		"stoppedTitle": "The device stopped"
 	}
 }

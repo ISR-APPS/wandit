@@ -14,7 +14,7 @@
 		"collapseChat": "Masquer le chat",
 		"expandChat": "Afficher le chat",
 		"reload": "Recharger l'aperçu",
-		"openExternal": "Ouvrir l'app en ligne",
+		"openExternal": "Ouvrir dans un nouvel onglet",
 		"viewsAriaLabel": "Vues de l'espace de travail"
 	},
 	"views": {
@@ -23,22 +23,18 @@
 		"more": "Plus"
 	},
 	"viewport": {
-		"ariaLabel": "Largeur de l'aperçu",
-		"desktop": "Ordinateur",
-		"tablet": "Tablette",
-		"mobile": "Mobile"
+		"switchToMobile": "Passer en vue mobile",
+		"switchToDesktop": "Passer en vue ordinateur"
 	},
 	"device": {
 		"ariaLabel": "Appareil de l'aperçu",
 		"ios": "iOS",
 		"android": "Android",
-		"iosLabel": "iPhone 15 · iOS 17",
-		"androidLabel": "Pixel 8 · Android 14"
+		"web": "Web"
 	},
 	"expoGo": {
-		"cta": "Ouvrir sur le téléphone",
-		"title": "Ouvre l'app sur ton téléphone",
-		"scanHint": "Scanne le code avec l'appareil photo sur iPhone, ou avec Expo Go sur Android.",
+		"title": "Teste sur ton téléphone",
+		"scanHint": "Scanne avec l'appareil photo sur iPhone, ou avec Expo Go sur Android.",
 		"qrLabel": "Code QR du lien Expo Go",
 		"copy": "Copier le lien",
 		"copied": "Lien copié",
@@ -52,29 +48,32 @@
 		"usernameHint": "Le compte connecté à Expo Go sur ton iPhone. Sur Android, pas besoin de nom.",
 		"usernameInvalid": "Utilise des lettres, des chiffres, des points, des tirets ou des tirets bas.",
 		"usernameSave": "Enregistrer",
-		"usernameCurrent": "Compte iPhone : {name}",
+		"usernameCurrent": "Compte Expo Go : {name}",
 		"usernameChange": "Changer le nom Expo Go",
 		"mismatchHelp": "Expo Go dit que le compte ne correspond pas ? Vérifie le nom, puis scanne à nouveau.",
 		"fallback": "Si Expo Go n'ouvre toujours pas l'app, utilise un téléphone Android.",
-		"oauthNote": "La connexion Google ne marche pas dans Expo Go."
+		"oauthNote": "La connexion Google ne marche pas dans Expo Go.",
+		"asleep": "Ton app est en veille. Le code QR s'affiche quand elle tourne.",
+		"trouble": "Un souci de connexion ?",
+		"usernameEdit": "Changer",
+		"previewFailed": "L'aperçu ne s'est pas chargé.",
+		"usernameAdd": "iPhone ? Ajoute ton nom Expo Go"
 	},
 	"devicePreview": {
-		"open": "Lancer sur un appareil",
-		"back": "Retour à l'aperçu web",
-		"start": "Démarrer l'appareil",
+		"start": "Allumer",
 		"startHint": "Utilise un vrai téléphone avec Expo Go dans ton navigateur. Cela consomme tes minutes d'appareil.",
 		"starting": "Démarrage de l'appareil…",
-		"queue": "Tous les appareils sont occupés. Tu es numéro {position} dans la file.",
 		"timeLeft": "{time} restantes",
 		"idleWarning": "L'appareil s'arrête dans {seconds} s sans activité.",
 		"stop": "Arrêter",
 		"reload": "Recharger l'app",
 		"devMenu": "Ouvrir le menu de développement",
-		"ended": "La session de l'appareil est terminée.",
+		"ended": "Session terminée",
 		"again": "Redémarrer",
-		"failed": "L'appareil n'a pas pu démarrer. Réessaie.",
 		"notRunning": "Ton app ne tourne pas encore. Attends que l'aperçu se charge, puis réessaie.",
-		"frameTitle": "Appareil {device} avec {name}"
+		"frameTitle": "Appareil {device} avec {name}",
+		"retry": "Réessayer",
+		"streamFailed": "Le flux de l'appareil a eu un problème."
 	},
 	"preview": {
 		"frameTitle": "Aperçu de {name}",
@@ -134,6 +133,14 @@
 				"title": "En attente de ta prochaine étape…",
 				"body": "Continue dans le chat quand tu es prêt."
 			}
+		},
+		"routes": {
+			"trigger": "Page {path}",
+			"search": "Chercher ou saisir un chemin",
+			"pages": "Pages",
+			"goTo": "Aller à",
+			"hint": "Saisis un chemin, comme",
+			"loading": "Chargement des pages…"
 		}
 	},
 	"code": {
@@ -141,16 +148,13 @@
 		"treeAriaLabel": "Fichiers du projet",
 		"noMatch": "Aucun fichier ne correspond.",
 		"synced": "Synchronisé · {branch}",
-		"github": "GitHub",
-		"editCode": "Modifier le code",
-		"readOnly": "Le code est en lecture seule dans cette version d'aperçu.",
 		"fileMissing": "Ce fichier n'est pas dans le dépôt.",
-		"asleep": "Ton app est en veille. Envoie un message dans le chat pour la réveiller. Ensuite, ton code s'affiche ici.",
+		"asleep": "Envoie un message dans le chat pour la réveiller. Ensuite, ton code s'affiche ici.",
 		"settingUp": "Préparation de ton projet. Les fichiers s'affichent ici dès qu'il est prêt.",
-		"noFiles": "Le projet n'a pas encore de fichiers.",
-		"binaryFile": "Ce fichier est binaire. La vue Code affiche uniquement les fichiers texte.",
-		"fileTooLarge": "Ce fichier dépasse {limit}. La vue Code affiche uniquement les fichiers jusqu'à {limit}.",
-		"loadFailed": "Le code n'a pas pu être chargé.",
+		"noFiles": "Demande à Wandit dans le chat de construire ton app. Ensuite, ton code s'affiche ici.",
+		"binaryFile": "La vue Code affiche uniquement les fichiers texte.",
+		"fileTooLarge": "La vue Code affiche uniquement les fichiers jusqu'à {limit}.",
+		"loadFailed": "Le code n'a pas pu être chargé",
 		"retry": "Réessayer",
 		"copyFile": "Copier le fichier",
 		"lineCount": {
@@ -174,7 +178,15 @@
 			"onLine": "à la ligne",
 			"goToLine": "Aller à la ligne",
 			"go": "aller"
-		}
+		},
+		"files": "Fichiers",
+		"asleepTitle": "Ton app est en veille",
+		"noFilesTitle": "Pas encore de fichiers",
+		"binaryTitle": "Fichier binaire",
+		"tooLargeTitle": "Fichier trop lourd",
+		"missingTitle": "Fichier introuvable",
+		"loadFailedHint": "Attends un instant, puis réessaie.",
+		"reloadHint": "Recharge la page pour réessayer."
 	},
 	"moreNavAriaLabel": "Sections de l'app",
 	"soon": "Bientôt",
@@ -220,6 +232,9 @@
 		"settings": {
 			"title": "Paramètres",
 			"description": "Nom, infos de l'app, limites de dépenses et suppression."
+		},
+		"app": {
+			"title": "Application"
 		}
 	},
 	"empty": {
@@ -262,10 +277,10 @@
 		}
 	},
 	"domains": {
-		"freeHost": "Domaine Wandit gratuit",
 		"live": "En ligne",
 		"freeTitle": "Adresse Wandit gratuite",
-		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app."
+		"freeAfterPublish": "Tu l'obtiens quand tu publies l'app.",
+		"freeHost": "Domaine Wandit gratuit"
 	},
 	"appStores": {
 		"androidHelp": "Les builds Android de ton app. Lance un nouveau build depuis Publier.",
@@ -510,11 +525,11 @@
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
 			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard."
-		}
+		},
+		"building": "En création"
 	},
 	"publish": {
 		"cta": "Publier",
-		"title": "Publier {name}",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} changement",
@@ -554,10 +569,56 @@
 			"output_too_large": "Ton app est trop lourde pour être publiée. La limite est de 2 000 fichiers et 100 Mo.",
 			"source_missing": "Cette version n’est plus stockée. Publie la version actuelle.",
 			"gate_blocked": "Le contrôle de sécurité a arrêté cette publication. Demande à Wandit dans le chat de corriger les problèmes.",
+			"gate_unavailable": "Le contrôle de sécurité n’a pas pu s’exécuter. Réessaie dans quelques minutes.",
+			"suspended": "L’équipe Wandit a suspendu cette app, donc la publication s’est arrêtée.",
 			"slug_taken": "Un autre site en ligne a pris cette adresse. Réessaie.",
 			"upload_failed": "L’envoi vers l’hébergement a échoué. Réessaie.",
 			"unconfigured": "La publication n’est pas disponible pour le moment. Réessaie plus tard.",
 			"internal": "Une erreur est survenue pendant la publication. Réessaie."
+		},
+		"suspension": "L’équipe Wandit a suspendu cette app. Motif : {reason}. Contacte le support pour en savoir plus.",
+		"suspensionReasons": {
+			"abuse_phishing": "une fausse page de connexion, de banque ou de portefeuille",
+			"abuse_malware": "un logiciel malveillant ou un téléchargement dangereux",
+			"abuse_url_scan": "un scanner de sécurité a signalé l’app comme dangereuse",
+			"legal_takedown": "une décision légale demande le retrait de l’app",
+			"legal_notice": "une notification légale en cours d’examen",
+			"tos_violation": "une violation des conditions d’utilisation",
+			"billing": "un solde impayé sur le compte",
+			"manual_review": "l’équipe Wandit examine un signalement sur l’app"
+		},
+		"findings": {
+			"block": "À corriger avant de publier",
+			"warn": "Avertissements",
+			"secretClient": "Le fichier public {path} contient une clé secrète : {rule} ({sample})",
+			"secretServer": "Le code serveur {path} contient une clé secrète : {rule} ({sample})",
+			"secretRules": {
+				"aws_access_key": "clé d’accès AWS",
+				"stripe_live_secret_key": "clé secrète Stripe live",
+				"stripe_live_restricted_key": "clé restreinte Stripe live",
+				"stripe_webhook_secret": "secret de webhook Stripe",
+				"supabase_secret_key": "clé secrète Supabase",
+				"supabase_service_role_jwt": "clé service role Supabase",
+				"anthropic_api_key": "clé API Anthropic",
+				"google_api_key": "clé API Google",
+				"private_key": "clé privée"
+			},
+			"phishing": "Le nom public « {target} » ressemble à une page de connexion, de banque ou de portefeuille.",
+			"advisor": {
+				"ERROR": "Contrôle Supabase : {title}. Tu dois corriger ce point avant de publier.",
+				"WARN": "Contrôle Supabase : {title}"
+			},
+			"rlsProbe": {
+				"rows_returned": "N’importe qui peut lire la table {relation} sans se connecter.",
+				"no_rls": "La table {relation} n’a pas de sécurité au niveau des lignes.",
+				"anon_policy": "Une règle permet à n’importe qui de lire toutes les lignes de {relation}.",
+				"probe_timeout": "Le contrôle de la base de données ne s’est pas terminé."
+			},
+			"unknownTable": "(inconnue)",
+			"askFix": "Demander à l’IA de corriger",
+			"askFixMessage": "Le contrôle de sécurité de la publication a trouvé ces problèmes dans mon app. Corrige-les :",
+			"overrideWarning": "N’importe qui pourrait lire les tables listées. Publie seulement si ces données sont publiques.",
+			"override": "Publier quand même"
 		},
 		"testOnPhone": "Tester sur ton téléphone",
 		"scanQr": "Scanne un QR code · mise à jour instantanée",
@@ -630,5 +691,14 @@
 		"title": "App introuvable",
 		"body": "Elle a peut-être été supprimée, ou le lien est incorrect.",
 		"cta": "Retour au tableau de bord"
+	},
+	"mobileStage": {
+		"reload": "Recharger l'aperçu",
+		"iosTitle": "Allume le simulateur iPhone",
+		"androidTitle": "Allume l'émulateur Android",
+		"queued": "En file : n° {position}",
+		"queueNote": "Tous les appareils sont occupés. Le tien démarre dès qu'un se libère.",
+		"errorTitle": "L'appareil n'a pas démarré",
+		"stoppedTitle": "L'appareil s'est arrêté"
 	}
 }

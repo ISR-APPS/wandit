@@ -29,9 +29,17 @@ const QUEUED: AppBuild = {
 	errorCode: null,
 	createdAt: "2026-10-01T10:00:00.000Z",
 	completedAt: null,
+	gateFindings: [],
+	gateOverride: false,
 };
 
-const EMPTY: AppPublishStatus = { live: null, latestBuild: null, history: [] };
+const EMPTY: AppPublishStatus = {
+	live: null,
+	latestBuild: null,
+	history: [],
+	suspension: null,
+	gateOverrideAllowed: false,
+};
 
 /** An API failure as the server sends it, with the envelope message. */
 function apiError(statusCode: number, code: string): ApiClientError {
