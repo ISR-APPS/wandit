@@ -1,8 +1,9 @@
 /**
  * Narrow read of the `projects` row the builder-turn task needs.
- * The `builder-turn` runtime calls `findForTurn`; the projects module
- * owns the table, so this read-only view lives here instead of widening
- * `ProjectsRepository` for one task.
+ * The `builder-turn` runtime calls `findForTurn`, and so does
+ * `startSandboxWithoutTurn` (restore, wake, publish) for the same sandbox
+ * inputs. The projects module owns the table, so this read-only view lives
+ * here instead of widening `ProjectsRepository`.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "@wandit/db";
@@ -21,7 +22,7 @@ export type TurnProjectRow = {
 	framework: string | null;
 	/** Template release tag; null means a broken V2 row. */
 	templateVersion: string | null;
-	/** Output languages the harness instructions enforce. */
+	/** UI locale at project creation. The harness instructions give it as a hint, not a rule. */
 	languages: string[];
 	/** Per-project egress hosts (WANDIT-180); layer 3 of the allow list. */
 	networkAllowedHosts: string[];

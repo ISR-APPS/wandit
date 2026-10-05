@@ -17,11 +17,14 @@ function publicationRow(
 	return {
 		deploymentId: "33333333-3333-4333-8333-333333333333",
 		status: "active",
+		kind: "page",
 		slug: "launch",
 		deploymentCreatedAt: PUBLISHED_AT,
 		projectId: "11111111-1111-4111-8111-111111111111",
 		projectName: "Launch page",
 		organizationId: null,
+		suspendedAt: null,
+		suspendedReasonCode: null,
 		userId: "user-1",
 		userName: "Ada Lovelace",
 		userEmail: "ada@example.com",
@@ -58,10 +61,12 @@ describe("AdminPublicationsService", () => {
 		expect(result.items[0]).toEqual({
 			id: "33333333-3333-4333-8333-333333333333",
 			status: "active",
+			kind: "page",
 			slug: "launch",
 			liveUrl: `https://launch.${env.SITES_DOMAIN}`,
 			publicUrl: "https://www.launch.example",
 			publishedAt: "2026-08-07T11:30:00.000Z",
+			suspension: null,
 			project: {
 				id: "11111111-1111-4111-8111-111111111111",
 				name: "Launch page",

@@ -125,9 +125,35 @@ describe("BuilderTurnsRepository CAS predicates", () => {
 
 		const { params, sql } = compile(captured.where);
 		expect(sql).toContain('"builder_turns"."status" = $2');
+		// A host-owned row is not the Trigger run's to claim.
+		expect(sql).toContain('"builder_turns"."runner" = $3');
 		expect(sql).toContain('"builder_turns"."trigger_run_id" is null');
-		expect(sql).toContain('"builder_turns"."trigger_run_id" = $3');
-		expect(params).toEqual(["turn-1", "queued", "run-9"]);
+		expect(sql).toContain('"builder_turns"."trigger_run_id" = $4');
+		expect(params).toEqual(["turn-1", "queued", "trigger", "run-9"]);
+	});
+
+	it("claimRunningOnHost claims only a queued host-owned row", async () => {
+		const { captured, repository } = updateClient([{ id: "turn-1" }]);
+
+		await expect(repository.claimRunningOnHost("turn-1")).resolves.toBe(true);
+
+		expect(captured.set).toMatchObject({ status: "running" });
+		const { params, sql } = compile(captured.where);
+		expect(sql).toContain('"builder_turns"."runner" = $3');
+		expect(params).toEqual(["turn-1", "queued", "host"]);
+	});
+
+	it("assignRunner moves only a queued row that no run claimed", async () => {
+		const { captured, repository } = updateClient([]);
+
+		await expect(
+			repository.assignRunner("turn-1", "trigger", "host"),
+		).resolves.toBe(false);
+
+		expect(captured.set).toEqual({ runner: "host" });
+		const { params, sql } = compile(captured.where);
+		expect(sql).toContain('"builder_turns"."trigger_run_id" is null');
+		expect(params).toEqual(["turn-1", "queued", "trigger"]);
 	});
 
 	it("complete only lands from running or cancelling", async () => {
@@ -182,10 +208,37 @@ describe("BuilderTurnsRepository CAS predicates", () => {
 		expect(sql).toContain('"builder_turns"."project_id" = $1');
 		expect(sql).toContain('"builder_turns"."status" = $2');
 		expect(sql).toContain('order by "builder_turns"."turn_number" asc');
-		expect(sql).toContain("limit $3");
+		expect(sql).toContain("limit $5");
 		// The outer clause re-checks `waiting` so a raced flip cannot fire.
-		expect(sql).toContain('and "builder_turns"."status" = $4');
-		expect(params).toEqual(["project-1", "waiting", 1, "waiting"]);
+		expect(sql).toContain('and "builder_turns"."status" = $6');
+		expect(params).toEqual([
+			"project-1",
+			"waiting",
+			"waiting_for_answer",
+			"waiting_for_approval",
+			1,
+			"waiting",
+		]);
+	});
+
+	it("promoteOldestWaiting skips a row sent before an open card (X1)", async () => {
+		const { captured, repository } = updateClient([]);
+
+		await repository.promoteOldestWaiting("project-1");
+
+		const { sql } = compile(captured.where);
+		// A paused row of the same project whose pause is newer than the
+		// waiting row blocks that row; a later row (the answer) passes.
+		expect(sql).toContain(
+			'not exists ((select "id" from "builder_turns" "paused"',
+		);
+		expect(sql).toContain(
+			'"paused"."project_id" = "builder_turns"."project_id"',
+		);
+		expect(sql).toContain('"paused"."status" in ($3, $4)');
+		expect(sql).toContain(
+			'("paused"."completed_at" is null or "paused"."completed_at" >= "builder_turns"."created_at")',
+		);
 	});
 
 	it("promoteOldestWaiting answers null on the active-slot 23505", async () => {
@@ -227,7 +280,7 @@ describe("BuilderTurnsRepository active-status reads", () => {
 		expect(params).toEqual(["project-1", "queued", "running", "cancelling"]);
 	});
 
-	it("findActiveForChat adds waiting and the user-blocked statuses", async () => {
+	it("findActiveForChat adds waiting but not the paused statuses", async () => {
 		const { captured, repository } = selectClient([]);
 
 		await repository.findActiveForChat("chat-1");
@@ -239,8 +292,6 @@ describe("BuilderTurnsRepository active-status reads", () => {
 			"waiting",
 			"running",
 			"cancelling",
-			"waiting_for_answer",
-			"waiting_for_approval",
 		]);
 	});
 
@@ -413,7 +464,13 @@ describe("BuilderTurnsRepository.create", () => {
 			projectId: "project-1",
 			requestKey: "turn-1",
 			sessionId: "session-1",
-			spec: { attachments: [], composer: null, message: "hi" },
+			spec: {
+				answers: [],
+				attachments: [],
+				composer: null,
+				message: "hi",
+				targets: [],
+			},
 			status: "queued",
 			userId: "user-1",
 		});
@@ -439,7 +496,13 @@ describe("BuilderTurnsRepository.create", () => {
 			projectId: "project-1",
 			requestKey: "turn-1",
 			sessionId: "session-1",
-			spec: { attachments: [], composer: null, message: "hi" },
+			spec: {
+				answers: [],
+				attachments: [],
+				composer: null,
+				message: "hi",
+				targets: [],
+			},
 			status: "queued",
 			userId: "user-1",
 		});
@@ -463,7 +526,13 @@ describe("BuilderTurnsRepository.create", () => {
 				projectId: "project-1",
 				requestKey: "turn-2",
 				sessionId: "session-1",
-				spec: { attachments: [], composer: null, message: "hi" },
+				spec: {
+					answers: [],
+					attachments: [],
+					composer: null,
+					message: "hi",
+					targets: [],
+				},
 				status: "queued",
 				userId: "user-1",
 			}),

@@ -10,7 +10,7 @@
 	"compatibility_date": "2025-10-11",
 	"vars": {
 		"PREVIEW_DOMAIN": "wanditpreview.app",
-		"FRAME_ANCESTORS": "https://wandit.dev https://staging.wandit.dev http://localhost:*"
+		"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev http://localhost:*"
 	},
 	// The secret comes from `.dev.vars` locally: PREVIEW_TOKEN_SIGNING_KEY=<key>.
 	"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "TODO-set-at-deploy" }],

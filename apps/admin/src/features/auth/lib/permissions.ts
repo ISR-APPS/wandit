@@ -1,9 +1,14 @@
+/**
+ * Admin permission helpers for the SPA: the permission map, route gates, and action gates.
+ * Routes, navigation, and action buttons call these helpers.
+ * The server AdminGuard is the authority; these helpers only hide controls.
+ */
 import {
 	type AdminPermissionRequest,
 	adminRoleHasPermission,
 	adminStatement,
 } from "@wandit/auth/admin-permissions";
-import { normalizeStoredRole } from "@wandit/contracts";
+import { isAdminRole, normalizeStoredRole } from "@wandit/contracts";
 
 import { useMyAdminPermissionsQuery } from "../api/admin-permissions.queries";
 import { useSession } from "./session";
@@ -67,6 +72,18 @@ export function useAdminPermission(
 	const { map, isLoading } = useEffectiveAdminPermissions();
 
 	return !isLoading && permissionMapAllows(map, permission);
+}
+
+/**
+ * False when the API rejects a credit grant because the target belongs to the signed-in staff account.
+ * `isOwnTarget` is true for that account's own user row, or for an org where it is a member.
+ * Admins can grant to their own targets. Support cannot (admin-users.service.ts, admin-organizations.service.ts).
+ */
+export function canGrantCreditsToTarget(
+	sessionRole: string | null | undefined,
+	isOwnTarget: boolean,
+): boolean {
+	return isAdminRole(sessionRole) || !isOwnTarget;
 }
 
 export function sessionRoleLabel(role: string): "Admin" | "Support" | "User" {

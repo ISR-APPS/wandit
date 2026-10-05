@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	exportSkills,
 	renderSkillMd,
+	toV2AdsText,
+	toV2FormRule,
 } from "../../../../../scripts/export-world-skills";
 
 const tempDirs: string[] = [];
@@ -42,7 +44,90 @@ describe("renderSkillMd", () => {
 	});
 });
 
+describe("toV2FormRule", () => {
+	const pointer = "the fields as the public form contract in CLAUDE.md says";
+
+	it.each([
+		[
+			"On valid submit dispatch the wandit:lead CustomEvent on document with the fields flat in detail ({ name, phone }); keep one decoy with data-wandit-hp.",
+			`On valid submit send ${pointer}; keep one decoy with data-wandit-hp.`,
+		],
+		[
+			"the page passes the order to the wandit runtime by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone), while a decoy marked data-wandit-hp waits.",
+			`the page passes the order to the app's database by sending ${pointer}, while a decoy marked data-wandit-hp waits.`,
+		],
+		[
+			'the page dispatches the "wandit:lead" CustomEvent on `document` with its fields flat in `detail`.',
+			`the page sends ${pointer}.`,
+		],
+		[
+			'On valid submit dispatch on document: new CustomEvent("wandit:lead", { detail: { name } }) — the fields flat in detail. The form never pretends to POST.',
+			`On valid submit send ${pointer}. The form never fakes a send.`,
+		],
+		[
+			"one exposure leaves the page: the wandit:lead CustomEvent dispatched on document with the fields flat in detail (name, phone), while one decoy waits.",
+			"one exposure leaves the page: the fields sent as the public form contract in CLAUDE.md says, while one decoy waits.",
+		],
+		// fournil writes the plural "Forms never pretend to POST" (WANDIT-273 audit).
+		[
+			"Forms never pretend to POST to a server.",
+			"Forms never fake a send to a server.",
+		],
+	])("rewrites %s", (doc, expected) => {
+		expect(toV2FormRule("x", doc)).toBe(expected);
+	});
+
+	it("throws when a wandit:lead clause has an unknown form", () => {
+		expect(() => toV2FormRule("x", "Fire wandit:lead on submit.")).toThrow(
+			/world x/,
+		);
+	});
+
+	it("throws when the rewrite removes the honeypot rule", () => {
+		expect(() =>
+			toV2FormRule(
+				"x",
+				"On valid submit dispatch data-wandit-hp and wandit:lead on document with the fields in detail.",
+			),
+		).toThrow(/data-wandit-hp/);
+	});
+});
+
+describe("toV2AdsText", () => {
+	it.each([
+		[
+			"Merchant-side truth by source and campaign is the Leads tab / read_lead_performance.",
+			"Merchant-side truth by source and campaign is the app's leads table, read with run_sql.",
+		],
+		[
+			"Platform lead counts roughly match the Leads tab. read_lead_performance (counts) is the truth.",
+			"Platform lead counts roughly match the app's leads table. A run_sql query on the app's leads table (counts) is the truth.",
+		],
+		[
+			"platform vs Leads-tab gap; rebuild from the Leads tab export.",
+			"platform vs leads-table gap; rebuild from an export of the app's leads table.",
+		],
+	])("rewrites %s", (text, expected) => {
+		expect(toV2AdsText("x", text)).toBe(expected);
+	});
+
+	it("throws when a V1 Leads tab phrase has an unknown form", () => {
+		expect(() => toV2AdsText("x", "Compare both Leads tabs.")).toThrow(
+			/ads skill x/,
+		);
+	});
+});
+
 describe("exportSkills", () => {
+	it("writes no skill that names the V1 wandit:lead event", () => {
+		const dir = makeTempDir();
+		for (const slug of exportSkills(dir)) {
+			expect(readFileSync(join(dir, slug, "SKILL.md"), "utf8")).not.toContain(
+				"wandit:lead",
+			);
+		}
+	});
+
 	it("writes one SKILL.md per world with name and description front matter", () => {
 		const dir = makeTempDir();
 		const slugs = exportSkills(dir);

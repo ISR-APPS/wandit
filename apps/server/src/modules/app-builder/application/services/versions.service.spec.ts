@@ -1,5 +1,4 @@
 import {
-	BadRequestException,
 	ConflictException,
 	InternalServerErrorException,
 	Logger,
@@ -19,12 +18,14 @@ import {
 	versionNumstatKey,
 	versionPatchKey,
 } from "../../infrastructure/git/commit-turn";
+import type { AppBackendRow } from "../../infrastructure/persistence/app-backends.repository";
 import {
 	type AppCommitRow,
 	AppCommitsRepository,
-	MalformedVersionCursorError,
 	type ScopedAppProject,
 } from "../../infrastructure/persistence/app-commits.repository";
+import type { BuilderTurnRow } from "../../infrastructure/persistence/builder-turns.repository";
+import type { TurnProjectRow } from "../../infrastructure/persistence/turn-project.repository";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import {
 	FAKE_WORKSPACE_DIR,
@@ -39,12 +40,30 @@ const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A TEST-NET-3 address (RFC 5737): it never names a real client.
+const IP = "203.0.113.7";
 const PROJECT: ScopedAppProject = {
 	engine: "v2_app",
 	framework: "web-app",
 	id: "p-1",
 	organizationId: null,
 	templateVersion: "web-app@1.0.0",
+	userId: "user-1",
+};
+
+const BACKEND: AppBackendRow = {
+	anonKey: "anon-key-1",
+	dbHost: "db.abcdefghijklmnopqrst.supabase.co",
+	failureCode: null,
+	id: "backend-1",
+	orgId: "sb-org",
+	organizationId: null,
+	projectId: "p-1",
+	ref: "abcdefghijklmnopqrst",
+	region: "eu-west-3",
+	requestKey: "request-1",
+	status: "active",
+	triggerRunId: null,
 	userId: "user-1",
 };
 
@@ -79,6 +98,8 @@ function fixture(options?: {
 	project?: ScopedAppProject | null;
 	/** CAS answer of `upsertBranchHead`; default true. */
 	upsertOk?: boolean;
+	/** True when a turn of the project waits for a user answer. */
+	turnWaits?: boolean;
 }) {
 	const objects = new Map<string, string | Uint8Array>();
 	const store: VersionsObjectStore = {
@@ -129,8 +150,8 @@ function fixture(options?: {
 		})),
 	};
 
-	// The fake restorer consumes the same exec slots the real one does on a
-	// warm sandbox: `test -d .git` then `git pull`.
+	// The fake restorer consumes one `test` slot and one `git` slot, so the
+	// git answers below line up with the restore steps after it.
 	const repoRestorer: RepoRestorer = {
 		restore: vi.fn(async (_projectId: string, sandbox) => {
 			await sandbox.exec("test", ["-d", ".git"], { cwd: FAKE_WORKSPACE_DIR });
@@ -140,8 +161,32 @@ function fixture(options?: {
 		}),
 	};
 
+	// The sandbox start reads the projects row again for its egress hosts.
+	const project = options?.project === undefined ? PROJECT : options.project;
+	const projects = {
+		findForTurn: async (): Promise<TurnProjectRow | null> =>
+			project === null
+				? null
+				: {
+						engine: "v2_app",
+						framework: project.framework,
+						languages: ["en"],
+						networkAllowedHosts: ["api.stripe.com"],
+						organizationId: project.organizationId,
+						templateVersion: project.templateVersion,
+						userId: project.userId,
+					},
+	};
+	const backends = { findByProjectId: async () => BACKEND };
+
 	const sandboxes = new FakeSandboxProvider();
 	const turnLock = new FakeTurnLock();
+	const turns = {
+		findWaitingForUser: vi.fn(async () =>
+			// SAFETY: the service reads only whether a row exists.
+			options?.turnWaits ? ({ id: "turn-8" } as BuilderTurnRow) : null,
+		),
+	};
 	const service = new VersionsService(
 		appCommits,
 		sandboxes,
@@ -149,16 +194,21 @@ function fixture(options?: {
 		gitStore,
 		repoRestorer,
 		store,
+		projects,
+		backends,
+		turns,
+		{ record: async () => undefined },
 	);
 
 	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
 }
 
-/** Scripts the exec queue for one restore: pull → read-tree → clean → commitTurn. */
+/** Scripts the exec queue for one restore: `.env` → pull → read-tree → clean → commitTurn. */
 function scriptRestore(
 	provider: FakeSandboxProvider,
 	options?: { mergeBase?: { exitCode: number } },
 ): void {
+	provider.respondTo("bash", OK); // the boot's `.env` write waits for the dev port
 	provider.respondTo("test", OK); // restorer's `.git` check
 	provider.respondTo("git", OK); // restorer pull
 	provider.respondTo("git", OK); // read-tree -u --reset
@@ -215,17 +265,6 @@ describe("VersionsService.list", () => {
 			expect.any(NotFoundException),
 		);
 	});
-
-	it("answers 400 for a malformed cursor", async () => {
-		const { appCommits, service } = fixture();
-		appCommits.listByProject = vi.fn(async () => {
-			throw new MalformedVersionCursorError();
-		});
-
-		await expect(
-			service.list(SCOPE, "p-1", { cursor: "not-a-cursor", limit: 50 }),
-		).rejects.toEqual(expect.any(BadRequestException));
-	});
 });
 
 describe("VersionsService.diff", () => {
@@ -266,7 +305,7 @@ describe("VersionsService.restore", () => {
 		await turnLock.acquire("p-1", "turn-9", 60_000);
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -279,11 +318,29 @@ describe("VersionsService.restore", () => {
 		expect(await turnLock.holder("p-1")).toBe("turn-9");
 	});
 
+	// A paused turn resumes with tool results, which cannot carry the restore note.
+	it("answers 409 BUILDER_TURN_WAITING while a turn waits for the user", async () => {
+		const { service, turnLock } = fixture({ turnWaits: true });
+
+		const failure = await service
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(ConflictException);
+		// SAFETY: toBeInstanceOf above proves the error type; getResponse
+		// carries the { code, message } body passed to the constructor.
+		expect((failure as ConflictException).getResponse()).toMatchObject({
+			code: "BUILDER_TURN_WAITING",
+		});
+		// The refused restore gave the lock back.
+		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
 	it("answers 409 VERSION_CONFLICT on a stale expected head", async () => {
 		const { service } = fixture({ branchHead: "d".repeat(40) });
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -298,7 +355,7 @@ describe("VersionsService.restore", () => {
 		const { service } = fixture({ commit: null });
 
 		await expect(
-			service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }),
+			service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP),
 		).rejects.toEqual(expect.any(NotFoundException));
 	});
 
@@ -307,9 +364,13 @@ describe("VersionsService.restore", () => {
 			fixture();
 		scriptRestore(sandboxes);
 
-		const body = await service.restore(SCOPE, "p-1", SHA, {
-			expectedHeadSha: HEAD,
-		});
+		const body = await service.restore(
+			SCOPE,
+			"p-1",
+			SHA,
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
 
 		const parsed = restoreVersionResponseSchema.parse(body);
 		expect(parsed.commit.sha).toBe(NEW_SHA);
@@ -319,13 +380,18 @@ describe("VersionsService.restore", () => {
 			.filter((call) => call.method === "exec")
 			.map((call) => call.detail ?? "");
 		// read-tree leaves untracked files; clean runs before `add -A` sweeps.
-		const readTree = execs.indexOf(`git read-tree -u --reset ${SHA}`);
-		const clean = execs.indexOf("git clean -fd");
-		const add = execs.indexOf("git add -A");
+		// `mustRunGit` puts its -c flags between `git` and the subcommand.
+		const readTree = execs.findIndex((line) =>
+			line.endsWith(` read-tree -u --reset ${SHA}`),
+		);
+		const clean = execs.findIndex((line) => line.endsWith(" clean -fd"));
+		const add = execs.findIndex((line) => line.endsWith(" add -A"));
 		expect(readTree).toBeGreaterThanOrEqual(0);
 		expect(clean).toBe(readTree + 1);
 		expect(add).toBe(clean + 1);
-		expect(execs.some((line) => line.startsWith("git push "))).toBe(true);
+		expect(execs.some((line) => line.includes(" push --no-verify "))).toBe(
+			true,
+		);
 
 		expect(appCommits.insert).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -341,6 +407,49 @@ describe("VersionsService.restore", () => {
 		expect(await turnLock.holder("p-1")).toBeNull();
 	});
 
+	it("starts the sandbox with the egress inputs of a turn and no proxy token", async () => {
+		const { sandboxes, service } = fixture();
+		scriptRestore(sandboxes);
+
+		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP);
+
+		// A strict start throws without the proxy URL. A policy without the
+		// backend and project hosts cuts a running sandbox off from them.
+		const options = sandboxes.createOptions[0];
+		expect(options).toMatchObject({
+			backendUrl: "https://abcdefghijklmnopqrst.supabase.co",
+			env: {
+				ANTHROPIC_API_KEY: "",
+				ANTHROPIC_BASE_URL: expect.stringMatching(
+					/^https?:\/\/[^/]+\/api\/v2\/llm$/,
+				),
+			},
+			networkAllowedHosts: ["api.stripe.com"],
+		});
+		// Security: with no turn, a token in the VM spends LLM credits.
+		expect(options?.env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
+	});
+
+	it("boots a mobile project with the Metro command and port", async () => {
+		const { sandboxes, service } = fixture({
+			project: {
+				...PROJECT,
+				framework: "mobile-app",
+				templateVersion: "mobile-app@1.0.0",
+			},
+		});
+		scriptRestore(sandboxes);
+
+		await service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP);
+
+		expect(sandboxes.createOptions[0]).toMatchObject({
+			devCommand: "pnpm run dev",
+			devPort: 8081,
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+	});
+
 	it("releases the lock when the restore commit fails", async () => {
 		const { sandboxes, service, turnLock } = fixture({ upsertOk: false });
 		// The head CAS loses; the stored head (HEAD) is not an ancestor of the
@@ -348,7 +457,7 @@ describe("VersionsService.restore", () => {
 		scriptRestore(sandboxes, { mergeBase: { exitCode: 1 } });
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(ConflictException);
@@ -369,7 +478,7 @@ describe("VersionsService.restore", () => {
 		});
 
 		const failure = await service
-			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD })
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
 			.catch((error: unknown) => error);
 
 		expect(failure).toBeInstanceOf(InternalServerErrorException);

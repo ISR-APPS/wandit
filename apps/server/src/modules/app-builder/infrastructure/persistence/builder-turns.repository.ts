@@ -11,8 +11,19 @@ import type {
 	BuilderTurnStatus,
 	ComposerMetadata,
 	FileRef,
+	PreviewTarget,
+	TurnQuestionAnswer,
 } from "@wandit/contracts";
-import { and, asc, eq, inArray, notInArray, sql } from "@wandit/db";
+import {
+	alias,
+	and,
+	asc,
+	eq,
+	inArray,
+	isNull,
+	notInArray,
+	sql,
+} from "@wandit/db";
 import { builderTurns } from "@wandit/db/schema/builder-turns";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -31,19 +42,29 @@ import {
 /** One `builder_turns` row. */
 export type BuilderTurnRow = typeof builderTurns.$inferSelect;
 
+/** The process that owns a turn run; see `builderTurnRunner` in the schema. */
+export type BuilderTurnRunner = BuilderTurnRow["runner"];
+
 /**
  * The frozen request snapshot stored in `spec` at queue time. The task
  * reads it back; later edits of the chat never change what a turn meant.
  */
 export type BuilderTurnSpec = {
-	/** The answer to a `data-approval` card; `message` answers a question card. */
+	/** The answer to a `data-approval` card. */
 	approval?: { approvalId: string; approved: boolean };
+	/**
+	 * The answers to the `data-question` cards, one per question. Empty when
+	 * the user sent a plain message; the message then answers the cards.
+	 */
+	answers: TurnQuestionAnswer[];
 	/** Attachment refs the user sent with the prompt, in composer order. */
 	attachments: FileRef[];
 	/** Composer metadata (mode, skills); null when the user sent none. */
 	composer: ComposerMetadata | null;
 	/** The user prompt text; may be empty when attachments carry the turn. */
 	message: string;
+	/** Elements the user picked in the preview, in pick order. Empty without a pick. */
+	targets: PreviewTarget[];
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */
@@ -254,8 +275,8 @@ export class BuilderTurnsRepository {
 	}
 
 	/**
-	 * All non-terminal rows of one chat, including parked `waiting` rows.
-	 * The history filter uses it to hide in-flight assistant messages.
+	 * The rows of one chat whose answer still streams: the active slot plus
+	 * parked `waiting` rows. The history filter hides their assistant rows.
 	 */
 	async findActiveForChat(chatId: string): Promise<BuilderTurnRow[]> {
 		return this.db
@@ -318,7 +339,8 @@ export class BuilderTurnsRepository {
 	/**
 	 * CAS `queued` → `running`; also binds the Trigger run id. The run id
 	 * clause accepts the API-written id so a claim after `setTriggerRunId`
-	 * still lands; a foreign run id can never claim the row.
+	 * still lands; a foreign run id can never claim the row. A row the API
+	 * gave to the harness host is not the Trigger run's to claim.
 	 */
 	async claimRunning(turnId: string, triggerRunId: string): Promise<boolean> {
 		const [row] = await this.db
@@ -332,12 +354,75 @@ export class BuilderTurnsRepository {
 				and(
 					eq(builderTurns.id, turnId),
 					eq(builderTurns.status, "queued"),
+					eq(builderTurns.runner, "trigger"),
 					sql`(${builderTurns.triggerRunId} is null or ${builderTurns.triggerRunId} = ${triggerRunId})`,
 				),
 			)
 			.returning({ id: builderTurns.id });
 
 		return row !== undefined;
+	}
+
+	/**
+	 * CAS `queued` → `running` for a row the API gave to the harness host.
+	 * The host runs it in its own process, so no run id is bound.
+	 */
+	async claimRunningOnHost(turnId: string): Promise<boolean> {
+		const [row] = await this.db
+			.update(builderTurns)
+			.set({ startedAt: new Date(), status: "running" })
+			.where(
+				and(
+					eq(builderTurns.id, turnId),
+					eq(builderTurns.status, "queued"),
+					eq(builderTurns.runner, "host"),
+				),
+			)
+			.returning({ id: builderTurns.id });
+
+		return row !== undefined;
+	}
+
+	/**
+	 * CAS of the runner of a `queued` row that no run claimed yet. The API
+	 * moves it to `host` before the host call, and back to `trigger` when the
+	 * host call fails. False means the other path already claimed the row.
+	 */
+	async assignRunner(
+		turnId: string,
+		from: BuilderTurnRunner,
+		to: BuilderTurnRunner,
+	): Promise<boolean> {
+		const [row] = await this.db
+			.update(builderTurns)
+			.set({ runner: to })
+			.where(
+				and(
+					eq(builderTurns.id, turnId),
+					eq(builderTurns.status, "queued"),
+					eq(builderTurns.runner, from),
+					isNull(builderTurns.triggerRunId),
+				),
+			)
+			.returning({ id: builderTurns.id });
+
+		return row !== undefined;
+	}
+
+	/**
+	 * Host-owned rows that still hold the project slot. The host reads them
+	 * at its start and on its recovery timer to find turns with no live owner.
+	 */
+	async findHostOwnedActive(): Promise<BuilderTurnRow[]> {
+		return this.db
+			.select()
+			.from(builderTurns)
+			.where(
+				and(
+					eq(builderTurns.runner, "host"),
+					inArray(builderTurns.status, [...PROJECT_ACTIVE_TURN_STATUSES]),
+				),
+			);
 	}
 
 	/**
@@ -463,12 +548,32 @@ export class BuilderTurnsRepository {
 	/**
 	 * Moves the oldest `waiting` row of a project to `queued` and returns it.
 	 * Returns null when no row waits or when the active slot is still taken —
-	 * the 23505 of `builder_turns_active_project_uq` then lands here.
+	 * the 23505 of `builder_turns_active_project_uq` then lands here. A row
+	 * sent before an open question or approval card stays parked (X1).
 	 */
 	async promoteOldestWaiting(
 		projectId: string,
 	): Promise<BuilderTurnRow | null> {
 		try {
+			// X1: the next turn after a card pause answers the card. A row the
+			// user sent before the card existed must not become that answer, so
+			// it stays parked until the card is answered or canceled. A row sent
+			// after the pause is the answer and goes first. The pause time is the
+			// `completed_at` of the paused row.
+			const paused = alias(builderTurns, "paused");
+			const sentBeforeOpenCard = this.db
+				.select({ id: paused.id })
+				.from(paused)
+				.where(
+					and(
+						eq(paused.projectId, builderTurns.projectId),
+						inArray(paused.status, [
+							"waiting_for_answer",
+							"waiting_for_approval",
+						]),
+						sql`(${paused.completedAt} is null or ${paused.completedAt} >= ${builderTurns.createdAt})`,
+					),
+				);
 			const oldestWaiting = this.db
 				.select({ id: builderTurns.id })
 				.from(builderTurns)
@@ -476,6 +581,7 @@ export class BuilderTurnsRepository {
 					and(
 						eq(builderTurns.projectId, projectId),
 						eq(builderTurns.status, "waiting"),
+						sql`not exists (${sentBeforeOpenCard})`,
 					),
 				)
 				.orderBy(asc(builderTurns.turnNumber))

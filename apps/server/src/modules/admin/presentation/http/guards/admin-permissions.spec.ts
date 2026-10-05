@@ -16,12 +16,6 @@ import { describe, expect, it } from "vitest";
 const expectedPermissionMatrix = [
 	{ action: "read", admin: true, resource: "overview", support: true },
 	{ action: "read", admin: true, resource: "users", support: true },
-	{
-		action: "grant-credits",
-		admin: true,
-		resource: "users",
-		support: false,
-	},
 	{ action: "ban", admin: true, resource: "users", support: true },
 	{ action: "set-role", admin: true, resource: "users", support: false },
 	{
@@ -39,11 +33,19 @@ const expectedPermissionMatrix = [
 	{ action: "read", admin: true, resource: "billing", support: true },
 	{ action: "update-request", admin: true, resource: "billing", support: true },
 	{ action: "manage", admin: true, resource: "billing", support: false },
+	{ action: "read", admin: true, resource: "credits", support: false },
+	{ action: "grant", admin: true, resource: "credits", support: false },
 	{
 		action: "read",
 		admin: true,
 		resource: "publications",
 		support: true,
+	},
+	{
+		action: "suspend",
+		admin: true,
+		resource: "publications",
+		support: false,
 	},
 	{ action: "read", admin: true, resource: "feedback", support: true },
 	{ action: "manage", admin: true, resource: "feedback", support: true },
@@ -91,6 +93,7 @@ describe("admin dashboard permission matrix", () => {
 			billing: ["read", "update-request"],
 			conversations: ["read"],
 			costs: ["read"],
+			credits: ["read", "grant"],
 			feedback: ["read", "manage"],
 			links: ["read"],
 			organizations: ["read"],
@@ -208,6 +211,21 @@ describe("staffHasPermission", () => {
 		expect(
 			staffHasPermission("support", ["users"], { feedback: ["read"] }),
 		).toBe(false);
+	});
+
+	it("allows a support credit grant only when the credits view is granted", () => {
+		const grantUserCredits = {
+			users: ["read"],
+			credits: ["grant"],
+		} as const satisfies AdminPermissionRequest;
+
+		expect(
+			staffHasPermission("support", ["users", "credits"], grantUserCredits),
+		).toBe(true);
+		expect(
+			staffHasPermission("support", defaultSupportViews, grantUserCredits),
+		).toBe(false);
+		expect(staffHasPermission("support", null, grantUserCredits)).toBe(false);
 	});
 
 	it("rejects an action outside the granted view's support action set", () => {

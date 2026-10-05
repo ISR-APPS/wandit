@@ -25,6 +25,8 @@ export interface SupabaseRateLimiter {
 export const supabaseRateLimitKeys = {
 	org: () => "supabase:rl:org",
 	project: (ref: string) => `supabase:rl:project:${ref}`,
+	// The analytics logs endpoint has its own, lower bucket (30 per minute).
+	logs: (ref: string) => `supabase:rl:logs:${ref}`,
 };
 
 // Lua: `INCR`, then `PEXPIRE` on the first hit so the window stays a fixed

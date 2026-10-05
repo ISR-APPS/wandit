@@ -1,7 +1,8 @@
 /**
  * Repository for the `audit_events` table: the append-only trail of
- * sensitive V2 actions. The `delete-app-project` runtime writes the
- * project-deleted row through it. Nothing here updates or deletes rows.
+ * sensitive V2 actions. The `delete-app-project` runtime, the
+ * `request_network_host` tool, and `ProjectSecretsService` write rows
+ * through it. Nothing here updates or deletes rows.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { auditEvents } from "@wandit/db/schema/audit-events";
@@ -27,17 +28,31 @@ export type AuditEventInput = {
 	targetId: string | null;
 	/** Kind of object the action touched, for example "project". */
 	targetType: string;
+	/** Client IP of the HTTP request that caused the action. Omit for a task. */
+	ip?: string | null;
 };
+
+// A write that runs on the pool or inside the caller's open transaction.
+type AuditEventsClient =
+	| Database
+	| Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 @Injectable()
 export class AuditEventsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	/** Appends one row. Audit is write-only on purpose: no update path. */
-	async insert(input: AuditEventInput): Promise<void> {
-		await this.db.insert(auditEvents).values({
+	/**
+	 * Appends one row. Audit is write-only on purpose: no update path.
+	 * With the caller's transaction as `client`, the row rolls back with it.
+	 */
+	async insert(
+		input: AuditEventInput,
+		client: AuditEventsClient = this.db,
+	): Promise<void> {
+		await client.insert(auditEvents).values({
 			action: input.action,
 			actorUserId: input.actorUserId,
+			ip: input.ip,
 			metadata: input.metadata,
 			organizationId: input.organizationId,
 			projectId: input.projectId,

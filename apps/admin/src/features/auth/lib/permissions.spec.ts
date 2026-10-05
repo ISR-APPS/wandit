@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	canGrantCreditsToTarget,
 	hasAdminPermission,
 	permissionMapAllows,
 	sessionRoleLabel,
 } from "./permissions";
+
+describe("canGrantCreditsToTarget", () => {
+	it("hides a support grant to the support account's own user or org", () => {
+		expect(canGrantCreditsToTarget("support", true)).toBe(false);
+		expect(canGrantCreditsToTarget("user,support", true)).toBe(false);
+		expect(canGrantCreditsToTarget("support", false)).toBe(true);
+	});
+
+	it("allows an admin grant to the admin's own account", () => {
+		expect(canGrantCreditsToTarget("user,admin", true)).toBe(true);
+	});
+});
 
 describe("admin session permissions", () => {
 	it("checks the shared permission matrix", () => {

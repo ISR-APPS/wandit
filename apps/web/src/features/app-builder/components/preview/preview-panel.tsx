@@ -1,22 +1,33 @@
 /**
- * The one iframe both previews render. It mints the signed sandbox URL
- * through usePreviewToken. It shows the loading, waking, and error
- * states until the first URL lands. WebPreview and PhonePreview wrap it
- * in their chrome. The page keeps it mounted across the views. The Vite
- * HMR WebSocket of the app inside then survives a view switch.
+ * The one iframe both previews render. WebPreview and PhonePreview mint the
+ * signed sandbox URL with usePreviewToken and pass the result here, so their
+ * bars can read the URL too. PreviewBootScreen covers the frame until the
+ * app page loads, and while the project holds only the template; the error
+ * state has its own alert. The page keeps it mounted across the views. The
+ * Vite HMR WebSocket of the app inside then survives a view switch. It tells
+ * the dev bridge of the app when the select mode starts or stops. It passes
+ * each bridge message, also a page change, to `onBridgeMessage`.
  */
 
+import type { PreviewBridgeMessage } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import { LoaderCircle } from "lucide-react";
-import type { CSSProperties } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import {
+	type CSSProperties,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+} from "react";
 
 import { useTranslation } from "@/lib/i18n";
+import type { BootContext } from "../../lib/boot-state";
+import { BOOT_EASE } from "../../lib/constants";
+import { previewSrcFor } from "../../lib/helpers";
 import { usePreviewMessages } from "../../lib/use-preview-messages";
-import {
-	type PreviewTokenDeps,
-	usePreviewToken,
-} from "../../lib/use-preview-token";
+import type { UsePreviewToken } from "../../lib/use-preview-token";
+import { PreviewBootScreen } from "./preview-boot-screen";
 
 // The generated app must not navigate the builder: no allow-top-navigation.
 // The frame is on the `wanditpreview.app` origin, not the builder origin.
@@ -26,68 +37,112 @@ const PREVIEW_IFRAME_SANDBOX =
 
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {
-	/** The open project. The hook mints its preview token. */
+	/** The open project. The boot screen wakes its sandbox. */
 	projectId: string;
+	/** The token state and its commands, from usePreviewToken in the parent. A new URL reloads the frame. */
+	preview: UsePreviewToken;
+	/** Page of the app to load, like `/` or `/login?next=%2F`. A change loads that page. Default `/`. */
+	path?: string;
 	/** Accessible name of the iframe. The parent builds it from the project name. */
 	title: string;
-	/** Bump from the reload button. A change mints a new token; the new src reloads the frame. */
-	reloadKey: number;
-	/** Classes of the panel box. The web preview draws the side borders of the narrow viewports here. */
+	/** Classes of the panel box that holds the iframe. The web preview draws the rounded sheet of the mobile viewport here. */
 	className: string;
-	/** Inline box styles. The web preview sets the viewport width here; a width change never touches src. */
+	/** Inline styles of the panel box. The web preview sets the viewport width here; a width change never touches src. */
 	style?: CSSProperties;
-	/** Spec seam: a fake getPreviewToken. Production callers leave it out. */
-	deps?: PreviewTokenDeps;
+	/**
+	 * Layout width of the app in CSS px, and the scale that fits it into the
+	 * box. The phone preview passes the device width; the web preview leaves
+	 * it out and the iframe fills the box.
+	 */
+	frameViewport?: { widthPx: number; scale: number };
+	/** The running turn and the backend state. The boot screen shows the real start-up steps from them. */
+	bootContext: BootContext;
+	/** True while the user picks elements in the app. Only the web preview turns it on. */
+	isSelecting?: boolean;
+	/** Gets each valid message of the dev bridge in the app: ready, a runtime error, a pick, Escape, or a page change. */
+	onBridgeMessage?: (message: PreviewBridgeMessage) => void;
+	/** Runs on each `load` of the iframe. WebPreview then shows the kept errors when no bridge said ready. */
+	onFrameLoad?: () => void;
 };
 
 /**
- * Renders the real preview iframe once the token mint answers, and the
- * state columns before it. No `key={reloadKey}` on the iframe: the
- * reload mints a new token and the new src reloads the frame.
+ * Renders the preview iframe once the token mint answers, under the boot
+ * screen until its first `load` and a first version exists. No key on the
+ * iframe: a reload mints a new token, and the new src reloads the frame.
  */
 export function PreviewPanel({
 	projectId,
+	preview,
+	path = "/",
 	title,
-	reloadKey,
 	className,
 	style,
-	deps,
+	frameViewport,
+	bootContext,
+	isSelecting = false,
+	onBridgeMessage,
+	onFrameLoad,
 }: PreviewPanelProps) {
 	const { t } = useTranslation();
-	const { status, previewUrl, errorText, refresh, markNotRunning } =
-		usePreviewToken(projectId, reloadKey, deps);
+	const { status, previewUrl, errorText, refresh, markNotRunning } = preview;
+	const frameRef = useRef<HTMLIFrameElement>(null);
+	// True after the iframe fired `load`. A token swap keeps the same frame, so the boot screen does not come back.
+	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
+	// A dropped frame (not-running, error) must show the boot screen again when the next frame mounts.
+	if (previewUrl === null && isFrameLoaded) setIsFrameLoaded(false);
+	// The template is not the user's app, so a loaded frame stays covered until a turn changes a file.
+	// The frame still loads under the cover, so the first version shows at once when the flag flips.
+	const isAppShown = isFrameLoaded && bootContext.hasCodeChanges;
 
-	// The proxy error pages report a dead token or a stopped sandbox.
+	// Tells the bridge in the app to start or stop the select mode.
+	const postSelectMode = useEffectEvent((active: boolean) => {
+		const frameWindow = frameRef.current?.contentWindow;
+		if (previewUrl === null || !frameWindow) return;
+		// The exact preview origin, never "*": no other page may get the message.
+		frameWindow.postMessage(
+			{ type: "wandit:select-mode", active },
+			new URL(previewUrl).origin,
+		);
+	});
+	useEffect(() => {
+		postSelectMode(isSelecting);
+	}, [isSelecting]);
+
+	// The proxy error pages report a dead token or a stopped sandbox. The
+	// bridge in the app reports its start, errors, picks, and pages.
 	usePreviewMessages({
 		previewUrl,
+		frameRef,
 		onTokenExpired: refresh,
 		onNotRunning: markNotRunning,
+		onBridgeMessage: (message) => {
+			// A page load resets the bridge, so it gets the select mode again.
+			if (message.type === "wandit:bridge-ready" && isSelecting) {
+				postSelectMode(true);
+			}
+			onBridgeMessage?.(message);
+		},
 	});
-
-	if (status === "ready" && previewUrl !== null) {
-		return (
-			<iframe
-				src={previewUrl}
-				title={title}
-				sandbox={PREVIEW_IFRAME_SANDBOX}
-				className={className}
-				style={style}
-			/>
-		);
-	}
 
 	if (status === "error") {
 		return (
 			<div
 				role="alert"
 				className={cn(
-					"flex flex-col items-center justify-center gap-3 px-4",
+					// Both callers draw the panel on a night ground, so the alert takes the dark tokens.
+					// `relative` paints it over the dotted layer of the web stage, like the normal root.
+					"dark relative flex flex-col items-center justify-center gap-3 px-4",
 					className,
 				)}
 				style={style}
 			>
-				<p className="text-center text-muted-foreground text-sm">{errorText}</p>
-				<Button variant="outline" size="sm" onClick={refresh}>
+				<p className="text-center text-sm text-white/70">{errorText}</p>
+				{/* The amber pill of the device card in device-panel.tsx. It reads on the night ground in both themes. */}
+				<Button
+					size="sm"
+					className="bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
+					onClick={refresh}
+				>
 					{t("appBuilder.preview.retry")}
 				</Button>
 			</div>
@@ -95,20 +150,64 @@ export function PreviewPanel({
 	}
 
 	return (
-		<div
-			role="status"
-			className={cn(
-				"flex flex-col items-center justify-center gap-3",
-				className,
-			)}
-			style={style}
-		>
-			<LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-			{status === "waking" ? (
-				<p className="text-muted-foreground text-sm">
-					{t("appBuilder.preview.waking")}
-				</p>
-			) : null}
-		</div>
+		// Motion drops its transforms for users who ask for reduced motion; the fades stay.
+		<MotionConfig reducedMotion="user">
+			<div className={cn("relative overflow-hidden", className)} style={style}>
+				{status === "ready" && previewUrl !== null ? (
+					<motion.iframe
+						ref={frameRef}
+						src={previewSrcFor(previewUrl, path)}
+						title={title}
+						sandbox={PREVIEW_IFRAME_SANDBOX}
+						onLoad={() => {
+							setIsFrameLoaded(true);
+							onFrameLoad?.();
+						}}
+						// The boot screen covers the frame until the app shows, so keyboard focus and screen readers skip it.
+						inert={!isAppShown}
+						className="block size-full border-0 bg-transparent"
+						// The iframe keeps the device width and a height that fills the
+						// box after the scale. Physical top and left: the scale origin
+						// is the top-left corner in RTL too.
+						style={
+							frameViewport === undefined
+								? undefined
+								: {
+										position: "absolute",
+										top: 0,
+										left: 0,
+										width: frameViewport.widthPx,
+										height: `${100 / frameViewport.scale}%`,
+										originX: 0,
+										originY: 0,
+									}
+						}
+						initial={false}
+						animate={{
+							scale: (isAppShown ? 1 : 0.985) * (frameViewport?.scale ?? 1),
+						}}
+						transition={{ duration: 0.38, delay: 0.04, ease: BOOT_EASE }}
+					/>
+				) : null}
+				{/* No initial={false} here: motion keeps it in context and would skip the first fade of every later child, like the amber buttons of the drawing. */}
+				<AnimatePresence>
+					{isAppShown ? null : (
+						<motion.div
+							key="boot"
+							className="absolute inset-0"
+							exit="leave"
+							variants={{ leave: { opacity: 0 } }}
+							transition={{ duration: 0.26, ease: BOOT_EASE }}
+						>
+							<PreviewBootScreen
+								projectId={projectId}
+								tokenStatus={status}
+								bootContext={bootContext}
+							/>
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
+		</MotionConfig>
 	);
 }

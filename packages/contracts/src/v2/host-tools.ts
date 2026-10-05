@@ -6,6 +6,8 @@
  */
 import { z } from "zod";
 
+import { type AskUserKind, askUserKindSchema } from "../v1/ai-chat";
+
 // The literal list mirrors `BUILD_IMAGE_ASPECTS` in the V1 site builder
 // (apps/server/src/modules/ai-chat/agent/site-builder/generate-image.ts):
 // gpt-image-class models accept exact sizes, not free aspect ratios.
@@ -102,3 +104,106 @@ export const requestNetworkHostToolOutputSchema = z.discriminatedUnion(
 export type RequestNetworkHostToolOutput = z.infer<
 	typeof requestNetworkHostToolOutputSchema
 >;
+
+/**
+ * One option of an `ask_user` question. `worldId` names a design world
+ * skill; the task then adds the preview card of that world to the question.
+ * No length limits here: Claude Code does not enforce them, and a failed
+ * parse would fail the paused turn. The harness adapter cuts long values.
+ */
+export const askUserHostToolOptionSchema = z.object({
+	// Stable id; the answer sends it back in `selected`.
+	id: z.string(),
+	label: z.string(),
+	// One short line under the label.
+	description: z.string().optional(),
+	// Folder name of a design world skill, for example `zellige`.
+	worldId: z.string().optional(),
+});
+
+/** One question of an `ask_user` call; the tray shows it as one step. */
+export const askUserHostToolQuestionSchema = z.object({
+	question: z.string(),
+	// Absent: free text without options, a single choice with options.
+	kind: askUserKindSchema.optional(),
+	options: z.array(askUserHostToolOptionSchema).default([]),
+	// One short line under the question.
+	helper: z.string().optional(),
+	// Upload limit of an `attachments` question; the tray uses 3 when absent.
+	maxFiles: z.int().optional(),
+});
+
+/** One parsed `ask_user` question; `resolveAskUserKind` reads it. */
+export type AskUserHostToolQuestion = z.infer<
+	typeof askUserHostToolQuestionSchema
+>;
+
+/**
+ * Input of the `ask_user` host tool: all questions of one step, in ONE
+ * call. The Claude Code adapter pauses on the first host call, so a second
+ * call in the same reply never reaches the user. The tool has no execute:
+ * the turn pauses until the user answers in the chat.
+ */
+export const askUserHostToolInputSchema = z.object({
+	questions: z.array(askUserHostToolQuestionSchema),
+});
+
+/** Parsed `ask_user` input; the harness adapter reads it from a paused call. */
+export type AskUserHostToolInput = z.infer<typeof askUserHostToolInputSchema>;
+
+/**
+ * The tray body of an `ask_user` question. An explicit `kind` wins. Else a
+ * question without options is free text and one with options a single choice.
+ */
+export function resolveAskUserKind(
+	question: Pick<AskUserHostToolQuestion, "kind" | "options">,
+): AskUserKind {
+	return (
+		question.kind ??
+		(question.options.length === 0 ? "free-text" : "single-choice")
+	);
+}
+
+/**
+ * How the user closed an `ask_user` question. `delegated`: the user lets
+ * the agent decide. `dismissed`: the user skipped the question.
+ */
+export const askUserHostToolActionSchema = z.enum([
+	"answered",
+	"delegated",
+	"dismissed",
+]);
+
+/**
+ * One file the user sent as an answer. `path` is the project-relative copy
+ * the task wrote into the sandbox. It is null when the copy failed.
+ */
+export const askUserHostToolFileSchema = z.object({
+	filename: z.string(),
+	mediaType: z.string(),
+	url: z.url(),
+	path: z.string().nullable(),
+});
+
+/**
+ * Output of the `ask_user` host tool, the tool result the agent reads: one
+ * answer per question of the call. `text` holds what the user typed, also
+ * for a skipped question; "" when the user typed nothing.
+ */
+export const askUserHostToolOutputSchema = z.object({
+	answers: z.array(
+		z.object({
+			// The `question-N` id the adapter gave the question.
+			questionId: z.string(),
+			question: z.string(),
+			action: askUserHostToolActionSchema,
+			// The picked options, in the order of the question.
+			selected: z.array(z.object({ id: z.string(), label: z.string() })),
+			text: z.string(),
+			files: z.array(askUserHostToolFileSchema),
+		}),
+	),
+});
+
+/** Parsed `ask_user` output; the task builds it from the user's answers. */
+export type AskUserHostToolOutput = z.infer<typeof askUserHostToolOutputSchema>;

@@ -1,0 +1,12 @@
+node_modules
+dist
+.expo
+*.tar.gz
+.env
+.env.*
+# Expo CLI writes these on start; they are generated.
+expo-env.d.ts
+uniwind-types.d.ts
+# The app runs in Expo Go. Native folders come only from a prebuild.
+/ios
+/android

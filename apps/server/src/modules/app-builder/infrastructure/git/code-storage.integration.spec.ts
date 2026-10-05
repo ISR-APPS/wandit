@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { codeStoragePrivateKeySchema } from "@wandit/env/code-storage-key";
 import { describe, expect, it } from "vitest";
 
 import type { V2EnvSource } from "../env/v2-env";
@@ -24,7 +25,11 @@ const RUN =
 
 const v2Env: V2EnvSource = {
 	CODE_STORAGE_ORG: process.env.CODE_STORAGE_ORG,
-	CODE_STORAGE_PRIVATE_KEY: process.env.CODE_STORAGE_PRIVATE_KEY,
+	// Specs skip the env validation, so the spec runs the env schema itself.
+	// It turns `\n` escapes into newlines, like the boot does.
+	CODE_STORAGE_PRIVATE_KEY: RUN
+		? codeStoragePrivateKeySchema.parse(process.env.CODE_STORAGE_PRIVATE_KEY)
+		: undefined,
 	// The harness choice is unused by the git store; the type requires it.
 	V2_HARNESS: "claude-code",
 };
@@ -52,7 +57,11 @@ describe.skipIf(!RUN)("code.storage integration", () => {
 
 		try {
 			await store.ensureRepository(projectId);
-			const credential = await store.issueCredential(projectId, 600);
+			const credential = await store.issueCredential(
+				projectId,
+				120,
+				"push-main",
+			);
 			const remoteUrl = authenticatedRemoteUrl(
 				credential.remoteUrl,
 				credential,

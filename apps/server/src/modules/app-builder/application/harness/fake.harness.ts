@@ -15,6 +15,10 @@ import type {
 	HarnessStreamEvent,
 	HarnessTurnInput,
 } from "../../domain/ports/builder-harness";
+import type { SandboxHandle } from "../../domain/ports/sandbox-provider";
+
+/** What `bootstrapKey` answers; specs compare the sandbox options with it. */
+export const FAKE_HARNESS_BOOTSTRAP_KEY = "fake-harness-bootstrap-key";
 
 /** One recorded `stream` call. */
 export type FakeHarnessStreamCall = {
@@ -42,6 +46,7 @@ export class FakeBuilderHarness implements BuilderHarness {
 	readonly resumeCalls: {
 		input: HarnessSessionInput;
 		resumeState: HarnessResumeState;
+		options: { dropPausedTurn: boolean; bridgeDead: boolean };
 	}[] = [];
 
 	/** Recorded `stream` calls; `input` keeps the full prompt/continue payload. */
@@ -49,6 +54,9 @@ export class FakeBuilderHarness implements BuilderHarness {
 
 	/** `sessionId`s passed to `suspendTurn`, in call order. */
 	readonly suspendCalls: string[] = [];
+
+	/** `providerSandboxId`s passed to `prepareSandbox`, in call order. */
+	readonly preparedSandboxIds: string[] = [];
 
 	/** The resume state `detach` returns. */
 	resumeState: HarnessResumeState = {
@@ -94,8 +102,9 @@ export class FakeBuilderHarness implements BuilderHarness {
 	async resumeSession(
 		input: HarnessSessionInput,
 		resumeState: HarnessResumeState,
+		options: { dropPausedTurn: boolean; bridgeDead: boolean },
 	): Promise<HarnessSession> {
-		this.resumeCalls.push({ input, resumeState });
+		this.resumeCalls.push({ input, options, resumeState });
 		if (this.resumeError) {
 			throw this.resumeError;
 		}
@@ -144,5 +153,13 @@ export class FakeBuilderHarness implements BuilderHarness {
 			...this.resumeState,
 			pending: this.pendingOnSuspend,
 		};
+	}
+
+	async bootstrapKey(): Promise<string> {
+		return FAKE_HARNESS_BOOTSTRAP_KEY;
+	}
+
+	async prepareSandbox(sandbox: SandboxHandle): Promise<void> {
+		this.preparedSandboxIds.push(sandbox.providerSandboxId);
 	}
 }

@@ -1,8 +1,10 @@
 /**
  * Delete-app-project runtime: removes the external resources of one
  * soft-deleted `v2_app` project.
- * Seven steps run in order: turn-run cancel, sandbox destroy, backend
- * seam, R2 drain, repository delete, audit row, analytics event.
+ * Nine steps run in order: turn-run cancel, sandbox destroy, user Worker
+ * delete, slug pointer delete and live deployment end (WANDIT-178),
+ * backend pause and secrets delete (WANDIT-184), R2 drain, repository
+ * delete, audit row, analytics event.
  * Every step runs in its own try/catch, so one failed vendor call never
  * blocks the audit row.
  * `delete-app-project.task.ts` calls it through
@@ -11,6 +13,7 @@
  * hand.
  */
 import { runs } from "@trigger.dev/sdk";
+import { appWorkerName } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
@@ -26,16 +29,30 @@ import type {
 	SandboxLogger,
 	SandboxProvider,
 } from "../modules/app-builder/domain/ports/sandbox-provider";
+import {
+	type WorkersForPlatformsApi,
+	workersForPlatformsClientFromEnv,
+} from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/logging-repo-restorer";
+import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import { AppPublishRepository } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { BuilderTurnsRepository } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
+import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import {
 	ArchiveTemplateInit,
 	TEMPLATE_ARCHIVE_DIR,
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
+import {
+	type SupabaseManagementClient,
+	supabaseWorkerClientFromEnv,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
+import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
+import { DeploymentsRepository } from "../modules/sites/infrastructure/persistence/deployments.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -47,6 +64,31 @@ export type DeleteAppProjectDeps = {
 	cancelRun: (runId: string) => Promise<void>;
 	/** Vendor sandbox destroy; it marks the `sandbox_sessions` row itself. */
 	sandboxes: Pick<SandboxProvider, "destroy">;
+	/**
+	 * Deletes the published user Worker. Null when a Cloudflare env value is
+	 * unset; `workersForPlatformsClientFromEnv` builds it.
+	 */
+	workers: Pick<WorkersForPlatformsApi, "deleteScript"> | null;
+	/** Finds the live app deployment, whose slug host the edge still routes. */
+	publish: Pick<AppPublishRepository, "findLiveDeployment">;
+	/** Moves the live deployment row to `unpublished`. */
+	deployments: Pick<DeploymentsRepository, "unpublishActive">;
+	/**
+	 * Deletes the `domain:{slug}.{domain}` KV pointer. Null when KV is not
+	 * configured: the step then only ends the deployment row.
+	 */
+	routing: Pick<DomainRoutingService, "deleteHostPointer"> | null;
+	/** `env.SITES_DOMAIN`: the zone of the slug host. */
+	sitesDomain: string;
+	/** Reads the `app_backends` row and moves it to `deleting`. */
+	backends: Pick<AppBackendsRepository, "findByProjectId" | "markDeleting">;
+	/**
+	 * Pauses the Supabase project of a running backend. Null when a Supabase
+	 * platform env value is unset; the row still moves to `deleting`.
+	 */
+	supabase: Pick<SupabaseManagementClient, "pauseProject"> | null;
+	/** Deletes the `project_secrets` rows of the project. */
+	projectSecrets: Pick<ProjectSecretsRepository, "deleteAllForProject">;
 	/** code.storage repository delete; a 404 or a 409 counts as done. */
 	gitStore: Pick<GitStore, "deleteRepository">;
 	/** Drains one R2 prefix and answers the number of deleted keys. */
@@ -69,6 +111,26 @@ export type DeleteAppProjectResult = {
 	turnCanceled: boolean;
 	/** "destroyed" when the vendor call resolved; "error" when it threw. */
 	sandbox: "destroyed" | "error";
+	/**
+	 * "deleted" or "missing" (never published) when Cloudflare answered;
+	 * "skipped" without the Cloudflare env values; "error" when the call threw.
+	 */
+	worker: "deleted" | "missing" | "skipped" | "error";
+	/**
+	 * "unpublished" when the live row ended and its pointer went, or KV is
+	 * not configured and no pointer delete ran; "none" when nothing was
+	 * live; "error" when a call threw.
+	 */
+	deployment: "unpublished" | "none" | "error";
+	/**
+	 * "paused" when the row moved to `deleting` and Supabase paused the
+	 * project; "deleting" when the row moved and no pause ran (the project
+	 * was not running, or no client); "skipped" without a row or on a row
+	 * already `deleting`; "error" when a call threw.
+	 */
+	backend: "paused" | "deleting" | "skipped" | "error";
+	/** `project_secrets` rows removed; 0 when the delete threw. */
+	secretsDeleted: number;
 	/** "deleted" when code.storage answered; "error" when the call threw. */
 	repository: "deleted" | "error";
 	/** Keys removed under the two `v2ProjectPrefixes`. */
@@ -78,7 +140,7 @@ export type DeleteAppProjectResult = {
 };
 
 /**
- * Runs the seven cleanup steps for one soft-deleted `v2_app` project.
+ * Runs the nine cleanup steps for one soft-deleted `v2_app` project.
  * It never throws: each step logs its own failure and the result reports every outcome.
  * The audit row carries the same outcomes, so a failed vendor call stays visible after the run.
  */
@@ -118,7 +180,91 @@ export async function runDeleteAppProject(
 		});
 	}
 
-	// WANDIT-183/184 add here: backendsService.markDeleting(projectId) (pause the Supabase project, status = deleting; skip a claimed backend).
+	// A live user Worker keeps serving a deleted app, so its delete comes
+	// first after the sandbox (WANDIT-178 names it step one of a delete).
+	let worker: DeleteAppProjectResult["worker"] = "skipped";
+	const scriptName = appWorkerName(projectId);
+	if (deps.workers === null) {
+		deps.logger.warn("app-project.delete.worker-unconfigured", fields);
+	} else {
+		try {
+			worker = await deps.workers.deleteScript({ projectId, scriptName });
+		} catch (error) {
+			worker = "error";
+			deps.logger.error("app-project.delete.worker-failed", {
+				...fields,
+				error: getErrorMessage(error),
+				scriptName,
+			});
+		}
+	}
+
+	// The slug host keeps routing to the deleted app until its pointer goes.
+	// The pointer goes before the row ends: a failed delete leaves the row
+	// `active`, so the audit row and a rerun still name the slug.
+	let deployment: DeleteAppProjectResult["deployment"] = "none";
+	try {
+		const live = await deps.publish.findLiveDeployment(projectId);
+		if (live !== null) {
+			if (deps.routing === null) {
+				deps.logger.warn("app-project.delete.kv-unconfigured", fields);
+			} else {
+				await deps.routing.deleteHostPointer(
+					`${live.slug}.${deps.sitesDomain}`,
+				);
+			}
+			await deps.deployments.unpublishActive(projectId);
+			deployment = "unpublished";
+		}
+	} catch (error) {
+		deployment = "error";
+		deps.logger.error("app-project.delete.deployment-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// The row moves to `deleting` before the pause: the pause sweep then
+	// deletes the Supabase project after the grace window, also when the
+	// pause fails. WANDIT-199 adds the claim flag; until then no backend is
+	// claimed, so every backend goes.
+	let backend: DeleteAppProjectResult["backend"] = "skipped";
+	try {
+		const row = await deps.backends.findByProjectId(projectId);
+		if (row !== null && (await deps.backends.markDeleting(projectId))) {
+			backend = "deleting";
+			// A running project costs money during the grace window; a paused
+			// one costs nothing.
+			// LIMIT: a `creating`, `restoring`, or `error` project can run until
+			// the grace delete. Upgrade: the sweep pauses a `deleting` row that runs.
+			if (row.status === "active" && row.ref !== null) {
+				if (deps.supabase === null) {
+					deps.logger.warn("app-project.delete.backend-unconfigured", fields);
+				} else {
+					await deps.supabase.pauseProject({ projectId, ref: row.ref });
+					backend = "paused";
+				}
+			}
+		}
+	} catch (error) {
+		backend = "error";
+		deps.logger.error("app-project.delete.backend-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
+
+	// A soft delete cascades nothing, so the secret values go here, also for
+	// a project without a backend.
+	let secretsDeleted = 0;
+	try {
+		secretsDeleted = await deps.projectSecrets.deleteAllForProject(projectId);
+	} catch (error) {
+		deps.logger.error("app-project.delete.secrets-failed", {
+			...fields,
+			error: getErrorMessage(error),
+		});
+	}
 
 	let objectsDeleted = 0;
 	for (const prefix of v2ProjectPrefixes(projectId)) {
@@ -149,7 +295,16 @@ export async function runDeleteAppProject(
 		await deps.auditEvents.insert({
 			action: "project.deleted",
 			actorUserId: input.actorUserId,
-			metadata: { objectsDeleted, repository, sandbox, turnCanceled },
+			metadata: {
+				backend,
+				deployment,
+				objectsDeleted,
+				repository,
+				sandbox,
+				secretsDeleted,
+				turnCanceled,
+				worker,
+			},
 			organizationId: input.organizationId,
 			projectId,
 			targetId: projectId,
@@ -170,50 +325,82 @@ export async function runDeleteAppProject(
 		projectId,
 		repository,
 		sandbox,
+		worker,
 	});
 
 	deps.logger.info("app-project.delete.completed", {
 		...fields,
+		backend,
+		deployment,
 		objectsDeleted: String(objectsDeleted),
 		repository,
 		sandbox,
+		secretsDeleted: String(secretsDeleted),
+		worker,
 	});
 
-	return { auditWritten, objectsDeleted, repository, sandbox, turnCanceled };
+	return {
+		auditWritten,
+		backend,
+		deployment,
+		objectsDeleted,
+		repository,
+		sandbox,
+		secretsDeleted,
+		turnCanceled,
+		worker,
+	};
 }
 
 /**
- * Composes the real repositories, the provider, the git store, the R2
- * drain, the run cancel, and the PostHog capture for the Trigger worker.
+ * Composes the real repositories, the provider, the W4P client, the KV
+ * pointer writer, the Supabase client, the git store, the R2 drain, the
+ * run cancel, and the PostHog capture for the Trigger worker.
  * The provider's template-init and repo-restorer arguments exist because
- * `destroy` shares the provider with the start path; the run closes `db`
- * itself in its `finally`.
+ * `destroy` shares the provider with the start path. The task closes `db`
+ * and calls `close`, which quits the rate limiter's Redis client.
  */
 export function createDeleteAppProjectRuntime(
 	db: TriggerDatabase,
 	capture: DeleteAppProjectDeps["capture"],
 ) {
 	const sessions = new SandboxSessionsRepository(db);
+	const backends = new AppBackendsRepository(db);
+	const routing = new DomainRoutingService(new DomainsRepository(db));
+	const { client: supabase, close } = supabaseWorkerClientFromEnv(
+		env,
+		backends,
+		Sentry.logger,
+	);
 	return {
 		run: (input: DeleteAppProjectInput) =>
 			runDeleteAppProject(
 				{
 					auditEvents: new AuditEventsRepository(db),
+					backends,
 					cancelRun: async (runId) => {
 						await runs.cancel(runId);
 					},
 					capture,
 					deleteObjectsByPrefix: (prefix) => deleteObjectsByPrefix(prefix),
+					deployments: new DeploymentsRepository(db),
 					gitStore: new CodeStorageGitStore(env),
 					logger: Sentry.logger,
+					projectSecrets: new ProjectSecretsRepository(db),
+					publish: new AppPublishRepository(db),
+					routing: routing.isKvConfigured() ? routing : null,
+					sitesDomain: env.SITES_DOMAIN,
 					sandboxes: new VercelSandboxProvider(
 						sessions,
 						new LoggingRepoRestorer(),
 						new ArchiveTemplateInit(TEMPLATE_ARCHIVE_DIR),
 					),
+					supabase,
 					turns: new BuilderTurnsRepository(db),
+					workers: workersForPlatformsClientFromEnv(env, Sentry.logger),
 				},
 				input,
 			),
+		close,
 	};
 }

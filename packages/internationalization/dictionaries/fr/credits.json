@@ -46,6 +46,8 @@
 		"transcription": "Transcription vocale",
 		"agent_session": "Tour du builder",
 		"sandbox": "Temps de sandbox",
+		"mobile_build": "Build de l'app",
+		"mobile_preview": "Aperçu sur appareil",
 		"topup_adjust": "Ajustement du solde"
 	},
 	"activityStatus": {

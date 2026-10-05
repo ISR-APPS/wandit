@@ -48,6 +48,7 @@ export class FakeSandboxSessionsRepository {
 			image: null,
 			lastActiveAt: null,
 			lastSnapshotAt: null,
+			networkPolicyHash: null,
 			organizationId: input.organizationId,
 			previewHost: null,
 			projectId: input.projectId,
@@ -89,6 +90,14 @@ export class FakeSandboxSessionsRepository {
 		const row = this.rows.get(id);
 		if (row && isLive(row)) {
 			row.status = "destroyed";
+		}
+		return Promise.resolve();
+	}
+
+	markNetworkPolicyHash(id: string, hash: string): Promise<void> {
+		const row = this.rows.get(id);
+		if (row && isLive(row)) {
+			row.networkPolicyHash = hash;
 		}
 		return Promise.resolve();
 	}

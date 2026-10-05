@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "Open",
 	"menuViewLive": "View live",
-	"menuViewLiveMock": "Mock",
 	"menuRename": "Rename",
 	"menuDelete": "Delete",
 	"cardMenuLabel": "Project actions",
@@ -128,6 +127,14 @@
 			"signInFirst": "Sign in to attach files"
 		},
 		"modeLabel": "Mode",
+		"platforms": {
+			"web": {
+				"label": "Web app"
+			},
+			"mobile": {
+				"label": "Mobile app"
+			}
+		},
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
 		"skillLibraryLabel": "Built by Wandit",

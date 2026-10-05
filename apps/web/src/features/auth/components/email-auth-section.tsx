@@ -1,23 +1,26 @@
+/**
+ * Email sign-in in the auth modal: a magic link first, and a 6-digit code as the fallback.
+ * auth-modal.tsx renders it below its "Or" divider. It calls the authClient magicLink and emailOtp.
+ * Each send carries a Turnstile token in the x-captcha-response header when the app has a site key.
+ * A token works one time, so each send uses it and resets the widget.
+ * The code check has no captcha on purpose: the send step already proved a human.
+ */
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
+import { cn } from "@wandit/ui/lib/utils";
 import { Loader2, Mail } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { buildAuthCallbackUrls } from "@/lib/auth-navigation";
 import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
+import {
+	AUTH_FIELD_CLASS,
+	AUTH_SECONDARY_BUTTON_CLASS,
+} from "../lib/constants";
 import { invalidateSessionCache } from "../lib/session";
-
-/**
- * Email sign-in inside the auth modal: magic link first, "enter a code
- * instead" OTP fallback. Both SEND actions carry a Turnstile token (when the
- * site key is configured) via the x-captcha-response header the server-side
- * captcha plugin checks; OTP verification is deliberately captcha-free.
- * Tokens are single-use, so every send consumes the token and resets the
- * widget for the next one.
- */
 
 type SendErrorShape = {
 	code?: string | null | undefined;
@@ -213,14 +216,6 @@ export function EmailAuthSection({
 
 	return (
 		<div className="flex flex-col gap-3">
-			<div className="flex items-center gap-3">
-				<span className="h-px flex-1 bg-border" />
-				<span className="text-muted-foreground/70 text-xs uppercase tracking-wide">
-					{t("auth.emailDivider")}
-				</span>
-				<span className="h-px flex-1 bg-border" />
-			</div>
-
 			{view === "form" ? (
 				<form
 					className="flex flex-col gap-3"
@@ -235,14 +230,14 @@ export function EmailAuthSection({
 						autoComplete="email"
 						aria-label={t("auth.emailLabel")}
 						placeholder={t("auth.emailPlaceholder")}
-						className="h-11 rounded-full px-4"
+						className={AUTH_FIELD_CLASS}
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
 					/>
 					<Button
 						type="submit"
 						variant="outline"
-						className="h-11 w-full rounded-full"
+						className={AUTH_SECONDARY_BUTTON_CLASS}
 						disabled={pending !== "none" || !captchaReady}
 					>
 						{pending === "link" ? (
@@ -257,9 +252,11 @@ export function EmailAuthSection({
 				</form>
 			) : (
 				<div className="flex flex-col gap-3">
-					<div className="rounded-xl bg-muted/50 px-4 py-3 text-center">
-						<p className="font-medium text-sm">{t("auth.emailSentTitle")}</p>
-						<p className="mt-1 text-muted-foreground text-xs leading-relaxed">
+					<div className="rounded-2xl bg-popover-foreground/[0.04] px-4 py-3 text-center">
+						<p className="font-grotesk font-semibold text-sm">
+							{t("auth.emailSentTitle")}
+						</p>
+						<p className="mt-1 text-popover-foreground/60 text-xs leading-relaxed">
 							{t(otpRequested ? "auth.emailCodeSent" : "auth.emailSentBody", {
 								email,
 							})}
@@ -280,7 +277,10 @@ export function EmailAuthSection({
 								pattern="[0-9]*"
 								aria-label={t("auth.otpLabel")}
 								placeholder="000000"
-								className="h-11 rounded-full text-center font-semibold text-lg tracking-[0.5em]"
+								className={cn(
+									AUTH_FIELD_CLASS,
+									"text-center font-grotesk font-semibold text-lg tracking-[0.5em]",
+								)}
 								value={otp}
 								// Strip non-digits BEFORE bounding the length: a
 								// pasted "123 456" would otherwise be truncated to
@@ -294,9 +294,11 @@ export function EmailAuthSection({
 									)
 								}
 							/>
+							{/* The night key, like the billing action of the dashboard menus. It is paper on the
+							    dark sheet. Amber stays on Google in both themes. */}
 							<Button
 								type="submit"
-								className="h-11 w-full rounded-full"
+								className="h-11 w-full rounded-xl bg-night font-grotesk font-semibold text-paper hover:bg-night/90 dark:bg-paper dark:text-night dark:hover:bg-paper/90"
 								disabled={pending !== "none" || otp.length !== OTP_LENGTH}
 							>
 								{pending === "otp-verify" ? (
@@ -311,7 +313,7 @@ export function EmailAuthSection({
 						<Button
 							type="button"
 							variant="outline"
-							className="h-11 w-full rounded-full"
+							className={AUTH_SECONDARY_BUTTON_CLASS}
 							disabled={pending !== "none" || !captchaReady}
 							onClick={() => void sendOtp()}
 						>
@@ -327,7 +329,7 @@ export function EmailAuthSection({
 					<div className="flex items-center justify-center gap-4 text-xs">
 						<button
 							type="button"
-							className="text-muted-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+							className="text-popover-foreground/60 underline-offset-2 hover:text-popover-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
 							disabled={pending !== "none" || linkCooldown > 0 || !captchaReady}
 							// Resend whichever channel the user is actually on:
 							// re-sending the link from the code screen would wipe
@@ -340,7 +342,7 @@ export function EmailAuthSection({
 						</button>
 						<button
 							type="button"
-							className="text-muted-foreground underline-offset-2 hover:underline"
+							className="text-popover-foreground/60 underline-offset-2 hover:text-popover-foreground hover:underline"
 							onClick={backToForm}
 						>
 							{t("auth.emailBack")}
@@ -368,7 +370,7 @@ export function EmailAuthSection({
 					{captchaBroken ? (
 						<button
 							type="button"
-							className="mt-2 w-full text-center text-muted-foreground text-xs underline-offset-2 hover:underline"
+							className="mt-2 w-full text-center text-popover-foreground/60 text-xs underline-offset-2 hover:text-popover-foreground hover:underline"
 							onClick={retryCaptcha}
 						>
 							{t("auth.captchaRetry")}

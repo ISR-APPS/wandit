@@ -1,3 +1,9 @@
+/**
+ * Publish history of a project: one row per publish attempt. A V1 page row
+ * points at a `versions` row; a V2 app row (WANDIT-178) points at the
+ * `app_builds` row that uploaded its Worker. The sites module and the
+ * `publish-app` task write it; the edge reads the KV pointer, not this table.
+ */
 import { relations, sql } from "drizzle-orm";
 import {
 	check,
@@ -10,6 +16,7 @@ import {
 	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
+import { appBuilds } from "./app-builds";
 import { versions } from "./artifacts";
 import { projects } from "./projects";
 
@@ -24,6 +31,12 @@ export const deploymentStatus = pgEnum("deployment_status", [
 	"unpublished",
 ]);
 
+/**
+ * What a deployment serves: a V1 page from R2 (`page`), or a V2 app Worker
+ * in the dispatch namespace (`app`).
+ */
+export const deploymentKind = pgEnum("deployment_kind", ["page", "app"]);
+
 export const deployments = pgTable(
 	"deployments",
 	{
@@ -31,9 +44,16 @@ export const deployments = pgTable(
 		projectId: uuid("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
+		kind: deploymentKind("kind").notNull().default("page"),
 		// FK'd as a (projectId, versionId) pair below — a deployment can never
-		// publish another project's version.
-		versionId: uuid("version_id").notNull(),
+		// publish another project's version. Null on an `app` row.
+		versionId: uuid("version_id"),
+		// The `app_builds` row that uploaded the Worker. Null on a `page` row.
+		// NO ACTION, like the version FK: a project purge deletes both sides
+		// in one statement and passes.
+		buildId: uuid("build_id").references(() => appBuilds.id),
+		// The commit the app Worker runs. Null on a `page` row.
+		commitSha: text("commit_sha"),
 		// Subdomain on the sites domain: {slug}.wandit.app.
 		slug: text("slug").notNull(),
 		status: deploymentStatus("status").notNull().default("pending"),
@@ -68,6 +88,11 @@ export const deployments = pgTable(
 			foreignColumns: [versions.projectId, versions.id],
 			name: "deployments_project_version_fk",
 		}),
+		// A page row needs its version; an app row needs its build and commit.
+		check(
+			"deployments_kind_source_ck",
+			sql`(${table.kind} = 'page' AND ${table.versionId} IS NOT NULL) OR (${table.kind} = 'app' AND ${table.buildId} IS NOT NULL AND ${table.commitSha} IS NOT NULL)`,
+		),
 		// DNS labels are case-insensitive and ≤63 chars; store the canonical
 		// lowercase form the edge router matches.
 		check(
@@ -85,5 +110,9 @@ export const deploymentsRelations = relations(deployments, ({ one }) => ({
 	version: one(versions, {
 		fields: [deployments.versionId],
 		references: [versions.id],
+	}),
+	build: one(appBuilds, {
+		fields: [deployments.buildId],
+		references: [appBuilds.id],
 	}),
 }));

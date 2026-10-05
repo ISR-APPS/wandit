@@ -18,16 +18,16 @@ export const PROJECT_ACTIVE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 ];
 
 /**
- * Statuses that still let a chat look busy: the active slot plus `waiting`
- * and the two user-blocked states. Used for the chat history filter.
+ * Statuses whose answer can still stream: the active slot plus `waiting`.
+ * The chat history filter hides their assistant rows. A turn paused on a
+ * question or an approval is not here: its stream ended and its row holds
+ * the open card, so a reload must show it.
  */
 export const CHAT_ACTIVE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
 	"queued",
 	"waiting",
 	"running",
 	"cancelling",
-	"waiting_for_answer",
-	"waiting_for_approval",
 ];
 
 /** Statuses after which no write is legal again. */
@@ -59,6 +59,22 @@ export const CANCELLABLE_TURN_STATUSES: readonly BuilderTurnStatus[] = [
  * submit gets a 409 instead of parking forever.
  */
 export const RESTORE_LOCK_HOLDER_PREFIX = "restore:";
+
+/**
+ * Lock-holder prefix a sandbox wake writes (`sandbox-wake.service.ts`).
+ * Like a restore, a wake never promotes a waiting turn, so a submit during
+ * the boot gets a 409 from `turns.service.ts`.
+ */
+export const WAKE_LOCK_HOLDER_PREFIX = "wake:";
+
+/**
+ * The run id of a host-run turn, for the proxy token, its revoke, and the
+ * spend counters. A host turn has no Trigger.dev run, so the id comes from
+ * the turn id and the API and the host derive the same value.
+ */
+export function hostRunIdOf(turnId: string): string {
+	return `host-${turnId}`;
+}
 
 /** True while the turn can still change state. Inverse of the terminal set. */
 export function isActiveStatus(status: BuilderTurnStatus): boolean {

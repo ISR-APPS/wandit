@@ -29,6 +29,7 @@ import { heritage } from "./heritage";
 import { laboratoire } from "./laboratoire";
 import { landingWorlds } from "./landing";
 import { matiere } from "./matiere";
+import { mobileWorldCards } from "./mobile-worlds";
 import { monographe } from "./monographe";
 import { nid } from "./nid";
 import { nocturne } from "./nocturne";
@@ -43,6 +44,7 @@ import { verger } from "./verger";
 import { vitrine } from "./vitrine";
 import { zellige } from "./zellige";
 
+export { mobileWorldCards, worldOrder } from "./mobile-worlds";
 export type { DesignWorld } from "./types";
 
 export const designWorlds: DesignWorld[] = [
@@ -268,6 +270,18 @@ function toWorldCard(world: DesignWorld): WorldCard | undefined {
 		tagline: world.tagline,
 		preview: { ...world.preview },
 	};
+}
+
+/**
+ * The card face of one world id, or undefined for an unknown id or a world
+ * without a preview. The V2 builder turn calls it for `ask_user` options
+ * that carry a `worldId`. The id names a web world or a mobile world.
+ */
+export function worldCardOf(id: string): WorldCard | undefined {
+	const world = getWorld(id);
+	if (world !== undefined) return toWorldCard(world);
+	const needle = norm(id);
+	return mobileWorldCards.find((card) => card.id === needle);
 }
 
 function toWorldCards(worlds: DesignWorld[]): WorldCard[] {

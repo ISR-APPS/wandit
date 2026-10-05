@@ -13,12 +13,17 @@ export const appBuilderRoutes = {
 	project: (projectId: string) => `/api/v2/projects/${projectId}`,
 	// POST start a builder turn.
 	createTurn: (projectId: string) => `/api/v2/projects/${projectId}/turns`,
+	// GET the hold that the next turn reserves, before send.
+	turnEstimate: (projectId: string) =>
+		`/api/v2/projects/${projectId}/turns/estimate`,
 	// GET the SSE stream of one turn.
 	turnStream: (projectId: string, turnId: string) =>
 		`/api/v2/projects/${projectId}/turns/${turnId}/stream`,
 	// GET the SSE stream of the project's currently running turn, if any.
 	activeTurnStream: (projectId: string) =>
 		`/api/v2/projects/${projectId}/turns/active/stream`,
+	// GET one page of the stored chat, newest page first; `?cursor=&limit=`.
+	messages: (projectId: string) => `/api/v2/projects/${projectId}/messages`,
 	// POST cancel a builder turn.
 	cancelTurn: (projectId: string, turnId: string) =>
 		`/api/v2/projects/${projectId}/turns/${turnId}/cancel`,
@@ -38,7 +43,25 @@ export const appBuilderRoutes = {
 	llmProxyMessages: "/api/v2/llm/v1/messages",
 	// POST Anthropic token counting behind the same proxy checks.
 	llmProxyCountTokens: "/api/v2/llm/v1/messages/count_tokens",
+	// GET the file tree of the running sandbox for the Code view.
+	codeSnapshot: (projectId: string) => `/api/v2/projects/${projectId}/code`,
+	// GET one file of the running sandbox; the caller adds `?path=<path>`.
+	codeFile: (projectId: string) => `/api/v2/projects/${projectId}/code/file`,
 	// GET a signed 15-minute preview URL of the running sandbox.
 	previewToken: (projectId: string) =>
 		`/api/v2/projects/${projectId}/preview-token`,
+	// POST wakes a stopped sandbox without a turn and with no credit charge.
+	wakeSandbox: (projectId: string) =>
+		`/api/v2/projects/${projectId}/sandbox/wake`,
+	// POST starts an Appetize device session of a mobile project (WANDIT-196).
+	deviceSessions: (projectId: string) =>
+		`/api/v2/projects/${projectId}/device-sessions`,
+	// POST ends one device session and stores its Appetize session token.
+	endDeviceSession: (projectId: string, deviceSessionId: string) =>
+		`/api/v2/projects/${projectId}/device-sessions/${deviceSessionId}/end`,
+	// GET the secret names, kinds, and dates of a project; never a value.
+	secrets: (projectId: string) => `/api/v2/projects/${projectId}/secrets`,
+	// PUT sets or replaces one secret value; DELETE removes it.
+	secret: (projectId: string, name: string) =>
+		`/api/v2/projects/${projectId}/secrets/${name}`,
 } as const;

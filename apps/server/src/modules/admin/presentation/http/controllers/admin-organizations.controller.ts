@@ -1,3 +1,8 @@
+/**
+ * Admin API for team organizations: list, detail, credit grants, and member roles.
+ * The admin app calls these routes under /api/v1/admin/organizations.
+ * Each handler calls AdminOrganizationsService. AdminGuard checks the permission.
+ */
 import {
 	Body,
 	Controller,
@@ -51,8 +56,9 @@ export class AdminOrganizationsController {
 		return this.adminOrganizationsService.getOrganizationDetail(organizationId);
 	}
 
+	// Support reaches this route only when an admin ticks the "credits" view.
 	@Post(":organizationId/credits")
-	@AdminPermission({ organizations: ["manage"] })
+	@AdminPermission({ organizations: ["read"], credits: ["grant"] })
 	@HttpCode(200)
 	grantCredits(
 		@Param("organizationId") organizationId: string,
@@ -61,7 +67,7 @@ export class AdminOrganizationsController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminOrganizationDetail> {
 		return this.adminOrganizationsService.grantCredits(
-			admin.id,
+			admin,
 			organizationId,
 			body,
 		);

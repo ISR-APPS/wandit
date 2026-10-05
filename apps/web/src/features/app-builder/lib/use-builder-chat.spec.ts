@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	type QueryKey,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { CreateTurnResponse } from "@wandit/contracts";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { appBuilderKeys } from "../api/app-builder.queries";
+import { cloudKeys } from "../api/cloud.queries";
 import type { TurnMessage } from "../api/dto";
 import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
 
@@ -112,6 +118,7 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 function renderBuilderChat(
 	input: Parameters<typeof useBuilderChat>[0],
 	deps: BuilderChatDeps,
+	queryClient: QueryClient = new QueryClient(),
 ) {
 	return renderHook(
 		(props: { currentInput: Parameters<typeof useBuilderChat>[0] }) =>
@@ -119,11 +126,7 @@ function renderBuilderChat(
 		{
 			initialProps: { currentInput: input },
 			wrapper: ({ children }: { children: ReactNode }) =>
-				createElement(
-					QueryClientProvider,
-					{ client: new QueryClient() },
-					children,
-				),
+				createElement(QueryClientProvider, { client: queryClient }, children),
 		},
 	);
 }
@@ -142,10 +145,15 @@ function postCount(fake: ReturnType<typeof createDeps>): number {
 afterEach(cleanup);
 
 describe("useBuilderChat", () => {
-	it("exposes the turn id and estimate of data-turn-created while sending", async () => {
+	it("refuses a second send while a turn runs", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			fake.deps,
 		);
 		// The mount resume GET replays the active turn; 204 means none runs.
@@ -163,7 +171,6 @@ describe("useBuilderChat", () => {
 			expect(result.current.turnId).toBe(TURN_ID);
 			expect(result.current.isSending).toBe(true);
 		});
-		expect(result.current.estimate).toEqual(createdFrame.data.estimate);
 
 		// One turn runs at a time: a second send while streaming is refused.
 		act(() => {
@@ -173,10 +180,68 @@ describe("useBuilderChat", () => {
 		expect(postCount(fake)).toBe(1);
 	});
 
+	it("waits for data-turn-created after a local send, and never after a resume", async () => {
+		const fake = createDeps();
+		let answerPost = () => {};
+		// The POST waits until the spec answers it, so the in-flight state holds still.
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>((resolve) => {
+							answerPost = () => resolve(fake.deps.fetch(input, init));
+						})
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+		);
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(result.current.isAwaitingTurn).toBe(true);
+
+		act(() => answerPost());
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+		expect(result.current.isAwaitingTurn).toBe(false);
+
+		// A resumed turn sends no data-turn-created, so it must not wait for one.
+		const resumed = createDeps({ resumeReply: true });
+		const { result: resumedResult } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			resumed.deps,
+		);
+		await waitFor(() => expect(resumedResult.current.isSending).toBe(true));
+		expect(resumedResult.current.isAwaitingTurn).toBe(false);
+	});
+
 	it("aborts the stream and then posts the turn cancel", async () => {
 		const fake = createDeps();
 		const { result } = renderBuilderChat(
-			{ projectId: PROJECT_ID, chatId: CHAT_ID, initialMessages: [] },
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
 			fake.deps,
 		);
 		act(() => {
@@ -194,25 +259,147 @@ describe("useBuilderChat", () => {
 		expect(result.current.turnId).toBeNull();
 	});
 
-	it("refuses to send while the chat id is unknown", async () => {
+	// A Stop during the admission of the POST has no turn id yet. Without the
+	// wait, no cancel goes out and the turn keeps running and spending.
+	it("waits for the turn id when Stop comes before the first frame, then cancels", async () => {
 		const fake = createDeps();
+		let answerPost = () => {};
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>((resolve) => {
+							answerPost = () => resolve(fake.deps.fetch(input, init));
+						})
+					: fake.deps.fetch(input, init),
+		};
 		const { result } = renderBuilderChat(
 			{
 				projectId: PROJECT_ID,
-				chatId: undefined,
+				chatId: CHAT_ID,
 				initialMessages: [],
+				isHistorySettled: true,
 			},
-			fake.deps,
+			deps,
 		);
-
+		// The mount resume GET answers 204 first, so it cannot reset the status.
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
 		act(() => {
 			result.current.send({ text: "hello" });
 		});
-		// Flush pending work so a stray POST would have fired.
-		await act(async () => {});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
 
-		expect(postCount(fake)).toBe(0);
-		expect(result.current.turnId).toBeNull();
+		let canceling: Promise<void> = Promise.resolve();
+		act(() => {
+			canceling = result.current.cancel();
+		});
+		await act(async () => {});
+		expect(fake.deps.cancelTurn).not.toHaveBeenCalled();
+
+		act(() => answerPost());
+		await act(async () => {
+			await canceling;
+		});
+
+		expect(fake.deps.cancelTurn).toHaveBeenCalledWith(PROJECT_ID, TURN_ID);
+		expect(fake.postAbortSignal()?.aborted).toBe(true);
+		// The reply gets the canceled status, so the chat shows "Stopped".
+		expect(result.current.messages.at(-1)?.parts).toContainEqual({
+			type: "data-turn-done",
+			id: "turn-done",
+			data: { status: "canceled" },
+		});
+	});
+
+	it("marks the project stale again after the cancel POST answers", async () => {
+		const fake = createDeps();
+		const queryClient = new QueryClient();
+		const projectKey = appBuilderKeys.project(PROJECT_ID);
+		queryClient.setQueryData(projectKey, null);
+		// The refresh at the abort lands before the settle. The fake cancel
+		// waits for it and stores its answer, so the project is fresh again.
+		fake.deps.cancelTurn.mockImplementation(async (_projectId, turnId) => {
+			await vi.waitFor(() =>
+				expect(queryClient.getQueryState(projectKey)?.isInvalidated).toBe(true),
+			);
+			queryClient.setQueryData(projectKey, null);
+			return { turnId, status: "canceled" };
+		});
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			fake.deps,
+			queryClient,
+		);
+		act(() => {
+			result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.turnId).toBe(TURN_ID));
+
+		await act(async () => {
+			await result.current.cancel();
+		});
+
+		// The settle wrote the wip commit, so hasCodeChanges can be true now.
+		expect(queryClient.getQueryState(projectKey)?.isInvalidated).toBe(true);
+	});
+
+	it("marks the Code view and every Cloud panel stale when a turn ends, not the backend state", async () => {
+		const fake = createDeps();
+		const queryClient = new QueryClient();
+		const isStale = (key: QueryKey) =>
+			queryClient.getQueryState(key)?.isInvalidated;
+		const turnKeys = [
+			// The turn woke the sandbox, so an asleep Code view loads again.
+			appBuilderKeys.code(PROJECT_ID),
+			// The agent can run a migration, deploy a function, or set a secret in any turn.
+			cloudKeys.tables(PROJECT_ID),
+			cloudKeys.rows(PROJECT_ID, "orders", {
+				page: 1,
+				pageSize: 50,
+				dir: "asc",
+			}),
+			cloudKeys.functions(PROJECT_ID),
+			cloudKeys.secrets(PROJECT_ID),
+		];
+		// The backend state polls on its own while it changes.
+		const backendKey = cloudKeys.backend(PROJECT_ID);
+		for (const key of [...turnKeys, backendKey]) {
+			queryClient.setQueryData(key, null);
+		}
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			fake.deps,
+			queryClient,
+		);
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		act(() => {
+			result.current.send({ text: "add an orders table" });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+		expect(turnKeys.map(isStale)).toEqual([false, false, false, false, false]);
+
+		fake.endPostStream();
+		await waitFor(() => expect(result.current.status).toBe("ready"));
+
+		await waitFor(() =>
+			expect(turnKeys.map(isStale)).toEqual([true, true, true, true, true]),
+		);
+		expect(isStale(backendKey)).toBe(false);
 	});
 
 	it("ignores a history change while streaming and reseeds when ready", async () => {
@@ -222,7 +409,11 @@ describe("useBuilderChat", () => {
 			role: "user",
 			parts: [{ type: "text", text }],
 		});
-		const baseInput = { projectId: PROJECT_ID, chatId: CHAT_ID };
+		const baseInput = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			isHistorySettled: true,
+		};
 		const { result, rerender } = renderBuilderChat(
 			{ ...baseInput, initialMessages: [historyMessage("h1", "old history")] },
 			fake.deps,
@@ -266,14 +457,18 @@ describe("useBuilderChat", () => {
 		);
 	});
 
-	it("puts a late history in front of a resumed reply", async () => {
+	it("puts a history refetch in front of a resumed reply", async () => {
 		const fake = createDeps({ resumeReply: true });
-		const baseInput = { projectId: PROJECT_ID, chatId: CHAT_ID };
+		const baseInput = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			isHistorySettled: true,
+		};
 		const { result, rerender } = renderBuilderChat(
 			{ ...baseInput, initialMessages: [] },
 			fake.deps,
 		);
-		// The reload resumed the running turn before the history query landed.
+		// The history load failed, so the resume ran with no history.
 		await waitFor(() =>
 			expect(messageTexts(result.current.messages)).toEqual(["resumed reply"]),
 		);

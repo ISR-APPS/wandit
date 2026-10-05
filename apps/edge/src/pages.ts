@@ -3,6 +3,7 @@
  * external assets (no fonts, no images, no scripts), so these render under
  * the strictest CSP and even when everything else is down.
  */
+import type { SuspendedReasonCode } from "@wandit/contracts/v2/publish";
 
 function shell(title: string, heading: string, message: string): string {
 	return `<!doctype html>
@@ -88,6 +89,20 @@ export function suspendedPage(): string {
 		"Site suspended",
 		"This site is suspended",
 		"The site at this address has been suspended and can’t be viewed.",
+	);
+}
+
+/**
+ * Page of a suspended V2 app. The router answers 451 for an `abuse_` or
+ * `legal_` code and 410 for the rest. The code shows so support can match it.
+ */
+export function suspendedAppPage(
+	reasonCode: SuspendedReasonCode | undefined,
+): string {
+	return shell(
+		"App suspended",
+		"This app is suspended",
+		`The app at this address has been suspended and can’t be viewed. Reason code: ${reasonCode ?? "not given"}.`,
 	);
 }
 

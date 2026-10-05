@@ -1,18 +1,33 @@
 // Root route: the html shell, the head, and the providers.
-// Every route renders inside this document.
+// Every route renders inside this document. router.tsx gives it the QueryClient.
 // D19: user pixel ids and third-party scripts go in head() once, below.
+import type { QueryClient } from "@tanstack/react-query";
 import {
-	createRootRoute,
+	createRootRouteWithContext,
 	HeadContent,
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
-import { Toaster } from "~/components/ui/sonner";
-import { I18nProvider, useT } from "~/i18n";
+import { Direction } from "radix-ui";
+import type { ReactNode } from "react";
+import { I18nProvider, useT } from "~/shared/i18n";
+import { Toaster } from "~/shared/ui/sonner";
 import tokensCss from "~/styles/tokens.css?url";
+import { installPreviewBridge } from "~/wandit/preview-bridge";
 
-export const Route = createRootRoute({
+// Dev-only bridge to the wandit preview frame. It installs at module load,
+// before the first render, so an error of the first render reaches the host.
+if (import.meta.env.DEV) {
+	installPreviewBridge();
+}
+
+/** What every route gets in `context`. router.tsx creates it once per request. */
+type RouterContext = {
+	/** The React Query cache. A loader calls `context.queryClient.query(...)` on it. */
+	queryClient: QueryClient;
+};
+
+export const Route = createRootRouteWithContext<RouterContext>()({
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },
@@ -40,15 +55,6 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-	useEffect(() => {
-		// Dev-only bridge: posts runtime errors to the preview parent frame.
-		if (import.meta.env.DEV) {
-			void import("~/wandit/preview-bridge").then((m) =>
-				m.installPreviewBridge(),
-			);
-		}
-	}, []);
-
 	return (
 		<I18nProvider>
 			<RootDocument>
@@ -66,8 +72,11 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<HeadContent />
 			</head>
 			<body>
-				{children}
-				<Toaster />
+				{/* Without a provider, Radix menus and tabs act left to right in Arabic. */}
+				<Direction.Provider dir={dir}>
+					{children}
+					<Toaster />
+				</Direction.Provider>
 				<Scripts />
 			</body>
 		</html>

@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { wanditSource } from "./vite-plugins/wandit-source.ts";
 
 // The sandbox sets this variable to the public preview hostname.
 const previewHost = process.env.WANDIT_PREVIEW_HOST;
@@ -16,15 +17,16 @@ export default defineConfig({
 		tsconfigPaths: true,
 	},
 	server: {
-		// The preview tunnel needs an explicit host allowlist.
+		// The preview proxy sends the sandbox host as `Host`, so Vite must allow it.
 		allowedHosts: previewHost ? [previewHost] : [],
-		// clientPort and wss point the HMR client at the HTTPS tunnel on 443.
+		// clientPort and wss point the HMR client at the HTTPS proxy on 443.
+		// No `host`: the client then uses the page host, so HMR goes through the
+		// preview proxy. Vite writes `host` into /@vite/client for every viewer.
 		// `port` would bind a second WebSocket server that the sandbox rejects.
-		ws: previewHost
-			? { host: previewHost, clientPort: 443, protocol: "wss" }
-			: undefined,
+		ws: previewHost ? { clientPort: 443, protocol: "wss" } : undefined,
 	},
 	plugins: [
+		wanditSource(),
 		cloudflare({ viteEnvironment: { name: "ssr" } }),
 		tanstackStart({
 			// Public pages are prerendered at build time. Auth pages stay dynamic.

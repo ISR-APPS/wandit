@@ -1,10 +1,12 @@
 /**
  * `SandboxProvider` on Vercel Sandbox (D1): one persistent named sandbox
  * per project in `cdg1`, resumed from its snapshot and rebuilt from the
- * template when the vendor lost it. The builder-turn task and the idle
- * sweep call it. All `@vercel/sandbox` / `@ai-sdk/sandbox-vercel` imports
- * in the codebase live in this folder — vendor isolation is a rule.
+ * template when the vendor lost it. A new sandbox boots from the template
+ * snapshot when one is ready. Trigger tasks and API services call it
+ * through the `SANDBOX_PROVIDER` port. All `@vercel/sandbox` /
+ * `@ai-sdk/sandbox-vercel` imports live in this folder (vendor isolation).
  */
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import type { HarnessV1NetworkPolicy } from "@ai-sdk/harness";
 import { createVercelSandbox } from "@ai-sdk/sandbox-vercel";
@@ -14,12 +16,15 @@ import {
 	type NetworkPolicy,
 	Sandbox,
 	type SandboxRegion,
+	Snapshot,
 } from "@vercel/sandbox";
+import { packagerHostFor } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
 
 import { SandboxForkNotSupportedError } from "../../domain/errors/sandbox-fork-not-supported.error";
 import { SandboxNotFoundError } from "../../domain/errors/sandbox-not-found.error";
+import { TemplateArchiveMissingError } from "../../domain/errors/template-archive-missing.error";
 import type { RepoRestorer } from "../../domain/ports/git-store";
 import { REPO_RESTORER } from "../../domain/ports/git-store";
 import type {
@@ -32,6 +37,7 @@ import type {
 	SandboxLogger,
 	SandboxNetworkPolicy,
 	SandboxProvider,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 import {
 	HARNESS_BRIDGE_PORT,
@@ -43,8 +49,9 @@ import {
 	SandboxSessionsRepository,
 	type SandboxSessionsStore,
 } from "../persistence/sandbox-sessions.repository";
-import { buildNetworkPolicy } from "./network-policy";
+import { buildNetworkPolicy, SANDBOX_DENIED_RANGES } from "./network-policy";
 import { TEMPLATE_INIT, type TemplateInit } from "./template-init";
+import { TEMPLATE_PROFILES } from "./template-profiles";
 
 /**
  * 30 minutes after the session start. The vendor timeout is absolute,
@@ -58,6 +65,18 @@ const SANDBOX_TIMEOUT_MS = 1_800_000;
  */
 const EXTEND_MIN_GAP_MS = 60_000;
 
+/**
+ * The ms to add so the vendor deadline sits `SANDBOX_TIMEOUT_MS` after
+ * `nowMs`, or null when the gap is under `EXTEND_MIN_GAP_MS`. The vendor
+ * adds to the current deadline, so a flat full timeout per call would
+ * outgrow the cap.
+ */
+function timeoutExtensionMs(deadlineMs: number, nowMs: number): number | null {
+	const extension = SANDBOX_TIMEOUT_MS - (deadlineMs - nowMs);
+	// A gap under one minute is not worth a call; the vendor rejects tiny ones.
+	return extension < EXTEND_MIN_GAP_MS ? null : extension;
+}
+
 /** Reserved for the Metro dev server (WANDIT-193). */
 const METRO_PORT = 8081;
 
@@ -67,40 +86,85 @@ const SANDBOX_VCPUS = 2;
 /** Vendor managed image when `VERCEL_SANDBOX_IMAGE` is unset. */
 const DEFAULT_IMAGE = "vercel/sandbox/node:22";
 
+/** Name start of a template snapshot builder; `listSnapshots` finds the snapshot by that name. */
+const TEMPLATE_SNAPSHOT_NAME_PREFIX = "wandit-template-";
+
+/**
+ * Part of the template snapshot name. Increase it when the build steps
+ * change what the disk holds: `ensureTemplateSnapshot`,
+ * `ArchiveTemplateInit.apply`, or `BuilderHarness.prepareSandbox`.
+ */
+const TEMPLATE_SNAPSHOT_BUILD_VERSION = "1";
+
+/**
+ * 30 days, the vendor default. Each boot from the snapshot resets the
+ * count, so only an unused old snapshot expires. A project sandbox made
+ * from it still resumes after that (checked on the vendor).
+ */
+const TEMPLATE_SNAPSHOT_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** One command the provider runs in the sandbox, as the SDK takes it. */
+type VercelRunCommandParams = {
+	args?: string[];
+	cmd: string;
+	cwd?: string;
+	env?: Record<string, string>;
+	signal?: AbortSignal;
+	timeoutMs?: number;
+};
+
+/** A command that ran to its end, as the SDK answers it. */
+type VercelCommandFinished = {
+	readonly exitCode: number;
+	stderr(): Promise<string>;
+	stdout(): Promise<string>;
+};
+
 /**
  * The slice of `@vercel/sandbox` `Sandbox` this provider calls. Structural
  * so specs can fake it; the real `Sandbox` class satisfies it.
  */
 export type VercelSandboxInstance = {
 	readonly name: string;
-	/** The vendor session; `cwd` is the default working directory of the image. */
-	currentSession(): { readonly cwd: string };
+	/**
+	 * The vendor state of the current session, for example "running". The
+	 * SDK stores it at the last vendor call, so a cached instance can be old.
+	 */
+	readonly status: Sandbox["status"];
+	/**
+	 * The vendor session; `cwd` is the default working directory of the
+	 * image. `networkPolicy` is the policy the vendor read back with the
+	 * session, or undefined when the answer carried none. Its `runCommand`,
+	 * its file calls, its `extendTimeout`, and its `snapshot` fail on a
+	 * stopped session; the `Sandbox` methods resume it first.
+	 */
+	currentSession(): {
+		readonly cwd: string;
+		readonly networkPolicy: NetworkPolicy | undefined;
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+		/** Adds `duration` ms to the current vendor deadline. */
+		extendTimeout(duration: number): Promise<void>;
+		writeFiles(
+			files: ReadonlyArray<{ content: string | Uint8Array; path: string }>,
+		): Promise<void>;
+		readFileToBuffer(file: { path: string }): Promise<Uint8Array | null>;
+		/**
+		 * Saves the disk as a snapshot and stops the sandbox. `expiration` is
+		 * in ms; the vendor counts it from the last boot from the snapshot.
+		 */
+		snapshot(opts: { expiration: number }): Promise<{
+			readonly snapshotId: string;
+		}>;
+	};
 	readonly expiresAt: Date | undefined;
 	readonly routes: ReadonlyArray<{ readonly port: number }>;
 	readonly fs: {
 		readdir(path: string): Promise<string[]>;
 	};
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		detached: true;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{ readonly cmdId: string }>;
-	runCommand(params: {
-		args?: string[];
-		cmd: string;
-		cwd?: string;
-		env?: Record<string, string>;
-		signal?: AbortSignal;
-		timeoutMs?: number;
-	}): Promise<{
-		readonly exitCode: number;
-		stderr(): Promise<string>;
-		stdout(): Promise<string>;
-	}>;
+	runCommand(
+		params: VercelRunCommandParams & { detached: true },
+	): Promise<{ readonly cmdId: string }>;
+	runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
 	writeFiles(
 		files: ReadonlyArray<{
 			content: string | Uint8Array;
@@ -141,12 +205,12 @@ export type VercelCredentials = {
 /**
  * Parameters the provider passes to `Sandbox.getOrCreate`. Hooks are typed
  * on `VercelSandboxInstance`, not the vendor class, so spec fakes can call
- * them without a cast.
+ * them without a cast. A create boots from `image` or from a snapshot
+ * `source`, never both: the SDK types `image` as `never` next to `source`.
  */
 export type VercelGetOrCreateParams = VercelCredentials & {
 	name?: string;
 	region: SandboxRegion;
-	image?: string;
 	env?: Record<string, string>;
 	persistent?: boolean;
 	ports?: number[];
@@ -163,7 +227,14 @@ export type VercelGetOrCreateParams = VercelCredentials & {
 	onCreate?: (sandbox: VercelSandboxInstance) => Promise<void>;
 	/** Fires when the call resumed a stopped sandbox. */
 	onResume?: (sandbox: VercelSandboxInstance) => Promise<void>;
-};
+} & (
+		| { image?: string; source?: undefined }
+		| {
+				image?: undefined;
+				/** The template snapshot a new sandbox boots from; ignored when the sandbox exists. */
+				source: { type: "snapshot"; snapshotId: string };
+		  }
+	);
 
 /** Parameters the provider passes to `Sandbox.get`. */
 export type VercelGetParams = VercelCredentials & {
@@ -171,19 +242,39 @@ export type VercelGetParams = VercelCredentials & {
 	resume?: boolean;
 };
 
+/** Parameters the provider passes to `Snapshot.list`. */
+export type VercelListSnapshotsParams = VercelCredentials & {
+	/** Name of the sandbox that took the snapshots. */
+	name: string;
+	limit: number;
+	/** "desc" answers the newest snapshot first. */
+	sortOrder: "asc" | "desc";
+};
+
+/** One page of `Snapshot.list`, with the fields the provider reads. */
+export type VercelSnapshotList = {
+	readonly snapshots: ReadonlyArray<{
+		readonly id: string;
+		/** Only a "created" snapshot can boot a sandbox. */
+		readonly status: "created" | "deleted" | "failed";
+	}>;
+};
+
 /**
- * Wraps the two static `Sandbox` entry points the provider uses. The
- * default is the real SDK; specs inject a fake through the constructor.
+ * Wraps the static `Sandbox` and `Snapshot` entry points the provider uses.
+ * The default is the real SDK; specs inject a fake through the constructor.
  */
 export type VercelSandboxSdk = {
 	get(params: VercelGetParams): Promise<VercelSandboxInstance>;
 	getOrCreate(params: VercelGetOrCreateParams): Promise<VercelSandboxInstance>;
+	listSnapshots(params: VercelListSnapshotsParams): Promise<VercelSnapshotList>;
 };
 
 /** The live binding; a spec replaces it through the constructor. */
 const vercelSandboxSdk: VercelSandboxSdk = {
 	get: (params) => Sandbox.get(params),
 	getOrCreate: (params) => Sandbox.getOrCreate(params),
+	listSnapshots: (params) => Snapshot.list(params),
 };
 
 /** The project root: the harness work dir under the vendor default cwd. */
@@ -195,9 +286,47 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+// One command, run to its end. The handle runs it on the sandbox, which
+// resumes a stopped session; the `findRunning` reader runs it on the
+// session, which does not.
+async function runCommandToEnd(
+	runner: {
+		runCommand(params: VercelRunCommandParams): Promise<VercelCommandFinished>;
+	},
+	command: string,
+	args: string[],
+	options?: SandboxExecOptions,
+): Promise<SandboxExecResult> {
+	const finished = await runner.runCommand({
+		args,
+		cmd: command,
+		cwd: options?.cwd,
+		env: options?.env,
+		signal: options?.signal,
+		timeoutMs: options?.timeoutMs,
+	});
+	return {
+		exitCode: finished.exitCode,
+		stderr: await finished.stderr(),
+		stdout: await finished.stdout(),
+	};
+}
+
 /** The vendor answers 404 when the named sandbox is gone. */
 function isSandboxNotFound(error: unknown): boolean {
 	return error instanceof APIError && error.response.status === 404;
+}
+
+/**
+ * A 4xx answer from the vendor. A create from a deleted snapshot gets one;
+ * the vendor does not document which code.
+ */
+function isVendorClientError(error: unknown): boolean {
+	return (
+		error instanceof APIError &&
+		error.response.status >= 400 &&
+		error.response.status < 500
+	);
 }
 
 /** `SandboxHandle` over one live vendor sandbox. */
@@ -229,6 +358,12 @@ class VercelSandboxHandle implements SandboxHandle {
 	 */
 	private liveHarnessSession: HarnessSandboxSession | null = null;
 
+	/**
+	 * The last `allowHost` push. The next call chains on it, so its merge
+	 * reads the policy that the push before it applied.
+	 */
+	private hostGrant: Promise<void> = Promise.resolve();
+
 	readonly workspaceDir: string;
 
 	constructor(
@@ -253,19 +388,7 @@ class VercelSandboxHandle implements SandboxHandle {
 		options?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		await this.keepAlive();
-		const finished = await this.sandbox.runCommand({
-			args,
-			cmd: command,
-			cwd: options?.cwd,
-			env: options?.env,
-			signal: options?.signal,
-			timeoutMs: options?.timeoutMs,
-		});
-		return {
-			exitCode: finished.exitCode,
-			stderr: await finished.stderr(),
-			stdout: await finished.stdout(),
-		};
+		return runCommandToEnd(this.sandbox, command, args, options);
 	}
 
 	async writeFiles(files: SandboxFile[]): Promise<void> {
@@ -299,9 +422,8 @@ class VercelSandboxHandle implements SandboxHandle {
 	/** Tops the vendor timeout back up to `SANDBOX_TIMEOUT_MS` from now. */
 	async keepAlive(): Promise<void> {
 		const now = Date.now();
-		const extension = SANDBOX_TIMEOUT_MS - (this.deadlineMs - now);
-		// A gap under one minute is not worth a call; the vendor rejects tiny ones.
-		if (extension < EXTEND_MIN_GAP_MS) {
+		const extension = timeoutExtensionMs(this.deadlineMs, now);
+		if (extension === null) {
 			return;
 		}
 		await this.sandbox.extendTimeout(extension);
@@ -313,15 +435,23 @@ class VercelSandboxHandle implements SandboxHandle {
 	}
 
 	async allowHost(host: string): Promise<void> {
-		// Merge the host into the current allow list, deduped and sorted, and
-		// keep the deny ranges. A repeated grant maps to the same policy.
-		const allowedHosts = [
-			...new Set([...this.appliedPolicy.allowedHosts, host]),
-		].sort();
-		await this.applyPolicy({
-			allowedHosts,
-			deniedRanges: this.appliedPolicy.deniedRanges,
+		// Two grants can overlap in one turn (the keep-alive tick and the
+		// `request_network_host` tool). Without the chain, the later push
+		// drops the host of the earlier one.
+		const grant = this.hostGrant.then(async () => {
+			// Merge the host into the current allow list, deduped and sorted, and
+			// keep the deny ranges. A repeated grant maps to the same policy.
+			const allowedHosts = [
+				...new Set([...this.appliedPolicy.allowedHosts, host]),
+			].sort();
+			await this.applyPolicy({
+				allowedHosts,
+				deniedRanges: this.appliedPolicy.deniedRanges,
+			});
 		});
+		// The caller gets the error of its own grant; the chain only waits.
+		this.hostGrant = grant.catch(() => undefined);
+		await grant;
 	}
 
 	/**
@@ -408,6 +538,58 @@ export class VercelSandboxProvider implements SandboxProvider {
 		});
 	}
 
+	async findRunning(projectId: string): Promise<SandboxReader | null> {
+		const row = await this.sessions.findLiveByProjectId(projectId);
+		// Only a running row can have a live vendor sandbox. A stopped one
+		// stays stopped: this path has no env to boot the dev server with.
+		if (row?.status !== "running") {
+			return null;
+		}
+		// Not the `live` cache: its status can be old. The row can lag the
+		// vendor too, because the vendor timeout stops a sandbox and writes
+		// no row.
+		const sandbox = await this.getVendorSandbox(projectId);
+		if (sandbox?.status !== "running") {
+			return null;
+		}
+		// The session fails on a stop between this check and a call; it
+		// never resumes. No `keepAlive`: turns and the preview own the vendor
+		// deadline, and a read must not keep a sandbox alive.
+		const session = sandbox.currentSession();
+		return {
+			exec: (command, args, options) =>
+				runCommandToEnd(session, command, args, options),
+			projectId,
+			readFile: async (path) => {
+				const buffer = await session.readFileToBuffer({ path });
+				return buffer === null ? null : new Uint8Array(buffer);
+			},
+			workspaceDir: workspaceDirOf(sandbox),
+			writeFiles: (files) => session.writeFiles(files),
+		};
+	}
+
+	async keepAliveIfRunning(projectId: string): Promise<void> {
+		// Not the `live` cache: its status and deadline can be old. This read
+		// never resumes a stopped sandbox.
+		const sandbox = await this.getVendorSandbox(projectId);
+		if (sandbox?.status !== "running") {
+			return;
+		}
+		const now = Date.now();
+		// An answer with no deadline counts as full, so no time is bought.
+		const extension = timeoutExtensionMs(
+			sandbox.expiresAt?.getTime() ?? now + SANDBOX_TIMEOUT_MS,
+			now,
+		);
+		if (extension === null) {
+			return;
+		}
+		// The session call, not `Sandbox.extendTimeout`: the session fails on a
+		// stop after the read, but the `Sandbox` method resumes the sandbox.
+		await sandbox.currentSession().extendTimeout(extension);
+	}
+
 	async stop(projectId: string): Promise<void> {
 		const row = await this.sessions.findLiveByProjectId(projectId);
 		if (!row || row.status === "stopped") {
@@ -464,6 +646,81 @@ export class VercelSandboxProvider implements SandboxProvider {
 	}
 
 	/**
+	 * Builds the template snapshot of this template, image, and harness when
+	 * none is ready. A new project sandbox then boots with the template, its
+	 * packages, and the harness already on disk. The `template-snapshot`
+	 * task calls it; a failure throws and leaves no snapshot.
+	 */
+	async ensureTemplateSnapshot(
+		template: { framework: string; templateVersion: string },
+		harness: {
+			/** `BuilderHarness.bootstrapKey`; part of the snapshot name. */
+			key: string;
+			/** `BuilderHarness.prepareSandbox`; installs the harness. */
+			prepare: (sandbox: SandboxHandle) => Promise<void>;
+		},
+	): Promise<"exists" | "built"> {
+		const image = this.image();
+		const name = await this.templateSnapshotName(template, image, harness.key);
+		if ((await this.readySnapshotId(name)) !== null) {
+			return "exists";
+		}
+		// A crashed build leaves its sandbox with no snapshot. Delete it, so
+		// the new build gets the name.
+		await (await this.getVendorSandbox(name))?.delete();
+		// The build installs npm packages only and holds no secret, so the
+		// npm registry is its only host.
+		const policy: SandboxNetworkPolicy = {
+			allowedHosts: ["registry.npmjs.org"],
+			deniedRanges: [...SANDBOX_DENIED_RANGES],
+		};
+		const sandbox = await this.sdk.getOrCreate({
+			...this.credentials(),
+			image,
+			name,
+			networkPolicy: toVendorNetworkPolicy(policy),
+			// Not persistent: a persistent sandbox takes a snapshot at each stop,
+			// so a crashed build would leave a half-built snapshot.
+			persistent: false,
+			region: "cdg1",
+			resources: { vcpus: SANDBOX_VCPUS },
+			timeout: SANDBOX_TIMEOUT_MS,
+		});
+		// The handle methods resume a stopped session on an empty disk. The
+		// check and the snapshot use this first session, so a lost disk fails
+		// the build and never becomes the shared snapshot.
+		const session = sandbox.currentSession();
+		try {
+			const handle = new VercelSandboxHandle(name, sandbox, policy);
+			await this.templateInit.apply(handle, template);
+			await harness.prepare(handle);
+			const commit = await session.runCommand({
+				args: ["rev-parse", "--verify", "HEAD"],
+				cmd: "git",
+				cwd: handle.workspaceDir,
+			});
+			if (commit.exitCode !== 0) {
+				throw new Error(
+					`Template snapshot ${name}: the workspace has no template commit`,
+				);
+			}
+			// The snapshot stops the sandbox.
+			await session.snapshot({ expiration: TEMPLATE_SNAPSHOT_EXPIRATION_MS });
+		} catch (error) {
+			await sandbox.delete().catch((deleteFailure: unknown) => {
+				this.logger.error("sandbox.template-snapshot.release-failed", {
+					error: errorMessage(deleteFailure),
+					sandboxId: name,
+				});
+			});
+			throw error;
+		}
+		// LIMIT: the stopped builder of each old name stays in the vendor list;
+		// it runs no compute. Upgrade: delete the builders of old names here.
+		return "built";
+	}
+
+	/**
 	 * The shared get/resume flow: the vendor `getOrCreate` resumes a stopped
 	 * sandbox, no-ops on a live one, and creates — firing `onCreate` — when
 	 * the named sandbox is gone (`not_found` or an expired snapshot).
@@ -475,7 +732,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 		credentials: VercelCredentials,
 		context: { hadLiveRow: boolean },
 	): Promise<SandboxHandle> {
-		const image = this.envSource.VERCEL_SANDBOX_IMAGE ?? DEFAULT_IMAGE;
+		const image = this.image();
 		// Specs pass a subset of the env; the zod default sets it in production.
 		const mode = this.envSource.V2_SANDBOX_EGRESS_MODE ?? "strict";
 		const org = this.envSource.CODE_STORAGE_ORG ?? null;
@@ -492,10 +749,20 @@ export class VercelSandboxProvider implements SandboxProvider {
 				"Sandbox env lacks ANTHROPIC_BASE_URL; the egress policy needs the proxy host",
 			);
 		}
+		// WANDIT-283: the only Supabase host is the project's own. The caller
+		// passes `backendUrl` only while the backend is active. So a new
+		// active backend reaches the policy on the next turn. A value that is
+		// not a URL gives no backend host.
+		const backendUrl = options.backendUrl;
+		const backendHost =
+			backendUrl !== undefined && URL.canParse(backendUrl)
+				? new URL(backendUrl).hostname
+				: null;
 		const built: ReturnType<typeof buildNetworkPolicy> = options.networkPolicy
 			? { policy: options.networkPolicy, rejected: [] }
 			: buildNetworkPolicy({
 					assetHost,
+					backendHost,
 					connectorHosts: [],
 					gitHost: org ? `${org}.code.storage` : null,
 					mode,
@@ -505,12 +772,31 @@ export class VercelSandboxProvider implements SandboxProvider {
 					proxyBaseUrl: options.env.ANTHROPIC_BASE_URL ?? "",
 				});
 		const vendorPolicy = toVendorNetworkPolicy(built.policy);
+		const policyHash = hashNetworkPolicy(built.policy);
+		// A new or stopped row boots for sure: report it before the vendor
+		// call, so the progress card moves at once. A running row reports
+		// only when the vendor created or resumed anyway (below).
+		let wakeReported = false;
+		const reportWake = async () => {
+			if (!wakeReported) {
+				wakeReported = true;
+				await options.onWake?.();
+			}
+		};
+		if (row.status !== "running") {
+			await reportWake();
+		}
+		// The vendor reads a boot source only on a create, so a running row
+		// skips the lookup: a warm turn makes no extra vendor call.
+		let templateSnapshotId =
+			row.status === "running" || options.harnessKey === undefined
+				? null
+				: await this.findTemplateSnapshot(options, image, options.harnessKey);
 		let created = false;
 		let resumed = false;
-		const sandbox = await this.sdk.getOrCreate({
+		const bootParams = {
 			...credentials,
 			env: options.env,
-			image,
 			keepLastSnapshots: { count: 1 },
 			name: projectId,
 			networkPolicy: vendorPolicy,
@@ -528,11 +814,48 @@ export class VercelSandboxProvider implements SandboxProvider {
 			onResume: async () => {
 				resumed = true;
 			},
-		});
+		} satisfies VercelGetOrCreateParams;
+		let sandbox: VercelSandboxInstance;
+		try {
+			sandbox = await this.sdk.getOrCreate(
+				templateSnapshotId === null
+					? { ...bootParams, image }
+					: {
+							...bootParams,
+							source: { snapshotId: templateSnapshotId, type: "snapshot" },
+						},
+			);
+		} catch (error) {
+			if (templateSnapshotId === null || !isVendorClientError(error)) {
+				throw error;
+			}
+			// The snapshot only saves time. When the vendor refuses it, for
+			// example after a delete, the sandbox boots from the image.
+			this.logger.warn("sandbox.template-snapshot.boot-failed", {
+				error: errorMessage(error),
+				projectId,
+				snapshotId: templateSnapshotId,
+			});
+			templateSnapshotId = null;
+			sandbox = await this.sdk.getOrCreate({ ...bootParams, image });
+		}
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
+		// The row keeps the digest of the policy last pushed to the vendor. A
+		// plain reuse with the same digest skips the update: one vendor round
+		// trip less per warm turn. A resume always pushes, because the vendor
+		// may keep the policy of the snapshot. The harness session composes
+		// its policy from the vendor read-back and reads a missing one as
+		// allow-all, so a read-back without a policy also gets the push.
+		const policyApplied =
+			created ||
+			resumed ||
+			row.networkPolicyHash !== policyHash ||
+			sandbox.currentSession().networkPolicy === undefined;
 		try {
 			if (created) {
+				await reportWake();
+				options.onCreated?.();
 				// A live row means the vendor lost the sandbox — this is a rebuild.
 				this.logLifecycle(
 					context.hadLiveRow ? "rebuild" : "create",
@@ -540,33 +863,57 @@ export class VercelSandboxProvider implements SandboxProvider {
 					sandbox.name,
 					context.hadLiveRow ? "warn" : "info",
 				);
-				await this.templateInit.apply(handle, {
-					framework: options.framework,
-					templateVersion: options.templateVersion,
-				});
+				// The template snapshot already holds the template, its packages,
+				// its commit, and the harness install.
+				if (templateSnapshotId === null) {
+					await this.templateInit.apply(handle, {
+						framework: options.framework,
+						templateVersion: options.templateVersion,
+					});
+				} else {
+					this.logger.info("sandbox.template-snapshot.boot", {
+						projectId,
+						sandboxId: sandbox.name,
+						snapshotId: templateSnapshotId,
+					});
+				}
 				await this.repoRestorer.restore(projectId, handle);
-				await this.bootServices(sandbox, options);
+				// The restored repo can bring back an old template file.
+				await this.templateInit.replaceOldTemplateFiles(handle, options);
+				await this.bootServices(projectId, sandbox, options);
 			} else {
-				// The vendor may keep the network policy of the stored sandbox;
-				// a changed allow list reaches a live sandbox only through an
-				// update call, and it needs no restart. It runs before
-				// bootServices, or the dev command starts under the stored
-				// policy.
-				await sandbox.updateNetworkPolicy(vendorPolicy);
+				if (policyApplied) {
+					// A changed allow list reaches a live sandbox only through an
+					// update call, and it needs no restart. It runs before
+					// bootServices, or the dev command starts under the stored
+					// policy.
+					await sandbox.updateNetworkPolicy(vendorPolicy);
+				}
 				if (resumed) {
+					await reportWake();
 					this.logLifecycle("resume", projectId, sandbox.name);
-					await this.bootServices(sandbox, options);
+					// A sandbox from before the template fix still holds the old files.
+					await this.templateInit.replaceOldTemplateFiles(handle, options);
+					await this.bootServices(projectId, sandbox, options);
 				}
 			}
 			this.logger[
 				options.networkPolicy === undefined && mode === "open" ? "warn" : "info"
-			]("sandbox.network-policy.applied", {
-				projectId,
-				sandboxId: sandbox.name,
-				mode: options.networkPolicy === undefined ? mode : "override",
-				allowedHosts: String(built.policy.allowedHosts.length),
-				rejected: built.rejected.join(","),
-			});
+			](
+				policyApplied
+					? "sandbox.network-policy.applied"
+					: "sandbox.network-policy.unchanged",
+				{
+					projectId,
+					sandboxId: sandbox.name,
+					mode: options.networkPolicy === undefined ? mode : "override",
+					allowedHosts: String(built.policy.allowedHosts.length),
+					rejected: built.rejected.join(","),
+				},
+			);
+			if (policyApplied) {
+				await this.sessions.markNetworkPolicyHash(row.id, policyHash);
+			}
 			// A plain reuse reports neither hook: the row already carries the
 			// vendor fields, so writing again would only add log noise.
 			if (created || resumed) {
@@ -619,8 +966,11 @@ export class VercelSandboxProvider implements SandboxProvider {
 	/**
 	 * The onResume steps: the dev server on its fixed port, the Playwright
 	 * service when the image carries one, and the caller env on each command.
+	 * A mobile-app project also gets `EXPO_PACKAGER_PROXY_URL`; it throws a
+	 * 503 when `PREVIEW_DOMAIN` is unset.
 	 */
 	private async bootServices(
+		projectId: string,
 		sandbox: VercelSandboxInstance,
 		options: SandboxCreateOptions,
 	): Promise<void> {
@@ -631,6 +981,14 @@ export class VercelSandboxProvider implements SandboxProvider {
 			...options.env,
 			HOST: "0.0.0.0",
 			WANDIT_PREVIEW_HOST: this.previewHost(sandbox, options.devPort),
+			// Expo CLI reads this before `.env` and puts its host in every
+			// manifest URL. The preview proxy swaps it for the phone host, so
+			// the vendor host never reaches Expo Go (WANDIT-193).
+			...(options.framework === TEMPLATE_PROFILES.mobile.framework
+				? {
+						EXPO_PACKAGER_PROXY_URL: `https://${packagerHostFor(projectId, requireV2Env("PREVIEW_DOMAIN", this.envSource))}`,
+					}
+				: {}),
 		};
 		await sandbox.runCommand({
 			args: ["-c", options.devCommand],
@@ -691,10 +1049,13 @@ export class VercelSandboxProvider implements SandboxProvider {
 	private async findSandbox(
 		projectId: string,
 	): Promise<VercelSandboxInstance | null> {
-		const cached = this.live.get(projectId);
-		if (cached) {
-			return cached;
-		}
+		return this.live.get(projectId) ?? this.getVendorSandbox(projectId);
+	}
+
+	// Always a vendor call, never a resume. Null when the vendor lost it.
+	private async getVendorSandbox(
+		projectId: string,
+	): Promise<VercelSandboxInstance | null> {
 		try {
 			return await this.sdk.get({
 				...this.credentials(),
@@ -734,6 +1095,85 @@ export class VercelSandboxProvider implements SandboxProvider {
 			token: requireV2Env("VERCEL_SANDBOX_TOKEN", this.envSource),
 		};
 	}
+
+	private image(): string {
+		return this.envSource.VERCEL_SANDBOX_IMAGE ?? DEFAULT_IMAGE;
+	}
+
+	/**
+	 * `wandit-template-<framework>-<16 hex>`. A change of the build steps, the
+	 * template files, the image, or the harness install gives a new name, so
+	 * a new build.
+	 */
+	private async templateSnapshotName(
+		template: { framework: string; templateVersion: string },
+		image: string,
+		harnessKey: string,
+	): Promise<string> {
+		const key = createHash("sha256")
+			.update(
+				[
+					TEMPLATE_SNAPSHOT_BUILD_VERSION,
+					await this.templateInit.contentHash(template),
+					image,
+					harnessKey,
+				].join("\n"),
+			)
+			.digest("hex");
+		// 16 hex chars (64 bits) keep the name short; a clash needs about 2^32 keys.
+		return `${TEMPLATE_SNAPSHOT_NAME_PREFIX}${template.framework}-${key.slice(0, 16)}`;
+	}
+
+	/** The id of the newest ready snapshot of this builder name, or null. */
+	private async readySnapshotId(name: string): Promise<string | null> {
+		const listed = await this.sdk.listSnapshots({
+			...this.credentials(),
+			limit: 1,
+			name,
+			sortOrder: "desc",
+		});
+		const newest = listed.snapshots[0];
+		return newest?.status === "created" ? newest.id : null;
+	}
+
+	/**
+	 * The template snapshot a new project sandbox boots from, or null. A
+	 * failed lookup answers null too: the boot from the image still works.
+	 */
+	private async findTemplateSnapshot(
+		template: { framework: string; templateVersion: string },
+		image: string,
+		harnessKey: string,
+	): Promise<string | null> {
+		try {
+			return await this.readySnapshotId(
+				await this.templateSnapshotName(template, image, harnessKey),
+			);
+		} catch (error) {
+			// The snapshot only saves time, so the boot continues from the image.
+			// A deploy ships only the current archive: an older project that
+			// resumes has no archive and needs none, so that case logs nothing.
+			if (!(error instanceof TemplateArchiveMissingError)) {
+				this.logger.warn("sandbox.template-snapshot.lookup-failed", {
+					error: errorMessage(error),
+					framework: template.framework,
+				});
+			}
+			return null;
+		}
+	}
+}
+
+/**
+ * SHA-256 hex digest of a policy, stored in `sandbox_sessions.networkPolicyHash`.
+ * `buildNetworkPolicy` sorts the hosts, so the same allow list always hashes
+ * the same; a different host order counts as a change and only costs one
+ * extra vendor update.
+ */
+function hashNetworkPolicy(policy: SandboxNetworkPolicy): string {
+	return createHash("sha256")
+		.update(JSON.stringify([policy.allowedHosts, policy.deniedRanges]))
+		.digest("hex");
 }
 
 /**

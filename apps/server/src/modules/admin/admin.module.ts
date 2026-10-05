@@ -1,6 +1,14 @@
+/**
+ * Nest module for the admin dashboard API under /api/v1/admin.
+ * It registers the admin controllers, services, and repositories.
+ * AppModule imports it. AdminSecurityModule gives the guard and view grants.
+ */
 import { Module } from "@nestjs/common";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { AuditEventsService } from "../app-builder/application/services/audit-events.service";
+import { AuditEventsRepository } from "../app-builder/infrastructure/persistence/audit-events.repository";
 import { BillingWebhookEventsRepository } from "../billing/infrastructure/persistence/billing-webhook-events.repository";
 import { TriggerBillingWebhookDispatcherService } from "../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { CreditsModule } from "../credits/credits.module";
@@ -15,6 +23,7 @@ import { AdminSecurityModule } from "./admin-security.module";
 import { AdminAnalyticsService } from "./application/services/admin-analytics.service";
 import { AdminConversationsService } from "./application/services/admin-conversations.service";
 import { AdminCostsService } from "./application/services/admin-costs.service";
+import { AdminCreditGrantsService } from "./application/services/admin-credit-grants.service";
 import { AdminOrganizationsService } from "./application/services/admin-organizations.service";
 import { AdminPagePreviewService } from "./application/services/admin-page-preview.service";
 import { AdminProjectsService } from "./application/services/admin-projects.service";
@@ -22,17 +31,20 @@ import { AdminPublicationsService } from "./application/services/admin-publicati
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
+import { PublicationSuspensionService } from "./application/services/publication-suspension.service";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
 import { AdminAnalyticsRepository } from "./infrastructure/persistence/admin-analytics.repository";
 import { AdminAuditRepository } from "./infrastructure/persistence/admin-audit.repository";
 import { AdminConversationsRepository } from "./infrastructure/persistence/admin-conversations.repository";
 import { AdminCostsRepository } from "./infrastructure/persistence/admin-costs.repository";
+import { AdminCreditGrantsRepository } from "./infrastructure/persistence/admin-credit-grants.repository";
 import { AdminFunnelContactsRepository } from "./infrastructure/persistence/admin-funnel-contacts.repository";
 import { AdminOrganizationsRepository } from "./infrastructure/persistence/admin-organizations.repository";
 import { AdminOverviewRepository } from "./infrastructure/persistence/admin-overview.repository";
 import { AdminAnalyticsController } from "./presentation/http/controllers/admin-analytics.controller";
 import { AdminConversationsController } from "./presentation/http/controllers/admin-conversations.controller";
 import { AdminCostsController } from "./presentation/http/controllers/admin-costs.controller";
+import { AdminCreditGrantsController } from "./presentation/http/controllers/admin-credit-grants.controller";
 import { AdminMeController } from "./presentation/http/controllers/admin-me.controller";
 import { AdminOrganizationsController } from "./presentation/http/controllers/admin-organizations.controller";
 import { AdminProjectsController } from "./presentation/http/controllers/admin-projects.controller";
@@ -46,6 +58,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminAnalyticsController,
 		AdminConversationsController,
 		AdminCostsController,
+		AdminCreditGrantsController,
 		AdminMeController,
 		AdminOrganizationsController,
 		AdminProjectsController,
@@ -74,6 +87,8 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminConversationsService,
 		AdminCostsRepository,
 		AdminCostsService,
+		AdminCreditGrantsRepository,
+		AdminCreditGrantsService,
 		AdminFunnelContactsRepository,
 		AdminOrganizationsRepository,
 		AdminOrganizationsService,
@@ -85,7 +100,17 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminStatsService,
 		AdminUsersService,
 		AdminWebhookReplayService,
+		AuditEventsRepository,
+		// AppBuilderModule loads only with V2_BUILDER_ENABLED, so the suspend
+		// switch builds its own audit writer, with the same factory.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
 		BillingWebhookEventsRepository,
+		PublicationSuspensionService,
 		TriggerBillingWebhookDispatcherService,
 	],
 })

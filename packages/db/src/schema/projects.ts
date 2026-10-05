@@ -31,6 +31,22 @@ import { sandboxSessions } from "./sandbox-sessions";
 /** Which builder produces the project: a V1 page or a V2 app. */
 export const projectEngine = pgEnum("project_engine", ["v1_page", "v2_app"]);
 
+/**
+ * Why staff suspended a V2 app (WANDIT-181). Matches `suspendedReasonCodes`
+ * in @wandit/contracts one to one; tsc rejects a contracts code the enum
+ * lacks at the update call.
+ */
+export const projectSuspendedReason = pgEnum("project_suspended_reason", [
+	"abuse_phishing",
+	"abuse_malware",
+	"abuse_url_scan",
+	"legal_takedown",
+	"legal_notice",
+	"tos_violation",
+	"billing",
+	"manual_review",
+]);
+
 /** Device family a V2 app project targets. Null on V1 page projects. */
 export const projectTargetPlatform = pgEnum("project_target_platform", [
 	"web",
@@ -75,12 +91,13 @@ export const projects = pgTable(
 		engine: projectEngine("engine").notNull().default("v1_page"),
 		// Device family the app targets. Null on V1 page projects.
 		targetPlatform: projectTargetPlatform("target_platform"),
-		// App template stack of a V2 project, for example `tanstack-start`.
+		// App template of a V2 project, `web-app` or `mobile-app`: the prefix of
+		// the archive `templates/<framework>-<semver>.tar.gz`.
 		framework: text("framework"),
 		// Version of the app template the project was created from.
 		templateVersion: text("template_version"),
-		// Languages the agent must build in (D7). The check below allows only
-		// ar, fr, and en.
+		// UI locale at project creation (D7): a hint for the app language only.
+		// The check below allows only ar, fr, and en.
 		languages: text("languages").array().notNull().default(sql`'{}'::text[]`),
 		// Extra egress hosts the V2 sandbox may reach, on top of the global
 		// allow list (WANDIT-180). The `request_network_host` host tool appends
@@ -89,6 +106,13 @@ export const projects = pgTable(
 			.$type<string[]>()
 			.notNull()
 			.default(sql`'[]'::jsonb`),
+		// Staff take-down of a V2 app (WANDIT-181). Set together with
+		// `suspendedReasonCode`; publish and rollback refuse the project, and
+		// every host pointer carries the suspended state while it is set.
+		suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+		suspendedReasonCode: projectSuspendedReason("suspended_reason_code"),
+		// Free text of the staff member for support. Never shown to the user.
+		suspendedNote: text("suspended_note"),
 		// Soft delete marker.
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		// Timestamps used for dashboard sorting.
@@ -123,6 +147,11 @@ export const projects = pgTable(
 		check(
 			"projects_languages_allowed_ck",
 			sql`${table.languages} <@ ARRAY['ar','fr','en']::text[]`,
+		),
+		// A suspension always has a time and a reason, or neither.
+		check(
+			"projects_suspension_pair_ck",
+			sql`(${table.suspendedAt} IS NULL) = (${table.suspendedReasonCode} IS NULL)`,
 		),
 	],
 );

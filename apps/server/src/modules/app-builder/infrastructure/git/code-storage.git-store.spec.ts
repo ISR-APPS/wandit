@@ -177,11 +177,15 @@ describe("CodeStorageGitStore.ensureRepository", () => {
 });
 
 describe("CodeStorageGitStore.issueCredential", () => {
-	it("mints a git:read+git:write JWT without an API call", async () => {
+	it("mints a push-main JWT with the main-only refs claim, without an API call", async () => {
 		await startServer();
 		const store = makeStore();
 
-		const credential = await store.issueCredential("project-1", 600);
+		const credential = await store.issueCredential(
+			"project-1",
+			600,
+			"push-main",
+		);
 
 		expect(requests).toHaveLength(0);
 		expect(credential.username).toBe("t");
@@ -193,7 +197,27 @@ describe("CodeStorageGitStore.issueCredential", () => {
 		const { payload } = await jwtVerify(credential.password, key);
 		expect(payload.repo).toBe("wandit/project-1");
 		expect(payload.scopes).toEqual(["git:read", "git:write"]);
+		// WANDIT-282: a stolen push token cannot force-push, push another
+		// branch, or push a tag. code.storage enforces the first match.
+		expect(payload.refs).toEqual([
+			["refs/heads/main", ["no-force-push"]],
+			["*", ["no-push"]],
+		]);
 		expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(600);
+	});
+
+	it("mints a git:read JWT only for read access", async () => {
+		await startServer();
+		const store = makeStore();
+
+		const credential = await store.issueCredential("project-1", 600, "read");
+
+		expect(requests).toHaveLength(0);
+		const key = await importSPKI(publicKeyPem, "ES256");
+		const { payload } = await jwtVerify(credential.password, key);
+		expect(payload.repo).toBe("wandit/project-1");
+		expect(payload.scopes).toEqual(["git:read"]);
+		expect(payload.refs).toBeUndefined();
 	});
 });
 

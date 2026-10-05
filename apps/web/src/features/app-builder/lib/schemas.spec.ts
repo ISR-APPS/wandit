@@ -21,16 +21,33 @@ describe("appBuilderSearchSchema", () => {
 		});
 	});
 
-	it("parses the tablet viewport", () => {
-		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({
-			viewport: "tablet",
+	it("keeps a Cloud panel id in panel", () => {
+		expect(
+			appBuilderSearchSchema.parse({ view: "more", panel: "logs" }),
+		).toEqual({ view: "more", panel: "logs" });
+	});
+
+	it("drops the old Cloud view and its cloudPanel param", () => {
+		expect(
+			appBuilderSearchSchema.parse({ view: "cloud", cloudPanel: "logs" }),
+		).toEqual({});
+	});
+
+	// The tablet viewport is gone. An old link must still open the workspace.
+	it("drops the old tablet viewport", () => {
+		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({});
+	});
+
+	it("parses the Secrets Cloud panel", () => {
+		expect(appBuilderSearchSchema.parse({ panel: "secrets" })).toEqual({
+			panel: "secrets",
 		});
 	});
 
 	it("drops unknown values instead of throwing", () => {
 		const result = appBuilderSearchSchema.parse({
 			view: "settings",
-			panel: 42,
+			panel: "connectors",
 			device: "windows",
 			viewport: "",
 			file: "x".repeat(600),

@@ -27,16 +27,18 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import type { AppProject } from "../../api/dto";
-import { ProjectBar } from "./top-bar";
+import { ProjectBar, ViewSwitcher } from "./top-bar";
 
 const PROJECT: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
-	description: "Membership app for a gym.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
+	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
+	hasCodeChanges: true,
 };
 
 // The bar shows tooltips and translated labels; the page mounts both providers.
@@ -54,6 +56,7 @@ function renderBar(chatOpen: boolean) {
 				project: PROJECT,
 				chatOpen,
 				onExpandChat,
+				liveCommitSha: null,
 				onRestored: vi.fn(),
 			}),
 		),
@@ -75,5 +78,34 @@ describe("ProjectBar", () => {
 		const { onExpandChat } = renderBar(false);
 		fireEvent.click(screen.getByRole("button", { name: "Show the chat" }));
 		expect(onExpandChat).toHaveBeenCalledOnce();
+	});
+});
+
+describe("ViewSwitcher", () => {
+	it("lists Preview, Code, and More, and no Cloud view", () => {
+		const onChangeView = vi.fn();
+		const providerProps: ComponentProps<typeof I18nProvider> = {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			// The icon-only views show their label in a tooltip.
+			children: createElement(
+				TooltipProvider,
+				null,
+				createElement(ViewSwitcher, { view: "preview", onChangeView }),
+			),
+		};
+		render(createElement(I18nProvider, providerProps));
+
+		const views = screen.getByRole("group", { name: "Workspace views" });
+		expect(
+			[...views.querySelectorAll("button")].map(
+				(button) => button.getAttribute("aria-label") ?? button.textContent,
+			),
+		).toEqual(["Preview", "Code", "More"]);
+		expect(screen.queryByRole("button", { name: "Cloud" })).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "More" }));
+		expect(onChangeView).toHaveBeenCalledWith("more");
 	});
 });

@@ -22,6 +22,10 @@ import type { AiUsageEvent } from "../../../metering/domain/metering";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
 import { BuilderTurnActiveError } from "../../domain/errors/builder-turn-active.error";
+import type {
+	TurnRunHandle,
+	TurnTaskStartInput,
+} from "../../domain/ports/turn-task-starter";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { BuilderSessionsRepository } from "../../infrastructure/persistence/builder-sessions.repository";
 import type {
@@ -32,9 +36,12 @@ import type { ProjectCostCapsRepository } from "../../infrastructure/persistence
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeTurnEventStream } from "../../infrastructure/trigger/fake-turn-events";
+import type { AuditEventsService } from "./audit-events.service";
 import { TurnsService } from "./turns.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A TEST-NET-3 address (RFC 5737): it never names a real client.
+const IP = "203.0.113.7";
 // A real price-table id: the estimate math prices the model, so a made-up
 // id would throw inside `estimateTurn`.
 const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
@@ -114,6 +121,7 @@ function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 		startedAt: null,
 		status: "queued",
 		triggerRunId: null,
+		runner: "trigger",
 		turnNumber: 1,
 		userId: "user-1",
 		...overrides,
@@ -251,10 +259,18 @@ function setup(
 	const lock = new FakeTurnLock();
 	const starter = {
 		cancel: vi.fn(async () => undefined),
-		start: vi.fn(async () => ({ runId: "run-1" })),
+		start: vi.fn(
+			async (_input: TurnTaskStartInput): Promise<TurnRunHandle> => ({
+				runId: "run-1",
+				runner: "trigger",
+			}),
+		),
 	};
 	const turnEvents = new FakeTurnEventStream();
 	const counters = new FakeLlmSpendCounters();
+	const audit = {
+		record: vi.fn<AuditEventsService["record"]>(async () => undefined),
+	};
 
 	const service = new TurnsService(
 		turns as unknown as BuilderTurnsRepository,
@@ -269,9 +285,11 @@ function setup(
 		counters,
 		caps,
 		subscriptions,
+		audit,
 	);
 
 	return {
+		audit,
 		caps,
 		chats,
 		counters,
@@ -333,6 +351,37 @@ describe("TurnsService.create", () => {
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
+	it("rejects answer files the user did not upload through Wandit", async () => {
+		// SAFETY: env is a mutable object at runtime; the afterEach hook at the
+		// top of the file restores this value.
+		(env as { R2_PUBLIC_BASE_URL?: string }).R2_PUBLIC_BASE_URL =
+			"https://assets.example.com/public";
+		const { metering, service, turns } = setup();
+
+		await expect(
+			service.create(SCOPE, "project-1", {
+				...BODY,
+				answers: [
+					{
+						action: "answered",
+						files: [
+							{
+								mediaType: "image/png",
+								url: "https://assets.example.com/public/uploads/other-user/u/logo.png",
+							},
+						],
+						optionIds: [],
+						questionId: "question-0",
+						text: "",
+						toolCallId: "call-7",
+					},
+				],
+			}),
+		).rejects.toThrow(BadRequestException);
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).not.toHaveBeenCalled();
+	});
+
 	it("reserves the agent_session hold, locks, queues, and starts the task", async () => {
 		const { chats, lock, metering, service, starter, turns } = setup();
 
@@ -371,6 +420,29 @@ describe("TurnsService.create", () => {
 			streamUrl: "/api/v2/projects/project-1/turns/active/stream",
 		});
 		expect(result).not.toHaveProperty("queued");
+	});
+
+	it("stores no Trigger run id when the host runs the turn", async () => {
+		const { service, starter, turns } = setup();
+		starter.start.mockResolvedValue({ runner: "host" });
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(turns.setTriggerRunId).not.toHaveBeenCalled();
+		expect(result.runId).toBeNull();
+	});
+
+	it("passes the API create time to the task in whole ms", async () => {
+		const { service, starter } = setup();
+
+		// Fastify reports the request age with decimals.
+		await service.create(SCOPE, "project-1", BODY, {
+			requestStartedAt: Date.now() - 12.6,
+		});
+
+		const startInput = starter.start.mock.calls[0]?.[0];
+		expect(Number.isInteger(startInput?.apiCreateMs)).toBe(true);
+		expect(startInput?.apiCreateMs).toBeGreaterThanOrEqual(13);
 	});
 
 	it("sizes the hold from the settled-turn median when history exists", async () => {
@@ -645,9 +717,14 @@ describe("TurnsService.create", () => {
 		expect(await lock.holder("project-1")).toBe("other-turn");
 	});
 
-	it("answers 409 BUILDER_TURN_ACTIVE when a restore holds the lock", async () => {
+	// Neither a restore nor a sandbox wake promotes a waiting turn, so a
+	// parked row would strand until the next submit.
+	it.each([
+		"restore:abc-123",
+		"wake:abc-123",
+	])("answers 409 BUILDER_TURN_ACTIVE when %s holds the lock", async (holder) => {
 		const { lock, metering, service, turns } = setup();
-		await lock.acquire("project-1", "restore:abc-123", 60_000);
+		await lock.acquire("project-1", holder, 60_000);
 
 		const failure = await service
 			.create(SCOPE, "project-1", BODY)
@@ -664,8 +741,8 @@ describe("TurnsService.create", () => {
 			"event-1",
 			"builder_turn_create_failed",
 		);
-		// No row parked, no task started; the restore keeps its lock.
-		expect(await lock.holder("project-1")).toBe("restore:abc-123");
+		// No row parked, no task started; the holder keeps its lock.
+		expect(await lock.holder("project-1")).toBe(holder);
 		expect(turns.promoteOldestWaiting).not.toHaveBeenCalled();
 	});
 
@@ -787,6 +864,32 @@ describe("TurnsService.create", () => {
 
 		expect(turns.create).toHaveBeenCalledTimes(1);
 		expect(turns.create.mock.calls[0]?.[0]?.spec.approval).toBeUndefined();
+		expect(turns.create.mock.calls[0]?.[0]?.spec.answers).toEqual([]);
+	});
+
+	it("stores the question answers in the turn spec", async () => {
+		const { service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_answer" }),
+		);
+		const answers = [
+			{
+				action: "answered" as const,
+				files: [],
+				optionIds: ["zellige"],
+				questionId: "question-0",
+				text: "",
+				toolCallId: "call-7",
+			},
+		];
+
+		await service.create(SCOPE, "project-1", { ...BODY, answers });
+
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({ answers }),
+			}),
+		);
 	});
 
 	it("adopts the existing first message instead of inserting a new one", async () => {
@@ -831,7 +934,7 @@ describe("TurnsService.cancel", () => {
 		const { metering, service, starter, turns } = setup();
 		turns.findById.mockResolvedValue(turnRow({ status: "succeeded" }));
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(result).toEqual({ status: "succeeded", turnId: "turn-1" });
 		expect(starter.cancel).not.toHaveBeenCalled();
@@ -843,7 +946,7 @@ describe("TurnsService.cancel", () => {
 		turns.findById.mockResolvedValue(turnRow({ status: "waiting" }));
 		metering.findByIdempotencyKey.mockResolvedValue(usageEvent());
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -863,7 +966,7 @@ describe("TurnsService.cancel", () => {
 		turns.findById.mockResolvedValue(turnRow({ status: "waiting_for_answer" }));
 		metering.findByIdempotencyKey.mockResolvedValue(usageEvent());
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -888,7 +991,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValueOnce(turnRow({ status: "queued" }));
 		turns.transition.mockResolvedValue(false);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -910,7 +1013,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValueOnce(turnRow({ status: "succeeded" }));
 		turns.transition.mockResolvedValue(false);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -931,7 +1034,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValue(turnRow({ status: "canceled" }));
 		await lock.acquire("project-1", "turn-1", 60_000);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(starter.cancel).not.toHaveBeenCalled();
 		expect(await lock.holder("project-1")).toBeNull();
@@ -957,14 +1060,17 @@ describe("TurnsService.cancel", () => {
 		// A closed stream makes the settle wait return at once.
 		turnEvents.close("run-1");
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
 			["queued", "running"],
 			"cancelling",
 		);
-		expect(starter.cancel).toHaveBeenCalledWith("run-1");
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", {
+			runId: "run-1",
+			runner: "trigger",
+		});
 		expect(await lock.holder("project-1")).toBeNull();
 		expect(metering.refund).toHaveBeenCalledWith(
 			"event-1",
@@ -981,19 +1087,119 @@ describe("TurnsService.cancel", () => {
 		);
 		turnEvents.close("run-1");
 
-		await service.cancel(SCOPE, "project-1", "turn-1");
+		await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
-		expect(starter.cancel).toHaveBeenCalledWith("run-1");
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", {
+			runId: "run-1",
+			runner: "trigger",
+		});
 		expect(counters.revoked.has("run-1")).toBe(true);
+	});
+
+	it("cancels a host turn on the host and revokes its host run token", async () => {
+		const { counters, service, starter, turns } = setup();
+		const row = turnRow({ runner: "host", status: "running" });
+		turns.findById.mockImplementation(async () => row);
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		// The host run ends the row itself; the settle wait polls the row.
+		starter.cancel.mockImplementation(async () => {
+			row.status = "canceled";
+		});
+
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
+
+		expect(starter.cancel).toHaveBeenCalledWith("turn-1", { runner: "host" });
+		expect(counters.revoked.has("host-turn-1")).toBe(true);
+		expect(result.status).toBe("canceled");
+	});
+
+	it.each([
+		// This request wins the `cancelling` CAS.
+		{ readStatus: "running", written: ["running"] },
+		// A retry finds the row that an earlier request already moved.
+		{ readStatus: "cancelling", written: [] },
+		// A parked row skips `cancelling` and flips straight to `canceled`.
+		{ readStatus: "waiting", written: ["waiting"] },
+	] as const)("writes turn.cancel once, from the request that moves the row ($readStatus)", async ({
+		readStatus,
+		written,
+	}) => {
+		const { audit, service, starter, turns } = setup();
+		const row = turnRow({ runner: "host", status: readStatus });
+		// A copy per read, like a database row: the service keeps its first read.
+		turns.findById.mockImplementation(async () => ({ ...row }));
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		// The remote cancel fails after the CAS, so the user retries later.
+		starter.cancel.mockRejectedValue(new Error("host unreachable"));
+
+		await service
+			.cancel(SCOPE, "project-1", "turn-1", IP)
+			.catch((error: unknown) => error);
+
+		expect(
+			audit.record.mock.calls.map(([event]) => [event.action, event.metadata]),
+		).toEqual(written.map((fromStatus) => ["turn.cancel", { fromStatus }]));
+	});
+
+	it.each([
+		// The run never claimed the row, so the API CAS ends it.
+		{ runFinalizes: false, written: [{ status: "canceled" }] },
+		// The run's finalizer wins the last CAS and writes its own `turn.end`.
+		{ runFinalizes: true, written: [] },
+	])("writes turn.end only when the API cancel CAS wins (run finalizes: $runFinalizes)", async ({
+		runFinalizes,
+		written,
+	}) => {
+		const { audit, service, starter, turnEvents, turns } = setup();
+		// Another org member started the turn; the task row names that creator.
+		const row = turnRow({
+			status: "running",
+			triggerRunId: "run-1",
+			userId: "creator-1",
+		});
+		turns.findById.mockImplementation(async () => ({ ...row }));
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		starter.cancel.mockImplementation(async () => {
+			if (runFinalizes) {
+				row.status = "canceled";
+			}
+		});
+		turnEvents.close("run-1");
+
+		await service.cancel(SCOPE, "project-1", "turn-1", IP);
+
+		expect(
+			audit.record.mock.calls
+				.filter(([event]) => event.action === "turn.end")
+				.map(([event]) => [event.actorUserId, event.metadata]),
+		).toEqual(written.map((metadata) => ["creator-1", metadata]));
 	});
 
 	it("404s on a turn of another project", async () => {
 		const { service, turns } = setup();
 		turns.findById.mockResolvedValue(turnRow({ projectId: "other" }));
 
-		await expect(service.cancel(SCOPE, "project-1", "turn-1")).rejects.toThrow(
-			NotFoundException,
-		);
+		await expect(
+			service.cancel(SCOPE, "project-1", "turn-1", IP),
+		).rejects.toThrow(NotFoundException);
 	});
 });
 
@@ -1038,6 +1244,17 @@ describe("TurnsService.handleTurnEnded", () => {
 		await service.handleTurnEnded("project-1", "turn-1");
 
 		expect(counters.revoked.has("run-7")).toBe(true);
+	});
+
+	it("revokes the host run token when a host turn ended", async () => {
+		const { counters, service, turns } = setup();
+		turns.findById.mockResolvedValue(
+			turnRow({ runner: "host", status: "succeeded" }),
+		);
+
+		await service.handleTurnEnded("project-1", "turn-1");
+
+		expect(counters.revoked.has("host-turn-1")).toBe(true);
 	});
 
 	it("does nothing while the row is still non-terminal", async () => {

@@ -1,6 +1,6 @@
 ---
 name: slop-review
-description: Review a diff against the "Code rules" in CLAUDE.md, in both directions. Direction one is slop, code that is too much, over-engineered, or typed with fake evidence. Direction two is cut corners, code that is too little, with a skipped edge case, validation, error path, security check, test, or comment. Use after Codex, a subagent, or a workflow returns code, before a PR, or when the user says "slop review", "review for slop", "is this over-engineered", "did codex cut corners", or "check the comments". Lists findings only. Does not apply fixes unless the user asks.
+description: Review a diff against the "Code rules" in CLAUDE.md, in both directions. Direction one is slop, code that is too much, over-engineered, or typed with fake evidence. Direction two is cut corners, code that is too little, with a skipped edge case, validation, error path, security check, test, or comment. Use after a subagent or a workflow returns code, before a PR, or when the user says "slop review", "review for slop", "is this over-engineered", "did it cut corners", or "check the comments". Lists findings only. Does not apply fixes unless the user asks.
 ---
 
 # Slop review
@@ -17,7 +17,7 @@ Review the diff against the section "Code rules" in `CLAUDE.md`. One line per fi
 
 Slop (too much):
 
-- `delete:` dead code, unused flexibility, speculative feature. Replacement: nothing.
+- `delete:` dead code, unused flexibility, speculative feature, or a junk test from the list in `CLAUDE.md` "Tests" (a copied constant, a mock that only gets the test input, a test of a fake or a library, a case for code with no branch, a repeated case). Replacement: nothing.
 - `stdlib:` a hand-rolled thing the standard library or the platform has. Name the function or feature.
 - `yagni:` an abstraction with one implementation, a config nobody sets, a layer with one caller, a new dependency for a few lines.
 - `dup:` a helper, type, or pattern that already exists in the repo. Name the file.
@@ -27,7 +27,7 @@ Slop (too much):
 Cut corners (too little):
 
 - `corner:` a skipped edge case, a removed validation, a swallowed error, an empty `catch`, a dropped security check, a lock or idempotency key missing where money, credits, or a queue is involved, a `TODO` instead of the work.
-- `test:` non-trivial logic with no check that fails if it breaks, or a test made trivial.
+- `test:` a change that a user or an API caller can see, with no E2E steps in the report. Risky logic from `CLAUDE.md` "Tests" (money, security, a parser of untrusted input, a regex, a date, a state rule) with no spec case. A bug-fix case that never failed on the old code. A test deleted to hide a failure. Never ask for a case that the three questions in "Tests" reject.
 - `comment:` a new or edited file without a header (specs, barrels, and generated files need none), an added or changed export without a comment that gives one fact the name does not show, a product-rule branch, lock, retry, cache, security check, unit conversion, bare number, or library workaround without a "why" line, a comment that is now wrong, a comment that restates the code, a comment that is not Simplified Technical English.
 - `limit:` a deliberate simplification without a `LIMIT:` mark, a `LIMIT:` mark without an upgrade path, or a `LIMIT:` mark that hides a missing check (that one is a `corner:`).
 
@@ -55,5 +55,5 @@ Nothing to report: `Lean and complete. Ship.`
 
 - Lists findings. Does not change code unless the user asks after the list.
 - Performance and product decisions are out of scope unless they are a `corner:`.
-- The one small test or assertion that guards the logic is the minimum, never a `delete:`.
+- A spec case that guards risky logic is the minimum, never a `delete:`.
 - Report in ASD-STE100 Simplified Technical English.

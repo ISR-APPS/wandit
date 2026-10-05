@@ -93,6 +93,18 @@ export function publishedArchiveKey(
 	return `published/${projectId}/v/${deploymentId}.html`;
 }
 
+/**
+ * Stored output of one V2 app build (WANDIT-178): gzip JSON of the Worker
+ * modules and the static assets. A rollback uploads it again.
+ * published/{project_id}/builds/{build_id}.json.gz
+ */
+export function publishedAppBuildKey(
+	projectId: string,
+	buildId: string,
+): string {
+	return `published/${projectId}/builds/${buildId}.json.gz`;
+}
+
 // Images the builder generates mid-build live under the attempt, not a
 // version (they exist before any version does):
 // sites/{project_id}/assets/{attempt_id}/img-{n}.{ext}
@@ -320,22 +332,32 @@ export function isWanditUploadUrl(url: string): boolean {
 	);
 }
 
+// The V2 asset upload (WANDIT-200) also reads this map: a Vite build emits
+// avif, gif, mjs, wasm, webmanifest, woff, and xml files. The edge sends
+// nosniff, so a module script needs a JavaScript type.
 const CONTENT_TYPES: Record<string, string> = {
+	avif: "image/avif",
 	css: "text/css; charset=utf-8",
+	gif: "image/gif",
 	html: "text/html; charset=utf-8",
 	ico: "image/x-icon",
 	jpeg: "image/jpeg",
 	jpg: "image/jpeg",
 	js: "text/javascript; charset=utf-8",
 	json: "application/json; charset=utf-8",
+	mjs: "text/javascript; charset=utf-8",
 	mp4: "video/mp4",
 	png: "image/png",
 	svg: "image/svg+xml",
 	txt: "text/plain; charset=utf-8",
+	wasm: "application/wasm",
 	webm: "video/webm",
+	webmanifest: "application/manifest+json",
 	webp: "image/webp",
+	woff: "font/woff",
 	woff2: "font/woff2",
 	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	xml: "application/xml; charset=utf-8",
 };
 
 // Best-effort by extension; octet-stream keeps unknown files downloadable
@@ -582,12 +604,17 @@ function isAwsNotFoundError(
 
 /**
  * R2 prefixes one `v2_app` project owns. Writers: the `commit-turn.ts`
- * patches under `git/`, and the generate_image host tool of WANDIT-169
- * under `sites/<id>/assets/`. Never the `published/` prefix: WANDIT-178
- * publishes there and the V1 pages share it.
+ * patches under `git/`, the generate_image host tool of WANDIT-169 under
+ * `sites/<id>/assets/`, and the `publish-app` task (WANDIT-178) under
+ * `published/<id>/builds/`. Never the whole `published/<id>/` prefix: the
+ * V1 page files of a migrated project live there too.
  */
 export function v2ProjectPrefixes(projectId: string): string[] {
-	return [`git/${projectId}/`, `sites/${projectId}/assets/`];
+	return [
+		`git/${projectId}/`,
+		`sites/${projectId}/assets/`,
+		`published/${projectId}/builds/`,
+	];
 }
 
 /**

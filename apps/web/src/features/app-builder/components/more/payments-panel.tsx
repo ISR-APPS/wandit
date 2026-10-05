@@ -1,172 +1,73 @@
 /**
- * Payments panel of the More view: the provider card with its test/live
- * toggle, the product list, the amount collected this month, and the webhook.
- * Rendered by components/more/more-view.tsx inside PanelShell, which draws the
- * title. Reads paymentsSummaryQuery and writes through useSetPaymentsMode.
+ * Payments panel of the More view: a static "coming soon" page with three
+ * planned features. It names no payment provider and has no action.
+ * Rendered by components/more/more-view.tsx inside PanelShell, which draws
+ * the title. Reads no data.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { Badge } from "@wandit/ui/components/badge";
-import { Button } from "@wandit/ui/components/button";
+import type { Icon } from "@phosphor-icons/react";
+import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
+import { FlaskIcon } from "@phosphor-icons/react/Flask";
+import { ReceiptIcon } from "@phosphor-icons/react/Receipt";
+import { RepeatIcon } from "@phosphor-icons/react/Repeat";
 import { cn } from "@wandit/ui/lib/utils";
-import { toast } from "sonner";
 
-import {
-	formatCurrencyDZD,
-	formatDate,
-	formatNumber,
-	useTranslation,
-} from "@/lib/i18n";
-import { useSetPaymentsMode } from "../../api/app-builder.mutations";
-import { paymentsSummaryQuery } from "../../api/app-builder.queries";
-import type { PaymentProduct } from "../../api/dto";
-import { SegmentedControl } from "../shell/segmented-control";
+import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { PANEL_CARD_CLASS, PanelChip } from "./panel-shell";
 
-export type PaymentsPanelProps = {
-	projectId: string;
-};
+/** The planned features the page lists, in display order. */
+const PLANNED_FEATURES = [
+	{ icon: ReceiptIcon, label: "appBuilder.payments.features.oneTime" },
+	{ icon: RepeatIcon, label: "appBuilder.payments.features.subscriptions" },
+	{ icon: FlaskIcon, label: "appBuilder.payments.features.testMode" },
+] as const satisfies readonly { icon: Icon; label: TranslationKey }[];
 
-export function PaymentsPanel({ projectId }: PaymentsPanelProps) {
-	const { t, locale } = useTranslation();
-	const { data } = useSuspenseQuery(paymentsSummaryQuery(projectId));
-	const setMode = useSetPaymentsMode(projectId);
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-
-	// The provider is null until the user connects one; the other cards need it.
-	if (!data.provider) {
-		return (
-			<div className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3">
-				<span className="font-semibold">
-					{t("appBuilder.payments.noProvider")}
-				</span>
-				<Button onClick={notWired}>
-					{t("appBuilder.payments.connectProvider")}
-				</Button>
-			</div>
-		);
-	}
-	const { provider } = data;
-	// The month string is `YYYY-MM`; the first day at local midnight keeps the month in every time zone.
-	const collectedMonth = formatDate(
-		new Date(`${data.collectedMonth}-01T00:00:00`),
-		locale,
-		{ month: "long" },
-	);
+/** Static page: no query, no mutation, no button. A provider name must not appear here. */
+export function PaymentsPanel() {
+	const { t } = useTranslation();
 
 	return (
-		<>
-			<div className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3">
-				<span className="grid size-10 shrink-0 place-items-center rounded-full bg-muted font-semibold">
-					{provider.name.charAt(0)}
-				</span>
-				<div className="min-w-0 flex-1">
-					<div className="font-semibold" dir="auto">
-						{provider.name}
-					</div>
-					<div className="text-muted-foreground text-xs">
-						{t("appBuilder.payments.connectedAs", {
-							account: provider.account,
-							cards: provider.cards,
-						})}
-					</div>
-				</div>
-				{provider.mode === "live" ? (
-					<Badge variant="success">
-						<span aria-hidden className="size-1.5 rounded-full bg-success" />
-						{t("appBuilder.payments.live")}
-					</Badge>
-				) : null}
-				<SegmentedControl
-					size="sm"
-					ariaLabel={t("appBuilder.payments.modeAriaLabel")}
-					value={provider.mode}
-					onChange={(mode) => setMode.mutate(mode)}
-					options={[
-						{ value: "test", label: t("appBuilder.payments.test") },
-						{ value: "live", label: t("appBuilder.payments.live") },
-					]}
-				/>
-			</div>
-
-			<div className="rounded-2xl border bg-card">
-				<div className="flex items-center justify-between px-4 py-3">
-					<span className="font-semibold">
-						{t("appBuilder.payments.products")}
-					</span>
-					<Button variant="outline" size="sm" onClick={notWired}>
-						{t("appBuilder.payments.addProduct")}
-					</Button>
-				</div>
-				{data.products.map((product) => (
-					<div
-						key={product.id}
-						className="grid grid-cols-[1fr_auto_auto] items-center gap-6 border-t px-4 py-3 text-sm"
+		<section
+			className={cn(PANEL_CARD_CLASS, "relative overflow-hidden p-6 sm:p-8")}
+		>
+			{/* A soft spark glow at the top end corner. Decorative only. */}
+			<div
+				aria-hidden
+				className="pointer-events-none absolute -end-24 -top-24 size-64 rounded-full bg-spark/25 blur-3xl dark:bg-spark/10"
+			/>
+			<div className="relative flex flex-col items-start">
+				<div className="flex items-center gap-3">
+					<span
+						aria-hidden
+						className="grid size-12 shrink-0 place-items-center rounded-[16px] bg-night text-spark dark:bg-spark dark:text-night"
 					>
-						<span dir="auto">{product.name}</span>
-						<span className="text-muted-foreground">
-							{billingLabel(product, t)}
-						</span>
-						<span className="font-semibold tabular-nums">
-							{formatCurrencyDZD(product.priceDzd, locale)}
-						</span>
-					</div>
-				))}
-			</div>
-
-			<div className="grid grid-cols-2 gap-3">
-				<div className="rounded-2xl border bg-card p-4">
-					<div className="text-muted-foreground text-xs">
-						{t("appBuilder.payments.collected", { month: collectedMonth })}
-					</div>
-					<div className="mt-1 font-semibold text-2xl tabular-nums">
-						{formatCurrencyDZD(data.collectedDzd, locale)}
-					</div>
-					<div className="mt-1 text-muted-foreground text-xs">
-						{t("appBuilder.payments.paymentCount", {
-							count: data.paymentCount,
-							countDisplay: formatNumber(data.paymentCount, locale),
-						})}
-						{" · "}
-						{t("appBuilder.payments.refundCount", {
-							count: data.refundCount,
-							countDisplay: formatNumber(data.refundCount, locale),
-						})}
-					</div>
+						<CreditCardIcon weight="duotone" className="size-6" />
+					</span>
+					<PanelChip tone="ember">{t("appBuilder.soon")}</PanelChip>
 				</div>
-				<div className="rounded-2xl border bg-card p-4">
-					<div className="text-muted-foreground text-xs">
-						{t("appBuilder.payments.webhook")}
-					</div>
-					<div className="mt-1 flex items-center gap-2 font-medium text-sm">
-						<span
-							aria-hidden
-							className={cn(
-								"size-2 shrink-0 rounded-full",
-								data.webhookReceiving ? "bg-success" : "bg-faint",
-							)}
-						/>
-						{t(
-							data.webhookReceiving
-								? "appBuilder.payments.receiving"
-								: "appBuilder.payments.notReceiving",
-						)}
-					</div>
-					<div className="mt-1 font-mono text-muted-foreground text-xs">
-						{data.webhookPath}
-					</div>
-				</div>
+				<h2 className="mt-5 font-grotesk font-semibold text-[22px] text-night tracking-[-0.02em] dark:text-foreground">
+					{t("appBuilder.payments.title")}
+				</h2>
+				<p className="mt-1.5 max-w-md font-sans text-[15px] text-night/60 leading-relaxed dark:text-foreground/60">
+					{t("appBuilder.payments.body")}
+				</p>
+				<ul className="mt-6 grid w-full grid-cols-1 gap-2.5 sm:grid-cols-3">
+					{PLANNED_FEATURES.map((feature) => (
+						<li
+							key={feature.label}
+							className="flex items-center gap-3 rounded-[14px] border border-night/[0.07] bg-paper px-3 py-3 font-grotesk font-medium text-[14px] text-night dark:border-white/[0.07] dark:bg-white/[0.03] dark:text-foreground"
+						>
+							<span
+								aria-hidden
+								className="grid size-8 shrink-0 place-items-center rounded-full bg-spark/20 text-night dark:bg-spark/15 dark:text-spark"
+							>
+								<feature.icon weight="duotone" className="size-[18px]" />
+							</span>
+							<span>{t(feature.label)}</span>
+						</li>
+					))}
+				</ul>
 			</div>
-		</>
+		</section>
 	);
-}
-
-/** Billing text of one product row: "recurring · 30 days" or "one-time". */
-function billingLabel(
-	product: PaymentProduct,
-	t: ReturnType<typeof useTranslation>["t"],
-): string {
-	if (product.billing.kind === "recurring") {
-		return t("appBuilder.payments.recurring", { days: product.billing.days });
-	}
-	return t("appBuilder.payments.oneTime");
 }

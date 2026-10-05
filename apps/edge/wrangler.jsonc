@@ -26,6 +26,10 @@
 	// publishedCurrentKey). Staging and local dev use their own buckets,
 	// which this deployed worker deliberately does not serve.
 	"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-production" }],
+	// Workers for Platforms namespace of the V2 user Workers: one script per
+	// app, named appWorkerName(projectId). A real deploy fails when the
+	// namespace does not exist in the account; a dry run does not check it.
+	"dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }],
 	// Deliberately NOT enabling the new Workers Cache ("cache": {...}): it is
 	// host-blind (same path on different customer domains shares one entry),
 	// which for multi-tenant serving means cross-tenant content leaks. We use
@@ -33,10 +37,10 @@
 	// including host. Do not flip this on without the ctx.props two-entrypoint
 	// design described in docs/features/edge-serving.md.
 	"observability": { "enabled": true },
-	// vars, kv_namespaces, r2_buckets, and version_metadata are NOT inherited
-	// by an environment block; repeat each one in every env. routes IS
-	// inherited, so it lives in env.production only — the staging Worker must
-	// never take the */* route on wandit.app.
+	// vars, kv_namespaces, r2_buckets, dispatch_namespaces, and
+	// version_metadata are NOT inherited by an environment block; repeat each
+	// one in every env. routes IS inherited, so it lives in env.production
+	// only — the staging Worker must never take the */* route on wandit.app.
 	"env": {
 		"production": {
 			// Without name, wrangler names the Worker wandit-edge-production.
@@ -53,7 +57,9 @@
 			"version_metadata": { "binding": "CF_VERSION_METADATA" },
 			// The production pointer namespace (CLOUDFLARE_KV_NAMESPACE_ID).
 			"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
-			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-production" }]
+			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-production" }],
+			// The production namespace (CLOUDFLARE_W4P_NAMESPACE of the production API).
+			"dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "production" }]
 		},
 		"staging": {
 			"name": "wandit-edge-staging",
@@ -65,7 +71,9 @@
 			// UNVERIFIED: staging may need its own namespace; replace with the
 			// Railway staging CLOUDFLARE_KV_NAMESPACE_ID.
 			"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
-			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-staging" }]
+			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-staging" }],
+			// The staging namespace (CLOUDFLARE_W4P_NAMESPACE of the staging API).
+			"dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "staging" }]
 		}
 	}
 }

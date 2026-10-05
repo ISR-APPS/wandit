@@ -1,6 +1,14 @@
+/**
+ * Feature module for custom domains: the domain routes under `v1`, the KV
+ * routing pointers, and the registrar. The orders, admin, sites, and
+ * app-builder modules import its exports. The project domain hook is a
+ * factory, so a V1 deploy never constructs the V2 sync task starter.
+ */
 import { Module } from "@nestjs/common";
+import { env } from "@wandit/env/server";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "../app-builder/infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { DomainDnsDiagnosticsService } from "./application/services/domain-dns-diagnostics.service";
 import {
 	DOMAINS_LOGGER,
@@ -8,6 +16,7 @@ import {
 } from "./application/services/domains.service";
 import { DOMAIN_PROVIDER } from "./domain/ports/domain-provider.port";
 import { DOMAIN_TASK_DISPATCHER } from "./domain/ports/domain-task-dispatcher.port";
+import { PROJECT_DOMAIN_HOOK } from "./domain/ports/project-domain-hook.port";
 import { CustomHostnameService } from "./infrastructure/cloudflare/custom-hostname.service";
 import { CustomerZoneService } from "./infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "./infrastructure/cloudflare/domain-routing.service";
@@ -49,6 +58,14 @@ import { DomainRateLimitGuard } from "./presentation/http/guards/rate-limit.guar
 		{
 			provide: DOMAINS_LOGGER,
 			useValue: console,
+		},
+		{
+			provide: PROJECT_DOMAIN_HOOK,
+			// The API queues no V2 task while V2 is off.
+			useFactory: () =>
+				env.V2_BUILDER_ENABLED
+					? new TriggerSyncBackendAuthUrlsTaskStarter()
+					: null,
 		},
 	],
 })

@@ -1,11 +1,15 @@
 /**
  * Repository for the `app_commits` and `app_branches` tables (WANDIT-163).
  * `commitTurn` writes commit rows and moves the `main` head; the versions
- * routes list rows, load one commit, and gate on the project's scope.
+ * routes list rows, load one commit, and gate on the project's scope. The
+ * project answer counts the versions against the live app deployment. The
+ * builder turn reads the newest commit for its restore note.
  */
 import { Inject, Injectable } from "@nestjs/common";
+import type { VersionCursor } from "@wandit/contracts";
 import { and, desc, eq, isNull, lt, or, type SQL, sql } from "@wandit/db";
 import { appBranches, appCommits } from "@wandit/db/schema/app-versions";
+import { deployments } from "@wandit/db/schema/deployments";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -20,6 +24,12 @@ import type { GitNumstatEntry } from "../../domain/git-numstat";
 
 /** One `app_commits` row as Drizzle returns it. */
 export type AppCommitRow = typeof appCommits.$inferSelect;
+
+/** The fields of the newest commit that the builder turn reads for its restore note. */
+export type LatestAppCommit = Pick<
+	AppCommitRow,
+	"createdAt" | "restoredFromSha" | "sha" | "source"
+>;
 
 /** Columns a new `app_commits` row needs; `id`/`createdAt` are DB defaults. */
 export type NewAppCommit = {
@@ -71,17 +81,6 @@ export class VersionConflictError extends Error {
 	}
 }
 
-/**
- * The `versions` cursor could not be parsed into a `createdAt` + row id
- * pair. A repository stays HTTP-free; the service turns it into a 400.
- */
-export class MalformedVersionCursorError extends Error {
-	constructor() {
-		super("Malformed versions cursor");
-		this.name = "MalformedVersionCursorError";
-	}
-}
-
 const MAIN_BRANCH = "main";
 // The versions API pages at most 50 rows per call.
 export const VERSIONS_PAGE_MAX = 50;
@@ -122,11 +121,12 @@ export class AppCommitsRepository {
 
 	/**
 	 * Pages the versions of one project, newest first. `cursor` is the
-	 * `<createdAt ISO>_<id>` of the last row of the previous page.
+	 * parsed `nextCursor` of the previous page; `versionCursorSchema` reads
+	 * back the `<createdAt ISO>_<id>` text this method writes.
 	 */
 	async listByProject(
 		projectId: string,
-		options: { cursor?: string; limit: number },
+		options: { cursor?: VersionCursor; limit: number },
 	): Promise<{ items: AppCommitRow[]; nextCursor: string | null }> {
 		const limit = Math.min(options.limit, VERSIONS_PAGE_MAX);
 		const predicates = [eq(appCommits.projectId, projectId)];
@@ -163,6 +163,82 @@ export class AppCommitsRepository {
 			.where(and(eq(appCommits.projectId, projectId), eq(appCommits.sha, sha)))
 			.limit(1);
 		return rows[0] ?? null;
+	}
+
+	/**
+	 * The newest commit of a project, or null before the first one. The
+	 * builder turn reads it to tell the agent about a restore.
+	 */
+	async findLatest(projectId: string): Promise<LatestAppCommit | null> {
+		const rows = await this.db
+			.select({
+				createdAt: appCommits.createdAt,
+				restoredFromSha: appCommits.restoredFromSha,
+				sha: appCommits.sha,
+				source: appCommits.source,
+			})
+			.from(appCommits)
+			.where(eq(appCommits.projectId, projectId))
+			.orderBy(desc(appCommits.createdAt), desc(appCommits.id))
+			.limit(1);
+		return rows[0] ?? null;
+	}
+
+	/**
+	 * True when one commit of the project changed a file. A turn that only
+	 * answers in text commits with numstat `[]`, and the template commit has
+	 * no row. `AppProjectsService.get` reads it for `hasCodeChanges`.
+	 */
+	async hasFileChanges(projectId: string): Promise<boolean> {
+		const rows = await this.db
+			.select({ id: appCommits.id })
+			.from(appCommits)
+			.where(
+				and(
+					eq(appCommits.projectId, projectId),
+					// A null numstat counts as a change: the preview then shows the app.
+					sql`${appCommits.numstat} IS DISTINCT FROM '[]'::jsonb`,
+				),
+			)
+			.limit(1);
+		return rows.length > 0;
+	}
+
+	/**
+	 * The publish counts of the project answer (WANDIT-178): every commit,
+	 * and the commits saved after the commit of the live app deployment.
+	 * Nothing live, or a live commit without a row (the template commit),
+	 * counts every commit as unpublished.
+	 */
+	async countVersions(
+		projectId: string,
+	): Promise<{ versionNumber: number; unpublishedChanges: number }> {
+		const [live] = await this.db
+			.select({ commitSha: deployments.commitSha })
+			.from(deployments)
+			.where(
+				and(
+					eq(deployments.projectId, projectId),
+					eq(deployments.kind, "app"),
+					eq(deployments.status, "active"),
+				),
+			)
+			.limit(1);
+		const liveSha = live?.commitSha ?? null;
+		const [row] = await this.db
+			.select({
+				unpublishedChanges:
+					liveSha === null
+						? sql<number>`count(*)::int`
+						: sql<number>`count(*) filter (where ${appCommits.createdAt} > coalesce((select live.created_at from app_commits live where live.project_id = ${projectId} and live.sha = ${liveSha}), '-infinity'::timestamptz))::int`,
+				versionNumber: sql<number>`count(*)::int`,
+			})
+			.from(appCommits)
+			.where(eq(appCommits.projectId, projectId));
+		return {
+			unpublishedChanges: row?.unpublishedChanges ?? 0,
+			versionNumber: row?.versionNumber ?? 0,
+		};
 	}
 
 	/** The `main` branch head row of a project, or null when no row exists. */
@@ -270,19 +346,16 @@ export class AppCommitsRepository {
 
 // The cursor carries `createdAt` plus the row id so equal timestamps keep
 // a stable order. `<` on the pair gives the next older page.
-function versionCursorPredicate(cursor: string): SQL {
-	const separator = cursor.indexOf("_");
-	if (separator < 1) {
-		throw new MalformedVersionCursorError();
-	}
-	const createdAt = new Date(cursor.slice(0, separator));
-	const id = cursor.slice(separator + 1);
-	if (id === "" || Number.isNaN(createdAt.getTime())) {
-		throw new MalformedVersionCursorError();
-	}
+// LIMIT: the cursor keeps milliseconds, but Postgres keeps microseconds. Two
+// commits of one project in the same millisecond can skip a row at a page
+// edge. Upgrade: a cursor with the microsecond timestamp text.
+function versionCursorPredicate(cursor: VersionCursor): SQL {
 	const predicate = or(
-		lt(appCommits.createdAt, createdAt),
-		and(eq(appCommits.createdAt, createdAt), lt(appCommits.id, id)),
+		lt(appCommits.createdAt, cursor.createdAt),
+		and(
+			eq(appCommits.createdAt, cursor.createdAt),
+			lt(appCommits.id, cursor.id),
+		),
 	);
 	if (!predicate) {
 		throw new Error("Version cursor predicate could not be constructed");

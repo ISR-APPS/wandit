@@ -18,6 +18,7 @@ const INITIAL_TRIGGER_SECRET_KEY = env.TRIGGER_SECRET_KEY;
 
 const INPUT = {
 	actorUserId: "user-1",
+	apiCreateMs: 85,
 	organizationId: "org-1",
 	projectId: "project-1",
 	turnId: "turn-1",
@@ -51,7 +52,7 @@ describe("TriggerTurnTaskStarter.start", () => {
 
 		const result = await starter.start(INPUT);
 
-		expect(result).toEqual({ runId: "run-1" });
+		expect(result).toEqual({ runId: "run-1", runner: "trigger" });
 		expect(createKeyMock).toHaveBeenCalledWith("builder-turn:turn-1", {
 			scope: "global",
 		});
@@ -59,6 +60,8 @@ describe("TriggerTurnTaskStarter.start", () => {
 			"builder-turn",
 			{
 				actorUserId: "user-1",
+				// The timing line of the run reports the API create time.
+				apiCreateMs: 85,
 				organizationId: "org-1",
 				projectId: "project-1",
 				turnId: "turn-1",
@@ -104,7 +107,17 @@ describe("TriggerTurnTaskStarter.cancel", () => {
 		cancelMock.mockRejectedValue(new Error("trigger api down"));
 		const starter = new TriggerTurnTaskStarter();
 
-		await expect(starter.cancel("run-1")).resolves.toBeUndefined();
+		await expect(
+			starter.cancel("turn-1", { runId: "run-1", runner: "trigger" }),
+		).resolves.toBeUndefined();
 		expect(cancelMock).toHaveBeenCalledWith("run-1");
+	});
+
+	it("never cancels a Trigger run for a host turn", async () => {
+		const starter = new TriggerTurnTaskStarter();
+
+		await starter.cancel("turn-1", { runner: "host" });
+
+		expect(cancelMock).not.toHaveBeenCalled();
 	});
 });

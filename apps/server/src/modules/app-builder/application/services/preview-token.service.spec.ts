@@ -1,5 +1,6 @@
 import {
 	ConflictException,
+	Logger,
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
@@ -13,6 +14,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import type { SandboxProvider } from "../../domain/ports/sandbox-provider";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
 import { FakeSandboxSessionsRepository } from "../../infrastructure/persistence/fake-sandbox-sessions.repository";
@@ -49,6 +51,7 @@ function sessionRow(overrides?: Partial<SandboxSessionRow>): SandboxSessionRow {
 		image: "vercel/sandbox/node:22",
 		lastActiveAt: new Date("2026-09-16T10:00:00.000Z"),
 		lastSnapshotAt: null,
+		networkPolicyHash: null,
 		organizationId: null,
 		previewHost: PREVIEW_HOST,
 		projectId: PROJECT_ID,
@@ -65,6 +68,8 @@ function fixture(options?: {
 	env?: V2EnvSource;
 	project?: ScopedAppProject | null;
 	row?: SandboxSessionRow;
+	/** When set, the vendor keep-alive rejects with it. */
+	keepAliveFailure?: Error;
 }) {
 	const sessions = new FakeSandboxSessionsRepository();
 	if (options?.row) {
@@ -82,13 +87,22 @@ function fixture(options?: {
 		PREVIEW_TOKEN_SIGNING_KEY: SIGNING_KEY,
 		V2_HARNESS: "claude-code",
 	};
-	const service = new PreviewTokenService(appCommits, sessions, env);
-	return { service, sessions };
+	const sandboxes = {
+		keepAliveIfRunning: vi.fn<SandboxProvider["keepAliveIfRunning"]>(
+			async () => {
+				if (options?.keepAliveFailure) {
+					throw options.keepAliveFailure;
+				}
+			},
+		),
+	};
+	const service = new PreviewTokenService(appCommits, sessions, env, sandboxes);
+	return { sandboxes, service, sessions };
 }
 
 describe("PreviewTokenService.mint", () => {
 	it("mints a token the Worker verifies, on the isolated preview host", async () => {
-		const { service, sessions } = fixture({ row: sessionRow() });
+		const { sandboxes, service, sessions } = fixture({ row: sessionRow() });
 
 		const body = await service.mint(SCOPE, PROJECT_ID);
 
@@ -119,6 +133,53 @@ describe("PreviewTokenService.mint", () => {
 		expect(ttlMs).toBeLessThanOrEqual(PREVIEW_TOKEN_TTL_SECONDS * 1000);
 		expect(sessions.touchActivity).toHaveBeenCalledTimes(1);
 		expect(sessions.touchActivity).toHaveBeenCalledWith(PROJECT_ID);
+		// WANDIT-164: without it the vendor stops an open preview after 30 min.
+		expect(sandboxes.keepAliveIfRunning).toHaveBeenCalledWith(PROJECT_ID);
+	});
+
+	it("answers the token and logs when the vendor keep-alive fails", async () => {
+		const { service } = fixture({
+			keepAliveFailure: new Error("vendor down"),
+			row: sessionRow(),
+		});
+		// Nest's Logger is a library class; the spy only records the warn line.
+		const warnSpy = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => {});
+
+		const body = await service.mint(SCOPE, PROJECT_ID);
+
+		expect(previewTokenResponseSchema.parse(body).token).not.toBe("");
+		expect(warnSpy).toHaveBeenCalledWith("preview.keep-alive.failed", {
+			error: "vendor down",
+			projectId: PROJECT_ID,
+		});
+		warnSpy.mockRestore();
+	});
+
+	it("puts the Expo Go username in a phone token and logs the mint with the ids", async () => {
+		const { service } = fixture({ row: sessionRow() });
+		// Nest's Logger is a library class; the spy only records the audit line.
+		const logSpy = vi
+			.spyOn(Logger.prototype, "log")
+			.mockImplementation(() => {});
+
+		const body = await service.mint(SCOPE, PROJECT_ID, {
+			client: "phone",
+			expoUsername: "zack",
+		});
+
+		const verified = await verifyPreviewToken(
+			previewTokenResponseSchema.parse(body).token,
+			SIGNING_KEY,
+			Math.floor(Date.now() / 1000),
+		);
+		expect(verified.ok && verified.claims.expoUsername).toBe("zack");
+		expect(logSpy).toHaveBeenCalledWith("preview.phone-token.minted", {
+			projectId: PROJECT_ID,
+			userId: "user-1",
+		});
+		logSpy.mockRestore();
 	});
 
 	it("lower-cases an upper-case project id in the claims and the host", async () => {

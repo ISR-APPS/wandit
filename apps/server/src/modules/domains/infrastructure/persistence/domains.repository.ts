@@ -1,3 +1,8 @@
+/**
+ * Drizzle access to `domains`, plus the few `projects`, `user`, and
+ * `payment_orders` reads the domain flows need. The domains, orders, and
+ * app-builder modules and the Trigger runtimes in `src/trigger` call it.
+ */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
 	DomainDns,
@@ -21,6 +26,7 @@ import {
 	type ProjectScope,
 	projectScopePredicate,
 } from "../../../projects/domain/project-scope";
+import type { ProjectServing } from "../../application/fulfillment/domain-activation.step";
 import {
 	DOMAIN_CONFIGURATION_MAX_ATTEMPT,
 	type DomainConfigurationCursor,
@@ -129,6 +135,7 @@ type DomainUpdate = Partial<
 	>
 >;
 
+/** Scoped reads check project access; the task paths read by id only. */
 @Injectable()
 export class DomainsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -152,6 +159,25 @@ export class DomainsRepository {
 		if (!project) {
 			throw new NotFoundException("Project not found");
 		}
+	}
+
+	/**
+	 * Reads the engine and the suspension of a live project, by id only: the
+	 * activation task has no scope. Null for a missing or soft-deleted project.
+	 */
+	async findProjectServing(projectId: string): Promise<ProjectServing | null> {
+		const [project] = await this.db
+			.select({
+				engine: projects.engine,
+				suspendedReasonCode: projects.suspendedReasonCode,
+			})
+			.from(projects)
+			.where(
+				and(eq(projects.id, projectId), sql`${projects.deletedAt} IS NULL`),
+			)
+			.limit(1);
+
+		return project ?? null;
 	}
 
 	async listByProject(

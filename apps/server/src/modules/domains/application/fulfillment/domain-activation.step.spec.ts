@@ -1,7 +1,9 @@
+import { DEFAULT_APP_WORKER_LIMITS, type HostPointer } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
 	DomainActivationStep,
 	DomainActivationTransientError,
+	type ProjectServing,
 } from "./domain-activation.step";
 import type { DomainFulfillmentRow } from "./domain-fulfillment.contracts";
 
@@ -50,9 +52,15 @@ function setup(
 		refundStatus: null,
 		status: "fulfilling",
 	},
+	// A V1 page by default, so the older cases keep the V1 pointer.
+	serving: ProjectServing | null = {
+		engine: "v1_page",
+		suspendedReasonCode: null,
+	},
 ) {
 	let currentDomain = initialDomain;
 	let currentOrder = initialOrder;
+	let currentServing = serving;
 	const events: string[] = [];
 	const logger = {
 		error: vi.fn(),
@@ -102,6 +110,7 @@ function setup(
 
 			return currentDomain;
 		}),
+		findProjectServing: vi.fn(async (_projectId: string) => currentServing),
 		logger,
 		markDomainFailed: vi.fn(async (_id: string, summary: string) => {
 			events.push(`mark-domain-failed:${summary}`);
@@ -132,16 +141,10 @@ function setup(
 
 			return currentOrder;
 		}),
-		putDomainPointer: vi.fn(
-			async (
-				name: string,
-				pointer: { projectId: string; source: "domain" },
-			) => {
-				events.push(
-					`put-pointer:${name}:${pointer.projectId}:${pointer.source}`,
-				);
-			},
-		),
+		onProjectDomainsChanged: vi.fn(async (_projectId: string) => undefined),
+		putDomainPointer: vi.fn(async (name: string, pointer: HostPointer) => {
+			events.push(`put-pointer:${name}:${pointer.projectId}:${pointer.source}`);
+		}),
 		updateDomainIfStatus: vi.fn(
 			async (
 				_id: string,
@@ -176,6 +179,9 @@ function setup(
 		setDomain(next: DomainFulfillmentRow) {
 			currentDomain = next;
 		},
+		setServing(next: ProjectServing | null) {
+			currentServing = next;
+		},
 		step,
 	};
 }
@@ -200,6 +206,109 @@ describe("DomainActivationStep", () => {
 		);
 		expect(fixture.domain).toMatchObject({ error: null, status: "active" });
 		expect(fixture.order.status).toBe("fulfilled");
+		expect(fixture.dependencies.onProjectDomainsChanged).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			"a live V2 app",
+			null,
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				source: "domain",
+			},
+		],
+		[
+			"a suspended V2 app",
+			"abuse_phishing",
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				reasonCode: "abuse_phishing",
+				source: "domain",
+				status: "suspended",
+			},
+		],
+	] as const)("writes the app pointer of %s and syncs its auth URLs", async (_label, suspendedReasonCode, pointer) => {
+		const fixture = setup(domain(), undefined, {
+			engine: "v2_app",
+			suspendedReasonCode,
+		});
+
+		await expect(fixture.step.execute(fixture.domain)).resolves.toMatchObject({
+			processed: true,
+			status: "active",
+		});
+
+		expect(
+			fixture.dependencies.putDomainPointer,
+		).toHaveBeenCalledExactlyOnceWith("example.com", pointer);
+		expect(
+			fixture.dependencies.onProjectDomainsChanged,
+		).toHaveBeenCalledExactlyOnceWith(projectId);
+	});
+
+	it.each([
+		["wins", true],
+		["loses", false],
+	])("rewrites the app pointer when staff suspend the app before the CAS that this run %s", async (_label, isCasWinner) => {
+		const fixture = setup(domain(), undefined, {
+			engine: "v2_app",
+			suspendedReasonCode: null,
+		});
+		fixture.dependencies.updateDomainIfStatus.mockImplementationOnce(
+			async () => {
+				// The suspend switch skips the row here: the row is not active yet.
+				fixture.setServing({
+					engine: "v2_app",
+					suspendedReasonCode: "abuse_phishing",
+				});
+				fixture.setDomain(domain("active"));
+
+				return isCasWinner ? fixture.domain : null;
+			},
+		);
+
+		await expect(fixture.step.execute(fixture.domain)).resolves.toMatchObject({
+			processed: true,
+			status: "active",
+		});
+
+		expect(fixture.dependencies.putDomainPointer).toHaveBeenLastCalledWith(
+			"example.com",
+			{
+				kind: "app",
+				limits: DEFAULT_APP_WORKER_LIMITS,
+				projectId,
+				reasonCode: "abuse_phishing",
+				source: "domain",
+				status: "suspended",
+			},
+		);
+	});
+
+	it("keeps a V2 app domain active when the auth URL sync fails", async () => {
+		const fixture = setup(domain(), undefined, {
+			engine: "v2_app",
+			suspendedReasonCode: null,
+		});
+		fixture.dependencies.onProjectDomainsChanged.mockRejectedValueOnce(
+			new Error("Trigger unavailable"),
+		);
+
+		await expect(fixture.step.execute(fixture.domain)).resolves.toMatchObject({
+			processed: true,
+			status: "active",
+		});
+
+		expect(fixture.order.status).toBe("fulfilled");
+		expect(fixture.dependencies.logger.warn).toHaveBeenCalledWith(
+			`Failed to sync auth URLs for domain ${domainId} of project ${projectId}`,
+			"Trigger unavailable",
+		);
 	});
 
 	it("clears a stalled external marker as part of activation", async () => {
@@ -390,8 +499,16 @@ describe("DomainActivationStep", () => {
 		expect(fixture.dependencies.markOrderFulfilled).not.toHaveBeenCalled();
 	});
 
-	it("activates and fulfills a projectless paid purchase without writing KV", async () => {
-		const fixture = setup(domain("configuring", { projectId: null }));
+	it.each<[string, string | null, ProjectServing | null | undefined]>([
+		["no project", null, undefined],
+		// The customer paid, so the domain still activates, but with no live host.
+		["a soft-deleted project", projectId, null],
+	])("activates and fulfills a paid purchase of %s without writing KV", async (_label, rowProjectId, serving) => {
+		const fixture = setup(
+			domain("configuring", { projectId: rowProjectId }),
+			undefined,
+			serving,
+		);
 
 		await expect(fixture.step.execute(fixture.domain)).resolves.toMatchObject({
 			processed: true,
@@ -404,15 +521,21 @@ describe("DomainActivationStep", () => {
 		expect(fixture.order.status).toBe("fulfilled");
 	});
 
-	it("cleans and fails a detached external domain instead of activating it", async () => {
+	it.each<[string, string | null, ProjectServing | null | undefined]>([
+		["no project", null, undefined],
+		// A soft-deleted project reads as null and gets no new live host.
+		["a soft-deleted project", projectId, null],
+	])("cleans and fails an external domain of %s instead of activating it", async (_label, rowProjectId, serving) => {
 		const fixture = setup(
 			domain("configuring", {
 				paymentOrderId: null,
-				projectId: null,
+				projectId: rowProjectId,
 				provider: null,
 				providerDomainId: null,
 				source: "external",
 			}),
+			undefined,
+			serving,
 		);
 
 		await expect(fixture.step.execute(fixture.domain)).resolves.toEqual({

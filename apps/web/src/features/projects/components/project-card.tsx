@@ -1,7 +1,24 @@
-// Dashboard grid card: hero/gradient thumbnail, name, status badge, lead count,
-// updated-at, hover actions (open / view live / rename / delete).
+/**
+ * The project card of the dashboard grid, drawn like an app on a phone home
+ * screen. The stage shows the preview in a phone or browser frame, or an app
+ * tile with the first letter of the name. The meta row shows the platform, the
+ * lead count (V1 pages only), and the update time. dashboard-page.tsx renders
+ * the card and ProjectCardSkeleton. The card menu opens, views live, renames,
+ * or deletes a project; renames and deletes go through projects.mutations.ts.
+ */
 
+import type { Icon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { BrowserIcon } from "@phosphor-icons/react/Browser";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
+import { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";
+import { GlobeSimpleIcon } from "@phosphor-icons/react/GlobeSimple";
+import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { Link, useNavigate } from "@tanstack/react-router";
+import type { TargetPlatform } from "@wandit/contracts";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -12,7 +29,6 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@wandit/ui/components/alert-dialog";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -31,20 +47,8 @@ import {
 } from "@wandit/ui/components/dropdown-menu";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	ExternalLink,
-	Loader2,
-	MoreHorizontal,
-	PenLine,
-	Trash2,
-	Users,
-} from "lucide-react";
 import type * as React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -54,32 +58,84 @@ import { relativeTime } from "@/lib/relative-time";
 import type { Project } from "../api/dto";
 import { useDeleteProject, useRenameProject } from "../api/projects.mutations";
 import { PROJECT_NAME_MAX_LENGTH } from "../lib/constants";
-import { shouldShowProjectPreview, thumbGradient } from "../lib/helpers";
+import {
+	projectTileGlyph,
+	projectTileLook,
+	shouldShowProjectPreview,
+} from "../lib/helpers";
 
-function StatusBadge({ status }: { status: Project["status"] }) {
+const STATUS_PILL_CLASS =
+	"inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 font-grotesk font-semibold text-[11px]";
+
+/** The status pill at the top-start corner of the stage. */
+function StatusPill({ status }: { status: Project["status"] }) {
 	const { t } = useTranslation();
 	if (status === "published") {
 		return (
-			<Badge variant="success" className="font-mono text-[10px]">
-				<span
-					aria-hidden
-					className="size-1.5 shrink-0 rounded-full bg-current"
-				/>
+			<span
+				className={cn(
+					STATUS_PILL_CLASS,
+					"bg-night text-paper dark:ring-1 dark:ring-white/15",
+				)}
+			>
+				<span aria-hidden className="size-1.5 shrink-0 rounded-full bg-spark" />
 				{t("projects.statusPublished")}
-			</Badge>
+			</span>
 		);
 	}
 	if (status === "publishing") {
 		return (
-			<Badge className="animate-pulse font-mono text-[10px]">
+			<span
+				className={cn(
+					STATUS_PILL_CLASS,
+					"animate-pulse bg-spark text-night motion-reduce:animate-none",
+				)}
+			>
 				{t("projects.statusPublishing")}
-			</Badge>
+			</span>
 		);
 	}
 	return (
-		<Badge variant="secondary" className="font-mono text-[10px]">
+		<span
+			className={cn(
+				STATUS_PILL_CLASS,
+				"bg-white/85 text-night/70 ring-1 ring-night/10 backdrop-blur",
+				"dark:bg-card/85 dark:text-foreground/70 dark:ring-white/10",
+			)}
+		>
 			{t("projects.statusDraft")}
-		</Badge>
+		</span>
+	);
+}
+
+// The meta row shows a phone for a mobile app and a browser for a web app.
+const PLATFORM_ICONS = {
+	web: BrowserIcon,
+	mobile: DeviceMobileIcon,
+} as const satisfies Record<TargetPlatform, Icon>;
+
+/**
+ * The platform of a V2 project in the card meta row: an icon, then "Web app"
+ * or "Mobile app". A V1 page project has no platform, so it shows nothing.
+ */
+export function PlatformBadge({
+	platform,
+}: {
+	/** `Project.targetPlatform` from the list answer; null on a V1 page project. */
+	platform: Project["targetPlatform"];
+}) {
+	const { t } = useTranslation();
+	if (platform === null) {
+		return null;
+	}
+	const PlatformIcon = PLATFORM_ICONS[platform];
+	return (
+		<span className="inline-flex min-w-0 items-center gap-1">
+			<PlatformIcon aria-hidden weight="duotone" className="size-4 shrink-0" />
+			<span className="truncate">
+				{t(`projects.promptBox.platforms.${platform}.label`)}
+			</span>
+		</span>
 	);
 }
 
@@ -145,7 +201,11 @@ function RenameDialog({
 						</Button>
 						<Button type="submit" disabled={!name.trim() || rename.isPending}>
 							{rename.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
+								<CircleNotchIcon
+									aria-hidden
+									weight="bold"
+									className="size-4 animate-spin"
+								/>
 							) : null}
 							{t("projects.renameSave")}
 						</Button>
@@ -156,8 +216,22 @@ function RenameDialog({
 	);
 }
 
+/** The loading shape of a ProjectCard. The dashboard grid shows it while the project list loads. */
+export function ProjectCardSkeleton() {
+	return (
+		<div className="rounded-[1.75rem] bg-white p-1.5 ring-1 ring-night/[0.08] dark:bg-card dark:ring-white/10">
+			<Skeleton className="aspect-[16/10] rounded-[1.375rem]" />
+			<div className="space-y-2.5 px-3 pt-3 pb-2.5">
+				<Skeleton className="h-4 w-2/3" />
+				<Skeleton className="h-3 w-1/2" />
+			</div>
+		</div>
+	);
+}
+
+/** One project in the dashboard grid. A click opens the workspace at /p/$projectId. */
 export function ProjectCard({ project }: { project: Project }) {
-	const { t, dir } = useTranslation();
+	const { t } = useTranslation();
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
@@ -166,8 +240,8 @@ export function ProjectCard({ project }: { project: Project }) {
 	>(null);
 	const deleteProject = useDeleteProject();
 
-	const isPublished = project.status === "published";
-	const glyph = project.name.trim().charAt(0).toUpperCase() || "✦";
+	const glyph = projectTileGlyph(project.name);
+	const look = projectTileLook(project.thumbnailSeed);
 	const showPreview = shouldShowProjectPreview(
 		project.previewImageUrl,
 		failedPreviewImageUrl,
@@ -179,118 +253,177 @@ export function ProjectCard({ project }: { project: Project }) {
 		});
 	};
 
+	const previewImage = (
+		<img
+			key={project.previewImageUrl}
+			src={project.previewImageUrl ?? undefined}
+			alt=""
+			loading="lazy"
+			decoding="async"
+			onError={() => setFailedPreviewImageUrl(project.previewImageUrl)}
+			className="block size-full object-cover object-top"
+		/>
+	);
+
 	return (
+		// The outer div keeps still, so the cursor stays on it while the inner card lifts.
 		<div className="group relative">
-			<Link
-				to="/p/$projectId"
-				params={{ projectId: project.id }}
-				className={cn(
-					"block overflow-hidden rounded-xl border bg-card transition-all duration-150",
-					"hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg",
-					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-				)}
-			>
-				<div
-					aria-hidden
-					className="relative aspect-video"
-					style={{ background: thumbGradient(project.thumbnailSeed) }}
+			{/* h-full: every card in a grid row ends at the same line, also when one has a live address line. */}
+			<div className="relative h-full transition-transform duration-200 motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1">
+				<Link
+					to="/p/$projectId"
+					params={{ projectId: project.id }}
+					className={cn(
+						"block h-full rounded-[1.75rem] bg-white p-1.5 ring-1 ring-night/[0.08]",
+						// A solid bottom edge, like a key. It grows when the card lifts.
+						"shadow-[0_2px_0_rgb(11_16_51/0.06)] transition-shadow duration-200 group-focus-within:shadow-[0_6px_0_rgb(11_16_51/0.12)] group-hover:shadow-[0_6px_0_rgb(11_16_51/0.12)]",
+						"outline-offset-2 focus-visible:outline-2 focus-visible:outline-ember",
+						"dark:bg-card dark:shadow-[0_2px_0_rgb(0_0_0/0.35)] dark:ring-white/10 dark:group-hover:shadow-[0_6px_0_rgb(0_0_0/0.5)] dark:group-focus-within:shadow-[0_6px_0_rgb(0_0_0/0.5)]",
+					)}
 				>
-					{showPreview ? (
-						<img
-							key={project.previewImageUrl}
-							src={project.previewImageUrl ?? undefined}
-							alt=""
-							loading="lazy"
-							decoding="async"
-							onError={() => setFailedPreviewImageUrl(project.previewImageUrl)}
-							className="absolute inset-0 h-full w-full object-cover object-top"
-						/>
-					) : (
-						<>
-							<div className="pointer-events-none absolute inset-0 bg-grain" />
-							<span className="absolute end-4 bottom-0 select-none font-bold font-display text-8xl text-white/15 leading-none">
+					<div
+						className="relative aspect-[16/10] overflow-hidden rounded-[1.375rem] [--stage-dot:rgb(11_16_51/0.07)] dark:[--stage-dot:rgb(255_255_255/0.06)]"
+						style={{
+							// A faint dot grid over a soft tint of the tile colors.
+							backgroundImage: `radial-gradient(circle, var(--stage-dot) 1px, transparent 1.5px), linear-gradient(160deg, color-mix(in oklab, ${look.to} 28%, var(--card)), color-mix(in oklab, ${look.from} 14%, var(--card)))`,
+							backgroundSize: "14px 14px, auto",
+						}}
+					>
+						{showPreview && project.targetPlatform === "mobile" ? (
+							<div
+								aria-hidden
+								className="absolute inset-x-0 top-[12%] mx-auto aspect-[9/19] w-[36%] overflow-hidden rounded-[1.25rem] border-[5px] border-night bg-night shadow-[0_18px_30px_-12px_rgb(11_16_51/0.5)] transition-transform duration-300 motion-safe:group-hover:-translate-y-1 dark:ring-1 dark:ring-white/10"
+							>
+								<span className="absolute inset-x-0 top-1 z-10 mx-auto h-1.5 w-1/3 rounded-full bg-night" />
+								{previewImage}
+							</div>
+						) : showPreview ? (
+							// A web app or a V1 page: the preview sits in a browser window.
+							<div
+								aria-hidden
+								className="absolute inset-x-[8%] top-[20%] -bottom-3 overflow-hidden rounded-t-xl bg-white shadow-[0_14px_30px_-12px_rgb(11_16_51/0.35)] ring-1 ring-night/10 transition-transform duration-300 motion-safe:group-hover:-translate-y-1 dark:bg-card dark:ring-white/10"
+							>
+								<div className="flex h-5 items-center gap-1 ps-2.5 *:size-1.5 *:rounded-full *:bg-night/15 dark:*:bg-white/20">
+									<span />
+									<span />
+									<span />
+								</div>
+								{previewImage}
+							</div>
+						) : (
+							<span
+								aria-hidden
+								className="absolute inset-0 m-auto grid size-16 select-none place-items-center rounded-[28%] font-extrabold font-grotesk text-[1.75rem] leading-none transition-transform duration-300 motion-safe:group-hover:-translate-y-1 motion-safe:group-hover:-rotate-6"
+								style={{
+									color: look.ink,
+									// The glossy tile of the landing ideas wall: a white shine over the two-stop gradient.
+									backgroundImage: `radial-gradient(120% 90% at 22% 8%, rgb(255 255 255 / 0.32), transparent 52%), linear-gradient(155deg, ${look.from}, ${look.to})`,
+									// The hairline ring keeps the light tiles visible on a light stage.
+									boxShadow: `inset 0 0 0 1px rgb(11 16 51 / 0.06), inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -3px 8px rgb(0 0 0 / 0.1), 0 12px 22px -12px color-mix(in oklab, ${look.to} 70%, transparent)`,
+								}}
+							>
 								{glyph}
 							</span>
-						</>
-					)}
-					<div className="absolute start-2 top-2">
-						<StatusBadge status={project.status} />
-					</div>
-				</div>
-				<div className="p-3.5">
-					<h3 className="truncate font-display font-semibold text-sm">
-						{project.name}
-					</h3>
-					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
-						<Users aria-hidden className="size-3 shrink-0" />
-						<span>{t("projects.leadCount", { count: project.leadCount })}</span>
-						<span aria-hidden className="text-muted-foreground/50">
-							·
-						</span>
-						<span>{relativeTime(project.updatedAt)}</span>
-					</div>
-					{isPublished && project.publishedSlug ? (
-						<div className="mt-1.5 truncate font-mono text-primary text-xs">
-							{project.publishedSlug}
-							{t("projects.publishedDomain")}
+						)}
+						<div className="absolute start-3 top-3">
+							<StatusPill status={project.status} />
 						</div>
-					) : null}
-				</div>
-			</Link>
+					</div>
+					<div className="px-3 pt-3 pb-2.5">
+						<h3 className="truncate font-grotesk font-semibold text-[15px] text-night tracking-[-0.01em] dark:text-foreground">
+							{project.name}
+						</h3>
+						<div className="mt-1 flex items-center gap-3 text-[13px] text-night/55 dark:text-foreground/55">
+							<PlatformBadge platform={project.targetPlatform} />
+							{/* A V2 app collects no leads: the leads SDK is canceled, so its count is always 0. */}
+							{project.engine === "v2_app" ? null : (
+								<span className="inline-flex min-w-0 items-center gap-1">
+									<UsersThreeIcon
+										aria-hidden
+										weight="duotone"
+										className="size-4 shrink-0"
+									/>
+									<span className="truncate">
+										{t("projects.leadCount", { count: project.leadCount })}
+									</span>
+								</span>
+							)}
+							<span className="ms-auto shrink-0 tabular-nums">
+								{relativeTime(project.updatedAt)}
+							</span>
+						</div>
+						{project.liveUrl ? (
+							<div className="mt-1.5 inline-flex max-w-full items-center gap-1 font-medium text-[13px] text-ember-text">
+								<GlobeSimpleIcon
+									aria-hidden
+									weight="duotone"
+									className="size-3.5 shrink-0"
+								/>
+								{/* A domain reads left to right, also on an Arabic page. */}
+								<span dir="ltr" className="truncate">
+									{new URL(project.liveUrl).host}
+								</span>
+							</div>
+						) : null}
+					</div>
+				</Link>
 
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button
-						variant="secondary"
-						size="icon-sm"
-						aria-label={t("projects.cardMenuLabel")}
-						onClick={(e) => e.stopPropagation()}
-						className="absolute end-2 top-2 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-					>
-						<MoreHorizontal className="size-4" />
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-44">
-					<DropdownMenuItem
-						onSelect={() =>
-							navigate({
-								to: "/p/$projectId",
-								params: { projectId: project.id },
-							})
-						}
-					>
-						<ExternalLink />
-						{t("projects.menuOpen")}
-					</DropdownMenuItem>
-					{isPublished ? (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div>
-									<DropdownMenuItem disabled>
-										<ExternalLink />
-										{t("projects.menuViewLive")}
-									</DropdownMenuItem>
-								</div>
-							</TooltipTrigger>
-							<TooltipContent side={dir === "rtl" ? "left" : "right"}>
-								{t("projects.menuViewLiveMock")}
-							</TooltipContent>
-						</Tooltip>
-					) : null}
-					<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
-						<PenLine />
-						{t("projects.menuRename")}
-					</DropdownMenuItem>
-					<DropdownMenuSeparator />
-					<DropdownMenuItem
-						variant="destructive"
-						onSelect={() => setDeleteOpen(true)}
-					>
-						<Trash2 />
-						{t("projects.menuDelete")}
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<button
+							type="button"
+							aria-label={t("projects.cardMenuLabel")}
+							onClick={(e) => e.stopPropagation()}
+							className={cn(
+								"absolute end-3.5 top-3.5 grid size-8 place-items-center rounded-full bg-white/90 text-night shadow-sm ring-1 ring-night/10 backdrop-blur transition-[opacity,background-color] duration-150 hover:bg-white",
+								// Hidden until the card is hovered or focused. A touch screen has no hover, so it always shows there.
+								"opacity-0 pointer-coarse:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100",
+								"outline-offset-2 focus-visible:outline-2 focus-visible:outline-ember",
+								"dark:bg-card/90 dark:text-foreground dark:ring-white/10 dark:hover:bg-card",
+							)}
+						>
+							<DotsThreeIcon aria-hidden weight="bold" className="size-4" />
+						</button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="w-44">
+						<DropdownMenuItem
+							onSelect={() =>
+								navigate({
+									to: "/p/$projectId",
+									params: { projectId: project.id },
+								})
+							}
+						>
+							<ArrowSquareOutIcon aria-hidden weight="duotone" />
+							{t("projects.menuOpen")}
+						</DropdownMenuItem>
+						{project.liveUrl ? (
+							<DropdownMenuItem asChild>
+								<a
+									href={project.liveUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<GlobeSimpleIcon aria-hidden weight="duotone" />
+									{t("projects.menuViewLive")}
+								</a>
+							</DropdownMenuItem>
+						) : null}
+						<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
+							<PencilSimpleIcon aria-hidden weight="duotone" />
+							{t("projects.menuRename")}
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem
+							variant="destructive"
+							onSelect={() => setDeleteOpen(true)}
+						>
+							<TrashIcon aria-hidden weight="duotone" />
+							{t("projects.menuDelete")}
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</div>
 
 			{renameOpen ? (
 				<RenameDialog

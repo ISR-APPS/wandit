@@ -1,12 +1,14 @@
 /**
- * Orchestration behind the turn API: create, cancel, stream access checks,
- * and the end-of-turn promotion trigger.
+ * Orchestration behind the turn API: create, the pre-send estimate, cancel,
+ * stream access checks, and the end-of-turn promotion trigger.
  * Called by `turns.controller.ts`. It orders the side effects the issue
  * fixes: scope/engine checks first (404 before any credit moves), then the
  * model allow-list, the monthly cap, and the per-actor turn limit, then
  * the `agent_session` metering hold, then the session row, the project
  * lock, the turn row, the user message, and the task handoff. Every
  * failure after the hold refunds it.
+ * It writes the `turn.start` and `turn.cancel` audit rows through `AuditEventsService`,
+ * and `turn.end` when its own `cancelling -> canceled` CAS wins.
  */
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,6 +30,7 @@ import {
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
+	type TurnEstimateResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
@@ -57,6 +60,7 @@ import {
 import { TURN_LOCK, type TurnLock } from "../../domain/ports/turn-lock";
 import {
 	TURN_TASK_STARTER,
+	type TurnRunHandle,
 	type TurnTaskStarter,
 } from "../../domain/ports/turn-task-starter";
 import {
@@ -65,9 +69,11 @@ import {
 } from "../../domain/turn-caps";
 import {
 	CANCELLABLE_TURN_STATUSES,
+	hostRunIdOf,
 	isTerminalStatus,
 	nextStatusForCancel,
 	RESTORE_LOCK_HOLDER_PREFIX,
+	WAKE_LOCK_HOLDER_PREFIX,
 } from "../../domain/turn-queue";
 import { V2_ENV, type V2EnvSource } from "../../infrastructure/env/v2-env";
 import {
@@ -86,6 +92,7 @@ import {
 	LlmSpendCounters,
 } from "../../infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
+import { AuditEventsService, type AuditRecord } from "./audit-events.service";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "./llm-proxy-token.service";
 import { TurnPromoter } from "./turn-promotion";
 
@@ -104,9 +111,9 @@ export const TURN_HOLD_DEFAULT_CREDITS = 1_400;
 export const MAX_ACTIVE_TURNS_PER_ACTOR = 3;
 
 /**
- * The create-time hold estimate `responseFor` reports. `modelId` is null
+ * The hold estimate of `estimateTurn`, in centi-credits. `modelId` is null
  * only when no deploy default is set and the body picks none; the
- * contract needs a model name, so the response omits `estimate` then.
+ * contract needs a model name, so the answers omit the estimate then.
  */
 type TurnEstimate = {
 	/** `fixed`: the default hold; `history`: the project's settled median. */
@@ -164,6 +171,8 @@ export class TurnsService {
 			SubscriptionsRepository,
 			"findActiveByOwner"
 		>,
+		@Inject(AuditEventsService)
+		private readonly audit: Pick<AuditEventsService, "record">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -180,8 +189,14 @@ export class TurnsService {
 		scope: ProjectScope,
 		projectId: string,
 		body: CreateTurnRequest,
-		/** Set by the create-project path: the first user message row already exists inside the create transaction. */
-		options: { existingMessageId?: string } = {},
+		options: {
+			/** Set by the create-project path: the first user message row already exists inside the create transaction. */
+			existingMessageId?: string;
+			/** Client IP of the request, from `readClientIp`, for the `turn.start` audit row. The create-project path passes none. */
+			ip?: string;
+			/** `Date.now()` ms when the HTTP request arrived; feeds `apiCreateMs` of the timing line. */
+			requestStartedAt?: number;
+		} = {},
 	): Promise<CreateTurnResponse> {
 		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
 		// One 404 for "missing", "out of scope", and "not a V2 project".
@@ -195,9 +210,15 @@ export class TurnsService {
 		}
 
 		assertWanditHostedAttachments(scope.userId, body.attachments);
+		// Security check: an answer file reaches the sandbox copy, so it
+		// passes the same owner check as an attachment.
+		assertWanditHostedAttachments(
+			scope.userId,
+			body.answers?.flatMap((answer) => answer.files),
+		);
 
 		// A paused approval card must be answered before a new turn starts;
-		// a paused question is answered by the message text itself.
+		// a paused question is answered by `answers` or by the message text.
 		const waitingTurn = await this.turns.findWaitingForUser(projectId);
 		if (
 			waitingTurn?.status === "waiting_for_approval" &&
@@ -305,10 +326,12 @@ export class TurnsService {
 				model,
 			);
 			const spec: BuilderTurnSpec = {
+				answers: body.answers ?? [],
 				approval: body.approval,
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,
 				message: body.message,
+				targets: body.targets ?? [],
 			};
 
 			// The row check is the fast path; the lock is authoritative. The
@@ -325,14 +348,17 @@ export class TurnsService {
 			lockHeld = acquired;
 
 			if (!acquired && active === null && oldestWaiting === null) {
-				// The busy lock holder is not a turn row. A `restore:` prefix
-				// marks a running restore; parking would strand the row because
-				// a restore never promotes a waiting turn. Answer a 409.
+				// The busy lock holder is not a turn row. A `restore:` or `wake:`
+				// prefix marks a running restore or sandbox wake. Neither promotes
+				// a waiting turn, so a parked row would strand. Answer a 409.
 				const holder = await this.lock.holder(projectId);
-				if (holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX)) {
+				if (
+					holder?.startsWith(RESTORE_LOCK_HOLDER_PREFIX) ||
+					holder?.startsWith(WAKE_LOCK_HOLDER_PREFIX)
+				) {
 					throw new ConflictException({
 						code: BUILDER_TURN_ACTIVE_ERROR_CODE,
-						message: "A restore is running for this project",
+						message: "A restore or a sandbox wake is running for this project",
 					});
 				}
 			}
@@ -354,6 +380,12 @@ export class TurnsService {
 				userId: scope.userId,
 			});
 			rowCreated = true;
+			// Whole ms: the task payload schema takes an integer, and Fastify
+			// counts the request time with decimals.
+			const apiCreateMs =
+				options.requestStartedAt === undefined
+					? null
+					: Math.round(Date.now() - options.requestStartedAt);
 
 			if (created.replayed) {
 				// The requestKey matched an earlier row: adopt it. The fresh hold
@@ -369,7 +401,7 @@ export class TurnsService {
 						"builder_turn_create_replayed",
 					);
 				}
-				return this.responseFor(created.turn, body.chatId, estimate);
+				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
 
 			if (options.existingMessageId === undefined) {
@@ -378,6 +410,7 @@ export class TurnsService {
 					chatId: body.chatId,
 					composer: body.composer,
 					id: messageId,
+					targets: body.targets,
 					text: body.message,
 					turnId: created.turn.id,
 				});
@@ -392,6 +425,13 @@ export class TurnsService {
 			}
 
 			if (!acquired) {
+				await this.recordTurnAudit(
+					"turn.start",
+					scope.userId,
+					created.turn,
+					options.ip ?? null,
+					{ queued: true },
+				);
 				if (oldestWaiting !== null) {
 					// The slot is free but a row is parked ahead. Promote it now;
 					// no terminal event may come.
@@ -407,19 +447,35 @@ export class TurnsService {
 							);
 						});
 				}
-				return this.responseFor(created.turn, body.chatId, estimate);
+				return turnCreatedResponseOf(created.turn, body.chatId, estimate);
 			}
 
-			const { runId } = await this.starter.start({
+			const handle = await this.starter.start({
 				actorUserId: scope.userId,
+				apiCreateMs,
 				organizationId: scope.kind === "org" ? scope.organizationId : null,
 				projectId,
 				turnId: created.turn.id,
 			});
-			await this.turns.setTriggerRunId(created.turn.id, runId);
+			await this.recordTurnAudit(
+				"turn.start",
+				scope.userId,
+				created.turn,
+				options.ip ?? null,
+				{ queued: false },
+			);
+			if (handle.runner === "host") {
+				// The relay reads a host turn from Redis by its turn id.
+				return turnCreatedResponseOf(
+					{ ...created.turn, runner: "host" },
+					body.chatId,
+					estimate,
+				);
+			}
+			await this.turns.setTriggerRunId(created.turn.id, handle.runId);
 
-			return this.responseFor(
-				{ ...created.turn, triggerRunId: runId },
+			return turnCreatedResponseOf(
+				{ ...created.turn, triggerRunId: handle.runId },
 				body.chatId,
 				estimate,
 			);
@@ -441,12 +497,14 @@ export class TurnsService {
 	 * `waiting_for_*` row flips straight to `canceled`. A paused one also
 	 * clears the chat resume state. An active row goes through
 	 * `cancelling`, a best-effort remote cancel, and a bounded settle wait
-	 * before the final CAS.
+	 * before the final CAS. `ip` is the client IP for the `turn.cancel`
+	 * audit row.
 	 */
 	async cancel(
 		scope: ProjectScope,
 		projectId: string,
 		turnId: string,
+		ip: string,
 	): Promise<CancelTurnResponse> {
 		const turn = await this.requireScopedTurn(scope, projectId, turnId);
 		const next = nextStatusForCancel(turn.status);
@@ -465,6 +523,9 @@ export class TurnsService {
 				"canceled",
 			);
 			if (moved) {
+				await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+					fromStatus: turn.status,
+				});
 				if (
 					turn.chatId !== null &&
 					(turn.status === "waiting_for_answer" ||
@@ -503,14 +564,24 @@ export class TurnsService {
 				turnId: turn.id,
 			};
 		}
-
-		if (turn.triggerRunId) {
-			await this.starter.cancel(turn.triggerRunId);
-			// The run is dead or dying; its proxy token must die with it, or a
-			// leftover sandbox process keeps spending the run cap.
-			await this.revokeRunToken(turn.triggerRunId);
+		// One row per user cancel: the request that wins the `cancelling` CAS
+		// writes it before the remote cancel can throw. A retry finds
+		// `cancelling` and writes no second row. `turn.end` holds the outcome.
+		if (turn.status !== "cancelling") {
+			await this.recordTurnAudit("turn.cancel", scope.userId, turn, ip, {
+				fromStatus: turn.status,
+			});
 		}
 
+		const handle = runHandleOf(turn);
+		if (handle !== null) {
+			await this.starter.cancel(turn.id, handle);
+			// The run is dead or dying; its proxy token must die with it, or a
+			// leftover sandbox process keeps spending the run cap.
+			await this.revokeRunToken(runIdOf(turn.id, handle));
+		}
+
+		// A host turn has no Trigger run id, so the wait polls its row.
 		await this.waitForCancelSettled(turn.id, turn.triggerRunId);
 
 		// Release before the terminal flip per the issue order: the compare-
@@ -523,6 +594,11 @@ export class TurnsService {
 			"canceled",
 		);
 		if (finalized) {
+			// The run lost this CAS, so it writes no `turn.end`. The actor is
+			// the turn creator, as in the row that the task writes.
+			await this.recordTurnAudit("turn.end", turn.userId, turn, null, {
+				status: "canceled",
+			});
 			await this.refundHold(scope, turn.id);
 		}
 
@@ -555,6 +631,30 @@ export class TurnsService {
 		return this.requireScopedTurn(scope, projectId, turnId);
 	}
 
+	/**
+	 * `GET /v2/projects/:id/turns/estimate`. The hold that the next turn on
+	 * the deploy default model reserves: the same `estimateTurn` that
+	 * `create` runs, with no write. 404 for a project that is out of scope
+	 * or not V2.
+	 */
+	async estimate(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<TurnEstimateResponse> {
+		const engine = await this.projects.findEngineByIdForScope(scope, projectId);
+		if (engine !== "v2_app") {
+			throw new NotFoundException();
+		}
+
+		const caps = await this.caps.findByProjectId(projectId);
+		const estimate = await this.estimateTurn(
+			projectId,
+			this.v2Env.V2_DEFAULT_MODEL ?? null,
+			caps?.perTurnCapCredits ?? null,
+		);
+		return { estimate: wholeCreditEstimateOf(estimate) };
+	}
+
 	/** The project's currently active turn (for `turns/active/stream`). */
 	async findActiveTurn(
 		scope: ProjectScope,
@@ -583,8 +683,9 @@ export class TurnsService {
 
 		// Same rule as cancel: a terminal turn's proxy token must not
 		// outlive the run that owned it.
-		if (row.triggerRunId) {
-			await this.revokeRunToken(row.triggerRunId);
+		const handle = runHandleOf(row);
+		if (handle !== null) {
+			await this.revokeRunToken(runIdOf(row.id, handle));
 		}
 
 		await this.promoter
@@ -890,35 +991,94 @@ export class TurnsService {
 		}
 	}
 
-	private responseFor(
-		turn: BuilderTurnRow,
-		chatId: string,
-		estimate: TurnEstimate,
-	): CreateTurnResponse {
-		return {
-			chatId,
-			// The contract's estimate needs a model name; a null model means
-			// no deploy default is set, so the field is omitted (it is
-			// optional).
-			...(estimate.modelId === null
-				? {}
-				: {
-						estimate: {
-							basis: estimate.basis,
-							// The estimate surfaces whole credits; the hold is
-							// centi-credits.
-							credits: Math.ceil(estimate.creditsCc / 100),
-							modelId: estimate.modelId,
-							multiplier: estimate.multiplier,
-						},
-					}),
-			runId: turn.triggerRunId,
-			status: turn.status,
-			// The reconnect route: the create response rides the create
-			// route's own stream, so `streamUrl` exists for a reload resume.
-			streamUrl: appBuilderRoutes.activeTurnStream(turn.projectId),
-			turnId: turn.id,
-			...(turn.status === "waiting" ? { queued: true } : {}),
-		};
+	/**
+	 * Writes one audit row about a turn. `record` logs a failed write and
+	 * never throws, so the action itself never fails here. The API writes
+	 * `turn.end` only when its `cancelling -> canceled` CAS wins. A parked
+	 * turn has no run, so its cancel writes no `turn.end`.
+	 */
+	private recordTurnAudit(
+		action: "turn.start" | "turn.cancel" | "turn.end",
+		/** The requester for a start or a cancel; the turn creator for an end. */
+		actorUserId: string,
+		turn: Pick<BuilderTurnRow, "id" | "organizationId" | "projectId">,
+		ip: string | null,
+		metadata: AuditRecord["metadata"],
+	): Promise<void> {
+		return this.audit.record({
+			action,
+			actorUserId,
+			ip,
+			metadata,
+			organizationId: turn.organizationId,
+			projectId: turn.projectId,
+			targetId: turn.id,
+			targetType: "builder_turn",
+		});
 	}
+}
+
+/**
+ * The `data-turn-created` payload of a turn. The create route sends it with
+ * the hold estimate. The resume route sends it with a null estimate: the
+ * browser then knows the turn id after a reload, so Stop can cancel.
+ */
+export function turnCreatedResponseOf(
+	turn: BuilderTurnRow,
+	chatId: string,
+	estimate: TurnEstimate | null,
+): CreateTurnResponse {
+	const wholeCredits =
+		estimate === null ? null : wholeCreditEstimateOf(estimate);
+	return {
+		chatId,
+		...(wholeCredits === null ? {} : { estimate: wholeCredits }),
+		runId: turn.triggerRunId,
+		status: turn.status,
+		// The reconnect route: the create response rides the create
+		// route's own stream, so `streamUrl` exists for a reload resume.
+		streamUrl: appBuilderRoutes.activeTurnStream(turn.projectId),
+		turnId: turn.id,
+		...(turn.status === "waiting" ? { queued: true } : {}),
+	};
+}
+
+/**
+ * The contract shape of a hold estimate, in whole credits. Null when no
+ * model is configured: the contract needs a model name.
+ */
+function wholeCreditEstimateOf(
+	estimate: TurnEstimate,
+): TurnEstimateResponse["estimate"] {
+	if (estimate.modelId === null) {
+		return null;
+	}
+	return {
+		basis: estimate.basis,
+		// The hold is in centi-credits (1 credit = 100 cc); the UI shows
+		// whole credits.
+		credits: Math.ceil(estimate.creditsCc / 100),
+		modelId: estimate.modelId,
+		multiplier: estimate.multiplier,
+	};
+}
+
+/**
+ * The run of a row, or null when no run started: a Trigger turn without a
+ * run id yet. A host turn always names the host.
+ */
+function runHandleOf(
+	turn: Pick<BuilderTurnRow, "runner" | "triggerRunId">,
+): TurnRunHandle | null {
+	if (turn.runner === "host") {
+		return { runner: "host" };
+	}
+	return turn.triggerRunId === null
+		? null
+		: { runId: turn.triggerRunId, runner: "trigger" };
+}
+
+/** The run id the turn's proxy token carries; see `hostRunIdOf`. */
+function runIdOf(turnId: string, handle: TurnRunHandle): string {
+	return handle.runner === "host" ? hostRunIdOf(turnId) : handle.runId;
 }

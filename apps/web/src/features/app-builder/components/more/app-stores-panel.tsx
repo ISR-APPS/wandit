@@ -1,173 +1,160 @@
 /**
- * App stores panel of the More view: the App Store and Google Play cards, then
- * the store listing checklist. Mobile apps only.
- * Rendered by components/more/more-view.tsx inside PanelShell, which draws the
- * title. Reads appStoresSummaryQuery; submit and connect have no backend yet.
+ * App stores panel of the More view, mobile apps only: the Android APK
+ * builds with their state and download link, and an honest iPhone row
+ * (WANDIT-284 builds iOS later). Rendered by components/more/more-view.tsx
+ * inside PanelShell, which draws the title. Reads mobileBuildsQuery, the
+ * same query as the publish popover; new builds start from that popover.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { Badge } from "@wandit/ui/components/badge";
-import { Button } from "@wandit/ui/components/button";
+import type { Icon } from "@phosphor-icons/react";
+import { AndroidLogoIcon } from "@phosphor-icons/react/AndroidLogo";
+import { AppleLogoIcon } from "@phosphor-icons/react/AppleLogo";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
+import { useQuery } from "@tanstack/react-query";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { Circle, CircleCheck, Smartphone } from "lucide-react";
-import { toast } from "sonner";
+import type { ReactNode } from "react";
 
-import { formatNumber, type TranslationKey, useTranslation } from "@/lib/i18n";
-import { appStoresSummaryQuery } from "../../api/app-builder.queries";
-import type {
-	AppProject,
-	AppStoresSummary,
-	StoreListingItemId,
-} from "../../api/dto";
+import { getApiErrorMessage } from "@/lib/api-client";
+import { formatRelativeTime, useTranslation } from "@/lib/i18n";
+import { mobileBuildsQuery } from "../../api/mobile-builds.queries";
+import { PANEL_CARD_CLASS } from "./panel-shell";
 
 export type AppStoresPanelProps = {
-	/** The build value shows `project.versionNumber` next to the build number. */
-	project: AppProject;
+	projectId: string;
 };
 
-/** Label key of each listing row. The ids come from the summary, the copy from the dictionary. */
-const LISTING_COPY: Record<StoreListingItemId, TranslationKey> = {
-	appIcon: "appBuilder.appStores.listing.appIcon",
-	appName: "appBuilder.appStores.listing.appName",
-	description: "appBuilder.appStores.listing.description",
-	screenshots: "appBuilder.appStores.listing.screenshots",
-	privacyUrl: "appBuilder.appStores.listing.privacyUrl",
-	ageRating: "appBuilder.appStores.listing.ageRating",
-};
+/** Hairline row inside a store card: one build, an empty list, or a failed load. */
+const STORE_ROW_CLASS =
+	"border-night/[0.07] border-t px-5 py-3 font-sans text-[14px] dark:border-white/[0.07]";
 
-export function AppStoresPanel({ project }: AppStoresPanelProps) {
+export function AppStoresPanel({ projectId }: AppStoresPanelProps) {
 	const { t, locale } = useTranslation();
-	const { data } = useSuspenseQuery(appStoresSummaryQuery(project.id));
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-	const doneCount = data.listing.filter((item) => item.done).length;
+	const builds = useQuery(mobileBuildsQuery(projectId));
 
 	return (
 		<>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<section className="rounded-2xl border bg-card">
-					<div className="flex items-center justify-between gap-3 px-4 py-3">
-						<h2 className="flex items-center gap-2 font-semibold">
-							<Smartphone className="size-4 shrink-0" strokeWidth={1.8} />
-							{t("appBuilder.appStores.appStore")}
-						</h2>
-						<StoreStatusBadge status={data.ios.status} />
-					</div>
-					<dl className="px-4 text-sm">
-						<div className="flex justify-between gap-4 py-1.5">
-							<dt className="text-muted-foreground">
-								{t("appBuilder.appStores.bundleId")}
-							</dt>
-							<dd className="font-mono">{data.ios.bundleId}</dd>
-						</div>
-						<div className="flex justify-between gap-4 py-1.5">
-							<dt className="text-muted-foreground">
-								{t("appBuilder.appStores.latestBuild")}
-							</dt>
-							<dd>
-								{t("appBuilder.appStores.buildValue", {
-									build: data.ios.latestBuild,
-									version: project.versionNumber,
-								})}
-							</dd>
-						</div>
-						<div className="flex justify-between gap-4 py-1.5">
-							<dt className="text-muted-foreground">
-								{t("appBuilder.appStores.testflight")}
-							</dt>
-							<dd>
-								{t("appBuilder.appStores.testers", {
-									count: data.ios.testflightTesters,
-									countDisplay: formatNumber(
-										data.ios.testflightTesters,
-										locale,
-									),
-								})}
-							</dd>
-						</div>
-					</dl>
-					<div className="p-4 pt-3">
-						<Button className="w-full" onClick={notWired}>
-							{t("appBuilder.appStores.submitForReview")}
-						</Button>
-					</div>
-				</section>
-
-				<section className="rounded-2xl border bg-card">
-					<div className="flex items-center justify-between gap-3 px-4 py-3">
-						<h2 className="flex items-center gap-2 font-semibold">
-							<Smartphone className="size-4 shrink-0" strokeWidth={1.8} />
-							{t("appBuilder.appStores.googlePlay")}
-						</h2>
-						<StoreStatusBadge status={data.android.status} />
-					</div>
-					<p className="px-4 text-muted-foreground text-sm">
-						{t("appBuilder.appStores.googlePlayHelp")}
-					</p>
-					<div className="p-4">
-						<Button variant="outline" className="w-full" onClick={notWired}>
-							{t("appBuilder.appStores.connectGooglePlay")}
-						</Button>
-					</div>
-				</section>
-			</div>
-
-			<section className="rounded-2xl border bg-card">
-				<div className="flex items-baseline gap-2 px-4 py-3">
-					<h2 className="font-semibold">
-						{t("appBuilder.appStores.listingTitle")}
-					</h2>
-					<span className="text-muted-foreground text-xs">
-						{t("appBuilder.appStores.listingProgress", {
-							done: formatNumber(doneCount, locale),
-							total: formatNumber(data.listing.length, locale),
-						})}
-					</span>
-				</div>
-				{data.listing.map((item) => (
-					<div
-						key={item.id}
-						className="flex items-center gap-3 border-t px-4 py-3 text-sm"
-					>
-						{item.done ? (
-							<CircleCheck className="size-4 shrink-0 text-primary" />
-						) : (
-							<Circle className="size-4 shrink-0 text-faint" />
-						)}
-						<span
-							className={cn("flex-1", !item.done && "text-muted-foreground")}
+			<StoreCard
+				icon={AndroidLogoIcon}
+				title={t("appBuilder.mobileBuilds.title")}
+				help={t("appBuilder.appStores.androidHelp")}
+			>
+				{/* A failed poll keeps the last list on screen. Only a first load without a list shows the error. */}
+				{builds.data === undefined ? (
+					builds.isError ? (
+						<p
+							className={cn(
+								STORE_ROW_CLASS,
+								"text-night/60 dark:text-foreground/60",
+							)}
 						>
-							{t(LISTING_COPY[item.id])}
-						</span>
-						<span className="text-muted-foreground text-xs" dir="auto">
-							{/* An empty detail means the store still waits for this item. */}
-							{item.detail === ""
-								? t("appBuilder.appStores.neededForReview")
-								: item.detail}
-						</span>
-					</div>
-				))}
-			</section>
+							{getApiErrorMessage(builds.error)}
+						</p>
+					) : (
+						<Skeleton className="mx-5 mb-4 h-12 rounded-[14px]" />
+					)
+				) : builds.data.items.length === 0 ? (
+					<p
+						className={cn(
+							STORE_ROW_CLASS,
+							"text-night/60 dark:text-foreground/60",
+						)}
+					>
+						{t("appBuilder.mobileBuilds.empty")}
+					</p>
+				) : (
+					<ul>
+						{builds.data.items.map((build) => (
+							<li
+								key={build.id}
+								className={cn(STORE_ROW_CLASS, "flex items-center gap-3")}
+							>
+								<div className="min-w-0 flex-1">
+									<p className="font-grotesk font-medium text-night dark:text-foreground">
+										{t(`appBuilder.mobileBuilds.status.${build.status}`)}
+									</p>
+									<p
+										className={cn(
+											"text-[13px]",
+											build.status === "failed"
+												? "text-destructive"
+												: "text-night/55 dark:text-foreground/55",
+										)}
+									>
+										{build.status === "failed"
+											? // The contract allows a failed row without a code. The generic `internal` text covers it.
+												t(
+													`appBuilder.mobileBuilds.errors.${build.errorCode ?? "internal"}`,
+												)
+											: formatRelativeTime(
+													build.completedAt ?? build.createdAt,
+													locale,
+												)}
+									</p>
+								</div>
+								{build.status === "finished" && build.artifactUrl ? (
+									<a
+										href={build.artifactUrl}
+										download
+										target="_blank"
+										rel="noopener noreferrer"
+										className="inline-flex shrink-0 items-center gap-1.5 font-grotesk font-medium text-[13px] text-ember-text hover:underline"
+									>
+										<DownloadSimpleIcon
+											aria-hidden
+											weight="bold"
+											className="size-3.5"
+										/>
+										{t("appBuilder.mobileBuilds.download")}
+									</a>
+								) : null}
+							</li>
+						))}
+					</ul>
+				)}
+			</StoreCard>
+			<StoreCard
+				icon={AppleLogoIcon}
+				title={t("appBuilder.appStores.iphone")}
+				help={t("appBuilder.appStores.iphoneNotAvailable")}
+			/>
 		</>
 	);
 }
 
-/** Outline pill of a store: ember text when the build can go to review, muted when nothing is set up. */
-function StoreStatusBadge({
-	status,
+/** One store card: the store medallion, its name and help line, then the rows. */
+function StoreCard({
+	icon: StoreIcon,
+	title,
+	help,
+	children,
 }: {
-	status: AppStoresSummary["ios"]["status"];
+	icon: Icon;
+	/** Translated card title, for example "Android · APK". */
+	title: string;
+	/** Translated line under the title. */
+	help: string;
+	children?: ReactNode;
 }) {
-	const { t } = useTranslation();
-	if (status === "readyToSubmit") {
-		return (
-			<Badge variant="outline" className="border-ember-text/40 text-ember-text">
-				{t("appBuilder.appStores.readyToSubmit")}
-			</Badge>
-		);
-	}
 	return (
-		<Badge variant="outline" className="text-muted-foreground">
-			{t("appBuilder.appStores.notSetUp")}
-		</Badge>
+		<section className={PANEL_CARD_CLASS}>
+			<div className="flex items-center gap-3 px-5 py-4">
+				<span
+					aria-hidden
+					className="grid size-9 shrink-0 place-items-center rounded-full bg-night text-paper dark:bg-white/[0.1] dark:text-foreground"
+				>
+					<StoreIcon weight="duotone" className="size-[18px]" />
+				</span>
+				<div className="min-w-0 flex-1">
+					<h2 className="truncate font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
+						{title}
+					</h2>
+					<p className="font-sans text-[13px] text-night/55 dark:text-foreground/55">
+						{help}
+					</p>
+				</div>
+			</div>
+			{children}
+		</section>
 	);
 }

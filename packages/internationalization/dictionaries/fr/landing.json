@@ -1,7 +1,7 @@
 {
 	"meta": {
-		"title": "Wandit — Créateur de business IA",
-		"description": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes."
+		"title": "Wandit — Crée des apps mobiles et web avec l'IA",
+		"description": "Décris ton idée en une phrase. Wandit construit une vraie app mobile ou web, avec ses écrans, la connexion et une base de données, et tu l'essaies sur ton téléphone en quelques minutes."
 	},
 	"nav": {
 		"links": {
@@ -17,143 +17,179 @@
 		"home": "Wandit — accueil"
 	},
 	"hero": {
-		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
-		"titleLine1": "Transformez une idée",
-		"titleLine2": "en business prêt à vendre.",
-		"sub": "Créez votre site, générez vos publicités, construisez votre stratégie marketing et lancez vos campagnes depuis une seule plateforme alimentée par l'IA.",
-		"trust": [
-			"Crédits offerts à l'inscription",
-			"Aucun code requis",
-			"Domaine et hébergement inclus"
-		]
-	},
-	"proofBar": {
-		"title": "Tout ce qu'il vous faut pour construire, lancer et faire grandir votre business.",
-		"items": [
-			"Sites web",
-			"Landing pages",
-			"Images publicitaires",
-			"Stratégie marketing",
-			"Analyse Ads",
-			"Lancement de campagnes"
-		]
-	},
-	"problem": {
-		"kicker": "Le problème",
-		"title": "Lancer un business ne devrait pas nécessiter dix outils et toute une équipe.",
-		"intro": "Normalement, il faut :",
-		"roles": [
-			"un développeur pour créer le site",
-			"un designer pour produire les visuels",
-			"un marketeur pour construire la stratégie",
-			"un media buyer pour gérer les campagnes"
-		],
-		"solution": "Une seule IA",
-		"resolution": "Avec Wandit, vous travaillez avec une seule IA qui comprend votre activité et orchestre tout le processus."
-	},
-	"howItWorks": {
-		"kicker": "Comment ça marche",
-		"title": "Voir Wandit en action.",
-		"steps": [
-			{
-				"title": "Décrivez votre idée",
-				"body": "Expliquez ce que vous vendez — en français, en arabe ou en anglais. Wandit comprend votre marché et votre produit."
-			},
-			{
-				"title": "Regardez l'IA construire",
-				"body": "Votre site, vos visuels publicitaires et votre stratégie se génèrent sous vos yeux. Modifiez tout par simple message."
-			},
-			{
-				"title": "Lancez et vendez",
-				"body": "Publiez en un clic, lancez vos campagnes et recevez vos commandes directement dans votre boîte de leads."
-			}
-		],
-		"demo": {
-			"prompt": "Je vends du miel de montagne des Aurès. Crée mon site, mes visuels publicitaires et ma stratégie de lancement.",
-			"artifacts": ["Site web", "Visuels publicitaires", "Stratégie marketing"],
-			"publishedToast": "Site publié",
-			"campaignsLabel": "Campagnes",
-			"liveLabel": "En direct",
-			"events": [
-				"Nouvelle commande — Alger",
-				"Nouveau lead — Oran",
-				"Campagne TikTok active"
+		"leadStart": "Crée-moi une",
+		"platforms": {
+			"mobile": "app mobile",
+			"web": "app web"
+		},
+		"switchTo": {
+			"mobile": "Passer à une app mobile",
+			"web": "Passer à une app web"
+		},
+		"inputLabel": "Décris ton app",
+		"sub": "Wandit dessine les écrans, écrit le code et installe la connexion et la base de données. Essaie-la sur ton téléphone en quelques minutes.",
+		"cta": "Construire",
+		"ctaHint": "Commence gratuitement. Sans code.",
+		"stageLabel": "Aperçu d'une app que Wandit construit",
+		"scanToOpen": "Scanne pour l'ouvrir sur ton téléphone",
+		"log": {
+			"barber": [
+				"Création de 4 écrans",
+				"Création de la table des réservations",
+				"Ajout de la connexion par e-mail",
+				"Prête sur ton téléphone"
+			],
+			"invoices": [
+				"Création du tableau de bord",
+				"Création des clients et des factures",
+				"Ajout de la connexion par e-mail",
+				"En ligne sur ledgerly.wandit.app"
+			],
+			"running": [
+				"Création de 5 écrans",
+				"Création des sorties et des membres",
+				"Ajout de la connexion par e-mail",
+				"Prête sur ton téléphone"
+			],
+			"yoga": [
+				"Création de la page des cours",
+				"Création du planning des cours",
+				"Ajout du formulaire d'inscription",
+				"En ligne sur studiosol.wandit.app"
 			]
 		}
 	},
-	"examples": {
-		"kicker": "Exemples",
-		"title": "Fait avec Wandit",
-		"sub": "Les types de pages que les vendeurs lancent chaque jour — choisis-en une pour démarrer.",
-		"startFrom": "Partir de l'exemple : {name}",
-		"rtlBadge": "RTL",
-		"items": {
-			"watch": {
-				"name": "Montre Vintage COD",
-				"category": "Produit COD",
-				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+	"howItWorks": {
+		"title": "D'une phrase à une app sur ton téléphone.",
+		"steps": [
+			{
+				"title": "Décris-la",
+				"body": "Écris ce que tu veux comme tu le dirais à un ami. En arabe, en français ou en anglais."
 			},
-			"honey": {
-				"name": "عسل الأوراس",
-				"category": "Produit COD",
-				"prompt": "صفحة هبوط لعسل جبلي حر من الأوراس — قصة المنتج، فوائده، ونموذج طلب بالدفع عند الاستلام."
+			{
+				"title": "Regarde-la se construire",
+				"body": "Wandit planifie les écrans, écrit le code et installe le backend. Tu vois chaque étape en direct."
 			},
-			"serum": {
-				"name": "Serum Éclat",
-				"category": "Beauté",
-				"prompt": "Page produit pour un sérum éclat à la vitamine C — avant/après, ingrédients, et formulaire de commande COD."
+			{
+				"title": "Essaie-la sur ton téléphone",
+				"body": "Scanne le code et l'app s'ouvre sur ton téléphone. Demande un changement et elle se met à jour sous tes yeux."
 			},
-			"dental": {
-				"name": "Cabinet Dentaire Amine",
-				"category": "Site vitrine",
-				"prompt": "Un site vitrine pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
-			},
-			"formation": {
-				"name": "Formation Ads FR",
-				"category": "Service",
-				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
-			},
-			"sneakers": {
-				"name": "Sneakers Drop DZ",
-				"category": "Promo",
-				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			{
+				"title": "Publie-la",
+				"body": "Mets ton app web en ligne sur une adresse wandit.app ou sur ton propre domaine. Génère une app Android à installer."
+			}
+		],
+		"demo": {
+			"working": [
+				"Planification de 4 écrans",
+				"Écriture de 18 fichiers",
+				"Création de la table des réservations",
+				"Ajout de la connexion par e-mail"
+			],
+			"done": "Ton app est prête. Scanne le code pour l'ouvrir sur ton téléphone.",
+			"edit": "Mets le bouton de réservation en doré",
+			"editDone": "C'est fait. Le bouton de réservation est doré sur tous les écrans.",
+			"scanTitle": "Ouvre-la sur ton téléphone",
+			"publish": "Publier",
+			"published": "En ligne",
+			"android": "App Android prête à installer",
+			"composer": "Demande un changement à Wandit",
+			"tabs": {
+				"preview": "Aperçu",
+				"code": "Code",
+				"cloud": "Cloud"
 			}
 		}
 	},
-	"features": {
-		"kicker": "Pourquoi Wandit",
-		"title": "Conçu pour ta façon de vendre.",
+	"layers": {
+		"title": "Une vraie app, jusqu'à la base de données.",
+		"sub": "La plupart des outils s'arrêtent aux écrans. Wandit construit aussi ce qu'on ne voit pas, pour que de vraies personnes utilisent ton app dès le premier jour.",
 		"items": {
-			"rtl": {
-				"title": "AR & RTL dès le premier jour",
-				"body": "Écris ton prompt en arabe et obtiens une page native de droite à gauche — mise en page, typo et formulaire de commande inclus. Le français aussi."
+			"screens": {
+				"title": "Écrans",
+				"body": "Chaque page que tes utilisateurs touchent, font défiler et balaient."
 			},
-			"leads": {
-				"title": "CRM leads COD",
-				"body": "Chaque commande arrive dans un pipeline que tu peux gérer — confirmer, expédier, terminé."
+			"signIn": {
+				"title": "Connexion",
+				"body": "E-mail et mot de passe. Chaque utilisateur a son compte."
 			},
-			"publish": {
-				"title": "Publication en un clic",
-				"body": "Ta page en ligne sur une vraie adresse en quelques secondes. Aucun hébergement à gérer."
+			"database": {
+				"title": "Base de données",
+				"body": "Réservations, scores et messages, enregistrés et synchronisés."
 			},
-			"credits": {
-				"title": "Crédits transparents",
-				"body": "Chaque action de l’IA utilise des crédits. Ton solde indique ce que chaque exécution a consommé. Aucune facture surprise."
+			"files": {
+				"title": "Fichiers",
+				"body": "Photos et documents, stockés et prêts à afficher."
 			},
-			"mobile": {
-				"title": "Pages mobile-first",
-				"body": "Pensées pour les téléphones sur lesquels tes acheteurs scrollent vraiment."
-			},
-			"versions": {
-				"title": "Versions & restauration",
-				"body": "Chaque modification est une version. Restaure n'importe laquelle en un clic."
+			"server": {
+				"title": "Code serveur",
+				"body": "E-mails, rappels et tâches qui tournent tout seuls."
 			}
+		}
+	},
+	"languages": {
+		"title": "Ton app parle arabe, français et anglais.",
+		"body": "Choisis les langues au départ. Wandit écrit chaque écran dans chacune et inverse la mise en page pour l'arabe.",
+		"pickerLabel": "Afficher l'app en"
+	},
+	"ideas": {
+		"title": "Besoin d'une idée ? Touches-en une.",
+		"sub": "Une idée remplit la zone en haut. Change n'importe quel mot, puis construis.",
+		"use": "Utiliser cette idée : {name}",
+		"useButton": "Utiliser cette idée",
+		"platforms": {
+			"mobile": "App mobile",
+			"web": "App web"
 		},
-		"pipeline": ["à confirmer", "confirmé", "expédié"],
-		"generateLabel": "Générer —",
-		"directionPanel": {
-			"ltrLang": "FR",
-			"rtlLang": "AR"
+		"items": {
+			"barber": {
+				"name": "Barbier",
+				"text": "pour mon salon de barbier, où les clients réservent un fauteuil"
+			},
+			"invoices": {
+				"name": "Factures",
+				"text": "qui envoie des factures et suit qui a payé"
+			},
+			"running": {
+				"name": "Club de course",
+				"text": "où mon club de course enregistre chaque sortie"
+			},
+			"yoga": {
+				"name": "Cours de yoga",
+				"text": "qui affiche les cours de mon studio de yoga et prend les inscriptions"
+			},
+			"clinic": {
+				"name": "Cabinet dentaire",
+				"text": "où les patients réservent une visite à mon cabinet dentaire"
+			},
+			"darija": {
+				"name": "Cours de darija",
+				"text": "qui enseigne la darija avec une leçon par jour et des séries"
+			},
+			"checkin": {
+				"name": "Accueil d'événement",
+				"text": "qui inscrit les invités de ma conférence et les accueille avec un QR code"
+			},
+			"gym": {
+				"name": "Salle de sport",
+				"text": "où les membres de ma salle réservent des cours et suivent leurs séances"
+			},
+			"tasks": {
+				"name": "Tâches d'équipe",
+				"text": "où mon équipe partage ses tâches et ses échéances"
+			},
+			"recipes": {
+				"name": "Recettes de famille",
+				"text": "pour garder les recettes de ma famille avec des photos"
+			},
+			"volunteers": {
+				"name": "Bénévoles",
+				"text": "où les bénévoles de mon association choisissent leurs créneaux"
+			},
+			"homework": {
+				"name": "Aide aux devoirs",
+				"text": "où les élèves envoient des photos de leurs devoirs à mes tuteurs"
+			}
 		}
 	},
 	"pricing": {
@@ -227,38 +263,41 @@
 		}
 	},
 	"faq": {
-		"kicker": "FAQ",
 		"title": "Tes questions, nos réponses.",
 		"items": [
 			{
-				"q": "C'est quoi les crédits ?",
-				"a": "Les crédits sont la monnaie unique de Wandit. Chaque création de page ou d’image, ainsi que chaque modification par chat, utilise des crédits. Une courte modification par chat utilise une fraction de crédit. Une longue création de page en utilise davantage. Ton solde indique ce que chaque exécution a consommé."
+				"q": "Dois-je savoir coder ?",
+				"a": "Non. Tu décris ce que tu veux et Wandit écrit le code. Si tu codes, la vue code te montre chaque fichier, et tu peux le modifier."
 			},
 			{
-				"q": "La publication est-elle gratuite ?",
-				"a": "Oui. Publier ta page et collecter des leads ne coûtent jamais de crédits. Tu ne dépenses que quand l'IA travaille pour toi."
+				"q": "Que puis-je construire ?",
+				"a": "Des apps mobiles pour iPhone et Android, des apps web, des tableaux de bord, des outils de réservation, des landing pages et des outils internes. Si tu peux le décrire, tu peux le commencer."
 			},
 			{
-				"q": "L'arabe et le RTL sont-ils gérés ?",
-				"a": "Totalement. Écris ton prompt en arabe et tu obtiens une page native de droite à gauche — mise en page, typographie et formulaire de commande inclus."
+				"q": "Comment essayer mon app mobile ?",
+				"a": "Installe Expo Go, puis scanne le QR code avec ton téléphone. L'app s'ouvre et se met à jour pendant que tu discutes."
 			},
 			{
-				"q": "Où vivent mes pages ?",
-				"a": "Chaque page publiée reçoit une adresse your-page.wandit.app sur un hébergement rapide. Les domaines personnalisés sont sur la feuille de route."
+				"q": "Puis-je mettre mon app en ligne ?",
+				"a": "Oui. Une app web passe en ligne sur une adresse wandit.app gratuite en un clic, et tu peux connecter ton propre domaine. Pour Android, Wandit génère une app à installer."
 			},
 			{
-				"q": "Que se passe-t-il quand mes crédits sont épuisés ?",
-				"a": "Tes pages publiées restent en ligne et continuent de collecter des commandes. Tu ne peux simplement plus générer ni éditer jusqu'à ce que tu recharges."
+				"q": "Qui peut se connecter à mon app ?",
+				"a": "Tes utilisateurs. Wandit ajoute des comptes avec e-mail et mot de passe, et garde leurs données dans la base de données de ton app."
+			},
+			{
+				"q": "Comment marchent les crédits ?",
+				"a": "Chaque action de l'IA utilise des crédits, et tu vois ce que chacune a utilisé. Commence gratuitement, puis choisis un plan quand tu as besoin de plus."
 			}
 		]
 	},
-	"ctaBand": {
-		"title": "Du prompt à la première commande.",
-		"sub": "Décris ton produit ce soir. Prends des commandes demain.",
-		"button": "Commence à créer gratuitement"
+	"closing": {
+		"title": "Que vas‑tu construire en premier ?",
+		"sub": "Une phrase suffit pour commencer.",
+		"cta": "Commencer à construire"
 	},
 	"footer": {
-		"tagline": "Le chemin le plus rapide d'une idée à une page qui vend.",
+		"tagline": "D'une phrase à une vraie app.",
 		"columnTitles": {
 			"product": "Produit",
 			"company": "Entreprise"
@@ -275,7 +314,7 @@
 		},
 		"copyright": "© 2026 Wandit",
 		"legalEntity": "Wandit est exploité par {company}, Dubaï, Émirats arabes unis.",
-		"madeIn": "Conçu pour les vendeurs en DZ",
-		"reportAbuse": "Signaler un abus"
+		"madeIn": "Conçu pour les créateurs en DZ",
+		"reportAbuse": "Signaler un abus :"
 	}
 }

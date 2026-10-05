@@ -12,6 +12,13 @@
  *   KV  domain:www.brand.com                        {projectId, source:"domain"}   ← the
  *       exact 2-field shape the domains pipeline writes (pointer-contract check)
  *   KV  domain:banned.wandit.app                    suspended pointer (403 page)
+ *   KV  domain:{slug}-app.wandit.app                V2 app pointer {projectId, kind:"app", ...}
+ *   KV  domain:phishing-app.wandit.app              suspended V2 app, reasonCode abuse_phishing (451)
+ *   KV  domain:unpaid-app.wandit.app                suspended V2 app, reasonCode billing (410)
+ *
+ * Miniflare runs no dispatch namespace, so the V2 app host answers the 500
+ * page locally until WANDIT-200 adds the DISPATCHER binding. The two
+ * suspended app hosts answer before any dispatch and work locally.
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -107,6 +114,44 @@ wrangler(
 	"PTR",
 );
 
+// The V2 shapes the publish task (WANDIT-178) and the suspend switch
+// (WANDIT-181) write. The fields live in packages/contracts/src/v2/publish.ts.
+function putPointer(host, pointer) {
+	wrangler(
+		"kv",
+		"key",
+		"put",
+		`domain:${host}`,
+		JSON.stringify(pointer),
+		"--binding",
+		"PTR",
+	);
+}
+
+const appSlug = `${slug}-app`;
+putPointer(`${appSlug}.wandit.app`, {
+	projectId,
+	kind: "app",
+	slug: appSlug,
+	source: "slug",
+});
+putPointer("phishing-app.wandit.app", {
+	projectId,
+	kind: "app",
+	reasonCode: "abuse_phishing",
+	slug: "phishing-app",
+	source: "slug",
+	status: "suspended",
+});
+putPointer("unpaid-app.wandit.app", {
+	projectId,
+	kind: "app",
+	reasonCode: "billing",
+	slug: "unpaid-app",
+	source: "slug",
+	status: "suspended",
+});
+
 console.log(`\nSeeded. Start the worker and probe it:
   pnpm --filter edge dev            # listens on :8799
 
@@ -116,4 +161,7 @@ console.log(`\nSeeded. Start the worker and probe it:
   curl -sI -H "Host: nope.wandit.app"         http://127.0.0.1:8799/   # 404 + no-store
   curl -sI -H "Host: banned.wandit.app"       http://127.0.0.1:8799/   # 403 suspended
   curl -sI -H "Host: customers.wandit.app"    http://127.0.0.1:8799/   # 200 health
+  curl -sI -H "Host: ${appSlug}.wandit.app"  http://127.0.0.1:8799/about   # V2 app: 500 locally until WANDIT-200 adds DISPATCHER
+  curl -sI -H "Host: phishing-app.wandit.app" http://127.0.0.1:8799/   # 451 suspended app (abuse_phishing)
+  curl -sI -H "Host: unpaid-app.wandit.app"   http://127.0.0.1:8799/   # 410 suspended app (billing)
 `);

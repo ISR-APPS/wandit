@@ -1,10 +1,13 @@
+import type { HarnessV1Bootstrap } from "@ai-sdk/harness";
 import type {
 	HarnessAgentAdapter,
 	HarnessAgentContinueTurnState,
 	HarnessAgentResumeSessionState,
 	HarnessAgentSettings,
+	prepareSandboxForHarness,
 } from "@ai-sdk/harness/agent";
 import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code";
+import type { HarnessPendingInteraction } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
 	ToolApprovalResponse,
@@ -74,6 +77,24 @@ const CONTINUE_STATE: HarnessAgentContinueTurnState = {
 	type: "continue-turn",
 };
 
+/** The question card `CONTINUE_STATE` waits on, as the envelope stores it. */
+const PENDING_COLOR_QUESTION: HarnessPendingInteraction = {
+	kind: "question",
+	questions: [
+		{
+			id: "question-1",
+			kind: "single-choice",
+			options: [
+				{ id: "option-1", label: "Blue" },
+				{ id: "option-2", label: "Green" },
+			],
+			question: "Which color?",
+		},
+	],
+	tool: "askUserQuestions",
+	toolCallId: "call-1",
+};
+
 function usage(
 	overrides: Partial<LanguageModelUsage> = {},
 ): LanguageModelUsage {
@@ -134,6 +155,8 @@ function sessionInput(): HarnessSessionInput {
 
 type Captured = {
 	agentSettings?: HarnessAgentSettings;
+	/** Calls of `agent.createSession`: starts, resumes, and keep re-attaches. */
+	createCount: number;
 	claudeSettings?: ClaudeCodeHarnessSettings;
 	createOptions?: {
 		continueFrom?: HarnessAgentContinueTurnState;
@@ -150,8 +173,15 @@ type Captured = {
 function setup(
 	streamResult?: ClaudeCodeStreamResult,
 	logger?: Pick<Console, "warn">,
+	options: {
+		keepAlive?: boolean;
+		now?: () => number;
+		/** `agent.stream` throws this once, like a send on a dead bridge socket. */
+		streamErrorOnce?: Error;
+	} = {},
 ) {
-	const captured: Captured = {};
+	const captured: Captured = { createCount: 0 };
+	let streamError = options.streamErrorOnce;
 	const session: ClaudeCodeSessionHandle = {
 		detach: vi.fn(async () => RESUME_STATE),
 		hasUnfinishedTurn: vi.fn(() => false),
@@ -168,15 +198,24 @@ function setup(
 				}
 			);
 		},
-		createSession: async (options) => {
-			captured.createOptions = options;
+		createSession: async (createOptions) => {
+			captured.createOptions = createOptions;
+			captured.createCount += 1;
 			return session;
 		},
-		stream: async () =>
-			streamResult ?? {
-				toUIMessageStream: () => (async function* () {})(),
-				totalUsage: Promise.resolve(usage()),
-			},
+		stream: async () => {
+			if (streamError !== undefined) {
+				const error = streamError;
+				streamError = undefined;
+				throw error;
+			}
+			return (
+				streamResult ?? {
+					toUIMessageStream: () => (async function* () {})(),
+					totalUsage: Promise.resolve(usage()),
+				}
+			);
+		},
 	};
 	const harness = new ClaudeCodeHarness({
 		agentFactory: (settings) => {
@@ -189,7 +228,9 @@ function setup(
 			// settings are under test.
 			return {} as HarnessAgentAdapter;
 		},
+		keepAlive: options.keepAlive,
 		logger,
+		now: options.now,
 	});
 	return { captured, harness, session };
 }
@@ -207,29 +248,37 @@ describe("ClaudeCodeHarness.createSession", () => {
 		});
 		expect(Object.keys(captured.claudeSettings?.auth ?? {})).toHaveLength(2);
 		expect(captured.claudeSettings?.env).toEqual({
-			ANTHROPIC_CUSTOM_HEADERS: "X-Wandit-Run: run-1",
+			// One Claude Code process serves many turns: no per-run header.
+			ANTHROPIC_CUSTOM_HEADERS: "",
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+			// The per-turn token note broke the prompt cache prefix.
+			CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+			WANDIT_TOKEN_EPOCH: expect.any(String),
 		});
 		expect(captured.agentSettings?.sandboxConfig?.workDir).toBe(
 			HARNESS_WORK_DIR,
 		);
 		expect(captured.agentSettings?.permissionMode).toBe("allow-all");
+		// A dead bridge must not hold a turn for the adapter default of 120 s.
+		expect(captured.claudeSettings?.startupTimeoutMs).toBe(30_000);
+		// The model asks through ask_user only; the built-in tool is off.
+		expect(captured.agentSettings?.inactiveTools).toEqual(["askUserQuestions"]);
 		expect(captured.agentSettings?.model).toBe("anthropic/claude-sonnet-5");
 		expect(captured.agentSettings?.instructions).toBe(
 			"Build the app in these languages only: ar, fr.",
 		);
 	});
 
-	it("passes only the telemetry flag to env when no custom header exists", async () => {
-		const { captured, harness } = setup();
-		const input = sessionInput();
-		delete input.env.ANTHROPIC_CUSTOM_HEADERS;
-
-		await harness.createSession(input);
-
-		expect(captured.claudeSettings?.env).toEqual({
-			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+	it("names the 30-minute token epoch in the env", async () => {
+		const { captured, harness } = setup(undefined, undefined, {
+			now: () => 3 * 30 * 60_000 + 5,
 		});
+
+		await harness.createSession(sessionInput());
+
+		// A new epoch changes the start env, so the bridge fork starts a new
+		// Claude Code process before a kept-alive connection holds an old token.
+		expect(captured.claudeSettings?.env?.WANDIT_TOKEN_EPOCH).toBe("3");
 	});
 
 	it("passes the chat id as the session id", async () => {
@@ -263,53 +312,115 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 	it("parses the stored payload and passes resumeFrom", async () => {
 		const { captured, harness } = setup();
 
-		await harness.resumeSession(sessionInput(), {
-			harness: "claude_code",
-			payload: JSON.stringify(RESUME_STATE),
-			pending: [],
-		});
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(RESUME_STATE),
+				pending: [],
+			},
+			{ bridgeDead: false, dropPausedTurn: false },
+		);
 
 		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
 		expect(captured.createOptions?.sessionId).toBe("chat-1");
 	});
 
+	it("drops the bridge coordinates of a resume when the sandbox woke", async () => {
+		const { captured, harness } = setup();
+		const stored = {
+			...RESUME_STATE,
+			data: {
+				bridge: { lastSeenEventId: 7, port: 8787, token: "bridge-token" },
+				claudeSessionId: "claude-1",
+				forkOnResume: false,
+			},
+		};
+
+		await harness.resumeSession(
+			sessionInput(),
+			{ harness: "claude_code", payload: JSON.stringify(stored), pending: [] },
+			{ bridgeDead: true, dropPausedTurn: false },
+		);
+
+		// The conversation id stays; only the dead attach target goes.
+		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
+	});
+
 	it("resumes a suspended turn through continueFrom, not resumeFrom", async () => {
 		const { captured, harness } = setup();
 
-		await harness.resumeSession(sessionInput(), {
-			harness: "claude_code",
-			payload: JSON.stringify(CONTINUE_STATE),
-			pending: [
-				{
-					kind: "question",
-					questions: [
-						{
-							id: "question-1",
-							options: [
-								{ id: "option-1", label: "Blue" },
-								{ id: "option-2", label: "Green" },
-							],
-							question: "Which color?",
-						},
-					],
-					toolCallId: "call-1",
-				},
-			],
-		});
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(CONTINUE_STATE),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ bridgeDead: false, dropPausedTurn: false },
+		);
 
 		expect(captured.createOptions?.continueFrom).toEqual(CONTINUE_STATE);
 		expect(captured.createOptions?.resumeFrom).toBeUndefined();
+	});
+
+	it("resumes the thread between turns when the bridge of a suspended turn is lost", async () => {
+		const { captured, harness } = setup();
+
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(CONTINUE_STATE),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ bridgeDead: false, dropPausedTurn: true },
+		);
+
+		// Same Claude conversation (`data`), no pending lists, no continueFrom.
+		expect(captured.createOptions?.resumeFrom).toEqual({
+			data: CONTINUE_STATE.data,
+			harnessId: "claude-code",
+			specificationVersion: "harness-v1",
+			type: "resume-session",
+		});
+		expect(captured.createOptions?.continueFrom).toBeUndefined();
+	});
+
+	it("drops the dead bridge of a lost paused turn but keeps its conversation", async () => {
+		const { captured, harness } = setup();
+		const stored = {
+			...CONTINUE_STATE,
+			data: {
+				bridge: { lastSeenEventId: 3, port: 8787, token: "bridge-token" },
+				claudeSessionId: "claude-1",
+			},
+		};
+
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify(stored),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ bridgeDead: true, dropPausedTurn: true },
+		);
+
+		expect(captured.createOptions?.resumeFrom?.data).toEqual({
+			claudeSessionId: "claude-1",
+		});
 	});
 
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
 		const { harness } = setup();
 
 		await expect(
-			harness.resumeSession(sessionInput(), {
-				harness: "opencode",
-				payload: "{}",
-				pending: [],
-			}),
+			harness.resumeSession(
+				sessionInput(),
+				{ harness: "opencode", payload: "{}", pending: [] },
+				{ bridgeDead: false, dropPausedTurn: false },
+			),
 		).rejects.toBeInstanceOf(HarnessResumeMismatchError);
 	});
 });
@@ -424,6 +535,7 @@ describe("ClaudeCodeHarness.stream", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: false,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -471,6 +583,7 @@ describe("ClaudeCodeHarness.stream", () => {
 				{
 					answers: { "question-1": { optionIds: ["option-2"] } },
 					partial: true,
+					tool: "askUserQuestions",
 					toolCallId: "call-1",
 				},
 			],
@@ -487,6 +600,48 @@ describe("ClaudeCodeHarness.stream", () => {
 				answers: { "question-1": { optionIds: ["option-2"] } },
 			},
 		});
+	});
+
+	it("maps an ask_user answer to its JSON tool result", async () => {
+		const { captured, harness } = setup();
+		const session = await harness.createSession(sessionInput());
+		const output = {
+			answers: [
+				{
+					action: "answered" as const,
+					files: [
+						{
+							filename: "logo.png",
+							mediaType: "image/png",
+							path: "public/uploads/0d1f2a3b-logo.png",
+							url: "https://assets.test/uploads/u/0d1f2a3b-9c/logo.png",
+						},
+					],
+					question: "Which style?",
+					questionId: "question-0",
+					selected: [{ id: "zellige", label: "Warm and crafted" }],
+					text: "",
+				},
+			],
+		};
+
+		for await (const _event of harness.stream(session, {
+			approvals: [],
+			kind: "continue",
+			signal: new AbortController().signal,
+			toolResults: [{ output, tool: "ask_user", toolCallId: "call-7" }],
+		})) {
+			// Drain the stream; only the continue options are under test.
+		}
+
+		expect(captured.continueOptions?.toolResultContinuations).toEqual([
+			{
+				output: { type: "json", value: output },
+				toolCallId: "call-7",
+				toolName: "ask_user",
+				type: "tool-result",
+			},
+		]);
 	});
 });
 
@@ -505,6 +660,7 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 				questions: [
 					{
 						id: "question-1",
+						kind: "single-choice",
 						options: [
 							{ id: "option-1", label: "Blue" },
 							{ id: "option-2", label: "Green" },
@@ -512,6 +668,7 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 						question: "Which color?",
 					},
 				],
+				tool: "askUserQuestions",
 				toolCallId: "call-1",
 			},
 		]);
@@ -540,10 +697,128 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 		expect(state.pending).toEqual([
 			{
 				kind: "question",
-				questions: [{ id: "question-2", options: [], question: "Any notes?" }],
+				questions: [
+					{
+						id: "question-2",
+						kind: "single-choice",
+						options: [],
+						question: "Any notes?",
+					},
+				],
+				tool: "askUserQuestions",
 				toolCallId: "call-2",
 			},
 		]);
+	});
+
+	it("maps a pending ask_user call and cuts it to the card limits", async () => {
+		const { harness, session: innerSession } = setup();
+		const longLabel = "L".repeat(150);
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: [
+				{
+					input: JSON.stringify({
+						questions: [
+							{
+								helper: "  ",
+								kind: "single-choice",
+								options: [
+									{ id: "zellige", label: longLabel, worldId: "zellige" },
+									{ id: "zellige", label: "Twin id" },
+									{ id: "", description: "No id", label: "Empty id" },
+									{ id: "d", label: "D" },
+									{ id: "e", label: "E" },
+									{ id: "f", label: "F" },
+									{ id: "g", label: "Seventh" },
+								],
+								question: "Which style?",
+							},
+							{ maxFiles: 9, question: "Your logo?", kind: "attachments" },
+							{ question: "   " },
+							{ kind: "multi-select", question: "Which pages?" },
+						],
+					}),
+					toolCallId: "call-7",
+					toolName: "ask_user",
+				},
+			],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		expect(state.pending).toEqual([
+			{
+				kind: "question",
+				questions: [
+					{
+						id: "question-0",
+						kind: "single-choice",
+						options: [
+							{ id: "zellige", label: "L".repeat(120), worldId: "zellige" },
+							{ id: "option-1", label: "Twin id" },
+							{ description: "No id", id: "option-2", label: "Empty id" },
+							{ id: "d", label: "D" },
+							{ id: "e", label: "E" },
+							{ id: "f", label: "F" },
+						],
+						question: "Which style?",
+					},
+					{
+						id: "question-1",
+						kind: "attachments",
+						maxFiles: 6,
+						options: [],
+						question: "Your logo?",
+					},
+					// A choice without options becomes a typed answer.
+					{
+						id: "question-3",
+						kind: "free-text",
+						options: [],
+						question: "Which pages?",
+					},
+				],
+				tool: "ask_user",
+				toolCallId: "call-7",
+			},
+		]);
+	});
+
+	it("gives an ask_user call without a valid question one empty free-text card", async () => {
+		const warn = vi.fn();
+		const { harness, session: innerSession } = setup(undefined, { warn });
+		const inputs = [
+			JSON.stringify({ questions: "not a list" }),
+			"{not json",
+			JSON.stringify({ questions: [] }),
+			JSON.stringify({ questions: [{ question: "   " }] }),
+		];
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: inputs.map((input, index) => ({
+				input,
+				toolCallId: `call-${index}`,
+				toolName: "ask_user",
+			})),
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		// The paused calls still need a tool result, so each gets a card.
+		expect(state.pending).toEqual(
+			inputs.map((_input, index) => ({
+				kind: "question",
+				questions: [
+					{ id: "question-0", kind: "free-text", options: [], question: "" },
+				],
+				tool: "ask_user",
+				toolCallId: `call-${index}`,
+			})),
+		);
+		expect(warn).toHaveBeenCalledTimes(4);
 	});
 
 	it("maps a pending host-tool call to an approval interaction", async () => {
@@ -627,6 +902,7 @@ describe("ClaudeCodeHarness.detach", () => {
 				questions: [
 					{
 						id: "question-1",
+						kind: "single-choice",
 						options: [
 							{ id: "option-1", label: "Blue" },
 							{ id: "option-2", label: "Green" },
@@ -634,7 +910,206 @@ describe("ClaudeCodeHarness.detach", () => {
 						question: "Which color?",
 					},
 				],
+				tool: "askUserQuestions",
 				toolCallId: "call-1",
+			},
+		]);
+	});
+});
+
+describe("ClaudeCodeHarness keep-alive (harness host)", () => {
+	/** One finished turn on a kept-alive harness; answers the stored state. */
+	async function finishOneTurn(
+		options: Parameters<typeof setup>[2] = {},
+	): Promise<
+		ReturnType<typeof setup> & {
+			stored: Awaited<ReturnType<ClaudeCodeHarness["detach"]>>;
+		}
+	> {
+		const world = setup(
+			undefined,
+			{ warn: vi.fn() },
+			{
+				keepAlive: true,
+				...options,
+			},
+		);
+		const session = await world.harness.createSession(sessionInput());
+		const stored = await world.harness.detach(session);
+		return { ...world, stored };
+	}
+
+	const LIVE = { bridgeDead: false, dropPausedTurn: false };
+
+	it("attaches a finished session again and gives it to the next turn of the chat", async () => {
+		const { captured, harness, stored } = await finishOneTurn();
+		// The start and the background re-attach.
+		expect(captured.createCount).toBe(2);
+
+		const session = await harness.resumeSession(sessionInput(), stored, LIVE);
+		const events = [];
+		for await (const event of harness.stream(session, {
+			kind: "prompt",
+			prompt: "make it blue",
+			signal: new AbortController().signal,
+		})) {
+			events.push(event);
+		}
+
+		// No third attach: the kept session serves the turn.
+		expect(captured.createCount).toBe(2);
+		expect(events.at(-1)?.type).toBe("usage");
+	});
+
+	it("resumes from the stored state when another path wrote a newer one", async () => {
+		const { captured, harness, session: inner, stored } = await finishOneTurn();
+		// A Trigger turn ran in between and stored its own state.
+		const newer = {
+			...stored,
+			payload: JSON.stringify({
+				...RESUME_STATE,
+				data: { claudeSessionId: "claude-2" },
+			}),
+		};
+
+		await harness.resumeSession(sessionInput(), newer, LIVE);
+
+		expect(captured.createCount).toBe(3);
+		// The kept socket closes; its bridge stays for the stored state.
+		expect(inner.detach).toHaveBeenCalledTimes(2);
+	});
+
+	it("resumes from the stored state when the sandbox woke", async () => {
+		const { captured, harness, stored } = await finishOneTurn();
+
+		await harness.resumeSession(sessionInput(), stored, {
+			bridgeDead: true,
+			dropPausedTurn: false,
+		});
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("drops the kept session in a new token epoch", async () => {
+		let now = 0;
+		const { captured, harness, stored } = await finishOneTurn({
+			now: () => now,
+		});
+		now = 30 * 60_000;
+
+		await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("resumes from the stored state once when the kept bridge is gone", async () => {
+		const { captured, harness, stored } = await finishOneTurn({
+			streamErrorOnce: new Error("SandboxChannel: cannot send start"),
+		});
+		const session = await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		for await (const _event of harness.stream(session, {
+			kind: "prompt",
+			prompt: "hey",
+			signal: new AbortController().signal,
+		})) {
+			// Drain the turn.
+		}
+
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("does not keep a session whose turn is still unfinished", async () => {
+		const world = setup(undefined, undefined, { keepAlive: true });
+		world.session.detach = vi.fn(async () => ({
+			...RESUME_STATE,
+			continueFrom: CONTINUE_STATE,
+		}));
+		const session = await world.harness.createSession(sessionInput());
+
+		await world.harness.detach(session);
+
+		expect(world.captured.createCount).toBe(1);
+	});
+
+	it("closes kept sessions after 20 idle minutes", async () => {
+		let now = 0;
+		const {
+			captured,
+			harness,
+			session: inner,
+			stored,
+		} = await finishOneTurn({
+			now: () => now,
+		});
+		now = 20 * 60_000;
+
+		await harness.dropIdleKept();
+		await harness.resumeSession(sessionInput(), stored, LIVE);
+
+		expect(inner.detach).toHaveBeenCalledTimes(2);
+		expect(captured.createCount).toBe(3);
+	});
+});
+
+describe("ClaudeCodeHarness template snapshot support", () => {
+	const RECIPE: HarnessV1Bootstrap = {
+		bootstrapDir: ".harness-bootstrap/claude-code",
+		commands: [{ command: "pnpm install --frozen-lockfile" }],
+		files: [
+			{
+				content: '{"@anthropic-ai/claude-code":"2.1.245"}',
+				path: "package.json",
+			},
+		],
+		harnessId: "claude-code",
+	};
+
+	function harnessWith(recipe: HarnessV1Bootstrap) {
+		const prepared: Parameters<typeof prepareSandboxForHarness>[0][] = [];
+		const adapter: HarnessAgentAdapter = {
+			// SAFETY: the harness reads only `getBootstrap` off this adapter, and
+			// the prepare fake below only records it.
+			...({} as HarnessAgentAdapter),
+			getBootstrap: async () => recipe,
+		};
+		const harness = new ClaudeCodeHarness({
+			claudeFactory: () => adapter,
+			prepareFactory: async (options) => {
+				prepared.push(options);
+				return { recipeIdentities: {}, skippedHarnessIds: [] };
+			},
+		});
+		return { adapter, harness, prepared };
+	}
+
+	it("bootstrapKey is stable for one recipe and changes with the pinned version", async () => {
+		const key = await harnessWith(RECIPE).harness.bootstrapKey();
+		const bumped = await harnessWith({
+			...RECIPE,
+			files: [
+				{
+					content: '{"@anthropic-ai/claude-code":"2.1.281"}',
+					path: "package.json",
+				},
+			],
+		}).harness.bootstrapKey();
+
+		expect(await harnessWith(RECIPE).harness.bootstrapKey()).toBe(key);
+		expect(key).toMatch(/^[0-9a-f]{64}$/);
+		expect(bumped).not.toBe(key);
+	});
+
+	it("prepareSandbox installs the adapter in the work dir of the sandbox session", async () => {
+		const { adapter, harness, prepared } = harnessWith(RECIPE);
+
+		await harness.prepareSandbox(fakeSandbox());
+
+		expect(prepared).toEqual([
+			{
+				harnesses: [adapter],
+				sandboxConfig: { workDir: HARNESS_WORK_DIR },
+				session: FAKE_SANDBOX_SESSION,
 			},
 		]);
 	});

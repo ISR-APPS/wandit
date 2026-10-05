@@ -14,6 +14,8 @@ export * from "./admin-view-grants";
 export * from "./affiliates";
 // The hidden Supabase backend of a V2 user app.
 export * from "./app-backends";
+// V2 web app publish attempts (WANDIT-178).
+export * from "./app-builds";
 // V2 project git history: commits and branches.
 export * from "./app-versions";
 // Generated page/artifact tables.
@@ -40,6 +42,8 @@ export * from "./connector-operation-events";
 export * from "./credits";
 // Deployment tables.
 export * from "./deployments";
+// Appetize device sessions of the V2 mobile preview.
+export * from "./device-sessions";
 // Domain tables.
 export * from "./domains";
 // In-app feedback and activity tables.
@@ -60,6 +64,8 @@ export * from "./llm-proxy-requests";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";
+// V2 mobile app builds on EAS.
+export * from "./mobile-builds";
 // Monthly cost input tables.
 export * from "./monthly-costs";
 // User onboarding questionnaire answers.
@@ -75,6 +81,8 @@ export * from "./page-attempts";
 export * from "./product-events";
 // Per-project V2 spend limits.
 export * from "./project-cost-caps";
+// Encrypted per-project V2 secret values.
+export * from "./project-secrets";
 // Project tables.
 export * from "./projects";
 export * from "./push-tokens";

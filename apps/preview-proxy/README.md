@@ -3,7 +3,9 @@
 One Cloudflare Worker on the `*.wanditpreview.app/*` route. It answers hosts
 of the form `r-<rid12>--p-<projectId>.wanditpreview.app`, checks a signed
 15-minute token, and forwards verified requests (HTTP and WebSocket) to the
-sandbox dev-port origin stored in the token claim `up`.
+sandbox dev-port origin stored in the token claim `up`. It also answers the
+phone hosts `m-<phoneId>--p-<projectId>.wanditpreview.app` of Expo Go
+(WANDIT-193, see "The phone link" below).
 
 ## The token
 
@@ -23,16 +25,74 @@ The API route `GET /api/v2/projects/:id/preview-token` signs the claims
    `Retry-After: 5` and the "Preview not running" page. Every error page
    posts its `wandit:preview` event to the parent frame (WANDIT-173 reads it).
 
+Every forwarded request carries `X-Forwarded-Host: <preview host>` and
+`X-Forwarded-Proto: https`. Metro builds the bundle and source map URLs
+from these two headers, so the vendor host does not reach the browser or
+the phone.
+
+A request whose `Origin` is the preview host itself goes upstream with the
+sandbox origin instead. Expo CLI refuses a request whose `Origin` host is
+not its `Host`, and a browser sends `Origin` on a font load. A foreign
+`Origin` passes unchanged, so the dev server still refuses it.
+
+## The phone link
+
+Expo Go sends no cookie, so a phone gets its own host instead of the
+`?wt=` exchange (WANDIT-193):
+
+1. The API mints a token with `GET .../preview-token?client=phone` and an
+   optional `expoUsername` claim.
+2. The caller POSTs the token as a plain-text body to
+   `https://<run host>/__wandit/phone-link`. The Worker verifies it, checks
+   `pid`/`rid12` against the host, spends one request of the token `jti`,
+   and writes `phone:<phoneId>` to `PREVIEW_KV`. The row holds the claims
+   with a 60-minute `exp` and a new `jti`, and KV deletes it after 60
+   minutes. `phoneId` is 13 random bytes in lower-case base32 (21
+   characters), so the host label has 63 characters. The answer is
+   `{expoUrl: "exps://<phone host>", expiresAt}` with
+   `Access-Control-Allow-Origin: *`: the body token is the only
+   credential.
+3. Each request on the phone host reads the row. A missing, broken, or
+   expired row answers a plain 401; another project answers 403. The
+   Worker rate-limits on the row `jti` and forwards with no cookie and no
+   redirect. WebSockets (`/hot`, `/message`) pass through.
+4. The sandbox runs Metro with
+   `EXPO_PACKAGER_PROXY_URL=https://p-<projectId>.wanditpreview.app`. On
+   `/`, `/manifest`, and `/index.exp`, a manifest answer
+   (`application/json`, `application/expo+json`, or the `manifest` part of
+   `multipart/mixed`) gets the phone host over that fixed host. With an
+   `expoUsername` claim, the Worker also writes `extra.expoGo.username`:
+   the store Expo Go on an iPhone opens a dev server only for its
+   signed-in account. The Worker serves nothing on the `p-` host.
+
 Every response sets `Content-Security-Policy: frame-ancestors
 <FRAME_ANCESTORS>`, `X-Robots-Tag: noindex`, `Referrer-Policy:
 strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`,
 `Cache-Control: no-store`, and drops the upstream `X-Frame-Options`
 (security.md 9.3 item 4).
 
+`FRAME_ANCESTORS` names the builder origins that can show a preview in
+an iframe:
+
+| Config | Origins |
+| --- | --- |
+| `wrangler.jsonc` top level (route `*.wanditpreview.app/*`) | `https://wandit.dev` (production), `https://preview.wandit.dev` (the staging web app, not a preview host), `http://localhost:*` |
+| `wrangler.jsonc` `env.staging` (no route yet) | the same as the top level |
+| `wrangler.dev.jsonc` | the same as the top level |
+
+Do not add `https://*.vercel.app`: any Vercel user can deploy there and
+frame a preview (WANDIT-281). `http://localhost:*` stays in production,
+because the local stack frames the live production Worker.
+
+The top-level Worker serves the previews of production and of staging,
+because only it has the route. A new builder origin goes into all three
+values. Then deploy the top-level Worker (see Deploy).
+
 Each forwarded request also writes `preview:last-seen:<pid>` to `PREVIEW_KV`
 (at most once per 60 s per isolate; the idle sweep reads it) and one data
 point to the `wandit_preview_proxy` Analytics Engine dataset. The outcome
 blob is one of: `forwarded` (preview served), `redirect` (token exchange),
+`phone_link` (phone link minted),
 `unauthorized` (token rejected), `forbidden` (claims mismatch),
 `not_running` (sandbox down), `rate_limited` (over budget), `not_found`
 (host unknown), `error` (proxy bug).

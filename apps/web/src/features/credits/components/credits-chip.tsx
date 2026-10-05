@@ -1,3 +1,10 @@
+/**
+ * The credits pill of the top bars and its dropdown: a navy credits card with
+ * the balance and its three buckets, the last three credit events, and a
+ * billing action. The dashboard and workspace top bars render it.
+ * Reads the credit balance, activity, and workspace balances queries.
+ */
+import { ArrowsLeftRightIcon } from "@phosphor-icons/react/ArrowsLeftRight";
 import { Link } from "@tanstack/react-router";
 import { PERSONAL_WORKSPACE } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -5,12 +12,13 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { ArrowRightLeft } from "lucide-react";
+import { Spark } from "@/components/logo";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { areTopupsAvailable } from "@/features/billing/lib/billing-ui-policy";
@@ -26,6 +34,11 @@ import { findCreditsElsewhere } from "../lib/credits-elsewhere";
 import { formatCreditBalance } from "../lib/format-credits";
 import { ActivityList } from "./activity-list";
 
+// The billing action at the foot of the dropdown: a night pill, like the active sidebar link.
+const FOOTER_ACTION_CLASS =
+	"h-9 w-full rounded-full bg-night font-grotesk font-semibold text-paper hover:bg-night/90 dark:bg-spark dark:text-night dark:hover:bg-spark/90";
+
+/** The credits pill and its dropdown. `className` lets each top bar size and color the pill. */
 export function CreditsChip({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
 	const {
@@ -86,12 +99,15 @@ export function CreditsChip({ className }: { className?: string }) {
 						<Skeleton className="h-3 w-16" />
 					) : (
 						<>
+							{/* The green dot replaces the spark when another workspace has credits. */}
 							{elsewhere ? (
 								<span
 									aria-hidden
 									className="size-1.5 shrink-0 rounded-full bg-success"
 								/>
-							) : null}
+							) : (
+								<Spark className="size-3.5 text-ember-text" />
+							)}
 							<span className="text-[13px] text-ember-text">
 								{balance
 									? t("credits.creditUnit", {
@@ -109,10 +125,8 @@ export function CreditsChip({ className }: { className?: string }) {
 								<>
 									<span
 										aria-hidden
-										className="hidden text-[13px] text-border sm:inline"
-									>
-										·
-									</span>
+										className="mx-0.5 hidden h-3.5 w-px bg-border sm:inline-block"
+									/>
 									<span className="hidden max-w-24 truncate text-[13px] text-muted-foreground sm:inline">
 										{workspaceLabel}
 									</span>
@@ -122,9 +136,12 @@ export function CreditsChip({ className }: { className?: string }) {
 					)}
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end" className="w-72 p-0">
-				<div className="px-4 pt-4 pb-3">
-					<p className="text-muted-foreground text-xs">
+			<DropdownMenuContent align="end" className="w-80">
+				{/* The credits card: the one bold surface of the menu, like a navy wallet card. */}
+				<div className="relative rounded-[14px] bg-night p-4 text-paper dark:ring-1 dark:ring-white/10">
+					<Spark className="absolute end-4 top-4 size-5 text-spark" />
+					{/* pe-8 keeps a long workspace name clear of the spark in the corner. */}
+					<p className="pe-8 font-grotesk font-medium text-paper/60 text-xs">
 						{isPersonal
 							? t("credits.balanceLabel")
 							: t("workspaces.credits.poolLabel", {
@@ -132,13 +149,13 @@ export function CreditsChip({ className }: { className?: string }) {
 								})}
 					</p>
 					{balanceQuery.isPending ? (
-						<Skeleton className="mt-2 h-8 w-24" />
+						<Skeleton className="mt-2 h-8 w-28 bg-white/10" />
 					) : balance ? (
 						<>
-							<p className="mt-1 font-medium font-mono text-2xl tabular-nums">
+							<p className="mt-1.5 font-extrabold font-grotesk text-[2rem] tabular-nums leading-none tracking-[-0.03em]">
 								{formatCreditBalance(balance.settledBalance, locale)}
 							</p>
-							<dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3">
+							<dl className="mt-4 grid grid-cols-3 gap-2 border-white/10 border-t pt-3">
 								<BalanceBucket
 									label={t("credits.buckets.plan")}
 									value={formatCreditBalance(balance.settledPlan, locale)}
@@ -154,72 +171,58 @@ export function CreditsChip({ className }: { className?: string }) {
 							</dl>
 						</>
 					) : (
-						<p role="alert" className="mt-2 text-muted-foreground text-xs">
+						<p role="alert" className="mt-2 text-paper/70 text-xs">
 							{t("credits.balanceLoadError")}
 						</p>
 					)}
 				</div>
 				{elsewhere ? (
-					<>
-						<DropdownMenuSeparator />
-						<div className="p-2">
-							<DropdownMenuItem
-								onSelect={() => switchWorkspace(elsewhere.workspaceId)}
-								className="gap-2"
-							>
-								<ArrowRightLeft
-									className="size-4 shrink-0 text-success"
-									aria-hidden
-								/>
-								<span className="min-w-0 flex-1 text-sm">
-									{t("credits.elsewhere.chipHint", {
-										name: elsewhereName ?? "",
-									})}
-								</span>
-								<span className="shrink-0 font-medium text-success text-xs">
-									{t("credits.elsewhere.switch")}
-								</span>
-							</DropdownMenuItem>
-						</div>
-					</>
+					<DropdownMenuItem
+						onSelect={() => switchWorkspace(elsewhere.workspaceId)}
+						className="mt-1.5"
+					>
+						<ArrowsLeftRightIcon
+							aria-hidden
+							weight="duotone"
+							className="text-success"
+						/>
+						<span className="min-w-0 flex-1">
+							{t("credits.elsewhere.chipHint", {
+								name: elsewhereName ?? "",
+							})}
+						</span>
+						<span className="shrink-0 font-semibold text-success text-xs">
+							{t("credits.elsewhere.switch")}
+						</span>
+					</DropdownMenuItem>
 				) : null}
-				<DropdownMenuSeparator />
-				<div className="px-2 py-2">
-					<p className="px-2 pb-1 text-[10px] text-muted-foreground uppercase tracking-widest">
-						{t("credits.recentActivity")}
-					</p>
-					<ActivityList
-						items={activityQuery.data?.items ?? []}
-						isPending={activityQuery.isPending}
-						isError={activityQuery.isError}
-						compact
-					/>
-				</div>
+				<DropdownMenuLabel className="mt-1.5">
+					{t("credits.recentActivity")}
+				</DropdownMenuLabel>
+				<ActivityList
+					items={activityQuery.data?.items ?? []}
+					isPending={activityQuery.isPending}
+					isError={activityQuery.isError}
+					compact
+				/>
 				{settingsQuery.isSuccess ? (
 					<>
 						<DropdownMenuSeparator />
-						<div className="p-2">
+						<div className="p-1">
 							{!actorCanManageBilling ? (
-								<p className="px-2 py-1 text-muted-foreground text-xs">
+								<p className="px-1.5 py-1 text-muted-foreground text-xs">
 									{t("workspaces.billing.ownerOnlyBody")}
 								</p>
 							) : topupsAvailable ? (
 								<Button
 									type="button"
-									variant="secondary"
-									size="sm"
-									className="w-full"
+									className={FOOTER_ACTION_CLASS}
 									onClick={() => openPlanPicker("credits_chip")}
 								>
 									{t("credits.topUpChip")}
 								</Button>
 							) : (
-								<Button
-									asChild
-									variant="secondary"
-									size="sm"
-									className="w-full"
-								>
+								<Button asChild className={FOOTER_ACTION_CLASS}>
 									<Link to="/billing">{t("credits.manageBilling")}</Link>
 								</Button>
 							)}
@@ -231,11 +234,16 @@ export function CreditsChip({ className }: { className?: string }) {
 	);
 }
 
+/** One bucket of the balance (plan, promo, or top-up) on the navy credits card. */
 function BalanceBucket({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="min-w-0">
-			<dt className="truncate text-[10px] text-muted-foreground">{label}</dt>
-			<dd className="mt-0.5 font-mono text-xs tabular-nums">{value}</dd>
+			<dt className="truncate font-grotesk font-medium text-[11px] text-paper/60">
+				{label}
+			</dt>
+			<dd className="mt-0.5 font-grotesk font-semibold text-sm tabular-nums">
+				{value}
+			</dd>
 		</div>
 	);
 }

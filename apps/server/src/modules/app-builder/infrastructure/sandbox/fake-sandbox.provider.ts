@@ -13,6 +13,7 @@ import type {
 	SandboxHandle,
 	SandboxNetworkPolicy,
 	SandboxProvider,
+	SandboxReader,
 } from "../../domain/ports/sandbox-provider";
 
 /** One recorded call, on the provider or on a handle. */
@@ -46,10 +47,11 @@ class FakeSandboxHandle implements SandboxHandle {
 	async exec(
 		command: string,
 		args: string[],
-		_options?: SandboxExecOptions,
+		options?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		const commandLine = [command, ...args].join(" ");
 		this.provider.calls.push({ detail: commandLine, method: "exec" });
+		this.provider.execOptions.push(options);
 		const queue = this.provider.scriptedExec.get(command) ?? [];
 		const result = queue.shift();
 		if (result === undefined) {
@@ -105,6 +107,9 @@ class FakeSandboxHandle implements SandboxHandle {
 
 	async allowHost(host: string): Promise<void> {
 		this.provider.calls.push({ detail: host, method: "allowHost" });
+		if (this.provider.allowHostFailure !== null) {
+			throw this.provider.allowHostFailure;
+		}
 		this.provider.allowedHosts.push(host);
 	}
 
@@ -126,14 +131,23 @@ export class FakeSandboxProvider implements SandboxProvider {
 	readonly calls: FakeSandboxCall[] = [];
 	/** Sandboxes actually created — a repeated `getOrCreate` adds none. */
 	createdCount = 0;
+	/**
+	 * True makes a create call `onCreated`, like a vendor rebuild. Off by
+	 * default: most runtime specs pair a stored session with a fresh fake.
+	 */
+	reportsCreated = false;
 	/** `handle.keepAlive()` calls across every project handle. */
 	keepAliveCalls = 0;
 	/** Every policy `handle.setNetworkPolicy` received, across all handles. */
 	readonly networkPolicies: SandboxNetworkPolicy[] = [];
-	/** Every host `handle.allowHost` received, across all handles, in order. */
+	/** Every host `handle.allowHost` applied, across all handles, in order. */
 	readonly allowedHosts: string[] = [];
+	/** When set, `handle.allowHost` rejects with it: a failed live policy update. */
+	allowHostFailure: Error | null = null;
 	/** Every options object `getOrCreate` and `resume` received, in order; specs read `env` from it. */
 	readonly createOptions: SandboxCreateOptions[] = [];
+	/** The options of each `exec`, in the order of the "exec" entries in `calls`. */
+	readonly execOptions: (SandboxExecOptions | undefined)[] = [];
 	readonly scriptedExec = new Map<string, SandboxExecResult[]>();
 	private readonly projects = new Map<string, FakeProjectState>();
 
@@ -152,13 +166,21 @@ export class FakeSandboxProvider implements SandboxProvider {
 		this.createOptions.push(options);
 		const existing = this.projects.get(projectId);
 		if (existing) {
-			existing.stopped = false;
+			// Like the real provider: only a stopped sandbox wakes.
+			if (existing.stopped) {
+				existing.stopped = false;
+				await options.onWake?.();
+			}
 			return existing.handle;
 		}
+		await options.onWake?.();
 		const files = new Map<string, Uint8Array>();
 		const handle = new FakeSandboxHandle(projectId, this, files);
 		this.projects.set(projectId, { handle, stopped: false });
 		this.createdCount += 1;
+		if (this.reportsCreated) {
+			options.onCreated?.();
+		}
 		return handle;
 	}
 
@@ -172,8 +194,22 @@ export class FakeSandboxProvider implements SandboxProvider {
 		if (!state) {
 			throw new Error(`FakeSandboxProvider: no sandbox for ${projectId}`);
 		}
-		state.stopped = false;
+		if (state.stopped) {
+			state.stopped = false;
+			await options.onWake?.();
+		}
 		return state.handle;
+	}
+
+	async findRunning(projectId: string): Promise<SandboxReader | null> {
+		this.calls.push({ detail: projectId, method: "findRunning" });
+		const state = this.projects.get(projectId);
+		// Like the real provider: a stopped sandbox stays stopped.
+		return state && !state.stopped ? state.handle : null;
+	}
+
+	async keepAliveIfRunning(projectId: string): Promise<void> {
+		this.calls.push({ detail: projectId, method: "keepAliveIfRunning" });
 	}
 
 	async stop(projectId: string): Promise<void> {

@@ -7,18 +7,26 @@
  *                              their requests arrive with the CUSTOMER's Host,
  *                              which is why the route must be `*\/*`)
  *
- * Resolution: Host → KV pointer `domain:{host}` → R2 object
- * `published/{projectId}/current.html` → stream.
+ * Resolution: Host → KV pointer `domain:{host}` → one of two paths.
+ *   V1 page: R2 object `published/{projectId}/current.html` → stream.
+ *   V2 app (`pointer.kind === "app"`): the user Worker `app-{projectId}` in
+ *   the dispatch namespace answers the request as it is.
  *
  * POINTER CONTRACT (do not tighten): `projectId` is the ONLY required field.
  * The domains pipeline writes `{projectId, source:"domain"}` and publishing
  * writes `{projectId, source:"slug", slug}` — every field except projectId is
- * optional and readers must tolerate unknown extras. Key format is owned by
+ * optional and readers must tolerate unknown extras. The fields live in
+ * `packages/contracts/src/v2/publish.ts`. Key format is owned by
  * apps/server/src/modules/domains/infrastructure/cloudflare/domain-routing.service.ts.
  *
  * R2 key format is owned by apps/server/src/infrastructure/storage/r2.ts
  * (publishedCurrentKey) — keep the two literal builders below in lockstep.
  */
+import {
+	appWorkerName,
+	DEFAULT_APP_WORKER_LIMITS,
+	type HostPointer,
+} from "@wandit/contracts/v2/publish";
 import { edgeSentryOptions, Sentry } from "@wandit/observability/cloudflare";
 
 import {
@@ -26,12 +34,15 @@ import {
 	healthPage,
 	notFoundPage,
 	notPublishedPage,
+	suspendedAppPage,
 	suspendedPage,
 } from "./pages";
 
 export interface Env {
 	PTR: KVNamespace;
 	SITES: R2Bucket;
+	/** Workers for Platforms namespace of the user Workers. WANDIT-200 adds the binding. */
+	DISPATCHER: DispatchNamespace;
 	// Unset locally → Sentry disabled. Set via wrangler vars/secrets in prod.
 	SENTRY_DSN?: string;
 	SENTRY_ENVIRONMENT?: string;
@@ -63,11 +74,41 @@ function pointerKey(host: string): string {
 	return `domain:${host}`;
 }
 
-type HostPointer = {
-	projectId: string;
-	status?: string;
-	[key: string]: unknown;
+/** 10 s: a publish, a suspend, or an unpublish reaches every isolate within this time. */
+const POINTER_CACHE_TTL_MS = 10_000;
+/** Past this many hosts the isolate forgets all of them instead of growing. */
+const POINTER_CACHE_MAX_HOSTS = 1_000;
+
+type PointerCacheEntry = {
+	/** The KV value, or null when KV has no key for the host (a miss). */
+	pointer: HostPointer | null;
+	/** Unix ms after which the entry is stale. */
+	expiresAt: number;
 };
+
+// LIMIT: one map per isolate, at most 1,000 hosts. Upgrade: an LRU map.
+const pointerCache = new Map<string, PointerCacheEntry>();
+
+/** Reads `domain:{host}` from KV. A hit and a miss both stay in isolate memory for 10 s. */
+async function readPointer(
+	env: Env,
+	host: string,
+): Promise<HostPointer | null> {
+	const now = Date.now();
+	const cached = pointerCache.get(host);
+	if (cached !== undefined && cached.expiresAt > now) {
+		return cached.pointer;
+	}
+	const pointer = await env.PTR.get<HostPointer>(pointerKey(host), {
+		cacheTtl: 60,
+		type: "json",
+	});
+	if (pointerCache.size >= POINTER_CACHE_MAX_HOSTS) {
+		pointerCache.clear();
+	}
+	pointerCache.set(host, { pointer, expiresAt: now + POINTER_CACHE_TTL_MS });
+	return pointer;
+}
 
 function isLocalProbeHost(host: string): boolean {
 	return (
@@ -136,14 +177,6 @@ async function serve(
 		});
 	}
 
-	// Published sites are static documents; nothing else is served here.
-	if (request.method !== "GET" && request.method !== "HEAD") {
-		return new Response("Method Not Allowed", {
-			headers: { allow: "GET, HEAD" },
-			status: 405,
-		});
-	}
-
 	// Apex custom domains redirect to www BEFORE any KV lookup — no apex
 	// pointer key ever exists (registrar-side forwarding does the same for
 	// purchased domains; this covers customers who point the apex at us).
@@ -152,6 +185,36 @@ async function serve(
 			`https://www.${host}${url.pathname}${url.search}`,
 			301,
 		);
+	}
+
+	const pointer = await readPointer(env, host);
+
+	if (!pointer?.projectId) {
+		return htmlResponse(notFoundPage(), 404);
+	}
+
+	// A V2 app owns its methods, paths, and cache headers: no 405 and no
+	// caches.default on this path. A pointer without `kind` is a V1 page.
+	if (pointer.kind === "app") {
+		return serveV2App(request, env, pointer);
+	}
+
+	return serveV1Page(request, env, ctx, pointer);
+}
+
+/** The V1 path: one HTML object per project from R2, cached 60 s at the edge. */
+async function serveV1Page(
+	request: Request,
+	env: Env,
+	ctx: ExecutionContext,
+	pointer: HostPointer,
+): Promise<Response> {
+	// Published sites are static documents; nothing else is served here.
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		return new Response("Method Not Allowed", {
+			headers: { allow: "GET, HEAD" },
+			status: 405,
+		});
 	}
 
 	/*
@@ -166,15 +229,6 @@ async function serve(
 
 	if (cached) {
 		return cached;
-	}
-
-	const pointer = await env.PTR.get<HostPointer>(pointerKey(host), {
-		cacheTtl: 60,
-		type: "json",
-	});
-
-	if (!pointer?.projectId) {
-		return htmlResponse(notFoundPage(), 404);
 	}
 
 	if (pointer.status === "suspended") {
@@ -217,4 +271,68 @@ async function serve(
 	);
 
 	return response;
+}
+
+/**
+ * The V2 path: the user Worker of the app answers the request as the
+ * visitor sent it. Its answer streams back with its own status, body, and
+ * headers; only two safety headers fill in when the app sets none.
+ */
+async function serveV2App(
+	request: Request,
+	env: Env,
+	pointer: HostPointer,
+): Promise<Response> {
+	// A suspended app never runs: the answer comes before any dispatch.
+	if (pointer.status === "suspended") {
+		// 451 is the legal-block code, for abuse and legal reasons. Every
+		// other reason, for example billing or no code, is 410 (gone).
+		const code = pointer.reasonCode ?? "";
+		const isLegalBlock = code.startsWith("abuse_") || code.startsWith("legal_");
+		return htmlResponse(
+			suspendedAppPage(pointer.reasonCode),
+			isLegalBlock ? 451 : 410,
+		);
+	}
+
+	let upstream: Response;
+	try {
+		const userWorker = env.DISPATCHER.get(
+			appWorkerName(pointer.projectId),
+			{},
+			{ limits: pointer.limits ?? DEFAULT_APP_WORKER_LIMITS },
+		);
+		upstream = await userWorker.fetch(request);
+	} catch (error) {
+		// The namespace throws "Worker not found" when no script has the name:
+		// the app was never published or is unpublished. Every other failure
+		// rethrows: the handler logs it, captures it, and answers the 500 page.
+		if (
+			error instanceof Error &&
+			error.message.startsWith("Worker not found")
+		) {
+			return htmlResponse(notPublishedPage(), 404);
+		}
+		throw error;
+	}
+
+	// A 101 answer is a live socket; it returns untouched, or the upgrade breaks.
+	if (upstream.webSocket !== null) {
+		return upstream;
+	}
+
+	// The app owns its headers, including CSP. A fetch Response has immutable
+	// headers, so copy them before the two safety headers fill in.
+	const headers = new Headers(upstream.headers);
+	if (!headers.has("x-content-type-options")) {
+		headers.set("x-content-type-options", "nosniff");
+	}
+	if (!headers.has("referrer-policy")) {
+		headers.set("referrer-policy", "strict-origin-when-cross-origin");
+	}
+	return new Response(upstream.body, {
+		status: upstream.status,
+		statusText: upstream.statusText,
+		headers,
+	});
 }

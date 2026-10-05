@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "Ouvrir",
 	"menuViewLive": "Voir en ligne",
-	"menuViewLiveMock": "Démo",
 	"menuRename": "Renommer",
 	"menuDelete": "Supprimer",
 	"cardMenuLabel": "Actions du projet",
@@ -128,6 +127,14 @@
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
 		"modeLabel": "Mode",
+		"platforms": {
+			"web": {
+				"label": "App web"
+			},
+			"mobile": {
+				"label": "App mobile"
+			}
+		},
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
 		"skillLibraryLabel": "Conçu par Wandit",

@@ -2558,6 +2558,77 @@ describe("MeteringService", () => {
 			...overrides,
 		});
 
+		it("records free usage as one reconciled zero-credit event with its receipt, once per key", async () => {
+			const { credits, repository, service } = setup();
+			const usage = {
+				attemptRef: "device-session-1",
+				evidence: {
+					chargedUsdMicros: 180_000,
+					costSource: "appetize_contract_rate",
+					costStatus: "contract_rate" as const,
+					customerBillable: false,
+					idempotencyKey: "appetize:tok_1",
+					providerRequestId: "tok_1",
+					rateUsdMicrosPerUnit: 60_000,
+					transport: "appetize" as const,
+					unitKind: "device_minute",
+					units: 3,
+				},
+				idempotencyKey: "mobile-preview:tok_1",
+				projectId: "11111111-1111-4111-8111-111111111111",
+			};
+			const first = await service.recordFreeUsage(
+				"mobile_preview",
+				USER_SUBJECT,
+				usage,
+			);
+			const repeat = await service.recordFreeUsage(
+				"mobile_preview",
+				USER_SUBJECT,
+				usage,
+			);
+
+			expect(repeat.id).toBe(first.id);
+			expect(first).toMatchObject({
+				finalCredits: 0,
+				operation: "mobile_preview",
+				reconciledCostUsdMicros: 180_000,
+				reservedCredits: 0,
+				status: "reconciled",
+				userId: USER_ID,
+			});
+			expect([...repository.evidence.values()]).toEqual([
+				expect.objectContaining({
+					idempotencyKey: "appetize:tok_1",
+					units: 3,
+					usageEventId: first.id,
+				}),
+			]);
+			// Zero credits: no ledger write at all.
+			expect(credits.consumeCalls).toEqual([]);
+		});
+
+		it("refuses free usage whose provider cost is still pending", async () => {
+			const { service } = setup();
+
+			await expect(
+				service.recordFreeUsage("mobile_preview", USER_SUBJECT, {
+					attemptRef: "device-session-2",
+					evidence: {
+						chargedUsdMicros: 0,
+						costStatus: "pending",
+						customerBillable: false,
+						idempotencyKey: "appetize:tok_2",
+						transport: "appetize",
+						unitKind: "device_minute",
+						units: 1,
+					},
+					idempotencyKey: "mobile-preview:tok_2",
+					projectId: null,
+				}),
+			).rejects.toThrow("known provider cost");
+		});
+
 		it("captures evidence on a refunded event and refuses a reconciled one", async () => {
 			const { repository, service } = setup();
 			await service.reserve("lead_scrape", USER_SUBJECT, {
@@ -5135,7 +5206,7 @@ function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 		chatId: input.chatId ?? null,
 		createdAt: new Date(),
 		estimatedCostUsdMicros: input.estimatedCostUsdMicros ?? null,
-		finalCredits: null,
+		finalCredits: input.finalCredits ?? null,
 		id: String(input.id ?? randomUUID()),
 		idempotencyKey: input.idempotencyKey,
 		inputTokens: null,
@@ -5149,10 +5220,10 @@ function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 		projectId: input.projectId ?? null,
 		provider: input.provider ?? null,
 		rawUsage: null,
-		reconciledAt: null,
-		reconciledCostUsdMicros: null,
+		reconciledAt: input.reconciledAt ?? null,
+		reconciledCostUsdMicros: input.reconciledCostUsdMicros ?? null,
 		reservedCredits: input.reservedCredits,
-		settledAt: null,
+		settledAt: input.settledAt ?? null,
 		status: input.status ?? "reserved",
 		userId: input.userId,
 		executionLeaseToken: null,

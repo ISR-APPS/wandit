@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 
 import { ServiceUnavailableException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
@@ -279,6 +280,31 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("drops content-encoding when fetch already decoded a gzip answer", async () => {
+		const json = JSON.stringify({ input_tokens: 7 });
+		const upstream = await startUpstream((_req, res) => {
+			res.writeHead(200, {
+				"content-encoding": "gzip",
+				"content-type": "application/json",
+			});
+			res.end(gzipSync(json));
+		});
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service } = makeService(env);
+			const reply = new FakeReply();
+			const { input } = inbound(env, { endpoint: "count_tokens" });
+
+			await service.proxyAnthropic(input, reply);
+
+			// The client gets plain bytes, so a gzip label would break its decode.
+			expect(reply.bodyText).toBe(json);
+			expect(reply.headers["content-encoding"]).toBeUndefined();
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("answers 503 V2_MODEL_UNPRICED for a model with no price row", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
@@ -450,6 +476,8 @@ describe("LlmProxyService", () => {
 			expect(await counters.readRunSpend("run_test")).toBe(576);
 			expect(row?.provider).toBe("anthropic");
 			expect(row?.claudeSessionId).toBe("sess_9");
+			// The row exists, so the request no longer counts as in flight.
+			expect(await counters.readInFlight("run_test")).toBe(0);
 		} finally {
 			await upstream.close();
 		}
@@ -512,6 +540,94 @@ describe("LlmProxyService", () => {
 			expect(body.code).toBe("V2_TOKEN_INVALID");
 			expect(upstream.requests).toHaveLength(0);
 			expect(inserted).toHaveLength(0);
+			// A refused request must not hold the settle wait of the turn.
+			expect(await counters.readInFlight("run_test")).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it("bills a token of an older turn to the turn its chat runs now", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, counters, inserted } = makeService(env);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			const nowTurnId = "11111111-1111-4111-8111-111111111111";
+			// The paused turn ended and its run is dead; the answer turn runs.
+			await counters.revokeRun("run_test", 3600);
+			await counters.bindChat(
+				chatId,
+				{ ...claimsInput, runId: "run_now", turnId: nowTurnId },
+				3600,
+			);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: token(env, { chatId }) }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(200);
+			expect(inserted[0]?.runId).toBe("run_now");
+			expect(inserted[0]?.turnId).toBe(nowTurnId);
+			expect(await counters.readInFlight("run_now")).toBe(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it("answers 401 when the bound turn's run was revoked", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const { service, counters, inserted } = makeService(env);
+			const chatId = "6f7c8287-138f-40ef-b7a9-4dfdfd3c3d25";
+			await counters.bindChat(
+				chatId,
+				{ ...claimsInput, runId: "run_now" },
+				3600,
+			);
+			// A cancel revokes the run of the turn that runs now.
+			await counters.revokeRun("run_now", 3600);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(
+				inbound(env, { authorization: token(env, { chatId }) }).input,
+				reply,
+			);
+
+			expect(reply.statusCode).toBe(401);
+			expect(upstream.requests).toHaveLength(0);
+			expect(inserted).toHaveLength(0);
+		} finally {
+			await upstream.close();
+		}
+	});
+
+	it("keeps the request in flight until its row insert ends", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env = makeEnv(upstream.baseUrl);
+			const counters = new FakeLlmSpendCounters();
+			const inFlightAtInsert: number[] = [];
+			const service = new LlmProxyService(
+				env,
+				counters,
+				{
+					insert: async () => {
+						inFlightAtInsert.push(await counters.readInFlight("run_test"));
+						return { id: "row-1" };
+					},
+				},
+				fetch,
+			);
+
+			await service.proxyAnthropic(inbound(env).input, new FakeReply());
+
+			// The settle waits for 0, so the count must drop only after the row.
+			expect(inFlightAtInsert).toEqual([1]);
+			expect(await counters.readInFlight("run_test")).toBe(0);
 		} finally {
 			await upstream.close();
 		}
@@ -590,13 +706,38 @@ describe("LlmProxyService", () => {
 		}
 	});
 
+	it("forwards past both spend caps when billing is off", async () => {
+		const upstream = await startUpstream(jsonOk("{}"));
+		try {
+			const env: LlmProxyEnv = {
+				...makeEnv(upstream.baseUrl),
+				GENERATION_BILLING_MODE: "off",
+			};
+			const { service, counters } = makeService(env);
+			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+			await counters.addRunSpend("run_test", 1_000_000, 3600);
+			await counters.addUserSpend("user_1", dayKey, 50_000_000);
+
+			const reply = new FakeReply();
+			await service.proxyAnthropic(inbound(env).input, reply);
+
+			expect(reply.statusCode).toBe(200);
+			expect(upstream.requests).toHaveLength(1);
+		} finally {
+			await upstream.close();
+		}
+	});
+
 	it("answers 429 with retry-after when the run rate limit is exceeded", async () => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
 			const { service, counters, inserted } = makeService(env);
 			for (let i = 0; i < 120; i += 1) {
-				await counters.hitRunRateLimit("run_test");
+				await counters.admitRequest(
+					{ chatId: null, runId: "run_test", userId: "user_1" },
+					"20260101",
+				);
 			}
 
 			const reply = new FakeReply();

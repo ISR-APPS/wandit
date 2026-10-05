@@ -1,3 +1,9 @@
+/**
+ * Credit and metering tables: the append-only `credit_ledger`, plan holds,
+ * AI usage events, provider call evidence, and model prices.
+ * CreditsService and MeteringService write them through their repositories.
+ * A balance is the sum of ledger deltas in centi-credits (100 = 1 credit).
+ */
 import { relations, sql } from "drizzle-orm";
 import {
 	type AnyPgColumn,
@@ -44,6 +50,10 @@ export const aiUsageOperation = pgEnum("ai_usage_operation", [
 	"agent_session",
 	// Sandbox minutes at a zero rate; not billed to the customer before WANDIT-196.
 	"sandbox",
+	// One V2 mobile app build on EAS, at a fixed price (WANDIT-194).
+	"mobile_build",
+	// Appetize device minutes (WANDIT-196): zero credits inside the plan allowance.
+	"mobile_preview",
 	"topup_adjust",
 ]);
 
@@ -100,6 +110,11 @@ export const creditLedger = pgTable(
 			sql`(${table.meta} ->> 'paymentIntentId')`,
 		),
 		index("credit_ledger_chargeId_idx").on(sql`(${table.meta} ->> 'chargeId')`),
+		// Serves the admin credit grant log. Manual grants are a few rows among
+		// many consume rows. The partial index stops a full table scan for the log.
+		index("credit_ledger_adminGrant_createdAt_idx")
+			.on(table.createdAt)
+			.where(sql`(${table.meta} ->> 'reason') = 'admin_grant'`),
 		uniqueIndex("credit_ledger_idempotencyKey_uq")
 			.on(table.idempotencyKey)
 			.where(sql`${table.idempotencyKey} IS NOT NULL`),
@@ -390,13 +405,15 @@ export const aiUsageGenerationRefs = pgTable(
 
 // Which external provider transport produced a piece of cost evidence.
 // `vercel`/`openrouter` exist for optional mirroring of gateway generations;
-// the evidence writers today emit serper/higgsfield/mcp rows only.
+// the evidence writers today emit serper/higgsfield/mcp/appetize rows only.
 export const aiCostTransport = pgEnum("ai_cost_transport", [
 	"vercel",
 	"openrouter",
 	"serper",
 	"higgsfield",
 	"mcp",
+	// Appetize device minutes of the mobile preview (WANDIT-196).
+	"appetize",
 ]);
 
 export const aiCostStatus = pgEnum("ai_cost_status", [

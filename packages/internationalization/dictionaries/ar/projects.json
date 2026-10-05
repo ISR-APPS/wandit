@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "فتح",
 	"menuViewLive": "عرض مباشر",
-	"menuViewLiveMock": "تجريبي",
 	"menuRename": "إعادة تسمية",
 	"menuDelete": "حذف",
 	"cardMenuLabel": "إجراءات المشروع",
@@ -128,6 +127,14 @@
 			"signInFirst": "سجّل الدخول لإرفاق الملفات"
 		},
 		"modeLabel": "الوضع",
+		"platforms": {
+			"web": {
+				"label": "تطبيق ويب"
+			},
+			"mobile": {
+				"label": "تطبيق موبايل"
+			}
+		},
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
 		"skillLibraryLabel": "من إنشاء Wandit",

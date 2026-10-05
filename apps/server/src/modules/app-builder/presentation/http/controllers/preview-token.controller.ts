@@ -1,13 +1,26 @@
 /**
  * `GET /api/v2/projects/:projectId/preview-token`: the signed 15-minute
- * preview URL of the project's running sandbox (WANDIT-170). The global
- * AuthGuard requires a session; `V2BuilderEnabledGuard` gates the route
- * and `RedisRateLimitGuard` reads the `@RateLimit` metadata. Scope and
- * sandbox checks live in `PreviewTokenService`.
+ * preview URL of the project's running sandbox (WANDIT-170). With
+ * `?client=phone` the token feeds the phone link of the Worker (WANDIT-193).
+ * The global AuthGuard requires a session; `V2BuilderEnabledGuard` gates
+ * the route and `RedisRateLimitGuard` reads the `@RateLimit` metadata.
+ * Scope and sandbox checks live in `PreviewTokenService`.
  */
-import { Controller, Get, Inject, Param, UseGuards } from "@nestjs/common";
+import {
+	Controller,
+	Get,
+	Inject,
+	Param,
+	Query,
+	UseGuards,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
-import { type PreviewTokenResponse, uuidSchema } from "@wandit/contracts";
+import {
+	type PreviewTokenQuery,
+	type PreviewTokenResponse,
+	previewTokenQuerySchema,
+	uuidSchema,
+} from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
@@ -41,10 +54,13 @@ export class PreviewTokenController {
 		projectId: string,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Query(new ZodValidationPipe(previewTokenQuerySchema))
+		query: PreviewTokenQuery,
 	): Promise<PreviewTokenResponse> {
 		return this.previewTokens.mint(
 			projectScopeFrom(workspace, user.id),
 			projectId,
+			query,
 		);
 	}
 }
