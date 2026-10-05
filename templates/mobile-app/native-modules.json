@@ -94,6 +94,7 @@
 		"react-native-worklets": "0.10.1"
 	},
 	"jsOnly": {
+		"@expo-google-fonts/plus-jakarta-sans": "the font files of the default design world (registre)",
 		"@supabase/supabase-js": "the Supabase client (D18)",
 		"@tanstack/react-query": "server data: queries, mutations, and the cache",
 		"heroui-native": "the UI kit (D6)",
