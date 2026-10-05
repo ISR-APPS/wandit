@@ -24,7 +24,7 @@ Date: 2026-09-26. Scope: the rescope of Zack on WANDIT-196 (the store Expo Go bu
 ## What the code does
 
 1. `pnpm appetize:upload-expo-go` (in `apps/server`) reads the versions endpoint, downloads the SDK 57 builds, repacks the iOS build, and uploads each build once per version. The Appetize `note` holds `expo-go:<version>`, so a second run skips the upload. Each run writes `timeout` 120, `timeLimit` 900, `maxConcurrent`, and `referrerHostnamesRestricted`. A new app prints its key for `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY`.
-2. `POST /api/v2/projects/:id/device-sessions {platform}` checks the V2 mobile project, the month minutes of the payer (Free 0, Pro 60, Business 180, ESTIMATE), and one open session per user (Redis `SET NX PX` on `mobile_preview:user:{userId}`). It mints a 60-minute phone link (WANDIT-193) and checks Metro `/status` through it. Then it answers the Appetize config with `launchUrl: "exps://<phone host>"`.
+2. `POST /api/v2/projects/:id/device-sessions {platform}` checks the V2 mobile project, the month minutes of the payer (production ESTIMATE: Free 0, Pro 60, Business 180; staging: 100000 on every plan, see `docs/v2/runbook.md`), and one open session per user (Redis `SET NX PX` on `mobile_preview:user:{userId}`). It mints a 60-minute phone link (WANDIT-193) and checks Metro `/status` through it. Then it answers the Appetize config with `launchUrl: "exps://<phone host>"`.
 3. `POST .../device-sessions/:id/end {appetizeSessionToken?}` stores the Appetize token and frees the lock.
 4. The `device-minutes` task (every 5 minutes) bills each ended row once. It uses `closeTime - startTime` from Appetize, rounded up to whole minutes. Without a token, or without a closed Appetize log after one hour, it bills the own clock (capped at 15 minutes). It writes one `mobile_preview` usage row at zero credits with one `appetize` evidence row at $0.06 per minute.
 5. The web panel (behind the PostHog flag `v2-device-preview`) starts on a button only, shows the queue place, a countdown, reload, the dev menu, and stop, sends heartbeats while the tab is visible, and ends the session on unmount.
@@ -48,4 +48,4 @@ If the device cannot reach the preview proxy, the fallbacks of the description a
 ## Open
 
 - Terms: the Expo name and logo are trademarks. Expo Go is MIT, and no Expo or Appetize term forbids the upload. Expo Snack is a product of Expo, so it is no precedent for a third party. Optional: ask Expo for a written OK.
-- `starter` is the plan of a user with no subscription and also a paid retention plan. Both get 0 minutes today. Zack decides.
+- `starter` is the plan of a user with no subscription and also a paid retention plan. Both get 0 minutes in production. Zack decides.

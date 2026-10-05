@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { billableMinutes, deviceMinutesLeft } from "./device-minutes";
+import {
+	billableMinutes,
+	DEVICE_MINUTES_PER_PLAN,
+	deviceMinutesLeft,
+} from "./device-minutes";
 
 const START = new Date("2026-09-26T10:00:00.000Z");
 
@@ -27,13 +31,9 @@ describe("billableMinutes", () => {
 });
 
 describe("deviceMinutesLeft", () => {
-	it("gives a starter payer no minutes", () => {
-		expect(deviceMinutesLeft("starter", 0)).toBe(0);
-	});
-
 	it("subtracts the used minutes and never goes below 0", () => {
-		expect(deviceMinutesLeft("pro", 10)).toBe(50);
-		expect(deviceMinutesLeft("pro", 75)).toBe(0);
-		expect(deviceMinutesLeft("business", 0)).toBe(180);
+		const limit = DEVICE_MINUTES_PER_PLAN.pro;
+		expect(deviceMinutesLeft("pro", 10)).toBe(limit - 10);
+		expect(deviceMinutesLeft("pro", limit + 15)).toBe(0);
 	});
 });

@@ -43,6 +43,7 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	 * Every plan gets 1000 for the staging tests, so any tester can add a backend.
 	 * Zack sets the per-plan caps again after the tests. WANDIT-153 decides the backend price.
 	 */
+	// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
 	backendsPerPlan: Object.freeze({
 		starter: 1000,
 		pro: 1000,

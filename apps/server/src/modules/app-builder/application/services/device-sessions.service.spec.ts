@@ -14,6 +14,7 @@ import type {
 	SubscriptionsRepository,
 } from "../../../billing/infrastructure/persistence/subscriptions.repository";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { DEVICE_MINUTES_PER_PLAN } from "../../domain/device-minutes";
 import type { DeviceSessionLock } from "../../domain/ports/device-session-lock";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
 import type { ScopedAppProject } from "../../infrastructure/persistence/app-commits.repository";
@@ -85,7 +86,6 @@ function fakeLock() {
 
 function setup(options?: {
 	project?: ScopedAppProject | null;
-	plan?: BillingPlanId | null;
 	usedMinutes?: number;
 	metroRunning?: boolean;
 }) {
@@ -135,10 +135,9 @@ function setup(options?: {
 			async () => options?.metroRunning ?? true,
 		),
 	};
-	const plan = options?.plan === undefined ? "pro" : options.plan;
 	const subscriptions = {
 		findActiveByOwner: vi.fn<SubscriptionsRepository["findActiveByOwner"]>(
-			async () => (plan === null ? null : subscriptionRow(plan)),
+			async () => subscriptionRow("pro"),
 		),
 	};
 	const env: V2EnvSource = {
@@ -194,24 +193,20 @@ describe("DeviceSessionsService.start", () => {
 		expect(holders.get("user-1")).toBe(answer.deviceSessionId);
 	});
 
-	it("answers 402 DEVICE_MINUTES_EXHAUSTED for a free payer and for a spent Pro month", async () => {
-		const free = setup({ plan: null });
-		const spent = setup({ plan: "pro", usedMinutes: 60 });
+	it("answers 402 DEVICE_MINUTES_EXHAUSTED for a spent Pro month", async () => {
+		const { holders, rows, service } = setup({
+			usedMinutes: DEVICE_MINUTES_PER_PLAN.pro,
+		});
 
-		const freeFailure = await free.service
-			.start(SCOPE, PROJECT_ID, "ios")
-			.catch((error: unknown) => error);
-		const spentFailure = await spent.service
+		const failure = await service
 			.start(SCOPE, PROJECT_ID, "ios")
 			.catch((error: unknown) => error);
 
-		for (const failure of [freeFailure, spentFailure]) {
-			expect(failure).toBeInstanceOf(HttpException);
-			expect(failure).toMatchObject({ status: 402 });
-			expect(codeOf(failure)).toBe("DEVICE_MINUTES_EXHAUSTED");
-		}
-		expect(free.holders.size).toBe(0);
-		expect(spent.rows.size).toBe(0);
+		expect(failure).toBeInstanceOf(HttpException);
+		expect(failure).toMatchObject({ status: 402 });
+		expect(codeOf(failure)).toBe("DEVICE_MINUTES_EXHAUSTED");
+		expect(holders.size).toBe(0);
+		expect(rows.size).toBe(0);
 	});
 
 	it("refuses a second open session of the same user with 409 DEVICE_SESSION_OPEN", async () => {

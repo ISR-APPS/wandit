@@ -3,6 +3,25 @@
 Operator steps for the V2 app builder. Each entry names the issue that
 added it. WANDIT-176 adds the staging alpha entries.
 
+## Staging-only limits to restore before production
+
+The staging tests before the event lift two per-plan limits, so a tester
+on any plan can use both features. A pull request from `staging` to `main`
+must restore both values first. The refusal paths stay in the code, so
+the restore changes only the numbers. Each constant has a `STAGING ONLY`
+comment; remove it with the restore.
+
+- `BACKEND_DEFAULTS.backendsPerPlan` in
+  `apps/server/src/modules/app-builder/domain/backend-lifecycle.ts`.
+  Staging: 1000 on every plan. Production: starter 0, pro 1, business
+  1000. Reason: a tester on any plan can add a backend to a V2 project
+  (403 `BACKEND_LIMIT_REACHED` before).
+- `DEVICE_MINUTES_PER_PLAN` in
+  `apps/server/src/modules/app-builder/domain/device-minutes.ts`.
+  Staging: 100000 minutes per month on every plan. Production: starter 0,
+  pro 60, business 180. Reason: a tester on any plan can start the
+  in-browser device of Appetize (402 `DEVICE_MINUTES_EXHAUSTED` before).
+
 ## Rotate `APP_SECRETS_ENCRYPTION_KEY` (WANDIT-185)
 
 The value has the form `v1:<base64 32 bytes>,v2:<base64 32 bytes>`. The
