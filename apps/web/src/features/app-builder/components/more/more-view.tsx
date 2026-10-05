@@ -6,9 +6,8 @@
  * which keeps it mounted while hidden. Renders more-nav.tsx and one panel.
  */
 
-import { type ReactNode, Suspense, useState } from "react";
+import { type ReactNode, useState } from "react";
 
-import Loader from "@/components/loader";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { AppProject } from "../../api/dto";
 import {
@@ -40,7 +39,7 @@ export type MoreViewProps = {
 	onSelectPanel: (panel: ProjectPanel) => void;
 };
 
-/** Panels with no data yet. Each one shows the empty state with its own button label. */
+/** Panels that are not built yet. Each one shows the Soon state with its own action label. */
 type EmptyMorePanel = Extract<
 	EnabledMorePanel,
 	"analytics" | "ai" | "security"
@@ -89,9 +88,17 @@ export function MoreView({
 			case "domains":
 				return <DomainsPanel projectId={project.id} />;
 			case "appStores":
-				return <AppStoresPanel project={project} />;
+				return <AppStoresPanel projectId={project.id} />;
 			case "settings":
-				return <SettingsPanel project={project} />;
+				return (
+					<SettingsPanel
+						project={project}
+						// Without the Backend group the Secrets panel does not open, so Settings hides its link.
+						onOpenSecrets={
+							showBackendGroup ? () => selectFromNav("secrets") : undefined
+						}
+					/>
+				);
 			default: {
 				// The compiler fails here when MORE_PANELS gains a panel without a case above.
 				const unhandled: never = morePanel;
@@ -129,7 +136,7 @@ export function MoreView({
 							}}
 						/>
 					) : (
-						<Suspense fallback={<Loader />}>{renderMorePanel(panel)}</Suspense>
+						renderMorePanel(panel)
 					)}
 				</PanelShell>
 			</div>

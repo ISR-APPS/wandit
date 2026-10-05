@@ -15,6 +15,7 @@ import {
 
 const IDLE: BootSignals = {
 	tokenStatus: "waking",
+	wakeAccepted: false,
 	isTurnRunning: false,
 	turnPhase: null,
 	lastTurnFailed: false,
@@ -182,6 +183,22 @@ describe("bootViewOf", () => {
 		expect(view.variant === "booting" && view.steps[1]?.details).toEqual([
 			"appBuilder.preview.boot.build.detail",
 		]);
+	});
+
+	it("ends asleep when the wake route accepts, and opens the app when the token is ready", () => {
+		// IDLE holds one user message, so only the wake rule gives the wake copy and not the create copy.
+		const woken = { ...IDLE, wakeAccepted: true };
+		const { view, memory } = viewAfter(IDLE, woken);
+		expect(memory.asleep).toBe(false);
+		expect(view.variant === "booting" && view.scene).toBe("wake");
+		expect(stepsOf(view)[0]).toBe(
+			"machine:active:appBuilder.preview.boot.machine.waking",
+		);
+
+		const ready = { ...woken, tokenStatus: "ready" as const };
+		expect(stepsOf(viewAfter(IDLE, woken, ready).view)[0]).toBe(
+			"machine:done:appBuilder.preview.boot.machine.done",
+		);
 	});
 
 	it("ends asleep when a turn starts, with the machine step active again", () => {

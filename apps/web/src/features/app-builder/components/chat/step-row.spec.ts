@@ -18,6 +18,8 @@ function renderStep(props: Partial<StepRowProps>) {
 			target: null,
 			description: null,
 			detail: [],
+			area: null,
+			imageUrl: null,
 			...props,
 		}),
 	};

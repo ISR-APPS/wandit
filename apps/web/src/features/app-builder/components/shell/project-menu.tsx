@@ -1,8 +1,9 @@
 /**
  * Project name and kind chip in the top bar. Opens a menu that lists the
- * open project, the other projects of the user, and a link back to the
- * dashboard. Rendered by components/shell/top-bar.tsx. The list reads
- * appProjectsQuery when the menu opens; the open project comes from the page through props.
+ * open project, the other V2 apps of the active workspace, and a link back
+ * to the dashboard. Rendered by components/shell/top-bar.tsx. The list reads
+ * useProjectsQuery of the projects feature when the menu opens; the open
+ * project comes from the page through props.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -11,7 +12,6 @@ import { CheckIcon } from "@phosphor-icons/react/Check";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { SquaresFourIcon } from "@phosphor-icons/react/SquaresFour";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -25,8 +25,8 @@ import {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 
+import { useProjectsQuery } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import { appProjectsQuery } from "../../api/app-builder.queries";
 import type { AppProject, AppProjectKind } from "../../api/dto";
 
 // The spark tint of the picked row, like ACTIVE_ROW_CLASS of the workspace switcher.
@@ -46,7 +46,7 @@ export type ProjectMenuProps = {
 	project: AppProject;
 };
 
-/** Two mock projects share one name; the kind chip tells them apart in the trigger and the list. */
+/** The kind chip tells apart two projects with the same name, in the trigger and the list. */
 export function ProjectMenu({ project }: ProjectMenuProps) {
 	const { t } = useTranslation();
 
@@ -104,13 +104,14 @@ export function ProjectMenu({ project }: ProjectMenuProps) {
 }
 
 /**
- * One menu item per other project. Lives inside the menu content, so the
- * query starts when the menu opens and not on every page paint.
+ * One menu item per other V2 app. Lives inside the menu content, so the
+ * query starts when the menu opens and not on every page paint. The
+ * dashboard shares the cache entry of the list.
  */
 function OtherProjects({ currentId }: { currentId: string }) {
 	const { t } = useTranslation();
 	const navigate = useNavigate();
-	const projects = useQuery(appProjectsQuery());
+	const projects = useProjectsQuery();
 
 	if (projects.isPending) {
 		return (
@@ -127,26 +128,33 @@ function OtherProjects({ currentId }: { currentId: string }) {
 			</p>
 		);
 	}
+	// The list holds V1 pages too. A V1 page opens in the V1 workspace, not here.
 	// The open project already has the first row.
 	return projects.data
-		.filter((candidate) => candidate.id !== currentId)
-		.map((candidate) => (
-			<DropdownMenuItem
-				key={candidate.id}
-				onSelect={() =>
-					void navigate({
-						to: "/app/$projectId",
-						params: { projectId: candidate.id },
-					})
-				}
-			>
-				<KindMedallion kind={candidate.kind} />
-				<span className={ROW_NAME_CLASS} dir="auto">
-					{candidate.name}
-				</span>
-				<KindChip kind={candidate.kind} className="ms-auto" />
-			</DropdownMenuItem>
-		));
+		.filter(
+			(candidate) =>
+				candidate.engine === "v2_app" && candidate.id !== currentId,
+		)
+		.map((candidate) => {
+			const kind = candidate.targetPlatform === "mobile" ? "mobile" : "web";
+			return (
+				<DropdownMenuItem
+					key={candidate.id}
+					onSelect={() =>
+						void navigate({
+							to: "/app/$projectId",
+							params: { projectId: candidate.id },
+						})
+					}
+				>
+					<KindMedallion kind={kind} />
+					<span className={ROW_NAME_CLASS} dir="auto">
+						{candidate.name}
+					</span>
+					<KindChip kind={kind} className="ms-auto" />
+				</DropdownMenuItem>
+			);
+		});
 }
 
 /** The round kind icon at the start of a menu row. The open project gets the spark ground. */

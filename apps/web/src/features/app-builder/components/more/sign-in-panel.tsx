@@ -1,7 +1,8 @@
 /**
  * Sign-in panel of the More view: the user count and the sign-in methods.
  * Email and password is on and locked. Google, phone code, and magic link
- * show a "Soon" chip and do nothing. Reads signInSummaryQuery for the count.
+ * show a "Soon" chip and do nothing. The count is `total` of the Cloud
+ * users route (cloudAuthUsersQuery), read only while the backend is active.
  * Rendered by components/more/more-view.tsx inside PanelShell.
  */
 
@@ -11,13 +12,16 @@ import { EnvelopeSimpleIcon } from "@phosphor-icons/react/EnvelopeSimple";
 import { GoogleLogoIcon } from "@phosphor-icons/react/GoogleLogo";
 import { InfoIcon } from "@phosphor-icons/react/Info";
 import { LinkSimpleIcon } from "@phosphor-icons/react/LinkSimple";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Switch } from "@wandit/ui/components/switch";
 import { cn } from "@wandit/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import { signInSummaryQuery } from "../../api/app-builder.queries";
+import {
+	cloudAuthUsersQuery,
+	cloudBackendQuery,
+} from "../../api/cloud.queries";
 import { PANEL_CARD_CLASS, PanelChip } from "./panel-shell";
 
 export type SignInPanelProps = {
@@ -31,10 +35,24 @@ const SOON_METHODS = [
 	{ id: "magicLink", icon: LinkSimpleIcon },
 ] as const satisfies readonly { id: string; icon: Icon }[];
 
-/** Suspends until the user count loads. The method rows are fixed UI, not data. */
+/** One user row is enough: the answer carries the full `total`. */
+const USER_COUNT_QUERY = { page: 1, pageSize: 1 } as const;
+
+/** The method rows are fixed UI, not data. The count shows only once the API gave it. */
 export function SignInPanel({ projectId }: SignInPanelProps) {
 	const { t, locale } = useTranslation();
-	const { data } = useSuspenseQuery(signInSummaryQuery(projectId));
+	// The page reads the same backend query, so this read hits the cache.
+	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
+	// The users route answers 409 until the backend is active, so the count waits for it.
+	const users = useQuery(
+		cloudAuthUsersQuery(
+			projectId,
+			USER_COUNT_QUERY,
+			backend?.status === "active",
+		),
+	);
+	// No backend, a backend that is not ready, or a failed read: the count is secondary, so it stays hidden.
+	const userCount = users.data?.total;
 	const emailPasswordTitle = t("appBuilder.signIn.methods.emailPassword.title");
 
 	return (
@@ -44,12 +62,14 @@ export function SignInPanel({ projectId }: SignInPanelProps) {
 					<h2 className="font-grotesk font-semibold text-[15px] text-night dark:text-foreground">
 						{t("appBuilder.signIn.methodsTitle")}
 					</h2>
-					<PanelChip className="tabular-nums">
-						{t("appBuilder.signIn.userCount", {
-							count: data.userCount,
-							countDisplay: formatNumber(data.userCount, locale),
-						})}
-					</PanelChip>
+					{userCount === undefined ? null : (
+						<PanelChip className="tabular-nums">
+							{t("appBuilder.signIn.userCount", {
+								count: userCount,
+								countDisplay: formatNumber(userCount, locale),
+							})}
+						</PanelChip>
+					)}
 				</div>
 				<MethodRow
 					icon={EnvelopeSimpleIcon}

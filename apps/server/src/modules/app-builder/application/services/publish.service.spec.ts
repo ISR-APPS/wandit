@@ -3,6 +3,7 @@ import {
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
+import type { PublishGateFinding } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettledCreditBalance } from "../../../credits/application/services/credits.service";
@@ -17,7 +18,9 @@ import type {
 	AppDeploymentRow,
 	InsertAppBuildResult,
 	NewAppBuild,
+	PublishProjectRow,
 } from "../../infrastructure/persistence/app-publish.repository";
+import type { AuditRecord } from "./audit-events.service";
 import { PublishService } from "./publish.service";
 
 const PROJECT_ID = "0f3a9c1b-4e7d-4a2b-9c3d-1e2f3a4b5c6d";
@@ -25,7 +28,49 @@ const BUILD_ID = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
 const SOURCE_BUILD_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const REQUEST_KEY = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A member of an org workspace who did not create the project ("user-1").
+// The owner checks read only `userId`.
+const OTHER_MEMBER: ProjectScope = {
+	actorIsLimitExempt: false,
+	kind: "org",
+	organizationId: "org-1",
+	userId: "user-2",
+};
 const HEAD_SHA = "b".repeat(40);
+const IP = "203.0.113.9";
+const ROLLBACK_BODY = { deploymentId: "deployment-1", requestKey: REQUEST_KEY };
+const OVERRIDE_BODY = { buildId: BUILD_ID, requestKey: REQUEST_KEY };
+
+// The owner may publish past an open table ("Publish anyway").
+const RLS_FINDING: PublishGateFinding = {
+	kind: "rls_probe",
+	reason: "no_rls",
+	relation: "bookings",
+	severity: "block",
+};
+// A secret, a phishing name, and an ERROR lint never pass "Publish anyway".
+const PHISHING_FINDING: PublishGateFinding = {
+	kind: "phishing",
+	severity: "block",
+	target: "paypal-login.example.com",
+	term: "paypal",
+};
+const SECRET_FINDING: PublishGateFinding = {
+	kind: "secret",
+	path: "client/assets/index.js",
+	rule: "stripe_live_secret_key",
+	sample: "sk_live_…a1b2",
+	severity: "block",
+};
+const ERROR_ADVISOR_FINDING: PublishGateFinding = {
+	detail: "Table public.bookings has row level security off",
+	kind: "advisor",
+	level: "ERROR",
+	lintId: "rls_disabled_in_public",
+	remediationUrl: null,
+	severity: "block",
+	title: "RLS disabled in public",
+};
 
 // The env values the publish guards read. Each case starts configured.
 const R2_KEYS = [
@@ -69,6 +114,8 @@ function buildRow(overrides: Partial<AppBuildRow> = {}): AppBuildRow {
 		errorCode: null,
 		errorMessage: null,
 		fileCount: null,
+		gateFindings: [],
+		gateOverride: false,
 		id: BUILD_ID,
 		organizationId: null,
 		projectId: PROJECT_ID,
@@ -77,6 +124,23 @@ function buildRow(overrides: Partial<AppBuildRow> = {}): AppBuildRow {
 		status: "queued",
 		triggerRunId: null,
 		updatedAt: new Date("2026-10-01T10:00:00.000Z"),
+		userId: "user-1",
+		...overrides,
+	};
+}
+
+function projectRow(
+	overrides: Partial<PublishProjectRow> = {},
+): PublishProjectRow {
+	return {
+		deletedAt: null,
+		engine: "v2_app",
+		framework: "web-app",
+		name: "Booking App",
+		organizationId: null,
+		suspendedAt: null,
+		suspendedReasonCode: null,
+		templateVersion: "web-app@1.0.0",
 		userId: "user-1",
 		...overrides,
 	};
@@ -140,11 +204,16 @@ function setup() {
 		findLiveDeployment: vi.fn(
 			async (_projectId: string): Promise<AppDeploymentRow | null> => null,
 		),
+		findProject: vi.fn(
+			async (_projectId: string): Promise<PublishProjectRow | null> =>
+				projectRow(),
+		),
 		insertQueued: vi.fn(
 			async (input: NewAppBuild): Promise<InsertAppBuildResult> => ({
 				kind: "created",
 				row: buildRow({
 					commitSha: input.commitSha,
+					gateOverride: input.gateOverride,
 					sourceBuildId: input.sourceBuildId,
 				}),
 			}),
@@ -192,6 +261,14 @@ function setup() {
 		isKvConfigured: vi.fn(() => true),
 	};
 	const starter = { start: vi.fn(async () => ({ runId: "run-1" })) };
+	const audit = {
+		record: vi.fn(async (_event: AuditRecord): Promise<void> => undefined),
+	};
+	const authUrlSync = {
+		onProjectDomainsChanged: vi.fn(
+			async (_projectId: string): Promise<void> => undefined,
+		),
+	};
 	const workers = {
 		deleteScript: vi.fn(async () => {
 			order.push("worker");
@@ -205,10 +282,14 @@ function setup() {
 		credits,
 		routing,
 		starter,
+		audit,
+		authUrlSync,
 		workers,
 	);
 	return {
 		appCommits,
+		audit,
+		authUrlSync,
 		credits,
 		deployments,
 		order,
@@ -231,6 +312,7 @@ describe("PublishService.publishHead", () => {
 		expect(build).toMatchObject({ id: BUILD_ID, status: "queued" });
 		expect(publish.insertQueued).toHaveBeenCalledWith({
 			commitSha: HEAD_SHA,
+			gateOverride: false,
 			organizationId: null,
 			projectId: PROJECT_ID,
 			requestKey: REQUEST_KEY,
@@ -268,6 +350,8 @@ describe("PublishService.publishHead", () => {
 			base.credits,
 			base.routing,
 			base.starter,
+			base.audit,
+			base.authUrlSync,
 			null,
 		);
 
@@ -418,15 +502,92 @@ describe("PublishService.publishHead", () => {
 			).rejects.toBeInstanceOf(NotFoundException);
 		}
 	});
+
+	// WANDIT-181: the checked slug is the live slug, else the slug of the
+	// name. A rename does not clear a phishing slug that is already live.
+	it.each([
+		{ label: "a phishing app name", liveSlug: null, name: "PayPal Login" },
+		{
+			label: "a live phishing slug after a rename",
+			liveSlug: "paypal-login",
+			name: "Booking App",
+		},
+	])("answers 422 SLUG_BLOCKED for $label and queues nothing", async ({
+		liveSlug,
+		name,
+	}) => {
+		const { publish, service, starter } = setup();
+		publish.findProject.mockResolvedValue(projectRow({ name }));
+		publish.findLiveDeployment.mockResolvedValue(
+			liveSlug === null
+				? null
+				: deploymentRow({ slug: liveSlug, status: "active" }),
+		);
+
+		await expect(
+			service.publishHead(SCOPE, PROJECT_ID, { requestKey: REQUEST_KEY }),
+		).rejects.toMatchObject({
+			response: { code: "SLUG_BLOCKED" },
+			status: 422,
+		});
+		expect(publish.insertQueued).not.toHaveBeenCalled();
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+});
+
+describe("PublishService on a suspended project", () => {
+	// WANDIT-181: no route puts a suspended app live again until staff
+	// unsuspend it.
+	it.each([
+		{
+			call: ({ service }: ReturnType<typeof setup>) =>
+				service.publishHead(SCOPE, PROJECT_ID, { requestKey: REQUEST_KEY }),
+			route: "publishHead",
+		},
+		{
+			call: ({ service }: ReturnType<typeof setup>) =>
+				service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP),
+			route: "rollback",
+		},
+		{
+			call: ({ publish, service }: ReturnType<typeof setup>) => {
+				// A valid override target, so the call gets to the suspension check.
+				const blocked = buildRow({
+					gateFindings: [RLS_FINDING],
+					status: "blocked",
+				});
+				publish.findById.mockResolvedValue(blocked);
+				publish.findLatest.mockResolvedValue(blocked);
+				return service.overrideGate(SCOPE, PROJECT_ID, OVERRIDE_BODY, IP);
+			},
+			route: "overrideGate",
+		},
+	])("answers 403 PROJECT_SUSPENDED on $route and queues nothing", async ({
+		call,
+	}) => {
+		const fakes = setup();
+		fakes.publish.findProject.mockResolvedValue(
+			projectRow({
+				suspendedAt: new Date("2026-10-02T09:00:00.000Z"),
+				suspendedReasonCode: "abuse_phishing",
+			}),
+		);
+
+		await expect(call(fakes)).rejects.toMatchObject({
+			response: { code: "PROJECT_SUSPENDED" },
+			status: 403,
+		});
+		expect(fakes.audit.record).not.toHaveBeenCalled();
+		expect(fakes.publish.insertQueued).not.toHaveBeenCalled();
+		expect(fakes.starter.start).not.toHaveBeenCalled();
+	});
 });
 
 describe("PublishService.rollback", () => {
-	const body = { deploymentId: "deployment-1", requestKey: REQUEST_KEY };
-
 	it("queues the stored output of the target build with its commit", async () => {
 		const { publish, service } = setup();
 
-		await service.rollback(SCOPE, PROJECT_ID, body);
+		await service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP);
 
 		expect(publish.insertQueued).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -442,7 +603,7 @@ describe("PublishService.rollback", () => {
 			buildRow({ id: SOURCE_BUILD_ID, sourceBuildId: "first-build" }),
 		);
 
-		await service.rollback(SCOPE, PROJECT_ID, body);
+		await service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP);
 
 		expect(publish.insertQueued).toHaveBeenCalledWith(
 			expect.objectContaining({ sourceBuildId: "first-build" }),
@@ -456,7 +617,7 @@ describe("PublishService.rollback", () => {
 		);
 
 		await expect(
-			service.rollback(SCOPE, PROJECT_ID, body),
+			service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(publish.insertQueued).not.toHaveBeenCalled();
 	});
@@ -468,12 +629,12 @@ describe("PublishService.rollback", () => {
 		);
 
 		await expect(
-			service.rollback(SCOPE, PROJECT_ID, body),
+			service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP),
 		).rejects.toMatchObject({ response: { code: "PUBLISH_ROLLBACK_INVALID" } });
 
 		publish.findDeployment.mockResolvedValueOnce(null);
 		await expect(
-			service.rollback(SCOPE, PROJECT_ID, body),
+			service.rollback(SCOPE, PROJECT_ID, ROLLBACK_BODY, IP),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(publish.insertQueued).not.toHaveBeenCalled();
 	});
@@ -486,7 +647,7 @@ describe("PublishService.unpublish", () => {
 			deploymentRow({ status: "active" }),
 		);
 
-		await service.unpublish(SCOPE, PROJECT_ID);
+		await service.unpublish(SCOPE, PROJECT_ID, IP);
 
 		expect(order).toEqual(["pointer", "worker", "unpublish-row"]);
 		expect(routing.deleteHostPointer).toHaveBeenCalledWith(
@@ -505,7 +666,7 @@ describe("PublishService.unpublish", () => {
 		);
 		routing.deleteHostPointer.mockRejectedValue(new Error("kv down"));
 
-		await expect(service.unpublish(SCOPE, PROJECT_ID)).rejects.toThrow(
+		await expect(service.unpublish(SCOPE, PROJECT_ID, IP)).rejects.toThrow(
 			"kv down",
 		);
 		expect(deployments.unpublishActive).not.toHaveBeenCalled();
@@ -518,7 +679,7 @@ describe("PublishService.unpublish", () => {
 		);
 		workers.deleteScript.mockRejectedValue(new Error("cloudflare down"));
 
-		await service.unpublish(SCOPE, PROJECT_ID);
+		await service.unpublish(SCOPE, PROJECT_ID, IP);
 
 		expect(deployments.unpublishActive).toHaveBeenCalledWith(PROJECT_ID);
 	});
@@ -536,10 +697,12 @@ describe("PublishService.unpublish", () => {
 			base.credits,
 			base.routing,
 			base.starter,
+			base.audit,
+			base.authUrlSync,
 			null,
 		);
 
-		await service.unpublish(SCOPE, PROJECT_ID);
+		await service.unpublish(SCOPE, PROJECT_ID, IP);
 
 		expect(base.routing.deleteHostPointer).not.toHaveBeenCalled();
 		expect(base.deployments.unpublishActive).toHaveBeenCalledWith(PROJECT_ID);
@@ -549,10 +712,156 @@ describe("PublishService.unpublish", () => {
 		const { publish, routing, service } = setup();
 		publish.findLive.mockResolvedValue(buildRow({ status: "uploading" }));
 
-		await expect(service.unpublish(SCOPE, PROJECT_ID)).rejects.toMatchObject({
+		await expect(
+			service.unpublish(SCOPE, PROJECT_ID, IP),
+		).rejects.toMatchObject({
 			response: { code: "PUBLISH_ACTIVE" },
 		});
 		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+	});
+
+	// Security: the freed slug host must leave the login redirect list. The
+	// app is already down, so a failed sync must not fail the unpublish.
+	it("asks for one auth URL sync, and a failed sync does not fail the unpublish", async () => {
+		const { authUrlSync, deployments, publish, service } = setup();
+		publish.findLiveDeployment.mockResolvedValue(
+			deploymentRow({ status: "active" }),
+		);
+		authUrlSync.onProjectDomainsChanged.mockRejectedValue(
+			new Error("trigger down"),
+		);
+
+		await service.unpublish(SCOPE, PROJECT_ID, IP);
+
+		expect(deployments.unpublishActive).toHaveBeenCalledWith(PROJECT_ID);
+		expect(authUrlSync.onProjectDomainsChanged).toHaveBeenCalledExactlyOnceWith(
+			PROJECT_ID,
+		);
+	});
+});
+
+describe("PublishService.overrideGate", () => {
+	it("answers 403 PUBLISH_OVERRIDE_FORBIDDEN to a member who did not create the project", async () => {
+		const { audit, publish, service } = setup();
+		const blocked = buildRow({
+			gateFindings: [RLS_FINDING],
+			status: "blocked",
+		});
+		publish.findById.mockResolvedValue(blocked);
+		publish.findLatest.mockResolvedValue(blocked);
+
+		await expect(
+			service.overrideGate(OTHER_MEMBER, PROJECT_ID, OVERRIDE_BODY, IP),
+		).rejects.toMatchObject({
+			response: { code: "PUBLISH_OVERRIDE_FORBIDDEN" },
+			status: 403,
+		});
+		expect(audit.record).not.toHaveBeenCalled();
+		expect(publish.insertQueued).not.toHaveBeenCalled();
+	});
+
+	// WANDIT-190: only the newest blocked attempt can go live anyway, and
+	// only when each block finding is overridable. Unreadable findings count
+	// as none, so they never pass.
+	it.each([
+		{
+			findings: [RLS_FINDING, SECRET_FINDING],
+			isNewest: true,
+			label: "a secret finding",
+			status: "blocked",
+		},
+		{
+			findings: [RLS_FINDING, PHISHING_FINDING],
+			isNewest: true,
+			label: "a phishing finding",
+			status: "blocked",
+		},
+		{
+			findings: [ERROR_ADVISOR_FINDING],
+			isNewest: true,
+			label: "an ERROR advisor finding",
+			status: "blocked",
+		},
+		{
+			findings: [{ kind: "old_shape" }],
+			isNewest: true,
+			label: "findings that do not parse",
+			status: "blocked",
+		},
+		{
+			findings: [RLS_FINDING],
+			isNewest: false,
+			label: "a blocked build that is not the newest",
+			status: "blocked",
+		},
+		{
+			findings: [RLS_FINDING],
+			isNewest: true,
+			label: "a failed build",
+			status: "failed",
+		},
+	] as const)("answers 409 PUBLISH_OVERRIDE_INVALID for $label and queues nothing", async ({
+		findings,
+		isNewest,
+		status,
+	}) => {
+		const { audit, publish, service, starter } = setup();
+		const target = buildRow({ gateFindings: findings, status });
+		publish.findById.mockResolvedValue(target);
+		publish.findLatest.mockResolvedValue(
+			isNewest
+				? target
+				: buildRow({ id: SOURCE_BUILD_ID, status: "published" }),
+		);
+
+		await expect(
+			service.overrideGate(SCOPE, PROJECT_ID, OVERRIDE_BODY, IP),
+		).rejects.toMatchObject({
+			response: { code: "PUBLISH_OVERRIDE_INVALID" },
+			status: 409,
+		});
+		expect(audit.record).not.toHaveBeenCalled();
+		expect(publish.insertQueued).not.toHaveBeenCalled();
+		expect(starter.start).not.toHaveBeenCalled();
+	});
+
+	it("queues the blocked commit with gateOverride and writes the audit row before the start", async () => {
+		const { audit, order, publish, service, starter } = setup();
+		const blocked = buildRow({
+			commitSha: "c".repeat(40),
+			gateFindings: [RLS_FINDING],
+			status: "blocked",
+		});
+		publish.findById.mockResolvedValue(blocked);
+		publish.findLatest.mockResolvedValue(blocked);
+		audit.record.mockImplementation(async () => {
+			order.push("audit");
+		});
+		starter.start.mockImplementation(async () => {
+			order.push("start");
+			return { runId: "run-1" };
+		});
+
+		await service.overrideGate(SCOPE, PROJECT_ID, OVERRIDE_BODY, IP);
+
+		// The task builds the blocked commit, not the head of `main`.
+		expect(publish.insertQueued).toHaveBeenCalledWith(
+			expect.objectContaining({
+				commitSha: "c".repeat(40),
+				gateOverride: true,
+				sourceBuildId: null,
+			}),
+		);
+		expect(audit.record).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				action: "publish.gate_override",
+				actorUserId: "user-1",
+				ip: IP,
+				targetId: BUILD_ID,
+			}),
+		);
+		// The override stays on record even when the start fails after it.
+		expect(order).toEqual(["audit", "start"]);
 	});
 });
 
@@ -592,5 +901,70 @@ describe("PublishService.status", () => {
 			new Date("2026-10-01T11:30:00.000Z"),
 		);
 		expect(deployments.healStalePending).toHaveBeenCalledWith(PROJECT_ID);
+	});
+
+	// WANDIT-190: the popover shows "Publish anyway" only to the creator of an
+	// app that is not suspended, and only when the newest attempt is blocked
+	// and each of its block findings is overridable.
+	it.each([
+		{
+			allowed: true,
+			label: "the creator with an open table",
+			latest: buildRow({ gateFindings: [RLS_FINDING], status: "blocked" }),
+			project: projectRow(),
+			scope: SCOPE,
+		},
+		{
+			allowed: false,
+			label: "a member who did not create the project",
+			latest: buildRow({ gateFindings: [RLS_FINDING], status: "blocked" }),
+			project: projectRow(),
+			scope: OTHER_MEMBER,
+		},
+		{
+			allowed: false,
+			label: "the creator with a secret finding",
+			latest: buildRow({
+				gateFindings: [RLS_FINDING, SECRET_FINDING],
+				status: "blocked",
+			}),
+			project: projectRow(),
+			scope: SCOPE,
+		},
+		// A live override build keeps its block findings in `gate_findings`.
+		{
+			allowed: false,
+			label: "the creator after the override went live",
+			latest: buildRow({
+				gateFindings: [RLS_FINDING],
+				gateOverride: true,
+				status: "published",
+			}),
+			project: projectRow(),
+			scope: SCOPE,
+		},
+		{
+			allowed: false,
+			label: "the creator of a suspended app",
+			latest: buildRow({ gateFindings: [RLS_FINDING], status: "blocked" }),
+			project: projectRow({
+				suspendedAt: new Date("2026-10-02T09:00:00.000Z"),
+				suspendedReasonCode: "abuse_phishing",
+			}),
+			scope: SCOPE,
+		},
+	])("answers gateOverrideAllowed $allowed to $label", async ({
+		allowed,
+		latest,
+		project,
+		scope,
+	}) => {
+		const { publish, service } = setup();
+		publish.findLatest.mockResolvedValue(latest);
+		publish.findProject.mockResolvedValue(project);
+
+		const status = await service.status(scope, PROJECT_ID);
+
+		expect(status.gateOverrideAllowed).toBe(allowed);
 	});
 });

@@ -38,6 +38,8 @@ export type ProjectBarProps = {
 	chatOpen: boolean;
 	/** Opens the chat card. The collapse button lives in the card header. */
 	onExpandChat: () => void;
+	/** Sha of the commit the live web app runs, from the publish status in the page. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** Runs after a restore succeeds. The page mints a new preview token with it. */
 	onRestored: () => void;
 };
@@ -47,6 +49,7 @@ export function ProjectBar({
 	project,
 	chatOpen,
 	onExpandChat,
+	liveCommitSha,
 	onRestored,
 }: ProjectBarProps) {
 	const { t } = useTranslation();
@@ -66,9 +69,12 @@ export function ProjectBar({
 			</IconAction>
 			<ProjectMenu project={project} />
 			<span className="flex items-center gap-0.5">
-				<span className="hidden md:block">
-					<VersionsPopover projectId={project.id} onRestored={onRestored} />
-				</span>
+				{/* Every width shows it: a phone user must be able to list and restore versions too. */}
+				<VersionsPopover
+					projectId={project.id}
+					liveCommitSha={liveCommitSha}
+					onRestored={onRestored}
+				/>
 				{chatOpen ? null : (
 					<IconAction label={t("appBuilder.topBar.expandChat")}>
 						<Button
@@ -99,15 +105,29 @@ export type WorkBarProps = {
 	view: BuilderView;
 	/** Writes the picked view to `?view=` of the URL. The view switcher calls it. */
 	onChangeView: (view: BuilderView) => void;
+	/** True when the chat can take a message. Passed to the publish popover for "Ask the AI to fix". */
+	canAskFix: boolean;
+	/** Sends one chat message and opens the chat. The publish popover sends the gate findings with it. */
+	onAskFix: (text: string) => void;
 };
 
 /** On desktop this half sits over the main card. A drag of the split moves it with the card. */
-export function WorkBar({ project, view, onChangeView }: WorkBarProps) {
+export function WorkBar({
+	project,
+	view,
+	onChangeView,
+	canAskFix,
+	onAskFix,
+}: WorkBarProps) {
 	return (
 		<div className="flex shrink-0 items-center gap-2 md:min-w-0 md:flex-1">
 			<ViewSwitcher view={view} onChangeView={onChangeView} />
 			<div className="ms-auto flex shrink-0 items-center gap-2">
-				<PublishPopover project={project} />
+				<PublishPopover
+					project={project}
+					canAskFix={canAskFix}
+					onAskFix={onAskFix}
+				/>
 				<UserMenu />
 			</div>
 		</div>
@@ -118,9 +138,9 @@ export function WorkBar({ project, view, onChangeView }: WorkBarProps) {
 export type ViewSwitcherProps = Pick<WorkBarProps, "view" | "onChangeView">;
 
 /**
- * The Preview, Code, and More switch at the start of the work bar. Only the
- * open view shows its label. More holds every project panel, the Cloud
- * panels too. Exported for the spec.
+ * The Preview, Code, and More switch at the start of the work bar. From the
+ * sm width, only the open view shows its label; below it, icons only. More
+ * holds every project panel, the Cloud panels too. Exported for the spec.
  */
 export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 	const { t } = useTranslation();
@@ -130,6 +150,8 @@ export function ViewSwitcher({ view, onChangeView }: ViewSwitcherProps) {
 			ariaLabel={t("appBuilder.topBar.viewsAriaLabel")}
 			value={view}
 			onChange={onChangeView}
+			// A phone row also holds the project controls and History, so the open view keeps its label for screen readers only.
+			className="max-sm:[&_span]:sr-only"
 			options={[
 				{
 					value: "preview",

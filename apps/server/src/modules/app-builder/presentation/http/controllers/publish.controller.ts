@@ -3,7 +3,8 @@
  * app (WANDIT-178). The global AuthGuard needs a session, `V2BuilderEnabledGuard`
  * gates the module, the workspace guard checks `publish:manage` on the
  * writes like the V1 routes, and `RedisRateLimitGuard` reads `@RateLimit`.
- * This file parses the input and delegates to `PublishService`.
+ * This file parses the input, reads the client IP for the audit rows, and
+ * delegates to `PublishService`.
  */
 import {
 	Body,
@@ -14,19 +15,24 @@ import {
 	Inject,
 	Param,
 	Post,
+	Req,
 	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type AppBuild,
 	type AppPublishStatus,
+	type OverridePublishGateBody,
+	overridePublishGateBodySchema,
 	type PublishAppBody,
 	publishAppBodySchema,
 	type RollbackAppBody,
 	rollbackAppBodySchema,
 	uuidSchema,
 } from "@wandit/contracts";
+import type { FastifyRequest } from "fastify";
 
+import { readClientIp } from "../../../../../infrastructure/http/client-ip";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
@@ -42,11 +48,19 @@ import {
 } from "../guards/redis-rate-limit.guard";
 import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 
-// 10 writes per user in 10 minutes (ESTIMATE). Each publish wakes a sandbox
+// 10 publishes per user per hour (WANDIT-181). Each publish wakes a sandbox
 // and runs a build, so the cap stops a script that publishes in a loop.
-// Each route has its own bucket.
-const PUBLISH_MUTATION_LIMIT = 10;
-const PUBLISH_MUTATION_WINDOW_MS = 600_000;
+const PUBLISH_LIMIT = 10;
+// Three times the user cap: three people behind one office IP still fit,
+// but the cap stops one person who uses many accounts.
+const PUBLISH_IP_LIMIT = 30;
+const PUBLISH_WINDOW_MS = 60 * 60_000;
+
+// 10 rollbacks or unpublishes per user in 10 minutes (ESTIMATE). Each one
+// uploads or deletes the user Worker, so the cap stops a script that flips
+// the live app in a loop. Each route has its own bucket.
+const ROLLBACK_UNPUBLISH_LIMIT = 10;
+const ROLLBACK_UNPUBLISH_WINDOW_MS = 600_000;
 
 const projectIdParam = Param("projectId", new ZodValidationPipe(uuidSchema));
 
@@ -59,7 +73,7 @@ export class PublishController {
 		@Inject(PublishService)
 		private readonly publish: Pick<
 			PublishService,
-			"publishHead" | "rollback" | "status" | "unpublish"
+			"overrideGate" | "publishHead" | "rollback" | "status" | "unpublish"
 		>,
 	) {}
 
@@ -76,9 +90,10 @@ export class PublishController {
 	// 202: the build runs in the task. The popover polls the status.
 	@RequireWorkspacePermission("publish", "manage")
 	@RateLimit({
+		ipLimit: PUBLISH_IP_LIMIT,
 		key: "app-publish",
-		limit: PUBLISH_MUTATION_LIMIT,
-		windowMs: PUBLISH_MUTATION_WINDOW_MS,
+		limit: PUBLISH_LIMIT,
+		windowMs: PUBLISH_WINDOW_MS,
 	})
 	@Post()
 	@HttpCode(202)
@@ -98,8 +113,8 @@ export class PublishController {
 	@RequireWorkspacePermission("publish", "manage")
 	@RateLimit({
 		key: "app-publish-rollback",
-		limit: PUBLISH_MUTATION_LIMIT,
-		windowMs: PUBLISH_MUTATION_WINDOW_MS,
+		limit: ROLLBACK_UNPUBLISH_LIMIT,
+		windowMs: ROLLBACK_UNPUBLISH_WINDOW_MS,
 	})
 	@Post("rollback")
 	@HttpCode(202)
@@ -108,29 +123,60 @@ export class PublishController {
 		@Body(new ZodValidationPipe(rollbackAppBodySchema)) body: RollbackAppBody,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<AppBuild> {
 		return this.publish.rollback(
 			projectScopeFrom(workspace, user.id),
 			projectId,
 			body,
+			readClientIp(request),
+		);
+	}
+
+	// "Publish anyway" is a publish, so it shares the publish bucket: the
+	// override cannot get around the publish cap.
+	@RequireWorkspacePermission("publish", "manage")
+	@RateLimit({
+		ipLimit: PUBLISH_IP_LIMIT,
+		key: "app-publish",
+		limit: PUBLISH_LIMIT,
+		windowMs: PUBLISH_WINDOW_MS,
+	})
+	@Post("override")
+	@HttpCode(202)
+	overrideGate(
+		@projectIdParam projectId: string,
+		@Body(new ZodValidationPipe(overridePublishGateBodySchema))
+		body: OverridePublishGateBody,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
+	): Promise<AppBuild> {
+		return this.publish.overrideGate(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			body,
+			readClientIp(request),
 		);
 	}
 
 	@RequireWorkspacePermission("publish", "manage")
 	@RateLimit({
 		key: "app-unpublish",
-		limit: PUBLISH_MUTATION_LIMIT,
-		windowMs: PUBLISH_MUTATION_WINDOW_MS,
+		limit: ROLLBACK_UNPUBLISH_LIMIT,
+		windowMs: ROLLBACK_UNPUBLISH_WINDOW_MS,
 	})
 	@Delete()
 	unpublish(
 		@projectIdParam projectId: string,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Req() request: Pick<FastifyRequest, "headers" | "ip">,
 	): Promise<AppPublishStatus> {
 		return this.publish.unpublish(
 			projectScopeFrom(workspace, user.id),
 			projectId,
+			readClientIp(request),
 		);
 	}
 }

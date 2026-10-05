@@ -2,7 +2,8 @@
  * One template profile per target platform: the archive prefix, the dev
  * server command and port, and the version file. `AppProjectsService` and
  * `TemplateVersionService` read it by platform; the builder-turn runtime and
- * `VersionsService` read it by `projects.framework`. It calls nothing.
+ * `startSandboxWithoutTurn` (restore, wake, publish) read it by
+ * `projects.framework`. It calls nothing.
  */
 import type { TargetPlatform } from "@wandit/contracts";
 
@@ -43,7 +44,7 @@ export const TEMPLATE_PROFILES: Readonly<
 
 /**
  * The profile whose `framework` equals `projects.framework`. The builder-turn
- * runtime and `VersionsService` call it: they read only that column.
+ * runtime and `startSandboxWithoutTurn` call it: they read only that column.
  * Throws `UnknownTemplateFrameworkError` for a value no profile owns.
  */
 export function profileForFramework(

@@ -20,7 +20,7 @@ function setup() {
 	const secrets = {
 		listNames: vi.fn(async () => LIST),
 		remove: vi.fn(async () => undefined),
-		set: vi.fn(async () => undefined),
+		set: vi.fn(async () => "secret-1"),
 	};
 	const controller = new ProjectSecretsController(secrets);
 
@@ -33,7 +33,7 @@ const workspace: WorkspaceContext = { kind: "personal" };
 // The controller hands the request to `readClientIp`, which reads only
 // the forwarded-for header and `ip`; the cast fills the unused fields.
 const request = Object.assign(Object.create(null), {
-	headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" },
+	headers: { "x-forwarded-for": "203.0.113.9" },
 	ip: "10.0.0.2",
 	// SAFETY: `Object.create` yields any; the two fields above are all the route reads.
 }) as FastifyRequest;

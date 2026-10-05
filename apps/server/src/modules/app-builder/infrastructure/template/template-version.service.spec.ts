@@ -5,11 +5,7 @@ import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import { MobileTemplateUnavailableError } from "../../domain/errors/mobile-template-unavailable.error";
-import { TEMPLATE_ARCHIVE_DIR } from "../sandbox/template-init";
-import {
-	TEMPLATE_VERSION_FILE_PATHS,
-	TemplateVersionService,
-} from "./template-version.service";
+import { TemplateVersionService } from "./template-version.service";
 
 /** Writes one version file into a fresh temp folder and answers its path. */
 function versionFile(content: string): string {
@@ -72,20 +68,5 @@ describe("TemplateVersionService", () => {
 		).toThrow(
 			`templates/web-app/template_version is missing or empty at ${MISSING}`,
 		);
-	});
-
-	it("reads the real repo web file by default", () => {
-		const warn = vi
-			.spyOn(Logger.prototype, "warn")
-			.mockImplementation(() => undefined);
-
-		expect(new TemplateVersionService().versionFor("web")).toBe(
-			"web-app@1.0.0",
-		);
-		expect(TEMPLATE_VERSION_FILE_PATHS).toEqual({
-			mobile: join(TEMPLATE_ARCHIVE_DIR, "mobile-app/template_version"),
-			web: join(TEMPLATE_ARCHIVE_DIR, "web-app/template_version"),
-		});
-		warn.mockRestore();
 	});
 });

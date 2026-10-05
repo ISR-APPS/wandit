@@ -100,8 +100,12 @@ export * from "./v1/transcriptions";
 export * from "./v1/workspaces";
 // V2 web app publish contracts: the build rows, the status, and the stored output.
 export * from "./v2/app-publish";
+// V2 audit trail action names.
+export * from "./v2/audit";
 // V2 agent backend tool contracts and the destructive migration check.
 export * from "./v2/backend-tools";
+// V2 paged chat history: the cursor query and one page of messages.
+export * from "./v2/chat-history";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
 // V2 Code view contracts: the sandbox file tree and one file.
@@ -122,7 +126,7 @@ export * from "./v2/host-tools";
 export * from "./v2/llm-proxy";
 // V2 mobile build contracts: the build rows, the EAS answers, and the Expo files.
 export * from "./v2/mobile-builds";
-// V2 app-builder preview token contract.
+// V2 app-builder preview token and sandbox wake contracts.
 export * from "./v2/preview";
 // V2 preview token sign and verify helpers.
 export * from "./v2/preview-token";

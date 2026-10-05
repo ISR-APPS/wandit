@@ -125,6 +125,65 @@ describe("SupabaseManagementClient.createProject", () => {
 	});
 });
 
+describe("SupabaseManagementClient create safety", () => {
+	it.each([
+		{ first: 429, requests: 2, outcome: "created" },
+		{ first: 502, requests: 1, outcome: "throws" },
+	] as const)("a create call answered $first is sent $requests time(s)", async ({
+		first,
+		requests,
+		outcome,
+	}) => {
+		// A 429 means Supabase ran nothing. After a 502 the project can exist.
+		const fixture = makeClient([
+			jsonResponse(first, JSON.stringify({ message: "upstream" })),
+			jsonResponse(201, JSON.stringify(CREATED_PROJECT)),
+		]);
+
+		const call = fixture.client.createProject({
+			projectId: PROJECT_ID,
+			region: "eu-central-1",
+			dbPassword: "db-password-1",
+			instanceSize: "micro",
+		});
+
+		if (outcome === "created") {
+			await expect(call).resolves.toEqual({ ref: REF, orgId: "org_123" });
+		} else {
+			await expect(call).rejects.toMatchObject({ status: first });
+		}
+		expect(fixture.requests).toHaveLength(requests);
+	});
+
+	it("finds a live project by its exact name and skips a removed one", async () => {
+		const fixture = makeClient([
+			jsonResponse(
+				200,
+				JSON.stringify({
+					projects: [
+						{
+							name: `wandit-${PROJECT_ID}-old`,
+							ref: "aaaaaaaaaaaaaaaaaaaa",
+							status: "ACTIVE_HEALTHY",
+						},
+						{
+							name: `wandit-${PROJECT_ID}`,
+							ref: "bbbbbbbbbbbbbbbbbbbb",
+							status: "REMOVED",
+						},
+						{ name: `wandit-${PROJECT_ID}`, ref: REF, status: "COMING_UP" },
+					],
+				}),
+			),
+		]);
+
+		expect(await fixture.client.findLiveProjectRef(PROJECT_ID)).toBe(REF);
+		expect(fixture.requests[0]?.url).toBe(
+			`https://api.supabase.com/v1/organizations/${ORG_SLUG}/projects?search=wandit-${PROJECT_ID}`,
+		);
+	});
+});
+
 describe("SupabaseManagementClient.getProject", () => {
 	it("answers the status and the database host", async () => {
 		const fixture = makeClient([

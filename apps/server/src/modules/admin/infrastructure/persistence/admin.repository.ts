@@ -1,3 +1,8 @@
+/**
+ * Drizzle reads and writes of the admin dashboard: users, pages, the publish
+ * log, projects, credits, and the take-down state of a V2 app.
+ * The admin services in `application/services` call it.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminListPublicationsQuery,
@@ -15,6 +20,7 @@ import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 	preferredCountryIsoByDial,
+	type SuspendedReasonCode,
 } from "@wandit/contracts";
 import {
 	and,
@@ -118,16 +124,25 @@ export type AdminUserPageRow = {
 	primaryDomainStatus: (typeof domains.status)["_"]["data"] | null;
 };
 
+/**
+ * One deployment of the admin publish log, joined with its project, user, and
+ * primary domain. `mapAdminPublication` turns it into `AdminPublication`.
+ */
 export type AdminPublicationRow = {
 	deploymentId: string;
 	// WHERE-restricted to the publication statuses; the wider column type keeps
 	// the drizzle select assignable.
 	status: (typeof deployments.status)["_"]["data"];
+	kind: (typeof deployments.kind)["_"]["data"];
 	slug: string;
 	deploymentCreatedAt: Date;
 	projectId: string;
 	projectName: string;
 	organizationId: string | null;
+	// `projects.suspended_at` and `suspended_reason_code`. A check constraint
+	// keeps both null or both set.
+	suspendedAt: Date | null;
+	suspendedReasonCode: SuspendedReasonCode | null;
 	userId: string;
 	userName: string;
 	userEmail: string;
@@ -135,6 +150,25 @@ export type AdminPublicationRow = {
 	// Lateral already restricts to the primary ACTIVE domain, so the name alone
 	// tells the mapper whether a live custom-domain URL exists.
 	primaryDomainName: string | null;
+};
+
+/** What the suspend switch needs to know about one project. */
+export type AdminSuspensionTargetRow = {
+	engine: (typeof projects.engine)["_"]["data"];
+	deletedAt: Date | null;
+	organizationId: string | null;
+	/** The current reason; null when the project is not suspended. */
+	suspendedReasonCode: SuspendedReasonCode | null;
+	/** Slug of the active `app` deployment. Its host is `{liveSlug}.{SITES_DOMAIN}`. Null when the app is not live. */
+	liveSlug: string | null;
+};
+
+/** The three suspension columns of `projects`, written together. */
+export type AdminProjectSuspension = {
+	reasonCode: SuspendedReasonCode;
+	/** Staff note for support; null when the staff member wrote none. */
+	note: string | null;
+	suspendedAt: Date;
 };
 
 export type AdminProjectDetailRow = {
@@ -484,11 +518,14 @@ export class AdminRepository {
 			.select({
 				deploymentId: deployments.id,
 				status: deployments.status,
+				kind: deployments.kind,
 				slug: deployments.slug,
 				deploymentCreatedAt: deployments.createdAt,
 				projectId: projects.id,
 				projectName: projects.name,
 				organizationId: projects.organizationId,
+				suspendedAt: projects.suspendedAt,
+				suspendedReasonCode: projects.suspendedReasonCode,
 				userId: user.id,
 				userName: user.name,
 				userEmail: user.email,
@@ -505,6 +542,60 @@ export class AdminRepository {
 			.offset(offset);
 
 		return { countQuery, listQuery };
+	}
+
+	/**
+	 * Reads the project and the slug of its live app. Null when no project row
+	 * has this id. A soft-deleted row comes back with `deletedAt` set.
+	 */
+	async findSuspensionTarget(
+		projectId: string,
+	): Promise<AdminSuspensionTargetRow | null> {
+		// The `deployments_active_project_uq` index allows one active row per
+		// project, so the left join gives at most one row.
+		const [row] = await this.db
+			.select({
+				engine: projects.engine,
+				deletedAt: projects.deletedAt,
+				organizationId: projects.organizationId,
+				suspendedReasonCode: projects.suspendedReasonCode,
+				liveSlug: deployments.slug,
+			})
+			.from(projects)
+			.leftJoin(
+				deployments,
+				and(
+					eq(deployments.projectId, projects.id),
+					eq(deployments.status, "active"),
+					eq(deployments.kind, "app"),
+				),
+			)
+			.where(eq(projects.id, projectId))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * Writes the three suspension columns in one update. Null clears all
+	 * three; `projects_suspension_pair_ck` rejects a half-written pair.
+	 * False when the project is gone or soft-deleted.
+	 */
+	async setProjectSuspension(
+		projectId: string,
+		suspension: AdminProjectSuspension | null,
+	): Promise<boolean> {
+		const rows = await this.db
+			.update(projects)
+			.set({
+				suspendedAt: suspension?.suspendedAt ?? null,
+				suspendedReasonCode: suspension?.reasonCode ?? null,
+				suspendedNote: suspension?.note ?? null,
+			})
+			.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+			.returning({ id: projects.id });
+
+		return rows.length > 0;
 	}
 
 	async findUserDetail(

@@ -4,18 +4,22 @@
  * `publish-app.task.ts` calls `runPublishApp`; the spec runs it on fakes.
  * A build from source runs `pnpm run build` in the project sandbox, stores
  * the output in R2, and runs the publish gates. A rollback loads a stored
- * output. Both then upload through the W4P client, write the KV slug
- * pointer, and promote the `deployments` row.
+ * output. Both check the slug against the phishing rules, then upload
+ * through the W4P client, write the KV pointers of the slug host and of the
+ * custom domains, promote the `deployments` row, write an audit row, and
+ * queue the sync of the backend login URLs.
  */
 import { gunzipSync, gzipSync } from "node:zlib";
 
 import {
 	type AppBuildErrorCode,
+	appHostPointer,
 	appWorkerConfigSchema,
 	appWorkerName,
 	DEFAULT_APP_WORKER_LIMITS,
-	type HostPointer,
+	isGateFindingOverridable,
 	type StoredAppBuild,
+	type SuspendedReasonCode,
 	storedAppBuildSchema,
 	supabaseProjectUrl,
 	type WorkerBinding,
@@ -23,6 +27,7 @@ import {
 import { getErrorMessage } from "@wandit/observability/error";
 
 import { publishedAppBuildKey } from "../infrastructure/storage/r2";
+import type { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import type { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
 import type {
 	PublishGate,
@@ -34,6 +39,7 @@ import type {
 	SandboxLogger,
 	SandboxProvider,
 } from "../modules/app-builder/domain/ports/sandbox-provider";
+import { findPhishingTerm } from "../modules/app-builder/domain/publish-gate/phishing-rules";
 import { assetManifest } from "../modules/app-builder/infrastructure/cloudflare/asset-manifest";
 import {
 	type WorkersForPlatformsApi,
@@ -45,15 +51,21 @@ import type {
 } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import type {
 	AppBuildRow,
+	AppDeploymentRow,
 	AppPublishRepository,
 	PublishProjectRow,
 } from "../modules/app-builder/infrastructure/persistence/app-publish.repository";
 import type { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
-import { profileForFramework } from "../modules/app-builder/infrastructure/sandbox/template-profiles";
+import type { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
+import { startSandboxWithoutTurn } from "../modules/app-builder/infrastructure/sandbox/sandbox-start";
 import { DomainProviderError } from "../modules/domains/domain/errors/domain.errors";
+import type { ProjectDomainHook } from "../modules/domains/domain/ports/project-domain-hook.port";
 import type { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { SlugTakenError } from "../modules/sites/domain/errors/site.errors";
-import { pickFreeSlug } from "../modules/sites/domain/slugify";
+import {
+	pickFreeSlug,
+	slugifyProjectName,
+} from "../modules/sites/domain/slugify";
 import type { DeploymentsRepository } from "../modules/sites/infrastructure/persistence/deployments.repository";
 
 // Outside the project worktree, so a running turn never sees the build
@@ -104,14 +116,22 @@ export type PublishAppDeps = {
 		DeploymentsRepository,
 		"isSlugTakenByOther" | "markFailed" | "promoteToActive" | "unpublishActive"
 	>;
-	/** Reads the `app_backends` row for the public Supabase values. */
-	backends: Pick<AppBackendsRepository, "findByProjectId">;
+	/** Reads the `app_backends` row for the public Supabase values, and stamps its activity after a publish. */
+	backends: Pick<AppBackendsRepository, "findByProjectId" | "touchActive">;
 	/** Lists the names and kinds of the `project_secrets` rows. */
 	secretRows: Pick<ProjectSecretsRepository, "listSummaries">;
 	/** Decrypts one secret value; null when the row is gone. */
 	secretValues: Pick<ProjectSecretsService, "readValue">;
-	/** Wakes or creates the project sandbox. The provider restores the repository on a rebuild. */
-	sandboxes: Pick<SandboxProvider, "getOrCreate">;
+	/**
+	 * Reuses a running sandbox, or wakes or creates it. The provider restores
+	 * the repository on a rebuild.
+	 */
+	sandboxes: Pick<
+		SandboxProvider,
+		"findRunning" | "getOrCreate" | "keepAliveIfRunning"
+	>;
+	/** Reads the template and the approved egress hosts that the sandbox start needs. */
+	projects: Pick<TurnProjectRepository, "findForTurn">;
 	/** R2 reads and writes of the stored output. Null when R2 is not configured: the run fails `unconfigured`. */
 	storage: {
 		put: (key: string, bytes: Uint8Array) => Promise<void>;
@@ -125,10 +145,17 @@ export type PublishAppDeps = {
 		| "deployScript"
 		| "uploadAssets"
 	> | null;
-	/** The KV slug pointer writer. Null when KV is not configured and not allowed off: the run fails `unconfigured`. */
-	routing: Pick<DomainRoutingService, "putHostPointer"> | null;
-	/** The checks of the build output. Empty today; WANDIT-181 and WANDIT-190 add gates. */
+	/** The KV pointer writer of the slug host and the custom domains. Null when KV is not configured and not allowed off: the run fails `unconfigured`. */
+	routing: Pick<
+		DomainRoutingService,
+		"putHostPointer" | "refreshProjectDomains"
+	> | null;
+	/** The checks of the build output, in order: the secret scan, then the backend gate. */
 	gates: PublishGate[];
+	/** Writes the `publish.done` and `publish.blocked` audit rows. */
+	audit: Pick<AuditEventsService, "record">;
+	/** Queues the sync of the backend login URLs after the app goes live. */
+	authUrlSync: ProjectDomainHook;
 	/** `env.SITES_DOMAIN`: the zone of the `{slug}.{domain}` host. */
 	sitesDomain: string;
 	/** `Sentry.captureException` with the run tags. */
@@ -205,34 +232,30 @@ export async function runPublishApp(
 				"The project is deleted or is not a V2 app",
 			);
 		}
+		// Product rule (WANDIT-181): staff took the app down. Only an
+		// unsuspend puts it back, so a publish or a rollback never goes live.
+		if (project.suspendedReasonCode !== null) {
+			throw new PublishFailure(
+				"suspended",
+				`The project is suspended (${project.suspendedReasonCode})`,
+			);
+		}
 
-		let output: StoredAppBuild;
-		if (row.sourceBuildId === null) {
-			output = await buildInSandbox(deps, row, project);
-			const findings = await runGates(deps.gates, row, output);
-			const blocking = findings.filter(
-				(finding) => finding.severity === "block",
-			);
-			if (blocking.length > 0) {
-				await publish.transition(row.id, {
-					errorMessage: blocking
-						.map((finding) => `${finding.path ?? "build"}: ${finding.message}`)
-						.join("; "),
-					to: "blocked",
-				});
-				deps.logger.warn("publish-app.blocked", {
-					...fields,
-					findings: String(blocking.length),
-				});
-				return { errorCode: "gate_blocked", outcome: "blocked" };
-			}
-			// The output goes to R2 before the upload, so every live deployment
-			// has a stored output that a rollback can upload again.
-			await storage.put(
-				publishedAppBuildKey(row.projectId, row.id),
-				gzipSync(JSON.stringify(output)),
-			);
-		} else {
+		// The live slug stays; a first publish takes a slug of the name. Both
+		// a build and a rollback check it: a rollback can also take a new slug.
+		// A phishing name never passes, so the run stops before any build.
+		const live = await publish.findLiveDeployment(row.projectId);
+		const findings = phishingFindings(
+			live?.slug ?? slugifyProjectName(project.name),
+		);
+		let output: StoredAppBuild | null = null;
+		if (findings.length === 0 && row.sourceBuildId === null) {
+			output = await buildInSandbox(deps, row);
+			findings.push(...(await runGates(deps.gates, row, output)));
+		} else if (findings.length === 0 && row.sourceBuildId !== null) {
+			// WANDIT-190: a rollback skips the gates of the build output. The
+			// output passed them when it first went live: no V2 app went live
+			// before the gates existed.
 			output = await loadStoredOutput(
 				storage,
 				row.projectId,
@@ -240,24 +263,103 @@ export async function runPublishApp(
 			);
 		}
 
+		// An owner "Publish anyway" attempt lets overridable findings pass.
+		// A secret, a phishing name, and an ERROR lint still block.
+		const blocking = findings.filter(
+			(finding) =>
+				finding.severity === "block" &&
+				!(row.gateOverride && isGateFindingOverridable(finding)),
+		);
+		// `output` is null only after a phishing finding, which always blocks.
+		if (blocking.length > 0 || output === null) {
+			await publish.transition(row.id, {
+				errorMessage: blocking.map(describeFinding).join("; "),
+				gateFindings: findings,
+				to: "blocked",
+			});
+			deps.logger.warn("publish-app.blocked", {
+				...fields,
+				findings: String(blocking.length),
+			});
+			await deps.audit.record({
+				action: "publish.blocked",
+				actorUserId: row.userId,
+				metadata: {
+					blocking: blocking.length,
+					commitSha: row.commitSha,
+					kinds: [...new Set(blocking.map((finding) => finding.kind))].join(
+						",",
+					),
+				},
+				organizationId: row.organizationId,
+				projectId: row.projectId,
+				targetId: row.id,
+				targetType: "app_build",
+			});
+			return { errorCode: "gate_blocked", outcome: "blocked" };
+		}
+		if (row.sourceBuildId === null) {
+			// The output goes to R2 before the upload, so every live deployment
+			// has a stored output that a rollback can upload again.
+			await storage.put(
+				publishedAppBuildKey(row.projectId, row.id),
+				gzipSync(JSON.stringify(output)),
+			);
+		}
+
+		// Security: staff can suspend the app during the build. A second read
+		// here stops the upload; `keepSuspension` covers the upload itself.
+		if ((await publish.findProject(row.projectId))?.suspendedReasonCode) {
+			throw new PublishFailure("suspended", "Staff suspended the project");
+		}
 		const stats = outputStats(output);
 		// The API ends a row that sat 30 min without a change. A run that
 		// lost its row this way must not upload.
 		if (
-			(await publish.transition(row.id, { ...stats, to: "uploading" })) === null
+			(await publish.transition(row.id, {
+				...stats,
+				gateFindings: findings,
+				to: "uploading",
+			})) === null
 		) {
 			deps.logger.warn("publish-app.row-ended-before-upload", fields);
 			return SKIPPED;
 		}
-		await goLive(deps, { output, project, row, routing, workers });
+		await goLive(deps, { live, output, project, row, routing, workers });
 		if ((await publish.transition(row.id, { to: "published" })) === null) {
 			deps.logger.error("publish-app.row-ended-after-upload", fields);
+		}
+		// A publish is activity: the pause sweep must not pause the backend
+		// of an app that just went live. The stamp is a hint, so its failure
+		// never turns a live build into a failed one.
+		try {
+			await deps.backends.touchActive(row.projectId);
+		} catch (error) {
+			deps.logger.warn("publish-app.backend-touch-failed", {
+				...fields,
+				error: getErrorMessage(error),
+			});
 		}
 		deps.logger.info("publish-app.published", {
 			...fields,
 			bytes: String(stats.bytes),
 			fileCount: String(stats.fileCount),
 		});
+		await deps.audit.record({
+			action: "publish.done",
+			actorUserId: row.userId,
+			metadata: {
+				commitSha: row.commitSha,
+				gateOverride: row.gateOverride,
+				findings: findings.length,
+				rollbackOf: row.sourceBuildId,
+			},
+			organizationId: row.organizationId,
+			projectId: row.projectId,
+			targetId: row.id,
+			targetType: "app_build",
+		});
+		await syncAuthUrls(deps, row.projectId);
 		return { errorCode: null, outcome: "published" };
 	} catch (error) {
 		const errorCode = errorCodeOf(error);
@@ -291,23 +393,19 @@ export async function runPublishApp(
 async function buildInSandbox(
 	deps: PublishAppDeps,
 	row: AppBuildRow,
-	project: PublishProjectRow,
 ): Promise<StoredAppBuild> {
-	if (project.framework === null || project.templateVersion === null) {
-		throw new PublishFailure("internal", "The project row has no template");
+	// A running sandbox can serve a live turn. A policy push from outside the
+	// turn drops the proxy header of the harness session, so the build reuses it.
+	const running = await deps.sandboxes.findRunning(row.projectId);
+	if (running !== null) {
+		// The reader runs no keep-alive, and install plus build take up to 8 min.
+		await deps.sandboxes.keepAliveIfRunning(row.projectId);
 	}
-	const profile = profileForFramework(project.framework);
-	const sandbox = await deps.sandboxes.getOrCreate(row.projectId, {
-		devCommand: profile.devCommand,
-		devPort: profile.devPort,
-		// Like a version restore: a resume with no env keeps the build
-		// values out of the dev server; the build command gets its own env.
-		env: {},
-		framework: project.framework,
-		organizationId: project.organizationId,
-		ownerUserId: project.userId,
-		templateVersion: project.templateVersion,
-	});
+	// A stopped or lost sandbox starts like a version restore: the start env
+	// holds the proxy URL, but no token and no Supabase values. The build
+	// command gets its Supabase values in its own env.
+	const sandbox =
+		running ?? (await startSandboxWithoutTurn(deps, row.projectId));
 	const buildEnv = webAppEnvOf(
 		await deps.backends.findByProjectId(row.projectId),
 	);
@@ -590,15 +688,64 @@ async function runGates(
 	];
 	const findings: PublishGateFinding[] = [];
 	for (const gate of gates) {
-		findings.push(
-			...(await gate.run({
-				buildId: row.id,
-				files,
-				projectId: row.projectId,
-			})),
-		);
+		try {
+			findings.push(
+				...(await gate.run({
+					buildId: row.id,
+					files,
+					projectId: row.projectId,
+				})),
+			);
+		} catch (error) {
+			// A check that cannot run never lets the build pass: the run fails
+			// with a code the popover explains, and the user can try again.
+			throw new PublishFailure(
+				"gate_unavailable",
+				`The ${gate.id} gate could not run: ${getErrorMessage(error)}`,
+			);
+		}
 	}
 	return findings;
+}
+
+// WANDIT-181: a slug that looks like a login, bank, or wallet page never
+// gets a public host. No override exists for this finding.
+function phishingFindings(slug: string): PublishGateFinding[] {
+	const term = findPhishingTerm(slug);
+	return term === null
+		? []
+		: [{ kind: "phishing", severity: "block", target: slug, term }];
+}
+
+// One short English line per finding for `app_builds.error_message`. The
+// sample of a secret is already masked.
+function describeFinding(finding: PublishGateFinding): string {
+	switch (finding.kind) {
+		case "secret":
+			return `${finding.path}: ${finding.rule} ${finding.sample}`;
+		case "phishing":
+			return `slug ${finding.target}: ${finding.term}`;
+		case "advisor":
+			return `advisor ${finding.lintId} (${finding.level})`;
+		case "rls_probe":
+			return `table ${finding.relation ?? "*"}: ${finding.reason}`;
+	}
+}
+
+// Best effort: the app is already live. The sync task retries on its own,
+// and a domain change or the next publish queues it again.
+async function syncAuthUrls(
+	deps: PublishAppDeps,
+	projectId: string,
+): Promise<void> {
+	try {
+		await deps.authUrlSync.onProjectDomainsChanged(projectId);
+	} catch (error) {
+		deps.logger.error("publish-app.auth-url-sync-failed", {
+			error: getErrorMessage(error),
+			projectId,
+		});
+	}
 }
 
 async function loadStoredOutput(
@@ -629,6 +776,8 @@ async function loadStoredOutput(
 async function goLive(
 	deps: PublishAppDeps,
 	context: {
+		/** The active app deployment before this run, or null on a first publish. */
+		live: AppDeploymentRow | null;
 		output: StoredAppBuild;
 		project: PublishProjectRow;
 		row: AppBuildRow;
@@ -636,9 +785,8 @@ async function goLive(
 		workers: NonNullable<PublishAppDeps["workers"]>;
 	},
 ): Promise<void> {
-	const { output, project, routing, row, workers } = context;
+	const { live, output, project, routing, row, workers } = context;
 	const projectId = row.projectId;
-	const live = await deps.publish.findLiveDeployment(projectId);
 	// The live slug stays; a first publish takes a free slug of the name
 	// with the V1 rules.
 	const slug =
@@ -703,14 +851,15 @@ async function goLive(
 
 	const host = `${slug}.${deps.sitesDomain}`;
 	try {
-		// LIMIT: one limit for every plan. Upgrade: read the plan limits.
-		await routing.putHostPointer(host, {
-			kind: "app",
-			limits: DEFAULT_APP_WORKER_LIMITS,
-			projectId,
-			slug,
-			source: "slug",
-		} satisfies HostPointer);
+		await routing.putHostPointer(
+			host,
+			appHostPointer({
+				projectId,
+				slug,
+				source: "slug",
+				suspendedReasonCode: null,
+			}),
+		);
 	} catch (error) {
 		// A re-publish keeps its slug, so the stored pointer already names
 		// this project and the new script serves. Only a first publish has
@@ -733,6 +882,66 @@ async function goLive(
 		}
 		await deleteAppWorker(deps, workers, projectId);
 		throw error;
+	}
+	await writeDomainPointers(deps, routing, projectId, null);
+	await keepSuspension(deps, routing, projectId, host, slug);
+}
+
+// WANDIT-177: a custom domain of a V2 app needs the `kind: "app"` pointer,
+// or the edge serves the V1 path and answers 404. The slug host is already
+// live, so a failed write only logs; the next publish writes it again.
+async function writeDomainPointers(
+	deps: PublishAppDeps,
+	routing: NonNullable<PublishAppDeps["routing"]>,
+	projectId: string,
+	suspendedReasonCode: SuspendedReasonCode | null,
+): Promise<void> {
+	try {
+		await routing.refreshProjectDomains(
+			projectId,
+			appHostPointer({
+				projectId,
+				slug: null,
+				source: "domain",
+				suspendedReasonCode,
+			}),
+		);
+	} catch (error) {
+		deps.logger.error("publish-app.domain-pointers-failed", {
+			error: getErrorMessage(error),
+			projectId,
+		});
+	}
+}
+
+// Security: staff can suspend the app while this run writes its pointers.
+// The suspend switch writes the state first, so a read after the writes
+// sees it, and the suspended pointers win on every host. A failure only
+// logs: the app is already live, and a new suspend click writes them again.
+async function keepSuspension(
+	deps: PublishAppDeps,
+	routing: NonNullable<PublishAppDeps["routing"]>,
+	projectId: string,
+	host: string,
+	slug: string,
+): Promise<void> {
+	try {
+		const suspendedReasonCode =
+			(await deps.publish.findProject(projectId))?.suspendedReasonCode ?? null;
+		if (suspendedReasonCode === null) {
+			return;
+		}
+		deps.logger.warn("publish-app.suspended-during-publish", { projectId });
+		await routing.putHostPointer(
+			host,
+			appHostPointer({ projectId, slug, source: "slug", suspendedReasonCode }),
+		);
+		await writeDomainPointers(deps, routing, projectId, suspendedReasonCode);
+	} catch (error) {
+		deps.logger.error("publish-app.suspension-check-failed", {
+			error: getErrorMessage(error),
+			projectId,
+		});
 	}
 }
 

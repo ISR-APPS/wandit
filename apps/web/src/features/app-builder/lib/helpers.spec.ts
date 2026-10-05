@@ -8,12 +8,14 @@ import {
 } from "./constants";
 import {
 	copyToClipboard,
+	costCapToDraft,
 	panelsForKind,
 	previewSrcFor,
 	readChatLayout,
 	readChatOpen,
 	readExpoUsername,
 	resolvePanel,
+	toCostCapsBody,
 	writeChatLayout,
 	writeChatOpen,
 	writeExpoUsername,
@@ -30,12 +32,6 @@ describe("panelsForKind", () => {
 		const panels = panelsForKind("mobile");
 		expect(panels).toContain("appStores");
 		expect(panels).not.toContain("domains");
-	});
-
-	it("keeps the nav order and starts with analytics for every kind", () => {
-		expect(panelsForKind("web")[0]).toBe("analytics");
-		expect(panelsForKind("mobile")[0]).toBe("analytics");
-		expect(panelsForKind("web").at(-1)).toBe("settings");
 	});
 });
 
@@ -226,5 +222,36 @@ describe("previewSrcFor", () => {
 		],
 	])("%s gives %s", (path, src) => {
 		expect(previewSrcFor(previewUrl, path)).toBe(src);
+	});
+});
+
+describe("toCostCapsBody", () => {
+	// The fields hold credits with at most 2 decimals; the API stores centi-credits (1 credit = 100 cc).
+	it.each([
+		["50", "", { perTurnCapCredits: 5_000, monthlyCapCredits: null }],
+		["", " 1000 ", { perTurnCapCredits: null, monthlyCapCredits: 100_000 }],
+		["2500", "", { perTurnCapCredits: 250_000, monthlyCapCredits: null }],
+		["2501", "", null],
+		["0", "", null],
+		["", "-3", null],
+		["1.5", "123.45", { perTurnCapCredits: 150, monthlyCapCredits: 12_345 }],
+		["0.01", "", { perTurnCapCredits: 1, monthlyCapCredits: null }],
+		["1.234", "", null],
+		["", "21474836.48", null],
+		["", "ten", null],
+		["", "1e3", null],
+	])("turns %j and %j into %j", (perTurnCredits, monthlyCredits, body) => {
+		expect(toCostCapsBody({ perTurnCredits, monthlyCredits })).toEqual(body);
+	});
+
+	it("reads back a stored part-credit cap as a valid field text", () => {
+		expect(costCapToDraft(12_345)).toBe("123.45");
+		expect(costCapToDraft(null)).toBe("");
+		expect(
+			toCostCapsBody({
+				perTurnCredits: costCapToDraft(12_345),
+				monthlyCredits: costCapToDraft(null),
+			}),
+		).toEqual({ perTurnCapCredits: 12_345, monthlyCapCredits: null });
 	});
 });

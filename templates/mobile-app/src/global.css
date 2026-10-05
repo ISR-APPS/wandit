@@ -5,6 +5,11 @@
 
 @source "../node_modules/heroui-native/lib";
 
+/* Text fields show a 1 px edge: on the web, a white field on a near-white page is invisible. */
+@theme {
+	--field-border-width: 1px;
+}
+
 /*
  * The app theme. Uniwind picks the variant from the system color scheme.
  * Uniwind reads theme variables on native only inside :root.
@@ -29,6 +34,10 @@
 			--border: oklch(0.205 0 0 / 10%);
 			--separator: oklch(0.205 0 0 / 8%);
 			--field-background: oklch(1 0 0);
+			--field-border: oklch(0.205 0 0 / 15%);
+			/* HeroUI builds this with color-mix(), which Uniwind cannot read on the web: ghost and
+			   outline buttons then log a colorKit error. Keep it a little darker than --default. */
+			--color-default-hover: oklch(0.91 0 0);
 			--success: oklch(0.65 0.14 155);
 			--warning: oklch(0.75 0.15 80);
 			--danger: oklch(0.6 0.2 27);
@@ -50,6 +59,9 @@
 			--border: oklch(1 0 0 / 10%);
 			--separator: oklch(1 0 0 / 7%);
 			--field-background: oklch(0.205 0 0);
+			--field-border: oklch(1 0 0 / 15%);
+			/* A little lighter than --default; see the light block. */
+			--color-default-hover: oklch(0.3 0 0);
 			--success: oklch(0.75 0.14 155);
 			--warning: oklch(0.84 0.14 85);
 			--danger: oklch(0.7 0.19 25);

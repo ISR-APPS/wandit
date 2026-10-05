@@ -11,6 +11,7 @@ import {
 	FakeBuilderHarness,
 } from "../modules/app-builder/application/harness/fake.harness";
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
+import type { AuditRecord } from "../modules/app-builder/application/services/audit-events.service";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import type {
 	HarnessResumeState,
@@ -23,6 +24,7 @@ import type {
 	CommitTurnResult,
 } from "../modules/app-builder/infrastructure/git/commit-turn";
 import type { AppBackendRow } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
+import type { LatestAppCommit } from "../modules/app-builder/infrastructure/persistence/app-commits.repository";
 import type { BuilderSessionRow } from "../modules/app-builder/infrastructure/persistence/builder-sessions.repository";
 import type {
 	BuilderTurnFailure,
@@ -53,6 +55,7 @@ import {
 	type BuilderTurnDeps,
 	type BuilderTurnInput,
 	type BuilderTurnTiming,
+	restoreNoteOf,
 	runBuilderTurn,
 } from "./builder-turn.runtime";
 
@@ -565,6 +568,8 @@ function makeWorld(over?: {
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
+	/** True makes `hasRunCapRejection` answer that the proxy refused a request on the run cap. */
+	runCapRejected?: boolean;
 	/** `readRunSpend` answers in USD micros, one per call. */
 	runSpend?: number[];
 	/** `readV2Enabled` answers, one per call. */
@@ -604,6 +609,8 @@ function makeWorld(over?: {
 		input: Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 	}[] = [];
 	const promoted: { endedTurnId: string; projectId: string }[] = [];
+	/** Every audit row the run wrote, in call order. */
+	const audited: AuditRecord[] = [];
 	const warnings: string[] = [];
 	const infos: string[] = [];
 	/** The fields of every `builder-turn.timing` line, in order. */
@@ -643,6 +650,11 @@ function makeWorld(over?: {
 	};
 
 	const deps: BuilderTurnDeps = {
+		audit: {
+			record: async (event) => {
+				audited.push(event);
+			},
+		},
 		backendClient:
 			over?.backendClient === null
 				? null
@@ -763,6 +775,7 @@ function makeWorld(over?: {
 		proxyRows: {
 			firstRequestStartedAtMs: async () =>
 				over?.firstRequestStartedAtMs ?? null,
+			hasRunCapRejection: async () => over?.runCapRejected ?? false,
 			sumByTurn: async () => {
 				callOrder.push("sumByTurn");
 				return proxySum;
@@ -785,10 +798,12 @@ function makeWorld(over?: {
 		sessions,
 		turns,
 		usdMicrosPerCredit: USD_MICROS_PER_CREDIT,
+		versions: { findLatest: async () => null },
 		writer: stream,
 	};
 
 	return {
+		audited,
 		backendCalls,
 		backendTouches,
 		balanceReads,
@@ -1059,6 +1074,38 @@ describe("runBuilderTurn", () => {
 		expect(world.touched.length).toBeGreaterThanOrEqual(2);
 	});
 
+	it.each([
+		{ completeWon: true, settleTailFails: false, written: ["succeeded"] },
+		// A cancel finalized the row first: the cancel path owns the end.
+		{ completeWon: false, settleTailFails: false, written: [] },
+		// The tail throws after the CAS; the fail CAS then loses on the terminal row.
+		{ completeWon: true, settleTailFails: true, written: ["succeeded"] },
+	] as const)("writes turn.end only from the CAS winner (complete won: $completeWon, tail fails: $settleTailFails)", async ({
+		completeWon,
+		settleTailFails,
+		written,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.completeResult = completeWon;
+		if (settleTailFails) {
+			world.metering.settle = async () => {
+				throw new Error("settle failed");
+			};
+			world.turns.failResult = false;
+		}
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// Proof that the failing tail reached the fail path.
+		expect(world.turns.failCalls).toHaveLength(settleTailFails ? 1 : 0);
+		expect(
+			world.audited.map((event) => [event.action, event.metadata]),
+		).toEqual(written.map((status) => ["turn.end", { status }]));
+	});
+
 	it("fails the turn on a harness stream error and refunds the hold", async () => {
 		const world = makeWorld();
 		world.harness.streamError = new Error("provider blew up");
@@ -1091,7 +1138,9 @@ describe("runBuilderTurn", () => {
 
 	it("writes one error event for a harness error chunk", async () => {
 		const world = makeWorld();
+		// The harness yields the raw error chunk first, then its error event.
 		world.harness.events = [
+			{ chunk: { errorText: "boom", type: "error" }, type: "part" },
 			{
 				code: "harness_error",
 				message: "boom",
@@ -1105,6 +1154,12 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const events = world.stream.eventsOf(TURN_ID);
+		// useChat stops its read at an error chunk; the card frame must come first.
+		expect(
+			events.some(
+				(e) => e.type === "part" && JSON.stringify(e.data).includes('"error"'),
+			),
+		).toBe(false);
 		const errors = events.filter((e) => e.type === "error");
 		expect(errors).toHaveLength(1);
 		expect(errors[0]?.type === "error" && errors[0].data.code).toBe(
@@ -1650,6 +1705,59 @@ describe("runBuilderTurn", () => {
 		);
 	});
 
+	// The proxy refuses with 402 V2_RUN_CAP_REACHED at the cap. The harness
+	// then ends with an error chunk, or ends clean, before the 30 s tick. A
+	// turn whose last request only crossed the cap had no refusal.
+	it.each([
+		{
+			name: "an error chunk after a cap refusal",
+			events: [
+				{
+					code: "harness_error",
+					message: "API Error: 402 This run reached its spend cap",
+					retryable: false,
+					type: "error" as const,
+				},
+			],
+			runCapRejected: true,
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end after a cap refusal",
+			events: [],
+			runCapRejected: true,
+			status: "stopped_project_cap",
+		},
+		{
+			name: "a clean end with no refusal",
+			events: [],
+			runCapRejected: false,
+			status: "succeeded",
+		},
+	])("ends $status when the harness ends with $name, before a tick", async ({
+		events,
+		runCapRejected,
+		status,
+	}) => {
+		// 1000 cc = 10 credits; the spend of 320_000 micros is at that cap.
+		const world = makeWorld({
+			caps: fakeCapsRow(1000),
+			runCapRejected,
+			runSpend: [320_000],
+		});
+		world.harness.events = events;
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe(status);
+		// Both ends settle the real spend; neither refunds the hold.
+		expect(world.metering.refundCalls).toHaveLength(0);
+		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
 	it("stops as stopped_project_cap on a tick when the monthly cap is crossed", async () => {
 		vi.useFakeTimers();
 		// The sum holds this turn's own 500 cc reserve; the runtime subtracts
@@ -1920,20 +2028,51 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe("failed");
 	});
 
-	it("skips checkpoints and settle when billing is off", async () => {
-		const world = makeWorld({ billingDisabled: true, runSpend: [900_000] });
+	it("finishes above both project caps without a debit when billing is off", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld({
+			billingDisabled: true,
+			caps: fakeCapsRow(1, 1),
+			// Settled spend reaches the monthly cap even after the hold is removed.
+			monthlySpend: HOLD_RESERVE_CREDITS + 1,
+			// Provider spend exceeds the one-centi-credit turn cap.
+			runSpend: [900_000],
+		});
+		world.deps.counters.readRunSpend = vi.fn(world.deps.counters.readRunSpend);
+		world.metering.monthlySpendCredits = vi.fn(
+			world.metering.monthlySpendCredits.bind(world.metering),
+		);
 		world.harness.events = happyEvents();
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 		const { controller, input } = makeInput();
 
-		await runBuilderTurn(world.deps, input, controller.signal);
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+		// Keep the stream open through one pulse to exercise the recurring spend gate.
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(world.stream.eventsOf(TURN_ID).at(-1)).toMatchObject({
+			data: { message: "Working", phase: "running" },
+			type: "status",
+		});
+		expect(world.balanceReads).toHaveLength(0);
+		expect(world.deps.counters.readRunSpend).not.toHaveBeenCalled();
+		expect(world.metering.monthlySpendCredits).not.toHaveBeenCalled();
+		release();
+		await run;
 
 		expect(world.metering.checkpointCalls).toHaveLength(0);
 		expect(world.metering.settleCalls).toHaveLength(0);
 		expect(world.metering.refundCalls).toHaveLength(0);
 		expect(world.infos.filter((m) => m === "billing.off")).toHaveLength(1);
+		// Only the final receipt reads the credit balance.
+		expect(world.balanceReads).toEqual([50_000]);
 		// The receipt still carries the proxy-row sums.
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
+		expect(done?.type === "done" && done.data.status).toBe("succeeded");
 		expect(done?.type === "done" && done.data.receipt).toEqual({
 			balanceCredits: 50_000,
 			cacheReadTokens: 2_000,
@@ -2169,6 +2308,34 @@ describe("runBuilderTurn", () => {
 		expect(world.timings[0]?.firstModelCallMs).toBeNull();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps dashboard defaults tied to the project when resumed=%s", async (resumed) => {
+		const world = makeWorld({
+			project: fakeProjectRow({ languages: ["fr", "ar"] }),
+		});
+		world.sessions.row = resumed ? pausedSessionRow([]) : null;
+		// Resume requires a live sandbox that still holds the previous session.
+		if (resumed) {
+			await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		}
+		// A different chat must keep the same project defaults.
+		world.turns.row = fakeTurnRow({
+			chatId: "55555555-5555-4555-8555-555555555555",
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const instructions = resumed
+			? world.harness.resumeCalls[0]?.input.instructions
+			: world.harness.createCalls[0]?.instructions;
+		expect(instructions).toContain("variant=inset\ndensity=compact");
+		expect(instructions).toContain("contentWidth=centered\npalette=forest:");
+		expect(instructions).toContain("radius=0.625rem");
+	});
+
 	it("starts a fresh session when the stored one cannot resume", async () => {
 		const world = makeWorld();
 		// SAFETY: the runtime reads only resumeState off the session row.
@@ -2362,14 +2529,15 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		// The unbind and the revoke stop new requests; the sum waits for the
-		// count to drop.
-		expect(
-			world.callOrder.slice(world.callOrder.indexOf("unbindChat")).slice(0, 5),
-		).toEqual([
+		// The stream end waits for the count to drop before it reads the cap
+		// refusal row. The unbind and the revoke stop new requests, and the
+		// sum reads the rows after that.
+		expect(world.callOrder.slice(0, 7)).toEqual([
+			"bindChat",
+			"readInFlight",
+			"readInFlight",
 			"unbindChat",
 			"revokeRun",
-			"readInFlight",
 			"readInFlight",
 			"sumByTurn",
 		]);
@@ -3205,9 +3373,7 @@ describe("runBuilderTurn", () => {
 		await runBuilderTurn(world.deps, input, controller.signal);
 
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
-		expect(instructions).toContain(
-			"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.",
-		);
+		expect(instructions).toContain("Expo Go");
 		expect(instructions).toContain("ask_user tool");
 	});
 
@@ -3594,6 +3760,55 @@ describe("runBuilderTurn", () => {
 
 			expect(await envFileOf(world)).toContain(BACKEND_URL_LINE);
 		});
+
+		it.each([
+			{
+				allowed: ["abcdefghijklmnopqrst.supabase.co"],
+				label: "a fresh session allows the host once",
+				storedSession: false,
+			},
+			// A kept session would lose the proxy run token on a raw policy push.
+			{
+				allowed: [],
+				label: "a resumed session allows no host",
+				storedSession: true,
+			},
+		])("$label when the backend row turns active mid-turn", async ({
+			allowed,
+			storedSession,
+		}) => {
+			vi.useFakeTimers();
+			const world = makeWorld();
+			// provision-backend moves this row to `active` while the agent works.
+			let backendRow = fakeBackendRow({ anonKey: null, status: "creating" });
+			world.deps.backends = {
+				...world.deps.backends,
+				findByProjectId: async () => backendRow,
+			};
+			if (storedSession) {
+				// SAFETY: the runtime reads only resumeState off the session row.
+				world.sessions.row = {
+					resumeState: { harness: "claude_code", payload: "{}" },
+				} as BuilderSessionRow;
+			}
+			let release: () => void = () => {};
+			world.harness.streamHold = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+			const { controller, input } = makeInput();
+
+			const run = runBuilderTurn(world.deps, input, controller.signal);
+			await waitForStream(world.harness);
+			backendRow = fakeBackendRow();
+			// Two keep-alive ticks: the second one must add no second host.
+			await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+			expect(world.sandboxes.createOptions[0]?.backendUrl).toBeUndefined();
+			expect(world.sandboxes.allowedHosts).toEqual(allowed);
+			release();
+			await run;
+		});
 	});
 
 	describe("backend activity stamp", () => {
@@ -3641,5 +3856,53 @@ describe("runBuilderTurn", () => {
 			expect(done?.type === "done" && done.data.status).toBe("succeeded");
 			expect(world.promoted).toHaveLength(1);
 		});
+	});
+});
+
+describe("restoreNoteOf", () => {
+	// The restore commit f9e8d7c copies the picked version a1b2c3d forward.
+	const restore: LatestAppCommit = {
+		createdAt: new Date("2026-10-04T10:00:00.000Z"),
+		restoredFromSha: "a1b2c3d".padEnd(40, "0"),
+		sha: "f9e8d7c".padEnd(40, "0"),
+		source: "restore",
+	};
+
+	// The agent hears about a restore once: in the first agent turn after it.
+	it.each([
+		[
+			"a restore after the last agent turn gives a note",
+			restore,
+			"2026-10-04T09:00:00.000Z",
+			true,
+		],
+		["a restore and no session row give a note", restore, null, true],
+		[
+			"a restore the last agent turn saw gives no note",
+			restore,
+			"2026-10-04T11:00:00.000Z",
+			false,
+		],
+		[
+			"an agent commit gives no note",
+			{ ...restore, source: "agent" },
+			"2026-10-04T09:00:00.000Z",
+			false,
+		],
+		["no commit gives no note", null, null, false],
+	] satisfies [
+		string,
+		LatestAppCommit | null,
+		string | null,
+		boolean,
+	][])("%s", (_label, latest, sessionSavedAt, hasNote) => {
+		const note = restoreNoteOf(
+			latest,
+			sessionSavedAt === null ? null : new Date(sessionSavedAt),
+		);
+		expect(note === null).toBe(!hasNote);
+		// A note names the picked version a1b2c3d, never the copy-forward commit f9e8d7c.
+		expect(note?.includes("a1b2c3d") ?? false).toBe(hasNote);
+		expect(note?.includes("f9e8d7c") ?? false).toBe(false);
 	});
 });

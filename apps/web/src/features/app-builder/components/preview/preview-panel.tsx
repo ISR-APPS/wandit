@@ -4,14 +4,22 @@
  * bars can read the URL too. PreviewBootScreen covers the frame until the
  * app page loads, and while the project holds only the template; the error
  * state has its own alert. The page keeps it mounted across the views. The
- * Vite HMR WebSocket of the app inside then survives a view switch.
- * usePreviewMessages reports the page the app shows through `onRouteChange`.
+ * Vite HMR WebSocket of the app inside then survives a view switch. It tells
+ * the dev bridge of the app when the select mode starts or stops. It passes
+ * each bridge message, also a page change, to `onBridgeMessage`.
  */
 
+import type { PreviewBridgeMessage } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { type CSSProperties, useState } from "react";
+import {
+	type CSSProperties,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+} from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { BootContext } from "../../lib/boot-state";
@@ -29,6 +37,8 @@ const PREVIEW_IFRAME_SANDBOX =
 
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {
+	/** The open project. The boot screen wakes its sandbox. */
+	projectId: string;
 	/** The token state and its commands, from usePreviewToken in the parent. A new URL reloads the frame. */
 	preview: UsePreviewToken;
 	/** Page of the app to load, like `/` or `/login?next=%2F`. A change loads that page. Default `/`. */
@@ -47,8 +57,12 @@ export type PreviewPanelProps = {
 	frameViewport?: { widthPx: number; scale: number };
 	/** The running turn and the backend state. The boot screen shows the real start-up steps from them. */
 	bootContext: BootContext;
-	/** Gets the pathname and query of each page the app shows. Only apps with the route bridge of the web template report it. */
-	onRouteChange?: (path: string) => void;
+	/** True while the user picks elements in the app. Only the web preview turns it on. */
+	isSelecting?: boolean;
+	/** Gets each valid message of the dev bridge in the app: ready, a runtime error, a pick, Escape, or a page change. */
+	onBridgeMessage?: (message: PreviewBridgeMessage) => void;
+	/** Runs on each `load` of the iframe. WebPreview then shows the kept errors when no bridge said ready. */
+	onFrameLoad?: () => void;
 };
 
 /**
@@ -57,6 +71,7 @@ export type PreviewPanelProps = {
  * iframe: a reload mints a new token, and the new src reloads the frame.
  */
 export function PreviewPanel({
+	projectId,
 	preview,
 	path = "/",
 	title,
@@ -64,10 +79,13 @@ export function PreviewPanel({
 	style,
 	frameViewport,
 	bootContext,
-	onRouteChange,
+	isSelecting = false,
+	onBridgeMessage,
+	onFrameLoad,
 }: PreviewPanelProps) {
 	const { t } = useTranslation();
 	const { status, previewUrl, errorText, refresh, markNotRunning } = preview;
+	const frameRef = useRef<HTMLIFrameElement>(null);
 	// True after the iframe fired `load`. A token swap keeps the same frame, so the boot screen does not come back.
 	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
 	// A dropped frame (not-running, error) must show the boot screen again when the next frame mounts.
@@ -76,12 +94,34 @@ export function PreviewPanel({
 	// The frame still loads under the cover, so the first version shows at once when the flag flips.
 	const isAppShown = isFrameLoaded && bootContext.hasCodeChanges;
 
-	// The proxy error pages report a dead token or a stopped sandbox. The app reports its page.
+	// Tells the bridge in the app to start or stop the select mode.
+	const postSelectMode = useEffectEvent((active: boolean) => {
+		const frameWindow = frameRef.current?.contentWindow;
+		if (previewUrl === null || !frameWindow) return;
+		// The exact preview origin, never "*": no other page may get the message.
+		frameWindow.postMessage(
+			{ type: "wandit:select-mode", active },
+			new URL(previewUrl).origin,
+		);
+	});
+	useEffect(() => {
+		postSelectMode(isSelecting);
+	}, [isSelecting]);
+
+	// The proxy error pages report a dead token or a stopped sandbox. The
+	// bridge in the app reports its start, errors, picks, and pages.
 	usePreviewMessages({
 		previewUrl,
+		frameRef,
 		onTokenExpired: refresh,
 		onNotRunning: markNotRunning,
-		onRoute: onRouteChange,
+		onBridgeMessage: (message) => {
+			// A page load resets the bridge, so it gets the select mode again.
+			if (message.type === "wandit:bridge-ready" && isSelecting) {
+				postSelectMode(true);
+			}
+			onBridgeMessage?.(message);
+		},
 	});
 
 	if (status === "error") {
@@ -115,10 +155,14 @@ export function PreviewPanel({
 			<div className={cn("relative overflow-hidden", className)} style={style}>
 				{status === "ready" && previewUrl !== null ? (
 					<motion.iframe
+						ref={frameRef}
 						src={previewSrcFor(previewUrl, path)}
 						title={title}
 						sandbox={PREVIEW_IFRAME_SANDBOX}
-						onLoad={() => setIsFrameLoaded(true)}
+						onLoad={() => {
+							setIsFrameLoaded(true);
+							onFrameLoad?.();
+						}}
 						// The boot screen covers the frame until the app shows, so keyboard focus and screen readers skip it.
 						inert={!isAppShown}
 						className="block size-full border-0 bg-transparent"
@@ -156,6 +200,7 @@ export function PreviewPanel({
 							transition={{ duration: 0.26, ease: BOOT_EASE }}
 						>
 							<PreviewBootScreen
+								projectId={projectId}
 								tokenStatus={status}
 								bootContext={bootContext}
 							/>

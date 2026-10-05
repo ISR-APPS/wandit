@@ -18,7 +18,7 @@ import { isCloudPanel } from "../../lib/helpers";
 export type PanelShellProps = {
 	/** The open panel. A More panel reads its copy from MORE_PANEL_META, a Cloud panel from `workspace.cloud`. */
 	panel: ProjectPanel;
-	/** The panel component. A More panel comes inside a Suspense boundary. */
+	/** The open panel component. Each panel shows its own loading and error states. */
 	children: ReactNode;
 };
 

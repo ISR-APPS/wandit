@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
@@ -15,9 +16,9 @@ import { PhonePreview, type PhonePreviewProps } from "./phone-preview";
 const project: AppProject = {
 	id: "nadi-fitness-mobile",
 	name: "Nadi Fitness",
-	slug: "nadi",
-	description: "Membership app for a gym in Oran.",
 	kind: "mobile",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
@@ -81,7 +82,14 @@ async function renderPreview(
 			createElement(PhonePreview, props),
 		),
 	};
-	render(createElement(I18nProvider, providerProps));
+	// The wake button of the boot screen needs a query client.
+	render(
+		createElement(
+			QueryClientProvider,
+			{ client: new QueryClient() },
+			createElement(I18nProvider, providerProps),
+		),
+	);
 	return screen.findByTitle("Preview of Nadi Fitness");
 }
 
@@ -95,11 +103,21 @@ afterEach(() => {
 });
 
 describe("PhonePreview", () => {
-	it("shows the target switch only behind its flag, and a device waits for its turn-on button", async () => {
+	it("gives a mobile app reload and Expo Go but no live app link, shows the target switch only behind its flag, and a device waits for its turn-on button", async () => {
 		// Without the flag, a `?device=ios` URL falls back to the web build.
 		await renderPreview("ios");
 		expect(screen.queryByRole("button", { name: "Android" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Turn on" })).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Reload the preview" }),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Test on your phone" }),
+		).toBeTruthy();
+		// A mobile app has no site, so the bar has no live app link.
+		expect(
+			screen.queryByRole("link", { name: "Open the live app" }),
+		).toBeNull();
 		cleanup();
 
 		// Each device minute costs money: no stream mounts before the click.

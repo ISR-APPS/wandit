@@ -1,25 +1,39 @@
 /**
- * The chat column of the app builder. It has no card and lies on the sand desk.
- * Top to bottom: the header, the message list, an alert row, and the composer.
- * A running turn adds a "Building" chip, a Stop pill, and a working row.
- * Rendered by pages/app-builder-page.tsx, which owns the thread hook.
- * Renders chat-message.tsx, working-row.tsx, composer.tsx, and the request tray.
+ * The chat column of the app builder. It has no card and lies on the sand
+ * desk. The header shows the title, the dev view switch in local dev, and
+ * the collapse button; a running turn adds a "Building" chip and a Stop
+ * pill. Below sit the message list with a "Load earlier messages" button
+ * while older pages exist, one status line while a turn runs, an alert row
+ * for a refused send (`errorText`), and the composer. When the agent asks
+ * the user something, the request tray opens on top of the composer. A
+ * failed last reply gets a Retry button that sends its user message again.
+ * In the production view, the live reply shows only as the status line.
+ * Rendered by pages/app-builder-page.tsx, which owns the thread hook and the
+ * details panel. Renders chat-message.tsx, working-row.tsx, composer.tsx,
+ * and the request tray.
  */
 
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import type { TurnQuestionAnswer, TurnStreamPhase } from "@wandit/contracts";
+import type {
+	PreviewTarget,
+	TurnQuestionAnswer,
+	TurnStreamPhase,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
+import type { FileUIPart } from "ai";
 import { AnimatePresence, MotionConfig } from "motion/react";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
 import type { BuilderMessage } from "../../api/dto";
-import { liveActivityOf, withoutThoughts } from "../../lib/turn-parts";
+import { isActivityPart, liveStatusOf } from "../../lib/turn-parts";
+import { useAutoScroll } from "../../lib/use-auto-scroll";
 import { type TrayQuestion, useRequestTray } from "../../lib/use-request-tray";
+import { SegmentedControl } from "../shell/segmented-control";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
@@ -31,18 +45,26 @@ import { WorkingRow } from "./working-row";
 export type ChatPaneProps = {
 	/** Messages of the thread, oldest first. */
 	messages: BuilderMessage[];
-	/** Credits one turn costs, whole credits. Shown next to the send button. */
-	turnEstimateCredits: number;
-	/** Screen or element the next turn targets, shown as a chip above the textarea. */
-	focusLabel: string | null;
-	/** True while a turn runs. Locks the composer and shows the working row. */
+	/** Credits the next turn holds, whole credits. Shown next to the send button; null hides it. */
+	turnEstimateCredits: number | null;
+	/** Elements picked in the preview for the next turn. The composer shows them as chips. */
+	targets: PreviewTarget[];
+	/** Removes the target at this index of `targets`. */
+	onRemoveTarget: (index: number) => void;
+	/** True while a turn runs. Locks the composer and shows the status line. */
 	isSending: boolean;
-	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the working row label. */
+	/** Phase of the running turn, from useBuilderThread. With `isFirstTurn` it picks the status line label before the reply has steps. */
 	phase: TurnStreamPhase | null;
 	/** True on the first turn of the project, null while the history loads. From useBuilderThread. Picks the preparation lines. */
 	isFirstTurn: boolean | null;
-	/** True shows the raw thought rows and the seconds counter. True in local dev or for staff. */
-	showsAgentDebug: boolean;
+	/** Id of the reply that streams now, from useBuilderThread; null while no reply streams. */
+	liveMessageId: string | null;
+	/** True shows every step inline with the thinking text, and the seconds counter. Only the local dev switch sets it. */
+	isDeveloperView: boolean;
+	/** Changes the chat view. Null outside local dev: the switch then does not render. */
+	onChangeDeveloperView: ((isDeveloperView: boolean) => void) | null;
+	/** Opens the details panel of one assistant reply. The summary line and the status line call it. */
+	onOpenActivity: (messageId: string) => void;
 	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
 	onSend: (input: SendBuilderMessageInput) => void;
@@ -52,6 +74,8 @@ export type ChatPaneProps = {
 	onAnswerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
+		/** Files of a typed message that also answers a skipped round. */
+		files?: FileUIPart[];
 	}) => void;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
@@ -59,20 +83,30 @@ export type ChatPaneProps = {
 	errorText: string | null;
 	/** Hides the chat. The header button calls it; the page stores the choice. */
 	onCollapse: () => void;
-	/** Opens the preview on a saved version. The change card calls it. */
-	onPreviewVersion: (versionNumber: number) => void;
+	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
+	/** True while the stored chat has an older page. Shows the "Load earlier messages" button. From useBuilderThread. */
+	hasOlderMessages: boolean;
+	/** True while the older page loads. Disables the button. */
+	isLoadingOlderMessages: boolean;
+	/** Loads the next older page. The list keeps the message the user reads in place. */
+	onLoadOlderMessages: () => void;
 	className?: string;
 };
 
-/** The chat column: header, message list, working row, refused-send alert, and composer. */
+/** The chat column: header, message list with the status line, refused-send alert, and composer. */
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
-	focusLabel,
+	targets,
+	onRemoveTarget,
 	isSending,
 	phase,
 	isFirstTurn,
-	showsAgentDebug,
+	liveMessageId,
+	isDeveloperView,
+	onChangeDeveloperView,
+	onOpenActivity,
 	isReady,
 	onSend,
 	onDecideApproval,
@@ -80,15 +114,25 @@ export function ChatPane({
 	onCancel,
 	errorText,
 	onCollapse,
-	onPreviewVersion,
+	onOpenSecrets,
+	hasOlderMessages,
+	isLoadingOlderMessages,
+	onLoadOlderMessages,
 	className,
 }: ChatPaneProps) {
 	const { t } = useTranslation();
 	const listRef = useRef<HTMLDivElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const [draft, setDraft] = useState("");
-	// Raw thinking is for debugging. Users see only the labels of the working row.
-	const shownMessages = showsAgentDebug ? messages : withoutThoughts(messages);
+	// Product rule: in production the live reply shows only as the status line.
+	// The developer view renders it as it streams, with every step.
+	const shownMessages = isDeveloperView
+		? messages
+		: messages.filter((message) => message.id !== liveMessageId);
+	const liveMessage =
+		messages.find((message) => message.id === liveMessageId) ?? null;
+	const retryInput = isSending ? null : retryInputOf(messages);
+	const lastMessageId = messages.at(-1)?.id;
 
 	// The tray shows the open questions of the last reply. A rejected answer
 	// leaves its user bubble after that reply, and the questions stay open.
@@ -105,7 +149,12 @@ export function ChatPane({
 		onSubmit: onAnswerQuestions,
 	});
 
-	useAutoScroll(listRef, contentRef, isSending);
+	const keepPositionForOlder = useAutoScroll(
+		listRef,
+		contentRef,
+		isSending,
+		isLoadingOlderMessages,
+	);
 
 	return (
 		<div className={cn("flex min-h-0 flex-col overflow-hidden", className)}>
@@ -114,7 +163,7 @@ export function ChatPane({
 					{t("appBuilder.chat.title")}
 				</h2>
 				{isSending ? (
-					// No role="status" here: the working row in the list already announces the turn.
+					// No role="status" here: the status line in the list already announces the turn.
 					<span className="flex h-6 items-center gap-1.5 rounded-full bg-ember/[0.1] px-2.5 font-grotesk font-medium text-[12px] text-ember-text dark:bg-spark/[0.12]">
 						<span
 							aria-hidden
@@ -124,6 +173,24 @@ export function ChatPane({
 					</span>
 				) : null}
 				<span className="ms-auto flex items-center gap-1">
+					{onChangeDeveloperView !== null ? (
+						<SegmentedControl
+							className="me-1"
+							ariaLabel={t("appBuilder.chat.devView.label")}
+							options={[
+								{
+									value: "production",
+									label: t("appBuilder.chat.devView.production"),
+								},
+								{
+									value: "developer",
+									label: t("appBuilder.chat.devView.developer"),
+								},
+							]}
+							value={isDeveloperView ? "developer" : "production"}
+							onChange={(next) => onChangeDeveloperView(next === "developer")}
+						/>
+					) : null}
 					{isSending ? (
 						<Button
 							variant="outline"
@@ -155,20 +222,44 @@ export function ChatPane({
 			{/* The list lies on the desk with no card, so its ends fade out over 16 px instead of a hard cut. The pt-5 and pb-4 padding keep the first and last lines clear of the fade. */}
 			<div
 				ref={listRef}
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4 [mask-image:linear-gradient(to_bottom,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)]"
+				// The browser scroll anchor is off. It moves the list a second time
+				// after the manual position fix of an older page.
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4 [mask-image:linear-gradient(to_bottom,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)] [overflow-anchor:none]"
 			>
 				<div ref={contentRef} className="flex flex-col gap-6">
+					{hasOlderMessages ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="self-center rounded-full font-grotesk font-medium text-[13px] text-night/60 hover:bg-night/[0.05] hover:text-night dark:text-foreground/60 dark:hover:bg-white/[0.06] dark:hover:text-foreground"
+							disabled={isLoadingOlderMessages}
+							aria-busy={isLoadingOlderMessages}
+							onClick={() => {
+								keepPositionForOlder();
+								onLoadOlderMessages();
+							}}
+						>
+							{t(
+								isLoadingOlderMessages
+									? "appBuilder.chat.loadingEarlier"
+									: "appBuilder.chat.loadEarlier",
+							)}
+						</Button>
+					) : null}
 					{shownMessages.map((message) => (
 						<ChatMessageView
 							key={message.id}
 							message={message}
-							onPreviewVersion={onPreviewVersion}
-							// A follow-up or an accepted suggestion is a normal build turn.
-							// The cards stay clickable while a turn runs, so the pane drops a second send.
-							onSendText={(text) => {
-								if (!isSending) onSend({ text, mode: "build" });
-							}}
-							// Same drop rule as onSendText: one active turn per project.
+							isDeveloperView={isDeveloperView}
+							onOpenActivity={onOpenActivity}
+							onOpenSecrets={onOpenSecrets}
+							onRetry={
+								message.id === lastMessageId && retryInput !== null
+									? () => onSend(retryInput)
+									: undefined
+							}
+							// One active turn per project. The card stays clickable while a
+							// turn runs, so the pane drops a second send.
 							onDecideApproval={(approvalId, approved) => {
 								if (!isSending) onDecideApproval(approvalId, approved);
 							}}
@@ -177,13 +268,18 @@ export function ChatPane({
 					))}
 					{isSending ? (
 						<WorkingRow
-							activity={liveActivityOf(messages, {
-								phase,
-								isFirstTurn,
-								showsThoughts: showsAgentDebug,
-							})}
-							phase={phase}
-							showsElapsed={showsAgentDebug}
+							status={liveStatusOf(liveMessage, { phase, isFirstTurn })}
+							// The developer view shows the live reply with its own byline.
+							showsByline={!isDeveloperView || liveMessage === null}
+							showsElapsed={isDeveloperView}
+							// The details panel needs at least one thought, step, or note to show.
+							onOpen={
+								!isDeveloperView &&
+								liveMessage !== null &&
+								liveMessage.parts.some(isActivityPart)
+									? () => onOpenActivity(liveMessage.id)
+									: null
+							}
 						/>
 					) : null}
 				</div>
@@ -205,7 +301,8 @@ export function ChatPane({
 			<div className="shrink-0 px-4 pt-1 pb-4">
 				<Composer
 					turnEstimateCredits={turnEstimateCredits}
-					focusLabel={focusLabel}
+					targets={targets}
+					onRemoveTarget={onRemoveTarget}
 					// The composer also locks while the chat id and the history load.
 					// A send without the id drops the turn; a send before the history
 					// puts the reply above it.
@@ -217,7 +314,11 @@ export function ChatPane({
 						if (answers === null) {
 							onSend(input);
 						} else {
-							onAnswerQuestions({ message: input.text, answers });
+							onAnswerQuestions({
+								message: input.text,
+								answers,
+								files: input.files,
+							});
 						}
 					}}
 					onDraftChange={setDraft}
@@ -244,58 +345,27 @@ export function ChatPane({
 	);
 }
 
-/** A list end at most this far below the view still counts as "at the end" (px). */
-const NEAR_BOTTOM_PX = 120;
-
 /**
- * Keeps the end of the list in view while content grows: new messages,
- * streamed text, new feed rows, and a tray that shrinks the list. A scroll
- * up stops the follow, so the user can read. A new send starts it again.
+ * The message that the Retry button of the last reply sends again, or null.
+ * The last reply must hold an error, and the message before it must be the
+ * user message of that turn. An approval answer has no user bubble, so its
+ * failed reply gets no Retry. A stopped turn has no error: no Retry either.
  */
-function useAutoScroll(
-	listRef: RefObject<HTMLDivElement | null>,
-	contentRef: RefObject<HTMLDivElement | null>,
-	/** True while a turn runs; a new send jumps to the end. */
-	isSending: boolean,
-) {
-	// True while the list follows new content. The scroll handler and the
-	// send effect set it.
-	const isFollowingRef = useRef(true);
-
-	useEffect(() => {
-		const list = listRef.current;
-		const content = contentRef.current;
-		if (!list || !content) return;
-		let lastScrollTop = list.scrollTop;
-		const onScroll = () => {
-			const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
-			// A move up means the user reads, also near the end. A follow jump
-			// moves down, and at most 1 px from the end counts as the end.
-			isFollowingRef.current =
-				distance <= 1 ||
-				(list.scrollTop >= lastScrollTop && distance <= NEAR_BOTTOM_PX);
-			lastScrollTop = list.scrollTop;
-		};
-		const follow = () => {
-			if (isFollowingRef.current) list.scrollTop = list.scrollHeight;
-		};
-		follow();
-		list.addEventListener("scroll", onScroll, { passive: true });
-		// The content grows while text streams; the list shrinks when the tray opens.
-		const observer = new ResizeObserver(follow);
-		observer.observe(content);
-		observer.observe(list);
-		return () => {
-			list.removeEventListener("scroll", onScroll);
-			observer.disconnect();
-		};
-	}, [listRef, contentRef]);
-
-	// A send shows its bubble and the working row, also after a scroll up.
-	useEffect(() => {
-		const list = listRef.current;
-		if (!isSending || !list) return;
-		isFollowingRef.current = true;
-		list.scrollTop = list.scrollHeight;
-	}, [isSending, listRef]);
+function retryInputOf(
+	messages: readonly BuilderMessage[],
+): SendBuilderMessageInput | null {
+	const reply = messages.at(-1);
+	const userMessage = messages.at(-2);
+	if (reply?.role !== "assistant" || userMessage?.role !== "user") return null;
+	// Every failure can be sent again, also a stop on a credit cap: the
+	// agent then continues from the files that the stop committed.
+	if (!reply.parts.some((part) => part.type === "data-error")) return null;
+	return {
+		text: userMessage.parts
+			.flatMap((part) => (part.type === "text" ? [part.text] : []))
+			.join("\n\n"),
+		files: userMessage.parts.filter(
+			(part): part is FileUIPart => part.type === "file",
+		),
+	};
 }

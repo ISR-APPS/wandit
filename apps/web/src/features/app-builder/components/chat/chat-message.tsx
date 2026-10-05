@@ -1,79 +1,127 @@
 /**
- * One message of the builder thread. A user message is a cream bubble at the end side.
- * An assistant message starts with the Wandit byline and renders its parts in stream order.
- * The parts are prose, the activity feed, cards, question lines, errors, and the receipt.
- * The action row and the follow-up chips come last.
- * Rendered by chat-pane.tsx; working-row.tsx reuses the byline.
+ * One message of the builder thread. A user message is a cream bubble at
+ * the end side. Its files sit above it, and the chips of its preview picks
+ * sit above the files. An assistant message starts with the Wandit byline.
+ * In the production view, one summary line opens the details panel, and
+ * only the parts the user reads or acts on follow: the final answer, a
+ * missing secret, the question lines, the approval card, the error with
+ * Retry, the stopped line, and the receipt. The developer view (local dev
+ * only) renders every part in stream order, with the thinking text. A Copy
+ * action ends a reply that has a final answer. Rendered by chat-pane.tsx;
+ * working-row.tsx reuses the byline.
  */
 
-import { ArrowBendDownRightIcon } from "@phosphor-icons/react/ArrowBendDownRight";
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
+import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import { toast } from "sonner";
+import type { FileUIPart } from "ai";
 import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
 import { formatNumber, useTranslation } from "@/lib/i18n";
 import { getModelLabel } from "@/lib/model-labels";
 import type { BuilderMessage, BuilderMessagePart } from "../../api/dto";
+import { isActivityPart } from "../../lib/turn-parts";
+import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
-import { ChangeCard } from "./change-card";
-import { DiffCard } from "./diff-card";
 import { MessageActions } from "./message-actions";
+import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
-import { SuggestionCard } from "./suggestion-card";
+import { TargetChip } from "./target-chip";
 import { ThoughtRow } from "./thought-row";
 
+/** Props of one message, as chat-pane.tsx passes them. */
 export type ChatMessageViewProps = {
 	message: BuilderMessage;
-	/** Opens the preview on the version of a change card. */
-	onPreviewVersion: (versionNumber: number) => void;
-	/** Sends a follow-up or an accepted suggestion as a new build turn. */
-	onSendText: (text: string) => void;
+	/** True renders every part inline, with the thinking text. Only the local dev switch sets it. */
+	isDeveloperView: boolean;
+	/** Opens the details panel of this message. The production summary line calls it with `message.id`. */
+	onOpenActivity: (messageId: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
 	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
 	trayQuestionKey: string | null;
+	/** Sends the user message of this failed reply again. Set only on the last reply when it holds an error. */
+	onRetry?: () => void;
+	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
+	onOpenSecrets?: () => void;
 };
 
-/** One thread message: the user bubble, or the byline and the parts of a reply. */
+/** One thread message: the user bubble, or the byline and the parts of a reply, in the production or the developer view. */
 export function ChatMessageView({
 	message,
-	onPreviewVersion,
-	onSendText,
+	isDeveloperView,
+	onOpenActivity,
 	onDecideApproval,
 	trayQuestionKey,
+	onRetry,
+	onOpenSecrets,
 }: ChatMessageViewProps) {
-	const { t, locale } = useTranslation();
-
 	if (message.role === "user") {
+		const text = textOf(message.parts);
+		const files = message.parts.filter(
+			(part): part is FileUIPart => part.type === "file",
+		);
+		const targets = message.parts.flatMap((part) =>
+			part.type === "data-targets" ? part.data.targets : [],
+		);
 		return (
-			<div className="flex justify-end">
-				{/* Full cream, not a tint: a lighter cream fades into the sand desk. */}
-				<div
-					dir="auto"
-					className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground"
-				>
-					{textOf(message.parts)}
-				</div>
+			<div className="flex flex-col items-end gap-1.5">
+				{targets.length > 0 ? (
+					<div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+						{targets.map((target) => (
+							<TargetChip
+								key={`${target.src}|${target.label}`}
+								target={target}
+							/>
+						))}
+					</div>
+				) : null}
+				{files.length > 0 ? (
+					<div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+						{files.map((file) => (
+							<SentFile key={file.url} file={file} />
+						))}
+					</div>
+				) : null}
+				{/* A message with files only has no text bubble. */}
+				{text !== "" ? (
+					// Full cream, not a tint: a lighter cream fades into the sand desk.
+					<div
+						dir="auto"
+						className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground"
+					>
+						{text}
+					</div>
+				) : null}
 			</div>
 		);
 	}
 
-	const notWired = () => toast(t("appBuilder.mock.notWired"));
-	// Only a message that saved a version gets the revert, like, and copy row.
-	const hasChange = message.parts.some((part) => part.type === "data-change");
-	const followUps = message.metadata?.followUps ?? [];
+	const finalText = textOf(message.parts);
+	const partView = (part: BuilderMessagePart, key: string) => (
+		<MessagePartView
+			key={key}
+			part={part}
+			onDecideApproval={onDecideApproval}
+			trayQuestionKey={trayQuestionKey}
+			onRetry={onRetry}
+		/>
+	);
 
 	return (
 		<div className="flex flex-col gap-3">
 			<AssistantByline />
-			{blocksOf(message.parts).map((block) => {
-				// Parts carry no stable id. The index is stable inside one message.
-				const key = `${message.id}-${block.index}`;
-				if (block.kind === "feed") {
+			{isDeveloperView ? (
+				blocksOf(message.parts).map((block) => {
+					// Parts carry no stable id. The index is stable inside one message.
+					const key = `${message.id}-${block.index}`;
+					if (block.kind === "part") return partView(block.part, key);
 					return (
 						// Each feed row is at least 28 px high with its own padding. The
 						// negative margin keeps the gap to the prose near the message gap.
@@ -87,164 +135,203 @@ export function ChatMessageView({
 										isStreaming={row.data.isStreaming}
 									/>
 								) : (
-									<StepRow key={`${message.id}-${index}`} {...row.data} />
+									<StepRow
+										key={`${message.id}-${index}`}
+										{...row.data}
+										onOpenSecrets={onOpenSecrets}
+									/>
 								),
 							)}
 						</div>
 					);
-				}
-				const part = block.part;
-				switch (part.type) {
-					case "text":
-						return (
-							<Streamdown key={key} dir="auto" className={PROSE_CLASS}>
-								{part.text}
-							</Streamdown>
-						);
-					case "data-change":
-						return (
-							<ChangeCard
-								key={key}
-								title={part.data.title}
-								versionNumber={part.data.versionNumber}
-								onDetails={notWired}
-								onPreview={onPreviewVersion}
-								onBookmark={notWired}
-							/>
-						);
-					case "data-question":
-						return (
-							<QuestionReceipt
-								key={key}
-								question={part.data.question}
-								isAnswered={part.data.isAnswered}
-								isInTray={part.id === trayQuestionKey}
-							/>
-						);
-					case "data-approval":
-						return (
-							<ApprovalCard
-								key={key}
-								toolName={part.data.toolName}
-								input={part.data.input}
-								decision={part.data.decision}
-								isOpen={part.data.isOpen}
-								onDecide={(approved) =>
-									onDecideApproval(part.data.approvalId, approved)
-								}
-							/>
-						);
-					case "data-suggestion":
-						return (
-							<SuggestionCard
-								key={key}
-								title={part.data.title}
-								body={part.data.body}
-								confidence={part.data.confidence}
-								// The body is the instruction, so accepting sends it as the next turn.
-								onAccept={() => onSendText(part.data.body)}
-								onAlternatives={notWired}
-							/>
-						);
-					case "data-diff":
-						return (
-							<DiffCard
-								key={key}
-								path={part.data.path}
-								lines={part.data.lines}
-							/>
-						);
-					case "data-error":
-						return (
-							<div
-								key={key}
-								role="alert"
-								dir="auto"
-								className="flex items-start gap-2.5 rounded-[14px] bg-destructive/[0.07] px-3 py-2.5 font-sans text-[13.5px] text-destructive leading-snug dark:bg-destructive/[0.12]"
-							>
-								<WarningCircleIcon
-									weight="fill"
-									className="mt-px size-4 shrink-0"
-									aria-hidden
+				})
+			) : (
+				<>
+					<SummaryLine message={message} onOpenActivity={onOpenActivity} />
+					{/* The steps, the notes, and the summary show in the details panel only. */}
+					{message.parts.map((part, index) => {
+						const key = `${message.id}-${index}`;
+						// The user must add a missing secret, so that one step row stays in the chat.
+						if (
+							part.type === "data-step" &&
+							part.data.isSecretMissing === true &&
+							onOpenSecrets !== undefined
+						) {
+							return (
+								<StepRow
+									key={key}
+									{...part.data}
+									onOpenSecrets={onOpenSecrets}
 								/>
-								<div className="min-w-0">
-									<p>
-										{t("appBuilder.chat.turnError", {
-											message: part.data.message,
-										})}
-									</p>
-									{part.data.retryable ? (
-										<p className="mt-0.5 text-destructive/80">
-											{t("appBuilder.chat.turnErrorRetry")}
-										</p>
-									) : null}
-								</div>
-							</div>
-						);
-					case "data-receipt":
-						return (
-							<p
-								key={key}
-								className="flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45"
-							>
-								<LightningIcon
-									weight="fill"
-									className="size-3 shrink-0 text-spark"
-									aria-hidden
-								/>
-								{t("appBuilder.chat.receipt", {
-									credits: t("appBuilder.chat.estimate", {
-										count: part.data.credits,
-									}),
-									tokens: formatNumber(
-										part.data.inputTokens + part.data.outputTokens,
-										locale,
-									),
-								})}
-								{part.data.modelId !== null
-									? ` · ${getModelLabel(part.data.modelId)}`
-									: null}
-							</p>
-						);
-					default:
-						return null;
-				}
-			})}
-			{hasChange ? (
-				<MessageActions
-					onRevert={notWired}
-					onLike={notWired}
-					text={textOf(message.parts)}
-				/>
-			) : null}
-			{followUps.length > 0 ? (
-				<div className="flex flex-col gap-2">
-					<span className="font-grotesk text-[12px] text-night/45 dark:text-foreground/45">
-						{t("appBuilder.chat.followUps")}
-					</span>
-					<div className="flex flex-wrap gap-2">
-						{followUps.map((prompt) => (
-							<button
-								key={prompt}
-								type="button"
-								onClick={() => onSendText(prompt)}
-								className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-night/[0.1] px-3 py-1.5 text-start font-grotesk text-[13px] text-night/80 leading-snug outline-none transition-colors duration-150 hover:border-spark/40 hover:bg-spark/[0.14] hover:text-night focus-visible:ring-[3px] focus-visible:ring-ember/20 dark:border-white/[0.1] dark:text-foreground/80 dark:hover:text-foreground"
-							>
-								<ArrowBendDownRightIcon
-									weight="bold"
-									className="size-3.5 shrink-0 text-night/40 rtl:-scale-x-100 dark:text-foreground/40"
-									aria-hidden
-								/>
-								<span dir="auto" className="min-w-0">
-									{prompt}
-								</span>
-							</button>
-						))}
-					</div>
-				</div>
-			) : null}
+							);
+						}
+						return isActivityPart(part) || part.type === "data-summary"
+							? null
+							: partView(part, key);
+					})}
+				</>
+			)}
+			{finalText.trim() !== "" ? <MessageActions text={finalText} /> : null}
 		</div>
 	);
+}
+
+/**
+ * The production line that opens the details panel, for example "Worked
+ * for 1 min · 6 files changed ›". Null when the reply has no step, no
+ * note, no thought, and no summary.
+ */
+function SummaryLine({
+	message,
+	onOpenActivity,
+}: Pick<ChatMessageViewProps, "message" | "onOpenActivity">) {
+	const summary = summaryOf(message);
+	if (summary === null && !message.parts.some(isActivityPart)) return null;
+	return (
+		<button
+			type="button"
+			onClick={() => onOpenActivity(message.id)}
+			className="group flex items-center gap-1 self-start rounded-[8px] text-start font-grotesk text-[13px] text-night/70 outline-none transition-colors duration-150 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/70 dark:hover:text-foreground"
+		>
+			<WorkSummaryLabel summary={summary} />
+			<CaretRightIcon
+				weight="bold"
+				className="size-3 shrink-0 text-night/35 transition-colors group-hover:text-night/70 rtl:-scale-x-100 dark:text-foreground/35 dark:group-hover:text-foreground/70"
+				aria-hidden
+			/>
+		</button>
+	);
+}
+
+/**
+ * One part of an assistant message outside the feed rows. Both views use
+ * it; the production view never passes a note or a summary. A part type
+ * this switch does not know renders nothing.
+ */
+function MessagePartView({
+	part,
+	onDecideApproval,
+	trayQuestionKey,
+	onRetry,
+}: Pick<
+	ChatMessageViewProps,
+	"onDecideApproval" | "trayQuestionKey" | "onRetry"
+> & {
+	part: BuilderMessagePart;
+}) {
+	const { t, locale } = useTranslation();
+	switch (part.type) {
+		case "text":
+		case "data-note":
+			return (
+				<Streamdown dir="auto" className={PROSE_CLASS}>
+					{part.type === "text" ? part.text : part.data.text}
+				</Streamdown>
+			);
+		case "data-summary":
+			return (
+				<div className="flex flex-col gap-1">
+					<p className="font-grotesk text-[13px] text-night/70 dark:text-foreground/70">
+						<WorkSummaryLabel summary={part.data} />
+					</p>
+					{part.data.files.length > 0 ? (
+						<ChangedFiles files={part.data.files} />
+					) : null}
+				</div>
+			);
+		case "data-question":
+			return (
+				<QuestionReceipt
+					question={part.data.question}
+					isAnswered={part.data.isAnswered}
+					isInTray={part.id === trayQuestionKey}
+				/>
+			);
+		case "data-approval":
+			return (
+				<ApprovalCard
+					toolName={part.data.toolName}
+					input={part.data.input}
+					decision={part.data.decision}
+					isOpen={part.data.isOpen}
+					onDecide={(approved) =>
+						onDecideApproval(part.data.approvalId, approved)
+					}
+				/>
+			);
+		case "data-error":
+			return (
+				<div
+					role="alert"
+					dir="auto"
+					className="flex items-start gap-2.5 rounded-[14px] bg-destructive/[0.07] px-3 py-2.5 font-sans text-[13.5px] text-destructive leading-snug dark:bg-destructive/[0.12]"
+				>
+					<WarningCircleIcon
+						weight="fill"
+						className="mt-px size-4 shrink-0"
+						aria-hidden
+					/>
+					<div className="min-w-0">
+						<p>
+							{t("appBuilder.chat.turnError", { message: part.data.message })}
+						</p>
+						{onRetry ? (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={onRetry}
+								className={cn("mt-2", CARD_SECONDARY_PILL_CLASS)}
+							>
+								{/* The arrow turns back against the reading direction, so it mirrors in RTL. */}
+								<ArrowCounterClockwiseIcon
+									weight="bold"
+									className="rtl:-scale-x-100"
+									aria-hidden
+								/>
+								{t("appBuilder.chat.retry")}
+							</Button>
+						) : null}
+					</div>
+				</div>
+			);
+		case "data-stopped":
+			return (
+				<p className="font-grotesk text-[13px] text-night/50 dark:text-foreground/50">
+					{t("appBuilder.chat.stopped")}
+				</p>
+			);
+		case "data-receipt":
+			return (
+				<p className="flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">
+					<LightningIcon
+						weight="fill"
+						className="size-3 shrink-0 text-spark"
+						aria-hidden
+					/>
+					{t("appBuilder.chat.receipt", {
+						credits: t("appBuilder.chat.estimate", {
+							count: part.data.credits,
+						}),
+						tokens: formatNumber(
+							part.data.inputTokens + part.data.outputTokens,
+							locale,
+						),
+					})}
+					{/* The input count leaves out the cached prompt tokens, so they show on their own. */}
+					{part.data.cacheReadTokens + part.data.cacheWriteTokens > 0
+						? ` · ${t("appBuilder.chat.receiptCache", {
+								read: formatNumber(part.data.cacheReadTokens, locale),
+								write: formatNumber(part.data.cacheWriteTokens, locale),
+							})}`
+						: null}
+					{part.data.modelId !== null
+						? ` · ${getModelLabel(part.data.modelId)}`
+						: null}
+				</p>
+			);
+		default:
+			return null;
+	}
 }
 
 /**
@@ -295,6 +382,39 @@ const PROSE_CLASS = cn(
 	"[&_[data-streamdown=horizontal-rule]]:my-1 [&_[data-streamdown=horizontal-rule]]:border-night/[0.08] dark:[&_[data-streamdown=horizontal-rule]]:border-white/[0.08]",
 );
 
+/** One file of a user message: an image thumbnail, or a link with the file name. */
+function SentFile({ file }: { file: FileUIPart }) {
+	const name = file.filename ?? file.url.split("/").at(-1) ?? file.url;
+	if (file.mediaType.startsWith("image/")) {
+		return (
+			<a href={file.url} target="_blank" rel="noopener noreferrer">
+				<img
+					src={file.url}
+					alt={name}
+					className="size-16 rounded-[12px] border border-night/[0.08] object-cover dark:border-white/[0.08]"
+				/>
+			</a>
+		);
+	}
+	return (
+		<a
+			href={file.url}
+			target="_blank"
+			rel="noopener noreferrer"
+			className="flex h-9 max-w-56 items-center gap-1.5 rounded-[12px] bg-night/[0.05] px-2.5 font-grotesk text-[12px] text-night outline-none transition-colors hover:text-ember-text focus-visible:ring-2 focus-visible:ring-ember/30 dark:bg-white/[0.06] dark:text-foreground"
+		>
+			<PaperclipIcon
+				weight="bold"
+				className="size-3.5 shrink-0 text-night/50 dark:text-foreground/50"
+				aria-hidden
+			/>
+			<span dir="auto" className="truncate">
+				{name}
+			</span>
+		</a>
+	);
+}
+
 /** A row of the activity feed: one thought or one step. */
 type FeedRow = Extract<
 	BuilderMessagePart,
@@ -310,9 +430,9 @@ type MessageBlock =
 	| { kind: "part"; index: number; part: BuilderMessagePart };
 
 /**
- * Groups the parts for rendering. Thought and step rows that follow each
- * other form one block: they sit close together like one activity list,
- * while every other part keeps the message gap.
+ * Groups the parts for the developer view. Thought and step rows that
+ * follow each other form one block: they sit close together like one
+ * activity list, while every other part keeps the message gap.
  */
 function blocksOf(parts: BuilderMessagePart[]): MessageBlock[] {
 	const blocks: MessageBlock[] = [];

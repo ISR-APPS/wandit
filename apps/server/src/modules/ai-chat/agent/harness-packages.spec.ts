@@ -4,9 +4,9 @@ import { createVercelSandbox } from "@ai-sdk/sandbox-vercel";
 import { describe, expect, it } from "vitest";
 
 // Guard for WANDIT-148: the V2 builder runs on these three packages.
-// Each pins `ai` 7.0.99, so a missing or renamed export means the installed
-// versions drifted from the pinned set. Import checks run without a network
-// or a sandbox.
+// apps/server/package.json pins them and `ai`, so a missing or renamed export
+// means the installed versions drifted from the pinned set. Import checks run
+// without a network or a sandbox.
 describe("harness packages", () => {
 	it("exposes HarnessAgent as a class", () => {
 		expect(typeof HarnessAgent).toBe("function");

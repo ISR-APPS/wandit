@@ -25,9 +25,9 @@ import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/san
 type TriggerDatabase = ReturnType<typeof createDb>;
 
 /**
- * 20 minutes of silence marks a sandbox idle: `lastActiveAt` moves on turn
- * start/end and on preview heartbeats, so an old value means no turn and
- * no preview traffic.
+ * 20 minutes of silence marks a sandbox idle. `lastActiveAt` moves during a
+ * turn and on each preview-token mint. An open preview mints every 14
+ * minutes, so an old value means no turn and no open preview.
  */
 export const SANDBOX_IDLE_STOP_MINUTES = 20;
 const SANDBOX_IDLE_STOP_MS = SANDBOX_IDLE_STOP_MINUTES * 60_000;

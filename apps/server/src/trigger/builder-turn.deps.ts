@@ -4,7 +4,6 @@
  * clients. The `builder-turn` task imports this file lazily for one turn;
  * the harness host builds it once for all its turns. `close` ends every client.
  */
-import { appBuilderRoutes } from "@wandit/contracts";
 import { createDb } from "@wandit/db";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/node";
@@ -17,6 +16,7 @@ import {
 } from "../infrastructure/storage/r2";
 import { createBuilderHarness } from "../modules/app-builder/application/harness/builder-harness.factory";
 import { BuilderHostToolRegistry } from "../modules/app-builder/application/host-tools/builder-host-tool-registry";
+import { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import { mintLlmProxyToken } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
 import { TurnPromoter } from "../modules/app-builder/application/services/turn-promotion";
@@ -38,6 +38,7 @@ import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure
 import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import { LlmSpendCounters } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import { RedisTurnLock } from "../modules/app-builder/infrastructure/redis/redis-turn-lock";
+import { llmProxyBaseUrl } from "../modules/app-builder/infrastructure/sandbox/sandbox-start";
 import {
 	ArchiveTemplateInit,
 	TEMPLATE_ARCHIVE_DIR,
@@ -165,6 +166,9 @@ export async function createBuilderTurnDeps(
 				: null;
 
 		const deps: Omit<BuilderTurnDeps, "writer"> = {
+			// The Trigger Sentry client has no `enableLogs`, so `Sentry.logger`
+			// drops lines. The process log keeps a failed audit write.
+			audit: new AuditEventsService(audit, logger),
 			// The wake uses the same interactive client as the backend tools.
 			backendClient: supabase,
 			backends,
@@ -213,10 +217,7 @@ export async function createBuilderTurnDeps(
 			},
 			// The sandbox runs in the vendor cloud, so the proxy needs a
 			// public URL. Local dev sets a tunnel; deployed APIs are public.
-			proxyBaseUrl: new URL(
-				appBuilderRoutes.llmProxyBase,
-				env.V2_LLM_PROXY_PUBLIC_URL ?? env.BETTER_AUTH_URL,
-			).toString(),
+			proxyBaseUrl: llmProxyBaseUrl(),
 			proxyRows: new LlmProxyRequestsRepository(db),
 			// Holds are added back and checkpoint debits are not, so the
 			// number falls as the turn's checkpoints land (D5).
@@ -237,6 +238,7 @@ export async function createBuilderTurnDeps(
 			turns,
 			// The service already converts AI_USD_PER_CREDIT at build.
 			usdMicrosPerCredit: metering.usdMicrosPerCredit,
+			versions: new AppCommitsRepository(db),
 		};
 		return deps;
 	}

@@ -1,7 +1,7 @@
 /**
  * Pill group with one active option: the view switcher of the work bar, the
- * target switch of the mobile stage, and the small toggles in the More
- * panels. Rendered by top-bar.tsx, phone-preview.tsx, and settings-panel.tsx.
+ * target switch of the mobile stage, and the dev view switch of the chat.
+ * Rendered by top-bar.tsx, phone-preview.tsx, and chat-pane.tsx.
  * Pure presentation: the caller owns the value. An icon-only option shows
  * its label in a kit Tooltip, so the page must mount a TooltipProvider.
  */
@@ -29,8 +29,6 @@ export type SegmentedControlProps<T extends string> = {
 	onChange: (value: T) => void;
 	/** Accessible name of the whole group. */
 	ariaLabel: string;
-	/** `sm` fits a 48 px bar. `md` fits a panel row. */
-	size?: "sm" | "md";
 	className?: string;
 };
 
@@ -43,7 +41,6 @@ export function SegmentedControl<T extends string>({
 	value,
 	onChange,
 	ariaLabel,
-	size = "sm",
 	className,
 }: SegmentedControlProps<T>) {
 	return (
@@ -64,8 +61,7 @@ export function SegmentedControl<T extends string>({
 						aria-label={option.iconOnly ? option.label : undefined}
 						onClick={() => onChange(option.value)}
 						className={cn(
-							"flex items-center gap-1.5 rounded-full font-grotesk font-medium text-sm outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50",
-							size === "sm" ? "h-8" : "h-9",
+							"flex h-8 items-center gap-1.5 rounded-full font-grotesk font-medium text-sm outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50",
 							option.iconOnly ? "w-9 justify-center" : "px-3",
 							isActive
 								? "bg-night text-paper dark:bg-spark dark:text-night"

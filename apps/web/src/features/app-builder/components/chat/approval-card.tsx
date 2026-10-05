@@ -95,7 +95,7 @@ export function ApprovalCard({
 					"border-spark/60 shadow-[0_0_0_3px_rgb(250_171_63/0.12)] dark:border-spark/50",
 			)}
 		>
-			<CardMedallion icon={ShieldCheckIcon} tone="spark" />
+			<CardMedallion icon={ShieldCheckIcon} />
 			<div className="min-w-0 flex-1 pt-0.5">
 				<p
 					dir="auto"

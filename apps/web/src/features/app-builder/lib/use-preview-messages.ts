@@ -1,57 +1,55 @@
 /**
- * Listens for the messages the preview frame posts to the parent frame.
- * The proxy error pages post `token-expired` or `not-running`. The web
- * template bridge posts the page the app shows. PreviewPanel wires them to
- * usePreviewToken and to the address bar of WebPreview. The hook accepts a
- * message only from the origin of the current preview URL, and only when it
- * matches a schema from `@wandit/contracts`.
+ * Listens for the messages of the preview frame. The preview proxy error
+ * pages post `token-expired` or `not-running`. The dev bridge of the web
+ * template posts `ready`, runtime errors, the elements the user picks, and
+ * the page the app shows. PreviewPanel wires the proxy events to
+ * usePreviewToken and passes the bridge messages up. The hook accepts a message only from the window of the
+ * preview iframe, on the origin of the current preview URL, and only when it
+ * matches a schema of `@wandit/contracts`.
  */
 
 import {
-	type PreviewParentMessage,
-	type PreviewRouteMessage,
+	type PreviewBridgeMessage,
+	previewBridgeMessageSchema,
 	previewParentMessageSchema,
-	previewRouteMessageSchema,
 } from "@wandit/contracts";
-import { useEffect, useEffectEvent } from "react";
-
-// One parse for the two message kinds; the `type` field tells them apart.
-const previewFrameMessageSchema = previewParentMessageSchema.or(
-	previewRouteMessageSchema,
-);
+import { type RefObject, useEffect, useEffectEvent } from "react";
 
 /** Inputs of `usePreviewMessages`. */
 export type UsePreviewMessagesInput = {
-	/** The signed iframe URL, or null before the first mint. Its origin is the only accepted message source. */
+	/** The signed iframe URL, or null before the first mint. Its origin is the only accepted message origin. */
 	previewUrl: string | null;
+	/** The preview iframe. Its window is the only accepted message source. */
+	frameRef: RefObject<HTMLIFrameElement | null>;
 	/** Runs on `token-expired`. Mints a new token; the new iframe src reloads the frame. */
 	onTokenExpired: () => void;
 	/** Runs on `not-running`. Shows the waking state and starts the mint poll. */
 	onNotRunning: () => void;
-	/** Runs on `wandit:route` with the pathname and query of the page the app shows. Projects made before the bridge never post it. */
-	onRoute?: (path: string) => void;
+	/** Runs on each valid message of the template dev bridge. */
+	onBridgeMessage: (message: PreviewBridgeMessage) => void;
 };
 
 /**
  * Registers one `message` listener on `window` while `previewUrl`
- * exists. It drops every message from another origin, and every message
- * that fails the schemas.
+ * exists. It drops every message from another origin or another window,
+ * and every message that fails the schemas.
  */
 export function usePreviewMessages({
 	previewUrl,
+	frameRef,
 	onTokenExpired,
 	onNotRunning,
-	onRoute,
+	onBridgeMessage,
 }: UsePreviewMessagesInput): void {
 	// An effect event reads the latest handlers; a fresh callback from a
 	// parent render does not re-register the listener.
-	const dispatch = useEffectEvent(
-		(message: PreviewParentMessage | PreviewRouteMessage) => {
-			if (message.type === "wandit:route") onRoute?.(message.path);
-			else if (message.event === "token-expired") onTokenExpired();
+	const dispatchProxyEvent = useEffectEvent(
+		(event: "token-expired" | "not-running") => {
+			if (event === "token-expired") onTokenExpired();
 			else onNotRunning();
 		},
 	);
+	const dispatchBridgeMessage = useEffectEvent(onBridgeMessage);
 
 	useEffect(() => {
 		// No URL means no frame exists that can post a message.
@@ -60,17 +58,26 @@ export function usePreviewMessages({
 		}
 		const previewOrigin = new URL(previewUrl).origin;
 		const listener = (event: MessageEvent) => {
-			// Any window can post a message to this one; the origin check is the security rule.
+			// Any window can post a message to this one. The origin check is the security rule.
 			if (event.origin !== previewOrigin) {
 				return;
 			}
-			const parsed = previewFrameMessageSchema.safeParse(event.data);
-			if (!parsed.success) {
+			// A frame inside the app has the same origin, but it must not speak for the preview.
+			const frameWindow = frameRef.current?.contentWindow;
+			if (!frameWindow || event.source !== frameWindow) {
 				return;
 			}
-			dispatch(parsed.data);
+			const proxyMessage = previewParentMessageSchema.safeParse(event.data);
+			if (proxyMessage.success) {
+				dispatchProxyEvent(proxyMessage.data.event);
+				return;
+			}
+			const bridgeMessage = previewBridgeMessageSchema.safeParse(event.data);
+			if (bridgeMessage.success) {
+				dispatchBridgeMessage(bridgeMessage.data);
+			}
 		};
 		window.addEventListener("message", listener);
 		return () => window.removeEventListener("message", listener);
-	}, [previewUrl]);
+	}, [previewUrl, frameRef]);
 }

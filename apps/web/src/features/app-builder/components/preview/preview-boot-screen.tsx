@@ -1,18 +1,23 @@
 /**
  * The screen over the preview while the app is not on screen yet: the
  * server room or the app drawing, the real start-up steps, and an
- * elapsed timer; the asleep note while the app sleeps; or the waiting note
- * while the project holds only the template. PreviewPanel renders it until
- * the app shows. It reads its content from lib/boot-state.ts and draws with
- * BootPlan.
+ * elapsed timer; the asleep note with its wake button while the app sleeps;
+ * or the waiting note while the project holds only the template.
+ * PreviewPanel renders it until the app shows. It reads its content from
+ * lib/boot-state.ts, draws with BootPlan, and calls the wake route through
+ * useWakeSandbox.
  */
 
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { Check, CircleAlert } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type CSSProperties, useEffect, useState } from "react";
 
+import { getApiErrorMessage } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
+import { useWakeSandbox } from "../../api/app-builder.mutations";
 import {
 	type BootContext,
 	type BootScene,
@@ -35,6 +40,12 @@ import { BootPlan } from "./boot-plan";
 const NOTE_DELAY_MS = 1200;
 /** Tick of the elapsed timer, ms. Four ticks per second keep the seconds on time in a slow tab. */
 const TIMER_TICK_MS = 250;
+/**
+ * How long the screen waits for the app after an accepted wake, ms.
+ * A wake boots in 10 to 60 s; a boot from the image takes a few minutes. A
+ * click after the limit during a slow boot answers `busy` and waits again.
+ */
+const WAKE_WAIT_LIMIT_MS = 3 * 60_000;
 
 // Soft blobs of the brand colors on the night ground, like the device screen backdrop of device-panel.tsx.
 // They have about half its strength. So the drawing stays the brightest part.
@@ -59,6 +70,8 @@ const WASH_OPACITY: Record<BootScene, string> = {
 
 /** Props of the boot screen. PreviewPanel passes them. */
 export type PreviewBootScreenProps = {
+	/** The open project. The wake button of the asleep note wakes its sandbox. */
+	projectId: string;
 	/** Status of the preview token, without `error`: PreviewPanel shows its own alert for it. */
 	tokenStatus: "loading" | "waking" | "ready";
 	/** The running turn and the backend state, from app-builder-page.tsx through PreviewPanel. */
@@ -70,13 +83,20 @@ export type PreviewBootScreenProps = {
  * first `waking` answer waits 1.2 s before the asleep note: on a new
  * project the running turn often connects in that time. The waiting note
  * always waits 1.2 s, so a turn end does not flash it before the app shows.
+ * An accepted wake shows the wake scene while the token poll waits for the
+ * app, for 3 min at most.
  */
 export function PreviewBootScreen({
+	projectId,
 	tokenStatus,
 	bootContext,
 }: PreviewBootScreenProps) {
 	const { t } = useTranslation();
-	const signals = { ...bootContext, tokenStatus };
+	const wake = useWakeSandbox(projectId);
+	const { isSuccess: wakeAccepted, reset: resetWake } = wake;
+	// True after an accepted wake waited past the limit. The asleep note then says that the wake failed.
+	const [isWakeTimedOut, setIsWakeTimedOut] = useState(false);
+	const signals = { ...bootContext, tokenStatus, wakeAccepted };
 
 	const [memory, setMemory] = useState(INITIAL_BOOT_MEMORY);
 	const nextMemory = rememberBoot(memory, signals);
@@ -107,6 +127,27 @@ export function PreviewBootScreen({
 		shown.variant === "booting"
 			? (shown.steps.find((step) => step.id === "database")?.state ?? null)
 			: null;
+
+	// The server does not report a failed boot to the web, and a dead dev server never answers.
+	// The screen unmounts when the app shows, so the cleanup stops the timer then.
+	// LIMIT: a failed boot shows only after 3 min. Upgrade: the preview-token route reports a failed wake.
+	useEffect(() => {
+		if (!wakeAccepted) return;
+		const timer = setTimeout(() => {
+			resetWake();
+			setIsWakeTimedOut(true);
+		}, WAKE_WAIT_LIMIT_MS);
+		return () => clearTimeout(timer);
+	}, [wakeAccepted, resetWake]);
+	const wakeErrorText = wake.isError
+		? getApiErrorMessage(wake.error)
+		: isWakeTimedOut
+			? t("appBuilder.preview.boot.asleep.wakeFailed")
+			: null;
+	const requestWake = () => {
+		setIsWakeTimedOut(false);
+		wake.mutate();
+	};
 
 	return (
 		// The stage is a night panel in both themes, like the device screens and the landing build log.
@@ -153,7 +194,12 @@ export function PreviewBootScreen({
 								transition: { duration: 0.15, ease: BOOT_EASE },
 							}}
 						>
-							<BootCopy view={shown} />
+							<BootCopy
+								view={shown}
+								onWake={requestWake}
+								isWakePending={wake.isPending}
+								wakeErrorText={wakeErrorText}
+							/>
 						</motion.div>
 					</AnimatePresence>
 				</motion.div>
@@ -189,7 +235,20 @@ function announcementOf(
 }
 
 /** The text under the drawing. The loading variant shows none. */
-function BootCopy({ view }: { view: BootView }) {
+function BootCopy({
+	view,
+	onWake,
+	isWakePending,
+	wakeErrorText,
+}: {
+	view: BootView;
+	/** Sends the wake request. Only the asleep note shows the button, not the stopped or the waiting note. */
+	onWake: () => void;
+	/** True while the wake request runs. The button then shows a spinner and is disabled. */
+	isWakePending: boolean;
+	/** Text of the failed wake request, or of a wake that passed the wait limit. Null hides the line. */
+	wakeErrorText: string | null;
+}) {
 	const { t } = useTranslation();
 
 	if (view.variant === "loading") return null;
@@ -209,6 +268,35 @@ function BootCopy({ view }: { view: BootView }) {
 				<p className="mt-2 text-pretty @max-[560px]:text-[13.5px] text-[14px] text-white/62 leading-normal">
 					{t(`appBuilder.preview.boot.${note}.body`)}
 				</p>
+				{/* Only a sleeping app gets the button. A stopped note follows a failed start that the chat explains. */}
+				{note === "asleep" ? (
+					<>
+						{/* The amber pill of the retry button in preview-panel.tsx. It reads on the night stage in both themes. */}
+						<Button
+							size="sm"
+							className="mt-4 bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
+							disabled={isWakePending}
+							onClick={onWake}
+						>
+							{isWakePending ? (
+								<CircleNotchIcon
+									aria-hidden
+									weight="bold"
+									className="animate-spin motion-reduce:animate-none"
+								/>
+							) : null}
+							{t("appBuilder.preview.boot.asleep.wake")}
+						</Button>
+						{wakeErrorText === null ? null : (
+							<p
+								role="alert"
+								className="mt-2 text-pretty text-[12.5px] text-destructive leading-[18px]"
+							>
+								{wakeErrorText}
+							</p>
+						)}
+					</>
+				) : null}
 			</div>
 		);
 	}

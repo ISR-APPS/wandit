@@ -1,11 +1,13 @@
 /**
- * Shared contract for the V2 preview token route and the phone link.
+ * Shared contract for the V2 preview token route, the phone link, and the
+ * sandbox wake route that brings a sleeping preview back.
  *
  * The browser asks the API for a signed preview URL of the app's running
  * sandbox port; the preview domain (D5) validates the token. The
  * preview-proxy Worker also parses its host, mints the phone link for
  * Expo Go (WANDIT-193), and posts its error messages with this file.
- * The web template bridge posts the route message of this file.
+ * The web builder parses the messages of the template dev bridge here, and
+ * the turn body and `builder_turns.spec` reuse the picked targets.
  */
 import { z } from "zod";
 import { isoDateTimeSchema, uuidSchema } from "../v1/shared/primitives";
@@ -53,6 +55,25 @@ export const previewTokenQuerySchema = z
 
 /** TypeScript preview-token query. */
 export type PreviewTokenQuery = z.infer<typeof previewTokenQuerySchema>;
+
+/**
+ * Answer of `POST /api/v2/projects/:id/sandbox/wake`, always HTTP 202. The
+ * route takes no body and charges no credits. After each status, the web
+ * polls the preview-token route until the token is ready.
+ */
+export const sandboxWakeResponseSchema = z.object({
+	/**
+	 * `running`: the sandbox runs already, so nothing boots.
+	 * `starting`: the API started the boot. A resume takes 10 to 60 s. A
+	 * rebuild from the image takes a few minutes.
+	 * `busy`: a turn, a restore, or another wake holds the project lock.
+	 * That work boots the sandbox, so the wake starts nothing.
+	 */
+	status: z.enum(["running", "starting", "busy"]),
+});
+
+/** The parsed wake answer. The web does not branch on `status`: every value counts as an accepted wake. */
+export type SandboxWakeResponse = z.infer<typeof sandboxWakeResponseSchema>;
 
 /**
  * Claims inside the signed preview token. The API `PreviewTokenService`
@@ -161,6 +182,24 @@ export function previewHostFor(
 }
 
 /**
+ * Supabase auth redirect pattern that matches every preview run host of
+ * one project. The provisioning and the login URL sync (WANDIT-190) put it
+ * in `uri_allow_list`.
+ */
+export function previewAuthRedirectPattern(
+	projectId: string,
+	previewDomain: string,
+): string {
+	// Security check: the run label is the 12 hex characters of `rid12Of`.
+	// A `*` also matches `@` and `?`. Then `https://r-@<attacker-host>?--p-...`
+	// matches, and the login token goes to the attacker host. The glob library
+	// of Supabase Auth accepts one range per class, so the class lists the
+	// 16 characters.
+	const runLabel = "[0123456789abcdef]".repeat(12);
+	return `https://r-${runLabel}--p-${projectId}.${previewDomain}/**`;
+}
+
+/**
  * Phone host of one phone link: `m-<phoneId>--p-<projectId>.<domain>`.
  * `phoneId` is 21 lower-case base32 characters, so the label has 63
  * characters, exactly the DNS limit.
@@ -238,17 +277,73 @@ export const previewParentMessageSchema = z.object({
 export type PreviewParentMessage = z.infer<typeof previewParentMessageSchema>;
 
 /**
- * Message the preview bridge of the web template posts to the parent frame
- * when the app shows another page. `path` is the pathname plus the query.
- * The frame runs user code, so the builder parses every message with this
- * schema. The builder copies only the path onto the preview URL, so the
- * origin of the frame never changes.
+ * Source location that the Vite plugin of the web template writes into
+ * `data-wandit-src`: `<file>:<line>:<column>`, 1-based, with the file
+ * relative to the app root. Example: `src/routes/index.tsx:42:7`. TanStack
+ * route files hold `$`, `{}`, `()`, `[]`, and `_`. The app code in the preview
+ * can post any string, so the format is checked.
  */
-export const previewRouteMessageSchema = z.object({
-	type: z.literal("wandit:route"),
-	// 2048 characters: a longer path is not a page the user navigates to by hand.
-	path: z.string().startsWith("/").max(2048),
+export const previewSourceLocationSchema = z
+	.string()
+	.max(512)
+	.regex(/^[\w./@$()[\]{}+~-]+:[1-9]\d{0,5}:[1-9]\d{0,5}$/);
+
+/**
+ * One element that the user picked in the preview (WANDIT-203). The composer
+ * shows it as a chip, the turn request carries it, and the turn task names it
+ * in the prompt of the agent.
+ */
+export const previewTargetSchema = z.object({
+	/** `data-wandit-src` of the element, see `previewSourceLocationSchema`. */
+	src: previewSourceLocationSchema,
+	/** Lower-case tag name of the element, for example `button`. */
+	tag: z
+		.string()
+		.min(1)
+		.max(32)
+		.regex(/^[a-z][a-z0-9-]*$/),
+	/** Visible text or accessible name, with the whitespace collapsed. "" when the element has none. */
+	label: z
+		.string()
+		.max(80)
+		// Half of a UTF-16 pair makes Postgres refuse the jsonb of the turn.
+		// Each unit is a non-surrogate or a full pair; no ES2024 API, so every consumer can parse it.
+		.regex(/^(?:[^\uD800-\uDFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF])*$/),
 });
 
-/** TypeScript route message of the preview bridge. */
-export type PreviewRouteMessage = z.infer<typeof previewRouteMessageSchema>;
+/** One picked element: one composer chip and one line in the prompt of the agent. */
+export type PreviewTarget = z.infer<typeof previewTargetSchema>;
+
+/** Most targets one turn carries. The same limit as V1 `selectedTargets`. */
+export const PREVIEW_TARGETS_MAX = 10 as const;
+
+/**
+ * Messages that the dev bridge of the web template
+ * (`templates/web-app/src/wandit/preview-bridge.ts`) posts to the builder:
+ * - `wandit:bridge-ready`: the bridge started. It posts this after each page load of the app.
+ * - `wandit:runtime-error`: an uncaught error, a rejected promise, or a `console.error` call.
+ * - `wandit:select-source`: the user clicked an element in select mode.
+ * - `wandit:deselect`: the user pressed Escape in select mode.
+ * - `wandit:route`: the app shows another page. `path` is the pathname plus the query.
+ * The app code in the frame can post the same shapes, so every text is bounded.
+ * The builder copies only the route path onto the preview URL, so the frame origin never changes.
+ */
+export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("wandit:bridge-ready") }),
+	z.object({
+		type: z.literal("wandit:runtime-error"),
+		// The bridge cuts the message to 1000 and the stack to 4000 characters.
+		message: z.string().min(1).max(1000),
+		stack: z.string().max(4000).optional(),
+	}),
+	previewTargetSchema.extend({ type: z.literal("wandit:select-source") }),
+	z.object({ type: z.literal("wandit:deselect") }),
+	z.object({
+		type: z.literal("wandit:route"),
+		// 2048 characters: a longer path is not a page the user navigates to by hand.
+		path: z.string().startsWith("/").max(2048),
+	}),
+]);
+
+/** One message of the template dev bridge, after the schema check of the builder. */
+export type PreviewBridgeMessage = z.infer<typeof previewBridgeMessageSchema>;

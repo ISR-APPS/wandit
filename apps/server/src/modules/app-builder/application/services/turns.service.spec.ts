@@ -36,9 +36,12 @@ import type { ProjectCostCapsRepository } from "../../infrastructure/persistence
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeTurnEventStream } from "../../infrastructure/trigger/fake-turn-events";
+import type { AuditEventsService } from "./audit-events.service";
 import { TurnsService } from "./turns.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
+// A TEST-NET-3 address (RFC 5737): it never names a real client.
+const IP = "203.0.113.7";
 // A real price-table id: the estimate math prices the model, so a made-up
 // id would throw inside `estimateTurn`.
 const DEFAULT_MODEL = "anthropic/claude-sonnet-5";
@@ -265,6 +268,9 @@ function setup(
 	};
 	const turnEvents = new FakeTurnEventStream();
 	const counters = new FakeLlmSpendCounters();
+	const audit = {
+		record: vi.fn<AuditEventsService["record"]>(async () => undefined),
+	};
 
 	const service = new TurnsService(
 		turns as unknown as BuilderTurnsRepository,
@@ -279,9 +285,11 @@ function setup(
 		counters,
 		caps,
 		subscriptions,
+		audit,
 	);
 
 	return {
+		audit,
 		caps,
 		chats,
 		counters,
@@ -639,6 +647,31 @@ describe("TurnsService.create", () => {
 		});
 	});
 
+	it("starts above the monthly cap without a credit hold when billing is off", async () => {
+		// SAFETY: the env schema types this field as "enforce" | "off".
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = "off";
+		const { caps, lock, metering, service, starter, turns } = setup();
+		caps.findByProjectId.mockResolvedValue({
+			monthlyCapCredits: 1,
+			perTurnCapCredits: 1,
+		});
+		// The recorded spend exceeds both project caps before the turn starts.
+		metering.monthlySpendCredits.mockResolvedValue(4_500);
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(metering.monthlySpendCredits).not.toHaveBeenCalled();
+		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
+		expect(turns.create).toHaveBeenCalledWith(
+			expect.objectContaining({ status: "queued" }),
+		);
+		expect(starter.start).toHaveBeenCalledTimes(1);
+		expect(await lock.holder("project-1")).toBe(result.turnId);
+		expect(result.runId).toBe("run-1");
+	});
+
 	it("does not refund when a billing-off create fails after the row", async () => {
 		// SAFETY: the env schema already types this field as "enforce" | "off".
 		(
@@ -709,9 +742,14 @@ describe("TurnsService.create", () => {
 		expect(await lock.holder("project-1")).toBe("other-turn");
 	});
 
-	it("answers 409 BUILDER_TURN_ACTIVE when a restore holds the lock", async () => {
+	// Neither a restore nor a sandbox wake promotes a waiting turn, so a
+	// parked row would strand until the next submit.
+	it.each([
+		"restore:abc-123",
+		"wake:abc-123",
+	])("answers 409 BUILDER_TURN_ACTIVE when %s holds the lock", async (holder) => {
 		const { lock, metering, service, turns } = setup();
-		await lock.acquire("project-1", "restore:abc-123", 60_000);
+		await lock.acquire("project-1", holder, 60_000);
 
 		const failure = await service
 			.create(SCOPE, "project-1", BODY)
@@ -728,8 +766,8 @@ describe("TurnsService.create", () => {
 			"event-1",
 			"builder_turn_create_failed",
 		);
-		// No row parked, no task started; the restore keeps its lock.
-		expect(await lock.holder("project-1")).toBe("restore:abc-123");
+		// No row parked, no task started; the holder keeps its lock.
+		expect(await lock.holder("project-1")).toBe(holder);
 		expect(turns.promoteOldestWaiting).not.toHaveBeenCalled();
 	});
 
@@ -921,7 +959,7 @@ describe("TurnsService.cancel", () => {
 		const { metering, service, starter, turns } = setup();
 		turns.findById.mockResolvedValue(turnRow({ status: "succeeded" }));
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(result).toEqual({ status: "succeeded", turnId: "turn-1" });
 		expect(starter.cancel).not.toHaveBeenCalled();
@@ -933,7 +971,7 @@ describe("TurnsService.cancel", () => {
 		turns.findById.mockResolvedValue(turnRow({ status: "waiting" }));
 		metering.findByIdempotencyKey.mockResolvedValue(usageEvent());
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -953,7 +991,7 @@ describe("TurnsService.cancel", () => {
 		turns.findById.mockResolvedValue(turnRow({ status: "waiting_for_answer" }));
 		metering.findByIdempotencyKey.mockResolvedValue(usageEvent());
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -978,7 +1016,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValueOnce(turnRow({ status: "queued" }));
 		turns.transition.mockResolvedValue(false);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -1000,7 +1038,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValueOnce(turnRow({ status: "succeeded" }));
 		turns.transition.mockResolvedValue(false);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -1021,7 +1059,7 @@ describe("TurnsService.cancel", () => {
 			.mockResolvedValue(turnRow({ status: "canceled" }));
 		await lock.acquire("project-1", "turn-1", 60_000);
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(starter.cancel).not.toHaveBeenCalled();
 		expect(await lock.holder("project-1")).toBeNull();
@@ -1047,7 +1085,7 @@ describe("TurnsService.cancel", () => {
 		// A closed stream makes the settle wait return at once.
 		turnEvents.close("run-1");
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(turns.transition).toHaveBeenCalledWith(
 			"turn-1",
@@ -1074,7 +1112,7 @@ describe("TurnsService.cancel", () => {
 		);
 		turnEvents.close("run-1");
 
-		await service.cancel(SCOPE, "project-1", "turn-1");
+		await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(starter.cancel).toHaveBeenCalledWith("turn-1", {
 			runId: "run-1",
@@ -1099,20 +1137,94 @@ describe("TurnsService.cancel", () => {
 			row.status = "canceled";
 		});
 
-		const result = await service.cancel(SCOPE, "project-1", "turn-1");
+		const result = await service.cancel(SCOPE, "project-1", "turn-1", IP);
 
 		expect(starter.cancel).toHaveBeenCalledWith("turn-1", { runner: "host" });
 		expect(counters.revoked.has("host-turn-1")).toBe(true);
 		expect(result.status).toBe("canceled");
 	});
 
+	it.each([
+		// This request wins the `cancelling` CAS.
+		{ readStatus: "running", written: ["running"] },
+		// A retry finds the row that an earlier request already moved.
+		{ readStatus: "cancelling", written: [] },
+		// A parked row skips `cancelling` and flips straight to `canceled`.
+		{ readStatus: "waiting", written: ["waiting"] },
+	] as const)("writes turn.cancel once, from the request that moves the row ($readStatus)", async ({
+		readStatus,
+		written,
+	}) => {
+		const { audit, service, starter, turns } = setup();
+		const row = turnRow({ runner: "host", status: readStatus });
+		// A copy per read, like a database row: the service keeps its first read.
+		turns.findById.mockImplementation(async () => ({ ...row }));
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		// The remote cancel fails after the CAS, so the user retries later.
+		starter.cancel.mockRejectedValue(new Error("host unreachable"));
+
+		await service
+			.cancel(SCOPE, "project-1", "turn-1", IP)
+			.catch((error: unknown) => error);
+
+		expect(
+			audit.record.mock.calls.map(([event]) => [event.action, event.metadata]),
+		).toEqual(written.map((fromStatus) => ["turn.cancel", { fromStatus }]));
+	});
+
+	it.each([
+		// The run never claimed the row, so the API CAS ends it.
+		{ runFinalizes: false, written: [{ status: "canceled" }] },
+		// The run's finalizer wins the last CAS and writes its own `turn.end`.
+		{ runFinalizes: true, written: [] },
+	])("writes turn.end only when the API cancel CAS wins (run finalizes: $runFinalizes)", async ({
+		runFinalizes,
+		written,
+	}) => {
+		const { audit, service, starter, turnEvents, turns } = setup();
+		// Another org member started the turn; the task row names that creator.
+		const row = turnRow({
+			status: "running",
+			triggerRunId: "run-1",
+			userId: "creator-1",
+		});
+		turns.findById.mockImplementation(async () => ({ ...row }));
+		turns.transition.mockImplementation(async (_id, from, to) => {
+			if (!from.includes(row.status)) {
+				return false;
+			}
+			row.status = to;
+			return true;
+		});
+		starter.cancel.mockImplementation(async () => {
+			if (runFinalizes) {
+				row.status = "canceled";
+			}
+		});
+		turnEvents.close("run-1");
+
+		await service.cancel(SCOPE, "project-1", "turn-1", IP);
+
+		expect(
+			audit.record.mock.calls
+				.filter(([event]) => event.action === "turn.end")
+				.map(([event]) => [event.actorUserId, event.metadata]),
+		).toEqual(written.map((metadata) => ["creator-1", metadata]));
+	});
+
 	it("404s on a turn of another project", async () => {
 		const { service, turns } = setup();
 		turns.findById.mockResolvedValue(turnRow({ projectId: "other" }));
 
-		await expect(service.cancel(SCOPE, "project-1", "turn-1")).rejects.toThrow(
-			NotFoundException,
-		);
+		await expect(
+			service.cancel(SCOPE, "project-1", "turn-1", IP),
+		).rejects.toThrow(NotFoundException);
 	});
 });
 

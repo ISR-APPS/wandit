@@ -1,8 +1,8 @@
 /**
  * One reasoning block of the agent in the activity feed: "Thinking" with a
- * running band while the block streams, then "Thought for {n}s". A click
- * opens the thinking text. Rendered by chat-message.tsx for each
- * `data-thought` part.
+ * running band while the block streams, then "Thought for {n}s". With text,
+ * a click opens it. Rendered for each `data-thought` part by chat-message.tsx
+ * (developer view, with the text) and activity-panel.tsx (text "", label only).
  */
 
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
@@ -18,10 +18,10 @@ import { useTranslation } from "@/lib/i18n";
 import type { BuilderDataParts } from "../../api/dto";
 import { ShimmerText } from "./shimmer-text";
 
-/** Props of one `data-thought` part, as chat-message.tsx passes them. */
+/** Props of one `data-thought` part, as chat-message.tsx and activity-panel.tsx pass them. */
 export type ThoughtRowProps = BuilderDataParts["thought"];
 
-/** Shows "Thinking" while the block streams, then "Thought for {n}s"; a click opens the text. */
+/** Shows "Thinking" while the block streams, then "Thought for {n}s". With text, a click opens it. */
 export function ThoughtRow({ text, seconds, isStreaming }: ThoughtRowProps) {
 	const { t } = useTranslation();
 	// null until the user clicks: the row then follows the stream, open while

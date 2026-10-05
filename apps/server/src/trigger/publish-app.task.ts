@@ -19,7 +19,10 @@ import {
 	isR2Configured,
 	putSiteFile,
 } from "../infrastructure/storage/r2";
+import { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
+import { BackendPublishGate } from "../modules/app-builder/application/services/backend-publish-gate";
 import { ProjectSecretsService } from "../modules/app-builder/application/services/project-secrets.service";
+import { SecretScanGate } from "../modules/app-builder/domain/publish-gate/secret-scanner";
 import { workersForPlatformsClientFromEnv } from "../modules/app-builder/infrastructure/cloudflare/workers-for-platforms.client";
 import { CodeStorageGitStore } from "../modules/app-builder/infrastructure/git/code-storage.git-store";
 import { CodeStorageRepoRestorer } from "../modules/app-builder/infrastructure/git/code-storage-repo-restorer";
@@ -29,11 +32,17 @@ import { AppPublishRepository } from "../modules/app-builder/infrastructure/pers
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
 import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
+import { TurnProjectRepository } from "../modules/app-builder/infrastructure/persistence/turn-project.repository";
 import {
 	ArchiveTemplateInit,
 	TEMPLATE_ARCHIVE_DIR,
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
+import {
+	type SupabaseManagementClient,
+	supabaseWorkerClientFromEnv,
+} from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "../modules/app-builder/infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
 import { ProjectsRepository } from "../modules/projects/infrastructure/persistence/projects.repository";
@@ -64,11 +73,16 @@ export const publishAppTask = schemaTask({
 	retry: { maxAttempts: 1 },
 	schema: publishAppPayloadSchema,
 	run: async (payload, { ctx }) => {
-		// Each run makes its own pool and ends it in `finally`, so a reused
-		// worker leaks no connection.
+		// Each run makes its own pool and Supabase client and ends them in
+		// `finally`, so a reused worker leaks no connection.
 		const db = createDb({ idleTimeoutMillis: 10_000, max: 1 });
+		const supabase = supabaseWorkerClientFromEnv(
+			env,
+			new AppBackendsRepository(db),
+			Sentry.logger,
+		);
 		try {
-			const result = await runPublishApp(composeDeps(db), {
+			const result = await runPublishApp(composeDeps(db, supabase.client), {
 				...payload,
 				triggerRunId: ctx.run.id,
 			});
@@ -80,6 +94,7 @@ export const publishAppTask = schemaTask({
 			});
 			return result;
 		} finally {
+			await supabase.close();
 			await db.$client.end();
 		}
 	},
@@ -87,17 +102,42 @@ export const publishAppTask = schemaTask({
 
 // The real repositories and clients of one run, composed by hand like the
 // builder-turn task: the Trigger worker runs outside Nest.
-function composeDeps(db: ReturnType<typeof createDb>): PublishAppDeps {
+function composeDeps(
+	db: ReturnType<typeof createDb>,
+	supabase: SupabaseManagementClient | null,
+): PublishAppDeps {
 	const secretRows = new ProjectSecretsRepository(db);
 	const routing = new DomainRoutingService(new DomainsRepository(db));
+	const backends = new AppBackendsRepository(db);
+	const auditRows = new AuditEventsRepository(db);
+	const captureException: PublishAppDeps["captureException"] = (
+		error,
+		tags,
+	) => {
+		Sentry.captureException(error, { tags });
+	};
 	return {
-		backends: new AppBackendsRepository(db),
-		captureException: (error, tags) => {
-			Sentry.captureException(error, { tags });
-		},
+		audit: new AuditEventsService(auditRows, Sentry.logger),
+		authUrlSync: new TriggerSyncBackendAuthUrlsTaskStarter(),
+		backends,
+		captureException,
 		deployments: new DeploymentsRepository(db),
-		gates: [],
+		// WANDIT-190 order: the secret scan of WANDIT-181 first, then the
+		// backend checks, both before the upload.
+		gates: [
+			new SecretScanGate(),
+			new BackendPublishGate({
+				backends,
+				captureException: (error, tags) => {
+					Sentry.captureException(error, { tags });
+				},
+				client: supabase,
+				fetch: globalThis.fetch,
+				logger: Sentry.logger,
+			}),
+		],
 		logger: Sentry.logger,
+		projects: new TurnProjectRepository(db),
 		publish: new AppPublishRepository(db),
 		// The V1 rule: without KV, only `ALLOW_PUBLISH_WITHOUT_KV` (local
 		// development) publishes, and no pointer is written.
@@ -107,6 +147,11 @@ function composeDeps(db: ReturnType<typeof createDb>): PublishAppDeps {
 				? {
 						putHostPointer: async (host) => {
 							logger.warn("KV is not configured; no pointer write", { host });
+						},
+						refreshProjectDomains: async (projectId) => {
+							logger.warn("KV is not configured; no domain pointer write", {
+								projectId,
+							});
 						},
 					}
 				: null,
@@ -122,7 +167,7 @@ function composeDeps(db: ReturnType<typeof createDb>): PublishAppDeps {
 		secretValues: new ProjectSecretsService(
 			secretRows,
 			new ProjectsRepository(db),
-			new AuditEventsRepository(db),
+			auditRows,
 			env,
 		),
 		sitesDomain: env.SITES_DOMAIN,

@@ -1247,7 +1247,17 @@
 				"enable": "Enable backend",
 				"title": "Add a backend to your app"
 			},
+			"limit": {
+				"inUse": {
+					"one": "Your {plan} plan includes {count} app database, and it is in use.",
+					"other": "Your {plan} plan includes {count} app databases, and all are in use."
+				},
+				"notIncluded": "Your current plan does not include an app database.",
+				"generic": "Your plan has no free app database.",
+				"seePlans": "See plans"
+			},
 			"waiting": "Setting up your backend. This takes about 2 minutes.",
+			"restoring": "Waking up your database.",
 			"paused": {
 				"description": "The backend sleeps when nobody uses the app for some time. Wake it up to see your data.",
 				"wake": "Wake up",
@@ -1256,13 +1266,13 @@
 			"deleting": "The backend of this project is being deleted.",
 			"error": {
 				"code": "Error code: {code}",
-				"checkAgain": "Check again",
 				"reasons": {
 					"startFailed": "The backend setup did not start.",
 					"unconfigured": "Backends are not available on this server yet.",
 					"provisionFailed": "The database service could not create the backend.",
 					"timeout": "The backend setup took too long and stopped.",
 					"baseSchemaMissing": "The backend started, but its base tables are missing.",
+					"restoreFailed": "Your database did not wake up.",
 					"unknown": "An unexpected error stopped the backend setup."
 				},
 				"title": "The backend setup stopped"
@@ -1389,7 +1399,7 @@
 				"value": "Value",
 				"save": "Save secret",
 				"hint": "To replace a value, use the name of a secret in the list.",
-				"nameInvalid": "Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer.",
+				"nameInvalid": "Use A to Z, 0 to 9, and _. Start with a letter. Use 64 characters or fewer. Names that start with SUPABASE_ are reserved.",
 				"valueInvalid": "Enter a value of 8 KB or less.",
 				"saved": "{name} is saved."
 			},

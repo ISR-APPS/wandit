@@ -406,16 +406,13 @@ function AuthModalDialog({
 						) : null}
 
 						{/* Browser agents cannot pass Google sign-in. The production
-						    build drops this branch. */}
+						    build drops this branch. The form draws its own divider. */}
 						{import.meta.env.DEV ? (
-							<>
-								<AuthDivider label="Dev only" />
-								<DevPasswordSignIn
-									nextPath={nextPath}
-									onError={setError}
-									onClearError={() => setError(null)}
-								/>
-							</>
+							<DevPasswordSignIn
+								nextPath={nextPath}
+								onError={setError}
+								onClearError={() => setError(null)}
+							/>
 						) : null}
 
 						{error ? (
@@ -445,7 +442,7 @@ function AuthModalDialog({
 	);
 }
 
-/** The thin rule with a small caps label ("Or", "Dev only") above each sign-in form. */
+/** The thin rule with the small caps "Or" label above the email form. dev-password-sign-in.tsx draws its own copy. */
 function AuthDivider({ label }: { label: string }) {
 	return (
 		<div className="flex items-center gap-3">

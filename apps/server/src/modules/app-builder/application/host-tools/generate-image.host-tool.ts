@@ -147,6 +147,7 @@ export function createGenerateImageTool(
 				idempotencyKey: `builder-turn-image:${context.turnId}:${index}`,
 				model,
 				parentEventId: context.holdEventId,
+				projectId: context.projectId,
 				subject: context.subject,
 			});
 			const childEvent = childReservation.event;
@@ -266,6 +267,8 @@ async function reserveMeasuredChild(
 		idempotencyKey: string;
 		model: string | null;
 		parentEventId: string;
+		/** Project of the turn. Every V2 metering event names its project, the image child too. */
+		projectId: string;
 		subject: MeteringSubject;
 	},
 ): Promise<{
@@ -289,6 +292,7 @@ async function reserveMeasuredChild(
 		measuredTerms: { estimatedUnitUsdMicros: estimatedCostUsdMicros, units: 1 },
 		model: input.model,
 		parentEventId: input.parentEventId,
+		projectId: input.projectId,
 	});
 
 	return {

@@ -27,7 +27,6 @@
 	"publishedDomain": ".wandit.app",
 	"menuOpen": "Ouvrir",
 	"menuViewLive": "Voir en ligne",
-	"menuViewLiveMock": "Démo",
 	"menuRename": "Renommer",
 	"menuDelete": "Supprimer",
 	"cardMenuLabel": "Actions du projet",

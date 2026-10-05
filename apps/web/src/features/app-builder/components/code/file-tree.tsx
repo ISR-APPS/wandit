@@ -261,8 +261,10 @@ export function FileTree({ nodes, selectedPath, onSelect }: FileTreeProps) {
 		shownPathRef.current = selectedPath;
 	});
 
-	// LIMIT: every visible row renders, about 5,000 rows during a search on
-	// the largest tree. Upgrade: virtualize with @tanstack/react-virtual.
+	// LIMIT: React still mounts every visible row: 5,051 rows for a search on
+	// a 5,000-file tree. The rows skip off-screen layout, so they show in about
+	// 1 s, not 1.2 to 1.9 s. A fast scroll then lays out rows on the way: p95
+	// frame 25 ms, not 19 ms. Upgrade: virtualize with @tanstack/react-virtual.
 	const items = tree.getItems();
 
 	function onSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -369,7 +371,8 @@ function TreeRow({
 			title={node.path}
 			style={{ paddingInlineStart: ROW_INSET_PX + level * DEPTH_INDENT_PX }}
 			className={cn(
-				"relative flex h-8 pointer-coarse:h-10 w-full shrink-0 items-center gap-1.5 rounded-[10px] pe-2 text-start font-sans text-[13px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-inset",
+				// The browser skips layout and paint of rows outside the scroll view. The fixed row height keeps the scroll bar right.
+				"relative flex h-8 pointer-coarse:h-10 w-full shrink-0 items-center gap-1.5 rounded-[10px] pe-2 text-start font-sans text-[13px] outline-none transition-colors duration-150 [content-visibility:auto] focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-inset",
 				isSelected
 					? "bg-spark/[0.14] font-medium text-night focus:bg-spark/20 dark:bg-spark/[0.16] dark:text-foreground dark:focus:bg-spark/[0.22]"
 					: "text-night/75 hover:bg-night/[0.04] hover:text-night dark:text-foreground/75 dark:hover:bg-white/[0.05] dark:hover:text-foreground",

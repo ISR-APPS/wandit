@@ -20,7 +20,9 @@ import { ProjectsModule } from "../projects/projects.module";
 import { SettingsModule } from "../settings";
 import { SitesModule } from "../sites/sites.module";
 import { AppProjectsService } from "./application/services/app-projects.service";
+import { AuditEventsService } from "./application/services/audit-events.service";
 import { BackendsService } from "./application/services/backends.service";
+import { ChatHistoryService } from "./application/services/chat-history.service";
 import { CloudService } from "./application/services/cloud.service";
 import { CodeService } from "./application/services/code.service";
 import { DeviceSessionsService } from "./application/services/device-sessions.service";
@@ -32,6 +34,7 @@ import { MobileBuildsService } from "./application/services/mobile-builds.servic
 import { PreviewTokenService } from "./application/services/preview-token.service";
 import { ProjectSecretsService } from "./application/services/project-secrets.service";
 import { PublishService } from "./application/services/publish.service";
+import { SandboxWakeService } from "./application/services/sandbox-wake.service";
 import { TurnStreamRelayService } from "./application/services/turn-stream-relay.service";
 import { TurnsService } from "./application/services/turns.service";
 import {
@@ -74,6 +77,7 @@ import { MobileBuildsRepository } from "./infrastructure/persistence/mobile-buil
 import { ProjectCostCapsRepository } from "./infrastructure/persistence/project-cost-caps.repository";
 import { ProjectSecretsRepository } from "./infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "./infrastructure/persistence/sandbox-sessions.repository";
+import { TurnProjectRepository } from "./infrastructure/persistence/turn-project.repository";
 import { PreviewProxyClient } from "./infrastructure/preview-proxy/preview-proxy.client";
 import { LlmSpendCounters } from "./infrastructure/redis/llm-spend-counters";
 import { RedisDeviceSessionLock } from "./infrastructure/redis/redis-device-session-lock";
@@ -97,9 +101,11 @@ import { TemplateVersionService } from "./infrastructure/template/template-versi
 import { TriggerMobileBuildTaskStarter } from "./infrastructure/trigger/trigger-mobile-build-task-starter";
 import { TriggerProvisionBackendTaskStarter } from "./infrastructure/trigger/trigger-provision-backend-task-starter";
 import { TriggerPublishAppTaskStarter } from "./infrastructure/trigger/trigger-publish-app-task-starter";
+import { TriggerSyncBackendAuthUrlsTaskStarter } from "./infrastructure/trigger/trigger-sync-backend-auth-urls-task-starter";
 import { TriggerTurnEventReader } from "./infrastructure/trigger/trigger-turn-events";
 import { TriggerTurnTaskStarter } from "./infrastructure/trigger/trigger-turn-task-starter";
 import { AppProjectsController } from "./presentation/http/controllers/app-projects.controller";
+import { ChatHistoryController } from "./presentation/http/controllers/chat-history.controller";
 import { CloudController } from "./presentation/http/controllers/cloud.controller";
 import { CodeController } from "./presentation/http/controllers/code.controller";
 import { CostCapsController } from "./presentation/http/controllers/cost-caps.controller";
@@ -109,6 +115,7 @@ import { MobileBuildsController } from "./presentation/http/controllers/mobile-b
 import { PreviewTokenController } from "./presentation/http/controllers/preview-token.controller";
 import { ProjectSecretsController } from "./presentation/http/controllers/project-secrets.controller";
 import { PublishController } from "./presentation/http/controllers/publish.controller";
+import { SandboxController } from "./presentation/http/controllers/sandbox.controller";
 import { TurnsController } from "./presentation/http/controllers/turns.controller";
 import { V2HealthController } from "./presentation/http/controllers/v2-health.controller";
 import { VersionsController } from "./presentation/http/controllers/versions.controller";
@@ -153,6 +160,7 @@ export function createCloudSupabaseClient(
 @Module({
 	controllers: [
 		AppProjectsController,
+		ChatHistoryController,
 		CloudController,
 		CodeController,
 		CostCapsController,
@@ -162,6 +170,7 @@ export function createCloudSupabaseClient(
 		PreviewTokenController,
 		ProjectSecretsController,
 		PublishController,
+		SandboxController,
 		TurnsController,
 		V2HealthController,
 		VersionsController,
@@ -191,6 +200,7 @@ export function createCloudSupabaseClient(
 		BackendsService,
 		BuilderSessionsRepository,
 		BuilderTurnsRepository,
+		ChatHistoryService,
 		CloudService,
 		CodeService,
 		DeviceSessionsRepository,
@@ -209,14 +219,25 @@ export function createCloudSupabaseClient(
 		RedisRateLimitGuard,
 		RedisSupabaseRateLimiter,
 		SandboxSessionsRepository,
+		SandboxWakeService,
 		// BillingModule keeps this private; DATABASE from DatabaseModule is
 		// all it needs (the turn model allow-list reads the plan).
 		SubscriptionsRepository,
 		TemplateVersionService,
+		TriggerSyncBackendAuthUrlsTaskStarter,
+		// The sandbox start of a restore and a wake reads the egress hosts here.
+		TurnProjectRepository,
 		TurnsService,
 		TurnStreamRelayService,
 		V2BuilderEnabledGuard,
 		VersionsService,
+		// A plain class: the Trigger tasks build the same service by hand.
+		{
+			provide: AuditEventsService,
+			useFactory: (repository: AuditEventsRepository) =>
+				new AuditEventsService(repository, Sentry.logger),
+			inject: [AuditEventsRepository],
+		},
 		{ provide: DEVICE_SESSION_LOCK, useClass: RedisDeviceSessionLock },
 		// Null without EXPO_TOKEN or EXPO_ACCOUNT: `MobileBuildsService` then answers 503.
 		{

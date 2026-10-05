@@ -1,8 +1,10 @@
 /**
  * The project card of the dashboard grid, drawn like an app on a phone home
  * screen. The stage shows the preview in a phone or browser frame, or an app
- * tile with the first letter of the name. dashboard-page.tsx renders the card
- * and ProjectCardSkeleton. The card menu opens, renames, or deletes a project.
+ * tile with the first letter of the name. The meta row shows the platform, the
+ * lead count (V1 pages only), and the update time. dashboard-page.tsx renders
+ * the card and ProjectCardSkeleton. The card menu opens, views live, renames,
+ * or deletes a project; renames and deletes go through projects.mutations.ts.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -46,11 +48,6 @@ import {
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import type * as React from "react";
 import { useState } from "react";
@@ -234,7 +231,7 @@ export function ProjectCardSkeleton() {
 
 /** One project in the dashboard grid. A click opens the workspace at /p/$projectId. */
 export function ProjectCard({ project }: { project: Project }) {
-	const { t, dir } = useTranslation();
+	const { t } = useTranslation();
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
@@ -243,7 +240,6 @@ export function ProjectCard({ project }: { project: Project }) {
 	>(null);
 	const deleteProject = useDeleteProject();
 
-	const isPublished = project.status === "published";
 	const glyph = projectTileGlyph(project.name);
 	const look = projectTileLook(project.thumbnailSeed);
 	const showPreview = shouldShowProjectPreview(
@@ -272,7 +268,7 @@ export function ProjectCard({ project }: { project: Project }) {
 	return (
 		// The outer div keeps still, so the cursor stays on it while the inner card lifts.
 		<div className="group relative">
-			{/* h-full: every card in a grid row ends at the same line, also when one has a slug line. */}
+			{/* h-full: every card in a grid row ends at the same line, also when one has a live address line. */}
 			<div className="relative h-full transition-transform duration-200 motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1">
 				<Link
 					to="/p/$projectId"
@@ -339,21 +335,24 @@ export function ProjectCard({ project }: { project: Project }) {
 						</h3>
 						<div className="mt-1 flex items-center gap-3 text-[13px] text-night/55 dark:text-foreground/55">
 							<PlatformBadge platform={project.targetPlatform} />
-							<span className="inline-flex min-w-0 items-center gap-1">
-								<UsersThreeIcon
-									aria-hidden
-									weight="duotone"
-									className="size-4 shrink-0"
-								/>
-								<span className="truncate">
-									{t("projects.leadCount", { count: project.leadCount })}
+							{/* A V2 app collects no leads: the leads SDK is canceled, so its count is always 0. */}
+							{project.engine === "v2_app" ? null : (
+								<span className="inline-flex min-w-0 items-center gap-1">
+									<UsersThreeIcon
+										aria-hidden
+										weight="duotone"
+										className="size-4 shrink-0"
+									/>
+									<span className="truncate">
+										{t("projects.leadCount", { count: project.leadCount })}
+									</span>
 								</span>
-							</span>
+							)}
 							<span className="ms-auto shrink-0 tabular-nums">
 								{relativeTime(project.updatedAt)}
 							</span>
 						</div>
-						{isPublished && project.publishedSlug ? (
+						{project.liveUrl ? (
 							<div className="mt-1.5 inline-flex max-w-full items-center gap-1 font-medium text-[13px] text-ember-text">
 								<GlobeSimpleIcon
 									aria-hidden
@@ -362,8 +361,7 @@ export function ProjectCard({ project }: { project: Project }) {
 								/>
 								{/* A domain reads left to right, also on an Arabic page. */}
 								<span dir="ltr" className="truncate">
-									{project.publishedSlug}
-									{t("projects.publishedDomain")}
+									{new URL(project.liveUrl).host}
 								</span>
 							</div>
 						) : null}
@@ -399,20 +397,17 @@ export function ProjectCard({ project }: { project: Project }) {
 							<ArrowSquareOutIcon aria-hidden weight="duotone" />
 							{t("projects.menuOpen")}
 						</DropdownMenuItem>
-						{isPublished ? (
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<div>
-										<DropdownMenuItem disabled>
-											<GlobeSimpleIcon aria-hidden weight="duotone" />
-											{t("projects.menuViewLive")}
-										</DropdownMenuItem>
-									</div>
-								</TooltipTrigger>
-								<TooltipContent side={dir === "rtl" ? "left" : "right"}>
-									{t("projects.menuViewLiveMock")}
-								</TooltipContent>
-							</Tooltip>
+						{project.liveUrl ? (
+							<DropdownMenuItem asChild>
+								<a
+									href={project.liveUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<GlobeSimpleIcon aria-hidden weight="duotone" />
+									{t("projects.menuViewLive")}
+								</a>
+							</DropdownMenuItem>
 						) : null}
 						<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
 							<PencilSimpleIcon aria-hidden weight="duotone" />

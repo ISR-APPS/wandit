@@ -2,14 +2,18 @@
  * Provision-backend runtime: creates the hidden Supabase project of one
  * V2 app and walks its `app_backends` row to `active` (WANDIT-183, D18).
  * The steps run in order: claim the `creating` row by `requestKey`.
- * Create the project when the row has no ref. Poll to `ACTIVE_HEALTHY`.
- * Read the anon key. Apply the base schema. Set the auth config.
- * Mark active. Write the `.env` of a running sandbox. Write the audit row.
- * It calls `AppBackendsRepository`, `SupabaseManagementClient`,
- * `SandboxProvider.findRunning`, `AuditEventsRepository`, and Sentry.
- * `provision-backend.task.ts` calls it through
- * `createProvisionBackendRuntime`; the spec runs `runProvisionBackend` on
- * fakes. No Nest here — Trigger workers compose dependencies by hand.
+ * Reuse the project of a retried row, or clean a dead one. Adopt a live
+ * project whose create answer was lost. Else store the database password
+ * and create the project. Poll
+ * to `ACTIVE_HEALTHY`, with one restore of a paused project. Read the keys
+ * and store the service-role key. Apply the base schema. Set the auth
+ * config. Mark active. Write the `.env` of a running sandbox. Write the
+ * audit row. It calls `AppBackendsRepository`, `SupabaseManagementClient`,
+ * `ProjectSecretsService`, `SandboxProvider.findRunning`,
+ * `AuditEventsRepository`, and Sentry. `provision-backend.task.ts` calls it
+ * through `createProvisionBackendRuntime`; the spec runs
+ * `runProvisionBackend` on fakes. No Nest here: Trigger workers compose
+ * dependencies by hand.
  */
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -17,6 +21,7 @@ import { resolve } from "node:path";
 
 import { wait } from "@trigger.dev/sdk";
 import {
+	previewAuthRedirectPattern,
 	type SupabaseInstanceSize,
 	supabaseInstanceSizeSchema,
 	supabaseProjectUrl,
@@ -27,6 +32,12 @@ import { env } from "@wandit/env/server";
 import { getErrorMessage } from "@wandit/observability/error";
 import { Sentry } from "@wandit/observability/node";
 
+import {
+	ProjectSecretsService,
+	type SecretActor,
+	SUPABASE_DB_PASSWORD_SECRET,
+	SUPABASE_SERVICE_ROLE_KEY_SECRET,
+} from "../modules/app-builder/application/services/project-secrets.service";
 import type {
 	SandboxLogger,
 	SandboxProvider,
@@ -35,6 +46,7 @@ import { LoggingRepoRestorer } from "../modules/app-builder/infrastructure/git/l
 import type { AppBackendFailure } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AppBackendsRepository } from "../modules/app-builder/infrastructure/persistence/app-backends.repository";
 import { AuditEventsRepository } from "../modules/app-builder/infrastructure/persistence/audit-events.repository";
+import { ProjectSecretsRepository } from "../modules/app-builder/infrastructure/persistence/project-secrets.repository";
 import { SandboxSessionsRepository } from "../modules/app-builder/infrastructure/persistence/sandbox-sessions.repository";
 import { syncBackendEnvFile } from "../modules/app-builder/infrastructure/sandbox/sandbox-env";
 import {
@@ -43,10 +55,12 @@ import {
 } from "../modules/app-builder/infrastructure/sandbox/template-init";
 import { VercelSandboxProvider } from "../modules/app-builder/infrastructure/sandbox/vercel-sandbox.provider";
 import {
+	projectStatusOrRemoved,
 	type SupabaseManagementClient,
 	SupabaseManagementError,
 	supabaseWorkerClientFromEnv,
 } from "../modules/app-builder/infrastructure/supabase/supabase-management.client";
+import { ProjectsRepository } from "../modules/projects/infrastructure/persistence/projects.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -72,11 +86,17 @@ export type ProvisionBackendInput = {
 
 /** The slice of the provisioning the spec fakes. */
 export type ProvisionBackendDeps = {
-	/** Reads and marks the `app_backends` row; the API ran `insertCreatingWithinLimit`. */
+	/** Reads and marks the `app_backends` row; the API ran `writeCreatingWithinLimit`. */
 	backends: Pick<
 		AppBackendsRepository,
-		"findByProjectId" | "markCreated" | "markActive" | "markError"
+		| "findByProjectId"
+		| "markCreated"
+		| "markActive"
+		| "markError"
+		| "setSecretId"
 	>;
+	/** Stores the database password and the service-role key as encrypted `system` rows. */
+	secrets: Pick<ProjectSecretsService, "set">;
 	/** Append-only writer of the `backend.provisioned` audit row. */
 	auditEvents: Pick<AuditEventsRepository, "insert">;
 	/** Finds the project's sandbox only when it runs now; a stopped one stays stopped. */
@@ -89,8 +109,12 @@ export type ProvisionBackendDeps = {
 	client: Pick<
 		SupabaseManagementClient,
 		| "createProject"
+		| "deleteProject"
+		| "findLiveProjectRef"
 		| "getProject"
 		| "getApiKeys"
+		| "getServiceRoleKey"
+		| "restoreProject"
 		| "runSql"
 		| "updateAuthConfig"
 	> | null;
@@ -150,12 +174,12 @@ export async function runProvisionBackend(
 	deps: ProvisionBackendDeps,
 	input: ProvisionBackendInput,
 ): Promise<ProvisionBackendResult> {
-	const { projectId } = input;
+	const { projectId, requestKey } = input;
 	const row = await deps.backends.findByProjectId(projectId);
 	if (
 		row === null ||
 		row.status !== "creating" ||
-		row.requestKey !== input.requestKey
+		row.requestKey !== requestKey
 	) {
 		const reason =
 			row === null
@@ -182,13 +206,79 @@ export async function runProvisionBackend(
 			failureSource: "task",
 			projectId,
 			ref: row.ref,
+			requestKey,
 		});
 	}
 	const client = deps.client;
 
+	// The writes of the run carry the owner of the row; a task has no IP.
+	const actor: SecretActor = {
+		ip: null,
+		scope:
+			row.organizationId === null
+				? { kind: "personal", userId: row.userId }
+				: {
+						actorIsLimitExempt: false,
+						kind: "org",
+						organizationId: row.organizationId,
+						userId: row.userId,
+					},
+	};
 	let ref = row.ref;
 	const startedAt = deps.now();
 	try {
+		if (ref !== null) {
+			// A retry of an `error` row, or a replay, finds the ref stored. A
+			// live or paused project is reused, so a replay creates no second
+			// project. A dead one goes first, so a retry leaves no paid orphan.
+			const storedRef = ref;
+			const status = await projectStatusOrRemoved(client, {
+				projectId,
+				ref: storedRef,
+			});
+			if (status === "INIT_FAILED" && row.anonKey === null) {
+				// The row never went active, so the project holds no data of the
+				// user. A project that served the app stays for an operator: the
+				// poll below fails the run on INIT_FAILED.
+				await client.deleteProject({ projectId, ref: storedRef });
+				ref = null;
+			} else if (status === "REMOVED") {
+				ref = null;
+			}
+			deps.logger.info(
+				ref === null
+					? "supabase.provisioning.replaced"
+					: "supabase.provisioning.resumed",
+				{ projectId, ref: storedRef, status },
+			);
+		}
+
+		if (ref === null) {
+			// A create call whose answer was lost (a timeout after Supabase
+			// committed) left a live project on no row. Adopt it with the
+			// password stored before that call, so no second paid project starts.
+			const adoptedRef = await client.findLiveProjectRef(projectId);
+			if (adoptedRef !== null) {
+				if (
+					!(await deps.backends.markCreated(projectId, requestKey, {
+						orgId: row.orgId,
+						ref: adoptedRef,
+					}))
+				) {
+					deps.logger.info("supabase.provisioning.skipped", {
+						projectId,
+						reason: "row-moved",
+					});
+					return { outcome: "skipped", failureCode: null };
+				}
+				ref = adoptedRef;
+				deps.logger.warn("supabase.provisioning.adopted", {
+					projectId,
+					ref,
+				});
+			}
+		}
+
 		if (ref === null) {
 			const region = supabaseRegionSchema.safeParse(row.region);
 			if (!region.success) {
@@ -201,47 +291,77 @@ export async function runProvisionBackend(
 					failureSource: "task",
 					projectId,
 					ref,
+					requestKey,
 				});
 			}
 			// 32 random bytes as base64url = 43 characters. The password is
-			// used once in the create call and never stored or logged.
+			// never logged. It is stored before the create call: no project
+			// may exist without its stored password.
 			const dbPassword = randomBytes(32).toString("base64url");
+			const passwordSecretId = await deps.secrets.set(
+				projectId,
+				SUPABASE_DB_PASSWORD_SECRET,
+				dbPassword,
+				"system",
+				actor,
+			);
+			await deps.backends.setSecretId(
+				projectId,
+				"dbPasswordSecretId",
+				passwordSecretId,
+			);
 			const created = await client.createProject({
 				projectId,
 				region: region.data,
 				dbPassword,
 				instanceSize: deps.instanceSize,
 			});
+			if (!(await deps.backends.markCreated(projectId, requestKey, created))) {
+				// A retry gave the row a new request key during the create call.
+				// The client can no longer reach this ref, so an operator must
+				// delete the project: Sentry gets the ref.
+				deps.captureException(
+					new Error(`orphan supabase project ${created.ref}: row moved`),
+					{ projectId, ref: created.ref },
+				);
+				deps.logger.error("supabase.provisioning.orphan-project", {
+					projectId,
+					ref: created.ref,
+				});
+				return { outcome: "skipped", failureCode: null };
+			}
 			ref = created.ref;
-			await deps.backends.markCreated(projectId, created);
 			deps.logger.info("supabase.provisioning.created", {
 				projectId,
 				ref,
 				region: row.region,
-			});
-		} else {
-			// A re-run of the same requestKey finds the ref already stored:
-			// this is what makes a replay create no second project.
-			deps.logger.info("supabase.provisioning.resumed", {
-				projectId,
-				ref,
 			});
 		}
 
 		// The loop exits through `break` on ACTIVE_HEALTHY or through `fail`
 		// on a terminal status or the deadline — never through the header.
 		let dbHost = "";
+		let restoreSent = false;
 		while (true) {
 			const project = await client.getProject({ projectId, ref });
 			if (project.status === "ACTIVE_HEALTHY") {
 				dbHost = project.dbHost;
 				break;
 			}
+			// A retried row can hold a project that the sweep paused or whose
+			// wake failed. One restore call brings it back with its data.
 			if (
-				project.status === "INIT_FAILED" ||
-				project.status === "REMOVED" ||
-				project.status === "RESTORE_FAILED"
+				!restoreSent &&
+				(project.status === "INACTIVE" || project.status === "RESTORE_FAILED")
 			) {
+				await client.restoreProject({ projectId, ref });
+				restoreSent = true;
+				await deps.sleep(POLL_INTERVAL_MS);
+				continue;
+			}
+			// After the restore call Supabase can still answer RESTORE_FAILED for
+			// a while, so only the deadline ends that wait.
+			if (project.status === "INIT_FAILED" || project.status === "REMOVED") {
 				return fail(deps, {
 					error: new Error(
 						`supabase project ${ref} reported ${project.status}`,
@@ -252,6 +372,7 @@ export async function runProvisionBackend(
 					failureSource: "supabase_api",
 					projectId,
 					ref,
+					requestKey,
 				});
 			}
 			if (deps.now() - startedAt >= POLL_TIMEOUT_MS) {
@@ -264,69 +385,96 @@ export async function runProvisionBackend(
 					failureSource: "supabase_api",
 					projectId,
 					ref,
+					requestKey,
 				});
 			}
 			await deps.sleep(POLL_INTERVAL_MS);
 		}
 
 		const { anonKey } = await client.getApiKeys({ projectId, ref });
+		// The Cloud storage routes read the stored key instead of one
+		// Management API call per request. It is stored before `active`.
+		const serviceRoleSecretId = await deps.secrets.set(
+			projectId,
+			SUPABASE_SERVICE_ROLE_KEY_SECRET,
+			await client.getServiceRoleKey({ projectId, ref }),
+			"system",
+			actor,
+		);
+		await deps.backends.setSecretId(
+			projectId,
+			"serviceRoleSecretId",
+			serviceRoleSecretId,
+		);
 
-		let baseSql: string;
-		try {
-			baseSql = await deps.readBaseSql();
-		} catch (error) {
-			return fail(deps, {
-				error,
-				failureCode: "backend_base_schema_missing",
-				failureKind: "config",
-				failureSource: "task",
-				projectId,
-				ref,
-			});
-		}
-		await client.runSql({ projectId, ref }, baseSql);
+		// A reused project that was active before holds the schema and the auth
+		// settings that the app and the agent changed since. Only a new project,
+		// or one that never went active, gets the base schema and the auth config.
+		if (ref !== row.ref || row.anonKey === null) {
+			let baseSql: string;
+			try {
+				baseSql = await deps.readBaseSql();
+			} catch (error) {
+				return fail(deps, {
+					error,
+					failureCode: "backend_base_schema_missing",
+					failureKind: "config",
+					failureSource: "task",
+					projectId,
+					ref,
+					requestKey,
+				});
+			}
+			await client.runSql({ projectId, ref }, baseSql);
 
-		if (deps.previewDomain === null) {
-			deps.logger.warn("supabase.provisioning.auth-config-skipped", {
-				projectId,
-				ref,
-			});
+			if (deps.previewDomain === null) {
+				deps.logger.warn("supabase.provisioning.auth-config-skipped", {
+					projectId,
+					ref,
+				});
+			} else {
+				// Provisioning sets the preview apex as `site_url` at creation.
+				// `BackendAuthUrlsService` replaces it after the first publish or a
+				// domain change.
+				await client.updateAuthConfig(
+					{ projectId, ref },
+					{
+						siteUrl: `https://${deps.previewDomain}`,
+						uriAllowList: [
+							previewAuthRedirectPattern(projectId, deps.previewDomain),
+						],
+						externalEmailEnabled: true,
+						// Product rule: a new app account works at sign-up, with no confirmation email.
+						skipEmailConfirmation: true,
+					},
+				);
+			}
 		} else {
-			// LIMIT: `site_url` is the preview apex until WANDIT-190 registers
-			// the published domain. Upgrade: pass the published host.
-			await client.updateAuthConfig(
-				{ projectId, ref },
-				{
-					siteUrl: `https://${deps.previewDomain}`,
-					uriAllowList: [
-						`https://r-*--p-${projectId}.${deps.previewDomain}/**`,
-					],
-					externalEmailEnabled: true,
-					// Product rule: a new app account works at sign-up, with no confirmation email.
-					skipEmailConfirmation: true,
-				},
-			);
+			deps.logger.info("supabase.provisioning.setup-kept", { projectId, ref });
 		}
 
-		const marked = await deps.backends.markActive(projectId, {
+		const marked = await deps.backends.markActive(projectId, requestKey, {
 			anonKey,
 			dbHost,
 			lastActiveAt: new Date(deps.now()),
 		});
 		if (!marked) {
 			// The project was deleted during provisioning: the row stays
-			// `deleting`, and the pause sweep deletes the Supabase project.
+			// `deleting`, and the pause sweep deletes the Supabase project. Or
+			// a retry gave the row a new key, and the new run owns this ref.
 			deps.logger.info("supabase.provisioning.skipped", {
 				projectId,
-				reason: "status-deleting",
+				reason: "row-moved",
 			});
 			return { outcome: "skipped", failureCode: null };
 		}
 		// The app in a running sandbox gets the values now. A stopped sandbox
 		// stays stopped: its next turn writes the file.
-		// LIMIT: in strict egress mode, the policy gets the backend host only
-		// at the next turn. Until then, a server function in the sandbox cannot
-		// reach Supabase. Upgrade: push the policy here too.
+		// The egress policy is not pushed from here: a push from this process
+		// deletes the proxy run-token rule of the harness session. A turn with
+		// a fresh session adds the backend host on its keep-alive tick
+		// (`builder-turn.runtime.ts`). A resumed turn and an idle sandbox get it
+		// at the next turn start.
 		try {
 			const sandbox = await deps.sandboxes.findRunning(projectId);
 			if (sandbox !== null) {
@@ -375,6 +523,7 @@ export async function runProvisionBackend(
 			failureCode: "backend_provision_failed",
 			projectId,
 			ref,
+			requestKey,
 		});
 	}
 }
@@ -390,6 +539,8 @@ async function fail(
 	input: {
 		projectId: string;
 		ref: string | null;
+		/** Request key of the run; the row write applies only while the row holds it. */
+		requestKey: string;
 		failureCode: string;
 		/** Kind for a non-Supabase error; default `internal`. */
 		failureKind?: AppBackendFailure["failureKind"];
@@ -425,7 +576,7 @@ async function fail(
 			}) ?? null,
 	};
 	try {
-		await deps.backends.markError(input.projectId, failure);
+		await deps.backends.markError(input.projectId, input.requestKey, failure);
 	} catch (markError) {
 		deps.logger.error("supabase.provisioning.mark-error-failed", {
 			projectId: input.projectId,
@@ -455,6 +606,7 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 		backends,
 		Sentry.logger,
 	);
+	const auditEvents = new AuditEventsRepository(db);
 	// The `.env` write only calls `findRunning`, which never restores a repo
 	// or applies a template, like the idle sweep.
 	const sandboxes = new VercelSandboxProvider(
@@ -466,7 +618,7 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 		run: (input) =>
 			runProvisionBackend(
 				{
-					auditEvents: new AuditEventsRepository(db),
+					auditEvents,
 					backends,
 					captureException: (error, tags) =>
 						Sentry.captureException(error, {
@@ -486,6 +638,12 @@ export function createProvisionBackendRuntime(db: TriggerDatabase): {
 							"utf8",
 						),
 					sandboxes,
+					secrets: new ProjectSecretsService(
+						new ProjectSecretsRepository(db),
+						new ProjectsRepository(db),
+						auditEvents,
+						env,
+					),
 					// A Trigger wait frees the machine during the 10 minute poll.
 					sleep: (ms) => wait.for({ seconds: ms / 1000 }),
 				},

@@ -12,6 +12,7 @@ import { resolveAuthCookieSameSite } from "@wandit/env/cookie-same-site";
 import {
 	corsWebOrigins,
 	expoDevOrigins,
+	httpOriginSchema,
 	isLocalhostUrl,
 } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
@@ -525,19 +526,31 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			//    (first branch below).
 			before: createAuthMiddleware(async (ctx) => {
 				const path = ctx.path;
-				// 4. The DEV_USER password is public, and a local API can sit behind
-				//    a public tunnel (docs/v2/security.md). The request host comes
-				//    from the Host header, and a tunnel sends its public host.
-				if (
-					isDevPasswordLogin &&
-					path === "/sign-in/email" &&
-					ctx.request &&
-					!isLocalhostUrl(ctx.request.url)
-				) {
-					throw APIError.from("FORBIDDEN", {
-						code: "DEV_PASSWORD_LOGIN_LOCALHOST_ONLY",
-						message: "Dev password sign-in works only on localhost.",
+				// Better Auth supplies the matched route, including normalized request paths.
+				if (isDevPasswordLogin && path === "/sign-in/email" && ctx.request) {
+					// Proxies can rewrite Host. Every supplied host must remain local.
+					const request = ctx.request;
+					const hasInvalidHost = ["host", "x-forwarded-host"].some((header) => {
+						const host = request.headers.get(header);
+						if (host === null) return false;
+						const hostUrl = `http://${host}`;
+						// Malformed headers must fail before the shared origin refinement constructs a URL.
+						if (!URL.canParse(hostUrl)) return true;
+						const origin = httpOriginSchema.safeParse(hostUrl);
+						// Host headers contain only an authority. URL parsing can remove empty credentials and dot paths.
+						return (
+							!origin.success ||
+							["/", "\\", "@", "?", "#"].some((part) => host.includes(part)) ||
+							!isLocalhostUrl(origin.data)
+						);
 					});
+					// Public or malformed hosts must fail before Better Auth reads the account.
+					if (!isLocalhostUrl(request.url) || hasInvalidHost) {
+						throw APIError.from("FORBIDDEN", {
+							code: "DEV_PASSWORD_LOGIN_LOCALHOST_ONLY",
+							message: "Dev password sign-in works only on localhost.",
+						});
+					}
 				}
 				// 3. Pin the expo authorization proxy to the Google URL this API
 				//    issues (see expo-authorization-proxy.ts): no open redirect, no

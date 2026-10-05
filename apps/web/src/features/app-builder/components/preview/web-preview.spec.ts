@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
@@ -14,9 +15,9 @@ import { WebPreview, type WebPreviewProps } from "./web-preview";
 const project: AppProject = {
 	id: "nadi-fitness",
 	name: "Nadi Fitness",
-	slug: "nadi",
-	description: "Membership app for a gym in Oran.",
 	kind: "web",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 4,
 	unpublishedChanges: 3,
@@ -51,40 +52,59 @@ function depsWithTokens(...tokens: string[]): PreviewTokenDeps {
 	return { getPreviewToken };
 }
 
-// The bar shows tooltips and translated labels; the page mounts both providers.
+/** The wake button of the boot screen needs a query client. No case clicks it, so one client serves every case. */
+const queryClient = new QueryClient();
+
+// The bar shows tooltips and translated labels; the page mounts these providers.
 function previewElement(props: WebPreviewProps) {
-	return createElement(I18nProvider, {
-		locale: "en",
-		dictionary: fallbackDictionary,
-		setLocale: () => {},
-		children: createElement(
-			TooltipProvider,
-			null,
-			createElement(WebPreview, props),
-		),
-	} satisfies ComponentProps<typeof I18nProvider>);
+	return createElement(
+		QueryClientProvider,
+		{ client: queryClient },
+		createElement(I18nProvider, {
+			locale: "en",
+			dictionary: fallbackDictionary,
+			setLocale: () => {},
+			children: createElement(
+				TooltipProvider,
+				null,
+				createElement(WebPreview, props),
+			),
+		} satisfies ComponentProps<typeof I18nProvider>),
+	);
 }
 
-function propsWith(deps: PreviewTokenDeps, reloadKey: number): WebPreviewProps {
+function propsWith(
+	deps: PreviewTokenDeps,
+	reloadKey: number,
+	liveUrl: string | null = null,
+): WebPreviewProps {
 	return {
 		project,
+		liveUrl,
 		viewport: "desktop",
 		onChangeViewport: () => {},
 		reloadKey,
 		onReload: () => {},
 		bootContext: idleBoot,
+		canStartTurn: true,
+		isSelecting: false,
+		onSelectingChange: vi.fn(),
+		onPickTarget: vi.fn(),
+		onTryToFix: vi.fn(),
 		deps,
 	};
 }
 
-// The template bridge of the app posts this message on each page change.
+// The template bridge of the app posts this message on each page change, from the window of the preview iframe.
 async function postRoute(path: string) {
+	const iframe = screen.getByTitle<HTMLIFrameElement>(TITLE);
 	// The message listener registers in an effect; flush it before the dispatch.
 	await act(async () => {});
 	act(() => {
 		window.dispatchEvent(
 			new MessageEvent("message", {
 				origin: PREVIEW_ORIGIN,
+				source: iframe.contentWindow,
 				data: { type: "wandit:route", path },
 			}),
 		);
@@ -94,6 +114,18 @@ async function postRoute(path: string) {
 afterEach(cleanup);
 
 describe("WebPreview", () => {
+	// Before the first publish the bar showed ".wandit.app", a host that does not exist.
+	// After it, the host is the one link to the live app.
+	it.each([
+		["https://nadi.wandit.app", "nadi.wandit.app", "https://nadi.wandit.app"],
+		[null, "Not published yet", null],
+	])("shows %s in the bar as %s with the live app link %s", async (liveUrl, text, href) => {
+		render(previewElement(propsWith(depsWithTokens("t1"), 0, liveUrl)));
+		await screen.findByTitle(TITLE);
+		expect(screen.getByText(text)).toBeTruthy();
+		expect(screen.queryByRole("link")?.getAttribute("href") ?? null).toBe(href);
+	});
+
 	it("shows a page change of the app in the capsule and keeps the iframe src", async () => {
 		render(previewElement(propsWith(depsWithTokens("t1"), 0)));
 		const iframe = await screen.findByTitle(TITLE);

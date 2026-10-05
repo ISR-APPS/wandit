@@ -3,8 +3,9 @@
  * ExpoGoPanel mints the phone link and renders ExpoGoLinkBody. The mobile
  * stage of components/preview/phone-preview.tsx shows the panel as a column
  * next to the phone, or, on a narrow stage, in ExpoGoPopover behind the QR
- * button of its bar. Mints through useMintPhonePreviewLink; ExpoGoLinkBody
- * is pure, and the spec renders it.
+ * button of its bar. The publish popover shows the panel after "Show QR".
+ * Mints through useMintPhonePreviewLink; ExpoGoLinkBody is pure, and the
+ * spec renders it.
  */
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -39,17 +40,19 @@ import {
 import type { PreviewTokenState } from "../../lib/use-preview-token";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "./top-bar";
 
-/** Props of the Expo Go panel and its popover. PhonePreview passes them. */
+/** Props of the Expo Go panel and its popover. PhonePreview and the publish popover pass them. */
 export type ExpoGoPanelProps = {
 	/** The open mobile project. Its id mints the phone link. */
 	projectId: string;
 	/**
 	 * Status of the preview token mint, from usePreviewToken in PhonePreview.
-	 * The phone link needs a running sandbox, so only `ready` mints it.
+	 * The phone link needs a running sandbox, so only `ready` mints it. The
+	 * publish popover has no status and passes none: the panel mints at once,
+	 * and a sleeping sandbox answers SANDBOX_NOT_RUNNING.
 	 */
-	previewStatus: PreviewTokenState["status"];
-	/** Mints the preview token again (usePreviewToken `refresh`). The retry of a failed preview calls it. */
-	onRetryPreview: () => void;
+	previewStatus?: PreviewTokenState["status"];
+	/** Mints the preview token again (usePreviewToken `refresh`). The retry of a failed preview calls it. PhonePreview passes it with `previewStatus`. */
+	onRetryPreview?: () => void;
 };
 
 /** The QR button of the stage bar; the content mounts on each open. PhonePreview shows it only while the QR column is hidden. */
@@ -84,6 +87,8 @@ export function ExpoGoPopover(props: ExpoGoPanelProps) {
 /**
  * Holds the username and the mint. It mints when the app starts to run and
  * on a username change, never while the app sleeps: the link needs a sandbox.
+ * Without a preview status (the publish popover, after "Show QR"), each
+ * mount mints a new link.
  */
 export function ExpoGoPanel({
 	projectId,
@@ -91,7 +96,8 @@ export function ExpoGoPanel({
 	onRetryPreview,
 }: ExpoGoPanelProps) {
 	const { t } = useTranslation();
-	const isAppRunning = previewStatus === "ready";
+	// The publish popover knows no preview status, so it mints at once like a running app.
+	const isAppRunning = previewStatus === undefined || previewStatus === "ready";
 	const [expoUsername, setExpoUsername] = useState(readExpoUsername);
 	// A new mutate resets `data` and `error`, so a pending mint reads as neither.
 	const { mutate, data: link, error } = useMintPhonePreviewLink(projectId);
@@ -146,7 +152,9 @@ export function ExpoGoPanel({
 				setExpoUsername(next);
 			}}
 			onRefresh={
-				previewStatus === "error" ? onRetryPreview : () => mutate(expoUsername)
+				previewStatus === "error" && onRetryPreview !== undefined
+					? onRetryPreview
+					: () => mutate(expoUsername)
 			}
 		/>
 	);

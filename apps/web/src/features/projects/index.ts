@@ -17,8 +17,10 @@
 // from shared contracts rather than handwritten duplicate types.
 
 // Attachment upload service (V2 spec §11) — shared with the workspace chat's
-// ask_user attachments tray, which loops it once per picked file.
+// ask_user attachments tray, which loops it once per picked file, and with
+// the V2 builder composer, which uses the same limits.
 export {
+	ATTACHMENT_ACCEPT,
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
 	attachmentMaxBytesFor,
@@ -53,3 +55,5 @@ export { isInsufficientCreditsApiError } from "./lib/create-precheck";
 export { thumbGradient } from "./lib/helpers";
 // High-level create-with-prompt hook that handles auth, credits, creation, and navigation.
 export { useCreateProjectWithPrompt } from "./lib/hooks";
+// Microphone recording and transcription of the prompt box; the V2 builder composer shares it.
+export { useVoiceDictation } from "./lib/use-voice-dictation";

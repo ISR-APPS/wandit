@@ -1,8 +1,11 @@
 /**
  * Publish button of the top bar and its popover. Rendered by components/shell/top-bar.tsx.
  * A web app shows its publish status (appPublishQuery, WANDIT-178) with Publish,
- * Unpublish, and Roll back. A mobile app shows the Android APK card of
- * android-build-card.tsx (mobileBuildsQuery, WANDIT-194). The spec renders the pure *Targets parts.
+ * Unpublish, Roll back, the gate findings of publish-gate-findings.tsx, "Publish
+ * anyway" (WANDIT-190), and a staff suspension (WANDIT-181). A mobile app shows the
+ * Android APK card of android-build-card.tsx (mobileBuildsQuery, WANDIT-194), and
+ * "Show QR" opens the Expo Go panel of expo-go-popover.tsx under its row. The
+ * spec renders the pure *Targets parts.
  */
 
 import type { Icon } from "@phosphor-icons/react";
@@ -31,7 +34,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { formatNumber, formatRelativeTime, useTranslation } from "@/lib/i18n";
@@ -42,6 +45,7 @@ import {
 } from "../../api/mobile-builds.mutations";
 import { mobileBuildsQuery } from "../../api/mobile-builds.queries";
 import {
+	useOverridePublishGate,
 	usePublishApp,
 	useRollbackApp,
 	useUnpublishApp,
@@ -60,19 +64,33 @@ import {
 	HISTORY_ROW_CLASS,
 	HistoryList,
 } from "./android-build-card";
+import { ExpoGoPanel } from "./expo-go-popover";
+import {
+	GATE_ACTION_CLASS,
+	PublishGateFindings,
+} from "./publish-gate-findings";
 
 // The popover shows the five newest earlier versions; older ones stay in the API answer.
 const HISTORY_ROWS = 5;
 // Seven characters name a commit, like `git log --oneline`.
 const SHORT_SHA_LENGTH = 7;
 
+/** Props of the top bar Publish button. WorkBar in top-bar.tsx passes them from the page. */
 export type PublishPopoverProps = {
 	/** The open project, from appProjectQuery in the page. Sets the kind, the name, and the version line. */
 	project: AppProject;
+	/** True when the chat can take a message: its history loaded and no turn sends. From useBuilderThread in the page. */
+	canAskFix: boolean;
+	/** Sends one chat message through `thread.send` of the page. "Ask the AI to fix" lists the gate findings in it. */
+	onAskFix: (text: string) => void;
 };
 
 /** Each body loads its data when the popover opens and shows a skeleton until then, so the top bar never waits. */
-export function PublishPopover({ project }: PublishPopoverProps) {
+export function PublishPopover({
+	project,
+	canAskFix,
+	onAskFix,
+}: PublishPopoverProps) {
 	const { t, locale } = useTranslation();
 	// Controlled, so a link to another view can close the popover before the view changes.
 	const [open, setOpen] = useState(false);
@@ -105,10 +123,10 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 					{t("appBuilder.publish.cta")}
 				</TooltipContent>
 			</Tooltip>
-			{/* 380 px like the design. On a phone it keeps 12 px from each edge. */}
+			{/* 380 px like the design. On a phone it keeps 12 px from each edge. The open QR panel can pass the screen height, so the content scrolls. */}
 			<PopoverContent
 				align="end"
-				className="w-[380px] max-w-[calc(100vw-24px)] p-0"
+				className="scroll-warm max-h-(--radix-popover-content-available-height) w-[380px] max-w-[calc(100vw-24px)] overflow-y-auto p-0"
 			>
 				<header className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
 					<div className="min-w-0">
@@ -136,34 +154,40 @@ export function PublishPopover({ project }: PublishPopoverProps) {
 				{project.kind === "web" ? (
 					<PublishWebBody
 						projectId={project.id}
+						canAskFix={canAskFix}
+						onAskFix={(text) => {
+							onAskFix(text);
+							// The reply shows in the chat, so the popover gets out of the way.
+							setOpen(false);
+						}}
 						onNavigate={() => setOpen(false)}
 					/>
 				) : (
-					<PublishMobileBody
-						projectId={project.id}
-						onNavigate={() => setOpen(false)}
-					/>
+					<PublishMobileBody projectId={project.id} />
 				)}
 			</PopoverContent>
 		</Popover>
 	);
 }
 
-/** Props of the two bodies. Each owns its query and its mutations. */
-type PublishBodyProps = {
+/** Reads the publish status and wires the web actions. Connect one opens the Domains panel. */
+function PublishWebBody({
+	projectId,
+	canAskFix,
+	onAskFix,
+	onNavigate,
+}: Pick<PublishWebTargetsProps, "canAskFix" | "onAskFix"> & {
 	/** Route param of the open project. */
 	projectId: string;
 	/** Closes the popover before the view changes under it. */
 	onNavigate: () => void;
-};
-
-/** Reads the publish status and wires the web actions. Connect one opens the Domains panel. */
-function PublishWebBody({ projectId, onNavigate }: PublishBodyProps) {
+}) {
 	const navigate = useNavigate({ from: "/app/$projectId" });
 	const publishStatus = useQuery(appPublishQuery(projectId));
 	const publish = usePublishApp(projectId);
 	const rollback = useRollbackApp(projectId);
 	const unpublish = useUnpublishApp(projectId);
+	const override = useOverridePublishGate(projectId);
 
 	// A failed poll keeps the last status on screen. Only a first load without a status shows the error.
 	if (publishStatus.data === undefined) {
@@ -179,11 +203,17 @@ function PublishWebBody({ projectId, onNavigate }: PublishBodyProps) {
 	return (
 		<PublishWebTargets
 			status={publishStatus.data}
-			isPublishPending={publish.isPending || rollback.isPending}
+			// "Publish anyway" queues a new build too, so the pill spins for it.
+			isPublishPending={
+				publish.isPending || rollback.isPending || override.isPending
+			}
 			isUnpublishPending={unpublish.isPending}
+			canAskFix={canAskFix}
+			onAskFix={onAskFix}
 			// A new key per click. A second click while a publish runs gets 409 PUBLISH_ACTIVE.
 			onPublish={() => publish.mutate(crypto.randomUUID())}
 			onRollback={(deploymentId) => rollback.mutate(deploymentId)}
+			onOverride={(buildId) => override.mutate(buildId)}
 			onUnpublish={() => unpublish.mutate()}
 			onConnectDomain={() => {
 				onNavigate();
@@ -208,17 +238,24 @@ function BodyPlaceholder({ errorText }: { errorText: string | null }) {
 	);
 }
 
+/** What the web targets show and do. PublishWebBody fills it; the spec passes plain values. */
 export type PublishWebTargetsProps = {
 	/** The publish status of the project, from appPublishQuery. */
 	status: AppPublishStatus;
-	/** True while a publish or a rollback request runs. The actions are disabled and the Publish pill spins. */
+	/** True while a publish, a rollback, or a "Publish anyway" request runs. The actions are disabled and the Publish pill spins. */
 	isPublishPending: boolean;
 	/** True while an unpublish request runs. The actions are disabled, with no spinner. */
 	isUnpublishPending: boolean;
+	/** True when the chat can take a message. "Ask the AI to fix" is disabled otherwise. */
+	canAskFix: boolean;
+	/** Sends the "Ask the AI to fix" chat message and closes the popover. */
+	onAskFix: (text: string) => void;
 	/** Publishes the saved head of the app, or updates the live app. */
 	onPublish: () => void;
 	/** Puts the earlier deployment with this id live again. */
 	onRollback: (deploymentId: string) => void;
+	/** "Publish anyway": builds the blocked attempt with this id again past its overridable findings. */
+	onOverride: (buildId: string) => void;
 	/** Takes the live app down. */
 	onUnpublish: () => void;
 	/** Opens the Domains panel of the More view. */
@@ -226,21 +263,25 @@ export type PublishWebTargetsProps = {
 };
 
 /**
- * The web destination card with its Live chip or the running step, the
- * failure text, the live link with Unpublish, the earlier versions with
+ * The suspension notice, then the web destination card with its Live chip
+ * or the running step, the failure text, the gate findings with "Publish
+ * anyway", and the live link with Unpublish. Then the earlier versions with
  * Roll back, and the custom domain row at the foot.
  */
 export function PublishWebTargets({
 	status,
 	isPublishPending,
 	isUnpublishPending,
+	canAskFix,
+	onAskFix,
 	onPublish,
 	onRollback,
+	onOverride,
 	onUnpublish,
 	onConnectDomain,
 }: PublishWebTargetsProps) {
 	const { t, locale } = useTranslation();
-	const { live, latestBuild } = status;
+	const { live, latestBuild, suspension } = status;
 	const runningBuild =
 		latestBuild && LIVE_PUBLISH_STATUSES.has(latestBuild.status)
 			? latestBuild
@@ -257,14 +298,25 @@ export function PublishWebTargets({
 				deployment.status === "unpublished",
 		)
 		.slice(0, HISTORY_ROWS);
-	// The pill spins while a publish or a rollback request runs, and while the build it queued runs.
+	// The pill spins while a publish, a rollback, or an override request runs, and while the build it queued runs.
 	const isPublishing = isPublishPending || runningBuild !== null;
 	// One publish runs at a time, so every action waits for the running one. An unpublish blocks them too.
 	const isBusy = isPublishing || isUnpublishPending;
+	// A suspended app cannot go live again. The API also answers 403 PROJECT_SUSPENDED.
+	const isPublishDisabled = isBusy || suspension !== null;
 
 	return (
 		<>
 			<div className="flex flex-col gap-3 px-3 pb-3">
+				{suspension ? (
+					<DestinationError
+						text={t("appBuilder.publish.suspension", {
+							reason: t(
+								`appBuilder.publish.suspensionReasons.${suspension.reasonCode}`,
+							),
+						})}
+					/>
+				) : null}
 				<DestinationCard
 					icon={GlobeIcon}
 					tone={runningBuild ? "busy" : live ? "live" : "idle"}
@@ -291,9 +343,34 @@ export function PublishWebTargets({
 							)}
 						/>
 					) : null}
+					{latestBuild && latestBuild.gateFindings.length > 0 ? (
+						<PublishGateFindings
+							findings={latestBuild.gateFindings}
+							isOverride={latestBuild.gateOverride}
+							canAskFix={canAskFix}
+							onAskFix={onAskFix}
+						/>
+					) : null}
+					{/* The API sets the flag for the project creator when every block finding is overridable. */}
+					{latestBuild && status.gateOverrideAllowed ? (
+						<div className="flex items-center gap-3">
+							<p className="min-w-0 flex-1 text-[12.5px] text-spark-deep leading-snug dark:text-spark">
+								{t("appBuilder.publish.findings.overrideWarning")}
+							</p>
+							<Button
+								variant="outline"
+								size="sm"
+								className={GATE_ACTION_CLASS}
+								disabled={isPublishDisabled}
+								onClick={() => onOverride(latestBuild.id)}
+							>
+								{t("appBuilder.publish.findings.override")}
+							</Button>
+						</div>
+					) : null}
 					<Button
 						className={DESTINATION_ACTION_CLASS}
-						disabled={isBusy}
+						disabled={isPublishDisabled}
 						onClick={onPublish}
 					>
 						{isPublishing ? (
@@ -366,7 +443,7 @@ export function PublishWebTargets({
 								</span>
 								<button
 									type="button"
-									disabled={isBusy}
+									disabled={isPublishDisabled}
 									onClick={() => onRollback(deployment.id)}
 									className={HISTORY_ACTION_CLASS}
 								>
@@ -403,12 +480,21 @@ function LiveChip() {
 	);
 }
 
-/** Reads the Android builds and wires the mobile actions. The builds poll only while this body is mounted. */
-function PublishMobileBody({ projectId, onNavigate }: PublishBodyProps) {
-	const navigate = useNavigate({ from: "/app/$projectId" });
+/**
+ * Reads the Android builds and wires the mobile actions. The builds poll
+ * only while this body is mounted. "Show QR" opens the Expo Go panel under
+ * its row; the next open of the popover starts closed again.
+ */
+function PublishMobileBody({
+	projectId,
+}: {
+	/** Route param of the open project. */
+	projectId: string;
+}) {
 	const builds = useQuery(mobileBuildsQuery(projectId));
 	const createBuild = useCreateMobileBuild(projectId);
 	const cancelBuild = useCancelMobileBuild(projectId);
+	const [isQrOpen, setIsQrOpen] = useState(false);
 
 	// A failed poll keeps the last list on screen. Only a first load without a list shows the error.
 	if (builds.data === undefined) {
@@ -421,13 +507,10 @@ function PublishMobileBody({ projectId, onNavigate }: PublishBodyProps) {
 
 	return (
 		<PublishMobileTargets
-			// The mobile stage of the Preview view shows the Expo Go QR code next to the phone.
-			onShowQr={() => {
-				onNavigate();
-				void navigate({
-					search: (prev) => ({ ...prev, view: "preview" }),
-				});
-			}}
+			isQrOpen={isQrOpen}
+			onToggleQr={() => setIsQrOpen((open) => !open)}
+			// Each mount of the panel mints a new phone link, so it mounts only while open.
+			qrPanel={isQrOpen ? <ExpoGoPanel projectId={projectId} /> : null}
 			android={{
 				builds: builds.data.items,
 				isStarting: createBuild.isPending,
@@ -442,18 +525,25 @@ function PublishMobileBody({ projectId, onNavigate }: PublishBodyProps) {
 
 /** What the mobile targets show and do. PublishMobileBody fills it; the spec passes plain values. */
 export type PublishMobileTargetsProps = {
-	/** Closes the popover and opens the Preview view, where the mobile stage shows the QR code. */
-	onShowQr: () => void;
+	/** True while the Expo Go panel shows under the test-on-phone row. */
+	isQrOpen: boolean;
+	/** Shows or hides the Expo Go panel. */
+	onToggleQr: () => void;
+	/** The Expo Go panel with the QR code, or null while it is closed. */
+	qrPanel: ReactNode;
 	/** Builds and actions of the Android APK card. */
 	android: AndroidBuildCardProps;
 };
 
 /**
- * The Android APK card, the backend note, and the test-on-phone row. No
- * iOS row until WANDIT-284 builds iOS: a row with mock testers misled users.
+ * The Android APK card, the backend note, and the test-on-phone row with
+ * the Expo Go panel under it. No iOS row until WANDIT-284 builds iOS: a row
+ * with mock testers misled users.
  */
 export function PublishMobileTargets({
-	onShowQr,
+	isQrOpen,
+	onToggleQr,
+	qrPanel,
 	android,
 }: PublishMobileTargetsProps) {
 	const { t } = useTranslation();
@@ -475,9 +565,21 @@ export function PublishMobileTargets({
 				icon={QrCodeIcon}
 				title={t("appBuilder.publish.testOnPhone")}
 				note={t("appBuilder.publish.scanQr")}
-				action={t("appBuilder.publish.showQr")}
-				onClick={onShowQr}
+				action={
+					isQrOpen
+						? t("appBuilder.publish.hideQr")
+						: t("appBuilder.publish.showQr")
+				}
+				isExpanded={isQrOpen}
+				onClick={onToggleQr}
 			/>
+			{isQrOpen ? (
+				<div className="px-3 pb-3">
+					<div className="rounded-[20px] border border-popover-foreground/[0.08] bg-paper p-3.5 dark:bg-white/[0.03]">
+						{qrPanel}
+					</div>
+				</div>
+			) : null}
 		</>
 	);
 }
@@ -492,6 +594,7 @@ function FooterRow({
 	title,
 	note,
 	action,
+	isExpanded,
 	onClick,
 }: {
 	icon: Icon;
@@ -500,6 +603,8 @@ function FooterRow({
 	note?: string;
 	/** The ember word at the end, for example "Connect one". */
 	action: string;
+	/** Set only on a row that shows or hides a panel under it. True while the panel shows. */
+	isExpanded?: boolean;
 	onClick: () => void;
 }) {
 	const textId = useId();
@@ -510,6 +615,7 @@ function FooterRow({
 				type="button"
 				aria-label={action}
 				aria-describedby={textId}
+				aria-expanded={isExpanded}
 				onClick={onClick}
 				className="group/footer flex w-full items-center gap-3 rounded-[14px] px-2.5 py-2 text-start outline-none transition-colors hover:bg-popover-foreground/[0.05] focus-visible:bg-popover-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-ring/50"
 			>

@@ -12,6 +12,8 @@ import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { askUserHostToolActionSchema } from "./host-tools";
+import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
+import { appCommitNumstatEntrySchema } from "./versions";
 
 /**
  * Every status a `builder_turns` row can hold, in lifecycle order. Matches
@@ -92,6 +94,13 @@ export const createTurnRequestSchema = z
 		// The answers to the open `data-question` cards. Without them, the
 		// message text answers the cards.
 		answers: z.array(turnQuestionAnswerSchema).min(1).max(8).optional(),
+		// Elements the user picked in the preview. The task names them in the
+		// prompt, so the agent edits that JSX. They never admit a turn alone.
+		targets: z
+			.array(previewTargetSchema)
+			.min(1)
+			.max(PREVIEW_TARGETS_MAX)
+			.optional(),
 	})
 	.refine(
 		(body) =>
@@ -109,8 +118,43 @@ export const createTurnRequestSchema = z
 export type CreateTurnRequest = z.infer<typeof createTurnRequestSchema>;
 
 /**
+ * Pre-send cost hint of one turn: the hold the turn reserves. The create
+ * answer carries it, and `GET /api/v2/projects/:id/turns/estimate` gives
+ * it before send.
+ */
+export const turnEstimateSchema = z.object({
+	// Whole credits: the ceil of the centi-credit hold.
+	credits: z.int().nonnegative(),
+	// `fixed`: the default hold; `history`: median of the project's
+	// last settled turns.
+	basis: z.enum(["fixed", "history"]),
+	// The model the turn runs on.
+	modelId: z.string().min(1),
+	// Output USD/MTok of `modelId` over the default model's; 1 for the
+	// default.
+	multiplier: z.number().positive(),
+});
+
+/** TypeScript turn estimate; the composer shows `credits`. */
+export type TurnEstimate = z.infer<typeof turnEstimateSchema>;
+
+/**
+ * Answer of `GET /api/v2/projects/:id/turns/estimate`: the hold that the
+ * next turn on the default model reserves. Null when the deploy sets no
+ * default model; the create answer then has no estimate either.
+ */
+export const turnEstimateResponseSchema = z.object({
+	estimate: turnEstimateSchema.nullable(),
+});
+
+/** TypeScript estimate answer. */
+export type TurnEstimateResponse = z.infer<typeof turnEstimateResponseSchema>;
+
+/**
  * `data` of the first browser frame `data-turn-created` on the create
  * route (the POST answers with the turn's stream, not a JSON body).
+ * The resume route sends it too, with no estimate, so the browser knows
+ * the turn id after a reload.
  * `runId` is the Trigger.dev run id — null while the turn waits for one.
  * `streamUrl` is the reconnect route (`appBuilderRoutes.activeTurnStream`):
  * a GET the browser reopens after a reload; it answers 204 when the
@@ -125,20 +169,7 @@ export const createTurnResponseSchema = z.object({
 	// Present when the turn joined a queue behind a running turn (D13).
 	queued: z.boolean().optional(),
 	// Server-side cost hint so the composer can warn before send.
-	estimate: z
-		.object({
-			// Whole credits: the ceil of the centi-credit hold.
-			credits: z.int().nonnegative(),
-			// `fixed`: the default hold; `history`: median of the project's
-			// last settled turns.
-			basis: z.enum(["fixed", "history"]),
-			// The model the turn runs on.
-			modelId: z.string().min(1),
-			// Output USD/MTok of `modelId` over the default model's; 1 for the
-			// default.
-			multiplier: z.number().positive(),
-		})
-		.optional(),
+	estimate: turnEstimateSchema.optional(),
 });
 
 /** TypeScript create-turn response. */
@@ -155,13 +186,13 @@ export type CancelTurnResponse = z.infer<typeof cancelTurnResponseSchema>;
 
 /**
  * Coarse phases the task reports between AI SDK chunks (D20: one box for
- * the whole stream). The UI shows them as progress labels.
+ * the whole stream). The UI shows them as progress labels. A checkpoint
+ * debit has no phase: it sends a `usage` event, and the turn keeps running.
  */
 export const turnStreamPhases = [
 	"sandbox_waking",
 	"session_starting",
 	"running",
-	"checkpoint",
 	"committing",
 ] as const;
 
@@ -455,9 +486,54 @@ export const turnThoughtDataPartSchema = z.object({
 export type TurnThoughtData = z.infer<typeof turnThoughtDataSchema>;
 
 /**
+ * `data` of the `data-targets` part of a user message: the elements the user
+ * picked in the preview for that turn. The API stores the part in the user
+ * row, so the bubble shows the chips after a reload too.
+ */
+export const turnTargetsDataSchema = z.object({
+	targets: z.array(previewTargetSchema).min(1).max(PREVIEW_TARGETS_MAX),
+});
+
+/** The `data-targets` part of a user message; see `turnTargetsDataSchema`. */
+export const turnTargetsDataPartSchema = z.object({
+	type: z.literal("data-targets"),
+	id: z.literal("targets"),
+	data: turnTargetsDataSchema,
+});
+
+/** The picks of one user message, 1 to 10, in pick order. */
+export type TurnTargetsData = z.infer<typeof turnTargetsDataSchema>;
+
+/**
+ * `data` of the `data-turn-summary` part the task writes once, after the
+ * commit of a turn that ended normally. The chat shows it as "Worked for
+ * 1 min · 6 files changed". The stored assistant message keeps it too.
+ */
+export const turnSummaryDataSchema = z.object({
+	// The files of the turn commit; empty when the turn changed no file or
+	// the commit failed.
+	files: z.array(appCommitNumstatEntrySchema),
+	// Whole seconds from the task start to the commit end, at least 1. The
+	// queue wait before the task start is not in it.
+	workedSeconds: z.int().positive(),
+});
+
+/** One `data-turn-summary` part; id is `summary-${turnId}`. */
+export const turnSummaryDataPartSchema = z.object({
+	type: z.literal("data-turn-summary"),
+	id: z.string(),
+	data: turnSummaryDataSchema,
+});
+
+/** Inferred from `turnSummaryDataSchema`; the work time and the changed files of one turn. */
+export type TurnSummaryData = z.infer<typeof turnSummaryDataSchema>;
+
+/**
  * The `data-*` chunks the API relay writes on the browser stream.
  * `useChat` + `DefaultChatTransport` accept them as custom data parts;
  * every other frame on the wire is a raw AI SDK chunk or `[DONE]`.
+ * `data-targets` is the exception: only the user message row holds it, and
+ * `hydrateTurnMessages` parses it.
  */
 export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnCreatedDataPartSchema,
@@ -468,6 +544,8 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnQuestionDataPartSchema,
 	turnApprovalDataPartSchema,
 	turnThoughtDataPartSchema,
+	turnTargetsDataPartSchema,
+	turnSummaryDataPartSchema,
 ]);
 
 /** TypeScript browser data part (the union). */
@@ -486,4 +564,6 @@ export type TurnDataParts = {
 	question: TurnQuestionData;
 	approval: TurnApprovalData;
 	thought: TurnThoughtData;
+	targets: TurnTargetsData;
+	"turn-summary": TurnSummaryData;
 };

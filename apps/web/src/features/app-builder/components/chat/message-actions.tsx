@@ -1,14 +1,11 @@
 /**
- * Row of three small actions under an assistant message that saved a
- * version: revert, like, and copy the message text.
+ * The Copy action under an assistant message: it copies the final answer.
  * Rendered by chat-message.tsx. Copy writes to the clipboard through
- * lib/helpers.ts; the other two actions belong to the caller. Each button
- * gets its tooltip and its accessible name from IconAction of the top bar.
+ * lib/helpers.ts and confirms with a toast. The button gets its tooltip and
+ * its accessible name from IconAction of the top bar.
  */
 
-import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
-import { ThumbsUpIcon } from "@phosphor-icons/react/ThumbsUp";
 import { Button } from "@wandit/ui/components/button";
 import { toast } from "sonner";
 
@@ -16,25 +13,18 @@ import { useTranslation } from "@/lib/i18n";
 import { copyToClipboard } from "../../lib/helpers";
 import { IconAction } from "../shell/top-bar";
 
+/** Props of the Copy action, as chat-message.tsx passes them. */
 export type MessageActionsProps = {
-	/** Reverts to the version of the message. chat-message.tsx passes the notWired toast. */
-	onRevert: () => void;
-	/** Rates the reply. chat-message.tsx passes the notWired toast. */
-	onLike: () => void;
 	/** Text the copy action writes to the clipboard: the text parts of the message. */
 	text: string;
 };
 
-// Quieter and smaller than the bar buttons: the row sits under the prose and must not compete with it.
+// Quieter and smaller than the bar buttons: the button sits under the prose and must not compete with it.
 const ACTION_BUTTON_CLASS =
-	"size-7 text-night/40 hover:bg-night/[0.05] hover:text-night dark:text-foreground/40 dark:hover:bg-white/[0.06] dark:hover:text-foreground [&_svg:not([class*='size-'])]:size-[15px]";
+	"-my-1 -ms-1.5 size-7 self-start text-night/40 hover:bg-night/[0.05] hover:text-night dark:text-foreground/40 dark:hover:bg-white/[0.06] dark:hover:text-foreground [&_svg:not([class*='size-'])]:size-[15px]";
 
-/** Three quiet icon buttons under a reply that saved a version; each has a tooltip. */
-export function MessageActions({
-	onRevert,
-	onLike,
-	text,
-}: MessageActionsProps) {
+/** One quiet ghost Copy button with its tooltip. The label is also the accessible name. */
+export function MessageActions({ text }: MessageActionsProps) {
 	const { t } = useTranslation();
 
 	async function copyText() {
@@ -42,42 +32,15 @@ export function MessageActions({
 	}
 
 	return (
-		<div className="-my-1 -ms-1.5 flex items-center gap-0.5">
-			<IconAction label={t("appBuilder.chat.revert")}>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					className={ACTION_BUTTON_CLASS}
-					onClick={onRevert}
-				>
-					{/* The arrow turns back against the reading direction, so it mirrors in RTL. */}
-					<ArrowCounterClockwiseIcon
-						weight="bold"
-						className="rtl:-scale-x-100"
-						aria-hidden
-					/>
-				</Button>
-			</IconAction>
-			<IconAction label={t("appBuilder.chat.like")}>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					className={ACTION_BUTTON_CLASS}
-					onClick={onLike}
-				>
-					<ThumbsUpIcon weight="bold" aria-hidden />
-				</Button>
-			</IconAction>
-			<IconAction label={t("appBuilder.chat.copy")}>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					className={ACTION_BUTTON_CLASS}
-					onClick={() => void copyText()}
-				>
-					<CopyIcon weight="bold" aria-hidden />
-				</Button>
-			</IconAction>
-		</div>
+		<IconAction label={t("appBuilder.chat.copy")}>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				className={ACTION_BUTTON_CLASS}
+				onClick={() => void copyText()}
+			>
+				<CopyIcon weight="bold" aria-hidden />
+			</Button>
+		</IconAction>
 	);
 }

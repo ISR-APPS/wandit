@@ -1,17 +1,20 @@
 /**
  * History button of the top bar and its popover with the version list.
- * Rendered by components/shell/top-bar.tsx. The list reads appVersionsQuery
- * when the popover opens. Each older row can open its diff (versionDiffQuery,
- * parsed by lib/unified-diff.ts) or restore the version through
- * useRestoreVersion after a confirm dialog.
+ * Rendered by components/shell/top-bar.tsx on every screen width. The list
+ * reads appVersionsQuery when the popover opens, 50 versions per page, with
+ * "Load more" for older ones. The page gives the live commit for the Live
+ * badge. Each older row can open its diff (versionDiffQuery, parsed by
+ * lib/unified-diff.ts) or restore the version through useRestoreVersion
+ * after a confirm dialog.
  * The spec renders VersionsList without the popover. The Diff toggle mounts
  * VersionDiff, which reads versionDiffQuery, so the list needs a
  * QueryClientProvider around it.
  */
 
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { AppCommit } from "@wandit/contracts";
 import {
 	AlertDialog,
@@ -57,13 +60,16 @@ const ROW_ACTION_CLASS = cn(
 export type VersionsPopoverProps = {
 	/** Route param of the open project. */
 	projectId: string;
+	/** Sha of the commit the live web app runs, from the publish status. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** Runs after a restore succeeds. The page mints a new preview token with it. */
 	onRestored: () => void;
 };
 
-/** The top bar hides this button below the md breakpoint; see top-bar.tsx. */
+/** The History icon button. Its popover loads the versions only while it is open. */
 export function VersionsPopover({
 	projectId,
+	liveCommitSha,
 	onRestored,
 }: VersionsPopoverProps) {
 	const { t } = useTranslation();
@@ -81,32 +87,40 @@ export function VersionsPopover({
 					</Button>
 				</PopoverTrigger>
 			</IconAction>
-			{/* 26 rem so a diff line fits under a row. A long history scrolls inside the sheet. */}
+			{/* 26 rem so a diff line fits under a row. On a phone it keeps 12 px from each edge. */}
+			{/* A long history scrolls inside the sheet, under the title. */}
 			<PopoverContent
 				align="start"
+				collisionPadding={12}
 				className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[26rem] max-w-[calc(100vw-24px)] flex-col p-0"
 			>
 				<h2 className="flex h-12 shrink-0 items-center border-popover-foreground/[0.07] border-b px-4 font-grotesk font-semibold text-[15px]">
 					{t("appBuilder.versions.title")}
 				</h2>
 				<div className="min-h-0 overflow-y-auto p-1.5">
-					<VersionsBody projectId={projectId} onRestored={onRestored} />
+					<VersionsBody
+						projectId={projectId}
+						liveCommitSha={liveCommitSha}
+						onRestored={onRestored}
+					/>
 				</div>
 			</PopoverContent>
 		</Popover>
 	);
 }
 
-/** Loads the versions when the popover opens and owns the restore mutation. Three skeleton rows stand in while it loads. */
+/**
+ * Loads the versions when the popover opens and owns the restore mutation.
+ * Three skeleton rows stand in while it loads. "Load more" fetches the next
+ * page while the API answers a cursor.
+ */
 function VersionsBody({
 	projectId,
+	liveCommitSha,
 	onRestored,
-}: {
-	projectId: string;
-	onRestored: () => void;
-}) {
+}: Pick<VersionsPopoverProps, "projectId" | "liveCommitSha" | "onRestored">) {
 	const { t } = useTranslation();
-	const versions = useQuery(appVersionsQuery(projectId));
+	const versions = useInfiniteQuery(appVersionsQuery(projectId));
 	// The callback lives on the hook so it also runs when the popover closed mid-restore.
 	const restore = useRestoreVersion(projectId, { onRestored });
 
@@ -119,48 +133,82 @@ function VersionsBody({
 			</div>
 		);
 	}
-	if (versions.isError) {
+	// A failed "Load more" keeps the loaded rows. Only a first load without rows shows the error.
+	if (versions.data === undefined) {
 		return (
 			<p className="px-3 py-6 text-center text-popover-foreground/55 text-sm">
 				{t("errors.generic")}
 			</p>
 		);
 	}
+	const items = versions.data.pages.flatMap((page) => page.items);
 	return (
-		<VersionsList
-			versions={versions.data.items}
-			projectId={projectId}
-			isRestoring={restore.isPending}
-			onRestore={(sha) =>
-				restore.mutate(
-					// The API compares this head with the real one and swaps on it.
-					{ sha, expectedHeadSha: versions.data.items[0].sha },
-				)
-			}
-		/>
+		<>
+			<VersionsList
+				versions={items}
+				projectId={projectId}
+				liveCommitSha={liveCommitSha}
+				isRestoring={restore.isPending}
+				onRestore={(sha) =>
+					restore.mutate(
+						// The API compares this head with the real one and swaps on it.
+						{ sha, expectedHeadSha: items[0].sha },
+					)
+				}
+			/>
+			{versions.hasNextPage ? (
+				<div className="mt-1.5 flex flex-col items-center gap-1 border-popover-foreground/[0.07] border-t pt-1.5">
+					{versions.isFetchNextPageError ? (
+						<p className="text-popover-foreground/55 text-xs">
+							{t("errors.generic")}
+						</p>
+					) : null}
+					{/* A click during a refetch cancels it and keeps the old head on top. */}
+					<button
+						type="button"
+						className={HISTORY_ACTION_CLASS}
+						disabled={versions.isFetching}
+						onClick={() => void versions.fetchNextPage()}
+					>
+						{versions.isFetchingNextPage ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="size-3.5 animate-spin motion-reduce:animate-none"
+							/>
+						) : null}
+						{t("appBuilder.versions.loadMore")}
+					</button>
+				</div>
+			) : null}
+		</>
 	);
 }
 
 export type VersionsListProps = {
-	/** Newest first, as appVersionsQuery returns them. The first row is the current version. */
+	/** Newest first, every loaded page of appVersionsQuery. The first row is the current version. */
 	versions: AppCommit[];
 	/** Sha of the version to restore. The parent runs the mutation. */
 	onRestore: (sha: string) => void;
 	/** Route param of the open project. The diff block queries with it. */
 	projectId: string;
+	/** Sha of the commit the live web app runs. Its row gets the Live mark. Null when nothing is live. */
+	liveCommitSha: string | null;
 	/** True while a restore runs. Every Restore button is disabled then. */
 	isRestoring: boolean;
 };
 
 /**
- * One row per version: short sha, first message line, age, and the source
- * chip. The first row is the current version; every other row also has a
- * Diff toggle and a Restore button that opens a confirm dialog.
+ * One row per version: short sha, first message line, age, the Live mark on
+ * the published version, and the source chip. The first row is the current
+ * version; every other row also has a Diff toggle and a Restore button that
+ * opens a confirm dialog.
  */
 export function VersionsList({
 	versions,
 	onRestore,
 	projectId,
+	liveCommitSha,
 	isRestoring,
 }: VersionsListProps) {
 	const { t, locale } = useTranslation();
@@ -202,10 +250,20 @@ export function VersionsList({
 								>
 									{version.message.split("\n")[0]}
 								</div>
+								{/* The Live mark sits in this line, so a phone row keeps room for the message. */}
 								<div className="mt-1 flex items-center gap-1.5 text-popover-foreground/50 text-xs">
 									<span className="truncate">
 										{formatRelativeTime(version.createdAt, locale)}
 									</span>
+									{version.sha === liveCommitSha ? (
+										<span className="inline-flex shrink-0 items-center gap-1 font-grotesk font-semibold text-success-text">
+											<span
+												aria-hidden
+												className="size-1.5 rounded-full bg-success"
+											/>
+											{t("appBuilder.publish.live")}
+										</span>
+									) : null}
 									<span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-popover-foreground/[0.05] px-1.5 font-grotesk font-medium text-[11px] text-popover-foreground/60">
 										{t(`appBuilder.versions.source.${version.source}`)}
 									</span>

@@ -2,13 +2,15 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type {
-	AppBuild,
-	AppDeployment,
-	AppPublishStatus,
-	ListMobileBuildsResponse,
-	MobileBuild,
-	MobileBuildStatus,
+import {
+	type AppBuild,
+	type AppDeployment,
+	type AppPublishStatus,
+	type ListMobileBuildsResponse,
+	type MobileBuild,
+	type MobileBuildStatus,
+	type PublishGateFinding,
+	projectPromptMaxLength,
 } from "@wandit/contracts";
 import { fallbackDictionary } from "@wandit/internationalization";
 import { I18nProvider } from "@wandit/internationalization/react";
@@ -76,9 +78,9 @@ function androidProps(
 const MOBILE_PROJECT: AppProject = {
 	id: "project-1",
 	name: "Nadi Fitness",
-	slug: "",
-	description: "Membership app for a gym.",
 	kind: "mobile",
+	languages: ["en"],
+	templateVersion: "1.0.0",
 	engine: "v2_app",
 	versionNumber: 0,
 	unpublishedChanges: 0,
@@ -123,6 +125,18 @@ function appBuild(status: AppBuild["status"]): AppBuild {
 		errorCode: status === "failed" ? "build_failed" : null,
 		createdAt: "2026-10-01T10:00:00.000Z",
 		completedAt: null,
+		gateFindings: [],
+		gateOverride: false,
+	};
+}
+
+/** A block finding of the anonymous RLS probe: a visitor can read `relation`. Overridable. */
+function rlsFinding(relation: string): PublishGateFinding {
+	return {
+		kind: "rls_probe",
+		severity: "block",
+		relation,
+		reason: "rows_returned",
 	};
 }
 
@@ -155,6 +169,8 @@ function liveStatus(
 		},
 		latestBuild: appBuild("published"),
 		history: [],
+		suspension: null,
+		gateOverrideAllowed: false,
 		...overrides,
 	};
 }
@@ -167,8 +183,11 @@ function webProps(
 		status: liveStatus(),
 		isPublishPending: false,
 		isUnpublishPending: false,
+		canAskFix: true,
+		onAskFix: () => {},
 		onPublish: () => {},
 		onRollback: () => {},
+		onOverride: () => {},
 		onUnpublish: () => {},
 		onConnectDomain: () => {},
 		...overrides,
@@ -197,7 +216,11 @@ function renderOpenPopover(
 			createElement(
 				TooltipProvider,
 				null,
-				createElement(PublishPopover, { project }),
+				createElement(PublishPopover, {
+					project,
+					canAskFix: true,
+					onAskFix: () => {},
+				}),
 			),
 		),
 	);
@@ -232,7 +255,7 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: { live: null, latestBuild: null, history: [] },
+					status: liveStatus({ live: null, latestBuild: null }),
 				}),
 			),
 		);
@@ -302,7 +325,7 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: { live: null, latestBuild: appBuild("failed"), history: [] },
+					status: liveStatus({ live: null, latestBuild: appBuild("failed") }),
 				}),
 			),
 		);
@@ -317,11 +340,10 @@ describe("PublishWebTargets", () => {
 			createElement(
 				PublishWebTargets,
 				webProps({
-					status: {
+					status: liveStatus({
 						live: null,
 						latestBuild: { ...appBuild("blocked"), errorCode: "gate_blocked" },
-						history: [],
-					},
+					}),
 				}),
 			),
 		);
@@ -330,6 +352,75 @@ describe("PublishWebTargets", () => {
 				"The safety check stopped this publish. Ask Wandit in the chat to fix the problems.",
 			),
 		).toBeTruthy();
+	});
+
+	it("lists an overridable finding of a Publish anyway attempt under Warnings", () => {
+		const secret: PublishGateFinding = {
+			kind: "secret",
+			severity: "block",
+			path: "client/assets/index.js",
+			rule: "stripe_live_secret_key",
+			sample: ["sk", "live", "…a1b2"].join("_"),
+		};
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					status: liveStatus({
+						live: null,
+						latestBuild: {
+							...appBuild("blocked"),
+							errorCode: "gate_blocked",
+							gateOverride: true,
+							gateFindings: [secret, rlsFinding("notes")],
+						},
+					}),
+				}),
+			),
+		);
+		const blockGroup = screen.getByText("Fix before you publish").parentElement;
+		const warnGroup = screen.getByText("Warnings").parentElement;
+		expect(blockGroup?.textContent).toContain(
+			"The public file client/assets/index.js holds a secret key",
+		);
+		expect(blockGroup?.textContent).not.toContain("notes");
+		expect(warnGroup?.textContent).toContain(
+			"Anyone can read the table notes without signing in.",
+		);
+	});
+
+	it("keeps the Ask the AI to fix message within the prompt limit and counts the cut findings", () => {
+		const onAskFix = vi.fn<(text: string) => void>();
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					onAskFix,
+					status: liveStatus({
+						latestBuild: {
+							...appBuild("blocked"),
+							gateFindings: Array.from({ length: 200 }, (_, index) =>
+								rlsFinding(`table_${index}`),
+							),
+						},
+					}),
+				}),
+			),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Ask the AI to fix" }));
+
+		expect(onAskFix).toHaveBeenCalledOnce();
+		const [text] = onAskFix.mock.calls[0];
+		const lines = text.split("\n");
+		const restCount = Number(
+			/^- \(\+(\d+) more\)$/.exec(lines.at(-1) ?? "")?.[1],
+		);
+		expect(text.length).toBeLessThanOrEqual(projectPromptMaxLength);
+		expect(lines[1]).toBe(
+			"- [block] rls_probe relation=table_0 reason=rows_returned",
+		);
+		// The intro and the rest line are not findings. The listed and the cut lines cover all 200.
+		expect(lines.length - 2 + restCount).toBe(200);
 	});
 
 	it("lists only the versions that were live once and rolls one back by its id", () => {
@@ -460,10 +551,12 @@ describe("PublishPopover", () => {
 describe("PublishMobileTargets", () => {
 	it("offers Build APK before the first build and Show QR, with no iOS row", () => {
 		const onBuild = vi.fn();
-		const onShowQr = vi.fn();
+		const onToggleQr = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr,
+				isQrOpen: false,
+				onToggleQr,
+				qrPanel: null,
 				android: androidProps({ onBuild }),
 			}),
 		);
@@ -479,7 +572,7 @@ describe("PublishMobileTargets", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Show QR" }));
 		expect(onBuild).toHaveBeenCalledOnce();
-		expect(onShowQr).toHaveBeenCalledOnce();
+		expect(onToggleQr).toHaveBeenCalledOnce();
 	});
 
 	it("cancels the live build by its id", () => {
@@ -487,7 +580,9 @@ describe("PublishMobileTargets", () => {
 		const onCancel = vi.fn();
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({ builds: [live], onCancel }),
 			}),
 		);
@@ -500,7 +595,9 @@ describe("PublishMobileTargets", () => {
 	it("lists the older builds with a download link for a finished one", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({
 					builds: [build("canceled"), build("finished"), build("failed")],
 				}),
@@ -523,7 +620,9 @@ describe("PublishMobileTargets", () => {
 	it("shows at most five older builds after a create adds one to the list", () => {
 		renderWithI18n(
 			createElement(PublishMobileTargets, {
-				onShowQr: () => {},
+				isQrOpen: false,
+				onToggleQr: () => {},
+				qrPanel: null,
 				android: androidProps({
 					builds: [
 						build("queued"),

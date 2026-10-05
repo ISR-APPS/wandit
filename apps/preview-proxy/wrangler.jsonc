@@ -30,8 +30,8 @@
 		"staging": {
 			"vars": {
 				"PREVIEW_DOMAIN": "wanditpreview.app",
-				// Staging also frames previews from Vercel preview deploys.
-				"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev https://*.vercel.app http://localhost:*"
+				// No https://*.vercel.app: any Vercel user can deploy there and frame a preview (WANDIT-281).
+				"FRAME_ANCESTORS": "https://wandit.dev https://preview.wandit.dev http://localhost:*"
 			},
 			"kv_namespaces": [{ "binding": "PREVIEW_KV", "id": "c47f46ef7fa7451388c0ff3c329daea0" }],
 			"ratelimits": [

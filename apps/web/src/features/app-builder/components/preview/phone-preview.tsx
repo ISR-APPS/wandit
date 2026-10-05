@@ -178,7 +178,7 @@ export function PhonePreview({
 					</div>
 				) : null}
 				<div className="ms-auto flex shrink-0 items-center gap-1">
-					{/* Every target keeps a way to the QR: the "Show QR" button of the Publish popover relies on it. */}
+					{/* Every target keeps a way to the QR: the QR column on a wide stage, this popover on a narrow one. */}
 					{showsQrColumn ? null : (
 						<ExpoGoPopover
 							projectId={project.id}
@@ -234,6 +234,7 @@ export function PhonePreview({
 									className={devicePlatform === null ? "contents" : "hidden"}
 								>
 									<PreviewPanel
+										projectId={project.id}
 										preview={preview}
 										title={t("appBuilder.preview.frameTitle", {
 											name: project.name,

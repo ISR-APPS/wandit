@@ -36,6 +36,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D22 | Apple developer account for iOS builds | confirmed | 2026-09-26 |
 | D23 | Price of a mobile build | changed | 2026-09-26 |
 | D24 | Turn stream store when the harness host runs the turn (D20 change) | open | 2026-10-01 |
+| D25 | Visual edit of text and colors in the V2 preview | default | 2026-10-04 |
 
 ## D1. Sandbox vendor
 
@@ -120,6 +121,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-12.
 - Issues that change: WANDIT-168 (P1-07), WANDIT-172 (P1-11), WANDIT-173 (P1-12), WANDIT-179 (P2-03), WANDIT-191 (P4-01).
 - Notes: The wandit platform itself stays in three languages. WANDIT-175 adds the language choice to project creation. Source: report 12.
+- Update 2026-10-04 (Zack): an app ships one language. The agent asks once; with no answer, French for a French-writing user, else English. `projects.languages` is a hint only. The template keeps i18n and RTL ready.
 
 ## D8. Data residency
 
@@ -263,6 +265,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Decided by: Zack, 2026-09-13.
 - Issues that change: WANDIT-178, WANDIT-168, WANDIT-173.
 - Notes: Linear edits wait for the next batch. The leads SDK stays in the template. Source: Zack, 2026-09-13.
+- Update 2026-10-04: WANDIT-179 is cancelled. The leads SDK stub is gone from the template (c90761e6). A public form writes to the app's own table (WANDIT-273).
 
 ## D20. Turn stream transport to the browser
 
@@ -324,9 +327,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: WANDIT-166, WANDIT-172.
 - Notes: The relay and the resume GET read the store the row names. B removes the second store but moves every Trigger turn to Redis in `sfo`, about 150 ms per write from `europe-west4` (ESTIMATE). C keeps the 1.6 s Trigger start.
 
+## D25. Visual edit of text and colors in the V2 preview
+
+- Question: Does the V2 preview get a visual edit mode, where the user changes a text or a color without a turn?
+- Options: A. Skip it for now. Click-to-edit sends the picked elements with the next message, and the agent edits the code. B. Build it now: the bridge edits the DOM, and the API writes the change into the source file without the agent.
+- Default: A.
+- Final choice: none yet.
+- Status: default
+- Date: 2026-10-04
+- Decided by: nobody yet.
+- Issues that change: WANDIT-203.
+- Notes: B is not cheap. A text often comes from `t("key")` in three dictionary files, and a color comes from a class or a token in `tokens.css`. A safe source write needs an AST edit, a commit, and a conflict rule with a running turn. WANDIT-203 puts the V1 save-batch model out of scope. Revisit when users ask for it.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D25.
+1. Take the next number. The next number is D26.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

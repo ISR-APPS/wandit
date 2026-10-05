@@ -13,8 +13,8 @@ import { LockSimpleIcon } from "@phosphor-icons/react/LockSimple";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useQuery } from "@tanstack/react-query";
 import {
-	projectSecretNameSchema,
 	setProjectSecretRequestSchema,
+	userSecretNameSchema,
 } from "@wandit/contracts";
 import {
 	AlertDialog,
@@ -91,7 +91,7 @@ export function SecretsPanel({
 	const nameId = useId();
 	const valueId = useId();
 	// The same schemas as the API, so the form shows the reason before a request.
-	const isNameValid = projectSecretNameSchema.safeParse(name).success;
+	const isNameValid = userSecretNameSchema.safeParse(name).success;
 	const isValueValid = setProjectSecretRequestSchema.safeParse({
 		value,
 	}).success;
