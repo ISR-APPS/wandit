@@ -388,6 +388,7 @@ export function OverviewPageError() {
 // OverviewPage passes the first rows of the list query. Each reference links to its detail page.
 // The columns follow tables.md: a name cell with two lines, and a relative due time.
 import { Link } from "@tanstack/react-router";
+import { ArrowRightIcon } from "lucide-react";
 import {
 	WORK_ORDER_STATUS_BADGE,
 	type WorkOrder,
@@ -403,7 +404,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { ArrowRightIcon } from "~/shared/ui/icons";
 import {
 	Table,
 	TableBody,

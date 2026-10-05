@@ -260,7 +260,7 @@ service checks the scope:
 `GET` and `PUT /api/v2/projects/:projectId/cost-caps` (WANDIT-174) sit
 behind the same guard and the `limits:manage` permission — an owner or
 org admin, never a member. Amounts are centi-credits: `perTurnCapCredits`
-defaults to 5000 and accepts at most 250_000; `monthlyCapCredits` null
+defaults to 1_000_000 and accepts at most 250_000; `monthlyCapCredits` null
 means no monthly cap. `GET` answers the row or the plan defaults; `PUT`
 upserts and answers the row. A non-`v2_app` project answers 404.
 
@@ -829,7 +829,7 @@ One run does this, in order:
    V2_DEFAULT_MODEL`; a missing one fails the turn `model_missing`.
 2. Reads the cost caps (`ProjectCostCapsRepository`) and the plan;
    computes `capUsd` for the token claims from `perTurnCapCredits` — the
-   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (5000 cc). The pre-start
+   row value or `DEFAULT_PER_TURN_CAP_CREDITS` (1_000_000 cc). The pre-start
    stop rules throw into `failTurn`: the builder flag off →
    `stopped_disabled`, a settled balance at 0 → `stopped_no_credits`,
    the monthly cap already reached → `stopped_project_cap`.
@@ -856,10 +856,13 @@ One run does this, in order:
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
    harness mismatch is a failure. The session instructions give the UI
-   language as a hint for the app language, the `ask_user` rule, the
-   description language, and the CLAUDE.md work rules (plan, checks,
-   plain final answer). A mobile project adds the Expo sentence. A web
-   project adds the app design recipe (`domain/app-recipe.ts`): one stable
+   language as a hint for the app language, the `ask_user` rule (scope
+   questions before a vague first build), the description language, the
+   CLAUDE.md work rules (plan, checks, a final answer of at most 100
+   words), the `generate_image` rule, and the rule that online payment is
+   not available. An old project keeps the CLAUDE.md of its template
+   version, so these rules reach it only here. A mobile project adds the
+   Expo sentence. A web project adds the app design recipe (`domain/app-recipe.ts`): one stable
    sentence per project id, so the warm CLI and the prompt cache stay
    valid. Claude Code loads the template `CLAUDE.md` from the workspace
    root. The `session_starting` status is
@@ -985,11 +988,13 @@ the `builder-turn:<turnId>` hold id and the metering subject, so a paid
 tool reserves a measured child event under the parent hold. `close`
 releases per-turn clients (none today — connectors land in a follow-up).
 
-- `generate_image` reuses the V1 `generateBuildImage` pipeline (gateway
-  model, R2 upload, renditions) and writes the bytes into the sandbox
-  project. Rules it pins: the `path` must stay under `public/` or
-  `src/assets/` (checked before any credit moves); at most 6 calls per
-  turn (`MAX_IMAGES`); the file extension follows the stored media type;
+- `generate_image` reuses the V1 `generateBuildImage` pipeline (R2
+  upload, renditions) and writes the bytes into the sandbox project. The
+  gateway models are fixed in `builder-turn.deps.ts`, not read from
+  `AI_IMAGE_MODEL`: GPT Image 2.5 Flare for a new image, GPT Image 2.5
+  Sunburst for an edit of the user's photos. Rules it pins: the `path`
+  must stay under `public/` or `src/assets/` (checked before any credit moves); at most 30 calls per
+  turn (`BUILDER_MAX_IMAGES_PER_TURN`; V1 keeps `MAX_IMAGES`, 6 per build); the file extension follows the stored media type;
   a child hold is reserved per call (`builder-turn-image:<turnId>:<n>`),
   gateway evidence is captured before settlement, a provider failure
   refunds, and a `failed`/`unavailable` result returns to the agent

@@ -53,42 +53,9 @@ The URL holds the state: `?q=&status=&sort=&page=`. The database filters, sorts,
 
 ## Work orders example
 
-### Add to: src/shared/ui/icons.tsx
-
-The sidebar entries need the Lucide icons `layout-dashboard` (the home) and `clipboard-list`.
-Add them after the last icon.
-
-```tsx
-/** Lucide layout-dashboard. The home nav item. */
-export function LayoutDashboardIcon(props: SVGProps<SVGSVGElement>) {
-	return (
-		<Icon {...props}>
-			<rect width="7" height="9" x="3" y="3" rx="1" />
-			<rect width="7" height="5" x="14" y="3" rx="1" />
-			<rect width="7" height="9" x="14" y="12" rx="1" />
-			<rect width="7" height="5" x="3" y="16" rx="1" />
-		</Icon>
-	);
-}
-
-/** Lucide clipboard-list. The Work orders nav item. */
-export function ClipboardListIcon(props: SVGProps<SVGSVGElement>) {
-	return (
-		<Icon {...props}>
-			<rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
-			<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-			<path d="M12 11h4" />
-			<path d="M12 16h4" />
-			<path d="M8 11h.01" />
-			<path d="M8 16h.01" />
-		</Icon>
-	);
-}
-```
-
 ### Add to: src/features/app-shell/lib/nav-items.ts
 
-Import `ClipboardListIcon` and `LayoutDashboardIcon` from `~/shared/ui/icons`.
+Import `ClipboardListIcon` (Work orders) and `LayoutDashboardIcon` (the home) from `lucide-react`.
 Add these entries at the start of `NAV_ITEMS`. The home comes first, and Profile stays last.
 
 ```ts
@@ -762,6 +729,7 @@ export function DeleteWorkOrderDialog({
 // The list page renders it in the last column. Edit and delete open their dialogs from here.
 // The dialogs sit outside the menu, so they stay open when the menu closes.
 import { Link } from "@tanstack/react-router";
+import { EllipsisIcon } from "lucide-react";
 import { useState } from "react";
 import { useT } from "~/shared/i18n";
 import { Button } from "~/shared/ui/button";
@@ -772,7 +740,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "~/shared/ui/dropdown-menu";
-import { MoreHorizontalIcon } from "~/shared/ui/icons";
 import type { WorkOrder } from "../api/work-orders.queries";
 import { DeleteWorkOrderDialog } from "./delete-work-order-dialog";
 import { WorkOrderFormDialog } from "./work-order-form-dialog";
@@ -798,7 +765,7 @@ export function WorkOrderRowActions({ workOrder }: WorkOrderRowActionsProps) {
 						className="size-8"
 						aria-label={t("workOrders.actions")}
 					>
-						<MoreHorizontalIcon />
+						<EllipsisIcon />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
@@ -1069,6 +1036,7 @@ export function WorkOrdersPageError() {
 // An unknown id shows a not-found block with a link back to the list.
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronLeftIcon } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "~/features/app-shell";
 import { useT } from "~/shared/i18n";
@@ -1076,7 +1044,6 @@ import { formatRelativeTime } from "~/shared/lib/relative-time";
 import { Badge } from "~/shared/ui/badge";
 import { Button } from "~/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
-import { ChevronLeftIcon } from "~/shared/ui/icons";
 import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
 import {

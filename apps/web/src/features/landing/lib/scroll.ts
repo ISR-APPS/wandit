@@ -4,7 +4,10 @@
  * only when the visitor does not ask for reduced motion.
  */
 
-/** Id of the hero panel. The nav measures it to pick its look over ember. */
+/**
+ * Id of the top ember panel: the hero of the home page, or the header of the
+ * pricing page. The nav measures it to pick its look over ember.
+ */
 export const HERO_PANEL_ID = "hero";
 
 /** Id of the closing panel. The nav measures it like the hero panel. */

@@ -252,7 +252,8 @@ box (`size-5 border border-foreground`; checked: `bg-accent` with a `checkmark` 
 `title`, the price, the options as square boxes (`h-12 min-w-12 border border-border`;
 chosen: box `bg-accent`, text `text-accent-foreground`), the description, "Details" and "Fit"
 as index rows, then the add bar. **Bag**: index rows with a square stepper (`size-9 border`),
-a totals table with 1 px rules, and the bar for "Checkout" with the real total.
+a totals table with 1 px rules, and the bar for "Order" with the real total. It opens the order
+form (cash on delivery), never an online payment.
 
 **Empty state art**: the blank plate, an `Svg` of 120 x 150: a 1 px ink `Rect`, two
 diagonals at `strokeOpacity={0.18}`, a 10 px terracotta square at the top end corner, and the
@@ -290,7 +291,8 @@ side daylight, one long soft shadow, muted palette with one terracotta object, m
 film look, no people, no text, no logos."
 
 - At most 3 images in the first build. W3 uses all 3; H1 reuses one.
-- Generated images are mood only: never generate a product to sell. No close-up faces.
+- Generated images are mood only. Generate a product to sell only when the user picks generated
+  images for it. No close-up faces.
 
 ## 9. Bans
 

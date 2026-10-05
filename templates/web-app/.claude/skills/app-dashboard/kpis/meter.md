@@ -56,6 +56,8 @@ Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in
 // KPI row of the home, style "meter": the value against its target, a bar, and the share.
 // The home renders it in the KPI slot with the items of buildOverviewKpis (data.md).
 // It calls Card, Badge, Progress, and Skeleton from the shared kit. Every number goes through Intl.
+
+import { TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import { Badge } from "~/shared/ui/badge";
@@ -67,7 +69,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { TrendingDownIcon, TrendingUpIcon } from "~/shared/ui/icons";
 import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
 import type { KpiItem } from "../lib/series";

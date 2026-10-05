@@ -311,6 +311,7 @@ export function OverviewPageError() {
 // OverviewPage passes every row of the asset query. Each tile links to the detail page of its asset.
 // A board shows at most 24 tiles. With more assets, the last tile links to the full list.
 import { Link } from "@tanstack/react-router";
+import { ArrowRightIcon } from "lucide-react";
 import { ASSET_STATUS_BADGE, type Asset } from "~/features/assets";
 import { useT } from "~/shared/i18n";
 import { Badge } from "~/shared/ui/badge";
@@ -322,7 +323,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { ArrowRightIcon } from "~/shared/ui/icons";
 import { Progress } from "~/shared/ui/progress";
 import { Skeleton } from "~/shared/ui/skeleton";
 

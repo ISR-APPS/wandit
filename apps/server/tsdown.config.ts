@@ -6,7 +6,14 @@ export default defineConfig({
 	// (@nestjs/core, fastify, ai, pg) evaluates. A top-of-main import is not
 	// enough in the bundle — ESM hoists external imports above inlined code,
 	// so OTel would patch nothing in production while dev looks fine.
-	entry: ["./src/main.ts", "./src/instrument.ts"],
+	// Named entries: two files called main.ts would both write dist/main.mjs.
+	// The API keeps dist/main.mjs; the harness host (`start:host`) gets
+	// dist/harness-host/main.mjs and preloads the same instrument.mjs.
+	entry: {
+		main: "./src/main.ts",
+		instrument: "./src/instrument.ts",
+		"harness-host/main": "./src/harness-host/main.ts",
+	},
 	format: "esm",
 	outDir: "./dist",
 	clean: true,

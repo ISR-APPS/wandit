@@ -1,10 +1,10 @@
 // shadcn-style select on the Radix select primitive.
 // Dropdown fields (for example a wilaya picker) use these parts.
 
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "~/shared/ui/icons";
 
 function Select({
 	...props

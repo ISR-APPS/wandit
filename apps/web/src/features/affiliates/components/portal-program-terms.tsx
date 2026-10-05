@@ -1,3 +1,8 @@
+/**
+ * One line with the commission terms of a program, for example
+ * "20% recurring · for 12 months · 30-day hold". The links and referrals
+ * tables render it. It formats with affiliate-portal-format.ts.
+ */
 import { formatNumber } from "@wandit/internationalization";
 import { cn } from "@wandit/ui/lib/utils";
 
@@ -13,6 +18,7 @@ type PortalProgramTermsProps = {
 	parts: AffiliateProgramTermsParts;
 };
 
+/** The terms of one program as a muted inline span. A fixed one-time program has no duration part. */
 export function PortalProgramTerms({
 	className,
 	parts,
@@ -53,7 +59,9 @@ export function PortalProgramTerms({
 	}
 
 	return (
-		<span className={cn("text-muted-foreground text-xs", className)}>
+		<span
+			className={cn("text-night/60 text-xs dark:text-foreground/60", className)}
+		>
 			{terms.join(" · ")}
 		</span>
 	);

@@ -1,8 +1,21 @@
 /**
  * Shows workspace billing, subscription controls, and credit activity.
- * The billing route calls this page, which uses billing queries and mutations.
+ * The /billing route renders this page inside the dashboard frame (sidebar and top bar).
+ * It calls the billing and credits queries and mutations, and opens the plan picker.
  */
-import { Link } from "@tanstack/react-router";
+import type { Icon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { CoinsIcon } from "@phosphor-icons/react/Coins";
+import { CreditCardIcon } from "@phosphor-icons/react/CreditCard";
+import { HandCoinsIcon } from "@phosphor-icons/react/HandCoins";
+import { InfoIcon } from "@phosphor-icons/react/Info";
+import { LockSimpleIcon } from "@phosphor-icons/react/LockSimple";
+import { ReceiptIcon } from "@phosphor-icons/react/Receipt";
+import { WalletIcon } from "@phosphor-icons/react/Wallet";
+import { WarningIcon } from "@phosphor-icons/react/Warning";
 import type {
 	BillingCancelRequest,
 	BillingTopupPack,
@@ -15,31 +28,11 @@ import {
 	formatNumber,
 	type Locale,
 } from "@wandit/internationalization";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@wandit/ui/components/card";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import {
-	AlertTriangle,
-	ArrowLeft,
-	CreditCard,
-	ExternalLink,
-	HandCoins,
-	ReceiptText,
-	RefreshCw,
-} from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Spark } from "@/components/logo";
-import { ModeToggle } from "@/components/mode-toggle";
-import { UserMenu } from "@/features/auth";
 import {
 	useCancelBillingSubscription,
 	useCancelManualSubscriptionRequest,
@@ -69,14 +62,38 @@ import {
 } from "@/features/credits/api/credits.queries";
 import { ActivityList } from "@/features/credits/components/activity-list";
 import { formatCreditBalance } from "@/features/credits/lib/format-credits";
+import { KeycapButton } from "@/features/landing";
+import { DashboardShell } from "@/features/projects/components/shell/dashboard-shell";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
 const LEDGER_PAGE_SIZE = 10;
+
+// The white card of the dashboard pages, the same as the affiliate metric and table cards.
+const CARD_CLASS =
+	"rounded-[1.5rem] bg-white shadow-[0_2px_0_rgb(11_16_51/0.06)] ring-1 ring-night/[0.08] dark:bg-card dark:shadow-[0_2px_0_rgb(0_0_0/0.35)] dark:ring-white/10";
+
+// Small grotesk capitals over a value. Arabic letters join, so `rtl:` removes the letter spacing.
+const LABEL_CLASS =
+	"font-grotesk font-semibold text-[11px] uppercase tracking-[0.08em] rtl:tracking-normal";
+
+// The keycap has a white focus outline for ember and night ground. On a white card it needs ember.
+const KEYCAP_ON_CARD_CLASS = "focus-visible:outline-ember";
+
 /** The /billing route renders this page: subscription, credits, ledger, and the plan picker. */
 export default function BillingPage() {
+	return (
+		<DashboardShell titleKey="billing.page.title">
+			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+				<BillingContent />
+			</div>
+		</DashboardShell>
+	);
+}
+
+function BillingContent() {
 	const { locale, t } = useTranslation();
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const copy = useDictionary().billing;
@@ -141,250 +158,276 @@ export default function BillingPage() {
 	// members get a notice, never money controls.
 	if (!actorCanManageBilling) {
 		return (
-			<div className="min-h-[100dvh] bg-background">
-				<BillingHeader />
-				<main className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
-					<div className="rounded-xl border bg-card p-8 text-center">
-						<h1 className="font-display text-xl tracking-tight">
-							{t("workspaces.billing.ownerOnlyTitle")}
-						</h1>
-						<p className="mt-2 text-muted-foreground text-sm">
-							{t("workspaces.billing.ownerOnlyBody")}
-						</p>
-					</div>
-				</main>
+			<div className="mt-8 flex flex-col items-center justify-center rounded-[2rem] border-2 border-night/15 border-dashed px-6 py-16 text-center dark:border-white/15">
+				<span
+					aria-hidden
+					className="grid size-16 -rotate-6 place-items-center rounded-[28%] bg-night shadow-[0_12px_22px_-12px_rgb(11_16_51/0.55)] dark:ring-1 dark:ring-white/10"
+				>
+					<LockSimpleIcon weight="duotone" className="size-7 text-spark" />
+				</span>
+				<h2 className="mt-6 font-bold font-grotesk text-2xl text-night tracking-[-0.03em] dark:text-foreground">
+					{t("workspaces.billing.ownerOnlyTitle")}
+				</h2>
+				<p className="mt-2 max-w-sm text-night/60 text-sm dark:text-foreground/60">
+					{t("workspaces.billing.ownerOnlyBody")}
+				</p>
 			</div>
 		);
 	}
 
 	return (
-		<div className="min-h-[100dvh] bg-background">
-			<BillingHeader />
-			<main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-				<Link
-					to="/dashboard"
-					className="inline-flex items-center gap-1.5 rounded-md text-muted-foreground text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-				>
-					<ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-					{copy.page.backToDashboard}
-				</Link>
-
-				<div className="mt-7 flex flex-wrap items-start justify-between gap-4">
-					<div>
-						<div className="flex flex-wrap items-center gap-2.5">
-							<h1 className="font-display font-semibold text-3xl tracking-tight">
-								{copy.page.title}
-							</h1>
-							{subscriptionPlansPaused ? (
-								<Badge variant="secondary">{copy.page.betaBadge}</Badge>
-							) : null}
-						</div>
-						<p className="mt-2 max-w-2xl text-muted-foreground text-sm">
-							{copy.page.description}
-						</p>
-					</div>
+		<>
+			<div className="mt-8">
+				<div className="flex flex-wrap items-center gap-2.5">
+					<h2 className="font-bold font-grotesk text-[1.75rem] text-night tracking-[-0.035em] dark:text-foreground">
+						{copy.page.title}
+					</h2>
+					{subscriptionPlansPaused ? (
+						<StatusPill tone="neutral" label={copy.page.betaBadge} />
+					) : null}
 				</div>
+				<p className="mt-1 text-night/60 text-sm dark:text-foreground/60">
+					{copy.page.description}
+				</p>
+			</div>
 
-				{subscriptionPlansPaused ? (
-					<div className="mt-6 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3 text-sm">
-						{copy.page.betaBody}
-					</div>
-				) : null}
+			{subscriptionPlansPaused ? (
+				<div
+					role="status"
+					className="mt-5 flex items-start gap-3 rounded-[1.5rem] bg-spark/[0.12] px-4 py-3.5 text-night text-sm ring-1 ring-spark/30 dark:text-foreground"
+				>
+					{/* Night does not show on the dark page, so the icon turns spark there. */}
+					<InfoIcon
+						aria-hidden
+						weight="duotone"
+						className="size-5 shrink-0 text-night dark:text-spark"
+					/>
+					<p>{copy.page.betaBody}</p>
+				</div>
+			) : null}
 
-				{corePending ? (
-					<BillingPageSkeleton />
-				) : coreError ? (
-					<div
-						role="alert"
-						className="mt-8 rounded-2xl border border-destructive/25 bg-destructive/[0.035] p-6"
+			{corePending ? (
+				<BillingPageSkeleton />
+			) : coreError ? (
+				<div
+					role="alert"
+					className="mt-8 flex flex-col items-center justify-center rounded-[2rem] bg-destructive/[0.035] px-6 py-12 text-center ring-2 ring-destructive/25"
+				>
+					<span
+						aria-hidden
+						className="grid size-12 place-items-center rounded-full bg-destructive/10 text-destructive"
 					>
-						<h2 className="font-display font-semibold text-lg">
-							{copy.page.loadErrorTitle}
-						</h2>
-						<p className="mt-2 text-muted-foreground text-sm">
-							{copy.page.loadErrorBody}
-						</p>
-						<Button
-							type="button"
-							variant="outline"
-							className="mt-4"
-							onClick={retryCore}
-						>
-							<RefreshCw aria-hidden />
-							{copy.page.retry}
-						</Button>
-					</div>
-				) : balanceQuery.data &&
-					subscriptionQuery.data &&
-					settingsQuery.data ? (
-					<>
-						<div className="mt-8 flex flex-col gap-5">
-							{manualGraceNoticeDates ? (
-								<ManualGraceNotice
-									accessEndDate={manualGraceNoticeDates.accessEndDate}
-									locale={locale}
-									periodEndDate={manualGraceNoticeDates.periodEndDate}
-								/>
-							) : null}
-							{manualRequestQuery.data?.request ? (
-								<ManualRequestNotice
-									request={manualRequestQuery.data.request}
-									isCancelPending={cancelManualRequest.isPending}
-									onCancel={() => {
-										void cancelManualRequest
-											.mutateAsync()
-											.then(() =>
-												toast.success(copy.page.offline.pending.cancelSuccess),
-											)
-											.catch((error) => {
-												if (
-													isApiClientError(error) &&
-													error.code === "NOT_FOUND"
-												) {
-													void manualRequestQuery.refetch();
-													return;
-												}
-												toast.error(getApiErrorMessage(error));
-											});
-									}}
-								/>
-							) : null}
-
-							<div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-								<BalanceCard balance={balanceQuery.data} locale={locale} />
-								<SubscriptionCard
-									subscription={subscriptionQuery.data.subscription}
-									paidSubscriptionsEnabled={
-										settingsQuery.data.paidSubscriptionsEnabled
-									}
-									manualPaymentsEnabled={
-										settingsQuery.data.manualPaymentsEnabled
-									}
-									locale={locale}
-									starterOffer={starterOffer}
-									onAcceptStarterOffer={() => {
-										// The picker opens on Starter and runs the existing renewal change flow.
-										if (starterOffer) {
-											openPlanPicker("billing_page", starterOffer);
-										}
-									}}
-									onOpenPlanPicker={() => openPlanPicker("billing_page")}
-									onOpenOfflinePlanPicker={() => {
-										const subscription = subscriptionQuery.data.subscription;
-										if (!subscription) return;
-
-										openPlanPicker("billing_page", {
-											interval: subscription.interval,
-											paymentMethod: "offline",
-											plan: subscription.plan,
-											tierCredits: subscription.tierCredits,
-										});
-									}}
-									onOpenPortal={() => {
-										void portal
-											.mutateAsync()
-											.catch((error) => toast.error(getApiErrorMessage(error)));
-									}}
-									portalPending={portal.isPending}
-									cancelPending={cancelSubscription.isPending}
-									resumePending={resumeSubscription.isPending}
-									onCancel={(request) => {
-										void cancelSubscription
-											.mutateAsync(request)
-											.then(() => toast.success(copy.page.cancelSuccess))
-											.catch((error) => toast.error(getApiErrorMessage(error)));
-									}}
-									onResume={() => {
-										void resumeSubscription
-											.mutateAsync()
-											.then(() => toast.success(copy.page.resumeSuccess))
-											.catch((error) => toast.error(getApiErrorMessage(error)));
-									}}
-								/>
-							</div>
-						</div>
-
-						{topupsAvailable ? (
-							<TopupSection
-								isPending={topup.isPending}
-								packs={plansQuery.data?.topupPacks ?? []}
+						<WarningIcon weight="duotone" className="size-5" />
+					</span>
+					<h3 className="mt-4 font-bold font-grotesk text-lg text-night tracking-[-0.02em] dark:text-foreground">
+						{copy.page.loadErrorTitle}
+					</h3>
+					<p className="mt-1 max-w-sm text-night/60 text-sm dark:text-foreground/60">
+						{copy.page.loadErrorBody}
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="mt-4 font-grotesk"
+						onClick={retryCore}
+					>
+						<ArrowClockwiseIcon aria-hidden weight="bold" className="size-4" />
+						{copy.page.retry}
+					</Button>
+				</div>
+			) : balanceQuery.data && subscriptionQuery.data && settingsQuery.data ? (
+				<>
+					<div className="mt-6 flex flex-col gap-4">
+						{manualGraceNoticeDates ? (
+							<ManualGraceNotice
+								accessEndDate={manualGraceNoticeDates.accessEndDate}
 								locale={locale}
-								onBuy={(packId) => {
-									void topup
-										.mutateAsync({ packId })
-										.catch((error) => toast.error(getApiErrorMessage(error)));
+								periodEndDate={manualGraceNoticeDates.periodEndDate}
+							/>
+						) : null}
+						{manualRequestQuery.data?.request ? (
+							<ManualRequestNotice
+								request={manualRequestQuery.data.request}
+								isCancelPending={cancelManualRequest.isPending}
+								onCancel={() => {
+									void cancelManualRequest
+										.mutateAsync()
+										.then(() =>
+											toast.success(copy.page.offline.pending.cancelSuccess),
+										)
+										.catch((error) => {
+											if (
+												isApiClientError(error) &&
+												error.code === "NOT_FOUND"
+											) {
+												void manualRequestQuery.refetch();
+												return;
+											}
+											toast.error(getApiErrorMessage(error));
+										});
 								}}
 							/>
 						) : null}
 
-						<Card className="mt-5 gap-0 overflow-hidden py-0">
-							<CardHeader className="border-b px-5 py-5 sm:px-6">
-								<div className="flex items-start gap-3">
-									<span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-muted/45">
-										<ReceiptText
-											className="size-4 text-muted-foreground"
-											aria-hidden
-										/>
-									</span>
-									<div>
-										<CardTitle>{copy.page.ledgerTitle}</CardTitle>
-										<CardDescription className="mt-1">
-											{copy.page.ledgerDescription}
-										</CardDescription>
-									</div>
-								</div>
-							</CardHeader>
-							<CardContent className="px-3 py-2 sm:px-5">
-								<ActivityList
-									items={activityQuery.data?.items ?? []}
-									isPending={activityQuery.isPending}
-									isError={activityQuery.isError}
-								/>
-								<LedgerPagination
-									page={ledgerPage}
-									total={activityQuery.data?.total ?? 0}
-									onPageChange={setLedgerPage}
-								/>
-							</CardContent>
-						</Card>
-					</>
-				) : null}
-			</main>
+						<div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+							<BalanceCard balance={balanceQuery.data} locale={locale} />
+							<SubscriptionCard
+								subscription={subscriptionQuery.data.subscription}
+								paidSubscriptionsEnabled={
+									settingsQuery.data.paidSubscriptionsEnabled
+								}
+								manualPaymentsEnabled={settingsQuery.data.manualPaymentsEnabled}
+								locale={locale}
+								starterOffer={starterOffer}
+								onAcceptStarterOffer={() => {
+									// The picker opens on Starter and runs the existing renewal change flow.
+									if (starterOffer) {
+										openPlanPicker("billing_page", starterOffer);
+									}
+								}}
+								onOpenPlanPicker={() => openPlanPicker("billing_page")}
+								onOpenOfflinePlanPicker={() => {
+									const subscription = subscriptionQuery.data.subscription;
+									if (!subscription) return;
+
+									openPlanPicker("billing_page", {
+										interval: subscription.interval,
+										paymentMethod: "offline",
+										plan: subscription.plan,
+										tierCredits: subscription.tierCredits,
+									});
+								}}
+								onOpenPortal={() => {
+									void portal
+										.mutateAsync()
+										.catch((error) => toast.error(getApiErrorMessage(error)));
+								}}
+								portalPending={portal.isPending}
+								cancelPending={cancelSubscription.isPending}
+								resumePending={resumeSubscription.isPending}
+								onCancel={(request) => {
+									void cancelSubscription
+										.mutateAsync(request)
+										.then(() => toast.success(copy.page.cancelSuccess))
+										.catch((error) => toast.error(getApiErrorMessage(error)));
+								}}
+								onResume={() => {
+									void resumeSubscription
+										.mutateAsync()
+										.then(() => toast.success(copy.page.resumeSuccess))
+										.catch((error) => toast.error(getApiErrorMessage(error)));
+								}}
+							/>
+						</div>
+					</div>
+
+					{topupsAvailable ? (
+						<TopupSection
+							isPending={topup.isPending}
+							packs={plansQuery.data?.topupPacks ?? []}
+							locale={locale}
+							onBuy={(packId) => {
+								void topup
+									.mutateAsync({ packId })
+									.catch((error) => toast.error(getApiErrorMessage(error)));
+							}}
+						/>
+					) : null}
+
+					<section className={cn(CARD_CLASS, "mt-4 overflow-hidden")}>
+						<div className="border-night/[0.06] border-b px-4 py-4 sm:px-6 dark:border-white/[0.06]">
+							<CardHeading
+								icon={ReceiptIcon}
+								title={copy.page.ledgerTitle}
+								description={copy.page.ledgerDescription}
+							/>
+						</div>
+						<div className="px-2 py-1 sm:px-4">
+							<ActivityList
+								items={activityQuery.data?.items ?? []}
+								isPending={activityQuery.isPending}
+								isError={activityQuery.isError}
+							/>
+						</div>
+						<LedgerPagination
+							page={ledgerPage}
+							total={activityQuery.data?.total ?? 0}
+							onPageChange={setLedgerPage}
+						/>
+					</section>
+				</>
+			) : null}
+		</>
+	);
+}
+
+type CardHeadingProps = {
+	/** A Phosphor icon, drawn in duotone on a small rounded tile. */
+	icon: Icon;
+	title: string;
+	description: string;
+};
+
+/** The icon tile, the title, and one line of description at the top of a card. */
+function CardHeading({
+	icon: HeadingIcon,
+	title,
+	description,
+}: CardHeadingProps) {
+	return (
+		<div className="flex items-start gap-3">
+			<span
+				aria-hidden
+				className="grid size-10 shrink-0 place-items-center rounded-xl bg-night/[0.05] text-night/70 dark:bg-white/10 dark:text-foreground/70"
+			>
+				<HeadingIcon weight="duotone" className="size-5" />
+			</span>
+			<div className="min-w-0">
+				<h3 className="font-grotesk font-semibold text-[15px] text-night tracking-[-0.01em] dark:text-foreground">
+					{title}
+				</h3>
+				<p className="mt-0.5 text-night/60 text-sm dark:text-foreground/60">
+					{description}
+				</p>
+			</div>
 		</div>
 	);
 }
 
-function BillingHeader() {
-	const copy = useDictionary().billing.page;
+type StatusTone = "success" | "warning" | "danger" | "neutral";
 
+// The same tones as the affiliate status pills. Green: active. Amber: ends soon.
+// Red: not entitled. Neutral: plain facts, for example "Paid offline".
+const TONE_CLASS = {
+	success:
+		"bg-green-500/[0.12] text-green-800 dark:bg-green-400/15 dark:text-green-300",
+	warning:
+		"bg-amber-500/15 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300",
+	danger: "bg-red-500/[0.12] text-red-700 dark:bg-red-400/15 dark:text-red-300",
+	neutral:
+		"bg-night/[0.06] text-night/70 dark:bg-white/[0.08] dark:text-foreground/70",
+} as const satisfies Record<StatusTone, string>;
+
+function StatusPill({ tone, label }: { tone: StatusTone; label: string }) {
 	return (
-		<header className="sticky top-0 z-40 border-b bg-background/82 backdrop-blur-md">
-			<div className="mx-auto flex h-14 w-full max-w-6xl items-center px-4 sm:px-6">
-				<Link
-					to="/dashboard"
-					aria-label={copy.backToDashboard}
-					className="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-				>
-					<span className="grid size-7 place-items-center rounded-full bg-gradient-ember">
-						<Spark className="size-3.5 text-background" />
-					</span>
-					<span className="font-display font-semibold text-lg tracking-tight">
-						wandit
-					</span>
-				</Link>
-				<div className="ms-auto flex items-center gap-1.5">
-					<ModeToggle />
-					<UserMenu />
-				</div>
-			</div>
-		</header>
+		<span
+			className={cn(
+				"inline-flex h-6 items-center whitespace-nowrap rounded-full px-2.5 font-grotesk font-semibold text-[11px]",
+				TONE_CLASS[tone],
+			)}
+		>
+			{label}
+		</span>
 	);
 }
 
+/** The night card of the balance: the total in large type, then the three buckets. */
 function BalanceCard({
 	balance,
 	locale,
 }: {
+	/** Settled credits from the credits API, in credits with decimals. */
 	balance: {
 		settledBalance: number;
 		settledPlan: number;
@@ -396,47 +439,68 @@ function BalanceCard({
 	const copy = useDictionary();
 
 	return (
-		<Card className="gap-0 overflow-hidden py-0">
-			<CardHeader className="border-b px-5 py-5 sm:px-6">
-				<CardTitle>{copy.billing.page.balanceTitle}</CardTitle>
-				<CardDescription>
-					{copy.billing.page.balanceDescription}
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="px-5 py-6 sm:px-6">
-				<p className="text-muted-foreground text-xs">
-					{copy.billing.page.totalBalance}
-				</p>
-				<p className="mt-1 font-mono font-semibold text-4xl tabular-nums tracking-tight">
+		<section className="flex flex-col rounded-[1.5rem] bg-night p-5 text-paper sm:p-6 dark:bg-card dark:text-foreground dark:ring-1 dark:ring-white/10">
+			<div className="flex items-start gap-3">
+				<span
+					aria-hidden
+					className="grid size-10 shrink-0 place-items-center rounded-xl bg-spark text-night"
+				>
+					<CoinsIcon weight="fill" className="size-5" />
+				</span>
+				<div className="min-w-0">
+					<h3 className="font-grotesk font-semibold text-[15px] tracking-[-0.01em]">
+						{copy.billing.page.balanceTitle}
+					</h3>
+					<p className="mt-0.5 text-paper/70 text-sm dark:text-foreground/70">
+						{copy.billing.page.balanceDescription}
+					</p>
+				</div>
+			</div>
+			<p
+				className={cn(
+					LABEL_CLASS,
+					"mt-8 text-paper/60 dark:text-foreground/60",
+				)}
+			>
+				{copy.billing.page.totalBalance}
+			</p>
+			<p className="mt-1 font-bold font-grotesk text-[3rem] tabular-nums leading-none tracking-[-0.04em]">
+				<span dir="ltr">
 					{formatCreditBalance(balance.settledBalance, locale)}
-				</p>
-				<dl className="mt-6 grid grid-cols-3 divide-x divide-border border-t pt-4 rtl:divide-x-reverse">
-					<BucketMetric
-						label={copy.credits.buckets.plan}
-						value={formatCreditBalance(balance.settledPlan, locale)}
-					/>
-					<BucketMetric
-						label={copy.credits.buckets.promo}
-						value={formatCreditBalance(balance.settledPromo, locale)}
-					/>
-					<BucketMetric
-						label={copy.credits.buckets.topup}
-						value={formatCreditBalance(balance.settledTopup, locale)}
-					/>
-				</dl>
-			</CardContent>
-		</Card>
+				</span>
+			</p>
+			<dl className="mt-auto grid grid-cols-3 gap-2 pt-8">
+				<BucketMetric
+					label={copy.credits.buckets.plan}
+					value={formatCreditBalance(balance.settledPlan, locale)}
+				/>
+				<BucketMetric
+					label={copy.credits.buckets.promo}
+					value={formatCreditBalance(balance.settledPromo, locale)}
+				/>
+				<BucketMetric
+					label={copy.credits.buckets.topup}
+					value={formatCreditBalance(balance.settledTopup, locale)}
+				/>
+			</dl>
+		</section>
 	);
 }
 
 function BucketMetric({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="min-w-0 px-3 first:ps-0 last:pe-0">
-			<dt className="truncate text-[10px] text-muted-foreground uppercase tracking-wider">
+		<div className="min-w-0 rounded-2xl bg-white/[0.07] px-2.5 py-2.5 sm:px-3">
+			{/* On a phone the three tiles are about 100 px wide, so the label gets 10 px to fit "PROMOTIONAL". */}
+			<dt
+				className={cn(
+					LABEL_CLASS,
+					"truncate text-[10px] text-paper/60 sm:text-[11px] dark:text-foreground/60",
+				)}
+			>
 				{label}
 			</dt>
-			<dd className="mt-1 font-medium font-mono text-base tabular-nums">
-				{value}
+			<dd className="mt-1 font-grotesk font-semibold text-lg tabular-nums">
+				<span dir="ltr">{value}</span>
 			</dd>
 		</div>
 	);
@@ -481,162 +545,170 @@ function SubscriptionCard({
 		paidSubscriptionsEnabled || manualPaymentsEnabled;
 
 	return (
-		<Card className="gap-0 overflow-hidden py-0">
-			<CardHeader className="border-b px-5 py-5 sm:px-6">
-				<div className="flex items-start justify-between gap-3">
-					<div>
-						<CardTitle>{copy.page.subscriptionTitle}</CardTitle>
-						<CardDescription className="mt-1">
-							{copy.page.subscriptionDescription}
-						</CardDescription>
-					</div>
-					{subscription ? (
-						<div className="flex flex-wrap justify-end gap-2">
-							{manualSubscription ? (
-								<Badge variant="outline">{copy.page.offline.badge}</Badge>
-							) : null}
-							<Badge
-								variant={
-									subscription.cancelAtPeriodEnd
-										? "warning"
-										: subscription.entitled
-											? "success"
-											: "destructive"
-								}
-							>
-								{subscription.cancelAtPeriodEnd
-									? copy.status.canceling
-									: statusLabel(subscription.status, copy.status)}
-							</Badge>
-						</div>
-					) : null}
-				</div>
-			</CardHeader>
-			<CardContent className="px-5 py-6 sm:px-6">
+		<section className={cn(CARD_CLASS, "flex flex-col p-5 sm:p-6")}>
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<CardHeading
+					icon={CreditCardIcon}
+					title={copy.page.subscriptionTitle}
+					description={copy.page.subscriptionDescription}
+				/>
 				{subscription ? (
-					<>
-						<p className="font-display font-semibold text-2xl tracking-tight">
-							{getBillingPlanName(subscription.plan, copy.planPicker)}
-						</p>
-						<p className="mt-1 text-muted-foreground text-sm">
-							{t("billing.page.creditsPerCycle", {
-								count: formatNumber(subscription.tierCredits, locale),
+					<div className="flex flex-wrap gap-1.5">
+						{manualSubscription ? (
+							<StatusPill tone="neutral" label={copy.page.offline.badge} />
+						) : null}
+						<StatusPill
+							tone={
+								subscription.cancelAtPeriodEnd
+									? "warning"
+									: subscription.entitled
+										? "success"
+										: "danger"
+							}
+							label={
+								subscription.cancelAtPeriodEnd
+									? copy.status.canceling
+									: statusLabel(subscription.status, copy.status)
+							}
+						/>
+					</div>
+				) : null}
+			</div>
+			{subscription ? (
+				<>
+					<p className="mt-7 font-bold font-grotesk text-[1.75rem] text-night leading-tight tracking-[-0.035em] dark:text-foreground">
+						{getBillingPlanName(subscription.plan, copy.planPicker)}
+					</p>
+					<p className="mt-1 text-night/60 text-sm dark:text-foreground/60">
+						{t("billing.page.creditsPerCycle", {
+							count: formatNumber(subscription.tierCredits, locale),
+						})}
+						{" · "}
+						{subscription.interval === "year"
+							? copy.planPicker.yearly
+							: copy.planPicker.monthly}
+					</p>
+					<dl className="mt-5 grid gap-2 sm:grid-cols-2">
+						<PlanDetail
+							label={copy.page.statusLabel}
+							value={statusLabel(subscription.status, copy.status)}
+						/>
+						<PlanDetail
+							label={
+								manualSubscription
+									? copy.page.offline.expiresLabel
+									: subscription.cancelAtPeriodEnd
+										? copy.page.endsLabel
+										: copy.page.renewsLabel
+							}
+							value={formatDate(subscription.currentPeriodEnd, locale, {
+								dateStyle: "medium",
 							})}
-							·{" "}
-							{subscription.interval === "year"
-								? copy.planPicker.yearly
-								: copy.planPicker.monthly}
-						</p>
-						<dl className="mt-5 grid gap-3 rounded-xl border bg-muted/25 p-4 sm:grid-cols-2">
+						/>
+						{pendingChange ? (
 							<PlanDetail
-								label={copy.page.statusLabel}
-								value={statusLabel(subscription.status, copy.status)}
+								label={copy.page.pendingTierLabel}
+								value={`${getBillingPlanName(pendingChange.plan, copy.planPicker)} · ${t(
+									"credits.creditUnit",
+									{
+										count: pendingChange.tierCredits,
+									},
+								)} · ${pendingChange.interval === "year" ? copy.planPicker.yearly : copy.planPicker.monthly}`}
 							/>
-							<PlanDetail
-								label={
-									manualSubscription
-										? copy.page.offline.expiresLabel
-										: subscription.cancelAtPeriodEnd
-											? copy.page.endsLabel
-											: copy.page.renewsLabel
-								}
-								value={formatDate(subscription.currentPeriodEnd, locale, {
-									dateStyle: "medium",
-								})}
-							/>
-							{pendingChange ? (
-								<PlanDetail
-									label={copy.page.pendingTierLabel}
-									value={`${getBillingPlanName(pendingChange.plan, copy.planPicker)} · ${t(
-										"credits.creditUnit",
-										{
-											count: pendingChange.tierCredits,
-										},
-									)} · ${pendingChange.interval === "year" ? copy.planPicker.yearly : copy.planPicker.monthly}`}
-								/>
-							) : null}
-						</dl>
-						<div className="mt-5 flex flex-wrap gap-2">
-							{manualSubscription && subscription.cancelAtPeriodEnd ? (
-								<Button
-									type="button"
-									disabled={resumePending}
-									onClick={onResume}
-								>
-									{resumePending ? copy.page.resuming : copy.page.resumePlan}
-								</Button>
-							) : null}
-							{manualSubscription ? (
-								<Button type="button" onClick={onOpenOfflinePlanPicker}>
-									<HandCoins data-icon="inline-start" aria-hidden />
-									{copy.page.offline.requestChange}
-								</Button>
-							) : subscription.cancelAtPeriodEnd && paidSubscriptionsEnabled ? (
-								<Button
-									type="button"
-									disabled={resumePending}
-									onClick={onResume}
-								>
-									{resumePending ? copy.page.resuming : copy.page.resumePlan}
-								</Button>
-							) : !subscription.cancelAtPeriodEnd &&
-								paidSubscriptionsEnabled ? (
-								<Button type="button" onClick={onOpenPlanPicker}>
-									{copy.page.changePlan}
-								</Button>
-							) : null}
-							{manualSubscription ? null : (
-								<Button
-									type="button"
-									variant="outline"
-									disabled={portalPending}
-									onClick={onOpenPortal}
-								>
-									<ExternalLink aria-hidden />
-									{copy.page.openPortal}
-								</Button>
-							)}
-							{!subscription.cancelAtPeriodEnd ? (
-								<CancelSubscriptionDialog
-									starterOffer={starterOffer}
-									onAcceptStarterOffer={onAcceptStarterOffer}
-									periodEnd={subscription.currentPeriodEnd}
-									locale={locale}
-									pending={cancelPending}
-									onConfirm={onCancel}
-								/>
-							) : null}
-						</div>
-					</>
-				) : (
-					<div className="flex min-h-52 flex-col justify-between">
-						<div>
-							<span className="grid size-10 place-items-center rounded-xl border bg-muted/45">
-								<CreditCard
-									className="size-4 text-muted-foreground"
-									aria-hidden
-								/>
-							</span>
-							<h3 className="mt-4 font-display font-semibold text-xl tracking-tight">
-								{copy.page.noSubscriptionTitle}
-							</h3>
-							<p className="mt-2 max-w-md text-muted-foreground text-sm">
-								{copy.page.noSubscriptionBody}
-							</p>
-						</div>
-						{subscriptionPlansAvailable ? (
-							<Button
+						) : null}
+					</dl>
+					{/* mt-auto keeps the actions at the card bottom when the balance card is taller. */}
+					<div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
+						{manualSubscription && subscription.cancelAtPeriodEnd ? (
+							<KeycapButton
 								type="button"
-								className="mt-5 w-fit"
+								size="md"
+								className={KEYCAP_ON_CARD_CLASS}
+								disabled={resumePending}
+								onClick={onResume}
+							>
+								{resumePending ? copy.page.resuming : copy.page.resumePlan}
+							</KeycapButton>
+						) : null}
+						{manualSubscription ? (
+							<KeycapButton
+								type="button"
+								size="md"
+								className={KEYCAP_ON_CARD_CLASS}
+								onClick={onOpenOfflinePlanPicker}
+							>
+								<HandCoinsIcon aria-hidden weight="bold" className="size-4" />
+								{copy.page.offline.requestChange}
+							</KeycapButton>
+						) : subscription.cancelAtPeriodEnd && paidSubscriptionsEnabled ? (
+							<KeycapButton
+								type="button"
+								size="md"
+								className={KEYCAP_ON_CARD_CLASS}
+								disabled={resumePending}
+								onClick={onResume}
+							>
+								{resumePending ? copy.page.resuming : copy.page.resumePlan}
+							</KeycapButton>
+						) : !subscription.cancelAtPeriodEnd && paidSubscriptionsEnabled ? (
+							<KeycapButton
+								type="button"
+								size="md"
+								className={KEYCAP_ON_CARD_CLASS}
 								onClick={onOpenPlanPicker}
 							>
-								{copy.page.choosePlan}
+								{copy.page.changePlan}
+							</KeycapButton>
+						) : null}
+						{manualSubscription ? null : (
+							<Button
+								type="button"
+								variant="outline"
+								className="h-10 font-grotesk"
+								disabled={portalPending}
+								onClick={onOpenPortal}
+							>
+								<ArrowSquareOutIcon
+									aria-hidden
+									weight="bold"
+									className="size-4"
+								/>
+								{copy.page.openPortal}
 							</Button>
+						)}
+						{!subscription.cancelAtPeriodEnd ? (
+							<CancelSubscriptionDialog
+								starterOffer={starterOffer}
+								onAcceptStarterOffer={onAcceptStarterOffer}
+								periodEnd={subscription.currentPeriodEnd}
+								locale={locale}
+								pending={cancelPending}
+								onConfirm={onCancel}
+							/>
 						) : null}
 					</div>
-				)}
-			</CardContent>
-		</Card>
+				</>
+			) : (
+				<div className="mt-auto pt-8">
+					<p className="font-bold font-grotesk text-night text-xl tracking-[-0.03em] dark:text-foreground">
+						{copy.page.noSubscriptionTitle}
+					</p>
+					<p className="mt-1 max-w-md text-night/60 text-sm dark:text-foreground/60">
+						{copy.page.noSubscriptionBody}
+					</p>
+					{subscriptionPlansAvailable ? (
+						<KeycapButton
+							type="button"
+							size="md"
+							className={cn("mt-5", KEYCAP_ON_CARD_CLASS)}
+							onClick={onOpenPlanPicker}
+						>
+							{copy.page.choosePlan}
+						</KeycapButton>
+					) : null}
+				</div>
+			)}
+		</section>
 	);
 }
 
@@ -654,41 +726,45 @@ function ManualRequestNotice({
 	const pending = copy.page.offline.pending;
 
 	return (
-		<Card className="gap-0 overflow-hidden border-primary/25 py-0">
-			<CardHeader className="border-b px-5 py-5 sm:px-6">
-				<div className="flex items-start gap-3">
-					<span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-primary/[0.06]">
-						<HandCoins className="size-4" aria-hidden />
-					</span>
-					<div className="min-w-0">
-						<CardTitle>{pending.title}</CardTitle>
-						<CardDescription className="mt-1">
-							{t("billing.page.offline.pending.body", {
-								phone: request.phone,
-							})}
-						</CardDescription>
-					</div>
+		<section
+			className={cn(
+				CARD_CLASS,
+				"flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6",
+			)}
+		>
+			<div className="flex min-w-0 flex-1 items-start gap-3">
+				<span
+					aria-hidden
+					className="grid size-10 shrink-0 place-items-center rounded-xl bg-spark/25 text-night dark:bg-spark/20 dark:text-spark"
+				>
+					<HandCoinsIcon weight="duotone" className="size-5" />
+				</span>
+				<div className="min-w-0">
+					<h3 className="font-grotesk font-semibold text-[15px] text-night tracking-[-0.01em] dark:text-foreground">
+						{pending.title}
+					</h3>
+					<p className="mt-0.5 text-night/60 text-sm dark:text-foreground/60">
+						{t("billing.page.offline.pending.body", {
+							phone: request.phone,
+						})}
+					</p>
+					<p className="mt-2 font-grotesk font-semibold text-night text-sm dark:text-foreground">
+						{getBillingPlanName(request.plan, copy.planPicker)}
+						{" · "}
+						{t("credits.creditUnit", { count: request.tierCredits })}
+						{" · "}
+						{request.interval === "year"
+							? copy.planPicker.yearly
+							: copy.planPicker.monthly}
+					</p>
 				</div>
-			</CardHeader>
-			<CardContent className="px-5 py-4 sm:px-6">
-				<p className="text-muted-foreground text-sm">
-					{getBillingPlanName(request.plan, copy.planPicker)}
-					{" · "}
-					{t("credits.creditUnit", { count: request.tierCredits })}
-					{" · "}
-					{request.interval === "year"
-						? copy.planPicker.yearly
-						: copy.planPicker.monthly}
-				</p>
-			</CardContent>
-			<CardFooter className="px-5 pb-5 sm:px-6">
-				<ManualRequestCancelDialog
-					copy={pending}
-					isPending={isCancelPending}
-					onConfirm={onCancel}
-				/>
-			</CardFooter>
-		</Card>
+			</div>
+			<ManualRequestCancelDialog
+				copy={pending}
+				isPending={isCancelPending}
+				onConfirm={onCancel}
+			/>
+		</section>
 	);
 }
 
@@ -705,41 +781,41 @@ function ManualGraceNotice({
 	const copy = useDictionary().billing.page.offline;
 
 	return (
-		<Card className="gap-0 overflow-hidden border-amber-500/30 bg-amber-500/[0.04] py-0">
-			<CardHeader className="px-5 py-5 sm:px-6">
-				<div className="flex items-start gap-3">
-					<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-amber-500/30 bg-amber-500/10">
-						<AlertTriangle
-							className="size-4 text-amber-700 dark:text-amber-300"
-							aria-hidden
-						/>
-					</span>
-					<div className="min-w-0">
-						<CardTitle>{copy.graceTitle}</CardTitle>
-						<CardDescription className="mt-1">
-							{t("billing.page.offline.graceNotice", {
-								accessEndDate: formatDate(accessEndDate, locale, {
-									dateStyle: "medium",
-								}),
-								endDate: formatDate(periodEndDate, locale, {
-									dateStyle: "medium",
-								}),
-							})}
-						</CardDescription>
-					</div>
-				</div>
-			</CardHeader>
-		</Card>
+		<div
+			role="status"
+			className="flex items-start gap-3 rounded-[1.5rem] bg-amber-500/[0.1] px-4 py-3.5 text-night text-sm ring-1 ring-amber-500/30 dark:text-foreground"
+		>
+			<WarningIcon
+				aria-hidden
+				weight="duotone"
+				className="size-5 shrink-0 text-amber-700 dark:text-amber-300"
+			/>
+			<div className="min-w-0">
+				<p className="font-grotesk font-semibold">{copy.graceTitle}</p>
+				<p className="mt-0.5 text-night/70 dark:text-foreground/70">
+					{t("billing.page.offline.graceNotice", {
+						accessEndDate: formatDate(accessEndDate, locale, {
+							dateStyle: "medium",
+						}),
+						endDate: formatDate(periodEndDate, locale, {
+							dateStyle: "medium",
+						}),
+					})}
+				</p>
+			</div>
+		</div>
 	);
 }
 
 function PlanDetail({ label, value }: { label: string; value: string }) {
 	return (
-		<div>
-			<dt className="text-[10px] text-muted-foreground uppercase tracking-wider">
+		<div className="rounded-2xl bg-night/[0.03] px-4 py-3 ring-1 ring-night/[0.06] dark:bg-white/[0.04] dark:ring-white/10">
+			<dt className={cn(LABEL_CLASS, "text-night/60 dark:text-foreground/60")}>
 				{label}
 			</dt>
-			<dd className="mt-1 text-sm">{value}</dd>
+			<dd className="mt-1 font-grotesk font-semibold text-night text-sm dark:text-foreground">
+				{value}
+			</dd>
 		</div>
 	);
 }
@@ -759,39 +835,34 @@ function TopupSection({
 	const copy = useDictionary().billing.page;
 
 	return (
-		<section className="mt-5 rounded-2xl border bg-card px-5 py-5 sm:px-6">
-			<div className="flex items-start gap-3">
-				<span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-muted/45">
-					<CreditCard className="size-4 text-muted-foreground" aria-hidden />
-				</span>
-				<div>
-					<h2 className="font-semibold">{copy.topupsTitle}</h2>
-					<p className="mt-1 text-muted-foreground text-sm">
-						{copy.topupsDescription}
-					</p>
-				</div>
-			</div>
+		<section className={cn(CARD_CLASS, "mt-4 p-5 sm:p-6")}>
+			<CardHeading
+				icon={WalletIcon}
+				title={copy.topupsTitle}
+				description={copy.topupsDescription}
+			/>
 			{isPending ? (
 				<div className="mt-5 grid gap-3 sm:grid-cols-3" aria-hidden>
-					<Skeleton className="h-20 rounded-xl" />
-					<Skeleton className="h-20 rounded-xl" />
-					<Skeleton className="h-20 rounded-xl" />
+					<Skeleton className="h-20 rounded-2xl" />
+					<Skeleton className="h-20 rounded-2xl" />
+					<Skeleton className="h-20 rounded-2xl" />
 				</div>
 			) : (
 				<div className="mt-5 grid gap-3 sm:grid-cols-3">
 					{packs.map((pack) => (
-						<Button
+						<button
 							key={pack.id}
 							type="button"
-							variant="outline"
-							className="h-auto justify-between rounded-xl px-4 py-4 sm:flex-col sm:items-start"
+							className="flex items-center justify-between gap-3 rounded-2xl bg-night/[0.03] px-4 py-4 text-start outline-offset-2 ring-1 ring-night/[0.08] transition-[background-color,box-shadow] hover:bg-night/[0.05] hover:ring-night/20 focus-visible:outline-2 focus-visible:outline-ember sm:flex-col sm:items-start sm:gap-1 dark:bg-white/[0.04] dark:ring-white/10 dark:hover:bg-white/[0.07]"
 							onClick={() => onBuy(pack.id)}
 						>
-							<span>{t("credits.creditUnit", { count: pack.credits })}</span>
-							<span className="font-mono text-muted-foreground text-xs">
+							<span className="font-grotesk font-semibold text-night dark:text-foreground">
+								{t("credits.creditUnit", { count: pack.credits })}
+							</span>
+							<span className="text-night/60 text-sm tabular-nums dark:text-foreground/60">
 								{formatUsd(pack.usd, locale)}
 							</span>
-						</Button>
+						</button>
 					))}
 				</div>
 			)}
@@ -815,8 +886,8 @@ function LedgerPagination({
 	if (total <= LEDGER_PAGE_SIZE) return null;
 
 	return (
-		<div className="flex flex-wrap items-center justify-between gap-3 border-t px-2 py-3">
-			<p className="text-muted-foreground text-xs">
+		<div className="flex flex-wrap items-center justify-between gap-3 border-night/[0.06] border-t px-4 py-3 sm:px-6 dark:border-white/[0.06]">
+			<p className="text-night/60 text-xs tabular-nums dark:text-foreground/60">
 				{t("billing.page.pageStatus", { page, totalPages })}
 			</p>
 			<div className="flex items-center gap-2">
@@ -824,31 +895,44 @@ function LedgerPagination({
 					type="button"
 					variant="outline"
 					size="sm"
+					className="font-grotesk"
 					disabled={page <= 1}
 					onClick={() => onPageChange(Math.max(1, page - 1))}
 				>
+					<CaretLeftIcon
+						aria-hidden
+						weight="bold"
+						className="size-3.5 rtl:-scale-x-100"
+					/>
 					{copy.previousPage}
 				</Button>
 				<Button
 					type="button"
 					variant="outline"
 					size="sm"
+					className="font-grotesk"
 					disabled={page >= totalPages}
 					onClick={() => onPageChange(Math.min(totalPages, page + 1))}
 				>
 					{copy.nextPage}
+					<CaretRightIcon
+						aria-hidden
+						weight="bold"
+						className="size-3.5 rtl:-scale-x-100"
+					/>
 				</Button>
 			</div>
 		</div>
 	);
 }
 
+/** The balance card, the plan card, and the activity card, in their real shapes. */
 function BillingPageSkeleton() {
 	return (
-		<div className="mt-8 grid gap-5 lg:grid-cols-2" aria-hidden>
-			<Skeleton className="h-72 rounded-xl" />
-			<Skeleton className="h-72 rounded-xl" />
-			<Skeleton className="h-80 rounded-xl lg:col-span-2" />
+		<div className="mt-6 grid gap-4 lg:grid-cols-2" aria-hidden>
+			<Skeleton className="h-72 rounded-[1.5rem]" />
+			<Skeleton className="h-72 rounded-[1.5rem]" />
+			<Skeleton className="h-80 rounded-[1.5rem] lg:col-span-2" />
 		</div>
 	);
 }

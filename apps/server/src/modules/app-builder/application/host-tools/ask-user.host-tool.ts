@@ -22,10 +22,18 @@ export const ASK_USER_TOOL_NAME = "ask_user";
 export function createAskUserTool(): Tool<AskUserHostToolInput, never> {
 	return tool({
 		description:
-			"Ask the user a question in the chat. Ask only when you are blocked: " +
-			"a missing fact, a business choice, an image only the user has, or " +
-			"the design world of a first build. " +
+			"Ask the user a question in the chat. Before the first build of a " +
+			"new app, you must know its users, their main tasks, and its " +
+			"features. When the request does not give them, ask these scope " +
+			"questions. Choose them yourself: ask what changes the build most, " +
+			"and give the likely answers as options. Do not guess what to " +
+			"build, unless the user says not to ask, delegates, or skips these " +
+			"questions. Later, ask only when you are blocked: a missing fact, a " +
+			"business choice, or an image only the user has. The first build " +
+			"can also ask the design world. " +
 			"Put EVERY question of one step in ONE call (max 4 questions). " +
+			"When you need more, ask the scope questions first. Ask the rest " +
+			"in a later reply. " +
 			"Never call ask_user twice in one reply. Limits: question 300 chars, " +
 			"max 6 options, label 120 chars, helper and description 200 chars. " +
 			'Kinds: "single-choice", "multi-select", "free-text" (no options), ' +

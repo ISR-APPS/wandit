@@ -124,7 +124,8 @@ Read with the Read tool, then write with Write or Edit. The hook blocks `cp` fro
 - Use the parts of `~/shared/ui/sidebar`. Do not rewrite that file.
 - 3 to 7 items, one level, no sub-menus. The home comes first.
 - Each item opens a real route under `/app`. `to` has the route type, so a wrong path fails typecheck.
-- Each icon comes from `~/shared/ui/icons` and names the thing. Add a missing one there as a Lucide path.
+- Each icon comes from `lucide-react` and names the thing, for example `ClipboardListIcon`.
+  Import it by name with the `Icon` suffix. Do not draw an SVG icon.
   A directional icon gets `rtl:rotate-180`.
 - Profile stays the last item. Sign-out stays in the user menu.
 - The app header and the login page already render `<LocaleSwitcher />`. Keep it in both.

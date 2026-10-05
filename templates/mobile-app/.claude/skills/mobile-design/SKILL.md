@@ -147,16 +147,27 @@ The app moves. Motion shows what changed and gives the app its character.
 
 ## 10. Images
 
-- Use the `generate_image` tool for the hero of the welcome screen, onboarding art, and empty
-  state art, when the world asks for photos or illustrations. Follow the prompt model of the
-  world. Each image costs credits of the user: at most 3 images in the first build, and at
-  most 1 in a later turn unless the user asks for more.
+- Use the `generate_image` tool for the photos and the illustrations that section 8 of the world
+  names for the client choices that you picked. Follow the prompt model of the world.
+- A fixed type that the code names (a class type, a service category) can get one image too,
+  on its list row and its detail screen, in the style of the world. A world with no photos draws it.
+  Never insert rows to show an image. A row that a user adds shows its own photo or the drawn art.
+- An "at most" count in section 8 of a world is not a cap. Make the images that the screens need.
+- The Never list in section 8 of the world wins, unless the user asks for that image.
+- A dish or a product that the user sells is the user's real product.
+- The user's real product, place, or people: ask for the user's photos first, and offer generated
+  images as the other choice. The user picks generated images, or asks for placeholders: make them,
+  and say in one line that real photos can replace them later.
+- The first build gets at least one image. Exceptions: the user gave a photo, or section 8 of the
+  world gives the first build no image or only an optional image.
+- Make every image that the screens need. The tool takes up to 30 calls in one turn.
+  A later turn makes new images only for new or changed screens, or when the user asks.
 - `path` is `src/assets/<name>.png`. Load the returned path with `require()` and a fixed
   relative string, for example `require("../../../assets/welcome-hero.png")` from
   `src/features/<feature>/screens/`.
 - Show images with the React Native `Image`: `className="size-full" resizeMode="cover"`.
 - Text on a photo sits on a scrim (`bg-linear-to-t from-background ...`) with 4.5:1 contrast.
-- An image never shows text, a logo, or a fact (a price, a product that the user did not give).
+- An image never shows text, a logo, or a fact, such as a price.
 - A user photo or logo always wins over a generated image.
 
 ## 11. Dark mode, right to left, and the web preview

@@ -4,6 +4,7 @@
 // On a phone the sidebar opens as a Sheet. No cookie and no effect: the /app layout keeps the state.
 
 import { cva, type VariantProps } from "class-variance-authority";
+import { PanelLeftIcon } from "lucide-react";
 import { Direction, Slot } from "radix-ui";
 import {
 	type ComponentProps,
@@ -14,7 +15,6 @@ import {
 } from "react";
 import { cn } from "~/shared/lib/utils";
 import { Button } from "~/shared/ui/button";
-import { PanelLeftIcon } from "~/shared/ui/icons";
 import { Separator } from "~/shared/ui/separator";
 import {
 	Sheet,

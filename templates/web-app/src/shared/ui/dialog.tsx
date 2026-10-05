@@ -1,10 +1,10 @@
 // shadcn-style modal dialog on the Radix dialog primitive.
 // Confirmations and focused forms use these parts.
 
+import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
-import { XIcon } from "~/shared/ui/icons";
 
 function Dialog({
 	...props

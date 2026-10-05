@@ -13,8 +13,7 @@ The icon names the thing that the KPI counts: a box for units, a clock for late 
 ## Icons
 
 - `KPI_ICONS` maps each `KpiItem.id` to one icon. A KPI with no entry gets no chip.
-- The example uses shipped icons only. Add the icon that names each KPI to `src/shared/ui/icons.tsx`
-  as a Lucide path on the same 24 px grid, for example `PackageIcon` for units.
+- Import the icon that names each KPI from `lucide-react`, for example `PackageCheckIcon` for units made.
 - Do not use a trend arrow as a KPI icon.
 
 ## Delta wording
@@ -48,8 +47,15 @@ Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in
 ```tsx
 // KPI row of the home, style "icon": the number card plus an icon chip at the header end.
 // The home renders it in the KPI slot with the items of buildOverviewKpis (data.md).
-// It calls Card, Skeleton, and the icons of the shared kit. Every number goes through Intl.
-import type { ComponentType, SVGProps } from "react";
+// It calls Card, Skeleton, and lucide-react icons. Every number goes through Intl.
+
+import {
+	ClockAlertIcon,
+	type LucideIcon,
+	PackageCheckIcon,
+	TrendingDownIcon,
+	TrendingUpIcon,
+} from "lucide-react";
 import { useT } from "~/shared/i18n";
 import { cn } from "~/shared/lib/utils";
 import {
@@ -60,19 +66,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import {
-	CircleCheckIcon,
-	TrendingDownIcon,
-	TrendingUpIcon,
-	TriangleAlertIcon,
-} from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
 import type { KpiItem } from "../lib/series";
 
 /** Icon of each KPI, keyed by KpiItem.id. A KPI with no entry gets no chip. */
-const KPI_ICONS: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
-	"units-today": CircleCheckIcon,
-	"late-work-orders": TriangleAlertIcon,
+const KPI_ICONS: Record<string, LucideIcon> = {
+	"units-today": PackageCheckIcon,
+	"late-work-orders": ClockAlertIcon,
 };
 
 // One decimal shows 0.05 % and more. A smaller change shows "0%", so it gets no arrow and no color.
