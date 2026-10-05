@@ -1,4 +1,7 @@
 {
+	// Wrangler config of the edge Worker. The Worker serves published sites and V2 apps.
+	// edge-deploy.yml deploys env production on a push to main and env staging on a push to staging.
+	// vitest.config.ts reads the top-level block for the test bindings.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "wandit-edge",
 	"main": "src/index.ts",
@@ -68,9 +71,9 @@
 			"workers_dev": true,
 			"vars": { "SENTRY_ENVIRONMENT": "preview" },
 			"version_metadata": { "binding": "CF_VERSION_METADATA" },
-			// UNVERIFIED: staging may need its own namespace; replace with the
-			// Railway staging CLOUDFLARE_KV_NAMESPACE_ID.
-			"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
+			// The staging pointer namespace wandit-domains-staging (CLOUDFLARE_KV_NAMESPACE_ID
+			// of the staging API and Trigger.dev staging).
+			"kv_namespaces": [{ "binding": "PTR", "id": "6f2d3203ae704bcdacd34d3a35d23e53" }],
 			"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-staging" }],
 			// The staging namespace (CLOUDFLARE_W4P_NAMESPACE of the staging API).
 			"dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "staging" }]
