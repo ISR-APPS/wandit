@@ -157,8 +157,9 @@ export function createBuilderChatTransport(input: {
 /**
  * Joins a turn stream that stops before the turn ends to the replay of the
  * same turn, so useChat sees one stream and shows no error. A stop is a
- * clean close or a TypeError from the network. Each replay starts at the
- * first event, so the chunks that the reader already has drop by count.
+ * clean close (a cut, or a failed read in the relay) or a TypeError from the
+ * network. Each replay starts at the first event, so the chunks that the
+ * reader already has drop by count.
  * An abort, an HTTP error, and a bad chunk go to useChat as before.
  */
 function resumeAfterCut(
@@ -196,16 +197,26 @@ function resumeAfterCut(
 				const next = await reopen(id);
 				if (next !== null) {
 					reader = next.getReader();
+					// LIMIT: each reopen replays every event of the turn, so a long
+					// turn sends its whole stream again. Upgrade: resume from the
+					// last event id.
 					toSkip = delivered;
+					// useChat can cancel while this GET opens. That cancel reached
+					// only the old reader. The new stream closes here and frees its
+					// open-stream slot.
+					if (canceled) await reader.cancel();
 					return;
 				}
 				lastError = new Error(`Turn ${id} has no stream yet`);
 			} catch (error) {
-				// A network error or a 5xx can pass, as in a deploy; a 4xx, an
-				// abort, or a bad chunk cannot.
+				// A network error, a 429, or a 5xx is temporary, as in a deploy.
+				// A 429 comes when the server has not yet freed the open-stream
+				// slot of the cut stream. Another 4xx, an abort, or a bad chunk
+				// is final.
 				const isTransient =
 					error instanceof TypeError ||
-					(error instanceof ApiClientError && error.statusCode >= 500);
+					(error instanceof ApiClientError &&
+						(error.statusCode === 429 || error.statusCode >= 500));
 				if (!isTransient) throw error;
 				lastError = error;
 			}
