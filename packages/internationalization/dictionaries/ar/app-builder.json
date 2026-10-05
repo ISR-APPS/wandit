@@ -10,6 +10,8 @@
 		"backToDashboard": "العودة إلى لوحة التحكم",
 		"projectMenu": "تبديل المشروع",
 		"allProjects": "كل المشاريع",
+		"searchProjects": "ابحث عن مشروع…",
+		"noProjectMatch": "لا يوجد مشروع يطابق بحثك.",
 		"history": "سجل الإصدارات",
 		"collapseChat": "إخفاء المحادثة",
 		"expandChat": "إظهار المحادثة",
