@@ -1,4 +1,7 @@
 {
+	// Wrangler config of the preview proxy Worker. The Worker gates every preview origin of a generated app.
+	// preview-proxy-deploy.yml deploys the top-level block on a push to main and env staging on a push to staging.
+	// vitest.config.ts reads the top-level block for the test bindings.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "wandit-preview-proxy",
 	"main": "src/index.ts",
@@ -24,10 +27,14 @@
 	],
 	"observability": { "enabled": true },
 	"env": {
-		// vars, kv_namespaces, ratelimits, analytics_engine_datasets, and routes
-		// are NOT inherited by an environment block; repeat each one here.
-		// No routes: the staging preview domain is not decided yet (WANDIT-155).
+		// vars, kv_namespaces, ratelimits, and analytics_engine_datasets are NOT
+		// inherited by an environment block; repeat each one here.
 		"staging": {
+			// routes IS inherited. The empty list keeps the staging Worker off the
+			// production route until WANDIT-155 decides a staging preview domain.
+			"routes": [],
+			// No workers.dev host: the proxy returns 404 for a host outside PREVIEW_DOMAIN.
+			"workers_dev": false,
 			"vars": {
 				"PREVIEW_DOMAIN": "wanditpreview.app",
 				// No https://*.vercel.app: any Vercel user can deploy there and frame a preview (WANDIT-281).
