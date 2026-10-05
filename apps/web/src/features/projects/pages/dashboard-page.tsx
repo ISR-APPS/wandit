@@ -127,7 +127,8 @@ export default function DashboardPage() {
 	const v2Enabled = useV2BuilderEnabled();
 	// A landing draft carries the app type the visitor picked. Read it on the
 	// first render: the autostart below creates with this state, and it can
-	// run before an effect could set it.
+	// run before an effect could set it. The title word and the mode menu of
+	// the prompt box both show and set this one state.
 	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>(
 		() => promptStash.peek()?.targetPlatform ?? "web",
 	);
@@ -226,6 +227,11 @@ export default function DashboardPage() {
 									key={restoreKey}
 									variant="hero"
 									showModes
+									platformChoice={
+										v2Enabled
+											? { value: targetPlatform, onChange: setTargetPlatform }
+											: undefined
+									}
 									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={restoredPrompt}

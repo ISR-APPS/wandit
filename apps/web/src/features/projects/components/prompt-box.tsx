@@ -1,17 +1,20 @@
 /**
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
- * output, then reports the prompt through `onSubmit`.
+ * output, then reports the prompt through `onSubmit`. For a V2 create, the
+ * mode menu picks the app type, web or mobile, through `platformChoice`.
  * Calls the attachments upload service and the voice dictation hook.
  */
 
 import type { Icon } from "@phosphor-icons/react";
 import { BrainIcon } from "@phosphor-icons/react/Brain";
+import { BrowserIcon } from "@phosphor-icons/react/Browser";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { ChartLineIcon } from "@phosphor-icons/react/ChartLine";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { CpuIcon } from "@phosphor-icons/react/Cpu";
+import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { FilmScriptIcon } from "@phosphor-icons/react/FilmScript";
 import { FlaskIcon } from "@phosphor-icons/react/Flask";
@@ -34,6 +37,7 @@ import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import {
 	type ComposerMetadata,
 	projectPromptMaxLength,
+	type TargetPlatform,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -259,6 +263,13 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "page", icon: FileTextIcon },
 	{ id: "marketing", icon: MegaphoneIcon },
 	{ id: "image", icon: ImageIcon },
+];
+
+// Non-copy app type config of a V2 create: id + icon, the icons of the project
+// card. Label/description live in the `projects.promptBox.platforms` namespace.
+const PLATFORM_MODES: readonly { id: TargetPlatform; icon: Icon }[] = [
+	{ id: "web", icon: BrowserIcon },
+	{ id: "mobile", icon: DeviceMobileIcon },
 ];
 
 // The hero chips copy the landing pills. A chip at rest has a soft night tint.
@@ -727,7 +738,8 @@ function AddContextMenu({
 	attachmentsEnabled: boolean;
 	onAttach: () => void;
 	connectorsEnabled: boolean;
-	onConnectApps: () => void;
+	/** Opens the connectors dialog. Undefined hides the connectors row. */
+	onConnectApps: (() => void) | undefined;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
@@ -806,26 +818,28 @@ function AddContextMenu({
 						</span>
 					</span>
 				</DropdownMenuItem>
-				<DropdownMenuItem
-					disabled={!connectorsEnabled}
-					onSelect={(event) => {
-						if (!connectorsEnabled) {
-							event.preventDefault();
-							return;
-						}
-						onConnectApps();
-					}}
-				>
-					<PlugsIcon aria-hidden weight="duotone" />
-					<span className="flex min-w-0 flex-col">
-						<span>{t("projects.promptBox.connectApps")}</span>
-						{!connectorsEnabled ? (
-							<span className="truncate font-normal font-sans text-muted-foreground text-xs">
-								{t("projects.connectors.signInFirst")}
-							</span>
-						) : null}
-					</span>
-				</DropdownMenuItem>
+				{onConnectApps ? (
+					<DropdownMenuItem
+						disabled={!connectorsEnabled}
+						onSelect={(event) => {
+							if (!connectorsEnabled) {
+								event.preventDefault();
+								return;
+							}
+							onConnectApps();
+						}}
+					>
+						<PlugsIcon aria-hidden weight="duotone" />
+						<span className="flex min-w-0 flex-col">
+							<span>{t("projects.promptBox.connectApps")}</span>
+							{!connectorsEnabled ? (
+								<span className="truncate font-normal font-sans text-muted-foreground text-xs">
+									{t("projects.connectors.signInFirst")}
+								</span>
+							) : null}
+						</span>
+					</DropdownMenuItem>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -1015,19 +1029,30 @@ function AttachmentChips({
 	);
 }
 
-function ModePicker({
+/** One row of the mode menu, with its copy already read from the dictionary. */
+type ModeOption<Id extends string> = {
+	id: Id;
+	icon: Icon;
+	label: string;
+	description: string;
+};
+
+/** The mode chip and its menu. It lists the V1 route modes, or the V2 app types. */
+function ModePicker<Id extends string>({
+	options,
 	value,
 	onValueChange,
 	isHero,
 }: {
-	value: RouteMode;
-	onValueChange: (mode: RouteMode) => void;
+	/** The menu rows, in display order. `value` is the id of one row. */
+	options: readonly ModeOption<Id>[];
+	value: Id;
+	onValueChange: (id: Id) => void;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
-	const pb = useDictionary().projects.promptBox;
-	const SelectedIcon = getMode(value).icon;
-	const selectedModeCopy = pb.routeModes[value];
+	const selected = options.find((option) => option.id === value) ?? options[0];
+	const SelectedIcon = selected.icon;
 
 	return (
 		<DropdownMenu>
@@ -1036,7 +1061,7 @@ function ModePicker({
 					type="button"
 					variant="outline"
 					size="sm"
-					aria-label={`${t("projects.promptBox.modeLabel")}: ${selectedModeCopy.label}`}
+					aria-label={`${t("projects.promptBox.modeLabel")}: ${selected.label}`}
 					className={
 						isHero
 							? HERO_MEDALLION_CHIP_CLASS
@@ -1067,7 +1092,7 @@ function ModePicker({
 							className={isHero ? "size-4" : "size-3"}
 						/>
 					</span>
-					<span className="max-w-24 truncate">{selectedModeCopy.label}</span>
+					<span className="max-w-24 truncate">{selected.label}</span>
 					{/* The caret turns over while the menu is open. */}
 					{isHero ? (
 						<CaretDownIcon
@@ -1087,25 +1112,26 @@ function ModePicker({
 			>
 				<DropdownMenuRadioGroup
 					value={value}
-					onValueChange={(next) => onValueChange(next as RouteMode)}
+					onValueChange={(next) => {
+						// Radix reports a plain string. The lookup gives the typed id back.
+						const picked = options.find((option) => option.id === next);
+						if (picked) onValueChange(picked.id);
+					}}
 				>
-					{ROUTE_MODES.map((mode) => {
-						const modeCopy = pb.routeModes[mode.id];
-						return (
-							<DropdownMenuRadioItemBare key={mode.id} value={mode.id}>
-								<RowMedallion icon={mode.icon} active={value === mode.id} />
-								<span className="min-w-0">
-									<span className="block font-semibold leading-tight">
-										{modeCopy.label}
-									</span>
-									<span className="mt-0.5 block font-normal font-sans text-muted-foreground text-xs leading-snug">
-										{modeCopy.description}
-									</span>
+					{options.map((option) => (
+						<DropdownMenuRadioItemBare key={option.id} value={option.id}>
+							<RowMedallion icon={option.icon} active={value === option.id} />
+							<span className="min-w-0">
+								<span className="block font-semibold leading-tight">
+									{option.label}
 								</span>
-								<RowCheck />
-							</DropdownMenuRadioItemBare>
-						);
-					})}
+								<span className="mt-0.5 block font-normal font-sans text-muted-foreground text-xs leading-snug">
+									{option.description}
+								</span>
+							</span>
+							<RowCheck />
+						</DropdownMenuRadioItemBare>
+					))}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -1607,6 +1633,13 @@ export type PromptBoxProps = {
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
 	showModes?: boolean;
+	/** Set only for a V2 create. The mode menu then lists web app and mobile
+	 * app instead of the V1 modes, and the "+" menu shows no connectors. */
+	platformChoice?: {
+		/** App type of the new project. The caller owns this state. */
+		value: TargetPlatform;
+		onChange: (platform: TargetPlatform) => void;
+	};
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
@@ -1643,6 +1676,7 @@ export function PromptBox({
 	variant = "hero",
 	placeholder,
 	showBanner = false,
+	platformChoice,
 	isSubmitting = false,
 	disabled = false,
 	initialValue = "",
@@ -2200,14 +2234,34 @@ export function PromptBox({
 							attachmentsEnabled={attachmentsEnabled}
 							onAttach={() => fileInputRef.current?.click()}
 							connectorsEnabled={Boolean(session)}
-							onConnectApps={() => setConnectorsOpen(true)}
+							// Product rule: a V2 create offers only files and skills, no connectors.
+							onConnectApps={
+								platformChoice ? undefined : () => setConnectorsOpen(true)
+							}
 							isHero={isHero}
 						/>
-						<ModePicker
-							value={routeMode}
-							onValueChange={handleModeChange}
-							isHero={isHero}
-						/>
+						{platformChoice ? (
+							<ModePicker
+								options={PLATFORM_MODES.map((platform) => ({
+									...platform,
+									...pb.platforms[platform.id],
+								}))}
+								value={platformChoice.value}
+								onValueChange={platformChoice.onChange}
+								isHero={isHero}
+							/>
+						) : (
+							<ModePicker
+								options={ROUTE_MODES.map((mode) => ({
+									...mode,
+									label: pb.routeModes[mode.id].label,
+									description: pb.routeModes[mode.id].description,
+								}))}
+								value={routeMode}
+								onValueChange={handleModeChange}
+								isHero={isHero}
+							/>
+						)}
 						{import.meta.env.DEV ? (
 							<BuilderSettingsPicker
 								model={builderModel}
@@ -2217,14 +2271,17 @@ export function PromptBox({
 								isHero={isHero}
 							/>
 						) : null}
-						<OutputSettings
-							outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
-							output={selectedOutput}
-							onSelectOutput={chooseOutput}
-							values={outputOptions}
-							onValueChange={updateOutputOption}
-							isHero={isHero}
-						/>
+						{/* A V2 create has no V1 output settings, even if a restored V1 draft holds a mode. */}
+						{platformChoice ? null : (
+							<OutputSettings
+								outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
+								output={selectedOutput}
+								onSelectOutput={chooseOutput}
+								values={outputOptions}
+								onValueChange={updateOutputOption}
+								isHero={isHero}
+							/>
+						)}
 						<div className="ms-auto flex items-center gap-1">
 							<Tooltip>
 								<TooltipTrigger asChild>

@@ -1338,10 +1338,10 @@ minute), and `@RequireWorkspacePermission("project", "update")`.
 1. The project is a V2 `mobile-app` project in scope, else 404.
 2. `APPETIZE_IOS_PUBLIC_KEY` or `APPETIZE_ANDROID_PUBLIC_KEY` is set, else
    503 `V2_ENV_MISSING`.
-3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`:
-   starter 0, pro 60, business 180, ESTIMATE), else 402
-   `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count their billed
-   minutes, or their elapsed minutes before the bill.
+3. The payer has minutes left this UTC month (`DEVICE_MINUTES_PER_PLAN`;
+   100000 on every plan for the staging tests, see `docs/v2/runbook.md`),
+   else 402 `DEVICE_MINUTES_EXHAUSTED`. `device_sessions` rows count
+   their billed minutes, or their elapsed minutes before the bill.
 4. The user holds no open session: Redis `SET NX PX` on
    `mobile_preview:user:{userId}` for 17 minutes, else 409
    `DEVICE_SESSION_OPEN`.
