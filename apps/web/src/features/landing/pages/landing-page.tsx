@@ -1,4 +1,11 @@
+/**
+ * The marketing page at `/`. The route file routes/index.tsx renders it.
+ * It opens the auth modal for the `?auth=` redirects, scrolls to a `/#section`
+ * deep link, and passes an idea from the ideas wall into the hero prompt box.
+ */
+
 import { getRouteApi, useLocation } from "@tanstack/react-router";
+import type { TargetPlatform } from "@wandit/contracts";
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -6,16 +13,15 @@ import { toast } from "sonner";
 import { promptStash, useAuthModal } from "@/features/auth";
 import { useTranslation } from "@/lib/i18n";
 
-import { CtaBand } from "../components/cta-band";
-import { Examples } from "../components/examples";
+import { AppLayers } from "../components/app-layers";
+import { ClosingCta } from "../components/closing-cta";
 import { Faq } from "../components/faq";
-import { FeaturesBento } from "../components/features-bento";
-import { Hero } from "../components/hero";
-import { InAction } from "../components/in-action";
-import { LandingFooter } from "../components/landing-footer";
-import { LandingNav } from "../components/landing-nav";
-import { Problem } from "../components/problem";
-import { ProofBar } from "../components/proof-bar";
+import { Hero, type HeroPrefill } from "../components/hero";
+import { HowItWorks } from "../components/how-it-works";
+import { Ideas } from "../components/ideas";
+import { Languages } from "../components/languages";
+import { SiteFooter } from "../components/site-footer";
+import { SiteNav } from "../components/site-nav";
 import { scrollToId, scrollToTop } from "../lib/scroll";
 
 const route = getRouteApi("/");
@@ -25,10 +31,8 @@ export default function LandingPage() {
 	const navigate = route.useNavigate();
 	const { open } = useAuthModal();
 	const { t } = useTranslation();
-
-	// Remount the PromptBox with a fresh key to prefill it programmatically.
-	const [prefill, setPrefill] = useState({ key: 0, value: "" });
 	const autoOpenedRef = useRef(false);
+	const [heroPrefill, setHeroPrefill] = useState<HeroPrefill | null>(null);
 
 	// The _auth guard redirects here with ?auth=required (or Better Auth with
 	// ?auth=error) — open the modal once, then strip consumed auth state.
@@ -49,9 +53,9 @@ export default function LandingPage() {
 		void navigate({ search: {}, replace: true });
 	}, [search.auth, search.next, open, navigate, t]);
 
-	const prefillPrompt = useCallback((value: string, scroll = false) => {
-		setPrefill((prev) => ({ key: prev.key + 1, value }));
-		if (scroll) scrollToTop();
+	const applyIdea = useCallback((platform: TargetPlatform, text: string) => {
+		setHeroPrefill((prev) => ({ key: (prev?.key ?? 0) + 1, platform, text }));
+		scrollToTop();
 	}, []);
 
 	// Section links on other pages (e.g. /pricing) land here as /#section.
@@ -62,19 +66,18 @@ export default function LandingPage() {
 
 	return (
 		<MotionConfig reducedMotion="user">
-			<div className="min-h-svh bg-background">
-				<LandingNav />
+			<div className="min-h-svh bg-paper font-grotesk text-night antialiased">
+				<SiteNav />
 				<main>
-					<Hero promptKey={prefill.key} promptInitial={prefill.value} />
-					<InAction />
-					<ProofBar />
-					<Problem />
-					<Examples onUseExample={(prompt) => prefillPrompt(prompt, true)} />
-					<FeaturesBento />
+					<Hero prefill={heroPrefill} />
+					<HowItWorks />
+					<AppLayers />
+					<Languages />
+					<Ideas onUseIdea={applyIdea} />
 					<Faq />
-					<CtaBand />
+					<ClosingCta />
 				</main>
-				<LandingFooter />
+				<SiteFooter />
 			</div>
 		</MotionConfig>
 	);

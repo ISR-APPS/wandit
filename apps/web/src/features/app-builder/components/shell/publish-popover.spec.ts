@@ -14,6 +14,7 @@ import {
 } from "@wandit/contracts";
 import { fallbackDictionary } from "@wandit/internationalization";
 import { I18nProvider } from "@wandit/internationalization/react";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -180,7 +181,8 @@ function webProps(
 ): ComponentProps<typeof PublishWebTargets> {
 	return {
 		status: liveStatus(),
-		isSending: false,
+		isPublishPending: false,
+		isUnpublishPending: false,
 		canAskFix: true,
 		onAskFix: () => {},
 		onPublish: () => {},
@@ -202,7 +204,7 @@ function openMobilePopover(builds: MobileBuild[]) {
 	renderOpenPopover(queryClient);
 }
 
-/** Renders the popover of `project` on `queryClient` and opens it. */
+/** Renders the popover of `project` on `queryClient` and opens it. The trigger has a tooltip, so it needs the provider. */
 function renderOpenPopover(
 	queryClient: QueryClient,
 	project: AppProject = MOBILE_PROJECT,
@@ -211,11 +213,15 @@ function renderOpenPopover(
 		createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(PublishPopover, {
-				project,
-				canAskFix: true,
-				onAskFix: () => {},
-			}),
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(PublishPopover, {
+					project,
+					canAskFix: true,
+					onAskFix: () => {},
+				}),
+			),
 		),
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Publish" }));
@@ -281,6 +287,37 @@ describe("PublishWebTargets", () => {
 				screen.getByRole("button", { name }).hasAttribute("disabled"),
 			).toBe(true);
 		}
+	});
+
+	it.each([
+		{ request: "publish", pending: { isPublishPending: true }, spins: true },
+		{
+			request: "unpublish",
+			pending: { isUnpublishPending: true },
+			spins: false,
+		},
+	])("disables every action while the $request request runs, and the pill spins: $spins", ({
+		pending,
+		spins,
+	}) => {
+		renderWithI18n(
+			createElement(
+				PublishWebTargets,
+				webProps({
+					...pending,
+					status: liveStatus({
+						history: [deployment("superseded", "c".repeat(40))],
+					}),
+				}),
+			),
+		);
+		for (const name of ["Update", "Unpublish", "Roll back"]) {
+			expect(
+				screen.getByRole("button", { name }).hasAttribute("disabled"),
+			).toBe(true);
+		}
+		const pill = screen.getByRole("button", { name: "Update" });
+		expect(pill.querySelector(".animate-spin") !== null).toBe(spins);
 	});
 
 	it("shows the text of the error code of a failed or blocked publish", () => {

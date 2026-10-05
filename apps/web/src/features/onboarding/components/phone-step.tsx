@@ -93,8 +93,8 @@ function CountryFlag({ iso }: { iso: string }) {
 			className="inline-flex h-4 w-6 shrink-0 items-center justify-center overflow-hidden rounded-[4px] bg-muted ring-1 ring-border"
 		>
 			{Flag ? (
-				// size-full exactly fills the 3:2 box and opts the svg out of
-				// CommandItem's blanket size-4 rule.
+				// size-full fills the 3:2 box and opts the svg out of the 18 px
+				// icon size of CommandItem.
 				<Flag className="size-full" />
 			) : (
 				<span className="font-semibold text-[8px] text-muted-foreground tracking-wide">

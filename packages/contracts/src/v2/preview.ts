@@ -324,7 +324,9 @@ export const PREVIEW_TARGETS_MAX = 10 as const;
  * - `wandit:runtime-error`: an uncaught error, a rejected promise, or a `console.error` call.
  * - `wandit:select-source`: the user clicked an element in select mode.
  * - `wandit:deselect`: the user pressed Escape in select mode.
+ * - `wandit:route`: the app shows another page. `path` is the pathname plus the query.
  * The app code in the frame can post the same shapes, so every text is bounded.
+ * The builder copies only the route path onto the preview URL, so the frame origin never changes.
  */
 export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
 	z.object({ type: z.literal("wandit:bridge-ready") }),
@@ -336,6 +338,11 @@ export const previewBridgeMessageSchema = z.discriminatedUnion("type", [
 	}),
 	previewTargetSchema.extend({ type: z.literal("wandit:select-source") }),
 	z.object({ type: z.literal("wandit:deselect") }),
+	z.object({
+		type: z.literal("wandit:route"),
+		// 2048 characters: a longer path is not a page the user navigates to by hand.
+		path: z.string().startsWith("/").max(2048),
+	}),
 ]);
 
 /** One message of the template dev bridge, after the schema check of the builder. */

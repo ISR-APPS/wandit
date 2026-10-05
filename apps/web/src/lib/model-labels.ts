@@ -36,10 +36,11 @@ function builderModelOption(
 	return { gatewayModelId, id, label: getModelLabel(gatewayModelId) };
 }
 
+/** "default" sends no builderModel option, so the server uses its own builder model. The dev chip shows "Default". */
 export const DEFAULT_BUILDER_MODEL: BuilderModelOption = {
 	gatewayModelId: "default",
 	id: "default",
-	label: "Builder: default",
+	label: "Default",
 };
 
 export const BUILDER_MODELS: readonly BuilderModelOption[] = [
@@ -112,7 +113,7 @@ export type BuilderReasoningOption = {
 /** "Auto" sends no reasoning parameter — the provider picks its own effort. */
 export const DEFAULT_BUILDER_REASONING: BuilderReasoningOption = {
 	id: "auto",
-	label: "Reasoning: auto",
+	label: "Auto",
 };
 
 // Mirrors the server's BUILDER_REASONING_OPTIONS allow-list.

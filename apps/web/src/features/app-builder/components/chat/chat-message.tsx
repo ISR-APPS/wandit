@@ -1,18 +1,24 @@
 /**
- * One message of the builder thread. A user message is a bubble at the end
- * side. Its files sit above it, and the chips of its preview picks sit above
- * the files. An assistant message starts with the Wandit byline. In the production view, one summary line opens the details
- * panel, and only the parts the user reads or acts on follow: the final
- * answer, a missing secret, the question lines, the approval card, the
- * error with Retry, the stopped line, and the receipt. The developer view
- * (local dev only) renders every part in stream order, with the thinking
- * text. A Copy action ends a reply that has a final answer. Rendered by
- * chat-pane.tsx; working-row.tsx reuses the byline.
+ * One message of the builder thread. A user message is a cream bubble at
+ * the end side. Its files sit above it, and the chips of its preview picks
+ * sit above the files. An assistant message starts with the Wandit byline.
+ * In the production view, one summary line opens the details panel, and
+ * only the parts the user reads or acts on follow: the final answer, a
+ * missing secret, the question lines, the approval card, the error with
+ * Retry, the stopped line, and the receipt. The developer view (local dev
+ * only) renders every part in stream order, with the thinking text. A Copy
+ * action ends a reply that has a final answer. Rendered by chat-pane.tsx;
+ * working-row.tsx reuses the byline.
  */
 
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { LightningIcon } from "@phosphor-icons/react/Lightning";
+import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
-import { ChevronRight, Paperclip, RotateCcw } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
@@ -23,6 +29,7 @@ import { isActivityPart } from "../../lib/turn-parts";
 import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
 import { MessageActions } from "./message-actions";
+import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
 import { TargetChip } from "./target-chip";
@@ -45,7 +52,7 @@ export type ChatMessageViewProps = {
 	onOpenSecrets?: () => void;
 };
 
-/** One user bubble or one assistant reply, in the production or the developer view. */
+/** One thread message: the user bubble, or the byline and the parts of a reply, in the production or the developer view. */
 export function ChatMessageView({
 	message,
 	isDeveloperView,
@@ -66,7 +73,7 @@ export function ChatMessageView({
 		return (
 			<div className="flex flex-col items-end gap-1.5">
 				{targets.length > 0 ? (
-					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+					<div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
 						{targets.map((target) => (
 							<TargetChip
 								key={`${target.src}|${target.label}`}
@@ -76,7 +83,7 @@ export function ChatMessageView({
 					</div>
 				) : null}
 				{files.length > 0 ? (
-					<div className="flex max-w-[88%] flex-wrap justify-end gap-1.5">
+					<div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
 						{files.map((file) => (
 							<SentFile key={file.url} file={file} />
 						))}
@@ -84,9 +91,10 @@ export function ChatMessageView({
 				) : null}
 				{/* A message with files only has no text bubble. */}
 				{text !== "" ? (
+					// Full cream, not a tint: a lighter cream fades into the sand desk.
 					<div
 						dir="auto"
-						className="max-w-[88%] whitespace-pre-wrap break-words rounded-[18px] rounded-ee-md border bg-bubble px-3.5 py-2.5 text-[14.5px] leading-[1.5]"
+						className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-ee-[6px] bg-cream px-4 py-2.5 font-sans text-[15px] text-night leading-relaxed dark:bg-white/[0.07] dark:text-foreground"
 					>
 						{text}
 					</div>
@@ -115,7 +123,9 @@ export function ChatMessageView({
 					const key = `${message.id}-${block.index}`;
 					if (block.kind === "part") return partView(block.part, key);
 					return (
-						<div key={key} className="flex flex-col">
+						// Each feed row is at least 28 px high with its own padding. The
+						// negative margin keeps the gap to the prose near the message gap.
+						<div key={key} className="-my-1 flex flex-col">
 							{block.rows.map(({ part: row, index }) =>
 								row.type === "data-thought" ? (
 									<ThoughtRow
@@ -181,11 +191,12 @@ function SummaryLine({
 		<button
 			type="button"
 			onClick={() => onOpenActivity(message.id)}
-			className="flex items-center gap-1 self-start rounded-md text-start text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+			className="group flex items-center gap-1 self-start rounded-[8px] text-start font-grotesk text-[13px] text-night/70 outline-none transition-colors duration-150 hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/70 dark:hover:text-foreground"
 		>
 			<WorkSummaryLabel summary={summary} />
-			<ChevronRight
-				className="size-3.5 shrink-0 rtl:-scale-x-100"
+			<CaretRightIcon
+				weight="bold"
+				className="size-3 shrink-0 text-night/35 transition-colors group-hover:text-night/70 rtl:-scale-x-100 dark:text-foreground/35 dark:group-hover:text-foreground/70"
 				aria-hidden
 			/>
 		</button>
@@ -213,17 +224,14 @@ function MessagePartView({
 		case "text":
 		case "data-note":
 			return (
-				<Streamdown
-					dir="auto"
-					className="space-y-2 break-words text-[14.5px] leading-[1.55]"
-				>
+				<Streamdown dir="auto" className={PROSE_CLASS}>
 					{part.type === "text" ? part.text : part.data.text}
 				</Streamdown>
 			);
 		case "data-summary":
 			return (
 				<div className="flex flex-col gap-1">
-					<p className="text-muted-foreground text-sm">
+					<p className="font-grotesk text-[13px] text-night/70 dark:text-foreground/70">
 						<WorkSummaryLabel summary={part.data} />
 					</p>
 					{part.data.files.length > 0 ? (
@@ -253,32 +261,53 @@ function MessagePartView({
 			);
 		case "data-error":
 			return (
-				<div role="alert" dir="auto" className="text-destructive text-sm">
-					<p>
-						{t("appBuilder.chat.turnError", { message: part.data.message })}
-					</p>
-					{onRetry ? (
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={onRetry}
-							className="mt-2 rounded-full"
-						>
-							<RotateCcw className="rtl:-scale-x-100" aria-hidden />
-							{t("appBuilder.chat.retry")}
-						</Button>
-					) : null}
+				<div
+					role="alert"
+					dir="auto"
+					className="flex items-start gap-2.5 rounded-[14px] bg-destructive/[0.07] px-3 py-2.5 font-sans text-[13.5px] text-destructive leading-snug dark:bg-destructive/[0.12]"
+				>
+					<WarningCircleIcon
+						weight="fill"
+						className="mt-px size-4 shrink-0"
+						aria-hidden
+					/>
+					<div className="min-w-0">
+						<p>
+							{t("appBuilder.chat.turnError", { message: part.data.message })}
+						</p>
+						{onRetry ? (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={onRetry}
+								className={cn("mt-2", CARD_SECONDARY_PILL_CLASS)}
+							>
+								{/* The arrow turns back against the reading direction, so it mirrors in RTL. */}
+								<ArrowCounterClockwiseIcon
+									weight="bold"
+									className="rtl:-scale-x-100"
+									aria-hidden
+								/>
+								{t("appBuilder.chat.retry")}
+							</Button>
+						) : null}
+					</div>
 				</div>
 			);
 		case "data-stopped":
 			return (
-				<p className="text-muted-foreground text-sm">
+				<p className="font-grotesk text-[13px] text-night/50 dark:text-foreground/50">
 					{t("appBuilder.chat.stopped")}
 				</p>
 			);
 		case "data-receipt":
 			return (
-				<p className="text-muted-foreground text-xs">
+				<p className="flex items-center gap-1.5 font-grotesk text-[11px] text-night/45 tabular-nums dark:text-foreground/45">
+					<LightningIcon
+						weight="fill"
+						className="size-3 shrink-0 text-spark"
+						aria-hidden
+					/>
 					{t("appBuilder.chat.receipt", {
 						credits: t("appBuilder.chat.estimate", {
 							count: part.data.credits,
@@ -306,19 +335,52 @@ function MessagePartView({
 }
 
 /**
- * The Spark avatar and the "Wandit" name above a reply. working-row.tsx
- * shows it too, before the reply has parts.
+ * The night brand tile with the Spark and the "Wandit" name above a reply,
+ * like the logo tile of the dashboard sidebar. working-row.tsx shows it too,
+ * before the reply has parts.
  */
 export function AssistantByline() {
 	return (
 		<div className="flex items-center gap-2">
-			<span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-gradient-ember">
-				<Spark className="size-3 text-background" />
+			<span className="grid size-6 shrink-0 place-items-center rounded-[8px] bg-night dark:ring-1 dark:ring-white/10">
+				<Spark className="size-3.5 text-spark" />
 			</span>
-			<span className="font-medium text-sm">Wandit</span>
+			<span className="font-grotesk font-semibold text-[13px] text-night dark:text-foreground">
+				Wandit
+			</span>
 		</div>
 	);
 }
+
+// Streamdown wraps each markdown block in a `display: contents` div, so a
+// space-y margin never reaches the paragraphs. A flex column gap spaces them.
+// Streamdown styles its own tags with Tailwind classes. An attribute selector
+// below is more specific than one class, so these rules win.
+const PROSE_CLASS = cn(
+	"flex flex-col gap-3 break-words font-sans text-[15px] text-night/85 leading-[1.65] dark:text-foreground/85",
+	// Bold text and headings in the ink color; headings in the grotesk face.
+	"[&_[data-streamdown=strong]]:font-semibold [&_[data-streamdown=strong]]:text-night dark:[&_[data-streamdown=strong]]:text-foreground",
+	"[&_[data-streamdown^=heading]]:my-0 [&_[data-streamdown^=heading]]:pt-1 [&_[data-streamdown^=heading]]:font-grotesk [&_[data-streamdown^=heading]]:font-semibold [&_[data-streamdown^=heading]]:text-[15px] [&_[data-streamdown^=heading]]:text-night [&_[data-streamdown^=heading]]:leading-snug dark:[&_[data-streamdown^=heading]]:text-foreground",
+	"[&_[data-streamdown=heading-1]]:text-[17px] [&_[data-streamdown=heading-2]]:text-[16px]",
+	// Lists: the markers hang outside the text, so a wrapped line aligns with the first one.
+	// pe-0 cancels the physical pl-6 that Streamdown puts on a nested list, which lands on the end side in RTL.
+	"[&_[data-streamdown$=-list]]:list-outside [&_[data-streamdown$=-list]]:space-y-1 [&_[data-streamdown$=-list]]:ps-5 [&_[data-streamdown$=-list]]:pe-0",
+	"[&_[data-streamdown=list-item]>[data-streamdown$=-list]]:mt-1 [&_[data-streamdown=list-item]]:py-0 [&_[data-streamdown=list-item]]:ps-1",
+	"[&_[data-streamdown=unordered-list]>li]:marker:text-ember dark:[&_[data-streamdown=unordered-list]>li]:marker:text-spark",
+	"[&_[data-streamdown=ordered-list]>li]:marker:font-grotesk [&_[data-streamdown=ordered-list]>li]:marker:font-medium [&_[data-streamdown=ordered-list]>li]:marker:text-night/45 dark:[&_[data-streamdown=ordered-list]>li]:marker:text-foreground/45",
+	// Inline code is a chip. The clone keeps the chip ends on each line of a wrapped value.
+	"[&_[data-streamdown=inline-code]]:rounded-md [&_[data-streamdown=inline-code]]:bg-night/[0.06] [&_[data-streamdown=inline-code]]:box-decoration-clone [&_[data-streamdown=inline-code]]:px-1.5 [&_[data-streamdown=inline-code]]:py-0.5 [&_[data-streamdown=inline-code]]:font-mono [&_[data-streamdown=inline-code]]:text-[0.85em] [&_[data-streamdown=inline-code]]:text-night [&_[data-streamdown=inline-code]]:[overflow-wrap:anywhere] dark:[&_[data-streamdown=inline-code]]:bg-white/[0.08] dark:[&_[data-streamdown=inline-code]]:text-foreground",
+	"[&_[data-streamdown=link]:hover]:decoration-ember [&_[data-streamdown=link]]:font-medium [&_[data-streamdown=link]]:text-ember-text [&_[data-streamdown=link]]:decoration-ember/30 [&_[data-streamdown=link]]:underline-offset-2",
+	// Code blocks and tables sit in a white hairline card, like the message cards on the sand desk.
+	"[&_[data-streamdown=code-block]]:my-0 [&_[data-streamdown=code-block]]:rounded-[16px] [&_[data-streamdown=code-block]]:border-night/[0.08] [&_[data-streamdown=code-block]]:bg-white dark:[&_[data-streamdown=code-block]]:border-white/[0.08] dark:[&_[data-streamdown=code-block]]:bg-white/[0.04]",
+	"[&_[data-streamdown=table-wrapper]]:my-0 [&_[data-streamdown=table-wrapper]]:rounded-[16px] [&_[data-streamdown=table-wrapper]]:border-night/[0.08] [&_[data-streamdown=table-wrapper]]:bg-white dark:[&_[data-streamdown=table-wrapper]]:border-white/[0.08] dark:[&_[data-streamdown=table-wrapper]]:bg-white/[0.04]",
+	// The outer card is the one frame: the code body, the table box, and the table lose their own border and fill.
+	"[&_[data-streamdown=code-block-body]]:border-0 [&_[data-streamdown=code-block-body]]:bg-transparent [&_[data-streamdown=code-block-body]]:px-2 [&_[data-streamdown=code-block-body]]:py-1 [&_[data-streamdown=code-block-body]]:text-[12.5px] [&_[data-streamdown=code-block-header]]:px-2 [&_[data-streamdown=code-block-header]]:font-mono",
+	"[&_[data-streamdown=table-wrapper]>div:last-child]:rounded-none [&_[data-streamdown=table-wrapper]>div:last-child]:border-0 [&_[data-streamdown=table-wrapper]>div:last-child]:bg-transparent [&_[data-streamdown=table]]:border-0",
+	"[&_[data-streamdown=table-cell]]:text-[14px] [&_[data-streamdown=table-header-cell]]:text-start [&_[data-streamdown=table-header-cell]]:font-grotesk [&_[data-streamdown=table-header-cell]]:font-medium [&_[data-streamdown=table-header-cell]]:text-[12.5px] [&_[data-streamdown=table-header-cell]]:text-night/60 dark:[&_[data-streamdown=table-header-cell]]:text-foreground/60 [&_[data-streamdown=table-header]]:bg-night/[0.03] dark:[&_[data-streamdown=table-header]]:bg-white/[0.04] [&_[data-streamdown^=table]]:border-night/[0.08] dark:[&_[data-streamdown^=table]]:border-white/[0.08]",
+	"[&_[data-streamdown=blockquote]]:my-0 [&_[data-streamdown=blockquote]]:border-0 [&_[data-streamdown=blockquote]]:border-spark [&_[data-streamdown=blockquote]]:border-s-2 [&_[data-streamdown=blockquote]]:ps-3 [&_[data-streamdown=blockquote]]:text-night/70 [&_[data-streamdown=blockquote]]:not-italic dark:[&_[data-streamdown=blockquote]]:text-foreground/70",
+	"[&_[data-streamdown=horizontal-rule]]:my-1 [&_[data-streamdown=horizontal-rule]]:border-night/[0.08] dark:[&_[data-streamdown=horizontal-rule]]:border-white/[0.08]",
+);
 
 /** One file of a user message: an image thumbnail, or a link with the file name. */
 function SentFile({ file }: { file: FileUIPart }) {
@@ -329,7 +391,7 @@ function SentFile({ file }: { file: FileUIPart }) {
 				<img
 					src={file.url}
 					alt={name}
-					className="size-16 rounded-xl border object-cover"
+					className="size-16 rounded-[12px] border border-night/[0.08] object-cover dark:border-white/[0.08]"
 				/>
 			</a>
 		);
@@ -339,9 +401,13 @@ function SentFile({ file }: { file: FileUIPart }) {
 			href={file.url}
 			target="_blank"
 			rel="noopener noreferrer"
-			className="flex h-9 max-w-56 items-center gap-1.5 rounded-xl border bg-muted/60 px-2.5 text-xs hover:text-primary"
+			className="flex h-9 max-w-56 items-center gap-1.5 rounded-[12px] bg-night/[0.05] px-2.5 font-grotesk text-[12px] text-night outline-none transition-colors hover:text-ember-text focus-visible:ring-2 focus-visible:ring-ember/30 dark:bg-white/[0.06] dark:text-foreground"
 		>
-			<Paperclip className="size-3.5 shrink-0" aria-hidden />
+			<PaperclipIcon
+				weight="bold"
+				className="size-3.5 shrink-0 text-night/50 dark:text-foreground/50"
+				aria-hidden
+			/>
 			<span dir="auto" className="truncate">
 				{name}
 			</span>

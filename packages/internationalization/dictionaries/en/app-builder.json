@@ -14,7 +14,7 @@
 		"collapseChat": "Hide the chat",
 		"expandChat": "Show the chat",
 		"reload": "Reload the preview",
-		"openExternal": "Open the live app",
+		"openExternal": "Open in a new tab",
 		"viewsAriaLabel": "Workspace views"
 	},
 	"views": {
@@ -23,22 +23,18 @@
 		"more": "More"
 	},
 	"viewport": {
-		"ariaLabel": "Preview width",
-		"desktop": "Desktop",
-		"tablet": "Tablet",
-		"mobile": "Mobile"
+		"switchToMobile": "Switch to mobile view",
+		"switchToDesktop": "Switch to desktop view"
 	},
 	"device": {
 		"ariaLabel": "Preview device",
 		"ios": "iOS",
 		"android": "Android",
-		"iosLabel": "iPhone 15 · iOS 17",
-		"androidLabel": "Pixel 8 · Android 14"
+		"web": "Web"
 	},
 	"expoGo": {
-		"cta": "Open on phone",
-		"title": "Open on your phone",
-		"scanHint": "Scan the code with the camera on iPhone, or with Expo Go on Android.",
+		"title": "Test on your phone",
+		"scanHint": "Scan with the Camera app on iPhone, or with Expo Go on Android.",
 		"qrLabel": "QR code of the Expo Go link",
 		"copy": "Copy link",
 		"copied": "Link copied",
@@ -52,29 +48,32 @@
 		"usernameHint": "The account signed in to Expo Go on your iPhone. Android needs no username.",
 		"usernameInvalid": "Use letters, digits, dots, dashes, or underscores.",
 		"usernameSave": "Save",
-		"usernameCurrent": "iPhone account: {name}",
+		"usernameCurrent": "Expo Go account: {name}",
 		"usernameChange": "Change Expo Go username",
 		"mismatchHelp": "Expo Go says the account does not match? Check the username, then scan again.",
 		"fallback": "If Expo Go still does not open the app, use an Android phone.",
-		"oauthNote": "Google sign-in does not work in Expo Go."
+		"oauthNote": "Google sign-in does not work in Expo Go.",
+		"asleep": "Your app is asleep. The QR code shows when it runs.",
+		"trouble": "Trouble connecting?",
+		"usernameEdit": "Change",
+		"previewFailed": "The preview did not load.",
+		"usernameAdd": "iPhone? Add your Expo Go username"
 	},
 	"devicePreview": {
-		"open": "Run on a device",
-		"back": "Back to the web preview",
-		"start": "Start the device",
+		"start": "Turn on",
 		"startHint": "Stream a real phone with Expo Go in your browser. It uses your device minutes.",
 		"starting": "Starting the device…",
-		"queue": "All devices are busy. You are number {position} in line.",
 		"timeLeft": "{time} left",
 		"idleWarning": "The device stops in {seconds} s without activity.",
 		"stop": "Stop",
 		"reload": "Reload the app",
 		"devMenu": "Open the dev menu",
-		"ended": "The device session ended.",
+		"ended": "Session ended",
 		"again": "Start again",
-		"failed": "The device could not start. Try again.",
 		"notRunning": "Your app is not running yet. Wait for the preview to load, then try again.",
-		"frameTitle": "{device} device with {name}"
+		"frameTitle": "{device} device with {name}",
+		"retry": "Try again",
+		"streamFailed": "The device stream had a problem."
 	},
 	"preview": {
 		"frameTitle": "Preview of {name}",
@@ -134,6 +133,14 @@
 				"title": "Waiting for your next step…",
 				"body": "Continue in the chat when you are ready."
 			}
+		},
+		"routes": {
+			"trigger": "Page {path}",
+			"search": "Search or type a path",
+			"pages": "Pages",
+			"goTo": "Go to",
+			"hint": "Type a path, like",
+			"loading": "Loading pages…"
 		}
 	},
 	"code": {
@@ -141,16 +148,13 @@
 		"treeAriaLabel": "Project files",
 		"noMatch": "No file matches.",
 		"synced": "Synced · {branch}",
-		"github": "GitHub",
-		"editCode": "Edit code",
-		"readOnly": "The code is read-only in this preview build.",
 		"fileMissing": "This file is not in the repository.",
-		"asleep": "Your app is asleep. Send a message in the chat to wake it up. Then your code shows here.",
+		"asleep": "Send a message in the chat to wake it up. Then your code shows here.",
 		"settingUp": "Setting up your project. The files show here when it is ready.",
-		"noFiles": "The project has no files yet.",
-		"binaryFile": "This file is binary. The Code view shows text files only.",
-		"fileTooLarge": "This file is larger than {limit}. The Code view shows files up to {limit} only.",
-		"loadFailed": "The code did not load.",
+		"noFiles": "Ask Wandit in the chat to build your app. Then your code shows here.",
+		"binaryFile": "The Code view shows text files only.",
+		"fileTooLarge": "The Code view shows files up to {limit} only.",
+		"loadFailed": "The code did not load",
 		"retry": "Try again",
 		"copyFile": "Copy file",
 		"lineCount": {
@@ -174,7 +178,15 @@
 			"onLine": "on line",
 			"goToLine": "Go to line",
 			"go": "go"
-		}
+		},
+		"files": "Files",
+		"asleepTitle": "Your app is asleep",
+		"noFilesTitle": "No files yet",
+		"binaryTitle": "Binary file",
+		"tooLargeTitle": "File too large",
+		"missingTitle": "File not found",
+		"loadFailedHint": "Wait a moment, then try again.",
+		"reloadHint": "Reload the page to try again."
 	},
 	"moreNavAriaLabel": "App sections",
 	"soon": "Soon",
@@ -220,6 +232,9 @@
 		"settings": {
 			"title": "Settings",
 			"description": "Name, app facts, spending limits, and delete."
+		},
+		"app": {
+			"title": "App"
 		}
 	},
 	"empty": {
@@ -262,10 +277,10 @@
 		}
 	},
 	"domains": {
-		"freeHost": "Free Wandit domain",
 		"live": "Live",
 		"freeTitle": "Free Wandit address",
-		"freeAfterPublish": "You get it when you publish the app."
+		"freeAfterPublish": "You get it when you publish the app.",
+		"freeHost": "Free Wandit domain"
 	},
 	"appStores": {
 		"androidHelp": "The Android builds of your app. Start a new build from Publish.",
@@ -510,11 +525,11 @@
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "Your plan does not include this model.",
 			"modelUnpriced": "This model has no price yet. Try again later."
-		}
+		},
+		"building": "Building"
 	},
 	"publish": {
 		"cta": "Publish",
-		"title": "Publish {name}",
 		"version": "v{version}",
 		"changes": {
 			"one": "{count} change",
@@ -676,5 +691,14 @@
 		"title": "App not found",
 		"body": "It may have been deleted, or the link is wrong.",
 		"cta": "Back to dashboard"
+	},
+	"mobileStage": {
+		"reload": "Reload the preview",
+		"iosTitle": "Turn on the iPhone simulator",
+		"androidTitle": "Turn on the Android emulator",
+		"queued": "In line: #{position}",
+		"queueNote": "All devices are busy. Yours starts when one is free.",
+		"errorTitle": "The device did not start",
+		"stoppedTitle": "The device stopped"
 	}
 }

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { CloudBackendResponse, CloudFunction } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -78,7 +79,11 @@ function renderView(
 		return createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(I18nProvider, providerProps),
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(I18nProvider, providerProps),
+			),
 		);
 	}
 	const { rerender } = render(view(panel, isActive));
@@ -109,13 +114,15 @@ describe("MoreView", () => {
 		expect(screen.getByText("Payments are coming soon")).toBeTruthy();
 	});
 
-	it("opens a Cloud panel without the More panel shell", () => {
+	it("opens a Cloud panel in the shell, with its Cloud title", () => {
 		const queryClient = cachedClient();
 		queryClient.setQueryData(cloudKeys.secrets(PROJECT.id), []);
 		renderView("secrets", true, queryClient);
 
 		expect(screen.getByText("This project has no secrets yet.")).toBeTruthy();
-		expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+		expect(
+			screen.getByRole("heading", { level: 1, name: "Secrets" }),
+		).toBeTruthy();
 	});
 
 	it("opens Logs on the functions source and the slug from View logs", () => {

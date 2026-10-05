@@ -3,10 +3,15 @@
  * sort headers and page controls, or one SQL result without them. Pure
  * presentation: the caller owns the page, the sort, and the query. Rendered
  * by database-panel.tsx and sql-editor.tsx; builds on the Table of
- * @wandit/ui. Also exports the page controls that users-panel.tsx shows
- * under the users list.
+ * @wandit/ui. Also exports the table look of every Cloud panel, the page
+ * controls of users-panel.tsx, and the first-load skeleton.
  */
 
+import { ArrowDownIcon } from "@phosphor-icons/react/ArrowDown";
+import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
+import { CaretLeftIcon } from "@phosphor-icons/react/CaretLeft";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { RowsIcon } from "@phosphor-icons/react/Rows";
 import type { CloudRowsQuery, SqlRow } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -19,16 +24,14 @@ import {
 	TableRow,
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	ArrowDown,
-	ArrowUp,
-	ChevronLeft,
-	ChevronRight,
-	Rows3,
-} from "lucide-react";
 
 import { formatNumber, useTranslation } from "@/lib/i18n";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelMessage,
+} from "../more/panel-shell";
+import { IconAction } from "../shell/top-bar";
 
 /** Order of a sorted column; the rows route reads it as `dir`. */
 export type SortDirection = CloudRowsQuery["dir"];
@@ -60,6 +63,24 @@ export type RowsGridProps = {
 		onSortChange: (column: string, direction: SortDirection) => void;
 	};
 };
+
+/**
+ * The one table look of the Cloud panels, on the div around a kit Table: a
+ * white card, a grotesk header row on a faint navy wash, 13 px body rows
+ * with hairlines. Descendant selectors beat the kit classes of the cells.
+ */
+export const CLOUD_TABLE_CLASS = cn(
+	PANEL_CARD_CLASS,
+	"overflow-hidden text-night/85 dark:text-foreground/85 [&_table]:text-[13px]",
+	"[&_thead_tr]:border-night/[0.07] [&_thead_tr]:bg-night/[0.025] [&_thead_tr]:hover:bg-night/[0.025] dark:[&_thead_tr]:border-white/[0.07] dark:[&_thead_tr]:bg-white/[0.03] dark:[&_thead_tr]:hover:bg-white/[0.03]",
+	"[&_th]:h-10 [&_th]:px-4 [&_th]:font-grotesk [&_th]:font-medium [&_th]:text-[12px] [&_th]:text-night/55 dark:[&_th]:text-foreground/55",
+	"[&_td]:px-4 [&_td]:py-2.5",
+	"[&_tbody_tr]:border-night/[0.06] [&_tbody_tr]:hover:bg-night/[0.02] dark:[&_tbody_tr]:border-white/[0.06] dark:[&_tbody_tr]:hover:bg-white/[0.03]",
+);
+
+/** Faint text of a secondary cell, like a date or a count. */
+export const CLOUD_CELL_MUTED_CLASS =
+	"text-night/55 tabular-nums dark:text-foreground/55";
 
 /** `aria-sort` value of the sorted column header, per direction. */
 const ARIA_SORT = { asc: "ascending", desc: "descending" } as const;
@@ -96,13 +117,14 @@ export function RowsGrid({
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
 			{rows.length === 0 ? (
-				<CodeMessage icon={Rows3} text={emptyText} />
+				<PanelMessage icon={RowsIcon} text={emptyText} />
 			) : (
 				// The Table wraps itself in `overflow-x-auto`: a generated table can be wider than the panel.
 				<div
 					aria-busy={isStale}
 					className={cn(
-						"rounded-xl border transition-opacity",
+						CLOUD_TABLE_CLASS,
+						"transition-opacity",
 						isStale && "opacity-60",
 					)}
 				>
@@ -113,7 +135,7 @@ export function RowsGrid({
 									const sortedDirection =
 										sort?.column === column ? sort.direction : undefined;
 									const SortIcon =
-										sortedDirection === "desc" ? ArrowDown : ArrowUp;
+										sortedDirection === "desc" ? ArrowDownIcon : ArrowUpIcon;
 									return (
 										<TableHead
 											key={column}
@@ -122,19 +144,28 @@ export function RowsGrid({
 												sortedDirection ? ARIA_SORT[sortedDirection] : undefined
 											}
 										>
+											{/* Column names are identifiers, so they stay in the mono face. */}
 											{sort ? (
 												<button
 													type="button"
 													onClick={() => sortBy(column)}
-													className="inline-flex items-center gap-1 rounded-sm font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+													className={cn(
+														"inline-flex items-center gap-1 rounded-sm font-mono text-[12px] outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:text-foreground",
+														sortedDirection &&
+															"text-night dark:text-foreground",
+													)}
 												>
 													{column}
 													{sortedDirection ? (
-														<SortIcon className="size-3.5" />
+														<SortIcon
+															aria-hidden
+															weight="bold"
+															className="size-3 text-ember-text"
+														/>
 													) : null}
 												</button>
 											) : (
-												<span className="font-mono text-xs">{column}</span>
+												<span className="font-mono text-[12px]">{column}</span>
 											)}
 										</TableHead>
 									);
@@ -150,7 +181,7 @@ export function RowsGrid({
 										<TableCell
 											key={column}
 											dir="ltr"
-											className="max-w-80 truncate font-mono text-xs"
+											className="max-w-80 truncate font-mono text-[12.5px]"
 										>
 											<CellValue
 												value={row[column] ?? null}
@@ -197,48 +228,63 @@ export function PageControls({
 	const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
 	return (
-		<div className="flex items-center justify-between gap-3 text-muted-foreground text-sm">
+		<div className="flex items-center justify-between gap-3 px-1 font-grotesk text-[13px] text-night/55 tabular-nums dark:text-foreground/55">
 			<span>{countText}</span>
-			<div className="flex items-center gap-2">
-				<span>
+			<div className="flex items-center gap-1.5">
+				<span className="me-1.5">
 					{t("workspace.cloud.database.rows.page", {
 						page: formatNumber(page, locale),
 						pageCount: formatNumber(pageCount, locale),
 					})}
 				</span>
-				<Button
-					variant="outline"
-					size="icon-sm"
-					aria-label={t("workspace.cloud.database.rows.previous")}
-					disabled={page <= 1}
-					onClick={() => onPageChange(page - 1)}
-				>
-					{/* In RTL the previous page sits on the right, so the icon mirrors. */}
-					<ChevronLeft className="size-4 rtl:-scale-x-100" />
-				</Button>
-				<Button
-					variant="outline"
-					size="icon-sm"
-					aria-label={t("workspace.cloud.database.rows.next")}
-					disabled={page >= pageCount}
-					onClick={() => onPageChange(page + 1)}
-				>
-					<ChevronRight className="size-4 rtl:-scale-x-100" />
-				</Button>
+				<IconAction label={t("workspace.cloud.database.rows.previous")}>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						disabled={page <= 1}
+						onClick={() => onPageChange(page - 1)}
+					>
+						{/* In RTL the previous page sits on the right, so the icon mirrors. */}
+						<CaretLeftIcon
+							aria-hidden
+							weight="bold"
+							className="rtl:-scale-x-100"
+						/>
+					</Button>
+				</IconAction>
+				<IconAction label={t("workspace.cloud.database.rows.next")}>
+					<Button
+						variant="outline"
+						size="icon-sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						disabled={page >= pageCount}
+						onClick={() => onPageChange(page + 1)}
+					>
+						<CaretRightIcon
+							aria-hidden
+							weight="bold"
+							className="rtl:-scale-x-100"
+						/>
+					</Button>
+				</IconAction>
 			</div>
 		</div>
 	);
 }
 
-/** Grey bars in place of a grid or a table list that loads for the first time. */
+/** Grey bars in a card, in place of a grid or a list that loads for the first time. */
 export function RowsGridSkeleton() {
 	return (
-		<div aria-busy="true" className="flex flex-col gap-3 py-2">
+		<div
+			aria-busy="true"
+			className={cn(PANEL_CARD_CLASS, "flex flex-col gap-4 px-5 py-5")}
+		>
 			{SKELETON_BARS.map((width, row) => (
 				<Skeleton
 					// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
 					key={row}
-					className="h-4 rounded-full"
+					className="h-3.5 rounded-full bg-night/[0.06] dark:bg-white/[0.07]"
 					style={{ width: `${width}%` }}
 				/>
 			))}
@@ -246,7 +292,7 @@ export function RowsGridSkeleton() {
 	);
 }
 
-/** One cell: text as it is, other JSON as JSON text, and SQL null as a dim label. */
+/** One cell: text as it is, other JSON as JSON text, and SQL null as a faint label. */
 function CellValue({
 	value,
 	nullLabel,
@@ -257,7 +303,11 @@ function CellValue({
 	nullLabel: string;
 }) {
 	if (value === null) {
-		return <span className="text-muted-foreground italic">{nullLabel}</span>;
+		return (
+			<span className="text-night/35 italic dark:text-foreground/35">
+				{nullLabel}
+			</span>
+		);
 	}
 	const text = typeof value === "string" ? value : JSON.stringify(value);
 	return <span title={text}>{text}</span>;

@@ -1,3 +1,8 @@
+/**
+ * Footer of the pricing, privacy, and terms pages: link columns, legal links,
+ * the abuse contact, and the legal entity. Copy comes from landing.footer.
+ */
+
 import { Link } from "@tanstack/react-router";
 import {
 	useDictionary,
@@ -85,7 +90,7 @@ export function LandingFooter() {
 						    visible abuse contact on the site, so it sits in the same
 						    bottom bar as the policies, on every page. */}
 						<span>
-							{footer.reportAbuse}:{" "}
+							{footer.reportAbuse}{" "}
 							<a
 								href={`mailto:${ABUSE_CONTACT_EMAIL}`}
 								className={legalLinkClass}

@@ -1,7 +1,8 @@
 /**
- * The `/app/$projectId` workspace: the chat card and the main card, each with
- * its half of the top bar above it. On desktop a resizable split moves the
- * work pane controls with the main card. On phones the open chat covers it.
+ * The `/app/$projectId` workspace: the chat column on the desk and the main
+ * card, each with its half of the top bar above it. On desktop a resizable
+ * split moves the work pane controls with the main card. On phones the open
+ * chat covers it.
  * Rendered by routes/_auth/app.$projectId.tsx after its loader filled the
  * project query. The URL search params hold the view state.
  * The Backend group of the More view shows only behind useCloudTabEnabled;
@@ -47,7 +48,6 @@ import {
 	CHAT_PANEL_MIN_WIDTH,
 } from "../lib/constants";
 import {
-	panelTitleKey,
 	readChatLayout,
 	readChatOpen,
 	readDeveloperView,
@@ -60,6 +60,19 @@ import type { AppBuilderSearch } from "../lib/schemas";
 import { useBuilderThread } from "../lib/use-builder-thread";
 import { useCloudTabEnabled } from "../lib/use-cloud-tab-enabled";
 import { useDevicePreviewEnabled } from "../lib/use-device-preview-enabled";
+
+// The desk: warm sand with a soft spark glow over the project controls. The
+// glow sits at the start side, so it moves to the right in RTL. In dark mode
+// the glow is ember on the warm near-black page color. The variables keep one
+// gradient for every theme and direction.
+const DESK_CLASS =
+	"[--desk-bottom:#f3eee6] [--desk-glow-x:8%] [--desk-glow:rgb(250_171_63/0.2)] [--desk-top:#f8f2e8] bg-[radial-gradient(900px_380px_at_var(--desk-glow-x)_-14%,var(--desk-glow),transparent_70%),linear-gradient(180deg,var(--desk-top),var(--desk-bottom))] rtl:[--desk-glow-x:92%] dark:[--desk-bottom:var(--background)] dark:[--desk-glow:rgb(209_96_34/0.14)] dark:[--desk-top:var(--background)]";
+
+// The chat lies on the desk with no card, so the stage is the one lifted
+// surface: a white sheet with a navy hairline and a soft navy shadow. In dark
+// mode it is one step lighter than the desk.
+const STAGE_CARD_CLASS =
+	"rounded-[1.5rem] border border-night/[0.08] bg-white shadow-[0_1px_0_rgb(11_16_51/0.04),0_18px_44px_-26px_rgb(11_16_51/0.35)] dark:border-white/[0.07] dark:bg-sand dark:shadow-none";
 
 export type AppBuilderPageProps = {
 	projectId: string;
@@ -100,7 +113,7 @@ export default function AppBuilderPage({
 	// The preview boot screen shows the database step on every view, so this read is always on.
 	// The query polls while Supabase creates or wakes the project.
 	const { data: backend } = useQuery(cloudBackendQuery(projectId, true));
-	// The live app of a web project: the preview bar, the open button, and the
+	// The live app of a web project: the host link in the preview bar and the
 	// Live mark of the versions read it. A mobile app has no publish status.
 	const { data: publishStatus } = useQuery({
 		...appPublishQuery(projectId),
@@ -113,7 +126,7 @@ export default function AppBuilderPage({
 	const isCloudTabEnabled = useCloudTabEnabled(project?.engine);
 	const isDevicePreviewEnabled = useDevicePreviewEnabled();
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
-	// A new key makes the panel mint a new token; the top bar reload button bumps it.
+	// A new key makes the panel mint a new token; the reload button of the preview bar bumps it.
 	const [reloadKey, setReloadKey] = useState(0);
 	// The elements picked in the preview for the next turn, with their project.
 	// A project switch in place keeps this page, so picks of another project read as none.
@@ -129,7 +142,7 @@ export default function AppBuilderPage({
 	const isMobile = useIsMobile();
 	const chatPanelRef = useRef<ResizablePanelHandle>(null);
 
-	// The expand button and the card header button drive the panel; a drag reports back through onLayoutChanged.
+	// The expand button and the chat header button drive the panel; a drag reports back through onLayoutChanged.
 	// The group mounts again when the window returns from a phone width, so the effect also runs on isMobile.
 	useEffect(() => {
 		// On a phone there is no panel to drive.
@@ -162,13 +175,9 @@ export default function AppBuilderPage({
 
 	const view = search.view ?? "preview";
 	const panel = resolvePanel(project.kind, search.panel, isCloudTabEnabled);
-	const device = search.device ?? "ios";
+	// A mobile project opens on the web build of the app; a device streams only on request.
+	const mobileTarget = search.device ?? "web";
 	const viewport = search.viewport ?? "desktop";
-
-	function viewTitle(): string {
-		if (view === "more") return t(panelTitleKey(panel));
-		return t(`appBuilder.views.${view}`);
-	}
 
 	// Views and panels make a history entry. Frame toggles and file picks replace it.
 	function setSearch(patch: Partial<AppBuilderSearch>, replace: boolean) {
@@ -178,7 +187,7 @@ export default function AppBuilderPage({
 		});
 	}
 
-	// Every open or close path (top bar, card header, drag to zero) goes through here, so the choice persists.
+	// Every open or close path (top bar, chat header, drag to zero) goes through here, so the choice persists.
 	function setChatOpenAndStore(open: boolean) {
 		setChatOpen(open);
 		writeChatOpen(open);
@@ -242,7 +251,6 @@ export default function AppBuilderPage({
 				setIsActivityOpen(true);
 			}}
 			isReady={thread.isReady}
-			projectName={project.name}
 			onSend={(input) => {
 				thread.send(input, targets);
 				setPicked({ projectId, targets: [] });
@@ -262,12 +270,17 @@ export default function AppBuilderPage({
 			hasOlderMessages={thread.hasOlderMessages}
 			isLoadingOlderMessages={thread.isLoadingOlderMessages}
 			onLoadOlderMessages={thread.loadOlderMessages}
-			className="h-full rounded-2xl border bg-sidebar"
+			className="h-full"
 		/>
 	);
 
 	const mainCard = (
-		<div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border bg-sidebar">
+		<div
+			className={cn(
+				"relative flex h-full min-h-0 flex-col overflow-hidden",
+				STAGE_CARD_CLASS,
+			)}
+		>
 			{/* The preview stays mounted across views so the app inside keeps its state. */}
 			<div
 				className={cn(
@@ -282,7 +295,9 @@ export default function AppBuilderPage({
 						project={project}
 						liveUrl={previewLiveUrl}
 						viewport={viewport}
+						onChangeViewport={(next) => setSearch({ viewport: next }, true)}
 						reloadKey={reloadKey}
+						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
 						canStartTurn={thread.isReady && !thread.isSending}
 						isSelecting={isSelecting}
@@ -295,8 +310,10 @@ export default function AppBuilderPage({
 					<PhonePreview
 						key={project.id}
 						project={project}
-						device={device}
+						target={mobileTarget}
+						onChangeTarget={(next) => setSearch({ device: next }, true)}
 						reloadKey={reloadKey}
+						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
 						canRunOnDevice={isDevicePreviewEnabled}
 					/>
@@ -336,7 +353,8 @@ export default function AppBuilderPage({
 					isLive={activityMessageId === thread.liveMessageId}
 					onClose={() => setIsActivityOpen(false)}
 					onOpenSecrets={openSecrets}
-					className="absolute inset-0 z-20 bg-sidebar"
+					// The panel takes the surface of the stage card it covers.
+					className="absolute inset-0 z-20 bg-white dark:bg-sand"
 				/>
 			) : null}
 		</div>
@@ -359,18 +377,11 @@ export default function AppBuilderPage({
 		<WorkBar
 			project={project}
 			view={view}
-			title={viewTitle()}
-			device={device}
-			viewport={viewport}
 			// A view change is a new intent, so it also closes the details panel.
 			onChangeView={(next) => {
 				setIsActivityOpen(false);
 				setSearch({ view: next }, false);
 			}}
-			onChangeDevice={(next) => setSearch({ device: next }, true)}
-			onChangeViewport={(next) => setSearch({ viewport: next }, true)}
-			onReload={() => setReloadKey((key) => key + 1)}
-			liveUrl={live?.url ?? null}
 			canAskFix={thread.isReady && !thread.isSending}
 			onAskFix={(text) => {
 				thread.send({ files: [], text });
@@ -382,7 +393,7 @@ export default function AppBuilderPage({
 
 	return (
 		<TooltipProvider>
-			<div className="flex h-svh flex-col overflow-hidden bg-background">
+			<div className={cn("flex h-svh flex-col overflow-hidden", DESK_CLASS)}>
 				{isMobile ? (
 					<>
 						<div className="flex h-12 shrink-0 items-center gap-2 px-3">
@@ -393,7 +404,8 @@ export default function AppBuilderPage({
 							{/* On phones the open chat covers the main card. */}
 							<div
 								className={cn(
-									"absolute inset-0 z-30 bg-background p-3 pt-0",
+									"absolute inset-0 z-30 p-3 pt-0",
+									DESK_CLASS,
 									!chatOpen && "hidden",
 								)}
 							>
@@ -422,7 +434,7 @@ export default function AppBuilderPage({
 								side="bottom"
 								showCloseButton={false}
 								aria-describedby={undefined}
-								className="flex h-svh flex-col gap-0 bg-sidebar p-0"
+								className="flex h-svh flex-col gap-0 bg-white p-0 dark:bg-sand"
 							>
 								{/* Radix needs a dialog title; the panel header shows the same words. */}
 								<SheetTitle className="sr-only">
@@ -470,8 +482,8 @@ export default function AppBuilderPage({
 							panelRef={chatPanelRef}
 							className="overflow-hidden"
 						>
-							{/* The project controls sit over the chat card and leave with it. */}
-							{/* A collapsed panel keeps the card mounted at zero width. inert takes its hidden controls out of the tab order. */}
+							{/* The project controls sit over the chat column and leave with it. */}
+							{/* A collapsed panel keeps the chat mounted at zero width. inert takes its hidden controls out of the tab order. */}
 							<div
 								inert={!chatOpen}
 								className="flex h-full flex-col ps-3 pe-1.5"
@@ -483,7 +495,7 @@ export default function AppBuilderPage({
 							</div>
 						</ResizablePanel>
 						{/* The handle sits invisibly in the gap between the two columns; it tints while hovered or dragged. */}
-						{/* The tint spans the cards only: it starts below the 48 px bar row and stops at the bottom padding. */}
+						{/* The tint spans the columns only: it starts below the 48 px bar row and stops at the bottom padding. */}
 						<ResizableHandle
 							className={cn(
 								"bg-transparent after:top-12 after:bottom-3 after:rounded-full after:transition-colors data-[separator=active]:after:bg-foreground/20 data-[separator=hover]:after:bg-foreground/15 data-[separator=keyboard]:after:bg-foreground/20",

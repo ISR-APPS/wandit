@@ -3,11 +3,11 @@
  * the Wandit byline, then the pixel grid and the latest step in plain
  * words: the preparation title with a stepping detail line, "Thinking",
  * "Updating the styles", and so on. When the live reply has steps, a click
- * opens the details panel, outside the developer view. Rendered by chat-pane.tsx with the status of
- * liveStatusOf (turn-parts.ts).
+ * opens the details panel, outside the developer view. Rendered by
+ * chat-pane.tsx with the status of liveStatusOf (turn-parts.ts).
  */
 
-import { ChevronRight } from "lucide-react";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
 
@@ -98,7 +98,7 @@ export function WorkingRow({
 				{PIXEL_GRID.map((pixel) => (
 					<span
 						key={pixel.key}
-						className="animate-pulse-soft rounded-[1px] bg-primary motion-reduce:animate-none"
+						className="animate-pulse-soft rounded-[1px] bg-ember motion-reduce:animate-none dark:bg-spark"
 						style={{ animationDelay: `${pixel.delayMs}ms` }}
 					/>
 				))}
@@ -120,8 +120,9 @@ export function WorkingRow({
 						</motion.span>
 					</AnimatePresence>
 					{onOpen !== null ? (
-						<ChevronRight
-							className="size-3.5 shrink-0 self-center text-muted-foreground transition-colors group-hover:text-foreground rtl:-scale-x-100"
+						<CaretRightIcon
+							weight="bold"
+							className="size-3 shrink-0 self-center text-night/35 transition-colors group-hover:text-night/70 rtl:-scale-x-100 dark:text-foreground/35 dark:group-hover:text-foreground/70"
 							aria-hidden
 						/>
 					) : null}
@@ -143,12 +144,12 @@ export function WorkingRow({
 					<button
 						type="button"
 						onClick={onOpen}
-						className="group flex min-w-0 items-start gap-2.5 self-start rounded-md text-start text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+						className="group flex min-w-0 items-start gap-2 self-start rounded-[8px] text-start font-grotesk text-[13px] text-night/70 leading-5 outline-none transition-colors hover:text-night focus-visible:ring-2 focus-visible:ring-ember/30 dark:text-foreground/70 dark:hover:text-foreground"
 					>
 						{content}
 					</button>
 				) : (
-					<div className="flex items-start gap-2.5 text-muted-foreground text-sm">
+					<div className="flex items-start gap-2 font-grotesk text-[13px] text-night/70 leading-5 dark:text-foreground/70">
 						{content}
 					</div>
 				)}
@@ -177,7 +178,10 @@ function DetailLine({ lines }: { lines: readonly TranslationKey[] }) {
 
 	return (
 		// The line changes every few seconds. The screen reader hears only the title.
-		<span aria-hidden className="text-[13px] leading-[18px]">
+		<span
+			aria-hidden
+			className="font-sans text-[12.5px] text-night/50 leading-[18px] dark:text-foreground/50"
+		>
 			<AnimatePresence mode="wait" initial={false}>
 				<motion.span
 					key={line}
@@ -212,7 +216,7 @@ function ElapsedSeconds() {
 	}).format(elapsedMs / 1000);
 
 	return (
-		<span className="font-mono text-xs tabular-nums">
+		<span className="font-grotesk text-[12px] text-night/45 tabular-nums dark:text-foreground/45">
 			{t("appBuilder.chat.elapsed", { seconds })}
 		</span>
 	);

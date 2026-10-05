@@ -11,16 +11,18 @@
  * in the URL and passes onSelectFile.
  */
 
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { FolderDashedIcon } from "@phosphor-icons/react/FolderDashed";
+import { MoonStarsIcon } from "@phosphor-icons/react/MoonStars";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
 	keepPreviousData,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
-import { FolderOpen, MoonStar, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -31,11 +33,14 @@ import {
 	codeSnapshotQuery,
 } from "../../api/app-builder.queries";
 import {
+	CODE_BAR_CLASS,
+	CODE_SKELETON_CLASS,
 	CodeLinesSkeleton,
 	CodeMessage,
 	CodeViewer,
 	type FileBody,
 	loadCodeEditor,
+	RetryButton,
 } from "./code-viewer";
 import { FileTree } from "./file-tree";
 
@@ -47,6 +52,13 @@ export type CodeViewProps = {
 	/** True while a builder turn runs, from useBuilderThread. Only a turn creates or wakes the sandbox. */
 	isTurnRunning: boolean;
 };
+
+/**
+ * The file tree column: a faint navy wash and an end hairline, so the tree
+ * reads as a rail beside the editor. The skeleton uses it too.
+ */
+const TREE_COLUMN_CLASS =
+	"min-h-0 shrink-0 flex-col border-night/[0.08] border-e bg-night/[0.02] dark:border-white/[0.08] dark:bg-white/[0.02]";
 
 /** Tree bar widths (percent) and depths of the first-load skeleton, fixed so each render matches. */
 const TREE_BARS = [
@@ -103,14 +115,12 @@ export function CodeView({
 	// failed has no data.
 	if (snapshot.data === undefined) {
 		return (
-			<CodeMessage icon={TriangleAlert} text={t("appBuilder.code.loadFailed")}>
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={() => void snapshot.refetch()}
-				>
-					{t("appBuilder.code.retry")}
-				</Button>
+			<CodeMessage
+				icon={WarningCircleIcon}
+				title={t("appBuilder.code.loadFailed")}
+				text={t("appBuilder.code.loadFailedHint")}
+			>
+				<RetryButton onRetry={() => void snapshot.refetch()} />
 			</CodeMessage>
 		);
 	}
@@ -123,13 +133,23 @@ export function CodeView({
 		}
 		// A refetch, for example the one at a turn end, can still find a running sandbox.
 		if (snapshot.isFetching) return <CodeViewSkeleton />;
-		return <CodeMessage icon={MoonStar} text={t("appBuilder.code.asleep")} />;
+		return (
+			<CodeMessage
+				icon={MoonStarsIcon}
+				title={t("appBuilder.code.asleepTitle")}
+				text={t("appBuilder.code.asleep")}
+			/>
+		);
 	}
 	const selectedPath = pickedPath ?? snapshot.data.defaultFilePath;
 	// The default path is null only when the tree holds no file.
 	if (selectedPath === null) {
 		return (
-			<CodeMessage icon={FolderOpen} text={t("appBuilder.code.noFiles")} />
+			<CodeMessage
+				icon={FolderDashedIcon}
+				title={t("appBuilder.code.noFilesTitle")}
+				text={t("appBuilder.code.noFiles")}
+			/>
 		);
 	}
 
@@ -145,9 +165,9 @@ export function CodeView({
 			{/* Hidden, not unmounted: the search text and the open folders stay. */}
 			<div
 				className={cn(
-					"min-h-0 shrink-0 flex-col border-e",
+					TREE_COLUMN_CLASS,
 					isTreeOpen ? "flex" : "hidden",
-					isMobile ? "w-full" : "w-60",
+					isMobile ? "w-full" : "w-64",
 				)}
 			>
 				<FileTree
@@ -237,16 +257,16 @@ function CodeViewSkeleton({
 }) {
 	return (
 		<div aria-busy="true" className="flex h-full min-h-0">
-			<div className="hidden w-60 shrink-0 flex-col border-e md:flex">
-				<div className="flex h-11 shrink-0 items-center border-b px-2">
-					<Skeleton className="h-8 w-full rounded-md" />
+			<div className={cn(TREE_COLUMN_CLASS, "hidden w-64 md:flex")}>
+				<div className={cn(CODE_BAR_CLASS, "px-4")}>
+					<Skeleton className={cn("h-3 w-16", CODE_SKELETON_CLASS)} />
 				</div>
-				<div className="flex flex-col gap-4 px-4 py-3">
+				<div className="flex flex-col gap-4 px-5 py-4">
 					{TREE_BARS.map((bar, row) => (
 						<Skeleton
 							// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
 							key={row}
-							className="h-2.5 rounded-full"
+							className={cn("h-2.5", CODE_SKELETON_CLASS)}
 							style={{
 								width: `${bar.width}%`,
 								marginInlineStart: bar.depth * 12,
@@ -256,16 +276,24 @@ function CodeViewSkeleton({
 				</div>
 			</div>
 			<div className="flex min-w-0 flex-1 flex-col">
-				<div className="flex h-11 shrink-0 items-center border-b px-4">
+				<div className={cn(CODE_BAR_CLASS, "px-4")}>
 					{status === undefined ? (
-						<Skeleton className="h-3 w-[30%] rounded-full" />
+						<Skeleton className={cn("h-3 w-[30%]", CODE_SKELETON_CLASS)} />
 					) : (
-						<p role="status" className="truncate text-muted-foreground text-sm">
-							{status}
+						<p
+							role="status"
+							className="flex min-w-0 items-center gap-2 font-grotesk font-medium text-[13px] text-night/60 dark:text-foreground/60"
+						>
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="size-4 shrink-0 animate-spin text-ember motion-reduce:animate-none"
+							/>
+							<span className="truncate">{status}</span>
 						</p>
 					)}
 				</div>
-				<div className="min-h-0 flex-1 bg-background">
+				<div className="min-h-0 flex-1">
 					<CodeLinesSkeleton />
 				</div>
 			</div>

@@ -5,6 +5,10 @@
  * cloudTablesQuery and cloudRowsQuery; renders rows-grid.tsx and sql-editor.tsx.
  */
 
+import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { MagnifyingGlassMinusIcon } from "@phosphor-icons/react/MagnifyingGlassMinus";
+import { TableIcon } from "@phosphor-icons/react/Table";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import {
 	keepPreviousData,
 	useQuery,
@@ -26,7 +30,7 @@ import {
 	TabsList,
 	TabsTrigger,
 } from "@wandit/ui/components/tabs";
-import { ArrowLeft, Database, SearchX, TriangleAlert } from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import { useState } from "react";
 
 import { formatNumber, useTranslation } from "@/lib/i18n";
@@ -36,8 +40,19 @@ import {
 	cloudTablesQuery,
 } from "../../api/cloud.queries";
 import { CLOUD_ROWS_PAGE_SIZE } from "../../lib/constants";
-import { CodeMessage } from "../code/code-viewer";
-import { RowsGrid, RowsGridSkeleton, type SortDirection } from "./rows-grid";
+import {
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PANEL_TABS_LIST_CLASS,
+	PANEL_TABS_TRIGGER_CLASS,
+	PanelMessage,
+} from "../more/panel-shell";
+import {
+	CLOUD_CELL_MUTED_CLASS,
+	CLOUD_TABLE_CLASS,
+	RowsGrid,
+	RowsGridSkeleton,
+	type SortDirection,
+} from "./rows-grid";
 import { SqlEditor } from "./sql-editor";
 
 /** Props of DatabasePanel. The panel mounts only while the backend is `active`. */
@@ -82,14 +97,19 @@ export function DatabasePanel({ projectId, isActive }: DatabasePanelProps) {
 		// A failed refetch keeps the last good list; only a failed first load has no data.
 		if (tables.data === undefined) {
 			return (
-				<CodeMessage
-					icon={TriangleAlert}
+				<PanelMessage
+					icon={WarningCircleIcon}
 					text={t("workspace.cloud.database.tables.loadFailed")}
 				>
-					<Button variant="outline" size="sm" onClick={retry}>
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						onClick={retry}
+					>
 						{t("workspace.cloud.retry")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		}
 		if (openTable) {
@@ -107,8 +127,8 @@ export function DatabasePanel({ projectId, isActive }: DatabasePanelProps) {
 		}
 		if (tables.data.length === 0) {
 			return (
-				<CodeMessage
-					icon={Database}
+				<PanelMessage
+					icon={TableIcon}
 					text={t("workspace.cloud.database.tables.empty")}
 				/>
 			);
@@ -118,11 +138,11 @@ export function DatabasePanel({ projectId, isActive }: DatabasePanelProps) {
 
 	return (
 		<Tabs defaultValue="tables" className="gap-4">
-			<TabsList>
-				<TabsTrigger value="tables">
+			<TabsList className={PANEL_TABS_LIST_CLASS}>
+				<TabsTrigger value="tables" className={PANEL_TABS_TRIGGER_CLASS}>
 					{t("workspace.cloud.database.sections.tables")}
 				</TabsTrigger>
-				<TabsTrigger value="sql">
+				<TabsTrigger value="sql" className={PANEL_TABS_TRIGGER_CLASS}>
 					{t("workspace.cloud.database.sections.sql")}
 				</TabsTrigger>
 			</TabsList>
@@ -145,7 +165,7 @@ export function DatabasePanel({ projectId, isActive }: DatabasePanelProps) {
 	);
 }
 
-/** The `public` tables with their column and row counts. A click on a name opens its rows. */
+/** The `public` tables with their column and row counts. A click on a row opens its rows. */
 function TablesList({
 	tables,
 	onOpen,
@@ -156,7 +176,7 @@ function TablesList({
 	const { t, locale } = useTranslation();
 
 	return (
-		<div className="rounded-xl border">
+		<div className={CLOUD_TABLE_CLASS}>
 			<Table>
 				<TableHeader>
 					<TableRow>
@@ -171,21 +191,30 @@ function TablesList({
 				</TableHeader>
 				<TableBody>
 					{tables.map((table) => (
-						<TableRow key={table.name}>
+						// The name button stretches over the row, so the whole row opens the table.
+						<TableRow key={table.name} className="group/row relative">
 							<TableCell>
-								<button
-									type="button"
-									dir="ltr"
-									onClick={() => onOpen(table.name)}
-									className="rounded-sm font-medium font-mono text-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
-								>
-									{table.name}
-								</button>
+								<span className="flex items-center gap-2.5">
+									<span
+										aria-hidden
+										className="grid size-7 shrink-0 place-items-center rounded-[10px] bg-night/[0.05] text-night/55 transition-colors group-hover/row:bg-spark/20 group-hover/row:text-night dark:bg-white/[0.06] dark:text-foreground/60 dark:group-hover/row:text-foreground"
+									>
+										<TableIcon weight="duotone" className="size-4" />
+									</span>
+									<button
+										type="button"
+										dir="ltr"
+										onClick={() => onOpen(table.name)}
+										className="cursor-pointer rounded-sm font-medium font-mono text-[13px] text-night outline-none after:absolute after:inset-0 focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-foreground"
+									>
+										{table.name}
+									</button>
+								</span>
 							</TableCell>
-							<TableCell className="text-end text-muted-foreground">
+							<TableCell className={cn("text-end", CLOUD_CELL_MUTED_CLASS)}>
 								{formatNumber(table.columns.length, locale)}
 							</TableCell>
-							<TableCell className="text-end text-muted-foreground">
+							<TableCell className={cn("text-end", CLOUD_CELL_MUTED_CLASS)}>
 								{/* The list count is a Postgres estimate; the rows view shows the exact count. */}
 								{table.rowCountExact
 									? formatNumber(table.rowCount, locale)
@@ -264,8 +293,8 @@ function TableRows({
 		const firstColumn = columns[0];
 		if (firstColumn === undefined) {
 			return (
-				<CodeMessage
-					icon={Database}
+				<PanelMessage
+					icon={TableIcon}
 					text={t("workspace.cloud.database.rows.noColumns")}
 				/>
 			);
@@ -274,22 +303,27 @@ function TableRows({
 		// button above reads the list again.
 		if (rows.data === null) {
 			return (
-				<CodeMessage
-					icon={SearchX}
+				<PanelMessage
+					icon={MagnifyingGlassMinusIcon}
 					text={t("workspace.cloud.database.rows.missing")}
 				/>
 			);
 		}
 		if (rows.data === undefined && !rows.isPending) {
 			return (
-				<CodeMessage
-					icon={TriangleAlert}
+				<PanelMessage
+					icon={WarningCircleIcon}
 					text={t("workspace.cloud.database.rows.loadFailed")}
 				>
-					<Button variant="outline" size="sm" onClick={retryRows}>
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						onClick={retryRows}
+					>
 						{t("workspace.cloud.retry")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		}
 		return (
@@ -320,13 +354,28 @@ function TableRows({
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
-			<div className="flex items-center gap-2">
-				<Button variant="ghost" size="sm" onClick={onBack}>
+			<div className="flex min-h-10 items-center gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					className={PANEL_SECONDARY_BUTTON_CLASS}
+					onClick={onBack}
+				>
 					{/* In RTL the list sits on the right, so the arrow mirrors. */}
-					<ArrowLeft className="rtl:-scale-x-100" />
+					<ArrowLeftIcon
+						aria-hidden
+						weight="bold"
+						className="rtl:-scale-x-100"
+					/>
 					{t("workspace.cloud.database.tables.back")}
 				</Button>
-				<span dir="ltr" className="truncate font-medium font-mono text-sm">
+				<span aria-hidden className="text-night/25 dark:text-foreground/25">
+					/
+				</span>
+				<span
+					dir="ltr"
+					className="truncate font-mono font-semibold text-[13px] text-night dark:text-foreground"
+				>
 					{table.name}
 				</span>
 			</div>

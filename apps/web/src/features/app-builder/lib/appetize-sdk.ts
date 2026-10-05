@@ -1,8 +1,8 @@
 /**
- * Loads the Appetize JS SDK once and types the parts that the device panel
- * uses (WANDIT-196). components/preview/device-panel.tsx calls `loadAppetize`.
+ * Loads the Appetize JS SDK once and types the parts that the device
+ * session uses (WANDIT-196). lib/use-device-session.ts calls `loadAppetize`.
  * The SDK ships no types, so this file declares them. Event data stays raw
- * here; the panel parses it with the contracts schemas.
+ * here; the hook parses it with the contracts schemas.
  */
 import type { StartDeviceSessionResponse } from "@wandit/contracts";
 
@@ -21,9 +21,11 @@ export type AppetizeClientConfig = {
 	/** `auto` fits the device into the iframe. */
 	scale: "auto";
 	codec: "h264";
+	/** True hides the Appetize device chrome. The phone frame of the mobile stage draws its own around the bare screen. */
+	screenOnly: boolean;
 };
 
-/** One running Appetize session: the methods the panel calls. */
+/** One running Appetize session: the methods that useDeviceSession calls. */
 export type AppetizeSession = {
 	/** The Appetize session token. The end route stores it for the minute bill. */
 	token: string;

@@ -3,9 +3,17 @@
  * shows one block per backend status; only an `active` backend shows the
  * panel it wraps. Rendered by cloud-panel-content.tsx around every panel except
  * Secrets. Calls useEnableBackend and useRestoreBackend, and links to /billing
- * when the plan has no free backend. Also exports CloudLoadFailed.
+ * when the plan has no free backend. Also exports CloudLoadFailed, the
+ * failed-load block of the panels. Draws each block with PanelMessage of
+ * more/panel-shell.tsx.
  */
 
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DatabaseIcon } from "@phosphor-icons/react/Database";
+import { HourglassIcon } from "@phosphor-icons/react/Hourglass";
+import { MoonStarsIcon } from "@phosphor-icons/react/MoonStars";
+import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -15,21 +23,23 @@ import {
 	type CloudBackendResponse,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
-import {
-	DatabaseZap,
-	Hourglass,
-	MoonStar,
-	Trash2,
-	TriangleAlert,
-} from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { isApiClientError } from "@/lib/api-client";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import { useEnableBackend, useRestoreBackend } from "../../api/cloud.mutations";
 import { cloudBackendQuery, cloudKeys } from "../../api/cloud.queries";
-import { CodeMessage } from "../code/code-viewer";
+import {
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+	PanelMessage,
+} from "../more/panel-shell";
 import { RowsGridSkeleton } from "./rows-grid";
+
+/** The ember pill of a backend block: the one action that moves the backend forward. */
+const BACKEND_ACTION_CLASS = cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5");
 
 /** Props of BackendState. `children` is a panel that reads the database of the app. */
 export type BackendStateProps = {
@@ -114,15 +124,19 @@ export function BackendState({
 	// A failed refetch keeps the last good state; only a failed first load has no data.
 	if (backend.data === undefined) {
 		return (
-			<CodeMessage icon={TriangleAlert} text={t("workspace.cloud.loadFailed")}>
+			<PanelMessage
+				icon={WarningCircleIcon}
+				text={t("workspace.cloud.loadFailed")}
+			>
 				<Button
 					variant="outline"
 					size="sm"
+					className={PANEL_SECONDARY_BUTTON_CLASS}
 					onClick={() => void backend.refetch()}
 				>
 					{t("workspace.cloud.retry")}
 				</Button>
-			</CodeMessage>
+			</PanelMessage>
 		);
 	}
 
@@ -132,49 +146,81 @@ export function BackendState({
 		// A project gets its backend on demand: from this button or from the agent.
 		case "none":
 			return (
-				<CodeMessage
-					icon={DatabaseZap}
+				<PanelMessage
+					tone="feature"
+					icon={DatabaseIcon}
+					title={t("workspace.cloud.backend.none.title")}
 					text={t("workspace.cloud.backend.none.description")}
 				>
 					{limitReached === null ? null : (
 						<BackendLimitReached details={limitReached.details} />
 					)}
-					<Button disabled={enable.isPending} onClick={() => enable.mutate()}>
+					<Button
+						className={BACKEND_ACTION_CLASS}
+						disabled={enable.isPending}
+						onClick={() => enable.mutate()}
+					>
+						{enable.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.backend.none.enable")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		// `creating` and `restoring` end without a click; cloudBackendPollMs reads the state every 5 s until then.
 		case "creating":
 			return (
-				<CodeMessage
-					icon={Hourglass}
+				<PanelMessage
+					tone="feature"
+					icon={HourglassIcon}
+					title={t("workspace.cloud.backend.waitingTitle")}
 					text={t("workspace.cloud.backend.waiting")}
 				/>
 			);
 		case "restoring":
 			return (
-				<CodeMessage
-					icon={Hourglass}
+				<PanelMessage
+					tone="feature"
+					icon={HourglassIcon}
+					title={t("workspace.cloud.backend.waitingTitle")}
 					text={t("workspace.cloud.backend.restoring")}
 				/>
 			);
 		// The lifecycle pauses an unused backend. Every panel needs it awake.
 		case "paused":
 			return (
-				<CodeMessage
-					icon={MoonStar}
+				<PanelMessage
+					tone="feature"
+					icon={MoonStarsIcon}
+					title={t("workspace.cloud.backend.paused.title")}
 					text={t("workspace.cloud.backend.paused.description")}
 				>
-					<Button disabled={restore.isPending} onClick={() => restore.mutate()}>
+					<Button
+						className={BACKEND_ACTION_CLASS}
+						disabled={restore.isPending}
+						onClick={() => restore.mutate()}
+					>
+						{restore.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.backend.paused.wake")}
 					</Button>
-				</CodeMessage>
+				</PanelMessage>
 			);
 		case "deleting":
 			return (
-				<CodeMessage
-					icon={Trash2}
+				<PanelMessage
+					tone="feature"
+					icon={TrashIcon}
+					title={t("workspace.cloud.backend.deletingTitle")}
 					text={t("workspace.cloud.backend.deleting")}
 				/>
 			);
@@ -187,10 +233,17 @@ export function BackendState({
 					{/* POST cloud/backend provisions an `error` row again and answers it as `creating`. */}
 					<Button
 						variant="outline"
-						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
 						disabled={enable.isPending}
 						onClick={() => enable.mutate()}
 					>
+						{enable.isPending ? (
+							<CircleNotchIcon
+								aria-hidden
+								weight="bold"
+								className="animate-spin"
+							/>
+						) : null}
 						{t("workspace.cloud.retry")}
 					</Button>
 				</BackendFailed>
@@ -218,14 +271,19 @@ function BackendFailed({
 		"workspace.cloud.backend.error.reasons.unknown";
 
 	return (
-		<CodeMessage icon={TriangleAlert} text={t(reason)}>
+		<PanelMessage
+			tone="feature"
+			icon={WarningCircleIcon}
+			title={t("workspace.cloud.backend.error.title")}
+			text={t(reason)}
+		>
 			{failureCode === null ? null : (
-				<p className="font-mono text-muted-foreground text-xs">
+				<PanelChip className="font-mono">
 					{t("workspace.cloud.backend.error.code", { code: failureCode })}
-				</p>
+				</PanelChip>
 			)}
 			{children}
-		</CodeMessage>
+		</PanelMessage>
 	);
 }
 
@@ -254,9 +312,11 @@ function BackendLimitReached({
 	}
 
 	return (
-		<div className="flex max-w-sm flex-col items-center gap-2">
-			<p className="text-sm">{text}</p>
-			<Button asChild size="sm">
+		<div className="flex max-w-sm flex-col items-center gap-2.5 rounded-[16px] bg-spark/[0.12] px-4 py-3 dark:bg-spark/10">
+			<p className="font-sans text-[14px] text-night/75 leading-relaxed dark:text-foreground/75">
+				{text}
+			</p>
+			<Button asChild className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-9 px-4")}>
 				<Link to="/billing">{t("workspace.cloud.backend.limit.seePlans")}</Link>
 			</Button>
 		</div>
@@ -273,13 +333,14 @@ export function CloudLoadFailed({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
 
 	return (
-		<CodeMessage
-			icon={TriangleAlert}
+		<PanelMessage
+			icon={WarningCircleIcon}
 			text={t("workspace.cloud.sectionLoadFailed")}
 		>
 			<Button
 				variant="outline"
 				size="sm"
+				className={PANEL_SECONDARY_BUTTON_CLASS}
 				onClick={() =>
 					void queryClient.invalidateQueries({
 						queryKey: cloudKeys.all(projectId),
@@ -288,6 +349,6 @@ export function CloudLoadFailed({ projectId }: { projectId: string }) {
 			>
 				{t("workspace.cloud.retry")}
 			</Button>
-		</CodeMessage>
+		</PanelMessage>
 	);
 }

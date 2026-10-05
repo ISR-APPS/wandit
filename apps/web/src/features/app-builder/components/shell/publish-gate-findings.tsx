@@ -6,6 +6,10 @@
  * anyway" attempt, an overridable finding shows as a warning.
  */
 
+import type { Icon } from "@phosphor-icons/react";
+import { MagicWandIcon } from "@phosphor-icons/react/MagicWand";
+import { WarningIcon } from "@phosphor-icons/react/Warning";
+import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import {
 	isGateFindingOverridable,
 	type PublishGateFinding,
@@ -13,12 +17,6 @@ import {
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	CircleX,
-	type LucideIcon,
-	TriangleAlert,
-	WandSparkles,
-} from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 
@@ -26,21 +24,29 @@ type Translate = ReturnType<typeof useTranslation>["t"];
 
 type Severity = PublishGateFinding["severity"];
 
-// A block finding stops the publish, so it reads as an error. A warn finding is a caution.
+/**
+ * The quiet outline pill of a gate action: "Ask the AI to fix" here, and
+ * "Publish anyway" in publish-popover.tsx. The dark: classes override the
+ * dark fill and border of the kit outline variant.
+ */
+export const GATE_ACTION_CLASS =
+	"font-grotesk font-semibold border-popover-foreground/[0.12] bg-transparent text-popover-foreground hover:bg-popover-foreground/[0.04] dark:border-white/[0.12] dark:bg-transparent dark:hover:bg-white/[0.05]";
+
+// A block finding stops the publish, so it reads as an error. A warn finding is a caution in spark.
 const SEVERITY_STYLES = {
 	block: {
-		icon: CircleX,
+		icon: XCircleIcon,
 		className: "text-destructive",
-		textClassName: "text-foreground",
+		textClassName: "text-popover-foreground/85",
 	},
 	warn: {
-		icon: TriangleAlert,
-		className: "text-orange-600 dark:text-orange-400",
-		textClassName: "text-muted-foreground",
+		icon: WarningIcon,
+		className: "text-spark-deep dark:text-spark",
+		textClassName: "text-popover-foreground/60",
 	},
 } as const satisfies Record<
 	Severity,
-	{ icon: LucideIcon; className: string; textClassName: string }
+	{ icon: Icon; className: string; textClassName: string }
 >;
 
 type PublishGateFindingsProps = {
@@ -70,15 +76,16 @@ export function PublishGateFindings({
 	);
 
 	return (
-		<div className="flex flex-col gap-2 border-t pt-2">
+		<div className="flex flex-col gap-2.5">
 			{/* A probe can flag many tables. The list scrolls, so the buttons stay in view. */}
-			<div className="flex max-h-48 flex-col gap-2 overflow-y-auto">
+			<div className="scroll-warm flex max-h-48 flex-col gap-2.5 overflow-y-auto rounded-[14px] bg-popover-foreground/[0.03] px-3 py-2.5 dark:bg-white/[0.03]">
 				<FindingGroup severity="block" findings={blockFindings} />
 				<FindingGroup severity="warn" findings={warnFindings} />
 			</div>
 			<Button
 				variant="outline"
 				size="sm"
+				className={GATE_ACTION_CLASS}
 				disabled={!canAskFix}
 				onClick={() =>
 					onAskFix(
@@ -89,7 +96,7 @@ export function PublishGateFindings({
 					)
 				}
 			>
-				<WandSparkles className="size-3.5" />
+				<MagicWandIcon aria-hidden weight="fill" />
 				{t("appBuilder.publish.findings.askFix")}
 			</Button>
 		</div>
@@ -108,23 +115,31 @@ function FindingGroup({
 	if (findings.length === 0) {
 		return null;
 	}
-	const { icon: Icon, className, textClassName } = SEVERITY_STYLES[severity];
+	const {
+		icon: SeverityIcon,
+		className,
+		textClassName,
+	} = SEVERITY_STYLES[severity];
 
 	return (
-		<div className="flex flex-col gap-1">
-			<div className={cn("font-medium text-xs", className)}>
+		<div className="flex flex-col gap-1.5">
+			<h4 className={cn("font-grotesk font-semibold text-xs", className)}>
 				{t(`appBuilder.publish.findings.${severity}`)}
-			</div>
+			</h4>
 			<ul className="flex flex-col gap-1.5">
 				{findings.map((finding, index) => (
 					<li
 						// biome-ignore lint/suspicious/noArrayIndexKey: a finding has no id, and the list of one attempt never changes.
 						key={index}
-						className={cn("flex items-start gap-2 text-xs", textClassName)}
+						className={cn(
+							"flex items-start gap-2 text-[12.5px] leading-snug",
+							textClassName,
+						)}
 					>
-						<Icon
+						<SeverityIcon
 							aria-hidden
-							className={cn("mt-px size-3.5 shrink-0", className)}
+							weight="fill"
+							className={cn("mt-px size-4 shrink-0", className)}
 						/>
 						<span className="min-w-0 break-words">
 							{findingText(finding, t)}

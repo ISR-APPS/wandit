@@ -1,353 +1,315 @@
 /**
- * Appetize device of the mobile preview (WANDIT-196): a start button, then a
- * streamed iPhone or Android device that runs the project in Expo Go.
- * Rendered by phone-preview.tsx when the user asks for a device. It starts
- * and ends the session through the device-session routes and drives the
- * Appetize JS SDK. DeviceControls is pure; the spec renders it.
+ * Views of the Appetize device on the mobile stage (WANDIT-196).
+ * DeviceScreen fills the phone screen: the turn-on card, the start-up,
+ * queue, end, and error states, and the stream iframe. DeviceBarControls
+ * sit at the end of the stage bar while a session runs. PhonePreview
+ * renders both from useDeviceSession. Both are pure; the spec renders them.
  */
 
-import {
-	appetizeInactivityWarningSchema,
-	appetizeQueueEventSchema,
-	type DevicePlatform,
-} from "@wandit/contracts";
+import type { Icon } from "@phosphor-icons/react";
+import { AndroidLogoIcon } from "@phosphor-icons/react/AndroidLogo";
+import { AppleLogoIcon } from "@phosphor-icons/react/AppleLogo";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
+import { HandWavingIcon } from "@phosphor-icons/react/HandWaving";
+import { PowerIcon } from "@phosphor-icons/react/Power";
+import { StopIcon } from "@phosphor-icons/react/Stop";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Button } from "@wandit/ui/components/button";
-import { Loader2, Menu, Play, RefreshCw, Square } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { cn } from "@wandit/ui/lib/utils";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 
-import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import {
-	endDeviceSession,
-	startDeviceSession,
-} from "../../api/app-builder.services";
-import {
-	type AppetizeClient,
-	type AppetizeSession,
-	loadAppetize,
-} from "../../lib/appetize-sdk";
+import type { MobilePreviewTarget, PhoneDevice } from "../../lib/constants";
+import type { DevicePhase } from "../../lib/use-device-session";
+import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 
-/** Heartbeat period, ms. Half of the 120 s idle timeout of Appetize. */
-const HEARTBEAT_INTERVAL_MS = 60_000;
-
-/** What the device panel shows. */
-export type DevicePhase =
-	| { kind: "idle" }
-	| { kind: "starting" }
-	| { kind: "queued"; position: number }
-	| { kind: "running"; endsAtMs: number }
-	| { kind: "ended" }
-	| {
-			kind: "error";
-			message: string;
-			/** True after a 402: the month minutes are spent, so the start button stays off. */
-			isExhausted: boolean;
-	  };
-
-export type DevicePanelProps = {
-	/** The open mobile project. Its id starts the device session. */
-	projectId: string;
-	/** `ios` or `android`, from the device toggle of the top bar. The parent remounts the panel on a change. */
-	platform: DevicePlatform;
-	/** Accessible name of the device iframe. */
-	title: string;
+/** Icon of each target of the mobile stage. The target switch and the turn-on card use it. */
+export const MOBILE_TARGET_ICON: Record<MobilePreviewTarget, Icon> = {
+	web: GlobeIcon,
+	ios: AppleLogoIcon,
+	android: AndroidLogoIcon,
 };
 
-/**
- * Starts one device session on the button, never on mount: each minute
- * costs money. Ends the session on stop, on the Appetize end, and on unmount.
- */
-export function DevicePanel({ projectId, platform, title }: DevicePanelProps) {
+// Large soft blobs of the brand colors on the night ground, behind the glass card.
+const BACKDROP_STYLE: CSSProperties = {
+	backgroundImage: [
+		"radial-gradient(70% 42% at 12% 14%, color-mix(in oklab, var(--color-ember) 85%, transparent), transparent 70%)",
+		"radial-gradient(62% 40% at 96% 50%, color-mix(in oklab, var(--color-spark) 55%, transparent), transparent 72%)",
+		"radial-gradient(80% 44% at 24% 100%, color-mix(in oklab, var(--color-cream) 40%, transparent), transparent 72%)",
+	].join(", "),
+};
+
+/** Props of the phone screen of a device target. PhonePreview passes the useDeviceSession state. */
+export type DeviceScreenProps = {
+	/** The device target of the stage. It picks the logo and the title of the turn-on card. */
+	platform: PhoneDevice;
+	/** The session phase from useDeviceSession. Every phase but `running` shows the card. */
+	phase: DevicePhase;
+	/** Seconds before Appetize ends an idle session, from its warning; null without a warning. */
+	idleWarningSeconds: number | null;
+	/** Id of the iframe that the Appetize SDK fills, from useDeviceSession. */
+	frameId: string;
+	/** Accessible name of the stream iframe. */
+	title: string;
+	/** Starts a session. Each device minute costs money, so only this button starts one. */
+	onStart: () => void;
+};
+
+/** The phone screen of a device target. The card covers the stream until it runs. */
+export function DeviceScreen({
+	platform,
+	phase,
+	idleWarningSeconds,
+	frameId,
+	title,
+	onStart,
+}: DeviceScreenProps) {
 	const { t } = useTranslation();
-	const baseFrameId = useId();
-	// Each start gets a fresh iframe, so the SDK never reuses an ended embed.
-	const [attempt, setAttempt] = useState(0);
-	const frameId = `${baseFrameId}-${attempt}`;
-	const [phase, setPhase] = useState<DevicePhase>({ kind: "idle" });
-	const [idleWarningSeconds, setIdleWarningSeconds] = useState<number | null>(
-		null,
-	);
-	const [now, setNow] = useState(() => Date.now());
-	const clientRef = useRef<AppetizeClient | null>(null);
-	const sessionRef = useRef<AppetizeSession | null>(null);
-	// The row of the open session; null before a start and after the end call.
-	const deviceSessionIdRef = useRef<string | null>(null);
-	// The attempt of the last start; the start reads it after its awaits.
-	const attemptRef = useRef(0);
-
-	// Tells the API once that the session ended, with the Appetize token when one started.
-	const reportEnd = useCallback(() => {
-		const deviceSessionId = deviceSessionIdRef.current;
-		if (deviceSessionId === null) return;
-		deviceSessionIdRef.current = null;
-		void endDeviceSession(
-			projectId,
-			deviceSessionId,
-			sessionRef.current?.token,
-		).catch((error: unknown) => {
-			// LIMIT: a lost end call (or a closed tab) leaves the row open. The
-			// minutes task bills its own clock, at most 15 minutes, and the user
-			// lock expires after 17 minutes. Upgrade: a sendBeacon end route.
-			console.error("Device session end failed", error);
-		});
-	}, [projectId]);
-
-	const start = useCallback(async () => {
-		attemptRef.current += 1;
-		// The "starting" render mounts the iframe of this attempt before the SDK looks for it.
-		const attemptFrameId = `${baseFrameId}-${attemptRef.current}`;
-		setAttempt(attemptRef.current);
-		setPhase({ kind: "starting" });
-		setIdleWarningSeconds(null);
-		sessionRef.current = null;
-		try {
-			const config = await startDeviceSession(projectId, platform);
-			deviceSessionIdRef.current = config.deviceSessionId;
-			const sdk = await loadAppetize();
-			const client = await sdk.getClient(`#${CSS.escape(attemptFrameId)}`, {
-				buildId: config.publicKey,
-				codec: "h264",
-				device: config.device,
-				launchUrl: config.launchUrl,
-				osVersion: config.osVersion,
-				params: config.params,
-				scale: "auto",
-			});
-			clientRef.current = client;
-			client.on("queue", (data) => {
-				const queue = appetizeQueueEventSchema.safeParse(data);
-				if (queue.success) {
-					setPhase({ kind: "queued", position: queue.data.position });
-				}
-			});
-			client.on("session", (session) => {
-				sessionRef.current = session;
-				setPhase({
-					kind: "running",
-					endsAtMs: Date.now() + config.timeLimitSeconds * 1000,
-				});
-				session.on("inactivityWarning", (data) => {
-					const warning = appetizeInactivityWarningSchema.safeParse(data);
-					if (warning.success) {
-						setIdleWarningSeconds(warning.data.secondsRemaining);
-					}
-				});
-			});
-			client.on("sessionEnded", () => {
-				reportEnd();
-				setPhase({ kind: "ended" });
-			});
-			const onFailure = (error: unknown) => {
-				// No stack trace reaches the user; the console keeps it.
-				console.error("Appetize session failed", error);
-				reportEnd();
-				setPhase({
-					kind: "error",
-					message: t("appBuilder.devicePreview.failed"),
-					isExhausted: false,
-				});
-			};
-			client.on("sessionError", onFailure);
-			client.on("error", onFailure);
-			await client.startSession();
-		} catch (error) {
-			reportEnd();
-			setPhase({
-				kind: "error",
-				// The phone link needs a running sandbox, like the preview frame.
-				message:
-					isApiClientError(error) && error.code === "SANDBOX_NOT_RUNNING"
-						? t("appBuilder.devicePreview.notRunning")
-						: getApiErrorMessage(error),
-				isExhausted:
-					isApiClientError(error) && error.code === "DEVICE_MINUTES_EXHAUSTED",
-			});
-		}
-	}, [baseFrameId, platform, projectId, reportEnd, t]);
-
-	const stop = useCallback(async () => {
-		await clientRef.current?.endSession().catch((error: unknown) => {
-			console.error("Appetize end failed", error);
-		});
-		// A queued start has no session, so Appetize sends no end event.
-		reportEnd();
-		setPhase({ kind: "ended" });
-	}, [reportEnd]);
-
-	// A view switch, a device switch, or a page leave ends the session.
-	useEffect(
-		() => () => {
-			void clientRef.current?.endSession().catch((error: unknown) => {
-				console.error("Appetize end failed", error);
-			});
-			reportEnd();
-		},
-		[reportEnd],
-	);
-
-	// The countdown ticks each second, and a heartbeat each minute keeps a
-	// watched device alive. A hidden tab sends none, so Appetize can end it.
-	const isRunning = phase.kind === "running";
-	useEffect(() => {
-		if (!isRunning) return;
-		const tickId = setInterval(() => setNow(Date.now()), 1000);
-		const heartbeatId = setInterval(() => {
-			if (document.visibilityState !== "visible") return;
-			setIdleWarningSeconds(null);
-			void sessionRef.current?.heartbeat().catch((error: unknown) => {
-				console.error("Appetize heartbeat failed", error);
-			});
-		}, HEARTBEAT_INTERVAL_MS);
-		return () => {
-			clearInterval(tickId);
-			clearInterval(heartbeatId);
-		};
-	}, [isRunning]);
 
 	return (
-		<div className="flex size-full flex-col gap-3">
-			<DeviceControls
-				phase={phase}
-				remainingSeconds={
-					phase.kind === "running"
-						? Math.max(Math.ceil((phase.endsAtMs - now) / 1000), 0)
-						: null
-				}
-				idleWarningSeconds={idleWarningSeconds}
-				onStart={() => void start()}
-				onStop={() => void stop()}
-				onReload={() => {
-					void sessionRef.current?.restartApp().catch((error: unknown) => {
-						console.error("Appetize restart failed", error);
-					});
-				}}
-				onDevMenu={() => {
-					void sessionRef.current?.shake().catch((error: unknown) => {
-						console.error("Appetize shake failed", error);
-					});
-				}}
-			/>
+		<div className="absolute inset-0 bg-night">
 			{/* The SDK fills this iframe; it stays mounted from the first start on. */}
 			{phase.kind === "idle" ? null : (
 				<iframe
 					key={frameId}
 					id={frameId}
 					title={title}
-					className="min-h-0 w-full flex-1 rounded-lg border-0"
+					className="absolute inset-0 size-full border-0"
 				/>
+			)}
+			{phase.kind === "running" ? (
+				idleWarningSeconds === null ? null : (
+					<p
+						role="status"
+						className="absolute inset-x-4 bottom-6 rounded-full bg-night/85 px-3 py-2 text-center font-grotesk font-medium text-[12px] text-paper ring-1 ring-white/10 backdrop-blur-md"
+					>
+						{t("appBuilder.devicePreview.idleWarning", {
+							seconds: String(Math.ceil(idleWarningSeconds)),
+						})}
+					</p>
+				)
+			) : (
+				<div
+					className="absolute inset-0 grid place-items-center bg-night px-5"
+					style={BACKDROP_STYLE}
+				>
+					<DeviceCard platform={platform} phase={phase} onStart={onStart} />
+				</div>
 			)}
 		</div>
 	);
 }
 
-export type DeviceControlsProps = {
+/** The glass card of every phase but `running`: a medallion, a title, a note, and the button. */
+function DeviceCard({
+	platform,
+	phase,
+	onStart,
+}: Pick<DeviceScreenProps, "platform" | "phase" | "onStart">) {
+	const { t } = useTranslation();
+	const PlatformIcon = MOBILE_TARGET_ICON[platform];
+	const platformTitle = t(
+		platform === "ios"
+			? "appBuilder.mobileStage.iosTitle"
+			: "appBuilder.mobileStage.androidTitle",
+	);
+
+	let medallion: ReactNode = (
+		<PlatformIcon aria-hidden weight="fill" className="size-6" />
+	);
+	let heading = platformTitle;
+	let note: ReactNode = t("appBuilder.devicePreview.startHint");
+	let buttonLabel: string | null = t("appBuilder.devicePreview.start");
+	let ButtonIcon: Icon = PowerIcon;
+	let isButtonDisabled = false;
+	if (phase.kind === "starting" || phase.kind === "queued") {
+		medallion = (
+			<CircleNotchIcon
+				aria-hidden
+				weight="bold"
+				className="size-6 animate-spin text-spark motion-reduce:animate-none"
+			/>
+		);
+		heading =
+			phase.kind === "starting"
+				? t("appBuilder.devicePreview.starting")
+				: t("appBuilder.mobileStage.queued", {
+						position: String(phase.position),
+					});
+		note =
+			phase.kind === "queued" ? t("appBuilder.mobileStage.queueNote") : null;
+		buttonLabel = null;
+	} else if (phase.kind === "ended") {
+		heading = t("appBuilder.devicePreview.ended");
+		buttonLabel = t("appBuilder.devicePreview.again");
+	} else if (phase.kind === "error") {
+		medallion = (
+			<WarningCircleIcon
+				aria-hidden
+				weight="fill"
+				className="size-6 text-spark"
+			/>
+		);
+		heading = t(
+			phase.didStart
+				? "appBuilder.mobileStage.stoppedTitle"
+				: "appBuilder.mobileStage.errorTitle",
+		);
+		note = <span role="alert">{phase.message}</span>;
+		buttonLabel = t("appBuilder.devicePreview.retry");
+		ButtonIcon = ArrowClockwiseIcon;
+		// The month minutes are spent: a new start would fail the same way.
+		isButtonDisabled = phase.isExhausted;
+	}
+
+	return (
+		<div
+			// Screen readers hear each new phase, like "Starting the device…".
+			aria-live="polite"
+			className="flex w-full flex-col items-center rounded-[24px] bg-white/10 px-5 pt-6 pb-5 text-center text-white ring-1 ring-white/15 backdrop-blur-xl"
+		>
+			<span className="grid size-12 place-items-center rounded-full bg-white/[0.12] ring-1 ring-white/20">
+				{medallion}
+			</span>
+			<p className="mt-3.5 text-balance font-grotesk font-semibold text-[17px] leading-tight">
+				{heading}
+			</p>
+			{note === null ? null : (
+				<p className="mt-1.5 text-pretty font-sans text-[13px] text-white/70 leading-snug">
+					{note}
+				</p>
+			)}
+			{buttonLabel === null ? null : (
+				<Button
+					onClick={onStart}
+					disabled={isButtonDisabled}
+					className="mt-5 h-10 rounded-full bg-spark px-5 font-grotesk font-semibold text-night hover:bg-spark/90 has-[>svg]:px-5"
+				>
+					<ButtonIcon aria-hidden weight="bold" />
+					{buttonLabel}
+				</Button>
+			)}
+		</div>
+	);
+}
+
+/** Props of the session buttons in the stage bar. PhonePreview passes the useDeviceSession state. */
+export type DeviceBarControlsProps = {
+	/** The session phase from useDeviceSession. Only `queued` and `running` show buttons. */
 	phase: DevicePhase;
-	/** Seconds left of the running session, or null when no session runs. */
-	remainingSeconds: number | null;
-	/** Seconds before Appetize ends an idle session, from its warning; null without a warning. */
-	idleWarningSeconds: number | null;
-	onStart: () => void;
+	/** True on a narrow stage bar, from PhonePreview: the chip shows the bare time and Stop shows only its icon. */
+	isCompact: boolean;
+	/** Ends the session, or leaves the queue. */
 	onStop: () => void;
 	/** Restarts the app in Expo Go. */
-	onReload: () => void;
+	onRestartApp: () => void;
 	/** Shakes the device, so Expo Go opens its dev menu. */
 	onDevMenu: () => void;
 };
 
-/** Status line and buttons of the device panel. */
-export function DeviceControls({
+/** End of the stage bar on a device target: the countdown and the session buttons. Nothing while no session is open. */
+export function DeviceBarControls({
 	phase,
-	remainingSeconds,
-	idleWarningSeconds,
-	onStart,
+	isCompact,
 	onStop,
-	onReload,
+	onRestartApp,
 	onDevMenu,
-}: DeviceControlsProps) {
+}: DeviceBarControlsProps) {
 	const { t } = useTranslation();
-
-	if (
-		phase.kind === "idle" ||
-		phase.kind === "ended" ||
-		phase.kind === "error"
-	) {
-		const isExhausted = phase.kind === "error" && phase.isExhausted;
-		let message = t("appBuilder.devicePreview.startHint");
-		if (phase.kind === "error") message = phase.message;
-		if (phase.kind === "ended") message = t("appBuilder.devicePreview.ended");
-		return (
-			<div className="flex flex-col items-center gap-2 text-center">
-				<p
-					role={phase.kind === "error" ? "alert" : undefined}
-					className="text-muted-foreground text-sm"
-				>
-					{message}
-				</p>
-				<Button size="sm" onClick={onStart} disabled={isExhausted}>
-					<Play className="size-3.5" />
-					{phase.kind === "idle"
-						? t("appBuilder.devicePreview.start")
-						: t("appBuilder.devicePreview.again")}
-				</Button>
-			</div>
-		);
-	}
-
-	let status: string;
-	if (phase.kind === "starting") {
-		status = t("appBuilder.devicePreview.starting");
-	} else if (phase.kind === "queued") {
-		status = t("appBuilder.devicePreview.queue", {
-			position: String(phase.position),
-		});
-	} else if (idleWarningSeconds !== null) {
-		status = t("appBuilder.devicePreview.idleWarning", {
-			seconds: String(Math.ceil(idleWarningSeconds)),
-		});
-	} else {
-		status = t("appBuilder.devicePreview.timeLeft", {
-			time: formatCountdown(remainingSeconds ?? 0),
-		});
-	}
+	// No session exists while idle, starting, ended, or failed, so there is nothing to stop.
+	if (phase.kind !== "running" && phase.kind !== "queued") return null;
 
 	return (
-		<div className="flex items-center justify-between gap-2">
-			<span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground text-xs">
-				{phase.kind === "running" ? null : (
-					<Loader2 className="size-3.5 shrink-0 animate-spin" />
-				)}
-				{status}
-			</span>
-			<span className="flex shrink-0 items-center gap-1">
-				{phase.kind === "running" ? (
-					<>
+		<>
+			{phase.kind === "running" ? (
+				<>
+					<TimeLeftChip endsAtMs={phase.endsAtMs} isCompact={isCompact} />
+					<IconAction label={t("appBuilder.devicePreview.reload")}>
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							aria-label={t("appBuilder.devicePreview.reload")}
-							onClick={onReload}
+							className={TOOLBAR_ICON_BUTTON_CLASS}
+							onClick={onRestartApp}
 						>
-							<RefreshCw className="size-3.5" />
+							<ArrowClockwiseIcon aria-hidden weight="bold" />
 						</Button>
+					</IconAction>
+					<IconAction label={t("appBuilder.devicePreview.devMenu")}>
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							aria-label={t("appBuilder.devicePreview.devMenu")}
+							className={TOOLBAR_ICON_BUTTON_CLASS}
 							onClick={onDevMenu}
 						>
-							<Menu className="size-3.5" />
+							<HandWavingIcon aria-hidden weight="bold" />
 						</Button>
-					</>
-				) : null}
-				{/* No session exists while the start call runs, so there is nothing to stop. */}
-				{phase.kind === "starting" ? null : (
-					<Button variant="outline" size="sm" onClick={onStop}>
-						<Square className="size-3" />
-						{t("appBuilder.devicePreview.stop")}
-					</Button>
+					</IconAction>
+				</>
+			) : null}
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={onStop}
+				className={cn(
+					"rounded-full border-night/15 bg-transparent font-grotesk font-medium text-night hover:bg-night/[0.05] hover:text-night dark:border-white/15 dark:bg-transparent dark:text-foreground dark:hover:bg-white/[0.06]",
+					isCompact
+						? "px-2.5 has-[>svg]:px-2.5"
+						: "ms-1 px-3.5 has-[>svg]:px-3.5",
 				)}
-			</span>
-		</div>
+			>
+				<StopIcon aria-hidden weight="fill" className="size-3" />
+				{/* The label stays the accessible name when only the icon shows. */}
+				<span className={isCompact ? "sr-only" : undefined}>
+					{t("appBuilder.devicePreview.stop")}
+				</span>
+			</Button>
+		</>
+	);
+}
+
+/** The time left of the running session. Only the chip ticks each second, so the stage and its iframe do not re-render. */
+function TimeLeftChip({
+	endsAtMs,
+	isCompact,
+}: {
+	/** End of the time limit, ms since epoch, from the running phase. */
+	endsAtMs: number;
+	/** True on a narrow stage bar: the chip shows the bare time, without the dot. */
+	isCompact: boolean;
+}) {
+	const { t } = useTranslation();
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const tickId = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(tickId);
+	}, []);
+	const remainingSeconds = Math.max(Math.ceil((endsAtMs - now) / 1000), 0);
+	const time = formatCountdown(remainingSeconds);
+	const timeLeft = t("appBuilder.devicePreview.timeLeft", { time });
+
+	// Each minute costs money, so the chip shows at every width.
+	return (
+		<span
+			className={cn(
+				"flex h-8 shrink-0 items-center gap-2 rounded-full bg-night/[0.05] font-grotesk font-medium text-[13px] text-night/75 tabular-nums dark:bg-white/[0.06] dark:text-foreground/75",
+				isCompact ? "px-2.5" : "me-1 px-3",
+			)}
+		>
+			{isCompact ? (
+				<>
+					<span aria-hidden>{time}</span>
+					{/* Screen readers hear the full text, also on a narrow bar. */}
+					<span className="sr-only">{timeLeft}</span>
+				</>
+			) : (
+				<>
+					<span aria-hidden className="size-1.5 rounded-full bg-success" />
+					{timeLeft}
+				</>
+			)}
+		</span>
 	);
 }
 

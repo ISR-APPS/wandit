@@ -61,9 +61,11 @@ function sceneShown(container: HTMLElement): string | null {
 	);
 }
 
-/** The parts of both app drawings. Only they have the draw-on dash pattern. */
+/** The parts of both app drawings: the draw-on paths outside the server room (viewBox 0 0 320 200), whose cables also draw on. */
 function planParts(container: HTMLElement): Element[] {
-	return [...container.querySelectorAll("path[stroke-dasharray='1 1']")];
+	return [...container.querySelectorAll("path[stroke-dasharray='1 1']")].filter(
+		(part) => part.closest("svg")?.getAttribute("viewBox") !== "0 0 320 200",
+	);
 }
 
 /** Moves the fake clock and lets React and motion finish the frames of that time. */
@@ -117,7 +119,7 @@ describe("PreviewBootScreen", () => {
 		expect(screen.queryByText("Your app is asleep")).toBeNull();
 	});
 
-	it("shows the gathering Spark for a new app, then draws the app when it answers", async () => {
+	it("hides the app drawing while a new app is set up, then draws it when the app answers", async () => {
 		const { container, rerender } = renderScreen();
 		expect(sceneShown(container)).toBe("create");
 		expect(planParts(container)).toHaveLength(0);
@@ -134,11 +136,17 @@ describe("PreviewBootScreen", () => {
 		expect(screen.getByText("All set")).toBeTruthy();
 	});
 
-	it("keeps the sleeping drawing on screen while the app wakes and opens", async () => {
+	// The server room takes the place of the drawing for a new app and for a saved app.
+	it.each([
+		{ app: "a new app", booting: FIRST_TURN_BOOTING, scene: "create" },
+		{ app: "a saved app", booting: WAKE_BOOTING, scene: "wake" },
+	])("keeps the sleeping drawing while it fades out for $app, then draws it again", async ({
+		booting,
+		scene,
+	}) => {
 		const { container, rerender } = renderScreen(NO_TURN);
 		await advance(1_300);
 		expect(sceneShown(container)).toBe("asleep");
-		expect(planParts(container).length).toBeGreaterThan(0);
 		// The first anchor is the wide one. The Spark rests on the center of the app picture.
 		const anchorStyle = container
 			.querySelector("div[style*='inset-inline-start']")
@@ -146,44 +154,26 @@ describe("PreviewBootScreen", () => {
 		expect(anchorStyle).toContain("inset-inline-start: 71.8%");
 		expect(anchorStyle).toContain("top: 45.09%");
 
-		rerender(screenElement(WAKE_BOOTING));
-		expect(sceneShown(container)).toBe("wake");
-		await advance(1_000);
-		expect(screen.getByText("Waking up your app")).toBeTruthy();
-
-		rerender(screenElement({ ...WAKE_BOOTING, turnPhase: SESSION_STARTING }));
-		expect(sceneShown(container)).toBe("open");
-		// The drawing was already on screen, so it only changes color and never draws again.
-		expect(planParts(container).length).toBeGreaterThan(0);
-		for (const part of planParts(container)) {
-			expect(part.getAttribute("class")).not.toContain("animate-draw");
-		}
-	});
-
-	it("keeps the drawing while it fades out for a new app, then draws it again", async () => {
-		const { container, rerender } = renderScreen(NO_TURN);
-		await advance(1_300);
-		expect(sceneShown(container)).toBe("asleep");
-
-		rerender(screenElement(FIRST_TURN_BOOTING));
-		expect(sceneShown(container)).toBe("create");
+		rerender(screenElement(booting));
+		expect(sceneShown(container)).toBe(scene);
 		expect(planParts(container).length).toBeGreaterThan(0);
 
-		rerender(
-			screenElement({ ...FIRST_TURN_BOOTING, turnPhase: SESSION_STARTING }),
-		);
+		rerender(screenElement({ ...booting, turnPhase: SESSION_STARTING }));
 		expect(sceneShown(container)).toBe("open");
 		for (const part of planParts(container)) {
 			expect(part.getAttribute("class")).toContain("animate-draw");
 		}
 	});
 
-	it("starts the ember buttons hidden when the app answers at mount", () => {
+	it("starts the amber buttons hidden when the app answers at mount", () => {
 		const { container } = renderScreen({
 			...FIRST_TURN_BOOTING,
 			turnPhase: SESSION_STARTING,
 		});
-		const fills = container.querySelectorAll("path[fill^='url(']");
+		// The button fills sit in a group after the drawing parts.
+		const fills = container.querySelectorAll(
+			"path[stroke-dasharray='1 1'] ~ g > path.fill-spark",
+		);
 		expect(fills.length).toBeGreaterThan(0);
 		for (const fill of fills) {
 			expect(fill.parentElement?.getAttribute("opacity")).toBe("0");

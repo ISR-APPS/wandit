@@ -1244,7 +1244,8 @@
 		"backend": {
 			"none": {
 				"description": "Un backend donne à ton app une base de données, des comptes utilisateurs et un stockage de fichiers. Wandit l'installe et le gère pour toi.",
-				"enable": "Activer le backend"
+				"enable": "Activer le backend",
+				"title": "Ajoute un backend à ton app"
 			},
 			"limit": {
 				"inUse": {
@@ -1259,7 +1260,8 @@
 			"restoring": "Réveil de ta base de données.",
 			"paused": {
 				"description": "Le backend se met en veille quand personne n'utilise l'app pendant un moment. Réveille-le pour voir tes données.",
-				"wake": "Réveiller"
+				"wake": "Réveiller",
+				"title": "Ton backend est en veille"
 			},
 			"deleting": "Le backend de ce projet est en cours de suppression.",
 			"error": {
@@ -1272,8 +1274,11 @@
 					"baseSchemaMissing": "Le backend a démarré, mais ses tables de base sont absentes.",
 					"restoreFailed": "Ta base de données ne s'est pas réveillée.",
 					"unknown": "Une erreur inattendue a arrêté l'installation du backend."
-				}
-			}
+				},
+				"title": "L'installation du backend s'est arrêtée"
+			},
+			"waitingTitle": "Ton backend démarre",
+			"deletingTitle": "Suppression du backend"
 		},
 		"database": {
 			"sections": {
@@ -1378,7 +1383,6 @@
 			}
 		},
 		"secrets": {
-			"description": "Les secrets sont des valeurs privées que ton app utilise côté serveur, par exemple des clés d'API. Wandit les garde chiffrés et n'affiche plus jamais une valeur.",
 			"columns": {
 				"name": "Nom",
 				"kind": "Défini par",
@@ -1453,6 +1457,15 @@
 			"unnamed": "Tâche {id}",
 			"notInstalled": "Les tâches planifiées sont désactivées. L'extension pg_cron n'est pas activée dans la base de ton app.",
 			"empty": "Ton app n'a pas encore de tâche planifiée. Demande à l'agent d'en ajouter une."
+		},
+		"descriptions": {
+			"database": "Les tables de ton app. Ouvre une table pour voir ses lignes, ou lance du SQL.",
+			"users": "Les personnes inscrites à ton app, et les inscriptions des 30 derniers jours.",
+			"storage": "Les fichiers que ton app garde, rangés par buckets.",
+			"secrets": "Les secrets sont des valeurs privées que ton app utilise côté serveur, par exemple des clés d'API. Wandit les garde chiffrés et n'affiche plus jamais une valeur.",
+			"logs": "Ce que le backend de ton app a fait, par fenêtre de 24 heures.",
+			"functions": "Le code serveur que ton app appelle. Chaque fonction s'exécute à la demande.",
+			"jobs": "Les tâches qui s'exécutent selon un planning dans la base de données de ton app."
 		}
 	}
 }

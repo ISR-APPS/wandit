@@ -15,9 +15,9 @@ export type SignupsChartProps = {
 };
 
 // Units of the SVG viewBox. The SVG stretches to the panel width, so only
-// the ratios count: each day gets 10 units, the bar 8, and the gap 2.
+// the ratios count: each day gets 10 units, the bar 6, and the gap 4.
 const DAY_WIDTH = 10;
-const BAR_WIDTH = 8;
+const BAR_WIDTH = 6;
 const CHART_HEIGHT = 100;
 // A day without sign-ups keeps a 2-unit stub on the baseline, so all 30 days show.
 const EMPTY_DAY_HEIGHT = 2;
@@ -44,7 +44,7 @@ export function SignupsChart({ days }: SignupsChartProps) {
 				preserveAspectRatio="none"
 				role="img"
 				aria-label={t("workspace.cloud.users.signups.chartLabel")}
-				className="h-28 w-full"
+				className="h-32 w-full"
 			>
 				{days.map((day, index) => {
 					const height =
@@ -52,7 +52,7 @@ export function SignupsChart({ days }: SignupsChartProps) {
 							? EMPTY_DAY_HEIGHT
 							: (day.count / busiestDay) * CHART_HEIGHT;
 					return (
-						<g key={day.date}>
+						<g key={day.date} className="group">
 							<title>
 								{t("workspace.cloud.users.signups.day", {
 									date: formatDate(day.date, locale, DAY_FORMAT),
@@ -74,7 +74,9 @@ export function SignupsChart({ days }: SignupsChartProps) {
 								width={BAR_WIDTH}
 								height={height}
 								className={
-									day.count === 0 ? "fill-muted-foreground/30" : "fill-primary"
+									day.count === 0
+										? "fill-muted-foreground/30"
+										: "fill-spark transition-colors group-hover:fill-ember"
 								}
 							/>
 						</g>
@@ -82,7 +84,7 @@ export function SignupsChart({ days }: SignupsChartProps) {
 				})}
 			</svg>
 			{firstDay && lastDay ? (
-				<figcaption className="flex justify-between text-muted-foreground text-xs">
+				<figcaption className="flex justify-between font-grotesk text-night/45 text-xs tabular-nums dark:text-foreground/45">
 					<span>{formatDate(firstDay.date, locale, DAY_FORMAT)}</span>
 					<span>{formatDate(lastDay.date, locale, DAY_FORMAT)}</span>
 				</figcaption>

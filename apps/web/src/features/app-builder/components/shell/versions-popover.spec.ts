@@ -11,6 +11,7 @@ import {
 import type { AppCommit, VersionDiffResponse } from "@wandit/contracts";
 import { fallbackDictionary } from "@wandit/internationalization";
 import { I18nProvider } from "@wandit/internationalization/react";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,7 +45,8 @@ const VERSIONS = [
 ] satisfies AppCommit[];
 
 // The Diff toggle mounts VersionDiff, which reads versionDiffQuery, so every
-// render needs a query client even when no test opens a diff.
+// render needs a query client even when no test opens a diff. Each DiffCard
+// has a copy button with a tooltip, so the render also needs the provider.
 function renderList(
 	versions: AppCommit[],
 	queryClient = new QueryClient(),
@@ -67,7 +69,11 @@ function renderList(
 		createElement(
 			QueryClientProvider,
 			{ client: queryClient },
-			createElement(I18nProvider, providerProps),
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(I18nProvider, providerProps),
+			),
 		),
 	);
 	return { onRestore };

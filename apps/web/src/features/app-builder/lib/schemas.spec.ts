@@ -33,10 +33,9 @@ describe("appBuilderSearchSchema", () => {
 		).toEqual({});
 	});
 
-	it("parses the tablet viewport", () => {
-		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({
-			viewport: "tablet",
-		});
+	// The tablet viewport is gone. An old link must still open the workspace.
+	it("drops the old tablet viewport", () => {
+		expect(appBuilderSearchSchema.parse({ viewport: "tablet" })).toEqual({});
 	});
 
 	it("parses the Secrets Cloud panel", () => {

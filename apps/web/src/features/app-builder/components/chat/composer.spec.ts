@@ -3,11 +3,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Composer, type ComposerProps } from "./composer";
 
+// The page mounts one TooltipProvider; the icon buttons need it too.
 function renderComposer(props: Partial<ComposerProps> = {}) {
 	const onSend = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
@@ -19,14 +21,18 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 		children: createElement(
 			QueryClientProvider,
 			{ client: new QueryClient() },
-			createElement(Composer, {
-				turnEstimateCredits: 6,
-				targets: [],
-				onRemoveTarget: vi.fn(),
-				isSending: false,
-				onSend,
-				...props,
-			}),
+			createElement(
+				TooltipProvider,
+				null,
+				createElement(Composer, {
+					turnEstimateCredits: 6,
+					targets: [],
+					onRemoveTarget: vi.fn(),
+					isSending: false,
+					onSend,
+					...props,
+				}),
+			),
 		),
 	};
 	render(createElement(I18nProvider, providerProps));

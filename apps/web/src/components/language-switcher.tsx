@@ -1,3 +1,7 @@
+/**
+ * Language pickers: the locale rows inside the user menu, and a standalone
+ * dropdown for pages without that menu. Both call setLocale of the i18n context.
+ */
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -35,18 +39,16 @@ export function LanguageSwitcherMenuItems() {
 						onSelect={() => setLocale(code)}
 						className={cn(
 							"gap-2.5 py-2",
-							isActive && "bg-primary/10 focus:bg-primary/15",
+							isActive && "bg-spark/[0.14] focus:bg-spark/20",
 						)}
 					>
 						<LocaleFlag locale={code} className="size-5" />
 						<span className="flex flex-1 items-baseline gap-1.5">
-							<span
-								className={cn("font-medium", isActive && "text-foreground")}
-							>
-								{nativeLabel}
-							</span>
+							<span className="font-medium">{nativeLabel}</span>
 							{label !== nativeLabel ? (
-								<span className="text-muted-foreground text-xs">{label}</span>
+								<span className="font-normal font-sans text-muted-foreground text-xs">
+									{label}
+								</span>
 							) : null}
 						</span>
 						<CheckIcon
@@ -92,9 +94,7 @@ export function LanguageSwitcher({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="min-w-52">
-				<DropdownMenuLabel className="text-muted-foreground text-xs">
-					{t("common.language")}
-				</DropdownMenuLabel>
+				<DropdownMenuLabel>{t("common.language")}</DropdownMenuLabel>
 				<LanguageSwitcherMenuItems />
 			</DropdownMenuContent>
 		</DropdownMenu>

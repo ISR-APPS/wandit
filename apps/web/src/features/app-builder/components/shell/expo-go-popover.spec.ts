@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,12 +19,17 @@ function renderBody(overrides: Partial<ExpoGoLinkBodyProps> = {}) {
 		onRefresh: vi.fn(),
 		...overrides,
 	};
+	// The page mounts one TooltipProvider; the copy button needs it too.
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
 		locale: "en",
 		dictionary: fallbackDictionary,
 		setLocale: () => {},
-		children: createElement(ExpoGoLinkBody, props),
+		children: createElement(
+			TooltipProvider,
+			null,
+			createElement(ExpoGoLinkBody, props),
+		),
 	};
 	render(createElement(I18nProvider, providerProps));
 	return props;
@@ -32,22 +38,12 @@ function renderBody(overrides: Partial<ExpoGoLinkBodyProps> = {}) {
 afterEach(cleanup);
 
 describe("ExpoGoLinkBody", () => {
-	it("shows the QR, the URL, the copy button, the store links, the SDK, and the OAuth note", () => {
+	it("shows the QR of a ready link with its URL and copy button", () => {
 		renderBody();
 
 		expect(screen.getByTitle("QR code of the Expo Go link")).toBeTruthy();
 		expect(screen.getByText(EXPO_URL)).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "App Store" }).getAttribute("href"),
-		).toContain("apps.apple.com");
-		expect(
-			screen.getByRole("link", { name: "Google Play" }).getAttribute("href"),
-		).toContain("host.exp.exponent");
-		expect(screen.getByText(/Needs Expo Go for SDK 57/)).toBeTruthy();
-		expect(
-			screen.getByText("Google sign-in does not work in Expo Go."),
-		).toBeTruthy();
 	});
 
 	it("replaces an expired QR with a new-link button", () => {
@@ -73,8 +69,13 @@ describe("ExpoGoLinkBody", () => {
 		expect(props.onRefresh).toHaveBeenCalledOnce();
 	});
 
-	it("saves a typed username and blocks one the API would reject", () => {
+	it("opens the username field from its link, saves a typed name, and blocks one the API would reject", () => {
 		const props = renderBody();
+		// Android needs no username, so the field stays closed until the user asks for it.
+		expect(screen.queryByLabelText("Expo Go username (iPhone)")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "iPhone? Add your Expo Go username" }),
+		);
 		const input = screen.getByLabelText("Expo Go username (iPhone)");
 		const save = screen.getByRole("button", { name: "Save" });
 
@@ -87,16 +88,5 @@ describe("ExpoGoLinkBody", () => {
 		fireEvent.change(input, { target: { value: "zack_dev" } });
 		fireEvent.click(save);
 		expect(props.onSaveUsername).toHaveBeenCalledWith("zack_dev");
-	});
-
-	it("shows a saved username with a change button that opens the field", () => {
-		renderBody({ expoUsername: "zack" });
-
-		expect(screen.getByText("iPhone account: zack")).toBeTruthy();
-		expect(screen.queryByLabelText("Expo Go username (iPhone)")).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Change Expo Go username" }),
-		);
-		expect(screen.getByLabelText("Expo Go username (iPhone)")).toBeTruthy();
 	});
 });

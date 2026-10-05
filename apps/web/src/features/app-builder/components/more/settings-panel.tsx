@@ -21,7 +21,6 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@wandit/ui/components/alert-dialog";
-import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Field,
@@ -36,6 +35,7 @@ import {
 	InputGroupText,
 } from "@wandit/ui/components/input-group";
 import { Skeleton } from "@wandit/ui/components/skeleton";
+import { cn } from "@wandit/ui/lib/utils";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 
@@ -55,7 +55,13 @@ import {
 import type { AppProject } from "../../api/dto";
 import { CLOUD_EMPTY_CELL } from "../../lib/constants";
 import { costCapToDraft, toCostCapsBody } from "../../lib/helpers";
-import { KindBadge } from "../shell/project-menu";
+import {
+	PANEL_CARD_CLASS,
+	PANEL_INPUT_CLASS,
+	PANEL_PRIMARY_BUTTON_CLASS,
+	PANEL_SECONDARY_BUTTON_CLASS,
+	PanelChip,
+} from "./panel-shell";
 
 export type SettingsPanelProps = {
 	/** The project the page reads from appProjectQuery. Its fields fill the form. */
@@ -63,6 +69,25 @@ export type SettingsPanelProps = {
 	/** Opens the Secrets panel of the Backend group. undefined while the Backend group is hidden, so the link does not show. */
 	onOpenSecrets: (() => void) | undefined;
 };
+
+/** Label above a field of a card. */
+const FIELD_LABEL_CLASS =
+	"font-grotesk font-medium text-[13px] text-night/70 dark:text-foreground/70";
+
+/** Title of a card. */
+const CARD_TITLE_CLASS =
+	"font-grotesk font-semibold text-[15px] text-night dark:text-foreground";
+
+/** Hint line under a card title or a field. */
+const HINT_CLASS =
+	"font-sans text-[13px] text-night/55 dark:text-foreground/55";
+
+/** Hairline above each row of a card. */
+const CARD_ROW_CLASS = "border-night/[0.07] border-t dark:border-white/[0.07]";
+
+/** Pill frame of a cap field with its credits addon. The read-only project URL has its own tinted frame. */
+const INPUT_GROUP_CLASS =
+	"h-10 rounded-full border-night/[0.12] bg-white shadow-none dark:border-white/[0.12] dark:bg-white/[0.04]";
 
 export function SettingsPanel({ project, onOpenSecrets }: SettingsPanelProps) {
 	const { t } = useTranslation();
@@ -73,28 +98,36 @@ export function SettingsPanel({ project, onOpenSecrets }: SettingsPanelProps) {
 		<>
 			<ProjectSection project={project} />
 			{onOpenSecrets ? (
-				<section className="flex items-center justify-between gap-4 rounded-2xl border bg-card p-4">
-					<div>
-						<h2 className="font-semibold">
+				<section
+					className={cn(
+						PANEL_CARD_CLASS,
+						"flex flex-wrap items-center justify-between gap-4 p-5",
+					)}
+				>
+					<div className="min-w-0">
+						<h2 className={CARD_TITLE_CLASS}>
 							{t("appBuilder.settings.secretsTitle")}
 						</h2>
-						<p className="text-muted-foreground text-xs">
-							{t("appBuilder.settings.secretsHelp")}
-						</p>
+						<p className={HINT_CLASS}>{t("appBuilder.settings.secretsHelp")}</p>
 					</div>
-					<Button variant="outline" size="sm" onClick={onOpenSecrets}>
+					<Button
+						variant="outline"
+						size="sm"
+						className={PANEL_SECONDARY_BUTTON_CLASS}
+						onClick={onOpenSecrets}
+					>
 						{t("appBuilder.settings.openSecrets")}
 					</Button>
 				</section>
 			) : null}
-			<section className="rounded-2xl border bg-card p-4">
-				<h2 className="font-semibold">
+			<section className={cn(PANEL_CARD_CLASS, "p-5")}>
+				<h2 className={CARD_TITLE_CLASS}>
 					{t("appBuilder.settings.limitsTitle")}
 				</h2>
 				{actorCanManageWorkspace ? (
 					<SpendingLimits projectId={project.id} />
 				) : (
-					<p className="mt-1 text-muted-foreground text-xs">
+					<p className={cn(HINT_CLASS, "mt-0.5")}>
 						{t("appBuilder.settings.limitsManagersOnly")}
 					</p>
 				)}
@@ -114,11 +147,13 @@ function ProjectSection({ project }: { project: AppProject }) {
 	const languageNames = new Intl.DisplayNames([locale], { type: "language" });
 
 	return (
-		<section className="rounded-2xl border bg-card p-4">
-			<h2 className="mb-3 font-semibold">{t("appBuilder.settings.project")}</h2>
+		<section className={cn(PANEL_CARD_CLASS, "p-5")}>
+			<h2 className={cn(CARD_TITLE_CLASS, "mb-4")}>
+				{t("appBuilder.settings.project")}
+			</h2>
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<Field>
-					<FieldLabel htmlFor={nameId}>
+				<Field className="gap-2">
+					<FieldLabel htmlFor={nameId} className={FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.name")}
 					</FieldLabel>
 					{/* The key resets the draft when another project loads or a save changes the name. */}
@@ -128,6 +163,7 @@ function ProjectSection({ project }: { project: AppProject }) {
 						defaultValue={project.name}
 						maxLength={PROJECT_NAME_MAX_LENGTH}
 						dir="auto"
+						className={PANEL_INPUT_CLASS}
 						onBlur={(event) => {
 							const input = event.currentTarget;
 							const name = input.value.trim();
@@ -153,14 +189,17 @@ function ProjectSection({ project }: { project: AppProject }) {
 						}}
 					/>
 				</Field>
-				<Field>
-					<FieldLabel htmlFor={projectUrlId}>
+				<Field className="gap-2">
+					<FieldLabel htmlFor={projectUrlId} className={FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.projectUrl")}
 					</FieldLabel>
-					{/* The project URL is the builder link, not the published domain. */}
-					<InputGroup className="h-9 rounded-md">
-						<InputGroupAddon>
-							<InputGroupText>
+					{/* The project URL is the builder link, not the published domain. A URL reads left to right in every locale. */}
+					<InputGroup
+						dir="ltr"
+						className="h-10 rounded-full border-night/[0.12] bg-night/[0.025] shadow-none dark:border-white/[0.12] dark:bg-white/[0.03]"
+					>
+						<InputGroupAddon className="ps-4">
+							<InputGroupText className="font-mono text-[12.5px] text-night/45 dark:text-foreground/45">
 								{t("appBuilder.settings.projectUrlPrefix")}
 							</InputGroupText>
 						</InputGroupAddon>
@@ -168,43 +207,48 @@ function ProjectSection({ project }: { project: AppProject }) {
 							id={projectUrlId}
 							readOnly
 							value={project.id}
-							className="font-semibold"
+							className="pe-4 font-medium font-mono text-[12.5px] text-night dark:text-foreground"
 						/>
 					</InputGroup>
 				</Field>
 			</div>
-			<dl className="mt-4 flex flex-col gap-3 border-t pt-4 text-sm">
-				<div className="flex items-center justify-between gap-4">
+			<dl className={cn(CARD_ROW_CLASS, "mt-5 flex flex-col gap-4 pt-4")}>
+				<div className="flex flex-wrap items-center justify-between gap-4">
 					<dt>
-						<p className="font-medium">
+						<p className="font-grotesk font-medium text-[14px] text-night dark:text-foreground">
 							{t("appBuilder.settings.projectType")}
 						</p>
-						<p className="text-muted-foreground text-xs">
+						<p className={HINT_CLASS}>
 							{t("appBuilder.settings.projectTypeHelp")}
 						</p>
 					</dt>
 					<dd>
-						<KindBadge kind={project.kind} />
+						<PanelChip>{t(`appBuilder.kind.${project.kind}`)}</PanelChip>
 					</dd>
 				</div>
-				<div className="flex items-center justify-between gap-4">
-					<dt className="font-medium">{t("appBuilder.settings.languages")}</dt>
+				<div className="flex flex-wrap items-center justify-between gap-4">
+					<dt className="font-grotesk font-medium text-[14px] text-night dark:text-foreground">
+						{t("appBuilder.settings.languages")}
+					</dt>
 					<dd className="flex flex-wrap justify-end gap-1.5">
 						{project.languages.length === 0
 							? CLOUD_EMPTY_CELL
 							: project.languages.map((language) => (
-									<Badge key={language} variant="secondary">
+									<PanelChip key={language}>
 										{capitalize(languageNames.of(language) ?? language, locale)}
-									</Badge>
+									</PanelChip>
 								))}
 					</dd>
 				</div>
-				<div className="flex items-center justify-between gap-4">
-					<dt className="font-medium">
+				<div className="flex flex-wrap items-center justify-between gap-4">
+					<dt className="font-grotesk font-medium text-[14px] text-night dark:text-foreground">
 						{t("appBuilder.settings.templateVersion")}
 					</dt>
 					{/* A version number reads left to right in every locale. */}
-					<dd dir="ltr" className="font-mono text-xs">
+					<dd
+						dir="ltr"
+						className="font-mono text-[12.5px] text-night/70 dark:text-foreground/70"
+					>
 						{project.templateVersion ?? CLOUD_EMPTY_CELL}
 					</dd>
 				</div>
@@ -219,11 +263,11 @@ function SpendingLimits({ projectId }: { projectId: string }) {
 
 	if (caps.data === undefined) {
 		return caps.isError ? (
-			<p className="mt-1 text-destructive text-xs">
+			<p className="mt-1 font-sans text-[13px] text-destructive">
 				{getApiErrorMessage(caps.error)}
 			</p>
 		) : (
-			<Skeleton className="mt-3 h-24" />
+			<Skeleton className="mt-4 h-24 rounded-[16px]" />
 		);
 	}
 	// A save writes new caps into the query. The new key resets the drafts to the stored values.
@@ -269,7 +313,7 @@ function SpendingLimitsForm({
 
 	return (
 		<form
-			className="mt-3 flex flex-col gap-4"
+			className="mt-4 flex flex-col gap-4"
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (!body || !isChanged) return;
@@ -279,11 +323,11 @@ function SpendingLimitsForm({
 			}}
 		>
 			<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<Field>
-					<FieldLabel htmlFor={perTurnId}>
+				<Field className="gap-2">
+					<FieldLabel htmlFor={perTurnId} className={FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.perTurnLimit")}
 					</FieldLabel>
-					<InputGroup className="h-9 rounded-md">
+					<InputGroup className={INPUT_GROUP_CLASS}>
 						<InputGroupInput
 							id={perTurnId}
 							type="number"
@@ -294,23 +338,24 @@ function SpendingLimitsForm({
 							placeholder={t("appBuilder.settings.perTurnDefault")}
 							aria-invalid={!isPerTurnValid}
 							aria-describedby={isPerTurnValid ? undefined : errorId}
+							className="ps-4 tabular-nums placeholder:text-night/40 dark:placeholder:text-foreground/40"
 							onChange={(event) => setPerTurnCredits(event.target.value)}
 						/>
-						<InputGroupAddon align="inline-end">
-							<InputGroupText>
+						<InputGroupAddon align="inline-end" className="pe-4">
+							<InputGroupText className="font-grotesk text-[12.5px] text-night/45 dark:text-foreground/45">
 								{t("appBuilder.settings.creditsUnit")}
 							</InputGroupText>
 						</InputGroupAddon>
 					</InputGroup>
-					<FieldDescription>
+					<FieldDescription className={HINT_CLASS}>
 						{t("appBuilder.settings.perTurnHelp")}
 					</FieldDescription>
 				</Field>
-				<Field>
-					<FieldLabel htmlFor={monthlyId}>
+				<Field className="gap-2">
+					<FieldLabel htmlFor={monthlyId} className={FIELD_LABEL_CLASS}>
 						{t("appBuilder.settings.monthlyLimit")}
 					</FieldLabel>
-					<InputGroup className="h-9 rounded-md">
+					<InputGroup className={INPUT_GROUP_CLASS}>
 						<InputGroupInput
 							id={monthlyId}
 							type="number"
@@ -321,26 +366,31 @@ function SpendingLimitsForm({
 							placeholder={t("appBuilder.settings.monthlyNone")}
 							aria-invalid={!isMonthlyValid}
 							aria-describedby={isMonthlyValid ? undefined : errorId}
+							className="ps-4 tabular-nums placeholder:text-night/40 dark:placeholder:text-foreground/40"
 							onChange={(event) => setMonthlyCredits(event.target.value)}
 						/>
-						<InputGroupAddon align="inline-end">
-							<InputGroupText>
+						<InputGroupAddon align="inline-end" className="pe-4">
+							<InputGroupText className="font-grotesk text-[12.5px] text-night/45 dark:text-foreground/45">
 								{t("appBuilder.settings.creditsUnit")}
 							</InputGroupText>
 						</InputGroupAddon>
 					</InputGroup>
-					<FieldDescription>
+					<FieldDescription className={HINT_CLASS}>
 						{t("appBuilder.settings.monthlyHelp")}
 					</FieldDescription>
 				</Field>
 			</div>
 			<div className="flex items-center justify-between gap-3">
-				<p id={errorId} role="alert" className="text-destructive text-xs">
+				<p
+					id={errorId}
+					role="alert"
+					className="font-sans text-[13px] text-destructive"
+				>
 					{body === null ? t("appBuilder.settings.limitsInvalid") : null}
 				</p>
 				<Button
 					type="submit"
-					size="sm"
+					className={cn(PANEL_PRIMARY_BUTTON_CLASS, "h-10 px-5")}
 					disabled={!isChanged || update.isPending}
 				>
 					{t("appBuilder.settings.limitsSave")}
@@ -365,12 +415,12 @@ function DeleteZone({
 	const deleteProject = useDeleteProject();
 
 	return (
-		<section className="flex items-center justify-between gap-4 rounded-2xl border border-destructive/40 p-4">
-			<div>
-				<h2 className="font-semibold">
+		<section className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-destructive/25 bg-destructive/[0.03] p-5 dark:border-destructive/30 dark:bg-destructive/[0.06]">
+			<div className="min-w-0 max-w-md">
+				<h2 className="font-grotesk font-semibold text-[15px] text-destructive">
 					{t("appBuilder.settings.deleteTitle")}
 				</h2>
-				<p className="text-muted-foreground text-xs">
+				<p className="mt-0.5 font-sans text-[13px] text-night/60 dark:text-foreground/60">
 					{canDelete
 						? t("appBuilder.settings.deleteHelp")
 						: t("appBuilder.settings.deleteManagersOnly")}
@@ -380,6 +430,7 @@ function DeleteZone({
 				<AlertDialogTrigger asChild>
 					<Button
 						variant="destructive"
+						className="h-10 px-5 font-grotesk font-semibold"
 						disabled={!canDelete || deleteProject.isPending}
 					>
 						{t("appBuilder.settings.delete")}
@@ -429,7 +480,7 @@ function DeleteZone({
 	);
 }
 
-/** Intl gives French language names in lower case ("arabe"). A badge label starts with a capital, like the other labels. */
+/** Intl gives French language names in lower case ("arabe"). A chip label starts with a capital, like the other labels. */
 function capitalize(text: string, locale: string): string {
 	return text.charAt(0).toLocaleUpperCase(locale) + text.slice(1);
 }
