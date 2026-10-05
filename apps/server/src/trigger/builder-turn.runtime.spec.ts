@@ -2443,8 +2443,8 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		// 5000 cc = 50 credits × $0.032 = $1.60.
-		expect(world.minted[0]?.capUsd).toBeCloseTo(1.6);
+		// 1,000,000 cc = 10,000 credits × $0.032 = $320.
+		expect(world.minted[0]?.capUsd).toBeCloseTo(320);
 	});
 
 	it("passes the proxy env to the session without a provider key", async () => {
