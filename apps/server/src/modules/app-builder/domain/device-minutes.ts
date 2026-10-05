@@ -27,14 +27,17 @@ export const DEVICE_SESSION_LOCK_TTL_MS =
 	DEVICE_SESSION_TIME_LIMIT_SECONDS * 1000 + DEVICE_SESSION_GRACE_MS;
 
 /**
- * Device minutes per plan in one UTC calendar month. ESTIMATE: Zack checks
- * the numbers before the merge. `starter` is also the plan of a user with
- * no subscription, so a free user gets none.
+ * Device minutes per plan in one UTC calendar month. 100000 means no
+ * practical limit. Every plan gets it for the staging tests, also `starter`,
+ * the plan of a user with no subscription. The Appetize queue
+ * (`maxConcurrent`), the session time limit, and the idle timeout still
+ * limit the cost.
  */
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
 export const DEVICE_MINUTES_PER_PLAN = Object.freeze({
-	starter: 0,
-	pro: 60,
-	business: 180,
+	starter: 100_000,
+	pro: 100_000,
+	business: 100_000,
 } satisfies Record<BillingPlanId, number>);
 
 /**
