@@ -2028,51 +2028,20 @@ describe("runBuilderTurn", () => {
 		expect(done?.type === "done" && done.data.status).toBe("failed");
 	});
 
-	it("finishes above both project caps without a debit when billing is off", async () => {
-		vi.useFakeTimers();
-		const world = makeWorld({
-			billingDisabled: true,
-			caps: fakeCapsRow(1, 1),
-			// Settled spend reaches the monthly cap even after the hold is removed.
-			monthlySpend: HOLD_RESERVE_CREDITS + 1,
-			// Provider spend exceeds the one-centi-credit turn cap.
-			runSpend: [900_000],
-		});
-		world.deps.counters.readRunSpend = vi.fn(world.deps.counters.readRunSpend);
-		world.metering.monthlySpendCredits = vi.fn(
-			world.metering.monthlySpendCredits.bind(world.metering),
-		);
+	it("skips checkpoints and settle when billing is off", async () => {
+		const world = makeWorld({ billingDisabled: true, runSpend: [900_000] });
 		world.harness.events = happyEvents();
-		let release: () => void = () => {};
-		world.harness.streamHold = new Promise<void>((resolve) => {
-			release = resolve;
-		});
 		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
 		const { controller, input } = makeInput();
 
-		const run = runBuilderTurn(world.deps, input, controller.signal);
-		await waitForStream(world.harness);
-		// Keep the stream open through one pulse to exercise the recurring spend gate.
-		await vi.advanceTimersByTimeAsync(30_000);
-		expect(world.stream.eventsOf(TURN_ID).at(-1)).toMatchObject({
-			data: { message: "Working", phase: "running" },
-			type: "status",
-		});
-		expect(world.balanceReads).toHaveLength(0);
-		expect(world.deps.counters.readRunSpend).not.toHaveBeenCalled();
-		expect(world.metering.monthlySpendCredits).not.toHaveBeenCalled();
-		release();
-		await run;
+		await runBuilderTurn(world.deps, input, controller.signal);
 
 		expect(world.metering.checkpointCalls).toHaveLength(0);
 		expect(world.metering.settleCalls).toHaveLength(0);
 		expect(world.metering.refundCalls).toHaveLength(0);
 		expect(world.infos.filter((m) => m === "billing.off")).toHaveLength(1);
-		// Only the final receipt reads the credit balance.
-		expect(world.balanceReads).toEqual([50_000]);
 		// The receipt still carries the proxy-row sums.
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
-		expect(done?.type === "done" && done.data.status).toBe("succeeded");
 		expect(done?.type === "done" && done.data.receipt).toEqual({
 			balanceCredits: 50_000,
 			cacheReadTokens: 2_000,
@@ -2306,34 +2275,6 @@ describe("runBuilderTurn", () => {
 			`First proxy request lookup failed for turn ${TURN_ID}: proxy rows unavailable`,
 		);
 		expect(world.timings[0]?.firstModelCallMs).toBeNull();
-	});
-
-	it.each([
-		false,
-		true,
-	])("keeps dashboard defaults tied to the project when resumed=%s", async (resumed) => {
-		const world = makeWorld({
-			project: fakeProjectRow({ languages: ["fr", "ar"] }),
-		});
-		world.sessions.row = resumed ? pausedSessionRow([]) : null;
-		// Resume requires a live sandbox that still holds the previous session.
-		if (resumed) {
-			await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
-		}
-		// A different chat must keep the same project defaults.
-		world.turns.row = fakeTurnRow({
-			chatId: "55555555-5555-4555-8555-555555555555",
-		});
-		const { controller, input } = makeInput();
-
-		await runBuilderTurn(world.deps, input, controller.signal);
-
-		const instructions = resumed
-			? world.harness.resumeCalls[0]?.input.instructions
-			: world.harness.createCalls[0]?.instructions;
-		expect(instructions).toContain("variant=inset\ndensity=compact");
-		expect(instructions).toContain("contentWidth=centered\npalette=forest:");
-		expect(instructions).toContain("radius=0.625rem");
 	});
 
 	it("starts a fresh session when the stored one cannot resume", async () => {

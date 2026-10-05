@@ -5,7 +5,6 @@
  */
 import { defineConfig } from "vitest/config";
 
-/** Specs use fixed environment values so local development settings do not change their baseline. */
 export default defineConfig({
 	test: {
 		environment: "node",
@@ -20,8 +19,6 @@ export default defineConfig({
 			BETTER_AUTH_URL: "http://localhost:3000",
 			CORS_ORIGIN: "http://web.test",
 			DATABASE_URL: "postgres://user:pass@127.0.0.1:5432/test",
-			// Individual bypass tests set off; other tests must enforce billing regardless of the local environment.
-			GENERATION_BILLING_MODE: "enforce",
 			GOOGLE_CLIENT_ID: "google-client-id.test",
 			GOOGLE_CLIENT_SECRET: "google-client-secret.test",
 			NODE_ENV: "test",

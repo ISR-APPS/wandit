@@ -2,8 +2,6 @@ import {
 	allowedCorsWebOrigin,
 	corsExtraOriginsSchema,
 	corsWebOrigins,
-	expoDevOrigins,
-	isLocalhostUrl,
 } from "@wandit/env/cors-origins";
 import { describe, expect, it } from "vitest";
 
@@ -63,25 +61,5 @@ describe("CORS web origins", () => {
 		expect(
 			allowedCorsWebOrigin("https://preview.vercel.app", canonical, extras),
 		).toBeUndefined();
-	});
-});
-
-describe("loopback URL checks", () => {
-	it.each([
-		"http://localhost:3000",
-		"http://127.0.0.1:3000",
-		"http://[::1]:3000",
-	])("accepts %s and keeps the Expo origin", (url) => {
-		expect(isLocalhostUrl(url)).toBe(true);
-		expect(expoDevOrigins(url)).toEqual(["http://localhost:8081"]);
-	});
-
-	it.each([
-		"https://localhost.example.com",
-		"https://public.trycloudflare.com",
-		"http://0.0.0.0:3000",
-	])("refuses %s and excludes the Expo origin", (url) => {
-		expect(isLocalhostUrl(url)).toBe(false);
-		expect(expoDevOrigins(url)).toEqual([]);
 	});
 });

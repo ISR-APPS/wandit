@@ -1,8 +1,12 @@
 /**
- * Coordinates turn creation, cancellation, stream access, and queue promotion.
- * The turn controller calls this service, which uses repositories, metering, and project locks.
- * Billing-off mode skips credit holds and the monthly spend gate for local tests.
- * A failure after a credit hold refunds it.
+ * Orchestration behind the turn API: create, the pre-send estimate, cancel,
+ * stream access checks, and the end-of-turn promotion trigger.
+ * Called by `turns.controller.ts`. It orders the side effects the issue
+ * fixes: scope/engine checks first (404 before any credit moves), then the
+ * model allow-list, the monthly cap, and the per-actor turn limit, then
+ * the `agent_session` metering hold, then the session row, the project
+ * lock, the turn row, the user message, and the task handoff. Every
+ * failure after the hold refunds it.
  * It writes the `turn.start` and `turn.cancel` audit rows through `AuditEventsService`,
  * and `turn.end` when its own `cancelling -> canceled` CAS wins.
  */
@@ -134,7 +138,6 @@ export const HARNESS_BY_ENV: Record<V2Harness, HarnessKind> = {
 	opencode: "opencode",
 };
 
-/** Coordinates turn writes through project locks and refunds failed credit holds. */
 @Injectable()
 export class TurnsService {
 	private readonly logger = new Logger(TurnsService.name);
@@ -252,11 +255,10 @@ export class TurnsService {
 			model = body.model;
 		}
 
-		const billingOff = env.GENERATION_BILLING_MODE === "off";
-		// Local billing-off tests can exceed the monthly cap without a credit hold.
+		// The monthly cap refuses before the hold: the pool could pay, the
+		// cap could not — buying credits is not the fix.
 		const caps = await this.caps.findByProjectId(projectId);
 		if (
-			!billingOff &&
 			caps?.monthlyCapCredits != null &&
 			(await this.metering.monthlySpendCredits(
 				projectId,
@@ -297,6 +299,7 @@ export class TurnsService {
 		// project lock and the turn tables untouched. InsufficientCreditsError
 		// passes through unchanged. GENERATION_BILLING_MODE=off keeps the
 		// local dev bypass: no reserve, nothing to refund later.
+		const billingOff = env.GENERATION_BILLING_MODE === "off";
 		const hold = billingOff
 			? null
 			: await this.metering.reserveWithReplay("agent_session", subject, {
