@@ -56,11 +56,9 @@ function fakeReply(options: { stallFirstWrite?: boolean } = {}) {
 }
 
 function fakeRequest(userId = "user-1") {
-	const raw = new EventEmitter();
-	// SAFETY: the relay reads `headers`, `raw`, and `user` only.
+	// SAFETY: the relay reads `headers` and `user` only.
 	return {
 		headers: {},
-		raw,
 		user: { id: userId },
 	} as unknown as FastifyRequest & { user?: { id: string } };
 }
@@ -535,7 +533,7 @@ describe("TurnStreamRelayService.relay", () => {
 		expect(rateLimit.release).not.toHaveBeenCalled();
 	});
 
-	it("ends with error frames and [DONE] when the reader fails", async () => {
+	it("closes with no frame when the read fails, so the browser reopens", async () => {
 		const failingReader: TurnEventReader = {
 			read: () => ({
 				[Symbol.asyncIterator]() {
@@ -555,22 +553,8 @@ describe("TurnStreamRelayService.relay", () => {
 			turnId: "turn-9",
 		});
 
-		expect(parsedFrames(chunks)).toEqual([
-			{
-				data: {
-					code: "STREAM_READ_FAILED",
-					message: "The turn event stream was interrupted",
-					retryable: true,
-				},
-				id: "turn-error",
-				type: "data-turn-error",
-			},
-			{
-				errorText: "The turn event stream was interrupted",
-				type: "error",
-			},
-			"[DONE]",
-		]);
+		// The turn can still run: an `error` chunk would end the chat.
+		expect(parsedFrames(chunks)).toEqual([]);
 		expect(raw.end).toHaveBeenCalled();
 	});
 
@@ -627,22 +611,23 @@ describe("TurnStreamRelayService.relay", () => {
 		}
 	});
 
-	it("stops reading when the browser disconnects", async () => {
+	it("stops reading and frees the slot when the browser disconnects", async () => {
 		const stream = new FakeTurnEventStream();
-		const { relay } = setup(stream);
+		const { rateLimit, relay } = setup(stream);
 		const { raw, reply } = fakeReply();
-		const request = fakeRequest();
 
 		const done = relay.relay({
 			reply,
-			request,
+			request: fakeRequest(),
 			triggerRunId: "run-1",
 			turnId: "turn-1",
 		});
 		// Emit close on the next tick so the relay is inside `read` already.
-		setImmediate(() => request.raw.emit("close"));
+		// Node emits it on the response: the request is gone after its body.
+		setImmediate(() => raw.emit("close"));
 
 		await done;
 		expect(raw.end).toHaveBeenCalled();
+		expect(rateLimit.release).toHaveBeenCalled();
 	});
 });

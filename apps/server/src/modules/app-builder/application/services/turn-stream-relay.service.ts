@@ -137,12 +137,14 @@ export class TurnStreamRelayService {
 		raw.flushHeaders?.();
 		await this.writeComment(raw, "connected");
 
-		// A closed browser tab aborts the Trigger stream read.
+		// A closed browser tab or a cut aborts the stream read and frees the
+		// slot. Node destroys `request.raw` once the body is read, so only the
+		// response emits `close` when the browser leaves.
 		const close = () => {
 			closed = true;
 			abort.abort();
 		};
-		request.raw.on("close", close);
+		raw.on("close", close);
 		const heartbeat = setInterval(() => {
 			if (!closed) {
 				void this.writeComment(raw, "heartbeat").catch((error) => {
@@ -158,6 +160,9 @@ export class TurnStreamRelayService {
 		}, HEARTBEAT_INTERVAL_MS);
 
 		const lagMs: number[] = [];
+		// An event written before this connection opened is a replay. Its age
+		// is not stream lag, so the lag line skips it.
+		const openedAt = Date.now();
 		// The store to read: the Trigger run id, or the turn id of a host-run
 		// turn. Null while the row names neither yet.
 		let source: { reader: TurnEventReader; id: string } | null =
@@ -218,7 +223,9 @@ export class TurnStreamRelayService {
 						continue;
 					}
 					lastSeenId = event.id;
-					lagMs.push(Math.max(0, Date.now() - event.at));
+					if (event.at >= openedAt) {
+						lagMs.push(Math.max(0, Date.now() - event.at));
+					}
 
 					// After a cut, the browser drops the replay chunks it has by
 					// count, so one event must give the same chunks on each read.
@@ -288,42 +295,19 @@ export class TurnStreamRelayService {
 				}
 			}
 		} catch (error) {
+			// The turn can still run, so the relay writes no error frame and
+			// only closes. The browser then reopens the turn stream, as after a
+			// cut. A turn that ended replays to its `done` on that reopen.
 			if (!closed && !abort.signal.aborted) {
 				this.logger.warn(
 					`Turn stream read failed for turn ${turnId}: ${
 						error instanceof Error ? error.message : String(error)
 					}`,
 				);
-				// The client sees a reason for the close, not a silent hang.
-				const data = {
-					code: "STREAM_READ_FAILED",
-					message: "The turn event stream was interrupted",
-					retryable: true,
-				};
-				try {
-					await this.writeChunk(raw, {
-						data,
-						id: "turn-error",
-						type: "data-turn-error",
-					});
-					await this.writeChunk(raw, {
-						errorText: data.message,
-						type: "error",
-					});
-					await this.writeDone(raw);
-				} catch (writeError) {
-					this.logger.warn(
-						`Error frames for turn ${turnId} could not be written: ${
-							writeError instanceof Error
-								? writeError.message
-								: String(writeError)
-						}`,
-					);
-				}
 			}
 		} finally {
 			clearInterval(heartbeat);
-			request.raw.off("close", close);
+			raw.off("close", close);
 			abort.abort();
 			if (!raw.destroyed) {
 				raw.end();
@@ -456,8 +440,8 @@ export class TurnStreamRelayService {
 
 	/**
 	 * Structured lag line: p50 and max of `Date.now() - event.at` for the
-	 * batch. The D20 trigger says Trigger streams stay until p50 lag tops
-	 * 300 ms — this is the number that decision watches.
+	 * live events of the batch. The D20 trigger says Trigger streams stay
+	 * until p50 lag tops 300 ms — this is the number that decision watches.
 	 */
 	private logLag(triggerRunId: string, lagMs: number[]): void {
 		if (lagMs.length === 0) {
