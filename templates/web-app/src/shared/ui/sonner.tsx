@@ -1,15 +1,15 @@
 // Toast renderer wired to the semantic tokens.
 // The root route mounts <Toaster /> once; any code can call toast().
 
-import type * as React from "react";
-import { Toaster as Sonner, type ToasterProps } from "sonner";
 import {
 	CircleCheckIcon,
 	InfoIcon,
-	Loader2Icon,
+	LoaderCircleIcon,
 	OctagonXIcon,
 	TriangleAlertIcon,
-} from "~/shared/ui/icons";
+} from "lucide-react";
+import type * as React from "react";
+import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 /** The toast area. The theme is fixed, so it must match the class on <html>. */
 function Toaster({ ...props }: ToasterProps) {
@@ -24,7 +24,7 @@ function Toaster({ ...props }: ToasterProps) {
 				info: <InfoIcon className="size-4" />,
 				warning: <TriangleAlertIcon className="size-4" />,
 				error: <OctagonXIcon className="size-4" />,
-				loading: <Loader2Icon className="size-4 animate-spin" />,
+				loading: <LoaderCircleIcon className="size-4 animate-spin" />,
 			}}
 			style={
 				// SAFETY: sonner accepts CSS custom properties here; CSSProperties lacks them.

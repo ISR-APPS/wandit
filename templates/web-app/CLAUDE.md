@@ -134,6 +134,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
   The app recipe in your session instructions gives the look and the layout. The user's words win over it.
 - An internal tool has no public page: only the team of one business signs in. `/` redirects to `/app`.
   The request does not say who signs in: build an internal tool, and offer a public page in the final answer.
+  The word "SaaS" alone does not say that the public signs up.
 - A product that the public signs up for gets one short public page in the app theme, with no world.
 - A website, and the public pages of Both: load the `frontend-design` skill before every new page
   and every redesign. It gives the process and the quality bar: plan the tokens,
@@ -299,6 +300,9 @@ This section gives its data path.
   It validates the fields with zod, then calls
   `getSupabaseServer().rpc("submit_order", { ... })`. The browser never names the
   table or the RPC.
+- The `<form>` has `method="post"`. Its submit button has `disabled={!isHydrated || isPending}`,
+  with `const isHydrated = useHydrated()` from `@tanstack/react-router`. A visitor can submit
+  before the page script loads. Then the browser sends the form itself, and a GET puts the fields in the URL.
 - On an RPC error, the server function logs `error.message` and answers one general
   failure. The database error text never reaches the browser.
 - The honeypot is exactly `<input type="text" name="website" data-wandit-hp

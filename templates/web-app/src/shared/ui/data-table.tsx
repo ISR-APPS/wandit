@@ -2,16 +2,16 @@
 // A list page passes its rows and its columns; this file adds no fetch and no dependency.
 // Sort, search, and paging are derived during render from three pieces of state.
 
-import { type ReactNode, useState } from "react";
-import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Button } from "~/shared/ui/button";
 import {
 	ArrowUpDownIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
 	SearchIcon,
-} from "~/shared/ui/icons";
+} from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { useT } from "~/shared/i18n";
+import { cn } from "~/shared/lib/utils";
+import { Button } from "~/shared/ui/button";
 import { Input } from "~/shared/ui/input";
 import {
 	Table,

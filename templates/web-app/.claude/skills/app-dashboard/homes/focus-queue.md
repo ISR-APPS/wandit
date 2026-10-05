@@ -289,6 +289,7 @@ export function OverviewPageError() {
 // OverviewPage passes the open rows of the list query. Each reference links to its detail page.
 // The tabs are local UI state (Radix, uncontrolled). The full list page holds the filters.
 import { Link } from "@tanstack/react-router";
+import { ArrowRightIcon } from "lucide-react";
 import {
 	WORK_ORDER_STATUS_BADGE,
 	WORK_ORDER_STATUSES,
@@ -306,7 +307,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "~/shared/ui/card";
-import { ArrowRightIcon } from "~/shared/ui/icons";
 import { Skeleton } from "~/shared/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/shared/ui/tabs";
 
