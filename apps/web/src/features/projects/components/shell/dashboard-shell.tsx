@@ -1,7 +1,7 @@
 /**
  * The frame of the dashboard pages: the floating sidebar and the top bar
- * around the page content. The dashboard, leads, assets, academy, and
- * affiliates pages render it.
+ * around the page content. The dashboard, leads, assets, academy,
+ * affiliates, and billing pages render it.
  */
 import { SidebarInset, SidebarProvider } from "@wandit/ui/components/sidebar";
 import type * as React from "react";
