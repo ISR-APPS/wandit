@@ -856,10 +856,13 @@ One run does this, in order:
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
    harness mismatch is a failure. The session instructions give the UI
-   language as a hint for the app language, the `ask_user` rule, the
-   description language, and the CLAUDE.md work rules (plan, checks,
-   plain final answer). A mobile project adds the Expo sentence. A web
-   project adds the app design recipe (`domain/app-recipe.ts`): one stable
+   language as a hint for the app language, the `ask_user` rule (scope
+   questions before a vague first build), the description language, the
+   CLAUDE.md work rules (plan, checks, a final answer of at most 100
+   words), the `generate_image` rule, and the rule that online payment is
+   not available. An old project keeps the CLAUDE.md of its template
+   version, so these rules reach it only here. A mobile project adds the
+   Expo sentence. A web project adds the app design recipe (`domain/app-recipe.ts`): one stable
    sentence per project id, so the warm CLI and the prompt cache stay
    valid. Claude Code loads the template `CLAUDE.md` from the workspace
    root. The `session_starting` status is
@@ -985,10 +988,12 @@ the `builder-turn:<turnId>` hold id and the metering subject, so a paid
 tool reserves a measured child event under the parent hold. `close`
 releases per-turn clients (none today — connectors land in a follow-up).
 
-- `generate_image` reuses the V1 `generateBuildImage` pipeline (gateway
-  model, R2 upload, renditions) and writes the bytes into the sandbox
-  project. Rules it pins: the `path` must stay under `public/` or
-  `src/assets/` (checked before any credit moves); at most 6 calls per
+- `generate_image` reuses the V1 `generateBuildImage` pipeline (R2
+  upload, renditions) and writes the bytes into the sandbox project. The
+  gateway models are fixed in `builder-turn.deps.ts`, not read from
+  `AI_IMAGE_MODEL`: GPT Image 2.5 Flare for a new image, GPT Image 2.5
+  Sunburst for an edit of the user's photos. Rules it pins: the `path`
+  must stay under `public/` or `src/assets/` (checked before any credit moves); at most 6 calls per
   turn (`MAX_IMAGES`); the file extension follows the stored media type;
   a child hold is reserved per call (`builder-turn-image:<turnId>:<n>`),
   gateway evidence is captured before settlement, a provider failure

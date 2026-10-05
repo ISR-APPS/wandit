@@ -63,6 +63,13 @@ import type {
 } from "./builder-turn.runtime";
 import { createTriggerMetering } from "./metering.runtime";
 
+// The builder's `generate_image` models. They are not AI_IMAGE_MODEL and
+// AI_IMAGE_EDIT_MODEL, so the V1 chat and site builder keep their env models.
+// GPT Image 2.5 Flare is the fast model for new images.
+const BUILDER_IMAGE_MODEL = "openai/gpt-image-2.5-flare";
+// GPT Image 2.5 Sunburst is the precise edit model, for a call with the user's photos.
+const BUILDER_IMAGE_EDIT_MODEL = "openai/gpt-image-2.5-sunburst";
+
 /**
  * The deps without the event writer, plus the close of every client they
  * hold. Each turn adds the writer of its own path: the Trigger stream or
@@ -186,8 +193,8 @@ export async function createBuilderTurnDeps(
 				audit,
 				backends,
 				client: supabase,
-				imageEditModel: env.AI_IMAGE_EDIT_MODEL ?? null,
-				imageModel: env.AI_IMAGE_MODEL ?? null,
+				imageEditModel: BUILDER_IMAGE_EDIT_MODEL,
+				imageModel: BUILDER_IMAGE_MODEL,
 				logger,
 				metering,
 				networkHosts: new ProjectNetworkHostsRepository(db),
