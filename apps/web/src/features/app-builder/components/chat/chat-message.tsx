@@ -5,7 +5,8 @@
  * In the production view, one summary line opens the details panel, and
  * only the parts the user reads or acts on follow: the final answer, a
  * missing secret, the question lines, the approval card, the error with
- * Retry, the stopped line, and the receipt. The developer view (local dev
+ * Retry, the stopped line, and the receipt. The receipt shows the cache
+ * counts only outside production. The developer view (local dev
  * only) renders every part in stream order, with the thinking text. A Copy
  * action ends a reply that has a final answer. Rendered by chat-pane.tsx;
  * working-row.tsx reuses the byline.
@@ -16,6 +17,7 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import type { FileUIPart } from "ai";
@@ -34,6 +36,15 @@ import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
 import { TargetChip } from "./target-chip";
 import { ThoughtRow } from "./thought-row";
+
+// The cache counts are for the team, so production users never see them.
+// Only a known non-production build shows them. Staging builds set
+// VITE_SENTRY_ENVIRONMENT to "preview". The local Vite dev server sets nothing.
+// Every other build hides them, also a production build without the variable.
+const showsCacheTokens =
+	env.VITE_SENTRY_ENVIRONMENT === "preview" ||
+	env.VITE_SENTRY_ENVIRONMENT === "development" ||
+	(env.VITE_SENTRY_ENVIRONMENT === undefined && import.meta.env.DEV);
 
 /** Props of one message, as chat-pane.tsx passes them. */
 export type ChatMessageViewProps = {
@@ -318,7 +329,8 @@ function MessagePartView({
 						),
 					})}
 					{/* The input count leaves out the cached prompt tokens, so they show on their own. */}
-					{part.data.cacheReadTokens + part.data.cacheWriteTokens > 0
+					{showsCacheTokens &&
+					part.data.cacheReadTokens + part.data.cacheWriteTokens > 0
 						? ` · ${t("appBuilder.chat.receiptCache", {
 								read: formatNumber(part.data.cacheReadTokens, locale),
 								write: formatNumber(part.data.cacheWriteTokens, locale),
