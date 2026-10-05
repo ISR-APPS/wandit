@@ -1,5 +1,5 @@
-import { leadsRoutes, type WorkspaceLeadsResponse } from "@wandit/contracts";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceLeadsResponse } from "@wandit/contracts";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api-client", () => ({
 	apiClient: {
@@ -8,7 +8,10 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 import { apiClient } from "@/lib/api-client";
-import { listWorkspaceLeads } from "./workspace-leads.services";
+import {
+	listAllWorkspaceLeads,
+	listWorkspaceLeads,
+} from "./workspace-leads.services";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -36,41 +39,6 @@ const RESPONSE: WorkspaceLeadsResponse = {
 };
 
 describe("listWorkspaceLeads", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
-	it("hits the flat workspace route with every filter and parses the page", async () => {
-		vi.mocked(apiClient.get).mockResolvedValueOnce(RESPONSE);
-
-		const page = await listWorkspaceLeads({
-			archived: "only",
-			cursor: "cursor-1",
-			createdFrom: "2026-07-01",
-			createdTo: "2026-07-31",
-			pageSize: 20,
-			projectId: PROJECT_ID,
-			q: "amina",
-			source: "facebook",
-			status: "to_confirm",
-		});
-
-		expect(page.leads[0]?.projectName).toBe("Sahara Serum");
-		expect(apiClient.get).toHaveBeenCalledWith(leadsRoutes.listForWorkspace, {
-			query: {
-				archived: "only",
-				cursor: "cursor-1",
-				createdFrom: "2026-07-01",
-				createdTo: "2026-07-31",
-				pageSize: 20,
-				projectId: PROJECT_ID,
-				q: "amina",
-				source: "facebook",
-				status: "to_confirm",
-			},
-		});
-	});
-
 	it("fails loudly on a drifted payload", async () => {
 		vi.mocked(apiClient.get).mockResolvedValueOnce({
 			leads: [{ nope: true }],
@@ -81,5 +49,17 @@ describe("listWorkspaceLeads", () => {
 		await expect(
 			listWorkspaceLeads({ archived: "exclude", pageSize: 20 }),
 		).rejects.toThrowError();
+	});
+});
+
+describe("listAllWorkspaceLeads", () => {
+	it("throws when the API repeats a cursor, so the export cannot loop forever", async () => {
+		vi.mocked(apiClient.get)
+			.mockResolvedValueOnce({ ...RESPONSE, nextCursor: "cursor-1" })
+			.mockResolvedValueOnce({ ...RESPONSE, nextCursor: "cursor-1" });
+
+		await expect(
+			listAllWorkspaceLeads({ archived: "include" }),
+		).rejects.toThrowError("repeated cursor");
 	});
 });

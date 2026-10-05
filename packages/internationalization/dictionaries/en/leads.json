@@ -100,11 +100,27 @@
 	"metaTitle": "Leads — Wandit",
 	"subtitle": "Every order captured across your projects.",
 	"colProject": "Project",
-	"allProjects": "All projects",
 	"allSources": "All sources",
-	"dashEmptyTitle": "No leads yet",
-	"dashEmptyBody": "Publish a page and every order it captures will land here, across all your projects.",
+	"dashEmptyTitle": "No leads",
+	"dashEmptyBody": "Only pages made with the first Wandit builder collect leads. This workspace has none.",
 	"loadError": "Could not load your leads.",
 	"retry": "Retry",
-	"noResultsBodyFilters": "Try another search or clear the filters."
+	"noResultsBodyFilters": "Try another search or clear the filters.",
+	"pageNumber": "Page {page}",
+	"v1Notice": {
+		"title": "Leads are a V1 feature",
+		"body": "Only pages made with the first Wandit builder collect leads. We will remove this page soon. Export your leads now to keep them.",
+		"exportAll": "Export all leads",
+		"exportError": "Could not export your leads. Try again."
+	},
+	"filters": {
+		"button": "Filters",
+		"search": "Search filters…",
+		"noneLeft": "No filter to add.",
+		"choose": "Choose…",
+		"noMatch": "No match.",
+		"searchProjects": "Search projects…",
+		"archive": "Archive",
+		"remove": "Remove the {filter} filter"
+	}
 }

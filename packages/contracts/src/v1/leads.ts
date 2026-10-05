@@ -416,12 +416,21 @@ export function createLeadExportColumns(): LeadExportColumns {
  * Every remaining dynamic form field gets its own column after the promoted
  * order columns, so the header is only known after all rows are collected;
  * leads without a field get an empty cell.
+ * `leadingColumn` is optional. It adds one column before all other columns,
+ * for example the project name in the dashboard Leads export. Its header
+ * joins the fixed headers, so a form field with the same name gets a suffix.
  */
-export function buildLeadsCsv(
-	leads: readonly Lead[],
+export function buildLeadsCsv<TLead extends Lead>(
+	leads: readonly TLead[],
 	headers: readonly string[],
 	orderHeaders: readonly string[],
-	statusLabel: (lead: Lead) => string,
+	statusLabel: (lead: TLead) => string,
+	leadingColumn?: {
+		/** Localized header text of the first column. */
+		header: string;
+		/** Text of the first cell of one lead row. It goes through the same escape as the other cells. */
+		cell: (lead: TLead) => string;
+	},
 ): string {
 	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
 	// doubled quotes are the CSV escape sequence for a literal quote. Cells
@@ -437,6 +446,7 @@ export function buildLeadsCsv(
 	};
 	const exportColumns = createLeadExportColumns();
 	const leadCells = leads.map((lead) => [
+		...(leadingColumn ? [leadingColumn.cell(lead)] : []),
 		lead.name,
 		lead.phone,
 		lead.wilaya ?? "",
@@ -448,7 +458,11 @@ export function buildLeadsCsv(
 		lead.productSku ?? "",
 		...exportColumns.buildCells(lead.extras),
 	]);
-	const fixedHeaders = [...headers, ...orderHeaders];
+	const fixedHeaders = [
+		...(leadingColumn ? [leadingColumn.header] : []),
+		...headers,
+		...orderHeaders,
+	];
 	const csvHeaders = [
 		...fixedHeaders,
 		...dedupeLeadExportHeaderLabels(
