@@ -107,9 +107,19 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 		deps: { fetch: fetchImpl, cancelTurn },
 		postAbortSignal: () => postAbortSignal,
 		cancelSawAbort: () => cancelSawAbort,
-		// Writes the [DONE] terminator like the real wire, then closes.
+		// Writes the done frame and the [DONE] terminator like the relay, then
+		// closes. A close with no done frame makes the transport reopen the turn.
 		endPostStream: () => {
-			postController?.enqueue(encoder.encode("data: [DONE]\n\n"));
+			const doneFrame = {
+				type: "data-turn-done",
+				id: "turn-done",
+				data: { status: "succeeded" },
+			};
+			postController?.enqueue(
+				encoder.encode(
+					`data: ${JSON.stringify(doneFrame)}\n\ndata: [DONE]\n\n`,
+				),
+			);
 			postController?.close();
 		},
 	};

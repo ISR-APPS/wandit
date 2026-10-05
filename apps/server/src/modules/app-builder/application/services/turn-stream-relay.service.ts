@@ -220,6 +220,8 @@ export class TurnStreamRelayService {
 					lastSeenId = event.id;
 					lagMs.push(Math.max(0, Date.now() - event.at));
 
+					// After a cut, the browser drops the replay chunks it has by
+					// count, so one event must give the same chunks on each read.
 					if (event.type === "part") {
 						await this.writeChunk(raw, event.data);
 					} else if (event.type === "status") {
