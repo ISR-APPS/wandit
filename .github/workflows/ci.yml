@@ -1,5 +1,7 @@
 # Runs the repo checks on every pull request and on each push to dev, staging, and main.
 # The checks are biome, the TypeScript checks, and the vitest suites.
+# The vitest suites run as shards on parallel runners. The `test` job reports
+# one result for all shards.
 # The three env values are stubs, not secrets. CI keeps the runners in CI
 # mode. Turbo framework inference passes VITE_* values to the web and
 # admin builds. Turbo strict env mode drops undeclared values like
@@ -42,23 +44,52 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Local Turbo cache only; no remote cache.
+      # The local Turbo cache. Each job has its own key prefix, so a test job
+      # cannot overwrite or restore the cache of this job.
       - uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-turbo-
+          key: ${{ runner.os }}-turbo-typecheck-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-typecheck-
 
       - name: Check types
+        # Only the Turbo steps get the secrets. Without the secrets the values
+        # are empty, and Turbo turns the Vercel remote cache off.
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
         run: pnpm turbo run check-types
 
-  test:
+  # One job per matrix entry. `vitest run --shard=i/n` runs part i of n of
+  # the spec files of one package; Vitest splits the files by count.
+  test-shard:
+    name: test (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       CI: "true"
       SKIP_ENV_VALIDATION: "true"
       VITE_SERVER_URL: http://localhost:3000
+    strategy:
+      # A failed shard does not stop the other shards, so one run shows every failure.
+      fail-fast: false
+      matrix:
+        include:
+          - name: server 1/4
+            command: pnpm turbo run test -F server -- --shard=1/4
+          - name: server 2/4
+            command: pnpm turbo run test -F server -- --shard=2/4
+          - name: server 3/4
+            command: pnpm turbo run test -F server -- --shard=3/4
+          - name: server 4/4
+            command: pnpm turbo run test -F server -- --shard=4/4
+          - name: web 1/2
+            command: pnpm turbo run test -F web -- --shard=1/2
+          - name: web 2/2
+            command: pnpm turbo run test -F web -- --shard=2/2
+          # All other packages with a test script, also packages added later.
+          - name: other packages
+            command: pnpm turbo run test -F '!server' -F '!web'
     steps:
       - uses: actions/checkout@v4
 
@@ -72,15 +103,36 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Local Turbo cache only; no remote cache.
+      # The local Turbo cache, one key prefix per matrix entry. Turbo puts the
+      # --shard value in the task hash, so the cache of another entry gives no hits.
       - uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-turbo-
+          key: ${{ runner.os }}-turbo-test-${{ strategy.job-index }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-test-${{ strategy.job-index }}-
 
       - name: Test
-        run: pnpm turbo run test
+        # Only the Turbo steps get the secrets. Without the secrets the values
+        # are empty, and Turbo turns the Vercel remote cache off.
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+        run: ${{ matrix.command }}
+
+  # The one test check for branch protection. It passes only when every shard passes.
+  test:
+    needs: test-shard
+    # Run after a failed shard too: a skipped required check counts as a pass.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the shard results
+        env:
+          SHARD_RESULT: ${{ needs.test-shard.result }}
+        run: |
+          echo "Result of the test shards: $SHARD_RESULT"
+          test "$SHARD_RESULT" = "success"
 
   biome:
     runs-on: ubuntu-latest
