@@ -1,5 +1,3 @@
-<!-- This file directs the coding agent inside each generated project.
-It connects the user brief to the local skills and template source. -->
 # Rules for the coding agent
 
 You build a web app for a non-technical user inside this project. These rules are binding.
@@ -116,43 +114,22 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
   (a `// biome-ignore` line may sit between the two).
 - `pnpm run typecheck` runs `scripts/check-effects.mjs`. It fails on an effect without that comment.
 
-## Workspace structure
-
-- First select the product structure from the requested user task.
-- SaaS, admin, CRM, analytics, and internal tools use `.claude/skills/dashboard/SKILL.md`.
-- The words "SaaS" and "product" do not mean a marketing page.
-- Build the functional workspace first. A KPI grid is not required for every app.
-- An explicit marketing or landing-page request uses the matching design-world skill.
-- An explicit request for both gets separate marketing and workspace routes.
-- For a new workspace-only app, `/` leads to the workspace through the existing authentication flow.
-- Do not add a marketing page before the workspace unless the user requests one.
-- For existing apps, preserve routes and layout unless the requested change requires their modification.
-- Use `src/shared/ui/dashboard-shell.tsx` for workspace navigation and static shell variants.
-- Use `src/shared/ui/dashboard-content.tsx` for page headers, metrics, and workspace compositions.
-- The feature component owns the domain data and workflow. Routes remain thin.
-
 ## Design
 
 - Load the `frontend-design` skill before every new screen and every redesign.
   It gives the process and the quality bar: plan the tokens, check the plan against the brief,
   build, then check screenshots and fix.
 - A design world gives the direction: palette, fonts, voice, motifs. One world applies per app.
-  Workspace structure comes from the dashboard skill and the actual task.
-  Landing-page sections from a world do not replace workspace structure.
   The world wins on every visual choice that it names. `frontend-design` wins on quality:
   hierarchy, spacing, contrast, accessibility, restraint.
 - This file comes before both skills. A skill section that needs a fact the user did not give
   (a quote, a price, an address, a team member): ask for it, or leave the section out.
-- For a marketing page with no selected world: offer 2 to 4 worlds in the first `ask_user` call,
+- No world is picked: offer 2 to 4 worlds in the first `ask_user` call,
   or pick the closest world and say so. The index skills list the worlds:
   `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`.
 - `src/styles/tokens.css` is the single source of colors, radius, and font names. Put the world tokens there.
   World skills name the fonts `--font-heading` and `--font-body`. In this template they are
   `--font-display` and `--font-sans`.
-- Use existing project design choices before the harness defaults. An explicit user choice takes priority.
-- Save new shell, palette, radius, width, and density choices as static literals and CSS tokens.
-  Keep these choices on later turns. Never select them again during rendering.
-- Add no theme picker unless the user requests one.
 - Load the world fonts in `head().links` of `src/routes/__root.tsx`, and remove the links
   that you replace. A world that names an Arabic font: change `html:lang(ar)` in `tokens.css`.
 - Use semantic tokens (`bg-background`, `text-foreground`, `bg-primary`).

@@ -3,15 +3,6 @@
 // A named export per icon keeps bundle size flat and tree-shakable.
 import type { SVGProps } from "react";
 
-/** Dashboard mobile navigation uses this non-directional menu icon. */
-export function MenuIcon(props: SVGProps<SVGSVGElement>) {
-	return (
-		<Icon {...props}>
-			<path d="M4 6h16M4 12h16M4 18h16" />
-		</Icon>
-	);
-}
-
 function Icon({ children, ...props }: SVGProps<SVGSVGElement>) {
 	return (
 		<svg
