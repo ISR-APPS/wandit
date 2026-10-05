@@ -46,7 +46,10 @@ Do these steps once, at the start of the first build, before the first screen:
 1. Read `worlds/<id>.md` of this skill folder in full.
 2. Install the fonts of the world with its `npx expo install @expo-google-fonts/...` line.
 3. Replace the imports and the keys of `appFonts` in `src/shared/lib/fonts.ts` with the world
-   fonts. Then remove the font packages that no file imports: `pnpm remove <package>`.
+   fonts. Keep the old font package. Never run `pnpm remove` on a font package. Metro bundles
+   only the files that an import names, so the old package does not make the app bundle
+   larger. A turn can stop before this edit. Then `fonts.ts` still imports the old package,
+   and without it Metro shows "Unable to resolve module" in the preview.
 4. In `src/global.css`, replace the values of the `@theme` block (`--radius`, and
    `--field-border-width` when the world sets it), the `@theme static` font block, and the
    `@variant light` and `@variant dark` blocks with the world values. Add the extra
