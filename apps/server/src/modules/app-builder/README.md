@@ -290,7 +290,9 @@ Rules the code pins:
 - Only `infrastructure/trigger/` may import the Trigger streams API;
   `trigger-isolation.spec.ts` enforces this.
 - `TurnStreamRelayService` copies the V1 SSE socket handling: 15 s
-  heartbeats, backpressure on `drain`, error frames on reader failure.
+  heartbeats and backpressure on `drain`. It listens for `close` on the
+  response, because Node destroys the request after its body. A reader
+  failure closes the stream with no error frame, and the browser reopens it.
 
 ## Projects (WANDIT-175)
 
