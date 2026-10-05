@@ -121,7 +121,10 @@ export function SiteNav() {
 	return (
 		<header
 			className={cn(
-				"fixed inset-x-0 top-0 z-40 border-b px-2 text-night transition-[background-color,border-color] duration-300 md:px-3",
+				"fixed inset-x-0 top-0 z-40 border-b px-2 text-night transition-[background-color,border-color,padding] duration-300 motion-reduce:transition-[background-color,border-color] md:px-3",
+				// Clear, the bar sits inside the inset panel. The gap keeps the buttons
+				// off the top edge of the panel. A filled bar starts at the window top.
+				barTone === "clear" && "pt-4 md:pt-6",
 				isOnPaper
 					? "border-night/10 bg-paper/85 backdrop-blur-md"
 					: "border-transparent",
