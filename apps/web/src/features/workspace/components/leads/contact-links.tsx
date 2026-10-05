@@ -2,13 +2,14 @@
 // tab and the dashboard Leads page. `reveal` hides them until the table row
 // is hovered (or a link is keyboard-focused).
 
+import { PhoneIcon } from "@phosphor-icons/react/Phone";
+import { WhatsappLogoIcon } from "@phosphor-icons/react/WhatsappLogo";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import { MessageCircle, Phone } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import { telHref, waHref } from "../../lib/helpers";
@@ -36,7 +37,7 @@ export function ContactLinks({
 						className={revealClass}
 					>
 						<a href={telHref(phone)} aria-label={t("leads.call")}>
-							<Phone />
+							<PhoneIcon weight="bold" />
 						</a>
 					</Button>
 				</TooltipTrigger>
@@ -56,7 +57,7 @@ export function ContactLinks({
 							rel="noreferrer"
 							aria-label={t("leads.whatsapp")}
 						>
-							<MessageCircle />
+							<WhatsappLogoIcon weight="bold" />
 						</a>
 					</Button>
 				</TooltipTrigger>

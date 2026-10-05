@@ -5,7 +5,6 @@
 import type { Icon } from "@phosphor-icons/react";
 import { ChartLineUpIcon } from "@phosphor-icons/react/ChartLineUp";
 import { ChatCircleDotsIcon } from "@phosphor-icons/react/ChatCircleDots";
-import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { GraduationCapIcon } from "@phosphor-icons/react/GraduationCap";
 import { HandshakeIcon } from "@phosphor-icons/react/Handshake";
 import { ImagesSquareIcon } from "@phosphor-icons/react/ImagesSquare";
@@ -73,13 +72,6 @@ export const NAV_GROUPS: NavGroup[] = [
 				type: "soon",
 				titleKey: "projects.nav.analytics",
 				icon: ChartLineUpIcon,
-			},
-			// "Build Your App" has no page yet: it is a disabled placeholder
-			// with the "Soon" badge, like Analytics.
-			{
-				type: "soon",
-				titleKey: "projects.nav.buildApp",
-				icon: DeviceMobileIcon,
 			},
 		],
 	},
