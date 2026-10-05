@@ -1,3 +1,8 @@
+/**
+ * Sentry setup of the two `apps/server` processes: the NestJS API and the
+ * harness host. `apps/server/src/instrument.ts` calls `initNestSentry` as a
+ * `node --import` preload. It calls `@sentry/nestjs` and the shared helpers.
+ */
 import * as Sentry from "@sentry/nestjs";
 
 import { normalizeSentryRelease } from "./internal/release";
@@ -17,14 +22,21 @@ import {
  */
 export * as Sentry from "@sentry/nestjs";
 
+/**
+ * The shared options plus the `runtime` tag. `instrument.ts` picks the tag
+ * from the entry file.
+ */
 export interface InitNestSentryOptions extends WanditSentryOptions {
-	runtime: "server";
+	/** The `runtime` tag of every event: "harness-host" for the host process, else "server". */
+	runtime: "server" | "harness-host";
 }
 
 /**
- * Initialize Sentry for the NestJS API. Must run before `@nestjs/core` or
- * Fastify are imported (see apps/server/src/instrument.ts) so OpenTelemetry
- * can patch http/fastify/db modules. No-op when no DSN is configured.
+ * Initialize Sentry for the NestJS API or the harness host. Both use the
+ * `server@<sha>` release, because one build makes both. Must run before
+ * `@nestjs/core` or Fastify are imported (see apps/server/src/instrument.ts)
+ * so OpenTelemetry can patch http/fastify/db modules. No-op when no DSN is
+ * configured.
  */
 export function initNestSentry(options: InitNestSentryOptions): void {
 	if (!isEnabled(options)) {

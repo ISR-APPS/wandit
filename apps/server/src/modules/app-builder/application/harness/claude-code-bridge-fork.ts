@@ -70,9 +70,10 @@ export function withForkedBridge<
 let forkSource: string | null = null;
 
 /**
- * The text of the fork file, read once. The API and the host run this source
- * file directly. The Trigger worker runs a bundle under `.trigger/`, so it
- * reads the copy under its working directory (`trigger.config.ts` ships it).
+ * The text of the fork file, read once. The dev host runs this source file
+ * directly. The built host (`dist/harness-host/`, cwd `apps/server`) and the
+ * Trigger worker (`.trigger/`) run a bundle, so they read the copy under the
+ * working directory (`trigger.config.ts` ships the Trigger copy).
  */
 export function readForkRunTurn(cwd: string = process.cwd()): string {
 	if (forkSource !== null) {
