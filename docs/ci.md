@@ -4,15 +4,18 @@ The `CI` workflow in `.github/workflows/ci.yml` checks each code change before i
 
 ## What runs
 
-Three jobs run in parallel on `ubuntu-latest`. Each job has a 15 minute limit.
+The jobs run in parallel on `ubuntu-latest`. Each job has a 15 minute limit. The `test` job has a 5 minute limit.
 
 - `typecheck` runs `pnpm turbo run check-types` for every package that has the script.
-- `test` runs `pnpm turbo run test` for every package that has the script.
+- `test-shard` is a matrix of seven jobs. Four jobs run one quarter each of the server specs (`--shard=1/4` to `--shard=4/4`). Two jobs run one half each of the web specs. One job runs the tests of all other packages.
+- `test` starts when the shards stop. It passes only when every shard passes.
 - `biome` runs `npx biome ci --error-on-warnings` on a scoped path list.
+
+Vitest splits the spec files of a package by count, not by duration. Add a shard to the matrix when one shard takes much longer than the others.
 
 The workflow runs on each pull request and on each push to `dev`, `staging`, and `main`. It also runs on a manual start from the Actions page. A new push on the same ref stops the older run.
 
-Set the three job names as required checks on `dev` and `main`. Open Settings, Branches, the branch rule, then "Require status checks to pass". Pick `typecheck`, `test`, and `biome`. This is a founder step in the GitHub settings, not a code change.
+Set the three job names as required checks on `dev` and `main`. Open Settings, Branches, the branch rule, then "Require status checks to pass". Pick `typecheck`, `test`, and `biome`. Do not pick the shard names, like `test (server 1/4)`: they change when the matrix changes. This is a founder step in the GitHub settings, not a code change.
 
 ## Run the same checks locally
 
@@ -20,6 +23,7 @@ Set the three job names as required checks on `dev` and `main`. Open Settings, B
 pnpm turbo run check-types
 pnpm turbo run test
 pnpm --filter <app> test        # one package only, for example -F server
+pnpm turbo run test -F server -- --shard=1/4   # one shard, as CI runs it
 npx biome ci --error-on-warnings apps/edge apps/preview-proxy apps/server/src/infrastructure apps/server/src/modules/app-builder apps/server/src/modules/metering apps/server/src/trigger apps/web apps/worker packages/analytics packages/auth packages/config packages/contracts packages/db packages/internationalization packages/jobs packages/observability packages/preview-editor packages/ui tooling
 ```
 
@@ -48,6 +52,8 @@ A test that fails and needs product work is skipped with `it.skip` and a comment
 - `apps/server`: `src/modules/billing/application/services/billing-customer.service.spec.ts`, `src/modules/billing/infrastructure/persistence/billing-change-intents.repository.ts`, `src/modules/billing/infrastructure/persistence/billing-checkout-attempts.repository.ts`, `src/modules/connector-generations/application/services/connector-generation-recovery.service.ts`, `src/modules/email/application/services/email-send-policy.service.ts`, `src/modules/email/email.module.ts`, `src/modules/lead-scrapes/application/services/lead-scrapes.service.ts`, `src/modules/marketing-assets/application/services/marketing-html.spec.ts`, `src/modules/projects/domain/project-scope.ts`, `src/modules/workspaces/application/services/workspaces.service.ts`, `src/modules/workspaces/infrastructure/persistence/organization-limits.repository.ts`, `src/modules/workspaces/presentation/http/guards/workspace-context.guard.ts`
 - `packages/env`: `src/web.ts`
 
-## No remote cache, no coverage tool
+## Turbo cache, no coverage tool
 
-The Turbo cache is the local `.turbo` directory, restored with `actions/cache`; there is no remote cache. No coverage tool runs in CI.
+The Turbo cache is the local `.turbo` directory, restored with `actions/cache`. Each job and each shard has its own cache key prefix.
+
+The Vercel remote cache is optional. The `Check types` and `Test` steps read the repository secrets `TURBO_TOKEN` and `TURBO_TEAM`. When the secrets do not exist, the values are empty and Turbo turns the remote cache off. No coverage tool runs in CI.

@@ -463,6 +463,7 @@ describe("edge router", () => {
 		expect(second.status).toBe(404);
 	});
 
+	// The case makes 1,001 KV round trips. On a busy CI runner they took more than the 5 s default.
 	it("forgets every cached pointer once 1,000 hosts fill the isolate memory", async () => {
 		const appEnv = fakeDispatcher(async () => new Response("ok")).env;
 		const first = await dispatch(new Request("https://evict-0.wandit.app/"));
@@ -478,5 +479,5 @@ describe("edge router", () => {
 
 		expect(first.status).toBe(404);
 		expect(second.status).toBe(200);
-	});
+	}, 30_000);
 });

@@ -259,6 +259,8 @@ describe("PreviewPanel", () => {
 
 		const iframe = await screen.findByTitle<HTMLIFrameElement>(TITLE);
 		expect(iframe.getAttribute("src")).toBe(PREVIEW_URL);
+		// The message listener registers in an effect; flush it before the dispatch.
+		await act(async () => {});
 
 		// The proxy error page in the frame reports the dead token from the preview origin.
 		act(() => {
