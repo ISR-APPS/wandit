@@ -84,6 +84,11 @@ The same exporter writes one `dashboard` skill from
 It keeps this skill during stale-folder cleanup. Edit the source guide, then run
 `npx tsx scripts/export-world-skills.ts` from `apps/server`.
 
+`.claude/skills/design-worlds-app/` is written by hand: `SKILL.md` and one `worlds/<id>.md` per
+app world (the looks of workspaces). The exporter keeps this folder. The server holds the world
+cards in `apps/server/src/modules/ai-chat/agent/worlds/app-worlds.ts`, and `worlds.spec.ts` fails
+when a card, a world file, and an index row disagree.
+
 ## Workspace architecture
 
 The brief selects the product structure before a design world supplies visual rules.

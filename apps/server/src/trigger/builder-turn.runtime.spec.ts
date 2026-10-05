@@ -6,6 +6,7 @@ import type {
 } from "@wandit/contracts";
 import type { UIMessageChunk } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { webAppWorldCards, worldOrder } from "../modules/ai-chat/agent/worlds";
 import {
 	FAKE_HARNESS_BOOTSTRAP_KEY,
 	FakeBuilderHarness,
@@ -2291,8 +2292,9 @@ describe("runBuilderTurn", () => {
 			? world.harness.resumeCalls[0]?.input.instructions
 			: world.harness.createCalls[0]?.instructions;
 		expect(instructions).toContain("variant=inset\ndensity=compact");
-		expect(instructions).toContain("contentWidth=centered\npalette=forest:");
-		expect(instructions).toContain("radius=0.625rem");
+		expect(instructions).toContain(
+			`contentWidth=centered\ndesignWorlds=${worldOrder(PROJECT_ID, webAppWorldCards).join(", ")}\n`,
+		);
 	});
 
 	it("starts a fresh session when the stored one cannot resume", async () => {

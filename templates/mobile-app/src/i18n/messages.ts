@@ -41,6 +41,9 @@ export const messages = {
 	auth: {
 		signInTitle: "Sign in",
 		signUpTitle: "Create account",
+		signInHeadline: "Welcome back",
+		signUpHeadline: "Create your account",
+		headlineBody: "Your profile follows you on every device.",
 		email: "Email",
 		password: "Password",
 		confirmPassword: "Confirm password",

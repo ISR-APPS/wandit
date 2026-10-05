@@ -146,6 +146,9 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
 - For a marketing page with no selected world: offer 2 to 4 worlds in the first `ask_user` call,
   or pick the closest world and say so. The index skills list the worlds:
   `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`.
+- For a workspace (SaaS, admin, CRM, internal tool, portal, back office), the look comes from an
+  app world of the `design-worlds-app` skill: tokens, fonts, shell, signatures, and screen recipes.
+  The first workspace build offers 3 app worlds in the first `ask_user` call, as the skill says.
 - `src/styles/tokens.css` is the single source of colors, radius, and font names. Put the world tokens there.
   World skills name the fonts `--font-heading` and `--font-body`. In this template they are
   `--font-display` and `--font-sans`.

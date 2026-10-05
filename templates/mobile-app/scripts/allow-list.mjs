@@ -114,6 +114,8 @@ const NO_WEB = [
 // Packages with JavaScript code only. They run in Expo Go, but
 // bundledNativeModules.json does not list them.
 const JS_ONLY = {
+	"@expo-google-fonts/plus-jakarta-sans":
+		"the font files of the default design world (registre)",
 	"@supabase/supabase-js": "the Supabase client (D18)",
 	"@tanstack/react-query": "server data: queries, mutations, and the cache",
 	"heroui-native": "the UI kit (D6)",

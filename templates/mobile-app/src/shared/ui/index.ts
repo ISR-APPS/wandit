@@ -8,6 +8,7 @@ export { AppInput, type AppInputProps } from "./input";
 export { AppListGroup } from "./list-group";
 export { ModalCloseButton } from "./modal-close-button";
 export { useNavigationTheme } from "./navigation-theme";
+export { AppPressable } from "./pressable";
 export { AppSafeAreaView } from "./safe-area-view";
 export { Screen, type ScreenProps } from "./screen";
 export { AppSkeleton, AppSkeletonGroup } from "./skeleton";

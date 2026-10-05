@@ -50,9 +50,9 @@ const dashboardSkillPath = join(
 const INDEX_DESCRIPTION_LIMIT_BYTES = 8 * 1024;
 
 // Skill folders copied by hand into the template. The export does not write them,
-// and its stale-folder cleanup keeps them. frontend-design is Anthropic's skill
-// (Apache-2.0, LICENSE.txt in its folder).
-const HAND_WRITTEN_SKILLS = ["frontend-design"];
+// and its stale-folder cleanup keeps them. design-worlds-app holds the web app worlds.
+// frontend-design is Anthropic's skill (Apache-2.0, LICENSE.txt in its folder).
+const HAND_WRITTEN_SKILLS = ["design-worlds-app", "frontend-design"];
 
 interface SkillFile {
 	/** Folder name under .claude/skills. */

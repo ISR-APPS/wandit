@@ -14,7 +14,7 @@
  */
 
 import type { WorldCard } from "@wandit/contracts";
-
+import { mobileWorldCards, webAppWorldCards } from "./app-worlds";
 import { atelier } from "./atelier";
 import { bazar } from "./bazar";
 import { beton } from "./beton";
@@ -43,6 +43,7 @@ import { verger } from "./verger";
 import { vitrine } from "./vitrine";
 import { zellige } from "./zellige";
 
+export { mobileWorldCards, webAppWorldCards, worldOrder } from "./app-worlds";
 export type { DesignWorld } from "./types";
 
 export const designWorlds: DesignWorld[] = [
@@ -273,11 +274,15 @@ function toWorldCard(world: DesignWorld): WorldCard | undefined {
 /**
  * The card face of one world id, or undefined for an unknown id or a world
  * without a preview. The V2 builder turn calls it for `ask_user` options
- * that carry a `worldId`.
+ * that carry a `worldId`. The id names a web world, a mobile world, or a web app world.
  */
 export function worldCardOf(id: string): WorldCard | undefined {
 	const world = getWorld(id);
-	return world === undefined ? undefined : toWorldCard(world);
+	if (world !== undefined) return toWorldCard(world);
+	const needle = norm(id);
+	return [...mobileWorldCards, ...webAppWorldCards].find(
+		(card) => card.id === needle,
+	);
 }
 
 function toWorldCards(worlds: DesignWorld[]): WorldCard[] {

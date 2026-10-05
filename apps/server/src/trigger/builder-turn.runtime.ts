@@ -26,7 +26,12 @@ import {
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/node";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
-import { worldCardOf } from "../modules/ai-chat/agent/worlds";
+import {
+	mobileWorldCards,
+	webAppWorldCards,
+	worldCardOf,
+	worldOrder,
+} from "../modules/ai-chat/agent/worlds";
 import {
 	captureAiError,
 	classifyAiError,
@@ -131,9 +136,9 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The one platform sentence of a mobile app. The template CLAUDE.md holds
+// The platform sentence of a mobile app. The template CLAUDE.md holds
 // the rules and the module allow-list. The mobile-design skill holds the
-// screen rules.
+// screen rules; the design-worlds-mobile skill holds the looks.
 const MOBILE_APP_INSTRUCTION =
 	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
 // 100 ms between two in-flight reads while the settle waits for the
@@ -1642,6 +1647,12 @@ export async function runBuilderTurn(
 					framework: project.framework,
 					languages: project.languages,
 					projectId,
+					designWorldOrder: worldOrder(
+						projectId,
+						templateProfile === TEMPLATE_PROFILES.mobile
+							? mobileWorldCards
+							: webAppWorldCards,
+					),
 				}) +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION}`

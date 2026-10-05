@@ -69,6 +69,8 @@ Before the first file of a new app or a new feature, write a short plan in your 
    modals. Load the `mobile-design` skill: its section 1 says which pattern fits.
 3. The data: the tables, their columns, and who may read or write each row.
 4. The features: one folder per product area, for example `habits`, `stats`, `auth`.
+5. The look: the design world (the `design-worlds-mobile` skill), its client choices, and the
+   hero of the welcome, sign-in, and home screens.
 
 Then build in small steps: one feature, one screen, or one fix per step.
 Load the `mobile-design` skill (`.claude/skills/mobile-design/SKILL.md`) before you build or
@@ -91,9 +93,10 @@ src/
     screens/                Full screens. Route files import them by path.
     index.ts                What other features may import. No screens.
   shared/ui/                App* components over HeroUI, Screen, EmptyState, AppIcon.
-  shared/lib/               The Supabase client, the query client, and haptics.
+  shared/lib/               The Supabase client, the query client, haptics, and the fonts.
   i18n/                     messages.ts (the dictionary), useT(), and LanguagePicker.
-  global.css                The theme variables for light and dark mode.
+  global.css                The design world tokens: fonts, corners, and colors (light and dark).
+  assets/                   Images from `generate_image`.
 assets/                     The app icon, the splash image, and the favicon.
 supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the base schema.
 ```
@@ -146,6 +149,8 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
   2. Put the `(tabs)` screen in a `Stack.Protected` with `status === "signed-in"`.
   3. Put `sign-in` in a guard with `status === "signed-out"`.
   4. Remove `presentation`, `headerLeft`, and `headerRight` from the `sign-in` options.
+  5. A welcome screen: add `src/app/welcome.tsx`, and put its `Stack.Screen` first in the
+     signed-out guard, with `headerShown: false`. Its buttons push `/sign-in`.
 - Import navigation from `expo-router`, `expo-router/js-tabs`, `expo-router/drawer`, and
   `expo-router/react-navigation`. Never import `@react-navigation/*`: Metro refuses it.
 
@@ -183,25 +188,54 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
 ## Design rules
 
 - Load the `mobile-design` skill before you build a screen. Check its list at the end.
-- `src/global.css` is the single source of colors. Change the look of the app there.
+- Load the `design-worlds-mobile` skill on the first build and before a redesign. One design
+  world applies per app: its fonts, tokens, signatures, and screen recipes.
+- `src/global.css` is the single source of colors, fonts, and corners. Change the look there.
 - Use semantic classes: `bg-background`, `text-foreground`, `bg-surface`, `text-muted`,
-  `bg-accent`, `border-border`. They follow light and dark mode.
-- Never hardcode a color, a gray, or a shadow in a screen.
+  `bg-accent`, `border-border`, `from-hero-start`. They follow light and dark mode.
+- Never hardcode a color, a gray, a shadow, or a font name in a screen.
+- Fonts come from `@expo-google-fonts/*` packages. `src/shared/lib/fonts.ts` lists them, and the
+  root layout loads them before the first screen. Import each weight from its own path, for
+  example `@expo-google-fonts/barlow/600SemiBold`. A custom font sets no `fontWeight`: the
+  family names the weight.
 - Screens use the components of `@/shared/ui`, not `heroui-native` directly.
   When a screen needs another HeroUI component, add an `App*` file there first.
 - Every screen renders inside `Screen` (safe areas, scrolling, keyboard). A list screen
-  renders a `FlatList` inside `AppSafeAreaView` instead.
+  renders a `FlatList` inside `AppSafeAreaView` instead. A welcome or onboarding screen with
+  a full-bleed photo or gradient renders a `View` with `flex-1`, and `AppSafeAreaView`
+  inside it pads the text and the buttons.
 - Text goes through `AppText`. The React Native `Text` has no theme.
+- A nested `AppText` repeats the role of its parent, for example a colored word in a
+  `display` line. A nested text with no role gets the `body` size and face.
+- A word in another color comes from a message parameter, for example
+  `t("home.hello", { name })`. Never split one translated sentence into pieces.
+- A HeroUI part (`AppButton`, `AppCard`, `AppAvatar`, `AppListGroup`, `AppTextField`) keeps
+  its own corners, size, and colors on the web: its classes beat a `className` there.
+  To change them, change the tokens, use the `style` prop, or build the part from `View`,
+  `AppPressable`, and `AppText`. A pressable that cannot act gets `isDisabled`.
+- Text on a hero block (`from-hero-start`) uses `text-hero-foreground`.
+- Write each class name in full. Tailwind finds no class that a template string builds:
+  map each value to a full class string in an object.
 - Icons: `AppIcon` (Ionicons) with `colorClassName`, for example `accent-muted`.
 - A data screen has four states: `AppSkeleton` while loading, an error line with a retry,
   `EmptyState` when there is nothing, and the content.
 - Rows of links or settings: `AppListGroup`. It has the pressed state built in.
 - Haptics: `tapFeedback()` and `successFeedback()` from `@/shared/lib/haptics`.
 - Spacing uses Uniwind classes (`p-4`, `gap-3`), not numbers in `style`.
-- Show images with `expo-image`. Install it with `npx expo install expo-image`.
+- Show a bundled image (`src/assets/`, `public/uploads/`) with the React Native `Image`.
+  For many remote images in a list, install `expo-image` with `npx expo install expo-image`.
+- Hero art, onboarding art, and empty state art: the `generate_image` tool, as the
+  `mobile-design` skill says (section "Images").
 - Use `Platform.OS` or `Platform.select` only for a real platform difference.
 - Core content and actions must work with no animation.
 - Check `useReducedMotion()` from `react-native-reanimated` before a long animation.
+- An entering animation and a transform class (`rotate-*`, `-skew-*`, `scale-*`) go on two
+  nested views. On native, the animation replaces the transform of its own view.
+- A loop (a glow that breathes, a ticker) is a Reanimated CSS animation in `style`:
+  `animationName` (the keyframes), `animationDuration`, and `animationIterationCount:
+  "infinite"`. It needs no effect. When `useReducedMotion()` is true, it gets no animation.
+- An `Svg` of react-native-svg gets `width` and `height` props. Put the layout classes on a
+  `View` around it: on native, Uniwind ignores `className` on `Svg`.
 - Set `name` in `app.json` to the app name.
 - The app icon and the splash image are in `assets/`. When the user gives a logo, ask for
   a square PNG of 1024 x 1024. Then point these `app.json` keys to `./public/uploads/<name>`:
@@ -315,7 +349,7 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
 - One call holds every question of one step, at most 4. Never call it twice in one reply.
 - `kind` is one of `single-choice`, `multi-select`, `free-text`, `attachments`.
 - `question` is one clear sentence in the user's language, at most 300 characters.
-- `options` is a list of `{ id, label, description? }`, at most 6.
+- `options` is a list of `{ id, label, description?, worldId? }`, at most 6.
 - Zero options means a free-text question. The user can always type an answer.
 - `helper` is one short line shown under the question.
 - Images, logos, photos: `kind: "attachments"` with `maxFiles` (1 to 6).
@@ -326,9 +360,10 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
   `require("../../../../public/uploads/<name>")` from `src/features/<feature>/screens/`.
   Metro needs a fixed string.
 - The tool text names the web URL `/uploads/<name>`. That URL does not work on a phone.
-- The tool text also offers design worlds with `worldId`. This template has no world skills.
+- Design worlds: the first build offers 3 worlds in one `single-choice` question, each
+  option with `worldId`. The `design-worlds-mobile` skill says which worlds and how.
 - Ask only when blocked: a missing fact (a price, a text, an image), an open business
-  decision, or the app language.
+  decision, the app language, or the design world on the first build.
 - Do not ask for things the brief already answers.
 
 ## Public form contract
@@ -501,8 +536,8 @@ Native modules that run in Expo Go (91):
 `react-native-webview`, `react-native-worklets`
 
 JavaScript-only packages of this template:
-`@supabase/supabase-js`, `@tanstack/react-query`, `heroui-native`, `tailwind-merge`,
-`tailwind-variants`, `tailwindcss`, `uniwind`, `zod`
+`@expo-google-fonts/plus-jakarta-sans`, `@supabase/supabase-js`, `@tanstack/react-query`,
+`heroui-native`, `tailwind-merge`, `tailwind-variants`, `tailwindcss`, `uniwind`, `zod`
 
 Allowed with a limit in Expo Go:
 - `@expo/ui`: no component newer than 57.0.11 (no NavigationStack, Toolbar, or NavigationSplitView).

@@ -33,7 +33,8 @@ For a new workspace-only app, make `/` lead to the workspace through the existin
 Keep the session guard, login path, server validation, and Supabase RLS.
 Do not insert a marketing page before the workspace unless the user requests one.
 For an existing app, preserve routes and layout unless the requested change requires modification.
-A selected design world can supply tone, fonts, and tokens. Its landing-page sections do not replace workspace structure.
+The look of a workspace comes from an app design world (the `design-worlds-app` skill): its tokens, fonts, signatures, and screen recipes.
+A website world (`design-worlds-website`) styles marketing pages only. Its sections do not replace workspace structure.
 
 ## Read only the selected source
 
@@ -41,21 +42,21 @@ These links resolve from the generated skill directory to files in the project:
 
 - [Dashboard shell](../../../src/shared/ui/dashboard-shell.tsx): read for navigation, mobile behavior, and shell props.
 - [Dashboard content](../../../src/shared/ui/dashboard-content.tsx): read for the selected composition and page header.
-- [Design tokens](../../../src/styles/tokens.css): read before applying the chosen palette.
+- [Design tokens](../../../src/styles/tokens.css): read before applying the chosen app world.
 - [Protected app route](../../../src/routes/app.tsx): read before connecting the workspace to authentication and data.
 
 Read individual files in `src/shared/ui/` only when the selected workflow needs those controls.
-Use the local source directly. Do not load every skill, component, or palette into the prompt.
+Use the local source directly. Do not load every skill, component, or world into the prompt.
 Do not read or copy a premium admin-template source tree. This kit contains original template code.
 No cloud registry is required.
 
 ## Keep project choices fixed
 
-Apply explicit brief choices first, then existing project choices, then the harness defaults.
-The harness fields are `variant`, `density`, `contentWidth`, `palette`, and `radius`.
+Apply explicit brief choices first, then existing project choices, then the picked app world, then the harness defaults.
+The harness fields are `variant`, `density`, `contentWidth`, and `designWorlds` (the app world ids in the order of this project).
 Save the final shell fields as a module-level object literal in the workspace component.
 Save color, radius, and font values in `src/styles/tokens.css`.
-Keep the selected palette name beside those token values.
+Keep the picked world id in the header comment of `src/styles/tokens.css`.
 Never recalculate these choices during rendering or on a later turn.
 Do not add a theme picker unless the user requests one.
 
@@ -64,61 +65,21 @@ Do not add a theme picker unless the user requests one.
 | `variant` | `sidebar`, `inset`, `rail` | Sidebar for many labeled destinations. Inset for a distinct content surface. Rail for a few recognizable destinations. |
 | `density` | `compact`, `comfortable` | Compact for frequent record operations. Comfortable for reading, review, or onboarding. |
 | `contentWidth` | `full`, `centered` | Full for tables and work surfaces. Centered for forms or a limited amount of content. |
-| `palette` | `graphite`, `ocean`, `forest`, `violet`, `amber` | Use the supplied default unless the brief or existing brand selects another palette. |
-| `radius` | `0.375rem`, `0.625rem`, `0.875rem` | Use the supplied default consistently across controls and panels. |
+| `designWorlds` | App world ids, for example `fiche, cadran, brume` | Offer the first 3 fitting worlds on the first build. The world sets the colors, fonts, radius, variant, and density. |
 
 Density controls spacing, not font size or the amount of information.
 Keep action labels visible and preserve keyboard focus indicators.
 Use logical spacing and placement so Arabic retains the same information order.
 
-## Token recipes
+## Token rules
 
-Each row supplies the six core tokens in the harness defaults. All primary colors use a white foreground.
-
-| Palette | `--background` | `--foreground` | `--card` | `--muted-foreground` | `--primary` | `--primary-foreground` |
-| --- | --- | --- | --- | --- | --- | --- |
-| `graphite` | `#fafafa` | `#18181b` | `#ffffff` | `#52525b` | `#27272a` | `#ffffff` |
-| `ocean` | `#f8fafc` | `#0f172a` | `#ffffff` | `#475569` | `#1d4ed8` | `#ffffff` |
-| `forest` | `#f7faf8` | `#14251c` | `#ffffff` | `#4b6355` | `#166534` | `#ffffff` |
-| `violet` | `#faf9ff` | `#24153a` | `#ffffff` | `#645575` | `#6d28d9` | `#ffffff` |
-| `amber` | `#fffbeb` | `#292016` | `#ffffff` | `#715c44` | `#92400e` | `#ffffff` |
-
-Set `--card-foreground` and `--popover-foreground` to `--foreground`.
-Set `--popover` to `--card`, and `--ring` to `--primary`.
-Use a light neutral for `--muted`, `--secondary`, and `--accent`.
+The picked app world gives every value of `src/styles/tokens.css`, the radius, and the font links of `src/routes/__root.tsx`.
+Apply it as the `design-worlds-app` skill says. Keep the token names: the shell and the kit read them.
 Pair each surface with its foreground token. Do not put white text on a light accent surface.
-For `ocean`, this extension gives a dark navigation surface and distinct chart series:
-
-```css
-/* Static ocean palette extension. The shell reads these semantic tokens. */
-:root {
-  --muted: #f1f5f9;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --accent: #e2e8f0;
-  --accent-foreground: #0f172a;
-  --border: #cbd5e1;
-  --input: #cbd5e1;
-  --sidebar: #0f172a;
-  --sidebar-foreground: #f8fafc;
-  --sidebar-accent: #1e293b;
-  --sidebar-accent-foreground: #f8fafc;
-  --sidebar-border: #334155;
-  --sidebar-ring: #93c5fd;
-  --chart-1: #1d4ed8;
-  --chart-2: #0f766e;
-  --chart-3: #6d28d9;
-  --radius: 0.625rem;
-}
-```
-
-For other palettes, use the chosen foreground as `--sidebar` and the chosen background as `--sidebar-foreground`.
-Set sidebar accent, border, and focus colors for that surface. Keep chart series distinct from status colors.
+Keep chart series distinct from status colors.
 Use chart labels and units. Do not communicate meaning through color alone.
-Keep one static light or dark treatment unless the user requests both.
-If dark mode already exists, update its foreground pairs too.
-Keep the existing Satoshi/Clash Display fonts and Tajawal/Changa Arabic fonts unless the brief specifies another pairing.
-If you change fonts, update both the token definitions and the root head font links.
+Keep one static light or dark treatment, as the world gives it, unless the user requests both.
+A brief or an existing brand that names colors or fonts wins over the world for those values.
 
 ## Integration example
 

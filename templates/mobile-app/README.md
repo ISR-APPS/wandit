@@ -33,6 +33,16 @@ The code uses feature folders like `apps/native`; `CLAUDE.md`, "Code structure",
 - `eas.json` holds the EAS build profiles. The `mobile-build` task replaces the app copy
   with the trusted template copy.
 
+## Design worlds
+
+- `.claude/skills/design-worlds-mobile/worlds/<id>.md` holds one complete look per file: tokens,
+  fonts, signatures, screen recipes, motion, and images. `SKILL.md` there lists them.
+- The server holds the card of each world in
+  `apps/server/src/modules/ai-chat/agent/worlds/app-worlds.ts`. The chat shows the card when the agent
+  offers the world. `worlds.spec.ts` fails when a card, a world file, and an index row disagree.
+- The template ships the `registre` world: `src/global.css` and `src/shared/lib/fonts.ts`.
+- A world sets fonts through `@expo-google-fonts/*` packages. The agent installs them in the app.
+
 ## Environment
 
 - `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`: the host writes them to `.env` when the backend is ready.

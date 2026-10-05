@@ -1,6 +1,6 @@
 /* Design tokens for the generated site. Tailwind v4 theme.
    Every component reads these semantic names, never raw colors.
-   The design-world skill recolors this file; the names stay stable.
+   A design world (design-worlds-app for a workspace) recolors this file; the names stay stable.
    Font pairing "clash-satoshi": Clash Display + Satoshi (Fontshare),
    Arabic twins Changa + Tajawal (Google Fonts), loaded in __root.tsx. */
 @import "tailwindcss";
@@ -40,6 +40,13 @@
 	--chart-1: var(--primary);
 	--chart-2: oklch(0.55 0.1 180);
 	--chart-3: oklch(0.58 0.12 280);
+	--chart-4: oklch(0.62 0.13 140);
+	--chart-5: oklch(0.6 0.15 330);
+	/* Status colors for chips and alerts. Each status also shows a word or an icon. */
+	--success: oklch(0.55 0.13 155);
+	--success-foreground: oklch(0.985 0.002 90);
+	--warning: oklch(0.8 0.15 80);
+	--warning-foreground: oklch(0.25 0.04 70);
 }
 
 .dark {
@@ -64,6 +71,12 @@
 	--ring: oklch(0.74 0.16 55);
 	--chart-2: oklch(0.75 0.1 180);
 	--chart-3: oklch(0.76 0.12 280);
+	--chart-4: oklch(0.78 0.13 140);
+	--chart-5: oklch(0.75 0.14 330);
+	--success: oklch(0.72 0.14 155);
+	--success-foreground: oklch(0.17 0.02 155);
+	--warning: oklch(0.83 0.14 85);
+	--warning-foreground: oklch(0.2 0.03 70);
 }
 
 /* Not inside @theme inline: utilities must emit var(--font-*) so the
@@ -108,6 +121,12 @@ html:lang(ar) {
 	--color-chart-1: var(--chart-1);
 	--color-chart-2: var(--chart-2);
 	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-success: var(--success);
+	--color-success-foreground: var(--success-foreground);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);

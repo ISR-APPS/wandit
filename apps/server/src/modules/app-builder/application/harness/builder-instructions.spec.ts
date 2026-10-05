@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildBuilderInstructions } from "./builder-instructions";
 
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+const WORLDS = ["fiche", "cadran", "brume"];
 
 function selectedDefault(instructions: string, axis: string): string {
 	const line = instructions
@@ -17,6 +18,7 @@ describe("buildBuilderInstructions", () => {
 			framework: "web-app",
 			languages: ["en", "ar"],
 			projectId: PROJECT_ID,
+			designWorldOrder: WORLDS,
 		};
 		const instructions = buildBuilderInstructions(input);
 
@@ -24,21 +26,24 @@ describe("buildBuilderInstructions", () => {
 		expect(selectedDefault(instructions, "variant")).toBe("inset");
 		expect(selectedDefault(instructions, "density")).toBe("compact");
 		expect(selectedDefault(instructions, "contentWidth")).toBe("centered");
-		expect(selectedDefault(instructions, "palette")).toContain("forest:");
-		expect(selectedDefault(instructions, "radius")).toBe("0.625rem");
+		// The project order of the app worlds replaces the old hashed palette and radius.
+		expect(selectedDefault(instructions, "designWorlds")).toBe(
+			"fiche, cadran, brume",
+		);
 		// The prompt carries choices, while the template files carry implementation details.
 		expect(Buffer.byteLength(instructions)).toBeLessThan(2_600);
 	});
 
-	it("varies each axis across UUIDs instead of coupling layout and theme", () => {
-		// Two samples per possible combination give broad coverage without random test input.
-		const sampleCount = 360;
+	it("varies the shell defaults across UUIDs", () => {
+		// 120 fixed UUIDs cover the 12 shell combinations many times, with no random input.
+		const sampleCount = 120;
 		const instructions = Array.from({ length: sampleCount }, (_, index) =>
 			buildBuilderInstructions({
 				framework: "web-app",
 				languages: ["en"],
 				// Twelve digits fill the last UUID field with distinct, valid values.
 				projectId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+				designWorldOrder: WORLDS,
 			}),
 		);
 		const combinations = instructions.map((prompt) =>
@@ -48,17 +53,6 @@ describe("buildBuilderInstructions", () => {
 		);
 		// All three shells support both densities and both content widths.
 		expect(new Set(combinations).size).toBe(12);
-		expect(
-			new Set(instructions.map((prompt) => selectedDefault(prompt, "radius"))),
-		).toEqual(new Set(["0.375rem", "0.625rem", "0.875rem"]));
-		for (const variant of ["sidebar", "inset", "rail"]) {
-			const palettes = instructions
-				.filter((prompt) => selectedDefault(prompt, "variant") === variant)
-				.map((prompt) => selectedDefault(prompt, "palette").split(":")[0]);
-			expect(new Set(palettes)).toEqual(
-				new Set(["graphite", "ocean", "forest", "violet", "amber"]),
-			);
-		}
 	});
 
 	it("keeps dashboard defaults out of non-web instructions", () => {
@@ -66,8 +60,12 @@ describe("buildBuilderInstructions", () => {
 			framework: "mobile-app",
 			languages: ["fr", "ar"],
 			projectId: PROJECT_ID,
+			designWorldOrder: ["vestiaire", "registre"],
 		});
 		expect(instructions).toContain("interface is fr, ar: a hint");
+		expect(instructions).toContain(
+			"design world order of this project is: vestiaire, registre.",
+		);
 		expect(instructions).not.toContain("variant=");
 		expect(instructions).not.toContain("dashboard");
 	});
