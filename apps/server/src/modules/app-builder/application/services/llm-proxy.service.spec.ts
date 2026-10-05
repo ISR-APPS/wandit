@@ -112,6 +112,9 @@ class FakeReply implements LlmProxyReply {
 	}
 }
 
+// Authentication, model, and rate checks apply in both billing modes.
+const billingModes = ["enforce", "off"] as const;
+
 const claimsInput = {
 	runId: "run_test",
 	turnId: "11111111-2222-4333-8444-555555555555",
@@ -305,11 +308,12 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("answers 503 V2_MODEL_UNPRICED for a model with no price row", async () => {
+	it.each(billingModes)("rejects unpriced models (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
-			const env = {
+			const env: LlmProxyEnv = {
 				...makeEnv(upstream.baseUrl),
+				GENERATION_BILLING_MODE: mode,
 				V2_DEFAULT_MODEL: "x/unpriced",
 			};
 			const { service, inserted } = makeService(env);
@@ -343,10 +347,11 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("rejects a denied model with 403 and a model_denied row", async () => {
+	it.each(billingModes)("rejects denied models (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, inserted } = makeService(env);
 			const reply = new FakeReply();
 			const { input } = inbound(env, {
@@ -483,10 +488,11 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("answers 401 on a bad, expired, or wrongly-signed token", async () => {
+	it.each(billingModes)("rejects invalid tokens (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, inserted } = makeService(env);
 
 			const bad = new FakeReply();
@@ -524,10 +530,11 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("answers 401 for a token whose run was revoked and writes no row", async () => {
+	it.each(billingModes)("rejects revoked tokens (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, counters, inserted } = makeService(env);
 			// The turn ended; the still-valid token must now read as dead.
 			await counters.revokeRun("run_test", 3600);
@@ -665,10 +672,14 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("answers 402 when the run spend cap is reached", async () => {
+	it.each([
+		undefined,
+		"enforce",
+	] as const)("enforces the run cap (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, counters, inserted } = makeService(env);
 			// capUsd 1 → 1_000_000 micros already spent.
 			await counters.addRunSpend("run_test", 1_000_000, 3600);
@@ -687,10 +698,14 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("answers 402 when the user daily cap is reached", async () => {
+	it.each([
+		undefined,
+		"enforce",
+	] as const)("enforces the daily cap (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, counters, inserted } = makeService(env);
 			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
 			await counters.addUserSpend("user_1", dayKey, 50_000_000);
@@ -706,15 +721,17 @@ describe("LlmProxyService", () => {
 		}
 	});
 
-	it("forwards past both spend caps when billing is off", async () => {
-		const upstream = await startUpstream(jsonOk("{}"));
+	it("accounts for requests above both spend caps when billing is off", async () => {
+		const body = JSON.stringify({
+			usage: { input_tokens: 3, output_tokens: 2 },
+		});
+		const upstream = await startUpstream(jsonOk(body));
 		try {
-			const env: LlmProxyEnv = {
-				...makeEnv(upstream.baseUrl),
-				GENERATION_BILLING_MODE: "off",
-			};
-			const { service, counters } = makeService(env);
+			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = "off";
+			const { service, counters, inserted } = makeService(env);
 			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+			// The run and daily counters already reach their configured USD limits.
 			await counters.addRunSpend("run_test", 1_000_000, 3600);
 			await counters.addUserSpend("user_1", dayKey, 50_000_000);
 
@@ -722,16 +739,35 @@ describe("LlmProxyService", () => {
 			await service.proxyAnthropic(inbound(env).input, reply);
 
 			expect(reply.statusCode).toBe(200);
+			expect(reply.ended).toBe(true);
+			expect(reply.bodyText).toBe(body);
 			expect(upstream.requests).toHaveLength(1);
+			expect(inserted).toHaveLength(1);
+			// Sonnet charges two USD micros per input token and ten per output token.
+			expect(inserted[0]).toMatchObject({
+				inputTokens: 3,
+				outputTokens: 2,
+				status: "ok",
+				usdMicros: 26,
+			});
+			const nextAdmission = await counters.admitRequest(
+				{ chatId: null, runId: "run_test", userId: "user_1" },
+				dayKey,
+			);
+			expect(nextAdmission).toMatchObject({
+				runSpendMicros: 1_000_026,
+				userSpendMicros: 50_000_026,
+			});
 		} finally {
 			await upstream.close();
 		}
 	});
 
-	it("answers 429 with retry-after when the run rate limit is exceeded", async () => {
+	it.each(billingModes)("enforces the rate limit (%s)", async (mode) => {
 		const upstream = await startUpstream(jsonOk("{}"));
 		try {
 			const env = makeEnv(upstream.baseUrl);
+			env.GENERATION_BILLING_MODE = mode;
 			const { service, counters, inserted } = makeService(env);
 			for (let i = 0; i < 120; i += 1) {
 				await counters.admitRequest(

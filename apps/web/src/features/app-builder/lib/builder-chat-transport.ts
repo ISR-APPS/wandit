@@ -68,6 +68,10 @@ export function createBuilderChatTransport(input: {
 					mediaType: part.mediaType,
 					...(part.filename ? { filename: part.filename } : {}),
 				}));
+			// The elements picked in the preview ride on the user message.
+			const targets = (lastUserMessage?.parts ?? []).flatMap((part) =>
+				part.type === "data-targets" ? part.data.targets : [],
+			);
 			// The SDK always passes an object here (resolvedBody + options.body).
 			// A malformed approval, answer, or model must throw. parse throws,
 			// and useChat surfaces the ZodError as `error`; a plain turn would
@@ -83,6 +87,7 @@ export function createBuilderChatTransport(input: {
 					...(extras.approval ? { approval: extras.approval } : {}),
 					...(extras.answers ? { answers: extras.answers } : {}),
 					...(extras.model ? { model: extras.model } : {}),
+					...(targets.length > 0 ? { targets } : {}),
 				} satisfies CreateTurnRequest,
 				headers: { ...headers, ...workspaceScopeHeaders() },
 			};

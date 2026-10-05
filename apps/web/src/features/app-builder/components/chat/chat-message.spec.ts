@@ -19,11 +19,17 @@ import { ChatMessageView } from "./chat-message";
 // The page mounts one TooltipProvider; the message actions need it too.
 function renderMessage(
 	message: BuilderMessage,
-	trayQuestionKey: string | null = null,
-	onRetry?: () => void,
+	{
+		trayQuestionKey = null,
+		isDeveloperView = false,
+		onRetry,
+	}: {
+		trayQuestionKey?: string | null;
+		isDeveloperView?: boolean;
+		onRetry?: () => void;
+	} = {},
 ) {
-	const onPreviewVersion = vi.fn();
-	const onSendText = vi.fn();
+	const onOpenActivity = vi.fn();
 	const onDecideApproval = vi.fn();
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -35,8 +41,8 @@ function renderMessage(
 			null,
 			createElement(ChatMessageView, {
 				message,
-				onPreviewVersion,
-				onSendText,
+				isDeveloperView,
+				onOpenActivity,
 				onDecideApproval,
 				trayQuestionKey,
 				onRetry,
@@ -44,19 +50,43 @@ function renderMessage(
 		),
 	};
 	render(createElement(I18nProvider, providerProps));
-	return { onPreviewVersion, onSendText, onDecideApproval };
+	return { onOpenActivity, onDecideApproval };
 }
 
-const CHANGE_MESSAGE: BuilderMessage = {
+/** A finished reply: a thought, a step, a note, the summary, and the final answer. */
+const FINISHED_MESSAGE: BuilderMessage = {
 	id: "a3",
 	role: "assistant",
 	parts: [
-		{ type: "text", text: "Done." },
 		{
-			type: "data-change",
-			id: "c3",
-			data: { title: "Added sign-in and payments", versionNumber: 3 },
+			type: "data-thought",
+			data: { text: "Plan the page.", seconds: 4, isStreaming: false },
 		},
+		{
+			type: "data-step",
+			data: {
+				kind: "edit",
+				state: "done",
+				target: "styles.css",
+				description: null,
+				detail: [],
+				area: "styles",
+				imageUrl: null,
+			},
+		},
+		{ type: "data-note", data: { text: "Now the texts." } },
+		{
+			type: "data-summary",
+			id: "summary-t3",
+			data: {
+				workedSeconds: 95,
+				files: [
+					{ path: "src/styles/global.css", insertions: 12, deletions: 3 },
+					{ path: "src/routes/index.tsx", insertions: 4, deletions: 1 },
+				],
+			},
+		},
+		{ type: "text", text: "Done." },
 	],
 };
 
@@ -82,88 +112,89 @@ describe("ChatMessageView", () => {
 		);
 	});
 
-	it("renders the byline, the feed rows, the question, the suggestion, and the diff", () => {
-		renderMessage({
-			id: "a1",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-thought",
-					data: { text: "Plan the page.", seconds: 4, isStreaming: false },
-				},
-				{
-					type: "data-step",
-					data: {
-						kind: "edit",
-						state: "done",
-						target: "styles.css",
-						description: null,
-						detail: [],
+	it("renders every part inline in the developer view, with the thinking text and the changed files", () => {
+		renderMessage(
+			{
+				...FINISHED_MESSAGE,
+				parts: [
+					...FINISHED_MESSAGE.parts.filter((part) => part.type !== "text"),
+					{
+						type: "data-question",
+						id: "q1",
+						data: {
+							toolCallId: "call-1",
+							questionId: "question-0",
+							question: "Who scans?",
+							kind: "single-choice",
+							helper: null,
+							maxFiles: null,
+							options: [{ id: "desk", label: "Desk" }],
+							isOpen: false,
+							isAnswered: true,
+						},
 					},
-				},
-				{
-					type: "data-question",
-					id: "q1",
-					data: {
-						toolCallId: "call-1",
-						questionId: "question-0",
-						question: "Who scans?",
-						kind: "single-choice",
-						helper: null,
-						maxFiles: null,
-						options: [{ id: "desk", label: "Desk" }],
-						isOpen: false,
-						isAnswered: true,
-					},
-				},
-				{
-					type: "data-suggestion",
-					id: "g1",
-					data: {
-						title: "Add a reminder?",
-						body: "Send a push.",
-						confidence: "high",
-					},
-				},
-				{
-					type: "data-diff",
-					id: "d1",
-					data: { path: "app/pass.tsx", lines: [{ kind: "add", text: "x" }] },
-				},
-			],
-		});
+				],
+			},
+			{ isDeveloperView: true },
+		);
 		expect(screen.getByText("Wandit")).toBeTruthy();
-		expect(screen.getByText("Thought for 4s")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Thought for 4s" }));
+		expect(screen.getByText("Plan the page.")).toBeTruthy();
 		expect(screen.getByText("Edited")).toBeTruthy();
 		expect(screen.getByText("styles.css")).toBeTruthy();
+		expect(screen.getByText("Now the texts.")).toBeTruthy();
+		expect(screen.getByText("Worked for 2 min · 2 files changed")).toBeTruthy();
+		expect(screen.getByText("index.tsx")).toBeTruthy();
+		expect(screen.getByText("src/routes")).toBeTruthy();
 		expect(screen.getByText("Who scans?")).toBeTruthy();
 		expect(screen.getByText("Answered")).toBeTruthy();
-		expect(screen.getByText("Add a reminder?")).toBeTruthy();
-		expect(screen.getByText("app/pass.tsx")).toBeTruthy();
+		// No final text, so no Copy action; the summary is plain text, not a button.
+		expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+		expect(screen.queryByRole("button", { name: /Worked for/ })).toBeNull();
+	});
+
+	it("shows the summary line and the final text, but no step and no note, in the production view", () => {
+		const { onOpenActivity } = renderMessage(FINISHED_MESSAGE);
+		expect(screen.getByText("Done.")).toBeTruthy();
+		expect(screen.queryByText("Edited")).toBeNull();
+		expect(screen.queryByText("styles.css")).toBeNull();
+		expect(screen.queryByText(/Thought/)).toBeNull();
+		expect(screen.queryByText("Now the texts.")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Worked for 2 min · 2 files changed",
+			}),
+		);
+		expect(onOpenActivity).toHaveBeenCalledWith("a3");
 	});
 
 	it("groups the thought and step rows that follow each other in one block", () => {
-		renderMessage({
-			id: "a2",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-thought",
-					data: { text: "", seconds: 2, isStreaming: false },
-				},
-				{
-					type: "data-step",
-					data: {
-						kind: "run",
-						state: "done",
-						target: null,
-						description: "Check the app",
-						detail: [],
+		renderMessage(
+			{
+				id: "a2",
+				role: "assistant",
+				parts: [
+					{
+						type: "data-thought",
+						data: { text: "", seconds: 2, isStreaming: false },
 					},
-				},
-				{ type: "text", text: "Done." },
-			],
-		});
+					{
+						type: "data-step",
+						data: {
+							kind: "run",
+							state: "done",
+							target: null,
+							description: "Check the app",
+							detail: [],
+							area: null,
+							imageUrl: null,
+						},
+					},
+					{ type: "text", text: "Done." },
+				],
+			},
+			{ isDeveloperView: true },
+		);
 		// The thought row is a Collapsible root; the step row is a plain row div.
 		const thoughtRow = screen
 			.getByText("Thought for 2s")
@@ -198,12 +229,12 @@ describe("ChatMessageView", () => {
 				},
 			],
 		};
-		renderMessage(message, "call-1:question-0");
+		renderMessage(message, { trayQuestionKey: "call-1:question-0" });
 		expect(screen.getByText("Answer below")).toBeTruthy();
 		expect(screen.queryByText("Answered")).toBeNull();
 		cleanup();
 		// After the skip X the tray hides, so no chip points at it.
-		renderMessage(message, null);
+		renderMessage(message);
 		expect(screen.getByText("Which style?")).toBeTruthy();
 		expect(screen.queryByText("Answer below")).toBeNull();
 		expect(screen.queryByText("Answered")).toBeNull();
@@ -234,60 +265,11 @@ describe("ChatMessageView", () => {
 		expect(screen.getByText("Wandit needs your answer")).toBeTruthy();
 	});
 
-	it("sends an accepted suggestion body as text", () => {
-		const { onSendText } = renderMessage({
-			id: "a2",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-suggestion",
-					id: "g2",
-					data: {
-						title: "Add a reminder?",
-						body: "Send a push.",
-						confidence: "low",
-					},
-				},
-			],
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-		expect(onSendText).toHaveBeenCalledWith("Send a push.");
-	});
-
-	it("sends a follow-up prompt on click and hides the list without prompts", () => {
-		const { onSendText } = renderMessage({
-			id: "a5",
-			role: "assistant",
-			metadata: { followUps: ["Add a classes schedule"] },
-			parts: [{ type: "text", text: "Done." }],
-		});
-		expect(screen.getByText("Follow-ups")).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Add a classes schedule" }),
-		);
-		expect(onSendText).toHaveBeenCalledWith("Add a classes schedule");
-		cleanup();
-		renderMessage({
-			id: "a6",
-			role: "assistant",
-			parts: [{ type: "text", text: "Done." }],
-		});
-		expect(screen.queryByText("Follow-ups")).toBeNull();
-	});
-
-	it("renders a change card and previews its version", () => {
-		const { onPreviewVersion } = renderMessage(CHANGE_MESSAGE);
-		expect(screen.getByText("Added sign-in and payments")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-		expect(onPreviewVersion).toHaveBeenCalledWith(3);
-		expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
-	});
-
 	it("logs a clipboard failure and shows no copied toast", async () => {
 		// jsdom has no navigator.clipboard, so the copy throws inside the try.
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const seenToasts = toast.getHistory().length;
-		renderMessage(CHANGE_MESSAGE);
+		renderMessage(FINISHED_MESSAGE);
 		fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 		await waitFor(() => expect(errorSpy).toHaveBeenCalledOnce());
 		expect(hasToastAfter(seenToasts, "Copied")).toBe(false);
@@ -301,33 +283,11 @@ describe("ChatMessageView", () => {
 			configurable: true,
 		});
 		const seenToasts = toast.getHistory().length;
-		renderMessage(CHANGE_MESSAGE);
+		renderMessage(FINISHED_MESSAGE);
 		fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 		await waitFor(() => expect(hasToastAfter(seenToasts, "Copied")).toBe(true));
 		expect(writeText).toHaveBeenCalledWith("Done.");
 		Reflect.deleteProperty(navigator, "clipboard");
-	});
-
-	it("sends an approval decision through onDecideApproval", () => {
-		const { onDecideApproval } = renderMessage({
-			id: "a7",
-			role: "assistant",
-			parts: [
-				{
-					type: "data-approval",
-					id: "ap-1",
-					data: {
-						approvalId: "ap-1",
-						toolName: "run_sql_write",
-						input: '{"query":"delete from notes"}',
-						decision: null,
-						isOpen: true,
-					},
-				},
-			],
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-		expect(onDecideApproval).toHaveBeenCalledWith("ap-1", true);
 	});
 
 	it("renders the turn error as an alert with a Retry button", () => {
@@ -348,8 +308,7 @@ describe("ChatMessageView", () => {
 					},
 				],
 			},
-			null,
-			onRetry,
+			{ onRetry },
 		);
 		const alert = screen.getByRole("alert");
 		expect(alert.textContent).toContain(
@@ -383,15 +342,5 @@ describe("ChatMessageView", () => {
 				"2 credits · 1,500 tokens · cache: 3,000 read, 200 written · Claude Sonnet 5",
 			),
 		).toBeTruthy();
-	});
-
-	it("renders no action row without a change", () => {
-		renderMessage({
-			id: "a4",
-			role: "assistant",
-			parts: [{ type: "text", text: "Building the pass screen." }],
-		});
-		expect(screen.getByText("Building the pass screen.")).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
 	});
 });

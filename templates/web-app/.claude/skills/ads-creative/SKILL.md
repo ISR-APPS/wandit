@@ -5,6 +5,8 @@ description: "Hook rate, hold rate, retention, CTR outbound vs all, fatigue sign
 
 # Creative
 
+V2 note: a lead is a row of the app's own table that its public form writes to (the public form contract in CLAUDE.md). Read the rows with `run_sql`. The wandit Leads tab and `read_lead_performance` are V1 only. The table has source, campaign, status, and wilaya columns only when the form saves them: check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. No code fires a Lead pixel event until you add it.
+
 # ADS SKILL — CREATIVE
 
 You opened this skill because the conversation is about why an ad stops the thumb or does not, which creative to keep, kill, iterate or brief next, or how fast new creatives must ship. Creative is the most decisive area of modern performance: with broad targeting, the creative IS the targeting.
@@ -15,8 +17,8 @@ Not in this skill (open the sibling skill instead): account structure, budgets a
 
 HARD RULE: no change on an adset or ad before 72 hours of delivery or 3x the target CPA in cumulative spend, whatever the creative metrics say. Wandit refuses early writes once and explains; only the user's explicit insistence overrides, because the account, the budget and the risk are theirs.
 HARD RULE: state every budget and cost figure in USD and say "USD" each time. Page prices stay in DZD.
-HARD RULE: when the creative links to a Wandit page, the link carries utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=<name>. Without it the Leads tab cannot attribute leads to this campaign.
-HARD RULE: creative judgement uses two truths. Platform metrics tell you whether the ad earned attention and clicks. read_lead_performance (leads by source, campaign and status over a date window) tells you whether those clicks became confirmed and delivered orders. A creative that wins on CTR and loses on confirmed or delivered rate attracts the wrong buyer: a creative problem, not a page problem.
+HARD RULE: when the creative links to a Wandit page, the link carries utm_source=facebook or tiktok, utm_medium=paid, utm_campaign=<name>. Without it the app's leads table cannot attribute leads to this campaign.
+HARD RULE: creative judgement uses two truths. Platform metrics tell you whether the ad earned attention and clicks. A run_sql query on the app's leads table (leads by source, campaign and status over a date window) tells you whether those clicks became confirmed and delivered orders. A creative that wins on CTR and loses on confirmed or delivered rate attracts the wrong buyer: a creative problem, not a page problem.
 Policy: before a creative ships, name precisely the element, the rule it risks and the consequence (rejection, restriction, suspension), with a compliant rewording. The creative-side traps: before/after imagery and unrealistic results, health or weight-loss claims, income promises, second-person wording that asserts a personal attribute ("you are overweight"), trademarked names, unlicensed music, and faces or voices in generated assets without rights. Inform; never forbid. If the user chooses to publish, publish. The full corpus is in ads-diagnostic.
 Tone: what happened, why, what to do, when to judge again. No drama, no excuses, business language.
 
@@ -40,7 +42,7 @@ Thresholds: no universal number exists and Tier-1 benchmarks are wrong for Maghr
 CTR outbound (Meta outbound clicks / impressions) counts clicks that leave the platform. CTR all (Meta clicks all) includes likes, comments, profile taps, "see more" and video expands. HARD RULE: never confuse the two and never report CTR all as click-through. TikTok's CTR is destination clicks by default; say so when comparing.
 CTR link (link clicks) sits between the two; prefer outbound for any landing-page ad.
 CPC outbound = spend / outbound clicks. Cost per unique outbound click removes repeat clickers; it is the honest number on small Maghreb audiences.
-Post-click CVR (leads / outbound clicks, then confirmed / leads from read_lead_performance) belongs to the page and the offer. Do NOT change the creative because the page converts poorly; do NOT change the page because the hook is weak.
+Post-click CVR (leads / outbound clicks, then confirmed / leads from a run_sql query on the app's leads table) belongs to the page and the offer. Do NOT change the creative because the page converts poorly; do NOT change the page because the hook is weak.
 A creative with high CTR all and low CTR outbound is entertaining, not selling. Say so.
 
 ## 4. FATIGUE AND DIVERSIFICATION
@@ -106,4 +108,4 @@ CTA: the exact action (order on the page, WhatsApp, call) and the promise of the
 Format: video / static / carousel / collection, aspect ratio, length, sound-on or sound-off design, burned subtitles yes.
 Language: the language and script of the on-screen text and the spoken line (per ads-cod-maghreb), and the page language it must match.
 Link: the Wandit page URL with its UTM tags, and the claim on the page that the ad must repeat word for word (message match).
-Judge again at: 72 hours and 3x target CPA of spend — hook, hold, CTR outbound, then confirmed and delivered leads from read_lead_performance.
+Judge again at: 72 hours and 3x target CPA of spend — hook, hold, CTR outbound, then confirmed and delivered leads from a run_sql query on the app's leads table.

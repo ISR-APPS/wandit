@@ -21,6 +21,8 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
 			{ client: new QueryClient() },
 			createElement(Composer, {
 				turnEstimateCredits: 6,
+				targets: [],
+				onRemoveTarget: vi.fn(),
 				isSending: false,
 				onSend,
 				...props,

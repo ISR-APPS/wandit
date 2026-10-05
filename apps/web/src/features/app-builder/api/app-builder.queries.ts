@@ -16,6 +16,7 @@ import {
 	getCostCaps,
 	getTurnEstimate,
 	getVersionDiff,
+	listChatHistory,
 	listVersions,
 } from "./app-builder.services";
 import type { CodeSnapshot } from "./dto";
@@ -27,6 +28,8 @@ export const appBuilderKeys = {
 		[...appBuilderKeys.all, "project", projectId] as const,
 	turnEstimate: (projectId: string) =>
 		[...appBuilderKeys.all, "turn-estimate", projectId] as const,
+	chatHistory: (projectId: string) =>
+		[...appBuilderKeys.all, "chat-history", projectId] as const,
 	code: (projectId: string) =>
 		[...appBuilderKeys.all, "code", projectId] as const,
 	codeFile: (projectId: string, path: string) =>
@@ -52,6 +55,21 @@ export const turnEstimateQuery = (projectId: string) =>
 	queryOptions({
 		queryKey: appBuilderKeys.turnEstimate(projectId),
 		queryFn: () => getTurnEstimate(projectId),
+	});
+
+/**
+ * The stored chat of a project, page by page. The first page holds the
+ * newest messages; `fetchNextPage` adds the next older page.
+ */
+export const chatHistoryQuery = (projectId: string) =>
+	infiniteQueryOptions({
+		queryKey: appBuilderKeys.chatHistory(projectId),
+		queryFn: ({ pageParam }) => listChatHistory(projectId, pageParam),
+		// SAFETY: a widening only. TanStack reads the cursor type from this
+		// value, and the later cursors are the strings of `nextCursor`.
+		initialPageParam: null as string | null,
+		// null means the oldest page, and TanStack then stops.
+		getNextPageParam: (lastPage) => lastPage.nextCursor,
 	});
 
 /**

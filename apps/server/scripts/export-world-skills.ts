@@ -1,9 +1,9 @@
 /**
- * Exports design-world and ads skills into templates/web-app/.claude/skills.
- * Run from apps/server: `npx tsx scripts/export-world-skills.ts`.
- * Reads designWorlds and ADS_SKILLS from the ai-chat agent module.
- * `toV2FormRule` swaps the V1 `wandit:lead` form rule of each world doc for V2.
- * The output is deterministic: a second run writes no changes.
+ * Exports design-world, dashboard, and ads skills into the web template.
+ * Maintainers run this script from apps/server after a source guide changes.
+ * It reads world and ads catalogs, plus the app-builder dashboard guide.
+ * It replaces V1 form instructions with the V2 public form contract.
+ * A second run keeps unchanged files and removes stale skill folders.
  */
 import {
 	existsSync,
@@ -40,10 +40,19 @@ const defaultSkillsDir = join(
 	"skills",
 );
 const taxonomyPath = join(agentDir, "worlds", "landing", "taxonomy.md");
+const dashboardSkillPath = join(
+	repoRoot,
+	"apps/server/src/modules/app-builder/infrastructure/template/dashboard-skill.md",
+);
 
 // Claude Code skill front matter caps description near 1 KB. 8 KB total keeps
 // the index readable; past it the index splits into three kind groups.
 const INDEX_DESCRIPTION_LIMIT_BYTES = 8 * 1024;
+
+// Skill folders copied by hand into the template. The export does not write them,
+// and its stale-folder cleanup keeps them. frontend-design is Anthropic's skill
+// (Apache-2.0, LICENSE.txt in its folder).
+const HAND_WRITTEN_SKILLS = ["frontend-design"];
 
 interface SkillFile {
 	/** Folder name under .claude/skills. */
@@ -102,7 +111,10 @@ export function toV2FormRule(worldId: string, doc: string): string {
 		.replace(LEAD_DISPATCHED_RE, `the fields sent as ${FORM_CONTRACT} says`)
 		// V1 words that also name the old data path.
 		.replace(/\bto the wandit runtime\b/g, "to the app's database")
-		.replace(/\bnever pretends to POST\b/g, "never fakes a send");
+		.replace(
+			/\bnever pretend(s?) to POST\b/g,
+			(_phrase, ending: string) => `never fake${ending} a send`,
+		);
 	// A new V1 phrasing must fail the export, not reach the agent.
 	if (rewritten.includes("wandit:lead")) {
 		throw new Error(
@@ -113,6 +125,65 @@ export function toV2FormRule(worldId: string, doc: string): string {
 	if (doc.includes("data-wandit-hp") && !rewritten.includes("data-wandit-hp")) {
 		throw new Error(
 			`world ${worldId}: the rewrite removed the data-wandit-hp honeypot rule`,
+		);
+	}
+	return rewritten;
+}
+
+// In a V2 app a lead is a row of the table that its public form writes to.
+const LEADS_TABLE = "the app's leads table";
+const LEADS_QUERY = `a run_sql query on ${LEADS_TABLE}`;
+// Specific phrases first, so each sentence keeps its grammar. Then the plain names.
+const ADS_REWRITES: [RegExp, string][] = [
+	[
+		/\bthe Leads tab \/ read_lead_performance\b/g,
+		`${LEADS_TABLE}, read with run_sql`,
+	],
+	[
+		/\bthe Leads tab and read_lead_performance\b/g,
+		`${LEADS_TABLE}, read with run_sql`,
+	],
+	[
+		/\bwilaya sits on each lead in the Leads tab, not in the tool's groupings\b/g,
+		`wilaya sits on each row of ${LEADS_TABLE}`,
+	],
+	[
+		/\bthe Leads tab's source and utm_campaign\b/g,
+		`the source and utm_campaign columns of ${LEADS_TABLE}`,
+	],
+	[
+		/\bThe Leads tab derives source from\b/g,
+		"The app's leads table takes its source from",
+	],
+	[/\b(?:the )?Leads tab export\b/g, `an export of ${LEADS_TABLE}`],
+	[/\bread_lead_performance outcomes\b/g, `outcomes in ${LEADS_TABLE}`],
+	[/\bThe Leads tab\b/g, "The app's leads table"],
+	[/\b(?:the )?Leads tab\b/g, LEADS_TABLE],
+	[/\bLeads-tab\b/g, "leads-table"],
+	[/(\. )read_lead_performance\b/g, `$1A run_sql query on ${LEADS_TABLE}`],
+	[/\bread_lead_performance\b/g, LEADS_QUERY],
+];
+const ADS_V2_NOTE =
+	"V2 note: a lead is a row of the app's own table that its public form writes to " +
+	"(the public form contract in CLAUDE.md). Read the rows with `run_sql`. " +
+	"The wandit Leads tab and `read_lead_performance` are V1 only. " +
+	"The table has source, campaign, status, and wilaya columns only when the form saves them: " +
+	"check the columns with `run_sql` first, and add them to the form table and its RPC when the app runs ads. " +
+	"No code fires a Lead pixel event until you add it.";
+
+/**
+ * Rewrites the V1 lead data path of one ads skill text for a V2 app (WANDIT-273).
+ * The V1 chat still uses the Leads tab, so only the export rewrites it.
+ * Throws when a V1 name stays, so a new phrasing fails the export.
+ */
+export function toV2AdsText(slug: string, text: string): string {
+	let rewritten = text;
+	for (const [pattern, replacement] of ADS_REWRITES) {
+		rewritten = rewritten.replace(pattern, replacement);
+	}
+	if (/Leads[ -]tab|read_lead_performance/.test(rewritten)) {
+		throw new Error(
+			`ads skill ${slug}: a V1 Leads tab phrase has a form that toV2AdsText does not know`,
 		);
 	}
 	return rewritten;
@@ -211,20 +282,30 @@ function writeIfChanged(path: string, content: string): void {
 
 /**
  * Writes every skill under skillsDir. Returns the slugs written or unchanged.
- * Removes generated folders that no longer have a matching source.
+ * Registers the dashboard guide before it removes folders without a source.
  */
 export function exportSkills(skillsDir: string): string[] {
 	const skills: SkillFile[] = [
+		// LIMIT: one dashboard skill covers three compositions. Upgrade: split it when each needs a separate guide.
+		{
+			slug: "dashboard",
+			description:
+				"Build SaaS workspaces, admin tools, CRM, analytics, and internal apps with the local dashboard kit. Explicit marketing pages use design worlds.",
+			body: readFileSync(dashboardSkillPath, "utf8"),
+		},
 		...designWorlds.map(worldSkill),
 		...indexGroups().map(indexSkill),
 		...Object.values(ADS_SKILLS).map((skill) => ({
 			slug: skill.slug,
-			description: skill.description,
-			body: `# ${skill.title}\n\n${skill.doc}`,
+			description: toV2AdsText(skill.slug, skill.description),
+			body: `# ${skill.title}\n\n${ADS_V2_NOTE}\n\n${toV2AdsText(skill.slug, skill.doc)}`,
 		})),
 	];
 
-	const expected = new Set(skills.map((skill) => skill.slug));
+	const expected = new Set([
+		...skills.map((skill) => skill.slug),
+		...HAND_WRITTEN_SKILLS,
+	]);
 	if (existsSync(skillsDir)) {
 		for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
 			if (entry.isDirectory() && !expected.has(entry.name)) {

@@ -18,15 +18,15 @@ export type CreateAppProjectInput = {
 	composer: ComposerMetadata | undefined;
 	/** Files the prompt box uploaded to R2 before the submit. */
 	attachments: UploadAttachmentResponse[] | undefined;
-	/** UI locale of the user. The generated app ships in that language (D7). */
+	/** UI locale of the user. The agent gets it as a hint for the app language only. */
 	locale: AppLanguage;
 	/** The app type chip pick: `web` or `mobile`. The server picks the template from it. */
 	targetPlatform: TargetPlatform;
 };
 
 /**
- * Maps the uploaded assets to `FileRef`s and sends the UI locale as the one
- * app language. An empty attachment list is left out, like the V1 create.
+ * Maps the uploaded assets to `FileRef`s and sends the UI locale as the app
+ * language hint. An empty attachment list is left out, like the V1 create.
  */
 export function toCreateAppProjectBody(
 	input: CreateAppProjectInput,

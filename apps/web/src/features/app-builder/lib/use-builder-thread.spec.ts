@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { chatKeys } from "@/features/workspace";
 import { ApiClientError } from "@/lib/api-client";
+import { appBuilderKeys } from "../api/app-builder.queries";
 import type { BuilderChatDeps } from "./use-builder-chat";
 import { useBuilderThread } from "./use-builder-thread";
 
@@ -61,7 +62,7 @@ const lookupError = new ApiClientError({
 const loadError = new ApiClientError({
 	code: "CHAT_LOAD_FAILED",
 	message: "The history load failed.",
-	path: `/api/v1/chats/${CHAT_ID}/messages`,
+	path: `/api/v2/projects/${PROJECT_ID}/messages`,
 	requestId: "req-load",
 	statusCode: 500,
 	timestamp: "2026-09-17T00:00:00.000Z",
@@ -142,6 +143,12 @@ function failQueryDuringMount(
 	});
 }
 
+// The answer of the history route for an empty chat: one page, no older one.
+const EMPTY_HISTORY = {
+	pages: [{ items: [], nextCursor: null }],
+	pageParams: [null],
+};
+
 function renderThread(
 	deps: BuilderChatDeps,
 	options: {
@@ -168,23 +175,25 @@ function renderThread(
 			options.byProjectError,
 		);
 	} else {
-		// The seeded answers feed both history queries, so they never fetch.
+		// The seeded answer feeds the chat id query, so it never fetches.
 		queryClient.setQueryData(chatKeys.byProject(PROJECT_ID), {
 			chatId: CHAT_ID,
 			projectId: PROJECT_ID,
 		});
-		if (options.messagesError) {
-			failQueryDuringMount(
-				queryClient,
-				chatKeys.messages(CHAT_ID),
-				options.messagesError,
-			);
-		} else if (!options.historyPending) {
-			queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
-				generationActive: false,
-				messages: [],
-			});
-		}
+	}
+	// The history query does not wait for the chat id, so every case seeds or
+	// fails it, and the real API is never called.
+	if (options.messagesError) {
+		failQueryDuringMount(
+			queryClient,
+			appBuilderKeys.chatHistory(PROJECT_ID),
+			options.messagesError,
+		);
+	} else if (!options.historyPending) {
+		queryClient.setQueryData(
+			appBuilderKeys.chatHistory(PROJECT_ID),
+			EMPTY_HISTORY,
+		);
 	}
 	const view = renderHook(() => useBuilderThread(PROJECT_ID, deps), {
 		wrapper: ({ children }: { children: ReactNode }) =>
@@ -239,7 +248,8 @@ describe("useBuilderThread", () => {
 			failure: "chat id lookup",
 			options: { byProjectError: lookupError },
 			isReady: false,
-			isFirstTurn: null,
+			// The history loads without the chat id, so the empty history settles.
+			isFirstTurn: true,
 		},
 		// A failed load settles the history, so the composer and the boot screen do not hang.
 		{
@@ -315,6 +325,63 @@ describe("useBuilderThread", () => {
 		expect(result.current.isTurnRunning).toBe(false);
 	});
 
+	it("shows the sent message once when the history refetches during the stream", async () => {
+		const fake = createDeps();
+		// The POST stays open, so the turn streams until the case ends.
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? new Promise<Response>(() => {})
+					: fake.deps.fetch(input, init),
+		};
+		const { result, queryClient } = renderThread(deps);
+		await waitForResume(fake, result);
+
+		act(() => {
+			result.current.send({ text: "Build the dashboard", files: [] });
+		});
+		await waitFor(() => expect(result.current.isSending).toBe(true));
+
+		// The refetch answers the stored row of the sent message with a server
+		// id, not the client id, plus one older page.
+		const storedRow = (
+			id: string,
+			seq: number,
+			role: "user" | "assistant",
+		) => ({
+			id,
+			chatId: CHAT_ID,
+			role,
+			parts: [{ type: "text", text: "Build the dashboard" }],
+			metadata: null,
+			seq,
+			createdAt: "2026-10-04T00:00:00.000Z",
+		});
+		const olderId = crypto.randomUUID();
+		act(() => {
+			queryClient.setQueryData(appBuilderKeys.chatHistory(PROJECT_ID), {
+				pages: [
+					{
+						items: [storedRow(crypto.randomUUID(), 2, "user")],
+						nextCursor: "2",
+					},
+					{ items: [storedRow(olderId, 1, "assistant")], nextCursor: null },
+				],
+				pageParams: [null, "2"],
+			});
+		});
+
+		await waitFor(() =>
+			expect(result.current.messages.map((message) => message.id)).toContain(
+				olderId,
+			),
+		);
+		expect(
+			result.current.messages.filter((message) => message.role === "user"),
+		).toHaveLength(1);
+	});
+
 	it.each([
 		{ cache: "is new", seedCache: async () => undefined },
 		{
@@ -348,10 +415,10 @@ describe("useBuilderThread", () => {
 			expect(fake.requests).toHaveLength(0);
 
 			act(() => {
-				queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
-					generationActive: false,
-					messages: [],
-				});
+				queryClient.setQueryData(
+					appBuilderKeys.chatHistory(PROJECT_ID),
+					EMPTY_HISTORY,
+				);
 			});
 			await waitFor(() => expect(result.current.isReady).toBe(true));
 			await waitFor(() =>
@@ -383,7 +450,7 @@ describe("useBuilderThread", () => {
 			onlineManager.setOnline(false);
 			act(() => {
 				void queryClient.refetchQueries({
-					queryKey: chatKeys.messages(CHAT_ID),
+					queryKey: appBuilderKeys.chatHistory(PROJECT_ID),
 				});
 			});
 			await waitFor(() => expect(result.current.errorText).toBeNull());
@@ -391,10 +458,10 @@ describe("useBuilderThread", () => {
 			expect(result.current.isFirstTurn).toBe(true);
 
 			act(() => {
-				queryClient.setQueryData(chatKeys.messages(CHAT_ID), {
-					generationActive: false,
-					messages: [],
-				});
+				queryClient.setQueryData(
+					appBuilderKeys.chatHistory(PROJECT_ID),
+					EMPTY_HISTORY,
+				);
 			});
 			// One macrotask lets a second resume GET go out, if the gate flipped.
 			await act(() => new Promise((resolve) => setTimeout(resolve, 0)));

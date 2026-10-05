@@ -17,6 +17,7 @@ import type {
 	TurnAssistantMessageMetadata,
 	TurnQuestionData,
 	TurnStreamPhase,
+	TurnSummaryData,
 	TurnThoughtData,
 } from "@wandit/contracts";
 import {
@@ -31,6 +32,7 @@ import {
 	classifyAiError,
 	renderAiErrorSentence,
 } from "../modules/ai-errors/domain";
+import { buildBuilderInstructions } from "../modules/app-builder/application/harness/builder-instructions";
 import type { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
@@ -130,10 +132,11 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The one platform sentence of a mobile app. The mobile-app template
-// CLAUDE.md lists the native modules that Expo Go runs.
+// The one platform sentence of a mobile app. The template CLAUDE.md holds
+// the rules and the module allow-list. The mobile-design skill holds the
+// screen rules.
 const MOBILE_APP_INSTRUCTION =
-	"This is an Expo mobile app for iOS and Android. Follow CLAUDE.md, and use only the native modules it lists.";
+	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
 // 100 ms between two in-flight reads while the settle waits for the
 // proxy rows of the run.
 const PROXY_ROWS_POLL_MS = 100;
@@ -234,7 +237,7 @@ export type BuilderTurnTiming = {
 	/** Run start → the first proxy request leaves the sandbox, from the rows. */
 	firstModelCallMs: number | null;
 	streamMs: number | null;
-	/** Stream end → commit done: the pause check, the commit, the files event. */
+	/** Stream end → commit done: the pause check, the commit. The summary part follows. */
 	commitMs: number | null;
 	/** Commit done → cleanup done: message row, usage, CAS, settle, done event. */
 	settleMs: number | null;
@@ -1313,7 +1316,7 @@ export async function runBuilderTurn(
 			...spec.answers.flatMap((answer) => answer.files),
 		];
 		const fileLines = sentFiles.map((attachment) => attachment.url).join("\n");
-		const prompt =
+		const requestText =
 			spec.message.trim().length > 0
 				? sentFiles.length > 0
 					? `${spec.message}\n\nAttached files:\n${fileLines}`
@@ -1322,6 +1325,16 @@ export async function runBuilderTurn(
 					? `See the attached files.\n${fileLines}`
 					: // An approval or answers alone have no text: the cards carry them.
 						"Continue.";
+		// The elements the user picked in the preview name the JSX to change
+		// (WANDIT-203). JSON quotes the label, so its text cannot break the line.
+		const targetLines = spec.targets.map(
+			(target) =>
+				`- ${target.src} (${target.tag} ${JSON.stringify(target.label)})`,
+		);
+		const prompt =
+			targetLines.length > 0
+				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
+				: requestText;
 		// The pending cards of a suspended turn make a `continue` input.
 		// `spec.answers`, the message text, and `spec.approval` carry the
 		// answers.
@@ -1649,12 +1662,12 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Three sentences, plus one for a mobile app. The template
-			// CLAUDE.md in the workspace root holds every other rule.
 			instructions:
-				`Build the app in these languages only: ${project.languages.join(", ")}. ` +
-				"Ask the user with the ask_user tool only when you cannot decide yourself: put every question of one step in ONE call. " +
-				"Write the Bash and Agent description in the user's language: the chat shows it to the user." +
+				buildBuilderInstructions({
+					framework: project.framework,
+					languages: project.languages,
+					projectId,
+				}) +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION}`
 					: ""),
@@ -1874,16 +1887,21 @@ export async function runBuilderTurn(
 			stamps.commitEnd = deps.now();
 			const outputCommitSha = commit?.sha ?? null;
 
-			// The files event is a stream-only part; the message row keeps the
-			// harness chunks only.
-			await writeEvent({
+			// The chat summary line reads this part: "Worked for 1 min · 6 files
+			// changed". The stored message keeps it too, so a reload shows it.
+			const summaryPart: UIMessage["parts"][number] = {
 				data: {
-					data: { files: commit?.numstat ?? [] },
-					id: `files-${turnId}`,
-					type: "data-builder-files",
-				},
-				type: "part",
-			});
+					files: commit?.numstat ?? [],
+					// ms → whole seconds; a turn under 0.5 s still shows 1 s.
+					workedSeconds: Math.max(
+						1,
+						Math.round((stamps.commitEnd - runStartedAt) / 1000),
+					),
+				} satisfies TurnSummaryData,
+				id: `summary-${turnId}`,
+				type: "data-turn-summary",
+			};
+			await writeEvent({ data: summaryPart, type: "part" });
 
 			// One stream part and one message part per card the user must
 			// answer; the cards are what the next turn answers.
@@ -1965,7 +1983,7 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...(finalMessage?.parts ?? []), ...cardParts],
+					parts: [...(finalMessage?.parts ?? []), summaryPart, ...cardParts],
 					turnId,
 				}),
 			);

@@ -104,6 +104,8 @@ export * from "./v2/app-publish";
 export * from "./v2/audit";
 // V2 agent backend tool contracts and the destructive migration check.
 export * from "./v2/backend-tools";
+// V2 paged chat history: the cursor query and one page of messages.
+export * from "./v2/chat-history";
 // V2 Cloud tab route contracts and the SQL classifier.
 export * from "./v2/cloud";
 // V2 Code view contracts: the sandbox file tree and one file.

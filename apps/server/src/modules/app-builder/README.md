@@ -237,7 +237,11 @@ service checks the scope:
   `approval`. A turn paused on a question takes `answers` as the answer:
   one entry per `data-question` card, with `optionIds`, `text`, and
   `files`. Without `answers`, the message text answers the first
-  question. Answer files pass the same owner check as attachments.
+  question. Answer files pass the same owner check as attachments. The
+  optional `targets` field holds at most 10 elements that the user picked
+  in the preview (WANDIT-203). The user row keeps them as a `data-targets`
+  part, and the task adds one "The user points at:" line per target to
+  the prompt.
 - `GET /estimate` answers `{ estimate }`: the hold that the next turn on
   the default model reserves, from the same `estimateTurn` as `POST /`,
   with no write. `estimate` is null when the deploy sets no default
@@ -851,9 +855,10 @@ One run does this, in order:
 6. Loads the `builder_sessions` row (`findByChatId`) the API created at
    turn create, then creates or resumes the `HarnessAgent` session
    through `createBuilderHarness`; a stored `resumeState` means resume, a
-   harness mismatch is a failure. The session instructions name the app
-   languages, the `ask_user` rule, and the description language. A
-   mobile project adds one sentence that points at the template
+   harness mismatch is a failure. The session instructions give the UI
+   language as a hint for the app language, the `ask_user` rule, the
+   description language, and the CLAUDE.md work rules (plan, checks,
+   plain final answer). A mobile project adds one sentence that points at the template
    `CLAUDE.md`, which Claude Code loads from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
@@ -912,8 +917,9 @@ One run does this, in order:
    card is an approval), and the suspended state lands on the session
    row. A finished turn completes as `succeeded`. Both paths share the
    same tail: `commitTurn` commits the workspace (a commit failure only
-   costs the commit, not the turn), a `files` event carries the numstat,
-   `insertTurnAssistantMessage` persists the assistant message with
+   costs the commit, not the turn), one `data-turn-summary` part carries
+   the numstat and the work seconds on the stream and in the stored
+   message, `insertTurnAssistantMessage` persists the assistant message with
    usage (the proxy row sums) and commit metadata, and the resume state
    is saved on the session row. A `detach` in the middle of a turn (a
    cancel, a stall) keeps that turn in the state too, with its cards in

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { askUserKindSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
+import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 import {
 	turnApprovalAnswerSchema,
 	turnQuestionAnswerSchema,
@@ -147,6 +148,9 @@ export const builderTurnSpecSchema = z.object({
 	// The answers to the `data-question` cards. Specs saved before the
 	// answers existed have none; `message` then answers the cards.
 	answers: z.array(turnQuestionAnswerSchema).default([]),
+	// The elements the user picked in the preview. Specs saved before
+	// targets existed have none.
+	targets: z.array(previewTargetSchema).max(PREVIEW_TARGETS_MAX).default([]),
 });
 
 /** Parsed `builder_turns.spec`; `message` may be empty when attachments carry the turn. */

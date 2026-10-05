@@ -2,6 +2,7 @@
 
 You build a mobile app inside this project. It runs on iPhone, Android, and the web.
 These rules are binding. The host machine runs the session. You write code; the host runs it.
+The app must feel like a real app from the store: clean code, modern design, real data.
 
 ## Interface contract
 
@@ -9,6 +10,8 @@ These rules are binding. The host machine runs the session. You write code; the 
 - You reply in the user's language. Always.
 - User-provided assets (images, logos, texts) are facts. Never replace them.
 - Never invent business facts: prices, addresses, phone numbers, opening hours.
+- Never ship fake data, fake numbers, or a button that does nothing.
+  A feature that you do not build has no button.
 - When a fact is missing, ask the user. See the ask_user contract below.
 - You work inside this project only. Do not touch files outside it.
 
@@ -16,11 +19,13 @@ These rules are binding. The host machine runs the session. You write code; the 
 
 - Expo SDK 57. The pin is fixed: the store Expo Go app runs SDK 57.
 - React Native 0.86, React 19.2, TypeScript strict.
-- expo-router with file-based routes in `src/app/`.
+- expo-router with file-based routes in `src/app/`: bottom tabs, a stack per tab, modals.
 - HeroUI Native components, styled with Uniwind (Tailwind v4 classes in `className`).
+- React Query (`@tanstack/react-query`) for every read and write of server data.
+- Supabase for auth and data through `src/shared/lib/supabase.ts`.
 - react-native-web renders the same code in the browser preview.
-- Supabase for auth and data through `src/lib/supabase.ts`.
-- Biome for lint and format: `pnpm run lint`. Typecheck: `pnpm run typecheck`.
+- Biome for lint and format: `pnpm run lint`.
+- `pnpm run typecheck` runs `tsc` and then the effect check (`scripts/check-effects.mjs`).
 
 ## How the preview runs
 
@@ -31,13 +36,14 @@ These rules are binding. The host machine runs the session. You write code; the 
 
 ## What you must refuse
 
-- Do not switch framework, router, styling system, UI kit, or backend.
+- Do not switch framework, router, styling system, UI kit, data library, or backend.
 - Do not change the Expo SDK. Do not change the version of an Expo package by hand.
-- Do not add a state library, an ORM, or a second i18n system.
+- Do not add a state library, an ORM, a form library, or a second i18n system.
 - Do not remove the Supabase env check or return a null client.
 - Do not create `ios/` or `android/`. The app runs in Expo Go with no native code.
-- Do not change the `dev` script in `package.json`. The host starts it.
-- Leave `eas.json` and `scripts/` as they are. The host uses its own copies.
+- Do not change the `dev` or the `typecheck` script in `package.json`. The host starts `dev`;
+  you run `typecheck`, and it must keep the effect check.
+- Leave `eas.json` and `scripts/` as they are. Never weaken or delete a check in `scripts/`.
 - Do not run `pnpm run pack`, `pnpm run smoke`, or `pnpm run allow-list`. They are host tools.
 - When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
   you added. Then tell the user and pick another package. Leave the `allowBuilds` line
@@ -49,7 +55,161 @@ These rules are binding. The host machine runs the session. You write code; the 
   Do not change these files in another way.
 - Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
   `git tag`, or any other git write command. The host commits, not you.
+- A shell command that writes a file must name a literal path, such as `/tmp/bundle-ios.js`.
+  The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/b-$p.js`.
+  Write one command for each file, not a loop.
 - Do not write arbitrary scripts for behaviors that have a contract, like the public form.
+
+## Plan before code
+
+Before the first file of a new app or a new feature, write a short plan in your reply:
+
+1. The goal in one line.
+2. The navigation map: the tabs, the screens of each tab, the pushed screens, and the
+   modals. Load the `mobile-design` skill: its section 1 says which pattern fits.
+3. The data: the tables, their columns, and who may read or write each row.
+4. The features: one folder per product area, for example `habits`, `stats`, `auth`.
+
+Then build in small steps: one feature, one screen, or one fix per step.
+Load the `mobile-design` skill (`.claude/skills/mobile-design/SKILL.md`) before you build or
+redesign a screen.
+
+## Code structure
+
+```
+src/
+  app/                      Routes only. Each file renders one screen of a feature.
+    _layout.tsx             Root: the providers, the root stack, and the modals.
+    sign-in.tsx             A modal route.
+    (tabs)/_layout.tsx      The bottom tabs.
+    (tabs)/(home)/          The home tab: its stack (_layout.tsx) and its screens.
+    (tabs)/account/         The account tab: its stack and its screens.
+  features/<feature>/
+    api/                    React Query hooks and the Supabase calls of the feature.
+    components/             Parts that only this feature uses.
+    lib/                    Schemas, helpers, and small stores of the feature.
+    screens/                Full screens. Route files import them by path.
+    index.ts                What other features may import. No screens.
+  shared/ui/                App* components over HeroUI, Screen, EmptyState, AppIcon.
+  shared/lib/               The Supabase client, the query client, and haptics.
+  i18n/                     messages.ts (the dictionary), useT(), and LanguagePicker.
+  global.css                The theme variables for light and dark mode.
+assets/                     The app icon, the splash image, and the favicon.
+supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the base schema.
+```
+
+- A route file has 1 to 3 lines: it imports a screen and exports it as default.
+- A layout file holds navigation only: the stack or the tabs and their options.
+- Another feature is used only through its `index.ts`. Inside a feature, import with `../`.
+- Code that two features use moves to `src/shared/`. Never import a file deep inside
+  another feature.
+- File names are kebab-case: `habit-card.tsx`, `habits.queries.ts`.
+- Import app files through `@/`, which is `src/`, for example `@/shared/ui`.
+- The template features show each rule: `auth` (the session and sign-in), `profile` (a
+  read, a write, and a pushed form), and `home` (a tab root that reads another feature).
+  Replace `home` with the first real screen of the app.
+- When the app needs no accounts, remove the account parts:
+  1. Delete `src/features/auth/`, `src/features/profile/`, `src/app/sign-in.tsx`, and
+     `src/app/(tabs)/account/`. Replace `home`: it reads the profile.
+  2. In `src/app/(tabs)/_layout.tsx`, delete the `account` tab.
+  3. In `src/app/_layout.tsx`, delete the `sign-in` screen and its guard, `useSession`,
+     and the imports that have no use left. Keep the `@/shared/lib/supabase` import:
+     it checks the env at start.
+  4. The account screen renders `<LanguagePicker />`. With two languages, render it on
+     another screen, for example a settings screen.
+
+## Navigation
+
+- Bottom tabs for 2 to 5 main sections. Each tab is a folder in `src/app/(tabs)/` with its
+  own `_layout.tsx` (a `Stack`) and `index.tsx`. Add its `Tabs.Screen` in
+  `(tabs)/_layout.tsx` with a title and an Ionicons icon: `<name>-outline` when inactive,
+  `<name>` when active.
+- A group folder like `(home)` adds nothing to the URL. Only the first tab uses a group;
+  the other tabs use plain folders (`account/` is `/account`), so two `index` routes never
+  share the URL `/`.
+- A tab root hides its header (`headerShown: false`) and starts with
+  `<AppText variant="title">`. A pushed screen shows the native header with a back
+  button; set its `title` in the stack layout.
+- Push a screen: a new file in the tab folder, opened with `<Link href>` or `router.push`.
+- A modal for a short task: a file in `src/app/`. In the root layout, copy the options of
+  `sign-in`: `presentation: "modal"`, `headerBackVisible: false`, `headerLeft: () => null`,
+  and `headerRight` with `ModalCloseButton`. The web preview has no swipe-down, so the
+  close button is the way out. A short choice can use `presentation: "formSheet"`.
+- Every stack layout exports `unstable_settings = { anchor: "index" }` (the root layout:
+  `"(tabs)"`). A web visitor can open any route first; the anchor puts a screen below it.
+- A back or close action checks `router.canGoBack()` before `router.back()`.
+- A route that needs a signed-in user sits in `<Stack.Protected guard={...}>`, as
+  `edit-profile` in `(tabs)/account/_layout.tsx`. The guard is `status !== "signed-out"`, so
+  the route stays while the session loads; the screen renders nothing until it is signed in.
+- When the whole app needs a signed-in user, change the root layout:
+  1. In `DirectedApp`, return `null` while `useSession().status` is `"loading"`.
+  2. Put the `(tabs)` screen in a `Stack.Protected` with `status === "signed-in"`.
+  3. Put `sign-in` in a guard with `status === "signed-out"`.
+  4. Remove `presentation`, `headerLeft`, and `headerRight` from the `sign-in` options.
+- Import navigation from `expo-router`, `expo-router/js-tabs`, `expo-router/drawer`, and
+  `expo-router/react-navigation`. Never import `@react-navigation/*`: Metro refuses it.
+
+## Server data
+
+- Every read and write of Supabase goes through React Query. Model: `src/features/profile/api/`.
+- `<feature>.queries.ts` holds the cache keys, the fetch functions, and the `use…` read hooks.
+- `<feature>.mutations.ts` holds the write functions and the `use…` write hooks.
+- A component never calls `supabase`. It calls a hook of its feature.
+- Every `from()` and `rpc()` query ends with `.throwOnError()`, so React Query sees a
+  failure. An `auth`, `storage`, or `functions` call checks `error` and throws it, as
+  `auth.mutations.ts` does.
+- The client has no generated types. Parse each row with a zod schema from
+  `lib/<feature>.schemas.ts`.
+- A query that needs the user id passes `skipToken` until the id exists.
+- After a write, `onSuccess` returns `queryClient.invalidateQueries(...)` for the keys it changed.
+- The query client logs every failure. The screen shows a translated message, never `error.message`.
+
+## Effects
+
+- Do not write `useEffect`, `useLayoutEffect`, or `useFocusEffect` to load data, to compute
+  a value, or to react to a press. Use these instead:
+  - Server data: React Query (`useQuery`, `useMutation`).
+  - A value from props or state: compute it during render.
+  - Work that a press or a submit starts: the event handler.
+  - Reset a form when its data changes: a `key` on the form, as `EditProfileForm`.
+  - An outside source that changes: `useSyncExternalStore` with a module store, as
+    `src/features/auth/lib/session.ts` and `src/i18n/provider.tsx`.
+  - Fresh data when a screen gets focus: pass `subscribed: useIsFocused()` (from `expo-router`)
+    to `useQuery`. The query then refetches stale data when the screen comes back.
+- Only when none of these works, write `// effect: <reason>` on the line above the call.
+- `pnpm run typecheck` runs `scripts/check-effects.mjs`. It fails on an effect hook without
+  that comment. Fix the code; never delete the check.
+
+## Design rules
+
+- Load the `mobile-design` skill before you build a screen. Check its list at the end.
+- `src/global.css` is the single source of colors. Change the look of the app there.
+- Use semantic classes: `bg-background`, `text-foreground`, `bg-surface`, `text-muted`,
+  `bg-accent`, `border-border`. They follow light and dark mode.
+- Never hardcode a color, a gray, or a shadow in a screen.
+- Screens use the components of `@/shared/ui`, not `heroui-native` directly.
+  When a screen needs another HeroUI component, add an `App*` file there first.
+- Every screen renders inside `Screen` (safe areas, scrolling, keyboard). A list screen
+  renders a `FlatList` inside `AppSafeAreaView` instead.
+- Text goes through `AppText`. The React Native `Text` has no theme.
+- Icons: `AppIcon` (Ionicons) with `colorClassName`, for example `accent-muted`.
+- A data screen has four states: `AppSkeleton` while loading, an error line with a retry,
+  `EmptyState` when there is nothing, and the content.
+- Rows of links or settings: `AppListGroup`. It has the pressed state built in.
+- Haptics: `tapFeedback()` and `successFeedback()` from `@/shared/lib/haptics`.
+- Spacing uses Uniwind classes (`p-4`, `gap-3`), not numbers in `style`.
+- Show images with `expo-image`. Install it with `npx expo install expo-image`.
+- Use `Platform.OS` or `Platform.select` only for a real platform difference.
+- Core content and actions must work with no animation.
+- Check `useReducedMotion()` from `react-native-reanimated` before a long animation.
+- Set `name` in `app.json` to the app name.
+- The app icon and the splash image are in `assets/`. When the user gives a logo, ask for
+  a square PNG of 1024 x 1024. Then point these `app.json` keys to `./public/uploads/<name>`:
+  `icon`, `android.adaptiveIcon.foregroundImage`, `web.favicon`, and the `image` and
+  `dark.image` of the `expo-splash-screen` plugin. Set the two splash `backgroundColor`
+  values and `android.adaptiveIcon.backgroundColor` to the app background colors.
+- Android shows only the center 66 % of `android.adaptiveIcon.foregroundImage`. Ask for a
+  logo with space around it, or keep `./assets/adaptive-icon.png`.
 
 ## Expo Go limits
 
@@ -70,34 +230,83 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
   `expo-sensors`, or a module in the "No web version" list below
   checks `Platform.OS === "web"` and shows a short message there.
 
-## Route rules
+## Languages
 
-- One file in `src/app/` is one route: `src/app/profiles.tsx` is `/profiles`.
-- `src/app/_layout.tsx` is the root layout. Keep its first two imports and its providers.
-- A folder with its own `_layout.tsx` groups routes, for example tabs in `src/app/(tabs)/`.
-- Navigate with `Link` and `router` from `expo-router`. Add no React Navigation package.
-- Every route renders its content inside `Screen` from `@/shared/ui`.
-  `Screen` handles the safe areas and the keyboard.
-- A web visitor can open any route first. A back button checks `router.canGoBack()`
-  before `router.back()`, as in `src/app/profiles.tsx`.
+- The app has one language until the user asks for more.
+- When the brief does not name the app language, ask once, in the first ask_user call of
+  the first build: `single-choice` with French, English, and Arabic. The user can type another.
+- No answer (`dismissed` or `delegated`): French when the user writes in French, else English.
+- Your session instructions can name languages from the project settings. Treat them as a
+  hint, not as a decision: put that language first in the question.
+- Later turns keep the language of `src/i18n/config.ts`. Do not ask again.
+- Every user-facing string goes through `t("key")` from `useT()`. A `{name}` in a message is
+  a parameter: `t("home.greeting", { name })`.
+- `src/i18n/messages.ts` is the source dictionary, written in the default language. The
+  first code of `locales` in `src/i18n/config.ts` is that language.
+- Set the language of the app, for example French:
+  1. A code that is not `en`, `fr`, or `ar`: add its row to `localeMeta` in `config.ts`.
+  2. Set `locales = ["fr"]` in `config.ts`.
+  3. Write every string of `messages.ts` in French.
+  4. In `translate.ts`, key the dictionary with the code: `{ fr: messages }`.
+- Add a second language:
+  1. Add its code to `locales` (and its row to `localeMeta` when it is new).
+  2. Add `messages.<code>.ts` with the type `Dictionary` and the same keys.
+  3. Add it to `dictionaries` in `translate.ts`. `LanguagePicker` then shows by itself.
+- An app with Arabic as its only language: add `"forcesRTL": true` to the options of the
+  `expo-localization` plugin in `app.json`, so a built app starts mirrored.
+- Arabic is right to left. The root layout mirrors the app from `useT().dir`, at once.
+  On a phone the app also reloads once, so native views follow. Keep this flow in
+  `src/app/_layout.tsx` and `src/i18n/provider.tsx`.
+- Use logical utilities only: `ps-`, `pe-`, `ms-`, `me-`, `start-`, `end-`.
+- For a style that differs by direction, use the `rtl:` and `ltr:` variants.
+- Use the classes, not `marginStart` or `start` in `style`: inline styles do not mirror on the web.
+- Never use `pl-`, `pr-`, `ml-`, `mr-`, `left-`, `right-`, `text-left`, `text-right`.
+- Directional icons (arrows, chevrons) flip when `useT().dir` is `rtl`.
+- Leave text alignment at its default; it follows the direction. Do not use `text-start`
+  or `text-end`: React Native 0.86 does not read them.
+- Arabic text uses no italics.
 
-## Planning a turn
+## Supabase rule
 
-- Read the brief fully before you write code. Restate the goal in one line.
-- Build small: one screen, one section, or one fix per step.
-- Run `pnpm run typecheck` and `pnpm run lint` before you finish a turn.
+- A Supabase project exists from project creation. It is already provisioned.
+- App code uses `supabase` from `@/shared/lib/supabase` only in `api/` files and in
+  `src/features/auth/lib/session.ts`. It never calls `createClient`.
+- That client reads `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+- An Edge Function makes its own client with `Deno.env.get("SUPABASE_URL")` and
+  `Deno.env.get("SUPABASE_ANON_KEY")`.
+- The host writes both values to `.env`. Never edit `.env` or copy the values into another file.
+- A missing value throws a clear error at start. Never catch it away.
+- Never write a fallback for a missing backend. No "no backend yet" path.
+- Data access stays behind the RLS policies in `supabase/migrations/`.
+- Every `EXPO_PUBLIC_` value ships inside the app bundle. Never put a secret in one.
 
-## When to build
+## Sign-in rule
 
-- The brief names a screen, a section, a style, or a fix: build it.
-- The brief names a look: apply it through `src/global.css` and `src/shared/ui/`.
+- The only sign-in method is Supabase email and password. The template has it:
+  `src/features/auth/` (the session store, the mutations, and the sign-in screen).
+- `useSession()` gives `loading`, `signed-out`, or `signed-in` with the session.
+- The sign-up form has three fields: email, password, and confirm password.
+  A zod schema with `refine` checks that the two passwords match.
+- Email confirmation is off for this project. `signUp` returns a session at once.
+  Do not build a "check your email" step.
+- Do not build OAuth sign-in (Google, Apple, or another provider), magic link sign-in,
+  or phone code sign-in. Do not build them when the user asks for them.
+  Tell the user that only email and password sign-in is available for now.
+- Create one test account per app, in the first build turn of an app that keeps sign-in:
+  `node --env-file=.env scripts/create-test-user.mjs`. The script calls the sign-up
+  endpoint of the app backend with the anon key and prints a new email and password.
+  Do not create another one in a later turn.
+- On an error, read its text: `Cannot reach the app backend` means the backend is paused
+  or not ready; tell the user. Never print the anon key or another value of `.env`.
+- Give the email and the password to the user in your final answer.
 
-## When to ask the user
+## Before you end a turn
 
-- A fact is missing: price, phone, address, text content, image.
-- A business decision is open: which language, which product, which offer.
-- Do not ask for things the brief already answers.
-- Put every question of one step in one ask_user call.
+1. Run `pnpm run typecheck` and `pnpm run lint`. Fix every error and warning.
+2. Check that every button and link works, and that no screen shows fake data.
+3. End with a short answer in plain words for a person who does not code: what the app
+   does now, what to try in the preview, the test account when there is sign-in, and the
+   next questions, if any.
 
 ## ask_user contract
 
@@ -114,83 +323,13 @@ The phone preview is the store Expo Go app. It holds a fixed set of native modul
 - `action` is `answered`, `delegated` (you decide), or `dismissed` (skipped; follow `text`).
 - `files[].path` is the copy in `public/uploads/<name>`. Read that file to see it.
 - In app code, load the file with `require()` and a fixed relative path, for example
-  `require("../../public/uploads/<name>")` from `src/app/`. Metro needs a fixed string.
+  `require("../../../../public/uploads/<name>")` from `src/features/<feature>/screens/`.
+  Metro needs a fixed string.
 - The tool text names the web URL `/uploads/<name>`. That URL does not work on a phone.
 - The tool text also offers design worlds with `worldId`. This template has no world skills.
-- Ask only when blocked.
-
-## File layout
-
-- `src/app/`: routes and layouts. `_layout.tsx` is the root.
-- `src/shared/ui/`: the `App*` components over HeroUI Native, and `Screen`.
-- `src/lib/`: shared logic, for example the Supabase client.
-- `src/i18n/`: dictionaries, the provider, and the `useT` hook.
-- `src/global.css`: the theme variables for light and dark.
-- `supabase/migrations/`: SQL migrations, forward-only. `0000_base.sql` is the base schema.
-- `native-modules.json`: the module allow-list. `scripts/allow-list.mjs` writes it.
-- Import app files through `@/`, which is `src/`, for example `@/shared/ui`.
-
-## Design rules
-
-- `src/global.css` is the single source of colors. Change the look of the app there.
-- Use semantic classes: `bg-background`, `text-foreground`, `bg-surface`, `text-muted`,
-  `bg-accent`, `border-border`. They follow light and dark mode.
-- Never hardcode a color, a gray, or a shadow in a screen.
-- Screens use the `App*` components from `@/shared/ui`, not `heroui-native` directly.
-  When a screen needs another HeroUI component, add an `App*` file there first.
-- Text goes through `AppText`. The React Native `Text` has no theme.
-- Spacing uses Uniwind classes (`p-4`, `gap-3`), not numbers in `style`.
-- Show images with `expo-image`. Install it with `npx expo install expo-image`.
-- Use `Platform.OS` or `Platform.select` only for a real platform difference.
-- Core content and actions must work with no animation.
-- Check `useReducedMotion()` from `react-native-reanimated` before a long animation.
-
-## Language rules
-
-- The template has `en`, `fr`, and `ar`. Arabic is right to left.
-- Your session instructions list the app languages. Set `locales` in `src/i18n/config.ts`
-  to those codes only. The first code is the default.
-- The switch, the saved locale, and the device match read `locales`. Do not filter them one by one.
-- Never delete a dictionary file. `en.ts` is the fallback for a missing key.
-- Every user-facing string goes through `t("key")` from `useT()`.
-- Keys stay identical across `en.ts`, `fr.ts`, `ar.ts`. English is the source.
-- A switch to or from Arabic mirrors the layout at once: the root layout sets the
-  direction from `useT().dir`. On a phone the app also reloads once, so native views
-  follow. Keep this flow in `src/app/_layout.tsx` and `src/i18n/provider.tsx`.
-- Use logical utilities only: `ps-`, `pe-`, `ms-`, `me-`, `start-`, `end-`.
-- For a style that differs by direction, use the `rtl:` and `ltr:` variants.
-- Use the classes, not `marginStart` or `start` in `style`: inline styles do not mirror on the web.
-- Never use `pl-`, `pr-`, `ml-`, `mr-`, `left-`, `right-`, `text-left`, `text-right`.
-- Directional icons (arrows, chevrons) flip when `useT().dir` is `rtl`.
-- Leave text alignment at its default; it follows the direction. React Native has no `text-end`.
-- Arabic text uses no italics.
-
-## Supabase rule
-
-- A Supabase project exists from project creation. It is already provisioned.
-- App code in `src/` uses `supabase` from `@/lib/supabase`. It never calls `createClient`.
-- That client reads `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
-- An Edge Function makes its own client with `Deno.env.get("SUPABASE_URL")` and
-  `Deno.env.get("SUPABASE_ANON_KEY")`.
-- The host writes both values to `.env`. Never edit `.env` or copy the values into another file.
-- A missing value throws a clear error at start. Never catch it away.
-- Never write a fallback for a missing backend. No "no backend yet" path.
-- Data access stays behind the RLS policies in `supabase/migrations/`.
-- The client has no generated types. Check the rows you read with a zod schema,
-  as in `src/app/profiles.tsx`.
-- Every `EXPO_PUBLIC_` value ships inside the app bundle. Never put a secret in one.
-
-## Sign-in rule
-
-- The only sign-in method is Supabase email and password.
-- The sign-up form has three fields: email, password, and confirm password.
-- A zod schema with `refine` checks that the two passwords match.
-  Then the form calls `supabase.auth.signUp`.
-- Email confirmation is off for this project. `signUp` returns a session at once.
-  Sign the user in with that session. Do not build a "check your email" step.
-- Do not build OAuth sign-in (Google, Apple, or another provider), magic link sign-in,
-  or phone code sign-in. Do not build them when the user asks for them.
-  Tell the user that only email and password sign-in is available for now.
+- Ask only when blocked: a missing fact (a price, a text, an image), an open business
+  decision, or the app language.
+- Do not ask for things the brief already answers.
 
 ## Public form contract
 
@@ -218,8 +357,8 @@ booking, a contact request, a sign-up for news.
 - `get_advisors` then reports `anon_security_definer_function_executable` and
   `authenticated_security_definer_function_executable` for the RPC. They are `warn`
   findings and are expected. Never revoke `execute` to clear them.
-- The app validates the fields with zod to show field errors. Then it calls
-  `supabase.rpc("submit_order", { ... })`. The app code never names the table.
+- The app validates the fields with zod to show field errors. Then its mutation hook
+  calls `supabase.rpc("submit_order", { ... })`. The app code never names the table.
 - On an error, the screen shows a translated general error, never `error.message`.
 - A form that also needs a secret, for example to send an email, uses an Edge Function
   in `supabase/functions/<slug>/`. The function calls the same RPC with its anon client.
@@ -362,8 +501,8 @@ Native modules that run in Expo Go (91):
 `react-native-webview`, `react-native-worklets`
 
 JavaScript-only packages of this template:
-`@supabase/supabase-js`, `heroui-native`, `tailwind-merge`, `tailwind-variants`, `tailwindcss`,
-`uniwind`, `zod`
+`@supabase/supabase-js`, `@tanstack/react-query`, `heroui-native`, `tailwind-merge`,
+`tailwind-variants`, `tailwindcss`, `uniwind`, `zod`
 
 Allowed with a limit in Expo Go:
 - `@expo/ui`: no component newer than 57.0.11 (no NavigationStack, Toolbar, or NavigationSplitView).

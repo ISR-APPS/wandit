@@ -457,6 +457,13 @@ async function forward(
 	// So the vendor host never reaches the phone or the browser.
 	upstreamRequest.headers.set("x-forwarded-host", url.host);
 	upstreamRequest.headers.set("x-forwarded-proto", url.protocol.slice(0, -1));
+	// Expo CLI refuses a request whose Origin host is not its Host header.
+	// A browser sends Origin on a same-origin font load or POST, and Host is
+	// now the sandbox host. So a same-origin Origin becomes the sandbox
+	// origin. A foreign Origin passes unchanged, and the dev server refuses it.
+	if (upstreamRequest.headers.get("origin") === url.origin) {
+		upstreamRequest.headers.set("origin", origin.origin);
+	}
 	const cookieHeader = upstreamRequest.headers.get("cookie");
 	if (cookieHeader !== null) {
 		const kept = stripCookieValue(cookieHeader, PREVIEW_COOKIE_NAME);

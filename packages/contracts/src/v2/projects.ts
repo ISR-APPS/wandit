@@ -29,7 +29,7 @@ export {
 	targetPlatforms,
 } from "../v1/shared/target-platform";
 
-/** Languages the agent must build in (D7: Arabic, French, English). */
+/** Language codes a project stores (D7). The agent reads them as a hint for the app language. */
 export const appLanguages = ["ar", "fr", "en"] as const;
 
 /** Runtime validator for an app language. */
@@ -48,7 +48,7 @@ export const createAppProjectRequestSchema = z
 		composer: composerMetadataSchema.optional(),
 		attachments: z.array(fileRefSchema).max(6).optional(),
 		targetPlatform: targetPlatformSchema.default("web"),
-		// 1 to 3 languages the generated app ships in (D7).
+		// 1 to 3 UI locales (D7). The agent reads them as a hint for the app language only.
 		languages: z.array(appLanguageSchema).min(1).max(3),
 	})
 	.refine(
