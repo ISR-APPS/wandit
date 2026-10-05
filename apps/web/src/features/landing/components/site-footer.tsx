@@ -1,5 +1,6 @@
 /**
- * The footer of the landing page. pages/landing-page.tsx renders it.
+ * The footer of the landing page. pages/landing-page.tsx and
+ * pages/pricing-page.tsx render it.
  * It holds the link columns, the legal links, the abuse contact, and the
  * legal entity line, then a giant "wandit" wordmark that fills the width.
  */
@@ -68,7 +69,7 @@ export function SiteFooter() {
 												</Link>
 											) : (
 												<a
-													href={link.scrollId ? `#${link.scrollId}` : "#"}
+													href={link.scrollId ? `/#${link.scrollId}` : "#"}
 													onClick={(event) => {
 														if (link.scrollId) {
 															event.preventDefault();
