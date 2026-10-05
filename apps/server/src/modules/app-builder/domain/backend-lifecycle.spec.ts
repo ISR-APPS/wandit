@@ -196,23 +196,12 @@ describe("assertBackendEntitlement", () => {
 	});
 
 	it("refuses at the limit with backend_limit_reached", () => {
-		expect(assertBackendEntitlement("pro", 1)).toEqual({
+		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
+		expect(assertBackendEntitlement("pro", limit)).toEqual({
 			allowed: false,
 			code: "backend_limit_reached",
-			limit: BACKEND_DEFAULTS.backendsPerPlan.pro,
+			limit,
 			plan: "pro",
-		});
-	});
-
-	it("gives starter and business different answers for the same count", () => {
-		expect(assertBackendEntitlement("starter", 0)).toEqual({
-			allowed: false,
-			code: "backend_limit_reached",
-			limit: 0,
-			plan: "starter",
-		});
-		expect(assertBackendEntitlement("business", 0)).toEqual({
-			allowed: true,
 		});
 	});
 });

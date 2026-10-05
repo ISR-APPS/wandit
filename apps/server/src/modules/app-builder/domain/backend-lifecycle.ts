@@ -39,13 +39,13 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	/** Provisional default (ESTIMATE): at most this many rows in each of the six steps of one sweep run. */
 	sweepBatchCap: 50,
 	/**
-	 * Provisional D3 default, WANDIT-153 open: backends one owner may hold per
-	 * plan. D3 names Pro and Business; the issue sets `starter` to 0.
-	 * Business is 1000, Zack's choice: in practice a Business owner has no limit.
+	 * Backends one owner may hold per plan. 1000 means no practical limit.
+	 * Every plan gets 1000 for the staging tests, so any tester can add a backend.
+	 * Zack sets the per-plan caps again after the tests. WANDIT-153 decides the backend price.
 	 */
 	backendsPerPlan: Object.freeze({
-		starter: 0,
-		pro: 1,
+		starter: 1000,
+		pro: 1000,
 		business: 1000,
 	} satisfies Record<BillingPlanId, number>),
 });

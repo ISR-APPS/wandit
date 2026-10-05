@@ -5,6 +5,7 @@ import type {
 	SubscriptionRow,
 	SubscriptionsRepository,
 } from "../../../billing/infrastructure/persistence/subscriptions.repository";
+import { BACKEND_DEFAULTS } from "../../domain/backend-lifecycle";
 import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import type { ProvisionBackendTaskStarter } from "../../domain/ports/provision-backend-task-starter";
 import type { V2EnvSource } from "../../infrastructure/env/v2-env";
@@ -195,7 +196,8 @@ describe("BackendsService.provisionBackend", () => {
 
 	it("refuses at the plan limit with BACKEND_LIMIT_REACHED and starts nothing", async () => {
 		const { owned, service, starter } = setup();
-		owned.count = 1;
+		const limit = BACKEND_DEFAULTS.backendsPerPlan.pro;
+		owned.count = limit;
 
 		const failure = await service
 			.provisionBackend("project-1", INPUT)
@@ -207,31 +209,10 @@ describe("BackendsService.provisionBackend", () => {
 		expect(refusal.getStatus()).toBe(403);
 		expect(refusal.getResponse()).toEqual({
 			code: "BACKEND_LIMIT_REACHED",
-			details: { limit: 1, plan: "pro" },
-			message: "Backend limit reached: the pro plan allows 1",
+			details: { limit, plan: "pro" },
+			message: `Backend limit reached: the pro plan allows ${limit}`,
 		});
 		expect(starter.start).not.toHaveBeenCalled();
-	});
-
-	it("refuses a starter payer and admits a business payer with the same count", async () => {
-		const starterPayer = setup();
-		starterPayer.subscriptions.findActiveByOwner.mockResolvedValue(null);
-		starterPayer.owned.count = 2;
-
-		await expect(
-			starterPayer.service.provisionBackend("project-1", INPUT),
-		).rejects.toBeInstanceOf(BackendLimitReachedError);
-		expect(starterPayer.starter.start).not.toHaveBeenCalled();
-
-		const businessPayer = setup();
-		businessPayer.subscriptions.findActiveByOwner.mockResolvedValue(
-			subscriptionRow("business"),
-		);
-		businessPayer.owned.count = 2;
-
-		await businessPayer.service.provisionBackend("project-1", INPUT);
-
-		expect(businessPayer.starter.start).toHaveBeenCalledTimes(1);
 	});
 
 	it("counts and reads the plan of the org for an org project", async () => {
