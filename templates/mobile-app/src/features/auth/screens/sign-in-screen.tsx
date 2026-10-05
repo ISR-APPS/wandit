@@ -1,11 +1,13 @@
 /**
  * Sign-in modal at route "/sign-in": sign in or create an account with email
- * and password. The root layout guards the route with Stack.Protected, so the
- * modal closes by itself when the session arrives.
+ * and password, under a brand block in the colors of the design world. The root
+ * layout guards the route with Stack.Protected, so the modal closes by itself
+ * when the session arrives. The route param `mode=sign-up` opens it in sign-up mode.
  */
-import { Stack } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import type { TextInput } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { z } from "zod";
 import { useT } from "@/i18n";
 import { AppButton, AppText, AppTextField, Screen } from "@/shared/ui";
@@ -20,7 +22,9 @@ type FieldErrors = Partial<
 /** One form for sign-in and sign-up. A failed call shows a translated error, never the raw text. */
 export function SignInScreen() {
 	const { t } = useT();
-	const [isSignUp, setIsSignUp] = useState(false);
+	// A welcome screen sends a new user here with `mode=sign-up`, so the form opens on sign-up.
+	const { mode } = useLocalSearchParams<{ mode?: string }>();
+	const [isSignUp, setIsSignUp] = useState(mode === "sign-up");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
@@ -70,6 +74,19 @@ export function SignInScreen() {
 					title: isSignUp ? t("auth.signUpTitle") : t("auth.signInTitle"),
 				}}
 			/>
+			{/* The brand block: the hero gradient of the world. Reanimated skips the
+			    entry when the system asks for reduced motion. */}
+			<Animated.View
+				className="gap-2 rounded-3xl bg-linear-to-br from-hero-start to-hero-end p-6"
+				entering={FadeInDown.duration(400)}
+			>
+				<AppText className="text-hero-foreground" variant="title">
+					{isSignUp ? t("auth.signUpHeadline") : t("auth.signInHeadline")}
+				</AppText>
+				<AppText className="text-hero-foreground/80">
+					{t("auth.headlineBody")}
+				</AppText>
+			</Animated.View>
 			<AppTextField isInvalid={fieldErrors.email !== undefined} isRequired>
 				<AppTextField.Label>{t("auth.email")}</AppTextField.Label>
 				<AppTextField.Input

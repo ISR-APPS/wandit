@@ -1,13 +1,15 @@
 /**
  * Root layout. expo-router renders it around every route in src/app.
- * It loads the theme CSS and the Supabase env check first, then the gesture
- * root, React Query, i18n, the layout direction, HeroUI Native, the
- * navigation theme, and the root stack: the tabs and the sign-in modal.
+ * It loads the theme CSS and the Supabase env check first, then the fonts of
+ * src/shared/lib/fonts.ts, the gesture root, React Query, i18n, the layout
+ * direction, HeroUI Native, the navigation theme, and the root stack: the tabs
+ * and the sign-in modal.
  */
 import "@/global.css";
 // D18: this import throws at start when a Supabase env value is missing.
 import "@/shared/lib/supabase";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { useFonts } from "expo-font";
 import { LocaleProvider, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { HeroUINativeProvider } from "heroui-native";
@@ -16,6 +18,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LayoutDirection } from "uniwind";
 import { useSession } from "@/features/auth";
 import { I18nProvider, useT } from "@/i18n";
+import { appFonts } from "@/shared/lib/fonts";
 import { queryClient } from "@/shared/lib/query-client";
 import { ModalCloseButton, useNavigationTheme } from "@/shared/ui";
 
@@ -24,6 +27,16 @@ import { ModalCloseButton, useNavigationTheme } from "@/shared/ui";
 export const unstable_settings = { anchor: "(tabs)" };
 
 export default function RootLayout() {
+	const [fontsLoaded, fontError] = useFonts(appFonts);
+	// A screen drawn before its fonts jumps when they arrive, so the app waits.
+	// On a load error the app still opens. On native the system font replaces the
+	// world font; on the web the browser default font does.
+	if (!fontsLoaded && fontError === null) {
+		return null;
+	}
+	if (fontError !== null) {
+		console.error("[fonts] failed to load", fontError);
+	}
 	return (
 		<GestureHandlerRootView style={{ flex: 1 }}>
 			<QueryClientProvider client={queryClient}>

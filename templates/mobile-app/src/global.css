@@ -5,66 +5,122 @@
 
 @source "../node_modules/heroui-native/lib";
 
-/* Text fields show a 1 px edge: on the web, a white field on a near-white page is invisible. */
+/*
+ * The design world of the app: its fonts, corners, and colors. The template ships the
+ * `registre` world. A build replaces these values with the world it picks
+ * (the design-worlds-mobile skill). Screens never hardcode a color, a font, or a shadow.
+ */
 @theme {
+	/* Text fields show a 1 px edge: on the web, a white field on a near-white page is invisible. */
 	--field-border-width: 1px;
+	/* HeroUI computes every corner from it: cards and buttons use 3x, text fields 1.75x. */
+	--radius: 0.5rem;
 }
 
 /*
- * The app theme. Uniwind picks the variant from the system color scheme.
+ * Fonts. React Native needs one family per weight, so each weight class names a family.
+ * HeroUI components use font-normal, font-medium, font-semibold, and font-bold, so they
+ * follow these four. Each name is a key of `appFonts` in src/shared/lib/fonts.ts.
+ * `static` keeps the variables on native even with no class that uses them: the
+ * navigation theme reads them for the header and tab bar labels.
+ */
+@theme static {
+	--font-normal: "PlusJakartaSans_400Regular";
+	--font-medium: "PlusJakartaSans_500Medium";
+	--font-semibold: "PlusJakartaSans_600SemiBold";
+	--font-bold: "PlusJakartaSans_700Bold";
+	/* The face of `display` and `title` text (AppText). */
+	--font-display: "PlusJakartaSans_800ExtraBold";
+}
+
+/* The hero block: the gradient of a welcome, sign-in, or home header, and its text color. */
+@theme static {
+	--color-hero-start: var(--hero-start);
+	--color-hero-end: var(--hero-end);
+	--color-hero-foreground: var(--hero-foreground);
+}
+
+/*
+ * The colors. Uniwind picks the variant from the system color scheme.
  * Uniwind reads theme variables on native only inside :root.
  * HeroUI Native components read these variables; so do the bg-*, text-*,
- * and border-* utilities. Change the look of the app here, not in screens.
+ * and border-* utilities. Write literal hex colors: no var() and no color-mix().
  */
 @layer theme {
 	:root {
 		@variant light {
-			--background: oklch(0.985 0 0);
-			--foreground: oklch(0.205 0 0);
-			--surface: oklch(1 0 0);
-			--surface-foreground: oklch(0.205 0 0);
-			--surface-secondary: oklch(0.96 0 0);
-			--surface-tertiary: oklch(0.93 0 0);
-			--overlay: oklch(1 0 0);
-			--muted: oklch(0.556 0 0);
-			--accent: oklch(0.205 0 0);
-			--accent-foreground: oklch(0.985 0 0);
-			--default: oklch(0.94 0 0);
-			--default-foreground: oklch(0.205 0 0);
-			--border: oklch(0.205 0 0 / 10%);
-			--separator: oklch(0.205 0 0 / 8%);
-			--field-background: oklch(1 0 0);
-			--field-border: oklch(0.205 0 0 / 15%);
+			--background: #f3f5f9;
+			--foreground: #0f1a2e;
+			--surface: #ffffff;
+			--surface-foreground: #0f1a2e;
+			--surface-secondary: #ebeff5;
+			--surface-tertiary: #dfe5ee;
+			--overlay: #ffffff;
+			--muted: #566176;
+			--accent: #1e4bd2;
+			--accent-foreground: #ffffff;
+			--default: #e6eaf1;
+			--default-foreground: #0f1a2e;
+			--border: #0f1a2e17;
+			--separator: #0f1a2e10;
+			--field-background: #ffffff;
+			--field-border: #0f1a2e29;
+			--field-placeholder: #8a93a5;
 			/* HeroUI builds this with color-mix(), which Uniwind cannot read on the web: ghost and
 			   outline buttons then log a colorKit error. Keep it a little darker than --default. */
-			--color-default-hover: oklch(0.91 0 0);
-			--success: oklch(0.65 0.14 155);
-			--warning: oklch(0.75 0.15 80);
-			--danger: oklch(0.6 0.2 27);
+			--color-default-hover: #dce1ea;
+			--success: #12784a;
+			--success-foreground: #ffffff;
+			--warning: #f2a93b;
+			--warning-foreground: #1a1300;
+			--danger: #c2352b;
+			--danger-foreground: #ffffff;
+			--segment: #ffffff;
+			--segment-foreground: #0f1a2e;
+			--focus: #1e4bd2;
+			--hero-start: #1e4bd2;
+			--hero-end: #0b1630;
+			--hero-foreground: #ffffff;
+			--surface-shadow: 0 1px 2px 0 rgba(15, 26, 46, 0.06);
+			--overlay-shadow: 0 12px 32px 0 rgba(15, 26, 46, 0.16);
+			--field-shadow: 0 0 0 0 transparent inset;
 		}
 
 		@variant dark {
-			--background: oklch(0.145 0 0);
-			--foreground: oklch(0.985 0 0);
-			--surface: oklch(0.205 0 0);
-			--surface-foreground: oklch(0.985 0 0);
-			--surface-secondary: oklch(0.235 0 0);
-			--surface-tertiary: oklch(0.27 0 0);
-			--overlay: oklch(0.215 0 0);
-			--muted: oklch(0.708 0 0);
-			--accent: oklch(0.922 0 0);
-			--accent-foreground: oklch(0.205 0 0);
-			--default: oklch(0.27 0 0);
-			--default-foreground: oklch(0.985 0 0);
-			--border: oklch(1 0 0 / 10%);
-			--separator: oklch(1 0 0 / 7%);
-			--field-background: oklch(0.205 0 0);
-			--field-border: oklch(1 0 0 / 15%);
+			--background: #0b1220;
+			--foreground: #e8edf6;
+			--surface: #121b2e;
+			--surface-foreground: #e8edf6;
+			--surface-secondary: #18233a;
+			--surface-tertiary: #22304b;
+			--overlay: #16203a;
+			--muted: #97a3ba;
+			--accent: #7396ff;
+			--accent-foreground: #0b1220;
+			--default: #1c2740;
+			--default-foreground: #e8edf6;
+			--border: #ffffff14;
+			--separator: #ffffff0f;
+			--field-background: #121b2e;
+			--field-border: #ffffff24;
+			--field-placeholder: #6c7891;
 			/* A little lighter than --default; see the light block. */
-			--color-default-hover: oklch(0.3 0 0);
-			--success: oklch(0.75 0.14 155);
-			--warning: oklch(0.84 0.14 85);
-			--danger: oklch(0.7 0.19 25);
+			--color-default-hover: #25324f;
+			--success: #3ccb8a;
+			--success-foreground: #0b1220;
+			--warning: #f5b851;
+			--warning-foreground: #0b1220;
+			--danger: #ff6f62;
+			--danger-foreground: #0b1220;
+			--segment: #22304b;
+			--segment-foreground: #e8edf6;
+			--focus: #7396ff;
+			--hero-start: #2549d0;
+			--hero-end: #08112a;
+			--hero-foreground: #ffffff;
+			--surface-shadow: 0 0 0 0 transparent inset;
+			--overlay-shadow: 0 0 1px 0 rgba(255, 255, 255, 0.16) inset;
+			--field-shadow: 0 0 0 0 transparent inset;
 		}
 	}
 }
