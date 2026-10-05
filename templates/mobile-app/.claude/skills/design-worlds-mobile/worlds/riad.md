@@ -303,7 +303,8 @@ subject centered with space above it for an arch crop, vertical framing, no peop
 no logos, no watermark."
 
 - At most 2 images in the first build: the welcome arch and one detail or empty-state arch.
-- A generated image is mood only. It never stands for the user's house, room, or tour.
+- A generated image is mood only. It shows the user's house, room, or tour only when the user
+  picks generated images for it.
 - Never: camels, costumes, fake Arabic lettering, sunset silhouettes, stock smiles.
 
 ## 9. Bans

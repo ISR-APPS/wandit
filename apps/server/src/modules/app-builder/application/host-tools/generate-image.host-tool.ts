@@ -18,7 +18,6 @@ import { type Tool, tool } from "ai";
 import {
 	EXTENSION_BY_MEDIA_TYPE,
 	generateBuildImage,
-	MAX_IMAGES,
 } from "../../../ai-chat/agent/site-builder/generate-image";
 import { redactProviderText } from "../../../ai-errors/domain";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -48,6 +47,12 @@ export type HostToolMetering = Pick<
 	| "usdMicrosPerCredit"
 >;
 
+/**
+ * Hard cap of `generate_image` calls in one builder turn. A full app needs many
+ * images, so the cap is high. It only stops a runaway loop that spends the user's credits.
+ */
+export const BUILDER_MAX_IMAGES_PER_TURN = 30;
+
 /** What the registry hands the image tool factory. */
 export type GenerateImageHostToolDeps = {
 	metering: HostToolMetering;
@@ -75,16 +80,19 @@ export function createGenerateImageTool(
 		description:
 			"Generate ONE image and write it into the project. Use it for the " +
 			"images that the design needs. Examples: a hero photo, a section " +
-			"photo, an illustration, sign-in art, onboarding art. Never " +
-			"invent the user's own product: to show it, edit the user's photo " +
-			"with sourceImageUrls. An image of the user always wins over a " +
+			"photo, an illustration, sign-in art, onboarding art. For the " +
+			"user's real product, place, or people, ask for the user's photos " +
+			"first and offer generated images as the other choice. When the " +
+			"user picks them or asks for placeholders, make them. To put the " +
+			"user's photo in a new scene, edit it with sourceImageUrls. An " +
+			"image of the user always wins over a " +
 			"generated one. Never text, logos or watermarks inside an image. " +
 			"`path` is project-relative and must start with public/ or " +
 			"src/assets/. A web app: Vite serves public/images/x.png at " +
 			"/images/x.png. A mobile app: write to src/assets/ and load the " +
 			"returned path with require(). Returns the hosted URL and the " +
 			"final path. The extension can change: use the returned path. " +
-			`Max ${MAX_IMAGES} attempts per turn; on ` +
+			`Max ${BUILDER_MAX_IMAGES_PER_TURN} attempts per turn; on ` +
 			"unavailable/failed, build CSS/SVG art instead.",
 		inputSchema: generateImageHostToolInputSchema,
 		execute: async (
@@ -126,9 +134,9 @@ export function createGenerateImageTool(
 				return finish({ message: "path must name a file", status: "failed" });
 			}
 
-			if (imageSequence >= MAX_IMAGES) {
+			if (imageSequence >= BUILDER_MAX_IMAGES_PER_TURN) {
 				return finish({
-					message: `Image budget exhausted (${MAX_IMAGES} per turn)`,
+					message: `Image budget exhausted (${BUILDER_MAX_IMAGES_PER_TURN} per turn)`,
 					status: "failed",
 				});
 			}

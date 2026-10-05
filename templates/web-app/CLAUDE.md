@@ -168,16 +168,24 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
   Do not draw a photo in CSS or SVG. Draw an illustration in CSS or SVG only when the world names it.
 - A website, and the public pages of Both: the first build gets the hero image and the photos
   that the world names. Follow the photography direction of the world.
-- A world with no photography gets no generated image. Draw its art as the world says.
-- An app: the public page gets 1 or 2 images, and the sign-in page gets 1.
-  The screens behind login get no image.
-- Each image costs credits of the user. The first build gets at most 4 images, for all pages together.
-  A later turn gets at most 2, unless the user asks for more.
+- A world with no photography gets no generated image, unless the user asks for one.
+  Draw its art as the world says.
+- An app: the public page and the sign-in page get images. Behind login, a fixed type that the code
+  names (a service category, a class type) can get one image: a thumbnail in its list and the header
+  of its detail page. Never insert rows to show an image. A row that a user adds shows its own photo.
+  Other tables, charts, forms, and empty cards get no image.
+- The user's real product, place, or people: ask for the user's photos first, and offer generated
+  images as the other choice. Do not show a generated image as the real thing without this choice.
+- The user picks generated images, or asks for placeholders: make them. Say in one line that real
+  photos can replace them later. To put a photo of the user in a new scene, edit it with `sourceImageUrls`.
+- These two rules win over a world line about a missing product photo or invented images.
+- Make every image that the pages need. The tool takes up to 30 calls in one turn.
+  A later turn makes new images only for new or changed pages, or when the user asks.
 - `path` is `public/images/<name>.png`. Vite serves `public/` at the site root,
   so the code uses `/images/<name>.png`. Use the path that the tool returns: the extension can change.
 - Each `<img>` gets `width`, `height`, and a translated `alt`. An image below the fold gets `loading="lazy"`.
 - Text on a photo sits on a scrim made from the tokens, with a contrast of 4.5:1 or more.
-- An image never shows text, a logo, or a fact (a price, a product that the user did not give).
+- An image never shows text, a logo, or a fact, such as a price.
 - An image or a logo of the user always wins over a generated image.
 - The tool answers `unavailable` or `failed`: draw the visual with CSS or SVG, and continue.
 

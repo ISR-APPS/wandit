@@ -230,8 +230,8 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
 - Spacing uses Uniwind classes (`p-4`, `gap-3`), not numbers in `style`.
 - Show a bundled image (`src/assets/`, `public/uploads/`) with the React Native `Image`.
   For many remote images in a list, install `expo-image` with `npx expo install expo-image`.
-- Make the photos and the illustrations that the world names with
-  `mcp__harness-tools__generate_image`, as the `mobile-design` skill says (section "Images").
+- Make the photos and the illustrations that the world names, and the images of fixed types,
+  with `mcp__harness-tools__generate_image`, as the `mobile-design` skill says (section "Images").
   Draw the empty state art as the world says.
 - Use `Platform.OS` or `Platform.select` only for a real platform difference.
 - Core content and actions must work with no animation.

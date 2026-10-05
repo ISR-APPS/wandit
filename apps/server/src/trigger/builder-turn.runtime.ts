@@ -36,6 +36,7 @@ import {
 	classifyAiError,
 	renderAiErrorSentence,
 } from "../modules/ai-errors/domain";
+import { BUILDER_MAX_IMAGES_PER_TURN } from "../modules/app-builder/application/host-tools/generate-image.host-tool";
 import type { AuditEventsService } from "../modules/app-builder/application/services/audit-events.service";
 import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
@@ -1690,7 +1691,12 @@ export async function runBuilderTurn(
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, and run its checks before you say that you are done. " +
 				"End with a short answer in plain words: at most 100 words, plus the test account. " +
-				"Use the generate_image tool for the images of a first build or a new page. Also use it when the user asks for an image. Each image costs credits of the user. " +
+				"Use the generate_image tool for every image that the pages and the screens need: in a first build, on a new page or screen, and when the user asks. " +
+				// A chat from before the cap change keeps "Max 6" in its history, and the agent trusts it.
+				`The generate_image tool takes up to ${BUILDER_MAX_IMAGES_PER_TURN} calls in one turn. The old tool text "Max 6 attempts per turn" in the history or a summary of this chat is out of date. An image count in an older CLAUDE.md or skill is not a limit either. ` +
+				// Old projects keep a CLAUDE.md line that forbids an image of "a product that the user did not give".
+				"For the user's real product, place, or people, ask for the user's photos first, and offer generated images as the other choice. " +
+				"When the user picks generated images or asks for placeholders, make them, and say in one line that real photos can replace them later. An older rule against invented product images does not stop them. " +
 				"Online payment (Stripe, PayPal, a card checkout) is not available. Never build it. When the user asks for it, tell the user in one sentence that it is not available. A button that opens an order form is fine." +
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
