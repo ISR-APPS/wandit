@@ -58,10 +58,11 @@ export interface TemplateInit {
  * `explicitDir` is `TEMPLATE_ARCHIVE_DIR` from the env and wins when set: a
  * deployed worker or API carries the archive at a fixed path. Otherwise the
  * first existing candidate wins: `<cwd>/templates`, `<cwd>/../../templates`
- * (the Trigger dev worker and the API run from `apps/server`), then
- * `templates/` next to this source file. The Trigger worker bundles this
- * file under `.trigger/`, so the source path alone is wrong there. The last
- * candidate is returned even when absent, so the error names a path.
+ * (the Trigger dev worker, the API, and the harness host run from
+ * `apps/server`), then `templates/` next to this source file. The Trigger
+ * worker bundles this file under `.trigger/`, so the source path alone is
+ * wrong there. The last candidate is returned even when absent, so the error
+ * names a path.
  */
 export function resolveTemplateArchiveDir(
 	explicitDir: string | undefined,
