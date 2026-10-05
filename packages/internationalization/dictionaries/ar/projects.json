@@ -128,10 +128,12 @@
 		"modeLabel": "الوضع",
 		"platforms": {
 			"web": {
-				"label": "تطبيق ويب"
+				"label": "تطبيق ويب",
+				"description": "يفتح في المتصفح، على أي جهاز."
 			},
 			"mobile": {
-				"label": "تطبيق موبايل"
+				"label": "تطبيق جوال",
+				"description": "لأجهزة iPhone وAndroid. جرّبه على هاتفك."
 			}
 		},
 		"outputLabel": "المُخرَج",
