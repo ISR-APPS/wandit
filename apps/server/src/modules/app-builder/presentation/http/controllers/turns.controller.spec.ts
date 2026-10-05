@@ -151,30 +151,15 @@ describe("TurnsController", () => {
 		);
 	});
 
-	it("answers 204 and frees the slot when the turn has no run yet", async () => {
-		const { controller, relay, turns } = setup();
-		turns.assertStreamAccess.mockResolvedValue(turnRow({ triggerRunId: null }));
-		const request = fakeSseRequest();
-		const reply = fakeReply();
-
-		await controller.stream(
-			"project-1",
-			"turn-1",
-			user,
-			workspace,
-			request,
-			reply,
-		);
-
-		expect(relay.relay).not.toHaveBeenCalled();
-		expect(relay.releaseStreamSlot).toHaveBeenCalledWith(request);
-		expect(reply.code).toHaveBeenCalledWith(204);
-	});
-
-	it("relays a host turn, which never has a Trigger run id", async () => {
+	// A waiting Trigger turn has no run id yet, and a host turn never has
+	// one. A 204 would end the browser reconnect of a queued turn.
+	it.each([
+		"trigger",
+		"host",
+	] as const)("relays a %s turn with no run id through the relay poll", async (runner) => {
 		const { controller, relay, turns } = setup();
 		turns.assertStreamAccess.mockResolvedValue(
-			turnRow({ runner: "host", triggerRunId: null }),
+			turnRow({ runner, triggerRunId: null }),
 		);
 		const request = fakeSseRequest();
 		const reply = fakeReply();
@@ -191,6 +176,7 @@ describe("TurnsController", () => {
 		expect(relay.relay).toHaveBeenCalledWith(
 			expect.objectContaining({ triggerRunId: null, turnId: "turn-1" }),
 		);
+		expect(reply.code).not.toHaveBeenCalled();
 	});
 
 	it("answers 204 on the active stream when nothing is running", async () => {

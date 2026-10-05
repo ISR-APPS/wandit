@@ -246,8 +246,10 @@ service checks the scope:
   the default model reserves, from the same `estimateTurn` as `POST /`,
   with no write. `estimate` is null when the deploy sets no default
   model. The composer shows it before send.
-- `GET /:turnId/stream` relays one turn's stream; `204` while the row has
-  no run id.
+- `GET /:turnId/stream` relays one turn's stream from the first event. A
+  row with no run id streams through the row poll, not `204`. The browser
+  reopens this route after a cut (Railway closes each response at 15
+  minutes) and drops the chunks it already has, by count.
 - `GET /active/stream` is the `useChat` reconnect route: the active
   turn's stream, or `204` when the project has none. A row whose run id
   is not written yet streams through the row poll instead of `204`. The
