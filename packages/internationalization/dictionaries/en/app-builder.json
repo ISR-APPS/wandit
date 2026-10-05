@@ -10,6 +10,8 @@
 		"backToDashboard": "Back to dashboard",
 		"projectMenu": "Switch project",
 		"allProjects": "All projects",
+		"searchProjects": "Search projects…",
+		"noProjectMatch": "No project matches your search.",
 		"history": "Version history",
 		"collapseChat": "Hide the chat",
 		"expandChat": "Show the chat",

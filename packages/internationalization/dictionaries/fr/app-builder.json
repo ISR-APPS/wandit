@@ -10,6 +10,8 @@
 		"backToDashboard": "Retour au tableau de bord",
 		"projectMenu": "Changer de projet",
 		"allProjects": "Tous les projets",
+		"searchProjects": "Rechercher un projet…",
+		"noProjectMatch": "Aucun projet ne correspond à ta recherche.",
 		"history": "Historique des versions",
 		"collapseChat": "Masquer le chat",
 		"expandChat": "Afficher le chat",
