@@ -170,8 +170,8 @@ export const appFonts = {
   `font-heading text-[21px] leading-7 text-foreground`. New `label`: `font-medium text-[13px]
   leading-5 text-accent`.
 - A number is `display` with a size and `leading-none` (`text-4xl leading-none`).
-- A clay word is a message parameter (`t("home.hello", { name })`) in a nested `AppText` with
-  the role of its line: `<AppText variant="display" className="text-clay">`.
+- A clay word is a message parameter: split the unfilled `t(key)` at `{name}` (CLAUDE.md), and
+  nest the word with the role of its line: `<AppText variant="display" className="text-clay">`.
 - Arabic twin: `npx expo install @expo-google-fonts/alexandria`. `--font-display`:
   `Alexandria_800ExtraBold`; `--font-heading`: `Alexandria_600SemiBold`; the four weights: 400 to
   700. Drop every `tracking-*` class.

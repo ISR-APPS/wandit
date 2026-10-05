@@ -120,9 +120,9 @@ Never show fake rows, fake numbers, or a "lorem ipsum" text.
 
 ## 8. Touch feedback
 
-- Every pressable element shows a pressed state. HeroUI buttons do it. For a row, use
-  `AppListGroup.Item`. For a pressable card or tile, use `AppPressable` with the press depth of
-  the world, and `accessibilityRole="button"`.
+- Every pressable element shows a pressed state. HeroUI buttons do it. A settings or link row
+  uses `AppListGroup.Item`. A data row that the world draws, a pressable card, or a tile uses
+  `AppPressable` with the press depth of the world, and `accessibilityRole="button"`.
 - Haptics (`tapFeedback` and `successFeedback` from `@/shared/lib/haptics`): a light tap on a
   tab change or a toggle, a success pulse after a save. Never on scroll or on every key press.
 - While a mutation runs, its button shows the pending state and refuses a second press.

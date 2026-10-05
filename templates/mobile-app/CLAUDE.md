@@ -150,7 +150,8 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
   3. Put `sign-in` in a guard with `status === "signed-out"`.
   4. Remove `presentation`, `headerLeft`, and `headerRight` from the `sign-in` options.
   5. A welcome screen: add `src/app/welcome.tsx`, and put its `Stack.Screen` first in the
-     signed-out guard, with `headerShown: false`. Its buttons push `/sign-in`.
+     signed-out guard, with `headerShown: false`. Its sign-in button pushes `/sign-in`.
+     Its sign-up button pushes `{ pathname: "/sign-in", params: { mode: "sign-up" } }`.
 - Import navigation from `expo-router`, `expo-router/js-tabs`, `expo-router/drawer`, and
   `expo-router/react-navigation`. Never import `@react-navigation/*`: Metro refuses it.
 
@@ -207,8 +208,9 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
 - Text goes through `AppText`. The React Native `Text` has no theme.
 - A nested `AppText` repeats the role of its parent, for example a colored word in a
   `display` line. A nested text with no role gets the `body` size and face.
-- A word in another color comes from a message parameter, for example
-  `t("home.hello", { name })`. Never split one translated sentence into pieces.
+- A word in another color is a message parameter, never a second message key. Call
+  `t(key)` without params, split the result at `{name}`, and render the parameter in a
+  nested `AppText` with the role of its line. The word order stays right in every language.
 - A HeroUI part (`AppButton`, `AppCard`, `AppAvatar`, `AppListGroup`, `AppTextField`) keeps
   its own corners, size, and colors on the web: its classes beat a `className` there.
   To change them, change the tokens, use the `style` prop, or build the part from `View`,

@@ -29,7 +29,8 @@ export const unstable_settings = { anchor: "(tabs)" };
 export default function RootLayout() {
 	const [fontsLoaded, fontError] = useFonts(appFonts);
 	// A screen drawn before its fonts jumps when they arrive, so the app waits.
-	// On a load error the app still opens: the system font replaces the world font.
+	// On a load error the app still opens. On native the system font replaces the
+	// world font; on the web the browser default font does.
 	if (!fontsLoaded && fontError === null) {
 		return null;
 	}

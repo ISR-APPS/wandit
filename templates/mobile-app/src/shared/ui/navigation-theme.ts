@@ -53,7 +53,8 @@ export function useNavigationTheme(): Theme {
 			border: separator,
 			notification: danger,
 		},
-		// The tab labels use `medium`; the header titles use `bold`.
+		// Tab labels use `medium`. Header titles use `bold` on iOS and `medium` on
+		// Android and the web. The iOS large title uses `heavy`.
 		fonts: {
 			regular: fontOf(normal, base.fonts.regular),
 			medium: fontOf(medium, base.fonts.medium),

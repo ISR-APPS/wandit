@@ -2,9 +2,9 @@
  * Sign-in modal at route "/sign-in": sign in or create an account with email
  * and password, under a brand block in the colors of the design world. The root
  * layout guards the route with Stack.Protected, so the modal closes by itself
- * when the session arrives.
+ * when the session arrives. The route param `mode=sign-up` opens it in sign-up mode.
  */
-import { Stack } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { useRef, useState } from "react";
 import type { TextInput } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
@@ -22,7 +22,9 @@ type FieldErrors = Partial<
 /** One form for sign-in and sign-up. A failed call shows a translated error, never the raw text. */
 export function SignInScreen() {
 	const { t } = useT();
-	const [isSignUp, setIsSignUp] = useState(false);
+	// A welcome screen sends a new user here with `mode=sign-up`, so the form opens on sign-up.
+	const { mode } = useLocalSearchParams<{ mode?: string }>();
+	const [isSignUp, setIsSignUp] = useState(mode === "sign-up");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
