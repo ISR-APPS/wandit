@@ -307,8 +307,8 @@ Warm and generous, like plates set on a table.
 `generate_image`, `aspect` `1:1`, path `src/assets/dish-<name>.png`. `require()` the returned
 path with a fixed string.
 
-Prompt model: "Overhead photograph of [a real dish from the brief: a margherita pizza / an
-almond croissant / a chicken tagine] on a plain round white ceramic plate. The plate fills
+Prompt model, after the user picks generated images for the dishes: "Overhead photograph of
+[a real dish from the brief: a margherita pizza / an almond croissant / a chicken tagine] on a plain round white ceramic plate. The plate fills
 the square frame and its rim touches the four edges. Shot from directly above, soft daylight
 from one side, warm true colors, crisp, appetizing. No table, no cutlery, no hands, no text,
 no logos, no watermark." The round crop hides the corners.

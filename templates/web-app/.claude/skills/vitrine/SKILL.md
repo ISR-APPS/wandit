@@ -253,7 +253,7 @@ once:true on EVERYTHING non-scrubbed. Exactly TWO scrubs — the walk and the tr
 - None of these invent a business fact. They are typesetting. Fill them from the brief.
 
 ## Shot list conventions (this world spends its image budget on ONE object)
-The walk only works if the frames are consistent, so the SHOT LIST is written as a camera move, not as four different photographs. Spend 4 or 5 of the 6 permitted images on the single product:
+The walk only works if the frames are consistent, so the SHOT LIST is written as a camera move, not as four different photographs. Spend 4 or 5 images on the single product:
 - Frames 1-3: THE SAME OBJECT, same lighting, same distance, same background — only the camera moves. Ask explicitly for a seamless near-black backdrop; one key softbox at 45 degrees camera-start-side plus a subtle rim from behind the opposite side; the object centred with roughly 15 percent margin on every side; no props, no hands, no text, no watermark, no studio reflections. Then name the angles: front / three-quarter / profile (or front / three-quarter / back).
 - Frame 4: THE MACRO — one extreme close-up of the material, clasp, stitch, engraving or finish, same lighting family.
 - Frame 5: THE WHITE CUBE — the same object in daylight on a neutral white seamless, or worn and held in a real place, soft shadow to one side. The only cover-cropped image on the page.

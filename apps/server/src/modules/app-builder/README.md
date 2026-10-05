@@ -993,8 +993,8 @@ releases per-turn clients (none today — connectors land in a follow-up).
   gateway models are fixed in `builder-turn.deps.ts`, not read from
   `AI_IMAGE_MODEL`: GPT Image 2.5 Flare for a new image, GPT Image 2.5
   Sunburst for an edit of the user's photos. Rules it pins: the `path`
-  must stay under `public/` or `src/assets/` (checked before any credit moves); at most 6 calls per
-  turn (`MAX_IMAGES`); the file extension follows the stored media type;
+  must stay under `public/` or `src/assets/` (checked before any credit moves); at most 30 calls per
+  turn (`BUILDER_MAX_IMAGES_PER_TURN`; V1 keeps `MAX_IMAGES`, 6 per build); the file extension follows the stored media type;
   a child hold is reserved per call (`builder-turn-image:<turnId>:<n>`),
   gateway evidence is captured before settlement, a provider failure
   refunds, and a `failed`/`unavailable` result returns to the agent

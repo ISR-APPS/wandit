@@ -9,6 +9,7 @@ import type { MeasuredCostEstimate } from "../../../metering/domain/model-pricin
 import type { HostToolContext } from "../../domain/ports/host-tools";
 import { FakeSandboxProvider } from "../../infrastructure/sandbox/fake-sandbox.provider";
 import {
+	BUILDER_MAX_IMAGES_PER_TURN,
 	createGenerateImageTool,
 	type GenerateImageHostToolDeps,
 	type HostToolMetering,
@@ -176,25 +177,25 @@ describe("createGenerateImageTool", () => {
 		expect(calls.reserve).not.toHaveBeenCalled();
 	});
 
-	it("rejects the 7th image of the turn before any reserve", async () => {
+	it("rejects the image after the turn cap before any reserve", async () => {
 		const { calls, execute } = await setup({});
 
-		for (let index = 0; index < 6; index += 1) {
+		for (let index = 0; index < BUILDER_MAX_IMAGES_PER_TURN; index += 1) {
 			await execute(
 				{ aspect: "1:1", path: `public/hero-${index}.png`, prompt: "a hero" },
 				OPTIONS,
 			);
 		}
 		const output = await execute(
-			{ aspect: "1:1", path: "public/hero-7.png", prompt: "a hero" },
+			{ aspect: "1:1", path: "public/hero-last.png", prompt: "a hero" },
 			OPTIONS,
 		);
 
 		expect(output).toEqual({
-			message: "Image budget exhausted (6 per turn)",
+			message: `Image budget exhausted (${BUILDER_MAX_IMAGES_PER_TURN} per turn)`,
 			status: "failed",
 		});
-		expect(calls.reserve).toHaveBeenCalledTimes(6);
+		expect(calls.reserve).toHaveBeenCalledTimes(BUILDER_MAX_IMAGES_PER_TURN);
 	});
 
 	it("fails before any reserve when the turn has no hold", async () => {

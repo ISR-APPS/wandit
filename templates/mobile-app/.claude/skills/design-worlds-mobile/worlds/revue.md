@@ -291,7 +291,8 @@ side daylight, one long soft shadow, muted palette with one terracotta object, m
 film look, no people, no text, no logos."
 
 - At most 3 images in the first build. W3 uses all 3; H1 reuses one.
-- Generated images are mood only: never generate a product to sell. No close-up faces.
+- Generated images are mood only. Generate a product to sell only when the user picks generated
+  images for it. No close-up faces.
 
 ## 9. Bans
 

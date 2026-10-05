@@ -297,9 +297,9 @@ Mechanical: panels rise from the bottom; amber moves along the route.
 
 ## 8. Imagery
 
-Trajet draws its art with Views and SVG: 0 images in a first build. Each `generate_image` call
-costs the user credits: use it only when the user asks for a photo, at most 1 per turn
-(`aspect` `2:3`, path `src/assets/<name>.png`, `require()` with a fixed string).
+Trajet draws its art with Views and SVG: 0 images in a first build. Use `generate_image` only
+when the user asks for a photo (`aspect` `2:3`, path `src/assets/<name>.png`, `require()` with a
+fixed string).
 
 Prompt model: "Night photograph of [subject of the app: a delivery van at a loading dock / a
 courier on a scooter at a crossing], sodium street light, wet asphalt, slate shadows, amber
