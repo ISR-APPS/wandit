@@ -78,7 +78,6 @@ function fakeMetering() {
 async function setup(options: {
 	generateImage?: GenerateImageHostToolDeps["generateImage"];
 	holdEventId?: string | null;
-	imageEditModel?: string;
 }) {
 	const provider = new FakeSandboxProvider();
 	const sandbox = await provider.getOrCreate("project-1", {
@@ -105,7 +104,7 @@ async function setup(options: {
 	const tool = createGenerateImageTool(
 		{
 			generateImage: options.generateImage ?? (async () => GENERATED),
-			imageEditModel: options.imageEditModel ?? null,
+			imageEditModel: "edit-model-1",
 			imageModel: "image-model-1",
 			logger: { info: vi.fn(), warn: vi.fn() },
 			metering,
@@ -258,10 +257,7 @@ describe("createGenerateImageTool", () => {
 		const generateImage = vi.fn<
 			GenerateImageHostToolDeps["generateImage"] & {}
 		>(async () => GENERATED);
-		const { calls, execute } = await setup({
-			generateImage,
-			imageEditModel: "edit-model-1",
-		});
+		const { calls, execute } = await setup({ generateImage });
 
 		await execute(
 			{

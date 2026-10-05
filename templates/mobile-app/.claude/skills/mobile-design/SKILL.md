@@ -147,10 +147,12 @@ The app moves. Motion shows what changed and gives the app its character.
 
 ## 10. Images
 
-- Use the `generate_image` tool for the hero of the welcome screen, onboarding art, and empty
-  state art, when the world asks for photos or illustrations. Follow the prompt model of the
-  world. Each image costs credits of the user: at most 3 images in the first build, and at
-  most 1 in a later turn unless the user asks for more.
+- Use the `generate_image` tool for the photos and the illustrations that section 8 of the world
+  names for the client choices that you picked. Follow the prompt model of the world.
+- The first build gets at least one image. Exceptions: the user gave a photo, or section 8 of the
+  world gives the first build no image or only an optional image.
+- Each image costs credits of the user: at most 3 images in the first build, and at most 1 in
+  a later turn unless the user asks for more.
 - `path` is `src/assets/<name>.png`. Load the returned path with `require()` and a fixed
   relative string, for example `require("../../../assets/welcome-hero.png")` from
   `src/features/<feature>/screens/`.

@@ -25,8 +25,8 @@ describe("BuilderHostToolRegistry.build", () => {
 		const fixture = await createBackendToolFixture();
 		const registry = new BuilderHostToolRegistry({
 			...fixture.deps,
-			imageEditModel: null,
-			imageModel: null,
+			imageEditModel: "edit-model-1",
+			imageModel: "image-model-1",
 			metering: unusedMetering(),
 			networkHosts: {
 				appendHost: async () => [],

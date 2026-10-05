@@ -330,6 +330,7 @@ describe("generateStandaloneImage", () => {
 	it.each([
 		"meta/muse-image-1.0",
 		"openai/gpt-image-2",
+		"openai/gpt-image-2.5-sunburst",
 	])("delivers a %s edit through the native image API and R2", async (model) => {
 		mockEnv.AI_IMAGE_EDIT_MODEL = model;
 		mockGeneratedImage("image/webp");

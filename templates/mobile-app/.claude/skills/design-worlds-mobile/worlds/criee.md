@@ -291,7 +291,8 @@ Loud but short: things snap, nothing floats.
 ## 8. Imagery
 
 Only W1 needs images: `generate_image`, `aspect` `4:5`, `src/assets/flyer-1.png` to
-`flyer-3.png`, each loaded with `require()` in an `Image` with `resizeMode="cover"`.
+`flyer-3.png`, each loaded with `require()` of the returned path (the extension can change) in an
+`Image` with `resizeMode="cover"`.
 
 Prompt model: "Flash photo of one [object from the app: worn sneakers / used textbooks / a film
 camera], centered on a flat [sun yellow / cobalt blue / tomato red] paper backdrop, hard direct
