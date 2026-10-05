@@ -68,7 +68,6 @@ const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
  * localhost BETTER_AUTH_URL, so dev-only auth features check this value.
  */
 export function isLocalhostUrl(url: string): boolean {
-	// LIMIT: three loopback names. Upgrade: add reviewed loopback names when a local client needs them.
 	return LOCAL_HOSTNAMES.has(new URL(url).hostname);
 }
 
