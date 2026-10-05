@@ -41,11 +41,12 @@ export const BACKEND_DEFAULTS = Object.freeze({
 	/**
 	 * Provisional D3 default, WANDIT-153 open: backends one owner may hold per
 	 * plan. D3 names Pro and Business; the issue sets `starter` to 0.
+	 * Business is 1000, Zack's choice: in practice a Business owner has no limit.
 	 */
 	backendsPerPlan: Object.freeze({
 		starter: 0,
 		pro: 1,
-		business: 3,
+		business: 1000,
 	} satisfies Record<BillingPlanId, number>),
 });
 

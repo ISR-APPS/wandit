@@ -1,6 +1,7 @@
 /**
- * Empty state: an icon, one title, one sentence, and the action that fills
- * the screen. Every list or data screen shows it when it has nothing to show.
+ * Empty state: art or an icon badge, one title, one sentence, and the action that
+ * fills the screen. Every list or data screen shows it when it has nothing to show.
+ * The design world of the app gives the art (design-worlds-mobile skill).
  */
 import type { ReactNode } from "react";
 import { View } from "react-native";
@@ -17,24 +18,32 @@ export type EmptyStateProps = {
 	description: string;
 	/** The button that fills the screen, for example "Add your first habit". */
 	action?: ReactNode;
+	/**
+	 * The art of the world in place of the icon badge: an SVG composition or an image
+	 * from `generate_image`. The icon stays the fallback.
+	 */
+	art?: ReactNode;
 };
 
-/** A centered icon, title, sentence, and optional action for a screen with no data. */
+/** Art (or an accent icon badge), title, sentence, and optional action for a screen with no data. */
 export function EmptyState({
 	icon,
 	title,
 	description,
 	action,
+	art,
 }: EmptyStateProps) {
 	return (
 		<View className="items-center gap-3 px-6 py-10">
-			<View className="size-16 items-center justify-center rounded-full bg-surface-secondary">
-				<AppIcon colorClassName="accent-muted" name={icon} size={28} />
-			</View>
+			{art ?? (
+				<View className="mb-2 size-20 items-center justify-center rounded-3xl bg-accent-soft">
+					<AppIcon colorClassName="accent-accent" name={icon} size={34} />
+				</View>
+			)}
 			<AppText className="text-center" variant="heading">
 				{title}
 			</AppText>
-			<AppText className="text-center" variant="caption">
+			<AppText className="max-w-72 text-center" variant="caption">
 				{description}
 			</AppText>
 			{action}

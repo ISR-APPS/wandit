@@ -1,5 +1,5 @@
 // Reads the profiles row of the signed-in user with the browser Supabase client.
-// The /app route loader fills the cache with it; the profile page reads the cache.
+// The /app/profile route loader fills the cache with it; the profile page reads the cache.
 // The client sends the user JWT, so RLS returns only the caller's own row.
 import { queryOptions } from "@tanstack/react-query";
 import { z } from "zod";

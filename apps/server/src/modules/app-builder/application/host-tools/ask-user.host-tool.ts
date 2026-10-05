@@ -23,7 +23,8 @@ export function createAskUserTool(): Tool<AskUserHostToolInput, never> {
 	return tool({
 		description:
 			"Ask the user a question in the chat. Ask only when you are blocked: " +
-			"a missing fact, a business choice, or an image only the user has. " +
+			"a missing fact, a business choice, an image only the user has, or " +
+			"the design world of a first build. " +
 			"Put EVERY question of one step in ONE call (max 4 questions). " +
 			"Never call ask_user twice in one reply. Limits: question 300 chars, " +
 			"max 6 options, label 120 chars, helper and description 200 chars. " +
@@ -31,8 +32,9 @@ export function createAskUserTool(): Tool<AskUserHostToolInput, never> {
 			'"attachments" (images, logos, photos; set maxFiles, 1 to 6). The user ' +
 			"can always type an answer. For a design world choice, use " +
 			'"single-choice" with 2 to 4 options, each with `worldId` = a world ' +
-			"skill id from .claude/skills/design-worlds-website (or -product, " +
-			"-cod); the user then sees the world card. The result is { answers: " +
+			"id from a design-worlds index skill in .claude/skills (web: " +
+			"design-worlds-website, -product, -cod; mobile: design-worlds-mobile); " +
+			"the user then sees the world card. The result is { answers: " +
 			"[{ questionId, question, action, selected, text, files }] }. " +
 			'"answered": use selected, text, and files. "delegated": decide ' +
 			'yourself. "dismissed": the user skipped; follow `text` when present. ' +

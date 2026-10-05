@@ -1,12 +1,14 @@
 // Every user-facing string of the app, in the default language (`locales[0]`).
 // Components read it through `t("group.key")` from useT(); translate.ts loads it.
 // A second language gets its own file with the same keys (CLAUDE.md "Languages").
+/** The default-language dictionary. `shell` and `table` hold the strings of the app shell and DataTable. */
 export const messages = {
 	common: {
 		appName: "Wandit App",
 		save: "Save",
 		retry: "Try again",
 		signOut: "Sign out",
+		language: "Language",
 	},
 	nav: {
 		features: "Features",
@@ -50,6 +52,15 @@ export const messages = {
 		saved: "Your profile was updated.",
 		loadError: "Your profile did not load. Check the connection and try again.",
 		saveError: "Your profile was not saved. Try again.",
+	},
+	shell: {
+		toggleSidebar: "Toggle sidebar",
+		profile: "Profile",
 		signOutError: "Sign-out failed. Try again.",
+	},
+	table: {
+		search: "Search",
+		previous: "Previous",
+		next: "Next",
 	},
 } as const;

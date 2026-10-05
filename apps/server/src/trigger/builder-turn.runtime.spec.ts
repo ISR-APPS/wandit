@@ -2443,8 +2443,8 @@ describe("runBuilderTurn", () => {
 
 		await runBuilderTurn(world.deps, input, controller.signal);
 
-		// 5000 cc = 50 credits × $0.032 = $1.60.
-		expect(world.minted[0]?.capUsd).toBeCloseTo(1.6);
+		// 1,000,000 cc = 10,000 credits × $0.032 = $320.
+		expect(world.minted[0]?.capUsd).toBeCloseTo(320);
 	});
 
 	it("passes the proxy env to the session without a provider key", async () => {
@@ -3297,8 +3297,9 @@ describe("runBuilderTurn", () => {
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
 		expect(instructions).toContain("ask_user tool");
 		expect(instructions).toContain("Bash and Agent description");
-		// The platform sentence is for a mobile app only.
+		// The Expo sentence is for a mobile app only.
 		expect(instructions).not.toContain("Expo");
+		expect(instructions).toContain("app-dashboard");
 	});
 
 	it("adds the Expo sentence to the instructions of a mobile project", async () => {
@@ -3316,6 +3317,7 @@ describe("runBuilderTurn", () => {
 		const instructions = world.harness.createCalls[0]?.instructions ?? "";
 		expect(instructions).toContain("Expo Go");
 		expect(instructions).toContain("ask_user tool");
+		expect(instructions).not.toContain("app-dashboard");
 	});
 
 	it("writes a data-thought part with the duration after each reasoning block", async () => {

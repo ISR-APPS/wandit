@@ -26,7 +26,11 @@ import {
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/node";
 import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
-import { worldCardOf } from "../modules/ai-chat/agent/worlds";
+import {
+	mobileWorldCards,
+	worldCardOf,
+	worldOrder,
+} from "../modules/ai-chat/agent/worlds";
 import {
 	captureAiError,
 	classifyAiError,
@@ -37,6 +41,7 @@ import {
 	LLM_PROXY_TOKEN_TTL_SECONDS,
 	type LlmProxyTokenClaimsInput,
 } from "../modules/app-builder/application/services/llm-proxy-token.service";
+import { appRecipeInstruction } from "../modules/app-builder/domain/app-recipe";
 import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
 import type {
@@ -131,9 +136,9 @@ const TURN_STALL_MS = 4 * 60_000;
 // turn. The proxy token cap is the hard stop; the checkpoint only keeps
 // the ledger close to the truth while the turn runs.
 const CHECKPOINT_STEP_USD_MICROS = 250_000;
-// The one platform sentence of a mobile app. The template CLAUDE.md holds
+// The platform sentence of a mobile app. The template CLAUDE.md holds
 // the rules and the module allow-list. The mobile-design skill holds the
-// screen rules.
+// screen rules; the design-worlds-mobile skill holds the looks.
 const MOBILE_APP_INSTRUCTION =
 	"This is an Expo mobile app that runs in the store Expo Go app: follow CLAUDE.md, its module allow-list, and the mobile-design skill.";
 // 100 ms between two in-flight reads while the settle waits for the
@@ -159,6 +164,15 @@ const BACKEND_WAKE_POLL_MS = 5_000;
 // The restore call and the last status read can each add about 60 s:
 // the interactive client makes two tries of 30 s.
 const BACKEND_WAKE_TIMEOUT_MS = 180_000;
+
+/**
+ * The design world sentence of one mobile project. The order is fixed per
+ * project, so the warm session key stays the same across its turns. A project
+ * from an older template has no design-worlds-mobile skill and skips it.
+ */
+function mobileWorldsInstruction(projectId: string): string {
+	return `The design world order of this project is: ${worldOrder(projectId, mobileWorldCards).join(", ")}. On the first build, ask for the design world with the app language, as the design-worlds-mobile skill says; without that skill, ignore it.`;
+}
 
 /** Why the turn stopped on its own. */
 type AbortCode =
@@ -1661,8 +1675,10 @@ export async function runBuilderTurn(
 			chatId,
 			env: sandboxEnv,
 			hostTools,
-			// Four sentences, plus one for a mobile app. The template
-			// CLAUDE.md in the workspace root holds every other rule.
+			// Four sentences, plus the platform sentences: the Expo rule and the
+			// design world order for a mobile app, the app design recipe for a
+			// web app. The template CLAUDE.md in the workspace root holds every
+			// other rule.
 			// projects.languages holds the wandit UI locale at creation, not a
 			// choice of the user, so the agent gets it as a hint only.
 			instructions:
@@ -1671,8 +1687,8 @@ export async function runBuilderTurn(
 				"Write the Bash and Agent description in the user's language: the chat shows it to the user. " +
 				"Follow CLAUDE.md: plan before you code, run its checks before you say that you are done, and end with a short answer in plain words." +
 				(templateProfile === TEMPLATE_PROFILES.mobile
-					? ` ${MOBILE_APP_INSTRUCTION}`
-					: ""),
+					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
+					: ` ${appRecipeInstruction(projectId)}`),
 			model,
 			sandbox,
 		};
