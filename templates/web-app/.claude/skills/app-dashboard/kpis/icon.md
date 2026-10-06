@@ -1,183 +1,81 @@
-# KPI style: icon
+# KPI form icon
 
-The number card plus a small icon chip at the end of the header.
-The icon names the thing that the KPI counts: a box for units, a clock for late items.
+Each figure shows an icon of the thing that it counts, its label, its value, and the change.
 
 ## Data
 
-- `KpiRow` takes `KpiItem[]` from `overviewKpisQueryOptions()`. The home turns `labelKey` into `label` (data.md, section 4).
-- `className` gives the grid columns, for example `grid-cols-1 @xl/main:grid-cols-2 @5xl/main:grid-cols-4`.
-  Give `KpiRowSkeleton` the same `className` and the number of cards.
-- No item: the home shows its setup card in place of the row (SKILL.md, States).
+- The figures read `KpiItem[]` from `overviewKpisQueryOptions()` (data.md, sections 4 and 6).
+  The home turns each `labelKey` into `label` with `t()` and keeps the first `KPI_COUNT` items.
+- The home decides where the figures go and how many it shows. This file gives the parts of one figure.
+- One component draws the figures of one slot. It takes `items` and the layout class of the home.
+  Its skeleton takes `count` and the same class.
+- The KPI function always returns one row. On a first visit, each value is a real 0 and each change is `null`.
+- Needs: a `lucide-react` icon that names the counted thing of most figures. A box for units, a clock for late items.
 
-## Icons
+## Anatomy
 
-- `KPI_ICONS` maps each `KpiItem.id` to one icon. A KPI with no entry gets no chip.
-- Import the icon that names each KPI from `lucide-react`, for example `PackageCheckIcon` for units made.
-- Do not use a trend arrow as a KPI icon.
+1. Label line: `item.label`, in the label look of the style (`label-text`), at the start. The icon chip sits at the end.
+2. Value: `new Intl.NumberFormat(locale, item.format).format(item.value)`, with `font-numeric tabular-nums`.
+3. Delta: one line with the arrow, the percent, and a screen reader text. Or the muted line "No earlier data".
 
-## Delta wording
+- The style draws the chip: its surface, its shape, its size, and the icon color.
+- The style gives the panel of a figure: a card, a ruled cell, a tile, a slip, or no box.
+- The style gives the sizes, the weights, and the gaps.
+- The snippet shows the logic. Its text size, gap, and arrow size are the no-style defaults.
+- The skeleton keeps the label line, the chip, the value, and the delta in their final sizes.
 
-- Intl shows a `change` of 0.123 as "+12.3%" (`signDisplay: "exceptZero"`). `changeRatio` (data.md) gives the ratio.
-- The arrow shows the direction. The color shows good or bad news from `goodWhen` (`"down"`: a fall is green).
-- A change under 0.05 % shows "0%" in muted text, with no arrow.
-- `change: null` shows "No earlier data". This is the empty state. Never show "0%" for it.
-- `<bdi dir="ltr">` keeps "+12%" in this order in Arabic.
-- A trend arrow is the exception to the `rtl:rotate-180` rule of SKILL.md. Mirror it with `rtl:-scale-x-100`.
-  A rotation turns a rise into a fall.
-- The home header names the period once. No card repeats it.
+## Rules
 
-## Fallback
+- `KPI_ICONS: Record<string, LucideIcon>` maps each `KpiItem.id` to one icon. A KPI with no entry gets no chip.
+- Import each icon by name with the `Icon` suffix, for example `PackageCheckIcon` for units made.
+- Never use a trend arrow as a KPI icon. In this form, an arrow always means the change.
+- `change` is a ratio from `changeRatio` (data.md). A change of 0.123 shows "+12.3%".
+- Format it with `Intl.NumberFormat(locale, { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 1 })`.
+- A change under 0.05 % shows "0%" in muted text, with no arrow and no color.
+- The arrow shows the direction: `TrendingUpIcon` for a rise, `TrendingDownIcon` for a fall.
+- The color shows good or bad news from `goodWhen`. With `goodWhen: "down"`, a fall is good news.
+- Mirror the arrow with `rtl:-scale-x-100`, never with `rtl:rotate-180`. A rotation turns a rise into a fall.
+- The percent sits in `<bdi dir="ltr">`, so "+12%" keeps its order in Arabic.
+- `change: null` shows "No earlier data". Never show "0%" for it.
+- The home names the period once. No figure repeats it.
 
-No icon names the KPIs of the app: use `kpis/number.md`.
-
-## Messages
-
-Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
-
-```ts
-	kpi: {
-		noComparison: "No earlier data",
-		vsPrevious: "against the previous period",
-	},
-```
-
-## File: src/features/overview/components/kpi-row.tsx
+The delta line, with its imports from `lucide-react`, `~/shared/i18n`, and `~/shared/lib/utils`:
 
 ```tsx
-// KPI row of the home, style "icon": the number card plus an icon chip at the header end.
-// The home renders it in the KPI slot with the items of buildOverviewKpis (data.md).
-// It calls Card, Skeleton, and lucide-react icons. Every number goes through Intl.
-
-import {
-	ClockAlertIcon,
-	type LucideIcon,
-	PackageCheckIcon,
-	TrendingDownIcon,
-	TrendingUpIcon,
-} from "lucide-react";
-import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import {
-	Card,
-	CardAction,
-	CardDescription,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "~/shared/ui/card";
-import { Skeleton } from "~/shared/ui/skeleton";
-import type { KpiItem } from "../lib/series";
-
-/** Icon of each KPI, keyed by KpiItem.id. A KPI with no entry gets no chip. */
-const KPI_ICONS: Record<string, LucideIcon> = {
-	"units-today": PackageCheckIcon,
-	"late-work-orders": ClockAlertIcon,
-};
-
 // One decimal shows 0.05 % and more. A smaller change shows "0%", so it gets no arrow and no color.
 const FLAT_CHANGE = 0.0005;
 
-type KpiRowProps = {
-	/** The KPIs in display order. Each label is already translated. */
-	items: KpiItem[];
-	/** Grid columns from the home, for example "@xl/main:grid-cols-2 @5xl/main:grid-cols-4". */
-	className?: string;
-};
-
-/** One card per KPI with its icon. A change of null (no earlier data) shows a muted line. */
-export function KpiRow({ items, className }: KpiRowProps) {
+/** The delta line of one figure. A change of null (no earlier data) never shows "0%". */
+function ChangeLine({ item }: { item: KpiItem }) {
 	const { t, locale } = useT();
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		signDisplay: "exceptZero",
-		maximumFractionDigits: 1,
-	});
+	const { change } = item;
+	if (change === null) {
+		return <p className="text-muted-foreground text-sm">{t("kpi.noComparison")}</p>;
+	}
+	const percent = new Intl.NumberFormat(locale, { style: "percent", signDisplay: "exceptZero", maximumFractionDigits: 1 });
+	const isFlat = Math.abs(change) < FLAT_CHANGE;
+	// The arrow shows the direction. The color shows good or bad news, from goodWhen.
+	const isGood = change > 0 === (item.goodWhen === "up");
+	const TrendIcon = change < 0 ? TrendingDownIcon : TrendingUpIcon;
+	// No-style defaults: text-sm, gap-1, and size-4. The style Anatomy replaces them.
 	return (
-		<div className={cn("grid gap-4", className)}>
-			{items.map((item) => {
-				const { change } = item;
-				const KpiIcon = KPI_ICONS[item.id];
-				const isFlat = change !== null && Math.abs(change) < FLAT_CHANGE;
-				// The arrow shows the direction. The color shows good or bad, from goodWhen.
-				const isGood =
-					change !== null && change > 0 === (item.goodWhen === "up");
-				const TrendIcon =
-					change !== null && change < 0 ? TrendingDownIcon : TrendingUpIcon;
-				return (
-					<Card key={item.id} className="gap-3">
-						<CardHeader>
-							<CardDescription>{item.label}</CardDescription>
-							<CardTitle className="font-display text-3xl tabular-nums">
-								{new Intl.NumberFormat(locale, item.format).format(item.value)}
-							</CardTitle>
-							{KpiIcon ? (
-								<CardAction className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-									<KpiIcon className="size-5" />
-								</CardAction>
-							) : null}
-						</CardHeader>
-						<CardFooter className="gap-1 font-medium text-sm">
-							{change === null ? (
-								<span className="font-normal text-muted-foreground">
-									{t("kpi.noComparison")}
-								</span>
-							) : (
-								<span
-									className={cn(
-										"flex items-center gap-1",
-										isFlat
-											? "text-muted-foreground"
-											: isGood
-												? "text-success"
-												: "text-destructive",
-									)}
-								>
-									{isFlat ? null : (
-										<TrendIcon className="size-4 rtl:-scale-x-100" />
-									)}
-									{/* dir="ltr" keeps "+12%" in this order in an Arabic page. */}
-									<bdi dir="ltr" className="tabular-nums">
-										{percent.format(change)}
-									</bdi>
-									<span className="sr-only">{t("kpi.vsPrevious")}</span>
-								</span>
-							)}
-						</CardFooter>
-					</Card>
-				);
-			})}
-		</div>
-	);
-}
-
-type KpiRowSkeletonProps = {
-	/** Number of KPI cards that the loaded row shows. */
-	count: number;
-	/** The same grid columns as KpiRow. */
-	className?: string;
-};
-
-/** Placeholder of KpiRow in its final size. The home pendingComponent renders it. */
-export function KpiRowSkeleton({ count, className }: KpiRowSkeletonProps) {
-	const slots = Array.from({ length: count }, (_, slot) => slot);
-	return (
-		<div className={cn("grid gap-4", className)}>
-			{slots.map((slot) => (
-				<Card key={slot} className="gap-3">
-					<CardHeader className="gap-2.5">
-						<Skeleton className="h-4 w-24" />
-						<Skeleton className="h-8 w-28" />
-						<CardAction>
-							<Skeleton className="size-9" />
-						</CardAction>
-					</CardHeader>
-					<CardFooter>
-						<Skeleton className="h-4 w-16" />
-					</CardFooter>
-				</Card>
-			))}
-		</div>
+		<p className={cn("flex items-center gap-1 text-sm", isFlat ? "text-muted-foreground" : isGood ? "text-success" : "text-destructive")}>
+			{isFlat ? null : <TrendIcon className="size-4 rtl:-scale-x-100" />}
+			{/* dir="ltr" keeps "+12%" in this order in an Arabic page. */}
+			<bdi dir="ltr" className="tabular-nums">{percent.format(change)}</bdi>
+			<span className="sr-only">{t("kpi.vsPrevious")}</span>
+		</p>
 	);
 }
 ```
+
+## Fallback
+
+No `lucide-react` icon names the counted things of the app: use `kpis/number.md`.
+
+## Messages
+
+Add a `kpi` group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
+
+- `kpi.noComparison`: "No earlier data"
+- `kpi.vsPrevious`: "against the previous period". Screen readers read it after the percent.

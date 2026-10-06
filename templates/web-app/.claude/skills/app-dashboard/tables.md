@@ -1,8 +1,9 @@
 # Tables: list pages, detail pages, and forms
 
+The example is the work orders of the factory in `data.md`. Copy its patterns, never its names.
+The code gives the logic. The style gives the look of the page header, the panels, the table, and the badges.
 Each main entity gets one list page and one detail page (or a form page).
-The example below is complete and tested: the work orders of the factory in `data.md`.
-Copy its shape for each entity. Rename the files, the keys, and the columns.
+The example below is complete and tested. For each entity, rename its files, keys, and columns.
 
 ## 1. List page
 
@@ -133,7 +134,7 @@ Add these entries at the start of `NAV_ITEMS`. The home comes first, and Profile
 ```ts
 // The statuses of a work order and the Badge variant of each one.
 // The check constraint of public.work_orders.status holds the same four values.
-// The list page, the detail page, the form, and the home cards read this file.
+// The list page, the detail page, the form, and the home panels read this file.
 import type { VariantProps } from "class-variance-authority";
 import type { badgeVariants } from "~/shared/ui/badge";
 
@@ -1264,7 +1265,7 @@ export function WorkOrderDetailPage({ id }: WorkOrderDetailPageProps) {
 								{t("workOrders.notes")}
 							</CardTitle>
 						</CardHeader>
-						{/* A short note sits at the start side. A long note fills the card and keeps its own direction. */}
+						{/* A short note sits at the start side. A long note fills the panel and keeps its own direction. */}
 						<CardContent className="grid justify-items-start">
 							{workOrder.notes ? (
 								<p className="whitespace-pre-line text-sm" dir="auto">
