@@ -1,8 +1,8 @@
+import type { HarnessResumeEnvelope } from "@wandit/contracts";
 import { PgDialect } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import type { HarnessResumeState } from "../../domain/ports/builder-harness";
 import { BuilderSessionsRepository } from "./builder-sessions.repository";
 
 type SqlQuery = Parameters<PgDialect["sqlToQuery"]>[0];
@@ -56,8 +56,9 @@ describe("BuilderSessionsRepository", () => {
 			{ update } as unknown as Database,
 		);
 
-		const resumeState: HarnessResumeState = {
+		const resumeState: HarnessResumeEnvelope = {
 			harness: "claude_code",
+			mode: "plan",
 			payload: "opaque",
 			pending: [],
 		};

@@ -134,6 +134,10 @@
 			"waiting": {
 				"title": "En attente de ta prochaine étape…",
 				"body": "Continue dans le chat quand tu es prêt."
+			},
+			"planning": {
+				"title": "Planifions d'abord ton app",
+				"body": "Réponds aux questions dans le chat. Je construis dès que tu approuves le plan."
 			}
 		},
 		"routes": {
@@ -418,6 +422,8 @@
 			"decideForMe": "Choisis pour moi",
 			"dismiss": "Passer la question",
 			"typingOverride": "tu réponds avec tes mots ↓",
+			"typingNote": "ta note part avec ton choix ↓",
+			"recommended": "Recommandé",
 			"scrollBack": "Cartes précédentes",
 			"scrollForward": "Plus de cartes",
 			"next": "Suivant",
@@ -447,6 +453,21 @@
 			"answerBelow": "Réponds ci-dessous",
 			"answered": "Répondu",
 			"untitled": "Wandit a besoin de ta réponse"
+		},
+		"plan": {
+			"toggle": {
+				"label": "Plan",
+				"hint": "D'abord le plan : je te pose quelques questions et je te montre un plan avant de construire."
+			},
+			"placeholder": "Décris ton idée. Je te pose quelques questions et je fais un plan avant de construire.",
+			"placeholderChanges": "Dis-moi ce qu'il faut changer dans le plan",
+			"eyebrow": "Plan",
+			"assumptions": "Les choix que j'ai faits pour toi",
+			"build": "Construire ce plan",
+			"buildMessage": "Construis ce plan.",
+			"changeHint": "Ou écris ci-dessous ce qu'il faut changer.",
+			"showFull": "Voir le plan complet",
+			"hideFull": "Masquer le plan"
 		},
 		"phases": {
 			"committing": "Enregistrement de tes changements"
@@ -528,7 +549,8 @@
 			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
 			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard."
 		},
-		"building": "En création"
+		"building": "En création",
+		"planning": "En planification"
 	},
 	"publish": {
 		"cta": "Publier",

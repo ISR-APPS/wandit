@@ -19,6 +19,7 @@ describe("toCreateAppProjectBody", () => {
 			attachments: [attachment],
 			locale: "fr",
 			targetPlatform: "web",
+			mode: "plan",
 		});
 
 		expect(body).toEqual({
@@ -33,6 +34,7 @@ describe("toCreateAppProjectBody", () => {
 			],
 			targetPlatform: "web",
 			languages: ["fr"],
+			mode: "plan",
 		});
 	});
 
@@ -43,6 +45,7 @@ describe("toCreateAppProjectBody", () => {
 			attachments: [],
 			locale: "en",
 			targetPlatform: "web",
+			mode: "build",
 		});
 
 		expect(body.attachments).toBeUndefined();

@@ -1,10 +1,14 @@
+import type { HarnessPendingInteraction } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
+import { BUILD_NOW_PROMPT } from "./plan-mode";
 import {
 	askUserOutputOf,
 	builtinQuestionResultOf,
 	fallbackPromptOf,
+	modeSwitchPromptOf,
 	type QuestionInteraction,
+	switchesMode,
 	uploadCopyPath,
 } from "./question-answers";
 
@@ -458,6 +462,60 @@ describe("fallbackPromptOf", () => {
 		});
 
 		expect(prompt).toBe('Answer to your question "Which color?": green');
+	});
+});
+
+describe("switchesMode", () => {
+	const PLAN_CARD: HarnessPendingInteraction = {
+		kind: "plan",
+		plan: { assumptions: [], sections: [], summary: "", title: "Shop" },
+		toolCallId: "call-plan",
+	};
+
+	it.each([
+		{ expected: false, mode: "plan", paused: "build", pending: [] },
+		{ expected: false, mode: "plan", paused: "plan", pending: [PLAN_CARD] },
+		{ expected: true, mode: "build", paused: "plan", pending: [PLAN_CARD] },
+		{ expected: true, mode: "plan", paused: "build", pending: [INTERACTION] },
+	] as const)("a $paused pause with $pending.length cards and a $mode turn: $expected", ({
+		expected,
+		mode,
+		paused,
+		pending,
+	}) => {
+		expect(switchesMode({ mode: paused, pending: [...pending] }, mode)).toBe(
+			expected,
+		);
+	});
+});
+
+describe("modeSwitchPromptOf", () => {
+	const ANSWER_LINE = 'Answer to your question "Which style?": Raw and bold';
+
+	it("tells a build turn to build now, with the open answers and the message", () => {
+		const prompt = modeSwitchPromptOf({
+			answerLines: ANSWER_LINE,
+			message: "Just build it",
+			mode: "build",
+			pending: [INTERACTION],
+		});
+
+		expect(prompt).toBe(
+			[BUILD_NOW_PROMPT, ANSWER_LINE, "The user's message: Just build it"].join(
+				"\n\n",
+			),
+		);
+	});
+
+	it("gives a plan turn the answers only; the runtime adds the Plan Mode rules", () => {
+		const prompt = modeSwitchPromptOf({
+			answerLines: ANSWER_LINE,
+			message: "",
+			mode: "plan",
+			pending: [INTERACTION],
+		});
+
+		expect(prompt).toBe(ANSWER_LINE);
 	});
 });
 

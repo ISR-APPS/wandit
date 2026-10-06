@@ -22,6 +22,7 @@ const IDLE: BootSignals = {
 	isFirstTurn: true,
 	backend: undefined,
 	hasCodeChanges: true,
+	isPlanning: false,
 };
 
 const FIRST_TURN_BOOTING: BootSignals = {

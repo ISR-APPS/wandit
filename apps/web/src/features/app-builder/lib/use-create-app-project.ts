@@ -8,6 +8,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type {
+	BuilderTurnMode,
 	ComposerMetadata,
 	TargetPlatform,
 	UploadAttachmentResponse,
@@ -37,12 +38,15 @@ export type UseCreateAppProjectWithPromptResult = {
 };
 
 /**
- * `targetPlatform` is the app type chip pick of the prompt box. The server
- * checks the balance, and it answers 503 for `mobile` when it has no mobile
- * template. Both come back as errors here, so the dashboard has no precheck.
+ * `targetPlatform` is the app type chip pick of the prompt box. `mode` is
+ * its Plan chip: the server starts the first turn with it, before the
+ * navigation. The server checks the balance, and it answers 503 for
+ * `mobile` when it has no mobile template. Both come back as errors here,
+ * so the dashboard has no precheck.
  */
 export function useCreateAppProjectWithPrompt(
 	targetPlatform: TargetPlatform,
+	mode: BuilderTurnMode,
 ): UseCreateAppProjectWithPromptResult {
 	const { locale } = useTranslation();
 	const createAppProject = useCreateAppProject();
@@ -69,6 +73,7 @@ export function useCreateAppProjectWithPrompt(
 						attachments,
 						locale,
 						targetPlatform,
+						mode,
 					}),
 				);
 			} catch (error) {
@@ -95,7 +100,7 @@ export function useCreateAppProjectWithPrompt(
 			// The server kept the project, so a second submit must not make a twin.
 			return true;
 		},
-		[createAppProject, locale, navigate, queryClient, targetPlatform],
+		[createAppProject, locale, mode, navigate, queryClient, targetPlatform],
 	);
 
 	return {

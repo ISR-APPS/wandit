@@ -5,13 +5,14 @@
 
 import type {
 	AppLanguage,
+	BuilderTurnMode,
 	ComposerMetadata,
 	CreateAppProjectRequest,
 	TargetPlatform,
 	UploadAttachmentResponse,
 } from "@wandit/contracts";
 
-/** Inputs of one create: the prompt box output plus the two dashboard picks. */
+/** Inputs of one create: the prompt box output plus the three dashboard picks. */
 export type CreateAppProjectInput = {
 	prompt: string;
 	/** Mode, output, and options the prompt box reports with the prompt. */
@@ -22,6 +23,8 @@ export type CreateAppProjectInput = {
 	locale: AppLanguage;
 	/** The app type chip pick: `web` or `mobile`. The server picks the template from it. */
 	targetPlatform: TargetPlatform;
+	/** The Plan chip: `plan` makes the first turn interview the user and plan; `build` builds at once. */
+	mode: BuilderTurnMode;
 };
 
 /**
@@ -43,5 +46,6 @@ export function toCreateAppProjectBody(
 			: undefined,
 		targetPlatform: input.targetPlatform,
 		languages: [input.locale],
+		mode: input.mode,
 	};
 }

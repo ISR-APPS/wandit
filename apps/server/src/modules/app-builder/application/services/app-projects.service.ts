@@ -179,6 +179,7 @@ export class AppProjectsService {
 					chatId,
 					composer: body.composer,
 					message: body.prompt,
+					mode: body.mode,
 				},
 				{ existingMessageId: messageId },
 			);
@@ -212,6 +213,8 @@ export class AppProjectsService {
 			countryCode: request.countryCode,
 			framework: templateProfile.framework,
 			languages: body.languages,
+			// The Plan toggle of the first prompt; absent means a build.
+			mode: body.mode ?? "build",
 			organizationId: scope.kind === "org" ? scope.organizationId : null,
 			projectId,
 			targetPlatform: body.targetPlatform,

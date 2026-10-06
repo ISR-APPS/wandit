@@ -1,4 +1,4 @@
-import type { TurnStreamPhase } from "@wandit/contracts";
+import type { BuilderTurnMode, TurnStreamPhase } from "@wandit/contracts";
 import type { DynamicToolUIPart, JSONValue } from "ai";
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +15,7 @@ import type {
 } from "../api/dto";
 import {
 	type LiveStatus,
+	latestTurnModeOf,
 	livePhaseOf,
 	liveStatusOf,
 	receiptOf,
@@ -538,6 +539,82 @@ describe("livePhaseOf", () => {
 	});
 });
 
+describe("latestTurnModeOf", () => {
+	/** A stored reply: its summary part tells the mode of its turn. */
+	function storedReply(id: string, mode: BuilderTurnMode): TurnMessage {
+		return {
+			id,
+			role: "assistant",
+			parts: [
+				{
+					type: "data-turn-summary",
+					id: `summary-${id}`,
+					data: { files: [], workedSeconds: 3, mode },
+				},
+			],
+		};
+	}
+	const userMessage: TurnMessage = {
+		id: "u1",
+		role: "user",
+		parts: [{ type: "text", text: "A shop" }],
+	};
+
+	// The Plan toggle and the planning note follow the newest turn: after
+	// "Build this plan" they must show the build, not the plan before it.
+	it.each<{ name: string; messages: TurnMessage[]; expected: BuilderTurnMode }>(
+		[
+			{
+				name: "the created frame of the live turn over an older plan",
+				messages: [
+					storedReply("a1", "plan"),
+					userMessage,
+					{
+						id: "a2",
+						role: "assistant",
+						parts: [
+							{
+								type: "data-turn-created",
+								id: "turn-created",
+								data: {
+									chatId: "chat-1",
+									runId: null,
+									status: "queued",
+									streamUrl: "/api/v2/projects/p/turns/active/stream",
+									turnId: "turn-2",
+									mode: "build",
+								},
+							},
+						],
+					},
+				],
+				expected: "build",
+			},
+			{
+				name: "the stored summary while a new send waits for its frame",
+				messages: [storedReply("a1", "plan"), userMessage],
+				expected: "plan",
+			},
+			{
+				name: "the reply before a stored reply with no summary",
+				messages: [
+					storedReply("a1", "plan"),
+					userMessage,
+					{ id: "a2", role: "assistant", parts: [{ type: "text", text: "…" }] },
+				],
+				expected: "plan",
+			},
+			{
+				name: "build when no reply tells",
+				messages: [userMessage],
+				expected: "build",
+			},
+		],
+	)("returns $expected: $name", ({ messages, expected }) => {
+		expect(latestTurnModeOf(messages)).toBe(expected);
+	});
+});
+
 describe("toBuilderMessages", () => {
 	it("keeps the text and file parts of a user message", () => {
 		const messages = [
@@ -580,6 +657,7 @@ describe("toBuilderMessages", () => {
 					data: {
 						files: [{ path: "src/a.css", insertions: 3, deletions: 1 }],
 						workedSeconds: 42,
+						mode: "build",
 					},
 				},
 			],

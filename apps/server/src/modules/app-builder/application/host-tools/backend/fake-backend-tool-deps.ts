@@ -130,6 +130,7 @@ export async function createBackendToolFixture(
 		actorUserId: "user-1",
 		chatId: "chat-1",
 		holdEventId: null,
+		mode: "build",
 		organizationId: "org-1",
 		projectId: "project-1",
 		sandbox,

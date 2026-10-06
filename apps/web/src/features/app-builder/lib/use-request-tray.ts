@@ -111,6 +111,8 @@ function bodyOf(
 	const options = question.options.map((option) => ({
 		id: option.id,
 		label: option.label,
+		description: option.description ?? null,
+		isRecommended: option.recommended === true,
 	}));
 	switch (question.kind) {
 		case "free-text":
@@ -160,7 +162,10 @@ export function useRequestTray({
 }: {
 	/** The open questions of the last reply, in order; empty when none waits. */
 	questions: readonly TrayQuestion[];
-	/** The live composer text. It answers a free-text question and overrides the chips. */
+	/**
+	 * The live composer text. It answers a free-text question. On a chip
+	 * question it replaces the chips when none is picked, else it is a note.
+	 */
 	draft: string;
 	/** Sends the round: the user bubble summary and one answer per question. */
 	onSubmit: (input: { message: string; answers: TurnQuestionAnswer[] }) => void;
@@ -239,21 +244,23 @@ export function useRequestTray({
 				.join("\n");
 			return { answer: { ...base, optionIds: [], files }, summary };
 		}
-		// Typed text wins over the picked options, as in the V1 tray.
-		if (typedText !== "" || question.kind === "free-text") {
+		// With no option picked, typed text is the whole answer, as in the V1 tray.
+		if (picked.length === 0 || question.kind === "free-text") {
 			if (typedText === "") return null;
 			return {
 				answer: { ...base, optionIds: [], files: [] },
 				summary: typedText,
 			};
 		}
-		if (picked.length === 0) return null;
+		// Picked options and typed text go together: the text is a note on the choice.
 		const labels = question.options
 			.filter((option) => picked.includes(option.id))
 			.map((option) => option.label);
 		return {
 			answer: { ...base, optionIds: picked, files: [] },
-			summary: labels.join(", "),
+			summary: [labels.join(", "), typedText]
+				.filter((line) => line !== "")
+				.join("\n"),
 		};
 	};
 
@@ -395,7 +402,8 @@ export function useRequestTray({
 	/** The composer button label: the V1 wording for each body and pick count. */
 	const submitLabel = (): string => {
 		if (!isLastStep) return t("appBuilder.chat.tray.next");
-		if (question === null || typed !== "") {
+		// Typed text with no pick is the answer; with a pick it is only a note.
+		if (question === null || (typed !== "" && picked.length === 0)) {
 			return t("appBuilder.chat.tray.answer");
 		}
 		const readyFiles = uploads.filter((item) => item.status === "ready");
@@ -437,10 +445,14 @@ export function useRequestTray({
 								? { current: round.stepIndex + 1, total: questions.length }
 								: null,
 						body: bodyOf(question, picked, uploads),
-						typingOverride:
-							typed !== "" &&
-							(question.kind === "single-choice" ||
-								question.kind === "multi-select"),
+						typedTextEffect:
+							typed === "" ||
+							(question.kind !== "single-choice" &&
+								question.kind !== "multi-select")
+								? null
+								: picked.length > 0
+									? "addsNote"
+									: "replacesOptions",
 					}
 				: null,
 		roundKey: isShown ? roundKey : null,

@@ -96,6 +96,7 @@ async function setup(options: {
 		chatId: "chat-1",
 		holdEventId:
 			options.holdEventId === undefined ? "evt_parent_1" : options.holdEventId,
+		mode: "build",
 		organizationId: null,
 		projectId: "project-1",
 		sandbox,

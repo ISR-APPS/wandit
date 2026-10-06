@@ -20,19 +20,25 @@ function unusedMetering(): HostToolMetering {
 	};
 }
 
+/** The registry with the real backend tool deps and no metering. */
+async function setup() {
+	const fixture = await createBackendToolFixture();
+	const registry = new BuilderHostToolRegistry({
+		...fixture.deps,
+		imageEditModel: "edit-model-1",
+		imageModel: "image-model-1",
+		metering: unusedMetering(),
+		networkHosts: {
+			appendHost: async () => [],
+			transaction: async () => undefined,
+		},
+	});
+	return { fixture, registry };
+}
+
 describe("BuilderHostToolRegistry.build", () => {
 	it("builds every tool and asks the user only for the writes that need approval", async () => {
-		const fixture = await createBackendToolFixture();
-		const registry = new BuilderHostToolRegistry({
-			...fixture.deps,
-			imageEditModel: "edit-model-1",
-			imageModel: "image-model-1",
-			metering: unusedMetering(),
-			networkHosts: {
-				appendHost: async () => [],
-				transaction: async () => undefined,
-			},
-		});
+		const { fixture, registry } = await setup();
 
 		const toolSet = await registry.build(fixture.context);
 
@@ -55,6 +61,22 @@ describe("BuilderHostToolRegistry.build", () => {
 			run_sql: "not-applicable",
 			run_sql_write: "user-approval",
 			set_secret: "not-applicable",
+		});
+	});
+
+	it("gives a plan turn only the tools that ask the user", async () => {
+		const { fixture, registry } = await setup();
+
+		const toolSet = await registry.build({ ...fixture.context, mode: "plan" });
+
+		// No tool that writes to the project, the backend, or the network.
+		expect(Object.keys(toolSet.tools).sort()).toEqual([
+			"ask_user",
+			"present_plan",
+		]);
+		expect(toolSet.toolApproval).toEqual({
+			ask_user: "not-applicable",
+			present_plan: "not-applicable",
 		});
 	});
 });

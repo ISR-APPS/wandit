@@ -44,6 +44,7 @@ const idleBoot: BootContext = {
 	isFirstTurn: false,
 	backend: undefined,
 	hasCodeChanges: true,
+	isPlanning: false,
 };
 
 // jsdom has no ResizeObserver; the stage measures itself with one.

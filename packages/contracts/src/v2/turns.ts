@@ -11,7 +11,10 @@ import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
 import { projectPromptMaxLength } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
-import { askUserHostToolActionSchema } from "./host-tools";
+import {
+	askUserHostToolActionSchema,
+	presentPlanHostToolInputSchema,
+} from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 import { appCommitNumstatEntrySchema } from "./versions";
 
@@ -40,6 +43,18 @@ export const builderTurnStatusSchema = z.enum(builderTurnStatuses);
 
 /** TypeScript builder turn status type. */
 export type BuilderTurnStatus = z.infer<typeof builderTurnStatusSchema>;
+
+/**
+ * How the agent works on a turn. `plan` is Plan Mode: the agent interviews
+ * the user and presents a plan, and it cannot change files. `build` builds.
+ */
+export const builderTurnModes = ["plan", "build"] as const;
+
+/** Runtime validator for a builder turn mode. */
+export const builderTurnModeSchema = z.enum(builderTurnModes);
+
+/** `plan` or `build`; see `builderTurnModes`. */
+export type BuilderTurnMode = z.infer<typeof builderTurnModeSchema>;
 
 /** The answer to a `data-approval` card: the card id and the decision. */
 export const turnApprovalAnswerSchema = z.object({
@@ -89,6 +104,8 @@ export const createTurnRequestSchema = z
 		// A paid model the user picked; absent means the deploy default. The
 		// plan allow-list decides which ids are legal.
 		model: z.string().min(1).optional(),
+		// The Plan toggle of the composer; absent means `build`.
+		mode: builderTurnModeSchema.optional(),
 		// The answer to a `data-approval` card.
 		approval: turnApprovalAnswerSchema.optional(),
 		// The answers to the open `data-question` cards. Without them, the
@@ -170,6 +187,8 @@ export const createTurnResponseSchema = z.object({
 	queued: z.boolean().optional(),
 	// Server-side cost hint so the composer can warn before send.
 	estimate: turnEstimateSchema.optional(),
+	// The mode of the new turn; the chat shows "Planning" for `plan`. Absent: `build`.
+	mode: builderTurnModeSchema.optional(),
 });
 
 /** TypeScript create-turn response. */
@@ -394,6 +413,8 @@ export const turnQuestionOptionSchema = z.object({
 	label: z.string(),
 	description: z.string().optional(),
 	card: worldCardSchema.optional(),
+	// True on the option the agent advises; the tray shows a badge on it.
+	recommended: z.boolean().optional(),
 });
 
 /** Inferred from `turnQuestionOptionSchema`; one chip or card in the tray. */
@@ -465,6 +486,27 @@ export const turnApprovalDataPartSchema = z.object({
 export type TurnApprovalData = z.infer<typeof turnApprovalDataSchema>;
 
 /**
+ * `data` of the `data-plan` card: the plan a Plan Mode turn shows for
+ * approval. The builder-turn task writes it from a paused `present_plan`
+ * call. "Build this plan" sends a `build` turn; a typed `plan` turn sends
+ * change requests.
+ */
+export const turnPlanDataSchema = presentPlanHostToolInputSchema.extend({
+	// Harness call id of the paused `present_plan` call.
+	toolCallId: z.string(),
+});
+
+/** One `data-plan` card; id is `plan-${toolCallId}`. */
+export const turnPlanDataPartSchema = z.object({
+	type: z.literal("data-plan"),
+	id: z.string(),
+	data: turnPlanDataSchema,
+});
+
+/** Inferred from `turnPlanDataSchema`; the plan card payload. */
+export type TurnPlanData = z.infer<typeof turnPlanDataSchema>;
+
+/**
  * `data` of the `data-thought` part the task writes right after a
  * reasoning block ends. The UI shows "Thought for {seconds}s" on that block.
  */
@@ -516,6 +558,9 @@ export const turnSummaryDataSchema = z.object({
 	// Whole seconds from the task start to the commit end, at least 1. The
 	// queue wait before the task start is not in it.
 	workedSeconds: z.int().positive(),
+	// The mode of the turn. After a reload, the Plan toggle starts from the
+	// mode of the last turn. Rows stored before Plan Mode existed were builds.
+	mode: builderTurnModeSchema.default("build"),
 });
 
 /** One `data-turn-summary` part; id is `summary-${turnId}`. */
@@ -543,6 +588,7 @@ export const turnDataPartSchema = z.discriminatedUnion("type", [
 	turnDoneDataPartSchema,
 	turnQuestionDataPartSchema,
 	turnApprovalDataPartSchema,
+	turnPlanDataPartSchema,
 	turnThoughtDataPartSchema,
 	turnTargetsDataPartSchema,
 	turnSummaryDataPartSchema,
@@ -563,7 +609,10 @@ export type TurnDataParts = {
 	"turn-done": TurnDoneData;
 	question: TurnQuestionData;
 	approval: TurnApprovalData;
+	plan: TurnPlanData;
 	thought: TurnThoughtData;
 	targets: TurnTargetsData;
-	"turn-summary": TurnSummaryData;
+	// The input type: live parts skip the zod parse, so `mode` can be absent
+	// on a summary from a worker before Plan Mode.
+	"turn-summary": z.input<typeof turnSummaryDataSchema>;
 };

@@ -921,8 +921,8 @@ One run does this, in order:
    part (`reasoningId`, `seconds`, at least 1) to both streams. The UI
    shows it as "Thought for Ns".
 9. On stream end `hasUnfinishedTurn` picks the path. A paused turn runs
-   `suspendTurn` instead of `detach`: one `data-question` or
-   `data-approval` stream part and message part per pending card, the row
+   `suspendTurn` instead of `detach`: one `data-question`, `data-approval`,
+   or `data-plan` stream part and message part per pending card, the row
    completes as `waiting_for_answer` (`waiting_for_approval` when a
    card is an approval), and the suspended state lands on the session
    row. A finished turn completes as `succeeded`. Both paths share the
@@ -983,6 +983,45 @@ every turn; that cost sits inside the SDK. The runtime never caches a
 session object across runs: the proxy run token rotates per run and lives
 in the vendor request transformation the SDK installs at session start.
 
+## Plan Mode
+
+In Plan Mode the agent does not build. It interviews the user with
+`ask_user` rounds, then shows a plan with `present_plan` (D27).
+
+- Mode: `POST /api/v2/projects` and `POST .../turns` take an optional
+  `mode`, `plan` or `build`. An absent value is `build`.
+  `TurnsService.create` writes it to `builder_turns.spec.mode`. A body with
+  `approval` is always `build`: it answers a paused build call. An old spec
+  parses as `build`. The `data-turn-created` and `data-turn-summary` parts
+  carry the mode, so the web knows it after a reload.
+- Tools: a plan turn gets only `ask_user` and `present_plan` from
+  `BuilderHostToolRegistry`. The harness also blocks the built-in tools
+  that write, run, or start an agent (`PLAN_MODE_BLOCKED_TOOLS`). This is a
+  hard block, not only prompt text.
+- Rules: the session instructions do not change. `PLAN_MODE_PROMPT`
+  (`domain/plan-mode.ts`) goes in front of each plan prompt. A `continue`
+  input gets no rules: the agent keeps them from the earlier prompt.
+- Plan card: a paused `present_plan` call becomes a `plan` pending card and
+  one `data-plan` part, id `plan-<toolCallId>`. The row completes as
+  `waiting_for_answer`, so a typed message gets no 409. A typed message in
+  a plan turn continues the call with `{ feedback }`: the text, the
+  attachment URLs, and the preview elements that the user picked. After a
+  sandbox stop, the plan and the changes go as text (`planFeedbackPromptOf`).
+- Mode switch: each saved resume envelope stores the turn mode. The SDK
+  fixes the tool list when a session starts. So when cards wait and the new
+  turn has the other mode, the paused call cannot continue. The runtime
+  resumes with `dropPausedTurn` and `bridgeDead`, and the harness kills the
+  old bridge that holds the port. A text prompt goes instead
+  (`modeSwitchPromptOf`):
+  - a build after a plan card gets the approved plan as Markdown;
+  - a build with open questions gets `BUILD_NOW_PROMPT` and the answers;
+  - a plan turn gets the answers after the Plan Mode rules.
+- Process: the tool list is in the bridge query key, so a mode change
+  starts a new Claude Code process on the same conversation. On the
+  harness host, a kept session serves only the turns of its own mode.
+- Cost: a plan turn pays its real LLM usage from the proxy rows, like each
+  other turn. The hold rules do not change.
+
 ## Host tools (WANDIT-169)
 
 Host tools run in the task process, not inside the sandbox: platform and
@@ -1007,7 +1046,12 @@ releases per-turn clients (none today — connectors land in a follow-up).
 - `ask_user` asks the user 1 to 4 questions in one call. It is
   `"not-applicable"`, has no execute, and pauses the turn. The harness
   cuts the input to the card limits (`askUserQuestionsOf`). The built-in
-  `askUserQuestions` is inactive.
+  `askUserQuestions` is inactive. An option with `recommended: true` gets
+  a badge on the card.
+- `present_plan` shows the plan for approval, in Plan Mode only. It is
+  `"not-applicable"`, has no execute, and pauses the turn like `ask_user`.
+  The harness cuts the plan to the card limits (`presentPlanOf`). See
+  "Plan Mode".
 - `request_network_host` (WANDIT-180) asks to reach one extra egress
   host. It is `"user-approval"`, so the user approves first; the body
   runs only on approval. It checks the host with `isValidNetworkHost`.

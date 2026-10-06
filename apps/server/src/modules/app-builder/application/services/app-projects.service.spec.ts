@@ -327,6 +327,7 @@ describe("AppProjectsService.create", () => {
 				countryCode: "MA",
 				framework: "web-app",
 				languages: ["fr", "en"],
+				mode: "build",
 				organizationId: null,
 				projectId: input.projectId,
 				targetPlatform: "web",

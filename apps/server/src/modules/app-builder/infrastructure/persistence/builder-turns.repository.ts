@@ -8,6 +8,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+	BuilderTurnMode,
 	BuilderTurnStatus,
 	ComposerMetadata,
 	FileRef,
@@ -65,6 +66,8 @@ export type BuilderTurnSpec = {
 	message: string;
 	/** Elements the user picked in the preview, in pick order. Empty without a pick. */
 	targets: PreviewTarget[];
+	/** `plan` for a Plan Mode turn (interview and plan, no file change), else `build`. */
+	mode: BuilderTurnMode;
 };
 
 /** Mutable columns `transition` may patch besides `status` itself. */
