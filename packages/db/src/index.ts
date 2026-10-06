@@ -5,7 +5,7 @@
 import { env } from "@wandit/env/server";
 
 // Re-export common Drizzle SQL helpers for repositories.
-// DrizzleQueryError wraps every failed query. The AI error classifier reads it.
+// DrizzleQueryError wraps every failed query. The AI error classifier spec builds a real one.
 export {
 	and,
 	asc,

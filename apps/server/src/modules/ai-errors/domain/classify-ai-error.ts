@@ -10,7 +10,6 @@ import type {
 	AiErrorKind,
 	AiErrorSource,
 } from "@wandit/contracts";
-import { DrizzleQueryError } from "@wandit/db";
 import {
 	AISDKError,
 	APICallError,
@@ -107,7 +106,7 @@ export function classifyAiError(
 
 	// The query error message holds every query param, for example a tool output.
 	// The timeout and network text checks below must not read that user text.
-	if (error instanceof DrizzleQueryError) {
+	if (isDatabaseQueryError(error)) {
 		return normalize(error, context, {
 			kind: "internal",
 			provider: null,
@@ -1284,6 +1283,18 @@ function buildFailureKind(code: string): AiErrorKind {
 
 function buildFailureSource(code: string): AiErrorSource {
 	return code.startsWith("provider_") ? "gateway" : "ours";
+}
+
+/**
+ * True for the drizzle-orm `DrizzleQueryError` that wraps every failed query.
+ * The class sets no `name`, so the check reads the two fields its constructor sets.
+ */
+function isDatabaseQueryError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		typeof read(error, "query") === "string" &&
+		Array.isArray(read(error, "params"))
+	);
 }
 
 function isSdkValidationError(error: unknown): boolean {
