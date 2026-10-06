@@ -32,32 +32,33 @@ export class HarnessHostClient {
 	) {}
 
 	/**
-	 * Hands one queued, host-owned row to the host. Resolves when the host
-	 * claimed it; throws on any other answer, a timeout, or a network error.
+	 * Hands one queued, host-owned row to the host. Answers true when the host
+	 * runs the turn, false when the host is full (503). Throws on any other
+	 * answer, a timeout, or a network error.
 	 */
-	async startTurn(input: HarnessHostStartTurn): Promise<void> {
-		await this.post(
-			harnessHostRoutes.startTurn(input.turnId),
-			input,
-			START_TIMEOUT_MS,
-		);
+	async startTurn(input: HarnessHostStartTurn): Promise<boolean> {
+		const path = harnessHostRoutes.startTurn(input.turnId);
+		const response = await this.post(path, input, START_TIMEOUT_MS);
+		// 503: the host is at its live turn cap (`MAX_LIVE_TURNS` in harness-host.server.ts).
+		if (response.status === 503) {
+			return false;
+		}
+		assertOk(response, path);
+		return true;
 	}
 
-	/** Asks the host to stop a turn it runs. Throws like `startTurn`. */
+	/** Asks the host to stop a turn it runs. Throws on any answer that is not 2xx. */
 	async cancelTurn(turnId: string): Promise<void> {
-		await this.post(
-			harnessHostRoutes.cancelTurn(turnId),
-			{},
-			CANCEL_TIMEOUT_MS,
-		);
+		const path = harnessHostRoutes.cancelTurn(turnId);
+		assertOk(await this.post(path, {}, CANCEL_TIMEOUT_MS), path);
 	}
 
-	private async post(
+	private post(
 		path: string,
 		body: HarnessHostStartTurn | Record<string, never>,
 		timeoutMs: number,
-	): Promise<void> {
-		const response = await this.fetchFn(new URL(path, this.baseUrl), {
+	): Promise<Response> {
+		return this.fetchFn(new URL(path, this.baseUrl), {
 			body: JSON.stringify(body),
 			headers: {
 				authorization: `Bearer ${this.secret}`,
@@ -66,8 +67,11 @@ export class HarnessHostClient {
 			method: "POST",
 			signal: AbortSignal.timeout(timeoutMs),
 		});
-		if (!response.ok) {
-			throw new Error(`Harness host answered ${response.status} on ${path}`);
-		}
+	}
+}
+
+function assertOk(response: Response, path: string): void {
+	if (!response.ok) {
+		throw new Error(`Harness host answered ${response.status} on ${path}`);
 	}
 }

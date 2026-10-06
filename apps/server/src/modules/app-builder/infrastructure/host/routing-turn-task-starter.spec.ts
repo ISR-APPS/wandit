@@ -66,6 +66,7 @@ function fakeHost(startError?: Error) {
 			if (startError !== undefined) {
 				throw startError;
 			}
+			return true;
 		}),
 	} satisfies HarnessHostCalls;
 }
@@ -122,6 +123,30 @@ describe("RoutingTurnTaskStarter.start", () => {
 
 		expect(handle).toEqual({ runner: "host" });
 		expect(trigger.start).not.toHaveBeenCalled();
+	});
+
+	it("sends the turn to Trigger with no pause when the host is full", async () => {
+		const { row, turns } = fakeRow();
+		const host = fakeHost();
+		host.startTurn.mockResolvedValue(false);
+		const starter = new RoutingTurnTaskStarter(
+			fakeTrigger(),
+			host,
+			turns,
+			logger,
+		);
+
+		const handle = await starter.start(INPUT);
+		await starter.start(INPUT);
+
+		expect(handle).toEqual({ runId: "run-1", runner: "trigger" });
+		expect(row.runner).toBe("trigger");
+		expect(logger.info).toHaveBeenCalledWith("builder-turn.path", {
+			path: "trigger",
+			reason: "host_full",
+			turnId: INPUT.turnId,
+		});
+		expect(host.startTurn).toHaveBeenCalledTimes(2);
 	});
 
 	it("skips the host for 30 s after a failed start", async () => {

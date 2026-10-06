@@ -109,4 +109,29 @@ describe("SandboxWakeService.wake", () => {
 		);
 		logError.mockRestore();
 	});
+
+	it("keeps the wake lock through a long boot and frees it 12 min after the wake at most", async () => {
+		vi.useFakeTimers();
+		try {
+			const { service, turnLock } = fixture({
+				sandboxes: {
+					findRunning: async () => null,
+					// A boot step that hangs, like a git fetch with no timeout.
+					getOrCreate: () => new Promise<SandboxHandle>(() => undefined),
+				},
+			});
+
+			expect(await service.wake(SCOPE, "p-1")).toEqual({ status: "starting" });
+
+			// Far past the 2 min TTL: only the refresh keeps the lock.
+			await vi.advanceTimersByTimeAsync(11 * 60_000);
+			expect(await turnLock.holder("p-1")).toMatch(/^wake:/);
+
+			// The refresh stopped at 10 min, so the TTL frees the lock.
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(await turnLock.holder("p-1")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

@@ -109,7 +109,17 @@ export type HarnessStreamEvent =
 			cacheReadTokens: number;
 			cacheWriteTokens: number;
 	  }
-	| { type: "error"; code: string; message: string; retryable: boolean };
+	| {
+			type: "error";
+			code: string;
+			message: string;
+			retryable: boolean;
+			/**
+			 * HTTP status of the failed model call, for example 529. The harness
+			 * reads it from its error text. Undefined when the text names no status.
+			 */
+			statusCode?: number;
+	  };
 
 /**
  * One coding-agent harness. `createSession` starts cold; `resumeSession`

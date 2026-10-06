@@ -2,27 +2,32 @@
  * The chat column of the app builder. It has no card and lies on the sand
  * desk. The header shows the title, the dev view switch in local dev, and
  * the collapse button; a running turn adds a "Building" or "Planning" chip
- * and a Stop pill. Below sit the message list with a "Load earlier
- * messages" button while older pages exist, one status line while a turn
- * runs, an alert row for a refused send (`errorText`), and the composer.
+ * and a Stop pill. Below sit the message list, one status line while a
+ * turn runs, an alert row (`errorText`), and the composer. The list has a
+ * "Load earlier messages" button while older pages exist. The alert row
+ * shows a refused send or a lost stream. It has a Reconnect button when
+ * `onReconnect` is set.
  * When the agent asks the user something, the request tray opens on top of
  * the composer. A failed last reply gets a Retry button that sends its user
- * message again. The plan card's "Build this plan" sends a build turn. The
- * other sends carry no mode. The thread hook then uses the Plan toggle. An
- * approval answer is always a build. In the production view, the live
+ * message again, except a stop on the daily AI limit. The plan card's
+ * "Build this plan" sends a build turn. The other sends carry no mode. The
+ * thread hook then uses the Plan toggle. An approval answer is always a
+ * build. In the production view, the live
  * reply shows only as the status line. Rendered by
  * pages/app-builder-page.tsx, which owns the thread hook and the details
  * panel. Renders chat-message.tsx, working-row.tsx, composer.tsx, and the
  * request tray.
  */
 
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import type {
-	PreviewTarget,
-	TurnQuestionAnswer,
-	TurnStreamPhase,
+import {
+	DAILY_CAP_TURN_ERROR_CODE,
+	type PreviewTarget,
+	type TurnQuestionAnswer,
+	type TurnStreamPhase,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
@@ -40,6 +45,7 @@ import { SegmentedControl } from "../shell/segmented-control";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
 import { ChatMessageView } from "./chat-message";
 import { Composer } from "./composer";
+import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { WorkingRow } from "./working-row";
@@ -70,16 +76,17 @@ export type ChatPaneProps = {
 	onOpenActivity: (messageId: string) => void;
 	/** False until the project chat id resolves and the history loads or fails. Locks the composer together with `isSending`. */
 	isReady: boolean;
-	onSend: (input: SendBuilderMessageInput) => void;
+	/** Sends one turn. Resolves false when the API admitted no turn; the composer then gets the draft back. */
+	onSend: (input: SendBuilderMessageInput) => Promise<boolean>;
 	/** Sends an approval card decision; the pane drops it while a turn runs. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
-	/** Sends the answers of the request tray, with the summary for the user bubble. */
+	/** Sends the answers of the request tray, with the summary for the user bubble. Resolves like `onSend`. */
 	onAnswerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
 		/** Files of a typed message that also answers a skipped round. */
 		files?: FileUIPart[];
-	}) => void;
+	}) => Promise<boolean>;
 	/**
 	 * State of the Plan toggle, from useBuilderThread. While a turn runs, it
 	 * is the mode of that turn, so it also picks the "Planning" chip.
@@ -89,8 +96,10 @@ export type ChatPaneProps = {
 	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
-	/** Sentence of the last rejected send, or null. Shown as an alert under the list. */
+	/** Sentence of the last rejected send or lost stream, or null. Shown as an alert under the list. */
 	errorText: string | null;
+	/** Opens the stream of the running turn again, from useBuilderThread. Null hides the Reconnect button of the alert. */
+	onReconnect: (() => Promise<void>) | null;
 	/** Hides the chat. The header button calls it; the page stores the choice. */
 	onCollapse: () => void;
 	/** Opens the Secrets panel from a step row. Absent while the Cloud panels are off. */
@@ -104,7 +113,10 @@ export type ChatPaneProps = {
 	className?: string;
 };
 
-/** The chat column: header, message list with the status line, refused-send alert, and composer. */
+/**
+ * The chat column: header, message list with the status line, the alert row
+ * for a refused send or a lost stream (with Reconnect), and composer.
+ */
 export function ChatPane({
 	messages,
 	turnEstimateCredits,
@@ -125,6 +137,7 @@ export function ChatPane({
 	onPlanModeChange,
 	onCancel,
 	errorText,
+	onReconnect,
 	onCollapse,
 	onOpenSecrets,
 	hasOlderMessages,
@@ -150,7 +163,7 @@ export function ChatPane({
 	const canSend = !isSending && isReady;
 
 	// The tray shows the open questions of the last reply. A rejected answer
-	// leaves its user bubble after that reply, and the questions stay open.
+	// removes its user bubble, so that reply stays the last reply and its questions stay open.
 	// A plan card is no question, so it never opens the tray.
 	const lastReply = messages.findLast(
 		(message) => message.role === "assistant",
@@ -329,7 +342,7 @@ export function ChatPane({
 				</div>
 			</div>
 			{errorText !== null ? (
-				<p
+				<div
 					role="alert"
 					dir="auto"
 					className="flex shrink-0 items-start gap-2 px-5 pb-2 font-sans text-[13px] text-destructive leading-snug"
@@ -339,8 +352,21 @@ export function ChatPane({
 						className="mt-px size-4 shrink-0"
 						aria-hidden
 					/>
-					{errorText}
-				</p>
+					<div className="min-w-0">
+						<p>{errorText}</p>
+						{onReconnect !== null ? (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => void onReconnect()}
+								className={cn("mt-2", CARD_SECONDARY_PILL_CLASS)}
+							>
+								<ArrowsClockwiseIcon weight="bold" aria-hidden />
+								{t("appBuilder.chat.reconnect")}
+							</Button>
+						) : null}
+					</div>
+				</div>
 			) : null}
 			<div className="shrink-0 px-4 pt-1 pb-4">
 				<Composer
@@ -355,15 +381,13 @@ export function ChatPane({
 						// A plain message after the skip X also answers the skipped
 						// round, so the paused agent hears it.
 						const answers = tray.dismissedAnswersFor(input.text);
-						if (answers === null) {
-							onSend(input);
-						} else {
-							onAnswerQuestions({
-								message: input.text,
-								answers,
-								files: input.files,
-							});
-						}
+						return answers === null
+							? onSend(input)
+							: onAnswerQuestions({
+									message: input.text,
+									answers,
+									files: input.files,
+								});
 					}}
 					onDraftChange={setDraft}
 					placeholder={placeholder}
@@ -397,6 +421,7 @@ export function ChatPane({
  * The last reply must hold an error, and the message before it must be the
  * user message of that turn. An approval answer has no user bubble, so its
  * failed reply gets no Retry. A stopped turn has no error: no Retry either.
+ * The daily AI limit gets no Retry: a resend fails until 00:00 UTC.
  */
 function retryInputOf(
 	messages: readonly BuilderMessage[],
@@ -404,9 +429,12 @@ function retryInputOf(
 	const reply = messages.at(-1);
 	const userMessage = messages.at(-2);
 	if (reply?.role !== "assistant" || userMessage?.role !== "user") return null;
-	// Every failure can be sent again, also a stop on a credit cap: the
-	// agent then continues from the files that the stop committed.
-	if (!reply.parts.some((part) => part.type === "data-error")) return null;
+	// Every failure except the daily AI limit can be sent again, also a stop
+	// on a credit cap: the agent then continues from the committed files.
+	const error = reply.parts.find((part) => part.type === "data-error");
+	if (error === undefined || error.data.code === DAILY_CAP_TURN_ERROR_CODE) {
+		return null;
+	}
 	return {
 		text: userMessage.parts
 			.flatMap((part) => (part.type === "text" ? [part.text] : []))

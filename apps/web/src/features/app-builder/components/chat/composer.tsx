@@ -4,8 +4,8 @@
  * menu (a file or an image), the Plan chip, the credit estimate, dictation,
  * and send. While the tray shows, send becomes the answer pill of the tray.
  * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
- * uploaded files. Uploads go through the projects feature, with the
- * dashboard limits.
+ * uploaded files; a send that the API refuses puts them back. Uploads go
+ * through the projects feature, with the dashboard limits.
  */
 
 import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
@@ -78,7 +78,8 @@ export type ComposerProps = {
 	onRemoveTarget: (index: number) => void;
 	/** True while a turn runs or the chat is not ready yet. Locks the textarea and the send button. */
 	isSending: boolean;
-	onSend: (input: SendBuilderMessageInput) => void;
+	/** Sends the message. Resolves false when the API admitted no turn: the text and the files then come back. */
+	onSend: (input: SendBuilderMessageInput) => Promise<boolean>;
 	/** Content at the top of the card, above the textarea: the request tray. */
 	topSlot?: ReactNode;
 	/** Set while the request tray shows: Enter and the button answer the tray. */
@@ -159,7 +160,11 @@ export function Composer({
 }: ComposerProps) {
 	const { t } = useTranslation();
 	const [draft, setDraftState] = useState("");
+	// The answer of a send comes after its render, so the restore reads the
+	// draft here. Dictation can write into it while the send waits.
+	const draftRef = useRef("");
 	const setDraft = (text: string) => {
+		draftRef.current = text;
 		setDraftState(text);
 		onDraftChange?.(text);
 	};
@@ -270,10 +275,21 @@ export function Composer({
 			// The tray answer takes text only; the files wait for the next message.
 			submitOverride.onSubmit(trimmed);
 		} else {
-			onSend({ text: trimmed, files: readyParts });
-			for (const file of files) {
-				if (file.previewUrl !== null) URL.revokeObjectURL(file.previewUrl);
-			}
+			const sentFiles = files;
+			void onSend({ text: trimmed, files: readyParts }).then((isAccepted) => {
+				if (isAccepted) {
+					revokePreviews(sentFiles);
+					return;
+				}
+				// The API refused the send. The message comes back in front of the
+				// text and the files added while it waited.
+				const restoredFiles = [...sentFiles, ...filesRef.current];
+				revokePreviews(restoredFiles.slice(MAX_FILES));
+				setFiles(restoredFiles.slice(0, MAX_FILES));
+				setDraft(
+					draftRef.current === "" ? trimmed : `${trimmed}\n${draftRef.current}`,
+				);
+			});
 			setFiles([]);
 		}
 		setDraft("");
@@ -465,6 +481,13 @@ export function Composer({
 			</div>
 		</div>
 	);
+}
+
+/** Frees the thumbnail URLs of chips that leave the composer for good. */
+function revokePreviews(chips: readonly ComposerFile[]) {
+	for (const chip of chips) {
+		if (chip.previewUrl !== null) URL.revokeObjectURL(chip.previewUrl);
+	}
 }
 
 /** One file of the next message: a thumbnail or a file icon, the name, the upload state, and a remove button. */

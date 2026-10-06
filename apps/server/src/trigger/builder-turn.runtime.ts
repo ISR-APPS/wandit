@@ -17,6 +17,8 @@ import type {
 	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
+	TurnDoneData,
+	TurnErrorData,
 	TurnPlanData,
 	TurnQuestionData,
 	TurnStreamPhase,
@@ -25,10 +27,16 @@ import type {
 } from "@wandit/contracts";
 import {
 	builderTurnSpecSchema,
+	DAILY_CAP_TURN_ERROR_CODE,
 	harnessResumeEnvelopeSchema,
 } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/node";
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import {
+	APICallError,
+	readUIMessageStream,
+	type UIMessage,
+	type UIMessageChunk,
+} from "ai";
 import {
 	mobileWorldCards,
 	worldCardOf,
@@ -161,6 +169,18 @@ const RECAP_MESSAGES = 10;
 const RECAP_MESSAGE_MAX_CHARS = 1_500;
 // 72 chars: the commit summary limit, same as the UI turn title.
 const SUMMARY_MAX_CHARS = 72;
+// 1,000 chars: enough for the status and the provider message. The row stays small.
+const HARNESS_CAUSE_MAX_CHARS = 1_000;
+/**
+ * Matches harness error texts that repeat on each resume of the same
+ * Claude Code conversation. Causes: a lost transcript, a safety refusal,
+ * or a denied fallback model.
+ * The texts come from code.claude.com/docs/en/errors and the Claude Code CLI.
+ * A safety flag moves the session to a fallback model. The proxy can refuse
+ * that model with the 403 text of `llm-proxy.service.ts`.
+ */
+const SESSION_BOUND_FAILURE_PATTERN =
+	/No conversation found with session ID|Failed to resume session|Start a new session|safeguards flagged this (?:message|session)|This plan may not call that model/u;
 // 15 MB, the image upload limit. A bigger answer file is a video or an
 // audio file, and a copy in public/ grows every commit of the app repo.
 const ANSWER_FILE_MAX_BYTES = 15 * 1024 * 1024;
@@ -183,6 +203,7 @@ function mobileWorldsInstruction(projectId: string): string {
 
 /** Why the turn stopped on its own. */
 type AbortCode =
+	| "daily_cap"
 	| "disabled"
 	| "hold_lost"
 	| "lock_lost"
@@ -191,11 +212,16 @@ type AbortCode =
 	| "stale"
 	| "stalled";
 
-/** Terminal row status each stop code lands on; the other codes fail. */
+/**
+ * Terminal row status each stop code lands on; the other codes fail. The
+ * daily cap has no status of its own, so no migration is needed: its
+ * failure code names it (see `stopFailureCodeOf`).
+ */
 const STOP_STATUS: Record<
-	"disabled" | "no_credits" | "project_cap",
+	"daily_cap" | "disabled" | "no_credits" | "project_cap",
 	BuilderTurnStatus
 > = {
+	daily_cap: "stopped_project_cap",
 	disabled: "stopped_disabled",
 	no_credits: "stopped_no_credits",
 	project_cap: "stopped_project_cap",
@@ -203,6 +229,7 @@ const STOP_STATUS: Record<
 
 /** The `Turn stopped: <reason>` text of each stop code. */
 const STOP_REASON: Record<keyof typeof STOP_STATUS, string> = {
+	daily_cap: "daily AI limit reached, it resets at 00:00 UTC",
 	disabled: "V2 builder disabled",
 	no_credits: "no credits left",
 	project_cap: "project credit cap reached",
@@ -210,9 +237,20 @@ const STOP_REASON: Record<keyof typeof STOP_STATUS, string> = {
 
 /** `code` when it is a stop code, else null. */
 const stopCodeOf = (code: AbortCode | null): keyof typeof STOP_STATUS | null =>
-	code === "disabled" || code === "no_credits" || code === "project_cap"
+	code === "daily_cap" ||
+	code === "disabled" ||
+	code === "no_credits" ||
+	code === "project_cap"
 		? code
 		: null;
+
+/**
+ * The failure code a stop writes to the row and to the `error` event: the
+ * terminal status. The daily cap shares its status with the project cap,
+ * so it writes its own code; the web reads it to hide Retry.
+ */
+const stopFailureCodeOf = (code: keyof typeof STOP_STATUS): string =>
+	code === "daily_cap" ? DAILY_CAP_TURN_ERROR_CODE : STOP_STATUS[code];
 
 /**
  * The error a pre-start stop throws. The stream loop cannot carry it (the
@@ -326,7 +364,10 @@ export type BuilderTurnDeps = {
 		SupabaseManagementClient,
 		"getProject" | "restoreProject"
 	> | null;
-	sessions: Pick<BuilderSessionsRepository, "findByChatId" | "saveResumeState">;
+	sessions: Pick<
+		BuilderSessionsRepository,
+		"clearResumeState" | "findByChatId" | "saveResumeState"
+	>;
 	sandboxSessions: Pick<SandboxSessionsRepository, "touchActivity">;
 	sandboxes: SandboxProvider;
 	harness: BuilderHarness;
@@ -353,11 +394,11 @@ export type BuilderTurnDeps = {
 	/**
 	 * `llm_proxy_requests` reads: the sums are the turn's real spend and
 	 * token counts; the first request time only feeds the timing line; a
-	 * `run_cap` refusal makes the turn end on the cap.
+	 * `run_cap` or `daily_cap` refusal makes the turn end on that cap.
 	 */
 	proxyRows: Pick<
 		LlmProxyRequestsRepository,
-		"firstRequestStartedAtMs" | "hasRunCapRejection" | "sumByTurn"
+		"capRejectionReason" | "firstRequestStartedAtMs" | "sumByTurn"
 	>;
 	hostTools: HostToolRegistry;
 	/** `mintLlmProxyToken` bound to the env; the spec passes a fake. */
@@ -395,11 +436,14 @@ export type BuilderTurnDeps = {
 	readUpload: (url: string) => Promise<Uint8Array | null>;
 	/** `ChatsRepository.listRecentTexts` bound to the repo: newest first. */
 	recentMessages: (chatId: string, limit: number) => Promise<ChatMessageText[]>;
-	/** `ChatsRepository.insertTurnAssistantMessage` bound to the repo. */
+	/**
+	 * `ChatsRepository.insertTurnAssistantMessage` bound to the repo. The
+	 * metadata is null on a failed or canceled turn: it has no receipt.
+	 */
 	insertAssistantMessage: (input: {
 		chatId: string;
 		id: string;
-		metadata: TurnAssistantMessageMetadata;
+		metadata: TurnAssistantMessageMetadata | null;
 		parts: UIMessage["parts"];
 		turnId: string;
 	}) => Promise<void>;
@@ -840,6 +884,47 @@ export async function runBuilderTurn(
 		}
 	};
 
+	// The stream read end; `readUIMessageStream` rebuilds the assistant
+	// parts from the harness chunks the loop feeds it.
+	const chunkStream = new TransformStream<UIMessageChunk, UIMessageChunk>();
+	const chunkWriter = chunkStream.writable.getWriter();
+	let chunkStreamClosed = false;
+	const assistantMessage: Promise<UIMessage | null> = (async () => {
+		try {
+			let last: UIMessage | null = null;
+			for await (const message of readUIMessageStream<UIMessage>({
+				stream: chunkStream.readable,
+			})) {
+				last = message;
+			}
+			return last;
+		} catch {
+			// A dead stream still ends the turn; the row gets empty parts.
+			return null;
+		}
+	})();
+
+	/**
+	 * Ends the chunk stream and answers the reply parts the harness sent so
+	 * far. The settle, failure, and cancel paths read the stored reply here.
+	 * The flag is set before the close, so a second caller never closes twice.
+	 */
+	const replyPartsSoFar = async (): Promise<UIMessage["parts"]> => {
+		if (!chunkStreamClosed) {
+			chunkStreamClosed = true;
+			try {
+				await chunkWriter.close();
+			} catch (error) {
+				// A bad chunk (for example an unknown id) errors the stream. The
+				// reader still holds the parts it built before that chunk.
+				logger.warn(
+					`Chunk stream close failed for turn ${turnId}: ${messageOf(error)}`,
+				);
+			}
+		}
+		return (await assistantMessage)?.parts ?? [];
+	};
+
 	// Memoized so the aborted-catch and the task onCancel share it.
 	let finalizePromise: Promise<void> | null = null;
 	const finalizeCanceled = (): Promise<void> => {
@@ -865,18 +950,52 @@ export async function runBuilderTurn(
 				}
 			}
 			await detachSession();
-			await deps.writer.write(turnId, {
-				data: { status: "canceled" },
-				type: "done",
-			});
+			const done: TurnDoneData = { status: "canceled" };
 			const moved = await deps.turns.transition(
 				turnId,
 				["cancelling", "running"],
 				"canceled",
 			);
+			// The reply and `done` follow the final row. An API cancel can win
+			// the CAS: the row is then `canceled` too. A Stop late in the settle
+			// tail can lose to `complete`: the settle stores its own reply.
+			let isCanceled = moved;
 			if (!moved) {
 				logger.warn(`Cancel write lost for turn ${turnId}: row moved on`);
-			} else {
+				try {
+					isCanceled =
+						(await deps.turns.findById(turnId))?.status === "canceled";
+				} catch (error) {
+					// With no `done` event, the relay ends the stream from the row.
+					logger.warn(
+						`Row read failed for turn ${turnId}: ${messageOf(error)}`,
+					);
+				}
+			}
+			if (isCanceled) {
+				// The stored reply keeps the partial work and the Stopped line
+				// after a reload.
+				// LIMIT: when the API cancel promotes a waiting turn before this
+				// insert, the fence drops it, and a reload shows no Stopped line.
+				// Upgrade: insert with the cancel time, outside the fence.
+				await cleanupStep(async () => {
+					const parts = await replyPartsSoFar();
+					await fenced(() =>
+						deps.insertAssistantMessage({
+							chatId,
+							id: assistantMessageId,
+							metadata: null,
+							parts: [
+								...parts,
+								{ data: done, id: "turn-done", type: "data-turn-done" },
+							],
+							turnId,
+						}),
+					);
+				});
+				await deps.writer.write(turnId, { data: done, type: "done" });
+			}
+			if (moved) {
 				await recordTurnEnd("canceled");
 				// The CAS winner refunds. The API cancel (turns.service.ts) refunds
 				// only when its own `cancelling -> canceled` CAS wins.
@@ -897,14 +1016,24 @@ export async function runBuilderTurn(
 			type: "status",
 		});
 
-	/** One terminal failure: row, the wip commit of a stop, error+done events, refund or settle, cleanup. */
+	/**
+	 * One terminal failure: row, the wip commit of a stop, the stored reply,
+	 * error+done events, refund or settle, cleanup.
+	 */
 	const failTurn = async (
 		error: unknown,
 		failureCode: string | null,
 	): Promise<void> => {
 		const stopCode = stopCodeOf(abortCode);
+		// A stop comes from a product rule (a cap, no credits, the off switch).
+		// Its error can carry the 402 of our own proxy, so it must not classify
+		// as a provider failure. The stop code on the row names the cause.
+		const classified =
+			stopCode === null
+				? error
+				: new Error(`Turn stopped: ${STOP_REASON[stopCode]}`);
 		const normalized =
-			classifyAiError(error, {
+			classifyAiError(classified, {
 				abortSignal: signal,
 				model: resolvedModel ?? undefined,
 				route: "none",
@@ -926,16 +1055,20 @@ export async function runBuilderTurn(
 			stack: error instanceof Error ? error.stack : undefined,
 			turnId,
 		});
-		normalized.sentryEventId = captureAiError(error, normalized, {
-			chatId,
-			harness: deps.harness.kind,
-			projectId,
-			route: "none",
-			sandboxId: sandbox?.providerSandboxId,
-			surface: "chat",
-			turnId,
-			userId: input.actorUserId,
-		});
+		// A stop is an expected end, so it opens no Sentry issue.
+		normalized.sentryEventId =
+			stopCode === null
+				? captureAiError(error, normalized, {
+						chatId,
+						harness: deps.harness.kind,
+						projectId,
+						route: "none",
+						sandboxId: sandbox?.providerSandboxId,
+						surface: "chat",
+						turnId,
+						userId: input.actorUserId,
+					})
+				: null;
 		// The page path writes the same columns via
 		// `pageFailurePersistenceValues`. Its key type is page-specific, so
 		// the mapping stays inline here.
@@ -944,10 +1077,20 @@ export async function runBuilderTurn(
 				stopCode === null
 					? renderAiErrorSentence(normalized)
 					: `Turn stopped: ${STOP_REASON[stopCode]}`,
-			failureCode: stopCode === null ? failureCode : STOP_STATUS[stopCode],
+			failureCode:
+				stopCode === null ? failureCode : stopFailureCodeOf(stopCode),
 			failureKind: normalized.kind,
 			failureProvider: normalized.provider,
-			failureProviderMessage: normalized.providerMessage,
+			// The Claude Code text names the real cause (529, 402, lost socket).
+			// No API sends this column to a user, so the raw text can stay here.
+			// The column is Postgres text and refuses U+0000, so the code removes it.
+			failureProviderMessage:
+				normalized.providerMessage ??
+				(failureCode === "harness_error"
+					? messageOf(error)
+							.replaceAll("\u0000", "")
+							.slice(0, HARNESS_CAUSE_MAX_CHARS)
+					: null),
 			failureRequestId: normalized.requestId,
 			failureSource: normalized.source,
 			sentryEventId: normalized.sentryEventId,
@@ -969,11 +1112,34 @@ export async function runBuilderTurn(
 						terminalStatus,
 						{ completedAt: new Date(), ...failure },
 					);
-		if (!failed) {
-			// A false CAS means the row went terminal under us (a cancel won).
-			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
-		} else {
+		// The payload of the last `done` event; null writes no `done`.
+		let done: TurnDoneData | null = { status: terminalStatus ?? "failed" };
+		if (failed) {
 			await recordTurnEnd(terminalStatus ?? "failed");
+		} else {
+			// A false CAS means another path ended the row first: a cancel, or
+			// `complete` before a throw in the settle tail. The stream then ends
+			// with the real status, like the relay `finishFromRow`, and no error.
+			logger.warn(`Fail write lost for turn ${turnId}: row moved on`);
+			try {
+				const row = await deps.turns.findById(turnId);
+				done =
+					row === null
+						? null
+						: {
+								status: row.status,
+								...(row.outputCommitSha
+									? { outputCommitSha: row.outputCommitSha }
+									: {}),
+							};
+			} catch (readError) {
+				// With no `done` event, the relay reads the row itself after 60 s
+				// of silence and ends the stream from it.
+				done = null;
+				logger.warn(
+					`Row read failed for turn ${turnId}: ${messageOf(readError)}`,
+				);
+			}
 		}
 		// D3: a stopped turn keeps its file work. The commit lands before the
 		// `done` event: the web refetches the project at the stream end and
@@ -996,24 +1162,52 @@ export async function runBuilderTurn(
 				);
 			}
 		}
-		await deps.writer.write(turnId, {
-			data: {
-				code:
-					stopCode === null
-						? (failureCode ?? normalized.kind)
-						: STOP_STATUS[stopCode],
-				message: failure.error,
-				retryable: stopCode === null ? normalized.retryable : false,
-			},
-			type: "error",
+		const errorData: TurnErrorData = {
+			code:
+				stopCode === null
+					? (failureCode ?? normalized.kind)
+					: stopFailureCodeOf(stopCode),
+			message: failure.error,
+			retryable: stopCode === null ? normalized.retryable : false,
+		};
+		// The stored reply ends with the same part as the stream, so a reload
+		// shows the error card and Retry. It lands before the events: a reload
+		// right after `done` must find it.
+		await cleanupStep(async () => {
+			const parts = await replyPartsSoFar();
+			const endParts: UIMessage["parts"] = failed
+				? [{ data: errorData, id: "turn-error", type: "data-turn-error" }]
+				: done === null
+					? []
+					: [{ data: done, id: "turn-done", type: "data-turn-done" }];
+			await fenced(() =>
+				deps.insertAssistantMessage({
+					chatId,
+					id: assistantMessageId,
+					metadata: null,
+					parts: [...parts, ...endParts],
+					turnId,
+				}),
+			);
 		});
-		await deps.writer.write(turnId, {
-			data: { status: terminalStatus ?? "failed" },
-			type: "done",
-		});
+		if (failed) {
+			await deps.writer.write(turnId, { data: errorData, type: "error" });
+		}
+		if (done !== null) {
+			await deps.writer.write(turnId, { data: done, type: "done" });
+		}
 		if (stopCode === null) {
 			await cleanupStep(() => refundHold("builder_turn_failed"));
 			await detachSession();
+			// Each resume of this conversation fails the same way, so the next turn
+			// starts a new Claude Code session. It gets no chat recap, because a
+			// recap can carry the flagged words again. The next turn finds no stored
+			// state, so createSession drops the kept session and kills the old bridge.
+			if (SESSION_BOUND_FAILURE_PATTERN.test(messageOf(error))) {
+				await cleanupStep(async () => {
+					await deps.sessions.clearResumeState(chatId);
+				});
+			}
 		} else {
 			// D3: a stopped turn settles the real spend; the hold is not
 			// refunded. The wip commit ran above, before the `done` event.
@@ -1042,10 +1236,11 @@ export async function runBuilderTurn(
 
 	/**
 	 * Stops the turn on the cap when the LLM proxy refused one of its
-	 * requests with 402 V2_RUN_CAP_REACHED. The harness can end on that
-	 * refusal before the next pulse tick; the turn then settles its spend
-	 * instead of `succeeded`, or `failed` with a full refund. A turn whose
-	 * last request only crossed the cap had no refusal and keeps its status.
+	 * requests with 402 V2_RUN_CAP_REACHED or V2_DAILY_CAP_REACHED. The
+	 * harness can end on that refusal before the next pulse tick; the turn
+	 * then settles its spend instead of `succeeded`, or `failed` with a full
+	 * refund. A turn whose last request only crossed the cap had no refusal
+	 * and keeps its status.
 	 */
 	const stopIfRefusedForCap = async (): Promise<void> => {
 		if (abortCode !== null) {
@@ -1054,8 +1249,11 @@ export async function runBuilderTurn(
 		try {
 			// A refused request stays in flight until the proxy wrote its row.
 			await waitForInFlightRows();
-			if (await deps.proxyRows.hasRunCapRejection(turnId)) {
+			const capReason = await deps.proxyRows.capRejectionReason(turnId);
+			if (capReason === "run_cap") {
 				abortTurn("project_cap");
+			} else if (capReason === "daily_cap") {
+				abortTurn("daily_cap");
 			}
 		} catch (error) {
 			// A failed read must not block the end of the turn. The turn keeps
@@ -1259,26 +1457,6 @@ export async function runBuilderTurn(
 			});
 		}, STREAM_HEARTBEAT_MS);
 	};
-
-	// The stream read end; `readUIMessageStream` rebuilds the assistant
-	// parts from the harness chunks the loop feeds it.
-	const chunkStream = new TransformStream<UIMessageChunk, UIMessageChunk>();
-	const chunkWriter = chunkStream.writable.getWriter();
-	let chunkStreamClosed = false;
-	const assistantMessage: Promise<UIMessage | null> = (async () => {
-		try {
-			let last: UIMessage | null = null;
-			for await (const message of readUIMessageStream<UIMessage>({
-				stream: chunkStream.readable,
-			})) {
-				last = message;
-			}
-			return last;
-		} catch {
-			// A dead stream still ends the turn; the row gets empty parts.
-			return null;
-		}
-	})();
 
 	try {
 		const spec = builderTurnSpecSchema.parse(turn.spec);
@@ -1912,8 +2090,21 @@ export async function runBuilderTurn(
 				continue;
 			}
 			// A harness error chunk ends the turn as failed. `failTurn` writes
-			// the one `error` event from the `code` this error carries.
-			throw Object.assign(new Error(event.message), { code: event.code });
+			// the one `error` event from the `code` this error carries. With a
+			// status, `classifyAiError` picks the kind: 529 capacity, 429 rate
+			// limit, 401/402/403 config, 413 invalid request.
+			const harnessError =
+				event.statusCode === undefined
+					? new Error(event.message)
+					: new APICallError({
+							message: event.message,
+							requestBodyValues: {},
+							statusCode: event.statusCode,
+							// The text names no URL. An empty URL makes the classifier
+							// take the provider from the model id, not the proxy host.
+							url: "",
+						});
+			throw Object.assign(harnessError, { code: event.code });
 		}
 		stamps.streamEnd = deps.now();
 
@@ -1952,10 +2143,8 @@ export async function runBuilderTurn(
 			},
 		): Promise<void> => {
 			await writeStatus("committing");
-			await chunkWriter.close();
-			chunkStreamClosed = true;
-			const finalMessage = await assistantMessage;
-			const assistantText = (finalMessage?.parts ?? [])
+			const finalParts = await replyPartsSoFar();
+			const assistantText = finalParts
 				.filter(
 					(
 						part,
@@ -2111,7 +2300,7 @@ export async function runBuilderTurn(
 							outputTokens: rows.outputTokens,
 						},
 					},
-					parts: [...(finalMessage?.parts ?? []), summaryPart, ...cardParts],
+					parts: [...finalParts, summaryPart, ...cardParts],
 					turnId,
 				}),
 			);
@@ -2232,8 +2421,8 @@ export async function runBuilderTurn(
 				);
 			}
 		}
-		// A failed turn leaves the chunk stream open; close it so the
-		// reader promise ends with the run.
+		// A failure path that threw before its reply store leaves the chunk
+		// stream open; close it so the reader promise ends with the run.
 		if (!chunkStreamClosed) {
 			try {
 				await chunkWriter.close();

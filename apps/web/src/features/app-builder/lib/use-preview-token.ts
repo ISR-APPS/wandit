@@ -8,19 +8,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-	getApiErrorMessage,
-	getGenericApiErrorMessage,
-	isApiClientError,
-} from "@/lib/api-client";
+import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { getPreviewToken } from "../api/app-builder.services";
 
 /** Lead before `expiresAt` at which the next mint fires, ms. The token lives 15 minutes; one minute of lead keeps the frame alive across the swap. */
 const TOKEN_REFRESH_LEAD_MS = 60_000;
 
 /** Delay between two mints while the sandbox starts, ms. The route is rate limited at 30 requests per user per minute. */
-// LIMIT: one waking tab per user. Upgrade: treat 429 as waking with a 10 s delay.
 const SANDBOX_POLL_MS = 3_000;
+
+/**
+ * Delay before the next mint after a 429, or after a failed re-mint while the
+ * token still lives, ms. Two waking tabs poll 40 times per minute, above the
+ * 30 of the rate limit. A 10 s wait tries again at most 6 times before the
+ * 60 s window resets.
+ */
+const MINT_RETRY_MS = 10_000;
 
 /**
  * The render state of the preview iframe. `previewUrl` stays null until
@@ -28,9 +31,12 @@ const SANDBOX_POLL_MS = 3_000;
  * non-waking failure.
  */
 export type PreviewTokenState = {
-	/** `loading`: no answer yet. `waking`: no sandbox runs yet; a poll mints again. */
-	status: "loading" | "ready" | "waking" | "error";
-	/** The signed iframe URL, or null while it is unknown. */
+	/**
+	 * `loading`: no answer yet. `waking`: no sandbox runs yet; a poll mints again.
+	 * `blocked`: the sandbox runs, but the browser drops the preview cookie inside the frame.
+	 */
+	status: "loading" | "ready" | "waking" | "error" | "blocked";
+	/** The signed iframe URL, or null while it is unknown. `blocked` keeps a fresh URL for a new tab. */
 	previewUrl: string | null;
 	/** User-facing error text of the last failed mint, or null. */
 	errorText: string | null;
@@ -43,7 +49,7 @@ export type PreviewTokenDeps = {
 
 /** Return of `usePreviewToken`: the render state plus the two bridge commands. */
 export type UsePreviewToken = PreviewTokenState & {
-	/** Mints a token now. The preview bridge and the retry button call it. A token-expired report on a fresh token shows the retry state instead of minting. */
+	/** Mints a token now. The preview bridge and the retry button call it. A token-expired report on a fresh token shows the blocked state instead of minting. */
 	refresh: () => void;
 	/** Enters the waking state and starts the poll. The preview bridge calls it on a dead-sandbox report. */
 	markNotRunning: () => void;
@@ -61,7 +67,10 @@ const INITIAL_STATE: PreviewTokenState = {
  * Mints a token on mount and on every `reloadKey` change. A reload mints
  * a new token; the new iframe src reloads the frame. A success schedules
  * the next mint at `expiresAt - 1 min`. A `SANDBOX_NOT_RUNNING` answer
- * polls every 3 s. Any other error shows the retry state.
+ * polls every 3 s. A 429, or a failed re-mint while the token lives, keeps
+ * the screen and mints again in 10 s. Any other error shows the retry
+ * state. After a blocked cookie, every mint shows `blocked` until the next
+ * `reloadKey` change.
  */
 export function usePreviewToken(
 	projectId: string,
@@ -73,8 +82,10 @@ export function usePreviewToken(
 
 	const timerIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const generationRef = useRef(0);
-	// Expiry of the token the frame shows, ms since epoch. Null while no frame lives.
+	// Expiry of the last minted token, ms since epoch. Null after a waking or failed mint.
 	const expiresAtMsRef = useRef<number | null>(null);
+	// True after a token-expired report on a fresh token: the browser drops the frame cookie. A new token cannot help, so no frame mounts.
+	const isCookieBlockedRef = useRef(false);
 
 	// The function is the dep, not the deps object: an inline `{ getPreviewToken }` literal must not re-mint on every render.
 	const { getPreviewToken } = deps;
@@ -99,7 +110,7 @@ export function usePreviewToken(
 					}
 					expiresAtMsRef.current = Date.parse(token.expiresAt);
 					setState({
-						status: "ready",
+						status: isCookieBlockedRef.current ? "blocked" : "ready",
 						previewUrl: token.previewUrl,
 						errorText: null,
 					});
@@ -128,8 +139,18 @@ export function usePreviewToken(
 						timerIdRef.current = setTimeout(mintToken, SANDBOX_POLL_MS);
 						return;
 					}
+					// A 429 keeps the waking, ready, or blocked screen. A failed
+					// re-mint keeps the frame while its token still lives.
+					const expiresAtMs = expiresAtMsRef.current;
+					if (
+						(isApiClientError(error) && error.code === "RATE_LIMITED") ||
+						(expiresAtMs !== null && expiresAtMs > Date.now())
+					) {
+						console.warn("Preview token mint failed, retrying", error);
+						timerIdRef.current = setTimeout(mintToken, MINT_RETRY_MS);
+						return;
+					}
 					expiresAtMsRef.current = null;
-					// LIMIT: a failed background re-mint drops the frame up to 60 s early. Upgrade: keep the frame until expiresAt and retry once.
 					setState({
 						status: "error",
 						previewUrl: null,
@@ -157,6 +178,8 @@ export function usePreviewToken(
 	// A reload mints a new token: every reloadKey change re-runs this effect.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is an intentional re-mint trigger
 	useEffect(() => {
+		// A reload tries the frame again: the user can allow the cookie, or the report can be wrong.
+		isCookieBlockedRef.current = false;
 		mint();
 		return () => {
 			// In-flight answers of this run must not update a newer run.
@@ -177,21 +200,18 @@ export function usePreviewToken(
 			expiresAtMs !== null &&
 			expiresAtMs - Date.now() > TOKEN_REFRESH_LEAD_MS
 		) {
-			expiresAtMsRef.current = null;
-			// In-flight mints and the scheduled re-mint must not resurrect the frame.
-			generationRef.current += 1;
-			clearTimer();
-			// LIMIT: a blocked cross-site cookie shows the retry state, never the app. Upgrade: a Partitioned cookie on the proxy, or the token in the path.
-			setState({
-				status: "error",
-				previewUrl: null,
-				// Not an API failure: the generic text and the retry button fit.
-				errorText: getGenericApiErrorMessage(),
-			});
+			// The scheduled re-mint keeps running, so the URL stays valid for "Open in a new tab".
+			// A top-level tab makes the cookie first-party, so the app loads there until the token expires.
+			// LIMIT: Safari and iOS before 26.2 have no CHIPS, so the frame never shows the app.
+			// The new tab lives until the token exp (1 to 15 min), then shows the proxy expired page.
+			// That page sends its restart message to a parent frame, so the top-level tab stays expired.
+			// Upgrade: the token in the path, plus a top-level expired page that tells the user to open the tab again.
+			isCookieBlockedRef.current = true;
+			setState((current) => ({ ...current, status: "blocked" }));
 			return;
 		}
 		mint();
-	}, [clearTimer, mint]);
+	}, [mint]);
 
 	return { ...state, refresh, markNotRunning };
 }

@@ -44,6 +44,7 @@ import {
 	HARNESS_WORK_DIR,
 } from "../../domain/ports/sandbox-provider";
 import { requireV2Env, V2_ENV, type V2EnvSource } from "../env/v2-env";
+import { SAFE_GIT_CONFIG_ARGS } from "../git/sandbox-git";
 import {
 	type SandboxSessionRow,
 	SandboxSessionsRepository,
@@ -329,6 +330,22 @@ function isVendorClientError(error: unknown): boolean {
 	);
 }
 
+/**
+ * True when the workspace repository has uncommitted changes. False when it
+ * is clean, or when git fails because the disk has no repository yet.
+ * A dead create has a clean template commit, so only a resumed disk is dirty.
+ */
+async function hasUncommittedWork(
+	handle: Pick<SandboxHandle, "exec" | "workspaceDir">,
+): Promise<boolean> {
+	const result = await handle.exec(
+		"git",
+		[...SAFE_GIT_CONFIG_ARGS, "status", "--porcelain"],
+		{ cwd: handle.workspaceDir },
+	);
+	return result.exitCode === 0 && result.stdout.trim() !== "";
+}
+
 /** `SandboxHandle` over one live vendor sandbox. */
 class VercelSandboxHandle implements SandboxHandle {
 	/**
@@ -364,6 +381,12 @@ class VercelSandboxHandle implements SandboxHandle {
 	 */
 	private hostGrant: Promise<void> = Promise.resolve();
 
+	/** See `SandboxHandle`. `start` sets it after its raw policy push. */
+	networkPolicyReplaced = false;
+
+	/** See `SandboxHandle`. The start policy; `allowHost` does not change it. */
+	readonly networkPolicyHash: string;
+
 	readonly workspaceDir: string;
 
 	constructor(
@@ -376,6 +399,7 @@ class VercelSandboxHandle implements SandboxHandle {
 		this.deadlineMs =
 			sandbox.expiresAt?.getTime() ?? Date.now() + SANDBOX_TIMEOUT_MS;
 		this.appliedPolicy = appliedPolicy;
+		this.networkPolicyHash = hashNetworkPolicy(appliedPolicy);
 	}
 
 	get providerSandboxId(): string {
@@ -841,15 +865,33 @@ export class VercelSandboxProvider implements SandboxProvider {
 		}
 		this.live.set(projectId, sandbox);
 		const handle = new VercelSandboxHandle(projectId, sandbox, built.policy);
+		// A start that died after the vendor call leaves a row that is not
+		// `running`. The vendor sandbox runs. This start finishes that boot
+		// like a resume, or the preview stays at 409.
+		// LIMIT: a live start in another process looks the same as a dead one.
+		// A publish starts without the project lock. During the boot of a turn
+		// or a wake, it boots the sandbox a second time. On a `creating` row it
+		// restores again, and it starts a second dev loop that retries every
+		// 5 s. It also marks the row `running` before the first boot ends.
+		// A start that died after `bootServices` also gets a second loop. So
+		// does a failed stop: it marks the row `error` while the loop runs. A
+		// dead rebuild of a `stopped` row finishes without the restore and
+		// keeps the template.
+		// A dead resume of a `running` row stays `running`, so no later
+		// start finishes its boot.
+		// Upgrade: a boot lease on the row, and a dev port probe before the loop.
+		const isUnfinishedBoot = !created && !resumed && row.status !== "running";
 		// The row keeps the digest of the policy last pushed to the vendor. A
 		// plain reuse with the same digest skips the update: one vendor round
-		// trip less per warm turn. A resume always pushes, because the vendor
-		// may keep the policy of the snapshot. The harness session composes
-		// its policy from the vendor read-back and reads a missing one as
-		// allow-all, so a read-back without a policy also gets the push.
+		// trip less per warm turn. A resume and an unfinished boot always push,
+		// because the vendor may keep the policy of the snapshot. The harness
+		// session composes its policy from the vendor read-back and reads a
+		// missing one as allow-all, so a read-back without a policy also gets
+		// the push.
 		const policyApplied =
 			created ||
 			resumed ||
+			isUnfinishedBoot ||
 			row.networkPolicyHash !== policyHash ||
 			sandbox.currentSession().networkPolicy === undefined;
 		try {
@@ -888,10 +930,28 @@ export class VercelSandboxProvider implements SandboxProvider {
 					// bootServices, or the dev command starts under the stored
 					// policy.
 					await sandbox.updateNetworkPolicy(vendorPolicy);
+					// The push has no proxy run-token rule. A kept harness session
+					// that added one must not serve this turn.
+					handle.networkPolicyReplaced = true;
 				}
-				if (resumed) {
+				if (resumed || isUnfinishedBoot) {
 					await reportWake();
-					this.logLifecycle("resume", projectId, sandbox.name);
+					this.logLifecycle(
+						resumed ? "resume" : "finish-boot",
+						projectId,
+						sandbox.name,
+						resumed ? "info" : "warn",
+					);
+					// A `creating` row with a vendor sandbox follows a dead or failed
+					// start, so the disk can lack the repository. Without the restore,
+					// the preview shows the template. A resumed disk can hold the
+					// uncommitted work of a failed turn: the reset would delete it.
+					if (
+						row.status === "creating" &&
+						!(await hasUncommittedWork(handle))
+					) {
+						await this.repoRestorer.restore(projectId, handle);
+					}
 					// A sandbox from before the template fix still holds the old files.
 					await this.templateInit.replaceOldTemplateFiles(handle, options);
 					await this.bootServices(projectId, sandbox, options);
@@ -916,7 +976,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 			}
 			// A plain reuse reports neither hook: the row already carries the
 			// vendor fields, so writing again would only add log noise.
-			if (created || resumed) {
+			if (created || resumed || isUnfinishedBoot) {
 				const marked = await this.sessions.markRunning(row.id, {
 					expiresAt: sandbox.expiresAt ?? null,
 					image,
@@ -964,8 +1024,9 @@ export class VercelSandboxProvider implements SandboxProvider {
 	}
 
 	/**
-	 * The onResume steps: the dev server on its fixed port, the Playwright
-	 * service when the image carries one, and the caller env on each command.
+	 * The onResume steps: the dev server on its fixed port in a restart loop,
+	 * the Playwright service when the image carries one, and the caller env
+	 * on each command.
 	 * A mobile-app project also gets `EXPO_PACKAGER_PROXY_URL`; it throws a
 	 * 503 when `PREVIEW_DOMAIN` is unset.
 	 */
@@ -990,8 +1051,14 @@ export class VercelSandboxProvider implements SandboxProvider {
 					}
 				: {}),
 		};
+		// The dev server can exit while the sandbox runs. Causes are an OOM
+		// kill, a kill by the agent, or a config error. Nothing else starts it
+		// again. A second copy on the taken port exits at once. Vite has
+		// --strictPort. Expo with no terminal cannot ask for another port.
+		// LIMIT: a broken config retries every 5 s until the agent fixes it.
+		// Upgrade: back off after N fast exits.
 		await sandbox.runCommand({
-			args: ["-c", options.devCommand],
+			args: ["-c", `while true; do ${options.devCommand}; sleep 5; done`],
 			cmd: "bash",
 			cwd: workspaceDirOf(sandbox),
 			detached: true,

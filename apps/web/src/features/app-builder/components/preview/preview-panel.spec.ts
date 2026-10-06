@@ -248,7 +248,7 @@ describe("PreviewPanel", () => {
 				previewUrl: PREVIEW_URL,
 				// 30 s out, inside the 60 s refresh lead: a token-expired report on
 				// a dying token is a real expiry, so the bridge mints again. The
-				// report on a fresh token would show the retry state instead.
+				// report on a fresh token would show the blocked state instead.
 				expiresAt: new Date(Date.now() + 30_000).toISOString(),
 			})
 			.mockResolvedValueOnce({

@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -358,5 +359,44 @@ describe("ArchiveTemplateInit.replaceOldTemplateFiles", () => {
 
 		expect(warnings).toEqual([expect.objectContaining({ projectId: "p1" })]);
 		expect(await viteConfig()).toBe(OLD_VITE_CONFIG);
+	});
+
+	it("replaces the settings.json that lacks the git restore, stash, and clean denies", async () => {
+		const current = await readFile(
+			resolve(
+				dirname(fileURLToPath(import.meta.url)),
+				"../../../../../../../templates/mobile-app/.claude/settings.json",
+			),
+			"utf8",
+		);
+		// The file of commit cca4e62c is the current file without these three lines.
+		const old = current.replace(
+			'\t\t\t"Bash(git restore*)",\n\t\t\t"Bash(git stash*)",\n\t\t\t"Bash(git clean*)",\n',
+			"",
+		);
+		// An unchanged string makes the case pass with no replacement.
+		expect(old).not.toBe(current);
+		const dir = await mkdtemp(join(tmpdir(), "wandit-tpl-settings-"));
+		await writeFile(
+			join(dir, "mobile-app-1.0.0.tar.gz"),
+			await pack({ ".claude/settings.json": current }, "202601010000"),
+		);
+		const provider = new FakeSandboxProvider();
+		const handle = await provider.getOrCreate("p1", {
+			...CREATE_OPTIONS,
+			framework: "mobile-app",
+		});
+		const settingsPath = `${FAKE_WORKSPACE_DIR}/.claude/settings.json`;
+		await handle.writeFiles([{ content: old, path: settingsPath }]);
+
+		await new ArchiveTemplateInit(dir).replaceOldTemplateFiles(handle, {
+			framework: "mobile-app",
+			templateVersion: "mobile-app@1.0.0",
+		});
+
+		const restored = await handle.readFile(settingsPath);
+		expect(restored === null ? null : new TextDecoder().decode(restored)).toBe(
+			current,
+		);
 	});
 });

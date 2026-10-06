@@ -291,6 +291,8 @@ class FakeSessions {
 			resumeState: HarnessResumeEnvelope;
 		};
 	}[] = [];
+	/** Every resume-state write, in call order. The last one decides how the next turn starts. */
+	readonly writes: ("clear" | "save")[] = [];
 
 	async findByChatId(_chatId: string): Promise<BuilderSessionRow | null> {
 		return this.row;
@@ -305,6 +307,12 @@ class FakeSessions {
 		},
 	) {
 		this.saved.push({ chatId, input });
+		this.writes.push("save");
+		return this.row;
+	}
+
+	async clearResumeState(_chatId: string) {
+		this.writes.push("clear");
 		return this.row;
 	}
 }
@@ -418,13 +426,15 @@ class FakeMetering {
 }
 
 function fakeTurnRow(over: Partial<BuilderTurnRow>): BuilderTurnRow {
-	// SAFETY: the runtime reads only chatId, createdAt, model, turnNumber, and spec off the row.
+	// SAFETY: the runtime reads only chatId, createdAt, model, turnNumber, and
+	// spec off the row; after a lost fail CAS also status and outputCommitSha.
 	return {
 		chatId: CHAT_ID,
 		createdAt: TURN_CREATED_AT,
 		id: TURN_ID,
 		projectId: PROJECT_ID,
 		spec: { attachments: [], composer: null, message: "Build a form" },
+		status: "running",
 		turnNumber: 1,
 		...over,
 	} as BuilderTurnRow;
@@ -585,8 +595,8 @@ function makeWorld(over?: {
 	monthlySpend?: number;
 	project?: TurnProjectRow | null;
 	proxyRows?: LlmProxyTurnSum;
-	/** True makes `hasRunCapRejection` answer that the proxy refused a request on the run cap. */
-	runCapRejected?: boolean;
+	/** The cap `capRejectionReason` answers: the proxy refused a request on it. Absent means no refusal. */
+	capReason?: "run_cap" | "daily_cap";
 	/** `readRunSpend` answers in USD micros, one per call. */
 	runSpend?: number[];
 	/** `readV2Enabled` answers, one per call. */
@@ -792,7 +802,7 @@ function makeWorld(over?: {
 		proxyRows: {
 			firstRequestStartedAtMs: async () =>
 				over?.firstRequestStartedAtMs ?? null,
-			hasRunCapRejection: async () => over?.runCapRejected ?? false,
+			capRejectionReason: async () => over?.capReason ?? null,
 			sumByTurn: async () => {
 				callOrder.push("sumByTurn");
 				return proxySum;
@@ -1191,6 +1201,188 @@ describe("runBuilderTurn", () => {
 		]);
 	});
 
+	it("fails a 529 harness error as capacity and stores its text without U+0000", async () => {
+		const world = makeWorld();
+		const storedText = "API Error: Repeated 529 Overloaded errors.";
+		world.harness.events = [
+			{
+				chunk: { errorText: "An error occurred.", type: "error" },
+				type: "part",
+			},
+			{
+				code: "harness_error",
+				message: `${storedText}\u0000`,
+				retryable: false,
+				statusCode: 529,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const failure = world.turns.failCalls[0]?.failure;
+		expect(failure?.failureKind).toBe("capacity");
+		expect(failure?.failureProviderMessage).toBe(storedText);
+	});
+
+	// Each matching row repeats on each resume of the same conversation.
+	// A kept session then fails every later turn of the chat.
+	it.each<{
+		message: string;
+		statusCode?: number;
+		writes: ("clear" | "save")[];
+	}>([
+		{
+			message: "No conversation found with session ID: 9f1c2d3e",
+			writes: ["save", "clear"],
+		},
+		{
+			message: "Failed to resume session 9f1c2d3e: unreadable transcript entry",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Claude Opus 5 can't help with this. Start a new session to continue.\nLearn more: https://www.anthropic.com/legal/aup",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Opus 4.8's safeguards flagged this message. Send feedback with /feedback.",
+			writes: ["save", "clear"],
+		},
+		{
+			message:
+				"API Error: Claude Opus 5.5's safeguards flagged this session. Learn more: https://support.claude.com",
+			writes: ["save", "clear"],
+		},
+		{
+			message: "API Error: 403 This plan may not call that model",
+			statusCode: 403,
+			writes: ["save", "clear"],
+		},
+		{
+			message: "API Error: Repeated 529 Overloaded errors.",
+			statusCode: 529,
+			writes: ["save"],
+		},
+	])("clears the stored session only after a session-bound error: $message", async ({
+		message,
+		statusCode,
+		writes,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = [
+			{
+				code: "harness_error",
+				message,
+				retryable: false,
+				statusCode,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls).toHaveLength(1);
+		// The clear comes after the detach save, so the next turn finds no session to resume.
+		expect(world.sessions.writes).toEqual(writes);
+	});
+
+	// In the second row, the reply reader throws on the unknown id. The next
+	// chunk write and the close reject, but the reader keeps the earlier parts.
+	it.each<{ name: string; events: HarnessStreamEvent[] }>([
+		{
+			name: "a harness error chunk",
+			events: [
+				...textChunks("Half of the app").map((chunk) => ({
+					chunk,
+					type: "part" as const,
+				})),
+				{
+					code: "harness_error",
+					message: "boom",
+					retryable: false,
+					type: "error",
+				},
+			],
+		},
+		{
+			name: "a text delta with an unknown id",
+			events: [
+				{ chunk: { id: "t1", type: "text-start" }, type: "part" },
+				{
+					chunk: { delta: "Half of the app", id: "t1", type: "text-delta" },
+					type: "part",
+				},
+				{
+					chunk: { delta: "lost", id: "t9", type: "text-delta" },
+					type: "part",
+				},
+				{ chunk: { id: "t1", type: "text-end" }, type: "part" },
+			],
+		},
+	])("stores the partial reply with the error part before the events after $name", async ({
+		events,
+	}) => {
+		const world = makeWorld();
+		world.harness.events = events;
+		/** The stream event types that exist when each reply insert runs. */
+		const eventTypesAtInsert: string[][] = [];
+		const insert = world.deps.insertAssistantMessage;
+		world.deps.insertAssistantMessage = async (stored) => {
+			eventTypesAtInsert.push(
+				world.stream.eventsOf(TURN_ID).map((event) => event.type),
+			);
+			await insert(stored);
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const error = world.stream
+			.eventsOf(TURN_ID)
+			.find((event) => event.type === "error");
+		expect(error?.type).toBe("error");
+		expect(world.inserted).toHaveLength(1);
+		expect(world.inserted[0]?.input.metadata).toBeNull();
+		// The card after a reload carries the same code, text, and retry flag.
+		expect(world.inserted[0]?.input.parts).toEqual([
+			expect.objectContaining({ text: "Half of the app", type: "text" }),
+			{ data: error?.data, id: "turn-error", type: "data-turn-error" },
+		]);
+		expect(eventTypesAtInsert[0]).not.toContain("error");
+		expect(eventTypesAtInsert[0]).not.toContain("done");
+	});
+
+	it("ends with the row status and no error when the fail CAS loses after complete", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.turns.failResult = false;
+		world.metering.settle = async () => {
+			// `complete` already moved the row; then the settle tail throws.
+			world.turns.row = fakeTurnRow({
+				outputCommitSha: "commit-sha-1",
+				status: "succeeded",
+			});
+			throw new Error("settle failed");
+		};
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const events = world.stream.eventsOf(TURN_ID);
+		expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+		expect(
+			events.flatMap((event) => (event.type === "done" ? [event.data] : [])),
+		).toEqual([{ outputCommitSha: "commit-sha-1", status: "succeeded" }]);
+	});
+
 	it("fails with model_missing before the sandbox starts", async () => {
 		const world = makeWorld();
 		world.deps.model = null;
@@ -1330,6 +1522,12 @@ describe("runBuilderTurn", () => {
 		expect(world.sessions.saved).toHaveLength(1);
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
 		expect(done?.type === "done" && done.data.status).toBe("canceled");
+		// The stored reply shows the Stopped line after a reload.
+		expect(
+			world.inserted.map(({ input: stored }) => stored.parts.at(-1)),
+		).toEqual([
+			{ data: { status: "canceled" }, id: "turn-done", type: "data-turn-done" },
+		]);
 		expect(world.turns.transitionCalls).toEqual([
 			{ from: ["cancelling", "running"], to: "canceled", turnId: TURN_ID },
 		]);
@@ -1341,6 +1539,33 @@ describe("runBuilderTurn", () => {
 		expect(world.promoted).toEqual([
 			{ endedTurnId: TURN_ID, projectId: PROJECT_ID },
 		]);
+	});
+
+	it("stores no Stopped reply when the cancel CAS loses to complete", async () => {
+		vi.useFakeTimers();
+		const world = makeWorld();
+		let release: () => void = () => {};
+		world.harness.streamHold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		const run = runBuilderTurn(world.deps, input, controller.signal);
+		await waitForStream(world.harness);
+		// A Stop late in the settle tail: `complete` already wrote the row.
+		world.turns.row = fakeTurnRow({ status: "succeeded" });
+		world.turns.transitionResult = false;
+		controller.abort();
+		release();
+		await run;
+
+		// The settle path owns the reply and the `done` of this turn.
+		expect(world.inserted).toHaveLength(0);
+		expect(
+			world.stream.eventsOf(TURN_ID).filter((event) => event.type === "done"),
+		).toHaveLength(0);
+		expect(world.metering.refundCalls).toHaveLength(0);
 	});
 
 	it("refreshes the lock, keepAlive, and activity every 60 s", async () => {
@@ -1722,12 +1947,13 @@ describe("runBuilderTurn", () => {
 		);
 	});
 
-	// The proxy refuses with 402 V2_RUN_CAP_REACHED at the cap. The harness
-	// then ends with an error chunk, or ends clean, before the 30 s tick. A
-	// turn whose last request only crossed the cap had no refusal.
+	// The proxy refuses with 402 V2_RUN_CAP_REACHED or V2_DAILY_CAP_REACHED
+	// at the cap. The harness then ends with an error chunk, or ends clean,
+	// before the 30 s tick. A turn whose last request only crossed the cap
+	// had no refusal. The daily cap writes its own code: the web hides Retry.
 	it.each([
 		{
-			name: "an error chunk after a cap refusal",
+			name: "an error chunk after a run cap refusal",
 			events: [
 				{
 					code: "harness_error",
@@ -1736,30 +1962,48 @@ describe("runBuilderTurn", () => {
 					type: "error" as const,
 				},
 			],
-			runCapRejected: true,
+			capReason: "run_cap" as const,
+			errorCode: "stopped_project_cap",
 			status: "stopped_project_cap",
 		},
 		{
-			name: "a clean end after a cap refusal",
+			name: "a clean end after a run cap refusal",
 			events: [],
-			runCapRejected: true,
+			capReason: "run_cap" as const,
+			errorCode: "stopped_project_cap",
+			status: "stopped_project_cap",
+		},
+		{
+			name: "an error chunk after a daily cap refusal",
+			events: [
+				{
+					code: "harness_error",
+					message: "API Error: 402 Daily LLM spend cap reached",
+					retryable: false,
+					type: "error" as const,
+				},
+			],
+			capReason: "daily_cap" as const,
+			errorCode: "daily_cap",
 			status: "stopped_project_cap",
 		},
 		{
 			name: "a clean end with no refusal",
 			events: [],
-			runCapRejected: false,
+			capReason: undefined,
+			errorCode: null,
 			status: "succeeded",
 		},
 	])("ends $status when the harness ends with $name, before a tick", async ({
 		events,
-		runCapRejected,
+		capReason,
+		errorCode,
 		status,
 	}) => {
 		// 1000 cc = 10 credits; the spend of 320_000 micros is at that cap.
 		const world = makeWorld({
+			capReason,
 			caps: fakeCapsRow(1000),
-			runCapRejected,
 			runSpend: [320_000],
 		});
 		world.harness.events = events;
@@ -1770,9 +2014,48 @@ describe("runBuilderTurn", () => {
 
 		const done = world.stream.eventsOf(TURN_ID).at(-1);
 		expect(done?.type === "done" && done.data.status).toBe(status);
+		const error = world.stream
+			.eventsOf(TURN_ID)
+			.find((event) => event.type === "error");
+		expect(error?.type === "error" ? error.data : null).toEqual(
+			errorCode === null
+				? null
+				: expect.objectContaining({ code: errorCode, retryable: false }),
+		);
 		// Both ends settle the real spend; neither refunds the hold.
 		expect(world.metering.refundCalls).toHaveLength(0);
 		expect(world.metering.settleCalls).toHaveLength(1);
+	});
+
+	it("stores a daily cap stop as a stop of ours, not as a provider 402 and a Sentry issue", async () => {
+		// The harness reads the status 402 from the text of our own proxy refusal.
+		const world = makeWorld({
+			capReason: "daily_cap",
+			caps: fakeCapsRow(1000),
+			runSpend: [320_000],
+		});
+		world.harness.events = [
+			{
+				code: "harness_error",
+				message: "API Error: 402 Daily LLM spend cap reached",
+				retryable: false,
+				statusCode: 402,
+				type: "error",
+			},
+		];
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		const stop = world.turns.transitionCalls.find(
+			(call) => call.to === "stopped_project_cap",
+		);
+		expect(stop?.patch).toMatchObject({
+			failureCode: "daily_cap",
+			failureKind: "internal",
+			sentryEventId: null,
+		});
 	});
 
 	it("stops as stopped_project_cap on a tick when the monthly cap is crossed", async () => {

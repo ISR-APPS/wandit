@@ -1,10 +1,14 @@
 /**
  * Root layout. expo-router renders it around every route in src/app.
- * It loads the theme CSS and the Supabase env check first, then the fonts of
- * src/shared/lib/fonts.ts, the gesture root, React Query, i18n, the layout
- * direction, HeroUI Native, the navigation theme, and the root stack: the tabs
- * and the sign-in modal.
+ * First it loads the preview bridge, the theme CSS, and the Supabase env check.
+ * Then it loads the fonts of src/shared/lib/fonts.ts, the gesture root, React Query, and i18n.
+ * It also adds the layout direction, HeroUI Native, the navigation theme, and the root stack.
+ * The root stack holds the tabs and the sign-in modal.
  */
+// The preview bridge loads before the other imports of this file.
+// LIMIT: expo-router loads the "(tabs)" route modules before this file, so their load errors
+// at start get no report. Upgrade: a custom entry file that imports the bridge first.
+import "@/shared/lib/preview-bridge";
 import "@/global.css";
 // D18: this import throws at start when a Supabase env value is missing.
 import "@/shared/lib/supabase";

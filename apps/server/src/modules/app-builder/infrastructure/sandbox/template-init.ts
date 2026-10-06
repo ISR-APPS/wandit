@@ -140,6 +140,8 @@ const OLD_TEMPLATE_FILES: readonly OldTemplateFile[] = [
 			"ef4b9ac841b7c18865918694971f927bdbf15fd4ef3f4619585d6051038be3af",
 			// web-app and mobile-app at commit c90761e6.
 			"8f303450eb4120f47a883ef7e16c30ca6ba9272b4b4b62572aabe2bc477d55a9",
+			// web-app and mobile-app at commit cca4e62c. It has no git restore, stash, or clean deny.
+			"92973d67fab5b79e9b8fa0f0a603acfb01571d295668c1509288c7ebb6d19732",
 		],
 	},
 ];

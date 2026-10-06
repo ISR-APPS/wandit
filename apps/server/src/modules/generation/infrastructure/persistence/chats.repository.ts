@@ -351,8 +351,11 @@ export class ChatsRepository {
 	async insertTurnAssistantMessage(input: {
 		chatId: string;
 		id: string;
-		/** `TurnAssistantMessageMetadata`; the web parses it with the schema. */
-		metadata: TurnAssistantMessageMetadata;
+		/**
+		 * `TurnAssistantMessageMetadata`; the web parses it with the schema.
+		 * Null on a failed or canceled turn: it has no receipt to show.
+		 */
+		metadata: TurnAssistantMessageMetadata | null;
 		parts: UIMessage["parts"];
 		turnId: string;
 	}): Promise<void> {

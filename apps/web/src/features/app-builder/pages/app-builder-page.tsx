@@ -252,9 +252,12 @@ export default function AppBuilderPage({
 				setIsActivityOpen(true);
 			}}
 			isReady={thread.isReady}
-			onSend={(input) => {
-				thread.send(input, targets);
+			onSend={async (input) => {
 				setPicked({ projectId, targets: [] });
+				const isAccepted = await thread.send(input, targets);
+				// A refused send gives the picks back, like the composer gives back the draft.
+				if (!isAccepted) setPicked({ projectId, targets });
+				return isAccepted;
 			}}
 			onDecideApproval={thread.decideApproval}
 			// LIMIT: an answer to a question round carries no targets; the chips stay for
@@ -268,6 +271,7 @@ export default function AppBuilderPage({
 					.catch((error: unknown) => toast.error(getApiErrorMessage(error)))
 			}
 			errorText={thread.errorText}
+			onReconnect={thread.reconnect}
 			onCollapse={() => setChatOpenAndStore(false)}
 			onOpenSecrets={openSecrets}
 			hasOlderMessages={thread.hasOlderMessages}
@@ -319,6 +323,8 @@ export default function AppBuilderPage({
 						onReload={() => setReloadKey((key) => key + 1)}
 						bootContext={bootContext}
 						canRunOnDevice={isDevicePreviewEnabled}
+						canStartTurn={thread.isReady && !thread.isSending}
+						onTryToFix={(message) => thread.send({ text: message, files: [] })}
 					/>
 				)}
 			</div>

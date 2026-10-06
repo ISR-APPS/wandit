@@ -30,10 +30,23 @@ import { TurnProjectRepository } from "../../infrastructure/persistence/turn-pro
 import { startSandboxWithoutTurn } from "../../infrastructure/sandbox/sandbox-start";
 
 /**
- * 10 min. A boot from the image (template, repository clone, dev server)
- * takes a few minutes at worst. A lost API process blocks turns this long.
+ * 2 min. The boot refreshes the lock every `WAKE_LOCK_REFRESH_MS`, so a slow
+ * boot from the image keeps it. A lost API process blocks turns this long.
  */
-const WAKE_LOCK_TTL_MS = 10 * 60_000;
+const WAKE_LOCK_TTL_MS = 2 * 60_000;
+
+/**
+ * 40 s: a third of the TTL. After one failed refresh, the next tick still
+ * comes 40 s before the lock ends.
+ */
+const WAKE_LOCK_REFRESH_MS = 40_000;
+
+/**
+ * 10 min. A boot from the image takes a few minutes at worst. After this
+ * time, the boot stops the refresh. A hung boot then frees the lock at most
+ * 12 min after the wake.
+ */
+const WAKE_LOCK_REFRESH_LIMIT_MS = 10 * 60_000;
 
 /** The wake behind `POST /api/v2/projects/:projectId/sandbox/wake`. */
 @Injectable()
@@ -97,8 +110,9 @@ export class SandboxWakeService {
 			return { status: "busy" };
 		}
 		// LIMIT: the boot runs in this API process. An API restart during the
-		// boot drops it, and the lock frees at its TTL; the next wake or turn
-		// boots the sandbox. Upgrade: a Trigger task like publish-app.
+		// boot drops it. The lock then blocks the project for up to 2 min. A
+		// boot step that hangs blocks it for up to 12 min. The next wake or
+		// turn boots the sandbox. Upgrade: a Trigger task like publish-app.
 		void this.boot(projectId, lockId, scope.userId);
 		return { status: "starting" };
 	}
@@ -110,6 +124,33 @@ export class SandboxWakeService {
 		lockId: string,
 		userId: string,
 	): Promise<void> {
+		// The short TTL frees the lock soon after an API restart. While this
+		// process lives, the refresh keeps the lock for a slow boot.
+		const refreshEndMs = Date.now() + WAKE_LOCK_REFRESH_LIMIT_MS;
+		const refreshTimer = setInterval(() => {
+			// Some boot steps (git fetch, templateInit) have no timeout. Without
+			// this stop, a hung step holds the lock until the 30 min vendor timeout.
+			if (Date.now() >= refreshEndMs) {
+				clearInterval(refreshTimer);
+				this.logger.warn("sandbox.wake-lock-refresh-stopped", { projectId });
+				return;
+			}
+			void this.turnLock
+				.refresh(projectId, lockId, WAKE_LOCK_TTL_MS)
+				.then((refreshed) => {
+					// False: the lock expired, so a turn can start next to this boot.
+					if (!refreshed) {
+						this.logger.warn("sandbox.wake-lock-lost", { projectId });
+					}
+				})
+				.catch((refreshError: unknown) => {
+					// The next tick tries again; the TTL covers one failed refresh.
+					this.logger.warn("sandbox.wake-lock-refresh-failed", {
+						error: getErrorMessage(refreshError),
+						projectId,
+					});
+				});
+		}, WAKE_LOCK_REFRESH_MS);
 		try {
 			await startSandboxWithoutTurn(
 				{
@@ -131,6 +172,9 @@ export class SandboxWakeService {
 				tags: { feature: "sandbox-wake", projectId },
 			});
 		} finally {
+			// Without the clear, the timer runs after the boot and logs a false
+			// `sandbox.wake-lock-lost` on each tick after the release.
+			clearInterval(refreshTimer);
 			// A failed release frees at the lock TTL; the boot result stays.
 			await this.turnLock
 				.release(projectId, lockId)

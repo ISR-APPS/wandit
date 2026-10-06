@@ -51,9 +51,11 @@ import { V2BuilderEnabledGuard } from "../guards/v2-builder-enabled.guard";
 // 10 publishes per user per hour (WANDIT-181). Each publish wakes a sandbox
 // and runs a build, so the cap stops a script that publishes in a loop.
 const PUBLISH_LIMIT = 10;
-// Three times the user cap: three people behind one office IP still fit,
-// but the cap stops one person who uses many accounts.
-const PUBLISH_IP_LIMIT = 30;
+// Publishes per client IP per hour. The cap stops one person who uses many
+// accounts. An event room shares one NAT IP, so staging sizes it for the room.
+// LIMIT: one NAT IP fits about 100 people with 3 publishes each. Upgrade: skip the IP cap for known event IPs.
+// STAGING ONLY: restore the production values before a merge to main (docs/v2/runbook.md).
+const PUBLISH_IP_LIMIT = 300;
 const PUBLISH_WINDOW_MS = 60 * 60_000;
 
 // 10 rollbacks or unpublishes per user in 10 minutes (ESTIMATE). Each one

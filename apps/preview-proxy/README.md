@@ -17,7 +17,13 @@ The API route `GET /api/v2/projects/:id/preview-token` signs the claims
    route response).
 2. The Worker verifies the token, compares `pid`/`rid12` to the host, sets
    `Set-Cookie: __Host-wandit_preview=<token>; Secure; HttpOnly;
-   SameSite=None; Path=/`, and answers 302 to the same URL without `wt`.
+   SameSite=None; Path=/; Partitioned`, and answers 302 to the same URL
+   without `wt`. `Partitioned` (CHIPS) keeps the cookie in the cross-site
+   builder frame: Chrome 114+, Firefox 141+, and Safari 26.2+ accept it.
+   An older Safari drops it; the builder then offers "Open in a new tab".
+   A first `Set-Cookie: __Host-wandit_preview=; ...; Max-Age=0` without
+   `Partitioned` deletes an old unpartitioned cookie. Chrome keeps both
+   cookies and sends the old, stale one first.
 3. Later requests carry the cookie. The Worker verifies it, rate-limits per
    `jti` (600/min), strips the wandit pair from `Cookie`, and forwards to
    the `up` origin with the upstream `Host` header.

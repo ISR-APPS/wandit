@@ -9,7 +9,6 @@
  * heartbeat every 15 s, `drain` backpressure). The reader replays from
  * the start, so the relay dedupes on the last written event id.
  */
-import { once } from "node:events";
 import type { ServerResponse } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -28,7 +27,10 @@ import {
 	TURN_EVENT_READER,
 	type TurnEventReader,
 } from "../../domain/ports/turn-events";
-import { isTerminalStatus } from "../../domain/turn-queue";
+import {
+	CHAT_ACTIVE_TURN_STATUSES,
+	isTerminalStatus,
+} from "../../domain/turn-queue";
 import {
 	type BuilderTurnRow,
 	BuilderTurnsRepository,
@@ -61,7 +63,7 @@ const UI_MESSAGE_STREAM_HEADERS = {
 	"X-Vercel-AI-UI-Message-Stream": "v1",
 } as const;
 
-// Row-poll cadence while a `waiting` turn still has no run id.
+// Row-poll cadence while the row names no event store yet.
 const WAITING_POLL_MS = 2_000;
 
 /**
@@ -145,6 +147,11 @@ export class TurnStreamRelayService {
 			abort.abort();
 		};
 		raw.on("close", close);
+		// Node emits `close` only once. A browser that left before this line
+		// (in the route or in the write above) is already destroyed.
+		if (raw.destroyed) {
+			close();
+		}
 		const heartbeat = setInterval(() => {
 			if (!closed) {
 				void this.writeComment(raw, "heartbeat").catch((error) => {
@@ -183,7 +190,9 @@ export class TurnStreamRelayService {
 			while (!closed && !done) {
 				if (source === null) {
 					const row = await this.turns.findById(turnId);
-					if (row?.runner === "host") {
+					// The API moves a queued row back to `trigger` when the host start
+					// fails. `host` is final only after the host claims the row.
+					if (row?.runner === "host" && row.status !== "queued") {
 						source = { id: turnId, reader: this.hostTurnEvents };
 					} else if (row?.triggerRunId) {
 						source = { id: row.triggerRunId, reader: this.turnEvents };
@@ -195,8 +204,8 @@ export class TurnStreamRelayService {
 						await this.endMissingRow(raw, turnId);
 						done = true;
 					} else {
-						// A `waiting` turn gets its run id when the earlier turn
-						// ends and promotion runs.
+						// A `waiting` turn waits for promotion. A queued host row
+						// waits for the host claim.
 						await delay(WAITING_POLL_MS, undefined, {
 							signal: abort.signal,
 						});
@@ -281,7 +290,9 @@ export class TurnStreamRelayService {
 					if (row === null) {
 						await this.endMissingRow(raw, turnId);
 						done = true;
-					} else if (isTerminalStatus(row.status)) {
+					} else if (!CHAT_ACTIVE_TURN_STATUSES.includes(row.status)) {
+						// A paused turn (`waiting_for_*`) streams no more. Its run can
+						// die between the pause write and `done`, so the row ends it.
 						this.logLag(activeRunId, lagMs);
 						await this.finishFromRow(raw, row, onDone, turnId);
 						done = true;
@@ -435,7 +446,19 @@ export class TurnStreamRelayService {
 			return;
 		}
 
-		await Promise.race([once(raw, "drain"), once(raw, "close")]);
+		// One callback removes all three listeners, so a long replay with
+		// many waits does not collect `close` and `error` listeners.
+		await new Promise<void>((resolve) => {
+			const done = () => {
+				raw.off("drain", done);
+				raw.off("close", done);
+				raw.off("error", done);
+				resolve();
+			};
+			raw.once("drain", done);
+			raw.once("close", done);
+			raw.once("error", done);
+		});
 	}
 
 	/**

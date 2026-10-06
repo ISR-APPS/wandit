@@ -10,6 +10,7 @@ import {
 	appetizeInactivityWarningSchema,
 	appetizeQueueEventSchema,
 	type DevicePlatform,
+	uuidSchema,
 } from "@wandit/contracts";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
@@ -51,6 +52,45 @@ export type DevicePhase =
 
 const IDLE_PHASE: DevicePhase = { kind: "idle" };
 
+// A reload runs no effect cleanup, so the old page cannot end its row.
+// sessionStorage outlives a reload in the same tab, so the next start ends it.
+function openSessionKeyOf(projectId: string): string {
+	return `wandit:device-session:${projectId}`;
+}
+
+/** Keeps the open row id for the next page of this tab, or deletes it with null. */
+function rememberOpenSession(
+	projectId: string,
+	deviceSessionId: string | null,
+): void {
+	const key = openSessionKeyOf(projectId);
+	try {
+		if (deviceSessionId === null) {
+			window.sessionStorage.removeItem(key);
+		} else {
+			window.sessionStorage.setItem(key, deviceSessionId);
+		}
+	} catch (error) {
+		// Blocked storage throws. The user lock then frees the device after 17 minutes.
+		console.error("Device session storage failed", error);
+	}
+}
+
+/** Reads and deletes the row id that an earlier page of this tab left open. Null when there is none. */
+function takeLeftOpenSession(projectId: string): string | null {
+	const key = openSessionKeyOf(projectId);
+	try {
+		const stored = window.sessionStorage.getItem(key);
+		window.sessionStorage.removeItem(key);
+		// Other code can write this storage, so the schema decides.
+		const parsed = uuidSchema.safeParse(stored);
+		return parsed.success ? parsed.data : null;
+	} catch (error) {
+		console.error("Device session storage failed", error);
+		return null;
+	}
+}
+
 /** Injected services, for the spec seam. Production callers leave them out. */
 export type DeviceSessionDeps = {
 	startDeviceSession: typeof startDeviceSession;
@@ -84,7 +124,8 @@ export type DeviceSession = {
 /**
  * Starts a session only on `start`, never on mount. Ends it on `stop`, on
  * the Appetize end event, on a target switch, and on unmount. Sends one
- * heartbeat per minute while the tab is visible.
+ * heartbeat per minute while the tab is visible. A start first ends the
+ * row that a reload of this tab left open.
  */
 export function useDeviceSession(
 	projectId: string,
@@ -121,14 +162,17 @@ export function useDeviceSession(
 		const deviceSessionId = deviceSessionIdRef.current;
 		if (deviceSessionId === null) return;
 		deviceSessionIdRef.current = null;
+		rememberOpenSession(projectId, null);
 		void endDeviceSession(
 			projectId,
 			deviceSessionId,
 			sessionRef.current?.token,
 		).catch((error: unknown) => {
-			// LIMIT: a lost end call (or a closed tab) leaves the row open. The
-			// minutes task bills its own clock, at most 15 minutes, and the user
-			// lock expires after 17 minutes. Upgrade: a sendBeacon end route.
+			// LIMIT: these cases leave the row open: a lost end call, a closed tab,
+			// or a reload before the start answers. A start on another project
+			// after a reload also leaves it open. The minutes task bills its own
+			// clock, at most 15 minutes, and the user lock expires after 17
+			// minutes. Upgrade: a sendBeacon end route.
 			console.error("Device session end failed", error);
 		});
 	}, [endDeviceSession, projectId]);
@@ -143,6 +187,20 @@ export function useDeviceSession(
 		setPhase({ kind: "starting" });
 		setIdleWarningSeconds(null);
 		sessionRef.current = null;
+		// The row of a reloaded page holds the user lock for 17 minutes, and the
+		// start would answer 409. Its end frees the lock. A repeated end is a no-op.
+		const leftOpenSessionId = takeLeftOpenSession(projectId);
+		if (leftOpenSessionId !== null) {
+			await endDeviceSession(projectId, leftOpenSessionId, undefined).catch(
+				(error: unknown) => {
+					// The start still runs. It shows the 409 when the lock stays.
+					// The id goes back, so the next Retry ends the row again.
+					console.error("Device session end after a reload failed", error);
+					rememberOpenSession(projectId, leftOpenSessionId);
+				},
+			);
+			if (isStale()) return;
+		}
 		try {
 			const config = await startDeviceSession(projectId, platform);
 			if (isStale()) {
@@ -157,6 +215,7 @@ export function useDeviceSession(
 				return;
 			}
 			deviceSessionIdRef.current = config.deviceSessionId;
+			rememberOpenSession(projectId, config.deviceSessionId);
 			const sdk = await loadAppetize();
 			// From here on, the stop or the cleanup that made the start stale also ended the row.
 			if (isStale()) return;

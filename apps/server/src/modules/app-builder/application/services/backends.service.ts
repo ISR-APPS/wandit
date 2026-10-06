@@ -1,8 +1,9 @@
 /**
  * Provisions the hidden Supabase backend of a new V2 project (D18).
- * `AppProjectsService.create` calls it after the create transaction, and
- * the Cloud route `POST backend` calls it for a project without a row or
- * with a failed (`error`) row, which it provisions again.
+ * `AppProjectsService.create` calls it after the create transaction.
+ * The Cloud route `POST backend` also calls it.
+ * `TurnsService.create` calls it for each new chat message.
+ * Both provision a missing row or a failed (`error`) row again.
  * It checks the plan entitlement (D3, WANDIT-184), writes the
  * `app_backends` row through `AppBackendsRepository`, and hands off to the
  * `provision-backend` task through `ProvisionBackendTaskStarter`.
@@ -55,10 +56,11 @@ export class BackendsService {
 	) {}
 
 	/**
-	 * The single entry of backend provisioning: project create and the Cloud
-	 * route `POST backend` call it. An `error` row gets a new run; any other
-	 * row comes back as it is. Answers the `app_backends` row; null means
-	 * provisioning is not configured and nothing was written. Throws
+	 * The single entry of backend provisioning: project create, the Cloud
+	 * route `POST backend`, and each new chat message call it. An `error`
+	 * row gets a new run; any other row comes back as it is. Answers the
+	 * `app_backends` row; null means provisioning is not configured and
+	 * nothing was written. Throws
 	 * `BackendLimitReachedError` when the payer's plan has no free slot.
 	 */
 	async provisionBackend(
@@ -143,12 +145,12 @@ export class BackendsService {
 			return row;
 		}
 
+		let runId: string;
 		try {
-			const { runId } = await this.starter.start({
+			({ runId } = await this.starter.start({
 				projectId,
 				requestKey: row.requestKey,
-			});
-			await this.backends.setTriggerRunId(projectId, runId);
+			}));
 		} catch (error) {
 			// A start failure must not fail project creation: the project
 			// exists and the user can work; the row carries the failure for
@@ -168,6 +170,16 @@ export class BackendsService {
 				sentryEventId: null,
 			});
 			return this.backends.findByProjectId(projectId);
+		}
+
+		// The run id is a trace field. A failed write must not fail a run
+		// that Trigger accepted, so the error only goes to the log.
+		try {
+			await this.backends.setTriggerRunId(projectId, runId);
+		} catch (error) {
+			this.logger.error(
+				`supabase.provisioning.run-id-write-failed project=${projectId} run=${runId}: ${getErrorMessage(error)}`,
+			);
 		}
 
 		return row;

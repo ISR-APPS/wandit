@@ -129,9 +129,12 @@ class ResizeObserverStub implements ResizeObserver {
 // too. The composer dictation refreshes the credits through a query client.
 function renderPane(props: Partial<ChatPaneProps> = {}) {
 	const queryClient = new QueryClient();
-	const onSend = vi.fn();
+	// The API admits every send of these cases.
+	const onSend = vi.fn<ChatPaneProps["onSend"]>(async () => true);
 	const onDecideApproval = vi.fn();
-	const onAnswerQuestions = vi.fn();
+	const onAnswerQuestions = vi.fn<ChatPaneProps["onAnswerQuestions"]>(
+		async () => true,
+	);
 	const onOpenActivity = vi.fn();
 	const paneWith = (overrides: Partial<ChatPaneProps>) => {
 		// I18nProvider requires children in its props type for createElement calls.
@@ -165,6 +168,7 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onPlanModeChange: () => {},
 						onCancel: () => {},
 						errorText: null,
+						onReconnect: null,
 						onCollapse: () => {},
 						hasOlderMessages: false,
 						isLoadingOlderMessages: false,

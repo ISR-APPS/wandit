@@ -136,6 +136,15 @@ const TOKEN_EPOCH_MS = 30 * 60_000;
 /** 20 min, the window of the `sandbox-idle-sweep` task: a kept session goes after it. */
 const KEPT_SESSION_IDLE_MS = 20 * 60_000;
 
+/**
+ * The HTTP status in a Claude Code error text. Claude Code writes
+ * "API Error: 529 Overloaded", "API Error: Repeated 529 Overloaded errors",
+ * and "API Error: Request rejected (429) · ...". The vendor bridge writes
+ * "HTTP 401: ...", and the bridge fork writes "... (HTTP 529)".
+ */
+const API_ERROR_STATUS_PATTERN =
+	/(?:API Error: (?:Repeated |Request rejected \()?|\bHTTP )([45]\d{2})\b/u;
+
 /** The `HarnessAgentSession` fields the adapter uses; specs fake this. */
 export type ClaudeCodeSessionHandle = Pick<
 	HarnessAgentSession,
@@ -220,6 +229,11 @@ type LiveSession = {
 	 * filtering when the session starts, so a kept session serves only it.
 	 */
 	mode: BuilderTurnMode;
+	/**
+	 * `networkPolicyHash` of the sandbox handle the session started on. The
+	 * session added its run-token rule on top of that policy.
+	 */
+	policyHash: string | null;
 	/**
 	 * Set when the turn reuses a kept session: the stored state to resume from
 	 * when the kept bridge is gone at the turn start.
@@ -595,10 +609,15 @@ export class ClaudeCodeHarness implements BuilderHarness {
 
 	/**
 	 * The kept session of the chat when this turn may reuse it, else null.
-	 * Reuse needs the stored state the last host turn wrote (no other path
-	 * ran a turn since), the same live sandbox, the same tool approval rules,
-	 * the same turn mode, and the same token epoch. A kept session that does
-	 * not fit goes.
+	 * Reuse needs all of these:
+	 * - the stored state that the last host turn wrote (no other path ran a turn since),
+	 * - the same live sandbox,
+	 * - the same tool approval rules,
+	 * - the same turn mode,
+	 * - the same token epoch,
+	 * - no raw policy push at this turn start,
+	 * - the same network policy hash as at the session start.
+	 * A kept session that does not fit goes.
 	 */
 	private async takeKept(
 		input: HarnessSessionInput,
@@ -616,6 +635,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		}
 		const fits =
 			!options.bridgeDead &&
+			// A raw policy push deletes the run-token rule of the kept session, and
+			// the proxy then answers 401. A stored-state resume adds it again. The
+			// push can come from this turn start, or from a restore, a wake, or a
+			// publish between the turns: then the policy hash differs.
+			!input.sandbox.networkPolicyReplaced &&
+			live.policyHash === input.sandbox.networkPolicyHash &&
 			kept.payload === resumeState.payload &&
 			live.sandboxId === input.sandbox.providerSandboxId &&
 			live.epoch === this.tokenEpoch() &&
@@ -669,6 +694,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			...started,
 			chatId: input.chatId,
 			mode: input.mode,
+			policyHash: input.sandbox.networkPolicyHash,
 			sandboxId: input.sandbox.providerSandboxId,
 			toolApproval: JSON.stringify(input.hostTools.toolApproval),
 		};
@@ -889,10 +915,13 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		})) {
 			yield { chunk, type: "part" };
 			if (chunk.type === "error") {
+				const message = lastErrorMessage ?? chunk.errorText;
+				const status = API_ERROR_STATUS_PATTERN.exec(message)?.[1];
 				yield {
 					code: "harness_error",
-					message: lastErrorMessage ?? chunk.errorText,
+					message,
 					retryable: false,
+					statusCode: status === undefined ? undefined : Number(status),
 					type: "error",
 				};
 				lastErrorMessage = null;
@@ -938,6 +967,18 @@ export class ClaudeCodeHarness implements BuilderHarness {
 					// Empty: no `X-Wandit-Run` header. One process serves many turns,
 					// so the proxy names the run of the turn the chat binds now.
 					ANTHROPIC_CUSTOM_HEADERS: "",
+					// 3.5 min, below TURN_STALL_MS (4 min) in builder-turn.runtime.ts.
+					// A running Bash call sends no part, so a longer call stalls the turn.
+					// LIMIT: one Bash call runs at most 3.5 min.
+					// Upgrade: reset the stall timer on CLI tool_progress heartbeats, then raise this cap.
+					BASH_MAX_TIMEOUT_MS: "210000",
+					// The bridge fork keeps one Claude Code process between turns.
+					// A background task or a cron prompt can end after the turn.
+					// Then it starts a turn that no host reads. The next turn ends
+					// on its result. Without background tasks, a Bash call stops at
+					// its timeout.
+					CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+					CLAUDE_CODE_DISABLE_CRON: "1",
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 					// Claude Code 2.1.281 adds a `<total_tokens>` system message after
 					// each user prompt. Through the LLM proxy and the gateway, each new
@@ -953,10 +994,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			model: input.model,
 			// The model asks through the `ask_user` host tool only. It carries
 			// the kinds and the world cards; the built-in question tool has none.
+			// A build session has no subagents. The bridge drops subagent output,
+			// so the stall watchdog sees a long subagent as a dead harness.
 			inactiveTools:
 				input.mode === "plan"
 					? [ASK_USER_QUESTIONS_TOOL_NAME, ...PLAN_MODE_BLOCKED_TOOLS]
-					: [ASK_USER_QUESTIONS_TOOL_NAME],
+					: [ASK_USER_QUESTIONS_TOOL_NAME, "Agent", "Workflow"],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the
