@@ -434,7 +434,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.resumeFrom?.data).toEqual({
 			claudeSessionId: "claude-1",
 		});
-		// After a mode switch the old bridge still runs and holds the port.
+		// A wake can reuse a live sandbox whose old bridge still holds the port.
 		expect(execCalls).toHaveLength(1);
 	});
 

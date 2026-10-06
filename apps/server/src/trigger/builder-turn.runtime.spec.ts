@@ -3418,7 +3418,7 @@ describe("runBuilderTurn", () => {
 
 	it("builds an approved plan from a text prompt and drops the paused plan call", async () => {
 		const world = makeWorld();
-		// A warm sandbox: only the mode switch kills the bridge, not a wake.
+		// A warm sandbox: a mode switch keeps the bridge and its stored coordinates.
 		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
 		world.sessions.row = pausedSessionRow([PENDING_PLAN], "plan");
 		world.turns.row = fakeTurnRow({
@@ -3435,7 +3435,7 @@ describe("runBuilderTurn", () => {
 
 		// The paused call belongs to the plan session tools; it cannot continue.
 		expect(world.harness.resumeCalls[0]?.options).toEqual({
-			bridgeDead: true,
+			bridgeDead: false,
 			dropPausedTurn: true,
 		});
 		const turnInput = world.harness.streamCalls[0]?.input;
