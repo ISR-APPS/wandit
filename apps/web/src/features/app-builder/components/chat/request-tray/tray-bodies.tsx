@@ -11,6 +11,7 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { ImageIcon } from "@phosphor-icons/react/Image";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { StarIcon } from "@phosphor-icons/react/Star";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/X";
 import { cn } from "@wandit/ui/lib/utils";
@@ -20,7 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { IconAction } from "../../shell/top-bar";
 import { SpinnerArc } from "./tray-signals";
-import type { MediaItem, TrayBody, WorldCardOption } from "./types";
+import type { ChipOption, MediaItem, TrayBody, WorldCardOption } from "./types";
 import { ensureWorldFontsLoaded } from "./world-fonts";
 
 /** The answer wiring of the bodies, from lib/use-request-tray.ts. */
@@ -52,11 +53,10 @@ export function TrayBodySlot({
 					{body.options.map((option) => (
 						<OptionRow
 							key={option.id}
+							option={option}
 							selected={option.id === body.selectedId}
 							onClick={() => callbacks.onPick(option.id)}
-						>
-							{option.label}
-						</OptionRow>
+						/>
 					))}
 				</div>
 			);
@@ -66,12 +66,11 @@ export function TrayBodySlot({
 					{body.options.map((option) => (
 						<OptionRow
 							key={option.id}
+							option={option}
 							isMulti
 							selected={body.selectedIds.includes(option.id)}
 							onClick={() => callbacks.onToggle(option.id)}
-						>
-							{option.label}
-						</OptionRow>
+						/>
 					))}
 				</div>
 			);
@@ -83,22 +82,25 @@ export function TrayBodySlot({
 }
 
 /**
- * One answer option as a 14 px-corner row. A picked row gets the spark tint.
- * A single choice shows an ember check at the end; a multi-select shows a
- * check box at the start, so the user sees that more than one row counts.
+ * One answer option as a 14 px-corner row: the label, a "Recommended" badge
+ * on the option the agent advises, and the agent's one-line description
+ * under it. A picked row gets the spark tint. A single choice shows an
+ * ember check at the end; a multi-select shows a check box at the start, so
+ * the user sees that more than one row counts.
  */
 function OptionRow({
+	option,
 	selected,
 	isMulti = false,
 	onClick,
-	children,
 }: {
+	option: ChipOption;
 	selected: boolean;
 	/** True for a multi-select question. */
 	isMulti?: boolean;
 	onClick: () => void;
-	children: string;
 }) {
+	const { t } = useTranslation();
 	return (
 		<button
 			type="button"
@@ -106,7 +108,9 @@ function OptionRow({
 			onClick={onClick}
 			dir="auto"
 			className={cn(
-				"flex min-h-9 w-full items-center gap-2.5 rounded-[14px] border px-3 py-1.5 text-start font-grotesk font-medium text-[13.5px] leading-snug outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/30",
+				"flex min-h-9 w-full items-center gap-2.5 rounded-[14px] border px-3 text-start font-grotesk font-medium text-[13.5px] leading-snug outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ember/30",
+				// A row with a description line needs more air than a label alone.
+				option.description === null ? "py-1.5" : "py-2",
 				selected
 					? "border-spark/60 bg-spark/[0.14] text-night focus:bg-spark/20 dark:border-spark/50 dark:text-foreground"
 					: "border-night/[0.07] bg-white text-night/80 hover:border-night/[0.12] hover:text-night dark:border-white/[0.07] dark:bg-white/[0.04] dark:text-foreground/80 dark:hover:border-white/[0.14] dark:hover:text-foreground",
@@ -125,7 +129,22 @@ function OptionRow({
 					{selected ? <CheckIcon weight="bold" className="size-3" /> : null}
 				</span>
 			) : null}
-			<span className="min-w-0 flex-1">{children}</span>
+			<span className="min-w-0 flex-1">
+				<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+					<span>{option.label}</span>
+					{option.isRecommended ? (
+						<span className="inline-flex h-5 items-center gap-1 rounded-full bg-spark/[0.2] px-2 font-grotesk font-semibold text-[11px] text-spark-deep dark:bg-spark/[0.16] dark:text-spark">
+							<StarIcon weight="fill" className="size-2.5" aria-hidden />
+							{t("appBuilder.chat.tray.recommended")}
+						</span>
+					) : null}
+				</span>
+				{option.description !== null ? (
+					<span className="mt-0.5 block font-normal font-sans text-[12.5px] text-night/55 leading-snug dark:text-foreground/55">
+						{option.description}
+					</span>
+				) : null}
+			</span>
 			{!isMulti && selected ? (
 				<CheckIcon
 					weight="bold"

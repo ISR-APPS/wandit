@@ -2,7 +2,8 @@
  * The prompt composer of the dashboard (variant "hero") and the workspace
  * chat pane (variant "compact"). Uploads attachments, picks the mode and the
  * output, then reports the prompt through `onSubmit`. For a V2 create, the
- * mode menu picks the app type, web or mobile, through `platformChoice`.
+ * mode menu picks the app type, web or mobile, through `platformChoice`,
+ * and the Plan chip of the app-builder feature sets `planChoice`.
  * Calls the attachments upload service and the voice dictation hook.
  */
 
@@ -90,6 +91,7 @@ import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
+import { PlanModeToggle } from "@/features/app-builder";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
 import { KeycapButton } from "@/features/landing";
@@ -1640,6 +1642,12 @@ export type PromptBoxProps = {
 		value: TargetPlatform;
 		onChange: (platform: TargetPlatform) => void;
 	};
+	/** The Plan chip of a V2 create. It shows only with `platformChoice`. */
+	planChoice?: {
+		/** True: the first turn asks questions and shows a plan before it builds. The caller owns this state. */
+		value: boolean;
+		onChange: (isPlanMode: boolean) => void;
+	};
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
@@ -1677,6 +1685,7 @@ export function PromptBox({
 	placeholder,
 	showBanner = false,
 	platformChoice,
+	planChoice,
 	isSubmitting = false,
 	disabled = false,
 	initialValue = "",
@@ -2262,6 +2271,14 @@ export function PromptBox({
 								isHero={isHero}
 							/>
 						)}
+						{platformChoice && planChoice ? (
+							<PlanModeToggle
+								isPlanMode={planChoice.value}
+								onPlanModeChange={planChoice.onChange}
+								disabled={submissionPending || disabled}
+								size={isHero ? "md" : "sm"}
+							/>
+						) : null}
 						{import.meta.env.DEV ? (
 							<BuilderSettingsPicker
 								model={builderModel}

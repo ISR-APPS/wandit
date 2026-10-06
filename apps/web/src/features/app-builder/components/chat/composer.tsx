@@ -1,10 +1,11 @@
 /**
  * Prompt box of the builder chat, a white card: the request tray slot, the
  * chips of the preview picks and of the files, the textarea, then the add
- * menu (a file or an image), the credit estimate, dictation, and send. While
- * the tray shows, send becomes the answer pill of the tray. Rendered by
- * chat-pane.tsx. Calls `onSend` with the trimmed draft and the uploaded
- * files. Uploads go through the projects feature, with the dashboard limits.
+ * menu (a file or an image), the Plan chip, the credit estimate, dictation,
+ * and send. While the tray shows, send becomes the answer pill of the tray.
+ * Rendered by chat-pane.tsx. Calls `onSend` with the trimmed draft and the
+ * uploaded files. Uploads go through the projects feature, with the
+ * dashboard limits.
  */
 
 import { ArrowUpIcon } from "@phosphor-icons/react/ArrowUp";
@@ -51,6 +52,7 @@ import {
 } from "@/features/projects";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 import type { SendBuilderMessageInput } from "../../api/app-builder.services";
+import { PlanModeToggle } from "../plan-mode-toggle";
 import { IconAction } from "../shell/top-bar";
 import { TargetChip } from "./target-chip";
 
@@ -83,6 +85,11 @@ export type ComposerProps = {
 	submitOverride?: ComposerSubmitOverride | null;
 	/** Gets every draft change; the tray reads the typed answer from it. */
 	onDraftChange?: (text: string) => void;
+	/** Textarea hint. chat-pane.tsx picks it from the Plan toggle and the open plan card. */
+	placeholder: string;
+	/** State of the Plan chip. The chip locks with the textarea while a turn runs, and hides while the tray shows. */
+	isPlanMode: boolean;
+	onPlanModeChange: (isPlanMode: boolean) => void;
 };
 
 /** The turn route takes at most 6 attachments per message (createTurnRequestSchema). */
@@ -146,6 +153,9 @@ export function Composer({
 	topSlot,
 	submitOverride,
 	onDraftChange,
+	placeholder,
+	isPlanMode,
+	onPlanModeChange,
 }: ComposerProps) {
 	const { t } = useTranslation();
 	const [draft, setDraftState] = useState("");
@@ -324,7 +334,7 @@ export function Composer({
 					maxLength={projectPromptMaxLength}
 					dir="auto"
 					value={draft}
-					placeholder={t("appBuilder.chat.placeholder")}
+					placeholder={placeholder}
 					disabled={isSending}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={onKeyDown}
@@ -371,6 +381,14 @@ export function Composer({
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
+					{/* The tray answer pill needs this room. The answers keep the mode; the skip X shows the chip again. */}
+					{submitOverride ? null : (
+						<PlanModeToggle
+							isPlanMode={isPlanMode}
+							onPlanModeChange={onPlanModeChange}
+							disabled={isSending}
+						/>
+					)}
 					{turnEstimateCredits !== null ? (
 						<span className="ms-auto flex items-center gap-1 whitespace-nowrap font-grotesk text-[12px] text-night/50 tabular-nums dark:text-foreground/50">
 							<Spark className="size-3 text-spark" />

@@ -16,6 +16,7 @@ const FIRST_TURN_BOOTING: BootContext = {
 	isFirstTurn: true,
 	backend: undefined,
 	hasCodeChanges: true,
+	isPlanning: false,
 };
 
 const NO_TURN: BootContext = {

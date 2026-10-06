@@ -8,8 +8,10 @@ import { z } from "zod";
 import { askUserKindSchema } from "../v1/ai-chat";
 import { fileRefSchema } from "../v1/attachments";
 import { composerMetadataSchema } from "../v1/chats";
+import { presentPlanHostToolInputSchema } from "./host-tools";
 import { PREVIEW_TARGETS_MAX, previewTargetSchema } from "./preview";
 import {
+	builderTurnModeSchema,
 	turnApprovalAnswerSchema,
 	turnQuestionAnswerSchema,
 	turnUsageDataSchema,
@@ -25,8 +27,9 @@ export type HarnessKindContract = z.infer<typeof harnessKindSchema>;
  * One paused harness interaction the user must answer before the turn
  * can continue. `question` mirrors a pending `ask_user` call (or a
  * built-in `askUserQuestions` call); `approval` mirrors a pending
- * host-tool approval. `suspendTurn` writes them into the resume envelope
- * so a later turn can answer each by id.
+ * host-tool approval; `plan` mirrors a pending `present_plan` call.
+ * `suspendTurn` writes them into the resume envelope so a later turn can
+ * answer each by id.
  */
 export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 	z.object({
@@ -51,6 +54,8 @@ export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 						description: z.string().optional(),
 						// Design world skill id; the task adds the world card.
 						worldId: z.string().optional(),
+						// True on the option the agent advises.
+						recommended: z.boolean().optional(),
 					}),
 				),
 			}),
@@ -65,9 +70,16 @@ export const harnessPendingInteractionSchema = z.discriminatedUnion("kind", [
 		// JSON text of the tool call input, as the harness reported it.
 		input: z.string(),
 	}),
+	z.object({
+		kind: z.literal("plan"),
+		// Harness call id of the pending `present_plan` call.
+		toolCallId: z.string().min(1),
+		// The plan, cut to the card limits by the harness adapter.
+		plan: presentPlanHostToolInputSchema,
+	}),
 ]);
 
-/** One paused interaction; the union of the question and approval cards. */
+/** One paused interaction; the union of the question, approval, and plan cards. */
 export type HarnessPendingInteraction = z.infer<
 	typeof harnessPendingInteractionSchema
 >;
@@ -86,6 +98,12 @@ export const harnessResumeEnvelopeSchema = z.object({
 	 * detach writes `[]`; `suspendTurn` fills it from the harness state.
 	 */
 	pending: z.array(harnessPendingInteractionSchema).default([]),
+	/**
+	 * The mode of the turn that wrote the envelope. A paused call continues
+	 * only in the same mode: the harness fixes the tool list per session.
+	 * Envelopes saved before Plan Mode existed came from build turns.
+	 */
+	mode: builderTurnModeSchema.default("build"),
 });
 
 /** The `builder_sessions.resumeState` column after the envelope parse. */
@@ -151,6 +169,8 @@ export const builderTurnSpecSchema = z.object({
 	// The elements the user picked in the preview. Specs saved before
 	// targets existed have none.
 	targets: z.array(previewTargetSchema).max(PREVIEW_TARGETS_MAX).default([]),
+	// Plan Mode or a build. Specs saved before Plan Mode existed were builds.
+	mode: builderTurnModeSchema.default("build"),
 });
 
 /** Parsed `builder_turns.spec`; `message` may be empty when attachments carry the turn. */

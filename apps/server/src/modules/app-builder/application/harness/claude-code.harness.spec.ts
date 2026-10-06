@@ -6,7 +6,10 @@ import type {
 	HarnessAgentSettings,
 	prepareSandboxForHarness,
 } from "@ai-sdk/harness/agent";
-import type { ClaudeCodeHarnessSettings } from "@ai-sdk/harness-claude-code";
+import {
+	type ClaudeCodeHarnessSettings,
+	createClaudeCode,
+} from "@ai-sdk/harness-claude-code";
 import type { HarnessPendingInteraction } from "@wandit/contracts";
 import type {
 	LanguageModelUsage,
@@ -148,6 +151,7 @@ function sessionInput(): HarnessSessionInput {
 		},
 		hostTools: { close: async () => {}, toolApproval: {}, tools: {} },
 		instructions: "Build the app in these languages only: ar, fr.",
+		mode: "build",
 		model: "anthropic/claude-sonnet-5",
 		sandbox: fakeSandbox(),
 	};
@@ -269,6 +273,23 @@ describe("ClaudeCodeHarness.createSession", () => {
 		);
 	});
 
+	it("blocks the built-in tools that write, run, or fork in a plan session", async () => {
+		const { captured, harness } = setup();
+
+		await harness.createSession({ ...sessionInput(), mode: "plan" });
+
+		const inactive = captured.agentSettings?.inactiveTools ?? [];
+		expect(inactive).toEqual(
+			expect.arrayContaining(["askUserQuestions", "write", "edit", "bash"]),
+		);
+		// HarnessAgent throws NoSuchToolError on a name the adapter does not
+		// know, so a wrong name would fail every plan turn.
+		const builtinNames = Object.keys(createClaudeCode().builtinTools);
+		for (const name of inactive) {
+			expect(builtinNames).toContain(name);
+		}
+	});
+
 	it("names the 30-minute token epoch in the env", async () => {
 		const { captured, harness } = setup(undefined, undefined, {
 			now: () => 3 * 30 * 60_000 + 5,
@@ -349,6 +370,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 
 	it("resumes a suspended turn through continueFrom, not resumeFrom", async () => {
 		const { captured, harness } = setup();
+		execCalls.length = 0;
 
 		await harness.resumeSession(
 			sessionInput(),
@@ -362,6 +384,8 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 
 		expect(captured.createOptions?.continueFrom).toEqual(CONTINUE_STATE);
 		expect(captured.createOptions?.resumeFrom).toBeUndefined();
+		// The live bridge waits on the paused call; a kill would lose it.
+		expect(execCalls).toHaveLength(0);
 	});
 
 	it("resumes the thread between turns when the bridge of a suspended turn is lost", async () => {
@@ -389,6 +413,7 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 
 	it("drops the dead bridge of a lost paused turn but keeps its conversation", async () => {
 		const { captured, harness } = setup();
+		execCalls.length = 0;
 		const stored = {
 			...CONTINUE_STATE,
 			data: {
@@ -410,6 +435,30 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.resumeFrom?.data).toEqual({
 			claudeSessionId: "claude-1",
 		});
+		// After a mode switch the old bridge still runs and holds the port.
+		expect(execCalls).toHaveLength(1);
+		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
+	});
+
+	it("drops the paused turn that a mid-turn detach nests in the resume state", async () => {
+		const { captured, harness } = setup();
+
+		await harness.resumeSession(
+			sessionInput(),
+			{
+				harness: "claude_code",
+				payload: JSON.stringify({
+					...RESUME_STATE,
+					continueFrom: CONTINUE_STATE,
+				}),
+				pending: [PENDING_COLOR_QUESTION],
+			},
+			{ bridgeDead: true, dropPausedTurn: true },
+		);
+
+		// The SDK refuses a new prompt while the nested turn is unfinished.
+		expect(captured.createOptions?.resumeFrom).toEqual(RESUME_STATE);
+		expect(captured.createOptions?.continueFrom).toBeUndefined();
 	});
 
 	it("throws HarnessResumeMismatchError for another harness payload", async () => {
@@ -602,7 +651,7 @@ describe("ClaudeCodeHarness.stream", () => {
 		});
 	});
 
-	it("maps an ask_user answer to its JSON tool result", async () => {
+	it("maps ask_user and present_plan answers to their JSON tool results", async () => {
 		const { captured, harness } = setup();
 		const session = await harness.createSession(sessionInput());
 		const output = {
@@ -629,7 +678,14 @@ describe("ClaudeCodeHarness.stream", () => {
 			approvals: [],
 			kind: "continue",
 			signal: new AbortController().signal,
-			toolResults: [{ output, tool: "ask_user", toolCallId: "call-7" }],
+			toolResults: [
+				{ output, tool: "ask_user", toolCallId: "call-7" },
+				{
+					output: { feedback: "Add a stock page" },
+					tool: "present_plan",
+					toolCallId: "call-plan",
+				},
+			],
 		})) {
 			// Drain the stream; only the continue options are under test.
 		}
@@ -639,6 +695,12 @@ describe("ClaudeCodeHarness.stream", () => {
 				output: { type: "json", value: output },
 				toolCallId: "call-7",
 				toolName: "ask_user",
+				type: "tool-result",
+			},
+			{
+				output: { type: "json", value: { feedback: "Add a stock page" } },
+				toolCallId: "call-plan",
+				toolName: "present_plan",
 				type: "tool-result",
 			},
 		]);
@@ -727,8 +789,8 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 									{ id: "zellige", label: longLabel, worldId: "zellige" },
 									{ id: "zellige", label: "Twin id" },
 									{ id: "", description: "No id", label: "Empty id" },
-									{ id: "d", label: "D" },
-									{ id: "e", label: "E" },
+									{ id: "d", label: "D", recommended: true },
+									{ id: "e", label: "E", recommended: false },
 									{ id: "f", label: "F" },
 									{ id: "g", label: "Seventh" },
 								],
@@ -759,7 +821,8 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 							{ id: "zellige", label: "L".repeat(120), worldId: "zellige" },
 							{ id: "option-1", label: "Twin id" },
 							{ description: "No id", id: "option-2", label: "Empty id" },
-							{ id: "d", label: "D" },
+							// Only the advised option keeps the flag; the tray shows a badge.
+							{ id: "d", label: "D", recommended: true },
 							{ id: "e", label: "E" },
 							{ id: "f", label: "F" },
 						],
@@ -819,6 +882,91 @@ describe("ClaudeCodeHarness.suspendTurn", () => {
 			})),
 		);
 		expect(warn).toHaveBeenCalledTimes(4);
+	});
+
+	it("maps a pending present_plan call to a plan card cut to the card limits", async () => {
+		const { harness, session: innerSession } = setup();
+		const fullSections = Array.from({ length: 11 }, (_unused, index) => ({
+			items: Array.from({ length: 14 }, (_item, item) => `Item ${item}`),
+			title: `Section ${index}`,
+		}));
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: [
+				{
+					input: JSON.stringify({
+						assumptions: [
+							"  ",
+							"A".repeat(400),
+							...Array.from({ length: 12 }, (_unused, n) => `Choice ${n}`),
+						],
+						sections: [
+							{
+								items: ["Owner", "  ", "I".repeat(350)],
+								title: "T".repeat(100),
+							},
+							{ items: [], title: "No items" },
+							{ items: ["No title"], title: "  " },
+							...fullSections,
+						],
+						summary: "S".repeat(900),
+						title: ` ${"N".repeat(130)} `,
+					}),
+					toolCallId: "call-plan",
+					toolName: "present_plan",
+				},
+			],
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		const card = state.pending[0];
+		if (card?.kind !== "plan") {
+			throw new Error("expected a plan card");
+		}
+		expect(card.toolCallId).toBe("call-plan");
+		expect(card.plan.title).toBe("N".repeat(120));
+		expect(card.plan.summary).toBe("S".repeat(800));
+		expect(card.plan.sections[0]).toEqual({
+			items: ["Owner", "I".repeat(300)],
+			title: "T".repeat(80),
+		});
+		// Empty sections drop before the cut, so 10 sections with content stay.
+		expect(card.plan.sections.map((section) => section.title)).toEqual([
+			"T".repeat(80),
+			...fullSections.slice(0, 9).map((section) => section.title),
+		]);
+		expect(card.plan.sections[1]?.items).toHaveLength(12);
+		expect(card.plan.assumptions).toHaveLength(10);
+		expect(card.plan.assumptions[0]).toBe("A".repeat(300));
+	});
+
+	it("gives a present_plan call with a bad input one empty plan card", async () => {
+		const warn = vi.fn();
+		const { harness, session: innerSession } = setup(undefined, { warn });
+		const inputs = ["{not json", JSON.stringify({ sections: "not a list" })];
+		innerSession.suspendTurn = vi.fn(async () => ({
+			...CONTINUE_STATE,
+			pendingToolResults: inputs.map((input, index) => ({
+				input,
+				toolCallId: `call-${index}`,
+				toolName: "present_plan",
+			})),
+		}));
+		const session = await harness.createSession(sessionInput());
+
+		const state = await harness.suspendTurn(session);
+
+		// The paused call still needs a tool result, so each gets a card.
+		expect(state.pending).toEqual(
+			inputs.map((_input, index) => ({
+				kind: "plan",
+				plan: { assumptions: [], sections: [], summary: "", title: "" },
+				toolCallId: `call-${index}`,
+			})),
+		);
+		expect(warn).toHaveBeenCalledTimes(2);
 	});
 
 	it("maps a pending host-tool call to an approval interaction", async () => {
@@ -987,6 +1135,19 @@ describe("ClaudeCodeHarness keep-alive (harness host)", () => {
 			dropPausedTurn: false,
 		});
 
+		expect(captured.createCount).toBe(3);
+	});
+
+	it("resumes from the stored state when the turn switches mode", async () => {
+		const { captured, harness, stored } = await finishOneTurn();
+
+		await harness.resumeSession(
+			{ ...sessionInput(), mode: "plan" },
+			stored,
+			LIVE,
+		);
+
+		// The kept session keeps the built-in tools of a build session.
 		expect(captured.createCount).toBe(3);
 	});
 

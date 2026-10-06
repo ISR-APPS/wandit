@@ -296,6 +296,31 @@ describe("useBuilderThread", () => {
 		expect(result.current.lastTurnFailed).toBe(true);
 	});
 
+	// A preview "Try to fix" sends no mode. With an open plan, a build turn
+	// approves the whole plan, so the send must follow the toggle.
+	it("sends a message with no mode in the mode of the Plan toggle", async () => {
+		const fake = createDeps();
+		const { result } = renderThread(fake.deps);
+		await waitForResume(fake, result);
+
+		act(() => result.current.setPlanMode(true));
+		act(() => {
+			result.current.send({ text: "Fix the error on the page", files: [] });
+		});
+
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "POST"),
+			).toBe(true),
+		);
+		const post = fake.requests.find(
+			(request) => request.init?.method === "POST",
+		);
+		expect(JSON.parse(String(post?.init?.body))).toMatchObject({
+			mode: "plan",
+		});
+	});
+
 	it("does not count a send that the API refuses as a running turn", async () => {
 		const fake = createDeps({ postResponds402: true });
 		let answerPost = () => {};

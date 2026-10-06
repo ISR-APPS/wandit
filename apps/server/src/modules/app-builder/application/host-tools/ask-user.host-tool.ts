@@ -36,6 +36,8 @@ export function createAskUserTool(): Tool<AskUserHostToolInput, never> {
 			"in a later reply. " +
 			"Never call ask_user twice in one reply. Limits: question 300 chars, " +
 			"max 6 options, label 120 chars, helper and description 200 chars. " +
+			"Set `recommended: true` on the one option that you advise; the user " +
+			"sees a badge on it. " +
 			'Kinds: "single-choice", "multi-select", "free-text" (no options), ' +
 			'"attachments" (images, logos, photos; set maxFiles, 1 to 6). The user ' +
 			"can always type an answer. For a design world choice, use " +

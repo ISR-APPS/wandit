@@ -27,10 +27,12 @@ const BASE_STATE: RequestTrayState = {
 	step: null,
 	body: {
 		kind: "single-choice",
-		options: [{ id: "warm", label: "Warm" }],
+		options: [
+			{ id: "warm", label: "Warm", description: null, isRecommended: false },
+		],
 		selectedId: null,
 	},
-	typingOverride: false,
+	typedTextEffect: null,
 };
 
 // The page mounts one TooltipProvider; the icon buttons need it too.
@@ -89,7 +91,7 @@ describe("RequestTray", () => {
 		renderTray({
 			step: { current: 2, total: 3 },
 			helper: "Pick the closest one.",
-			typingOverride: true,
+			typedTextEffect: "replacesOptions",
 		});
 		expect(screen.getByText("2 of 3")).toBeTruthy();
 		expect(screen.getByText("Pick the closest one.")).toBeTruthy();
@@ -105,7 +107,14 @@ describe("RequestTray", () => {
 		const callbacks = renderTray({
 			body: {
 				kind: "multi-select",
-				options: [{ id: "home", label: "Home" }],
+				options: [
+					{
+						id: "home",
+						label: "Home",
+						description: null,
+						isRecommended: false,
+					},
+				],
 				selectedIds: ["home"],
 			},
 		});

@@ -33,8 +33,12 @@ import {
 	type AskUserHostToolInput,
 	askUserHostToolInputSchema,
 	askUserHostToolOutputSchema,
+	type BuilderTurnMode,
 	type HarnessPendingInteraction,
 	harnessResumeStateSchema,
+	type PresentPlanHostToolInput,
+	presentPlanHostToolInputSchema,
+	presentPlanHostToolOutputSchema,
 	resolveAskUserKind,
 } from "@wandit/contracts";
 import type {
@@ -47,6 +51,7 @@ import type {
 import { HarnessResumeMismatchError } from "../../domain/errors/harness-resume-mismatch.error";
 import type {
 	BuilderHarness,
+	HarnessQuestionResult,
 	HarnessResumeState,
 	HarnessSession,
 	HarnessSessionInput,
@@ -61,6 +66,7 @@ import {
 } from "../../domain/ports/sandbox-provider";
 import type { QuestionInteraction } from "../../domain/question-answers";
 import { ASK_USER_TOOL_NAME } from "../host-tools/ask-user.host-tool";
+import { PRESENT_PLAN_TOOL_NAME } from "../host-tools/present-plan.host-tool";
 import { readForkRunTurn, withForkedBridge } from "./claude-code-bridge-fork";
 
 /**
@@ -79,6 +85,38 @@ const ASK_USER_MAX_LABEL_CHARS = 120;
 const ASK_USER_MAX_NOTE_CHARS = 200;
 const ASK_USER_MAX_ID_CHARS = 64;
 const ASK_USER_MAX_FILES = 6;
+
+// The card limits of one `present_plan` call, as its tool description names
+// them. `pendingOf` cuts every value here, for the same reason as `ask_user`.
+const PRESENT_PLAN_MAX_TITLE_CHARS = 120;
+const PRESENT_PLAN_MAX_SUMMARY_CHARS = 800;
+const PRESENT_PLAN_MAX_SECTIONS = 10;
+const PRESENT_PLAN_MAX_SECTION_TITLE_CHARS = 80;
+const PRESENT_PLAN_MAX_ITEMS = 12;
+const PRESENT_PLAN_MAX_ITEM_CHARS = 300;
+const PRESENT_PLAN_MAX_ASSUMPTIONS = 10;
+
+/**
+ * The built-in tools a Plan Mode session cannot use: each one writes a file,
+ * runs a command, or starts another agent. This is a hard block, not only
+ * prompt text. Native Claude Code plan mode is not usable: a bypass session
+ * still runs Write and Bash in it (docs/v2/DECISIONS.md, D27). The names are
+ * `builtinTools` keys of the adapter; `EnterPlanMode`, `PowerShell`, and
+ * `Workflow` reach the CLI unchanged, the bridge maps the others.
+ */
+const PLAN_MODE_BLOCKED_TOOLS = [
+	"write",
+	"edit",
+	"bash",
+	"NotebookEdit",
+	"Agent",
+	"Monitor",
+	"EnterPlanMode",
+	"ExitPlanMode",
+	"EnterWorktree",
+	"PowerShell",
+	"Workflow",
+] as const;
 
 /**
  * 30 s for a bridge start or an attach, against the adapter default of 120 s.
@@ -177,6 +215,11 @@ type LiveSession = {
 	 * session starts, so a kept session serves only the same rules.
 	 */
 	toolApproval: string;
+	/**
+	 * The turn mode the session started with. The SDK fixes the built-in tool
+	 * filtering when the session starts, so a kept session serves only it.
+	 */
+	mode: BuilderTurnMode;
 	/**
 	 * Set when the turn reuses a kept session: the stored state to resume from
 	 * when the kept bridge is gone at the turn start.
@@ -365,6 +408,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const epoch = this.tokenEpoch();
 		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
+		// A mode switch drops a paused turn whose bridge still waits on the
+		// paused call and holds the bridge port. After an idle stop no bridge
+		// runs, and the kill does nothing.
+		if (options.bridgeDead) {
+			await input.sandbox.exec("sh", ["-c", KILL_STALE_BRIDGE_SCRIPT]);
+		}
 		let session: ClaudeCodeSessionHandle;
 		if (parsed.type === "continue-turn") {
 			// SAFETY: zod checked type, harnessId, and specificationVersion
@@ -372,8 +421,10 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			const continueFrom = parsed as HarnessAgentContinueTurnState;
 			session = options.dropPausedTurn
 				? await agent.createSession({
-						// A stopped sandbox killed the bridge. A rerun cannot deliver
-						// the old host-tool result by id, so the thread resumes between
+						// The paused turn goes for two reasons. A stopped sandbox killed
+						// the bridge, so a rerun cannot deliver the old host-tool result
+						// by id. A mode switch needs a new tool list, but a continue keeps
+						// the tool list of the paused prompt. The thread resumes between
 						// turns: same Claude conversation, no paused turn. Both state
 						// types share the adapter `data` schema; the pending lists stay
 						// out, and the caller's next prompt carries the answers.
@@ -396,7 +447,12 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		} else {
 			// SAFETY: zod checked type, harnessId, and specificationVersion
 			// above; the rest is the adapter's own detach() output.
-			const resumeFrom = parsed as HarnessAgentResumeSessionState;
+			const stored = parsed as HarnessAgentResumeSessionState;
+			// A detach in the middle of a turn nests that turn in `continueFrom`.
+			// A dropped paused turn must go from here too: the SDK refuses a
+			// new prompt on a session with an unfinished turn.
+			const { continueFrom: _pausedTurn, ...betweenTurns } = stored;
+			const resumeFrom = options.dropPausedTurn ? betweenTurns : stored;
 			session = await agent.createSession({
 				resumeFrom: options.bridgeDead
 					? { ...resumeFrom, data: withoutBridgeCoords(resumeFrom.data) }
@@ -460,37 +516,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 							type: "tool-approval-response",
 						}),
 					),
-					toolResultContinuations: input.toolResults.map(
-						(result): ToolResultPart =>
-							result.tool === "ask_user"
-								? {
-										output: {
-											type: "json",
-											// The parse keeps a malformed answer out of the
-											// resumed turn; a bad value throws here.
-											value: askUserHostToolOutputSchema.parse(result.output),
-										},
-										toolCallId: result.toolCallId,
-										toolName: ASK_USER_TOOL_NAME,
-										type: "tool-result",
-									}
-								: {
-										output: {
-											type: "json",
-											// The parse keeps a malformed caller answer out of
-											// the resumed turn; a bad value throws here.
-											value: harnessV1QuestionsToolOutputSchema.parse({
-												action: result.partial
-													? "partially-answered"
-													: "answered",
-												answers: result.answers,
-											}),
-										},
-										toolCallId: result.toolCallId,
-										toolName: ASK_USER_QUESTIONS_TOOL_NAME,
-										type: "tool-result",
-									},
-					),
+					toolResultContinuations: input.toolResults.map(toolResultPartOf),
 				})
 			: entry.agent.stream({
 					abortSignal: input.signal,
@@ -567,7 +593,8 @@ export class ClaudeCodeHarness implements BuilderHarness {
 	 * The kept session of the chat when this turn may reuse it, else null.
 	 * Reuse needs the stored state the last host turn wrote (no other path
 	 * ran a turn since), the same live sandbox, the same tool approval rules,
-	 * and the same token epoch. A kept session that does not fit goes.
+	 * the same turn mode, and the same token epoch. A kept session that does
+	 * not fit goes.
 	 */
 	private async takeKept(
 		input: HarnessSessionInput,
@@ -589,6 +616,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			live.sandboxId === input.sandbox.providerSandboxId &&
 			live.epoch === this.tokenEpoch() &&
 			live.toolApproval === JSON.stringify(input.hostTools.toolApproval) &&
+			live.mode === input.mode &&
 			!live.session.hasUnfinishedTurn();
 		if (!fits) {
 			await this.closeKept(input.chatId, live);
@@ -636,6 +664,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		return {
 			...started,
 			chatId: input.chatId,
+			mode: input.mode,
 			sandboxId: input.sandbox.providerSandboxId,
 			toolApproval: JSON.stringify(input.hostTools.toolApproval),
 		};
@@ -659,9 +688,9 @@ export class ClaudeCodeHarness implements BuilderHarness {
 
 	/**
 	 * The cards of an unfinished turn: one question card per pending
-	 * `ask_user` or `askUserQuestions` call, one approval card per pending
-	 * host tool. Shared by `detach` and `suspendTurn`; an undefined state
-	 * has no cards.
+	 * `ask_user` or `askUserQuestions` call, one plan card per pending
+	 * `present_plan` call, one approval card per pending host tool. Shared by
+	 * `detach` and `suspendTurn`; an undefined state has no cards.
 	 */
 	private pendingOf(
 		state: HarnessAgentContinueTurnState | undefined,
@@ -707,8 +736,29 @@ export class ClaudeCodeHarness implements BuilderHarness {
 				});
 				continue;
 			}
-			// Only the question tools pause for a user answer; a client-side
-			// result of another tool is not a card the user sees.
+			if (result.toolName === PRESENT_PLAN_TOOL_NAME) {
+				// The model wrote the JSON text, so the schema decides the plan.
+				const parsed = presentPlanHostToolInputSchema.safeParse(
+					parseJsonText(result.input),
+				);
+				if (!parsed.success) {
+					this.logger.warn(
+						`builder-turn.pending-cards: a present_plan call has no valid plan, toolCallId=${result.toolCallId}`,
+					);
+				}
+				pending.push({
+					kind: "plan",
+					// The paused call still needs a tool result, or the next turn
+					// drops the session. An empty card still takes the user's reply.
+					plan: parsed.success
+						? presentPlanOf(parsed.data)
+						: { assumptions: [], sections: [], summary: "", title: "" },
+					toolCallId: result.toolCallId,
+				});
+				continue;
+			}
+			// Only the question and plan tools pause for a user answer; a
+			// client-side result of another tool is not a card the user sees.
 			if (result.toolName !== ASK_USER_QUESTIONS_TOOL_NAME) {
 				this.logger.warn(
 					`builder-turn.pending-cards: skipped pending result for ${result.toolName}`,
@@ -787,6 +837,7 @@ export class ClaudeCodeHarness implements BuilderHarness {
 							label: option.label.trim().slice(0, ASK_USER_MAX_LABEL_CHARS),
 							...(description === undefined ? {} : { description }),
 							...(worldId === undefined ? {} : { worldId }),
+							...(option.recommended === true ? { recommended: true } : {}),
 						};
 					});
 				const helper = cutText(question.helper, ASK_USER_MAX_NOTE_CHARS);
@@ -898,7 +949,10 @@ export class ClaudeCodeHarness implements BuilderHarness {
 			model: input.model,
 			// The model asks through the `ask_user` host tool only. It carries
 			// the kinds and the world cards; the built-in question tool has none.
-			inactiveTools: [ASK_USER_QUESTIONS_TOOL_NAME],
+			inactiveTools:
+				input.mode === "plan"
+					? [ASK_USER_QUESTIONS_TOOL_NAME, ...PLAN_MODE_BLOCKED_TOOLS]
+					: [ASK_USER_QUESTIONS_TOOL_NAME],
 			// The template deny rules and hooks still apply in this mode.
 			permissionMode: "allow-all",
 			// Claude Code runs in `<vendor cwd>/<workDir>`; the project and the
@@ -937,8 +991,86 @@ function withoutBridgeCoords(
 }
 
 /**
+ * The tool result that answers one paused call. The parse keeps a malformed
+ * answer out of the resumed turn; a bad value throws here.
+ */
+function toolResultPartOf(result: HarnessQuestionResult): ToolResultPart {
+	switch (result.tool) {
+		case "ask_user":
+			return {
+				output: {
+					type: "json",
+					value: askUserHostToolOutputSchema.parse(result.output),
+				},
+				toolCallId: result.toolCallId,
+				toolName: ASK_USER_TOOL_NAME,
+				type: "tool-result",
+			};
+		case "present_plan":
+			return {
+				output: {
+					type: "json",
+					value: presentPlanHostToolOutputSchema.parse(result.output),
+				},
+				toolCallId: result.toolCallId,
+				toolName: PRESENT_PLAN_TOOL_NAME,
+				type: "tool-result",
+			};
+		case "askUserQuestions":
+			return {
+				output: {
+					type: "json",
+					value: harnessV1QuestionsToolOutputSchema.parse({
+						action: result.partial ? "partially-answered" : "answered",
+						answers: result.answers,
+					}),
+				},
+				toolCallId: result.toolCallId,
+				toolName: ASK_USER_QUESTIONS_TOOL_NAME,
+				type: "tool-result",
+			};
+	}
+}
+
+/**
+ * The plan of one `present_plan` call, cut to the card limits. A section
+ * without a title or without items drops. An assumption has the item limit.
+ */
+function presentPlanOf(
+	input: PresentPlanHostToolInput,
+): PresentPlanHostToolInput {
+	return {
+		assumptions: cutItems(input.assumptions, PRESENT_PLAN_MAX_ASSUMPTIONS),
+		sections: input.sections
+			.flatMap((section) => {
+				const title = cutText(
+					section.title,
+					PRESENT_PLAN_MAX_SECTION_TITLE_CHARS,
+				);
+				const items = cutItems(section.items, PRESENT_PLAN_MAX_ITEMS);
+				return title === undefined || items.length === 0
+					? []
+					: [{ items, title }];
+			})
+			.slice(0, PRESENT_PLAN_MAX_SECTIONS),
+		summary: cutText(input.summary, PRESENT_PLAN_MAX_SUMMARY_CHARS) ?? "",
+		title: cutText(input.title, PRESENT_PLAN_MAX_TITLE_CHARS) ?? "",
+	};
+}
+
+/** At most `max` texts, each cut to the item limit; an empty text drops. */
+function cutItems(items: readonly string[], max: number): string[] {
+	return items
+		.flatMap((item) => {
+			const cut = cutText(item, PRESENT_PLAN_MAX_ITEM_CHARS);
+			return cut === undefined ? [] : [cut];
+		})
+		.slice(0, max);
+}
+
+/**
  * `text` trimmed and cut to `maxChars`, or undefined when it is absent or
- * empty. The `ask_user` card fields go through it.
+ * empty. The `ask_user` and `present_plan` card fields go through it.
  */
 function cutText(
 	text: string | undefined,

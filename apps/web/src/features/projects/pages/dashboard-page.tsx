@@ -2,7 +2,8 @@
  * Dashboard page at `/dashboard`: the prompt box that creates a project and
  * the project grid with search and status filters. The route file imports
  * it by path. Calls the projects queries, the V1 and V2 create hooks, the
- * credits banners, and the landing key button and platform word.
+ * credits banners, and the landing key button and platform word. It owns
+ * the app type and the Plan chip of a V2 create.
  */
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import type { TargetPlatform } from "@wandit/contracts";
@@ -132,8 +133,16 @@ export default function DashboardPage() {
 	const [targetPlatform, setTargetPlatform] = useState<TargetPlatform>(
 		() => promptStash.peek()?.targetPlatform ?? "web",
 	);
+	// Product rule: Plan Mode is on by default for a new V2 app. A landing
+	// draft carries its own mode, read on the first render for the same reason.
+	const [isPlanMode, setIsPlanMode] = useState(
+		() => (promptStash.peek()?.mode ?? "plan") === "plan",
+	);
 	const v1Flow = useCreateProjectWithPrompt();
-	const v2Flow = useCreateAppProjectWithPrompt(targetPlatform);
+	const v2Flow = useCreateAppProjectWithPrompt(
+		targetPlatform,
+		isPlanMode ? "plan" : "build",
+	);
 	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		v2Enabled ? v2Flow : v1Flow;
 	// Post-auth handoff: restore the stashed landing prompt and, when the
@@ -230,6 +239,11 @@ export default function DashboardPage() {
 									platformChoice={
 										v2Enabled
 											? { value: targetPlatform, onChange: setTargetPlatform }
+											: undefined
+									}
+									planChoice={
+										v2Enabled
+											? { value: isPlanMode, onChange: setIsPlanMode }
 											: undefined
 									}
 									attachmentsEnabled

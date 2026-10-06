@@ -134,6 +134,10 @@
 			"waiting": {
 				"title": "Waiting for your next step…",
 				"body": "Continue in the chat when you are ready."
+			},
+			"planning": {
+				"title": "Let's plan your app first",
+				"body": "Answer the questions in the chat. I build once you approve the plan."
 			}
 		},
 		"routes": {
@@ -418,6 +422,8 @@
 			"decideForMe": "Decide for me",
 			"dismiss": "Skip the question",
 			"typingOverride": "answering in your own words ↓",
+			"typingNote": "your note goes with your choice ↓",
+			"recommended": "Recommended",
 			"scrollBack": "Previous cards",
 			"scrollForward": "More cards",
 			"next": "Next",
@@ -447,6 +453,21 @@
 			"answerBelow": "Answer below",
 			"answered": "Answered",
 			"untitled": "Wandit needs your answer"
+		},
+		"plan": {
+			"toggle": {
+				"label": "Plan",
+				"hint": "Plan first: I ask a few questions and show you a plan before I build."
+			},
+			"placeholder": "Describe your idea. I ask a few questions and plan before I build.",
+			"placeholderChanges": "Tell me what to change in the plan",
+			"eyebrow": "Plan",
+			"assumptions": "Choices I made for you",
+			"build": "Build this plan",
+			"buildMessage": "Build this plan.",
+			"changeHint": "Or type what to change below.",
+			"showFull": "Show the full plan",
+			"hideFull": "Hide the plan"
 		},
 		"phases": {
 			"committing": "Saving your changes"
@@ -528,7 +549,8 @@
 			"modelDenied": "Your plan does not include this model.",
 			"modelUnpriced": "This model has no price yet. Try again later."
 		},
-		"building": "Building"
+		"building": "Building",
+		"planning": "Planning"
 	},
 	"publish": {
 		"cta": "Publish",

@@ -2,7 +2,8 @@
  * The screen over the preview while the app is not on screen yet: the
  * server room or the app drawing, the real start-up steps, and an
  * elapsed timer; the asleep note with its wake button while the app sleeps;
- * or the waiting note while the project holds only the template.
+ * the waiting note while the project holds only the template; or the
+ * planning note while Plan Mode plans the first version.
  * PreviewPanel renders it until the app shows. It reads its content from
  * lib/boot-state.ts, draws with BootPlan, and calls the wake route through
  * useWakeSandbox.
@@ -223,6 +224,8 @@ function announcementOf(
 		case "waiting":
 			// The title ends with an ellipsis, so no period joins the two.
 			return `${t("appBuilder.preview.boot.waiting.title")} ${t("appBuilder.preview.boot.waiting.body")}`;
+		case "planning":
+			return `${t("appBuilder.preview.boot.planning.title")}. ${t("appBuilder.preview.boot.planning.body")}`;
 		case "booting": {
 			const active = view.steps.find(
 				(step) => step.state === "active" && step.id !== "database",
@@ -242,7 +245,7 @@ function BootCopy({
 	wakeErrorText,
 }: {
 	view: BootView;
-	/** Sends the wake request. Only the asleep note shows the button, not the stopped or the waiting note. */
+	/** Sends the wake request. Only the asleep note shows the button, not the stopped, waiting, or planning note. */
 	onWake: () => void;
 	/** True while the wake request runs. The button then shows a spinner and is disabled. */
 	isWakePending: boolean;
@@ -253,13 +256,13 @@ function BootCopy({
 
 	if (view.variant === "loading") return null;
 
-	if (view.variant === "asleep" || view.variant === "waiting") {
+	if (view.variant !== "booting") {
 		const note =
-			view.variant === "waiting"
-				? "waiting"
-				: view.stopped
+			view.variant === "asleep"
+				? view.stopped
 					? "stopped"
-					: "asleep";
+					: "asleep"
+				: view.variant;
 		return (
 			<div>
 				<h2 className="text-balance font-grotesk font-semibold @max-[560px]:text-[17px] text-[20px] text-white leading-[1.25] tracking-[-0.02em] rtl:tracking-normal">

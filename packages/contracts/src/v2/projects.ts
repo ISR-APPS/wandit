@@ -12,6 +12,7 @@ import { projectPromptMaxLength, projectSchema } from "../v1/projects";
 import { uuidSchema } from "../v1/shared/primitives";
 import { projectEngineSchema } from "../v1/shared/project-engine";
 import { targetPlatformSchema } from "../v1/shared/target-platform";
+import { builderTurnModeSchema } from "./turns";
 
 // The engine enum moved to the V1 shared folder (WANDIT-175): the V1
 // `projectSchema` carries it now. This line keeps earlier V2 imports working.
@@ -50,6 +51,8 @@ export const createAppProjectRequestSchema = z
 		targetPlatform: targetPlatformSchema.default("web"),
 		// 1 to 3 UI locales (D7). The agent reads them as a hint for the app language only.
 		languages: z.array(appLanguageSchema).min(1).max(3),
+		// The mode of the first turn: the Plan toggle of the prompt box. Absent: `build`.
+		mode: builderTurnModeSchema.optional(),
 	})
 	.refine(
 		(body) =>

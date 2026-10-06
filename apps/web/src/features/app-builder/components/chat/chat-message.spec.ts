@@ -44,6 +44,7 @@ function renderMessage(
 				isDeveloperView,
 				onOpenActivity,
 				onDecideApproval,
+				onBuildPlan: null,
 				trayQuestionKey,
 				onRetry,
 			}),
@@ -80,6 +81,7 @@ const FINISHED_MESSAGE: BuilderMessage = {
 			id: "summary-t3",
 			data: {
 				workedSeconds: 95,
+				mode: "build",
 				files: [
 					{ path: "src/styles/global.css", insertions: 12, deletions: 3 },
 					{ path: "src/routes/index.tsx", insertions: 4, deletions: 1 },

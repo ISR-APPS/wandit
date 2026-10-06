@@ -119,6 +119,8 @@ export const askUserHostToolOptionSchema = z.object({
 	description: z.string().optional(),
 	// Folder name of a design world skill, for example `zellige`.
 	worldId: z.string().optional(),
+	// True on the option the agent advises; the tray shows a badge on it.
+	recommended: z.boolean().optional(),
 });
 
 /** One question of an `ask_user` call; the tray shows it as one step. */
@@ -207,3 +209,48 @@ export const askUserHostToolOutputSchema = z.object({
 
 /** Parsed `ask_user` output; the task builds it from the user's answers. */
 export type AskUserHostToolOutput = z.infer<typeof askUserHostToolOutputSchema>;
+
+/**
+ * One section of a `present_plan` plan, for example "Who uses it". The plan
+ * card shows the title and one bullet per item.
+ */
+export const presentPlanSectionSchema = z.object({
+	title: z.string(),
+	items: z.array(z.string()).default([]),
+});
+
+/**
+ * Input of the `present_plan` host tool: the plan of the app, or of one
+ * change, in plain words for a non-technical user. Only Plan Mode turns
+ * have the tool. It has no execute: the turn pauses until the user decides.
+ * No length limits here, as for `ask_user`; the harness adapter cuts them.
+ */
+export const presentPlanHostToolInputSchema = z.object({
+	// Short name of the plan, for example "Production tracker for your factory".
+	title: z.string().default(""),
+	// Two or three sentences: what the app does, for whom, and the main gain.
+	summary: z.string().default(""),
+	sections: z.array(presentPlanSectionSchema).default([]),
+	// The choices the agent made for the user, for example for a skipped question.
+	assumptions: z.array(z.string()).default([]),
+});
+
+/** Parsed `present_plan` input; the harness adapter reads it from a paused call. */
+export type PresentPlanHostToolInput = z.infer<
+	typeof presentPlanHostToolInputSchema
+>;
+
+/**
+ * Output of the `present_plan` host tool, the tool result the agent reads.
+ * It carries only change requests. An approval starts a new build turn
+ * instead, because the paused Plan Mode turn cannot change files.
+ */
+export const presentPlanHostToolOutputSchema = z.object({
+	// What the user asks to change in the plan, as the user typed it.
+	feedback: z.string(),
+});
+
+/** Parsed `present_plan` output; the task builds it from the user's message. */
+export type PresentPlanHostToolOutput = z.infer<
+	typeof presentPlanHostToolOutputSchema
+>;

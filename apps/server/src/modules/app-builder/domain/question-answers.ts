@@ -1,17 +1,24 @@
 /**
- * Turns the user's answers to paused question cards into what the agent
- * reads. builder-turn.runtime.ts calls it when a turn continues a paused
- * one: the `ask_user` tool result, the built-in `askUserQuestions` result,
- * the text a fresh session gets instead, and the sandbox path of an answer
- * file. Pure functions, no I/O.
+ * Turns the user's answers to paused question and plan cards into what the
+ * agent reads. builder-turn.runtime.ts calls it when a turn continues a
+ * paused one: the `ask_user` and `present_plan` tool results, the built-in
+ * `askUserQuestions` result, the text a fresh session or a mode switch gets
+ * instead, and the sandbox path of an answer file. Pure functions, no I/O.
  */
 import type {
 	AskUserHostToolOutput,
+	BuilderTurnMode,
 	FileRef,
 	HarnessPendingInteraction,
+	HarnessResumeEnvelope,
 	TurnQuestionAnswer,
 } from "@wandit/contracts";
 
+import {
+	approvedPlanPromptOf,
+	BUILD_NOW_PROMPT,
+	planFeedbackPromptOf,
+} from "./plan-mode";
 import type { HarnessQuestionResult } from "./ports/builder-harness";
 
 /** One paused question card, as the resume envelope stores it. */
@@ -19,6 +26,9 @@ export type QuestionInteraction = Extract<
 	HarnessPendingInteraction,
 	{ kind: "question" }
 >;
+
+/** One paused `present_plan` card, as the resume envelope stores it. */
+type PlanInteraction = Extract<HarnessPendingInteraction, { kind: "plan" }>;
 
 /** One answer of the `ask_user` tool result: one question of the call. */
 type AskUserAnswer = AskUserHostToolOutput["answers"][number];
@@ -238,8 +248,9 @@ function answerLineOf(answer: AskUserAnswer): string {
 
 /**
  * The text a fresh session gets when the paused session is lost: one line
- * per answered question and per approval, in card order. `messageText` is
- * the answer of a built-in `askUserQuestions` card.
+ * per answered question and per approval, and the plan with the change
+ * requests, in card order. `messageText` is the answer of a built-in
+ * `askUserQuestions` card.
  */
 export function fallbackPromptOf(input: {
 	pending: readonly HarnessPendingInteraction[];
@@ -258,6 +269,14 @@ export function fallbackPromptOf(input: {
 					`The user ${approved ? "approved" : "denied"} the ${interaction.toolName} call. Continue.`,
 				];
 			}
+			if (interaction.kind === "plan") {
+				const result = input.results.find(
+					(candidate) => candidate.toolCallId === interaction.toolCallId,
+				);
+				return result?.tool === "present_plan"
+					? [planFeedbackPromptOf(interaction.plan, result.output.feedback)]
+					: [];
+			}
 			if (interaction.tool === "askUserQuestions") {
 				const question = interaction.questions[0];
 				return question === undefined
@@ -274,6 +293,50 @@ export function fallbackPromptOf(input: {
 				: [];
 		})
 		.join("\n");
+}
+
+/**
+ * True when the turn's mode differs from the mode of a paused turn with
+ * cards. The harness fixes the tool list per session, so the paused call
+ * cannot continue: the answers go as a text prompt instead.
+ */
+export function switchesMode(
+	paused: Pick<HarnessResumeEnvelope, "mode" | "pending">,
+	mode: BuilderTurnMode,
+): boolean {
+	return paused.pending.length > 0 && paused.mode !== mode;
+}
+
+/**
+ * The text prompt of a turn that switches mode (see `switchesMode`). A build
+ * after a plan card gets the approved plan. A build with open questions
+ * gets the build-now rule and the answers. A plan turn gets the answers
+ * only: the runtime puts `PLAN_MODE_PROMPT` in front of every plan prompt.
+ */
+export function modeSwitchPromptOf(input: {
+	/** The pending cards of the stored resume envelope. */
+	pending: readonly HarnessPendingInteraction[];
+	/** `spec.mode` of this turn. */
+	mode: BuilderTurnMode;
+	/** The answers as text lines, from `fallbackPromptOf`. */
+	answerLines: string;
+	/** The user's prompt text; empty when the user typed and attached nothing. */
+	message: string;
+}): string {
+	const message = input.message.trim();
+	const messageLines = message === "" ? [] : [`The user's message: ${message}`];
+	const planCard = input.pending.find(
+		(interaction): interaction is PlanInteraction =>
+			interaction.kind === "plan",
+	);
+	if (input.mode === "build" && planCard !== undefined) {
+		return [approvedPlanPromptOf(planCard.plan), ...messageLines].join("\n\n");
+	}
+	return [
+		...(input.mode === "build" ? [BUILD_NOW_PROMPT] : []),
+		...(input.answerLines === "" ? [] : [input.answerLines]),
+		...messageLines,
+	].join("\n\n");
 }
 
 /**

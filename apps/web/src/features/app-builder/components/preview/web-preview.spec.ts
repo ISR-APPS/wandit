@@ -36,6 +36,7 @@ const idleBoot: BootContext = {
 	isFirstTurn: false,
 	backend: undefined,
 	hasCodeChanges: true,
+	isPlanning: false,
 };
 
 // Each mint answers the next token, so no network call happens.

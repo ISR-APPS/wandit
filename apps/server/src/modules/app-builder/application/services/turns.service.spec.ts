@@ -854,6 +854,21 @@ describe("TurnsService.create", () => {
 		);
 	});
 
+	it("keeps an approval turn in build mode when the body asks for plan mode", async () => {
+		const { service, turns } = setup();
+		turns.findWaitingForUser.mockResolvedValue(
+			turnRow({ status: "waiting_for_approval" }),
+		);
+
+		await service.create(SCOPE, "project-1", {
+			...BODY,
+			approval: { approvalId: "appr-1", approved: true },
+			mode: "plan",
+		});
+
+		expect(turns.create.mock.calls[0]?.[0]?.spec.mode).toBe("build");
+	});
+
 	it("lets a plain message through while a question card waits", async () => {
 		const { service, turns } = setup();
 		turns.findWaitingForUser.mockResolvedValue(

@@ -1,7 +1,7 @@
 /**
  * Maps the real turn stream messages (`TurnMessage`) to the card shapes the
  * chat components render (`BuilderMessage`). use-builder-thread.ts calls
- * `toBuilderMessages` and `livePhaseOf`. chat-pane.tsx calls
+ * `toBuilderMessages`, `livePhaseOf`, and `latestTurnModeOf`. chat-pane.tsx calls
  * `liveStatusOf` for its status line; the chat and the details panel call
  * `isActivityPart` and `workedDurationOf`. Pure functions, no React, no
  * copy: the components translate each row.
@@ -9,6 +9,7 @@
 
 import {
 	applyMigrationToolInputSchema,
+	type BuilderTurnMode,
 	deployFunctionToolInputSchema,
 	generateImageHostToolInputSchema,
 	generateImageHostToolOutputSchema,
@@ -67,7 +68,8 @@ const STEP_KIND_BY_TOOL_NAME = new Map<string, BuilderStepKind>([
 ]);
 
 // Tools that get no row. The to-do list, the task list, the tool search, and
-// the plan mode are agent bookkeeping. The questions show in the tray.
+// the plan mode are agent bookkeeping. The questions show in the tray, and
+// the plan of `present_plan` shows as the plan card.
 const HIDDEN_TOOL_NAMES = new Set([
 	"TodoWrite",
 	"TaskCreate",
@@ -81,6 +83,7 @@ const HIDDEN_TOOL_NAMES = new Set([
 	"ExitPlanMode",
 	"ask_user",
 	"askUserQuestions",
+	"present_plan",
 ]);
 
 // Host tools report a failure as a normal output with a status. These
@@ -570,6 +573,29 @@ export function livePhaseOf(
 		: null;
 }
 
+/**
+ * The mode of the newest turn the thread knows. A live reply tells it in
+ * its `data-turn-created` frame, a stored reply in its `data-turn-summary`
+ * part. A reply with neither (a failed or a stopped stored turn) gives no
+ * answer, so the reply before it decides. `build` when no reply tells.
+ * The Plan toggle and the preview boot screen start from it.
+ */
+export function latestTurnModeOf(
+	messages: readonly TurnMessage[],
+): BuilderTurnMode {
+	for (const message of messages.toReversed()) {
+		if (message.role !== "assistant") continue;
+		for (const part of message.parts) {
+			// A created frame without a mode comes from an API before Plan Mode.
+			if (part.type === "data-turn-created") return part.data.mode ?? "build";
+			// Live parts skip the zod parse, so the schema default is missing.
+			// A summary from a worker before Plan Mode has no mode.
+			if (part.type === "data-turn-summary") return part.data.mode ?? "build";
+		}
+	}
+	return "build";
+}
+
 /** A part of the turn activity: the details panel shows it, the production chat does not. */
 type ActivityPart = Extract<
 	BuilderMessagePart,
@@ -694,8 +720,8 @@ function hasAssistantMessageAfter(
 /**
  * The parts of one assistant message in stream order: text and notes, a
  * thought row per reasoning block, a step row per visible tool call (a run
- * of reads and searches merges into one row), the summary, the question
- * and approval cards, then the error, the stopped line, and the receipt.
+ * of reads and searches merges into one row), the summary, the question,
+ * approval, and plan cards, then the error, the stopped line, and the receipt.
  * `isLive` is true only for the last message of a running turn.
  */
 function assistantPartsOf(
@@ -729,7 +755,12 @@ function assistantPartsOf(
 			continue;
 		}
 		if (part.type === "data-turn-summary") {
-			parts.push({ type: "data-summary", id: part.id, data: part.data });
+			// A live summary from a worker before Plan Mode has no mode: a build.
+			parts.push({
+				type: "data-summary",
+				id: part.id,
+				data: { ...part.data, mode: part.data.mode ?? "build" },
+			});
 			continue;
 		}
 		if (part.type === "reasoning") {
@@ -801,6 +832,16 @@ function assistantPartsOf(
 					// leaves no reply, so the user can decide again.
 					isOpen: part.data.decision === null && !hasReplyAfter,
 				},
+			});
+			continue;
+		}
+		if (part.type === "data-plan") {
+			parts.push({
+				type: "data-plan",
+				id: part.id,
+				// Like a question: the card waits for the end of the turn, and a
+				// later reply (the build or the changed plan) closes it.
+				data: { ...part.data, isOpen: !isRunning && !hasReplyAfter },
 			});
 		}
 	}

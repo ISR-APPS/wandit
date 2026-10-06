@@ -8,11 +8,18 @@
 
 import type { WorldCard } from "@wandit/contracts";
 
-/** One option of a chip question: the id the answer sends back and the label. */
-export type ChipOption = { id: string; label: string };
+/** One option of a chip question: the id the answer sends back, the label, and the agent's advice. */
+export type ChipOption = {
+	id: string;
+	label: string;
+	/** One short line under the label: what this choice means in the app. Null when the agent wrote none. */
+	description: string | null;
+	/** True on the option the agent advises (`recommended` of the `ask_user` option). The row shows a badge. */
+	isRecommended: boolean;
+};
 
 /** One option of a design-world question; `card` is absent when the world has no preview. */
-export type WorldCardOption = ChipOption & { card?: WorldCard };
+export type WorldCardOption = { id: string; label: string; card?: WorldCard };
 
 /** One image the user picked for an `attachments` question. */
 export type MediaItem = {
@@ -59,6 +66,10 @@ export type RequestTrayState = {
 	/** Position in a round of several questions; null for a single question. */
 	step: { current: number; total: number } | null;
 	body: TrayBody;
-	/** True while the user types an answer over the options; the options dim. */
-	typingOverride: boolean;
+	/**
+	 * What the typed composer text does to a chip question. `replacesOptions`:
+	 * nothing is picked, so the text is the answer and the options dim.
+	 * `addsNote`: the text goes with the picked options. Null: no text, or no options.
+	 */
+	typedTextEffect: "replacesOptions" | "addsNote" | null;
 };

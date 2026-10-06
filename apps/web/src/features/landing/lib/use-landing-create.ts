@@ -1,8 +1,8 @@
 /**
  * Starts a project from the prompt box of the landing hero. The hero calls it.
- * Signed out: stashes the prompt with the app type and opens the auth modal,
- * and the dashboard creates the project after sign-in. Signed in: creates the
- * project now through the V2 or the V1 create hook.
+ * Signed out: stashes the prompt with the app type and Plan Mode, and opens
+ * the auth modal; the dashboard creates the project after sign-in. Signed
+ * in: creates the project now through the V2 or the V1 create hook.
  */
 
 import type { TargetPlatform } from "@wandit/contracts";
@@ -38,13 +38,19 @@ export function useLandingCreate(
 	// the create until it is known.
 	const v2Enabled = useV2BuilderEnabled();
 	const v1Flow = useCreateProjectWithPrompt();
-	const v2Flow = useCreateAppProjectWithPrompt(targetPlatform);
+	// Product rule: the hero has no Plan toggle, so a new app always starts
+	// in Plan Mode.
+	const v2Flow = useCreateAppProjectWithPrompt(targetPlatform, "plan");
 	const flow = v2Enabled ? v2Flow : v1Flow;
 
 	async function create(prompt: string) {
 		if (!session) {
 			// The box has no files, so the draft always starts after sign-in.
-			promptStash.stash(prompt, undefined, { autostart: true, targetPlatform });
+			promptStash.stash(prompt, undefined, {
+				autostart: true,
+				targetPlatform,
+				mode: "plan",
+			});
 			open();
 			return true;
 		}

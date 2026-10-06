@@ -104,8 +104,8 @@ describe("useRequestTray", () => {
 		expect(result.current.state?.body).toEqual({
 			kind: "single-choice",
 			options: [
-				{ id: "warm", label: "Warm" },
-				{ id: "bold", label: "Bold" },
+				{ id: "warm", label: "Warm", description: null, isRecommended: false },
+				{ id: "bold", label: "Bold", description: null, isRecommended: false },
 			],
 			selectedId: null,
 		});
@@ -198,12 +198,29 @@ describe("useRequestTray", () => {
 		const { result, onSubmit } = renderTray([question({})], {
 			draft: "Something green",
 		});
-		expect(result.current.state?.typingOverride).toBe(true);
+		expect(result.current.state?.typedTextEffect).toBe("replacesOptions");
 		expect(result.current.submit?.label).toBe("Answer");
 		act(() => result.current.submit?.onSubmit("Something green"));
 		expect(onSubmit.mock.calls[0]?.[0].answers[0]).toMatchObject({
 			optionIds: [],
 			text: "Something green",
+		});
+	});
+
+	// Product rule: a typed note goes with the picked option instead of replacing it.
+	it("sends the picked option and the typed note together", () => {
+		const { result, onSubmit } = renderTray([question({})], {
+			draft: "In green",
+		});
+		act(() => result.current.bodyCallbacks.onPick("bold"));
+		expect(result.current.state?.typedTextEffect).toBe("addsNote");
+		expect(result.current.submit?.label).toBe("Choose this option");
+		act(() => result.current.submit?.onSubmit("In green"));
+		expect(onSubmit).toHaveBeenCalledWith({
+			message: "Bold\nIn green",
+			answers: [
+				expect.objectContaining({ optionIds: ["bold"], text: "In green" }),
+			],
 		});
 	});
 

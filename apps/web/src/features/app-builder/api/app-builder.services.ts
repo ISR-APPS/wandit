@@ -10,6 +10,7 @@ import {
 	type AppProject as ApiAppProject,
 	appBuilderRoutes,
 	appProjectSchema,
+	type BuilderTurnMode,
 	type CancelTurnResponse,
 	type ChatHistoryPage,
 	type CodeFileResponse,
@@ -56,6 +57,8 @@ export type SendBuilderMessageInput = {
 	text: string;
 	/** Files the user uploaded for this message, with their upload URLs. Empty for a card action. */
 	files: FileUIPart[];
+	/** Set only by "Build this plan" (`build`). Absent: useBuilderThread uses the Plan toggle. */
+	mode?: BuilderTurnMode;
 };
 
 /**

@@ -23,6 +23,8 @@ export type BootContext = {
 	backend: CloudBackendResponse | undefined;
 	/** False while the project holds only the template. From `project.hasCodeChanges`, refetched at each turn end. */
 	hasCodeChanges: boolean;
+	/** True while the newest turn of the chat is a Plan Mode turn (`thread.latestTurnMode`). A template-only project then shows the planning note. */
+	isPlanning: boolean;
 };
 
 /** Everything the mapping reads. PreviewPanel shows its own alert for the token status `error`. */
@@ -81,11 +83,14 @@ export type BootScene =
 /**
  * What the screen shows. `stopped` is true when a turn failed while the user
  * watched. `waiting` is for a project with only the template and no turn.
+ * `planning` is for a project with only the template while Plan Mode asks
+ * and plans, during a turn and between turns.
  */
 export type BootView =
 	| { variant: "loading" }
 	| { variant: "asleep"; stopped: boolean }
 	| { variant: "waiting" }
+	| { variant: "planning" }
 	| {
 			variant: "booting";
 			/** `create`: a new app is set up. `wake`: a saved app wakes. `open`: the app page loads, or the first version builds. */
@@ -134,6 +139,10 @@ export function rememberBoot(
 
 /** The screen content for the signals, and for the memory that rememberBoot returned for them. */
 export function bootViewOf(signals: BootSignals, memory: BootMemory): BootView {
+	// Product rule: Plan Mode builds nothing until the user approves a plan, so no build step shows.
+	if (!signals.hasCodeChanges && signals.isPlanning) {
+		return { variant: "planning" };
+	}
 	// The template is not the user's app. Only a turn can write the first version, so the chat is the next step.
 	if (!signals.hasCodeChanges && !signals.isTurnRunning) {
 		return { variant: "waiting" };
@@ -226,6 +235,9 @@ export function sceneOf(view: BootView): BootScene {
 		// No app exists yet. The dim picture of the asleep note says "nothing runs now".
 		case "waiting":
 			return "asleep";
+		// The light-line drawing of an app reads as the sketch of the plan.
+		case "planning":
+			return "open";
 		case "booting":
 			return view.scene;
 	}
