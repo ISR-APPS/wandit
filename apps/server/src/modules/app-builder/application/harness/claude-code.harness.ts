@@ -247,9 +247,13 @@ type KeptSession = {
  * session keeps its bridge alive for a resume; when the resume is not
  * possible, the old bridge still holds the bridge port and a new one cannot
  * listen. Only sh, tr, grep, and kill are used: the image has no pkill.
+ * The pattern `[b]ridge` matches the bridge but not this script's own text.
+ * A plain `bridge.mjs` pattern matched the script's own shell. The glob sorts
+ * pids as text ("1865" before "733"), so the script killed itself first and
+ * the bridge kept the port: a Plan to Build switch then failed on each retry.
  */
 const KILL_STALE_BRIDGE_SCRIPT =
-	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q 'bridge.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
+	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q '[b]ridge\\.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
 
 export class ClaudeCodeHarness implements BuilderHarness {
 	readonly kind = "claude_code";
