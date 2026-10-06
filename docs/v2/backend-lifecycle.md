@@ -34,14 +34,17 @@ answers `skipped` and writes no audit row.
 ## Retry of a failed backend
 
 `POST cloud/backend` on an `error` row provisions it again. The Cloud tab
-shows the "Try again" button for this. `writeCreatingWithinLimit` moves
-the row back to `creating` under the per-payer lock, with the same plan
-check as a new row, because an `error` row is not in the count. The
-update is a compare-and-set on `error`, so a second click starts no
-second run. The row gets a new request key, so the new run gets a new
-Trigger idempotency key. Every write of the runtime (`markCreated`,
-`markActive`, `markError`) applies only while the row holds the request
-key of its run, so a run of the old key cannot change the retried row.
+shows the "Try again" button for this. Each new chat message
+(`TurnsService.create`, no wait) also calls `provisionBackend`, so an
+`error` row gets a new run without the Cloud tab.
+`writeCreatingWithinLimit` moves the row back to `creating` under the
+per-payer lock, with the same plan check as a new row, because an
+`error` row is not in the count. The update is a compare-and-set on
+`error`, so a second click or message starts no second run. The row
+gets a new request key, so the new run gets a new Trigger idempotency
+key. Every write of the runtime (`markCreated`, `markActive`,
+`markError`) applies only while the row holds the request key of its
+run, so a run of the old key cannot change the retried row.
 
 The retry keeps the ref. The new run reads the status of that project
 first:

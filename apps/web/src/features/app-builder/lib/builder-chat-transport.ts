@@ -54,8 +54,9 @@ const reconnectBodySchema = z.object({ turnId: uuidSchema.optional() });
 
 // The wait before each reopen in a row. The first reopen goes at once,
 // because the 15-minute cut is normal for a long build.
-// LIMIT: about 45 s of failed reopens, then the chat shows the error and a
-// reload resumes the turn. Upgrade: also wait for the browser `online` event.
+// LIMIT: about 45 s of failed reopens, then the chat shows the error with a
+// Reconnect button (useBuilderChat.reconnect). The browser `online` event
+// reconnects once. Upgrade: wait for `online` inside this loop, so no error shows.
 const REOPEN_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 15_000];
 
 /**

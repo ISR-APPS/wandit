@@ -11,7 +11,8 @@ import { Composer, type ComposerProps } from "./composer";
 
 // The page mounts one TooltipProvider; the icon buttons need it too.
 function renderComposer(props: Partial<ComposerProps> = {}) {
-	const onSend = vi.fn();
+	// The API admits every send of these cases.
+	const onSend = vi.fn<ComposerProps["onSend"]>(async () => true);
 	// I18nProvider requires children in its props type for createElement calls.
 	// The dictation hook refreshes the credits, so it needs a query client.
 	const providerProps: ComponentProps<typeof I18nProvider> = {

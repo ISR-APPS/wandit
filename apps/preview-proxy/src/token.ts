@@ -31,9 +31,11 @@ export function readCookieValue(
 /**
  * Answers a valid `?wt=` request. It stores the token in the `__Host-`
  * cookie and redirects (302) to the same URL without `wt`. So the token
- * does not stay in browser history or logs. No `Domain` and no `Max-Age`:
- * the `__Host-` rules need `Secure`, `Path=/`, and no `Domain`
- * (security.md 9.1). The token carries `exp`.
+ * does not stay in browser history or logs. The token cookie has no
+ * `Domain` and no `Max-Age`: the `__Host-` rules need `Secure`, `Path=/`,
+ * and no `Domain` (security.md 9.1). The token carries `exp`.
+ * `Partitioned` (CHIPS) keys the cookie to the top-level site: the builder
+ * in the frame, the preview host in a new tab.
  */
 export function exchangeRedirect(
 	url: URL,
@@ -42,9 +44,17 @@ export function exchangeRedirect(
 ): Response {
 	url.searchParams.delete(PREVIEW_TOKEN_QUERY);
 	const headers = securityHeaders(frameAncestors);
-	headers.set(
+	// Chrome keeps an old unpartitioned cookie next to the partitioned one and sends the old, stale one first.
+	// readCookieValue reads the first match, so this header deletes the old cookie.
+	// It comes first: a browser that keeps both cookies in one jar then still keeps the new token.
+	headers.append(
 		"set-cookie",
-		`${PREVIEW_COOKIE_NAME}=${token}; Secure; HttpOnly; SameSite=None; Path=/`,
+		`${PREVIEW_COOKIE_NAME}=; Secure; HttpOnly; SameSite=None; Path=/; Max-Age=0`,
+	);
+	// The builder frames this host from another site. Safari, iOS, and Chrome Incognito drop such a cookie without Partitioned.
+	headers.append(
+		"set-cookie",
+		`${PREVIEW_COOKIE_NAME}=${token}; Secure; HttpOnly; SameSite=None; Path=/; Partitioned`,
 	);
 	headers.set("location", url.toString());
 	return new Response(null, { status: 302, headers });

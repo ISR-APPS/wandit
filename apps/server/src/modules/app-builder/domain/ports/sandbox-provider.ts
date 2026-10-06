@@ -134,6 +134,18 @@ export interface SandboxHandle {
 	readonly workspaceDir: string;
 	/** The vendor id of the sandbox. Logged with every lifecycle step. */
 	readonly providerSandboxId: string;
+	/**
+	 * True when the `getOrCreate` or `resume` call that gave this handle pushed
+	 * a raw policy to an existing sandbox. That push deletes the proxy run-token
+	 * rule of a harness session that the harness host keeps between turns.
+	 */
+	readonly networkPolicyReplaced: boolean;
+	/**
+	 * Hash of the network policy that this start gave the vendor, or null.
+	 * Another process (a restore, a wake, a publish) can push a new policy
+	 * between two turns. A kept harness session then serves only the same hash.
+	 */
+	readonly networkPolicyHash: string | null;
 	exec(
 		command: string,
 		args: string[],

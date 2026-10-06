@@ -138,7 +138,7 @@ function expectSecurityHeaders(response: Response): void {
 }
 
 describe("preview proxy", () => {
-	it("answers a valid ?wt= with a 302 to / and the cookie with its four attributes", async () => {
+	it("answers a valid ?wt= with a 302 to /, expires the unpartitioned cookie, and sets the partitioned one", async () => {
 		const token = await signPreviewToken(makeClaims(), KEY);
 		const host = previewHost(PROJECT_ID, RUN_ID);
 
@@ -148,12 +148,17 @@ describe("preview proxy", () => {
 
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe(`https://${host}/`);
-		const setCookie = response.headers.get("set-cookie") ?? "";
+		const [expiredCookie, setCookie = ""] = response.headers.getSetCookie();
+		// Chrome keeps a pre-CHIPS cookie next to the partitioned one and sends the stale token first.
+		expect(expiredCookie).toBe(
+			`${PREVIEW_COOKIE_NAME}=; Secure; HttpOnly; SameSite=None; Path=/; Max-Age=0`,
+		);
 		expect(setCookie).toContain(`${PREVIEW_COOKIE_NAME}=${token}`);
 		expect(setCookie).toContain("Secure");
 		expect(setCookie).toContain("HttpOnly");
 		expect(setCookie).toContain("SameSite=None");
 		expect(setCookie).toContain("Path=/");
+		expect(setCookie).toContain("Partitioned");
 		expectSecurityHeaders(response);
 	});
 

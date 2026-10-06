@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
+import type { PreviewBridgeMessage } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { type ComponentProps, createElement } from "react";
@@ -25,12 +34,15 @@ const project: AppProject = {
 	hasCodeChanges: true,
 };
 
+const PREVIEW_ORIGIN =
+	"https://r-abcdef123456--p-nadi-fitness-mobile.wanditpreview.app";
+const TITLE = "Preview of Nadi Fitness";
+
 // The fake answers one minted URL, so no network call happens.
 const readyDeps: PreviewTokenDeps = {
 	getPreviewToken: async () => ({
 		token: "t1",
-		previewUrl:
-			"https://r-abcdef123456--p-nadi-fitness-mobile.wanditpreview.app/?wt=t1",
+		previewUrl: `${PREVIEW_ORIGIN}/?wt=t1`,
 		// One hour out: the scheduled re-mint never fires during a spec run.
 		expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
 	}),
@@ -47,6 +59,20 @@ const idleBoot: BootContext = {
 	isPlanning: false,
 };
 
+// Each mint answers the next token, so no network call happens.
+function depsWithTokens(...tokens: string[]): PreviewTokenDeps {
+	const getPreviewToken = vi.fn<PreviewTokenDeps["getPreviewToken"]>();
+	for (const token of tokens) {
+		getPreviewToken.mockResolvedValueOnce({
+			token,
+			previewUrl: `${PREVIEW_ORIGIN}/?wt=${token}`,
+			// One hour out: the scheduled re-mint never fires during a spec run.
+			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+		});
+	}
+	return { getPreviewToken };
+}
+
 // jsdom has no ResizeObserver; the stage measures itself with one.
 class ResizeObserverStub implements ResizeObserver {
 	disconnect() {}
@@ -57,20 +83,24 @@ class ResizeObserverStub implements ResizeObserver {
 	unobserve() {}
 }
 
-async function renderPreview(
-	target: MobilePreviewTarget,
-	canRunOnDevice = false,
-) {
-	const props: PhonePreviewProps = {
+function propsWith(overrides: Partial<PhonePreviewProps>): PhonePreviewProps {
+	return {
 		project,
-		target,
+		target: "web",
 		onChangeTarget: () => {},
 		reloadKey: 0,
 		onReload: () => {},
 		bootContext: idleBoot,
-		canRunOnDevice,
+		canRunOnDevice: false,
+		canStartTurn: true,
+		onTryToFix: () => {},
 		deps: readyDeps,
+		...overrides,
 	};
+}
+
+// One client per case: a rerender with a new client would drop the queries of the stage.
+function previewElement(props: PhonePreviewProps, queryClient: QueryClient) {
 	// The page mounts one TooltipProvider; the bar buttons need it too.
 	// I18nProvider requires children in its props type for createElement calls.
 	const providerProps: ComponentProps<typeof I18nProvider> = {
@@ -84,14 +114,37 @@ async function renderPreview(
 		),
 	};
 	// The wake button of the boot screen needs a query client.
-	render(
-		createElement(
-			QueryClientProvider,
-			{ client: new QueryClient() },
-			createElement(I18nProvider, providerProps),
-		),
+	return createElement(
+		QueryClientProvider,
+		{ client: queryClient },
+		createElement(I18nProvider, providerProps),
 	);
-	return screen.findByTitle("Preview of Nadi Fitness");
+}
+
+async function renderPreview(
+	target: MobilePreviewTarget,
+	canRunOnDevice = false,
+) {
+	render(
+		previewElement(propsWith({ target, canRunOnDevice }), new QueryClient()),
+	);
+	return screen.findByTitle(TITLE);
+}
+
+// The dev bridge of the app posts from the window of the preview iframe, on the preview origin.
+async function postFromFrame(message: PreviewBridgeMessage) {
+	const iframe = screen.getByTitle<HTMLIFrameElement>(TITLE);
+	// The message listener registers in an effect; flush it before the dispatch.
+	await act(async () => {});
+	act(() => {
+		window.dispatchEvent(
+			new MessageEvent("message", {
+				origin: PREVIEW_ORIGIN,
+				source: iframe.contentWindow,
+				data: message,
+			}),
+		);
+	});
 }
 
 beforeEach(() => {
@@ -126,5 +179,53 @@ describe("PhonePreview", () => {
 		expect(screen.getByRole("button", { name: "Android" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Turn on" })).toBeTruthy();
 		expect(screen.queryByTitle("iOS device with Nadi Fitness")).toBeNull();
+	});
+
+	// An error during a turn can come from a half-written file. A page that cannot start
+	// after the turn posts no ready. So the kept error must show on the frame load.
+	it("hides a turn error, reloads the frame at the turn end, shows the kept error on load, and clears it on ready", async () => {
+		const onTryToFix = vi.fn<(message: string) => void>();
+		const deps = depsWithTokens("t1", "t2");
+		const queryClient = new QueryClient();
+		const runningBoot: BootContext = { ...idleBoot, isTurnRunning: true };
+		const compileError = "Unable to resolve module ../../assets/hero.png";
+		const { rerender } = render(
+			previewElement(
+				propsWith({ bootContext: runningBoot, onTryToFix, deps }),
+				queryClient,
+			),
+		);
+		await screen.findByTitle(TITLE);
+
+		await postFromFrame({
+			type: "wandit:runtime-error",
+			message: compileError,
+		});
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		rerender(
+			previewElement(
+				propsWith({ bootContext: idleBoot, onTryToFix, deps }),
+				queryClient,
+			),
+		);
+		await waitFor(() =>
+			expect(screen.getByTitle(TITLE).getAttribute("src")).toBe(
+				`${PREVIEW_ORIGIN}/?wt=t2`,
+			),
+		);
+		// The new page has not loaded yet, so the old error may not apply.
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		fireEvent.load(screen.getByTitle(TITLE));
+		const banner = await screen.findByRole("alert");
+		expect(within(banner).getByText(compileError)).toBeTruthy();
+		fireEvent.click(within(banner).getByRole("button", { name: "Try to fix" }));
+		expect(onTryToFix).toHaveBeenCalledWith(
+			expect.stringContaining(`1. ${compileError}`),
+		);
+
+		await postFromFrame({ type: "wandit:bridge-ready" });
+		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

@@ -5,16 +5,25 @@
  * platform. 2. the attachment check. 3. the settled-balance gate. 4. one
  * transaction (project, chat, first message, builder session). 5. the
  * backend provision handoff. 6. the first builder turn, which adopts the
- * message row. 7. the title job and `v2_project_created`.
+ * message row; when it fails, one stored error reply. 7. the title job and
+ * `v2_project_created`.
  */
 import { randomUUID } from "node:crypto";
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type {
-	AppProject,
-	CreateAppProjectRequest,
-	CreateAppProjectResponse,
-	ProjectCostCaps,
-	UpdateProjectCostCapsRequest,
+import {
+	HttpException,
+	Inject,
+	Injectable,
+	Logger,
+	NotFoundException,
+} from "@nestjs/common";
+import {
+	type AppProject,
+	type CreateAppProjectRequest,
+	type CreateAppProjectResponse,
+	type ProjectCostCaps,
+	type TurnErrorData,
+	turnErrorDataSchema,
+	type UpdateProjectCostCapsRequest,
 } from "@wandit/contracts";
 import { getErrorMessage } from "@wandit/observability/error";
 
@@ -22,6 +31,7 @@ import { AnalyticsService } from "../../../../infrastructure/analytics/analytics
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { subjectPayer } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import {
 	assertWanditHostedAttachments,
 	deriveProjectName,
@@ -89,6 +99,8 @@ export class AppProjectsService {
 			AppCommitsRepository,
 			"countVersions" | "hasFileChanges"
 		>,
+		@Inject(ChatsRepository)
+		private readonly chats: Pick<ChatsRepository, "insertUiMessagesIfAbsent">,
 	) {}
 
 	/**
@@ -185,13 +197,15 @@ export class AppProjectsService {
 			);
 			turnId = turn.turnId;
 		} catch (error) {
-			// A failed first turn must not lose the project; the web app retries
-			// the message through POST .../turns.
+			// A failed first turn must not lose the project. The stored error
+			// reply gives the chat its error card and Retry, which sends the
+			// prompt again through POST .../turns.
 			this.logger.error(
 				`First builder turn failed for project ${projectId}: ${
 					error instanceof Error ? error.message : String(error)
 				}`,
 			);
+			await this.storeFirstTurnError(chatId, projectId, error);
 		}
 
 		// Best-effort rename like V1 create: never throws, never delays the
@@ -223,6 +237,51 @@ export class AppProjectsService {
 		});
 
 		return { chatId, projectId, turnId };
+	}
+
+	/**
+	 * Stores one assistant message with a single `data-turn-error` part after
+	 * the chat's first message. A failed write only logs: the create still
+	 * answers 201.
+	 */
+	private async storeFirstTurnError(
+		chatId: string,
+		projectId: string,
+		error: unknown,
+	): Promise<void> {
+		// Our HTTP errors carry a code and a user sentence, for example 429
+		// TOO_MANY_ACTIVE_TURNS. Any other error text can be internal, so it
+		// stays in the log.
+		const known =
+			error instanceof HttpException
+				? turnErrorDataSchema
+						.pick({ code: true, message: true })
+						.safeParse(error.getResponse())
+				: null;
+		const data: TurnErrorData = {
+			code: known?.success ? known.data.code : "create_failed",
+			message: known?.success
+				? known.data.message
+				: "The build did not start. Send your message again.",
+			retryable: true,
+		};
+		try {
+			await this.chats.insertUiMessagesIfAbsent(
+				chatId,
+				[
+					{
+						id: randomUUID(),
+						parts: [{ data, id: "turn-error", type: "data-turn-error" }],
+						role: "assistant",
+					},
+				],
+				null,
+			);
+		} catch (insertError) {
+			this.logger.error(
+				`First turn error reply failed for project ${projectId}: ${getErrorMessage(insertError)}`,
+			);
+		}
 	}
 
 	/**

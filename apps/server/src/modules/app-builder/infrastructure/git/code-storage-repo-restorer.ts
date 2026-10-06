@@ -1,9 +1,9 @@
 /**
- * `RepoRestorer` on code.storage (D21): brings a project's repository into
- * a sandbox that lost its disk. `VercelSandboxProvider.start` calls it for a
- * new sandbox, and `VersionsService` before a version restore. It resets to
- * the fetched `main` when `.git` exists, and else rebuilds the worktree in
- * place. It runs git in the sandbox through `mustRunGit`.
+ * `RepoRestorer` on code.storage (D21): resets a sandbox disk to `main`.
+ * `VercelSandboxProvider.start` calls it for a new sandbox and for a
+ * `creating` row after a dead or failed start. `VersionsService` calls it
+ * before a version restore. It resets with git when `.git` exists, else it
+ * rebuilds the worktree. It runs git through `mustRunGit`.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";

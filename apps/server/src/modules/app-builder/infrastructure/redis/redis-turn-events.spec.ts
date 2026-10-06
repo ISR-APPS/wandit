@@ -131,7 +131,7 @@ describe("RedisTurnEventReader", () => {
 		const cursors: string[] = [];
 		const timingOut: TurnEventsReadClient = {
 			disconnect: () => undefined,
-			xread: async (_block, _ms, _streams, _key, id) => {
+			xread: async (_count, _entries, _block, _ms, _streams, _key, id) => {
 				cursors.push(id);
 				if (id === "0") {
 					return [["key", [["1-0", ["event", statusEvent]]]]];
@@ -144,6 +144,8 @@ describe("RedisTurnEventReader", () => {
 			{
 				disconnect: () => undefined,
 				xread: async (
+					_count: "COUNT",
+					_entries: number,
 					_block: "BLOCK",
 					_ms: number,
 					_streams: "STREAMS",

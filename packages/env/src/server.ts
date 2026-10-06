@@ -333,6 +333,13 @@ export const env = createEnv({
 		HARNESS_HOST_SECRET: z.string().min(32).optional(),
 		// Port the harness host process listens on.
 		HARNESS_HOST_PORT: z.coerce.number().int().positive().optional(),
+		// Railway's time in seconds from SIGTERM to SIGKILL of a replaced
+		// deploy. The harness host lets its live turns run until 5 s before it.
+		// Unset means 0: the host exits at once.
+		RAILWAY_DEPLOYMENT_DRAINING_SECONDS: z.coerce
+			.number()
+			.nonnegative()
+			.optional(),
 		SUPABASE_PLATFORM_TOKEN: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_ORG_ID: z.string().min(1).optional(),
 		SUPABASE_PLATFORM_REGION: z.string().min(1).optional(),

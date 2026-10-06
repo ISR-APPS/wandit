@@ -4,6 +4,8 @@
  * and the credit hold stays reserved. `main.ts` calls `recoverHostTurns` at
  * start and on a timer; it ends those turns like a failed run does.
  */
+import { randomUUID } from "node:crypto";
+import type { TurnDoneData, TurnErrorData } from "@wandit/contracts";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "../modules/app-builder/application/services/llm-proxy-token.service";
 import type { TurnStreamEventInput } from "../modules/app-builder/domain/ports/turn-events";
 import type { TurnLock } from "../modules/app-builder/domain/ports/turn-lock";
@@ -14,7 +16,10 @@ import type {
 } from "../modules/app-builder/infrastructure/persistence/builder-turns.repository";
 import type { LlmSpendCounterStore } from "../modules/app-builder/infrastructure/redis/llm-spend-counters";
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
-import type { BuilderTurnLogger } from "../trigger/builder-turn.runtime";
+import type {
+	BuilderTurnDeps,
+	BuilderTurnLogger,
+} from "../trigger/builder-turn.runtime";
 
 /** The error the turn card shows after a host crash. */
 const HOST_LOST_ERROR = "The build server restarted. Send your message again.";
@@ -30,6 +35,16 @@ export type HostRecoveryDeps = {
 	metering: Pick<MeteringService, "findByIdempotencyKey" | "refund">;
 	/** `TurnPromoter.promoteNext`: queues the next waiting turn of the project. */
 	promoteNext: (projectId: string, endedTurnId: string) => Promise<void>;
+	/**
+	 * True while some host instance runs the turn: the run mark that its runner
+	 * refreshes in Redis has not expired yet. `main.ts` reads the mark.
+	 */
+	isRunningOnAnyHost: (turnId: string) => Promise<boolean>;
+	/**
+	 * Stores the reply row of the dead turn, so a reload shows the error card
+	 * or the Stopped line. `main.ts` passes the task dep.
+	 */
+	insertAssistantMessage: BuilderTurnDeps["insertAssistantMessage"];
 	/** Appends events after the ones the dead run wrote to the turn's Redis Stream. */
 	appendEvents: (
 		turnId: string,
@@ -38,10 +53,8 @@ export type HostRecoveryDeps = {
 	logger: BuilderTurnLogger;
 };
 
-// LIMIT: one host instance. A turn that another instance runs looks dead
-// here. Upgrade: a host instance id on the row, or a Redis lease per turn.
 /**
- * Ends every host-owned active turn that no run of this process owns. A
+ * Ends every host-owned active turn that no host instance runs. A
  * `queued` row ends only on its second sweep: the API may hand it over now.
  * Answers the ids of the `queued` rows this sweep saw first, for the next call.
  */
@@ -59,6 +72,11 @@ export async function recoverHostTurns(
 		}
 		if (row.status === "queued" && !queuedSeenBefore.has(row.id)) {
 			queuedSeenNow.add(row.id);
+			continue;
+		}
+		// In a deploy, the old instance still runs its turns while the new one
+		// sweeps. Their run marks keep them out of this recovery.
+		if (await deps.isRunningOnAnyHost(row.id)) {
 			continue;
 		}
 		await recoverTurn(deps, row);
@@ -108,21 +126,38 @@ async function recoverTurn(
 			});
 		}
 	};
+	const done: TurnDoneData = { status: canceled ? "canceled" : "failed" };
+	const errorData: TurnErrorData = {
+		code: "host_lost",
+		message: HOST_LOST_ERROR,
+		retryable: true,
+	};
+	// A run stores its reply only at its end, so a dead run left none. The row
+	// holds the same part as the stream: a reload shows the error card and
+	// Retry, or the Stopped line. It lands before the events, for a reload
+	// right after `done`.
+	const { chatId } = row;
+	if (chatId !== null) {
+		await step("reply", () =>
+			deps.insertAssistantMessage({
+				chatId,
+				id: randomUUID(),
+				metadata: null,
+				parts: canceled
+					? [{ data: done, id: "turn-done", type: "data-turn-done" }]
+					: [{ data: errorData, id: "turn-error", type: "data-turn-error" }],
+				turnId: row.id,
+			}),
+		);
+	}
 	await step("events", () =>
 		deps.appendEvents(
 			row.id,
 			canceled
-				? [{ data: { status: "canceled" }, type: "done" }]
+				? [{ data: done, type: "done" }]
 				: [
-						{
-							data: {
-								code: "host_lost",
-								message: HOST_LOST_ERROR,
-								retryable: true,
-							},
-							type: "error",
-						},
-						{ data: { status: "failed" }, type: "done" },
+						{ data: errorData, type: "error" },
+						{ data: done, type: "done" },
 					],
 		),
 	);
@@ -142,7 +177,6 @@ async function recoverTurn(
 	});
 	// The token and the chat binding die with the turn, so no process in the
 	// sandbox can spend after it.
-	const { chatId } = row;
 	if (chatId !== null) {
 		await step("unbind", () => deps.counters.unbindChat(chatId, row.id));
 	}

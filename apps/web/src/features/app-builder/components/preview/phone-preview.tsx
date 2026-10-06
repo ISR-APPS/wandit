@@ -4,9 +4,12 @@
  * phone and, on a wide stage, the "Test on your phone" QR column. Rendered
  * by pages/app-builder-page.tsx. The web target shows the web build through
  * PreviewPanel; a device target streams Appetize through useDeviceSession.
+ * The dev bridge of the web build posts its errors; PreviewErrorBanner shows
+ * them under the bar with "Try to fix".
  */
 
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
+import type { PreviewBridgeMessage } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { useLayoutEffect, useRef, useState } from "react";
 
@@ -20,6 +23,7 @@ import {
 	type PhoneDevice,
 } from "../../lib/constants";
 import { useDeviceSession } from "../../lib/use-device-session";
+import { usePreviewRuntimeErrors } from "../../lib/use-preview-runtime-errors";
 import {
 	type PreviewTokenDeps,
 	usePreviewToken,
@@ -38,6 +42,7 @@ import {
 	PhoneFrame,
 	type PhoneFrameProps,
 } from "./phone-frame";
+import { PreviewErrorBanner } from "./preview-error-banner";
 import { PreviewPanel } from "./preview-panel";
 
 /** Free space around the phone on the stage, CSS px. The `p-6` class of the stage row draws it. */
@@ -77,6 +82,10 @@ export type PhonePreviewProps = {
 	bootContext: BootContext;
 	/** True when the user may run an Appetize device, from useDevicePreviewEnabled in the page. */
 	canRunOnDevice: boolean;
+	/** False while a turn runs or the chat loads. Then "Try to fix" is disabled. */
+	canStartTurn: boolean;
+	/** Sends the "Try to fix" text as one chat message. */
+	onTryToFix: (message: string) => void;
 	/** Spec seam: a fake getPreviewToken for usePreviewToken. Production callers leave it out. */
 	deps?: PreviewTokenDeps;
 };
@@ -93,10 +102,17 @@ export function PhonePreview({
 	onReload,
 	bootContext,
 	canRunOnDevice,
+	canStartTurn,
+	onTryToFix,
 	deps,
 }: PhonePreviewProps) {
 	const { t } = useTranslation();
-	const preview = usePreviewToken(project.id, reloadKey, deps);
+	const runtimeErrors = usePreviewRuntimeErrors(bootContext.isTurnRunning);
+	const preview = usePreviewToken(
+		project.id,
+		reloadKey + runtimeErrors.ownReloads,
+		deps,
+	);
 	// Without the device flag only the web build exists, so `?device=ios` shows it.
 	const activeTarget: MobilePreviewTarget = canRunOnDevice ? target : "web";
 	const devicePlatform = activeTarget === "web" ? null : activeTarget;
@@ -156,6 +172,16 @@ export function PhonePreview({
 	// A device stream draws its own status bar.
 	if (devicePlatform !== null) chrome = "none";
 
+	// The mobile bridge posts only ready and runtime errors: the phone has no select mode and no address bar.
+	function onBridgeMessage(message: PreviewBridgeMessage) {
+		if (message.type === "wandit:bridge-ready") {
+			// The app loaded again, so the errors of the old page no longer apply.
+			runtimeErrors.clear();
+		} else if (message.type === "wandit:runtime-error") {
+			runtimeErrors.add({ message: message.message, stack: message.stack });
+		}
+	}
+
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex h-12 shrink-0 items-center gap-2 border-night/[0.07] border-b px-3 dark:border-white/[0.07]">
@@ -208,6 +234,15 @@ export function PhonePreview({
 					)}
 				</div>
 			</div>
+			{/* The web build in the frame runs the same code as the device, so the banner shows on every target. */}
+			{runtimeErrors.isBannerShown ? (
+				<PreviewErrorBanner
+					errors={runtimeErrors.errors}
+					count={runtimeErrors.count}
+					canStartTurn={canStartTurn}
+					onTryToFix={onTryToFix}
+				/>
+			) : null}
 			<div ref={stageRef} className="relative min-h-0 flex-1 overflow-hidden">
 				{/* The dots sit on their own layer: `bg-dots` carries a mask that would fade the phone too. */}
 				<div
@@ -246,6 +281,8 @@ export function PhonePreview({
 												PHONE_SCREEN_WIDTH_PX / PHONE_VIEWPORT_WIDTH_PX.ios,
 										}}
 										bootContext={bootContext}
+										onBridgeMessage={onBridgeMessage}
+										onFrameLoad={runtimeErrors.onFrameLoad}
 									/>
 								</div>
 								{devicePlatform === null ? null : (

@@ -688,16 +688,16 @@ export class SupabaseManagementClient {
 	}
 
 	/**
-	 * Sets the auth site URL, the redirect allow list, the email flag, and
-	 * the email confirmation switch (`mailer_autoconfirm`).
+	 * Sets the email flag, the email confirmation switch (`mailer_autoconfirm`),
+	 * and, when given, the auth site URL and the redirect allow list.
 	 */
 	async updateAuthConfig(
 		scope: BackendRef,
 		input: {
-			/** Public URL the app's sign-in redirects to, the preview host. */
-			siteUrl: string;
-			/** Extra redirect origins; joined into one comma-separated string. */
-			uriAllowList: string[];
+			/** Public URL the app's sign-in redirects to, the preview host. Absent keeps the Supabase value. */
+			siteUrl?: string;
+			/** Extra redirect origins; joined into one comma-separated string. Absent keeps the Supabase value. */
+			uriAllowList?: string[];
 			/** Turns the email provider on. */
 			externalEmailEnabled: boolean;
 			/**
@@ -713,10 +713,12 @@ export class SupabaseManagementClient {
 			path: `/projects/${scope.ref}/config/auth`,
 			bucket: supabaseRateLimitKeys.project(scope.ref),
 			limitPerMinute: SUPABASE_REQUESTS_PER_MINUTE,
+			// `JSON.stringify` drops an undefined field. Supabase then keeps the
+			// value of each absent URL field.
 			body: {
 				site_url: input.siteUrl,
 				// The API takes one comma-separated string, not an array.
-				uri_allow_list: input.uriAllowList.join(","),
+				uri_allow_list: input.uriAllowList?.join(","),
 				external_email_enabled: input.externalEmailEnabled,
 				mailer_autoconfirm: input.skipEmailConfirmation,
 			},

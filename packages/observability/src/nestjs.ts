@@ -27,7 +27,10 @@ export * as Sentry from "@sentry/nestjs";
  * from the entry file.
  */
 export interface InitNestSentryOptions extends WanditSentryOptions {
-	/** The `runtime` tag of every event: "harness-host" for the host process, else "server". */
+	/**
+	 * The `runtime` tag of every event: "harness-host" for the host process, else "server".
+	 * "harness-host" also samples 0 traces.
+	 */
 	runtime: "server" | "harness-host";
 }
 
@@ -57,7 +60,13 @@ export function initNestSentry(options: InitNestSentryOptions): void {
 			// puts prompts into spans — flip to false if that becomes sensitive.
 			Sentry.vercelAIIntegration({ recordInputs: true, recordOutputs: true }),
 		],
-		tracesSampler: dropHealthchecks(options.tracesSampleRate ?? 0.2),
+		// Host turns continue the sampled browser trace and send too many spans.
+		// `dropHealthchecks` keeps a sampled parent, so a rate of 0 does not stop them.
+		// Errors and logs do not use the sampler.
+		tracesSampler:
+			options.runtime === "harness-host"
+				? () => 0
+				: dropHealthchecks(options.tracesSampleRate ?? 0.2),
 		beforeSend: scrubEvent,
 		initialScope: { tags: { runtime: options.runtime } },
 	});

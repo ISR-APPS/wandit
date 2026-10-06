@@ -80,6 +80,7 @@
 	"preview": {
 		"frameTitle": "Aperçu de {name}",
 		"retry": "Réessayer",
+		"frameBlocked": "Ton navigateur bloque l’aperçu dans cette page. Ouvre-le dans un nouvel onglet.",
 		"select": "Sélectionner",
 		"selectHint": "Choisis des éléments de ton app. Le prochain message les modifie.",
 		"selectLimit": "Tu peux choisir jusqu’à {count} éléments.",
@@ -538,16 +539,20 @@
 		"dictate": "Dicter",
 		"turnError": "L'opération s'est arrêtée : {message}",
 		"retry": "Réessayer",
+		"reconnect": "Se reconnecter",
 		"stopped": "Arrêté",
 		"receipt": "{credits} · {tokens} jetons",
 		"receiptCache": "cache : {read} lus, {write} écrits",
 		"errors": {
 			"noCredits": "Vous n'avez plus de crédits pour cette opération.",
 			"projectCap": "Ce projet a atteint son plafond de crédits.",
+			"dailyCap": "Vous avez atteint la limite d'IA du jour. Elle se réinitialise à 00:00 UTC.",
 			"tooManyTurns": "Trop d'opérations s'exécutent en même temps. Attendez que l'une d'elles se termine.",
 			"approvalPending": "Répondez d'abord à la demande d'autorisation en cours.",
 			"modelDenied": "Votre abonnement n'inclut pas ce modèle.",
-			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard."
+			"modelUnpriced": "Ce modèle n'a pas encore de prix. Réessayez plus tard.",
+			"sendFailed": "Nous n'avons pas pu envoyer votre message. Renvoyez-le.",
+			"connectionLost": "Le chat a perdu la connexion au serveur."
 		},
 		"building": "En création",
 		"planning": "En planification"

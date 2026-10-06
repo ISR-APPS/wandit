@@ -73,6 +73,20 @@ partial unique index guarantees at most one live row per project.
   snapshot. `resume` takes the same options — the caller always rebuilds
   the env from the per-run proxy token, and passes `backendUrl` from an
   `active` `app_backends` row; the provider never reads `app_backends`.
+- Self-heal: the dev command runs in a restart loop, so a dev server that
+  exits (an OOM kill, a kill, a config error) starts again 5 s later. A
+  live row that is not `running` while the vendor sandbox runs is a start
+  that died after the vendor call. `getOrCreate` then finishes that boot
+  like a resume: policy push, dev server, `markRunning`, and a
+  `sandbox.lifecycle.finish-boot` warning. A resume or a finished boot on
+  a `creating` row also calls `RepoRestorer` first. That row follows a
+  dead or failed start, so the disk can lack the repository.
+  Limits: a live start in another process looks the same. A publish
+  starts without the project lock. During the boot of a turn or a wake,
+  it boots the sandbox a second time: a second dev loop, and `running`
+  before the first boot ends. A dead rebuild of a `stopped` row finishes
+  without the restore. A dead resume of a `running` row stays `running`, so no
+  later start finishes its boot.
 - `stop` keeps the last snapshot (`keepLastSnapshots: 1`) and marks the
   row stopped. `destroy` deletes sandbox, snapshots, and the live row.
   `fork` throws `SandboxForkNotSupportedError` until P6 (D13).
@@ -171,6 +185,9 @@ partial unique index guarantees at most one live row per project.
   that carries no policy also gets the push: the harness session reads a
   missing policy as allow-all. The log line is
   `sandbox.network-policy.applied` or `sandbox.network-policy.unchanged`.
+  The push has no proxy run-token rule, so it breaks a harness session that
+  the harness host keeps between turns. The handle then reports
+  `networkPolicyReplaced`, and the turn resumes from the stored state.
 - `SandboxCreateOptions.onWake` fires once, before the slow work, when the
   sandbox really boots: a create, a resume, or a rebuild. A new or stopped
   row fires it before the vendor call; a running row fires it only after
@@ -308,7 +325,9 @@ member):
   first chat, the first user message, and the `builder_sessions` row in
   one transaction. The first builder turn starts right after the commit
   and adopts that message row — a failed turn still answers 201 with
-  `turnId: null`. The title job and `v2_project_created` follow.
+  `turnId: null`. It also stores one assistant message with a
+  `data-turn-error` part, so the chat shows the error card and Retry.
+  The title job and `v2_project_created` follow.
 - `GET /:projectId` answers the `AppProject` shape; a `v1_page` row in
   scope answers 404 like a missing one.
 
@@ -367,17 +386,20 @@ deploy never builds it.
 `AppProjectsService.create` calls it after the create transaction and before
 the first turn. `POST cloud/backend` calls it for a project without a row
 (for example a project made while provisioning was unconfigured) and for a
-failed (`error`) row, which it provisions again with a new request key. It
-writes the `creating` row and starts the task with idempotency key
-`provision-backend:<requestKey>`; a second call answers the row and starts
-nothing.
+failed (`error`) row, which it provisions again with a new request key.
+`TurnsService.create` calls it without a wait for each new chat message (no
+`existingMessageId`). An `error` or missing row then gets a new run. For a
+`BackendLimitReachedError`, only the `supabase.provisioning.limit-reached`
+warn goes to the log. `provisionBackend` writes the `creating` row and starts the task with
+idempotency key `provision-backend:<requestKey>`; a second call answers the
+row and starts nothing.
 Without `SUPABASE_PLATFORM_TOKEN` or `SUPABASE_PLATFORM_ORG_ID` it writes no
 row, logs one `supabase.provisioning.unconfigured` warn, and creation still
 succeeds. `SUPABASE_PLATFORM_REGION` overrides `pickSupabaseRegion`; an
 invalid value logs `supabase.provisioning.region-override-invalid` and the
 picked region wins. A task-start failure never throws: the row is marked
 `backend_provision_start_failed` and the project keeps working.
-The task (`backend-provisioning` queue, concurrency 3, one attempt) claims the row by `requestKey`.
+The task (`backend-provisioning` queue, concurrency 10, one attempt) claims the row by `requestKey`.
 Every row write of the task applies only while the row holds that key, so a run of an old key cannot change a retried row.
 A row with a `ref` (a retry or a replay) reuses its project; an `INIT_FAILED` project is deleted first, and a `REMOVED` one (or a 404) is replaced. A replay or a retry never leaves a second paid project.
 It stores the database password as the `system` secret `SUPABASE_DB_PASSWORD` before the create call, and sets `db_password_secret_id`.
@@ -389,7 +411,7 @@ It sets the auth `site_url` to the preview apex with the `previewAuthRedirectPat
 `BackendAuthUrlsService` (Trigger task `sync-backend-auth-urls`) replaces both URL fields after a publish, an unpublish, and a custom domain change: `site_url` becomes the primary domain, else the slug host, and the allow list keeps the preview pattern and adds each live host.
 It sets `external_email_enabled` and `mailer_autoconfirm` to true: email sign-up gives a session at once, with no confirmation email.
 No task changes the email setting on a backend after its provisioning.
-Without `PREVIEW_DOMAIN`, the task skips this step, and the backend keeps email confirmation on.
+Without `PREVIEW_DOMAIN`, the task still sends the two email settings, but it skips the two URL fields and logs `supabase.provisioning.auth-urls-skipped`.
 It marks the row `active`.
 A failure writes `status = error`, the `failure_*` columns, and a Sentry event: `backend_provision_failed`, `backend_provision_timeout`, `backend_provision_unconfigured`, `backend_base_schema_missing`.
 When the sandbox runs, the run then writes the backend values to its `.env` (see "Backend values" above).
@@ -670,8 +692,11 @@ app, or a project of another workspace answers 404.
 Rate limits (WANDIT-181): `RedisRateLimitGuard` counts per user and, with
 `ipLimit`, per client IP that `TRUSTED_PROXY_CIDRS` confirms (the Better
 Auth rule; without a trusted IP the IP key is skipped). Project create:
-10 per user and 30 per IP per day. Turn create: 30 per user and 90 per IP
-per 10 minutes. A Redis error lets the request through with a Sentry
+50 per user and 500 per IP per day. Turn create: 30 per user and 2000 per
+IP per 10 minutes. Publish: 300 per IP per hour. Staging sizes these caps
+for an event room behind one NAT IP. Production uses 10 per user and 30 per
+IP for project create, 90 per IP for turn create, and 30 per IP per hour for
+publish. A Redis error lets the request through with a Sentry
 warning. Every audit row of these routes goes through `AuditEventsService`
 (`audit_events`, action names in `packages/contracts/src/v2/audit.ts`).
 
@@ -908,9 +933,12 @@ One run does this, in order:
    terminal status, `retryable: false`), then the `done` event with
    that status. `GENERATION_BILLING_MODE=off` skips the checkpoint and
    the balance and cap checks. The harness can end on a proxy 402
-   `V2_RUN_CAP_REACHED` before the next tick. So at the stream end and
-   in the failure path, the task reads the `llm_proxy_requests` row with
-   reason `run_cap` of the turn: one row stops the turn on the cap.
+   `V2_RUN_CAP_REACHED` or `V2_DAILY_CAP_REACHED` before the next tick.
+   So at the stream end and in the failure path, the task reads the
+   first `cap_rejected` row of the turn. Reason `run_cap` stops the turn
+   on the cap. Reason `daily_cap` also stops it as
+   `stopped_project_cap`, but its `error` code is `daily_cap`: the web
+   then shows the reset time at 00:00 UTC and no Retry.
 8. Streams harness parts: each `part` goes to the `ui` Trigger stream
    (`TriggerTurnEventWriter`) and to a `readUIMessageStream`
    reconstruction. A harness `error` chunk stays off the `ui` stream:
@@ -950,7 +978,14 @@ One run does this, in order:
     `cacheWriteTokens`, and the payer's settled `balanceCredits` after
     the settle.
     Failure and cancel still refund — the refund pays back the reserve
-    and every `checkpoint:<id>:<n>` debit.
+    and every `checkpoint:<id>:<n>` debit. Before their last stream
+    events, failure and cancel also store the assistant message with
+    null metadata: the partial parts plus the `data-turn-error` part
+    (failure) or the canceled `data-turn-done` part (cancel). A reload
+    then shows the error card and Retry, or the Stopped line. When the
+    fail CAS loses (another path ended the row), the task writes no
+    `error` event: it reads the row and writes one `done` event with the
+    real status.
     `GENERATION_BILLING_MODE=off` skips the settle and logs
     `billing.off` once. `builderTurns.complete`/`fail` mark the row
     terminal with a compare-and-set, so a stale task can never
@@ -1207,7 +1242,11 @@ repository is the durable copy.
 - A restore is copy-forward: `git read-tree -u --reset <sha>` sets the
   worktree to the old content and a NEW commit lands on top
   (`source = 'restore'`, `restored_from_sha` points at the target).
-  History never rewinds.
+  History never rewinds. Before the reset, uncommitted files become a
+  `wip` version "Before restore"; a failed save stops the restore. After
+  the restore commit, `pnpm install --frozen-lockfile --prefer-offline`
+  runs, and a failed install only logs a warning. The restore lock lives
+  2 min, and the restore refreshes it every 60 s.
 - Routes: `GET /api/v2/projects/:id/versions` (cursor, max 50),
   `GET .../versions/:sha/diff`, `POST .../versions/:sha/restore` (409
   `BUILDER_TURN_ACTIVE` while a turn runs).
@@ -1256,7 +1295,9 @@ Check order, per request:
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
    `LLM_PROXY_DAILY_USER_CAP_USD` ($50 in production, ESTIMATE until
    WANDIT-174; $100,000 on staging, see `docs/v2/runbook.md`). Over:
-   402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row.
+   402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row. The builder-turn
+   runtime then stops the turn as `stopped_project_cap` with the failure
+   code `daily_cap`. The chat shows the reset time and no Retry.
    `GENERATION_BILLING_MODE=off` skips this check.
 
 Then the forward. `upstreamFor(modelId, env)` picks the upstream and key:
@@ -1354,13 +1395,15 @@ of 6 wakes per user per 10 minutes (key `sandbox-wake`). The scope checks
 are the same as the versions routes. It answers 202 at once:
 `running` (no boot), `starting` (a background boot started), or `busy`
 (a turn, a restore, or a wake holds the project lock and boots the
-sandbox). The boot holds the turn lock with a `wake:` holder for at most
-10 minutes, so a turn submit during the boot answers 409
-`BUILDER_TURN_ACTIVE`. The boot goes through `startSandboxWithoutTurn`,
-like a restore and a publish: the egress inputs of a turn, no proxy
-token, and the backend `.env` after a boot. A failed boot logs
-`sandbox.wake-failed` and goes to Sentry. The route does not report it, so
-the web shows a failure after a 3-minute wait.
+sandbox). The boot holds the turn lock with a `wake:` holder, so a turn
+submit during the boot answers 409 `BUILDER_TURN_ACTIVE`. The lock TTL is
+2 minutes, and the boot refreshes it every 40 s for at most 10 minutes.
+An API restart during the boot blocks the project for at most 2 minutes.
+A boot step that hangs blocks it for at most 12 minutes. The boot goes through
+`startSandboxWithoutTurn`, like a restore and a publish: the egress
+inputs of a turn, no proxy token, and the backend `.env` after a boot.
+A failed boot logs `sandbox.wake-failed` and goes to Sentry. The route
+does not report it, so the web shows a failure after a 3-minute wait.
 
 `?client=phone` (WANDIT-193) mints the same token for the phone link of
 Expo Go. It takes an optional `expoUsername` (`expoUsernameSchema`:

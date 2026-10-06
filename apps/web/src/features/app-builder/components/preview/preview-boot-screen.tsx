@@ -73,7 +73,7 @@ const WASH_OPACITY: Record<BootScene, string> = {
 export type PreviewBootScreenProps = {
 	/** The open project. The wake button of the asleep note wakes its sandbox. */
 	projectId: string;
-	/** Status of the preview token, without `error`: PreviewPanel shows its own alert for it. */
+	/** Status of the preview token, without `error` and `blocked`: PreviewPanel shows its own alert for them. */
 	tokenStatus: "loading" | "waking" | "ready";
 	/** The running turn and the backend state, from app-builder-page.tsx through PreviewPanel. */
 	bootContext: BootContext;

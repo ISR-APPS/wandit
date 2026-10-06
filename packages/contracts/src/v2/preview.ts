@@ -325,6 +325,8 @@ export const PREVIEW_TARGETS_MAX = 10 as const;
  * - `wandit:select-source`: the user clicked an element in select mode.
  * - `wandit:deselect`: the user pressed Escape in select mode.
  * - `wandit:route`: the app shows another page. `path` is the pathname plus the query.
+ * The mobile template bridge (`templates/mobile-app/src/shared/lib/preview-bridge.ts`)
+ * posts only the first two.
  * The app code in the frame can post the same shapes, so every text is bounded.
  * The builder copies only the route path onto the preview URL, so the frame origin never changes.
  */

@@ -6,7 +6,7 @@
  * here instead of widening `ProjectsRepository`.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "@wandit/db";
+import { and, eq, isNull } from "@wandit/db";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -36,7 +36,12 @@ export type TurnProjectRow = {
 export class TurnProjectRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	/** The columns above for one project, or null. */
+	/**
+	 * The columns above for one live project, or null.
+	 * A deleted project answers null. A queued turn then fails as
+	 * `project_missing` before any sandbox work.
+	 * A restore, wake, or publish does not start.
+	 */
 	async findForTurn(projectId: string): Promise<TurnProjectRow | null> {
 		const [row] = await this.db
 			.select({
@@ -49,7 +54,7 @@ export class TurnProjectRepository {
 				userId: projects.userId,
 			})
 			.from(projects)
-			.where(eq(projects.id, projectId))
+			.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
 			.limit(1);
 
 		return row ?? null;

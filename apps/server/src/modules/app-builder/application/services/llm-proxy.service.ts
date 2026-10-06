@@ -451,6 +451,12 @@ export class LlmProxyService {
 			reply.writeHead(upstreamResponse.status, responseHeaders);
 			await reply.write(body);
 			reply.end();
+			// A log search by status finds an empty gateway balance (402) or a
+			// rate or spend limit (429). 300 chars of the body name the cause.
+			this.logger.error(
+				`Upstream answered ${upstreamResponse.status} for run ${claims.runId}`,
+				body.toString("utf8").slice(0, 300),
+			);
 			if (upstreamResponse.status >= 500) {
 				// A 5xx here is the provider's problem, not the client's.
 				Sentry.captureMessage("LLM upstream answered 5xx", {
@@ -463,17 +469,22 @@ export class LlmProxyService {
 				});
 			} else if (
 				upstreamResponse.status === 401 ||
+				upstreamResponse.status === 402 ||
 				upstreamResponse.status === 403
 			) {
-				// The provider rejected the key; an operator must rotate it.
-				Sentry.captureMessage("LLM upstream rejected the provider key", {
-					level: "error",
-					tags: {
-						feature: "llm-proxy",
-						runId: claims.runId,
-						upstreamStatus: String(upstreamResponse.status),
+				// The provider rejected the key, or the account has no funds.
+				// An operator must act. A 429 stays out: Claude Code retries it.
+				Sentry.captureMessage(
+					"LLM upstream refused the account (key or funds)",
+					{
+						level: "error",
+						tags: {
+							feature: "llm-proxy",
+							runId: claims.runId,
+							upstreamStatus: String(upstreamResponse.status),
+						},
 					},
-				});
+				);
 			}
 			await this.finish(input, claims, upstream, modelId, {
 				status: "upstream_error",

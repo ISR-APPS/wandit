@@ -3,7 +3,7 @@
  * `LlmProxyService` calls `insert` once per request.
  * The builder-turn runtime and the reconcile sweep call `sumByTurn` to
  * settle a turn's spend; the runtime's timing line calls
- * `firstRequestStartedAtMs`, and its end calls `hasRunCapRejection`.
+ * `firstRequestStartedAtMs`, and its end calls `capRejectionReason`.
  * `sumUsdMicrosByRun` has no production caller yet.
  */
 import { Inject, Injectable } from "@nestjs/common";
@@ -111,21 +111,26 @@ export class LlmProxyRequestsRepository {
 	}
 
 	/**
-	 * True when the proxy refused a request of the turn on the per-run
-	 * spend cap (402 V2_RUN_CAP_REACHED, row reason `run_cap`). The runtime
-	 * reads it at the stream end to stop the turn on the cap.
+	 * The cap of the first spend-cap refusal of the turn: `run_cap` (402
+	 * V2_RUN_CAP_REACHED) or `daily_cap` (402 V2_DAILY_CAP_REACHED). Null
+	 * when the proxy refused no request of the turn on a cap. The runtime
+	 * reads it at the stream end to stop the turn on that cap.
 	 */
-	async hasRunCapRejection(turnId: string): Promise<boolean> {
-		const result = await this.db.execute<{ found: number }>(sql`
-			select 1 as found
+	async capRejectionReason(
+		turnId: string,
+	): Promise<"run_cap" | "daily_cap" | null> {
+		const result = await this.db.execute<{ reason: string | null }>(sql`
+			select ${llmProxyRequests.reason} as reason
 			from ${llmProxyRequests}
 			where
 				${llmProxyRequests.turnId} = ${turnId}
 				and ${llmProxyRequests.status} = 'cap_rejected'
-				and ${llmProxyRequests.reason} = 'run_cap'
+				and ${llmProxyRequests.reason} in ('run_cap', 'daily_cap')
+			order by ${llmProxyRequests.createdAt}
 			limit 1
 		`);
-		return result.rows.length > 0;
+		const reason = result.rows[0]?.reason;
+		return reason === "run_cap" || reason === "daily_cap" ? reason : null;
 	}
 
 	/**

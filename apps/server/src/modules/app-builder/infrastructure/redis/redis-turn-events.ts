@@ -17,12 +17,21 @@ import type {
 	TurnStreamEventInput,
 } from "../../domain/ports/turn-events";
 
-// 24 h: a reload resumes the turn from the start (D20), also a day later.
-const STREAM_TTL_SECONDS = 24 * 60 * 60;
+// 1 h after the last append, so the Redis memory and RDB dump stay small.
+// A live turn appends a status heartbeat at least every 30 s. So only the
+// stream of a finished turn expires. After the end, only a reopen soon
+// after a cut replays it. A reload shows the turn from the message rows.
+// LIMIT: a reopen more than 1 h after the end finds no stream. The relay
+// then ends it from the row after a 60 s idle read. Upgrade: when the key
+// does not exist, the relay reads the row at once.
+const STREAM_TTL_SECONDS = 60 * 60;
 // The field of each stream entry; the value is one event as JSON.
 const EVENT_FIELD = "event";
 // 5 s per blocking read: the reader checks its abort signal between reads.
 const READ_BLOCK_MS = 5_000;
+// 500 entries per XREAD. A long turn replays in pages, so one reopen never
+// holds the whole stream in memory.
+const READ_BATCH_SIZE = 500;
 // 60 s without an event ends one read, the same as the Trigger reader; the
 // relay then checks the row and opens a new read.
 const READ_IDLE_LIMIT_MS = 60_000;
@@ -114,6 +123,8 @@ export class RedisTurnEventWriter implements TurnEventWriter {
 /** The calls one read makes; an ioredis client fits it, the spec fakes it. */
 export type TurnEventsReadClient = {
 	xread(
+		count: "COUNT",
+		entries: number,
 		block: "BLOCK",
 		milliseconds: number,
 		streams: "STREAMS",
@@ -159,6 +170,8 @@ export class RedisTurnEventReader implements TurnEventReader {
 				let reply: Awaited<ReturnType<TurnEventsReadClient["xread"]>>;
 				try {
 					reply = await client.xread(
+						"COUNT",
+						READ_BATCH_SIZE,
 						"BLOCK",
 						READ_BLOCK_MS,
 						"STREAMS",

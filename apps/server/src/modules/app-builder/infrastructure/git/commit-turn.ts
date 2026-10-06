@@ -43,8 +43,9 @@ export type CommitTurnResult = {
 };
 
 /**
- * One `app_commits` row, the CAS head write, and the head read the
- * crash-recovery branch needs, for the turn write order.
+ * One `app_commits` row, the CAS head write, and the `main` head read.
+ * The head read decides the ensure before the first push and the crash
+ * recovery.
  */
 export type CommitTurnStore = Pick<
 	AppCommitsRepository,
@@ -75,7 +76,7 @@ export type CommitTurnInput = {
 	chatId: string | null;
 	/** The `builder_turns` row; null on a restore, which is not a turn. */
 	turnId: string | null;
-	/** Assistant message id; `restore-<uuid>` on a restore. */
+	/** Assistant message id; `restore-<uuid>` or `pre-restore-<uuid>` (its wip save) on a restore. */
 	messageId: string;
 	source: "agent" | "wip" | "restore";
 	summary: string;
@@ -187,10 +188,15 @@ export async function commitTurn(
 		JSON.stringify(numstat),
 	);
 
+	// A project with no branch head never pushed, so its repository does not
+	// exist yet. Create it first, so the one push retry stays for a real failure.
+	if ((await deps.appCommits.findBranch(input.projectId, "main")) === null) {
+		await deps.gitStore.ensureRepository(input.projectId);
+	}
 	const pushed = await pushOnce(sandbox, deps.gitStore, input.projectId);
 	if (pushed.result.exitCode !== 0) {
-		// A missing remote fails the first push of a project; creating it and
-		// retrying once is cheaper than a `remoteReady` bookkeeping column.
+		// A transient error or a lost repository fails a push. `ensureRepository`
+		// is idempotent, so one ensure and one retry cover both.
 		await deps.gitStore.ensureRepository(input.projectId);
 		const retried = await pushOnce(sandbox, deps.gitStore, input.projectId);
 		if (retried.result.exitCode !== 0) {
@@ -239,7 +245,8 @@ export async function commitTurn(
  * The builder-turn commit: `commitTurn`, or null when the turn changed no
  * file. A text-only turn then costs one sandbox command and one row read
  * instead of about 7 s of git, R2, and push work. A failed status read
- * commits as before: an unknown tree must not lose work.
+ * commits as before: an unknown tree must not lose work. The restore also
+ * calls it to save uncommitted files before its reset.
  */
 export async function commitTurnUnlessClean(
 	sandbox: SandboxHandle,

@@ -1,6 +1,7 @@
 {
 	"include": ["**/*.ts", "**/*.tsx"],
-	"exclude": ["node_modules", "dist"],
+	// Edge Functions are Deno code: tsc has no Deno global and no npm: or jsr: imports.
+	"exclude": ["node_modules", "dist", "supabase/functions"],
 	"compilerOptions": {
 		"strict": true,
 		"esModuleInterop": true,

@@ -17,6 +17,7 @@ import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { PaperclipIcon } from "@phosphor-icons/react/Paperclip";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import { DAILY_CAP_TURN_ERROR_CODE } from "@wandit/contracts";
 import { env } from "@wandit/env/web";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
@@ -298,7 +299,12 @@ function MessagePartView({
 					/>
 					<div className="min-w-0">
 						<p>
-							{t("appBuilder.chat.turnError", { message: part.data.message })}
+							{/* The daily cap names its reset time in the user's language. */}
+							{part.data.code === DAILY_CAP_TURN_ERROR_CODE
+								? t("appBuilder.chat.errors.dailyCap")
+								: t("appBuilder.chat.turnError", {
+										message: part.data.message,
+									})}
 						</p>
 						{onRetry ? (
 							<Button

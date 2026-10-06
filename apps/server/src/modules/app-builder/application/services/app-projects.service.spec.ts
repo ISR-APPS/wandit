@@ -1,4 +1,10 @@
-import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
+import {
+	BadRequestException,
+	HttpException,
+	HttpStatus,
+	Logger,
+	NotFoundException,
+} from "@nestjs/common";
 import {
 	type CreateAppProjectRequest,
 	createAppProjectRequestSchema,
@@ -7,6 +13,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import type { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type {
 	ProjectQueryRow,
@@ -121,6 +128,11 @@ function setup() {
 		})),
 		hasFileChanges: vi.fn(async () => false),
 	};
+	const chats = {
+		insertUiMessagesIfAbsent: vi.fn<
+			ChatsRepository["insertUiMessagesIfAbsent"]
+		>(async () => undefined),
+	};
 
 	const service = new AppProjectsService(
 		projects,
@@ -133,12 +145,14 @@ function setup() {
 		costCaps,
 		backends,
 		appCommits,
+		chats,
 	);
 
 	return {
 		analytics,
 		appCommits,
 		backends,
+		chats,
 		costCaps,
 		credits,
 		projects,
@@ -384,14 +398,55 @@ describe("AppProjectsService.create", () => {
 		errorLog.mockRestore();
 	});
 
-	it("still answers with turnId null when the first turn throws", async () => {
-		const { service, turns } = setup();
-		turns.create.mockRejectedValue(new Error("hold failed"));
+	// The stored reply gives the chat its error card and Retry. Only our HTTP
+	// errors show their own text; any other text stays in the log.
+	it.each([
+		{
+			name: "429 TOO_MANY_ACTIVE_TURNS",
+			error: new HttpException(
+				{
+					code: "TOO_MANY_ACTIVE_TURNS",
+					message: "Too many turns are running for this user",
+				},
+				HttpStatus.TOO_MANY_REQUESTS,
+			),
+			stored: {
+				code: "TOO_MANY_ACTIVE_TURNS",
+				message: "Too many turns are running for this user",
+				retryable: true,
+			},
+		},
+		{
+			name: "an internal error",
+			error: new Error("hold failed"),
+			stored: {
+				code: "create_failed",
+				message: "The build did not start. Send your message again.",
+				retryable: true,
+			},
+		},
+	])("answers turnId null and stores an error reply when the first turn throws $name", async ({
+		error,
+		stored,
+	}) => {
+		const { chats, service, turns } = setup();
+		turns.create.mockRejectedValue(error);
 
 		const result = await service.create(SCOPE, BODY, { countryCode: null });
 
 		expect(result.turnId).toBeNull();
 		expect(result.projectId).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(chats.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			result.chatId,
+			[
+				{
+					id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+					parts: [{ data: stored, id: "turn-error", type: "data-turn-error" }],
+					role: "assistant",
+				},
+			],
+			null,
+		);
 	});
 
 	it("captures the org id on v2_project_created when scope is org", async () => {

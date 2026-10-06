@@ -80,6 +80,7 @@
 	"preview": {
 		"frameTitle": "Preview of {name}",
 		"retry": "Try again",
+		"frameBlocked": "Your browser blocks the preview inside this page. Open it in a new tab.",
 		"select": "Select",
 		"selectHint": "Pick elements in your app. The next message changes them.",
 		"selectLimit": "You can pick up to {count} elements.",
@@ -538,16 +539,20 @@
 		"dictate": "Dictate",
 		"turnError": "The turn stopped: {message}",
 		"retry": "Retry",
+		"reconnect": "Reconnect",
 		"stopped": "Stopped",
 		"receipt": "{credits} · {tokens} tokens",
 		"receiptCache": "cache: {read} read, {write} written",
 		"errors": {
 			"noCredits": "You have no credits left for this turn.",
 			"projectCap": "This project reached its credit cap.",
+			"dailyCap": "You reached today's AI limit. It resets at 00:00 UTC.",
 			"tooManyTurns": "Too many turns run at the same time. Wait for one to finish.",
 			"approvalPending": "Answer the open approval card first.",
 			"modelDenied": "Your plan does not include this model.",
-			"modelUnpriced": "This model has no price yet. Try again later."
+			"modelUnpriced": "This model has no price yet. Try again later.",
+			"sendFailed": "We could not send your message. Send it again.",
+			"connectionLost": "The chat lost its connection to the server."
 		},
 		"building": "Building",
 		"planning": "Planning"

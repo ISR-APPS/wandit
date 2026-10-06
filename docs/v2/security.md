@@ -191,7 +191,11 @@ list. `templates/mobile-app` has a byte-identical copy. Grouped:
   pnpm then stops with `ERR_PNPM_IGNORED_BUILDS`, and the agent removes
   that package.
 - Git commands: `git push*`, `git reset*`, `git checkout*`,
-  `git switch*`, `git rebase*`, `git tag*`, `git config*`.
+  `git restore*`, `git stash*`, `git clean*`, `git switch*`,
+  `git rebase*`, `git tag*`, `git config*`.
+  Limit: a project gets a new `settings.json` only on a create, a resume,
+  or a finished boot. A Version Restore to an old version brings back the
+  old deny list until the next of these starts.
 - Root and network tools: `sudo *`, `ssh *`, `nc *`, `ncat *`,
   `docker *`.
 

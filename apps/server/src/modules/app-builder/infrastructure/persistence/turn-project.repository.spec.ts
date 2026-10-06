@@ -33,7 +33,7 @@ function setupSelect(rows: TurnProjectRow[] = []) {
 }
 
 describe("TurnProjectRepository.findForTurn", () => {
-	it("selects the six turn columns scoped to the project id", async () => {
+	it("selects the turn columns of the project id and skips a deleted project", async () => {
 		const row: TurnProjectRow = {
 			engine: "v2_app",
 			framework: "tanstack-start",
@@ -51,11 +51,7 @@ describe("TurnProjectRepository.findForTurn", () => {
 		const predicate = compile(where.mock.calls[0]?.[0]);
 		expect(predicate.params).toEqual(["project-1"]);
 		expect(predicate.sql).toContain('"projects"."id" = $1');
-	});
-
-	it("returns null when the project does not exist", async () => {
-		const { repository } = setupSelect([]);
-
-		expect(await repository.findForTurn("missing")).toBeNull();
+		// A queued turn of a deleted project must fail before any sandbox work.
+		expect(predicate.sql).toContain('"projects"."deleted_at" is null');
 	});
 });
