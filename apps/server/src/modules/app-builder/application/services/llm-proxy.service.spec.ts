@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { LlmProxyEnv } from "../../domain/llm-upstream";
 import type { NewLlmProxyRequest } from "../../infrastructure/persistence/llm-proxy-requests.repository";
 import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-counters";
+import { LLM_PROXY_DAILY_USER_CAP_USD } from "../../infrastructure/redis/llm-spend-counters";
 import {
 	type LlmProxyInboundRequest,
 	type LlmProxyReply,
@@ -693,7 +694,11 @@ describe("LlmProxyService", () => {
 			const env = makeEnv(upstream.baseUrl);
 			const { service, counters, inserted } = makeService(env);
 			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-			await counters.addUserSpend("user_1", dayKey, 50_000_000);
+			await counters.addUserSpend(
+				"user_1",
+				dayKey,
+				LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000,
+			);
 
 			const reply = new FakeReply();
 			await service.proxyAnthropic(inbound(env).input, reply);
@@ -716,7 +721,11 @@ describe("LlmProxyService", () => {
 			const { service, counters } = makeService(env);
 			const dayKey = new Date().toISOString().slice(0, 10).replaceAll("-", "");
 			await counters.addRunSpend("run_test", 1_000_000, 3600);
-			await counters.addUserSpend("user_1", dayKey, 50_000_000);
+			await counters.addUserSpend(
+				"user_1",
+				dayKey,
+				LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000,
+			);
 
 			const reply = new FakeReply();
 			await service.proxyAnthropic(inbound(env).input, reply);
