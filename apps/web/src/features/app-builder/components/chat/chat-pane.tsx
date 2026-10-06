@@ -1,16 +1,19 @@
 /**
  * The chat column of the app builder. It has no card and lies on the sand
  * desk. The header shows the title, the dev view switch in local dev, and
- * the collapse button; a running turn adds a "Building" chip and a Stop
- * pill. Below sit the message list with a "Load earlier messages" button
- * while older pages exist, one status line while a turn runs, an alert row
- * for a refused send (`errorText`), and the composer. When the agent asks
- * the user something, the request tray opens on top of the composer. A
- * failed last reply gets a Retry button that sends its user message again.
- * In the production view, the live reply shows only as the status line.
- * Rendered by pages/app-builder-page.tsx, which owns the thread hook and the
- * details panel. Renders chat-message.tsx, working-row.tsx, composer.tsx,
- * and the request tray.
+ * the collapse button; a running turn adds a "Building" or "Planning" chip
+ * and a Stop pill. Below sit the message list with a "Load earlier
+ * messages" button while older pages exist, one status line while a turn
+ * runs, an alert row for a refused send (`errorText`), and the composer.
+ * When the agent asks the user something, the request tray opens on top of
+ * the composer. A failed last reply gets a Retry button that sends its user
+ * message again. The plan card's "Build this plan" sends a build turn. The
+ * other sends carry no mode. The thread hook then uses the Plan toggle. An
+ * approval answer is always a build. In the production view, the live
+ * reply shows only as the status line. Rendered by
+ * pages/app-builder-page.tsx, which owns the thread hook and the details
+ * panel. Renders chat-message.tsx, working-row.tsx, composer.tsx, and the
+ * request tray.
  */
 
 import { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
@@ -77,6 +80,13 @@ export type ChatPaneProps = {
 		/** Files of a typed message that also answers a skipped round. */
 		files?: FileUIPart[];
 	}) => void;
+	/**
+	 * State of the Plan toggle, from useBuilderThread. While a turn runs, it
+	 * is the mode of that turn, so it also picks the "Planning" chip.
+	 */
+	isPlanMode: boolean;
+	/** Sets the Plan toggle. The composer locks the chip while a turn runs. */
+	onPlanModeChange: (isPlanMode: boolean) => void;
 	/** Stops the running turn. The Stop button shows only while `isSending`. */
 	onCancel: () => void;
 	/** Sentence of the last rejected send, or null. Shown as an alert under the list. */
@@ -111,6 +121,8 @@ export function ChatPane({
 	onSend,
 	onDecideApproval,
 	onAnswerQuestions,
+	isPlanMode,
+	onPlanModeChange,
 	onCancel,
 	errorText,
 	onCollapse,
@@ -133,9 +145,13 @@ export function ChatPane({
 		messages.find((message) => message.id === liveMessageId) ?? null;
 	const retryInput = isSending ? null : retryInputOf(messages);
 	const lastMessageId = messages.at(-1)?.id;
+	// False while a turn runs or the chat is not ready. The composer and the
+	// plan card button lock on it.
+	const canSend = !isSending && isReady;
 
 	// The tray shows the open questions of the last reply. A rejected answer
 	// leaves its user bubble after that reply, and the questions stay open.
+	// A plan card is no question, so it never opens the tray.
 	const lastReply = messages.findLast(
 		(message) => message.role === "assistant",
 	);
@@ -148,6 +164,19 @@ export function ChatPane({
 		draft,
 		onSubmit: onAnswerQuestions,
 	});
+	const hasOpenPlan =
+		lastReply?.parts.some(
+			(part) => part.type === "data-plan" && part.data.isOpen,
+		) ?? false;
+	// With an open plan, a Plan Mode message asks for changes to that plan.
+	// While the tray shows, the text answers a question, so no plan hint.
+	const placeholder = t(
+		isPlanMode && tray.state === null
+			? hasOpenPlan
+				? "appBuilder.chat.plan.placeholderChanges"
+				: "appBuilder.chat.plan.placeholder"
+			: "appBuilder.chat.placeholder",
+	);
 
 	const keepPositionForOlder = useAutoScroll(
 		listRef,
@@ -169,7 +198,11 @@ export function ChatPane({
 							aria-hidden
 							className="size-1.5 animate-pulse-soft rounded-full bg-ember motion-reduce:animate-none dark:bg-spark"
 						/>
-						{t("appBuilder.chat.building")}
+						{t(
+							isPlanMode
+								? "appBuilder.chat.planning"
+								: "appBuilder.chat.building",
+						)}
 					</span>
 				) : null}
 				<span className="ms-auto flex items-center gap-1">
@@ -263,6 +296,17 @@ export function ChatPane({
 							onDecideApproval={(approvalId, approved) => {
 								if (!isSending) onDecideApproval(approvalId, approved);
 							}}
+							// The approved plan builds now. The user bubble shows the sentence.
+							onBuildPlan={
+								canSend
+									? () =>
+											onSend({
+												text: t("appBuilder.chat.plan.buildMessage"),
+												files: [],
+												mode: "build",
+											})
+									: null
+							}
 							trayQuestionKey={tray.questionKey}
 						/>
 					))}
@@ -306,7 +350,7 @@ export function ChatPane({
 					// The composer also locks while the chat id and the history load.
 					// A send without the id drops the turn; a send before the history
 					// puts the reply above it.
-					isSending={isSending || !isReady}
+					isSending={!canSend}
 					onSend={(input) => {
 						// A plain message after the skip X also answers the skipped
 						// round, so the paused agent hears it.
@@ -322,6 +366,9 @@ export function ChatPane({
 						}
 					}}
 					onDraftChange={setDraft}
+					placeholder={placeholder}
+					isPlanMode={isPlanMode}
+					onPlanModeChange={onPlanModeChange}
 					submitOverride={tray.submit}
 					topSlot={
 						<MotionConfig reducedMotion="user">

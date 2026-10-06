@@ -4,11 +4,11 @@
  * sit above the files. An assistant message starts with the Wandit byline.
  * In the production view, one summary line opens the details panel, and
  * only the parts the user reads or acts on follow: the final answer, a
- * missing secret, the question lines, the approval card, the error with
- * Retry, the stopped line, and the receipt. The developer view (local dev
- * only) renders every part in stream order, with the thinking text. A Copy
- * action ends a reply that has a final answer. Rendered by chat-pane.tsx;
- * working-row.tsx reuses the byline.
+ * missing secret, the question lines, the approval card, the plan card,
+ * the error with Retry, the stopped line, and the receipt. The developer
+ * view (local dev only) renders every part in stream order, with the
+ * thinking text. A Copy action ends a reply that has a final answer.
+ * Rendered by chat-pane.tsx; working-row.tsx reuses the byline.
  */
 
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
@@ -30,6 +30,7 @@ import { ChangedFiles, summaryOf, WorkSummaryLabel } from "./activity-panel";
 import { ApprovalCard } from "./approval-card";
 import { MessageActions } from "./message-actions";
 import { CARD_SECONDARY_PILL_CLASS } from "./message-card";
+import { PlanCard } from "./plan-card";
 import { QuestionReceipt } from "./question-receipt";
 import { StepRow } from "./step-row";
 import { TargetChip } from "./target-chip";
@@ -44,6 +45,8 @@ export type ChatMessageViewProps = {
 	onOpenActivity: (messageId: string) => void;
 	/** Sends an approval card decision as the next turn's approval answer. */
 	onDecideApproval: (approvalId: string, approved: boolean) => void;
+	/** Sends the build turn of an open plan card. Null while a send is in flight: the button is disabled. */
+	onBuildPlan: (() => void) | null;
 	/** Id of the `data-question` part the tray shows now, or null while the tray hides. */
 	trayQuestionKey: string | null;
 	/** Sends the user message of this failed reply again. Set only on the last reply when it holds an error. */
@@ -58,6 +61,7 @@ export function ChatMessageView({
 	isDeveloperView,
 	onOpenActivity,
 	onDecideApproval,
+	onBuildPlan,
 	trayQuestionKey,
 	onRetry,
 	onOpenSecrets,
@@ -109,6 +113,7 @@ export function ChatMessageView({
 			key={key}
 			part={part}
 			onDecideApproval={onDecideApproval}
+			onBuildPlan={onBuildPlan}
 			trayQuestionKey={trayQuestionKey}
 			onRetry={onRetry}
 		/>
@@ -211,11 +216,12 @@ function SummaryLine({
 function MessagePartView({
 	part,
 	onDecideApproval,
+	onBuildPlan,
 	trayQuestionKey,
 	onRetry,
 }: Pick<
 	ChatMessageViewProps,
-	"onDecideApproval" | "trayQuestionKey" | "onRetry"
+	"onDecideApproval" | "onBuildPlan" | "trayQuestionKey" | "onRetry"
 > & {
 	part: BuilderMessagePart;
 }) {
@@ -257,6 +263,14 @@ function MessagePartView({
 					onDecide={(approved) =>
 						onDecideApproval(part.data.approvalId, approved)
 					}
+				/>
+			);
+		case "data-plan":
+			return (
+				<PlanCard
+					plan={part.data}
+					isOpen={part.data.isOpen}
+					onBuild={onBuildPlan}
 				/>
 			);
 		case "data-error":

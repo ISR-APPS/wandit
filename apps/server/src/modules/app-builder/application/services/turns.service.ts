@@ -27,6 +27,7 @@ import {
 import {
 	allowedLlmModels,
 	appBuilderRoutes,
+	builderTurnSpecSchema,
 	type CancelTurnResponse,
 	type CreateTurnRequest,
 	type CreateTurnResponse,
@@ -331,6 +332,10 @@ export class TurnsService {
 				attachments: body.attachments ?? [],
 				composer: body.composer ?? null,
 				message: body.message,
+				// The Plan toggle of the composer; a client without it builds.
+				// An approval answers a paused build call, so it always stays a
+				// build turn. A plan turn would drop that call as a mode switch.
+				mode: body.approval === undefined ? (body.mode ?? "build") : "build",
 				targets: body.targets ?? [],
 			};
 
@@ -1021,7 +1026,8 @@ export class TurnsService {
 /**
  * The `data-turn-created` payload of a turn. The create route sends it with
  * the hold estimate. The resume route sends it with a null estimate: the
- * browser then knows the turn id after a reload, so Stop can cancel.
+ * browser then knows the turn id after a reload, so Stop can cancel. `mode`
+ * comes from the row spec, so a replayed create reports the stored turn.
  */
 export function turnCreatedResponseOf(
 	turn: BuilderTurnRow,
@@ -1030,9 +1036,13 @@ export function turnCreatedResponseOf(
 ): CreateTurnResponse {
 	const wholeCredits =
 		estimate === null ? null : wholeCreditEstimateOf(estimate);
+	// jsonb returns unknown, so the spec schema is the boundary. A row from
+	// before Plan Mode parses as a build; a bad value leaves the field out.
+	const spec = builderTurnSpecSchema.pick({ mode: true }).safeParse(turn.spec);
 	return {
 		chatId,
 		...(wholeCredits === null ? {} : { estimate: wholeCredits }),
+		...(spec.success ? { mode: spec.data.mode } : {}),
 		runId: turn.triggerRunId,
 		status: turn.status,
 		// The reconnect route: the create response rides the create

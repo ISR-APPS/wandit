@@ -38,6 +38,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 | D24 | Turn stream store when the harness host runs the turn (D20 change) | open | 2026-10-01 |
 | D25 | Visual edit of text and colors in the V2 preview | default | 2026-10-04 |
 | D26 | App design recipe picked by the host | default | 2026-10-04 |
+| D27 | Plan Mode | default | 2026-10-05 |
 
 ## D1. Sandbox vendor
 
@@ -352,9 +353,21 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Issues that change: none filed yet.
 - Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump.
 
+## D27. Plan Mode
+
+- Question: How does the V2 builder plan an app with a non-technical user before it builds?
+- Options: A. A `mode` on each turn. A plan turn gets only `ask_user` and a new `present_plan` host tool, and `inactiveTools` blocks the built-in tools that write, run, or start an agent. B. Native Claude Code plan mode (`permissionMode: "plan"`, `ExitPlanMode`).
+- Default: A. "Build this plan" starts a build turn with the approved plan in its prompt.
+- Final choice: the product rules of A. The Plan toggle is on for a new V2 project and off after a build. A plan turn pays its real usage.
+- Status: default
+- Date: 2026-10-05
+- Decided by: Zack, for the product rules only.
+- Issues that change: none filed yet.
+- Notes: B is rejected. A session that starts with bypass permissions still runs Write and Bash in plan mode, so only prompt text stops edits. `ExitPlanMode` reads the plan from `~/.claude/plans`, and the template hook blocks that write. The plan-mode footer names `AskUserQuestion`, which Wandit disables. B also needs a bridge fork change and a new template snapshot.
+
 ## How to add an entry
 
-1. Take the next number. The next number is D27.
+1. Take the next number. The next number is D28.
 2. Add a row to the index table.
 3. Add a section `## D<n>. <title>` with the 9 fields, in the same order, one per line. Keep the entry under 150 words.
 4. Write the status as one line that starts with `Status:` and one of these words: default, confirmed, changed, open.

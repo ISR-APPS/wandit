@@ -2,13 +2,15 @@
  * The one chat hook the app-builder page calls. Joins the chat id lookup
  * and the paged stored history with the live turn stream of
  * use-builder-chat.ts, maps the messages to the card shapes the pane
- * renders, and turns a rejected send into a dictionary sentence. Calls the
- * workspace chat id query, the history query of app-builder.queries.ts,
- * use-builder-chat.ts, builder-chat-transport.ts, and turn-parts.ts.
+ * renders, turns a rejected send into a dictionary sentence, and holds the
+ * Plan toggle. Calls the workspace chat id query, the history query of
+ * app-builder.queries.ts, use-builder-chat.ts, builder-chat-transport.ts,
+ * and turn-parts.ts.
  */
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type {
+	BuilderTurnMode,
 	ChatMessage,
 	PreviewTarget,
 	TurnEstimate,
@@ -16,7 +18,7 @@ import type {
 	TurnStreamPhase,
 } from "@wandit/contracts";
 import type { FileUIPart } from "ai";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useChatByProjectQuery } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
@@ -25,8 +27,12 @@ import { chatHistoryQuery } from "../api/app-builder.queries";
 import type { SendBuilderMessageInput } from "../api/app-builder.services";
 import type { BuilderMessage } from "../api/dto";
 import { hydrateTurnMessages } from "./builder-chat-transport";
-import { livePhaseOf, toBuilderMessages } from "./turn-parts";
-import { type BuilderChatDeps, useBuilderChat } from "./use-builder-chat";
+import { latestTurnModeOf, livePhaseOf, toBuilderMessages } from "./turn-parts";
+import {
+	type BuilderChatDeps,
+	type BuilderChatSend,
+	useBuilderChat,
+} from "./use-builder-chat";
 
 /** The chat state the app-builder page binds to the pane. */
 export type BuilderThreadState = {
@@ -44,7 +50,8 @@ export type BuilderThreadState = {
 	errorText: string | null;
 	/**
 	 * Sends one turn with this text, these uploaded files, and the elements
-	 * picked in the preview. Dropped while a turn runs or the chat id is unknown.
+	 * picked in the preview. A send with no `mode` uses the Plan toggle.
+	 * Dropped while a turn runs or the chat id is unknown.
 	 */
 	send: (input: SendBuilderMessageInput, targets?: PreviewTarget[]) => void;
 	/** Answers an open approval card through a turn with an empty message. */
@@ -94,6 +101,16 @@ export type BuilderThreadState = {
 	isLoadingOlderMessages: boolean;
 	/** Loads the next older page. A failed load shows in `errorText`, and the button stays. */
 	loadOlderMessages: () => void;
+	/** Mode of the newest turn the thread knows (latestTurnModeOf). The preview shows the planning note for `plan`. */
+	latestTurnMode: BuilderTurnMode;
+	/**
+	 * State of the Plan toggle: the user's pick, else true when the newest
+	 * turn was a Plan Mode turn. A send shows its own mode at once. The next
+	 * turn start clears the pick, so after "Build this plan" the toggle is off.
+	 */
+	isPlanMode: boolean;
+	/** Sets the Plan toggle until the next turn starts. */
+	setPlanMode: (isPlanMode: boolean) => void;
 };
 
 // A shared empty list keeps the useMemo deps stable while the history
@@ -204,6 +221,51 @@ export function useBuilderThread(
 		});
 	}, [olderHistoryMessages, chat.messages, chat.isSending]);
 
+	const latestTurnMode = useMemo(
+		() => latestTurnModeOf([...olderHistoryMessages, ...chat.messages]),
+		[olderHistoryMessages, chat.messages],
+	);
+	// The user's pick of the Plan toggle, with its project; null follows the
+	// newest turn. A project switch in place keeps this hook, so the pick of
+	// another project reads as none.
+	const [storedPick, setStoredPick] = useState<{
+		projectId: string;
+		isPlanMode: boolean;
+	} | null>(null);
+	const planModePick =
+		storedPick?.projectId === projectId ? storedPick.isPlanMode : null;
+	const setPlanModePick = (isPlanMode: boolean | null) =>
+		setStoredPick(isPlanMode === null ? null : { projectId, isPlanMode });
+	// Id of the last turn whose `data-turn-created` frame arrived. A new id
+	// means a new turn started: the pick clears, and the toggle shows the
+	// mode of that turn. Message ids do not work here: a history reseed
+	// replaces the client ids of the live list with the stored ids.
+	const [startedTurnId, setStartedTurnId] = useState<string | null>(null);
+	if (chat.turnId !== null && chat.turnId !== startedTurnId) {
+		setStartedTurnId(chat.turnId);
+		setPlanModePick(null);
+	}
+	// A send that the API refuses (402, 409, network) gets no created frame.
+	// The pick clears too: else a refused "Build this plan" leaves the toggle
+	// off while the plan waits, and the next typed change builds the plan.
+	const [seenError, setSeenError] = useState<Error | undefined>(undefined);
+	if (chat.error !== seenError) {
+		setSeenError(chat.error);
+		if (chat.error !== undefined) {
+			setPlanModePick(null);
+		}
+	}
+	const isPlanMode = planModePick ?? latestTurnMode === "plan";
+	const sendTurn = (input: BuilderChatSend) => {
+		// A send with no mode runs in the mode of the toggle. With an open plan,
+		// a build turn approves the whole plan, so a preview fix must not send one.
+		const mode = input.mode ?? (isPlanMode ? "plan" : "build");
+		// Until the created frame of the new turn arrives, the toggle and the
+		// header chip show the mode of this send.
+		setPlanModePick(mode === "plan");
+		chat.send({ ...input, mode });
+	};
+
 	// A failed stream ends with a data-turn-error frame and an error chunk.
 	// The frame is already a card in the reply, so the row under the list
 	// stays empty. The row is for a send the API refused before any stream,
@@ -224,11 +286,13 @@ export function useBuilderThread(
 					chat.error ?? byProjectQuery.error ?? historyQuery.error ?? undefined,
 					t,
 				),
-		send: ({ text, files }, targets) => chat.send({ text, files, targets }),
+		send: ({ text, files, mode }, targets) =>
+			sendTurn({ text, files, targets, mode }),
+		// No mode, so a build turn: only a build turn pauses on an approval.
 		decideApproval: (approvalId, approved) =>
 			chat.send({ text: "", approval: { approvalId, approved } }),
 		answerQuestions: ({ message, answers, files }) =>
-			chat.send({ text: message, answers, files }),
+			sendTurn({ text: message, answers, files }),
 		cancel: chat.cancel,
 		isReady: chatId !== undefined && isHistorySettled,
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
@@ -254,5 +318,8 @@ export function useBuilderThread(
 			// A second click while a page loads would read the same cursor twice.
 			if (!historyQuery.isFetchingNextPage) void historyQuery.fetchNextPage();
 		},
+		latestTurnMode,
+		isPlanMode,
+		setPlanMode: setPlanModePick,
 	};
 }

@@ -1,4 +1,10 @@
-// Feature hooks that aren't queries/mutations.
+/**
+ * Prompt-to-project hooks of the dashboard and the landing hero.
+ * useCreateProjectWithPrompt creates a V1 project, or stashes the prompt of a
+ * signed-out visitor. useAutostartStashedPrompt restores that stash on the
+ * dashboard and can create at once. Calls the create mutation, the prompt
+ * stash, the credit balance query, and the router.
+ */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -231,6 +237,7 @@ export function useAutostartStashedPrompt(
 		if (promptStash.generation() !== stashGenerationRef.current) return;
 		promptStash.stash(draft.prompt, draft.composer, {
 			targetPlatform: draft.targetPlatform,
+			mode: draft.mode,
 		});
 	}, []);
 

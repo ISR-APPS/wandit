@@ -4,6 +4,7 @@ export {
 	codeSnapshotQuery,
 	turnEstimateQuery,
 } from "./api/app-builder.queries";
+export { PlanModeToggle } from "./components/plan-mode-toggle";
 export { AppNotFound } from "./components/shell/app-not-found";
 export { redirectV2Project } from "./lib/engine-redirect";
 export { appBuilderSearchSchema } from "./lib/schemas";

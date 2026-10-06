@@ -1,7 +1,8 @@
 /**
  * React hook over the V2 turn stream of one project chat. Owns the useChat
  * instance and exposes the running turn id and its cost estimate. Sends
- * text, files, question answers, and approval decisions as turn requests.
+ * text, files, question answers, approval decisions, and the turn mode as
+ * turn requests.
  * A 402 answer opens the credits dialog. Called by the app-builder page;
  * calls builder-chat-transport.ts, api/app-builder.services.ts, and the
  * billing dispatch.
@@ -10,6 +11,7 @@
 import { useChat } from "@ai-sdk/react";
 import { hashKey, useQueryClient } from "@tanstack/react-query";
 import {
+	type BuilderTurnMode,
 	type BuilderTurnStatus,
 	createTurnResponseSchema,
 	type PreviewTarget,
@@ -44,6 +46,8 @@ export type BuilderChatSend = {
 	answers?: TurnQuestionAnswer[];
 	/** Paid model id the user picked for this turn; absent uses the deploy default. */
 	model?: string;
+	/** `plan` runs the turn in Plan Mode: the agent asks and plans, and changes no file. Absent sends a build turn. */
+	mode?: BuilderTurnMode;
 	/** Elements picked in the preview. They go on the user message as a `data-targets` part. */
 	targets?: PreviewTarget[];
 };
@@ -253,6 +257,7 @@ export function useBuilderChat(
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),
 						...(sendInput.answers ? { answers: sendInput.answers } : {}),
 						...(sendInput.model ? { model: sendInput.model } : {}),
+						...(sendInput.mode ? { mode: sendInput.mode } : {}),
 					},
 				},
 			);

@@ -161,6 +161,8 @@ function renderPane(props: Partial<ChatPaneProps> = {}) {
 						onSend,
 						onDecideApproval,
 						onAnswerQuestions,
+						isPlanMode: false,
+						onPlanModeChange: () => {},
 						onCancel: () => {},
 						errorText: null,
 						onCollapse: () => {},

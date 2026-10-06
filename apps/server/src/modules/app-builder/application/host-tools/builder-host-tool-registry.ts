@@ -3,8 +3,9 @@
  * `builder-turn.task.ts` injects it into the runtime; `build` assembles
  * the per-turn tool set the harness hands to the agent: `ask_user`,
  * `generate_image`, `request_network_host`, and the seven backend tools of
- * WANDIT-186. The tools run in the task process, so platform and partner
- * secrets stay out of the sandbox.
+ * WANDIT-186. A Plan Mode turn gets only `ask_user` and `present_plan`.
+ * The tools run in the task process, so platform and partner secrets stay
+ * out of the sandbox.
  */
 import type {
 	HostToolContext,
@@ -29,6 +30,10 @@ import {
 	type GenerateImageHostToolDeps,
 } from "./generate-image.host-tool";
 import {
+	createPresentPlanTool,
+	PRESENT_PLAN_TOOL_NAME,
+} from "./present-plan.host-tool";
+import {
 	createRequestNetworkHostTool,
 	type RequestNetworkHostHostToolDeps,
 } from "./request-network-host.host-tool";
@@ -52,6 +57,22 @@ export class BuilderHostToolRegistry implements HostToolRegistry {
 	constructor(private readonly deps: BuilderHostToolRegistryDeps) {}
 
 	build(context: HostToolContext): Promise<HostToolSet> {
+		// Plan Mode changes nothing in the project, the backend, or the
+		// network: the agent only asks questions and shows the plan.
+		if (context.mode === "plan") {
+			return Promise.resolve({
+				close: async () => {},
+				// The questions and the plan are the user's turn; no approval first.
+				toolApproval: {
+					[ASK_USER_TOOL_NAME]: "not-applicable",
+					[PRESENT_PLAN_TOOL_NAME]: "not-applicable",
+				},
+				tools: {
+					[ASK_USER_TOOL_NAME]: createAskUserTool(),
+					[PRESENT_PLAN_TOOL_NAME]: createPresentPlanTool(),
+				},
+			});
+		}
 		return Promise.resolve({
 			// Nothing to release yet: the connector clients that need a
 			// close land in the connector follow-up issue.

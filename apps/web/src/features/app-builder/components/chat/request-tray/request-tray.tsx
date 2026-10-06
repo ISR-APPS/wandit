@@ -100,15 +100,19 @@ export function RequestTray({
 					className={cn(
 						"mt-3 transition-opacity",
 						// Typed text answers instead of the options; they dim but stay tappable.
-						state.typingOverride && "opacity-[0.38]",
+						state.typedTextEffect === "replacesOptions" && "opacity-[0.38]",
 					)}
 				>
 					<TrayBodySlot body={state.body} callbacks={bodyCallbacks} />
 				</div>
 			) : null}
-			{state.typingOverride ? (
+			{state.typedTextEffect !== null ? (
 				<p className="mt-2 font-grotesk text-[12px] text-ember-text">
-					{t("appBuilder.chat.tray.typingOverride")}
+					{t(
+						state.typedTextEffect === "addsNote"
+							? "appBuilder.chat.tray.typingNote"
+							: "appBuilder.chat.tray.typingOverride",
+					)}
 				</p>
 			) : null}
 		</div>

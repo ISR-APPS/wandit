@@ -8,6 +8,8 @@
  */
 
 import {
+	type BuilderTurnMode,
+	builderTurnModeSchema,
 	type ComposerMetadata,
 	composerMetadataSchema,
 	type TargetPlatform,
@@ -36,6 +38,11 @@ export type StashedPrompt = {
 	 * without a pick; the dashboard then keeps its default.
 	 */
 	targetPlatform?: TargetPlatform;
+	/**
+	 * Mode of the first turn: `plan` from the landing hero. Undefined for a
+	 * draft without it; the dashboard then keeps its default (Plan Mode on).
+	 */
+	mode?: BuilderTurnMode;
 };
 
 /**
@@ -72,6 +79,8 @@ const storedStashSchema = z.object({
 	stashedAt: z.number().catch(0),
 	// An unknown platform falls back to the dashboard default.
 	targetPlatform: targetPlatformSchema.optional().catch(undefined),
+	// An unknown mode falls back to the dashboard default too.
+	mode: builderTurnModeSchema.optional().catch(undefined),
 });
 
 // Reads one stored stash value. sessionStorage is untrusted input: a value
@@ -100,18 +109,24 @@ function parseStash(stored: string): StashedPrompt | null {
 		autostart: current && composerIntact && data.autostart,
 		stashedAt: current ? data.stashedAt : 0,
 		targetPlatform: data.targetPlatform,
+		mode: data.mode,
 	};
 }
 
 export const promptStash = {
 	/**
 	 * Writes the draft. `opts.autostart` is the charge decision of the caller.
-	 * `opts.targetPlatform` is the app type of the landing hero.
+	 * `opts.targetPlatform` is the app type and `opts.mode` the first turn
+	 * mode of the landing hero.
 	 */
 	stash(
 		prompt: string,
 		composer?: ComposerMetadata,
-		opts?: { autostart?: boolean; targetPlatform?: TargetPlatform },
+		opts?: {
+			autostart?: boolean;
+			targetPlatform?: TargetPlatform;
+			mode?: BuilderTurnMode;
+		},
 	): void {
 		try {
 			window.sessionStorage.setItem(
@@ -123,6 +138,7 @@ export const promptStash = {
 					autostart: opts?.autostart === true,
 					stashedAt: Date.now(),
 					targetPlatform: opts?.targetPlatform,
+					mode: opts?.mode,
 				}),
 			);
 		} catch {
@@ -141,8 +157,8 @@ export const promptStash = {
 	},
 	/**
 	 * Reads the draft without removing it. The dashboard calls it on its
-	 * first render, so the create hook has the stashed app type before the
-	 * autostart runs.
+	 * first render, so the create hook has the stashed app type and mode
+	 * before the autostart runs.
 	 */
 	peek(): StashedPrompt | null {
 		try {

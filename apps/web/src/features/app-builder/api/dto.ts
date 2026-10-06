@@ -11,6 +11,7 @@ import type {
 	CodeSnapshotResponse,
 	ProjectEngine,
 	TurnDataParts,
+	TurnPlanData,
 	TurnQuestionOption,
 	TurnSummaryData,
 	TurnTargetsData,
@@ -87,7 +88,8 @@ export type BuilderDiffLine = {
  * `thought`, `step`, and `note` are the activity of the turn: the details
  * panel shows them, the production chat does not. `summary` gives the work
  * time and the changed files. `question` is one question of the agent.
- * `approval` waits for the user to allow a tool call. `error` is a turn
+ * `approval` waits for the user to allow a tool call. `plan` is the plan
+ * of a Plan Mode turn that waits for "Build this plan". `error` is a turn
  * failure. `stopped` marks a turn the user stopped. `receipt` is the
  * settled cost of a turn. `targets` sits in a user message: the elements it
  * picked in the preview.
@@ -158,6 +160,12 @@ export type BuilderDataParts = {
 		/** false once a later user turn answered the card. */
 		isOpen: boolean;
 	};
+	/**
+	 * The `data-plan` payload: the plan of a paused `present_plan` call.
+	 * `isOpen` is true while no reply follows and no turn runs; only an open
+	 * card shows the "Build this plan" button.
+	 */
+	plan: TurnPlanData & { isOpen: boolean };
 	/** The `data-turn-error` payload as the stream sends it. */
 	error: { code: string; message: string; retryable: boolean };
 	/** The `data-turn-done` status of a turn the user stopped. */

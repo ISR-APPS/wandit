@@ -1,6 +1,8 @@
 import type {
+	BuilderTurnMode,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	HarnessResumeEnvelope,
 	LlmProxyChatBinding,
 	SupabaseProjectStatus,
 } from "@wandit/contracts";
@@ -13,10 +15,8 @@ import {
 import { EmptyHostToolRegistry } from "../modules/app-builder/application/host-tools/host-tool-registry";
 import type { AuditRecord } from "../modules/app-builder/application/services/audit-events.service";
 import type { LlmProxyTokenClaimsInput } from "../modules/app-builder/application/services/llm-proxy-token.service";
-import type {
-	HarnessResumeState,
-	HarnessStreamEvent,
-} from "../modules/app-builder/domain/ports/builder-harness";
+import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
+import type { HarnessStreamEvent } from "../modules/app-builder/domain/ports/builder-harness";
 import type { SandboxCreateOptions } from "../modules/app-builder/domain/ports/sandbox-provider";
 import type {
 	CommitTurnDeps,
@@ -159,14 +159,31 @@ const PENDING_APPROVAL: HarnessPendingInteraction = {
 	toolName: "generate_image",
 };
 
-/** The session row a paused turn leaves behind for the answer turn. */
+/** The plan card a paused Plan Mode turn waits on. */
+const PENDING_PLAN: HarnessPendingInteraction = {
+	kind: "plan",
+	plan: {
+		assumptions: ["Prices in dirhams"],
+		sections: [{ items: ["The owner", "The sellers"], title: "Who uses it" }],
+		summary: "Tracks the stock of one shop.",
+		title: "Stock tracker",
+	},
+	toolCallId: "call-plan",
+};
+
+/**
+ * The session row a paused turn leaves behind for the answer turn. `mode`
+ * is the mode of the paused turn.
+ */
 function pausedSessionRow(
 	pending: HarnessPendingInteraction[],
+	mode: BuilderTurnMode = "build",
 ): BuilderSessionRow {
 	// SAFETY: the runtime reads only resumeState off the session row.
 	return {
 		resumeState: {
 			harness: "claude_code",
+			mode,
 			payload: "{}",
 			pending,
 		},
@@ -271,7 +288,7 @@ class FakeSessions {
 		input: {
 			model: string | null;
 			providerSessionId: string | null;
-			resumeState: HarnessResumeState;
+			resumeState: HarnessResumeEnvelope;
 		};
 	}[] = [];
 
@@ -284,7 +301,7 @@ class FakeSessions {
 		input: {
 			model: string | null;
 			providerSessionId: string | null;
-			resumeState: HarnessResumeState;
+			resumeState: HarnessResumeEnvelope;
 		},
 	) {
 		this.saved.push({ chatId, input });
@@ -2086,9 +2103,10 @@ describe("runBuilderTurn", () => {
 
 		expect(world.harness.resumeCalls).toHaveLength(1);
 		expect(world.harness.createCalls).toHaveLength(0);
-		// The envelope parse fills `pending` with its default.
+		// The envelope parse fills `pending` and `mode` with their defaults.
 		expect(world.harness.resumeCalls[0]?.resumeState).toEqual({
 			harness: "claude_code",
+			mode: "build",
 			payload: "{}",
 			pending: [],
 		});
@@ -3255,6 +3273,125 @@ describe("runBuilderTurn", () => {
 				'Answer to your question "Your logo?": public/uploads/0d1f2a3b-logo.png',
 			signal: expect.any(AbortSignal),
 		});
+	});
+
+	it("starts a plan prompt with the Plan Mode rules and pauses on the plan card", async () => {
+		const world = makeWorld();
+		world.harness.events = happyEvents();
+		world.harness.unfinishedTurn = true;
+		world.harness.pendingOnSuspend = [PENDING_PLAN];
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "A stock app for my shop",
+				mode: "plan",
+			},
+		});
+		await world.lock.acquire(PROJECT_ID, TURN_ID, TURN_LOCK_TTL_MS);
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.createCalls[0]?.mode).toBe("plan");
+		expect(world.harness.streamCalls[0]?.input).toMatchObject({
+			kind: "prompt",
+			prompt: `${PLAN_MODE_PROMPT}\n\nA stock app for my shop`,
+		});
+		// The plan card waits like a question card; no new status exists.
+		expect(world.turns.completeCalls[0]?.input.status).toBe(
+			"waiting_for_answer",
+		);
+		const card = {
+			data: { ...PENDING_PLAN.plan, toolCallId: "call-plan" },
+			id: "plan-call-plan",
+			type: "data-plan",
+		};
+		expect(
+			world.stream.eventsOf(TURN_ID).map((event) => event.data),
+		).toContainEqual(card);
+		expect(world.inserted[0]?.input.parts).toContainEqual(card);
+		// The next turn compares this mode to detect a Plan toggle change.
+		expect(world.sessions.saved[0]?.input.resumeState).toMatchObject({
+			mode: "plan",
+			pending: [PENDING_PLAN],
+		});
+	});
+
+	it("continues a plan card with the typed changes and picked elements as the present_plan result", async () => {
+		const world = makeWorld();
+		// A warm sandbox keeps the bridge, so the changes go as a tool result.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		world.sessions.row = pausedSessionRow([PENDING_PLAN], "plan");
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "Add a page for the suppliers",
+				mode: "plan",
+				targets: [
+					{ label: "Stock", src: "src/app/page.tsx:12:5", tag: "button" },
+				],
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: false,
+			dropPausedTurn: false,
+		});
+		expect(world.harness.streamCalls[0]?.input).toEqual({
+			approvals: [],
+			kind: "continue",
+			signal: expect.any(AbortSignal),
+			toolResults: [
+				{
+					output: {
+						feedback:
+							"Add a page for the suppliers\n\nThe user points at:\n" +
+							'- src/app/page.tsx:12:5 (button "Stock")',
+					},
+					tool: "present_plan",
+					toolCallId: "call-plan",
+				},
+			],
+		});
+	});
+
+	it("builds an approved plan from a text prompt and drops the paused plan call", async () => {
+		const world = makeWorld();
+		// A warm sandbox: only the mode switch kills the bridge, not a wake.
+		await world.sandboxes.getOrCreate(PROJECT_ID, WARM_SANDBOX_OPTIONS);
+		world.sessions.row = pausedSessionRow([PENDING_PLAN], "plan");
+		world.turns.row = fakeTurnRow({
+			spec: {
+				attachments: [],
+				composer: null,
+				message: "Build this plan",
+				mode: "build",
+			},
+		});
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		// The paused call belongs to the plan session tools; it cannot continue.
+		expect(world.harness.resumeCalls[0]?.options).toEqual({
+			bridgeDead: true,
+			dropPausedTurn: true,
+		});
+		const turnInput = world.harness.streamCalls[0]?.input;
+		if (turnInput?.kind !== "prompt") {
+			throw new Error("expected a prompt input");
+		}
+		expect(turnInput.prompt).toMatch(/^The user approved the plan below\./);
+		expect(turnInput.prompt).toContain(
+			"# Stock tracker\n\nTracks the stock of one shop.\n\n## Who uses it\n- The owner\n- The sellers",
+		);
+		expect(turnInput.prompt).toMatch(/The user's message: Build this plan$/);
+		expect(world.harness.resumeCalls[0]?.input.mode).toBe("build");
 	});
 
 	it("sends Continue. for an answers-only turn with no card left to answer", async () => {

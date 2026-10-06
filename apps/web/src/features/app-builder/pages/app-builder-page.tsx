@@ -171,6 +171,7 @@ export default function AppBuilderPage({
 		isFirstTurn: thread.isFirstTurn,
 		backend,
 		hasCodeChanges: project.hasCodeChanges,
+		isPlanning: thread.latestTurnMode === "plan",
 	};
 
 	const view = search.view ?? "preview";
@@ -259,6 +260,8 @@ export default function AppBuilderPage({
 			// LIMIT: an answer to a question round carries no targets; the chips stay for
 			// the next plain message. Upgrade: add the targets to the ask_user tool result.
 			onAnswerQuestions={thread.answerQuestions}
+			isPlanMode={thread.isPlanMode}
+			onPlanModeChange={thread.setPlanMode}
 			onCancel={() =>
 				void thread
 					.cancel()

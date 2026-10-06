@@ -10,11 +10,14 @@ import { setTimeout as delay } from "node:timers/promises";
 import type {
 	AskUserHostToolOutput,
 	BillingPlanId,
+	BuilderTurnMode,
 	BuilderTurnStatus,
 	HarnessPendingInteraction,
+	HarnessResumeEnvelope,
 	SupabaseProjectStatus,
 	TurnApprovalData,
 	TurnAssistantMessageMetadata,
+	TurnPlanData,
 	TurnQuestionData,
 	TurnStreamPhase,
 	TurnSummaryData,
@@ -45,6 +48,7 @@ import {
 import { appRecipeInstruction } from "../modules/app-builder/domain/app-recipe";
 import { isProjectComingUp } from "../modules/app-builder/domain/backend-lifecycle";
 import { llmModelPrice } from "../modules/app-builder/domain/llm-model-prices";
+import { PLAN_MODE_PROMPT } from "../modules/app-builder/domain/plan-mode";
 import type {
 	BuilderHarness,
 	HarnessQuestionResult,
@@ -69,6 +73,8 @@ import {
 	askUserOutputOf,
 	builtinQuestionResultOf,
 	fallbackPromptOf,
+	modeSwitchPromptOf,
+	switchesMode,
 	uploadCopyPath,
 } from "../modules/app-builder/domain/question-answers";
 import {
@@ -709,6 +715,11 @@ export async function runBuilderTurn(
 	};
 	/** The model the turn runs on: the row's pick or the env default. */
 	let resolvedModel: string | null = deps.model;
+	/**
+	 * `spec.mode`, set right after the spec parse. The failure-path save reads
+	 * it; a session exists only after the parse.
+	 */
+	let turnMode: BuilderTurnMode = "build";
 	/** The `builder-turn:<turnId>` hold id; loaded once before the session. */
 	let holdId: string | null = null;
 	/** Checkpoints landed on the hold; the next debit is `checkpointCount + 1`. */
@@ -758,7 +769,7 @@ export async function runBuilderTurn(
 			await deps.sessions.saveResumeState(chatId, {
 				model: resolvedModel,
 				providerSessionId: session.sessionId,
-				resumeState,
+				resumeState: { ...resumeState, mode: turnMode },
 			});
 		} catch (error) {
 			logger.warn(`Detach failed for turn ${turnId}: ${messageOf(error)}`);
@@ -1271,6 +1282,7 @@ export async function runBuilderTurn(
 
 	try {
 		const spec = builderTurnSpecSchema.parse(turn.spec);
+		turnMode = spec.mode;
 
 		const project = await deps.project.findForTurn(projectId);
 		if (project === null) {
@@ -1313,8 +1325,12 @@ export async function runBuilderTurn(
 				`Stored resume state for chat ${chatId} failed the schema; starting cold`,
 			);
 		}
-		const resumeState: HarnessResumeState | null =
+		const resumeState: HarnessResumeEnvelope | null =
 			parsedResume?.success === true ? parsedResume.data : null;
+		// A Plan toggle change while cards wait: the paused call cannot
+		// continue in the other mode, so the answers go as a text prompt.
+		const modeSwitch =
+			resumeState !== null && switchesMode(resumeState, spec.mode);
 		// The session row is saved at the end of each agent turn, so its
 		// `updatedAt` tells whether the agent ran after a restore.
 		const restoreNote = restoreNoteOf(
@@ -1349,6 +1365,15 @@ export async function runBuilderTurn(
 			targetLines.length > 0
 				? `${requestText}\n\nThe user points at:\n${targetLines.join("\n")}`
 				: requestText;
+		// The user's own words: the message, the file URLs, and the picked
+		// preview elements. "Continue." is not one. A mode switch prompt and
+		// the `present_plan` result use them.
+		const userWords =
+			spec.message.trim().length > 0 ||
+			sentFiles.length > 0 ||
+			targetLines.length > 0
+				? prompt
+				: "";
 		// The pending cards of a suspended turn make a `continue` input.
 		// `spec.answers`, the message text, and `spec.approval` carry the
 		// answers.
@@ -1373,6 +1398,14 @@ export async function runBuilderTurn(
 							message: spec.message,
 						}),
 						tool: "ask_user",
+						toolCallId: interaction.toolCallId,
+					});
+				} else if (interaction.kind === "plan") {
+					// A typed message on a plan card asks for changes. "Build this
+					// plan" sends a build turn: the mode switch below handles it.
+					toolResults.push({
+						output: { feedback: userWords },
+						tool: "present_plan",
 						toolCallId: interaction.toolCallId,
 					});
 				} else if (interaction.kind === "question") {
@@ -1598,24 +1631,36 @@ export async function runBuilderTurn(
 				);
 			}
 			continuation = { ...continuation, toolResults };
-			const fallback = fallbackPromptOf({
+			const answerLines = fallbackPromptOf({
 				approvals: continuation.approvals,
 				messageText: prompt.trim(),
 				pending: resumeState.pending,
 				results: toolResults,
 			});
+			const fallback = modeSwitch
+				? modeSwitchPromptOf({
+						answerLines,
+						message: userWords,
+						mode: spec.mode,
+						pending: resumeState.pending,
+					})
+				: answerLines;
 			// No answer line: a fresh session gets the plain prompt instead.
 			continuationFallbackPrompt = fallback === "" ? null : fallback;
 		}
 		// After a sandbox stop, the rerun bridge matches a host-tool result
-		// only by the old call id, so an ask_user answer goes as text on the
-		// same thread. An approval keeps the continue path: a text would make
-		// the agent call the tool again and ask for a new approval.
+		// only by the old call id, so an ask_user or present_plan answer goes
+		// as text on the same thread. An approval keeps the continue path: a
+		// text would make the agent call the tool again and ask for a new
+		// approval. A mode switch never continues the paused call.
 		const answersAsText =
-			sandboxWoke &&
-			continuationFallbackPrompt !== null &&
-			continuation?.toolResults.some((result) => result.tool === "ask_user") ===
-				true;
+			modeSwitch ||
+			(sandboxWoke &&
+				continuationFallbackPrompt !== null &&
+				continuation?.toolResults.some(
+					(result) =>
+						result.tool === "ask_user" || result.tool === "present_plan",
+				) === true);
 
 		// The note applies only when no active backend row exists.
 		const backendNote = supabase === null ? "Backend not ready yet" : undefined;
@@ -1629,6 +1674,7 @@ export async function runBuilderTurn(
 			actorUserId: input.actorUserId,
 			chatId,
 			holdEventId: holdId,
+			mode: spec.mode,
 			organizationId: input.organizationId,
 			projectId,
 			sandbox,
@@ -1647,7 +1693,12 @@ export async function runBuilderTurn(
 					const resumed = await deps.harness.resumeSession(
 						sessionInput,
 						stored,
-						{ bridgeDead: sandboxWoke, dropPausedTurn: answersAsText },
+						{
+							// A mode switch drops the paused turn, but its bridge still
+							// runs and holds the port, so the harness kills it.
+							bridgeDead: sandboxWoke || modeSwitch,
+							dropPausedTurn: answersAsText,
+						},
 					);
 					// A resumed session can hold an unfinished turn with no card to
 					// answer. Causes: a detach mid-generation, or a row from before
@@ -1701,6 +1752,7 @@ export async function runBuilderTurn(
 				(templateProfile === TEMPLATE_PROFILES.mobile
 					? ` ${MOBILE_APP_INSTRUCTION} ${mobileWorldsInstruction(projectId)}`
 					: ` ${appRecipeInstruction(projectId)}`),
+			mode: spec.mode,
 			model,
 			sandbox,
 		};
@@ -1738,16 +1790,19 @@ export async function runBuilderTurn(
 		startTimers(model);
 		stamps.streamStart = deps.now();
 		// A continued suspended turn gets the user's answers as tool
-		// results; a lost session or a lost bridge still hears them as text.
+		// results; a lost session, a lost bridge, or a mode switch still
+		// hears them as text.
 		let turnInput: HarnessTurnInput;
 		if (continuation !== null && started.resumed && !answersAsText) {
 			turnInput = continuation;
 		} else if (continuation !== null && continuationFallbackPrompt !== null) {
 			logger.warn(
 				`builder-turn.continuation-fallback turnId=${turnId}: ${
-					started.resumed
-						? "bridge lost in a sandbox stop"
-						: "suspended session lost"
+					!started.resumed
+						? "suspended session lost"
+						: modeSwitch
+							? "mode switch"
+							: "bridge lost in a sandbox stop"
 				}`,
 			);
 			turnInput = {
@@ -1781,6 +1836,15 @@ export async function runBuilderTurn(
 					{ chatId, currentMessageId: turn.messageId },
 					turnInput.prompt,
 				),
+			};
+		}
+		// The Plan Mode rules go in front of each plan prompt, not in the
+		// instructions: the system prompt of a project never changes. A
+		// `continue` input keeps the rules of the prompt that paused the turn.
+		if (spec.mode === "plan" && turnInput.kind === "prompt") {
+			turnInput = {
+				...turnInput,
+				prompt: `${PLAN_MODE_PROMPT}\n\n${turnInput.prompt}`,
 			};
 		}
 
@@ -1922,6 +1986,8 @@ export async function runBuilderTurn(
 			const summaryPart: UIMessage["parts"][number] = {
 				data: {
 					files: commit?.numstat ?? [],
+					// After a reload, the Plan toggle starts from the last turn's mode.
+					mode: spec.mode,
 					// ms → whole seconds; a turn under 0.5 s still shows 1 s.
 					workedSeconds: Math.max(
 						1,
@@ -1956,6 +2022,9 @@ export async function runBuilderTurn(
 											? {}
 											: { description: option.description }),
 										...(card === undefined ? {} : { card }),
+										...(option.recommended === true
+											? { recommended: true }
+											: {}),
 									};
 								}),
 								question: question.question,
@@ -1974,6 +2043,19 @@ export async function runBuilderTurn(
 						await writeEvent({ data: part, type: "part" });
 						cardParts.push(part);
 					}
+				} else if (interaction.kind === "plan") {
+					// The plan card waits like a question card: a typed message
+					// asks for changes, "Build this plan" sends a build turn.
+					const part: UIMessage["parts"][number] = {
+						data: {
+							...interaction.plan,
+							toolCallId: interaction.toolCallId,
+						} satisfies TurnPlanData,
+						id: `plan-${interaction.toolCallId}`,
+						type: "data-plan",
+					};
+					await writeEvent({ data: part, type: "part" });
+					cardParts.push(part);
 				} else {
 					const part: UIMessage["parts"][number] = {
 						data: {
@@ -2056,7 +2138,8 @@ export async function runBuilderTurn(
 					deps.sessions.saveResumeState(chatId, {
 						model,
 						providerSessionId,
-						resumeState: resumeOut,
+						// The next turn compares the mode to detect a Plan toggle change.
+						resumeState: { ...resumeOut, mode: spec.mode },
 					}),
 				);
 				const balanceCredits = await deps.readBalance(subject);
