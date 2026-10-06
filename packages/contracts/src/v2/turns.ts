@@ -277,6 +277,13 @@ export const turnErrorDataSchema = z.object({
 export type TurnErrorData = z.infer<typeof turnErrorDataSchema>;
 
 /**
+ * The `code` of a turn error when the LLM proxy refused a request on the
+ * daily spend cap of the user. The builder-turn runtime writes it; the web
+ * shows the reset time at 00:00 UTC and no Retry.
+ */
+export const DAILY_CAP_TURN_ERROR_CODE = "daily_cap";
+
+/**
  * Payload of a `done` envelope event and of the `data-turn-done` browser
  * part. When the turn row — not the stream — reports the end, the relay
  * fills only `status` and `outputCommitSha`; `receipt` is task-written.

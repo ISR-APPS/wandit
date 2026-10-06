@@ -1,6 +1,7 @@
 // shadcn-style table parts (port of shadcn/ui, MIT).
 // DataTable and every list page build on them. Cells align with logical classes for Arabic.
 // The container scrolls sideways, so a wide table never widens the page at 375 px.
+// The header, the rows, and the heads read the --table-* and --label-* knobs of src/styles/tokens.css.
 
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
@@ -21,12 +22,12 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 	);
 }
 
-/** The thead. Its rows get a bottom border. */
+/** The thead. Its rows get a bottom border. The --table-head-bg knob gives its background. */
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
 	return (
 		<thead
 			data-slot="table-header"
-			className={cn("[&_tr]:border-b", className)}
+			className={cn("bg-(--table-head-bg) [&_tr]:border-b", className)}
 			{...props}
 		/>
 	);
@@ -57,13 +58,17 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 	);
 }
 
-/** One tr with a hover background. data-state="selected" marks a selected row. */
+/**
+ * One tr with a hover background. data-state="selected" marks a selected row.
+ * An even row gets the --table-stripe knob. The stripe has zero specificity,
+ * so a caller background, the hover, and the selected color win over it.
+ */
 function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
 	return (
 		<tr
 			data-slot="table-row"
 			className={cn(
-				"border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+				"border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted [:where(&:nth-child(even))]:bg-(--table-stripe)",
 				className,
 			)}
 			{...props}
@@ -71,13 +76,13 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
 	);
 }
 
-/** One th. Text starts at the start side; add text-end for a number column. */
+/** One th. Text starts at the start side; add text-end for a number column. label-text gives the label knobs. */
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 	return (
 		<th
 			data-slot="table-head"
 			className={cn(
-				"h-10 whitespace-nowrap px-2 text-start align-middle font-medium text-foreground [&:has([role=checkbox])]:pe-0 [&>[role=checkbox]]:translate-y-[2px]",
+				"label-text h-10 whitespace-nowrap px-2 text-start align-middle text-foreground [&:has([role=checkbox])]:pe-0 [&>[role=checkbox]]:translate-y-[2px]",
 				className,
 			)}
 			{...props}

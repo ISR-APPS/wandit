@@ -27,9 +27,9 @@ export type BootContext = {
 	isPlanning: boolean;
 };
 
-/** Everything the mapping reads. PreviewPanel shows its own alert for the token status `error`. */
+/** Everything the mapping reads. PreviewPanel shows its own alert for the token status `error` and `blocked`. */
 export type BootSignals = BootContext & {
-	/** Status of `usePreviewToken`, without `error`. */
+	/** Status of `usePreviewToken`, without `error` and `blocked`. */
 	tokenStatus: "loading" | "waking" | "ready";
 	/**
 	 * True after the wake route answered 202 on this screen, until the screen stops the wait.

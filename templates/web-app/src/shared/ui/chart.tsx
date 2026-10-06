@@ -43,7 +43,11 @@ function useChartConfig(): ChartConfig {
 // Size of the first render, before the container is measured. 0 x 0 makes recharts warn.
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 
-/** Sizes one recharts chart to its box and gives it the colors of `config`. Set the height with a class. */
+/**
+ * Sizes one recharts chart to its box and gives it the colors of `config`. Set the height with a class.
+ * The --chart-* style knobs set the line and area strokes, the Area fill opacity, and the grid dash.
+ * They win over the recharts props strokeWidth, fillOpacity, and strokeDasharray on those parts.
+ */
 function ChartContainer({
 	config,
 	className,
@@ -67,7 +71,7 @@ function ChartContainer({
 			<div
 				data-slot="chart"
 				className={cn(
-					"flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden",
+					"[&_.recharts-line-curve]:stroke-(length:--chart-stroke) [&_.recharts-area-curve]:stroke-(length:--chart-stroke) flex aspect-video justify-center text-xs [&_.recharts-area-area]:[fill-opacity:var(--chart-fill-opacity)] [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-cartesian-grid_line]:[stroke-dasharray:var(--chart-grid-dash)] [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden",
 					className,
 				)}
 				style={{ ...colorVariables, ...style }}

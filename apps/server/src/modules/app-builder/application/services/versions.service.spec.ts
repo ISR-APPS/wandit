@@ -14,7 +14,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { GitStore, RepoRestorer } from "../../domain/ports/git-store";
+import type { SandboxExecResult } from "../../domain/ports/sandbox-provider";
 import {
+	CommitTurnError,
 	versionNumstatKey,
 	versionPatchKey,
 } from "../../infrastructure/git/commit-turn";
@@ -36,6 +38,7 @@ import { type VersionsObjectStore, VersionsService } from "./versions.service";
 const SHA = "a".repeat(40);
 const HEAD = "b".repeat(40);
 const NEW_SHA = "c".repeat(40);
+const WIP_SHA = "e".repeat(40);
 const JWT = "header.payload.signature";
 const REMOTE = "https://org.code.storage/wandit/p-1.git";
 
@@ -203,25 +206,52 @@ function fixture(options?: {
 	return { appCommits, objects, repoRestorer, sandboxes, service, turnLock };
 }
 
-/** Scripts the exec queue for one restore: `.env` → pull → read-tree → clean → commitTurn. */
+/** Scripts the nine git answers of one `commitTurn` that makes `sha` on `parentSha`. */
+function scriptCommit(
+	provider: FakeSandboxProvider,
+	sha: string,
+	parentSha: string,
+): void {
+	provider.respondTo("git", OK); // add -A
+	provider.respondTo("git", { ...OK, stdout: "Add the hero section\n" }); // log
+	provider.respondTo("git", OK); // commit
+	provider.respondTo("git", OK); // tag -f
+	provider.respondTo("git", { ...OK, stdout: `${sha}\n` }); // rev-parse HEAD
+	provider.respondTo("git", { ...OK, stdout: `${parentSha}\n` }); // rev-parse HEAD~1
+	provider.respondTo("git", { ...OK, stdout: "2\t0\tsrc/App.tsx\n" }); // numstat
+	provider.respondTo("git", { ...OK, stdout: "diff --git a/src/App.tsx\n" });
+	provider.respondTo("git", OK); // push
+}
+
+/**
+ * Scripts the exec queue for one restore: `.env` → status → [wip commit] →
+ * pull → read-tree → clean → commitTurn → pnpm install.
+ */
 function scriptRestore(
 	provider: FakeSandboxProvider,
-	options?: { mergeBase?: { exitCode: number } },
+	options?: {
+		/** True: the status read lists a changed file, so a wip commit runs first. */
+		dirtyTree?: boolean;
+		/** The `pnpm install` answer; default exit 0. */
+		install?: SandboxExecResult;
+		mergeBase?: { exitCode: number };
+	},
 ): void {
 	provider.respondTo("bash", OK); // the boot's `.env` write waits for the dev port
+	// The wip save reads `git status` and HEAD in one `sh` call.
+	provider.respondTo("sh", {
+		...OK,
+		stdout: `${options?.dirtyTree ? " M src/App.tsx\n" : ""}HEAD=${HEAD}\n`,
+	});
+	if (options?.dirtyTree) {
+		scriptCommit(provider, WIP_SHA, HEAD);
+	}
 	provider.respondTo("test", OK); // restorer's `.git` check
 	provider.respondTo("git", OK); // restorer pull
 	provider.respondTo("git", OK); // read-tree -u --reset
 	provider.respondTo("git", OK); // clean -fd
-	provider.respondTo("git", OK); // add -A
-	provider.respondTo("git", { ...OK, stdout: "Restore to bbbbbbb\n" }); // log
-	provider.respondTo("git", OK); // commit
-	provider.respondTo("git", OK); // tag -f
-	provider.respondTo("git", { ...OK, stdout: `${NEW_SHA}\n` }); // rev-parse HEAD
-	provider.respondTo("git", { ...OK, stdout: `${HEAD}\n` }); // rev-parse HEAD~1
-	provider.respondTo("git", { ...OK, stdout: "2\t0\tsrc/App.tsx\n" }); // numstat
-	provider.respondTo("git", { ...OK, stdout: "diff --git a/src/App.tsx\n" });
-	provider.respondTo("git", OK); // push
+	scriptCommit(provider, NEW_SHA, options?.dirtyTree ? WIP_SHA : HEAD);
+	provider.respondTo("pnpm", options?.install ?? OK);
 	if (options?.mergeBase !== undefined) {
 		provider.respondTo("git", {
 			exitCode: options.mergeBase.exitCode,
@@ -402,9 +432,139 @@ describe("VersionsService.restore", () => {
 				turnId: null,
 			}),
 		);
+		// A clean tree at the stored head adds no empty "Before restore" version.
+		expect(appCommits.insert).toHaveBeenCalledTimes(1);
 		expect(objects.has(versionPatchKey("p-1", NEW_SHA))).toBe(true);
 		// A finished restore frees the project lock for the next turn.
 		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
+	// A failed turn leaves its files uncommitted; the restorer reset deletes them.
+	it("saves uncommitted files as a wip version before the reset", async () => {
+		const { appCommits, sandboxes, service } = fixture();
+		scriptRestore(sandboxes, { dirtyTree: true });
+
+		const body = await service.restore(
+			SCOPE,
+			"p-1",
+			SHA,
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
+
+		expect(restoreVersionResponseSchema.parse(body).commit.sha).toBe(NEW_SHA);
+		// The wip version holds the files, and the restore lands on top of it.
+		expect(
+			vi
+				.mocked(appCommits.insert)
+				.mock.calls.map(([row]) => [row.source, row.message, row.parentSha]),
+		).toEqual([
+			["wip", "Before restore", HEAD],
+			["restore", `Restore to ${SHA.slice(0, 7)}`, WIP_SHA],
+		]);
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		// The wip push ends before the restorer touches the worktree.
+		const wipPush = execs.findIndex((line) =>
+			line.includes(" push --no-verify "),
+		);
+		expect(wipPush).toBeGreaterThanOrEqual(0);
+		expect(execs.indexOf("git pull url main")).toBeGreaterThan(wipPush);
+	});
+
+	it("stops before the reset when the wip save fails", async () => {
+		const { appCommits, repoRestorer, sandboxes, service, turnLock } =
+			fixture();
+		sandboxes.respondTo("bash", OK);
+		sandboxes.respondTo("sh", {
+			...OK,
+			stdout: ` M src/App.tsx\nHEAD=${HEAD}\n`,
+		});
+		sandboxes.respondTo("git", {
+			exitCode: 128,
+			stderr: "fatal: Unable to create '.git/index.lock': File exists.",
+			stdout: "",
+		}); // add -A
+
+		const failure = await service
+			.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP)
+			.catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(CommitTurnError);
+		// No reset ran, so the uncommitted files are still in the sandbox.
+		expect(repoRestorer.restore).not.toHaveBeenCalled();
+		expect(appCommits.insert).not.toHaveBeenCalled();
+		expect(await turnLock.holder("p-1")).toBeNull();
+	});
+
+	// A later turn can remove a package that the restored version imports.
+	it("reinstalls packages after the restore commit and keeps the restore when the install fails", async () => {
+		const logWarn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { sandboxes, service } = fixture();
+		scriptRestore(sandboxes, {
+			install: {
+				exitCode: 1,
+				stderr: "",
+				stdout:
+					"ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile",
+			},
+		});
+
+		const body = await service.restore(
+			SCOPE,
+			"p-1",
+			SHA,
+			{ expectedHeadSha: HEAD },
+			IP,
+		);
+
+		expect(restoreVersionResponseSchema.parse(body).commit.sha).toBe(NEW_SHA);
+		const execs = sandboxes.calls
+			.filter((call) => call.method === "exec")
+			.map((call) => call.detail ?? "");
+		const push = execs.findIndex((line) => line.includes(" push --no-verify "));
+		const install = execs.indexOf(
+			"pnpm install --frozen-lockfile --prefer-offline",
+		);
+		expect(install).toBeGreaterThan(push);
+		// pnpm prints its error to stdout; the log keeps it with the project id.
+		expect(logWarn).toHaveBeenCalledWith(
+			expect.stringMatching(/p-1.*ERR_PNPM_OUTDATED_LOCKFILE/),
+		);
+		logWarn.mockRestore();
+	});
+
+	// An API restart stops the refreshes. The project must not stay blocked.
+	it("keeps the lock while the restore runs and frees it 2 min after the last refresh", async () => {
+		const logWarn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		vi.useFakeTimers();
+		try {
+			const { repoRestorer, sandboxes, service, turnLock } = fixture();
+			scriptRestore(sandboxes);
+			// The restore hangs in the restorer, like a slow fetch.
+			vi.mocked(repoRestorer.restore).mockImplementation(
+				() => new Promise<void>(() => undefined),
+			);
+			void service.restore(SCOPE, "p-1", SHA, { expectedHeadSha: HEAD }, IP);
+
+			await vi.advanceTimersByTimeAsync(5 * 60_000);
+			expect(await turnLock.holder("p-1")).toMatch(/^restore:/);
+
+			// On SIGTERM the lock client quits Redis, so each refresh rejects.
+			turnLock.refresh = async () => {
+				throw new Error("Connection is closed.");
+			};
+			await vi.advanceTimersByTimeAsync(2 * 60_000);
+			expect(await turnLock.holder("p-1")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+			logWarn.mockRestore();
+		}
 	});
 
 	it("starts the sandbox with the egress inputs of a turn and no proxy token", async () => {

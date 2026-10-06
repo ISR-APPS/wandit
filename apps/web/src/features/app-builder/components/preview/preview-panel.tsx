@@ -3,7 +3,7 @@
  * signed sandbox URL with usePreviewToken and pass the result here, so their
  * bars can read the URL too. PreviewBootScreen covers the frame until the
  * app page loads, and while the project holds only the template; the error
- * state has its own alert. The page keeps it mounted across the views. The
+ * and blocked states have their own alert. The page keeps it mounted across the views. The
  * Vite HMR WebSocket of the app inside then survives a view switch. It tells
  * the dev bridge of the app when the select mode starts or stops. It passes
  * each bridge message, also a page change, to `onBridgeMessage`.
@@ -35,6 +35,10 @@ import { PreviewBootScreen } from "./preview-boot-screen";
 const PREVIEW_IFRAME_SANDBOX =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-modals";
 
+// The amber pill of the device card in device-panel.tsx. It reads on the night ground in both themes.
+const ALERT_BUTTON_CLASS =
+	"bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90";
+
 /** Props of the preview iframe panel. */
 export type PreviewPanelProps = {
 	/** The open project. The boot screen wakes its sandbox. */
@@ -61,7 +65,7 @@ export type PreviewPanelProps = {
 	isSelecting?: boolean;
 	/** Gets each valid message of the dev bridge in the app: ready, a runtime error, a pick, Escape, or a page change. */
 	onBridgeMessage?: (message: PreviewBridgeMessage) => void;
-	/** Runs on each `load` of the iframe. WebPreview then shows the kept errors when no bridge said ready. */
+	/** Runs on each `load` of the iframe. usePreviewRuntimeErrors then shows the kept errors when no bridge said ready. */
 	onFrameLoad?: () => void;
 };
 
@@ -88,8 +92,8 @@ export function PreviewPanel({
 	const frameRef = useRef<HTMLIFrameElement>(null);
 	// True after the iframe fired `load`. A token swap keeps the same frame, so the boot screen does not come back.
 	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
-	// A dropped frame (not-running, error) must show the boot screen again when the next frame mounts.
-	if (previewUrl === null && isFrameLoaded) setIsFrameLoaded(false);
+	// A dropped frame (not-running, error, blocked) must show the boot screen again when the next frame mounts.
+	if (status !== "ready" && isFrameLoaded) setIsFrameLoaded(false);
 	// The template is not the user's app, so a loaded frame stays covered until a turn changes a file.
 	// The frame still loads under the cover, so the first version shows at once when the flag flips.
 	const isAppShown = isFrameLoaded && bootContext.hasCodeChanges;
@@ -124,7 +128,7 @@ export function PreviewPanel({
 		},
 	});
 
-	if (status === "error") {
+	if (status === "error" || status === "blocked") {
 		return (
 			<div
 				role="alert"
@@ -136,15 +140,27 @@ export function PreviewPanel({
 				)}
 				style={style}
 			>
-				<p className="text-center text-sm text-white/70">{errorText}</p>
-				{/* The amber pill of the device card in device-panel.tsx. It reads on the night ground in both themes. */}
-				<Button
-					size="sm"
-					className="bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90"
-					onClick={refresh}
-				>
-					{t("appBuilder.preview.retry")}
-				</Button>
+				<p className="text-center text-sm text-white/70">
+					{status === "blocked"
+						? t("appBuilder.preview.frameBlocked")
+						: errorText}
+				</p>
+				{/* A retry fails the same way in a blocked frame. A top-level tab gets the cookie as first-party. */}
+				{status === "blocked" && previewUrl !== null ? (
+					<Button asChild size="sm" className={ALERT_BUTTON_CLASS}>
+						<a
+							href={previewSrcFor(previewUrl, path)}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							{t("appBuilder.topBar.openExternal")}
+						</a>
+					</Button>
+				) : (
+					<Button size="sm" className={ALERT_BUTTON_CLASS} onClick={refresh}>
+						{t("appBuilder.preview.retry")}
+					</Button>
+				)}
 			</div>
 		);
 	}

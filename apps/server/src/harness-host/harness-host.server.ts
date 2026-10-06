@@ -1,8 +1,8 @@
 /**
  * HTTP surface of the harness host: the routes of `harnessHostRoutes`, which
- * the API calls through `HarnessHostClient`. `main.ts` starts the server. A
- * start runs the turn in this process through `HostTurnRunner`; a cancel
- * aborts that run.
+ * the API calls through `HarnessHostClient`. `main.ts` starts the server.
+ * A start runs the turn in this process through `HostTurnRunner`. When the
+ * host is full, the start answers 503. A cancel aborts that run.
  */
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -22,10 +22,21 @@ import type { BuilderTurnLogger } from "../trigger/builder-turn.runtime";
 // 16 KB: the start body holds five short fields.
 const MAX_BODY_BYTES = 16 * 1024;
 
+/**
+ * The maximum number of turns that this process runs at the same time. Over
+ * it, the start route answers 503 and the API runs the turn on Trigger.dev
+ * (`RoutingTurnTaskStarter`). The next turn of a live project skips the cap.
+ */
+// LIMIT: 20 live turns on one Node thread, not load-tested. Upgrade: a second host replica with an instance id on the row.
+export const MAX_LIVE_TURNS = 20;
+
 /** The turns of this host; `HostTurnRunner` in production, a fake in the spec. */
 export type HostTurns = {
-	/** Starts the turn in the background. A start of a live turn does nothing. */
-	start(input: HarnessHostStartTurn): void;
+	/**
+	 * Starts the turn in the background. Answers true when this host runs it
+	 * (a live turn too), false when the host is full and refuses it.
+	 */
+	start(input: HarnessHostStartTurn): boolean;
 	/** Aborts a turn this host runs. An unknown id does nothing. */
 	cancel(turnId: string): void;
 };
@@ -35,7 +46,11 @@ export type HostTurns = {
  * cancel route aborts them, and the recovery skips them.
  */
 export class HostTurnRunner implements HostTurns {
-	private readonly live = new Map<string, AbortController>();
+	/** Key: the turn id. `projectId` lets the cap accept the next turn of a live project. */
+	private readonly live = new Map<
+		string,
+		{ abortController: AbortController; projectId: string }
+	>();
 
 	constructor(
 		/** One whole turn: `runBuilderTurn` with the host deps (see `main.ts`). */
@@ -46,17 +61,35 @@ export class HostTurnRunner implements HostTurns {
 		private readonly logger: BuilderTurnLogger,
 	) {}
 
-	start(input: HarnessHostStartTurn): void {
+	start(input: HarnessHostStartTurn): boolean {
 		// The API may retry a start; the row claim inside the run also dedupes.
 		if (this.live.has(input.turnId)) {
-			return;
+			return true;
 		}
-		const abort = new AbortController();
-		this.live.set(input.turnId, abort);
-		void this.run(input, abort.signal)
+		// The project lock allows one turn per project. A live turn of the same
+		// project is ending and frees its slot, so the cap skips its promoted turn.
+		const isProjectLive = [...this.live.values()].some(
+			(turn) => turn.projectId === input.projectId,
+		);
+		// A full host refuses the turn. The cap keeps the heap and the event
+		// loop of this one process safe.
+		if (this.live.size >= MAX_LIVE_TURNS && !isProjectLive) {
+			this.logger.warn("harness-host.turn-refused-full", {
+				liveTurns: this.live.size,
+				turnId: input.turnId,
+			});
+			return false;
+		}
+		const abortController = new AbortController();
+		this.live.set(input.turnId, {
+			abortController,
+			projectId: input.projectId,
+		});
+		void this.run(input, abortController.signal)
 			.catch((error: unknown) => {
 				// `runBuilderTurn` handles its own failures; this is a bug path.
-				// The recovery timer ends the row once the turn leaves `live`.
+				// The recovery timer ends the row once the turn leaves `live`
+				// and its run mark expires (`main.ts`).
 				this.logger.error("harness-host.turn-crashed", {
 					message: error instanceof Error ? error.message : String(error),
 					turnId: input.turnId,
@@ -65,10 +98,11 @@ export class HostTurnRunner implements HostTurns {
 			.finally(() => {
 				this.live.delete(input.turnId);
 			});
+		return true;
 	}
 
 	cancel(turnId: string): void {
-		this.live.get(turnId)?.abort();
+		this.live.get(turnId)?.abortController.abort();
 	}
 
 	/** Ids of the turns that run in this process now. */
@@ -138,8 +172,8 @@ export function createHarnessHostServer(
 			send(response, 400);
 			return;
 		}
-		turns.start(parsed.data);
-		send(response, 202);
+		// 503 tells the API that the host is full. The API then runs the turn on Trigger.dev.
+		send(response, turns.start(parsed.data) ? 202 : 503);
 	}
 }
 

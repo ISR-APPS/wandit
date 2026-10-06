@@ -90,6 +90,16 @@ const EMAIL_OTP_DISABLED_PATHS = [
 	"/email-otp/check-verification-otp",
 ];
 
+// Better Auth allows 3 requests per 10 s per IP on every `/sign-in/*` path.
+// An event room shares one NAT IP, so Google sign-in gets 100 per 10 s.
+// This route returns the Google redirect URL, or checks an ID token that Google signed.
+// Only Google issues a valid token, so a higher cap does not help a password guess.
+// `/sign-in/email` keeps the default rule.
+// A key is the path without the `/api/auth` base path. Better Auth matches it exactly.
+const AUTH_RATE_LIMIT_CUSTOM_RULES = {
+	"/sign-in/social": { window: 10, max: 100 },
+};
+
 // Surfaced by the OAuth callback as `?error=...` — keep the string stable.
 export const ADMIN_ACCESS_REQUIRED_ERROR_CODE = "ADMIN_ACCESS_REQUIRED";
 
@@ -240,6 +250,7 @@ function createBaseAuthOptions() {
 		// The database store survives restarts and is shared by every API
 		// process. Enablement keeps Better Auth's default (production only).
 		rateLimit: {
+			customRules: AUTH_RATE_LIMIT_CUSTOM_RULES,
 			storage: "database" as const,
 		},
 	};
@@ -447,7 +458,9 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		basePath: "/api/auth",
 		...(options.secondaryStorage
 			? {
+					// This object replaces the base `rateLimit`, so it repeats the custom rules.
 					rateLimit: {
+						customRules: AUTH_RATE_LIMIT_CUSTOM_RULES,
 						customStorage: createRateLimitStorage(options.secondaryStorage),
 						storage: "secondary-storage" as const,
 					},

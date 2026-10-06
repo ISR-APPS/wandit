@@ -1,11 +1,11 @@
 /**
  * The one chat hook the app-builder page calls. Joins the chat id lookup
  * and the paged stored history with the live turn stream of
- * use-builder-chat.ts, maps the messages to the card shapes the pane
- * renders, turns a rejected send into a dictionary sentence, and holds the
- * Plan toggle. Calls the workspace chat id query, the history query of
- * app-builder.queries.ts, use-builder-chat.ts, builder-chat-transport.ts,
- * and turn-parts.ts.
+ * use-builder-chat.ts. Maps the messages to the card shapes the pane
+ * renders. Turns a chat error into a dictionary sentence and a Reconnect
+ * action, and holds the Plan toggle. Calls the workspace chat id query,
+ * the history query of app-builder.queries.ts, use-builder-chat.ts,
+ * builder-chat-transport.ts, and turn-parts.ts.
  */
 
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -18,7 +18,7 @@ import type {
 	TurnStreamPhase,
 } from "@wandit/contracts";
 import type { FileUIPart } from "ai";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useChatByProjectQuery } from "@/features/workspace";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
@@ -43,31 +43,42 @@ export type BuilderThreadState = {
 	/** Cost hint of the running turn, in whole credits; null before its first frame. */
 	estimate: TurnEstimate | null;
 	/**
-	 * Sentence of a send the API refused before any stream, of a failed chat
-	 * id lookup, or of a failed history load. Null while every request
-	 * worked. Null when the reply already holds the error card.
+	 * The sentence for a refused send, or for a failed or lost turn stream.
+	 * A failed chat id lookup or history load also shows here. Null while
+	 * every request worked. Null when the last reply holds the error card of
+	 * this error.
 	 */
 	errorText: string | null;
 	/**
 	 * Sends one turn with this text, these uploaded files, and the elements
 	 * picked in the preview. A send with no `mode` uses the Plan toggle.
-	 * Dropped while a turn runs or the chat id is unknown.
+	 * Resolves false when the API admitted no turn, also while a turn runs or
+	 * the chat id is unknown. The caller then puts the draft back.
 	 */
-	send: (input: SendBuilderMessageInput, targets?: PreviewTarget[]) => void;
+	send: (
+		input: SendBuilderMessageInput,
+		targets?: PreviewTarget[],
+	) => Promise<boolean>;
 	/** Answers an open approval card through a turn with an empty message. */
 	decideApproval: (approvalId: string, approved: boolean) => void;
 	/**
 	 * Answers the open question cards in one turn. `message` is the short
 	 * summary the user bubble shows; `answers` carry the typed values.
+	 * Resolves like `send`.
 	 */
 	answerQuestions: (input: {
 		message: string;
 		answers: TurnQuestionAnswer[];
 		/** Files of a typed message that also answers a skipped round. */
 		files?: FileUIPart[];
-	}) => void;
+	}) => Promise<boolean>;
 	/** Aborts the stream, then posts the turn cancel. Rejects with ApiClientError. */
 	cancel: () => Promise<void>;
+	/**
+	 * Opens the stream of the running turn again after a lost connection.
+	 * Null while `errorText` is null or the error is final (canReconnectAfter).
+	 */
+	reconnect: (() => Promise<void>) | null;
 	/**
 	 * False until the chat id resolves and the stored history loads or fails
 	 * on this mount. A send before the history shows would put the reply
@@ -118,44 +129,76 @@ export type BuilderThreadState = {
 const EMPTY_HISTORY: readonly ChatMessage[] = [];
 
 /**
- * The dictionary key of a rejected send's sentence, or null when the error
- * has no builder copy. `error` is a caught failure: the status-preserving
- * fetch throws ApiClientError, and useChat also stores plain Errors.
+ * True when a Reconnect can bring the turn back after this chat error. A
+ * network failure, a 429, and a 5xx of a stream are temporary; another 4xx
+ * is final. A send that the API answered with an error created no turn,
+ * because TurnsService.create fails its row. Its draft is back in the
+ * composer. `isSendRefused` comes from useBuilderChat.
  */
-export function turnErrorKey(error: unknown): TranslationKey | null {
-	if (!isApiClientError(error)) return null;
-	// A bare 402 arrives as HTTP_402 when the answer carries no error envelope.
-	if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) {
-		return "appBuilder.chat.errors.noCredits";
-	}
-	switch (error.code) {
-		case "PROJECT_CREDIT_CAP_REACHED":
-			return "appBuilder.chat.errors.projectCap";
-		case "TOO_MANY_ACTIVE_TURNS":
-			return "appBuilder.chat.errors.tooManyTurns";
-		case "BUILDER_APPROVAL_PENDING":
-			return "appBuilder.chat.errors.approvalPending";
-		case "V2_MODEL_DENIED":
-			return "appBuilder.chat.errors.modelDenied";
-		case "V2_MODEL_UNPRICED":
-			return "appBuilder.chat.errors.modelUnpriced";
-		default:
-			return null;
-	}
+export function canReconnectAfter(
+	error: Error,
+	isSendRefused: boolean,
+): boolean {
+	if (!isApiClientError(error)) return true;
+	if (isSendRefused) return false;
+	return error.statusCode === 429 || error.statusCode >= 500;
 }
 
 /**
- * The sentence the pane shows for the last chat error: the builder copy
- * when the code has one, the shared API message otherwise. Null while no
- * request failed.
+ * The dictionary key of a chat error's sentence, or null when the shared API
+ * message fits. `error` is useChat's error: the status-preserving fetch
+ * throws ApiClientError, and the stream fails with plain Errors.
+ */
+export function turnErrorKey(
+	error: Error,
+	isSendRefused: boolean,
+): TranslationKey | null {
+	if (isApiClientError(error)) {
+		// A bare 402 arrives as HTTP_402 when the answer carries no error envelope.
+		if (error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402) {
+			return "appBuilder.chat.errors.noCredits";
+		}
+		switch (error.code) {
+			case "PROJECT_CREDIT_CAP_REACHED":
+				return "appBuilder.chat.errors.projectCap";
+			case "TOO_MANY_ACTIVE_TURNS":
+				return "appBuilder.chat.errors.tooManyTurns";
+			case "BUILDER_APPROVAL_PENDING":
+				return "appBuilder.chat.errors.approvalPending";
+			case "V2_MODEL_DENIED":
+				return "appBuilder.chat.errors.modelDenied";
+			case "V2_MODEL_UNPRICED":
+				return "appBuilder.chat.errors.modelUnpriced";
+		}
+		// The composer holds the draft of a refused send again. This sentence
+		// asks the user to send it again. A refused 409 BUILDER_TURN_ACTIVE
+		// or 429 RATE_LIMITED uses the shared errors.codes copy.
+		if (isSendRefused && error.statusCode >= 500) {
+			return "appBuilder.chat.errors.sendFailed";
+		}
+	}
+	return canReconnectAfter(error, isSendRefused)
+		? "appBuilder.chat.errors.connectionLost"
+		: null;
+}
+
+/**
+ * The sentence the pane shows for the last chat error. Without a chat
+ * error, it is the sentence of a failed chat id lookup or history load.
+ * It is the builder copy when one fits, else the shared API message.
+ * Null while no request failed.
  */
 function turnErrorText(
-	error: Error | undefined,
+	chatError: Error | undefined,
+	isSendRefused: boolean,
+	loadError: Error | undefined,
 	t: (key: TranslationKey) => string,
 ): string | null {
-	if (error === undefined) return null;
-	const key = turnErrorKey(error);
-	return key === null ? getApiErrorMessage(error) : t(key);
+	if (chatError !== undefined) {
+		const key = turnErrorKey(chatError, isSendRefused);
+		return key === null ? getApiErrorMessage(chatError) : t(key);
+	}
+	return loadError === undefined ? null : getApiErrorMessage(loadError);
 }
 
 /**
@@ -263,37 +306,59 @@ export function useBuilderThread(
 		// Until the created frame of the new turn arrives, the toggle and the
 		// header chip show the mode of this send.
 		setPlanModePick(mode === "plan");
-		chat.send({ ...input, mode });
+		return chat.send({ ...input, mode });
 	};
 
 	// A failed stream ends with a data-turn-error frame and an error chunk.
 	// The frame is already a card in the reply, so the row under the list
-	// stays empty. The row is for a send the API refused before any stream,
-	// for the chat id lookup that never resolved (a V1 project id), or for
-	// a history load that failed and left the thread blank.
+	// stays empty. The row shows a send that the API refused before any
+	// stream, or a stream that the transport cannot reopen. It also shows a
+	// chat id lookup that never resolved (a V1 project id), and a failed
+	// history load.
 	const lastMessage = messages.at(-1);
 	const replyHoldsError =
 		lastMessage?.role === "assistant" &&
 		lastMessage.parts.some((part) => part.type === "data-error");
+	// A refused send drops its bubble, so the last reply can be an older
+	// failed turn. That card does not tell why the send failed.
+	const hidesChatError = replyHoldsError && !chat.isSendRefused;
+	const reconnect =
+		chat.error !== undefined &&
+		!hidesChatError &&
+		canReconnectAfter(chat.error, chat.isSendRefused)
+			? chat.reconnect
+			: null;
+
+	// The transport stops after about 45 s of failed reopens, as in a long
+	// Wi-Fi drop. When the browser is back online, the chat reconnects once.
+	useEffect(() => {
+		if (reconnect === null) return;
+		const reconnectWhenOnline = () => void reconnect();
+		window.addEventListener("online", reconnectWhenOnline);
+		return () => window.removeEventListener("online", reconnectWhenOnline);
+	}, [reconnect]);
 
 	return {
 		messages,
 		isSending: chat.isSending,
 		estimate: chat.estimate,
-		errorText: replyHoldsError
+		errorText: hidesChatError
 			? null
 			: turnErrorText(
-					chat.error ?? byProjectQuery.error ?? historyQuery.error ?? undefined,
+					chat.error,
+					chat.isSendRefused,
+					byProjectQuery.error ?? historyQuery.error ?? undefined,
 					t,
 				),
 		send: ({ text, files, mode }, targets) =>
 			sendTurn({ text, files, targets, mode }),
 		// No mode, so a build turn: only a build turn pauses on an approval.
 		decideApproval: (approvalId, approved) =>
-			chat.send({ text: "", approval: { approvalId, approved } }),
+			void chat.send({ text: "", approval: { approvalId, approved } }),
 		answerQuestions: ({ message, answers, files }) =>
 			sendTurn({ text: message, answers, files }),
 		cancel: chat.cancel,
+		reconnect,
 		isReady: chatId !== undefined && isHistorySettled,
 		isTurnRunning: chat.isSending && !chat.isAwaitingTurn,
 		// The phase lives in the reply that streams now, the last message.

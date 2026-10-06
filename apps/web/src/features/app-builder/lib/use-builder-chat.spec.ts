@@ -38,6 +38,13 @@ const createdFrame = {
 	} satisfies CreateTurnResponse,
 };
 
+// The last frame the relay sends for a turn that succeeded.
+const doneFrame = {
+	type: "data-turn-done",
+	id: "turn-done",
+	data: { status: "succeeded" },
+};
+
 // `resumeReply` makes the reconnect GET answer an open stream with one
 // assistant reply, like the API does during a turn after a reload.
 function createDeps(options: { resumeReply?: boolean } = {}) {
@@ -110,11 +117,6 @@ function createDeps(options: { resumeReply?: boolean } = {}) {
 		// Writes the done frame and the [DONE] terminator like the relay, then
 		// closes. A close with no done frame makes the transport reopen the turn.
 		endPostStream: () => {
-			const doneFrame = {
-				type: "data-turn-done",
-				id: "turn-done",
-				data: { status: "succeeded" },
-			};
 			postController?.enqueue(
 				encoder.encode(
 					`data: ${JSON.stringify(doneFrame)}\n\ndata: [DONE]\n\n`,
@@ -442,9 +444,12 @@ describe("useBuilderChat", () => {
 				initialMessages: [historyMessage("h2", "newer history")],
 			},
 		});
-		expect(messageTexts(result.current.messages)).toContain("hello");
-		expect(messageTexts(result.current.messages)).not.toContain(
-			"newer history",
+		// The useChat throttle can hold the last update for 50 ms.
+		await waitFor(() =>
+			expect(messageTexts(result.current.messages)).toEqual([
+				"old history",
+				"hello",
+			]),
 		);
 
 		fake.endPostStream();
@@ -503,4 +508,344 @@ describe("useBuilderChat", () => {
 			]),
 		);
 	});
+
+	// The composer puts a refused message back, so a bubble would show it twice.
+	it("resolves false for a send that the API refuses, and drops its bubble", async () => {
+		const fake = createDeps();
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: (input, init) =>
+				init?.method === "POST"
+					? Promise.resolve(
+							Response.json(
+								{
+									error: {
+										code: "BUILDER_TURN_ACTIVE",
+										message: "A restore or a sandbox wake is running.",
+										path: `/api/v2/projects/${PROJECT_ID}/turns`,
+										requestId: "req-1",
+										statusCode: 409,
+										timestamp: "2026-10-06T00:00:00.000Z",
+									},
+								},
+								{ status: 409 },
+							),
+						)
+					: fake.deps.fetch(input, init),
+		};
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+		);
+		await waitFor(() =>
+			expect(
+				fake.requests.some((request) => request.init?.method === "GET"),
+			).toBe(true),
+		);
+		// The 204 of the mount resume settles first, so it cannot clear the error.
+		await act(async () => {});
+
+		let isAccepted: boolean | null = null;
+		await act(async () => {
+			isAccepted = await result.current.send({ text: "hello" });
+		});
+
+		expect(isAccepted).toBe(false);
+		// The useChat throttle can hold the last update for 50 ms.
+		await waitFor(() => expect(result.current.messages).toEqual([]));
+		expect(result.current.isSendRefused).toBe(true);
+	});
+
+	// A project switch keeps this hook. A failed resume after a switch back is
+	// a lost stream, so it must get Reconnect, not the refused-send sentence.
+	it("forgets a refused send after a switch to another chat and back", async () => {
+		let getCount = 0;
+		const deps: BuilderChatDeps = {
+			...createDeps().deps,
+			fetch: async (_input, init) => {
+				if (init?.method === "POST") throw new TypeError("Failed to fetch");
+				getCount += 1;
+				// The first mount resume finds no turn. Each later resume meets an API deploy.
+				return new Response(null, { status: getCount === 1 ? 204 : 502 });
+			},
+		};
+		const input = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			initialMessages: [],
+			isHistorySettled: true,
+		};
+		const { result, rerender } = renderBuilderChat(input, deps);
+		await waitFor(() => expect(getCount).toBe(1));
+		await act(async () => {});
+		await act(async () => {
+			await result.current.send({ text: "hello" });
+		});
+		expect(result.current.isSendRefused).toBe(true);
+
+		rerender({
+			currentInput: {
+				...input,
+				projectId: crypto.randomUUID(),
+				chatId: crypto.randomUUID(),
+			},
+		});
+		await waitFor(() => expect(getCount).toBe(2));
+		rerender({ currentInput: input });
+
+		await waitFor(() => expect(getCount).toBe(3));
+		await waitFor(() => expect(result.current.status).toBe("error"));
+		expect(result.current.isSendRefused).toBe(false);
+	});
+
+	// The transport gives up after its reopen budget. The turn still runs, or
+	// it ended while the stream was down and the GET answers 204. The history
+	// refetch of the `online` event can answer before that 204.
+	it.each([
+		{
+			turn: "still runs",
+			reconnectAnswer: "replay",
+			storedHistory: null,
+			texts: ["hello", "replayed reply"],
+			isSending: true,
+			isHistoryStale: false,
+		},
+		{
+			turn: "ended while the stream was down",
+			reconnectAnswer: "none",
+			storedHistory: null,
+			texts: ["hello", "partial reply"],
+			isSending: false,
+			isHistoryStale: true,
+		},
+		{
+			turn: "ended, and the history answers before the 204",
+			reconnectAnswer: "none",
+			storedHistory: [
+				{ id: "h1", role: "user", parts: [{ type: "text", text: "hello" }] },
+				{
+					id: "h2",
+					role: "assistant",
+					parts: [{ type: "text", text: "final reply" }],
+				},
+			] satisfies TurnMessage[],
+			texts: ["hello", "final reply"],
+			isSending: false,
+			isHistoryStale: true,
+		},
+	])("reconnects after a lost stream when the turn $turn", async ({
+		reconnectAnswer,
+		storedHistory,
+		texts,
+		isSending,
+		isHistoryStale,
+	}) => {
+		// Kept so the case can break the POST stream after its first frames.
+		const post: {
+			controller: ReadableStreamDefaultController<Uint8Array> | null;
+		} = { controller: null };
+		let getCount = 0;
+		// The reconnect GET waits, so the case can set the history first.
+		let answerReconnect = () => {};
+		const reconnectGate = new Promise<void>((resolve) => {
+			answerReconnect = resolve;
+		});
+		const deps: BuilderChatDeps = {
+			...createDeps().deps,
+			fetch: async (_input, init) => {
+				if (init?.method === "POST") {
+					return openTurnStream("partial reply", (controller) => {
+						post.controller = controller;
+					});
+				}
+				getCount += 1;
+				// The mount resume finds no turn. The reconnect GET replays the
+				// running turn from its first event, or finds no turn.
+				if (getCount === 1) return new Response(null, { status: 204 });
+				await reconnectGate;
+				return reconnectAnswer === "none"
+					? new Response(null, { status: 204 })
+					: openTurnStream("replayed reply");
+			},
+		};
+		const queryClient = new QueryClient();
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		queryClient.setQueryData(historyKey, null);
+		const input = {
+			projectId: PROJECT_ID,
+			chatId: CHAT_ID,
+			initialMessages: [],
+			isHistorySettled: true,
+		};
+		const { result, rerender } = renderBuilderChat(input, deps, queryClient);
+		await waitFor(() => expect(getCount).toBe(1));
+		await act(async () => {});
+
+		act(() => {
+			void result.current.send({ text: "hello" });
+		});
+		await waitFor(() =>
+			expect(messageTexts(result.current.messages)).toEqual([
+				"hello",
+				"partial reply",
+			]),
+		);
+		// Not a TypeError, so the transport does not reopen: the stream fails at once.
+		act(() => post.controller?.error(new Error("stream lost")));
+		await waitFor(() => expect(result.current.status).toBe("error"));
+
+		act(() => {
+			void result.current.reconnect();
+		});
+		await waitFor(() => expect(getCount).toBe(2));
+		if (storedHistory !== null) {
+			rerender({ currentInput: { ...input, initialMessages: storedHistory } });
+		}
+		await act(async () => answerReconnect());
+
+		await waitFor(() =>
+			expect(messageTexts(result.current.messages)).toEqual(texts),
+		);
+		await waitFor(() => expect(result.current.isSending).toBe(isSending));
+		expect(queryClient.getQueryState(historyKey)?.isInvalidated).toBe(
+			isHistoryStale,
+		);
+	});
+
+	// The network can fail after the API created the turn. The send then drops
+	// its bubble, and only the stored history shows the user row again.
+	it("loads the history after a reconnect replays the turn of a lost POST answer", async () => {
+		let getCount = 0;
+		const deps: BuilderChatDeps = {
+			...createDeps().deps,
+			fetch: async (_input, init) => {
+				if (init?.method === "POST") throw new TypeError("Failed to fetch");
+				getCount += 1;
+				// The mount resume finds no turn. The reconnect replays the whole turn.
+				return getCount === 1
+					? new Response(null, { status: 204 })
+					: openTurnStream("replayed reply", (controller) => {
+							controller.enqueue(
+								new TextEncoder().encode(
+									`data: ${JSON.stringify(doneFrame)}\n\ndata: [DONE]\n\n`,
+								),
+							);
+							controller.close();
+						});
+			},
+		};
+		const queryClient = new QueryClient();
+		const historyKey = appBuilderKeys.chatHistory(PROJECT_ID);
+		queryClient.setQueryData(historyKey, null);
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [],
+				isHistorySettled: true,
+			},
+			deps,
+			queryClient,
+		);
+		await waitFor(() => expect(getCount).toBe(1));
+		await act(async () => {});
+
+		let isAccepted: boolean | null = null;
+		await act(async () => {
+			isAccepted = await result.current.send({ text: "hello" });
+		});
+		await waitFor(() => expect(result.current.status).toBe("error"));
+		await act(async () => {
+			await result.current.reconnect();
+		});
+
+		expect(isAccepted).toBe(false);
+		expect(messageTexts(result.current.messages)).toEqual(["replayed reply"]);
+		expect(queryClient.getQueryState(historyKey)?.isInvalidated).toBe(true);
+	});
+
+	// A stored reply has no created frame and no done frame. The reconnect
+	// must not take it for a cut reply and drop it.
+	it("keeps a stored reply when a reconnect after a failed resume replays a turn", async () => {
+		let getCount = 0;
+		const deps: BuilderChatDeps = {
+			...createDeps().deps,
+			// The mount resume fails during an API deploy; the reconnect replays.
+			fetch: async () => {
+				getCount += 1;
+				return getCount === 1
+					? new Response(null, { status: 502 })
+					: openTurnStream("replayed reply");
+			},
+		};
+		const { result } = renderBuilderChat(
+			{
+				projectId: PROJECT_ID,
+				chatId: CHAT_ID,
+				initialMessages: [
+					{
+						id: "h1",
+						role: "user",
+						parts: [{ type: "text", text: "build it" }],
+					},
+					{
+						id: "h2",
+						role: "assistant",
+						parts: [{ type: "text", text: "stored reply" }],
+					},
+				],
+				isHistorySettled: true,
+			},
+			deps,
+		);
+		await waitFor(() => expect(result.current.status).toBe("error"));
+
+		act(() => {
+			void result.current.reconnect();
+		});
+
+		await waitFor(() =>
+			expect(messageTexts(result.current.messages)).toEqual([
+				"build it",
+				"stored reply",
+				"replayed reply",
+			]),
+		);
+	});
 });
+
+/**
+ * A turn stream as the relay sends it: the created frame and the start of a
+ * reply. It stays open like a running turn. `onOpen` gets its controller.
+ */
+function openTurnStream(
+	text: string,
+	onOpen: (
+		controller: ReadableStreamDefaultController<Uint8Array>,
+	) => void = () => {},
+): Response {
+	const encoder = new TextEncoder();
+	const frames = [
+		createdFrame,
+		{ type: "text-start", id: "t1" },
+		{ type: "text-delta", id: "t1", delta: text },
+	];
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const frame of frames) {
+					controller.enqueue(
+						encoder.encode(`data: ${JSON.stringify(frame)}\n\n`),
+					);
+				}
+				onOpen(controller);
+			},
+		}),
+		{ status: 200, headers: { "content-type": "text/event-stream" } },
+	);
+}

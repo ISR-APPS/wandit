@@ -32,6 +32,17 @@ function sandboxNotRunning() {
 	});
 }
 
+function rateLimited() {
+	return new ApiClientError({
+		code: "RATE_LIMITED",
+		message: "Rate limit exceeded",
+		path: `/api/v2/projects/${PROJECT_ID}/preview-token`,
+		requestId: "req-2",
+		statusCode: 429,
+		timestamp: NOW,
+	});
+}
+
 // Lets the pending mint promise resolve inside act while the clock stays fake.
 async function flushMints() {
 	await act(async () => {
@@ -90,6 +101,60 @@ describe("usePreviewToken", () => {
 		expect(getPreviewToken).toHaveBeenCalledTimes(2);
 		expect(result.current.status).toBe("ready");
 		expect(result.current.previewUrl).toBe(tokenResponse("t2").previewUrl);
+	});
+
+	it("keeps the waking screen on a 429 and polls again after 10 s", async () => {
+		const getPreviewToken = vi
+			.fn<PreviewTokenDeps["getPreviewToken"]>()
+			.mockRejectedValueOnce(sandboxNotRunning())
+			.mockRejectedValueOnce(rateLimited())
+			.mockResolvedValueOnce(tokenResponse("t1"));
+		const { result } = renderHook(() =>
+			usePreviewToken(PROJECT_ID, 0, { getPreviewToken }),
+		);
+		await flushMints();
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(3_000);
+		});
+
+		expect(getPreviewToken).toHaveBeenCalledTimes(2);
+		expect(result.current.status).toBe("waking");
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(10_000);
+		});
+
+		expect(getPreviewToken).toHaveBeenCalledTimes(3);
+		expect(result.current.status).toBe("ready");
+	});
+
+	it("keeps the frame while failed re-mints retry before expiresAt, then shows the error", async () => {
+		const getPreviewToken = vi
+			.fn<PreviewTokenDeps["getPreviewToken"]>()
+			.mockResolvedValueOnce(tokenResponse("t1"))
+			.mockRejectedValue(new Error("Network Error"));
+		const { result } = renderHook(() =>
+			usePreviewToken(PROJECT_ID, 0, { getPreviewToken }),
+		);
+		await flushMints();
+
+		// The re-mint at 12:14 fails; t1 lives until 12:15.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(14 * 60_000);
+		});
+
+		expect(getPreviewToken).toHaveBeenCalledTimes(2);
+		expect(result.current.status).toBe("ready");
+		expect(result.current.previewUrl).toBe(tokenResponse("t1").previewUrl);
+
+		// Retries fail every 10 s. The retry at 12:15 finds t1 expired and stops.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(61_000);
+		});
+
+		expect(getPreviewToken).toHaveBeenCalledTimes(8);
+		expect(result.current.status).toBe("error");
+		expect(result.current.previewUrl).toBeNull();
 	});
 
 	it("re-mints one minute before expiresAt and swaps the url", async () => {
@@ -214,12 +279,16 @@ describe("usePreviewToken", () => {
 		expect(result.current.previewUrl).toBe(tokenResponse("t2").previewUrl);
 	});
 
-	it("shows the retry state on a token-expired report while the token is fresh", async () => {
+	it("keeps the blocked state and a fresh url across re-mints after a token-expired report on a fresh token, until a reload", async () => {
 		const getPreviewToken = vi
 			.fn<PreviewTokenDeps["getPreviewToken"]>()
-			.mockResolvedValue(tokenResponse("t1"));
-		const { result } = renderHook(() =>
-			usePreviewToken(PROJECT_ID, 0, { getPreviewToken }),
+			.mockResolvedValueOnce(tokenResponse("t1"))
+			.mockResolvedValueOnce(tokenResponse("t2", "2026-01-01T12:30:00.000Z"))
+			.mockResolvedValueOnce(tokenResponse("t3", "2026-01-01T12:45:00.000Z"));
+		const { result, rerender } = renderHook(
+			({ reloadKey }) =>
+				usePreviewToken(PROJECT_ID, reloadKey, { getPreviewToken }),
+			{ initialProps: { reloadKey: 0 } },
 		);
 
 		await flushMints();
@@ -232,8 +301,24 @@ describe("usePreviewToken", () => {
 		});
 		act(() => result.current.refresh());
 
-		expect(result.current.status).toBe("error");
+		expect(result.current.status).toBe("blocked");
+		expect(result.current.previewUrl).toBe(tokenResponse("t1").previewUrl);
 		expect(getPreviewToken).toHaveBeenCalledTimes(1);
+
+		// The re-mint at 12:14 renews the new-tab URL but mounts no frame.
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(14 * 60_000);
+		});
+
+		expect(getPreviewToken).toHaveBeenCalledTimes(2);
+		expect(result.current.status).toBe("blocked");
+		expect(result.current.previewUrl).toBe(tokenResponse("t2").previewUrl);
+
+		rerender({ reloadKey: 1 });
+		await flushMints();
+
+		expect(result.current.status).toBe("ready");
+		expect(result.current.previewUrl).toBe(tokenResponse("t3").previewUrl);
 	});
 
 	it("stops the scheduled re-mint on unmount", async () => {

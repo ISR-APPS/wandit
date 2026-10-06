@@ -2,8 +2,9 @@
  * React hook over the V2 turn stream of one project chat. Owns the useChat
  * instance and exposes the running turn id and its cost estimate. Sends
  * text, files, question answers, approval decisions, and the turn mode as
- * turn requests.
- * A 402 answer opens the credits dialog. Called by the app-builder page;
+ * turn requests. A refused send leaves the chat, so the composer can show it
+ * again. After a failed stream, `reconnect` replays the running turn.
+ * A 402 answer opens the credits dialog. Called by use-builder-thread.ts;
  * calls builder-chat-transport.ts, api/app-builder.services.ts, and the
  * billing dispatch.
  */
@@ -77,13 +78,27 @@ export type BuilderChat = {
 	isAwaitingTurn: boolean;
 	/** Server estimate of the running turn; null when the frame carried none. */
 	estimate: TurnEstimate | null;
-	/** Sends one turn. Dropped while a turn runs or while the chat id is unknown. */
-	send: (input: BuilderChatSend) => void;
+	/**
+	 * Sends one turn. Resolves true when `data-turn-created` arrives. Resolves
+	 * false when the request ends before that frame, as for a refused or
+	 * failed POST. It also resolves false at once while a turn runs or the
+	 * chat id is unknown. On false the user bubble leaves the chat.
+	 */
+	send: (input: BuilderChatSend) => Promise<boolean>;
+	/** True while `error` comes from a send that ended before the API admitted its turn. */
+	isSendRefused: boolean;
 	/**
 	 * Aborts the stream, then posts the cancel; rejects with the POST error.
 	 * Before the first frame it waits for the turn id first.
 	 */
 	cancel: () => Promise<void>;
+	/**
+	 * Runs after a failed request. GET turns/active/stream replays the running
+	 * turn from its first event, or answers 204 when no turn runs. The stored
+	 * history loads again without a replay, and after the replay of a refused
+	 * send. Does nothing unless the status is `error`.
+	 */
+	reconnect: () => Promise<void>;
 };
 
 /**
@@ -116,8 +131,25 @@ export function useBuilderChat(
 		estimate: TurnEstimate | null;
 	} | null>(null);
 	const [isAwaitingTurn, setIsAwaitingTurn] = useState(false);
-	// Stops that came before the turn id. `data-turn-created` resolves them
-	// with the id; the end of the request resolves them with null.
+	// Chat id of the last send that ended before the API admitted its turn.
+	// A new send, a created frame, a 204, or a project switch clears it.
+	// A failed reconnect GET keeps it, because useChat then keeps the send error.
+	const [refusedSendChatId, setRefusedSendChatId] = useState<string | null>(
+		null,
+	);
+	// A project switch keeps this hook. A useChat of another chat id starts
+	// with no error, so the flag of the old chat goes.
+	if (refusedSendChatId !== null && refusedSendChatId !== chatId) {
+		setRefusedSendChatId(null);
+	}
+	// The reconnect that runs now, or null. The created frame of its replay
+	// sets `hasReplay`. onError sets `hasFailed` when its GET or stream fails.
+	const reconnectRef = useRef<{
+		hasReplay: boolean;
+		hasFailed: boolean;
+	} | null>(null);
+	// Stops and sends that wait for the turn id. `data-turn-created` resolves
+	// them with the id; the end of the request resolves them with null.
 	const turnIdWaitersRef = useRef<((turnId: string | null) => void)[]>([]);
 	const resolveTurnIdWaiters = useCallback((turnId: string | null) => {
 		const waiters = turnIdWaitersRef.current;
@@ -163,48 +195,68 @@ export function useBuilderChat(
 		});
 	}, [queryClient, projectId]);
 
-	const { messages, status, error, sendMessage, setMessages, stop } =
-		useChat<TurnMessage>({
-			id: chatId ?? `project:${projectId}`,
-			messages: [...initialMessages],
-			transport,
-			// Replays the active turn after a reload. useChat re-runs this for
-			// each Chat instance (a new `id` builds a new one) and when the value
-			// turns true. The wait for the history keeps the order: a reply that
-			// streams first shows the working row above the user bubble.
-			resume: chatId !== undefined && isHistorySettled,
-			onData: (part) => {
-				// First frame of the create route and of the resume route. It is
-				// the only browser source of the turn id that `cancel` needs and
-				// of the estimate. The frame crosses the HTTP boundary, so the
-				// schema decides; a bad frame throws and the stream surfaces it
-				// as `error`.
-				if (part.type === "data-turn-created") {
-					const created = createTurnResponseSchema.parse(part.data);
-					setIsAwaitingTurn(false);
-					setActiveTurn({
-						turnId: created.turnId,
-						estimate: created.estimate ?? null,
-					});
-					resolveTurnIdWaiters(created.turnId);
-				}
-			},
-			// A 402 answer of the create POST opens the credits dialog. The
-			// dispatch ignores every other error; the pane shows its sentence.
-			onError: (error) => {
-				dispatchBillingError(error);
-			},
-			// The SDK fires onFinish on success, error, and abort. The turn id
-			// and the estimate are stale from here; a cancel after this point
-			// would post for a finished turn. On an abort the caches refresh
-			// before the settle, so `cancel` refreshes them again.
-			onFinish: () => {
-				setActiveTurn(null);
+	const {
+		messages,
+		status,
+		error,
+		sendMessage,
+		setMessages,
+		stop,
+		resumeStream,
+	} = useChat<TurnMessage>({
+		id: chatId ?? `project:${projectId}`,
+		messages: [...initialMessages],
+		transport,
+		// A resume replays every chunk of the turn. Without a throttle, each
+		// chunk renders the whole page once. 50 ms is about 3 frames. The SDK
+		// still flushes the messages at once on the ready and error status.
+		throttle: 50,
+		// Replays the active turn after a reload. useChat re-runs this for
+		// each Chat instance (a new `id` builds a new one) and when the value
+		// turns true. The wait for the history keeps the order: a reply that
+		// streams first shows the working row above the user bubble.
+		resume: chatId !== undefined && isHistorySettled,
+		onData: (part) => {
+			// First frame of the create route and of the resume route. It is
+			// the only browser source of the turn id that `cancel` needs and
+			// of the estimate. The frame crosses the HTTP boundary, so the
+			// schema decides; a bad frame throws and the stream surfaces it
+			// as `error`.
+			if (part.type === "data-turn-created") {
+				const created = createTurnResponseSchema.parse(part.data);
 				setIsAwaitingTurn(false);
-				resolveTurnIdWaiters(null);
-				invalidateTurnData();
-			},
-		});
+				setActiveTurn({
+					turnId: created.turnId,
+					estimate: created.estimate ?? null,
+				});
+				resolveTurnIdWaiters(created.turnId);
+				// A turn owns the chat now. A later error is a turn error, not the
+				// error of a refused send.
+				setRefusedSendChatId(null);
+				if (reconnectRef.current !== null) {
+					reconnectRef.current.hasReplay = true;
+				}
+			}
+		},
+		// A 402 answer of the create POST opens the credits dialog. The
+		// dispatch ignores every other error; the pane shows its sentence.
+		onError: (error) => {
+			dispatchBillingError(error);
+			if (reconnectRef.current !== null) {
+				reconnectRef.current.hasFailed = true;
+			}
+		},
+		// The SDK fires onFinish on success, error, and abort. The turn id
+		// and the estimate are stale from here; a cancel after this point
+		// would post for a finished turn. On an abort the caches refresh
+		// before the settle, so `cancel` refreshes them again.
+		onFinish: () => {
+			setActiveTurn(null);
+			setIsAwaitingTurn(false);
+			resolveTurnIdWaiters(null);
+			invalidateTurnData();
+		},
+	});
 
 	const isSending = status === "submitted" || status === "streaming";
 
@@ -215,8 +267,15 @@ export function useBuilderChat(
 	useEffect(() => {
 		statusRef.current = status;
 	}, [status]);
+	// The newest history page, and the page of the last full reseed. A page
+	// that comes while the chat is not ready only merges. After a 204,
+	// `reconnect` compares the two and reseeds from the newest page.
+	const newestHistoryRef = useRef(initialMessages);
+	const seededHistoryRef = useRef(initialMessages);
 	useEffect(() => {
+		newestHistoryRef.current = initialMessages;
 		if (statusRef.current === "ready") {
+			seededHistoryRef.current = initialMessages;
 			setMessages([...initialMessages]);
 			return;
 		}
@@ -231,11 +290,12 @@ export function useBuilderChat(
 	}, [initialMessages, setMessages]);
 
 	const send = useCallback(
-		(sendInput: BuilderChatSend): void => {
+		async (sendInput: BuilderChatSend): Promise<boolean> => {
 			// One active turn per project: a second send queues or fails with 429
 			// TOO_MANY_ACTIVE_TURNS. The hook refuses early and keeps one stream.
-			if (chatId === undefined || isSending) return;
+			if (chatId === undefined || isSending) return false;
 			setIsAwaitingTurn(true);
+			setRefusedSendChatId(null);
 			// Files first, then the text, as the AI SDK orders `{ text, files }`.
 			// The bubble shows the chips from the targets part; the transport reads
 			// the targets of the turn body from it too.
@@ -250,8 +310,13 @@ export function useBuilderChat(
 					data: { targets: sendInput.targets },
 				});
 			}
+			// The id finds the bubble again when the API admits no turn.
+			const messageId = crypto.randomUUID();
+			const turnId = new Promise<string | null>((resolve) => {
+				turnIdWaitersRef.current.push(resolve);
+			});
 			void sendMessage(
-				{ parts },
+				{ id: messageId, parts },
 				{
 					body: {
 						...(sendInput.approval ? { approval: sendInput.approval } : {}),
@@ -261,8 +326,16 @@ export function useBuilderChat(
 					},
 				},
 			);
+			if ((await turnId) !== null) return true;
+			// No turn exists for this message, and the caller puts it back in the
+			// composer. A bubble would show it twice after the next send.
+			setMessages((current) =>
+				current.filter((message) => message.id !== messageId),
+			);
+			setRefusedSendChatId(chatId);
+			return false;
 		},
-		[chatId, isSending, sendMessage],
+		[chatId, isSending, sendMessage, setMessages],
 	);
 
 	const cancel = useCallback(async (): Promise<void> => {
@@ -300,6 +373,78 @@ export function useBuilderChat(
 		invalidateTurnData,
 	]);
 
+	const reconnect = useCallback(async (): Promise<void> => {
+		// A second GET while one runs would abort the first, so the call drops.
+		if (
+			chatId === undefined ||
+			status !== "error" ||
+			reconnectRef.current !== null
+		) {
+			return;
+		}
+		const attempt = { hasReplay: false, hasFailed: false };
+		reconnectRef.current = attempt;
+		// A send can lose its POST answer after the API created the turn. Its
+		// bubble is gone, so the history must show the user row again.
+		const isAfterRefusedSend = refusedSendChatId === chatId;
+		// The replay starts at the first event of the turn and builds the reply
+		// again, so the cut reply goes. Only the relay writes the created
+		// frame: a stored reply has no created frame.
+		const lastMessage = messages.at(-1);
+		const cutReply =
+			lastMessage?.role === "assistant" &&
+			lastMessage.parts.some((part) => part.type === "data-turn-created") &&
+			!lastMessage.parts.some((part) => part.type === "data-turn-done")
+				? lastMessage
+				: null;
+		if (cutReply !== null) {
+			setMessages((current) =>
+				current.filter((message) => message.id !== cutReply.id),
+			);
+		}
+		try {
+			await resumeStream();
+		} finally {
+			reconnectRef.current = null;
+		}
+		const historyKey = appBuilderKeys.chatHistory(projectId);
+		if (attempt.hasReplay) {
+			// resumeStream resolves when the replay ends. When the chat is ready,
+			// the refetched history reseeds it with the user row.
+			if (isAfterRefusedSend) {
+				void queryClient.invalidateQueries({ queryKey: historyKey });
+			}
+			return;
+		}
+		// No replay: the GET failed again, or the turn ended while the stream
+		// was down (204). A failed GET keeps the cut reply. After a 204, a
+		// history page that came during the error holds the end of the turn.
+		// Its reseed only merged, and a refetch of equal data does not reseed.
+		// A 204 also ends the error of a refused send.
+		if (!attempt.hasFailed) setRefusedSendChatId(null);
+		const newestHistory = newestHistoryRef.current;
+		if (!attempt.hasFailed && newestHistory !== seededHistoryRef.current) {
+			seededHistoryRef.current = newestHistory;
+			setMessages([...newestHistory]);
+		} else if (cutReply !== null) {
+			// The refetch below replaces the cut reply once the chat is ready.
+			setMessages((current) => [...current, cutReply]);
+		}
+		void queryClient.invalidateQueries({ queryKey: historyKey });
+		// onFinish runs only for a stream, so the turn data refreshes here.
+		invalidateTurnData();
+	}, [
+		chatId,
+		status,
+		refusedSendChatId,
+		messages,
+		setMessages,
+		resumeStream,
+		queryClient,
+		projectId,
+		invalidateTurnData,
+	]);
+
 	return {
 		messages,
 		status,
@@ -309,7 +454,9 @@ export function useBuilderChat(
 		isAwaitingTurn,
 		estimate: activeTurn?.estimate ?? null,
 		send,
+		isSendRefused: error !== undefined && refusedSendChatId === chatId,
 		cancel,
+		reconnect,
 	};
 }
 

@@ -207,14 +207,25 @@ function imageUrlOf(toolName: string, output: unknown): string | null {
 			return null;
 		}
 		const { url } = generated.data;
-		return URL.canParse(url) && new URL(url).protocol === "https:" ? url : null;
+		return parsedUrlOf(url)?.protocol === "https:" ? url : null;
 	}
 	return null;
 }
 
 /** The host of a URL, or null when the text is not a URL. */
 function hostOf(url: string): string | null {
-	return URL.canParse(url) ? new URL(url).host : null;
+	return parsedUrlOf(url)?.host ?? null;
+}
+
+/** The parsed URL, or null when the text is not a URL. Safari 16 has no `URL.canParse`. */
+function parsedUrlOf(url: string): URL | null {
+	try {
+		return new URL(url);
+	} catch (error) {
+		// new URL throws a TypeError for text that is not a URL.
+		if (error instanceof TypeError) return null;
+		throw error;
+	}
 }
 
 /** One line per text line, all in the same tone. */

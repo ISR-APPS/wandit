@@ -1,9 +1,9 @@
 /**
  * The runtime errors that the dev bridge of the app in the preview posted
- * (WANDIT-173). WebPreview calls the hook, shows the banner, and sends the
- * "Try to fix" chat message that `tryToFixMessage` builds. When a turn ends
- * with errors in the list, the hook asks for a reload of the frame. WebPreview
- * clears the list when the new page of the app says ready.
+ * (WANDIT-173). WebPreview and PhonePreview call the hook. PreviewErrorBanner
+ * shows the list and sends the "Try to fix" chat message that `tryToFixMessage`
+ * builds. When a turn ends with errors in the list, the hook asks for a reload
+ * of the frame. The preview clears the list when the new page of the app says ready.
  */
 
 import {
@@ -53,28 +53,38 @@ function withError(
 
 /**
  * Holds the error list of one preview. `isTurnRunning` comes from the page.
- * `reloadFrame` loads the app in the frame again; the hook calls it during
- * the render of its own component, so it must set state of that component.
- * The list stays until the new page says ready: a page that cannot start
- * (a compile error) then still shows the errors of the turn.
+ * When a turn ends with errors, `ownReloads` grows by one. The preview adds it
+ * to its reload key, so the frame loads the app again. The list stays until the
+ * new page says ready. So a page that cannot start (a compile error) still shows
+ * the errors of the turn.
  */
-export function usePreviewRuntimeErrors(
-	isTurnRunning: boolean,
-	reloadFrame: () => void,
-) {
+export function usePreviewRuntimeErrors(isTurnRunning: boolean) {
 	const [state, setState] = useState(NO_ERRORS);
 	const [wasTurnRunning, setWasTurnRunning] = useState(isTurnRunning);
+	const [ownReloads, setOwnReloads] = useState(0);
+	// True from an own reload until the new page loads. Then the banner shows only the
+	// errors of the final code. When the new page cannot start, it shows the kept errors.
+	const [isReloadPending, setIsReloadPending] = useState(false);
 	if (isTurnRunning !== wasTurnRunning) {
 		setWasTurnRunning(isTurnRunning);
 		// A turn changes the app, and an error during a turn can come from a
 		// half-written file. A reload at the end keeps only the errors of the final code.
-		if (!isTurnRunning && state.count > 0) reloadFrame();
+		if (!isTurnRunning && state.count > 0) {
+			setOwnReloads((count) => count + 1);
+			setIsReloadPending(true);
+		}
 	}
 	return {
 		...state,
+		/** Reloads that this hook asked for. The preview adds them to the reload key of the page. */
+		ownReloads,
+		/** False while a turn runs and until its reload loads: those errors are not final. */
+		isBannerShown: !isTurnRunning && !isReloadPending,
 		add: (error: PreviewRuntimeError) =>
 			setState((current) => withError(current, error)),
 		clear: () => setState(NO_ERRORS),
+		/** The preview passes it to the `load` event of the iframe. */
+		onFrameLoad: () => setIsReloadPending(false),
 	};
 }
 

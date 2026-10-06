@@ -5,7 +5,11 @@ import type { BuilderTurnRow } from "../modules/app-builder/infrastructure/persi
 import { FakeLlmSpendCounters } from "../modules/app-builder/infrastructure/redis/fake-llm-spend-counters";
 import { FakeTurnLock } from "../modules/app-builder/infrastructure/redis/fake-turn-lock";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
+import type { BuilderTurnDeps } from "../trigger/builder-turn.runtime";
 import { recoverHostTurns } from "./recover-host-turns";
+
+/** One reply row that the recovery stores. */
+type StoredReply = Parameters<BuilderTurnDeps["insertAssistantMessage"]>[0];
 
 function turnRow(overrides: Partial<BuilderTurnRow> = {}): BuilderTurnRow {
 	return {
@@ -89,6 +93,8 @@ async function setup(rows: BuilderTurnRow[]) {
 	}
 	const counters = new FakeLlmSpendCounters();
 	const events: { turnId: string; events: TurnStreamEventInput[] }[] = [];
+	/** The stored reply rows, with the count of event batches at each insert. */
+	const replies: { eventsBefore: number; reply: StoredReply }[] = [];
 	const deps = {
 		appendEvents: vi.fn(
 			async (turnId: string, list: TurnStreamEventInput[]) => {
@@ -96,6 +102,10 @@ async function setup(rows: BuilderTurnRow[]) {
 			},
 		),
 		counters,
+		insertAssistantMessage: async (reply: StoredReply) => {
+			replies.push({ eventsBefore: events.length, reply });
+		},
+		isRunningOnAnyHost: vi.fn(async (_turnId: string) => false),
 		lock,
 		logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 		metering: {
@@ -109,12 +119,12 @@ async function setup(rows: BuilderTurnRow[]) {
 			transition: vi.fn(async () => true),
 		},
 	};
-	return { counters, deps, events, lock };
+	return { counters, deps, events, lock, replies };
 }
 
 describe("recoverHostTurns", () => {
 	it("fails a running host turn with no live run and frees everything it held", async () => {
-		const { counters, deps, events, lock } = await setup([turnRow()]);
+		const { counters, deps, events, lock, replies } = await setup([turnRow()]);
 
 		await recoverHostTurns(deps, new Set(), new Set());
 
@@ -125,6 +135,21 @@ describe("recoverHostTurns", () => {
 		expect(events[0]?.events.map((event) => event.type)).toEqual([
 			"error",
 			"done",
+		]);
+		// A reload shows the same error card and Retry as the live stream.
+		const error = events[0]?.events[0];
+		expect(replies).toEqual([
+			{
+				eventsBefore: 0,
+				reply: expect.objectContaining({
+					chatId: "chat-1",
+					metadata: null,
+					parts: [
+						{ data: error?.data, id: "turn-error", type: "data-turn-error" },
+					],
+					turnId: "turn-1",
+				}),
+			},
 		]);
 		expect(deps.metering.refund).toHaveBeenCalledWith(
 			"event-1",
@@ -143,6 +168,26 @@ describe("recoverHostTurns", () => {
 		expect(deps.turns.fail).not.toHaveBeenCalled();
 	});
 
+	it("leaves a turn with a run mark of another instance alone and ends one without", async () => {
+		const { deps, lock } = await setup([
+			turnRow({ id: "turn-old-instance" }),
+			turnRow({ id: "turn-dead", projectId: "project-2" }),
+		]);
+		deps.isRunningOnAnyHost.mockImplementation(
+			async (turnId) => turnId === "turn-old-instance",
+		);
+
+		await recoverHostTurns(deps, new Set(), new Set());
+
+		expect(deps.turns.fail).toHaveBeenCalledTimes(1);
+		expect(deps.turns.fail).toHaveBeenCalledWith(
+			"turn-dead",
+			expect.objectContaining({ failureCode: "host_lost" }),
+		);
+		expect(await lock.holder("project-1")).toBe("turn-old-instance");
+		expect(await lock.holder("project-2")).toBeNull();
+	});
+
 	it("ends a queued turn only on its second sweep", async () => {
 		const { deps } = await setup([turnRow({ status: "queued" })]);
 
@@ -154,7 +199,9 @@ describe("recoverHostTurns", () => {
 	});
 
 	it("ends a cancelling turn as canceled", async () => {
-		const { deps, events } = await setup([turnRow({ status: "cancelling" })]);
+		const { deps, events, replies } = await setup([
+			turnRow({ status: "cancelling" }),
+		]);
 
 		await recoverHostTurns(deps, new Set(), new Set());
 
@@ -166,6 +213,16 @@ describe("recoverHostTurns", () => {
 		);
 		expect(events[0]?.events).toEqual([
 			{ data: { status: "canceled" }, type: "done" },
+		]);
+		// A reload shows the Stopped line.
+		expect(replies.map(({ reply }) => reply.parts)).toEqual([
+			[
+				{
+					data: { status: "canceled" },
+					id: "turn-done",
+					type: "data-turn-done",
+				},
+			],
 		]);
 		expect(deps.metering.refund).toHaveBeenCalledWith(
 			"event-1",

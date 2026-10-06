@@ -46,7 +46,7 @@ export type ExpoGoPanelProps = {
 	projectId: string;
 	/**
 	 * Status of the preview token mint, from usePreviewToken in PhonePreview.
-	 * The phone link needs a running sandbox, so only `ready` mints it. The
+	 * The phone link needs a running sandbox, so only `ready` and `blocked` mint it. The
 	 * publish popover has no status and passes none: the panel mints at once,
 	 * and a sleeping sandbox answers SANDBOX_NOT_RUNNING.
 	 */
@@ -97,7 +97,11 @@ export function ExpoGoPanel({
 }: ExpoGoPanelProps) {
 	const { t } = useTranslation();
 	// The publish popover knows no preview status, so it mints at once like a running app.
-	const isAppRunning = previewStatus === undefined || previewStatus === "ready";
+	// A blocked frame cookie does not stop the phone: Expo Go needs no cookie.
+	const isAppRunning =
+		previewStatus === undefined ||
+		previewStatus === "ready" ||
+		previewStatus === "blocked";
 	const [expoUsername, setExpoUsername] = useState(readExpoUsername);
 	// A new mutate resets `data` and `error`, so a pending mint reads as neither.
 	const { mutate, data: link, error } = useMintPhonePreviewLink(projectId);
@@ -120,7 +124,7 @@ export function ExpoGoPanel({
 
 	// Each preview status has its own QR state. A `loading` preview and a
 	// running mint keep the skeleton. A link minted before the app slept
-	// points to a stopped sandbox, so only a `ready` preview shows it.
+	// points to a stopped sandbox, so only a `ready` or `blocked` preview shows it.
 	let state: ExpoGoLinkState = { status: "pending" };
 	if (previewStatus === "waking") {
 		state = { status: "asleep" };

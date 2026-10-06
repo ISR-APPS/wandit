@@ -47,7 +47,7 @@ type CommittedRow = Parameters<CommitTurnStore["insert"]>[0];
 function fixture(options?: {
 	/** CAS answers in call order; later calls answer `true` when it runs out. */
 	upsertResults?: boolean[];
-	/** `app_branches.headSha` a failed CAS then reads; null means no row. */
+	/** `app_branches.headSha` that the pre-push check and a failed CAS read; null means no row. */
 	storedHead?: string | null;
 }) {
 	const provider = new FakeSandboxProvider();
@@ -461,10 +461,10 @@ describe("commitTurn", () => {
 		);
 	});
 
-	it("first agent turn after the template init creates the main row", async () => {
+	it("first agent turn creates the repository before its one push, then the main row", async () => {
 		// The template init commits outside `commitTurn`, so the parent sha
 		// is set and no `main` row exists yet.
-		const { appCommits, deps, headWrites, provider } = fixture({
+		const { appCommits, deps, gitStore, headWrites, provider } = fixture({
 			storedHead: null,
 		});
 		scriptCommit(provider);
@@ -473,6 +473,9 @@ describe("commitTurn", () => {
 		const result = await commitTurn(sandbox, deps, INPUT);
 
 		expect(result.sha).toBe(SHA);
+		// The push retry stays free for a transient error.
+		expect(gitStore.ensureRepository).toHaveBeenCalledOnce();
+		expect(gitStore.issueCredential).toHaveBeenCalledOnce();
 		expect(headWrites).toEqual([
 			{
 				expectedHeadSha: PARENT,
@@ -481,8 +484,8 @@ describe("commitTurn", () => {
 				userId: "user-1",
 			},
 		]);
-		// The CAS created the row; no recovery read runs.
-		expect(appCommits.findBranch).not.toHaveBeenCalled();
+		// The CAS created the row; only the read before the push runs, no recovery read.
+		expect(appCommits.findBranch).toHaveBeenCalledOnce();
 	});
 
 	it("throws VersionConflictError when the head CAS loses and no head is stored", async () => {

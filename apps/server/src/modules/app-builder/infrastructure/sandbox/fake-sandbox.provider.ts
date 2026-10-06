@@ -35,6 +35,10 @@ export const FAKE_WORKSPACE_DIR = "/vercel/workspace";
 class FakeSandboxHandle implements SandboxHandle {
 	readonly providerSandboxId: string;
 	readonly workspaceDir = FAKE_WORKSPACE_DIR;
+	/** The fake builds no vendor policy, so it never replaces one. */
+	readonly networkPolicyReplaced = false;
+	/** The fake builds no vendor policy, so it has no hash. */
+	readonly networkPolicyHash = null;
 
 	constructor(
 		readonly projectId: string,

@@ -9,6 +9,8 @@
  * failure after the hold refunds it.
  * It writes the `turn.start` and `turn.cancel` audit rows through `AuditEventsService`,
  * and `turn.end` when its own `cancelling -> canceled` CAS wins.
+ * A new chat message also starts a failed or missing backend again through
+ * `BackendsService`, without a wait on it.
  */
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -35,6 +37,7 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type { V2Harness } from "@wandit/env/v2-harness";
+import { getErrorMessage } from "@wandit/observability/error";
 
 import { resolveBillingPlan } from "../../../billing/application/services/resolve-billing-plan";
 import { SubscriptionsRepository } from "../../../billing/infrastructure/persistence/subscriptions.repository";
@@ -51,6 +54,7 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { ProjectsRepository } from "../../../projects/infrastructure/persistence/projects.repository";
+import { BackendLimitReachedError } from "../../domain/errors/backend-limit-reached.error";
 import { BuilderApprovalPendingError } from "../../domain/errors/builder-approval-pending.error";
 import { BUILDER_TURN_ACTIVE_ERROR_CODE } from "../../domain/errors/builder-turn-active.error";
 import type { HarnessKind } from "../../domain/ports/builder-harness";
@@ -94,6 +98,7 @@ import {
 } from "../../infrastructure/redis/llm-spend-counters";
 import { TURN_LOCK_TTL_MS } from "../../infrastructure/redis/redis-turn-lock";
 import { AuditEventsService, type AuditRecord } from "./audit-events.service";
+import { BackendsService } from "./backends.service";
 import { LLM_PROXY_TOKEN_TTL_SECONDS } from "./llm-proxy-token.service";
 import { TurnPromoter } from "./turn-promotion";
 
@@ -174,6 +179,9 @@ export class TurnsService {
 		>,
 		@Inject(AuditEventsService)
 		private readonly audit: Pick<AuditEventsService, "record">,
+		/** Starts a failed or missing backend again when a new message arrives. */
+		@Inject(BackendsService)
+		private readonly backends: Pick<BackendsService, "provisionBackend">,
 	) {
 		this.promoter = new TurnPromoter(this.turns, this.lock, this.starter);
 	}
@@ -184,7 +192,8 @@ export class TurnsService {
 	 * or takes the project lock and starts `builder-turn` right away. A
 	 * lock held by a restore answers 409 BUILDER_TURN_ACTIVE. A project
 	 * whose last turn waits on an approval card answers 409
-	 * BUILDER_APPROVAL_PENDING until the body carries `approval`.
+	 * BUILDER_APPROVAL_PENDING until the body carries `approval`. A new
+	 * message also starts an `error` or missing backend row again.
 	 */
 	async create(
 		scope: ProjectScope,
@@ -419,6 +428,25 @@ export class TurnsService {
 					text: body.message,
 					turnId: created.turn.id,
 				});
+				// The Cloud tab "Try again" is behind a flag. So each new message also
+				// starts a failed or missing backend again. No wait: the turn starts now.
+				// LIMIT: a project the plan refuses runs the plan check on each message. Upgrade: skip a refused project.
+				void this.backends
+					.provisionBackend(projectId, {
+						// The turn route reads no country; null picks the default region.
+						countryCode: null,
+						organizationId: scope.kind === "org" ? scope.organizationId : null,
+						userId: scope.userId,
+					})
+					.catch((error: unknown) => {
+						// A plan without a free backend slot is a product rule, not a
+						// failure: `BackendsService` already logged it.
+						if (!(error instanceof BackendLimitReachedError)) {
+							this.logger.error(
+								`Backend provisioning failed for project ${projectId}: ${getErrorMessage(error)}`,
+							);
+						}
+					});
 			} else {
 				// The create transaction already wrote the user message; only the
 				// turn link is missing.

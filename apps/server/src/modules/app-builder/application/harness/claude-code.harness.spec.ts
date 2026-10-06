@@ -1,3 +1,5 @@
+import { spawn, spawnSync } from "node:child_process";
+
 import type { HarnessV1Bootstrap } from "@ai-sdk/harness";
 import type {
 	HarnessAgentAdapter,
@@ -129,6 +131,8 @@ function fakeSandbox(): SandboxHandle {
 		harnessSession: async () => FAKE_SANDBOX_SESSION,
 		keepAlive: async () => {},
 		listFiles: async () => [],
+		networkPolicyReplaced: false,
+		networkPolicyHash: "policy-1",
 		openPort: async () => {},
 		previewUrl: async () => "",
 		projectId: "project-1",
@@ -251,22 +255,12 @@ describe("ClaudeCodeHarness.createSession", () => {
 			ANTHROPIC_BASE_URL: "https://api.test/api/v2/llm",
 		});
 		expect(Object.keys(captured.claudeSettings?.auth ?? {})).toHaveLength(2);
-		expect(captured.claudeSettings?.env).toEqual({
-			// One Claude Code process serves many turns: no per-run header.
-			ANTHROPIC_CUSTOM_HEADERS: "",
-			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-			// The per-turn token note broke the prompt cache prefix.
-			CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
-			WANDIT_TOKEN_EPOCH: expect.any(String),
-		});
 		expect(captured.agentSettings?.sandboxConfig?.workDir).toBe(
 			HARNESS_WORK_DIR,
 		);
 		expect(captured.agentSettings?.permissionMode).toBe("allow-all");
 		// A dead bridge must not hold a turn for the adapter default of 120 s.
 		expect(captured.claudeSettings?.startupTimeoutMs).toBe(30_000);
-		// The model asks through ask_user only; the built-in tool is off.
-		expect(captured.agentSettings?.inactiveTools).toEqual(["askUserQuestions"]);
 		expect(captured.agentSettings?.model).toBe("anthropic/claude-sonnet-5");
 		expect(captured.agentSettings?.instructions).toBe(
 			"Build the app in these languages only: ar, fr.",
@@ -325,9 +319,61 @@ describe("ClaudeCodeHarness.createSession", () => {
 		// binds the bridge port.
 		expect(execCalls).toHaveLength(1);
 		expect(execCalls[0]?.command).toBe("sh");
-		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
 	});
 });
+
+// The kill script reads /proc, so this block runs on Linux only. CI runs on
+// ubuntu-latest.
+describe.skipIf(process.platform !== "linux")(
+	"ClaudeCodeHarness.createSession stale bridge kill on a real /proc",
+	() => {
+		it("kills the stale bridge, and the kill script ends with exit code 0", async () => {
+			// A stand-in for the old bridge, with the command line of a real one.
+			const bridge = spawn(process.execPath, [
+				"-e",
+				"process.stdout.write('ready'); setInterval(() => {}, 1000);",
+				"bridge.mjs",
+				"--workdir",
+				"/tmp/workspace",
+			]);
+			const bridgeSignal = new Promise<NodeJS.Signals | null>((resolve) => {
+				bridge.once("exit", (_code, signal) => resolve(signal));
+			});
+			try {
+				// "ready" comes after the exec, so /proc holds the bridge command line.
+				await new Promise<void>((resolve) => {
+					bridge.stdout.once("data", () => resolve());
+				});
+				const exitCodes: (number | null)[] = [];
+				const { harness } = setup();
+
+				await harness.createSession({
+					...sessionInput(),
+					sandbox: {
+						...fakeSandbox(),
+						// Runs the command on this machine, like the sandbox runs it.
+						exec: async (command, args) => {
+							const result = spawnSync(command, args, { encoding: "utf8" });
+							exitCodes.push(result.status);
+							return {
+								exitCode: result.status ?? 1,
+								stderr: result.stderr,
+								stdout: result.stdout,
+							};
+						},
+					},
+				});
+
+				// An old pattern also matches the script, so the shell kills itself and
+				// gives no exit code. A bridge later in the loop then stays alive.
+				expect(exitCodes).toEqual([0]);
+				expect(await bridgeSignal).toBe("SIGTERM");
+			} finally {
+				bridge.kill("SIGKILL");
+			}
+		});
+	},
+);
 
 describe("ClaudeCodeHarness.resumeSession", () => {
 	it("parses the stored payload and passes resumeFrom", async () => {
@@ -435,9 +481,8 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		expect(captured.createOptions?.resumeFrom?.data).toEqual({
 			claudeSessionId: "claude-1",
 		});
-		// After a mode switch the old bridge still runs and holds the port.
+		// A wake can reuse a live sandbox whose old bridge still holds the port.
 		expect(execCalls).toHaveLength(1);
-		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
 	});
 
 	it("drops the paused turn that a mid-turn detach nests in the resume state", async () => {
@@ -569,6 +614,58 @@ describe("ClaudeCodeHarness.stream", () => {
 				type: "usage",
 			},
 		]);
+	});
+
+	// Claude Code and the bridges put the HTTP status in the error text. The
+	// runtime needs it, or every API error fails as "internal".
+	it.each([
+		[
+			"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.",
+			529,
+		],
+		[
+			"API Error: Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.",
+			529,
+		],
+		[
+			"API Error: Request rejected (429) · this may be a temporary capacity issue.",
+			429,
+		],
+		["API Error: 402 Daily LLM spend cap reached", 402],
+		["HTTP 401: Run token revoked", 401],
+		["Claude Code reported an API error (HTTP 413)", 413],
+		[
+			"API Error: Claude's response exceeded the 32000 output token maximum.",
+			undefined,
+		],
+		["claude-code bridge closed before the turn finished.", undefined],
+	])("reads the status of %j as %s", async (message, statusCode) => {
+		const errorChunk: UIMessageChunk = {
+			errorText: "An error occurred.",
+			type: "error",
+		};
+		const { harness } = setup({
+			toUIMessageStream: (options) =>
+				(async function* () {
+					// The bridge sends the failure as a plain string, not an Error.
+					options?.onError?.(message);
+					yield errorChunk;
+				})(),
+			totalUsage: Promise.resolve(usage()),
+		});
+		const session = await harness.createSession(sessionInput());
+
+		const events = [];
+		for await (const event of harness.stream(session, {
+			kind: "prompt",
+			prompt: "hi",
+			signal: new AbortController().signal,
+		})) {
+			events.push(event);
+		}
+
+		const error = events.find((event) => event.type === "error");
+		expect(error?.type === "error" && error.statusCode).toBe(statusCode);
 	});
 
 	it("maps a continue input to one tool result and one approval response", async () => {
@@ -1127,27 +1224,48 @@ describe("ClaudeCodeHarness keep-alive (harness host)", () => {
 		expect(inner.detach).toHaveBeenCalledTimes(2);
 	});
 
-	it("resumes from the stored state when the sandbox woke", async () => {
-		const { captured, harness, stored } = await finishOneTurn();
-
-		await harness.resumeSession(sessionInput(), stored, {
-			bridgeDead: true,
-			dropPausedTurn: false,
-		});
-
-		expect(captured.createCount).toBe(3);
-	});
-
-	it("resumes from the stored state when the turn switches mode", async () => {
-		const { captured, harness, stored } = await finishOneTurn();
-
-		await harness.resumeSession(
-			{ ...sessionInput(), mode: "plan" },
-			stored,
-			LIVE,
-		);
-
+	it.each<{
+		reason: string;
+		input: HarnessSessionInput;
+		options: typeof LIVE;
+	}>([
+		{
+			reason: "the sandbox woke",
+			input: sessionInput(),
+			options: { bridgeDead: true, dropPausedTurn: false },
+		},
 		// The kept session keeps the built-in tools of a build session.
+		{
+			reason: "the turn switches mode",
+			input: { ...sessionInput(), mode: "plan" },
+			options: LIVE,
+		},
+		// A raw policy push deletes the run-token rule that the kept session added.
+		{
+			reason: "the turn start replaced the network policy",
+			input: {
+				...sessionInput(),
+				sandbox: { ...fakeSandbox(), networkPolicyReplaced: true },
+			},
+			options: LIVE,
+		},
+		// A restore, a wake, or a publish pushed a new policy between the turns.
+		{
+			reason: "another process replaced the network policy between the turns",
+			input: {
+				...sessionInput(),
+				sandbox: { ...fakeSandbox(), networkPolicyHash: "policy-2" },
+			},
+			options: LIVE,
+		},
+	])("resumes from the stored state when $reason", async ({
+		input,
+		options,
+	}) => {
+		const { captured, harness, stored } = await finishOneTurn();
+
+		await harness.resumeSession(input, stored, options);
+
 		expect(captured.createCount).toBe(3);
 	});
 

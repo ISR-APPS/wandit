@@ -697,6 +697,7 @@ describe("LlmProxyService", () => {
 			await counters.addUserSpend(
 				"user_1",
 				dayKey,
+				// USD to micros: the day counter stores micros.
 				LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000,
 			);
 
@@ -724,6 +725,7 @@ describe("LlmProxyService", () => {
 			await counters.addUserSpend(
 				"user_1",
 				dayKey,
+				// USD to micros: the day counter stores micros.
 				LLM_PROXY_DAILY_USER_CAP_USD * 1_000_000,
 			);
 

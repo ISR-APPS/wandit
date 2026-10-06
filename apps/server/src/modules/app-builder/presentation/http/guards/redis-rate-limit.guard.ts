@@ -2,8 +2,9 @@
  * Redis rate limits for the V2 builder routes that carry `@RateLimit`.
  * The guard counts hits per user, and per client IP with `ipLimit`, in a
  * fixed window. Over a limit, it throws a 429 with `Retry-After`. Mode
- * `open` counts SSE slots instead: a slot frees on `release`. A Redis
- * error lets the request through and sends a Sentry warning.
+ * `open` counts SSE slots instead: a slot frees on `release`, or when its
+ * window ends. A Redis error lets the request through and sends a Sentry
+ * warning.
  */
 import {
 	type CanActivate,
@@ -46,7 +47,10 @@ export type RateLimitOptions = {
 	 * cap count. `count` mode only: the relay frees only the user key.
 	 */
 	ipLimit?: number;
-	/** Window length for `count`; slot TTL for `open`. Milliseconds. */
+	/**
+	 * Window length in milliseconds. For `open`, also the longest time a slot
+	 * stays taken when no `release` frees it.
+	 */
 	windowMs: number;
 	/** Defaults to `count`. `open` slots free through `store.release`. */
 	mode?: RateLimitMode;
@@ -66,14 +70,10 @@ export type RateLimitHit = {
 
 export interface RateLimitStore {
 	/**
-	 * `INCR` + fixed-window `PEXPIRE`. `slidingTtl` re-arms the expiry on
-	 * every hit — open slots must not expire while a stream holds them.
+	 * `INCR` + fixed-window `PEXPIRE`, for both modes. A hit never extends
+	 * the window, so a slot that no `release` frees still expires.
 	 */
-	hit(
-		key: string,
-		windowMs: number,
-		slidingTtl: boolean,
-	): Promise<RateLimitHit>;
+	hit(key: string, windowMs: number): Promise<RateLimitHit>;
 	/** `DECR` floored at 0; frees one `open` slot. */
 	release(key: string): Promise<void>;
 }
@@ -93,13 +93,14 @@ export function rateLimitKey(bucket: string, subject: string): string {
 }
 
 /**
- * Lua: `INCR`, then `PEXPIRE` on the first hit (fixed window) or on every
- * hit when ARGV[2] is `open` (a held slot keeps its lease). Returns
+ * Lua: `INCR`, then `PEXPIRE` only when the count becomes 1 (fixed window).
+ * An `open` hit must not extend the window. A slot that a killed relay did
+ * not release must expire, also while the user reopens. Returns
  * `{count, pttl}` so the guard can size `Retry-After` honestly.
  */
 const RATE_LIMIT_HIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
-if count == 1 or ARGV[2] == "open" then
+if count == 1 then
 	redis.call("PEXPIRE", KEYS[1], ARGV[1])
 end
 return {count, redis.call("PTTL", KEYS[1])}
@@ -125,6 +126,10 @@ const RATE_LIMIT_MAX_RETRIES_PER_REQUEST = 2;
 // open fast. Same value as the Better Auth rate-limit store.
 const RATE_LIMIT_COMMAND_TIMEOUT_MS = 500;
 
+/**
+ * The Redis side of `RateLimitStore`. One lazy ioredis connection for each
+ * API process. A command fails after 500 ms.
+ */
 @Injectable()
 export class RedisRateLimitStore implements RateLimitStore, OnModuleDestroy {
 	private readonly redis = new Redis(
@@ -135,18 +140,13 @@ export class RedisRateLimitStore implements RateLimitStore, OnModuleDestroy {
 		}),
 	);
 
-	async hit(
-		key: string,
-		windowMs: number,
-		slidingTtl: boolean,
-	): Promise<RateLimitHit> {
+	async hit(key: string, windowMs: number): Promise<RateLimitHit> {
 		// SAFETY: the Lua above returns `{INCR result, PTTL result}`.
 		const [count, ttlMs] = (await this.redis.eval(
 			RATE_LIMIT_HIT_SCRIPT,
 			1,
 			key,
 			String(windowMs),
-			slidingTtl ? "open" : "count",
 		)) as [number, number];
 		return { count, ttlMs };
 	}
@@ -195,11 +195,7 @@ export class RedisRateLimitGuard implements CanActivate {
 		const clientIp = readTrustedClientIp(request);
 		let deniedHit: RateLimitHit | undefined;
 		try {
-			const userHit = await this.store.hit(
-				userKey,
-				options.windowMs,
-				isOpenSlot,
-			);
+			const userHit = await this.store.hit(userKey, options.windowMs);
 			if (userHit.count > options.limit) {
 				deniedHit = userHit;
 			} else if (
@@ -213,7 +209,6 @@ export class RedisRateLimitGuard implements CanActivate {
 				const ipHit = await this.store.hit(
 					rateLimitKey(options.key, `ip:${clientIp}`),
 					options.windowMs,
-					false,
 				);
 				if (ipHit.count > options.ipLimit) {
 					deniedHit = ipHit;

@@ -83,6 +83,7 @@ async function settle() {
 beforeEach(() => {
 	// jsdom has no CSS.escape; the start builds the iframe selector with it.
 	vi.stubGlobal("CSS", { escape: (value: string) => value });
+	window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -147,6 +148,50 @@ describe("useDeviceSession", () => {
 			undefined,
 		);
 		expect(result.current.phase).toEqual({ kind: "idle" });
+	});
+
+	it("ends the row that a reload left open, also on the Retry after a failed end call", async () => {
+		const NEW_ROW_ID = "22222222-2222-4222-8222-222222222222";
+		const { sdk } = fakeAppetize();
+		// The first page opens ROW_ID, the reloaded page NEW_ROW_ID.
+		const rowIds = [ROW_ID, NEW_ROW_ID];
+		// One open row per user, like the Redis lock of the start route.
+		let lockedRowId: string | null = null;
+		let endCallCount = 0;
+		const deps: DeviceSessionDeps = {
+			startDeviceSession: async () => {
+				const deviceSessionId =
+					lockedRowId === null ? rowIds.shift() : undefined;
+				if (deviceSessionId === undefined) {
+					throw new Error("DEVICE_SESSION_OPEN");
+				}
+				lockedRowId = deviceSessionId;
+				return { ...START_ANSWER, deviceSessionId };
+			},
+			endDeviceSession: async (_projectId, deviceSessionId) => {
+				endCallCount += 1;
+				// The first end call after the reload is lost on the network.
+				if (endCallCount === 1) throw new Error("network down");
+				if (lockedRowId === deviceSessionId) lockedRowId = null;
+			},
+			loadAppetize: async () => sdk,
+		};
+		const firstPage = renderSession("ios", deps);
+		act(() => firstPage.result.current.start());
+		await settle();
+		expect(firstPage.result.current.phase.kind).toBe("running");
+
+		// A reload runs no cleanup: the first page never ends its row.
+		const reloadedPage = renderSession("ios", deps);
+		act(() => reloadedPage.result.current.start());
+		await settle();
+		expect(reloadedPage.result.current.phase.kind).toBe("error");
+
+		act(() => reloadedPage.result.current.start());
+		await settle();
+
+		expect(reloadedPage.result.current.phase.kind).toBe("running");
+		expect(lockedRowId).toBe(NEW_ROW_ID);
 	});
 
 	it("leaves the new target alone when the stop of the old one ends late", async () => {

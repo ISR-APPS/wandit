@@ -120,7 +120,7 @@ export type ProvisionBackendDeps = {
 	> | null;
 	/** `desired_instance_size` of the create call, from `SUPABASE_PLATFORM_INSTANCE_SIZE`. */
 	instanceSize: SupabaseInstanceSize;
-	/** `env.PREVIEW_DOMAIN`; null skips the auth-config step. */
+	/** `env.PREVIEW_DOMAIN`; null skips only the auth URL fields, not the email settings. */
 	previewDomain: string | null;
 	/** Reads the base schema file; a throw fails `backend_base_schema_missing`. */
 	readBaseSql: () => Promise<string>;
@@ -427,11 +427,18 @@ export async function runProvisionBackend(
 			}
 			await client.runSql({ projectId, ref }, baseSql);
 
+			// Product rule: a new app account works at sign-up, with no
+			// confirmation email. This needs no PREVIEW_DOMAIN, so it always goes out.
+			const emailSettings = {
+				externalEmailEnabled: true,
+				skipEmailConfirmation: true,
+			};
 			if (deps.previewDomain === null) {
-				deps.logger.warn("supabase.provisioning.auth-config-skipped", {
+				deps.logger.warn("supabase.provisioning.auth-urls-skipped", {
 					projectId,
 					ref,
 				});
+				await client.updateAuthConfig({ projectId, ref }, emailSettings);
 			} else {
 				// Provisioning sets the preview apex as `site_url` at creation.
 				// `BackendAuthUrlsService` replaces it after the first publish or a
@@ -439,13 +446,11 @@ export async function runProvisionBackend(
 				await client.updateAuthConfig(
 					{ projectId, ref },
 					{
+						...emailSettings,
 						siteUrl: `https://${deps.previewDomain}`,
 						uriAllowList: [
 							previewAuthRedirectPattern(projectId, deps.previewDomain),
 						],
-						externalEmailEnabled: true,
-						// Product rule: a new app account works at sign-up, with no confirmation email.
-						skipEmailConfirmation: true,
 					},
 				);
 			}

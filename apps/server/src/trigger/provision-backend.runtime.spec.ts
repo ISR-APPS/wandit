@@ -57,8 +57,8 @@ type CreateProjectCall = {
 type AuthConfigCall = {
 	scope: BackendRef;
 	input: {
-		siteUrl: string;
-		uriAllowList: string[];
+		siteUrl?: string;
+		uriAllowList?: string[];
 		externalEmailEnabled: boolean;
 		skipEmailConfirmation: boolean;
 	};
@@ -358,7 +358,7 @@ describe("runProvisionBackend", () => {
 		// Security: a `*` or `?` before the path also matches `@`, so a login
 		// token could go to another host. Only the path may hold a glob.
 		const [redirectHost] =
-			client.authCalls[0]?.input.uriAllowList[0]?.split("/**") ?? [];
+			client.authCalls[0]?.input.uriAllowList?.[0]?.split("/**") ?? [];
 		expect(redirectHost).toMatch(/^https:\/\/[^*?]+$/);
 		expect(backends.markActive).toHaveBeenCalledWith(PROJECT_ID, REQUEST_KEY, {
 			anonKey: ANON_KEY,
@@ -644,8 +644,8 @@ describe("runProvisionBackend", () => {
 		expect(client.runSql).not.toHaveBeenCalled();
 	});
 
-	it("skips the auth config when the worker has no preview domain", async () => {
-		const { backends, client, deps, logs } = setup(backendRow(), {
+	it("turns email confirmation off without the URL fields when the worker has no preview domain", async () => {
+		const { backends, client, deps } = setup(backendRow(), {
 			statuses: ["ACTIVE_HEALTHY"],
 			previewDomain: null,
 		});
@@ -653,14 +653,13 @@ describe("runProvisionBackend", () => {
 		const result = await runProvisionBackend(deps, INPUT);
 
 		expect(result.outcome).toBe("active");
-		expect(client.updateAuthConfig).not.toHaveBeenCalled();
-		expect(
-			logs.some(
-				(line) =>
-					line.level === "warn" &&
-					line.message === "supabase.provisioning.auth-config-skipped",
-			),
-		).toBe(true);
+		// Product rule: sign-up in the generated app needs no confirmation email.
+		expect(client.authCalls).toEqual([
+			{
+				scope: { projectId: PROJECT_ID, ref: REF },
+				input: { externalEmailEnabled: true, skipEmailConfirmation: true },
+			},
+		]);
 		expect(backends.markActive).toHaveBeenCalledTimes(1);
 	});
 

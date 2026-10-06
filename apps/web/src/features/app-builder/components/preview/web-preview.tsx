@@ -1,7 +1,7 @@
 /**
  * Web preview of a web project. pages/app-builder-page.tsx renders it and passes the live URL of the publish status.
  * A stage bar holds the address capsule (viewport toggle, page picker, live app link, reload, new tab) and the Select toggle.
- * The "Try to fix" error banner sits under the bar. Below it, the app shows at full width or in a phone of iPhone shape.
+ * The "Try to fix" error banner (PreviewErrorBanner) sits under the bar. Below it, the app shows at full width or in a phone of iPhone shape.
  * usePreviewToken mints the preview URL. PreviewPanel shows the iframe and passes the bridge messages. RoutePicker lists the pages.
  */
 
@@ -11,7 +11,6 @@ import { CrosshairIcon } from "@phosphor-icons/react/Crosshair";
 import { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 import { GlobeSimpleIcon } from "@phosphor-icons/react/GlobeSimple";
 import { MonitorIcon } from "@phosphor-icons/react/Monitor";
-import { WarningIcon } from "@phosphor-icons/react/Warning";
 import type { PreviewBridgeMessage, PreviewTarget } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -31,24 +30,18 @@ import {
 	type WebViewport,
 } from "../../lib/constants";
 import { previewSrcFor } from "../../lib/helpers";
-import {
-	tryToFixMessage,
-	usePreviewRuntimeErrors,
-} from "../../lib/use-preview-runtime-errors";
+import { usePreviewRuntimeErrors } from "../../lib/use-preview-runtime-errors";
 import {
 	type PreviewTokenDeps,
 	usePreviewToken,
 } from "../../lib/use-preview-token";
 import { IconAction, TOOLBAR_ICON_BUTTON_CLASS } from "../shell/top-bar";
+import { PreviewErrorBanner } from "./preview-error-banner";
 import { PreviewPanel } from "./preview-panel";
 import { RoutePicker } from "./route-picker";
 
 // The capsule buttons are one step smaller than the bar buttons, so they fit the 36 px capsule.
 const CAPSULE_BUTTON_CLASS = cn(TOOLBAR_ICON_BUTTON_CLASS, "size-7");
-
-// The amber pill of the retry button in preview-panel.tsx. "Try to fix" is the one action of the banner.
-const FIX_BUTTON_CLASS =
-	"shrink-0 bg-spark px-4 font-grotesk font-semibold text-night hover:bg-spark/90";
 
 // The stage padding, the dots, and the frame move together on a toggle. So the frame stays centered.
 // The ease is the quick start and long settle of an iOS sheet.
@@ -113,24 +106,8 @@ export function WebPreview({
 	deps,
 }: WebPreviewProps) {
 	const { t } = useTranslation();
-	// Reloads that this preview asks for itself. They add to the reload key of the page.
-	const [ownReloads, setOwnReloads] = useState(0);
-	// True from an own reload until the new page loads. Then the banner shows only the
-	// errors of the final code, or the kept ones when the new page cannot start.
-	const [isReloadPending, setIsReloadPending] = useState(false);
-	const runtimeErrors = usePreviewRuntimeErrors(
-		bootContext.isTurnRunning,
-		() => {
-			setOwnReloads((count) => count + 1);
-			setIsReloadPending(true);
-		},
-	);
-	// The errors of a running turn are not final, so the banner waits for the turn end.
-	const firstError =
-		bootContext.isTurnRunning || isReloadPending
-			? undefined
-			: runtimeErrors.errors[0];
-	const frameReloadKey = reloadKey + ownReloads;
+	const runtimeErrors = usePreviewRuntimeErrors(bootContext.isTurnRunning);
+	const frameReloadKey = reloadKey + runtimeErrors.ownReloads;
 	const preview = usePreviewToken(project.id, frameReloadKey, deps);
 	// The reload key of the page whose bridge said ready. An app from an older
 	// template has no bridge, and a page with a compile error starts none, so
@@ -331,51 +308,14 @@ export function WebPreview({
 					</TooltipContent>
 				</Tooltip>
 			</div>
-			{firstError === undefined ? null : (
-				<div
-					role="alert"
-					className="flex shrink-0 items-center gap-3 border-night/[0.07] border-b bg-destructive/[0.06] px-4 py-2.5 dark:border-white/[0.07]"
-				>
-					<WarningIcon
-						aria-hidden
-						weight="fill"
-						className="size-[18px] shrink-0 text-destructive"
-					/>
-					<div className="min-w-0 flex-1">
-						<p className="font-grotesk font-semibold text-[13.5px] text-night dark:text-foreground">
-							{t("appBuilder.preview.errors.title")}
-						</p>
-						<p
-							dir="auto"
-							className="truncate text-[12.5px] text-night/60 dark:text-foreground/60"
-						>
-							{firstError.message}
-						</p>
-					</div>
-					{runtimeErrors.count > 1 ? (
-						<span className="shrink-0 text-[12.5px] text-night/50 dark:text-foreground/50">
-							{t("appBuilder.preview.errors.count", {
-								count: runtimeErrors.count,
-							})}
-						</span>
-					) : null}
-					<Button
-						size="sm"
-						className={FIX_BUTTON_CLASS}
-						disabled={!canStartTurn}
-						onClick={() =>
-							onTryToFix(
-								tryToFixMessage(
-									t("appBuilder.preview.errors.fixPrompt"),
-									runtimeErrors.errors,
-								),
-							)
-						}
-					>
-						{t("appBuilder.preview.errors.tryToFix")}
-					</Button>
-				</div>
-			)}
+			{runtimeErrors.isBannerShown ? (
+				<PreviewErrorBanner
+					errors={runtimeErrors.errors}
+					count={runtimeErrors.count}
+					canStartTurn={canStartTurn}
+					onTryToFix={onTryToFix}
+				/>
+			) : null}
 			<div
 				className={cn(
 					// A size container: the phone width reads the stage height in `cqh`.
@@ -420,7 +360,7 @@ export function WebPreview({
 					bootContext={bootContext}
 					isSelecting={isSelecting}
 					onBridgeMessage={onBridgeMessage}
-					onFrameLoad={() => setIsReloadPending(false)}
+					onFrameLoad={runtimeErrors.onFrameLoad}
 				/>
 			</div>
 		</div>

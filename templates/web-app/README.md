@@ -30,8 +30,9 @@ and i18n with one language by default (more on request, RTL ready).
 - `src/shared/`: the UI kit (`ui/`), the Supabase client (`lib/`), and i18n (`i18n/`).
 - `src/styles/tokens.css`: the design tokens, in two parts. Part 1 is the
   palette (`:root`, `.dark`, the fonts, `html:lang(ar)`); a design world or an
-  app-dashboard theme replaces it. Part 2 holds the derived tokens (sidebar,
-  chart, status, radius, density); keep it, because the components read its names.
+  app-dashboard style replaces it. Part 2 holds the derived tokens (sidebar,
+  chart, status, radius, density) and the style knobs. Keep it, because the
+  components read its names. A style sets the knobs in its own `:root` block.
 - `src/wandit/`: host files (the dev-only preview bridge).
 
 ## Commands
@@ -94,10 +95,11 @@ The export keeps this folder.
 `SKILL.md` explains the app recipe that the host puts in the session
 instructions (`apps/server/src/modules/app-builder/domain/app-recipe.ts`).
 The option files sit beside it: `frame.md`, `data.md`, `tables.md`, and the
-folders `themes/`, `homes/`, `kpis/`, and `charts/`. The agent reads only the
-files of its recipe. The folder holds Markdown only, because Biome lints the
-code files under `.claude/` and the agent cannot fix them. The export keeps this
-folder with its subfolders.
+folders `styles/`, `homes/`, `kpis/`, and `charts/`. A style file holds a whole
+design language: palette, fonts, knobs, and anatomy. The home, KPI, and chart
+files hold specs, not code. The agent reads only the files of its recipe. The
+folder holds Markdown only, because Biome lints the code files under `.claude/`
+and the agent cannot fix them. The export keeps this folder with its subfolders.
 
 ## Notes for the coding agent
 

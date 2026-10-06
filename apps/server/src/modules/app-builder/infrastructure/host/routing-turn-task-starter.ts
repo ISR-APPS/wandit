@@ -1,6 +1,7 @@
 /**
- * `TurnTaskStarter` that routes each turn: to the harness host when it is
- * configured and healthy, else to the `builder-turn` Trigger.dev task.
+ * `TurnTaskStarter` that routes each turn to the harness host or to the
+ * `builder-turn` Trigger.dev task. The host gets the turn when it is
+ * configured, healthy, and not full (503).
  * `TurnsService.create` and `TurnPromoter.promoteNext` call it in the API,
  * the task, and the host. The row CAS on `runner` decides the owner, so
  * only one path can claim a turn.
@@ -19,7 +20,8 @@ import {
 } from "./harness-host.client";
 
 // 30 s without host calls after a failed start: the next turns go to
-// Trigger.dev at once instead of waiting for a host timeout each.
+// Trigger.dev at once instead of waiting for a host timeout each. A full
+// host (503) causes no pause.
 const HOST_DOWN_PAUSE_MS = 30_000;
 
 /** Log sink: `Sentry.logger` in the API and the host, the Trigger logger in the task. */
@@ -114,21 +116,27 @@ export class RoutingTurnTaskStarter implements TurnTaskStarter {
 		if (!(await this.turns.assignRunner(input.turnId, "trigger", "host"))) {
 			return "row_not_assignable";
 		}
+		let reason: string;
 		try {
-			await this.host.startTurn(input);
-			return null;
+			if (await this.host.startTurn(input)) {
+				return null;
+			}
+			// No pause for a full host: it answers immediately, and a slot can free
+			// before the next turn. A 30 s pause sends every turn to Trigger.dev.
+			reason = "host_full";
 		} catch (error) {
 			this.hostDownUntil = this.now() + HOST_DOWN_PAUSE_MS;
 			this.logger.warn("builder-turn.host-start-failed", {
 				message: error instanceof Error ? error.message : String(error),
 				turnId: input.turnId,
 			});
+			reason = "host_start_failed";
 		}
 		// The host may have claimed the row before its answer was lost. Then
 		// the move back fails and the host keeps the turn.
 		if (!(await this.turns.assignRunner(input.turnId, "host", "trigger"))) {
 			return null;
 		}
-		return "host_start_failed";
+		return reason;
 	}
 }

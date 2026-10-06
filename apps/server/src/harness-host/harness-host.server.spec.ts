@@ -6,6 +6,7 @@ import {
 	createHarnessHostServer,
 	HostTurnRunner,
 	type HostTurns,
+	MAX_LIVE_TURNS,
 } from "./harness-host.server";
 
 const SECRET = "s".repeat(32);
@@ -29,7 +30,7 @@ afterEach(() => {
 async function startServer() {
 	const turns = {
 		cancel: vi.fn((_turnId: string) => undefined),
-		start: vi.fn((_input: HarnessHostStartTurn) => undefined),
+		start: vi.fn((_input: HarnessHostStartTurn) => true),
 	} satisfies HostTurns;
 	const server = createHarnessHostServer(SECRET, turns, logger);
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -127,5 +128,21 @@ describe("HostTurnRunner", () => {
 		expect(runner.liveTurnIds().has(TURN_ID)).toBe(true);
 		finish();
 		await vi.waitFor(() => expect(runner.liveTurnIds().size).toBe(0));
+	});
+
+	it("refuses a new project over the cap and accepts a live turn or the next turn of a live project", () => {
+		const run = vi.fn(() => new Promise<void>(() => {}));
+		const runner = new HostTurnRunner(run, logger);
+		for (let index = 0; index < MAX_LIVE_TURNS; index++) {
+			const turn = { projectId: `project-${index}`, turnId: `turn-${index}` };
+			expect(runner.start({ ...BODY, ...turn })).toBe(true);
+		}
+
+		expect(runner.start(BODY)).toBe(false);
+		expect(runner.start({ ...BODY, turnId: "turn-0" })).toBe(true);
+		// The ending turn of project-0 promotes its next turn while it is still live.
+		const next = { projectId: "project-0", turnId: "turn-0-next" };
+		expect(runner.start({ ...BODY, ...next })).toBe(true);
+		expect(run).toHaveBeenCalledTimes(MAX_LIVE_TURNS + 1);
 	});
 });

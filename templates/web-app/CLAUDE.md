@@ -10,7 +10,8 @@ The host machine runs the session and commits your work.
    Later, ask only when you are blocked. See "Ask the user".
 3. Plan before you write code. Write the plan in 3 to 8 short lines:
    the pages, the data (tables, who reads, who writes), and the features and files you add.
-4. Build in small steps. Each step leaves the app working.
+4. Build in small steps. Each step leaves the app working. Edit every file that imports a file,
+   an export, or a package before you delete, rename, or remove it.
 5. Run the checks in "Done". Fix every failure.
 6. Answer the user as "Final answer" says.
 
@@ -43,8 +44,8 @@ The host machine runs the session and commits your work.
 - When pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm remove <name>` for the package
   you added. Then tell the user and pick another package. Leave the `allowBuilds` line
   that pnpm writes into `pnpm-workspace.yaml`.
-- Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
-  `git tag`, or any other git write command. The host commits, not you.
+- Do not run `git push`, `git reset`, `git checkout`, `git restore`, `git stash`, `git clean`,
+  `git switch`, `git rebase`, `git tag`, or any other git write command. The host commits, not you.
 - A shell command that writes a file must name a literal path, such as `/tmp/page.html`.
   The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/p-$i.html`.
   Write one command for each file, not a loop.
@@ -131,12 +132,13 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
     a CRM, an admin panel, an internal tool. An app is never a landing page with a sign-in button.
   - Both: public pages and an app area, for example a shop and its back office.
 - An app: load the `app-dashboard` skill before every screen behind login and every redesign of it.
-  On those screens, it replaces `frontend-design` and the design worlds.
+  On those screens, the skill and the style of its recipe replace the design worlds.
+  The Design brief of the skill applies the `frontend-design` method there.
   The app recipe in your session instructions gives the look and the layout. The user's words win over it.
 - An internal tool has no public page: only the team of one business signs in. `/` redirects to `/app`.
   The request does not say who signs in: ask it in the first build. No answer: build an internal tool.
   The word "SaaS" alone does not say that the public signs up.
-- A product that the public signs up for gets one short public page in the app theme, with no world.
+- A product that the public signs up for gets one short public page in the app style, with no world.
 - A website, and the public pages of Both: load the `frontend-design` skill before every new page
   and every redesign. It gives the process and the quality bar: plan the tokens,
   check the plan against the brief, build, then check screenshots and fix.
@@ -150,7 +152,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
   or pick the closest world and say so. The index skills list the worlds:
   `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`. Never offer a world for an app.
 - `src/styles/tokens.css` is the single source of colors, radius, and font names. It has two parts.
-  A world or an app theme replaces the palette part. Keep the derived part and every token name.
+  A world or an app style replaces the palette part. Keep the derived part and every token name.
   World skills name the fonts `--font-heading` and `--font-body`. In this template they are
   `--font-display` and `--font-sans`.
 - Load the world fonts in `head().links` of `src/routes/__root.tsx`, and remove the links
@@ -308,6 +310,7 @@ Run these before you say that the work is done:
 - `set_secret`: gives one secret to the Edge Functions as an env variable.
 - Change the database and the functions only with these tools.
 - Keep each Edge Function in one flat folder. `index.ts` is the entrypoint.
+- `pnpm run typecheck` does not check `supabase/functions/`: that code is Deno code.
 - A function imports no file from another folder, for example `_shared/`.
 - `backend_paused` or `backend_not_ready`: tell the user. Stop the backend work.
 - `rate_limited`: wait `retryAfterSeconds`, then call the tool again once.

@@ -33,6 +33,9 @@ The app must feel like a real app from the store: clean code, modern design, rea
 - The host runs `pnpm run dev`: one Metro server on port 8081.
 - That server feeds the web preview in a phone frame and the Expo Go app on a phone.
 - Metro reloads the app when you save a file. Never start, stop, or restart Metro.
+- `src/app/_layout.tsx` imports `@/shared/lib/preview-bridge` first. The bridge sends the
+  errors of the web preview to the host, for its "Try to fix" button. Keep that import first,
+  and do not change the bridge file.
 - Never run `expo start`, `expo run:ios`, `expo run:android`, `expo prebuild`, or `eas`.
 
 ## What you must refuse
@@ -54,8 +57,8 @@ The app must feel like a real app from the store: clean code, modern design, rea
   `.env`, `.env.*`, `.npmrc`, `.pnpmfile.cjs`, `.pnpmfile.mjs`, `pnpm-workspace.yaml`,
   `template_version`, `native-modules.json`, and shell start-up files.
   Do not change these files in another way.
-- Do not run `git push`, `git reset`, `git checkout`, `git switch`, `git rebase`,
-  `git tag`, or any other git write command. The host commits, not you.
+- Do not run `git push`, `git reset`, `git checkout`, `git restore`, `git stash`, `git clean`,
+  `git switch`, `git rebase`, `git tag`, or any other git write command. The host commits, not you.
 - A shell command that writes a file must name a literal path, such as `/tmp/bundle-ios.js`.
   The hook blocks a write path with a variable, a glob, or braces, such as `/tmp/b-$p.js`.
   Write one command for each file, not a loop.
@@ -77,6 +80,8 @@ Before the first file of a new app or a new feature, write a short plan in your 
    hero of the welcome, sign-in, and home screens.
 
 Then build in small steps: one feature, one screen, or one fix per step.
+Each step leaves the app working. Edit every file that imports a file, an export, or a package
+before you delete, rename, or remove it.
 Load the `mobile-design` skill (`.claude/skills/mobile-design/SKILL.md`) before you build or
 redesign a screen.
 
@@ -97,7 +102,8 @@ src/
     screens/                Full screens. Route files import them by path.
     index.ts                What other features may import. No screens.
   shared/ui/                App* components over HeroUI, Screen, EmptyState, AppIcon.
-  shared/lib/               The Supabase client, the query client, haptics, and the fonts.
+  shared/lib/               The Supabase client, the query client, haptics, the fonts, and the
+                            preview bridge.
   i18n/                     messages.ts (the dictionary), useT(), and LanguagePicker.
   global.css                The design world tokens: fonts, corners, and colors (light and dark).
   assets/                   Images from `generate_image`.
@@ -115,15 +121,20 @@ supabase/migrations/        SQL migrations, forward-only. 0000_base.sql is the b
 - The template features show each rule: `auth` (the session and sign-in), `profile` (a
   read, a write, and a pushed form), and `home` (a tab root that reads another feature).
   Replace `home` with the first real screen of the app.
-- When the app needs no accounts, remove the account parts:
-  1. Delete `src/features/auth/`, `src/features/profile/`, `src/app/sign-in.tsx`, and
-     `src/app/(tabs)/account/`. Replace `home`: it reads the profile.
+- When the app needs no accounts, remove the account parts. Edit the files that import them
+  first, and delete the files last. So the app works after each step:
+  1. Replace `home`: it reads the session and the profile. The new home screen imports
+     nothing from `@/features/auth` or `@/features/profile`.
   2. In `src/app/(tabs)/_layout.tsx`, delete the `account` tab.
   3. In `src/app/_layout.tsx`, delete the `sign-in` screen and its guard, `useSession`,
-     and the imports that have no use left. Keep the `@/shared/lib/supabase` import:
-     it checks the env at start.
+     and the imports that have no use left. Keep the `@/shared/lib/preview-bridge` and
+     `@/shared/lib/supabase` imports: the first sends the preview errors to the host, the
+     second checks the env at start.
   4. The account screen renders `<LanguagePicker />`. With two languages, render it on
      another screen, for example a settings screen.
+  5. Search `src/` for `@/features/auth` and `@/features/profile`. Only the files of this step
+     may still import them. Then delete `src/features/auth/`, `src/features/profile/`,
+     `src/app/sign-in.tsx`, and `src/app/(tabs)/account/` in one step.
 
 ## Navigation
 

@@ -336,4 +336,15 @@ describe("BackendsService.provisionBackend", () => {
 		});
 		expect(backends.setTriggerRunId).not.toHaveBeenCalled();
 	});
+
+	it("keeps the queued backend creating when the run id write fails", async () => {
+		const { backends, service } = setup();
+		backends.setTriggerRunId.mockRejectedValue(new Error("pool timeout"));
+
+		const row = await service.provisionBackend("project-1", INPUT);
+
+		// Trigger accepted the run, so an error row would make that run skip.
+		expect(backends.markError).not.toHaveBeenCalled();
+		expect(row).toMatchObject({ status: "creating" });
+	});
 });

@@ -1,6 +1,6 @@
 import type { BuilderTurnMode, TurnStreamPhase } from "@wandit/contracts";
 import type { DynamicToolUIPart, JSONValue } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
 	BuilderDataParts,
@@ -227,6 +227,35 @@ describe("stepOf", () => {
 		expect(stepOf(doneCall(toolName, {}, output), false)?.imageUrl).toBe(
 			imageUrl,
 		);
+	});
+
+	// Safari 16 has no URL.canParse. One call to it crashes the whole builder page.
+	it("reads an image URL and a web host without URL.canParse", () => {
+		const canParse = vi.spyOn(URL, "canParse").mockImplementation(() => {
+			throw new TypeError("URL.canParse is not a function");
+		});
+		try {
+			const image = doneCall(
+				"generate_image",
+				{},
+				{
+					status: "generated",
+					url: "https://images.example.com/hero.png",
+					width: 1024,
+					height: 1024,
+					path: "public/hero.png",
+				},
+			);
+			const fetch = doneCall("WebFetch", {
+				url: "https://docs.example.com/guide",
+			});
+			expect(stepOf(image, false)?.imageUrl).toBe(
+				"https://images.example.com/hero.png",
+			);
+			expect(stepOf(fetch, false)?.target).toBe("docs.example.com");
+		} finally {
+			canParse.mockRestore();
+		}
 	});
 
 	// A host tool reports a failure or a pause as a normal output with a status.

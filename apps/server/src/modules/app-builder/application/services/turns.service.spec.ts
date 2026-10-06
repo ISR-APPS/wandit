@@ -5,6 +5,7 @@ import {
 	ForbiddenException,
 	HttpException,
 	HttpStatus,
+	Logger,
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
@@ -37,6 +38,7 @@ import { FakeLlmSpendCounters } from "../../infrastructure/redis/fake-llm-spend-
 import { FakeTurnLock } from "../../infrastructure/redis/fake-turn-lock";
 import { FakeTurnEventStream } from "../../infrastructure/trigger/fake-turn-events";
 import type { AuditEventsService } from "./audit-events.service";
+import type { BackendsService } from "./backends.service";
 import { TurnsService } from "./turns.service";
 
 const SCOPE: ProjectScope = { kind: "personal", userId: "user-1" };
@@ -271,6 +273,11 @@ function setup(
 	const audit = {
 		record: vi.fn<AuditEventsService["record"]>(async () => undefined),
 	};
+	const backends = {
+		provisionBackend: vi.fn<BackendsService["provisionBackend"]>(
+			async () => null,
+		),
+	};
 
 	const service = new TurnsService(
 		turns as unknown as BuilderTurnsRepository,
@@ -286,10 +293,12 @@ function setup(
 		caps,
 		subscriptions,
 		audit,
+		backends,
 	);
 
 	return {
 		audit,
+		backends,
 		caps,
 		chats,
 		counters,
@@ -908,7 +917,7 @@ describe("TurnsService.create", () => {
 	});
 
 	it("adopts the existing first message instead of inserting a new one", async () => {
-		const { chats, service, turns } = setup();
+		const { backends, chats, service, turns } = setup();
 		const existingMessageId = randomUUID();
 
 		const result = await service.create(SCOPE, "project-1", BODY, {
@@ -925,6 +934,8 @@ describe("TurnsService.create", () => {
 		expect(turns.create).toHaveBeenCalledWith(
 			expect.objectContaining({ messageId: existingMessageId }),
 		);
+		// The create-project path provisions the backend itself.
+		expect(backends.provisionBackend).not.toHaveBeenCalled();
 	});
 
 	it("keeps the plain message insert when no existingMessageId is given", async () => {
@@ -941,6 +952,31 @@ describe("TurnsService.create", () => {
 		expect(turns.create).toHaveBeenCalledWith(
 			expect.objectContaining({ messageId }),
 		);
+	});
+
+	it("starts a failed backend again on a new message, and its failure keeps the turn", async () => {
+		const errorLog = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const { backends, service, starter } = setup();
+		backends.provisionBackend.mockRejectedValue(new Error("trigger down"));
+
+		const result = await service.create(SCOPE, "project-1", BODY);
+
+		expect(result.status).toBe("queued");
+		expect(starter.start).toHaveBeenCalledTimes(1);
+		expect(backends.provisionBackend).toHaveBeenCalledWith("project-1", {
+			countryCode: null,
+			organizationId: null,
+			userId: "user-1",
+		});
+		// The turn does not wait on the provisioning, so its catch runs later.
+		await vi.waitFor(() =>
+			expect(errorLog).toHaveBeenCalledWith(
+				"Backend provisioning failed for project project-1: trigger down",
+			),
+		);
+		errorLog.mockRestore();
 	});
 });
 

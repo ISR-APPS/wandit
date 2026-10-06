@@ -411,7 +411,7 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		expect(
 			sandbox?.commands.some(
 				(command) =>
-					command.detached === true && command.args?.includes("pnpm dev"),
+					command.detached === true && command.args?.[1]?.includes("pnpm dev"),
 			),
 		).toBe(true);
 	});
@@ -433,7 +433,7 @@ describe("VercelSandboxProvider.getOrCreate", () => {
 		const devCommandOf = (projectId: string) =>
 			sdk.instances
 				.get(projectId)
-				?.commands.find((command) => command.args?.includes("pnpm dev"));
+				?.commands.find((command) => command.args?.[1]?.includes("pnpm dev"));
 		expect(devCommandOf("p1")?.env?.EXPO_PACKAGER_PROXY_URL).toBe(
 			"https://p-p1.preview-domain.test",
 		);
@@ -641,7 +641,7 @@ describe("VercelSandboxProvider template snapshot boot", () => {
 		expect(
 			sdk.instances
 				.get("p1")
-				?.commands.some((command) => command.args?.includes("pnpm dev")),
+				?.commands.some((command) => command.args?.[1]?.includes("pnpm dev")),
 		).toBe(true);
 		expect((await sessions.findLiveByProjectId("p1"))?.status).toBe("running");
 		expect(logger.info).toHaveBeenCalledWith(
@@ -883,11 +883,110 @@ describe("VercelSandboxProvider resume/stop/destroy", () => {
 		expect(
 			newCommands.some(
 				(command) =>
-					command.detached === true && command.args?.includes("pnpm dev"),
+					command.detached === true && command.args?.[1]?.includes("pnpm dev"),
 			),
 		).toBe(true);
 		expect(sandbox?.stopped).toBe(false);
 		expect(sessions.rows.get("row-1")?.status).toBe("running");
+	});
+
+	// A row in `creating` next to a vendor sandbox that a dead create made.
+	const leaveDeadCreate = async ({
+		sdk,
+		sessions,
+	}: ReturnType<typeof setup>) => {
+		await sessions.insertCreating({
+			organizationId: "org-1",
+			projectId: "p1",
+			provider: "vercel",
+			userId: "user-1",
+		});
+		await sdk.getOrCreate({
+			name: "p1",
+			ports: [OPTIONS.devPort],
+			projectId: "vercel-project-1",
+			region: "cdg1",
+			teamId: "team-1",
+			token: "vercel-token-1",
+		});
+	};
+
+	// A start that dies after the vendor call, or fails and stops the
+	// sandbox, leaves a row that is not running. The next start must finish
+	// that boot. The last column counts the restores of that start. A
+	// `creating` row can lack the repository on disk; a dead resume kept it.
+	it.each<
+		[string, (fixture: ReturnType<typeof setup>) => Promise<void>, number]
+	>([
+		["a create that died after the vendor call", leaveDeadCreate, 1],
+		[
+			// A failed restore in a finished boot stops the sandbox and marks
+			// the row `error`. The next start resumes it on a new `creating` row.
+			"a failed start that stopped it",
+			async (fixture) => {
+				await leaveDeadCreate(fixture);
+				const sandbox = fixture.sdk.instances.get("p1");
+				if (sandbox === undefined) {
+					throw new Error("the vendor call created no sandbox");
+				}
+				sandbox.stopped = true;
+			},
+			1,
+		],
+		[
+			// The resumed disk holds the uncommitted work of a failed turn. The
+			// restore would reset it, so the start keeps the files.
+			"a failed start that stopped it, with uncommitted work on the disk",
+			async (fixture) => {
+				await leaveDeadCreate(fixture);
+				const sandbox = fixture.sdk.instances.get("p1");
+				if (sandbox === undefined) {
+					throw new Error("the vendor call created no sandbox");
+				}
+				sandbox.stopped = true;
+				sandbox.respondTo("git", {
+					exitCode: 0,
+					stderr: () => Promise.resolve(""),
+					stdout: () => Promise.resolve(" M src/app.tsx\n"),
+				});
+			},
+			0,
+		],
+		[
+			"a resume that died after the vendor call",
+			async ({ provider, sdk }) => {
+				await provider.getOrCreate("p1", OPTIONS);
+				await provider.stop("p1");
+				const sandbox = sdk.instances.get("p1");
+				if (sandbox === undefined) {
+					throw new Error("the first start created no sandbox");
+				}
+				sandbox.stopped = false;
+			},
+			0,
+		],
+	])("finishes the boot of the sandbox left by %s", async (_case, leaveSandbox, restores) => {
+		const fixture = setup();
+		await leaveSandbox(fixture);
+		const sandbox = fixture.sdk.instances.get("p1");
+		const before = sandbox?.commands.length ?? 0;
+		const restoredBefore = fixture.restorer.restored.length;
+
+		await fixture.provider.getOrCreate("p1", OPTIONS);
+
+		expect(fixture.restorer.restored.length - restoredBefore).toBe(restores);
+		const row = await fixture.sessions.findLiveByProjectId("p1");
+		expect(row?.status).toBe("running");
+		expect(row?.previewHost).toBe("p1-3000.vercel.run");
+		expect(
+			sandbox?.commands
+				.slice(before)
+				.some(
+					(command) =>
+						command.detached === true &&
+						command.args?.[1]?.includes("pnpm dev"),
+				),
+		).toBe(true);
 	});
 
 	it("resume throws SandboxNotFoundError without a live row", async () => {
@@ -1245,10 +1344,12 @@ describe("VercelSandboxProvider egress policy", () => {
 		await provider.getOrCreate("p1", OPTIONS);
 		const hashAfterCreate = sessions.rows.get("row-1")?.networkPolicyHash;
 
-		await provider.getOrCreate("p1", OPTIONS);
+		const handle = await provider.getOrCreate("p1", OPTIONS);
 
 		// The create call carried the policy; the reuse needs no vendor update.
 		expect(sdk.instances.get("p1")?.networkPolicies).toEqual([]);
+		// So the harness host can reuse its kept session on this turn.
+		expect(handle.networkPolicyReplaced).toBe(false);
 		expect(typeof hashAfterCreate).toBe("string");
 		expect(sessions.rows.get("row-1")?.networkPolicyHash).toBe(hashAfterCreate);
 	});
@@ -1301,11 +1402,13 @@ describe("VercelSandboxProvider egress policy", () => {
 		await provider.getOrCreate("p1", OPTIONS_WITHOUT_BACKEND);
 		const sandbox = sdk.instances.get("p1");
 
-		await provider.getOrCreate("p1", OPTIONS);
+		const handle = await provider.getOrCreate("p1", OPTIONS);
 
 		const pushed = sandbox?.networkPolicies ?? [];
 		expect(pushed).toHaveLength(1);
 		expect(supabaseHosts(pushed[0])).toEqual(["project.supabase.co"]);
+		// This raw push deletes the run-token rule of a kept harness session.
+		expect(handle.networkPolicyReplaced).toBe(true);
 		// The second turn reuses the running sandbox: no second create, no stop.
 		expect(sdk.getOrCreateCalls).toHaveLength(2);
 		expect(sdk.instances.get("p1")).toBe(sandbox);

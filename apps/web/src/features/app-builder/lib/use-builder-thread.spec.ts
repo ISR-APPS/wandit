@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 import {
+	type InfiniteData,
 	onlineManager,
 	QueryClient,
 	QueryClientProvider,
 } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import type { CreateTurnResponse } from "@wandit/contracts";
+import type { ChatHistoryPage, CreateTurnResponse } from "@wandit/contracts";
 import { fallbackDictionary, I18nProvider } from "@wandit/internationalization";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +16,11 @@ import { chatKeys } from "@/features/workspace";
 import { ApiClientError } from "@/lib/api-client";
 import { appBuilderKeys } from "../api/app-builder.queries";
 import type { BuilderChatDeps } from "./use-builder-chat";
-import { useBuilderThread } from "./use-builder-thread";
+import {
+	canReconnectAfter,
+	turnErrorKey,
+	useBuilderThread,
+} from "./use-builder-thread";
 
 const PROJECT_ID = crypto.randomUUID();
 const CHAT_ID = crypto.randomUUID();
@@ -68,15 +73,36 @@ const loadError = new ApiClientError({
 	timestamp: "2026-09-17T00:00:00.000Z",
 });
 
+// The SSE answer of a turn route: these frames, then the end marker.
+function turnStream(frames: readonly { type: string }[]): Response {
+	const encoder = new TextEncoder();
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const frame of frames) {
+					controller.enqueue(
+						encoder.encode(`data: ${JSON.stringify(frame)}\n\n`),
+					);
+				}
+				controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+				controller.close();
+			},
+		}),
+		{ status: 200, headers: { "content-type": "text/event-stream" } },
+	);
+}
+
 // Minimal fetch fake, copied small from use-builder-chat.spec.ts on purpose.
 // The resume GET answers 204 (no active turn to replay). The turn POST
-// answers a completed stream — or the 402 error envelope, or a failed
-// stream, when the test asks.
+// answers a completed stream. When the test asks, it answers the error
+// envelope of `refusePostWith` or a failed stream.
 function createDeps(
-	options: { postResponds402?: boolean; postStreamsFailure?: boolean } = {},
+	options: {
+		refusePostWith?: { statusCode: number; code: string };
+		postStreamsFailure?: boolean;
+	} = {},
 ) {
 	const requests: { url: string; init: RequestInit | undefined }[] = [];
-	const encoder = new TextEncoder();
 
 	const fetchImpl = async (
 		input: RequestInfo | URL,
@@ -86,39 +112,26 @@ function createDeps(
 		if (init?.method !== "POST") {
 			return new Response(null, { status: 204 });
 		}
-		if (options.postResponds402) {
+		if (options.refusePostWith) {
+			const { statusCode, code } = options.refusePostWith;
 			return Response.json(
 				{
 					error: {
-						code: "INSUFFICIENT_CREDITS",
-						message: "The balance is empty.",
+						code,
+						message: "The API refused the turn.",
 						path: `/api/v2/projects/${PROJECT_ID}/turns`,
 						requestId: "req-1",
-						statusCode: 402,
+						statusCode,
 						timestamp: "2026-09-17T00:00:00.000Z",
 					},
 				},
-				{ status: 402 },
+				{ status: statusCode },
 			);
 		}
-		return new Response(
-			new ReadableStream<Uint8Array>({
-				start(controller) {
-					controller.enqueue(
-						encoder.encode(`data: ${JSON.stringify(createdFrame)}\n\n`),
-					);
-					if (options.postStreamsFailure) {
-						for (const frame of failedTurnFrames) {
-							controller.enqueue(
-								encoder.encode(`data: ${JSON.stringify(frame)}\n\n`),
-							);
-						}
-					}
-					controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-					controller.close();
-				},
-			}),
-			{ status: 200, headers: { "content-type": "text/event-stream" } },
+		return turnStream(
+			options.postStreamsFailure
+				? [createdFrame, ...failedTurnFrames]
+				: [createdFrame],
 		);
 	};
 
@@ -149,11 +162,44 @@ const EMPTY_HISTORY = {
 	pageParams: [null],
 };
 
+// A stored turn that failed: the user row, then the reply with its error
+// part. The reply shows the error card and a Retry button after a reload.
+const FAILED_TURN_HISTORY: InfiniteData<ChatHistoryPage, string | null> = {
+	pages: [
+		{
+			items: [
+				{
+					id: crypto.randomUUID(),
+					chatId: CHAT_ID,
+					role: "user",
+					parts: [{ type: "text", text: "Build the dashboard" }],
+					metadata: null,
+					seq: 1,
+					createdAt: "2026-10-06T00:00:00.000Z",
+				},
+				{
+					id: crypto.randomUUID(),
+					chatId: CHAT_ID,
+					role: "assistant",
+					parts: [failedTurnFrames[0]],
+					metadata: null,
+					seq: 2,
+					createdAt: "2026-10-06T00:00:01.000Z",
+				},
+			],
+			nextCursor: null,
+		},
+	],
+	pageParams: [null],
+};
+
 function renderThread(
 	deps: BuilderChatDeps,
 	options: {
 		byProjectError?: ApiClientError;
 		messagesError?: ApiClientError;
+		/** The stored history the history query answers. EMPTY_HISTORY when left out. */
+		history?: InfiniteData<ChatHistoryPage, string | null>;
 		/** True leaves the history query without an answer, so it loads. */
 		historyPending?: boolean;
 		/** The cache of an earlier render: the user comes back to the project. A new cache when left out. */
@@ -192,7 +238,7 @@ function renderThread(
 	} else if (!options.historyPending) {
 		queryClient.setQueryData(
 			appBuilderKeys.chatHistory(PROJECT_ID),
-			EMPTY_HISTORY,
+			options.history ?? EMPTY_HISTORY,
 		);
 	}
 	const view = renderHook(() => useBuilderThread(PROJECT_ID, deps), {
@@ -224,11 +270,79 @@ async function waitForResume(
 	await waitFor(() => expect(result.current.isSending).toBe(false));
 }
 
+// An error answer of the turn routes, as the status-preserving fetch throws it.
+function turnRouteError(statusCode: number, code: string) {
+	return new ApiClientError({
+		code,
+		message: "The turn route failed.",
+		path: `/api/v2/projects/${PROJECT_ID}/turns`,
+		requestId: "req-turn",
+		statusCode,
+		timestamp: "2026-10-06T00:00:00.000Z",
+	});
+}
+
 afterEach(cleanup);
+
+// A refused send has its draft back in the composer, so its sentence asks
+// to send again. A lost stream gets Reconnect; a final 4xx gets neither.
+// A null key shows the shared errors.codes sentence.
+describe("turnErrorKey and canReconnectAfter", () => {
+	it.each([
+		{
+			failure: "a rate-limited send",
+			error: turnRouteError(429, "RATE_LIMITED"),
+			isSendRefused: true,
+			key: null,
+			canReconnect: false,
+		},
+		{
+			failure: "a send during an API deploy",
+			error: turnRouteError(502, "HTTP_502"),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.sendFailed",
+			canReconnect: false,
+		},
+		// The POST answer can be lost after the API created the turn.
+		{
+			failure: "a send that lost the network",
+			error: new TypeError("Failed to fetch"),
+			isSendRefused: true,
+			key: "appBuilder.chat.errors.connectionLost",
+			canReconnect: true,
+		},
+		{
+			failure: "a stream reopen during an API deploy",
+			error: turnRouteError(502, "HTTP_502"),
+			isSendRefused: false,
+			key: "appBuilder.chat.errors.connectionLost",
+			canReconnect: true,
+		},
+		{
+			failure: "a stream reopen with no free stream slot",
+			error: turnRouteError(429, "HTTP_429"),
+			isSendRefused: false,
+			key: "appBuilder.chat.errors.connectionLost",
+			canReconnect: true,
+		},
+		{
+			failure: "a stream reopen of an unknown turn",
+			error: turnRouteError(404, "HTTP_404"),
+			isSendRefused: false,
+			key: null,
+			canReconnect: false,
+		},
+	])("maps $failure", ({ error, isSendRefused, key, canReconnect }) => {
+		expect(turnErrorKey(error, isSendRefused)).toBe(key);
+		expect(canReconnectAfter(error, isSendRefused)).toBe(canReconnect);
+	});
+});
 
 describe("useBuilderThread", () => {
 	it("shows the no-credits sentence when the turn POST answers 402", async () => {
-		const fake = createDeps({ postResponds402: true });
+		const fake = createDeps({
+			refusePostWith: { statusCode: 402, code: "INSUFFICIENT_CREDITS" },
+		});
 		const { result } = renderThread(fake.deps);
 		await waitForResume(fake, result);
 
@@ -296,6 +410,96 @@ describe("useBuilderThread", () => {
 		expect(result.current.lastTurnFailed).toBe(true);
 	});
 
+	// A refused send drops its bubble, so the stored failed reply is the last
+	// message again. Its card does not tell why the new send failed.
+	it("shows the reason of a refused send under a stored failed reply", async () => {
+		const fake = createDeps({
+			refusePostWith: { statusCode: 409, code: "BUILDER_TURN_ACTIVE" },
+		});
+		const { result } = renderThread(fake.deps, {
+			history: FAILED_TURN_HISTORY,
+		});
+		await waitForResume(fake, result);
+		expect(result.current.lastTurnFailed).toBe(true);
+
+		await act(async () => {
+			await result.current.send({ text: "Build the dashboard", files: [] });
+		});
+
+		expect(result.current.errorText).toBe(
+			"Wait for the running operation to finish, then retry.",
+		);
+		// The API created no turn, so no Reconnect.
+		expect(result.current.reconnect).toBeNull();
+		// The useChat throttle can hold the bubble drop for 50 ms.
+		await waitFor(() => expect(result.current.lastTurnFailed).toBe(true));
+	});
+
+	// The API can create the turn and lose the POST answer. A failed reconnect
+	// GET keeps the send error in useChat, so the row keeps Reconnect. A
+	// replayed turn that fails shows only its own card.
+	it.each([
+		{
+			reconnect: "meets an API deploy",
+			row: "the sentence and Reconnect",
+			answerReconnect: () => new Response(null, { status: 502 }),
+			errorText: "The chat lost its connection to the server.",
+			canReconnect: true,
+		},
+		{
+			reconnect: "replays a turn that fails",
+			row: "nothing",
+			answerReconnect: () => turnStream([createdFrame, ...failedTurnFrames]),
+			errorText: null,
+			canReconnect: false,
+		},
+	])("shows $row under a stored failed reply when the reconnect after a lost POST answer $reconnect", async ({
+		answerReconnect,
+		errorText,
+		canReconnect,
+	}) => {
+		const fake = createDeps();
+		let getCount = 0;
+		const deps: BuilderChatDeps = {
+			...fake.deps,
+			fetch: async (input, init) => {
+				if (init?.method === "POST") throw new TypeError("Failed to fetch");
+				getCount += 1;
+				// The mount resume finds no turn.
+				return getCount === 1
+					? fake.deps.fetch(input, init)
+					: answerReconnect();
+			},
+		};
+		const { result, queryClient, unmount } = renderThread(deps, {
+			history: FAILED_TURN_HISTORY,
+		});
+		try {
+			await waitForResume(fake, result);
+			// Offline, the history refetch after the reconnect waits and never
+			// calls the real API.
+			onlineManager.setOnline(false);
+			await act(async () => {
+				await result.current.send({ text: "Build the dashboard", files: [] });
+			});
+			expect(result.current.reconnect).not.toBeNull();
+
+			await act(async () => {
+				await result.current.reconnect?.();
+			});
+
+			expect(getCount).toBe(2);
+			await waitFor(() => expect(result.current.isSending).toBe(false));
+			expect(result.current.errorText).toBe(errorText);
+			expect(result.current.reconnect !== null).toBe(canReconnect);
+		} finally {
+			unmount();
+			// The clear cancels the waiting fetch before the network comes back.
+			queryClient.clear();
+			onlineManager.setOnline(true);
+		}
+	});
+
 	// A preview "Try to fix" sends no mode. With an open plan, a build turn
 	// approves the whole plan, so the send must follow the toggle.
 	it("sends a message with no mode in the mode of the Plan toggle", async () => {
@@ -322,7 +526,9 @@ describe("useBuilderThread", () => {
 	});
 
 	it("does not count a send that the API refuses as a running turn", async () => {
-		const fake = createDeps({ postResponds402: true });
+		const fake = createDeps({
+			refusePostWith: { statusCode: 402, code: "INSUFFICIENT_CREDITS" },
+		});
 		let answerPost = () => {};
 		// The POST waits until the spec answers it, so the in-flight state holds still.
 		const deps: BuilderChatDeps = {
