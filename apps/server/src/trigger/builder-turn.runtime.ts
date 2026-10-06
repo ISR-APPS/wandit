@@ -1848,11 +1848,24 @@ export async function runBuilderTurn(
 			};
 		}
 
+		// The cards that a `continue` input answers. A fresh session never
+		// names their ids, so a fallback prompt drops nothing.
+		const answeredCalls =
+			turnInput.kind === "continue" && resumeState !== null
+				? resumeState.pending
+				: [];
 		// reasoning chunk id → the ms clock at its `reasoning-start`.
 		const reasoningStartedAt = new Map<string, number>();
 		for await (const event of deps.harness.stream(session, turnInput)) {
 			if (event.type === "part") {
 				lastPartAt = deps.now();
+				// The SDK sends the answer and the result of an approved call with
+				// the old ids. Only the paused reply holds that tool part, and the
+				// reply reader here and useChat throw on an unknown id. The time
+				// stamp above stays: the tool run counts as activity.
+				if (isAnsweredCallChunk(event.chunk, answeredCalls)) {
+					continue;
+				}
 				stamps.firstPart ??= lastPartAt;
 				if (event.chunk.type === "text-delta") {
 					stamps.firstText ??= lastPartAt;
@@ -1951,10 +1964,13 @@ export async function runBuilderTurn(
 				)
 				.map((part) => part.text)
 				.join("\n");
-			// The summary names the commit when the turn changed files.
+			// The summary names the commit when the turn changed files. It goes
+			// into a git argument and `app_commits.message`, and both refuse U+0000.
 			const summary =
-				assistantText.trim().slice(0, SUMMARY_MAX_CHARS) ||
-				`Turn ${turnNumber}`;
+				assistantText
+					.replaceAll("\u0000", "")
+					.trim()
+					.slice(0, SUMMARY_MAX_CHARS) || `Turn ${turnNumber}`;
 
 			let commit: CommitTurnResult | null = null;
 			try {
@@ -2517,6 +2533,27 @@ async function withChatRecap(
 		"The new message of the user:",
 		prompt,
 	].join("\n\n");
+}
+
+/**
+ * True when a harness chunk names a card of the paused turn: the approval
+ * answer of an approval card, or any chunk with the tool call id of a card.
+ * The stream loop drops these chunks from the continued reply.
+ */
+function isAnsweredCallChunk(
+	chunk: UIMessageChunk,
+	answeredCalls: readonly HarnessPendingInteraction[],
+): boolean {
+	if (chunk.type === "tool-approval-response") {
+		return answeredCalls.some(
+			(call) =>
+				call.kind === "approval" && call.approvalId === chunk.approvalId,
+		);
+	}
+	return (
+		"toolCallId" in chunk &&
+		answeredCalls.some((call) => call.toolCallId === chunk.toolCallId)
+	);
 }
 
 /** `to - from` in ms, or null while either stamp is missing. */

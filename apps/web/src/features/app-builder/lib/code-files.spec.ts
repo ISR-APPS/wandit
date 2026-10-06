@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
 import { FileImageIcon } from "@phosphor-icons/react/FileImage";
@@ -44,8 +44,11 @@ describe("codeLanguageFor", () => {
 			doc: '---\nname: "forge"\n---\n# Title\n',
 			extensions: support ? [support] : [],
 		});
+		// The first parse stops after 20 ms. A slow CI runner then gives a partial tree.
+		const tree = ensureSyntaxTree(state, state.doc.length, 5_000);
+		expect(tree).not.toBeNull();
 		const names: string[] = [];
-		syntaxTree(state).iterate({ enter: (node) => void names.push(node.name) });
+		tree?.iterate({ enter: (node) => void names.push(node.name) });
 		expect(names).toContain("Frontmatter");
 		expect(names).not.toContain("SetextHeading2");
 		expect(names).toContain("ATXHeading1");

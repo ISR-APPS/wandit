@@ -1,3 +1,8 @@
+/**
+ * Turns any error of an AI workflow into one `NormalizedAiError`: kind, source, provider, retry rule.
+ * The builder turn, the V1 chat, pages, images, marketing assets, and connectors call it to store a failure.
+ * It reads AI SDK and gateway error classes, provider signatures, and the provider text sanitizer.
+ */
 import { GatewayError } from "@ai-sdk/gateway";
 import { HttpException } from "@nestjs/common";
 import type {
@@ -85,7 +90,10 @@ type ProviderPayload = {
 	values: unknown[];
 };
 
-/** Tool-call validation warnings return null because the agent loop continues. */
+/**
+ * Tool-call validation warnings return null because the agent loop continues.
+ * A failed database query is always our internal error, never a provider error.
+ */
 export function classifyAiError(
 	error: unknown,
 	context: AiErrorContext,
@@ -95,6 +103,16 @@ export function classifyAiError(
 
 	const billing = classifyBilling(error, context);
 	if (billing) return billing;
+
+	// The query error message holds every query param, for example a tool output.
+	// The timeout and network text checks below must not read that user text.
+	if (isDatabaseQueryError(error)) {
+		return normalize(error, context, {
+			kind: "internal",
+			provider: null,
+			source: "ours",
+		});
+	}
 
 	if (error instanceof TaggedBuildError) {
 		const providerCause = providerCauseOf(error.cause);
@@ -1265,6 +1283,18 @@ function buildFailureKind(code: string): AiErrorKind {
 
 function buildFailureSource(code: string): AiErrorSource {
 	return code.startsWith("provider_") ? "gateway" : "ours";
+}
+
+/**
+ * True for the drizzle-orm `DrizzleQueryError` that wraps every failed query.
+ * The class sets no `name`, so the check reads the two fields its constructor sets.
+ */
+function isDatabaseQueryError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		typeof read(error, "query") === "string" &&
+		Array.isArray(read(error, "params"))
+	);
 }
 
 function isSdkValidationError(error: unknown): boolean {

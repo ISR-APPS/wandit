@@ -354,6 +354,53 @@ describe("ChatsRepository.insertTurnAssistantMessage", () => {
 			target: messages.id,
 		});
 	});
+
+	// Postgres jsonb refused the NUL of a `printf 'a\000b'` output, and the turn failed at settle.
+	it("removes NUL from a tool output and keeps the rest of the parts", async () => {
+		const { repository, values } = setupWrites();
+		const toolPart = {
+			input: { command: "printf 'a\\000b'" },
+			output: { stderr: "", stdout: "a\u0000b" },
+			providerExecuted: true,
+			state: "output-available",
+			toolCallId: "call-1",
+			type: "tool-bash",
+		} as const;
+		// The six characters \u0000 as text are valid jsonb, so they stay.
+		const textPart = {
+			state: "done",
+			text: "JSON writes NUL as \\u0000.",
+			type: "text",
+		} as const;
+
+		await repository.insertTurnAssistantMessage({
+			chatId: "chat-1",
+			id: "message-1",
+			metadata: {
+				harness: "claude_code",
+				model: "anthropic/claude-sonnet-5",
+				outputCommitSha: null,
+				usage: {
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					credits: 0,
+					inputTokens: 0,
+					outputTokens: 0,
+				},
+			},
+			parts: [toolPart, textPart],
+			turnId: "turn-1",
+		});
+
+		expect(values).toHaveBeenCalledWith(
+			expect.objectContaining({
+				parts: [
+					{ ...toolPart, output: { stderr: "", stdout: "ab" } },
+					textPart,
+				],
+			}),
+		);
+	});
 });
 
 describe("ChatsRepository.deleteTerminalFailedAssistantMessage", () => {

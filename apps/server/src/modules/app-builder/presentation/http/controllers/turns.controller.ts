@@ -182,6 +182,7 @@ export class TurnsController {
 	}
 
 	// Replays the whole `ui` stream from the start; no Last-Event-ID (D20).
+	// The browser reopens it after a cut and drops the chunks it already has.
 	@Get(":turnId/stream")
 	@RateLimit({
 		key: TURN_STREAM_BUCKET,
@@ -207,18 +208,12 @@ export class TurnsController {
 				turnId,
 			);
 
-			if (turn.runner === "trigger" && !turn.triggerRunId) {
-				// A queued or waiting Trigger turn has no stream yet; the client
-				// retries. A host turn streams from Redis by its turn id.
-				await reply.code(204).send();
-				await this.relay.releaseStreamSlot(request);
-				return;
-			}
-
 			await this.relay.relay({
 				onDone: () => this.turns.handleTurnEnded(turn.projectId, turn.id),
 				reply,
 				request,
+				// Null while a waiting row has no run yet: the relay polls the
+				// row, and a row canceled before its run ends the stream.
 				triggerRunId: turn.triggerRunId,
 				turnId: turn.id,
 			});

@@ -3,8 +3,10 @@ import {
 	type ChatMessage,
 	type TurnAssistantMessageMetadata,
 } from "@wandit/contracts";
-import { describe, expect, it } from "vitest";
+import type { UIMessageChunk } from "ai";
+import { describe, expect, it, vi } from "vitest";
 
+import { ApiClientError } from "@/lib/api-client";
 import { getServerUrl } from "@/lib/server-url";
 import type { TurnMessage } from "../api/dto";
 import {
@@ -228,6 +230,222 @@ describe("createBuilderChatTransport", () => {
 		);
 		expect(call?.init?.method).toBe("GET");
 		expect(call?.init?.credentials).toBe("include");
+	});
+});
+
+describe("createBuilderChatTransport after a stream cut", () => {
+	const TURN_ID = crypto.randomUUID();
+	const created = {
+		type: "data-turn-created",
+		id: "turn-created",
+		data: {
+			turnId: TURN_ID,
+			chatId: CHAT_ID,
+			runId: null,
+			status: "running",
+			streamUrl: appBuilderRoutes.activeTurnStream(PROJECT_ID),
+		},
+	} satisfies UIMessageChunk;
+	const prefix = [
+		{ type: "start" },
+		{ type: "text-start", id: "t1" },
+		{ type: "text-delta", id: "t1", delta: "Hello " },
+	] satisfies UIMessageChunk[];
+	const rest = [
+		{ type: "text-delta", id: "t1", delta: "world" },
+		{ type: "text-end", id: "t1" },
+	] satisfies UIMessageChunk[];
+	const done = {
+		type: "data-turn-done",
+		id: "turn-done",
+		data: { status: "succeeded" },
+	} satisfies UIMessageChunk;
+
+	function frames(chunks: UIMessageChunk[]): string {
+		return chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("");
+	}
+
+	/** A full replay answer of `GET turns/:turnId/stream`. */
+	function replay(chunks: UIMessageChunk[]): Response {
+		return new Response(`${frames(chunks)}data: [DONE]\n\n`, {
+			headers: { "content-type": "text/event-stream" },
+		});
+	}
+
+	/**
+	 * The first fetch answers with an open body that holds `created` and
+	 * `prefix`; the test cuts it. Each later fetch answers `reopens[n]`.
+	 */
+	function createCutFetch(reopens: (Response | Promise<Response>)[]) {
+		const calls: { url: string; init: RequestInit | undefined }[] = [];
+		let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+		const fetchImpl = async (
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		): Promise<Response> => {
+			calls.push({ url: String(input), init });
+			if (calls.length > 1) {
+				const reopen = reopens[calls.length - 2];
+				if (reopen === undefined) throw new Error("No reopen answer left");
+				return reopen;
+			}
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					body = controller;
+					controller.enqueue(
+						new TextEncoder().encode(frames([created, ...prefix])),
+					);
+				},
+			});
+			return new Response(stream, {
+				headers: { "content-type": "text/event-stream" },
+			});
+		};
+		const cut = (how: "network" | "close") => {
+			if (how === "network") body?.error(new TypeError("network error"));
+			else body?.close();
+		};
+		return { calls, cut, fetchImpl };
+	}
+
+	/** Reads the frames the first body holds, cuts the body, reads the rest. */
+	async function readAcrossCut(
+		fake: ReturnType<typeof createCutFetch>,
+		how: "network" | "close",
+		abort?: AbortController,
+	) {
+		const transport = createBuilderChatTransport({
+			projectId: PROJECT_ID,
+			fetch: fake.fetchImpl,
+		});
+		const stream = await transport.sendMessages({
+			trigger: "submit-message",
+			chatId: CHAT_ID,
+			messageId: undefined,
+			messages: [userMessage("m1", "build it")],
+			abortSignal: abort?.signal,
+		});
+		const reader = stream.getReader();
+		const chunks: (UIMessageChunk | undefined)[] = [];
+		for (let index = 0; index < 1 + prefix.length; index += 1) {
+			chunks.push((await reader.read()).value);
+		}
+		abort?.abort();
+		fake.cut(how);
+		for (;;) {
+			const result = await reader.read();
+			if (result.done) return chunks;
+			chunks.push(result.value);
+		}
+	}
+
+	it.each([
+		"network",
+		"close",
+	] as const)("reopens the turn after a %s cut and gives each chunk once", async (how) => {
+		const fake = createCutFetch([replay([...prefix, ...rest, done])]);
+
+		const chunks = await readAcrossCut(fake, how);
+
+		expect(chunks).toEqual([created, ...prefix, ...rest, done]);
+		expect(fake.calls).toHaveLength(2);
+		expect(fake.calls[1]?.url).toBe(
+			`${getServerUrl().replace(/\/$/, "")}${appBuilderRoutes.turnStream(PROJECT_ID, TURN_ID)}`,
+		);
+		expect(fake.calls[1]?.init?.method).toBe("GET");
+		expect(fake.calls[1]?.init?.credentials).toBe("include");
+	});
+
+	it("passes the turn end of a replay that is shorter than the prefix", async () => {
+		// The relay writes the end from the row when the run left no events.
+		const fake = createCutFetch([replay([done])]);
+
+		const chunks = await readAcrossCut(fake, "close");
+
+		expect(chunks).toEqual([created, ...prefix, done]);
+		expect(fake.calls).toHaveLength(2);
+	});
+
+	it("does not reopen after the user stops", async () => {
+		const fake = createCutFetch([]);
+
+		await expect(
+			readAcrossCut(fake, "network", new AbortController()),
+		).rejects.toThrow("network error");
+		expect(fake.calls).toHaveLength(1);
+	});
+
+	// A 503 comes in a deploy. A 429 comes when the server has not yet freed
+	// the open-stream slot of the cut stream.
+	it.each([503, 429])("tries the reopen again after a %i", async (status) => {
+		vi.useFakeTimers();
+		try {
+			const fake = createCutFetch([
+				new Response(null, { status }),
+				replay([...prefix, ...rest, done]),
+			]);
+
+			const read = readAcrossCut(fake, "network");
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(await read).toEqual([created, ...prefix, ...rest, done]);
+			expect(fake.calls).toHaveLength(3);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("closes a reopened stream that arrives after useChat cancels", async () => {
+		let answerReopen: (response: Response) => void = () => {};
+		let isReopenCanceled = false;
+		const fake = createCutFetch([
+			new Promise<Response>((resolve) => {
+				answerReopen = resolve;
+			}),
+		]);
+		const transport = createBuilderChatTransport({
+			projectId: PROJECT_ID,
+			fetch: fake.fetchImpl,
+		});
+		const stream = await transport.sendMessages({
+			trigger: "submit-message",
+			chatId: CHAT_ID,
+			messageId: undefined,
+			messages: [userMessage("m1", "build it")],
+			abortSignal: undefined,
+		});
+		const reader = stream.getReader();
+		for (let index = 0; index < 1 + prefix.length; index += 1) {
+			await reader.read();
+		}
+
+		fake.cut("close");
+		const pending = reader.read();
+		await vi.waitFor(() => expect(fake.calls).toHaveLength(2));
+		await reader.cancel();
+		answerReopen(
+			new Response(
+				new ReadableStream<Uint8Array>({
+					cancel() {
+						isReopenCanceled = true;
+					},
+				}),
+				{ headers: { "content-type": "text/event-stream" } },
+			),
+		);
+
+		expect(await pending).toEqual({ done: true, value: undefined });
+		await vi.waitFor(() => expect(isReopenCanceled).toBe(true));
+	});
+
+	it("stops with the API error when the reopen answers 401", async () => {
+		const fake = createCutFetch([new Response(null, { status: 401 })]);
+
+		const read = readAcrossCut(fake, "network");
+
+		await expect(read).rejects.toBeInstanceOf(ApiClientError);
+		await expect(read).rejects.toMatchObject({ statusCode: 401 });
+		expect(fake.calls).toHaveLength(2);
 	});
 });
 

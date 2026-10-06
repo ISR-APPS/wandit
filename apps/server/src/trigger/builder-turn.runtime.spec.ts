@@ -2914,6 +2914,62 @@ describe("runBuilderTurn", () => {
 		});
 	});
 
+	// The SDK first answers the paused call with its old ids. Only the paused
+	// reply holds that tool part, so the readers threw "No tool invocation".
+	it.each([
+		true,
+		false,
+	])("ends a continued turn (approved: %s) without the chunks of the paused call", async (approved) => {
+		const world = makeWorld();
+		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);
+		world.turns.waitingForUser = fakeTurnRow({
+			id: PAUSED_TURN_ID,
+			status: "waiting_for_approval",
+		});
+		world.turns.row = fakeTurnRow({
+			spec: {
+				approval: { approvalId: "appr-1", approved },
+				attachments: [],
+				composer: null,
+				message: "",
+			},
+		});
+		const answered: UIMessageChunk[] = [
+			{ type: "start" },
+			{ approvalId: "appr-1", approved, type: "tool-approval-response" },
+			// A denied host tool gets no output chunk.
+			...(approved
+				? [
+						{
+							output: { rows: 1 },
+							toolCallId: "call-9",
+							type: "tool-output-available" as const,
+						},
+					]
+				: []),
+		];
+		world.harness.events = [
+			...answered.map((chunk) => ({ chunk, type: "part" as const })),
+			...happyEvents(),
+		];
+		const { controller, input } = makeInput();
+
+		await runBuilderTurn(world.deps, input, controller.signal);
+
+		expect(world.turns.failCalls).toHaveLength(0);
+		expect(world.turns.completeCalls).toHaveLength(1);
+		const parts = world.stream
+			.eventsOf(TURN_ID)
+			.flatMap((event) => (event.type === "part" ? [event.data] : []));
+		expect(parts).toContainEqual({ type: "start" });
+		expect(parts).not.toContainEqual(
+			expect.objectContaining({ approvalId: "appr-1" }),
+		);
+		expect(parts).not.toContainEqual(
+			expect.objectContaining({ toolCallId: "call-9" }),
+		);
+	});
+
 	it("denies an approval the body does not name", async () => {
 		const world = makeWorld();
 		world.sessions.row = pausedSessionRow([PENDING_APPROVAL]);

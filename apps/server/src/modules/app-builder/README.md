@@ -246,8 +246,10 @@ service checks the scope:
   the default model reserves, from the same `estimateTurn` as `POST /`,
   with no write. `estimate` is null when the deploy sets no default
   model. The composer shows it before send.
-- `GET /:turnId/stream` relays one turn's stream; `204` while the row has
-  no run id.
+- `GET /:turnId/stream` relays one turn's stream from the first event. A
+  row with no run id streams through the row poll, not `204`. The browser
+  reopens this route after a cut (Railway closes each response at 15
+  minutes) and drops the chunks it already has, by count.
 - `GET /active/stream` is the `useChat` reconnect route: the active
   turn's stream, or `204` when the project has none. A row whose run id
   is not written yet streams through the row poll instead of `204`. The
@@ -288,7 +290,9 @@ Rules the code pins:
 - Only `infrastructure/trigger/` may import the Trigger streams API;
   `trigger-isolation.spec.ts` enforces this.
 - `TurnStreamRelayService` copies the V1 SSE socket handling: 15 s
-  heartbeats, backpressure on `drain`, error frames on reader failure.
+  heartbeats and backpressure on `drain`. It listens for `close` on the
+  response, because Node destroys the request after its body. A reader
+  failure closes the stream with no error frame, and the browser reopens it.
 
 ## Projects (WANDIT-175)
 
