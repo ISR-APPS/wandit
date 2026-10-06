@@ -54,15 +54,23 @@ instance does not fail the turns of the old one. On SIGTERM, the host
 takes no new turns and waits for its live turns until 5 s before Railway
 sends SIGKILL.
 
-1. On `harness-host`, set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` to the
-   longest build that a deploy waits for, for example `1800`. Unset means
-   0: the old host exits at once and its live turns fail.
-2. The Railway start command runs `pnpm --filter server start:host`. Check
-   once that SIGTERM reaches node: the deploy log of the old instance must
-   show `harness-host.draining` and then `harness-host.drained`.
+1. On `harness-host`, add the service variable
+   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` = `2400` (40 min, longer than the
+   longest build). Use the Variables tab, not only the Teardown switch: the
+   host reads the variable to know its drain time. Unset means 0: the old
+   host exits at once and its live turns fail. Staging has it since
+   2026-10-06.
+2. The Railway Custom Start Command must start node directly:
+   `cd apps/server && exec node --enable-source-maps --max-old-space-size=6144 --import ./dist/instrument.mjs dist/harness-host/main.mjs`.
+   With `pnpm --filter server start:host`, node gets SIGTERM from Railway
+   and from pnpm, and it died before the drain on staging (2026-10-06, log
+   `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL ... Command failed with signal
+   "SIGTERM"`). After a deploy, the log of the old instance must show
+   `harness-host.draining` and then `harness-host.drained`.
 3. During an event, do not deploy anyway. A deploy also restarts the API,
    and an API restart cuts every open chat stream for a few seconds.
-4. `start:host` sets `--max-old-space-size=6144`. The memory limit of the
+4. The start command (and `start:host`) sets `--max-old-space-size=6144`.
+   The memory limit of the
    `harness-host` service must stay above 7 GB (it is 8 GB on 2026-10-06).
    A heap limit above the container limit gives a kernel OOM kill, and that
    kill ends every live turn. Lower the flag when you lower the limit.
