@@ -28,6 +28,7 @@ import {
 	or,
 	type SQL,
 	sql,
+	stripNulCharacters,
 } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
@@ -344,7 +345,8 @@ export class ChatsRepository {
 	/**
 	 * V2 turn assistant message. Same insert shape as
 	 * `insertUiMessagesIfAbsent` plus `turnId`; the id-conflict drop keeps a
-	 * re-run of the end step from writing a twin row.
+	 * re-run of the end step from writing a twin row. The parts hold tool
+	 * output, so the write removes U+0000, which `jsonb` refuses.
 	 */
 	async insertTurnAssistantMessage(input: {
 		chatId: string;
@@ -361,7 +363,7 @@ export class ChatsRepository {
 				...EMPTY_FAILURE_COLUMNS,
 				id: input.id,
 				metadata: input.metadata,
-				parts: input.parts,
+				parts: stripNulCharacters(input.parts),
 				role: "assistant",
 				turnId: input.turnId,
 			})

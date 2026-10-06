@@ -1,3 +1,8 @@
+/**
+ * Turns any error of an AI workflow into one `NormalizedAiError`: kind, source, provider, retry rule.
+ * The builder turn, the V1 chat, pages, images, marketing assets, and connectors call it to store a failure.
+ * It reads AI SDK and gateway error classes, provider signatures, and the provider text sanitizer.
+ */
 import { GatewayError } from "@ai-sdk/gateway";
 import { HttpException } from "@nestjs/common";
 import type {
@@ -5,6 +10,7 @@ import type {
 	AiErrorKind,
 	AiErrorSource,
 } from "@wandit/contracts";
+import { DrizzleQueryError } from "@wandit/db";
 import {
 	AISDKError,
 	APICallError,
@@ -85,7 +91,10 @@ type ProviderPayload = {
 	values: unknown[];
 };
 
-/** Tool-call validation warnings return null because the agent loop continues. */
+/**
+ * Tool-call validation warnings return null because the agent loop continues.
+ * A failed database query is always our internal error, never a provider error.
+ */
 export function classifyAiError(
 	error: unknown,
 	context: AiErrorContext,
@@ -95,6 +104,16 @@ export function classifyAiError(
 
 	const billing = classifyBilling(error, context);
 	if (billing) return billing;
+
+	// The query error message holds every query param, for example a tool output.
+	// The timeout and network text checks below must not read that user text.
+	if (error instanceof DrizzleQueryError) {
+		return normalize(error, context, {
+			kind: "internal",
+			provider: null,
+			source: "ours",
+		});
+	}
 
 	if (error instanceof TaggedBuildError) {
 		const providerCause = providerCauseOf(error.cause);
