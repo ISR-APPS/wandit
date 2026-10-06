@@ -1,394 +1,111 @@
-# Chart style: area
+# Chart form area
 
-The trend card shows one series as a line with a soft fill below it, and a period Select.
-The breakdown card shows a donut with the total in the center, and the parts below it.
+The trend is one series as a line with a soft fill under it. The breakdown is a donut with the total in its hole.
 
 ## Data
 
-- `TrendCard` takes `DailyPoint[]` from `dailyProductionQueryOptions(days)`.
-  OverviewPage holds `days` and passes `onDaysChange` (data.md, section 5).
-- `BreakdownCard` takes `BreakdownSlice[]` from `downtimeByReasonQueryOptions(DEFAULT_DAYS)`.
-  The period Select changes only the trend.
-  OverviewPage translates the labels first (data.md, section 5).
-- Rename the query functions for your domain. Keep the shapes and the props.
+- Trend part: `DailyPoint[]` from `dailySeriesQueryOptions(days)` (data.md, section 5). One row per day, oldest first.
+  `current` is the day. `previous` is the same day one period earlier. A day with no event is 0.
+- The home holds `days`, one of `PERIOD_DAYS`. It passes `onDaysChange` when the slot has a period control.
+- Breakdown part: `BreakdownSlice[]` from `breakdownQueryOptions(DEFAULT_DAYS)`: the 5 largest parts and "other".
+  The home translates the labels first. The period control changes only the trend.
+- Rename the slot names to your read functions, as data.md section 5 shows. Keep the shapes.
+- The trend part takes `title`, an optional `description`, `points`, `days`, and an optional `onDaysChange`.
+  The breakdown part takes `title` and `slices`. Name each component after its data.
 
-## Rules in this code
+## Anatomy
 
-- Colors come only from `var(--chart-1)` to `var(--chart-5)`. A sixth part gets the neutral color.
-- Arabic: keep `reversed`, `orientation`, and `tick={{ textAnchor: "end" }}` on the axes. The code comments say why.
-- Money: add `style: "currency"` and the currency of the user to the `compact` and `number` formatters.
+Trend part:
+
+1. Header: the title, an optional description, and the period control at the end.
+2. Plot: one series as a line, with a fill under it. No legend: the title names the series.
+
+Breakdown part:
+
+1. Header: the title.
+2. Donut: one slice per part. The total sits in the hole, with the word "Total" under it.
+3. Parts list under the donut, in 2 columns: a color mark, the name, and the value.
+
+- The style gives the panel, the curve type, the fill, the grid, the axes, the sizes, and the weights.
+- The snippet shows the logic. Its curve, fill, grid, and axes are the no-style defaults.
+- The trend plot takes a main height of SKILL.md. The donut takes a side height, with `aspect-square`.
+- Each skeleton keeps the header, the plot, and the list in their final sizes.
+
+## Rules
+
+- `ChartContainer` from `~/shared/ui/chart` with a `ChartConfig`. Colors come only from `var(--chart-1)` to `var(--chart-5)`.
+- `ChartContainer` has `aspect-video` by default. Add `aspect-auto` with the height class.
+- Do not set `strokeWidth` or `fillOpacity`. The knobs `--chart-stroke` and `--chart-fill-opacity` set them.
+- The curve type and the fill follow the style Anatomy. A flat fill is `fill="var(--color-current)"` with no gradient.
+- With no style rule: the curve is `type="monotone"`, and the fill is a vertical gradient of the series color.
+  The gradient goes from 30 % at the line to 0 at the base.
+  The knob `--chart-fill-opacity` multiplies it. A style with no fill sets the knob to 0.
+- The grid and the axes follow the style. With no style rule: `<CartesianGrid vertical={false} />`,
+  and `tickLine={false} axisLine={false} tickMargin={8}` on both axes.
+- `day` is `YYYY-MM-DD` with no time. Format `` new Date(`${day}T00:00:00Z`) `` with
+  `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })`.
+  Midnight UTC, shown in UTC, keeps the same calendar day.
+- XAxis: `minTickGap={24}`, so the dates never overlap.
+- YAxis on the main chart only, with `width="auto"` and `Intl.NumberFormat(locale, { notation: "compact" })`.
+- Arabic: `reversed` on the XAxis. On the YAxis, `orientation="right"` and `tick={{ textAnchor: "end" }}`.
+- Tooltip: `ChartTooltip` with `cursor={false}` and `ChartTooltipContent` with a `labelFormatter` for the date.
+- Money: add `style: "currency"` and the currency of the user to the formatters.
   Give the same options as `valueFormat` to `ChartTooltipContent`.
-- Empty state: every day is 0 in both periods, or the breakdown total is 0. The frame keeps its height.
-  Point each `Link` to the page that records the events. A wrong path fails typecheck.
+- `isAnimationActive={false}` on every series.
+- The plot has `role="img"` and an `aria-label`: the title, the last day, its value, and its change.
+  The change compares with the same day one period earlier, only when that value is above 0.
+- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+  The choices are `PERIOD_DAYS`, written with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
+  It has `aria-label={t("chart.period")}`.
+- Empty trend: every day is 0 in both periods. The plot keeps its height and draws the real zeros:
+  the dates, and the line on the base. Hide the Y axis. One muted sentence and one action link sit over the plot.
+- Donut: `Pie` with `dataKey="value"`, `nameKey="label"`, and an inner radius of about 60 %.
+  Recharts reads the color of each slice from its `fill` field: chart-1 to chart-5, then `var(--muted-foreground)`.
+- Split the slices with a line in the panel color: `stroke="var(--card)"`. A panel with no fill uses `var(--background)`.
+- The donut tooltip uses `hideLabel`. The `aria-label` gives the title and each part with its value.
+- Empty breakdown: the total is 0. Recharts `Pie` draws no sector when the sum is 0.
+  Draw it with one placeholder slice `{ value: 1, fill: "var(--muted)" }` and no tooltip.
+  The aria-label keeps the real total of 0. The hole shows "0". The muted sentence and the action link go under it.
+- Each action link opens the page that records the events. A wrong path fails typecheck.
+- A home can ask for the trend part at a mini or strip height. Then it has no axes, no grid, no legend,
+  and no period control of its own. The tooltip and the `aria-label` stay.
+
+The trend plot, inside `ChartContainer`. `fillId` comes from `useId()`, and `isRtl` is `dir === "rtl"`:
+
+```tsx
+<AreaChart data={points} margin={{ top: 8, left: 0, right: 0 }}>
+	{/* No-style default: this gradient. A style with a flat fill drops the defs and passes fill="var(--color-current)". */}
+	<defs>
+		<linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0%" stopColor="var(--color-current)" stopOpacity={0.3} />
+			<stop offset="100%" stopColor="var(--color-current)" stopOpacity={0} />
+		</linearGradient>
+	</defs>
+	{/* No-style defaults: a horizontal grid, and axes with no tick line and no axis line. The style Anatomy replaces them. */}
+	<CartesianGrid vertical={false} />
+	{/* Time runs from right to left in Arabic, so the values move to the right side. */}
+	<XAxis dataKey="day" reversed={isRtl} tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={formatDay} />
+	{/* SVG anchors follow the page direction. "end" puts the text end at the plot side in LTR and RTL. */}
+	<YAxis hide={isEmpty} orientation={isRtl ? "right" : "left"} tick={{ textAnchor: "end" }} width="auto"
+		tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value: number) => compact.format(value)} />
+	<ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={(label) => formatDay(String(label))} />} />
+	{/* No-style default: type="monotone". The style Anatomy gives the curve, for example natural, linear, or stepAfter. */}
+	<Area dataKey="current" type="monotone" stroke="var(--color-current)" fill={`url(#${fillId})`} isAnimationActive={false} />
+</AreaChart>
+```
 
 ## Fallback
 
-None. This donut is the fallback of `charts/gauge.md`.
+None.
 
 ## Messages
 
-Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
+Add a `chart` group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
 Name the real action in `emptyAction` and `breakdownEmptyAction`.
 
-```ts
-	chart: {
-		period: "Period",
-		vsPrevious: "against the same day one period earlier",
-		empty: "Nothing was recorded in this period.",
-		emptyAction: "Record production",
-		breakdownEmptyAction: "Record downtime",
-		total: "Total",
-	},
-```
-
-## File: src/features/overview/components/trend-card.tsx
-
-```tsx
-// Main trend card of the home, style "area": one series as a filled area, and a period Select.
-// The home renders it with the rows of dailyProductionQueryOptions(days) (data.md).
-// It calls ChartContainer and recharts. onDaysChange from the home changes the period and the query key.
-import { Link } from "@tanstack/react-router";
-import { useId } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { useT } from "~/shared/i18n";
-import { Button } from "~/shared/ui/button";
-import {
-	Card,
-	CardAction,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "~/shared/ui/card";
-import {
-	type ChartConfig,
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "~/shared/ui/chart";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
-import { Skeleton } from "~/shared/ui/skeleton";
-import { type DailyPoint, PERIOD_DAYS } from "../lib/series";
-
-type TrendCardProps = {
-	/** Card title, translated. The tooltip also uses it as the series name. */
-	title: string;
-	/** One muted line under the title, for example the unit or the scope. */
-	description?: string;
-	/** One row per day, oldest first, with 0 on a day with no event (data.md). */
-	points: DailyPoint[];
-	/** Length of the period in days, one of PERIOD_DAYS. */
-	days: number;
-	/** Called with the chosen period. Without it, the card has no Select. */
-	onDaysChange?: (days: number) => void;
-};
-
-/** The main chart of the home. Every day at 0 in both periods: the empty state with its action. */
-export function TrendCard({
-	title,
-	description,
-	points,
-	days,
-	onDaysChange,
-}: TrendCardProps) {
-	const { t, locale, dir } = useT();
-	const fillId = useId();
-	const isRtl = dir === "rtl";
-	const number = new Intl.NumberFormat(locale);
-	const compact = new Intl.NumberFormat(locale, { notation: "compact" });
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		signDisplay: "exceptZero",
-		maximumFractionDigits: 1,
-	});
-	const dayCount = new Intl.NumberFormat(locale, {
-		style: "unit",
-		unit: "day",
-		unitDisplay: "long",
-	});
-	const date = new Intl.DateTimeFormat(locale, {
-		day: "numeric",
-		month: "short",
-		timeZone: "UTC",
-	});
-	// `day` has no time. Midnight UTC, shown in UTC, keeps the same calendar day.
-	const formatDay = (day: string) => date.format(new Date(`${day}T00:00:00Z`));
-	const config = {
-		current: { label: title, color: "var(--chart-1)" },
-	} satisfies ChartConfig;
-	const isEmpty = points.every(
-		(point) => point.current === 0 && point.previous === 0,
-	);
-	// Screen readers get the last day and its change against the same day one period earlier.
-	const last = points.at(-1);
-	const lastChange =
-		last && last.previous > 0
-			? ` ${percent.format((last.current - last.previous) / last.previous)} ${t("chart.vsPrevious")}`
-			: "";
-	const summary = last
-		? `${title}. ${formatDay(last.day)}: ${number.format(last.current)}${lastChange}`
-		: title;
-
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<CardTitle className="font-medium text-sm">{title}</CardTitle>
-				{description ? <CardDescription>{description}</CardDescription> : null}
-				{onDaysChange ? (
-					<CardAction>
-						<Select
-							value={String(days)}
-							onValueChange={(value) => onDaysChange(Number(value))}
-						>
-							<SelectTrigger className="w-32" aria-label={t("chart.period")}>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{PERIOD_DAYS.map((period) => (
-									<SelectItem key={period} value={String(period)}>
-										{dayCount.format(period)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</CardAction>
-				) : null}
-			</CardHeader>
-			<CardContent>
-				{isEmpty ? (
-					<div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-						<p className="text-muted-foreground text-sm">{t("chart.empty")}</p>
-						<Button asChild variant="outline" size="sm">
-							<Link to="/app/production">{t("chart.emptyAction")}</Link>
-						</Button>
-					</div>
-				) : (
-					<ChartContainer
-						config={config}
-						role="img"
-						aria-label={summary}
-						className="aspect-auto h-64 w-full"
-					>
-						<AreaChart data={points} margin={{ top: 8, left: 0, right: 0 }}>
-							{/* The fill fades from 30 % under the line to 0 at the axis, so the grid stays visible. */}
-							<defs>
-								<linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-									<stop
-										offset="0%"
-										stopColor="var(--color-current)"
-										stopOpacity={0.3}
-									/>
-									<stop
-										offset="100%"
-										stopColor="var(--color-current)"
-										stopOpacity={0}
-									/>
-								</linearGradient>
-							</defs>
-							<CartesianGrid vertical={false} />
-							{/* Time runs from right to left in Arabic, so the values move to the right side. */}
-							<XAxis
-								dataKey="day"
-								reversed={isRtl}
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								// Recharts hides a date nearer than 24 px to the last one, so the dates never overlap.
-								minTickGap={24}
-								tickFormatter={formatDay}
-							/>
-							<YAxis
-								orientation={isRtl ? "right" : "left"}
-								// SVG anchors follow the page direction. "end" puts the text end at the plot side in LTR and RTL.
-								tick={{ textAnchor: "end" }}
-								width="auto"
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								tickFormatter={(value: number) => compact.format(value)}
-							/>
-							<ChartTooltip
-								cursor={false}
-								content={
-									<ChartTooltipContent
-										labelFormatter={(label) => formatDay(String(label))}
-									/>
-								}
-							/>
-							<Area
-								dataKey="current"
-								type="monotone"
-								stroke="var(--color-current)"
-								strokeWidth={2}
-								fill={`url(#${fillId})`}
-								isAnimationActive={false}
-							/>
-						</AreaChart>
-					</ChartContainer>
-				)}
-			</CardContent>
-		</Card>
-	);
-}
-
-/** Placeholder of TrendCard in its final size. The home pendingComponent renders it. */
-export function TrendCardSkeleton() {
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<Skeleton className="h-5 w-40" />
-				<CardAction>
-					<Skeleton className="h-9 w-32" />
-				</CardAction>
-			</CardHeader>
-			<CardContent>
-				<Skeleton className="h-64 w-full" />
-			</CardContent>
-		</Card>
-	);
-}
-```
-
-## File: src/features/overview/components/breakdown-card.tsx
-
-```tsx
-// Breakdown card of the home, style "area": a donut with the total in the center, and the parts below.
-// The home renders it with the rows of downtimeByReasonQueryOptions(DEFAULT_DAYS), labels translated (data.md).
-// It calls ChartContainer and recharts. Every number goes through Intl.
-import { Link } from "@tanstack/react-router";
-import { Pie, PieChart } from "recharts";
-import { useT } from "~/shared/i18n";
-import { Button } from "~/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
-import {
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "~/shared/ui/chart";
-import { Skeleton } from "~/shared/ui/skeleton";
-import type { BreakdownSlice } from "../lib/series";
-
-/** Colors in slice order: chart-1 to chart-5, then the neutral color for a sixth part. */
-const SLICE_COLORS = [
-	"var(--chart-1)",
-	"var(--chart-2)",
-	"var(--chart-3)",
-	"var(--chart-4)",
-	"var(--chart-5)",
-	"var(--muted-foreground)",
-] as const;
-
-type BreakdownCardProps = {
-	/** Card title, translated. */
-	title: string;
-	/** The 5 largest parts and one "Other" part, in the order of the data. Labels are translated. */
-	slices: BreakdownSlice[];
-};
-
-/** The split of one total. A total of 0: the empty state with its action. */
-export function BreakdownCard({ title, slices }: BreakdownCardProps) {
-	const { t, locale } = useT();
-	const number = new Intl.NumberFormat(locale);
-	const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-	// Recharts reads the color of each slice from its `fill` field.
-	const parts = slices.map((slice, index) => ({
-		...slice,
-		fill: SLICE_COLORS[Math.min(index, SLICE_COLORS.length - 1)],
-	}));
-	const summary = `${title}. ${parts.map((part) => `${part.label}: ${number.format(part.value)}`).join(", ")}`;
-
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<CardTitle className="font-medium text-sm">{title}</CardTitle>
-			</CardHeader>
-			<CardContent className="grid gap-4">
-				{total === 0 ? (
-					<div className="flex h-52 flex-col items-center justify-center gap-3 text-center">
-						<p className="text-muted-foreground text-sm">{t("chart.empty")}</p>
-						<Button asChild variant="outline" size="sm">
-							<Link to="/app/machines">{t("chart.breakdownEmptyAction")}</Link>
-						</Button>
-					</div>
-				) : (
-					<>
-						<div className="relative">
-							<ChartContainer
-								config={{}}
-								role="img"
-								aria-label={summary}
-								className="mx-auto aspect-square h-52"
-							>
-								<PieChart>
-									<ChartTooltip
-										cursor={false}
-										content={<ChartTooltipContent hideLabel />}
-									/>
-									<Pie
-										data={parts}
-										dataKey="value"
-										nameKey="label"
-										// The 60 px hole holds the total. A 3 px line in the card color splits the slices.
-										innerRadius={60}
-										stroke="var(--card)"
-										strokeWidth={3}
-										isAnimationActive={false}
-									/>
-								</PieChart>
-							</ChartContainer>
-							<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-								<span className="font-display font-semibold text-2xl tabular-nums">
-									{number.format(total)}
-								</span>
-								<span className="text-muted-foreground text-xs">
-									{t("chart.total")}
-								</span>
-							</div>
-						</div>
-						<ul className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-							{parts.map((part) => (
-								<li
-									key={part.label}
-									className="flex min-w-0 items-center gap-2"
-								>
-									<span
-										className="size-2.5 shrink-0 rounded-[2px]"
-										style={{ backgroundColor: part.fill }}
-									/>
-									<span className="truncate text-muted-foreground">
-										{part.label}
-									</span>
-									<span className="ms-auto font-medium tabular-nums">
-										{number.format(part.value)}
-									</span>
-								</li>
-							))}
-						</ul>
-					</>
-				)}
-			</CardContent>
-		</Card>
-	);
-}
-
-/** Placeholder of BreakdownCard in its final size. The home pendingComponent renders it. */
-export function BreakdownCardSkeleton() {
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<Skeleton className="h-5 w-32" />
-			</CardHeader>
-			<CardContent className="grid gap-4">
-				<Skeleton className="mx-auto size-52 rounded-full" />
-				<Skeleton className="h-16 w-full" />
-			</CardContent>
-		</Card>
-	);
-}
-```
+- `chart.period`: "Period"
+- `chart.vsPrevious`: "against the same day one period earlier"
+- `chart.empty`: "Nothing was recorded in this period."
+- `chart.emptyAction`: the action that records the events of the trend, for example "Record a delivery"
+- `chart.breakdownEmptyAction`: the action that records the events of the breakdown, for example "Record a return"
+- `chart.total`: "Total"

@@ -2,6 +2,7 @@
 // The app shell feature composes them: provider, sidebar, trigger, inset, and the menu parts.
 // Sides are logical (start, end), so the sidebar sits on the right in Arabic.
 // On a phone the sidebar opens as a Sheet. No cookie and no effect: the /app layout keeps the state.
+// The group label and the active menu row read the style knobs of src/styles/tokens.css.
 
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
@@ -336,14 +337,14 @@ function SidebarGroup({ className, ...props }: ComponentProps<"div">) {
 	);
 }
 
-/** Small title of a group. It fades out in the icon state. */
+/** Small title of a group. It fades out in the icon state. label-text gives the label knobs. */
 function SidebarGroupLabel({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="sidebar-group-label"
 			data-sidebar="group-label"
 			className={cn(
-				"flex h-8 shrink-0 items-center rounded-md px-2 font-medium text-sidebar-foreground/70 text-xs outline-hidden ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+				"label-text flex h-8 shrink-0 items-center rounded-md px-2 text-sidebar-foreground/70 text-xs outline-hidden ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
 				"group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
 				className,
 			)}
@@ -388,9 +389,13 @@ function SidebarMenuItem({ className, ...props }: ComponentProps<"li">) {
 	);
 }
 
-/** Sizes of a menu row: "default" for a nav item, "lg" for the user row with an avatar. */
+/**
+ * Sizes of a menu row: "default" for a nav item, "lg" for the user row with an avatar.
+ * The active row takes the --nav-active-bg knob. Its ::before bar on the start side is
+ * --nav-indicator-width wide, so the default 0px hides it.
+ */
 const sidebarMenuButtonVariants = cva(
-	"peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-start text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-badge]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+	"peer/menu-button relative flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-start text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] before:absolute before:inset-y-0 before:start-0 before:bg-sidebar-primary hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-badge]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-(--nav-active-bg) data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground data-[active=true]:before:w-(--nav-indicator-width) group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
 	{
 		variants: {
 			size: {

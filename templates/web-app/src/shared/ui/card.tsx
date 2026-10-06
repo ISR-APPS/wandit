@@ -1,16 +1,21 @@
 // shadcn-style card primitives (port of shadcn/ui, MIT).
 // Sections, KPI cards, and chart cards use these slots.
 // CardAction puts a control (a period Select, an icon) at the end of the header row.
+// Card and CardTitle read the style knobs of src/styles/tokens.css.
 
 import type * as React from "react";
 import { cn } from "~/shared/lib/utils";
 
+/**
+ * A panel. The --surface-* knobs give its border width, corners, and shadow.
+ * cn() drops a knob class when the caller gives a full radius, a border width, or a shadow size.
+ */
 function Card({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card"
 			className={cn(
-				"flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
+				"border-(length:--surface-border-width) flex flex-col gap-6 rounded-(--surface-radius) bg-card py-6 text-card-foreground shadow-(--surface-shadow)",
 				className,
 			)}
 			{...props}
@@ -35,11 +40,15 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
 	);
 }
 
+/** The panel title. The --title-* knobs give its weight, tracking, and case. A caller class wins. */
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="card-title"
-			className={cn("font-semibold leading-none", className)}
+			className={cn(
+				"font-(--title-weight) leading-none tracking-(--title-tracking) [text-transform:var(--title-case)]",
+				className,
+			)}
 			{...props}
 		/>
 	);
