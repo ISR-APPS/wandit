@@ -39,6 +39,17 @@ export const LLM_MODEL_PRICES: readonly LlmModelPrice[] = [
 		cacheWriteUsdPerMTok: 8,
 	},
 	{
+		// Vercel AI Gateway list prices read 2026-10-06: 2x the Opus 5.5 rates.
+		// The gateway lists the 5-minute cache write ($10). This row uses the
+		// 1-hour rate, 2x input, like the Opus 5.5 row.
+		provider: "anthropic",
+		modelId: "anthropic/claude-opus-5.5-fast",
+		inputUsdPerMTok: 8,
+		outputUsdPerMTok: 40,
+		cacheReadUsdPerMTok: 0.4,
+		cacheWriteUsdPerMTok: 16,
+	},
+	{
 		// ESTIMATE: WANDIT-151 measures the real Opus rate before billing on it.
 		provider: "anthropic",
 		modelId: "anthropic/claude-opus-5",
