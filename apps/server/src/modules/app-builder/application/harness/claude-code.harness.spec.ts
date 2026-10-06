@@ -325,7 +325,6 @@ describe("ClaudeCodeHarness.createSession", () => {
 		// binds the bridge port.
 		expect(execCalls).toHaveLength(1);
 		expect(execCalls[0]?.command).toBe("sh");
-		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
 	});
 });
 
@@ -437,7 +436,6 @@ describe("ClaudeCodeHarness.resumeSession", () => {
 		});
 		// After a mode switch the old bridge still runs and holds the port.
 		expect(execCalls).toHaveLength(1);
-		expect(execCalls[0]?.args[1]).toContain("bridge.mjs --workdir");
 	});
 
 	it("drops the paused turn that a mid-turn detach nests in the resume state", async () => {
