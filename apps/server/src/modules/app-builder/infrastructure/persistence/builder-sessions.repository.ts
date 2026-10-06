@@ -5,7 +5,7 @@
  * resume state after each turn.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "@wandit/db";
+import { eq, stripNulCharacters } from "@wandit/db";
 import { builderSessions } from "@wandit/db/schema/builder-sessions";
 
 import {
@@ -74,7 +74,8 @@ export class BuilderSessionsRepository {
 	/**
 	 * Stores the harness state a finished turn detached. The next turn of the
 	 * chat reads it back through `findByChatId`. Returns the updated row, or
-	 * null when the session row vanished (deleted chat).
+	 * null when the session row vanished (deleted chat). The pending cards
+	 * hold agent tool input, so the write removes U+0000, which `jsonb` refuses.
 	 */
 	async saveResumeState(
 		chatId: string,
@@ -89,7 +90,7 @@ export class BuilderSessionsRepository {
 			.set({
 				model: input.model,
 				providerSessionId: input.providerSessionId,
-				resumeState: input.resumeState,
+				resumeState: stripNulCharacters(input.resumeState),
 			})
 			.where(eq(builderSessions.chatId, chatId))
 			.returning();

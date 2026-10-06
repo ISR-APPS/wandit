@@ -1900,10 +1900,13 @@ export async function runBuilderTurn(
 				)
 				.map((part) => part.text)
 				.join("\n");
-			// The summary names the commit when the turn changed files.
+			// The summary names the commit when the turn changed files. It goes
+			// into a git argument and `app_commits.message`, and both refuse U+0000.
 			const summary =
-				assistantText.trim().slice(0, SUMMARY_MAX_CHARS) ||
-				`Turn ${turnNumber}`;
+				assistantText
+					.replaceAll("\u0000", "")
+					.trim()
+					.slice(0, SUMMARY_MAX_CHARS) || `Turn ${turnNumber}`;
 
 			let commit: CommitTurnResult | null = null;
 			try {
