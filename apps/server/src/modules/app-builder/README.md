@@ -1046,9 +1046,9 @@ In Plan Mode the agent does not build. It interviews the user with
 - Mode switch: each saved resume envelope stores the turn mode. The SDK
   fixes the tool list when a session starts. So when cards wait and the new
   turn has the other mode, the paused call cannot continue. The runtime
-  resumes with `dropPausedTurn` and `bridgeDead`, and the harness kills the
-  old bridge that holds the port. A text prompt goes instead
-  (`modeSwitchPromptOf`):
+  resumes with `dropPausedTurn` on the same bridge: the new start replaces
+  the paused call there, so a second bridge does not try to use the same
+  port. A text prompt goes instead (`modeSwitchPromptOf`):
   - a build after a plan card gets the approved plan as Markdown;
   - a build with open questions gets `BUILD_NOW_PROMPT` and the answers;
   - a plan turn gets the answers after the Plan Mode rules.

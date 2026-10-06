@@ -142,9 +142,9 @@ export interface BuilderHarness {
 			 */
 			dropPausedTurn: boolean;
 			/**
-			 * True when the stored bridge must not serve this turn: the sandbox
-			 * booted or resumed, or the turn switches mode. The harness kills a
-			 * bridge that still runs and starts a new one.
+			 * True after a sandbox wake. The bridge is usually gone. The harness
+			 * kills a bridge that still runs, then starts a new one. A mode
+			 * switch keeps the bridge: its new start replaces the paused call.
 			 */
 			bridgeDead: boolean;
 		},

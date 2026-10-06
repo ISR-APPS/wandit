@@ -261,10 +261,10 @@ type KeptSession = {
  * session keeps its bridge alive for a resume; when the resume is not
  * possible, the old bridge still holds the bridge port and a new one cannot
  * listen. Only sh, tr, grep, and kill are used: the image has no pkill.
- * The pattern `[b]ridge` matches the bridge but not this script's own text.
- * A plain `bridge.mjs` pattern matched the script's own shell. The glob sorts
- * pids as text ("1865" before "733"), so the script killed itself first and
- * the bridge kept the port: a Plan to Build switch then failed on each retry.
+ * The pattern `[b]ridge` does not match the script's own shell, so the
+ * script does not kill itself. The glob sorts pids as text ("1865" before
+ * "733"), so a self-match can stop the script before it reaches the bridge.
+ * Called by `createSession` and by `resumeStored` after a sandbox wake.
  */
 const KILL_STALE_BRIDGE_SCRIPT =
 	"for p in /proc/[0-9]*; do if tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null | grep -q '[b]ridge\\.mjs --workdir'; then kill \"$(basename \"$p\")\" 2>/dev/null; fi; done; true";
@@ -426,9 +426,8 @@ export class ClaudeCodeHarness implements BuilderHarness {
 		const epoch = this.tokenEpoch();
 		const agent = this.buildAgent(input, epoch);
 		const sandboxSession = await input.sandbox.harnessSession();
-		// A mode switch drops a paused turn whose bridge still waits on the
-		// paused call and holds the bridge port. After an idle stop no bridge
-		// runs, and the kill does nothing.
+		// A wake can reuse a live vendor sandbox after a failed stop, and its
+		// old bridge holds the port. After a real boot, the kill does nothing.
 		if (options.bridgeDead) {
 			await input.sandbox.exec("sh", ["-c", KILL_STALE_BRIDGE_SCRIPT]);
 		}

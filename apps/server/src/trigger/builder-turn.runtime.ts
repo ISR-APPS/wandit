@@ -1872,9 +1872,10 @@ export async function runBuilderTurn(
 						sessionInput,
 						stored,
 						{
-							// A mode switch drops the paused turn, but its bridge still
-							// runs and holds the port, so the harness kills it.
-							bridgeDead: sandboxWoke || modeSwitch,
+							// Only a sandbox wake loses the bridge. A mode switch keeps
+							// it: the new start replaces the paused call in the same
+							// bridge, so no kill and no second bridge on the port.
+							bridgeDead: sandboxWoke,
 							dropPausedTurn: answersAsText,
 						},
 					);
