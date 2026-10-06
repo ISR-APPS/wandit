@@ -1,7 +1,8 @@
 # Data: tables, events, read functions, and queries
 
+The example is a factory with work orders. Copy its patterns, never its names.
 Every chart and every KPI of the app reads real rows through the rules below.
-Section 8 is a complete factory example. It is tested. Copy its shape and rename the entities.
+Section 8 holds the complete example. It is tested.
 
 ## 1. Business tables
 
@@ -67,22 +68,26 @@ Section 8 is a complete factory example. It is tested. Copy its shape and rename
   in place of `label`. The home turns `labelKey` into `label` with `t()`.
 - A mutation invalidates every key that its write changes: the entity key and `["overview"]`.
 
-## 5. The home file
+## 5. The home page
 
-- This file gives `series.ts` and `overview.queries.ts`. The home file gives `src/routes/app/index.tsx`,
-  `src/features/overview/index.ts`, and `OverviewPage`. OverviewPage holds the period of the trend.
-- The home files use slot names. Use your read functions in their place. In the factory example:
+- This file gives `series.ts` and `overview.queries.ts`. The home file is a spec, not code.
+  From it, you write `src/routes/app/index.tsx`, `src/features/overview/index.ts`, and the overview page.
+- The route is thin: a loader that prefetches the queries of the home file, a `pendingComponent`, and an `errorComponent`.
+  `index.ts` exports the page, its skeleton, its error, `DEFAULT_DAYS`, and the query options of the loader.
+- The overview page holds the period of the trend. `DEFAULT_DAYS` is the period of the first load:
+  30 days, unless the home file sets another value.
+- The home and chart files use slot names. Use your read functions in their place. In the factory example:
 
-| Slot name in the home file | Factory read function |
+| Slot name in the home and chart files | Factory read function |
 |---|---|
 | `overviewKpisQueryOptions()` | the same name |
 | `dailySeriesQueryOptions(days)` | `dailyProductionQueryOptions(days)`; with chart=stacked, `dailyOutputQueryOptions(days)` |
 | `breakdownQueryOptions(days)` | `downtimeByReasonQueryOptions(days)` |
 
-- The breakdown rows hold codes. OverviewPage translates them before `BreakdownCard`:
+- The breakdown rows hold codes. The overview page translates them before the breakdown panel gets them:
   ``slices.map((slice) => ({ label: t(`downtimeReasons.${slice.label}`), value: slice.value }))``.
-- `buildOverviewKpis` lists the KPIs in order of importance. Each home file sets its `KPI_COUNT`.
-  OverviewPage passes only the first rows to `KpiRow`: `kpis.slice(0, KPI_COUNT)`.
+- `buildOverviewKpis` lists the KPIs in order of importance. A home file that shows the first KPI rows sets its `KPI_COUNT`. tabbed picks rows by id.
+  The overview page passes only the first rows to the figures: `kpis.slice(0, KPI_COUNT)`.
 
 ## 6. KPI math
 
@@ -95,7 +100,7 @@ Section 8 is a complete factory example. It is tested. Copy its shape and rename
 ## 7. Domain table
 
 Each family gives: nav items, entities, event tables, KPIs with `goodWhen`, the main chart, the breakdown,
-the attention list, the status words with their Badge variant, and the best homes.
+the attention list, and the status words with their Badge variant.
 Badge rule: `success` done or healthy; `info` in progress; `warning` needs action soon;
 `destructive` failed, blocked, or late; `secondary` waiting or idle; `outline` closed or cancelled.
 
@@ -105,7 +110,6 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: units today (up), machines running of total (up, meter), late work orders (down), scrap rate 7 days (down), stock items under minimum (down).
 - Chart: units per day. Breakdown: downtime minutes by reason. Attention: late and blocked work orders.
 - Status: running success, idle secondary, down destructive, maintenance warning; planned secondary, in_progress info, blocked destructive, done success.
-- Homes: status-board, main-rail, kpi-band.
 
 **Inventory, stock** (warehouse, depot, shop stock).
 - Nav: Overview, Items, Movements, Suppliers, Purchase orders. Entities: stock_items, suppliers, purchase_orders.
@@ -113,7 +117,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: units out this period (up), items under minimum (down), items out of stock (down), late purchase orders (down).
 - Chart: units in and out per day (stacked by reason). Breakdown: units out by category.
 - Attention: items under minimum, purchase orders past their expected date.
-- Status: draft secondary, ordered info, partly_received warning, received success, cancelled outline. Homes: focus-queue, kpi-band, split.
+- Status: draft secondary, ordered info, partly_received warning, received success, cancelled outline.
 
 **Maintenance, field service**.
 - Nav: Overview, Interventions, Assets, Technicians, Clients. Entities: interventions, assets, technicians, clients.
@@ -121,7 +125,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: open interventions (down), closed this period (up), mean time to repair in hours (down), overdue preventive tasks (down).
 - Chart: interventions opened and closed per day (compare). Breakdown: interventions by type.
 - Attention: overdue interventions, urgent interventions with no technician.
-- Status: new secondary, scheduled info, in_progress warning, done success, cancelled outline. Homes: focus-queue, main-rail, briefing.
+- Status: new secondary, scheduled info, in_progress warning, done success, cancelled outline.
 
 **Logistics, delivery**.
 - Nav: Overview, Deliveries, Drivers, Vehicles, Customers. Entities: deliveries, drivers, vehicles, customers.
@@ -129,7 +133,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: deliveries today (up), on-time rate 7 days (up), failed deliveries (down), mean delay in minutes (down).
 - Chart: deliveries per day. Breakdown: failed deliveries by reason.
 - Attention: late deliveries, failed deliveries with no new attempt.
-- Status: pending secondary, in_transit info, delivered success, failed destructive, returned warning. Homes: briefing, status-board, focus-queue.
+- Status: pending secondary, in_transit info, delivered success, failed destructive, returned warning.
 
 **CRM, sales**.
 - Nav: Overview, Deals, Contacts, Companies, Activities. Entities: deals, contacts, companies.
@@ -137,7 +141,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: won amount this period (up), win rate (up), open pipeline amount (up), deals with no activity for 14 days (down).
 - Chart: won amount per day. Breakdown: open pipeline by stage.
 - Attention: deals with a close date in the past, deals with no activity for 14 days.
-- Status: lead secondary, qualified info, proposal warning, won success, lost destructive. Homes: split, kpi-band, tabbed.
+- Status: lead secondary, qualified info, proposal warning, won success, lost destructive.
 
 **Bookings, appointments** (clinic, salon, studio).
 - Nav: Overview, Appointments, Clients, Services, Staff. Entities: appointments, clients, services, staff.
@@ -145,7 +149,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: appointments today (up), no-show rate 30 days (down), booked revenue this period (up), cancellations (down).
 - Chart: appointments per day. Breakdown: appointments by service.
 - Attention: appointments today that are not confirmed, no-shows to call back.
-- Status: pending secondary, confirmed info, done success, no_show destructive, cancelled outline. Homes: briefing, focus-queue, kpi-band.
+- Status: pending secondary, confirmed info, done success, no_show destructive, cancelled outline.
 
 **Education, school**.
 - Nav: Overview, Students, Classes, Attendance, Fees. Entities: students, classes, enrollments.
@@ -153,7 +157,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: attendance rate 30 days (up), absences today (down), active students (up), unpaid fees (down).
 - Chart: attendance rate per day. Breakdown: students by class.
 - Attention: students absent 3 days or more in a row, fees past their due date.
-- Status: active success, on_leave warning, withdrawn secondary; paid success, due warning, overdue destructive. Homes: tabbed, kpi-band, main-rail.
+- Status: active success, on_leave warning, withdrawn secondary; paid success, due warning, overdue destructive.
 
 **HR, team**.
 - Nav: Overview, Employees, Leave requests, Attendance, Departments. Entities: employees, leave_requests, departments.
@@ -161,7 +165,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: headcount (up), absence rate 30 days (down), pending leave requests (down), hires this period (up).
 - Chart: absences per day. Breakdown: employees by department.
 - Attention: leave requests that wait for approval, contracts that end in the next 30 days.
-- Status: pending warning, approved success, rejected destructive; active success, on_leave info, exited secondary. Homes: focus-queue, kpi-band, bento.
+- Status: pending warning, approved success, rejected destructive; active success, on_leave info, exited secondary.
 
 **Invoicing, finance**. Store money as `numeric(12, 2)`. The currency comes from the user. Never use a float.
 - Nav: Overview, Invoices, Quotes, Clients, Expenses. Entities: invoices, quotes, clients, expenses.
@@ -169,7 +173,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: cash collected this period (up), outstanding amount (down), overdue amount (down), expenses this period (down).
 - Chart: payments per day (compare). Breakdown: expenses by category.
 - Attention: overdue invoices, quotes that expire in the next 7 days.
-- Status: draft secondary, sent info, paid success, overdue destructive, cancelled outline. Homes: split, kpi-band, main-rail.
+- Status: draft secondary, sent info, paid success, overdue destructive, cancelled outline.
 
 **Projects, tasks**.
 - Nav: Overview, Projects, Tasks, Clients, Time. Entities: projects, tasks, clients.
@@ -177,7 +181,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: tasks done this period (up), overdue tasks (down), hours logged (up), projects at risk (down).
 - Chart: tasks done per day. Breakdown: open tasks by project.
 - Attention: overdue tasks, blocked tasks.
-- Status: todo secondary, in_progress info, review warning, blocked destructive, done success. Homes: focus-queue, tabbed, bento.
+- Status: todo secondary, in_progress info, review warning, blocked destructive, done success.
 
 **Restaurant, orders**.
 - Nav: Overview, Orders, Menu, Reservations, Stock. Entities: orders, menu_items, reservations, stock_items.
@@ -185,7 +189,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: orders today (up), revenue today (up), average ticket (up), mean preparation time in minutes (down).
 - Chart: revenue per day. Breakdown: sales by menu category.
 - Attention: orders that wait more than 20 minutes, ingredients under minimum.
-- Status: new info, preparing warning, ready success, served secondary, cancelled destructive. Homes: briefing, focus-queue, split.
+- Status: new info, preparing warning, ready success, served secondary, cancelled destructive.
 
 **Rentals, real estate**.
 - Nav: Overview, Units, Tenants, Leases, Payments. Entities: properties, units, tenants, leases.
@@ -193,7 +197,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: occupancy rate (up, meter), rent collected this period (up), overdue rent (down), open maintenance requests (down).
 - Chart: rent collected per day. Breakdown: units by status.
 - Attention: overdue rent, leases that end in the next 60 days.
-- Status: occupied success, vacant warning, under_repair info; paid success, late destructive. Homes: status-board, kpi-band, main-rail.
+- Status: occupied success, vacant warning, under_repair info; paid success, late destructive.
 
 **Gym, membership**.
 - Nav: Overview, Members, Subscriptions, Check-ins, Classes. Entities: members, plans, subscriptions, classes.
@@ -201,7 +205,7 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: active members (up), check-ins today (up), new members this period (up), subscriptions that end in 7 days (down).
 - Chart: check-ins per day. Breakdown: members by plan.
 - Attention: expired subscriptions with recent check-ins, unpaid renewals.
-- Status: active success, expiring warning, expired destructive, frozen secondary. Homes: briefing, kpi-band, split.
+- Status: active success, expiring warning, expired destructive, frozen secondary.
 
 **E-commerce back office**.
 - Nav: Overview, Orders, Products, Customers, Returns. Entities: orders, products, customers, returns.
@@ -209,13 +213,13 @@ Badge rule: `success` done or healthy; `info` in progress; `warning` needs actio
 - KPIs: revenue this period (up), orders (up), average order value (up), return rate (down), paid orders to ship (down).
 - Chart: revenue per day (compare). Breakdown: revenue by category.
 - Attention: paid orders not shipped after 2 days, products out of stock.
-- Status: pending warning, paid info, shipped secondary, delivered success, cancelled destructive, returned outline. Homes: split, kpi-band, bento.
+- Status: pending warning, paid info, shipped secondary, delivered success, cancelled destructive, returned outline.
 
 ## 8. Factory example
 
 Nav: Overview, Work orders, Machines, Production, Stock, Profile.
 `tables.md` builds the work orders list and detail pages on the same tables.
-The home file builds the route and OverviewPage on the reads below (section 5).
+You write the home route and the overview page from the home spec, on the reads below (section 5).
 
 ### Migration: create_factory
 
@@ -566,11 +570,11 @@ Add these groups to the `messages` object. Translate them into the app language.
 
 ```ts
 // Shapes of the home data: daily points, category points, breakdown slices, and KPI items.
-// overview.queries.ts parses the rpc rows with these schemas. The KPI, trend, and breakdown cards take the types.
+// overview.queries.ts parses the rpc rows with these schemas. The KPI, trend, and breakdown panels take the types.
 // changeRatio is the one change formula of the app, so every delta compares the same way.
 import { z } from "zod";
 
-/** The period choices of a trend card, in days. The SQL read functions accept 1 to 366. */
+/** The period choices of a trend panel, in days. The SQL read functions accept 1 to 366. */
 export const PERIOD_DAYS = [7, 30, 90] as const;
 
 /** One day of a trend. `day` is YYYY-MM-DD in the user time zone. `previous` is the same day one period earlier. */
@@ -599,10 +603,10 @@ export const breakdownSliceSchema = z.object({
 	value: z.number(),
 });
 
-/** One part of a breakdown. `label` is translated before it reaches a card. */
+/** One part of a breakdown. `label` is translated before it reaches a panel. */
 export type BreakdownSlice = z.infer<typeof breakdownSliceSchema>;
 
-/** One KPI card. Code builds it from the totals of a KPI function, so it has no schema. */
+/** One KPI figure of the home. Code builds it from the totals of a KPI function, so it has no schema. */
 export type KpiItem = {
 	/** Stable id, also the React key, for example "units-today". */
 	id: string;
@@ -615,9 +619,9 @@ export type KpiItem = {
 	change: number | null;
 	/** "down" for costs, delays, scrap, downtime, and late items: a fall is good news. */
 	goodWhen: "up" | "down";
-	/** A real target of the value. Only the meter style reads it. */
+	/** The whole of the value: a count of all, a capacity, the previous-period value, or a user target. The meter form reads it, and a style can read it in other forms (cadran). */
 	target?: number;
-	/** One value per day, oldest first. Only the spark style reads it. */
+	/** One value per day, oldest first. Only the spark form reads it. */
 	series?: number[];
 };
 
@@ -678,7 +682,7 @@ function rate(part: number, total: number): number | null {
 	return total === 0 ? null : part / total;
 }
 
-// The 5 KPIs of the factory home, the most important first. `unitsPerDay` is oldest first, for the spark style.
+// The 5 KPIs of the factory home, the most important first. `unitsPerDay` is oldest first, for the spark form.
 function buildOverviewKpis(
 	totals: OverviewTotals,
 	unitsPerDay: number[],
@@ -767,7 +771,7 @@ export function overviewKpisQueryOptions() {
 	});
 }
 
-/** Units per day for the last `days` days, with the same days one period earlier. Feeds the main trend card. */
+/** Units per day for the last `days` days, with the same days one period earlier. Feeds the main trend panel. */
 export function dailyProductionQueryOptions(days: number) {
 	return queryOptions({
 		queryKey: ["production", "daily", days],
@@ -775,7 +779,7 @@ export function dailyProductionQueryOptions(days: number) {
 	});
 }
 
-/** Good and scrap units per day, one row per day and kind. Feeds the stacked trend card. */
+/** Good and scrap units per day, one row per day and kind. Feeds the stacked trend panel. */
 export function dailyOutputQueryOptions(days: number) {
 	return queryOptions({
 		queryKey: ["production", "output", days],
@@ -808,7 +812,7 @@ const downtimeSliceSchema = breakdownSliceSchema.extend({
 	]),
 });
 
-/** Downtime minutes by reason in the last `days` days: the 5 largest reasons and "other". Feeds the breakdown card. */
+/** Downtime minutes by reason in the last `days` days: the 5 largest reasons and "other". Feeds the breakdown panel. */
 export function downtimeByReasonQueryOptions(days: number) {
 	return queryOptions({
 		queryKey: ["downtime", "by-reason", days],

@@ -1,9 +1,10 @@
 /* Design tokens for the generated app. Tailwind v4 theme.
    Every component reads these semantic names, never raw colors. The names stay stable.
    Part 1, the palette (:root, .dark, the @theme fonts, html:lang(ar)):
-   a design-world skill or an app-dashboard theme replaces it.
+   a design-world skill or an app-dashboard style replaces it.
    Part 2, the derived tokens: keep it. The sidebar, chart, status, radius,
-   and density names come from it.
+   and density names come from it. Its "Style knobs" block gives the defaults of the
+   21 knobs that the UI kit reads. An app-dashboard style sets all of them in its own :root block.
    Font pairing "clash-satoshi": Clash Display + Satoshi (Fontshare),
    Arabic twins Changa + Tajawal (Google Fonts), loaded in __root.tsx. */
 @import "tailwindcss";
@@ -119,6 +120,58 @@ html:lang(ar) {
 	--info: oklch(0.74 0.12 245);
 }
 
+/* Style knobs. The UI kit reads them. An app-dashboard style sets all 21 in its own :root block.
+   Zero specificity, so the style block wins. These defaults give the plain kit look. */
+:where(:root) {
+	/* Card, and the shadow-surface and rounded-surface utilities.
+	   1.333 and this shadow are the rounded-xl and shadow-sm steps: the Card look without a style.
+	   To remove the shadow, set 0 0 #0000, not none: none breaks the shadow list. */
+	--surface-border-width: 1px;
+	--surface-shadow:
+		0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+	--surface-radius: calc(var(--radius) * 1.333);
+	/* PageHeader h1. 400 is the weight that the h1 inherits from body. A case is a text-transform value. */
+	--heading-weight: 400;
+	--heading-tracking: -0.025em;
+	--heading-case: none;
+	/* CardTitle. -0.02rem is the html tracking (-0.02em at the root size) that a title inherits. */
+	--title-weight: 600;
+	--title-tracking: -0.02rem;
+	--title-case: none;
+	/* The label-text utility. TableHead, SidebarGroupLabel, and the KPI labels
+	   that the kpi form files write with label-text use it. */
+	--label-weight: 500;
+	--label-tracking: -0.02rem;
+	--label-case: none;
+	/* The font-numeric utility: KPI values and other large figures. */
+	--numeral-font: var(--font-display);
+	/* Lucide icons that keep the default width, in SVG units. An icon is 24 units wide. */
+	--icon-stroke: 2;
+	/* Inside ChartContainer: line and area curves in px, the Area fill, and a grid stroke-dasharray ("3 3").
+	   0.6 is the recharts Area default. A gradient fill multiplies with it. */
+	--chart-stroke: 2;
+	--chart-fill-opacity: 0.6;
+	--chart-grid-dash: none;
+	/* Background of the even TableRow and of the TableHeader. */
+	--table-stripe: transparent;
+	--table-head-bg: transparent;
+	/* Active SidebarMenuButton: its background, and the width of a bar on its start side. */
+	--nav-active-bg: var(--sidebar-accent);
+	--nav-indicator-width: 0px;
+}
+
+/* Arabic: letter-spacing breaks the connected script.
+   Caps change only the Latin words of an Arabic heading, title, or label, so the case resets to none.
+   Specificity 0,1,1 wins over the :root block of a style. */
+html:lang(ar) {
+	--heading-tracking: 0;
+	--title-tracking: 0;
+	--label-tracking: 0;
+	--heading-case: none;
+	--title-case: none;
+	--label-case: none;
+}
+
 /* The app shell puts the attribute on the content area, so the sidebar keeps its size. */
 [data-density="compact"] {
 	--spacing: 0.225rem;
@@ -176,6 +229,18 @@ html:lang(ar) {
 	--radius-2xl: calc(var(--radius) * 1.667);
 	/* Buttons and badges. Without a theme value they stay pills. */
 	--radius-control: var(--control-radius, 9999px);
+	/* Style knobs as utilities for the panels and figures that a page writes. */
+	--shadow-surface: var(--surface-shadow);
+	--radius-surface: var(--surface-radius);
+	--font-numeric: var(--numeral-font);
+}
+
+/* Small labels. Tailwind puts a multi-property utility first,
+   so a font-semibold or an uppercase class on the same element wins. */
+@utility label-text {
+	font-weight: var(--label-weight);
+	text-transform: var(--label-case);
+	letter-spacing: var(--label-tracking);
 }
 
 @layer base {
@@ -199,5 +264,9 @@ html:lang(ar) {
 	:lang(ar) {
 		/* Negative Latin tracking mangles connected Arabic script. */
 		letter-spacing: 0;
+	}
+	/* Only the lucide default (2) follows the knob, so a strokeWidth prop on one icon still wins. */
+	.lucide[stroke-width="2"] {
+		stroke-width: var(--icon-stroke);
 	}
 }

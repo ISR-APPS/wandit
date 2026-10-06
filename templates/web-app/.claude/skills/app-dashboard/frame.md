@@ -1,17 +1,18 @@
 # Frame
 
-The template ships shell=inset, sidebar=flat, density=regular, and mode=light. Its Card has `shadow-sm`.
-Apply one section per axis of your recipe: mode, sidebar, shell, density, cards.
+The template ships shell=inset, density=regular, and mode=light.
+Apply one section per axis of your recipe: mode, shell, density. The style file can fix each of them.
+The style owns the sidebar colors and the panels, through its palette tokens and its knobs.
 
 - The frame files are in `src/features/app-shell/components/`. Do not edit `src/shared/ui/sidebar.tsx`.
-- The sidebar=tinted and cards=raised blocks go at the end of `src/styles/tokens.css`, after `@layer base`.
-  That is the derived part, so a theme change or a world keeps them.
 
 ## Mode
 
 ### mode=light
 
 No change. `<html>` has no class, and `src/shared/ui/sonner.tsx` keeps `theme="light"`.
+After an earlier dark build, remove `className="dark"` from `<html>`. In `sonner.tsx`, set `theme="light"`,
+with this comment line above it: `// The app sets no dark class, so a dark OS must not darken the toasts.`
 
 ### mode=dark
 
@@ -20,34 +21,6 @@ No change. `<html>` has no class, and `src/shared/ui/sonner.tsx` keeps `theme="l
    `// The app sets the dark class on <html>, so the toasts are dark too.`
 
 The public pages are dark too. Radix menus render in `body`, so the class must be on `<html>`.
-
-## Sidebar
-
-### sidebar=flat
-
-The sidebar uses the sidebar tokens of the theme. No code change.
-Delete a `/* sidebar=inverse */` block from `tokens.css` when it has one. That block wins over this section.
-
-### sidebar=tinted
-
-Add this block at the end of `tokens.css`. It works in both modes.
-Delete a `/* sidebar=inverse */` block from `tokens.css` when it has one. That block wins over this section.
-
-```css
-/* sidebar=tinted: a light wash of the primary color behind the sidebar. */
-:root,
-.dark {
-	--sidebar: color-mix(in oklch, var(--primary) 6%, var(--background));
-	--sidebar-accent: color-mix(in oklch, var(--primary) 13%, var(--background));
-	--sidebar-border: color-mix(in oklch, var(--primary) 12%, var(--border));
-}
-```
-
-### sidebar=inverse
-
-Copy the `## sidebar=inverse` block of your theme file into `tokens.css`, after the `.dark` block.
-Its selector is `:root:not(.dark)`, so it applies in light mode only. With mode=dark, use sidebar=tinted.
-A new theme replaces this block with its own inverse block.
 
 ## Shell
 
@@ -320,41 +293,3 @@ No change: `<SidebarInset>` has no `data-density`.
 ### density=comfortable
 
 In `app-shell.tsx`: `<SidebarInset data-density="comfortable">`.
-
-## Cards
-
-Each section gives the class string of `Card` in `src/shared/ui/card.tsx`.
-
-### cards=outline
-
-`"flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground"`
-
-### cards=raised
-
-`"flex flex-col gap-6 rounded-xl bg-card py-6 text-card-foreground shadow-card"`. Add this block at the end of `tokens.css`:
-
-```css
-/* cards=raised: two soft shadow layers. Dark mode uses black, because a light shadow glows. */
-:root {
-	--card-shadow: color-mix(in oklch, var(--foreground) 8%, transparent);
-}
-
-.dark {
-	--card-shadow: oklch(0 0 0 / 40%);
-}
-
-@theme inline {
-	--shadow-card:
-		0 1px 2px var(--card-shadow), 0 4px 16px -4px var(--card-shadow);
-}
-```
-
-### cards=filled
-
-`"flex flex-col gap-6 rounded-xl bg-muted py-6 text-card-foreground"`.
-
-- A table inside a card sits on `<div className="rounded-lg bg-card">`.
-- A chart, a breakdown, or a list of rows inside a card sits on `<div className="rounded-lg bg-card p-3">`.
-- A tile inside a card gets `bg-card`. A `secondary` Badge has almost the muted color, so it shows only on `bg-card`.
-  `--chart-2` to `--chart-5` have 3:1 contrast on `--card` only. A KPI spark uses `--chart-1` and needs no panel.
-- In `src/shared/ui/skeleton.tsx`, `bg-accent` becomes `bg-foreground/10`, so a Skeleton shows on the muted card.

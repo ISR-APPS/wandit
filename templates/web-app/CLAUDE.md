@@ -131,12 +131,13 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
     a CRM, an admin panel, an internal tool. An app is never a landing page with a sign-in button.
   - Both: public pages and an app area, for example a shop and its back office.
 - An app: load the `app-dashboard` skill before every screen behind login and every redesign of it.
-  On those screens, it replaces `frontend-design` and the design worlds.
+  On those screens, the skill and the style of its recipe replace the design worlds.
+  The Design brief of the skill applies the `frontend-design` method there.
   The app recipe in your session instructions gives the look and the layout. The user's words win over it.
 - An internal tool has no public page: only the team of one business signs in. `/` redirects to `/app`.
   The request does not say who signs in: ask it in the first build. No answer: build an internal tool.
   The word "SaaS" alone does not say that the public signs up.
-- A product that the public signs up for gets one short public page in the app theme, with no world.
+- A product that the public signs up for gets one short public page in the app style, with no world.
 - A website, and the public pages of Both: load the `frontend-design` skill before every new page
   and every redesign. It gives the process and the quality bar: plan the tokens,
   check the plan against the brief, build, then check screenshots and fix.
@@ -150,7 +151,7 @@ vite-plugins/          host files: dev-only source tags for click-to-edit
   or pick the closest world and say so. The index skills list the worlds:
   `design-worlds-website`, `design-worlds-product`, `design-worlds-cod`. Never offer a world for an app.
 - `src/styles/tokens.css` is the single source of colors, radius, and font names. It has two parts.
-  A world or an app theme replaces the palette part. Keep the derived part and every token name.
+  A world or an app style replaces the palette part. Keep the derived part and every token name.
   World skills name the fonts `--font-heading` and `--font-body`. In this template they are
   `--font-display` and `--font-sans`.
 - Load the world fonts in `head().links` of `src/routes/__root.tsx`, and remove the links

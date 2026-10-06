@@ -868,8 +868,9 @@ One run does this, in order:
    version, so these rules reach it only here. A mobile project adds the
    Expo sentence. A web project adds the app design recipe (`domain/app-recipe.ts`): one stable
    sentence per project id, so the warm CLI and the prompt cache stay
-   valid. Claude Code loads the template `CLAUDE.md` from the workspace
-   root. The `session_starting` status is
+   valid. The sentence gives 3 ranked styles and 3 ranked homes, and one
+   accent, fonts, mode, shell, density, KPI form, and chart form. Claude
+   Code loads the template `CLAUDE.md` from the workspace root. The `session_starting` status is
    written only for a cold session: no stored state, or a resume that
    failed (`Starting a fresh session`). A warm turn goes to `running`
    directly, and that status carries the `Backend not ready yet` note

@@ -1,30 +1,87 @@
-# Chart style: compare
+# Chart form compare
 
-The trend card shows this period as a solid line and the previous period as a dashed line.
-A two-dot legend in the header names the lines. The breakdown card shows one bar split into the parts.
-One row per part gives its value and its share.
+The trend draws this period as a solid line over the previous period as a dashed line. The breakdown is one split bar.
 
 ## Data
 
-- `TrendCard` takes `DailyPoint[]` from `dailyProductionQueryOptions(days)`.
-  OverviewPage holds `days` and passes `onDaysChange` (data.md, section 5).
-  `previous` is the same day one period earlier, so the two lines have the same length.
-- `BreakdownCard` takes `BreakdownSlice[]` from `downtimeByReasonQueryOptions(DEFAULT_DAYS)`.
-  The period Select changes only the trend.
-  OverviewPage translates the labels first (data.md, section 5).
-- Rename the query functions for your domain. Keep the shapes and the props.
+- Trend part: `DailyPoint[]` from `dailySeriesQueryOptions(days)` (data.md, section 5). One row per day, oldest first.
+  `current` is the day. `previous` is the same day one period earlier, so the two lines have the same length.
+- The home holds `days`, one of `PERIOD_DAYS`. It passes `onDaysChange` when the slot has a period control.
+- Breakdown part: `BreakdownSlice[]` from `breakdownQueryOptions(DEFAULT_DAYS)`: the 5 largest parts and "other".
+  The home translates the labels first. The period control changes only the trend.
+- Rename the slot names to your read functions, as data.md section 5 shows. Keep the shapes.
+- The trend part takes `title`, an optional `description`, `points`, `days`, and an optional `onDaysChange`.
+  The breakdown part takes `title` and `slices`. Name each component after its data.
 
-## Rules in this code
+## Anatomy
 
-- This period is `var(--chart-1)`, 2 px. The previous period is `var(--muted-foreground)`, dashed "4 4".
-- The parts use `bg-chart-1` to `bg-chart-5`. A sixth part gets the neutral color.
-- The split bar is plain divs with widths in percent. The rows give every value, so the bar has no tooltip.
-  Its `rounded-sm` follows `--radius`, so a theme with `--radius: 0` gets square ends.
-- Arabic: keep `reversed`, `orientation`, and `tick={{ textAnchor: "end" }}` on the axes. The code comments say why.
-- Money: add `style: "currency"` and the currency of the user to the `compact` and `number` formatters.
+Trend part:
+
+1. Header: the title, an optional description, and the period control at the end.
+2. Legend in the header: a mark and a name for each line, "This period" and "Previous period". Not under the plot.
+3. Plot: this period as a solid line, the previous period as a dashed line. No dots.
+
+Breakdown part:
+
+1. Header: the title.
+2. Split bar: one thin bar, cut into the parts.
+3. Rows: one per part, with a color mark, the name, the value, and the share.
+
+- The style gives the panel, the curve type, the grid, the axes, the sizes, and the weights.
+- The trend plot takes a main height of SKILL.md. The breakdown takes a side height.
+- Each skeleton keeps the header, the legend, the plot, the bar, and the rows in their final sizes.
+
+## Rules
+
+- `ChartContainer` from `~/shared/ui/chart` with a `ChartConfig`. The series read `var(--color-current)` and `var(--color-previous)`.
+- `ChartContainer` has `aspect-video` by default. Add `aspect-auto` with the height class.
+- This period is `var(--chart-1)`. The previous period is the neutral `var(--muted-foreground)`, with `strokeDasharray="4 4"`.
+- Do not set `strokeWidth`. The knob `--chart-stroke` sets it for both lines.
+- Put the `Line` of this period first. The tooltip lists the series in that order.
+- The grid and the axes follow the style. With no style rule: `<CartesianGrid vertical={false} />`,
+  and `tickLine={false} axisLine={false} tickMargin={8}` on both axes.
+- `day` is `YYYY-MM-DD` with no time. Format `` new Date(`${day}T00:00:00Z`) `` with
+  `Intl.DateTimeFormat(locale, { day: "numeric", month: "short", timeZone: "UTC" })`.
+  Midnight UTC, shown in UTC, keeps the same calendar day.
+- XAxis: `minTickGap={24}`, so the dates never overlap.
+- YAxis on the main chart only, with `width="auto"` and `Intl.NumberFormat(locale, { notation: "compact" })`.
+- Arabic: `reversed` on the XAxis. On the YAxis, `orientation="right"` and `tick={{ textAnchor: "end" }}`.
+  SVG anchors follow the page direction, so "end" puts the text end at the plot side in LTR and RTL.
+- Tooltip: `ChartTooltip` with `cursor={false}` and `ChartTooltipContent` with a `labelFormatter` for the date.
+- Money: add `style: "currency"` and the currency of the user to the formatters.
   Give the same options as `valueFormat` to `ChartTooltipContent`.
-- Empty state: every day is 0 in both periods, or the breakdown total is 0. The frame keeps its height.
-  Point each `Link` to the page that records the events. A wrong path fails typecheck.
+- `isAnimationActive={false}` on every series.
+- The plot has `role="img"` and the `aria-label` of the snippet.
+- The period control shows only with `onDaysChange`. It is a `Select`, or `Tabs` when the style asks for a segmented control.
+  The choices are `PERIOD_DAYS`, written with `Intl.NumberFormat(locale, { style: "unit", unit: "day", unitDisplay: "long" })`.
+  It has `aria-label={t("chart.period")}`.
+- Empty trend: every day is 0 in both periods. The plot keeps its height and draws the real zeros:
+  the dates, and both lines on the base. Hide the Y axis. One muted sentence and one action link sit over the plot.
+- The split bar is plain elements. Each part has the width `(value / total) * 100` in percent.
+  The rows repeat every value, so the bar has `aria-hidden="true"` and no tooltip. Its corners follow the style.
+- The parts use `bg-chart-1` to `bg-chart-5`, then `bg-muted-foreground` for a sixth part.
+- The share is `Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 })`, in a column of fixed width at the end.
+- Empty breakdown: the total is 0. The split bar is one empty track in `bg-muted`. The sentence and the action link go under it.
+- Each action link opens the page that records the events. A wrong path fails typecheck.
+- A home can ask for the trend part at a mini or strip height. Then it has no axes, no grid, no legend,
+  and no period control of its own. The tooltip and the `aria-label` stay.
+
+The config and the screen reader text of the trend part, after the formatters `number`, `percent`, and `formatDay`:
+
+```tsx
+const config = {
+	current: { label: t("chart.thisPeriod"), color: "var(--chart-1)" },
+	previous: { label: t("chart.previousPeriod"), color: "var(--muted-foreground)" },
+} satisfies ChartConfig;
+// Screen readers get the last day and its change against the same day one period earlier.
+const last = points.at(-1);
+// A previous value of 0 gives no change, so the text never says "0%" or "Infinity".
+const lastChange =
+	last && last.previous > 0
+		? ` ${percent.format((last.current - last.previous) / last.previous)} ${t("chart.vsPrevious")}`
+		: "";
+const summary = last ? `${title}. ${formatDay(last.day)}: ${number.format(last.current)}${lastChange}` : title;
+```
 
 ## Fallback
 
@@ -32,354 +89,13 @@ None.
 
 ## Messages
 
-Add this group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
+Add a `chart` group to `messages` in `src/shared/i18n/messages.ts`. Write the text in the app language.
 Name the real action in `emptyAction` and `breakdownEmptyAction`.
 
-```ts
-	chart: {
-		period: "Period",
-		vsPrevious: "against the same day one period earlier",
-		empty: "Nothing was recorded in this period.",
-		emptyAction: "Record production",
-		breakdownEmptyAction: "Record downtime",
-		thisPeriod: "This period",
-		previousPeriod: "Previous period",
-	},
-```
-
-## File: src/features/overview/components/trend-card.tsx
-
-```tsx
-// Main trend card of the home, style "compare": this period solid, the previous period dashed.
-// The home renders it with the rows of dailyProductionQueryOptions(days) (data.md).
-// It calls ChartContainer and recharts. onDaysChange from the home changes the period and the query key.
-import { Link } from "@tanstack/react-router";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
-import { useT } from "~/shared/i18n";
-import { Button } from "~/shared/ui/button";
-import {
-	Card,
-	CardAction,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "~/shared/ui/card";
-import {
-	type ChartConfig,
-	ChartContainer,
-	ChartTooltip,
-	ChartTooltipContent,
-} from "~/shared/ui/chart";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "~/shared/ui/select";
-import { Skeleton } from "~/shared/ui/skeleton";
-import { type DailyPoint, PERIOD_DAYS } from "../lib/series";
-
-type TrendCardProps = {
-	/** Card title, translated. */
-	title: string;
-	/** One muted line under the title, for example the unit or the scope. */
-	description?: string;
-	/** One row per day, oldest first, with 0 on a day with no event (data.md). */
-	points: DailyPoint[];
-	/** Length of the period in days, one of PERIOD_DAYS. */
-	days: number;
-	/** Called with the chosen period. Without it, the card has no Select. */
-	onDaysChange?: (days: number) => void;
-};
-
-/** The main chart of the home. Every day at 0 in both periods: the empty state with its action. */
-export function TrendCard({
-	title,
-	description,
-	points,
-	days,
-	onDaysChange,
-}: TrendCardProps) {
-	const { t, locale, dir } = useT();
-	const isRtl = dir === "rtl";
-	const number = new Intl.NumberFormat(locale);
-	const compact = new Intl.NumberFormat(locale, { notation: "compact" });
-	const percent = new Intl.NumberFormat(locale, {
-		style: "percent",
-		signDisplay: "exceptZero",
-		maximumFractionDigits: 1,
-	});
-	const dayCount = new Intl.NumberFormat(locale, {
-		style: "unit",
-		unit: "day",
-		unitDisplay: "long",
-	});
-	const date = new Intl.DateTimeFormat(locale, {
-		day: "numeric",
-		month: "short",
-		timeZone: "UTC",
-	});
-	// `day` has no time. Midnight UTC, shown in UTC, keeps the same calendar day.
-	const formatDay = (day: string) => date.format(new Date(`${day}T00:00:00Z`));
-	const config = {
-		current: { label: t("chart.thisPeriod"), color: "var(--chart-1)" },
-		previous: {
-			label: t("chart.previousPeriod"),
-			color: "var(--muted-foreground)",
-		},
-	} satisfies ChartConfig;
-	const isEmpty = points.every(
-		(point) => point.current === 0 && point.previous === 0,
-	);
-	// Screen readers get the last day and its change against the same day one period earlier.
-	const last = points.at(-1);
-	const lastChange =
-		last && last.previous > 0
-			? ` ${percent.format((last.current - last.previous) / last.previous)} ${t("chart.vsPrevious")}`
-			: "";
-	const summary = last
-		? `${title}. ${formatDay(last.day)}: ${number.format(last.current)}${lastChange}`
-		: title;
-
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<CardTitle className="font-medium text-sm">{title}</CardTitle>
-				{description ? <CardDescription>{description}</CardDescription> : null}
-				{onDaysChange ? (
-					<CardAction>
-						<Select
-							value={String(days)}
-							onValueChange={(value) => onDaysChange(Number(value))}
-						>
-							<SelectTrigger className="w-32" aria-label={t("chart.period")}>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{PERIOD_DAYS.map((period) => (
-									<SelectItem key={period} value={String(period)}>
-										{dayCount.format(period)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</CardAction>
-				) : null}
-				{/* The legend names the two lines once, in the header, not under the chart. */}
-				<div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
-					<span className="flex items-center gap-1.5">
-						<span className="size-2 rounded-full bg-chart-1" />
-						{t("chart.thisPeriod")}
-					</span>
-					<span className="flex items-center gap-1.5">
-						<span className="size-2 rounded-full bg-muted-foreground" />
-						{t("chart.previousPeriod")}
-					</span>
-				</div>
-			</CardHeader>
-			<CardContent>
-				{isEmpty ? (
-					<div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-						<p className="text-muted-foreground text-sm">{t("chart.empty")}</p>
-						<Button asChild variant="outline" size="sm">
-							<Link to="/app/production">{t("chart.emptyAction")}</Link>
-						</Button>
-					</div>
-				) : (
-					<ChartContainer
-						config={config}
-						role="img"
-						aria-label={summary}
-						className="aspect-auto h-64 w-full"
-					>
-						<LineChart data={points} margin={{ top: 8, left: 0, right: 0 }}>
-							<CartesianGrid vertical={false} />
-							{/* Time runs from right to left in Arabic, so the values move to the right side. */}
-							<XAxis
-								dataKey="day"
-								reversed={isRtl}
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								// Recharts hides a date nearer than 24 px to the last one, so the dates never overlap.
-								minTickGap={24}
-								tickFormatter={formatDay}
-							/>
-							<YAxis
-								orientation={isRtl ? "right" : "left"}
-								// SVG anchors follow the page direction. "end" puts the text end at the plot side in LTR and RTL.
-								tick={{ textAnchor: "end" }}
-								width="auto"
-								tickLine={false}
-								axisLine={false}
-								tickMargin={8}
-								tickFormatter={(value: number) => compact.format(value)}
-							/>
-							<ChartTooltip
-								cursor={false}
-								content={
-									<ChartTooltipContent
-										labelFormatter={(label) => formatDay(String(label))}
-									/>
-								}
-							/>
-							{/* The tooltip lists the series in this order, so this period comes first. */}
-							<Line
-								dataKey="current"
-								type="monotone"
-								stroke="var(--color-current)"
-								strokeWidth={2}
-								dot={false}
-								isAnimationActive={false}
-							/>
-							<Line
-								dataKey="previous"
-								type="monotone"
-								stroke="var(--color-previous)"
-								strokeWidth={2}
-								strokeDasharray="4 4"
-								dot={false}
-								isAnimationActive={false}
-							/>
-						</LineChart>
-					</ChartContainer>
-				)}
-			</CardContent>
-		</Card>
-	);
-}
-
-/** Placeholder of TrendCard in its final size. The home pendingComponent renders it. */
-export function TrendCardSkeleton() {
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<Skeleton className="h-5 w-40" />
-				<Skeleton className="mt-2 h-4 w-48" />
-				<CardAction>
-					<Skeleton className="h-9 w-32" />
-				</CardAction>
-			</CardHeader>
-			<CardContent>
-				<Skeleton className="h-64 w-full" />
-			</CardContent>
-		</Card>
-	);
-}
-```
-
-## File: src/features/overview/components/breakdown-card.tsx
-
-```tsx
-// Breakdown card of the home, style "compare": one bar split into parts, and one row per part.
-// The home renders it with the rows of downtimeByReasonQueryOptions(DEFAULT_DAYS), labels translated (data.md).
-// Plain divs with widths in percent. The rows give every value as text, so the bar needs no tooltip.
-import { Link } from "@tanstack/react-router";
-import { useT } from "~/shared/i18n";
-import { cn } from "~/shared/lib/utils";
-import { Button } from "~/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "~/shared/ui/card";
-import { Skeleton } from "~/shared/ui/skeleton";
-import type { BreakdownSlice } from "../lib/series";
-
-/** Colors in part order: chart-1 to chart-5, then the neutral color for a sixth part. */
-const PART_COLORS = [
-	"bg-chart-1",
-	"bg-chart-2",
-	"bg-chart-3",
-	"bg-chart-4",
-	"bg-chart-5",
-	"bg-muted-foreground",
-] as const;
-
-type BreakdownCardProps = {
-	/** Card title, translated. */
-	title: string;
-	/** The 5 largest parts and one "Other" part, in the order of the data. Labels are translated. */
-	slices: BreakdownSlice[];
-};
-
-/** The split of one total. A total of 0: the empty state with its action. */
-export function BreakdownCard({ title, slices }: BreakdownCardProps) {
-	const { t, locale } = useT();
-	const number = new Intl.NumberFormat(locale);
-	const share = new Intl.NumberFormat(locale, {
-		style: "percent",
-		maximumFractionDigits: 0,
-	});
-	const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-	const parts = slices.map((slice, index) => ({
-		...slice,
-		color: PART_COLORS[Math.min(index, PART_COLORS.length - 1)],
-	}));
-
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<CardTitle className="font-medium text-sm">{title}</CardTitle>
-			</CardHeader>
-			<CardContent>
-				{total === 0 ? (
-					<div className="flex h-52 flex-col items-center justify-center gap-3 text-center">
-						<p className="text-muted-foreground text-sm">{t("chart.empty")}</p>
-						<Button asChild variant="outline" size="sm">
-							<Link to="/app/machines">{t("chart.breakdownEmptyAction")}</Link>
-						</Button>
-					</div>
-				) : (
-					<div className="grid gap-5">
-						{/* The rows below repeat every value, so screen readers skip the bar. */}
-						<div aria-hidden="true" className="flex h-3 gap-0.5">
-							{parts.map((part) => (
-								<div
-									key={part.label}
-									className={cn("rounded-sm", part.color)}
-									style={{ width: `${(part.value / total) * 100}%` }}
-								/>
-							))}
-						</div>
-						<ul className="grid gap-2.5 text-sm">
-							{parts.map((part) => (
-								<li key={part.label} className="flex items-center gap-2">
-									<span
-										className={cn(
-											"size-2.5 shrink-0 rounded-[2px]",
-											part.color,
-										)}
-									/>
-									<span className="truncate text-muted-foreground">
-										{part.label}
-									</span>
-									<span className="ms-auto font-medium tabular-nums">
-										{number.format(part.value)}
-									</span>
-									<span className="w-10 text-end text-muted-foreground tabular-nums">
-										{share.format(part.value / total)}
-									</span>
-								</li>
-							))}
-						</ul>
-					</div>
-				)}
-			</CardContent>
-		</Card>
-	);
-}
-
-/** Placeholder of BreakdownCard in its final size. The home pendingComponent renders it. */
-export function BreakdownCardSkeleton() {
-	return (
-		<Card className="gap-4">
-			<CardHeader>
-				<Skeleton className="h-5 w-32" />
-			</CardHeader>
-			<CardContent className="grid gap-5">
-				<Skeleton className="h-3 w-full rounded-sm" />
-				<Skeleton className="h-36 w-full" />
-			</CardContent>
-		</Card>
-	);
-}
-```
+- `chart.period`: "Period"
+- `chart.vsPrevious`: "against the same day one period earlier"
+- `chart.empty`: "Nothing was recorded in this period."
+- `chart.emptyAction`: the action that records the events of the trend, for example "Record a delivery"
+- `chart.breakdownEmptyAction`: the action that records the events of the breakdown, for example "Record a return"
+- `chart.thisPeriod`: "This period"
+- `chart.previousPeriod`: "Previous period"

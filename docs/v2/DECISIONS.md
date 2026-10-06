@@ -351,7 +351,7 @@ ESTIMATE marks a number from a calculation, not a measurement. UNVERIFIED marks 
 - Date: 2026-10-04
 - Decided by: nobody yet.
 - Issues that change: none filed yet.
-- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump.
+- Notes: Models converge, so with A most apps look the same. The hash needs no column and keeps the prompt stable. Rendezvous hashing keeps recipes when a list grows. Theme and home give 3 ranked options: the hash cannot know the business. No hosted registry (sandbox egress), no second template (one snapshot), no template version bump. Since 2026-10-06, the recipe axes are style (16 design languages, 3 ranked), accent, fonts, mode, shell, density, home (12, 3 ranked), kpi, and chart. A style replaces the theme, sidebar, and cards axes.
 
 ## D27. Plan Mode
 
