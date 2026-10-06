@@ -194,5 +194,15 @@ const shutdown = async () => {
 	});
 	process.exit(0);
 };
-process.once("SIGINT", () => void shutdown());
-process.once("SIGTERM", () => void shutdown());
+// `process.on`, not `once`: a second SIGTERM (for example from a pnpm parent)
+// must not kill a draining host. The flag starts the drain one time only.
+let isShuttingDown = false;
+const onStopSignal = () => {
+	if (isShuttingDown) {
+		return;
+	}
+	isShuttingDown = true;
+	void shutdown();
+};
+process.on("SIGINT", onStopSignal);
+process.on("SIGTERM", onStopSignal);
