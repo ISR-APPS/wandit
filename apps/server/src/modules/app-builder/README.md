@@ -1254,7 +1254,8 @@ Check order, per request:
    402 `V2_RUN_CAP_REACHED` and a `cap_rejected` row.
    `GENERATION_BILLING_MODE=off` skips this check.
 5. **Daily user cap.** Redis `llm:spend:user:{userId}:{yyyymmdd}` micros vs
-   `LLM_PROXY_DAILY_USER_CAP_USD` ($50, ESTIMATE until WANDIT-174). Over:
+   `LLM_PROXY_DAILY_USER_CAP_USD` ($50 in production, ESTIMATE until
+   WANDIT-174; $100,000 on staging, see `docs/v2/runbook.md`). Over:
    402 `V2_DAILY_CAP_REACHED` and a `cap_rejected` row.
    `GENERATION_BILLING_MODE=off` skips this check.
 

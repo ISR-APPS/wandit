@@ -5,11 +5,11 @@ added it. WANDIT-176 adds the staging alpha entries.
 
 ## Staging-only limits to restore before production
 
-The staging tests before the event lift two per-plan limits, so a tester
-on any plan can use both features. A pull request from `staging` to `main`
-must restore both values first. The refusal paths stay in the code, so
-the restore changes only the numbers. Each constant has a `STAGING ONLY`
-comment; remove it with the restore.
+The staging tests before the event lift three limits, so a tester on any
+plan can use the features without a stop. A pull request from `staging`
+to `main` must restore all three values first. The refusal paths stay in
+the code, so the restore changes only the numbers. Each constant has a
+`STAGING ONLY` comment; remove it with the restore.
 
 - `BACKEND_DEFAULTS.backendsPerPlan` in
   `apps/server/src/modules/app-builder/domain/backend-lifecycle.ts`.
@@ -21,6 +21,11 @@ comment; remove it with the restore.
   Staging: 100000 minutes per month on every plan. Production: starter 0,
   pro 60, business 180. Reason: a tester on any plan can start the
   in-browser device of Appetize (402 `DEVICE_MINUTES_EXHAUSTED` before).
+- `LLM_PROXY_DAILY_USER_CAP_USD` in
+  `apps/server/src/modules/app-builder/infrastructure/redis/llm-spend-counters.ts`.
+  Staging: 100000 USD of model cost per user per UTC day. Production: 50.
+  Reason: two testers on Opus 5.5 Fast reached $50 on 2026-10-06, and
+  every next turn failed with 402 `V2_DAILY_CAP_REACHED`.
 
 ## Rotate `APP_SECRETS_ENCRYPTION_KEY` (WANDIT-185)
 
