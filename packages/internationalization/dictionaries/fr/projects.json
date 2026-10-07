@@ -1,6 +1,10 @@
 {
 	"headerTitle": "Projets",
 	"promptHeading": "Qu'est-ce que tu lances aujourd'hui ?",
+	"v1Gate": {
+		"paidHint": "La V2 arrive bientôt. En attendant, continue à créer avec la V1 et tes crédits.",
+		"freeHint": "La V2 arrive bientôt. En attendant, la V1 est réservée aux forfaits payants."
+	},
 	"toolbarTitle": "Tes projets",
 	"searchPlaceholder": "Rechercher des projets…",
 	"filterAll": "Tous",

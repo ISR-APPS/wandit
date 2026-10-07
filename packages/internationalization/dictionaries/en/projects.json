@@ -1,6 +1,10 @@
 {
 	"headerTitle": "Projects",
 	"promptHeading": "What will you launch today?",
+	"v1Gate": {
+		"paidHint": "V2 is coming soon. Until then, keep building with V1 and your credits.",
+		"freeHint": "V2 is coming soon. Until then, V1 is open to paid plans only."
+	},
 	"toolbarTitle": "Your projects",
 	"searchPlaceholder": "Search projects…",
 	"filterAll": "All",
