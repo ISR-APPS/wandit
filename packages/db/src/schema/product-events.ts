@@ -1,3 +1,7 @@
+/**
+ * Defines the product_events table: pricing views and upgrade clicks from the web app.
+ * The server product-events repository writes it. Admin analytics read it.
+ */
 import {
 	index,
 	jsonb,
@@ -23,8 +27,9 @@ export const productEvents = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
 		kind: productEventKind("kind").notNull(),
+		// Same shape as productEventPropertiesSchema in packages/contracts.
 		properties: jsonb("properties")
-			.$type<{ method?: "card" | "offline" }>()
+			.$type<{ method?: "card" | "offline" | "slickpay" }>()
 			.notNull()
 			.default({}),
 		surface: text("surface").notNull(),

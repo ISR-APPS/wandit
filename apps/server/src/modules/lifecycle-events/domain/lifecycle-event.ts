@@ -1,3 +1,9 @@
+/**
+ * Lifecycle email event names, payload, and timing rules (hold, cooldown, once per user, credit thresholds).
+ * The lifecycle-events service enqueues events with them. The dispatcher reads them before it sends an email.
+ * Pure rules: no I/O.
+ */
+import type { ProductEventMethod } from "@wandit/contracts";
 import { lifecycleEventName } from "@wandit/db/schema/lifecycle-events";
 
 export type LifecycleEventName = Exclude<
@@ -20,7 +26,8 @@ export function isActiveLifecycleEvent(
 export type LifecycleCapturePayload = {
 	connector?: "meta-ads" | "tiktok-ads";
 	interval?: "month" | "year" | "topup";
-	method?: "card" | "offline";
+	// Payment tab of an upgrade click, copied from the product event.
+	method?: ProductEventMethod;
 	surface?: string;
 };
 

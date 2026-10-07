@@ -45,12 +45,17 @@ export function currencyMinorFactor(currency: string): number {
 	return 10 ** (CURRENCY_MINOR_EXPONENTS[currency.toUpperCase()] ?? 2);
 }
 
+/**
+ * English method labels for the admin tables, sheets, and payment form.
+ * The API records "slickpay" payments itself. An admin picks it only to resolve a SlickPay payment by hand.
+ */
 export const MANUAL_PAYMENT_METHOD_LABELS: Record<ManualPaymentMethod, string> =
 	{
 		cash_on_delivery: "Cash on delivery",
 		bank_transfer: "Bank transfer",
 		ccp: "CCP",
 		baridimob: "BaridiMob",
+		slickpay: "SlickPay (CIB/Edahabia)",
 		other: "Other",
 	};
 

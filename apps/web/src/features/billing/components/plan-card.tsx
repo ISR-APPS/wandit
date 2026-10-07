@@ -1,3 +1,7 @@
+/**
+ * One plan in the plan picker: credits, price, tier select, action slot, and feature list.
+ * The card panel, the Cash / transfer panel, and the SlickPay panel render it.
+ */
 import type {
 	BillingInterval,
 	BillingTierPrice,
@@ -16,7 +20,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Check } from "lucide-react";
 
 import {
-	formatUsd,
+	formatPlanPrice,
 	tierPriceUsd,
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
@@ -29,6 +33,7 @@ export function PlanCard({
 	tier,
 	tiers,
 	basePer100Usd,
+	dzdPerUsdRate,
 	interval,
 	perLabel,
 	selectId,
@@ -45,6 +50,8 @@ export function PlanCard({
 	tier: BillingTierPrice;
 	tiers: readonly BillingTierPrice[];
 	basePer100Usd: number;
+	/** Decimal DZD per 1 USD from GET local-pricing, or null. Not null shows every price in DZD. */
+	dzdPerUsdRate: number | null;
 	interval: BillingInterval;
 	perLabel: string;
 	selectId: string;
@@ -83,7 +90,7 @@ export function PlanCard({
 			</p>
 			<div className="mt-2 flex flex-wrap items-center gap-2">
 				<p className="font-mono font-semibold text-3xl tabular-nums">
-					{formatUsd(tierPriceUsd(tier, interval), locale)}
+					{formatPlanPrice(tierPriceUsd(tier, interval), locale, dzdPerUsdRate)}
 					<span className="ms-1.5 font-normal font-sans text-muted-foreground text-xs">
 						{perLabel}
 					</span>
@@ -130,7 +137,11 @@ export function PlanCard({
 													})}
 												</span>
 												<span className="text-muted-foreground">
-													{formatUsd(tierPriceUsd(option, interval), locale)}
+													{formatPlanPrice(
+														tierPriceUsd(option, interval),
+														locale,
+														dzdPerUsdRate,
+													)}
 												</span>
 												{optionSavings > 0 ? (
 													<Badge

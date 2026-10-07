@@ -3,6 +3,7 @@
  * An ember header holds the title and the monthly or yearly switch. The Free,
  * Pro, and Business cards overlap its bottom edge. The cards open the plan
  * picker, the auth modal, or the create-team dialog.
+ * Visitors in Algeria see every price in DZD (GET local-pricing).
  */
 import { useNavigate } from "@tanstack/react-router";
 import type {
@@ -31,13 +32,14 @@ import type * as React from "react";
 import { useId, useState } from "react";
 
 import { useAuthModal, useSession } from "@/features/auth";
-import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import {
-	formatUsd,
+	formatPlanPrice,
 	tierPriceUsd,
 	tierSavingsPercent,
-} from "@/features/billing/lib/plan-pricing";
+	useBillingModal,
+	useLocalPricingQuery,
+} from "@/features/billing";
+import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { formatCreditAmount } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
@@ -60,6 +62,7 @@ export function Pricing() {
 	const pricing = useDictionary().landing.pricing;
 	const plansQuery = useBillingPlansQuery();
 	const settingsQuery = usePublicSettingsQuery();
+	const localPricingQuery = useLocalPricingQuery();
 	const titleId = useId();
 	const [interval, setBillingInterval] = useState<BillingInterval>("month");
 	const [selectedCredits, setSelectedCredits] = useState<CreditTier>();
@@ -68,11 +71,18 @@ export function Pricing() {
 	const selectedTier =
 		proPlan?.tiers.find((tier) => tier.tierCredits === selectedCredits) ??
 		proPlan?.tiers[0];
+	// Visitors in Algeria must never see USD, so the prices wait for the local-pricing answer.
+	// Not null only for them. A failed request falls back to USD.
+	const pricesReady = !localPricingQuery.isPending;
+	const dzdPerUsdRate = localPricingQuery.data?.slickpay?.dzdPerUsdRate ?? null;
+	// SlickPay does not depend on the Stripe or offline switches: a visitor in Algeria can always pay with it.
+	const slickpayAvailable = dzdPerUsdRate !== null;
 	const paidSubscriptionsEnabled =
 		settingsQuery.data?.paidSubscriptionsEnabled === true;
 	const subscriptionPlansAvailable =
 		paidSubscriptionsEnabled ||
-		settingsQuery.data?.manualPaymentsEnabled === true;
+		settingsQuery.data?.manualPaymentsEnabled === true ||
+		slickpayAvailable;
 	const showBetaPosture =
 		settingsQuery.isSuccess && !subscriptionPlansAvailable;
 	const proCatalogUnavailable =
@@ -100,7 +110,7 @@ export function Pricing() {
 		businessPlan !== undefined && businessPlan.tiers.length > 0;
 	const canCreateTeam =
 		settingsQuery.data?.organizationsEnabled === true &&
-		paidSubscriptionsEnabled;
+		(paidSubscriptionsEnabled || slickpayAvailable);
 	const businessFromUsd = businessPlan?.tiers.length
 		? Math.min(...businessPlan.tiers.map((tier) => tierPriceUsd(tier, "month")))
 		: null;
@@ -190,11 +200,12 @@ export function Pricing() {
 						</p>
 
 						<div className="mt-8 min-h-11">
-							{selectedTier ? (
+							{selectedTier && pricesReady ? (
 								<PriceLine
-									amount={formatUsd(
+									amount={formatPlanPrice(
 										tierPriceUsd(selectedTier, interval),
 										locale,
+										dzdPerUsdRate,
 									)}
 									period={
 										interval === "month"
@@ -222,7 +233,7 @@ export function Pricing() {
 							>
 								{pricing.pro.tierLabel}
 							</label>
-							{proPlan && selectedTier ? (
+							{proPlan && selectedTier && pricesReady ? (
 								<Select
 									value={String(selectedTier.tierCredits)}
 									onValueChange={(value) => {
@@ -250,6 +261,7 @@ export function Pricing() {
 												>
 													<TierOption
 														basePer100Usd={proPlan.basePer100Usd}
+														dzdPerUsdRate={dzdPerUsdRate}
 														interval={interval}
 														locale={locale}
 														savingsLabel={pricing.pro.savings}
@@ -297,14 +309,18 @@ export function Pricing() {
 							<p className="mt-2 text-[15px] text-night/65 leading-snug">
 								{pricing.business.tagline}
 							</p>
-							<div className="mt-8">
-								<PriceLine
-									amount={pricing.business.fromPrice.replace(
-										"{price}",
-										formatUsd(businessFromUsd, locale),
-									)}
-									period={pricing.business.perMonth}
-								/>
+							<div className="mt-8 min-h-11">
+								{pricesReady ? (
+									<PriceLine
+										amount={pricing.business.fromPrice.replace(
+											"{price}",
+											formatPlanPrice(businessFromUsd, locale, dzdPerUsdRate),
+										)}
+										period={pricing.business.perMonth}
+									/>
+								) : (
+									<Skeleton className="h-11 w-44" />
+								)}
 							</div>
 							<FeatureList features={pricing.business.features} />
 							{canCreateTeam ? (
@@ -421,7 +437,7 @@ function PlanCard({ isFeatured = false, children }: PlanCardProps) {
 }
 
 type PriceLineProps = {
-	/** The formatted price, for example "$25", "From $50", or "Free". */
+	/** The formatted price, for example "$25", "6 750 DZD", "From $50", or "Free". */
 	amount: string;
 	/** The text after the price, for example "/ month". The Free plan has none. */
 	period?: string;
@@ -486,6 +502,7 @@ function FeatureList({ features, isFeatured = false }: FeatureListProps) {
 function TierOption({
 	tier,
 	basePer100Usd,
+	dzdPerUsdRate,
 	interval,
 	locale,
 	savingsLabel,
@@ -493,6 +510,8 @@ function TierOption({
 }: {
 	tier: BillingTierPrice;
 	basePer100Usd: number;
+	/** Decimal DZD per 1 USD for visitors in Algeria, else null. */
+	dzdPerUsdRate: number | null;
 	interval: BillingInterval;
 	locale: Locale;
 	savingsLabel: string;
@@ -513,7 +532,7 @@ function TierOption({
 					</span>
 				) : null}
 				<bdi className="font-semibold text-sm tabular-nums">
-					{formatUsd(tierPriceUsd(tier, interval), locale)}
+					{formatPlanPrice(tierPriceUsd(tier, interval), locale, dzdPerUsdRate)}
 				</bdi>
 			</span>
 		</span>

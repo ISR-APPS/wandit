@@ -64,7 +64,7 @@
 		"nextPage": "Next",
 		"pageStatus": "Page {page} of {totalPages}",
 		"offline": {
-			"badge": "Paid offline",
+			"badge": "Prepaid",
 			"expiresLabel": "Expires",
 			"requestChange": "Request renewal / change",
 			"graceTitle": "Offline payment due",
@@ -199,6 +199,21 @@
 		"paymentAttentionBody": "Open the billing portal to resolve payment before changing tiers.",
 		"openPortal": "Open billing portal",
 		"close": "Close",
+		"slickpay": {
+			"tab": "CIB / Edahabia",
+			"title": "Pay with CIB / Edahabia",
+			"description": "Pay in Algerian dinars on the secure SlickPay page. One payment covers one month or one year. It does not renew automatically.",
+			"formTitle": "Payment details",
+			"formDescription": "SlickPay shows these details on your invoice.",
+			"renewTitle": "Renew your plan",
+			"renewBody": "You pay for one more period of your current plan. The new period starts when the current one ends.",
+			"cityLabel": "City or wilaya",
+			"cityPlaceholder": "e.g. Algiers",
+			"cityError": "Enter your city or wilaya.",
+			"pay": "Pay {amount} with CIB / Edahabia",
+			"renew": "Renew for {amount}",
+			"redirecting": "Opening SlickPay…"
+		},
 		"offline": {
 			"tabs": {
 				"ariaLabel": "Payment method",

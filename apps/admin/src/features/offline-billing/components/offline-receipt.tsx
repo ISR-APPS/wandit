@@ -1,4 +1,12 @@
-import { type BillingPlanId, tryPriceUsdFor } from "@wandit/contracts";
+/**
+ * Printable French receipts: OfflineReceipt for a manual subscription, OfflineRequestReceipt for an offline request.
+ * The offline receipt pages render them. They use the helpers in lib/receipt.ts.
+ */
+import {
+	type BillingPlanId,
+	dzdPriceFor,
+	tryPriceUsdFor,
+} from "@wandit/contracts";
 import { CheckIcon } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { PropsWithChildren, ReactNode } from "react";
@@ -8,7 +16,6 @@ import type {
 	AdminManualSubscriptionDetail,
 } from "@/features/offline-billing/api/offline-billing.dto";
 import {
-	computeDzdPlanPrice,
 	convertReceiptPaymentAmount,
 	createReceiptNumber,
 	formatReceiptAmount,
@@ -352,9 +359,7 @@ function getDzdPlanPrice(
 ): number | null {
 	const priceUsd = tryPriceUsdFor(plan, tierCredits, interval);
 
-	return priceUsd === null
-		? null
-		: computeDzdPlanPrice(priceUsd, dzdPerUsdRate);
+	return priceUsd === null ? null : dzdPriceFor(priceUsd, dzdPerUsdRate);
 }
 
 function formatCustomerLocation(

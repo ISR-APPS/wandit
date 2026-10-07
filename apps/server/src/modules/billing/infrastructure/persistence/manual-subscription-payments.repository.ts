@@ -1,3 +1,8 @@
+/**
+ * Reads and writes `manual_subscription_payments`, one row per paid period of a manual subscription.
+ * ManualSubscriptionsService records the rows. SlickpayPaymentsService looks up the rows of a SlickPay payment.
+ * Drizzle only.
+ */
 import { Inject, Injectable } from "@nestjs/common";
 import type { ManualPaymentMethod } from "@wandit/contracts";
 import { and, desc, eq, sql } from "@wandit/db";
@@ -86,6 +91,29 @@ export class ManualSubscriptionPaymentsRepository {
 			.select()
 			.from(manualSubscriptionPayments)
 			.where(eq(manualSubscriptionPayments.idempotencyKey, idempotencyKey))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * The payment with method "slickpay" and reference `invoiceId`, or null.
+	 * The SlickPay fulfillment writes this reference. An admin writes it to resolve a SlickPay payment by hand.
+	 */
+	async findSlickpayByReference(
+		invoiceId: string,
+		client: ManualSubscriptionPaymentsClient = this.db,
+	): Promise<ManualSubscriptionPaymentRow | null> {
+		// LIMIT: reference has no index, so Postgres scans the manual payments. Upgrade: index (method, reference).
+		const [row] = await client
+			.select()
+			.from(manualSubscriptionPayments)
+			.where(
+				and(
+					eq(manualSubscriptionPayments.method, "slickpay"),
+					eq(manualSubscriptionPayments.reference, invoiceId),
+				),
+			)
 			.limit(1);
 
 		return row ?? null;

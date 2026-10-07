@@ -1,3 +1,7 @@
+/**
+ * Defines the product events the web app sends: pricing views and upgrade clicks.
+ * The web product-events service sends them. The server product-events controller validates them.
+ */
 import { z } from "zod";
 
 export const productEventKindSchema = z.enum([
@@ -22,7 +26,8 @@ export const productEventSurfaceSchema = z.enum([
 
 export type ProductEventSurface = z.infer<typeof productEventSurfaceSchema>;
 
-export const productEventMethodSchema = z.enum(["card", "offline"]);
+/** Payment tab of an upgrade click. Equals the `properties` jsonb type in packages/db product-events.ts. */
+export const productEventMethodSchema = z.enum(["card", "offline", "slickpay"]);
 
 export type ProductEventMethod = z.infer<typeof productEventMethodSchema>;
 
