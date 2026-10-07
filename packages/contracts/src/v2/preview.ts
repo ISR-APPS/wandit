@@ -13,12 +13,21 @@ import { z } from "zod";
 import { isoDateTimeSchema, uuidSchema } from "../v1/shared/primitives";
 
 /**
- * Answer of the preview-token route. `token` signs `previewUrl`; the
- * preview edge rejects the URL once `expiresAt` passes.
+ * Answer of the preview-token route. `token` signs both URLs; the preview
+ * edge rejects them once `expiresAt` passes.
  */
 export const previewTokenResponseSchema = z.object({
 	token: z.string(),
+	/**
+	 * `?wt=` URL that the builder iframe loads: the frame host of the run and
+	 * the user. With `client=phone`, the run host, which has the phone-link route.
+	 */
 	previewUrl: z.url(),
+	/**
+	 * `?wt=` URL on the run host, for a top-level tab ("Open in a new tab").
+	 * The frame host label is a bearer secret, so no address bar may show it.
+	 */
+	tabUrl: z.url(),
 	expiresAt: isoDateTimeSchema,
 });
 
@@ -101,10 +110,11 @@ export const previewTokenClaimsSchema = z.object({
 export type PreviewTokenClaims = z.infer<typeof previewTokenClaimsSchema>;
 
 /**
- * Name of the cookie that carries the token after the `?wt=` redirect.
- * The `__Host-` prefix makes the browser accept the cookie only with
- * `Secure`, `Path=/`, and no `Domain`. So the generated app cannot set a
- * domain cookie that overwrites it (security.md 9.1).
+ * Name of the cookie that carries the token after the `?wt=` redirect on a
+ * run host. A frame host uses no cookie. The `__Host-` prefix makes the
+ * browser accept the cookie only with `Secure`, `Path=/`, and no `Domain`.
+ * So the generated app cannot set a domain cookie that overwrites it
+ * (security.md 9.1).
  */
 export const PREVIEW_COOKIE_NAME = "__Host-wandit_preview" as const;
 
@@ -117,7 +127,8 @@ export const PREVIEW_TOKEN_TTL_SECONDS = 900 as const;
 /**
  * Query parameter that carries the token on the first request
  * (`?wt=<token>`). Short name: it sits in every preview URL the API
- * returns. The Worker answers it with the cookie and a redirect.
+ * returns. The Worker stores the token in the cookie on a run host, or its
+ * claims in the Durable Object of a frame host. Then it redirects without it.
  */
 export const PREVIEW_TOKEN_QUERY = "wt" as const;
 
@@ -184,7 +195,8 @@ export function previewHostFor(
 /**
  * Supabase auth redirect pattern that matches every preview run host of
  * one project. The provisioning and the login URL sync (WANDIT-190) put it
- * in `uri_allow_list`.
+ * in `uri_allow_list`. The frame host needs no pattern: the templates allow
+ * only email and password sign-in, which has no redirect.
  */
 export function previewAuthRedirectPattern(
 	projectId: string,
@@ -213,6 +225,20 @@ export function phonePreviewHostFor(
 }
 
 /**
+ * Frame host of the preview iframe: `f-<frameId>--p-<projectId>.<domain>`.
+ * `previewFrameIdFor` derives `frameId` from the run and the user, so a token
+ * renewal keeps the origin and the app storage. The host needs no cookie: the
+ * `PreviewFrame` Durable Object of the Worker holds the claims.
+ */
+export function framePreviewHostFor(
+	projectId: string,
+	frameId: string,
+	domain: string,
+): string {
+	return `f-${frameId}--p-${projectId}.${domain}`;
+}
+
+/**
  * Fixed Metro host of one project: `p-<projectId>.<domain>`. The sandbox
  * sets `EXPO_PACKAGER_PROXY_URL=https://<this host>`, so every manifest URL
  * names it. The Worker serves no request on it and writes the phone host
@@ -223,18 +249,23 @@ export function packagerHostFor(projectId: string, domain: string): string {
 }
 
 /**
- * A parsed preview host. `run` is the iframe host of one sandbox run.
- * `phone` is the host of one phone link; its row in `PREVIEW_KV` holds the claims.
+ * A parsed preview host. `run` is the host of one sandbox run: the cookie
+ * exchange and the phone-link mint route. `phone` is the host of one phone
+ * link, and `frame` is the iframe host of one run and one user. The
+ * `PREVIEW_KV` row of a phone id, or the Durable Object of a frame id, holds
+ * the claims.
  */
 export type PreviewHost =
 	| { kind: "run"; projectId: string; rid12: string }
-	| { kind: "phone"; projectId: string; phoneId: string };
+	| { kind: "phone"; projectId: string; phoneId: string }
+	| { kind: "frame"; projectId: string; frameId: string };
 
 /**
  * Parses a preview host into its kind and ids. Returns null for every host
- * that is not `r-<rid12>--p-<projectId>.<domain>` or
- * `m-<phoneId>--p-<projectId>.<domain>`. So the Worker answers 404 on the
- * apex domain, on the Metro host, and on foreign hosts.
+ * that is not `r-<rid12>--p-<projectId>.<domain>`,
+ * `m-<phoneId>--p-<projectId>.<domain>`, or `f-<frameId>--p-<projectId>.<domain>`.
+ * So the Worker answers 404 on the apex domain, on the Metro host, and on
+ * foreign hosts.
  */
 export function parsePreviewHost(
 	host: string,
@@ -246,11 +277,12 @@ export function parsePreviewHost(
 		.toLowerCase()
 		.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const match = new RegExp(
-		`^(?:r-([0-9a-f]{12})|m-([a-z2-7]{21}))--p-([0-9a-f-]{36})\\.${escapedDomain}$`,
+		`^(?:r-([0-9a-f]{12})|m-([a-z2-7]{21})|f-([a-z2-7]{21}))--p-([0-9a-f-]{36})\\.${escapedDomain}$`,
 	).exec(host.toLowerCase());
 	const rid12 = match?.[1];
 	const phoneId = match?.[2];
-	const projectId = match?.[3];
+	const frameId = match?.[3];
+	const projectId = match?.[4];
 	if (projectId === undefined) {
 		return null;
 	}
@@ -259,6 +291,9 @@ export function parsePreviewHost(
 	}
 	if (phoneId !== undefined) {
 		return { kind: "phone", projectId, phoneId };
+	}
+	if (frameId !== undefined) {
+		return { kind: "frame", projectId, frameId };
 	}
 	return null;
 }

@@ -2,9 +2,11 @@ import {
 	createExecutionContext,
 	env,
 	fetchMock,
+	runInDurableObject,
 	waitOnExecutionContext,
 } from "cloudflare:test";
 import {
+	framePreviewHostFor,
 	PHONE_LINK_PATH,
 	PREVIEW_COOKIE_NAME,
 	type PreviewTokenClaims,
@@ -12,6 +14,7 @@ import {
 	parsePreviewHost,
 	phonePreviewHostFor,
 	phonePreviewLinkResponseSchema,
+	previewFrameIdFor,
 	previewHostFor,
 	previewTokenClaimsSchema,
 	signPreviewToken,
@@ -511,6 +514,153 @@ describe("preview proxy", () => {
 
 		expect(response.status).toBe(302);
 		expect(response.headers.get("location")).toBe(`https://${host}/foo?x=1`);
+	});
+});
+
+describe("frame host", () => {
+	// The iOS bug: WebKit drops the run host cookie, so the iframe never got the app.
+	it("opens a frame with no cookie: 403 for another user, a 302 that stores the claims, a forward, and an older token never replaces a renewal", async () => {
+		const claims = makeClaims();
+		const token = await signPreviewToken(claims, KEY);
+		const frameId = await previewFrameIdFor(claims, KEY);
+		const host = framePreviewHostFor(PROJECT_ID, frameId, env.PREVIEW_DOMAIN);
+		// Another user of the same run gets another frame host.
+		const otherUserHost = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(makeClaims({ uid: "user-2" }), KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		// The builder renewal: a new token of the same run and user, with a later exp.
+		const renewed = makeClaims({ exp: claims.exp + 60 });
+		let seenHeaders: Headers | Record<string, string> = {};
+		fetchMock
+			.get(UPSTREAM)
+			.intercept({ path: "/app.js" })
+			.reply(200, (opts) => {
+				seenHeaders = opts.headers;
+				return "bundle";
+			});
+
+		const forged = await dispatch(
+			new Request(`https://${otherUserHost}/?wt=${token}`),
+		);
+		const opened = await dispatch(
+			new Request(`https://${host}/notes?wt=${token}&tab=1`),
+		);
+		const forwarded = await dispatch(new Request(`https://${host}/app.js`));
+		const renewal = await dispatch(
+			new Request(
+				`https://${host}/?wt=${await signPreviewToken(renewed, KEY)}`,
+			),
+		);
+		// An old tab sends the first token again after the renewal.
+		await dispatch(new Request(`https://${host}/?wt=${token}`));
+
+		expect(forged.status).toBe(403);
+		expect(opened.status).toBe(302);
+		expect(opened.headers.get("location")).toBe(`https://${host}/notes?tab=1`);
+		expect(opened.headers.get("set-cookie")).toBeNull();
+		expect(forwarded.status).toBe(200);
+		expect(await forwarded.text()).toBe("bundle");
+		expect(headerOf(seenHeaders, "host")).toBe("x-5173.vercel.run");
+		expect(headerOf(seenHeaders, "x-forwarded-host")).toBe(host);
+		expectSecurityHeaders(forwarded);
+		expect(renewal.status).toBe(302);
+		expect(await env.PREVIEW_FRAME.getByName(frameId).claims()).toEqual(
+			renewed,
+		);
+	});
+
+	// The frame host label is the only secret, so these two guards keep a guessed or old host away from the sandbox.
+	it.each([
+		{ name: "no stored claims", hasExpiredClaims: false },
+		{
+			name: "stored claims at their exp, before the alarm deletes them",
+			hasExpiredClaims: true,
+		},
+	])("401s a frame host with $name, and the sandbox gets nothing", async ({
+		hasExpiredClaims,
+	}) => {
+		// A new user gives a new frame id, so no earlier test stored claims for it.
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const frameId = await previewFrameIdFor(claims, KEY);
+		const host = framePreviewHostFor(PROJECT_ID, frameId, env.PREVIEW_DOMAIN);
+		if (hasExpiredClaims) {
+			const frame = env.PREVIEW_FRAME.getByName(frameId);
+			const expired = { ...claims, exp: Math.floor(Date.now() / 1000) };
+			// A direct write sets no alarm, so the claims stay after their exp, like a late alarm.
+			await runInDurableObject(frame, (_instance, state) =>
+				state.storage.put("claims", expired),
+			);
+			// Without this read, a wrong storage key would test the no-claims guard only.
+			expect(await frame.claims()).toEqual(expired);
+		}
+		// A spy on the platform fetch counts the requests to the sandbox; it calls through.
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const response = await dispatch(new Request(`https://${host}/app.js`));
+		const upstreamCalls = fetchSpy.mock.calls.length;
+		fetchSpy.mockRestore();
+
+		expect(response.status).toBe(401);
+		expect(upstreamCalls).toBe(0);
+	});
+
+	// A guessed frame id must not buy a Durable Object call. Before the IP budget, it read the claims and got 401.
+	it("429s a frame request whose client IP spent its budget, before the claims read", async () => {
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const host = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(claims, KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		// Only the budget of this client IP is spent, in the binding sized for a venue NAT.
+		const envOverride: Env = {
+			...env,
+			PREVIEW_FRAME_IP_RATE: {
+				limit: ({ key }) => Promise.resolve({ success: key !== "203.0.113.7" }),
+			},
+		};
+
+		const response = await dispatch(
+			new Request(`https://${host}/app.js`, {
+				headers: { "cf-connecting-ip": "203.0.113.7" },
+			}),
+			envOverride,
+		);
+
+		expect(response.status).toBe(429);
+		expect(response.headers.get("retry-after")).toBe("60");
+	});
+
+	// A popup or a copied link of the app put the bearer host in an address bar, and the tab showed the app.
+	it("403s a top-level tab on a frame host with live claims, and the sandbox gets nothing", async () => {
+		const claims = makeClaims({ uid: `user-${crypto.randomUUID()}` });
+		const host = framePreviewHostFor(
+			PROJECT_ID,
+			await previewFrameIdFor(claims, KEY),
+			env.PREVIEW_DOMAIN,
+		);
+		const token = await signPreviewToken(claims, KEY);
+		const opened = await dispatch(
+			new Request(`https://${host}/?wt=${token}`, {
+				headers: { "sec-fetch-dest": "iframe" },
+			}),
+		);
+		// A spy on the platform fetch counts the requests to the sandbox; it calls through.
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const response = await dispatch(
+			new Request(`https://${host}/terms`, {
+				headers: { "sec-fetch-dest": "document" },
+			}),
+		);
+		const upstreamCalls = fetchSpy.mock.calls.length;
+		fetchSpy.mockRestore();
+
+		expect(opened.status).toBe(302);
+		expect(response.status).toBe(403);
+		expect(upstreamCalls).toBe(0);
 	});
 });
 

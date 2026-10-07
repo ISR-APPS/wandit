@@ -22,8 +22,9 @@ import {
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
 
 const PROJECT_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-const PREVIEW_URL = `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=t1`;
-const PREVIEW_URL_2 = `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=t2`;
+const PREVIEW_URL = `https://f-abcdefghijklmnopqrs27--p-${PROJECT_ID}.wanditpreview.app/?wt=t1`;
+const PREVIEW_URL_2 = `https://f-abcdefghijklmnopqrs27--p-${PROJECT_ID}.wanditpreview.app/?wt=t2`;
+const TAB_URL = `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=t1`;
 const PREVIEW_ORIGIN = new URL(PREVIEW_URL).origin;
 const TITLE = "Preview of Nadi Fitness";
 
@@ -57,6 +58,7 @@ function readyDeps(): PreviewTokenDeps {
 		getPreviewToken: async () => ({
 			token: "t1",
 			previewUrl: PREVIEW_URL,
+			tabUrl: TAB_URL,
 			// One hour out: the scheduled re-mint never fires during a spec run.
 			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
 		}),
@@ -105,7 +107,7 @@ function renderPanel(props: HarnessProps) {
 afterEach(cleanup);
 
 describe("PreviewPanel", () => {
-	it("renders the iframe with the signed url and the locked sandbox", async () => {
+	it("renders the iframe with the signed url, the locked sandbox, and no replay capture", async () => {
 		renderPanel({ deps: readyDeps() });
 
 		const iframe = await screen.findByTitle(TITLE);
@@ -116,6 +118,8 @@ describe("PreviewPanel", () => {
 		expect(iframe.getAttribute("sandbox")).not.toContain(
 			"allow-top-navigation",
 		);
+		// Without the class, every PostHog replay stores the frame host, a bearer secret for the whole run.
+		expect(iframe.classList.contains("ph-no-capture")).toBe(true);
 	});
 
 	it("shows the loading status while the first mint runs", async () => {
@@ -246,6 +250,7 @@ describe("PreviewPanel", () => {
 			.mockResolvedValueOnce({
 				token: "t1",
 				previewUrl: PREVIEW_URL,
+				tabUrl: TAB_URL,
 				// 30 s out, inside the 60 s refresh lead: a token-expired report on
 				// a dying token is a real expiry, so the bridge mints again. The
 				// report on a fresh token would show the blocked state instead.
@@ -254,6 +259,7 @@ describe("PreviewPanel", () => {
 			.mockResolvedValueOnce({
 				token: "t2",
 				previewUrl: PREVIEW_URL_2,
+				tabUrl: TAB_URL,
 				expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
 			});
 		renderPanel({ deps: { getPreviewToken } });
@@ -278,6 +284,31 @@ describe("PreviewPanel", () => {
 		expect((await screen.findByTitle(TITLE)).getAttribute("src")).toBe(
 			PREVIEW_URL_2,
 		);
+	});
+
+	// The frame host label is a bearer secret. The old link opened it in a top-level tab, where the address bar shows it.
+	it("links the blocked state to the run host tab URL, never to the frame host", async () => {
+		renderPanel({ deps: readyDeps() });
+
+		const iframe = await screen.findByTitle<HTMLIFrameElement>(TITLE);
+		// The message listener registers in an effect; flush it before the dispatch.
+		await act(async () => {});
+
+		// A token-expired report on a token one hour from its exp shows the blocked state.
+		act(() => {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					origin: PREVIEW_ORIGIN,
+					source: iframe.contentWindow,
+					data: { type: "wandit:preview", event: "token-expired" },
+				}),
+			);
+		});
+
+		const link = await screen.findByRole("link", {
+			name: "Open in a new tab",
+		});
+		expect(link.getAttribute("href")).toBe(TAB_URL);
 	});
 
 	it("drops the iframe and shows the asleep note on a not-running message", async () => {

@@ -1374,13 +1374,23 @@ The token is `base64url(JSON payload).base64url(HMAC-SHA256)`, minted by
 (`PREVIEW_TOKEN_TTL_SECONDS`). Claims: `pid` (project id), `rid`
 (`sandbox_sessions.id`), `uid` (user id), `up` (the sandbox origin, for
 example `https://x-5173.vercel.run`), `exp`, `jti`. The answer carries
-`token`, `previewUrl`, and `expiresAt`.
+`token`, `previewUrl`, `tabUrl`, and `expiresAt`.
 
 The preview URL is
-`https://r-<rid12>--p-<projectId>.<PREVIEW_DOMAIN>/?wt=<token>`, where
-`rid12` is the first 12 hex characters of the run id. The Worker in
-`apps/preview-proxy` parses that host, verifies the `wt` token, and sets
-the `__Host-wandit_preview` cookie that carries it on later requests.
+`https://f-<frameId>--p-<projectId>.<PREVIEW_DOMAIN>/?wt=<token>`.
+`frameId` is `previewFrameIdFor`: 104 bits of an HMAC over `pid`, `rid`,
+and `uid` with the signing key, in 21 base32 characters. So one run and
+one user keep one frame host, and a renewal keeps the app storage. The
+Worker in `apps/preview-proxy` parses that host, verifies the `wt` token,
+checks the frame id, and stores the claims in the `PreviewFrame` Durable
+Object of the frame id. Later requests need no cookie: iOS WebKit drops
+every cross-site cookie in an iframe, also a `Partitioned` one in WebKit
+26.5.
+`tabUrl` is `https://r-<rid12>--p-<projectId>.<PREVIEW_DOMAIN>/?wt=<token>`,
+the run host, where `rid12` is the first 12 hex characters of the run id.
+That host keeps the `__Host-wandit_preview` cookie exchange. "Open in a
+new tab" opens it: the frame host label is a bearer secret, so no address
+bar may show it. `?client=phone` answers the run host in `previewUrl` too.
 
 A `creating` or `stopped` sandbox row, or a running row without
 `previewHost`, answers 409 `SANDBOX_NOT_RUNNING`. Each mint also calls

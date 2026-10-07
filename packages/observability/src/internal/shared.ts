@@ -15,6 +15,18 @@ export interface WanditSentryOptions {
 export const isEnabled = (options: WanditSentryOptions): boolean =>
 	Boolean(options.dsn);
 
+// The `f-` frame id and the `m-` phone id of a preview host are bearer
+// secrets: the host alone opens the preview (contracts v2/preview.ts parsePreviewHost).
+const PREVIEW_SECRET_LABEL = /\b([fm])-[a-z2-7]{21}--p-/g;
+
+/**
+ * Replaces the secret id in every `f-` or `m-` preview host of `value` with
+ * "redacted". The project id stays, so a span still names its project.
+ * `browser.ts` calls it on span URLs, span descriptions, and request URLs.
+ */
+export const redactPreviewSecrets = (value: string): string =>
+	value.replace(PREVIEW_SECRET_LABEL, "$1-redacted--p-");
+
 const SENSITIVE_HEADERS = [
 	"authorization",
 	"cookie",

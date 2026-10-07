@@ -88,7 +88,8 @@ export function PreviewPanel({
 	onFrameLoad,
 }: PreviewPanelProps) {
 	const { t } = useTranslation();
-	const { status, previewUrl, errorText, refresh, markNotRunning } = preview;
+	const { status, previewUrl, tabUrl, errorText, refresh, markNotRunning } =
+		preview;
 	const frameRef = useRef<HTMLIFrameElement>(null);
 	// True after the iframe fired `load`. A token swap keeps the same frame, so the boot screen does not come back.
 	const [isFrameLoaded, setIsFrameLoaded] = useState(false);
@@ -145,11 +146,11 @@ export function PreviewPanel({
 						? t("appBuilder.preview.frameBlocked")
 						: errorText}
 				</p>
-				{/* A retry fails the same way in a blocked frame. A top-level tab gets the cookie as first-party. */}
-				{status === "blocked" && previewUrl !== null ? (
+				{/* A retry cannot show the frame: every mint keeps `blocked` until a reload. The run host of the tab needs no frame claims; it sets a first-party cookie. */}
+				{status === "blocked" && tabUrl !== null ? (
 					<Button asChild size="sm" className={ALERT_BUTTON_CLASS}>
 						<a
-							href={previewSrcFor(previewUrl, path)}
+							href={previewSrcFor(tabUrl, path)}
 							target="_blank"
 							rel="noopener noreferrer"
 						>
@@ -181,7 +182,8 @@ export function PreviewPanel({
 						}}
 						// The boot screen covers the frame until the app shows, so keyboard focus and screen readers skip it.
 						inert={!isAppShown}
-						className="block size-full border-0 bg-transparent"
+						// ph-no-capture: PostHog replay records an empty box without the src. The frame host label is a bearer secret for the whole run.
+						className="ph-no-capture block size-full border-0 bg-transparent"
 						// The iframe keeps the device width and a height that fills the
 						// box after the scale. Physical top and left: the scale origin
 						// is the top-left corner in RTL too.

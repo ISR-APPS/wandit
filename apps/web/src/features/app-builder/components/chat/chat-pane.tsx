@@ -270,7 +270,12 @@ export function ChatPane({
 				ref={listRef}
 				// The browser scroll anchor is off. It moves the list a second time
 				// after the manual position fix of an older page.
-				className="scroll-warm min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-4 [mask-image:linear-gradient(to_bottom,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)] [overflow-anchor:none]"
+				// On desktop no ancestor of the list has a position. "relative" makes the
+				// list the containing block of an absolute child, like the sr-only text of
+				// an answered question. Without it, the list does not clip that child. The
+				// child then makes the document taller than the screen, and the document scrolls.
+				// overscroll-y-contain: a wheel at the end of the list does not scroll the document.
+				className="scroll-warm relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pt-5 pb-4 [mask-image:linear-gradient(to_bottom,transparent,#000_1rem,#000_calc(100%_-_1rem),transparent)] [overflow-anchor:none]"
 			>
 				<div ref={contentRef} className="flex flex-col gap-6">
 					{hasOlderMessages ? (

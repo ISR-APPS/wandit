@@ -16,7 +16,8 @@ function tokenResponse(
 ): PreviewTokenResponse {
 	return {
 		token,
-		previewUrl: `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=${token}`,
+		previewUrl: `https://f-abcdefghijklmnopqrs27--p-${PROJECT_ID}.wanditpreview.app/?wt=${token}`,
+		tabUrl: `https://r-abcdef123456--p-${PROJECT_ID}.wanditpreview.app/?wt=${token}`,
 		expiresAt,
 	};
 }

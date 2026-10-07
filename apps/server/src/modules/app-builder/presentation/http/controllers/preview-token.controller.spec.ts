@@ -1,8 +1,6 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { GUARDS_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import {
-	PREVIEW_TOKEN_QUERY,
-	previewHostFor,
 	previewTokenResponseSchema,
 	verifyPreviewToken,
 } from "@wandit/contracts";
@@ -119,17 +117,6 @@ describe("PreviewTokenController", () => {
 				PreviewTokenController.prototype.mint,
 			),
 		).toEqual({ key: "preview-token", limit: 30, windowMs: 60_000 });
-	});
-
-	it("answers the preview-token contract for the project owner", async () => {
-		const { controller } = setup();
-
-		const body = await controller.mint(PROJECT_ID, user, workspace, {});
-
-		const parsed = previewTokenResponseSchema.parse(body);
-		expect(parsed.previewUrl).toBe(
-			`https://${previewHostFor(PROJECT_ID, RUN_ID, DOMAIN)}/?${PREVIEW_TOKEN_QUERY}=${parsed.token}`,
-		);
 	});
 
 	it("answers 404 when the project belongs to another workspace", async () => {

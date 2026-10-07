@@ -19,10 +19,19 @@
 			"name": "PREVIEW_RATE",
 			"namespace_id": "1001",
 			"simple": { "limit": 600, "period": 60 }
+		},
+		{
+			"name": "PREVIEW_FRAME_IP_RATE",
+			"namespace_id": "1002",
+			"simple": { "limit": 30000, "period": 60 }
 		}
 	],
 	"analytics_engine_datasets": [
 		{ "binding": "PREVIEW_ANALYTICS", "dataset": "wandit_preview_proxy" }
 	],
+	"durable_objects": {
+		"bindings": [{ "name": "PREVIEW_FRAME", "class_name": "PreviewFrame" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PreviewFrame"] }],
 	"observability": { "enabled": true }
 }

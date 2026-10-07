@@ -1,3 +1,8 @@
+/**
+ * PostHog in the browser: init with session replay, identify, reset, and event capture.
+ * apps/web/src/main.tsx calls `initBrowserAnalytics`; web features call the other exports.
+ * It calls posthog-js and the URL sanitizers of ./internal/shared.
+ */
 import posthog, { type BeforeSendFn } from "posthog-js";
 
 import {
@@ -24,6 +29,23 @@ const sanitizeBeforeSend: BeforeSendFn = (event) => {
 	return event;
 };
 
+/**
+ * True for a URL on a preview host. Production and staging use this one domain.
+ * The `f-` frame host label is a bearer secret for a whole run (apps/preview-proxy/README.md).
+ */
+function isPreviewUrl(url: string): boolean {
+	try {
+		return new URL(url).hostname.endsWith(".wanditpreview.app");
+	} catch {
+		// A relative URL has the builder origin, so it is never a preview host.
+		return false;
+	}
+}
+
+/**
+ * Starts PostHog and session replay once per page load; later calls do nothing.
+ * No key turns analytics off. apps/web/src/main.tsx calls it at boot, before Sentry links to it.
+ */
 export function initBrowserAnalytics(options: WanditAnalyticsOptions): void {
 	if (initialized || !options.key) {
 		return;
@@ -43,6 +65,9 @@ export function initBrowserAnalytics(options: WanditAnalyticsOptions): void {
 			// Local false wins over remote config, keeping API payload PII out of replay.
 			recordBody: false,
 			recordHeaders: false,
+			// Network timing is a PostHog project setting. It records the preview iframe URL, and its host label is a bearer secret.
+			maskCapturedNetworkRequestFn: (request) =>
+				isPreviewUrl(request.name) ? null : request,
 		},
 		before_send: sanitizeBeforeSend,
 	});
